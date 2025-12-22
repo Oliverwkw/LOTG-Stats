@@ -824,8 +824,8 @@ def build_all(repo_root: Path) -> None:
                         except Exception:
                             gsis = None
 
-                    f1 = _infer_flags_from_sleeper_player_meta(meta)
-                    f2 = _infer_flags_from_nflverse(injuries, gsis, season, week)
+                    f1 = _infer_flags_from_nflverse(injuries, gsis, season, week)
+                    f2 = _infer_flags_from_sleeper_player_meta(meta)
                     inj, susp = _merge_flags(f1, f2)
 
                     bye = None
