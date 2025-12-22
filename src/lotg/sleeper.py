@@ -36,3 +36,8 @@ class SleeperClient:
 
     def players_nfl(self) -> Dict[str, Any]:
         return get_json(f"{BASE}/players/nfl", self.http, self.s)
+def winners_bracket(self, league_id: str):
+    return self._get(f"/league/{league_id}/winners_bracket")
+
+def losers_bracket(self, league_id: str):
+    return self._get(f"/league/{league_id}/losers_bracket")
