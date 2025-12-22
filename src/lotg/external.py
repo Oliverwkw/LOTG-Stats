@@ -22,7 +22,7 @@ def _download(url: str, out: Path, timeout: int) -> None:
 def load_dynastyprocess_playerids(cfg: ExternalConfig) -> pd.DataFrame:
     # DynastyProcess open-data repo (player id mapping)
     # Main file is db_playerids.csv at repo root (not /files/playerids.csv)
-    url = "https://raw.githubusercontent.com/DynastyProcess/data/master/db_playerids.csv"
+    url = "https://raw.githubusercontent.com/dynastyprocess/data/master/db_playerids.csv"
     path = cfg.cache_dir / "dynastyprocess_db_playerids.csv"
     if not path.exists():
         _download(url, path, cfg.timeout_seconds)
@@ -31,7 +31,7 @@ def load_dynastyprocess_playerids(cfg: ExternalConfig) -> pd.DataFrame:
 
 def load_dynastyprocess_values_players(cfg: ExternalConfig) -> pd.DataFrame:
     # Trade values (players) — at repo root
-    url = "https://raw.githubusercontent.com/DynastyProcess/data/master/values-players.csv"
+    url = "https://raw.githubusercontent.com/dynastyprocess/data/master/values-players.csv"
     path = cfg.cache_dir / "dynastyprocess_values_players.csv"
     if not path.exists():
         _download(url, path, cfg.timeout_seconds)
@@ -40,7 +40,7 @@ def load_dynastyprocess_values_players(cfg: ExternalConfig) -> pd.DataFrame:
 
 def load_dynastyprocess_values_picks(cfg: ExternalConfig) -> pd.DataFrame:
     # Trade values (picks) — at repo root
-    url = "https://raw.githubusercontent.com/DynastyProcess/data/master/values-picks.csv"
+    url = "https://raw.githubusercontent.com/dynastyprocess/data/master/values-picks.csv"
     path = cfg.cache_dir / "dynastyprocess_values_picks.csv"
     if not path.exists():
         _download(url, path, cfg.timeout_seconds)
