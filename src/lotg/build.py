@@ -81,6 +81,29 @@ def _calc_age(birth_date_str: Optional[str], on_date: date) -> Optional[float]:
     except Exception:
         return None
 
+def _regular_season_week_cap(season: int) -> int:
+    # NFL week 18 begins in 2021. Exclude it entirely from all data/calcs.
+    return 17 if season >= 2021 else 16
+
+def _safe_bool_series(s: pd.Series) -> pd.Series:
+    """
+    Convert a column with True/False/None/NaN/"TRUE"/"FALSE" into strict boolean,
+    avoiding pandas' downcasting warnings.
+    """
+    if s is None:
+        return pd.Series([], dtype=bool)
+    try:
+        out = s.copy()
+        # Normalize common string cases
+        out = out.replace({"TRUE": True, "True": True, "true": True, "FALSE": False, "False": False, "false": False})
+        out = out.fillna(False)
+        return out.astype(bool)
+    except Exception:
+        try:
+            return pd.Series([bool(x) for x in s.fillna(False).tolist()], index=s.index, dtype=bool)
+        except Exception:
+            return pd.Series([False] * len(s), index=getattr(s, "index", None), dtype=bool)
+
 
 # --------------------------
 # Team name mapping (HANDLE, not franchise name)
@@ -204,6 +227,132 @@ def _played_teams_by_week(games: pd.DataFrame, season: int) -> Dict[int, set]:
 
 
 # --------------------------
+# Brackets / playoff labeling
+# --------------------------
+
+def _get_json_best_effort(url: str, timeout: int = 30) -> Any:
+    import requests
+    try:
+        r = requests.get(url, timeout=timeout)
+        if r.status_code == 200:
+            return r.json()
+    except Exception:
+        pass
+    return None
+
+def _load_brackets(league_id: str) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
+    base = "https://api.sleeper.app/v1"
+    w = _get_json_best_effort(f"{base}/league/{league_id}/winners_bracket") or []
+    l = _get_json_best_effort(f"{base}/league/{league_id}/losers_bracket") or []
+    w = w if isinstance(w, list) else []
+    l = l if isinstance(l, list) else []
+    return w, l
+
+def _build_playoff_week_labels(league_id: str, lg: Dict[str, Any], roster_to_team: Dict[int, str]) -> Dict[Tuple[int, int], str]:
+    """
+    Returns map: (week, roster_id) -> label
+    Labels supported:
+      - Semifinal
+      - Final
+      - Toilet Semis
+      - Toilet Final
+      - 3rd Place
+      - 5th Place
+    """
+    labels: Dict[Tuple[int, int], str] = {}
+    settings = lg.get("settings") or {}
+    playoff_start = _to_int(settings.get("playoff_week_start"), None)
+
+    if not playoff_start:
+        return labels
+
+    winners, losers = _load_brackets(league_id)
+
+    # Max rounds (for stage inference) — robust to missing/odd entries
+    def _max_round(entries: List[Dict[str, Any]]) -> int:
+        mx = 0
+        for e in entries:
+            try:
+                r = int(e.get("r") or 0)
+                mx = max(mx, r)
+            except Exception:
+                pass
+        return mx
+
+    max_r_w = _max_round(winners)
+    max_r_l = _max_round(losers)
+
+    def _week_for_round(rnd: int) -> int:
+        return playoff_start + (rnd - 1)
+
+    # Helper: assign for both teams in a matchup entry
+    def _assign(entry: Dict[str, Any], label: str):
+        try:
+            rnd = int(entry.get("r") or 0)
+        except Exception:
+            return
+        if rnd <= 0:
+            return
+        wk = _week_for_round(rnd)
+        for k in ("t1", "t2"):
+            try:
+                rid = entry.get(k)
+                if rid is None:
+                    continue
+                rid_i = int(rid)
+                labels[(wk, rid_i)] = label
+            except Exception:
+                continue
+
+    # Winners bracket:
+    # - If entry has p==3 => 3rd Place (many leagues represent it here)
+    # - Else last round => Final
+    # - Else round immediately before last => Semifinal
+    for e in winners:
+        p = e.get("p")
+        if str(p) == "3":
+            _assign(e, "3rd Place")
+            continue
+        try:
+            rnd = int(e.get("r") or 0)
+        except Exception:
+            continue
+        if rnd <= 0:
+            continue
+        if max_r_w <= 1:
+            # Edge case small/odd: treat as Final
+            _assign(e, "Final")
+        elif rnd == max_r_w:
+            _assign(e, "Final")
+        elif rnd == max_r_w - 1:
+            _assign(e, "Semifinal")
+
+    # Losers bracket:
+    # - If entry has p==5 => 5th Place
+    # - Else last round => Toilet Final
+    # - Else round immediately before last => Toilet Semis
+    for e in losers:
+        p = e.get("p")
+        if str(p) == "5":
+            _assign(e, "5th Place")
+            continue
+        try:
+            rnd = int(e.get("r") or 0)
+        except Exception:
+            continue
+        if rnd <= 0:
+            continue
+        if max_r_l <= 1:
+            _assign(e, "Toilet Final")
+        elif rnd == max_r_l:
+            _assign(e, "Toilet Final")
+        elif rnd == max_r_l - 1:
+            _assign(e, "Toilet Semis")
+
+    return labels
+
+
+# --------------------------
 # League chain
 # --------------------------
 
@@ -265,12 +414,10 @@ def _infer_flags_from_sleeper_player_meta(meta: Dict[str, Any]) -> Tuple[Optiona
         return (False, False)
 
     # injury-ish statuses. NOTE: questionable/doubtful can still play; we do not auto-count as "out".
-    # We'll use these flags later only for "missed with 0 points" and not-bye, which avoids most false positives.
     injury_markers = ["ir", "out", "inactive", "pup", "nfi", "injured", "dnp", "covid"]
     if any(k in status for k in injury_markers) or any(k in injury_status for k in injury_markers):
         return (True, False)
 
-    # practice-based fallback (very light)
     if practice in ("dnp", "did not practice"):
         return (True, False)
 
@@ -286,7 +433,6 @@ def _infer_flags_from_nflverse(injuries: pd.DataFrame, gsis_id: Optional[str], s
     if "gsis_id" not in injuries.columns:
         return (None, None)
 
-    # normalize season/week if present
     try:
         if "season" in injuries.columns:
             injuries["season"] = pd.to_numeric(injuries["season"], errors="coerce").astype("Int64")
@@ -316,7 +462,6 @@ def _infer_flags_from_nflverse(injuries: pd.DataFrame, gsis_id: Optional[str], s
         return (None, None)
 
     suspension = ("susp" in s) or ("sspd" in s)
-    # treat IR/out/doubt/inactive as injury; do NOT treat 'questionable' as injury by itself
     injury = (("out" in s) or ("ir" in s) or ("doubt" in s) or ("inactive" in s) or ("pup" in s)) and not suspension
     return (injury, suspension)
 
@@ -331,19 +476,12 @@ def _merge_flags(primary: Tuple[Optional[bool], Optional[bool]], secondary: Tupl
     inj1, sus1 = primary
     inj2, sus2 = secondary
 
-    # suspension dominates
     if sus1 is True or sus2 is True:
         return (False, True)
-
-    # injury next
     if inj1 is True or inj2 is True:
         return (True, False)
-
-    # explicit healthy
     if (inj1 is False and sus1 is False) or (inj2 is False and sus2 is False):
-        # if neither had True and at least one explicitly False/False
         return (False, False)
-
     return (None, None)
 
 
@@ -452,7 +590,6 @@ def build_all(repo_root: Path) -> None:
     except Exception:
         players_nfl = {}
 
-    # Keep rich meta so injury flags can use Sleeper fields.
     pid_meta: Dict[str, Dict[str, Any]] = {}
     for pid, meta in (players_nfl or {}).items():
         if not isinstance(meta, dict):
@@ -490,6 +627,7 @@ def build_all(repo_root: Path) -> None:
     for lg in leagues:
         league_id = str(lg.get("league_id"))
         season = _to_int(lg.get("season"), 0) or 0
+        cap = _regular_season_week_cap(season)
         roster_positions = _league_roster_positions(lg)
 
         # users/rosters
@@ -514,6 +652,9 @@ def build_all(repo_root: Path) -> None:
         roster_to_team: Dict[int, str] = {}
         for rid, owner in roster_owner.items():
             roster_to_team[rid] = user_handle.get(owner, f"Roster {rid}")
+
+        # playoff/toilet labels by (week, roster_id)
+        playoff_labels = _build_playoff_week_labels(league_id, lg, roster_to_team)
 
         # raw snapshots
         try:
@@ -565,11 +706,14 @@ def build_all(repo_root: Path) -> None:
                 "etc": None,
             })
 
-        # weekly loop
+        # weekly loop (EXCLUDES week 18 / week 17 pre-2021 entirely)
         week = 1
         prev_starters_by_team: Dict[str, set] = {}
 
         while True:
+            if week > cap:
+                break
+
             try:
                 matchups = sc.matchups(league_id, week)
             except Exception:
@@ -583,7 +727,6 @@ def build_all(repo_root: Path) -> None:
             except Exception:
                 txs = []
 
-            # matchup df for opponent mapping
             mdf = _safe_df(pd.DataFrame(matchups))
             if mdf.empty:
                 break
@@ -748,10 +891,15 @@ def build_all(repo_root: Path) -> None:
                 if win is not None and max_pf is not None and opp_maxpf is not None:
                     upst = 1 if (max_pf < opp_maxpf and win == 1) else 0
 
-                # Placeholders—will be recomputed from player-week after hardship logic is applied
+                # Week label for last two weeks / placement games (NO opponent included)
+                week_label: Any = week
+                lbl = playoff_labels.get((week, rid))
+                if lbl:
+                    week_label = lbl
+
                 team_week_rows.append({
                     "Team": team,
-                    "Week": week,
+                    "Week": week_label,
                     "Year": season,
                     "PF": round(pf, 2),
                     "Win?": win,
@@ -828,21 +976,28 @@ def build_all(repo_root: Path) -> None:
                     f2 = _infer_flags_from_nflverse(injuries, gsis, season, week)
                     inj, susp = _merge_flags(f1, f2)
 
-                    # BYE is schedule-based, not patched:
-                    # - if we know the NFL team and schedule says they did not play, it's a bye week for that player
-                    # - but we keep it None if we can't tell
+                    # Schedule-based BYE.
                     bye = None
                     if nfl_team and played_set:
                         bye = (_norm_team(nfl_team) not in played_set)
 
-                    # If player scored > 0, bye is definitely False (schedule errors should not leak into data)
+                    # If player scored > 0, bye is definitely False; also injury/susp shouldn't be treated as "missed"
                     if pts > 0:
                         bye = False
+                        if inj is True:
+                            inj = False
+                        if susp is True:
+                            susp = False
+
+                    # Week label for player-week must match team-week
+                    week_label_pw: Any = week
+                    if playoff_labels.get((week, rid)):
+                        week_label_pw = playoff_labels[(week, rid)]
 
                     player_week_rows.append({
                         "Player": full_name,
                         "Team": team,
-                        "Week": week,
+                        "Week": week_label_pw,
                         "Year": season,
                         "Points": round(pts, 2),
                         "Injury?": bool(inj) if inj is not None else None,
@@ -1044,7 +1199,7 @@ def build_all(repo_root: Path) -> None:
     # Hardship definition:
     # For each rostered player-week:
     # - If Injury? or Suspension? is True
-    # - And Bye? is False (or None treated as False for counting)  AND Points == 0
+    # - And Bye? is False (or None treated as False) AND Points == 0
     # => points lost = avg(last 5 HEALTHY games points),
     # where HEALTHY games are prior games with:
     # - Points > 0
@@ -1052,35 +1207,37 @@ def build_all(repo_root: Path) -> None:
     # - Suspension? != True
     # - Bye? != True
     #
-    # This matches: "out players count for their average points scored over their last 5 games,
-    # not counting games they left due to injury" (implemented as: do not include any game flagged Injury?).
-    #
     if not pw.empty:
         pw = pw.sort_values(["Player", "Year", "Week"]).reset_index(drop=True)
 
-        # Basic derived deltas (exclude Injury/Susp/Bye weeks from baseline series)
-        active = ~pw[["Injury?", "Suspension?", "Bye?"]].fillna(False).any(axis=1)
+        inj_col = _safe_bool_series(pw.get("Injury?", pd.Series([False] * len(pw))))
+        susp_col = _safe_bool_series(pw.get("Suspension?", pd.Series([False] * len(pw))))
+        bye_col = _safe_bool_series(pw.get("Bye?", pd.Series([False] * len(pw))))
+
+        active = ~(inj_col | susp_col | bye_col)
 
         # Change from previous active week
         pw["Change from previous week"] = None
         last_active_pts: Dict[str, float] = {}
         for i, row in pw.iterrows():
             k = row["Player"]
+            pts = float(row["Points"]) if row["Points"] is not None else 0.0
             if k in last_active_pts:
-                pw.at[i, "Change from previous week"] = float(row["Points"]) - last_active_pts[k]
+                pw.at[i, "Change from previous week"] = pts - last_active_pts[k]
             if bool(active.iloc[i]):
-                last_active_pts[k] = float(row["Points"])
+                last_active_pts[k] = pts
 
         # Previous 5 active weeks avg (spans seasons)
         pw["Change from previous 5 weeks avg"] = None
         windows: Dict[str, deque] = {}
         for i, row in pw.iterrows():
             k = row["Player"]
+            pts = float(row["Points"]) if row["Points"] is not None else 0.0
             q = windows.get(k, deque(maxlen=5))
             if len(q) == 5:
-                pw.at[i, "Change from previous 5 weeks avg"] = float(row["Points"]) - (sum(q) / 5)
+                pw.at[i, "Change from previous 5 weeks avg"] = pts - (sum(q) / 5)
             if bool(active.iloc[i]):
-                q.append(float(row["Points"]))
+                q.append(pts)
             windows[k] = q
 
         # Career avg to that point (active weeks only)
@@ -1089,10 +1246,11 @@ def build_all(repo_root: Path) -> None:
         counts: Dict[str, int] = {}
         for i, row in pw.iterrows():
             k = row["Player"]
+            pts = float(row["Points"]) if row["Points"] is not None else 0.0
             if counts.get(k, 0) > 0:
-                pw.at[i, "Change from career average to that point"] = float(row["Points"]) - (sums[k] / counts[k])
+                pw.at[i, "Change from career average to that point"] = pts - (sums[k] / counts[k])
             if bool(active.iloc[i]):
-                sums[k] = sums.get(k, 0.0) + float(row["Points"])
+                sums[k] = sums.get(k, 0.0) + pts
                 counts[k] = counts.get(k, 0) + 1
 
         # Overall career avg (active weeks only)
@@ -1155,7 +1313,6 @@ def build_all(repo_root: Path) -> None:
         def is_true(v) -> bool:
             return bool(v) is True
 
-        # last 5 HEALTHY games per player
         last5: Dict[str, deque] = {}
         exp_points: List[Optional[float]] = [None] * len(pw)
         points_lost: List[float] = [0.0] * len(pw)
@@ -1180,8 +1337,6 @@ def build_all(repo_root: Path) -> None:
                 points_lost[i] = 0.0
 
             # Update history ONLY with "healthy" games:
-            # - points > 0
-            # - not injury, not suspension, not bye
             if (pts > 0.0) and (not inj) and (not susp) and (not bye):
                 hist.append(pts)
 
@@ -1197,9 +1352,9 @@ def build_all(repo_root: Path) -> None:
         tw = tw.copy()
 
         pw2 = pw.copy()
-        pw2["Injury?"] = pw2["Injury?"].fillna(False).astype(bool)
-        pw2["Suspension?"] = pw2["Suspension?"].fillna(False).astype(bool)
-        pw2["Bye?"] = pw2["Bye?"].fillna(False).astype(bool)
+        pw2["Injury?"] = _safe_bool_series(pw2.get("Injury?", pd.Series([False] * len(pw2))))
+        pw2["Suspension?"] = _safe_bool_series(pw2.get("Suspension?", pd.Series([False] * len(pw2))))
+        pw2["Bye?"] = _safe_bool_series(pw2.get("Bye?", pd.Series([False] * len(pw2))))
 
         # missed counts (exclude bye)
         pw2["_missed_injury"] = (pw2["Injury?"] & (~pw2["Bye?"]) & (pw2["Points"] == 0)).astype(int)
@@ -1213,24 +1368,38 @@ def build_all(repo_root: Path) -> None:
             Number_of_players_on_bye=("_on_bye", "sum"),
         )
 
-        tw = tw.merge(agg, how="left", on=["Team", "Year", "Week"])
+        tw = tw.merge(agg, how="left", on=["Team", "Year", "Week"], suffixes=("", "_agg"))
 
-        # overwrite placeholders
-        tw["Hardship"] = pd.to_numeric(tw.get("Hardship"), errors="coerce").fillna(tw.get("Hardship_y", 0.0) if "Hardship_y" in tw.columns else 0.0)
-        if "Hardship_x" in tw.columns:
-            tw.drop(columns=["Hardship_x"], inplace=True, errors="ignore")
-        if "Hardship_y" in tw.columns:
-            tw.drop(columns=["Hardship_y"], inplace=True, errors="ignore")
+        # overwrite placeholders safely (NO scalar fillna)
+        hardship_series = pd.Series([None] * len(tw), index=tw.index)
+        if "Hardship" in tw.columns:
+            hardship_series = pd.to_numeric(tw["Hardship"], errors="coerce")
+        if "Hardship_agg" in tw.columns:
+            hy = pd.to_numeric(tw["Hardship_agg"], errors="coerce")
+            hardship_series = hardship_series.fillna(hy)
+        tw["Hardship"] = hardship_series.fillna(0.0)
 
-        tw["Number of Injuries"] = pd.to_numeric(tw.get("Number_of_Injuries"), errors="coerce")
-        tw["Number of suspensions"] = pd.to_numeric(tw.get("Number_of_suspensions"), errors="coerce")
-        tw["Number of players on bye"] = pd.to_numeric(tw.get("Number_of_players_on_bye"), errors="coerce")
+        # Minimum hardship rule (if hardship > 0, enforce at least 1.0)
+        tw.loc[tw["Hardship"] > 0, "Hardship"] = tw.loc[tw["Hardship"] > 0, "Hardship"].clip(lower=1.0)
 
-        tw.drop(columns=["Number_of_Injuries", "Number_of_suspensions", "Number_of_players_on_bye"], inplace=True, errors="ignore")
+        for c_in, c_out in [
+            ("Number_of_Injuries", "Number of Injuries"),
+            ("Number_of_suspensions", "Number of suspensions"),
+            ("Number_of_players_on_bye", "Number of players on bye"),
+        ]:
+            if c_in in tw.columns:
+                tw[c_out] = pd.to_numeric(tw[c_in], errors="coerce").fillna(0).astype(int)
+
+        tw.drop(columns=[c for c in ["Hardship_agg", "Number_of_Injuries", "Number_of_suspensions", "Number_of_players_on_bye"] if c in tw.columns],
+                inplace=True, errors="ignore")
 
         # Brosenzweig / Sisenzweig definitions tied to hardship>0
-        tw["Brosenzweig"] = ((tw["UPST"] == 1) & (tw["Hardship"] > 0)).astype(int)
-        tw["Sisenzweig"] = ((tw["UPST"] == 0) & (tw["Hardship"] > 0) & (tw["Win?"] == 1)).astype(int)
+        try:
+            tw["Brosenzweig"] = ((tw["UPST"] == 1) & (tw["Hardship"] > 0)).astype(int)
+            tw["Sisenzweig"] = ((tw["UPST"] == 0) & (tw["Hardship"] > 0) & (tw["Win?"] == 1)).astype(int)
+        except Exception:
+            tw["Brosenzweig"] = None
+            tw["Sisenzweig"] = None
 
     # --------------------------
     # Team-week derived columns (robust)
@@ -1238,7 +1407,6 @@ def build_all(repo_root: Path) -> None:
     if not tw.empty:
         tw = tw.sort_values(["Year", "Week", "PF"], ascending=[True, True, False]).reset_index(drop=True)
 
-        # flags per week
         try:
             tw["Highest score?"] = tw.groupby(["Year", "Week"])["PF"].transform(lambda s: (s == s.max()).astype(int))
             tw["Lowest score?"] = tw.groupby(["Year", "Week"])["PF"].transform(lambda s: (s == s.min()).astype(int))
@@ -1315,6 +1483,44 @@ def build_all(repo_root: Path) -> None:
             })
         player_all = pd.DataFrame(rows)
 
+    # --- Record vs each team (encoded as 16 key/value pairs where possible) ---
+    def _record_vs_each_team_blob(tw_df: pd.DataFrame, team: str, year: Optional[int] = None) -> Optional[str]:
+        """
+        Produces JSON string with keys like:
+          "<OPP> Record": "W-L-T"
+          "<OPP> Win%": 0.625
+        If the league has 8 opponents, that yields 16 entries (record+win% per opponent).
+        """
+        if tw_df.empty:
+            return None
+        sub = tw_df.copy()
+        if year is not None:
+            sub = sub[sub["Year"] == year]
+        sub = sub[sub["Team"] == team]
+        if sub.empty:
+            return None
+
+        # Keep only numeric weeks (regular matchups). Labeled playoff rows still have Opponent set; keep them too.
+        opps = sorted([o for o in sub["Opponent"].dropna().astype(str).unique().tolist() if o and o != team])
+        out: Dict[str, Any] = {}
+
+        for opp in opps:
+            g = sub[sub["Opponent"].astype(str) == str(opp)]
+            if g.empty:
+                continue
+            w = int((g["Win?"] == 1).sum()) if "Win?" in g.columns else 0
+            l = int((g["Win?"] == 0).sum()) if "Win?" in g.columns else 0
+            t = int((g["Win?"] == 0.5).sum()) if "Win?" in g.columns else 0
+            games = max(1, w + l + t)
+            winp = round((w + 0.5 * t) / games, 4)
+            out[f"{opp} Record"] = f"{w}-{l}" + (f"-{t}" if t else "")
+            out[f"{opp} Win%"] = winp
+
+        try:
+            return json.dumps(out, ensure_ascii=False)
+        except Exception:
+            return str(out)
+
     team_year = pd.DataFrame()
     team_all = pd.DataFrame()
     if not tw.empty:
@@ -1333,6 +1539,7 @@ def build_all(repo_root: Path) -> None:
                 "Year": _to_int(year, year),
                 "Win %": round((wins + 0.5 * ties) / games_ct, 4),
                 "Record": f"{wins}-{losses}" + (f"-{ties}" if ties else ""),
+                "Record & win % vs each team": _record_vs_each_team_blob(tw, team, _to_int(year, year)),
                 "Points": round(points, 2),
                 "Avg points": round(points / games_ct, 2),
                 "Max PF": round(maxpf, 2),
@@ -1359,6 +1566,7 @@ def build_all(repo_root: Path) -> None:
                 "Seasons": int(g["Year"].nunique()) if "Year" in g.columns else None,
                 "Win %": round((wins + 0.5 * ties) / games_ct, 4),
                 "Record": f"{wins}-{losses}" + (f"-{ties}" if ties else ""),
+                "Record & win % vs each team": _record_vs_each_team_blob(tw, team, None),
                 "Points": round(points, 2),
                 "Max PF": round(maxpf, 2),
                 "Efficiency": round(points / maxpf, 4) if maxpf else None,
@@ -1374,7 +1582,7 @@ def build_all(repo_root: Path) -> None:
             pf = pd.to_numeric(g.get("PF", 0), errors="coerce").fillna(0)
             rows.append({
                 "Year": _to_int(year, year),
-                "Week": _to_int(week, week),
+                "Week": week,
                 "PF": round(float(pf.sum()), 2),
                 "PF Range": round(float(pf.max() - pf.min()), 2),
                 "Number of Injuries": int(pd.to_numeric(g.get("Number of Injuries", 0), errors="coerce").fillna(0).sum()),
@@ -1452,17 +1660,12 @@ def build_all(repo_root: Path) -> None:
         except Exception:
             d = pd.DataFrame()
 
-        # write header
         ws.append(list(d.columns))
-
-        # write rows
         for row in d.itertuples(index=False, name=None):
             ws.append(list(row))
 
-        # freeze header
         ws.freeze_panes = "A2"
 
-        # add table (even if empty data, still add table on header row)
         nrows = max(1, ws.max_row)
         ncols = max(1, ws.max_column)
         ref = f"A1:{get_column_letter(ncols)}{nrows}"
@@ -1479,7 +1682,6 @@ def build_all(repo_root: Path) -> None:
         table.tableStyleInfo = style
         ws.add_table(table)
 
-        # light column width heuristic
         try:
             for j, col in enumerate(d.columns, 1):
                 max_len = max([len(str(col))] + [len(str(x)) for x in d[col].head(200).fillna("").astype(str).tolist()])
