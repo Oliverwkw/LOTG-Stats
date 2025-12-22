@@ -573,9 +573,21 @@ def build_all(repo_root: Path) -> None:
         excluded_week = 18 if season >= 2021 else 17
 
         week = 1
+        # NFL regular season length: exclude Week 18 (Week 17 for pre-2021) entirely from all data/calcs
+        max_data_week = 17 if season >= 2021 else 16
+        playoff_start = _to_int((lg.get("settings") or {}).get("playoff_week_start"), None)
+        if playoff_start is None:
+            # Most Sleeper dynasty leagues run a two-week playoff; default to week 15 for modern seasons.
+            playoff_start = 15 if max_data_week == 17 else 14
+        # store for later labeling
+        season_playoff_start = int(playoff_start)
         prev_starters_by_team: Dict[str, set] = {}
 
         while True:
+            # Stop at excluded week (no Week 18, and no Week 17 for pre-2021 seasons)
+            if week >= excluded_week or week > max_data_week:
+                break
+
             if week == excluded_week:
                 break
 
@@ -868,11 +880,142 @@ def build_all(repo_root: Path) -> None:
     tr = pd.DataFrame(trades_rows)
     ph = pd.DataFrame(pick_rows)
 
+
     # --------------------------
+    # Week labels + stable sorting across playoffs
+    # --------------------------
+    # Keep a numeric week key for ordering, but replace the public Week with playoff/toilet labels.
+    # Labels (no opponent names):
+    #   Semifinal, Final, Toilet Semis, Toilet Final, 3rd Place, 5th Place
+    # Excluded week (Week 18; Week 17 pre-2021) is already skipped in the weekly loop.
+
+    # default Week_Sort mirrors Week
+    def _apply_week_labels(tw: pd.DataFrame, pw: pd.DataFrame, leagues: list[dict[str, Any]]) -> tuple[pd.DataFrame, pd.DataFrame]:
+        if tw is None or tw.empty:
+            return tw, pw
+
+        tw = tw.copy()
+        tw['WeekNum'] = pd.to_numeric(tw['Week'], errors='coerce').astype('Int64')
+        tw['Week_Sort'] = tw['WeekNum'].astype('Int64')
+
+        # season -> playoff_start
+        playoff_by_year: dict[int, int] = {}
+        for lg in leagues or []:
+            y = _to_int(lg.get('season'), None)
+            if y is None:
+                continue
+            s = (lg.get('settings') or {})
+            ps = _to_int(s.get('playoff_week_start'), None)
+            if ps is None:
+                # 2-week playoff default: weeks 15-16 (16-17 in some formats); choose 15 when unknown
+                ps = 15
+            playoff_by_year[y] = ps
+
+        # Label playoffs per season using seeds + week1 results
+        for y, g in tw.groupby('Year'):
+            year = _to_int(y, None)
+            if year is None:
+                continue
+            ps = playoff_by_year.get(year)
+            if ps is None:
+                continue
+
+            reg = g[g['WeekNum'].notna() & (g['WeekNum'] < ps)].copy()
+            if reg.empty:
+                continue
+
+            # Seeds 1-8: record desc, PF desc
+            reg['WinVal'] = pd.to_numeric(reg.get('Win?'), errors='coerce')
+            agg = reg.groupby('Team', as_index=False).agg(
+                Wins=('WinVal', lambda s: float((s == 1).sum()) + 0.5 * float((s == 0.5).sum())),
+                Losses=('WinVal', lambda s: float((s == 0).sum())),
+                PF=('PF', 'sum'),
+            )
+            agg = agg.sort_values(['Wins', 'PF'], ascending=[False, False]).reset_index(drop=True)
+            agg['Seed'] = agg.index + 1
+            seed_map = dict(zip(agg['Team'], agg['Seed']))
+
+            # Week 1 playoffs classification by seeds
+            w1 = tw[(tw['Year'] == y) & (tw['WeekNum'] == ps)].copy()
+            if not w1.empty:
+                w1['Seed'] = w1['Team'].map(seed_map)
+                # label based on whether both teams are in top4 or bottom4
+                # build pair map via Opponent
+                for idx, r in w1.iterrows():
+                    s1 = _to_int(r.get('Seed'), None)
+                    opp = r.get('Opponent')
+                    s2 = _to_int(seed_map.get(opp), None) if opp else None
+                    if s1 is None or s2 is None:
+                        continue
+                    if s1 <= 4 and s2 <= 4:
+                        tw.loc[idx, 'Week'] = 'Semifinal'
+                        tw.loc[idx, 'Week_Sort'] = 1001
+                    elif s1 >= 5 and s2 >= 5:
+                        tw.loc[idx, 'Week'] = 'Toilet Semis'
+                        tw.loc[idx, 'Week_Sort'] = 1001
+
+                # winners/losers sets to classify week2
+                winners_top4: set[str] = set()
+                losers_top4: set[str] = set()
+                winners_bot4: set[str] = set()
+                losers_bot4: set[str] = set()
+                for _, r in w1.iterrows():
+                    team = r.get('Team')
+                    s1 = _to_int(seed_map.get(team), None)
+                    if team is None or s1 is None:
+                        continue
+                    winv = r.get('Win?')
+                    if winv == 1:
+                        (winners_top4 if s1 <= 4 else winners_bot4).add(team)
+                    elif winv == 0:
+                        (losers_top4 if s1 <= 4 else losers_bot4).add(team)
+
+                # Week 2 labeling
+                w2 = tw[(tw['Year'] == y) & (tw['WeekNum'] == ps + 1)].copy()
+                if not w2.empty:
+                    for idx, r in w2.iterrows():
+                        t1 = r.get('Team')
+                        t2 = r.get('Opponent')
+                        if not t1 or not t2:
+                            continue
+                        if t1 in winners_top4 and t2 in winners_top4:
+                            tw.loc[idx, 'Week'] = 'Final'
+                            tw.loc[idx, 'Week_Sort'] = 1002
+                        elif t1 in losers_top4 and t2 in losers_top4:
+                            tw.loc[idx, 'Week'] = '3rd Place'
+                            tw.loc[idx, 'Week_Sort'] = 1002
+                        elif t1 in winners_bot4 and t2 in winners_bot4:
+                            tw.loc[idx, 'Week'] = 'Toilet Final'
+                            tw.loc[idx, 'Week_Sort'] = 1002
+                        elif t1 in losers_bot4 and t2 in losers_bot4:
+                            tw.loc[idx, 'Week'] = '5th Place'
+                            tw.loc[idx, 'Week_Sort'] = 1002
+
+            # Non-playoff weeks keep Week_Sort = WeekNum
+
+        # Apply Week labels to player-week for consistency
+        if pw is not None and not pw.empty:
+            pw = pw.copy()
+            pw['WeekNum'] = pd.to_numeric(pw['Week'], errors='coerce').astype('Int64')
+            key = tw[['Team', 'Year', 'WeekNum', 'Week', 'Week_Sort']].drop_duplicates()
+            pw = pw.merge(key, how='left', on=['Team', 'Year', 'WeekNum'], suffixes=('', '_tw'))
+            # If a labeled Week exists from team-week, use it
+            pw['Week'] = pw['Week_tw'].combine_first(pw['Week'])
+            pw['_Week_Sort'] = pw['Week_Sort'].combine_first(pw['WeekNum']).astype('Int64')
+            pw.drop(columns=['Week_tw', 'Week_Sort'], inplace=True, errors='ignore')
+
+        return tw, pw
+
+    tw, pw = _apply_week_labels(tw, pw, leagues)
+    # Normalize internal sort keys used for diffs/rolling calcs
+    if not tw.empty and "Week_Sort" in tw.columns:
+        tw["_week_sort"] = pd.to_numeric(tw["Week_Sort"], errors="coerce").fillna(0).astype(int)
+    if not pw.empty and "_Week_Sort" in pw.columns:
+        pw["_week_sort"] = pd.to_numeric(pw["_Week_Sort"], errors="coerce").fillna(0).astype(int)
     # Player-week derived columns + hardship engine
     # --------------------------
     if not pw.empty:
-        pw = pw.sort_values(["Player", "Year", "Week"]).reset_index(drop=True)
+        pw = pw.sort_values(["Player", "Year", "_week_sort" if "_week_sort" in pw.columns else "Week"]).reset_index(drop=True)
 
         # "active" for change-metrics: exclude injury/susp/bye, but DO NOT exclude bench (bench counts)
         active = ~pw[["Injury?", "Suspension?", "Bye?"]].fillna(False).any(axis=1)
@@ -915,7 +1058,7 @@ def build_all(repo_root: Path) -> None:
             pw["Change from overall career average"] = None
 
         # Team tenure + bench streaks (bench streak spans seasons)
-        pw = pw.sort_values(["Team", "Player", "Year", "Week"]).reset_index(drop=True)
+        pw = pw.sort_values(["Team", "Player", "Year", "_week_sort" if "_week_sort" in pw.columns else "Week"]).reset_index(drop=True)
         stats: Dict[Tuple[str, str], Dict[str, Any]] = {}
         for i, row in pw.iterrows():
             key = (row["Team"], row["Player"])
@@ -962,7 +1105,7 @@ def build_all(repo_root: Path) -> None:
             stats[key] = st
 
         # Hardship: points lost due to injury/suspension for rostered players (missed with 0, not bye)
-        pw = pw.sort_values(["Player", "Year", "Week"]).reset_index(drop=True)
+        pw = pw.sort_values(["Player", "Year", "_week_sort" if "_week_sort" in pw.columns else "Week"]).reset_index(drop=True)
 
         def is_true(v) -> bool:
             return bool(v) is True
@@ -1018,10 +1161,20 @@ def build_all(repo_root: Path) -> None:
         )
         tw = tw.merge(agg, how="left", on=["Team", "Year", "Week"])
 
-        tw["Hardship"] = pd.to_numeric(tw["Hardship"], errors="coerce").fillna(0.0)
-        tw["Number of Injuries"] = pd.to_numeric(tw["Number_of_Injuries"], errors="coerce").fillna(0).astype(int)
-        tw["Number of suspensions"] = pd.to_numeric(tw["Number_of_suspensions"], errors="coerce").fillna(0).astype(int)
-        tw["Number of players on bye"] = pd.to_numeric(tw["Number_of_players_on_bye"], errors="coerce").fillna(0).astype(int)
+        # Coalesce Hardship after merge (merge creates Hardship_x/Hardship_y if placeholder existed)
+        if "Hardship_y" in tw.columns:
+            tw["Hardship"] = pd.to_numeric(tw["Hardship_y"], errors="coerce").fillna(0.0)
+        elif "Hardship" in tw.columns:
+            tw["Hardship"] = pd.to_numeric(tw["Hardship"], errors="coerce").fillna(0.0)
+        elif "Hardship_x" in tw.columns:
+            tw["Hardship"] = pd.to_numeric(tw["Hardship_x"], errors="coerce").fillna(0.0)
+        else:
+            tw["Hardship"] = 0.0
+        tw.drop(columns=["Hardship_x", "Hardship_y"], inplace=True, errors="ignore")
+
+        tw["Number of Injuries"] = pd.to_numeric(tw.get("Number_of_Injuries"), errors="coerce").fillna(0).astype(int)
+        tw["Number of suspensions"] = pd.to_numeric(tw.get("Number_of_suspensions"), errors="coerce").fillna(0).astype(int)
+        tw["Number of players on bye"] = pd.to_numeric(tw.get("Number_of_players_on_bye"), errors="coerce").fillna(0).astype(int)
 
         tw.drop(columns=["Number_of_Injuries", "Number_of_suspensions", "Number_of_players_on_bye"], inplace=True, errors="ignore")
 
