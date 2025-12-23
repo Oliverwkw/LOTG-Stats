@@ -967,8 +967,40 @@ def build_all(repo_root: Path) -> None:
             Suspensions=("_missed_susp","sum"),
             Byes=("_on_bye","sum"),
         )
-        tw=tw.merge(agg,how="left",on=["Team","Year","Week"])
-        tw["Hardship"]=pd.to_numeric(tw["Hardship"],errors="coerce").fillna(0.0)
+        tw=tw.merge(agg,how="left",on=["Team","Year","Week"],suffixes=("_x","_y"))
+
+        # Robustly select the post-merge hardship column.
+        # If TW already had a placeholder 'Hardship', pandas will create Hardship_x/Hardship_y.
+        # Prefer the computed value from player-week aggregation when present.
+        if "Hardship" in tw.columns:
+            hardship_series = tw["Hardship"]
+        elif "Hardship_y" in tw.columns:
+            hardship_series = tw["Hardship_y"].combine_first(tw.get("Hardship_x"))
+        elif "Hardship_x" in tw.columns:
+            hardship_series = tw["Hardship_x"]
+        else:
+            hardship_series = pd.Series([0.0] * len(tw), index=tw.index)
+
+        tw["Hardship"] = pd.to_numeric(hardship_series, errors="coerce").fillna(0.0)
+
+        # cleanup merge artifacts
+        tw.drop(columns=[
+            "Hardship_x", "Hardship_y",
+            "Number_of_Injuries", "Number_of_suspensions", "Number_of_players_on_bye",
+        ], inplace=True, errors="ignore")
+        if "Hardship" in tw.columns:
+            hardship_series = tw["Hardship"]
+        elif "Hardship_y" in tw.columns:
+            hardship_series = tw["Hardship_y"].combine_first(tw.get("Hardship_x"))
+        elif "Hardship_x" in tw.columns:
+            hardship_series = tw["Hardship_x"]
+        else:
+            hardship_series = 0.0
+
+        tw["Hardship"] = pd.to_numeric(hardship_series, errors="coerce").fillna(0.0)
+
+        # cleanup any merge suffix columns
+        tw.drop(columns=[c for c in ["Hardship_x", "Hardship_y"] if c in tw.columns], inplace=True, errors="ignore")
         tw["Number of Injuries"]=pd.to_numeric(tw["Injuries"],errors="coerce").fillna(0).astype(int)
         tw["Number of suspensions"]=pd.to_numeric(tw["Suspensions"],errors="coerce").fillna(0).astype(int)
         tw["Number of players on bye"]=pd.to_numeric(tw["Byes"],errors="coerce").fillna(0).astype(int)
@@ -1036,6 +1068,41 @@ def build_all(repo_root: Path) -> None:
             maxpf=float(pd.to_numeric(g["Max PF"],errors="coerce").fillna(0).sum())
             rows.append({"Team":team,"Seasons":int(g["Year"].nunique()),"Win %":round((wins+0.5*ties)/games,4),"Record":f"{wins}-{losses}"+(f"-{ties}" if ties else ""),"Points":round(points,2),"Max PF":round(maxpf,2),"Efficiency":round(points/maxpf,4) if maxpf else None})
         team_all=pd.DataFrame(rows)
+
+        # Head-to-head all-time records (includes playoffs)
+        try:
+            teams_sorted = sorted([str(t) for t in team_all["Team"].dropna().unique().tolist()])
+            # Aggregate W/L/T from team-week rows (each team has one row per game).
+            h2h = tw[["Team", "Opponent", "Win?"]].dropna(subset=["Team", "Opponent"]).copy()
+            h2h["Win?"] = pd.to_numeric(h2h["Win?"], errors="coerce")
+            h2h["w"] = (h2h["Win?"] == 1).astype(int)
+            h2h["l"] = (h2h["Win?"] == 0).astype(int)
+            h2h["t"] = (h2h["Win?"] == 0.5).astype(int)
+            h2h_agg = h2h.groupby(["Team", "Opponent"], as_index=False).agg(w=("w", "sum"), l=("l", "sum"), t=("t", "sum"))
+            h2h_map = {(r["Team"], r["Opponent"]): (int(r["w"]), int(r["l"]), int(r["t"])) for _, r in h2h_agg.iterrows()}
+
+            for opp in teams_sorted:
+                rec_col = f"record vs {opp}"
+                pct_col = f"win % vs {opp}"
+                team_all[rec_col] = None
+                team_all[pct_col] = None
+                for i, tm in team_all["Team"].items():
+                    if pd.isna(tm) or str(tm) == "":
+                        continue
+                    tm = str(tm)
+                    if tm == opp:
+                        team_all.at[i, rec_col] = "0-0"
+                        team_all.at[i, pct_col] = None
+                        continue
+                    w, l, t = h2h_map.get((tm, opp), (0, 0, 0))
+                    if t:
+                        team_all.at[i, rec_col] = f"{w}-{l}-{t}"
+                    else:
+                        team_all.at[i, rec_col] = f"{w}-{l}"
+                    games = w + l + t
+                    team_all.at[i, pct_col] = round((w + 0.5 * t) / games, 4) if games > 0 else None
+        except Exception:
+            pass
 
     league_week=pd.DataFrame()
     league_year=pd.DataFrame()
