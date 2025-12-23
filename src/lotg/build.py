@@ -219,16 +219,31 @@ def _walk_league_chain(sc: SleeperClient, start_league_id: str, min_season: int 
 def _league_roster_positions(lg: Dict[str, Any]) -> List[str]:
     settings = lg.get("settings") or {}
     rp = settings.get("roster_positions") or []
-    return list(rp) if isinstance(rp, list) else []
+    rp = list(rp) if isinstance(rp, list) else []
+    # Sleeper roster_positions sometimes includes bench/IR/taxi placeholders; exclude those for lineup optimization.
+    drop = {"BN", "BENCH", "IR", "TAXI", "RES", "RESERVE"}
+    rp = [str(x) for x in rp if str(x).upper() not in drop]
+    return rp
 
 
 # --------------------------
 # Injury/Suspension detection (platform-ish, best effort)
 # --------------------------
 
+def _starting_positions(roster_positions: List[str]) -> List[str]:
+    """Return starting lineup slot labels only (exclude BN/IR/TAXI/RES)."""
+    out: List[str] = []
+    for p in roster_positions or []:
+        s = str(p).upper().strip()
+        if s in ("BN", "BENCH", "IR", "TAXI", "RES"):
+            continue
+        out.append(str(p))
+    return out
+
+
 def _infer_flags_from_sleeper_player_meta(meta: Dict[str, Any]) -> Tuple[Optional[bool], Optional[bool]]:
-    if not isinstance(meta, dict):
-        return (None, None)
+    """Sleeper player metadata is *current* and not week-historical; do not use it for week flags."""
+    return (None, None)
     status = str(meta.get("status") or "").lower()
     injury_status = str(meta.get("injury_status") or "").lower()
 
@@ -473,6 +488,7 @@ def build_all(repo_root: Path) -> None:
         league_id = str(lg.get("league_id"))
         season = _to_int(lg.get("season"), 0) or 0
         roster_positions = _league_roster_positions(lg)
+        starting_positions = _starting_positions(roster_positions)
 
         try:
             users = sc.users(league_id)
@@ -496,6 +512,26 @@ def build_all(repo_root: Path) -> None:
         for rid, owner in roster_owner.items():
             roster_to_team[rid] = user_handle.get(owner, f"Roster {rid}")
             all_teams_seen.add(roster_to_team[rid])
+
+
+        settings = lg.get("settings") or {}
+        playoff_start_week = _to_int(settings.get("playoff_week_start"), None)
+        # Exclude the NFL regular-season final week entirely from all tables (Week 18 for 2021+, Week 17 pre-2021)
+        excluded_week = 18 if season >= 2021 else 17
+
+        seed_by_roster: Dict[int, Optional[int]] = {}
+        for r in rosters or []:
+            rid = _to_int(r.get("roster_id"), None)
+            if rid is None:
+                continue
+            rs = r.get("settings") or {}
+            seed = _to_int(rs.get("playoff_seed") or rs.get("seed") or rs.get("rank") or rs.get("p_rank"), None)
+            seed_by_roster[int(rid)] = seed
+
+        playoff_r1_winners: set[int] = set()
+        playoff_r1_losers: set[int] = set()
+        toilet_r1_winners: set[int] = set()
+        toilet_r1_losers: set[int] = set()
 
         try:
             (raw_dir / f"league_{season}.json").write_text(json.dumps(lg, indent=2))
@@ -601,6 +637,40 @@ def build_all(repo_root: Path) -> None:
             # from ALL outputs and downstream calculations.
             if (season >= 2021 and week >= 18) or (season < 2021 and week >= 17):
                 break
+            if week == excluded_week:
+            # Capture Round-1 winners/losers for playoff/toilet labeling in the following week
+            if playoff_start_week and week == playoff_start_week:
+                for mid, g in mdf.groupby("matchup_id") if "matchup_id" in mdf.columns else []:
+                    try:
+                        rids = g["roster_id"].tolist()
+                        if len(rids) != 2:
+                            continue
+                        a, b = int(rids[0]), int(rids[1])
+                        pa = float(g.loc[g["roster_id"] == a, "points"].iloc[0])
+                        pb = float(g.loc[g["roster_id"] == b, "points"].iloc[0])
+                        if pa == pb:
+                            # treat tie as no-op; labels next week default safely
+                            continue
+                        winner = a if pa > pb else b
+                        loser = b if winner == a else a
+                        seed_w = seed_by_roster.get(winner)
+                        seed_l = seed_by_roster.get(loser)
+                        # classify by seed if available (top-4 => playoffs)
+                        if seed_w is not None and seed_w <= 4:
+                            playoff_r1_winners.add(winner)
+                            playoff_r1_losers.add(loser)
+                        elif seed_l is not None and seed_l <= 4:
+                            playoff_r1_winners.add(winner)
+                            playoff_r1_losers.add(loser)
+                        else:
+                            toilet_r1_winners.add(winner)
+                            toilet_r1_losers.add(loser)
+                    except Exception:
+                        continue
+
+                week += 1
+                continue
+
             if not matchups:
                 break
 
@@ -677,6 +747,23 @@ def build_all(repo_root: Path) -> None:
                     except Exception:
                         opp_points = None
 
+                opp_label = opp_team
+                if playoff_start_week and week >= playoff_start_week:
+                    seed = seed_by_roster.get(int(rid))
+                    if week == playoff_start_week:
+                        opp_label = "Semifinal" if (seed is not None and seed <= 4) else "Toilet Semis"
+                    elif week == playoff_start_week + 1:
+                        if seed is not None and seed <= 4:
+                            if int(rid) in playoff_r1_winners:
+                                opp_label = "Final"
+                            elif int(rid) in playoff_r1_losers:
+                                opp_label = "3rd Place"
+                        else:
+                            if int(rid) in toilet_r1_winners:
+                                opp_label = "Toilet Final"
+                            elif int(rid) in toilet_r1_losers:
+                                opp_label = "Toilet Trash"
+
                 margin = (pf - opp_points) if opp_points is not None else None
                 win = None
                 if margin is not None:
@@ -697,7 +784,7 @@ def build_all(repo_root: Path) -> None:
                 pos_map = {pid: ("/".join([p for p in (pid_meta.get(pid, {}).get("pos_elig") or []) if p]) or (pid_meta.get(pid, {}).get("pos") or "")) for pid in players}
 
                 try:
-                    max_pf, _ = max_points_lineup(roster_positions, players, ppts, pos_map)
+                    max_pf, _ = max_points_lineup(starting_positions, players, ppts, pos_map)
                 except Exception:
                     max_pf = None
 
@@ -757,7 +844,7 @@ def build_all(repo_root: Path) -> None:
                                     except Exception:
                                         pass
                             opp_pos_map = {pid: ("/".join([p for p in (pid_meta.get(pid, {}).get("pos_elig") or []) if p]) or (pid_meta.get(pid, {}).get("pos") or "")) for pid in opp_players}
-                            opp_maxpf, _ = max_points_lineup(roster_positions, opp_players, opp_ppts, opp_pos_map)
+                            opp_maxpf, _ = max_points_lineup(starting_positions, opp_players, opp_ppts, opp_pos_map)
                     except Exception:
                         opp_maxpf = None
 
@@ -821,8 +908,8 @@ def build_all(repo_root: Path) -> None:
 
                 starter_slot = {}
                 for i, pid in enumerate(starters):
-                    if i < len(roster_positions):
-                        starter_slot[pid] = roster_positions[i]
+                    if i < len(starting_positions):
+                        starter_slot[pid] = starting_positions[i]
 
                 played_set = played_by_week.get(week, set())
                 for pid in players:
