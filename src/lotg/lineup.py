@@ -1,5 +1,6 @@
 from __future__ import annotations
-from typing import Dict, List, Tuple, Iterable, Set
+from typing import Dict, List, Tuple
+import re, Iterable, Set
 from ortools.sat.python import cp_model
 
 # slot eligibility rules (expanded as needed)
@@ -26,11 +27,23 @@ def slot_positions(roster_positions: List[str]) -> List[str]:
     return out
 
 def eligibility(slot: str, pos: str) -> bool:
-    slot = (slot or "").upper()
-    pos = (pos or "").upper()
+    """Return True if a player with `pos` can be used in `slot`.
+
+    `pos` may be a single position ("RB") or a multi-eligible string like "RB/WR".
+    """
+    slot = (slot or "").upper().strip()
+    pos_s = (pos or "").upper().strip()
+
+    # Split multi-eligibility markers (RB/WR, RB,WR, etc.)
+    poss = [p for p in re.split(r"[^A-Z]+", pos_s) if p] if pos_s else []
+    if not poss:
+        return False
+
     if slot in SLOT_RULES:
-        return pos in SLOT_RULES[slot]
-    # Unknown slot → allow any (still constrained by lineup length)
+        allowed = set(SLOT_RULES[slot])
+        return any(p in allowed for p in poss)
+
+    # Unknown slot → allow any position (defensive)
     return True
 
 def max_points_lineup(roster_positions: List[str], players: List[str], points: Dict[str, float], pos_map: Dict[str, str]) -> Tuple[float, Dict[str, str]]:

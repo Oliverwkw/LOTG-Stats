@@ -448,6 +448,7 @@ def build_all(repo_root: Path) -> None:
         pid_meta[pid] = {
             "full_name": full or pid,
             "pos": meta.get("position"),
+            "pos_elig": meta.get("fantasy_positions") or ([meta.get("position")] if meta.get("position") else []),
             "team": _norm_team(meta.get("team")),
             "birth_date": meta.get("birth_date") or meta.get("birthdate"),
             "years_exp": meta.get("years_exp"),
@@ -595,6 +596,11 @@ def build_all(repo_root: Path) -> None:
                 matchups = sc.matchups(league_id, week)
             except Exception:
                 matchups = None
+
+            # Exclude the final NFL regular-season week entirely (Week 18 starting 2021; Week 17 prior)
+            # from ALL outputs and downstream calculations.
+            if (season >= 2021 and week >= 18) or (season < 2021 and week >= 17):
+                break
             if not matchups:
                 break
 
@@ -688,7 +694,7 @@ def build_all(repo_root: Path) -> None:
                         except Exception:
                             pass
 
-                pos_map = {pid: (pid_meta.get(pid, {}).get("pos") or "") for pid in players}
+                pos_map = {pid: ("/".join([p for p in (pid_meta.get(pid, {}).get("pos_elig") or []) if p]) or (pid_meta.get(pid, {}).get("pos") or "")) for pid in players}
 
                 try:
                     max_pf, _ = max_points_lineup(roster_positions, players, ppts, pos_map)
@@ -750,7 +756,7 @@ def build_all(repo_root: Path) -> None:
                                         opp_ppts[str(k)] = float(v)
                                     except Exception:
                                         pass
-                            opp_pos_map = {pid: (pid_meta.get(pid, {}).get("pos") or "") for pid in opp_players}
+                            opp_pos_map = {pid: ("/".join([p for p in (pid_meta.get(pid, {}).get("pos_elig") or []) if p]) or (pid_meta.get(pid, {}).get("pos") or "")) for pid in opp_players}
                             opp_maxpf, _ = max_points_lineup(roster_positions, opp_players, opp_ppts, opp_pos_map)
                     except Exception:
                         opp_maxpf = None
@@ -1168,7 +1174,7 @@ def build_all(repo_root: Path) -> None:
         if "Hardship_y" in tw.columns:
             tw["Hardship"] = pd.to_numeric(tw["Hardship_y"], errors="coerce").fillna(0.0)
         elif "Hardship" in tw.columns:
-            tw["Hardship"] = pd.to_numeric(tw["Hardship"], errors="coerce").fillna(0.0)
+            tw["Hardship"] = pd.to_numeric(tw.get("Hardship", 0.0), errors="coerce").fillna(0.0)
         elif "Hardship_x" in tw.columns:
             tw["Hardship"] = pd.to_numeric(tw["Hardship_x"], errors="coerce").fillna(0.0)
         else:
@@ -1373,7 +1379,26 @@ def build_all(repo_root: Path) -> None:
             d = pd.DataFrame()
 
         # write header (always)
-        ws.append(list(d.columns))
+        cols = list(d.columns)
+        if not cols:
+            cols = ["_"]
+            d = pd.DataFrame(columns=cols)
+        # Excel Tables require unique, non-empty column names
+        seen = {}
+        fixed = []
+        for c in cols:
+            name = str(c) if c is not None else ""
+            name = name.strip()
+            if not name:
+                name = "_"
+            base = name[:255]
+            k = base.lower()
+            n = seen.get(k, 0) + 1
+            seen[k] = n
+            fixed.append(base if n == 1 else f"{base}_{n}")
+        d.columns = fixed
+        ws.append(fixed)
+
 
         # write rows (if any)
         if not d.empty:
