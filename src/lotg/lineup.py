@@ -1,91 +1,114 @@
+"""Max PF utilities without OR-Tools.
+
+This mirrors the Apps Script approach that already worked for LOTG.
+"""
+
 from __future__ import annotations
-from typing import Dict, List, Tuple
-import re
-from ortools.sat.python import cp_model
 
-# slot eligibility rules (expanded as needed)
-SLOT_RULES = {
-    "QB": {"QB"},
-    "RB": {"RB"},
-    "WR": {"WR"},
-    "TE": {"TE"},
-    "K": {"K"},
-    "DEF": {"DEF", "DST"},
-    "DST": {"DEF", "DST"},
-    "FLEX": {"RB","WR","TE"},
-    "REC_FLEX": {"WR","TE"},
-    "WRRB_FLEX": {"WR","RB"},
-    "SUPER_FLEX": {"QB","RB","WR","TE"},
-}
+from typing import Any, Dict, List, Tuple
 
-def slot_positions(roster_positions: List[str]) -> List[str]:
-    # Normalize a little
-    out=[]
-    for s in roster_positions:
-        s = (s or "").upper()
-        out.append(s)
-    return out
 
-def eligibility(slot: str, pos: str) -> bool:
-    """Return True if a player with `pos` can be used in `slot`.
+def _to_float(v: Any) -> float:
+    try:
+        return float(v)
+    except Exception:
+        return 0.0
 
-    `pos` may be a single position ("RB") or a multi-eligible string like "RB/WR".
+
+def compute_optimal_lineup(points_dict: Dict[str, Any], pos_map: Dict[str, str], season: int) -> float:
+    """Compute Max PF for LOTG.
+
+    Lineup model:
+    - 1 QB
+    - 2 RB
+    - 3 WR
+    - 1 TE
+    - 1 FLEX (RB/WR/TE)
+    - season >= 2024: +1 FLEX (RB/WR/TE)
+    - 1 SUPERFLEX (best remaining from QB/RB/WR/TE)
+
+    Unknown positions are treated as FLEX-eligible.
     """
-    slot = (slot or "").upper().strip()
-    pos_s = (pos or "").upper().strip()
+    if not isinstance(points_dict, dict) or not points_dict:
+        return 0.0
 
-    # Split multi-eligibility markers (RB/WR, RB,WR, etc.)
-    poss = [p for p in re.split(r"[^A-Z]+", pos_s) if p] if pos_s else []
-    if not poss:
-        return False
+    pos_points: Dict[str, List[float]] = {"QB": [], "RB": [], "WR": [], "TE": [], "_FLEX_": []}
 
-    if slot in SLOT_RULES:
-        allowed = set(SLOT_RULES[slot])
-        return any(p in allowed for p in poss)
+    for pid, pts in points_dict.items():
+        v = _to_float(pts)
+        pos = (pos_map.get(str(pid)) or "").upper()
+        if pos in ("QB", "RB", "WR", "TE"):
+            pos_points[pos].append(v)
+        else:
+            pos_points["_FLEX_"].append(v)
 
-    # Unknown slot → allow any position (defensive)
-    return True
+    for k in pos_points:
+        pos_points[k].sort(reverse=True)
 
-def max_points_lineup(roster_positions: List[str], players: List[str], points: Dict[str, float], pos_map: Dict[str, str]) -> Tuple[float, Dict[str, str]]:
-    # CP-SAT exact assignment: each slot gets exactly one player, each player used at most once.
-    slots = slot_positions(roster_positions)
-    model = cp_model.CpModel()
-    x = {}  # (i, pid) -> bool
-    for i, slot in enumerate(slots):
-        for pid in players:
-            if eligibility(slot, pos_map.get(pid, "")):
-                x[(i,pid)] = model.NewBoolVar(f"x_{i}_{pid}")
+    lineup: List[float] = []
 
-    # each slot exactly one
-    for i, slot in enumerate(slots):
-        vars_i = [x[(i,pid)] for pid in players if (i,pid) in x]
-        if not vars_i:
-            # slot cannot be filled (league mismatch); treat as 0 slot
-            continue
-        model.Add(sum(vars_i) == 1)
+    # core
+    if pos_points["QB"]:
+        lineup.append(pos_points["QB"][0])
+    lineup.extend(pos_points["RB"][:2])
+    lineup.extend(pos_points["WR"][:3])
+    if pos_points["TE"]:
+        lineup.append(pos_points["TE"][0])
 
-    # each player at most once
-    for pid in players:
-        vars_p = [x[(i,pid)] for i in range(len(slots)) if (i,pid) in x]
-        if vars_p:
-            model.Add(sum(vars_p) <= 1)
+    # flex pool
+    flex_candidates: List[float] = []
+    flex_candidates.extend(pos_points["RB"][2:])
+    flex_candidates.extend(pos_points["WR"][3:])
+    flex_candidates.extend(pos_points["TE"][1:])
+    flex_candidates.extend(pos_points["_FLEX_"])
 
-    # maximize points
-    objective_terms=[]
-    for (i,pid), var in x.items():
-        objective_terms.append(int(round(points.get(pid, 0.0)*100)) * var)
-    model.Maximize(sum(objective_terms))
+    def take_best(cands: List[float]) -> float | None:
+        if not cands:
+            return None
+        m = max(cands)
+        cands.remove(m)
+        return m
 
-    solver = cp_model.CpSolver()
-    solver.parameters.max_time_in_seconds = 2.0
-    solver.parameters.num_search_workers = 8
-    status = solver.Solve(model)
+    best1 = take_best(flex_candidates)
+    if best1 is not None:
+        lineup.append(best1)
 
-    chosen = {}
-    total = 0.0
-    if status in (cp_model.OPTIMAL, cp_model.FEASIBLE):
-        for (i,pid), var in x.items():
-            if solver.Value(var) == 1:
-                chosen[slots[i]] = pid
-                total += points.get(pid, 0.0)
-    return round(total,2), chosen
+    if int(season) >= 2024:
+        best2 = take_best(flex_candidates)
+        if best2 is not None:
+            lineup.append(best2)
+
+    # superflex from remaining of all eligible positions
+    all_vals: List[float] = []
+    all_vals.extend(pos_points["QB"])
+    all_vals.extend(pos_points["RB"])
+    all_vals.extend(pos_points["WR"])
+    all_vals.extend(pos_points["TE"])
+    all_vals.extend(pos_points["_FLEX_"])
+
+    remaining = all_vals[:]
+    for chosen in lineup:
+        try:
+            remaining.remove(chosen)
+        except ValueError:
+            pass
+
+    if remaining:
+        lineup.append(max(remaining))
+
+    return float(sum(lineup))
+
+
+def max_points_lineup(
+    roster_positions: List[str],
+    players: List[str],
+    points: Dict[str, float],
+    pos_map: Dict[str, str],
+    season: int | None = None,
+) -> Tuple[float, Dict[str, str]]:
+    """Compatibility wrapper.
+
+    Older code expected (max_pf, assignment). We keep it but ignore `roster_positions`.
+    """
+    yr = int(season) if season is not None else 0
+    return compute_optimal_lineup(points, pos_map, yr), {}

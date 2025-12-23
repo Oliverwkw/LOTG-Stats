@@ -22,7 +22,6 @@ from .external import (
     load_dynastyprocess_values_picks,
     load_nflverse_injuries,
 )
-from .lineup import max_points_lineup
 from .plan import load_plan_catalog, require_columns
 
 # --------------------------
@@ -84,6 +83,82 @@ def _calc_age(birth_date_str: Optional[str], on_date: date) -> Optional[float]:
         return round((on_date - bd).days / 365.25, 2)
     except Exception:
         return None
+
+
+
+def compute_optimal_lineup(points_dict: Dict[str, Any], pos_map: Dict[str, str], season: int) -> float:
+    """Compute LOTG Max PF (optimal lineup points) from Sleeper players_points.
+
+    Mirrors the Apps Script logic known to work:
+      1 QB, 2 RB, 3 WR, 1 TE, 1 FLEX (RB/WR/TE), 1 SUPERFLEX; add a 2nd FLEX for 2024+.
+
+    Unknown / missing positions are treated as FLEX-eligible.
+    """
+    if not isinstance(points_dict, dict) or not points_dict:
+        return 0.0
+
+    pos_points: Dict[str, List[float]] = {"QB": [], "RB": [], "WR": [], "TE": [], "_FLEX_": []}
+    for pid, pts in points_dict.items():
+        v = _to_float(pts, 0.0) or 0.0
+        pos = (pos_map.get(str(pid)) or "").upper()
+        if pos in ("QB", "RB", "WR", "TE"):
+            pos_points[pos].append(float(v))
+        else:
+            pos_points["_FLEX_"].append(float(v))
+
+    for k in pos_points:
+        pos_points[k].sort(reverse=True)
+
+    lineup: List[float] = []
+
+    # Core slots
+    if pos_points["QB"]:
+        lineup.append(pos_points["QB"][0])
+    lineup.extend(pos_points["RB"][:2])
+    lineup.extend(pos_points["WR"][:3])
+    if pos_points["TE"]:
+        lineup.append(pos_points["TE"][0])
+
+    # FLEX candidates (RB/WR/TE leftovers + unknowns)
+    flex_candidates: List[float] = []
+    flex_candidates.extend(pos_points["RB"][2:])
+    flex_candidates.extend(pos_points["WR"][3:])
+    flex_candidates.extend(pos_points["TE"][1:])
+    flex_candidates.extend(pos_points["_FLEX_"])
+
+    def take_best(cands: List[float]):
+        if not cands:
+            return None
+        best = max(cands)
+        cands.remove(best)
+        return best
+
+    best1 = take_best(flex_candidates)
+    if best1 is not None:
+        lineup.append(best1)
+
+    if int(season) >= 2024:
+        best2 = take_best(flex_candidates)
+        if best2 is not None:
+            lineup.append(best2)
+
+    # SUPERFLEX: best remaining from all positions
+    all_vals: List[float] = []
+    for k in ("QB", "RB", "WR", "TE", "_FLEX_"):
+        all_vals.extend(pos_points[k])
+
+    remaining = all_vals[:]
+    for chosen in lineup:
+        try:
+            remaining.remove(chosen)
+        except ValueError:
+            pass
+
+    if remaining:
+        lineup.append(max(remaining))
+
+    return float(sum(lineup))
+
 
 def _scoring_settings_from_league(lg: Dict[str, Any]) -> Dict[str, float]:
     ss = lg.get("scoring_settings") or (lg.get("settings") or {}).get("scoring_settings") or {}
@@ -603,7 +678,7 @@ def build_all(repo_root: Path) -> None:
 
                 # Max PF + efficiency
                 try:
-                    max_pf, _ = max_points_lineup(start_positions, players, ppts, pos_map)
+                    max_pf = compute_optimal_lineup(ppts, pos_map, int(yr))
                 except Exception:
                     max_pf = None
                 eff = safe_div(pf, max_pf) if max_pf else None
