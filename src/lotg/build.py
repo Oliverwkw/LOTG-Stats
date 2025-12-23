@@ -606,12 +606,12 @@ def build_all(repo_root: Path) -> None:
                 "etc": None,
             })
 
-        # week exclusion rule:
-        excluded_week = 18 if season >= 2021 else 17
+        # NFL regular season length: we exclude the final NFL regular-season week entirely
+        # (Week 18 for 2021+, Week 17 for pre-2021). All league computations stop at:
+        #   max_data_week = 17 (modern) or 16 (pre-2021).
+        max_data_week = 17 if season >= 2021 else 16
 
         week = 1
-        # NFL regular season length: exclude Week 18 (Week 17 for pre-2021) entirely from all data/calcs
-        max_data_week = 17 if season >= 2021 else 16
         playoff_start = _to_int((lg.get("settings") or {}).get("playoff_week_start"), None)
         if playoff_start is None:
             # Most Sleeper dynasty leagues run a two-week playoff; default to week 15 for modern seasons.
@@ -621,55 +621,15 @@ def build_all(repo_root: Path) -> None:
         prev_starters_by_team: Dict[str, set] = {}
 
         while True:
-            # Stop at excluded week (no Week 18, and no Week 17 for pre-2021 seasons)
-            if week >= excluded_week or week > max_data_week:
-                break
-
-            if week == excluded_week:
+            # Exclude the final NFL regular-season week entirely from ALL outputs/calculations.
+            # (Week 18 starting 2021; Week 17 prior)
+            if week > max_data_week:
                 break
 
             try:
                 matchups = sc.matchups(league_id, week)
             except Exception:
                 matchups = None
-
-            # Exclude the final NFL regular-season week entirely (Week 18 starting 2021; Week 17 prior)
-            # from ALL outputs and downstream calculations.
-            if (season >= 2021 and week >= 18) or (season < 2021 and week >= 17):
-                break
-            if week == excluded_week:
-            # Capture Round-1 winners/losers for playoff/toilet labeling in the following week
-            if playoff_start_week and week == playoff_start_week:
-                for mid, g in mdf.groupby("matchup_id") if "matchup_id" in mdf.columns else []:
-                    try:
-                        rids = g["roster_id"].tolist()
-                        if len(rids) != 2:
-                            continue
-                        a, b = int(rids[0]), int(rids[1])
-                        pa = float(g.loc[g["roster_id"] == a, "points"].iloc[0])
-                        pb = float(g.loc[g["roster_id"] == b, "points"].iloc[0])
-                        if pa == pb:
-                            # treat tie as no-op; labels next week default safely
-                            continue
-                        winner = a if pa > pb else b
-                        loser = b if winner == a else a
-                        seed_w = seed_by_roster.get(winner)
-                        seed_l = seed_by_roster.get(loser)
-                        # classify by seed if available (top-4 => playoffs)
-                        if seed_w is not None and seed_w <= 4:
-                            playoff_r1_winners.add(winner)
-                            playoff_r1_losers.add(loser)
-                        elif seed_l is not None and seed_l <= 4:
-                            playoff_r1_winners.add(winner)
-                            playoff_r1_losers.add(loser)
-                        else:
-                            toilet_r1_winners.add(winner)
-                            toilet_r1_losers.add(loser)
-                    except Exception:
-                        continue
-
-                week += 1
-                continue
 
             if not matchups:
                 break
