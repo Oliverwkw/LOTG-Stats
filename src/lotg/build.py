@@ -382,7 +382,9 @@ def build_all(repo_root: Path) -> None:
         season_type=str(cfg.get("season_type", "regular")).lower(),
     )
 
-    http = HttpConfig(timeout_seconds=30, max_retries=10, backoff_base_seconds=0.7)
+    # Sleeper's /players/nfl payload is large; a short timeout can yield empty player meta,
+    # which then collapses downstream calculations (e.g., Max PF becomes 0 everywhere).
+    http = HttpConfig(timeout_seconds=120, max_retries=10, backoff_base_seconds=0.7)
     sc = SleeperClient(http)
 
     cache_dir = repo_root / ".cache"
@@ -449,10 +451,28 @@ def build_all(repo_root: Path) -> None:
     if "season" in games.columns:
         games["season"] = pd.to_numeric(games["season"], errors="coerce").astype("Int64")
 
-    try:
-        players_nfl = sc.players_nfl()
-    except Exception:
-        players_nfl = {}
+    # /players/nfl is large; cache it so transient network issues don't zero out meta.
+    import gzip
+
+    players_cache = cache_dir / "sleeper_players_nfl.json.gz"
+    players_nfl: Dict[str, Any] = {}
+    if players_cache.exists() and players_cache.stat().st_size > 0:
+        try:
+            with gzip.open(players_cache, "rt", encoding="utf-8") as f:
+                players_nfl = json.load(f)
+        except Exception:
+            players_nfl = {}
+
+    if not players_nfl:
+        try:
+            players_nfl = sc.players_nfl()
+            try:
+                with gzip.open(players_cache, "wt", encoding="utf-8") as f:
+                    json.dump(players_nfl, f)
+            except Exception:
+                pass
+        except Exception:
+            players_nfl = {}
 
     pid_meta: Dict[str, Dict[str, Any]] = {}
     for pid, meta in (players_nfl or {}).items():
@@ -464,11 +484,13 @@ def build_all(repo_root: Path) -> None:
             "full_name": full or pid,
             "pos": meta.get("position"),
             "pos_elig": meta.get("fantasy_positions") or ([meta.get("position")] if meta.get("position") else []),
+            "gsis_id": meta.get("gsis_id"),
             "team": _norm_team(meta.get("team")),
             "birth_date": meta.get("birth_date") or meta.get("birthdate"),
             "years_exp": meta.get("years_exp"),
             "status": meta.get("status"),
             "injury_status": meta.get("injury_status"),
+            "practice_participation": meta.get("practice_participation"),
         }
 
     leagues = _walk_league_chain(sc, run_cfg.league_id, run_cfg.min_season, run_cfg.max_season)
@@ -886,8 +908,10 @@ def build_all(repo_root: Path) -> None:
                     started = pid in starters
                     slot = starter_slot.get(pid) if started else None
 
-                    gsis = None
-                    if not dp_ids.empty and "sleeper_id" in dp_ids.columns and "gsis_id" in dp_ids.columns:
+                    # Prefer Sleeper-provided gsis_id (present in /players/nfl) to avoid
+                    # brittle external id maps.
+                    gsis = meta.get("gsis_id")
+                    if (not gsis) and (not dp_ids.empty) and "sleeper_id" in dp_ids.columns and "gsis_id" in dp_ids.columns:
                         try:
                             match = dp_ids.loc[dp_ids["sleeper_id"].astype(str) == pid]
                             if not match.empty:
