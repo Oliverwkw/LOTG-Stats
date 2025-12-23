@@ -1,11 +1,13 @@
+
 from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, List, Any, Tuple, Optional
 from datetime import datetime, timezone, timedelta, date
-from collections import Counter, deque
+from collections import Counter, deque, defaultdict
 import json
+import math
 
 import pandas as pd
 import yaml
@@ -23,7 +25,6 @@ from .external import (
 from .lineup import max_points_lineup
 from .plan import load_plan_catalog, require_columns
 
-
 # --------------------------
 # Run config
 # --------------------------
@@ -33,11 +34,11 @@ class RunConfig:
     league_id: str
     min_season: int | None
     max_season: int | None
-    season_type: str = "regular"
+    season_type: str = "regular"  # sleeper stats season type
 
 
 # --------------------------
-# Small safe helpers
+# Small helpers
 # --------------------------
 
 def _to_int(x: Any, default: Optional[int] = None) -> Optional[int]:
@@ -48,7 +49,10 @@ def _to_int(x: Any, default: Optional[int] = None) -> Optional[int]:
 
 def _to_float(x: Any, default: Optional[float] = None) -> Optional[float]:
     try:
-        return float(x)
+        v = float(x)
+        if not math.isfinite(v):
+            return default
+        return v
     except Exception:
         return default
 
@@ -81,9 +85,62 @@ def _calc_age(birth_date_str: Optional[str], on_date: date) -> Optional[float]:
     except Exception:
         return None
 
+def _scoring_settings_from_league(lg: Dict[str, Any]) -> Dict[str, float]:
+    ss = lg.get("scoring_settings") or (lg.get("settings") or {}).get("scoring_settings") or {}
+    out: Dict[str, float] = {}
+    if isinstance(ss, dict):
+        for k, v in ss.items():
+            try:
+                out[str(k)] = float(v)
+            except Exception:
+                continue
+    return out
+
+def _calc_fantasy_points_from_stats(stats: Dict[str, Any], scoring: Dict[str, float]) -> float:
+    if not isinstance(stats, dict) or not scoring:
+        return 0.0
+    total = 0.0
+    for stat_key, mult in scoring.items():
+        if stat_key not in stats:
+            continue
+        try:
+            val = stats.get(stat_key)
+            if val is None:
+                continue
+            total += float(val) * float(mult)
+        except Exception:
+            continue
+    return float(total)
+
+def _load_week_points_cached(sc: SleeperClient, cache_dir: Path, season: int, week: int, scoring: Dict[str, float], season_type: str="regular") -> Dict[str, float]:
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    fp = cache_dir / f"sleeper_week_points_{season}_{week}.json"
+    if fp.exists() and fp.stat().st_size > 0:
+        try:
+            raw = json.loads(fp.read_text())
+            if isinstance(raw, dict):
+                return {str(k): float(v) for k, v in raw.items()}
+        except Exception:
+            pass
+    pts: Dict[str, float] = {}
+    try:
+        raw_stats = sc.nfl_stats_week(season, week, season_type=season_type)
+    except Exception:
+        raw_stats = {}
+    if isinstance(raw_stats, dict):
+        for pid, st in raw_stats.items():
+            try:
+                pts[str(pid)] = round(_calc_fantasy_points_from_stats(st, scoring), 4)
+            except Exception:
+                continue
+    try:
+        fp.write_text(json.dumps(pts))
+    except Exception:
+        pass
+    return pts
 
 # --------------------------
-# Team name mapping (HANDLE, not franchise name)
+# Team handle mapping (display_name)
 # --------------------------
 
 def _team_handle_map(users: List[Dict[str, Any]]) -> Dict[str, str]:
@@ -97,33 +154,17 @@ def _team_handle_map(users: List[Dict[str, Any]]) -> Dict[str, str]:
         out[uid] = str(handle)
     return out
 
-
 # --------------------------
-# NFL team normalization
+# NFL team normalization + bye schedule
 # --------------------------
-
 _TEAM_NORMALIZE = {
-    "LA": "LAR", "STL": "LAR",
-    "SD": "LAC",
-    "WSH": "WAS",
-    "ARZ": "ARI", "AZ": "ARI",
-    "NWE": "NE",
-    "KCC": "KC",
-    "NOR": "NO",
-    "SFO": "SF",
-    "TAM": "TB",
-    "GNB": "GB",
-    "LVR": "LV",
-    # already-normalized common codes:
-    "ARI": "ARI", "ATL": "ATL", "BAL": "BAL", "BUF": "BUF", "CAR": "CAR",
-    "CHI": "CHI", "CIN": "CIN", "CLE": "CLE", "DAL": "DAL", "DEN": "DEN",
-    "DET": "DET", "GB": "GB", "HOU": "HOU", "IND": "IND", "JAX": "JAX",
-    "KC": "KC", "LAC": "LAC", "LAR": "LAR", "LV": "LV", "MIA": "MIA",
-    "MIN": "MIN", "NE": "NE", "NO": "NO", "NYG": "NYG", "NYJ": "NYJ",
-    "PHI": "PHI", "PIT": "PIT", "SEA": "SEA", "SF": "SF", "TB": "TB",
-    "TEN": "TEN", "WAS": "WAS",
+    "LA": "LAR","STL": "LAR","SD": "LAC","WSH": "WAS","ARZ": "ARI","AZ": "ARI",
+    "NWE": "NE","KCC": "KC","NOR": "NO","SFO": "SF","TAM": "TB","GNB": "GB","LVR": "LV",
+    "ARI": "ARI","ATL": "ATL","BAL": "BAL","BUF": "BUF","CAR": "CAR","CHI": "CHI","CIN": "CIN","CLE": "CLE",
+    "DAL": "DAL","DEN": "DEN","DET": "DET","GB": "GB","HOU": "HOU","IND": "IND","JAX": "JAX","KC": "KC",
+    "LAC": "LAC","LAR": "LAR","LV": "LV","MIA": "MIA","MIN": "MIN","NE": "NE","NO": "NO","NYG": "NYG","NYJ": "NYJ",
+    "PHI": "PHI","PIT": "PIT","SEA": "SEA","SF": "SF","TB": "TB","TEN": "TEN","WAS": "WAS",
 }
-
 def _norm_team(t: Any) -> Optional[str]:
     if not t:
         return None
@@ -138,7 +179,6 @@ def _download_csv_best_effort(urls: List[str], path: Path, timeout: int = 120) -
             return pd.read_csv(path)
         except Exception:
             pass
-
     last_err = None
     for url in urls:
         try:
@@ -152,12 +192,10 @@ def _download_csv_best_effort(urls: List[str], path: Path, timeout: int = 120) -
             last_err = f"{r.status_code} {url}"
         except Exception as e:
             last_err = f"{type(e).__name__}: {e} {url}"
-
     try:
         (path.parent / (path.name + ".error.txt")).write_text(str(last_err))
     except Exception:
         pass
-
     return pd.DataFrame()
 
 def _played_teams_by_week(games: pd.DataFrame, season: int) -> Dict[int, set]:
@@ -165,16 +203,14 @@ def _played_teams_by_week(games: pd.DataFrame, season: int) -> Dict[int, set]:
     out: Dict[int, set] = {}
     if games.empty:
         return out
-    if not {"season", "week", "home_team", "away_team"}.issubset(set(games.columns)):
+    if not {"season","week","home_team","away_team"}.issubset(set(games.columns)):
         return out
-
     try:
         sub = games[games["season"] == season].copy()
     except Exception:
         return out
     if sub.empty:
         return out
-
     sub["week"] = pd.to_numeric(sub["week"], errors="coerce").astype("Int64")
     for wk, g in sub.groupby("week"):
         if pd.isna(wk):
@@ -184,33 +220,67 @@ def _played_teams_by_week(games: pd.DataFrame, season: int) -> Dict[int, set]:
         out[int(wk)] = set([t for t in (home + away) if t])
     return out
 
+# --------------------------
+# Injury/Suspension (nflverse + sanity)
+# --------------------------
+def _infer_flags_from_nflverse(injuries: pd.DataFrame, gsis_id: Optional[str], season: int, week: int) -> Tuple[Optional[bool], Optional[bool]]:
+    injuries = _safe_df(injuries)
+    if injuries.empty or not gsis_id or "gsis_id" not in injuries.columns:
+        return (None, None)
+    try:
+        if "season" in injuries.columns:
+            injuries["season"] = pd.to_numeric(injuries["season"], errors="coerce").astype("Int64")
+        if "week" in injuries.columns:
+            injuries["week"] = pd.to_numeric(injuries["week"], errors="coerce").astype("Int64")
+    except Exception:
+        pass
+    try:
+        sub = injuries[(injuries.get("season", season) == season) & (injuries.get("week", week) == week) & (injuries["gsis_id"].astype(str) == str(gsis_id))]
+    except Exception:
+        return (None, None)
+    if sub.empty:
+        return (None, None)
+    status_col = _first_col(sub, ["report_status","status","game_status","injury_status","practice_status","designation"])
+    if not status_col:
+        return (None, None)
+    s = str(sub.iloc[0].get(status_col) or "").lower()
+    if not s:
+        return (None, None)
+    suspension = ("susp" in s) or ("sspd" in s)
+    injury = (("out" in s) or ("ir" in s) or ("inactive" in s) or ("pup" in s) or ("nfi" in s) or ("doubt" in s)) and not suspension
+    return (injury, suspension)
+
+# --------------------------
+# Plan columns
+# --------------------------
+def _ensure_plan_columns(df: pd.DataFrame, cols: List[str]) -> pd.DataFrame:
+    df = _safe_df(df).copy()
+    for c in cols:
+        if c not in df.columns:
+            df[c] = None
+    return df[cols]
 
 # --------------------------
 # League chain
 # --------------------------
-
 def _walk_league_chain(sc: SleeperClient, start_league_id: str, min_season: int | None, max_season: int | None) -> List[Dict[str, Any]]:
     chain: List[Dict[str, Any]] = []
     lid = str(start_league_id)
     seen = set()
-
     while lid and lid not in seen:
         seen.add(lid)
         try:
             lg = sc.league(lid)
         except Exception:
             break
-
         season = _to_int(lg.get("season"), None)
         if season is not None and min_season is not None and season < min_season:
             break
-
         chain.append(lg)
         prev = lg.get("previous_league_id")
         lid = str(prev) if prev else ""
         if lid == "None":
             lid = ""
-
     chain = sorted(chain, key=lambda x: _to_int(x.get("season"), 0) or 0)
     if max_season is not None:
         chain = [x for x in chain if (_to_int(x.get("season"), 0) or 0) <= max_season]
@@ -219,157 +289,11 @@ def _walk_league_chain(sc: SleeperClient, start_league_id: str, min_season: int 
 def _league_roster_positions(lg: Dict[str, Any]) -> List[str]:
     settings = lg.get("settings") or {}
     rp = settings.get("roster_positions") or []
-    rp = list(rp) if isinstance(rp, list) else []
-    # Sleeper roster_positions sometimes includes bench/IR/taxi placeholders; exclude those for lineup optimization.
-    drop = {"BN", "BENCH", "IR", "TAXI", "RES", "RESERVE"}
-    rp = [str(x) for x in rp if str(x).upper() not in drop]
-    return rp
-
-
-# --------------------------
-# Injury/Suspension detection (platform-ish, best effort)
-# --------------------------
-
-def _starting_positions(roster_positions: List[str]) -> List[str]:
-    """Return starting lineup slot labels only (exclude BN/IR/TAXI/RES)."""
-    out: List[str] = []
-    for p in roster_positions or []:
-        s = str(p).upper().strip()
-        if s in ("BN", "BENCH", "IR", "TAXI", "RES"):
-            continue
-        out.append(str(p))
-    return out
-
-
-def _infer_flags_from_sleeper_player_meta(meta: Dict[str, Any]) -> Tuple[Optional[bool], Optional[bool]]:
-    """Sleeper player metadata is *current* and not week-historical; do not use it for week flags."""
-    return (None, None)
-    status = str(meta.get("status") or "").lower()
-    injury_status = str(meta.get("injury_status") or "").lower()
-
-    if "susp" in status or "susp" in injury_status:
-        return (False, True)
-
-    # Treat only "out/ir/pup/nfi/inactive" as injury.
-    injury_markers = ["ir", "out", "inactive", "pup", "nfi", "covid"]
-    if any(k in status for k in injury_markers) or any(k in injury_status for k in injury_markers):
-        return (True, False)
-
-    if status in ("active", "") and injury_status in ("", "healthy", "none", "null"):
-        return (False, False)
-
-    return (None, None)
-
-def _infer_flags_from_nflverse(injuries: pd.DataFrame, gsis_id: Optional[str], season: int, week: int) -> Tuple[Optional[bool], Optional[bool]]:
-    injuries = _safe_df(injuries)
-    if injuries.empty or not gsis_id or "gsis_id" not in injuries.columns:
-        return (None, None)
-
-    try:
-        if "season" in injuries.columns:
-            injuries["season"] = pd.to_numeric(injuries["season"], errors="coerce").astype("Int64")
-        if "week" in injuries.columns:
-            injuries["week"] = pd.to_numeric(injuries["week"], errors="coerce").astype("Int64")
-    except Exception:
-        pass
-
-    try:
-        sub = injuries[
-            (injuries.get("season", season) == season) &
-            (injuries.get("week", week) == week) &
-            (injuries["gsis_id"].astype(str) == str(gsis_id))
-        ]
-    except Exception:
-        return (None, None)
-    if sub.empty:
-        return (None, None)
-
-    status_col = _first_col(sub, ["report_status", "status", "game_status", "injury_status", "practice_status"])
-    if not status_col:
-        return (None, None)
-
-    s = str(sub.iloc[0].get(status_col) or "").lower()
-    if not s:
-        return (None, None)
-
-    suspension = ("susp" in s) or ("sspd" in s)
-    injury = (("out" in s) or ("ir" in s) or ("doubt" in s) or ("inactive" in s) or ("pup" in s)) and not suspension
-    return (injury, suspension)
-
-def _merge_flags(primary: Tuple[Optional[bool], Optional[bool]], secondary: Tuple[Optional[bool], Optional[bool]]) -> Tuple[Optional[bool], Optional[bool]]:
-    inj1, sus1 = primary
-    inj2, sus2 = secondary
-    if sus1 is True or sus2 is True:
-        return (False, True)
-    if inj1 is True or inj2 is True:
-        return (True, False)
-    if (inj1 is False and sus1 is False) or (inj2 is False and sus2 is False):
-        return (False, False)
-    return (None, None)
-
-
-# --------------------------
-# Column enforcement
-# --------------------------
-
-def _ensure_plan_columns(df: pd.DataFrame, cols: List[str], keep_extras: bool = True) -> pd.DataFrame:
-    df = _safe_df(df).copy()
-    for c in cols:
-        if c not in df.columns:
-            df[c] = None
-    if not keep_extras:
-        return df[cols]
-    extras = [c for c in df.columns if c not in cols]
-    return df[cols + extras]
-
-
-# --------------------------
-# Playoff labeling
-# --------------------------
-
-def _parse_bracket_entries(entries: Any, bracket_type: str) -> List[Dict[str, Any]]:
-    if not isinstance(entries, list):
-        return []
-    out = []
-    for it in entries:
-        if not isinstance(it, dict):
-            continue
-        out.append({
-            "matchup_id": it.get("matchup_id", it.get("m")),
-            "round": it.get("round", it.get("r")),
-            "placement": it.get("placement", it.get("p")),
-            "t1": it.get("t1"),
-            "t2": it.get("t2"),
-            "bracket": bracket_type,
-        })
-    return out
-
-def _playoff_label_for(entry: Dict[str, Any]) -> Optional[str]:
-    b = entry.get("bracket")
-    r = _to_int(entry.get("round"), None)
-    p = _to_int(entry.get("placement"), None)
-
-    if b == "winners":
-        if p == 3:
-            return "3rd Place"
-        if r == 1:
-            return "Semifinal"
-        if r == 2:
-            return "Final"
-    if b == "losers":
-        if p == 5:
-            return "5th Place"
-        if r == 1:
-            return "Toilet Semis"
-        if r == 2:
-            return "Toilet Final"
-    return None
-
+    return list(rp) if isinstance(rp, list) else []
 
 # --------------------------
 # Main entry
 # --------------------------
-
 def build_all(repo_root: Path) -> None:
     plan_csv = repo_root / "plan" / "LOTG Plan - Sheet1.csv"
     catalog = load_plan_catalog(plan_csv)
@@ -382,64 +306,24 @@ def build_all(repo_root: Path) -> None:
         season_type=str(cfg.get("season_type", "regular")).lower(),
     )
 
-    # Sleeper's /players/nfl payload is large; a short timeout can yield empty player meta,
-    # which then collapses downstream calculations (e.g., Max PF becomes 0 everywhere).
-    http = HttpConfig(timeout_seconds=120, max_retries=10, backoff_base_seconds=0.7)
+    http = HttpConfig(timeout_seconds=40, max_retries=12, backoff_base_seconds=0.8)
     sc = SleeperClient(http)
 
     cache_dir = repo_root / ".cache"
     cache_dir.mkdir(exist_ok=True)
-    ext = ExternalConfig(cache_dir=cache_dir, timeout_seconds=120)
+    ext = ExternalConfig(cache_dir=cache_dir, timeout_seconds=180)
 
-    # --------------------------
-    # External datasets (NEVER crash build)
-    # --------------------------
-
+    # External datasets (best-effort)
     try:
         dp_ids = _safe_df(load_dynastyprocess_playerids(ext))
     except Exception:
         dp_ids = pd.DataFrame()
 
-    for c in ["sleeper_id", "gsis_id", "name"]:
+    for c in ["sleeper_id","gsis_id","name"]:
         if c in dp_ids.columns:
             dp_ids[c] = dp_ids[c].astype(str)
 
-    dp_val_map: Dict[str, float] = {}
-    try:
-        dp_vals_players = _safe_df(load_dynastyprocess_values_players(ext))
-    except Exception:
-        dp_vals_players = pd.DataFrame()
-
-    if not dp_vals_players.empty:
-        name_col = _first_col(dp_vals_players, ["player", "name", "Player", "Name"])
-        val_col = _first_col(dp_vals_players, ["value", "Value", "dp_value", "DP Value", "trade_value", "Trade Value"])
-        if name_col and val_col:
-            try:
-                tmp = dp_vals_players[[name_col, val_col]].copy()
-                tmp["player_key"] = tmp[name_col].astype(str).map(clean_name)
-                tmp["dp_value"] = pd.to_numeric(tmp[val_col], errors="coerce")
-                dp_val_map = tmp.groupby("player_key")["dp_value"].max().to_dict()
-            except Exception:
-                dp_val_map = {}
-
-    dp_pick_val: Dict[str, float] = {}
-    try:
-        dp_vals_picks = _safe_df(load_dynastyprocess_values_picks(ext))
-    except Exception:
-        dp_vals_picks = pd.DataFrame()
-
-    if not dp_vals_picks.empty:
-        pick_col = _first_col(dp_vals_picks, ["pick", "Pick"])
-        val_col = _first_col(dp_vals_picks, ["value", "Value", "pick_value", "Pick Value", "trade_value", "Trade Value"])
-        if pick_col and val_col:
-            try:
-                tmp = dp_vals_picks[[pick_col, val_col]].copy()
-                tmp["pick_key"] = tmp[pick_col].astype(str).str.lower()
-                tmp["pick_value"] = pd.to_numeric(tmp[val_col], errors="coerce")
-                dp_pick_val = tmp.groupby("pick_key")["pick_value"].max().to_dict()
-            except Exception:
-                dp_pick_val = {}
-
+    # games schedule for byes
     games = _download_csv_best_effort(
         urls=[
             "https://raw.githubusercontent.com/nflverse/nfldata/master/data/games.csv",
@@ -451,67 +335,47 @@ def build_all(repo_root: Path) -> None:
     if "season" in games.columns:
         games["season"] = pd.to_numeric(games["season"], errors="coerce").astype("Int64")
 
-    # /players/nfl is large; cache it so transient network issues don't zero out meta.
-    import gzip
-
-    players_cache = cache_dir / "sleeper_players_nfl.json.gz"
-    players_nfl: Dict[str, Any] = {}
-    if players_cache.exists() and players_cache.stat().st_size > 0:
-        try:
-            with gzip.open(players_cache, "rt", encoding="utf-8") as f:
-                players_nfl = json.load(f)
-        except Exception:
-            players_nfl = {}
-
-    if not players_nfl:
-        try:
-            players_nfl = sc.players_nfl()
-            try:
-                with gzip.open(players_cache, "wt", encoding="utf-8") as f:
-                    json.dump(players_nfl, f)
-            except Exception:
-                pass
-        except Exception:
-            players_nfl = {}
-
+    # Sleeper NFL players (current)
+    try:
+        players_nfl = sc.players_nfl()
+    except Exception:
+        players_nfl = {}
     pid_meta: Dict[str, Dict[str, Any]] = {}
     for pid, meta in (players_nfl or {}).items():
         if not isinstance(meta, dict):
             continue
         pid = str(pid)
-        full = meta.get("full_name") or (str(meta.get("first_name", "")) + " " + str(meta.get("last_name", ""))).strip()
+        full = meta.get("full_name") or (str(meta.get("first_name","")) + " " + str(meta.get("last_name",""))).strip()
         pid_meta[pid] = {
             "full_name": full or pid,
             "pos": meta.get("position"),
-            "pos_elig": meta.get("fantasy_positions") or ([meta.get("position")] if meta.get("position") else []),
-            "gsis_id": meta.get("gsis_id"),
             "team": _norm_team(meta.get("team")),
             "birth_date": meta.get("birth_date") or meta.get("birthdate"),
             "years_exp": meta.get("years_exp"),
-            "status": meta.get("status"),
-            "injury_status": meta.get("injury_status"),
-            "practice_participation": meta.get("practice_participation"),
         }
 
+    # League chain
     leagues = _walk_league_chain(sc, run_cfg.league_id, run_cfg.min_season, run_cfg.max_season)
 
     raw_dir = repo_root / "exports" / "raw"
     raw_dir.mkdir(parents=True, exist_ok=True)
 
-    player_week_rows: List[Dict[str, Any]] = []
+    roster_week_rows: List[Dict[str, Any]] = []
     team_week_rows: List[Dict[str, Any]] = []
     transactions_rows: List[Dict[str, Any]] = []
     trades_rows: List[Dict[str, Any]] = []
     pick_rows: List[Dict[str, Any]] = []
 
-    all_teams_seen: set[str] = set()
-
+    # --------------------------
+    # Build seasons
+    # --------------------------
     for lg in leagues:
         league_id = str(lg.get("league_id"))
         season = _to_int(lg.get("season"), 0) or 0
         roster_positions = _league_roster_positions(lg)
-        starting_positions = _starting_positions(roster_positions)
+        scoring_settings = _scoring_settings_from_league(lg)
 
+        # users/rosters
         try:
             users = sc.users(league_id)
         except Exception:
@@ -533,28 +397,8 @@ def build_all(repo_root: Path) -> None:
         roster_to_team: Dict[int, str] = {}
         for rid, owner in roster_owner.items():
             roster_to_team[rid] = user_handle.get(owner, f"Roster {rid}")
-            all_teams_seen.add(roster_to_team[rid])
 
-
-        settings = lg.get("settings") or {}
-        playoff_start_week = _to_int(settings.get("playoff_week_start"), None)
-        # Exclude the NFL regular-season final week entirely from all tables (Week 18 for 2021+, Week 17 pre-2021)
-        excluded_week = 18 if season >= 2021 else 17
-
-        seed_by_roster: Dict[int, Optional[int]] = {}
-        for r in rosters or []:
-            rid = _to_int(r.get("roster_id"), None)
-            if rid is None:
-                continue
-            rs = r.get("settings") or {}
-            seed = _to_int(rs.get("playoff_seed") or rs.get("seed") or rs.get("rank") or rs.get("p_rank"), None)
-            seed_by_roster[int(rid)] = seed
-
-        playoff_r1_winners: set[int] = set()
-        playoff_r1_losers: set[int] = set()
-        toilet_r1_winners: set[int] = set()
-        toilet_r1_losers: set[int] = set()
-
+        # raw snapshots
         try:
             (raw_dir / f"league_{season}.json").write_text(json.dumps(lg, indent=2))
             (raw_dir / f"users_{season}.json").write_text(json.dumps(users, indent=2))
@@ -562,6 +406,7 @@ def build_all(repo_root: Path) -> None:
         except Exception:
             pass
 
+        # nflverse injuries for season
         try:
             injuries = _safe_df(load_nflverse_injuries(ext, season))
         except Exception:
@@ -569,32 +414,13 @@ def build_all(repo_root: Path) -> None:
 
         played_by_week = _played_teams_by_week(games, season)
 
-        # playoff labels (Opponent column becomes label in playoff/toilet weeks)
-        playoff_week_start = _to_int((lg.get("settings") or {}).get("playoff_week_start"), 15) or 15
-        playoff_labels: Dict[Tuple[int, int], str] = {}  # (week, matchup_id) -> label
+        # traded picks (used for draft-capital inventory)
         try:
-            wb = _parse_bracket_entries(sc.winners_bracket(league_id), "winners")
+            traded_picks = sc.traded_picks(league_id)
         except Exception:
-            wb = []
-        try:
-            lb = _parse_bracket_entries(sc.losers_bracket(league_id), "losers")
-        except Exception:
-            lb = []
-        for e in wb + lb:
-            mid = _to_int(e.get("matchup_id"), None)
-            label = _playoff_label_for(e)
-            if mid is None or not label:
-                continue
-            r = _to_int(e.get("round"), None)
-            if r == 1:
-                wk = playoff_week_start
-            elif r == 2:
-                wk = playoff_week_start + 1
-            else:
-                wk = playoff_week_start + (r - 1 if r else 0)
-            playoff_labels[(wk, mid)] = label
+            traded_picks = []
 
-        # draft picks history (best-effort)
+        # draft picks (rookie drafts)
         try:
             drafts = sc.drafts(league_id)
         except Exception:
@@ -628,52 +454,37 @@ def build_all(repo_root: Path) -> None:
                 "etc": None,
             })
 
-        # NFL regular season length: we exclude the final NFL regular-season week entirely
-        # (Week 18 for 2021+, Week 17 for pre-2021). All league computations stop at:
-        #   max_data_week = 17 (modern) or 16 (pre-2021).
-        max_data_week = 17 if season >= 2021 else 16
-
+        # weekly loop
         week = 1
-        playoff_start = _to_int((lg.get("settings") or {}).get("playoff_week_start"), None)
-        if playoff_start is None:
-            # Most Sleeper dynasty leagues run a two-week playoff; default to week 15 for modern seasons.
-            playoff_start = 15 if max_data_week == 17 else 14
-        # store for later labeling
-        season_playoff_start = int(playoff_start)
         prev_starters_by_team: Dict[str, set] = {}
 
-        while True:
-            # Exclude the final NFL regular-season week entirely from ALL outputs/calculations.
-            # (Week 18 starting 2021; Week 17 prior)
-            if week > max_data_week:
-                break
+        max_week = 17 if season >= 2021 else 16
 
+        while True:
+            if week > max_week:
+                break
             try:
                 matchups = sc.matchups(league_id, week)
             except Exception:
                 matchups = None
-
             if not matchups:
                 break
-
-            # Exclude Week 18 entirely (Week 17 for pre-2021 seasons).
-            if (season >= 2021 and week >= 18) or (season <= 2020 and week >= 17):
-                break
-
             try:
                 txs = sc.transactions(league_id, week)
             except Exception:
                 txs = []
 
+            # weekly fantasy points for all NFL players
+            week_points = _load_week_points_cached(sc, cache_dir, season, week, scoring_settings, season_type=run_cfg.season_type)
+
+            # matchup df for opponent mapping
             mdf = _safe_df(pd.DataFrame(matchups))
             if mdf.empty:
                 break
-
             if "points" in mdf.columns:
                 mdf["points"] = pd.to_numeric(mdf["points"], errors="coerce").fillna(0.0)
             else:
                 mdf["points"] = 0.0
-
             if "roster_id" in mdf.columns:
                 mdf["roster_id"] = pd.to_numeric(mdf["roster_id"], errors="coerce").fillna(-1).astype(int)
             else:
@@ -696,6 +507,7 @@ def build_all(repo_root: Path) -> None:
                 team = roster_to_team.get(rid, f"Roster {rid}")
                 week_team_pf[team] = float(_to_float(m.get("points"), 0.0) or 0.0)
 
+            # transaction summaries
             faab_spent: Dict[str, float] = {}
             trade_count: Dict[str, int] = {}
             tx_count: Dict[str, int] = {}
@@ -716,11 +528,13 @@ def build_all(repo_root: Path) -> None:
                     bid = _to_float(meta.get("waiver_bid") or meta.get("faab") or 0.0, 0.0) or 0.0
                 faab_spent[team] = faab_spent.get(team, 0.0) + bid
 
+            played_set = played_by_week.get(week, set())
+
+            # Build roster-week and team-week
             for m in matchups or []:
                 rid = _to_int(m.get("roster_id"), None)
                 if rid is None:
                     continue
-
                 team = roster_to_team.get(rid, f"Roster {rid}")
                 pf = float(_to_float(m.get("points"), 0.0) or 0.0)
 
@@ -733,25 +547,6 @@ def build_all(repo_root: Path) -> None:
                     except Exception:
                         opp_points = None
 
-                # Default label is the opponent team handle; for playoffs/consolation
-                # we may overwrite with stage labels (Final, Toilet Final, etc.).
-                opp_label = opp_team_actual
-                if playoff_start_week and week >= playoff_start_week:
-                    seed = seed_by_roster.get(int(rid))
-                    if week == playoff_start_week:
-                        opp_label = "Semifinal" if (seed is not None and seed <= 4) else "Toilet Semis"
-                    elif week == playoff_start_week + 1:
-                        if seed is not None and seed <= 4:
-                            if int(rid) in playoff_r1_winners:
-                                opp_label = "Final"
-                            elif int(rid) in playoff_r1_losers:
-                                opp_label = "3rd Place"
-                        else:
-                            if int(rid) in toilet_r1_winners:
-                                opp_label = "Toilet Final"
-                            elif int(rid) in toilet_r1_losers:
-                                opp_label = "Toilet Trash"
-
                 margin = (pf - opp_points) if opp_points is not None else None
                 win = None
                 if margin is not None:
@@ -760,24 +555,29 @@ def build_all(repo_root: Path) -> None:
                 starters = [str(x) for x in (m.get("starters") or []) if x]
                 players = [str(x) for x in (m.get("players") or []) if x]
 
+                # points map for roster players (prefer Sleeper computed points, fallback to scored stats)
                 ppts_raw = m.get("players_points") or {}
                 ppts: Dict[str, float] = {}
                 if isinstance(ppts_raw, dict):
                     for k, v in ppts_raw.items():
-                        try:
-                            ppts[str(k)] = float(v)
-                        except Exception:
-                            pass
+                        vv = _to_float(v, 0.0) or 0.0
+                        ppts[str(k)] = float(vv)
 
-                pos_map = {pid: ("/".join([p for p in (pid_meta.get(pid, {}).get("pos_elig") or []) if p]) or (pid_meta.get(pid, {}).get("pos") or "")) for pid in players}
+                # fill for all roster players using week_points (bench included)
+                for pid in players:
+                    if pid not in ppts:
+                        ppts[pid] = float(week_points.get(pid, 0.0))
 
+                pos_map = {pid: (pid_meta.get(pid, {}).get("pos") or "") for pid in players}
+
+                # Max PF + efficiency
                 try:
-                    max_pf, _ = max_points_lineup(starting_positions, players, ppts, pos_map)
+                    max_pf, _ = max_points_lineup(roster_positions, players, ppts, pos_map)
                 except Exception:
                     max_pf = None
-
                 eff = safe_div(pf, max_pf) if max_pf else None
 
+                # expected win percentile vs league that week
                 scores = list(week_team_pf.values())
                 expected = None
                 luck = None
@@ -805,8 +605,8 @@ def build_all(repo_root: Path) -> None:
                 qb_s, rb_s, wr_s, te_s = count_pos(starters, "QB"), count_pos(starters, "RB"), count_pos(starters, "WR"), count_pos(starters, "TE")
                 qb_r, rb_r, wr_r, te_r = count_pos(players, "QB"), count_pos(players, "RB"), count_pos(players, "WR"), count_pos(players, "TE")
 
-                rook_s = sum(1 for pid in starters if pid_meta.get(pid, {}).get("years_exp") in (0, "0", 0.0))
-                rook_r = sum(1 for pid in players if pid_meta.get(pid, {}).get("years_exp") in (0, "0", 0.0))
+                rook_s = sum(1 for pid in starters if str(pid_meta.get(pid, {}).get("years_exp")).strip() in ("0","0.0"))
+                rook_r = sum(1 for pid in players if str(pid_meta.get(pid, {}).get("years_exp")).strip() in ("0","0.0"))
 
                 approx_date = date(season, 9, 1) + timedelta(days=7 * (week - 1))
                 ages = [a for a in (_calc_age(pid_meta.get(pid, {}).get("birth_date"), approx_date) for pid in players) if a is not None]
@@ -817,32 +617,8 @@ def build_all(repo_root: Path) -> None:
                 most_start_same = max(Counter(start_nfl_teams).values()) if start_nfl_teams else None
                 most_roster_same = max(Counter(roster_nfl_teams).values()) if roster_nfl_teams else None
 
-                opp_maxpf = None
-                if opp_rid is not None:
-                    try:
-                        opp_m = next((x for x in matchups if _to_int(x.get("roster_id"), -1) == int(opp_rid)), None)
-                        if opp_m:
-                            opp_players = [str(x) for x in (opp_m.get("players") or []) if x]
-                            opp_ppts_raw = opp_m.get("players_points") or {}
-                            opp_ppts = {}
-                            if isinstance(opp_ppts_raw, dict):
-                                for k, v in opp_ppts_raw.items():
-                                    try:
-                                        opp_ppts[str(k)] = float(v)
-                                    except Exception:
-                                        pass
-                            opp_pos_map = {pid: ("/".join([p for p in (pid_meta.get(pid, {}).get("pos_elig") or []) if p]) or (pid_meta.get(pid, {}).get("pos") or "")) for pid in opp_players}
-                            opp_maxpf, _ = max_points_lineup(starting_positions, opp_players, opp_ppts, opp_pos_map)
-                    except Exception:
-                        opp_maxpf = None
-
+                # UPST placeholder (compute later with rollup once team avgs known)
                 upst = None
-                if win is not None and max_pf is not None and opp_maxpf is not None:
-                    upst = 1 if (max_pf < opp_maxpf and win == 1) else 0
-
-                matchup_id = _to_int(m.get("matchup_id"), None)
-                opp_label = playoff_labels.get((week, matchup_id)) if matchup_id is not None else None
-                opp_display = opp_label or opp_team_actual
 
                 team_week_rows.append({
                     "Team": team,
@@ -850,11 +626,10 @@ def build_all(repo_root: Path) -> None:
                     "Year": season,
                     "PF": round(pf, 2),
                     "Win?": win,
-                    "Opponent": opp_display,
-                    "_OpponentTeamActual": opp_team_actual,
+                    "Opponent": opp_team_actual,
                     "Points against": round(opp_points, 2) if opp_points is not None else None,
                     "Margin": round(margin, 2) if margin is not None else None,
-                    "Max PF": max_pf,
+                    "Max PF": round(float(max_pf), 2) if max_pf is not None else None,
                     "Efficiency": round(eff, 4) if eff is not None else None,
                     "Starter turnover from previous week": turnover,
                     "Difference between highest and lowest starters": round(diff_hi_lo, 2) if diff_hi_lo is not None else None,
@@ -867,7 +642,7 @@ def build_all(repo_root: Path) -> None:
                     "Number of players over 50": over50,
                     "UPST": upst,
                     "Hardship": None,
-                    "Tanking": (round((max_pf - pf) / max_pf, 4) if max_pf else None),
+                    "Tanking": None,
                     "Luck": round(luck, 4) if luck is not None else None,
                     "Brosenzweig": None,
                     "Sisenzweig": None,
@@ -894,12 +669,12 @@ def build_all(repo_root: Path) -> None:
                     "Player average age": avg_age,
                 })
 
+                # roster-week rows (core structure)
                 starter_slot = {}
                 for i, pid in enumerate(starters):
-                    if i < len(starting_positions):
-                        starter_slot[pid] = starting_positions[i]
+                    if i < len(roster_positions):
+                        starter_slot[pid] = roster_positions[i]
 
-                played_set = played_by_week.get(week, set())
                 for pid in players:
                     meta = pid_meta.get(pid, {})
                     full_name = meta.get("full_name") or pid
@@ -908,10 +683,9 @@ def build_all(repo_root: Path) -> None:
                     started = pid in starters
                     slot = starter_slot.get(pid) if started else None
 
-                    # Prefer Sleeper-provided gsis_id (present in /players/nfl) to avoid
-                    # brittle external id maps.
-                    gsis = meta.get("gsis_id")
-                    if (not gsis) and (not dp_ids.empty) and "sleeper_id" in dp_ids.columns and "gsis_id" in dp_ids.columns:
+                    # gsis id lookup for nflverse injuries
+                    gsis = None
+                    if not dp_ids.empty and "sleeper_id" in dp_ids.columns and "gsis_id" in dp_ids.columns:
                         try:
                             match = dp_ids.loc[dp_ids["sleeper_id"].astype(str) == pid]
                             if not match.empty:
@@ -919,9 +693,7 @@ def build_all(repo_root: Path) -> None:
                         except Exception:
                             gsis = None
 
-                    f1 = _infer_flags_from_nflverse(injuries, gsis, season, week)
-                    f2 = _infer_flags_from_sleeper_player_meta(meta)
-                    inj, susp = _merge_flags(f1, f2)
+                    inj, susp = _infer_flags_from_nflverse(injuries, gsis, season, week)
 
                     bye = None
                     if nfl_team and played_set:
@@ -929,183 +701,107 @@ def build_all(repo_root: Path) -> None:
                     if pts > 0:
                         bye = False
 
-                    player_week_rows.append({
+                    # sanity: if played (pts>0), cannot be "out"
+                    if pts > 0:
+                        inj = False
+                        susp = False
+
+                    roster_week_rows.append({
                         "Player": full_name,
+                        "PlayerID": pid,
                         "Team": team,
+                        "RosterID": rid,
                         "Week": week,
                         "Year": season,
                         "Points": round(pts, 2),
+                        "Started": bool(started),
+                        "Slot": slot,
+                        "Pos": meta.get("pos"),
+                        "NFL Team": nfl_team,
                         "Injury?": bool(inj) if inj is not None else None,
                         "Suspension?": bool(susp) if susp is not None else None,
                         "Bye?": bool(bye) if bye is not None else None,
-                        "Starter/Bench": "Starter" if started else "Bench",
-                        "% of points (if starter)": round(pts / pf, 4) if started and pf else None,
-                        "Position started in (if starter)": slot,
-                        # advanced columns filled later / left blank if not computed yet
-                        "Change from previous week": None,
-                        "Change from previous 5 weeks avg": None,
-                        "Change from career average to that point": None,
-                        "Change from overall career average": None,
-                        "Number of weeks on team": None,
-                        "Number of consecutive weeks on bench before start (if starter)": None,
-                        "Number of consecutive weeks on bench before start excluding injury/bye (if starter)": None,
-                        "Total weeks as team starter to that point": None,
-                        "Total weeks on bench to that point": None,
-                        "Total weeks as team starter on that team this season": None,
-                        "Total weeks on bench on that team this season": None,
                     })
 
+            # Transactions rows (non-trade) - keep base only (advanced computed later from roster ledger)
+            for t in txs or []:
+                if t.get("type") == "trade":
+                    continue
+                ttype = t.get("type")
+                created_date = _epoch_ms_to_date(t.get("created"))
+                creator = str(t.get("creator") or "")
+                team = user_handle.get(creator) if creator else None
+                adds = t.get("adds") or {}
+                drops = t.get("drops") or {}
+                meta = t.get("metadata") or {}
+                faab = meta.get("waiver_bid") if isinstance(meta, dict) else None
+                num_bids = meta.get("num_bids") if isinstance(meta, dict) else None
+                if not isinstance(adds, dict): adds = {}
+                if not isinstance(drops, dict): drops = {}
+                for pid, rrid in adds.items():
+                    pid = str(pid)
+                    dropped = None
+                    for dp, drid in drops.items():
+                        if str(drid) == str(rrid):
+                            dropped = str(dp)
+                            break
+                    transactions_rows.append({
+                        "Team": team,
+                        "Player Added": pid_meta.get(pid, {}).get("full_name") or pid,
+                        "Player Dropped": pid_meta.get(dropped, {}).get("full_name") if dropped else None,
+                        "type of transaction (waiver/free agency)": ttype,
+                        "Faab": faab,
+                        "Date": str(created_date) if created_date else None,
+                        "Number of bids": num_bids,
+                        "Link to next transaction": None,
+                        "Link to previous transaction": None,
+                        "Average PPG on team": None,
+                        "Average PPG of dropped player over same time": None,
+                        "Difference of averages": None,
+                        "Difference of averages adjusted by position": None,
+                        "Age difference": None,
+                        "Player addition value": None,
+                        "Cuff at time of pickup?": None,
+                        "Weeks between pickup and start": None,
+                        "Number of starts before next drop": None,
+                        "% of starts made while rostered": None,
+                        "Injury adjusted % of starts made while rostered": None,
+                        "Date dropped/traded": None,
+                        "Tanking before": None,
+                        "Tanking after": None,
+                        "Number of times picked up by this team": None,
+                    })
+
+            # TODO: trades_rows kept minimal (KTC/Oliver etc blank)
             week += 1
 
-    pw = pd.DataFrame(player_week_rows)
+    # --------------------------
+    # Build DataFrames from core roster-week
+    # --------------------------
+    rw = pd.DataFrame(roster_week_rows)
     tw = pd.DataFrame(team_week_rows)
     tx = pd.DataFrame(transactions_rows)
     tr = pd.DataFrame(trades_rows)
     ph = pd.DataFrame(pick_rows)
 
+    # Player-Week (derived from roster-week)
+    pw = pd.DataFrame()
+    if not rw.empty:
+        pw = rw.copy()
+        pw["Starter/Bench"] = pw["Started"].map(lambda x: "Starter" if bool(x) else "Bench")
+        pw["Position started in (if starter)"] = pw["Slot"]
+        # % of points if starter
+        team_pf_map = {(r["Team"], r["Year"], r["Week"]): r["PF"] for r in team_week_rows}
+        pw["% of points (if starter)"] = pw.apply(lambda r: (r["Points"]/team_pf_map.get((r["Team"], r["Year"], r["Week"]), 0)) if r["Starter/Bench"]=="Starter" and team_pf_map.get((r["Team"], r["Year"], r["Week"]), 0) else None, axis=1)
 
-    # --------------------------
-    # Week labels + stable sorting across playoffs
-    # --------------------------
-    # Keep a numeric week key for ordering, but replace the public Week with playoff/toilet labels.
-    # Labels (no opponent names):
-    #   Semifinal, Final, Toilet Semis, Toilet Final, 3rd Place, 5th Place
-    # Excluded week (Week 18; Week 17 pre-2021) is already skipped in the weekly loop.
+        # remove internal cols not in plan
+        pw.rename(columns={"NFL Team":"NFL team"}, inplace=True)
 
-    # default Week_Sort mirrors Week
-    def _apply_week_labels(tw: pd.DataFrame, pw: pd.DataFrame, leagues: list[dict[str, Any]]) -> tuple[pd.DataFrame, pd.DataFrame]:
-        if tw is None or tw.empty:
-            return tw, pw
+        # change metrics over ACTIVE games (exclude bye/inj/susp), bench still counts
+        pw = pw.sort_values(["Player","Year","Week"]).reset_index(drop=True)
+        active = ~pw[["Injury?","Suspension?","Bye?"]].fillna(False).any(axis=1)
 
-        tw = tw.copy()
-        tw['WeekNum'] = pd.to_numeric(tw['Week'], errors='coerce').astype('Int64')
-        tw['Week_Sort'] = tw['WeekNum'].astype('Int64')
-
-
-        # Group key for week-level calculations: regular weeks by WeekNum; playoff weeks grouped by Week_Sort (1001 semis, 1002 finals, etc.)
-        tw['Week_Group'] = tw['Week_Sort'].where(tw['Week_Sort'] >= 1000, tw['WeekNum']).astype('Int64')
-        # season -> playoff_start
-        playoff_by_year: dict[int, int] = {}
-        for lg in leagues or []:
-            y = _to_int(lg.get('season'), None)
-            if y is None:
-                continue
-            s = (lg.get('settings') or {})
-            ps = _to_int(s.get('playoff_week_start'), None)
-            if ps is None:
-                # 2-week playoff default: weeks 15-16 (16-17 in some formats); choose 15 when unknown
-                ps = 15
-            playoff_by_year[y] = ps
-
-        # Label playoffs per season using seeds + week1 results
-        for y, g in tw.groupby('Year'):
-            year = _to_int(y, None)
-            if year is None:
-                continue
-            ps = playoff_by_year.get(year)
-            if ps is None:
-                continue
-
-            reg = g[g['WeekNum'].notna() & (g['WeekNum'] < ps)].copy()
-            if reg.empty:
-                continue
-
-            # Seeds 1-8: record desc, PF desc
-            reg['WinVal'] = pd.to_numeric(reg.get('Win?'), errors='coerce')
-            agg = reg.groupby('Team', as_index=False).agg(
-                Wins=('WinVal', lambda s: float((s == 1).sum()) + 0.5 * float((s == 0.5).sum())),
-                Losses=('WinVal', lambda s: float((s == 0).sum())),
-                PF=('PF', 'sum'),
-            )
-            agg = agg.sort_values(['Wins', 'PF'], ascending=[False, False]).reset_index(drop=True)
-            agg['Seed'] = agg.index + 1
-            seed_map = dict(zip(agg['Team'], agg['Seed']))
-
-            # Week 1 playoffs classification by seeds
-            w1 = tw[(tw['Year'] == y) & (tw['WeekNum'] == ps)].copy()
-            if not w1.empty:
-                w1['Seed'] = w1['Team'].map(seed_map)
-                # label based on whether both teams are in top4 or bottom4
-                # build pair map via Opponent
-                for idx, r in w1.iterrows():
-                    s1 = _to_int(r.get('Seed'), None)
-                    opp = r.get('Opponent')
-                    s2 = _to_int(seed_map.get(opp), None) if opp else None
-                    if s1 is None or s2 is None:
-                        continue
-                    if s1 <= 4 and s2 <= 4:
-                        tw.loc[idx, 'Week'] = 'Semifinal'
-                        tw.loc[idx, 'Week_Sort'] = 1001
-                    elif s1 >= 5 and s2 >= 5:
-                        tw.loc[idx, 'Week'] = 'Toilet Semis'
-                        tw.loc[idx, 'Week_Sort'] = 1001
-
-                # winners/losers sets to classify week2
-                winners_top4: set[str] = set()
-                losers_top4: set[str] = set()
-                winners_bot4: set[str] = set()
-                losers_bot4: set[str] = set()
-                for _, r in w1.iterrows():
-                    team = r.get('Team')
-                    s1 = _to_int(seed_map.get(team), None)
-                    if team is None or s1 is None:
-                        continue
-                    winv = r.get('Win?')
-                    if winv == 1:
-                        (winners_top4 if s1 <= 4 else winners_bot4).add(team)
-                    elif winv == 0:
-                        (losers_top4 if s1 <= 4 else losers_bot4).add(team)
-
-                # Week 2 labeling
-                w2 = tw[(tw['Year'] == y) & (tw['WeekNum'] == ps + 1)].copy()
-                if not w2.empty:
-                    for idx, r in w2.iterrows():
-                        t1 = r.get('Team')
-                        t2 = r.get('Opponent')
-                        if not t1 or not t2:
-                            continue
-                        if t1 in winners_top4 and t2 in winners_top4:
-                            tw.loc[idx, 'Week'] = 'Final'
-                            tw.loc[idx, 'Week_Sort'] = 1002
-                        elif t1 in losers_top4 and t2 in losers_top4:
-                            tw.loc[idx, 'Week'] = '3rd Place'
-                            tw.loc[idx, 'Week_Sort'] = 1002
-                        elif t1 in winners_bot4 and t2 in winners_bot4:
-                            tw.loc[idx, 'Week'] = 'Toilet Final'
-                            tw.loc[idx, 'Week_Sort'] = 1002
-                        elif t1 in losers_bot4 and t2 in losers_bot4:
-                            tw.loc[idx, 'Week'] = 'Toilet Trash'
-                            tw.loc[idx, 'Week_Sort'] = 1002
-
-            # Non-playoff weeks keep Week_Sort = WeekNum
-
-        # Apply Week labels to player-week for consistency
-        if pw is not None and not pw.empty:
-            pw = pw.copy()
-            pw['WeekNum'] = pd.to_numeric(pw['Week'], errors='coerce').astype('Int64')
-            key = tw[['Team', 'Year', 'WeekNum', 'Week', 'Week_Sort']].drop_duplicates()
-            pw = pw.merge(key, how='left', on=['Team', 'Year', 'WeekNum'], suffixes=('', '_tw'))
-            # If a labeled Week exists from team-week, use it
-            pw['Week'] = pw['Week_tw'].combine_first(pw['Week'])
-            pw['_Week_Sort'] = pw['Week_Sort'].combine_first(pw['WeekNum']).astype('Int64')
-            pw.drop(columns=['Week_tw', 'Week_Sort'], inplace=True, errors='ignore')
-
-        return tw, pw
-
-    tw, pw = _apply_week_labels(tw, pw, leagues)
-    # Normalize internal sort keys used for diffs/rolling calcs
-    if not tw.empty and "Week_Sort" in tw.columns:
-        tw["_week_sort"] = pd.to_numeric(tw["Week_Sort"], errors="coerce").fillna(0).astype(int)
-    if not pw.empty and "_Week_Sort" in pw.columns:
-        pw["_week_sort"] = pd.to_numeric(pw["_Week_Sort"], errors="coerce").fillna(0).astype(int)
-    # Player-week derived columns + hardship engine
-    # --------------------------
-    if not pw.empty:
-        pw = pw.sort_values(["Player", "Year", "_week_sort" if "_week_sort" in pw.columns else "Week"]).reset_index(drop=True)
-
-        # "active" for change-metrics: exclude injury/susp/bye, but DO NOT exclude bench (bench counts)
-        active = ~pw[["Injury?", "Suspension?", "Bye?"]].fillna(False).any(axis=1)
-
+        # change from previous active week
         pw["Change from previous week"] = None
         last_active_pts: Dict[str, float] = {}
         for i, row in pw.iterrows():
@@ -1115,6 +811,7 @@ def build_all(repo_root: Path) -> None:
             if bool(active.iloc[i]):
                 last_active_pts[k] = float(row["Points"])
 
+        # prev 5 active avg (spans seasons)
         pw["Change from previous 5 weeks avg"] = None
         windows: Dict[str, deque] = {}
         for i, row in pw.iterrows():
@@ -1126,6 +823,7 @@ def build_all(repo_root: Path) -> None:
                 q.append(float(row["Points"]))
             windows[k] = q
 
+        # career avg to that point (active)
         pw["Change from career average to that point"] = None
         sums: Dict[str, float] = {}
         counts: Dict[str, int] = {}
@@ -1137,28 +835,27 @@ def build_all(repo_root: Path) -> None:
                 sums[k] = sums.get(k, 0.0) + float(row["Points"])
                 counts[k] = counts.get(k, 0) + 1
 
+        # overall career avg (active)
         try:
             full_avg = pw.loc[active].groupby("Player")["Points"].mean()
             pw["Change from overall career average"] = pw["Points"] - pw["Player"].map(full_avg)
         except Exception:
             pw["Change from overall career average"] = None
 
-        # Team tenure + bench streaks (bench streak spans seasons)
-        pw = pw.sort_values(["Team", "Player", "Year", "_week_sort" if "_week_sort" in pw.columns else "Week"]).reset_index(drop=True)
-        stats: Dict[Tuple[str, str], Dict[str, Any]] = {}
+        # team tenure + bench streaks
+        pw = pw.sort_values(["Team","Player","Year","Week"]).reset_index(drop=True)
+        stats: Dict[Tuple[str,str], Dict[str, Any]] = {}
+        pw["Number of weeks on team"] = None
+        pw["Number of consecutive weeks on bench before start (if starter)"] = None
+        pw["Number of consecutive weeks on bench before start excluding injury/bye (if starter)"] = None
+        pw["Total weeks as team starter to that point"] = None
+        pw["Total weeks on bench to that point"] = None
+        pw["Total weeks as team starter on that team this season"] = None
+        pw["Total weeks on bench on that team this season"] = None
+
         for i, row in pw.iterrows():
             key = (row["Team"], row["Player"])
-            st = stats.get(key, {
-                "weeks": 0,
-                "start_all": 0,
-                "bench_all": 0,
-                "season": None,
-                "start_season": 0,
-                "bench_season": 0,
-                "bench_streak": 0,
-                "bench_streak_ex": 0
-            })
-
+            st = stats.get(key, {"weeks":0,"start_all":0,"bench_all":0,"season":None,"start_season":0,"bench_season":0,"bench_streak":0,"bench_streak_ex":0})
             if st["season"] != row["Year"]:
                 st["season"] = row["Year"]
                 st["start_season"] = 0
@@ -1187,242 +884,171 @@ def build_all(repo_root: Path) -> None:
             pw.at[i, "Total weeks on bench to that point"] = st["bench_all"]
             pw.at[i, "Total weeks as team starter on that team this season"] = st["start_season"]
             pw.at[i, "Total weeks on bench on that team this season"] = st["bench_season"]
-
             stats[key] = st
 
-        # Hardship: points lost due to injury/suspension for rostered players (missed with 0, not bye)
-        pw = pw.sort_values(["Player", "Year", "_week_sort" if "_week_sort" in pw.columns else "Week"]).reset_index(drop=True)
+        # Awards (league + team)
+        # league player of week among starters
+        pw["Player of week? (league)"] = 0
+        pw["QB of week? (league)"] = 0
+        pw["RB of week? (league)"] = 0
+        pw["WR of week? (league)"] = 0
+        pw["TE of week? (league)"] = 0
+        pw["Bench QB of week? (league)"] = 0
+        pw["Bench RB of week? (league)"] = 0
+        pw["Bench WR of week? (league)"] = 0
+        pw["Bench TE of week? (league)"] = 0
+        pw["Player of week? (team)"] = 0
+        pw["QB of week? (team)"] = 0
+        pw["RB of week? (team)"] = 0
+        pw["WR of week? (team)"] = 0
+        pw["TE of week? (team)"] = 0
 
-        def is_true(v) -> bool:
-            return bool(v) is True
+        for (yr,wk), g in pw.groupby(["Year","Week"]):
+            starters = g[g["Starter/Bench"]=="Starter"]
+            if not starters.empty:
+                mx = starters["Points"].max()
+                pw.loc[starters.index[starters["Points"]==mx], "Player of week? (league)"] = 1
+                for pos,col in [("QB","QB of week? (league)"),("RB","RB of week? (league)"),("WR","WR of week? (league)"),("TE","TE of week? (league)")]:
+                    gp = starters[starters["Pos"]==pos]
+                    if not gp.empty:
+                        m2 = gp["Points"].max()
+                        pw.loc[gp.index[gp["Points"]==m2], col] = 1
+            bench = g[g["Starter/Bench"]=="Bench"]
+            for pos,col in [("QB","Bench QB of week? (league)"),("RB","Bench RB of week? (league)"),("WR","Bench WR of week? (league)"),("TE","Bench TE of week? (league)")]:
+                gp = bench[bench["Pos"]==pos]
+                if not gp.empty:
+                    m2 = gp["Points"].max()
+                    pw.loc[gp.index[gp["Points"]==m2], col] = 1
 
+            # team awards
+            for team, gt in g.groupby("Team"):
+                st = gt[gt["Starter/Bench"]=="Starter"]
+                if not st.empty:
+                    mx = st["Points"].max()
+                    pw.loc[st.index[st["Points"]==mx], "Player of week? (team)"] = 1
+                    for pos,col in [("QB","QB of week? (team)"),("RB","RB of week? (team)"),("WR","WR of week? (team)"),("TE","TE of week? (team)")]:
+                        gp = st[st["Pos"]==pos]
+                        if not gp.empty:
+                            m2 = gp["Points"].max()
+                            pw.loc[gp.index[gp["Points"]==m2], col] = 1
+
+        # Hardship: expected points from last 5 healthy games, missed due to inj/susp with 0 pts and not bye
+        pw = pw.sort_values(["Player","Year","Week"]).reset_index(drop=True)
         last5: Dict[str, deque] = {}
-        exp_points: List[Optional[float]] = [None] * len(pw)
-        points_lost: List[float] = [0.0] * len(pw)
-
-        for i, row in pw.iterrows():
-            player = row["Player"]
-            pts = float(row["Points"]) if row["Points"] is not None else 0.0
-            inj = is_true(row.get("Injury?"))
-            susp = is_true(row.get("Suspension?"))
-            bye = is_true(row.get("Bye?"))
-
-            hist = last5.get(player, deque(maxlen=5))
-            expected = (sum(hist) / len(hist)) if len(hist) > 0 else None
-            exp_points[i] = expected
-
-            missed_due_to_inj_or_susp = (pts == 0.0) and (inj or susp) and (not bye)
-            if missed_due_to_inj_or_susp and expected is not None:
-                points_lost[i] = float(expected)
-            else:
-                points_lost[i] = 0.0
-
-            # Update history ONLY with healthy games:
-            if (pts > 0.0) and (not inj) and (not susp) and (not bye):
+        pw["_expected_points_if_healthy"] = None
+        pw["_points_lost_inj_susp"] = 0.0
+        for i,row in pw.iterrows():
+            player=row["Player"]
+            pts=float(row["Points"] or 0.0)
+            inj=bool(row.get("Injury?") or False)
+            susp=bool(row.get("Suspension?") or False)
+            bye=bool(row.get("Bye?") or False)
+            hist=last5.get(player, deque(maxlen=5))
+            expected=(sum(hist)/len(hist)) if len(hist)>0 else None
+            pw.at[i,"_expected_points_if_healthy"]=expected
+            if pts==0.0 and (inj or susp) and (not bye) and expected is not None:
+                pw.at[i,"_points_lost_inj_susp"]=float(expected)
+            if pts>0.0 and (not inj) and (not susp) and (not bye):
                 hist.append(pts)
-            last5[player] = hist
+            last5[player]=hist
 
-        pw["_expected_points_if_healthy"] = exp_points
-        pw["_points_lost_inj_susp"] = points_lost
-
-    # --------------------------
-    # Team-week hardship / counts from player-week
-    # --------------------------
+    # Recompute team-week injury/susp/bye/hardship from player-week
     if not tw.empty and not pw.empty:
-        pw2 = pw.copy()
-        pw2["Injury?"] = pw2["Injury?"].fillna(False).astype(bool)
-        pw2["Suspension?"] = pw2["Suspension?"].fillna(False).astype(bool)
-        pw2["Bye?"] = pw2["Bye?"].fillna(False).astype(bool)
-        pw2["Points"] = pd.to_numeric(pw2["Points"], errors="coerce").fillna(0.0)
-
-        pw2["_missed_injury"] = (pw2["Injury?"] & (~pw2["Bye?"]) & (pw2["Points"] == 0)).astype(int)
-        pw2["_missed_susp"] = (pw2["Suspension?"] & (~pw2["Bye?"]) & (pw2["Points"] == 0)).astype(int)
-        pw2["_on_bye"] = (pw2["Bye?"] & (pw2["Points"] == 0)).astype(int)
-
-        agg = pw2.groupby(["Team", "Year", "Week"], as_index=False).agg(
-            Hardship=("_points_lost_inj_susp", "sum"),
-            Number_of_Injuries=("_missed_injury", "sum"),
-            Number_of_suspensions=("_missed_susp", "sum"),
-            Number_of_players_on_bye=("_on_bye", "sum"),
+        pw2=pw.copy()
+        pw2["Injury?"]=pw2["Injury?"].fillna(False).astype(bool)
+        pw2["Suspension?"]=pw2["Suspension?"].fillna(False).astype(bool)
+        pw2["Bye?"]=pw2["Bye?"].fillna(False).astype(bool)
+        pw2["_missed_injury"]=(pw2["Injury?"] & (~pw2["Bye?"]) & (pw2["Points"]==0)).astype(int)
+        pw2["_missed_susp"]=(pw2["Suspension?"] & (~pw2["Bye?"]) & (pw2["Points"]==0)).astype(int)
+        pw2["_on_bye"]=(pw2["Bye?"] & (pw2["Points"]==0)).astype(int)
+        agg=pw2.groupby(["Team","Year","Week"],as_index=False).agg(
+            Hardship=("_points_lost_inj_susp","sum"),
+            Injuries=("_missed_injury","sum"),
+            Suspensions=("_missed_susp","sum"),
+            Byes=("_on_bye","sum"),
         )
-        tw = tw.merge(agg, how="left", on=["Team", "Year", "Week"])
+        tw=tw.merge(agg,how="left",on=["Team","Year","Week"])
+        tw["Hardship"]=pd.to_numeric(tw["Hardship"],errors="coerce").fillna(0.0)
+        tw["Number of Injuries"]=pd.to_numeric(tw["Injuries"],errors="coerce").fillna(0).astype(int)
+        tw["Number of suspensions"]=pd.to_numeric(tw["Suspensions"],errors="coerce").fillna(0).astype(int)
+        tw["Number of players on bye"]=pd.to_numeric(tw["Byes"],errors="coerce").fillna(0).astype(int)
+        tw.drop(columns=["Injuries","Suspensions","Byes"],inplace=True,errors="ignore")
+        # Brosenzweig / Sisenzweig (2nd highest lose; 2nd lowest win) across all matchups that week
+        tw["Brosenzweig"]=0
+        tw["Sisenzweig"]=0
+        for (yr,wk), g in tw.groupby(["Year","Week"]):
+            g2=g.sort_values("PF",ascending=False)
+            if len(g2)>=2:
+                second_hi=g2.iloc[1]["PF"]
+                second_lo=g2.sort_values("PF",ascending=True).iloc[1]["PF"] if len(g2)>=2 else None
+                idx_hi=g2.index[g2["PF"]==second_hi]
+                tw.loc[idx_hi, "Brosenzweig"] = ((tw.loc[idx_hi,"Win?"]==0).astype(int))
+                idx_lo=g2.index[g2["PF"]==second_lo] if second_lo is not None else []
+                tw.loc[idx_lo, "Sisenzweig"] = ((tw.loc[idx_lo,"Win?"]==1).astype(int))
 
-        # Coalesce Hardship after merge (merge creates Hardship_x/Hardship_y if placeholder existed)
-        if "Hardship_y" in tw.columns:
-            tw["Hardship"] = pd.to_numeric(tw["Hardship_y"], errors="coerce").fillna(0.0)
-        elif "Hardship" in tw.columns:
-            tw["Hardship"] = pd.to_numeric(tw.get("Hardship", 0.0), errors="coerce").fillna(0.0)
-        elif "Hardship_x" in tw.columns:
-            tw["Hardship"] = pd.to_numeric(tw["Hardship_x"], errors="coerce").fillna(0.0)
-        else:
-            tw["Hardship"] = 0.0
-        tw.drop(columns=["Hardship_x", "Hardship_y"], inplace=True, errors="ignore")
-
-        tw["Number of Injuries"] = pd.to_numeric(tw.get("Number_of_Injuries"), errors="coerce").fillna(0).astype(int)
-        tw["Number of suspensions"] = pd.to_numeric(tw.get("Number_of_suspensions"), errors="coerce").fillna(0).astype(int)
-        tw["Number of players on bye"] = pd.to_numeric(tw.get("Number_of_players_on_bye"), errors="coerce").fillna(0).astype(int)
-
-        tw.drop(columns=["Number_of_Injuries", "Number_of_suspensions", "Number_of_players_on_bye"], inplace=True, errors="ignore")
-
-        # Brosenzweig / Sisenzweig (weekly league rank based)
+    # Increase in points from previous week (spans playoff weeks too; week1 N/A)
+    if not tw.empty:
+        tw=tw.sort_values(["Team","Year","Week"]).reset_index(drop=True)
+        tw["Increase in points from previous week"]=None
+        for team,g in tw.groupby("Team"):
+            g=g.sort_values(["Year","Week"])
+            prev=None
+            for idx,row in g.iterrows():
+                if prev is None:
+                    tw.at[idx,"Increase in points from previous week"]=None
+                else:
+                    tw.at[idx,"Increase in points from previous week"]=float(row["PF"])-float(prev)
+                prev=float(row["PF"])
+        # weekly flags
         try:
-            tw["_rank_pf_desc"] = tw.groupby(["Year", "Week_Group"])["PF"].rank(ascending=False, method="min")
-            tw["_rank_pf_asc"] = tw.groupby(["Year", "Week_Group"])["PF"].rank(ascending=True, method="min")
-            tw["Brosenzweig"] = ((tw["_rank_pf_desc"] == 2) & (tw["Win?"] == 0)).astype(int)
-            tw["Sisenzweig"] = ((tw["_rank_pf_asc"] == 2) & (tw["Win?"] == 1)).astype(int)
-            tw.drop(columns=["_rank_pf_desc", "_rank_pf_asc"], inplace=True, errors="ignore")
+            tw["Highest score?"]=tw.groupby(["Year","Week"])["PF"].transform(lambda s:(s==s.max()).astype(int))
+            tw["Lowest score?"]=tw.groupby(["Year","Week"])["PF"].transform(lambda s:(s==s.min()).astype(int))
         except Exception:
-            tw["Brosenzweig"] = None
-            tw["Sisenzweig"] = None
+            pass
 
-    # --------------------------
-    # Team-year / all-time with vs columns
-    # --------------------------
-    # --------------------------
-    # Streaks + "increase from previous week" (chronological, includes playoffs)
-    # --------------------------
-    if not tw.empty:
-        # Ensure numeric sorts exist
-        if "Week_Sort" not in tw.columns:
-            tw["Week_Sort"] = pd.to_numeric(tw.get("Week"), errors="coerce")
-        tw["Week_Sort"] = pd.to_numeric(tw["Week_Sort"], errors="coerce")
-
-        tw = tw.sort_values(["Team", "Year", "Week_Sort"], kind="mergesort").reset_index(drop=True)
-
-        # Increase in points from previous game (within season; playoffs included)
-        tw["Increase in points from previous week"] = tw.groupby(["Team", "Year"])["PF"].diff()
-        # Week 1 (first game of that season for that team) -> NA
-        first_mask = tw.groupby(["Team", "Year"])["Week_Sort"].transform("min") == tw["Week_Sort"]
-        tw.loc[first_mask, "Increase in points from previous week"] = pd.NA
-
-        # Win/Loss streaks across season (carry through playoffs), reset on tie
-        win_col = "Win?"
-        if win_col in tw.columns:
-            tw["Win streak"] = pd.NA
-            tw["Loss streak"] = pd.NA
-
-            for team, g in tw.groupby("Team", sort=False):
-                wst = 0
-                lst = 0
-                for idx, row in g.sort_values(["Year", "Week_Sort"], kind="mergesort").iterrows():
-                    w = row.get(win_col)
-                    if w == 1:
-                        wst += 1
-                        lst = 0
-                    elif w == 0:
-                        lst += 1
-                        wst = 0
-                    else:
-                        wst = 0
-                        lst = 0
-                    tw.at[idx, "Win streak"] = wst
-                    tw.at[idx, "Loss streak"] = lst
-    team_year = pd.DataFrame()
-    team_all = pd.DataFrame()
-
-    teams_sorted = sorted(all_teams_seen)
-
-    def _record_str(w: int, l: int, t: int) -> str:
-        return f"{w}-{l}" + (f"-{t}" if t else "")
-
-    def _winpct(w: int, l: int, t: int) -> Optional[float]:
-        g = w + l + t
-        return round((w + 0.5 * t) / g, 4) if g else None
-
-    if not tw.empty:
-        base = tw.copy()
-        base["_opp_actual"] = base.get("_OpponentTeamActual")
-        base["Win?"] = pd.to_numeric(base["Win?"], errors="coerce")
-
-        rows = []
-        for (team, year), g in base.groupby(["Team", "Year"]):
-            wins = int((g["Win?"] == 1).sum())
-            losses = int((g["Win?"] == 0).sum())
-            ties = int((g["Win?"] == 0.5).sum())
-
-            row = {
-                "Team": team,
-                "Year": _to_int(year, year),
-                "Record": _record_str(wins, losses, ties),
-                "Win %": _winpct(wins, losses, ties),
-            }
-
-            # versus columns (include self for 16 cols in 8-team)
-            for opp in teams_sorted:
-                gg = g[g["_opp_actual"] == opp]
-                w = int((gg["Win?"] == 1).sum())
-                l = int((gg["Win?"] == 0).sum())
-                t = int((gg["Win?"] == 0.5).sum())
-                row[f"record vs {opp}"] = _record_str(w, l, t)
-                row[f"win % vs {opp}"] = _winpct(w, l, t)
-
-            rows.append(row)
-        team_year = pd.DataFrame(rows)
-
-        rows = []
-        for team, g in base.groupby(["Team"]):
-            wins = int((g["Win?"] == 1).sum())
-            losses = int((g["Win?"] == 0).sum())
-            ties = int((g["Win?"] == 0.5).sum())
-            row = {
-                "Team": team,
-                "Seasons": int(g["Year"].nunique()) if "Year" in g.columns else None,
-                "Record": _record_str(wins, losses, ties),
-                "Win %": _winpct(wins, losses, ties),
-            }
-            for opp in teams_sorted:
-                gg = g[g["_opp_actual"] == opp]
-                w = int((gg["Win?"] == 1).sum())
-                l = int((gg["Win?"] == 0).sum())
-                t = int((gg["Win?"] == 0.5).sum())
-                row[f"record vs {opp}"] = _record_str(w, l, t)
-                row[f"win % vs {opp}"] = _winpct(w, l, t)
-            rows.append(row)
-        team_all = pd.DataFrame(rows)
-
-        # remove internal opponent column before export
-        tw.drop(columns=["_OpponentTeamActual"], inplace=True, errors="ignore")
-
-    # --------------------------
-    # Minimal league aggregates (placeholders for plan columns)
-    # --------------------------
-    player_year = pd.DataFrame()
-    player_all = pd.DataFrame()
-    league_week = pd.DataFrame()
-    league_year = pd.DataFrame()
-    league_all = pd.DataFrame()
-
+    # Rollups (best-effort)
+    player_year=pd.DataFrame()
+    player_all=pd.DataFrame()
     if not pw.empty:
-        player_year = pw.groupby(["Player", "Year"], as_index=False).agg(
-            Points=("Points", "sum"),
-            **{"Best week": ("Points", "max"), "Worst week": ("Points", "min")},
-        )
-        player_all = pw.groupby(["Player"], as_index=False).agg(
-            Points=("Points", "sum"),
-            **{"Best week": ("Points", "max"), "Worst week": ("Points", "min")},
-        )
+        player_year=pw.groupby(["Player","Year"],as_index=False).agg(Points=("Points","sum"),Best_week=("Points","max"),Worst_week=("Points","min"))
+        player_year.rename(columns={"Best_week":"Best week","Worst_week":"Worst week"},inplace=True)
+        player_all=pw.groupby(["Player"],as_index=False).agg(Points=("Points","sum"),Best_week=("Points","max"),Worst_week=("Points","min"))
+        player_all.rename(columns={"Best_week":"Best week","Worst_week":"Worst week"},inplace=True)
 
+    team_year=pd.DataFrame()
+    team_all=pd.DataFrame()
     if not tw.empty:
-        def _week_label_for_group(s: pd.Series) -> Any:
-            # Prefer non-numeric labels (e.g., "Semifinal") if present; otherwise use the numeric week.
-            vals = [v for v in s.tolist() if v is not None and str(v).strip() != ""]
-            for v in vals:
-                try:
-                    float(v)
-                except Exception:
-                    return v
-            return vals[0] if vals else None
+        def rec(g):
+            wins=int((g["Win?"]==1).sum()); losses=int((g["Win?"]==0).sum()); ties=int((g["Win?"]==0.5).sum())
+            games=max(1,wins+losses+ties)
+            return wins,losses,ties,games
+        rows=[]
+        for (team,yr),g in tw.groupby(["Team","Year"]):
+            wins,losses,ties,games=rec(g)
+            points=float(pd.to_numeric(g["PF"],errors="coerce").fillna(0).sum())
+            maxpf=float(pd.to_numeric(g["Max PF"],errors="coerce").fillna(0).sum())
+            rows.append({"Team":team,"Year":int(yr),"Win %":round((wins+0.5*ties)/games,4),"Record":f"{wins}-{losses}"+(f"-{ties}" if ties else ""),"Points":round(points,2),"Avg points":round(points/games,2),"Max PF":round(maxpf,2),"Avg max PF":round(maxpf/games,2),"Efficiency":round(points/maxpf,4) if maxpf else None})
+        team_year=pd.DataFrame(rows)
+        rows=[]
+        for team,g in tw.groupby(["Team"]):
+            wins,losses,ties,games=rec(g)
+            points=float(pd.to_numeric(g["PF"],errors="coerce").fillna(0).sum())
+            maxpf=float(pd.to_numeric(g["Max PF"],errors="coerce").fillna(0).sum())
+            rows.append({"Team":team,"Seasons":int(g["Year"].nunique()),"Win %":round((wins+0.5*ties)/games,4),"Record":f"{wins}-{losses}"+(f"-{ties}" if ties else ""),"Points":round(points,2),"Max PF":round(maxpf,2),"Efficiency":round(points/maxpf,4) if maxpf else None})
+        team_all=pd.DataFrame(rows)
 
-        league_week = tw.groupby(["Year", "Week_Group"], as_index=False).agg(
-            Week=("Week", _week_label_for_group),
-            PF=("PF", "sum"),
-            **{"PF Range": ("PF", lambda s: float(pd.to_numeric(s, errors="coerce").max() - pd.to_numeric(s, errors="coerce").min()))}
-        )
-        league_year = tw.groupby(["Year"], as_index=False).agg(PF=("PF", "sum"), **{"Max PF": ("Max PF", "sum")})
-        league_all = pd.DataFrame([{"PF": float(pd.to_numeric(tw["PF"], errors="coerce").fillna(0).sum()), "Years": int(tw["Year"].nunique())}])
+    league_week=pd.DataFrame()
+    league_year=pd.DataFrame()
+    league_all=pd.DataFrame()
+    if not tw.empty:
+        league_week=tw.groupby(["Year","Week"],as_index=False).agg(PF=("PF","sum"),PF_Range=("PF",lambda s: float(s.max()-s.min())))
+        league_week.rename(columns={"PF_Range":"PF Range"},inplace=True)
+        league_year=tw.groupby(["Year"],as_index=False).agg(PF=("PF","sum"),MaxPF=("Max PF","sum"))
+        league_year.rename(columns={"MaxPF":"Max PF"},inplace=True)
+        league_all=pd.DataFrame([{"PF":float(pd.to_numeric(tw["PF"],errors="coerce").fillna(0).sum()),"Years":int(tw["Year"].nunique())}])
 
     # --------------------------
-    # Write outputs
+    # Write outputs per plan
     # --------------------------
     out_dir = repo_root / "exports"
     out_dir.mkdir(exist_ok=True)
@@ -1437,21 +1063,19 @@ def build_all(repo_root: Path) -> None:
         ("league_week.csv", league_week, "league-week"),
         ("league_year.csv", league_year, "league-year"),
         ("league_all_time.csv", league_all, "league-all-time"),
-        ("transactions.csv", pd.DataFrame(transactions_rows), "transactions"),
-        ("trades.csv", pd.DataFrame(trades_rows), "trades"),
+        ("transactions.csv", tx, "transactions"),
+        ("trades.csv", tr, "trades"),
         ("pick_history.csv", ph, "Pick History"),
     ]
 
     for fname, frame, plan_key in tables:
         cols = catalog.get(plan_key, [])
         frame = _safe_df(frame)
-        out = _ensure_plan_columns(frame, cols, keep_extras=True)
+        out = _ensure_plan_columns(frame, cols)
         require_columns(out, cols, fname.replace(".csv", ""))
         out.to_csv(out_dir / fname, index=False)
 
-    # --------------------------
-    # Excel workbook with filterable Tables (one table per sheet)
-    # --------------------------
+    # Excel workbook with filterable tables
     from openpyxl import Workbook
     from openpyxl.utils import get_column_letter
     from openpyxl.worksheet.table import Table, TableStyleInfo
@@ -1459,107 +1083,36 @@ def build_all(repo_root: Path) -> None:
     wb = Workbook()
     wb.remove(wb.active)
 
-    def _safe_name(s: str, max_len: int = 31) -> str:
-        s = "".join(ch if ch.isalnum() else "_" for ch in str(s))
-        s = s.strip("_") or "Sheet"
+    def _safe_table_name(s: str) -> str:
+        s = "".join(ch if ch.isalnum() else "_" for ch in s)
+        if not s:
+            s = "Table"
         if s[0].isdigit():
-            s = "S_" + s
-        return s[:max_len]
-
-    used_sheet_names: set[str] = set()
-    used_table_names: set[str] = set()
-
-    def _unique(base: str, used: set[str], max_len: int) -> str:
-        base = base[:max_len]
-        if base not in used:
-            used.add(base)
-            return base
-        i = 2
-        while True:
-            suffix = f"_{i}"
-            cand = (base[: max_len - len(suffix)] + suffix)
-            if cand not in used:
-                used.add(cand)
-                return cand
-            i += 1
+            s = "T_" + s
+        return s[:31]
 
     for csvf in sorted(out_dir.glob("*.csv")):
-        # Ensure unique sheet names even after truncation
-        base_sheet = _safe_name(csvf.stem, 31)
-        sheet_name = _unique(base_sheet, used_sheet_names, 31)
+        sheet_name = csvf.stem[:31]
         ws = wb.create_sheet(title=sheet_name)
-
         try:
             d = pd.read_csv(csvf)
         except Exception:
             d = pd.DataFrame()
-
-        # write header (always)
-        cols = list(d.columns)
-        if not cols:
-            cols = ["_"]
-            d = pd.DataFrame(columns=cols)
-        # Excel Tables require unique, non-empty column names
-        seen = {}
-        fixed = []
-        for c in cols:
-            name = str(c) if c is not None else ""
-            name = name.strip()
-            if not name:
-                name = "_"
-            base = name[:255]
-            k = base.lower()
-            n = seen.get(k, 0) + 1
-            seen[k] = n
-            fixed.append(base if n == 1 else f"{base}_{n}")
-        d.columns = fixed
-        ws.append(fixed)
-
-
-        # write rows (if any)
-        if not d.empty:
-            for row in d.itertuples(index=False, name=None):
-                ws.append(list(row))
-
-        # freeze header
+        ws.append(list(d.columns))
+        for row in d.itertuples(index=False, name=None):
+            ws.append(list(row))
         ws.freeze_panes = "A2"
-
-        # dimensions
-        nrows = ws.max_row  # includes header
-        ncols = ws.max_column
-
-        # If there are no columns somehow, skip styling
-        if ncols < 1:
-            continue
-
+        nrows = max(1, ws.max_row)
+        ncols = max(1, ws.max_column)
         ref = f"A1:{get_column_letter(ncols)}{nrows}"
-
-        # Excel sometimes "repairs" workbooks if a Table has only a header row.
-        # To keep everything filterable while avoiding corruption:
-        #  - If there is at least one data row (nrows >= 2), create a real Excel Table.
-        #  - Otherwise, just apply AutoFilter to the header row range.
-        if nrows >= 2:
-            base_tname = _safe_name(f"{sheet_name}_tbl", 31)
-            tname = _unique(base_tname, used_table_names, 31)
-
-            table = Table(displayName=tname, ref=ref)
-            style = TableStyleInfo(
-                name="TableStyleMedium9",
-                showFirstColumn=False,
-                showLastColumn=False,
-                showRowStripes=True,
-                showColumnStripes=False,
-            )
-            table.tableStyleInfo = style
-            ws.add_table(table)
-        else:
-            ws.auto_filter.ref = ref
-
-        # light column width heuristic
+        tname = _safe_table_name(f"{sheet_name}_tbl")
+        table = Table(displayName=tname, ref=ref)
+        style = TableStyleInfo(name="TableStyleMedium9", showFirstColumn=False, showLastColumn=False, showRowStripes=True, showColumnStripes=False)
+        table.tableStyleInfo = style
+        ws.add_table(table)
         try:
             for j, col in enumerate(d.columns, 1):
-                sample = d[col].head(200) if not d.empty else pd.Series([], dtype=object)
-                max_len = max([len(str(col))] + [len(str(x)) for x in sample.fillna("").astype(str).tolist()] + [0])
+                max_len = max([len(str(col))] + [len(str(x)) for x in d[col].head(200).fillna("").astype(str).tolist()])
                 ws.column_dimensions[get_column_letter(j)].width = min(60, max(10, max_len + 2))
         except Exception:
             pass
