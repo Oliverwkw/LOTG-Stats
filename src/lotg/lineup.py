@@ -1,6 +1,6 @@
 from __future__ import annotations
 from typing import Dict, List, Tuple
-import re, Iterable, Set
+import re
 from ortools.sat.python import cp_model
 
 # slot eligibility rules (expanded as needed)
