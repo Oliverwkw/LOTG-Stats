@@ -634,6 +634,10 @@ def build_all(repo_root: Path) -> None:
             if not matchups:
                 break
 
+            # Exclude Week 18 entirely (Week 17 for pre-2021 seasons).
+            if (season >= 2021 and week >= 18) or (season <= 2020 and week >= 17):
+                break
+
             try:
                 txs = sc.transactions(league_id, week)
             except Exception:
