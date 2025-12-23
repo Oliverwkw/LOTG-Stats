@@ -898,6 +898,9 @@ def build_all(repo_root: Path) -> None:
         tw['WeekNum'] = pd.to_numeric(tw['Week'], errors='coerce').astype('Int64')
         tw['Week_Sort'] = tw['WeekNum'].astype('Int64')
 
+
+        # Group key for week-level calculations: regular weeks by WeekNum; playoff weeks grouped by Week_Sort (1001 semis, 1002 finals, etc.)
+        tw['Week_Group'] = tw['Week_Sort'].where(tw['Week_Sort'] >= 1000, tw['WeekNum']).astype('Int64')
         # season -> playoff_start
         playoff_by_year: dict[int, int] = {}
         for lg in leagues or []:
@@ -988,7 +991,7 @@ def build_all(repo_root: Path) -> None:
                             tw.loc[idx, 'Week'] = 'Toilet Final'
                             tw.loc[idx, 'Week_Sort'] = 1002
                         elif t1 in losers_bot4 and t2 in losers_bot4:
-                            tw.loc[idx, 'Week'] = '5th Place'
+                            tw.loc[idx, 'Week'] = 'Toilet Trash'
                             tw.loc[idx, 'Week_Sort'] = 1002
 
             # Non-playoff weeks keep Week_Sort = WeekNum
@@ -1180,8 +1183,8 @@ def build_all(repo_root: Path) -> None:
 
         # Brosenzweig / Sisenzweig (weekly league rank based)
         try:
-            tw["_rank_pf_desc"] = tw.groupby(["Year", "Week"])["PF"].rank(ascending=False, method="min")
-            tw["_rank_pf_asc"] = tw.groupby(["Year", "Week"])["PF"].rank(ascending=True, method="min")
+            tw["_rank_pf_desc"] = tw.groupby(["Year", "Week_Group"])["PF"].rank(ascending=False, method="min")
+            tw["_rank_pf_asc"] = tw.groupby(["Year", "Week_Group"])["PF"].rank(ascending=True, method="min")
             tw["Brosenzweig"] = ((tw["_rank_pf_desc"] == 2) & (tw["Win?"] == 0)).astype(int)
             tw["Sisenzweig"] = ((tw["_rank_pf_asc"] == 2) & (tw["Win?"] == 1)).astype(int)
             tw.drop(columns=["_rank_pf_desc", "_rank_pf_asc"], inplace=True, errors="ignore")
@@ -1278,7 +1281,18 @@ def build_all(repo_root: Path) -> None:
         )
 
     if not tw.empty:
-        league_week = tw.groupby(["Year", "Week"], as_index=False).agg(
+        def _week_label_for_group(s: pd.Series) -> Any:
+            # Prefer non-numeric labels (e.g., "Semifinal") if present; otherwise use the numeric week.
+            vals = [v for v in s.tolist() if v is not None and str(v).strip() != ""]
+            for v in vals:
+                try:
+                    float(v)
+                except Exception:
+                    return v
+            return vals[0] if vals else None
+
+        league_week = tw.groupby(["Year", "Week_Group"], as_index=False).agg(
+            Week=("Week", _week_label_for_group),
             PF=("PF", "sum"),
             **{"PF Range": ("PF", lambda s: float(pd.to_numeric(s, errors="coerce").max() - pd.to_numeric(s, errors="coerce").min()))}
         )
@@ -1323,16 +1337,34 @@ def build_all(repo_root: Path) -> None:
     wb = Workbook()
     wb.remove(wb.active)
 
-    def _safe_table_name(s: str) -> str:
-        s = "".join(ch if ch.isalnum() else "_" for ch in s)
-        if not s:
-            s = "Table"
+    def _safe_name(s: str, max_len: int = 31) -> str:
+        s = "".join(ch if ch.isalnum() else "_" for ch in str(s))
+        s = s.strip("_") or "Sheet"
         if s[0].isdigit():
-            s = "T_" + s
-        return s[:31]
+            s = "S_" + s
+        return s[:max_len]
+
+    used_sheet_names: set[str] = set()
+    used_table_names: set[str] = set()
+
+    def _unique(base: str, used: set[str], max_len: int) -> str:
+        base = base[:max_len]
+        if base not in used:
+            used.add(base)
+            return base
+        i = 2
+        while True:
+            suffix = f"_{i}"
+            cand = (base[: max_len - len(suffix)] + suffix)
+            if cand not in used:
+                used.add(cand)
+                return cand
+            i += 1
 
     for csvf in sorted(out_dir.glob("*.csv")):
-        sheet_name = csvf.stem[:31]
+        # Ensure unique sheet names even after truncation
+        base_sheet = _safe_name(csvf.stem, 31)
+        sheet_name = _unique(base_sheet, used_sheet_names, 31)
         ws = wb.create_sheet(title=sheet_name)
 
         try:
@@ -1340,31 +1372,53 @@ def build_all(repo_root: Path) -> None:
         except Exception:
             d = pd.DataFrame()
 
+        # write header (always)
         ws.append(list(d.columns))
-        for row in d.itertuples(index=False, name=None):
-            ws.append(list(row))
 
+        # write rows (if any)
+        if not d.empty:
+            for row in d.itertuples(index=False, name=None):
+                ws.append(list(row))
+
+        # freeze header
         ws.freeze_panes = "A2"
 
-        nrows = max(1, ws.max_row)
-        ncols = max(1, ws.max_column)
+        # dimensions
+        nrows = ws.max_row  # includes header
+        ncols = ws.max_column
+
+        # If there are no columns somehow, skip styling
+        if ncols < 1:
+            continue
+
         ref = f"A1:{get_column_letter(ncols)}{nrows}"
 
-        tname = _safe_table_name(f"{sheet_name}_tbl")
-        table = Table(displayName=tname, ref=ref)
-        style = TableStyleInfo(
-            name="TableStyleMedium9",
-            showFirstColumn=False,
-            showLastColumn=False,
-            showRowStripes=True,
-            showColumnStripes=False,
-        )
-        table.tableStyleInfo = style
-        ws.add_table(table)
+        # Excel sometimes "repairs" workbooks if a Table has only a header row.
+        # To keep everything filterable while avoiding corruption:
+        #  - If there is at least one data row (nrows >= 2), create a real Excel Table.
+        #  - Otherwise, just apply AutoFilter to the header row range.
+        if nrows >= 2:
+            base_tname = _safe_name(f"{sheet_name}_tbl", 31)
+            tname = _unique(base_tname, used_table_names, 31)
 
+            table = Table(displayName=tname, ref=ref)
+            style = TableStyleInfo(
+                name="TableStyleMedium9",
+                showFirstColumn=False,
+                showLastColumn=False,
+                showRowStripes=True,
+                showColumnStripes=False,
+            )
+            table.tableStyleInfo = style
+            ws.add_table(table)
+        else:
+            ws.auto_filter.ref = ref
+
+        # light column width heuristic
         try:
             for j, col in enumerate(d.columns, 1):
-                max_len = max([len(str(col))] + [len(str(x)) for x in d[col].head(200).fillna("").astype(str).tolist()])
+                sample = d[col].head(200) if not d.empty else pd.Series([], dtype=object)
+                max_len = max([len(str(col))] + [len(str(x)) for x in sample.fillna("").astype(str).tolist()] + [0])
                 ws.column_dimensions[get_column_letter(j)].width = min(60, max(10, max_len + 2))
         except Exception:
             pass
