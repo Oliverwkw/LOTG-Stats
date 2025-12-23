@@ -291,6 +291,27 @@ def _league_roster_positions(lg: Dict[str, Any]) -> List[str]:
     rp = settings.get("roster_positions") or []
     return list(rp) if isinstance(rp, list) else []
 
+
+# Sleeper's `roster_positions` includes bench/IR/taxi entries (e.g., "BN").
+# These must be excluded from optimal lineup (Max PF) calculations.
+_NON_START_SLOTS = {
+    "BN", "BENCH",
+    "IR", "RES", "RESERVE",
+    "TAXI", "TAXI_R", "TAXI_W",
+}
+
+
+def _starting_positions(roster_positions: List[str]) -> List[str]:
+    out: List[str] = []
+    for p in roster_positions or []:
+        if not p:
+            continue
+        ps = str(p).strip().upper()
+        if ps in _NON_START_SLOTS:
+            continue
+        out.append(str(p))
+    return out
+
 # --------------------------
 # Main entry
 # --------------------------
@@ -373,6 +394,7 @@ def build_all(repo_root: Path) -> None:
         league_id = str(lg.get("league_id"))
         season = _to_int(lg.get("season"), 0) or 0
         roster_positions = _league_roster_positions(lg)
+        start_positions = _starting_positions(roster_positions)
         scoring_settings = _scoring_settings_from_league(lg)
 
         # users/rosters
@@ -572,7 +594,7 @@ def build_all(repo_root: Path) -> None:
 
                 # Max PF + efficiency
                 try:
-                    max_pf, _ = max_points_lineup(roster_positions, players, ppts, pos_map)
+                    max_pf, _ = max_points_lineup(start_positions, players, ppts, pos_map)
                 except Exception:
                     max_pf = None
                 eff = safe_div(pf, max_pf) if max_pf else None
@@ -1142,21 +1164,13 @@ def build_all(repo_root: Path) -> None:
         require_columns(out, cols, fname.replace(".csv", ""))
         out.to_csv(out_dir / fname, index=False)
 
-    # Excel workbook with filterable tables
+    # Excel workbook with filters (avoid Excel Table objects; they have caused workbook
+    # corruption/repair prompts in some environments).
     from openpyxl import Workbook
     from openpyxl.utils import get_column_letter
-    from openpyxl.worksheet.table import Table, TableStyleInfo
 
     wb = Workbook()
     wb.remove(wb.active)
-
-    def _safe_table_name(s: str) -> str:
-        s = "".join(ch if ch.isalnum() else "_" for ch in s)
-        if not s:
-            s = "Table"
-        if s[0].isdigit():
-            s = "T_" + s
-        return s[:31]
 
     for csvf in sorted(out_dir.glob("*.csv")):
         sheet_name = csvf.stem[:31]
@@ -1169,14 +1183,11 @@ def build_all(repo_root: Path) -> None:
         for row in d.itertuples(index=False, name=None):
             ws.append(list(row))
         ws.freeze_panes = "A2"
+        # Apply an AutoFilter across the full used range.
         nrows = max(1, ws.max_row)
         ncols = max(1, ws.max_column)
         ref = f"A1:{get_column_letter(ncols)}{nrows}"
-        tname = _safe_table_name(f"{sheet_name}_tbl")
-        table = Table(displayName=tname, ref=ref)
-        style = TableStyleInfo(name="TableStyleMedium9", showFirstColumn=False, showLastColumn=False, showRowStripes=True, showColumnStripes=False)
-        table.tableStyleInfo = style
-        ws.add_table(table)
+        ws.auto_filter.ref = ref
         try:
             for j, col in enumerate(d.columns, 1):
                 max_len = max([len(str(col))] + [len(str(x)) for x in d[col].head(200).fillna("").astype(str).tolist()])
