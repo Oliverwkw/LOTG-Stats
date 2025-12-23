@@ -707,7 +707,9 @@ def build_all(repo_root: Path) -> None:
                     except Exception:
                         opp_points = None
 
-                opp_label = opp_team
+                # Default label is the opponent team handle; for playoffs/consolation
+                # we may overwrite with stage labels (Final, Toilet Final, etc.).
+                opp_label = opp_team_actual
                 if playoff_start_week and week >= playoff_start_week:
                     seed = seed_by_roster.get(int(rid))
                     if week == playoff_start_week:
