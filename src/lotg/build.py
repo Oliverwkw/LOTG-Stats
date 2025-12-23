@@ -1201,6 +1201,45 @@ def build_all(repo_root: Path) -> None:
     # --------------------------
     # Team-year / all-time with vs columns
     # --------------------------
+    # --------------------------
+    # Streaks + "increase from previous week" (chronological, includes playoffs)
+    # --------------------------
+    if not tw.empty:
+        # Ensure numeric sorts exist
+        if "Week_Sort" not in tw.columns:
+            tw["Week_Sort"] = pd.to_numeric(tw.get("Week"), errors="coerce")
+        tw["Week_Sort"] = pd.to_numeric(tw["Week_Sort"], errors="coerce")
+
+        tw = tw.sort_values(["Team", "Year", "Week_Sort"], kind="mergesort").reset_index(drop=True)
+
+        # Increase in points from previous game (within season; playoffs included)
+        tw["Increase in points from previous week"] = tw.groupby(["Team", "Year"])["PF"].diff()
+        # Week 1 (first game of that season for that team) -> NA
+        first_mask = tw.groupby(["Team", "Year"])["Week_Sort"].transform("min") == tw["Week_Sort"]
+        tw.loc[first_mask, "Increase in points from previous week"] = pd.NA
+
+        # Win/Loss streaks across season (carry through playoffs), reset on tie
+        win_col = "Win?"
+        if win_col in tw.columns:
+            tw["Win streak"] = pd.NA
+            tw["Loss streak"] = pd.NA
+
+            for team, g in tw.groupby("Team", sort=False):
+                wst = 0
+                lst = 0
+                for idx, row in g.sort_values(["Year", "Week_Sort"], kind="mergesort").iterrows():
+                    w = row.get(win_col)
+                    if w == 1:
+                        wst += 1
+                        lst = 0
+                    elif w == 0:
+                        lst += 1
+                        wst = 0
+                    else:
+                        wst = 0
+                        lst = 0
+                    tw.at[idx, "Win streak"] = wst
+                    tw.at[idx, "Loss streak"] = lst
     team_year = pd.DataFrame()
     team_all = pd.DataFrame()
 
