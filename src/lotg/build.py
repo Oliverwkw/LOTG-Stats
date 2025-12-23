@@ -287,9 +287,18 @@ def _walk_league_chain(sc: SleeperClient, start_league_id: str, min_season: int 
     return chain
 
 def _league_roster_positions(lg: Dict[str, Any]) -> List[str]:
+    """
+    Sleeper's `settings.roster_positions` is intended to describe starter slots, but leagues
+    sometimes include non-starter slots (BN/IR/TAXI/RES). Those break MaxPF/lineup logic.
+    We defensively filter them out and keep only true starter-eligible slots.
+    """
     settings = lg.get("settings") or {}
     rp = settings.get("roster_positions") or []
-    return list(rp) if isinstance(rp, list) else []
+    if not isinstance(rp, list):
+        return []
+    drop = {"BN", "IR", "TAXI", "RES", "PUP"}
+    out = [str(x) for x in rp if x and str(x).upper() not in drop]
+    return out
 
 
 # Sleeper's `roster_positions` includes bench/IR/taxi entries (e.g., "BN").
