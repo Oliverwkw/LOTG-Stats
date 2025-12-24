@@ -153,3 +153,14 @@ def clamp01(x: Any, default: float = 0.0) -> float:
     if v > 1.0:
         return 1.0
     return v
+
+
+def clean_name(s: Any) -> str:
+    """Normalize a display/name string for stable comparisons and keys."""
+    if s is None:
+        return ""
+    out = str(s).strip()
+    # collapse internal whitespace
+    out = re.sub(r"\s+", " ", out)
+    return out
+
