@@ -58,9 +58,16 @@ def fetch_json(url: str, cfg: HttpConfig, logger: Optional[BuildLogger] = None) 
     """GET JSON with retries. Returns parsed object or None."""
     headers = {"User-Agent": cfg.user_agent, "Accept": "application/json"}
     last_status = None
+    session = requests.Session()
+    session.trust_env = False
     for attempt in range(cfg.max_retries):
         try:
-            resp = requests.get(url, headers=headers, timeout=cfg.timeout_seconds)
+            resp = session.get(
+                url,
+                headers=headers,
+                timeout=cfg.timeout_seconds,
+                proxies={"http": None, "https": None},
+            )
             last_status = resp.status_code
             if resp.status_code == 200:
                 # Sleeper sometimes returns empty string; guard.
@@ -79,6 +86,9 @@ def fetch_json(url: str, cfg: HttpConfig, logger: Optional[BuildLogger] = None) 
         except requests.RequestException as e:
             if logger:
                 logger.warn("fetch_json request exception", url=url, err=str(e), attempt=attempt)
+            err_str = str(e).lower()
+            if "network is unreachable" in err_str or "failed to establish a new connection" in err_str:
+                return None
             _sleep_backoff(cfg.backoff_base_seconds, attempt)
     if logger:
         logger.error("fetch_json exhausted retries", url=url, last_status=last_status)
@@ -163,4 +173,3 @@ def clean_name(s: Any) -> str:
     # collapse internal whitespace
     out = re.sub(r"\s+", " ", out)
     return out
-
