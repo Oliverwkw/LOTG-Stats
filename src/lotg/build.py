@@ -1409,7 +1409,7 @@ def build_all(repo_root: Path) -> None:
             "Season", "Week", "Team", "PF", "PA", "Margin", "Max PF", "Efficiency"
         ])
         zero_max = int((pd.to_numeric(tw.get("Max PF"), errors="coerce").fillna(0) <= 0).sum())
-        log(f"team_week: rows={len(tw)} zero_max_pf={zero_max}")
+        LOG.info("team_week: rows=%s zero_max_pf=%s", len(tw), zero_max)
     log_df(tw, 'team_week', sample_cols=['PF','Max PF','Efficiency'])
     tx = pd.DataFrame(transactions_rows)
     tr = pd.DataFrame(trades_rows)
