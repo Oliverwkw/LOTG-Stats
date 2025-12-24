@@ -329,11 +329,22 @@ def _infer_flags_from_nflverse(injuries: pd.DataFrame, gsis_id: Optional[str], s
 # Plan columns
 # --------------------------
 def _ensure_plan_columns(df: pd.DataFrame, cols: List[str]) -> pd.DataFrame:
+    """Ensure required columns exist, but keep any extra columns.
+
+    The plan CSV defines the minimum schema for each output table.
+    Earlier versions sliced the dataframe down to exactly those columns,
+    which silently erased any dynamically-generated columns (e.g.,
+    record-vs-team breakdowns). We now:
+      1) add any missing required columns (as None)
+      2) return a dataframe with required columns first, followed by any
+         additional columns that were computed.
+    """
     df = _safe_df(df).copy()
     for c in cols:
         if c not in df.columns:
             df[c] = None
-    return df[cols]
+    extra = [c for c in df.columns if c not in cols]
+    return df[cols + extra]
 
 # --------------------------
 # League chain
@@ -1001,52 +1012,6 @@ def build_all(repo_root: Path) -> None:
             pw.at[i, "Total weeks on bench on that team this season"] = st["bench_season"]
             stats[key] = st
 
-        # Awards (league + team)
-        # league player of week among starters
-        pw["Player of week? (league)"] = 0
-        pw["QB of week? (league)"] = 0
-        pw["RB of week? (league)"] = 0
-        pw["WR of week? (league)"] = 0
-        pw["TE of week? (league)"] = 0
-        pw["Bench QB of week? (league)"] = 0
-        pw["Bench RB of week? (league)"] = 0
-        pw["Bench WR of week? (league)"] = 0
-        pw["Bench TE of week? (league)"] = 0
-        pw["Player of week? (team)"] = 0
-        pw["QB of week? (team)"] = 0
-        pw["RB of week? (team)"] = 0
-        pw["WR of week? (team)"] = 0
-        pw["TE of week? (team)"] = 0
-
-        for (yr,wk), g in pw.groupby(["Year","Week"]):
-            starters = g[g["Starter/Bench"]=="Starter"]
-            if not starters.empty:
-                mx = starters["Points"].max()
-                pw.loc[starters.index[starters["Points"]==mx], "Player of week? (league)"] = 1
-                for pos,col in [("QB","QB of week? (league)"),("RB","RB of week? (league)"),("WR","WR of week? (league)"),("TE","TE of week? (league)")]:
-                    gp = starters[starters["Pos"]==pos]
-                    if not gp.empty:
-                        m2 = gp["Points"].max()
-                        pw.loc[gp.index[gp["Points"]==m2], col] = 1
-            bench = g[g["Starter/Bench"]=="Bench"]
-            for pos,col in [("QB","Bench QB of week? (league)"),("RB","Bench RB of week? (league)"),("WR","Bench WR of week? (league)"),("TE","Bench TE of week? (league)")]:
-                gp = bench[bench["Pos"]==pos]
-                if not gp.empty:
-                    m2 = gp["Points"].max()
-                    pw.loc[gp.index[gp["Points"]==m2], col] = 1
-
-            # team awards
-            for team, gt in g.groupby("Team"):
-                st = gt[gt["Starter/Bench"]=="Starter"]
-                if not st.empty:
-                    mx = st["Points"].max()
-                    pw.loc[st.index[st["Points"]==mx], "Player of week? (team)"] = 1
-                    for pos,col in [("QB","QB of week? (team)"),("RB","RB of week? (team)"),("WR","WR of week? (team)"),("TE","TE of week? (team)")]:
-                        gp = st[st["Pos"]==pos]
-                        if not gp.empty:
-                            m2 = gp["Points"].max()
-                            pw.loc[gp.index[gp["Points"]==m2], col] = 1
-
         # Hardship: expected points from last 5 healthy games, missed due to inj/susp with 0 pts and not bye
         pw = pw.sort_values(["Player","Year","Week"]).reset_index(drop=True)
         last5: Dict[str, deque] = {}
@@ -1069,14 +1034,15 @@ def build_all(repo_root: Path) -> None:
 
     
         # --------------------------
-        # Weekly awards (league-wide, based purely on pw)
+        # Weekly awards + team starter highs/lows
         # --------------------------
-        for col in [
+        award_cols = [
             "Player of the week?","QB of the week?","RB of the week?","WR of the week?","TE of the week?",
-            "Benchwarmer of the week?","Bench QB of the week?","Bench RB of the week?","Bench WR of the week?","Bench TE of the week?"
-        ]:
-            if col in pw.columns:
-                pw[col] = 0
+            "Benchwarmer of the week?","Bench QB of the week?","Bench RB of the week?","Bench WR of the week?","Bench TE of the week?",
+            "Highest starter on team?","Lowest starter on team?",
+        ]
+        for col in award_cols:
+            pw[col] = 0
 
         # Build a quick position lookup from pid_meta names -> pos is unreliable (name collisions),
         # so we derive position from the Sleeper players map when we created pid_meta: we stored it as meta['pos'].
@@ -1114,6 +1080,16 @@ def build_all(repo_root: Path) -> None:
                     if not sub.empty:
                         mx = sub["Points"].max()
                         pw.loc[sub.index[sub["Points"]==mx], col] = 1
+
+                # Team starter highs/lows (within each fantasy team)
+                for tm, gt in g.groupby("Team"):
+                    st = gt[gt["Starter/Bench"]=="Starter"]
+                    if st.empty:
+                        continue
+                    mx = st["Points"].max()
+                    mn = st["Points"].min()
+                    pw.loc[st.index[st["Points"]==mx], "Highest starter on team?"] = 1
+                    pw.loc[st.index[st["Points"]==mn], "Lowest starter on team?"] = 1
             except Exception as e:
                 log.error("Weekly award computation failed", year=int(yr), week=int(wk), error=str(e), traceback=traceback.format_exc())
 
@@ -1209,10 +1185,32 @@ def build_all(repo_root: Path) -> None:
     player_year=pd.DataFrame()
     player_all=pd.DataFrame()
     if not pw.empty:
-        player_year=pw.groupby(["Player","Year"],as_index=False).agg(Points=("Points","sum"),Best_week=("Points","max"),Worst_week=("Points","min"))
-        player_year.rename(columns={"Best_week":"Best week","Worst_week":"Worst week"},inplace=True)
-        player_all=pw.groupby(["Player"],as_index=False).agg(Points=("Points","sum"),Best_week=("Points","max"),Worst_week=("Points","min"))
-        player_all.rename(columns={"Best_week":"Best week","Worst_week":"Worst week"},inplace=True)
+        # Player rollups: sum/avg + weekly awards counts.
+        award_cols = [
+            "Player of the week?","QB of the week?","RB of the week?","WR of the week?","TE of the week?",
+            "Benchwarmer of the week?","Bench QB of the week?","Bench RB of the week?","Bench WR of the week?","Bench TE of the week?",
+            "Highest starter on team?","Lowest starter on team?",
+        ]
+        for c in award_cols:
+            if c not in pw.columns:
+                pw[c] = 0
+        # games played = weeks where player had a row (rostered) and points not null
+        pwr = pw.copy()
+        pwr["Points"] = pd.to_numeric(pwr["Points"], errors="coerce")
+        pwr["_game"] = (~pwr["Points"].isna()).astype(int)
+        agg_dict = {"Points": "sum", "_game": "sum"}
+        for c in award_cols:
+            agg_dict[c] = "sum"
+
+        py = pwr.groupby(["Player","Year"], as_index=False).agg(agg_dict)
+        py.rename(columns={"_game":"Games"}, inplace=True)
+        py["Avg points"] = py.apply(lambda r: round(r["Points"]/r["Games"],2) if r["Games"] else None, axis=1)
+        player_year = py
+
+        pa = pwr.groupby(["Player"], as_index=False).agg(agg_dict)
+        pa.rename(columns={"_game":"Games"}, inplace=True)
+        pa["Avg points"] = pa.apply(lambda r: round(r["Points"]/r["Games"],2) if r["Games"] else None, axis=1)
+        player_all = pa
 
     team_year=pd.DataFrame()
     team_all=pd.DataFrame()
@@ -1228,6 +1226,41 @@ def build_all(repo_root: Path) -> None:
             maxpf=float(pd.to_numeric(g["Max PF"],errors="coerce").fillna(0).sum())
             rows.append({"Team":team,"Year":int(yr),"Win %":round((wins+0.5*ties)/games,4),"Record":f"{wins}-{losses}"+(f"-{ties}" if ties else ""),"Points":round(points,2),"Avg points":round(points/games,2),"Max PF":round(maxpf,2),"Avg max PF":round(maxpf/games,2),"Efficiency":round(points/maxpf,4) if maxpf else None})
         team_year=pd.DataFrame(rows)
+        # Head-to-head by season
+        try:
+            teams_sorted = sorted([str(t) for t in tw["Team"].dropna().unique().tolist()])
+            h2h = tw[["Team","Opponent","Win?","Year"]].dropna(subset=["Team","Opponent"]).copy()
+            h2h["Win?"] = pd.to_numeric(h2h["Win?"], errors="coerce")
+            h2h["w"] = (h2h["Win?"] == 1).astype(int)
+            h2h["l"] = (h2h["Win?"] == 0).astype(int)
+            h2h["t"] = (h2h["Win?"] == 0.5).astype(int)
+            h2h_agg = h2h.groupby(["Team","Opponent","Year"], as_index=False).agg(w=("w","sum"), l=("l","sum"), t=("t","sum"))
+            h2h_map = {(r["Team"], r["Opponent"], int(r["Year"])): (int(r["w"]), int(r["l"]), int(r["t"])) for _, r in h2h_agg.iterrows()}
+            for opp in teams_sorted:
+                rec_col = f"record vs {opp}"
+                pct_col = f"win % vs {opp}"
+                if rec_col not in team_year.columns:
+                    team_year[rec_col] = None
+                if pct_col not in team_year.columns:
+                    team_year[pct_col] = None
+            for idx, row in team_year.iterrows():
+                tm = str(row.get("Team") or "")
+                yr = int(row.get("Year")) if pd.notna(row.get("Year")) else None
+                if not tm or yr is None:
+                    continue
+                for opp in teams_sorted:
+                    rec_col = f"record vs {opp}"
+                    pct_col = f"win % vs {opp}"
+                    if tm == opp:
+                        team_year.at[idx, rec_col] = "0-0"
+                        team_year.at[idx, pct_col] = None
+                        continue
+                    w,l,t = h2h_map.get((tm, opp, yr), (0,0,0))
+                    team_year.at[idx, rec_col] = f"{w}-{l}-{t}" if t else f"{w}-{l}"
+                    games = w+l+t
+                    team_year.at[idx, pct_col] = round((w+0.5*t)/games,4) if games else None
+        except Exception as e:
+            log.error("Suppressed exception", error=str(e), traceback=traceback.format_exc())
         rows=[]
         for team,g in tw.groupby(["Team"]):
             wins,losses,ties,games=rec(g)
@@ -1275,11 +1308,98 @@ def build_all(repo_root: Path) -> None:
     league_year=pd.DataFrame()
     league_all=pd.DataFrame()
     if not tw.empty:
-        league_week=tw.groupby(["Year","Week"],as_index=False).agg(PF=("PF","sum"),PF_Range=("PF",lambda s: float(s.max()-s.min())))
-        league_week.rename(columns={"PF_Range":"PF Range"},inplace=True)
-        league_year=tw.groupby(["Year"],as_index=False).agg(PF=("PF","sum"),MaxPF=("Max PF","sum"))
-        league_year.rename(columns={"MaxPF":"Max PF"},inplace=True)
-        league_all=pd.DataFrame([{"PF":float(pd.to_numeric(tw["PF"],errors="coerce").fillna(0).sum()),"Years":int(tw["Year"].nunique())}])
+        tt = tw.copy()
+        tt["PF"] = pd.to_numeric(tt["PF"], errors="coerce")
+        tt["Max PF"] = pd.to_numeric(tt["Max PF"], errors="coerce")
+        league_week = tt.groupby(["Year","Week"], as_index=False).agg(
+            PF=("PF","sum"),
+            Avg_PF=("PF","mean"),
+            PF_Range=("PF", lambda s: float(s.max()-s.min())),
+            MaxPF_sum=("Max PF","sum"),
+            MaxPF_avg=("Max PF","mean"),
+        )
+        league_week.rename(columns={
+            "Avg_PF":"Avg PF",
+            "PF_Range":"PF Range",
+            "MaxPF_sum":"Max PF",
+            "MaxPF_avg":"Avg Max PF",
+        }, inplace=True)
+        league_week["Avg Efficiency"] = league_week.apply(lambda r: round(r["PF"]/r["Max PF"],4) if r["Max PF"] else None, axis=1)
+
+        league_year = tt.groupby(["Year"], as_index=False).agg(
+            PF=("PF","sum"),
+            Avg_PF=("PF","mean"),
+            MaxPF_sum=("Max PF","sum"),
+            MaxPF_avg=("Max PF","mean"),
+        )
+        league_year.rename(columns={
+            "Avg_PF":"Avg PF",
+            "MaxPF_sum":"Max PF",
+            "MaxPF_avg":"Avg Max PF",
+        }, inplace=True)
+        league_year["Avg Efficiency"] = league_year.apply(lambda r: round(r["PF"]/r["Max PF"],4) if r["Max PF"] else None, axis=1)
+
+        league_all = pd.DataFrame([{
+            "PF": float(tt["PF"].fillna(0).sum()),
+            "Avg PF": float(tt["PF"].mean()),
+            "Max PF": float(tt["Max PF"].fillna(0).sum()),
+            "Avg Max PF": float(tt["Max PF"].mean()),
+            "Years": int(tt["Year"].nunique()),
+            "Avg Efficiency": round(float(tt["PF"].fillna(0).sum())/float(tt["Max PF"].fillna(0).sum()),4) if float(tt["Max PF"].fillna(0).sum()) else None,
+        }])
+
+    # ------------------------------------------------------------------
+    # Final guard: recompute weekly award flags on the final player-week
+    # frame so we never end up with empty/NA award columns.
+    # ------------------------------------------------------------------
+    try:
+        if not pw.empty:
+            award_cols = [
+                "Player of the week?","QB of the week?","RB of the week?","WR of the week?","TE of the week?",
+                "Benchwarmer of the week?","Bench QB of the week?","Bench RB of the week?","Bench WR of the week?","Bench TE of the week?",
+                "Highest starter on team?","Lowest starter on team?",
+            ]
+            for c in award_cols:
+                if c not in pw.columns:
+                    pw[c] = 0
+            pw[award_cols] = pw[award_cols].fillna(0)
+
+            for (yr, wk), g in pw.groupby(["Year","Week"], dropna=False):
+                starters = g[g["Starter/Bench"] == "Starter"]
+                bench = g[g["Starter/Bench"] == "Bench"]
+
+                def _mark_max(df, col, pos=None):
+                    if df.empty:
+                        return
+                    d = df
+                    if pos is not None:
+                        d = d[d["Pos"] == pos]
+                    if d.empty:
+                        return
+                    mx = pd.to_numeric(d["Points"], errors="coerce").max()
+                    if pd.isna(mx):
+                        return
+                    idx = d.index[pd.to_numeric(d["Points"], errors="coerce") == mx]
+                    pw.loc[idx, col] = 1
+
+                _mark_max(starters, "Player of the week?")
+                for pos, col in [("QB","QB of the week?"),("RB","RB of the week?"),("WR","WR of the week?"),("TE","TE of the week?")]:
+                    _mark_max(starters, col, pos=pos)
+
+                _mark_max(bench, "Benchwarmer of the week?")
+                for pos, col in [("QB","Bench QB of the week?"),("RB","Bench RB of the week?"),("WR","Bench WR of the week?"),("TE","Bench TE of the week?")]:
+                    _mark_max(bench, col, pos=pos)
+
+                # Team-specific starter high/low
+                for team, tg in starters.groupby("Team"):
+                    if tg.empty:
+                        continue
+                    pts = pd.to_numeric(tg["Points"], errors="coerce")
+                    hi = pts.max(); lo = pts.min()
+                    pw.loc[tg.index[pts == hi], "Highest starter on team?"] = 1
+                    pw.loc[tg.index[pts == lo], "Lowest starter on team?"] = 1
+    except Exception as e:
+        log.error("award recompute failed", error=str(e), traceback=traceback.format_exc())
 
     # --------------------------
     # Write outputs per plan
