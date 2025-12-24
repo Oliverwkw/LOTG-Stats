@@ -6,7 +6,6 @@ from pathlib import Path
 import yaml
 
 from .build import build_all
-from .snapshot import snapshot_all
 
 
 def main() -> None:
@@ -22,6 +21,7 @@ def main() -> None:
         mode = "both"
 
     if mode in {"snapshot", "both"}:
+        from .snapshot import snapshot_all
         snapshot_all(repo_root, league_id=league_id, min_season=min_season, max_season=max_season)
 
     if mode in {"build", "both"}:
