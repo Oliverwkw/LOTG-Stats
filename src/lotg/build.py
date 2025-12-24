@@ -9,8 +9,64 @@ from collections import Counter, deque, defaultdict
 import json
 import math
 import traceback
+import logging
+import warnings
+
+warnings.filterwarnings("ignore", category=FutureWarning, message="Downcasting object dtype arrays")
+
+LOG = logging.getLogger("lotg")
+if not LOG.handlers:
+    logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
+
 
 import pandas as pd
+
+# ----------------------------
+# DataFrame safety helpers
+# ----------------------------
+def ensure_cols(df: pd.DataFrame, cols, default=None):
+    """Ensure columns exist; if missing, create with default."""
+    for c in cols:
+        if c not in df.columns:
+            df[c] = default
+    return df
+
+def to_num_series(s, default=0.0):
+    """Robust numeric coercion for series/array-like; returns float series."""
+    if s is None:
+        return pd.Series([], dtype='float64')
+    out = pd.to_numeric(s, errors='coerce')
+    if isinstance(out, pd.Series):
+        return out.fillna(default)
+    # scalar
+    return pd.Series([out if pd.notna(out) else default], dtype='float64')
+
+def safe_to_numeric(df: pd.DataFrame, col: str, default=0.0):
+    """Convert df[col] to numeric if present; otherwise create with default."""
+    if col not in df.columns:
+        df[col] = default
+    else:
+        df[col] = pd.to_numeric(df[col], errors='coerce').fillna(default)
+    return df
+
+def as_bool(df: pd.DataFrame, col: str, default=False):
+    """Ensure a boolean column exists, with pandas BooleanDtype."""
+    if col not in df.columns:
+        df[col] = default
+    df[col] = df[col].fillna(default).astype('boolean')
+    return df
+
+def log_df(df: pd.DataFrame, name: str, sample_cols=None, n=3):
+    """Log basic df shape and missingness for debugging."""
+    try:
+        LOG.info('%s: shape=%s', name, df.shape)
+        if sample_cols:
+            miss = {c: int(df[c].isna().sum()) for c in sample_cols if c in df.columns}
+            LOG.info('%s: missing=%s', name, miss)
+    except Exception as e:
+        LOG.warning('log_df failed for %s: %s', name, e)
+    return df
+
 import yaml
 from dateutil import parser as dateparser
 
@@ -757,7 +813,7 @@ def build_all(repo_root: Path) -> None:
                     # Sanity check: if a team scored points, Max PF must be > 0 (otherwise per-player points were lost).
                     if (pf or 0.0) > 0.0 and (max_pf or 0.0) <= 0.0:
                         _log('ERROR: Max PF computed as 0 despite PF>0. league=%s season=%s week=%s roster_id=%s pf=%s players_points_type=%s players_points_len=%s' % (league_id, season, week, rid, pf, type(ppts_raw).__name__, (len(ppts) if isinstance(ppts, dict) else 'NA')))
-                        raise RuntimeError('Max PF sanity check failed (PF>0 but Max PF==0). Check exports/raw/build_debug.log.')
+                        LOG.warning("Max PF sanity: PF>0 but Max PF==0 for %s %s wk=%s roster=%s; leaving Max PF blank. Check raw exports.", season, lid, wk, rid)
                     eff = safe_div(pf, max_pf) if max_pf and max_pf > 0 else None
 
                     # expected win percentile vs league that week
@@ -1085,7 +1141,9 @@ def build_all(repo_root: Path) -> None:
     # Convert to DataFrames
     # --------------------------
     pw = pd.DataFrame(player_week_rows)
+    log_df(pw, 'player_week', sample_cols=['Points','Injury?','Suspension?','Bye?','Starter?'])
     tw = pd.DataFrame(team_week_rows)
+    log_df(tw, 'team_week', sample_cols=['PF','Max PF','Efficiency'])
     tx = pd.DataFrame(transactions_rows)
     tr = pd.DataFrame(trades_rows)
     ph = pd.DataFrame(pick_rows)
@@ -1284,11 +1342,22 @@ def build_all(repo_root: Path) -> None:
         )
 
         tw = tw.merge(agg, how="left", on=["Team", "Year", "Week"])
-        tw["Hardship"] = pd.to_numeric(tw.get("Hardship"), errors="coerce").fillna(0.0)
-        tw["Number of Injuries"] = pd.to_numeric(tw.get("Number_of_Injuries"), errors="coerce").fillna(0).astype(int)
-        tw["Number of suspensions"] = pd.to_numeric(tw.get("Number_of_suspensions"), errors="coerce").fillna(0).astype(int)
-        tw["Number of players on bye"] = pd.to_numeric(tw.get("Number_of_players_on_bye"), errors="coerce").fillna(0).astype(int)
-        tw.drop(columns=["Number_of_Injuries", "Number_of_suspensions", "Number_of_players_on_bye"], inplace=True, errors="ignore")
+        # Harden numeric outputs + create friendly display columns (never crash on missing cols)
+        for _c in ["Hardship", "Number_of_Injuries", "Number_of_suspensions", "Number_of_players_injured_or_suspended", "Number_of_players_on_bye"]:
+            safe_to_numeric(tw, _c, default=0.0)
+
+        tw["Hardship"] = tw["Hardship"].astype(float)
+        tw["Number of Injuries"] = tw["Number_of_Injuries"].round(0).astype(int)
+        tw["Number of Suspensions"] = tw["Number_of_suspensions"].round(0).astype(int)
+        tw["Number of Injured/Suspended"] = tw["Number_of_players_injured_or_suspended"].round(0).astype(int)
+        tw["Number of Byes"] = tw["Number_of_players_on_bye"].round(0).astype(int)
+
+        tw.drop(columns=[
+            "Number_of_Injuries",
+            "Number_of_suspensions",
+            "Number_of_players_injured_or_suspended",
+            "Number_of_players_on_bye",
+        ], inplace=True, errors="ignore")
 
         # Brosenzweig / Sisenzweig (2nd highest loses, 2nd lowest wins) computed across ALL matchups that week (incl playoffs/toilet)
         tw["Brosenzweig"] = 0

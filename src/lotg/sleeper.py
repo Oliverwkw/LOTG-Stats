@@ -1,66 +1,72 @@
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional, Union
-import requests
+from dataclasses import dataclass
+from typing import Any, Dict, List, Optional
 
-from .utils import HttpConfig, get_json
+from .utils import HttpConfig, BuildLogger, fetch_json
 
-BASE = "https://api.sleeper.app/v1"
 
-Json = Union[Dict[str, Any], List[Any]]
-
+@dataclass
 class SleeperClient:
-    """Thin wrapper around Sleeper v1 endpoints used by LOTG.
+    league_id: str
+    cfg: HttpConfig
+    logger: Optional[BuildLogger] = None
+    base: str = "https://api.sleeper.app/v1"
 
-    Keep methods small and explicit so missing endpoints fail loudly in CI.
-    """
+    def _url(self, path: str) -> str:
+        if path.startswith("http"):
+            return path
+        if not path.startswith("/"):
+            path = "/" + path
+        return f"{self.base}{path}"
 
-    def __init__(self, http: HttpConfig):
-        self.http = http
-        self.s = requests.Session()
+    def get(self, path: str) -> Optional[Any]:
+        return fetch_json(self._url(path), self.cfg, self.logger)
 
-    # -----------------
-    # League endpoints
-    # -----------------
-    def league(self, league_id: str) -> Dict[str, Any]:
-        return get_json(f"{BASE}/league/{league_id}", self.http, self.s)
+    # Core league endpoints
+    def league(self, league_id: Optional[str] = None) -> Optional[Dict[str, Any]]:
+        lid = league_id or self.league_id
+        return self.get(f"/league/{lid}")
 
-    def users(self, league_id: str) -> List[Dict[str, Any]]:
-        return get_json(f"{BASE}/league/{league_id}/users", self.http, self.s)
+    def users(self, league_id: Optional[str] = None) -> List[Dict[str, Any]]:
+        lid = league_id or self.league_id
+        return self.get(f"/league/{lid}/users") or []
 
-    def rosters(self, league_id: str) -> List[Dict[str, Any]]:
-        return get_json(f"{BASE}/league/{league_id}/rosters", self.http, self.s)
+    def rosters(self, league_id: Optional[str] = None) -> List[Dict[str, Any]]:
+        lid = league_id or self.league_id
+        return self.get(f"/league/{lid}/rosters") or []
 
-    def matchups(self, league_id: str, week: int) -> List[Dict[str, Any]]:
-        return get_json(f"{BASE}/league/{league_id}/matchups/{int(week)}", self.http, self.s)
+    def matchups(self, week: int, league_id: Optional[str] = None) -> List[Dict[str, Any]]:
+        lid = league_id or self.league_id
+        return self.get(f"/league/{lid}/matchups/{week}") or []
 
-    def transactions(self, league_id: str, week: int) -> List[Dict[str, Any]]:
-        return get_json(f"{BASE}/league/{league_id}/transactions/{int(week)}", self.http, self.s)
+    def transactions(self, week: int, league_id: Optional[str] = None) -> List[Dict[str, Any]]:
+        lid = league_id or self.league_id
+        return self.get(f"/league/{lid}/transactions/{week}") or []
 
-    def traded_picks(self, league_id: str) -> List[Dict[str, Any]]:
-        return get_json(f"{BASE}/league/{league_id}/traded_picks", self.http, self.s)
+    def traded_picks(self, league_id: Optional[str] = None) -> List[Dict[str, Any]]:
+        lid = league_id or self.league_id
+        return self.get(f"/league/{lid}/traded_picks") or []
 
-    # Draft
-    def drafts(self, league_id: str) -> List[Dict[str, Any]]:
-        return get_json(f"{BASE}/league/{league_id}/drafts", self.http, self.s)
+    def drafts(self, league_id: Optional[str] = None) -> List[Dict[str, Any]]:
+        lid = league_id or self.league_id
+        return self.get(f"/league/{lid}/drafts") or []
 
     def draft_picks(self, draft_id: str) -> List[Dict[str, Any]]:
-        return get_json(f"{BASE}/draft/{draft_id}/picks", self.http, self.s)
+        return self.get(f"/draft/{draft_id}/picks") or []
 
-    # Brackets
-    def winners_bracket(self, league_id: str) -> List[Dict[str, Any]]:
-        return get_json(f"{BASE}/league/{league_id}/winners_bracket", self.http, self.s)
-
-    def losers_bracket(self, league_id: str) -> List[Dict[str, Any]]:
-        return get_json(f"{BASE}/league/{league_id}/losers_bracket", self.http, self.s)
-
-    # Players
     def players_nfl(self) -> Dict[str, Any]:
-        return get_json(f"{BASE}/players/nfl", self.http, self.s)
+        return self.get("/players/nfl") or {}
 
-    # NFL stats
-    def nfl_stats_week(self, season: int, week: int, season_type: str = "regular") -> Dict[str, Any]:
-        season = int(season)
-        week = int(week)
-        st = str(season_type or "regular").lower()
-        return get_json(f"{BASE}/stats/nfl/{st}/{season}/{week}", self.http, self.s)
+    # Dynasty chain
+    def league_chain(self) -> List[str]:
+        chain: List[str] = []
+        curr = self.league_id
+        while curr:
+            chain.append(curr)
+            info = self.league(curr) or {}
+            prev = info.get("previous_league_id")
+            if not prev:
+                break
+            curr = str(prev)
+        return chain
