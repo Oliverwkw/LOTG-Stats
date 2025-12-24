@@ -1227,7 +1227,6 @@ def build_all(repo_root: Path) -> None:
                           (pw["Points"]==mxp), col)
 
             # team-level awards: best starter per team per week and per pos
-: best starter per team per week and per pos
             for team, tg in sg.groupby("Team"):
                 mx_t = tg["Points"].max()
                 _set_flag((pw["Year"]==yr) & (pw["Week"]==wk) & (pw["Team"]==team) & starters & (pw["Points"]==mx_t), "Player of week? (team)")
@@ -1517,23 +1516,18 @@ def build_all(repo_root: Path) -> None:
         out.to_csv(out_dir / fname, index=False)
 
     # --------------------------
-    # Excel workbook with filterable Tables (one table per sheet)
+    # Excel workbook (no Excel "Tables" objects)
+    #
+    # We intentionally avoid openpyxl Table objects here because Excel is picky about
+    # table metadata (names/refs) and will sometimes "repair" the workbook by
+    # stripping tables/filters. A plain worksheet + auto-filter is more robust.
     # --------------------------
     try:
         from openpyxl import Workbook
         from openpyxl.utils import get_column_letter
-        from openpyxl.worksheet.table import Table, TableStyleInfo
 
         wb = Workbook()
         wb.remove(wb.active)
-
-        def _safe_table_name(s: str) -> str:
-            s = "".join(ch if ch.isalnum() else "_" for ch in s)
-            if not s:
-                s = "Table"
-            if s[0].isdigit():
-                s = "T_" + s
-            return s[:31]
 
         for csvf in sorted(out_dir.glob("*.csv")):
             sheet_name = csvf.stem[:31]
@@ -1549,20 +1543,9 @@ def build_all(repo_root: Path) -> None:
                 ws.append(list(row))
             ws.freeze_panes = "A2"
 
-            nrows = max(1, ws.max_row)
-            ncols = max(1, ws.max_column)
-            ref = f"A1:{get_column_letter(ncols)}{nrows}"
-            tname = _safe_table_name(f"{sheet_name}_tbl")
-            table = Table(displayName=tname, ref=ref)
-            style = TableStyleInfo(
-                name="TableStyleMedium9",
-                showFirstColumn=False,
-                showLastColumn=False,
-                showRowStripes=True,
-                showColumnStripes=False,
-            )
-            table.tableStyleInfo = style
-            ws.add_table(table)
+            # Add an auto-filter across the header row (and data range if present)
+            if ws.max_column >= 1:
+                ws.auto_filter.ref = f"A1:{get_column_letter(ws.max_column)}{max(1, ws.max_row)}"
 
             try:
                 for j, col in enumerate(d.columns, 1):
