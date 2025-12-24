@@ -104,3 +104,52 @@ _slug_re = re.compile(r"[^a-zA-Z0-9_]+")
 
 def slug(s: str) -> str:
     return _slug_re.sub("_", (s or "").strip())
+
+
+def safe_float(x: Any, default: float = 0.0) -> float:
+    """Convert a value to float; return default if conversion fails."""
+    try:
+        if x is None:
+            return default
+        return float(x)
+    except Exception:
+        return default
+
+
+def safe_div(a: Any, b: Any, default: float = 0.0) -> float:
+    """Safely divide a by b.
+
+    Many rollups use ratios (efficiency, win%, etc.). In production we prefer
+    deterministic defaults over aborting the entire build.
+    """
+    aa = safe_float(a, default=None)
+    bb = safe_float(b, default=None)
+    if aa is None or bb is None or bb == 0.0:
+        return default
+    return aa / bb
+
+
+def safe_bool(x: Any, default: bool = False) -> bool:
+    """Best-effort conversion to bool for mixed Sleeper/pandas values."""
+    if x is None:
+        return default
+    if isinstance(x, bool):
+        return x
+    if isinstance(x, (int, float)):
+        return bool(int(x))
+    s = str(x).strip().lower()
+    if s in ("true", "t", "yes", "y", "1"):
+        return True
+    if s in ("false", "f", "no", "n", "0", ""):
+        return False
+    return default
+
+
+def clamp01(x: Any, default: float = 0.0) -> float:
+    """Clamp numeric value into [0,1]."""
+    v = safe_float(x, default=default)
+    if v < 0.0:
+        return 0.0
+    if v > 1.0:
+        return 1.0
+    return v
