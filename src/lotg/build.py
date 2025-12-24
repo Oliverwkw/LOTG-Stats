@@ -67,6 +67,20 @@ def log_df(df: pd.DataFrame, name: str, sample_cols=None, n=3):
         LOG.warning('log_df failed for %s: %s', name, e)
     return df
 
+
+def log_missing_cols(df: pd.DataFrame, name: str, required: list[str]) -> None:
+    """Log missing required columns; helps catch silent schema drift."""
+    missing = [c for c in required if c not in df.columns]
+    if missing:
+        LOG.warning("%s: missing expected columns: %s", name, missing)
+
+
+def ensure_cols(df: pd.DataFrame, defaults: dict[str, object]) -> None:
+    """Ensure all columns in defaults exist on df, filling with scalar default."""
+    for c, v in defaults.items():
+        if c not in df.columns:
+            df[c] = v
+
 import yaml
 from dateutil import parser as dateparser
 
@@ -814,7 +828,7 @@ def build_all(repo_root: Path) -> None:
                     if (pf or 0.0) > 0.0 and (max_pf or 0.0) <= 0.0:
                         _log('ERROR: Max PF computed as 0 despite PF>0. league=%s season=%s week=%s roster_id=%s pf=%s players_points_type=%s players_points_len=%s' % (league_id, season, week, rid, pf, type(ppts_raw).__name__, (len(ppts) if isinstance(ppts, dict) else 'NA')))
                         LOG.warning("Max PF sanity: PF>0 but Max PF==0 for %s %s wk=%s roster=%s; leaving Max PF blank. Check raw exports.", season, lid, wk, rid)
-                    eff = safe_div(pf, max_pf) if max_pf and max_pf > 0 else None
+                    eff = safe_div(pf, max_pf, default=0.0)
 
                     # expected win percentile vs league that week
                     scores = list(team_pf_by_week.get(wk, {}).values())
@@ -1143,6 +1157,12 @@ def build_all(repo_root: Path) -> None:
     pw = pd.DataFrame(player_week_rows)
     log_df(pw, 'player_week', sample_cols=['Points','Injury?','Suspension?','Bye?','Starter?'])
     tw = pd.DataFrame(team_week_rows)
+    if not tw.empty:
+        log_missing_cols(tw, "team_week", [
+            "Season", "Week", "Team", "PF", "PA", "Margin", "Max PF", "Efficiency"
+        ])
+        zero_max = int((pd.to_numeric(tw.get("Max PF"), errors="coerce").fillna(0) <= 0).sum())
+        log(f"team_week: rows={len(tw)} zero_max_pf={zero_max}")
     log_df(tw, 'team_week', sample_cols=['PF','Max PF','Efficiency'])
     tx = pd.DataFrame(transactions_rows)
     tr = pd.DataFrame(trades_rows)
