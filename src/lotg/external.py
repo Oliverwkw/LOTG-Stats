@@ -12,7 +12,9 @@ class ExternalConfig:
 
 def _download(url: str, out: Path, timeout: int) -> None:
     out.parent.mkdir(parents=True, exist_ok=True)
-    r = requests.get(url, timeout=timeout)
+    session = requests.Session()
+    session.trust_env = False
+    r = session.get(url, timeout=timeout, proxies={"http": None, "https": None})
     r.raise_for_status()
     out.write_bytes(r.content)
 
