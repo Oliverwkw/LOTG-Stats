@@ -1197,6 +1197,26 @@ def build_all(repo_root: Path) -> None:
                             bye = (_norm_team(nfl_team) not in played_set)
                         if pts > 0:
                             bye = False
+                            inj = False
+                            susp = False
+
+                        if inj is None:
+                            inj = False
+                        if susp is None:
+                            susp = False
+                        if bye is None:
+                            bye = False
+
+                        rookie = str(meta.get("years_exp")) in ("0", "0.0")
+                        age = _calc_age(meta.get("birth_date"), approx_date)
+
+                        diff_best_bench = (pts - best_bench_pts) if (started and best_bench_pts is not None) else None
+                        diff_worst_starter = (pts - worst_starter_pts) if ((not started) and worst_starter_pts is not None) else None
+                        ref_player = None
+                        if started and best_bench_pid:
+                            ref_player = pid_meta.get(best_bench_pid, {}).get("full_name") or best_bench_pid
+                        elif (not started) and worst_starter_pid:
+                            ref_player = pid_meta.get(worst_starter_pid, {}).get("full_name") or worst_starter_pid
 
                         rookie = str(meta.get("years_exp")) in ("0", "0.0")
                         age = _calc_age(meta.get("birth_date"), approx_date)
@@ -1215,9 +1235,9 @@ def build_all(repo_root: Path) -> None:
                             "Week": wk,
                             "Year": season,
                             "Points": round(pts, 2),
-                            "Injury?": bool(inj) if inj is not None else None,
-                            "Suspension?": bool(susp) if susp is not None else None,
-                            "Bye?": bool(bye) if bye is not None else None,
+                            "Injury?": bool(inj),
+                            "Suspension?": bool(susp),
+                            "Bye?": bool(bye),
                             "Starter/Bench": "Starter" if started else "Bench",
                             "% of points (if starter)": round(pts / pf, 4) if started and pf else None,
                             "Position started in (if starter)": slot,
