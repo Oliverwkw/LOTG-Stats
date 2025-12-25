@@ -6,7 +6,7 @@ import json
 
 import pandas as pd
 
-from .utils import HttpConfig, get_json
+from .utils import HttpConfig, fetch_json
 from .sleeper import SleeperClient
 from .external import ExternalConfig, load_dynastyprocess_playerids, load_nflverse_injuries
 
@@ -33,7 +33,7 @@ def _download_stats_week(cfg: HttpConfig, season: int, week: int) -> List[Dict[s
     """Sleeper weekly NFL stats endpoint (fallback for player-week points)."""
     url = f"{SLEEPER_BASE}/stats/nfl/regular/{season}/{week}"
     try:
-        data = get_json(url, cfg)
+        data = fetch_json(url, cfg)
         return data if isinstance(data, list) else []
     except Exception:
         return []
@@ -56,7 +56,7 @@ def snapshot_all(
     snapshot_dir.mkdir(parents=True, exist_ok=True)
 
     http = HttpConfig(timeout_seconds=30, max_retries=10, backoff_base_seconds=0.7)
-    sc = SleeperClient(http)
+    sc = SleeperClient(league_id, http)
 
     cache_dir = repo_root / ".cache"
     cache_dir.mkdir(exist_ok=True)
@@ -86,6 +86,8 @@ def snapshot_all(
         try:
             lg = sc.league(lid)
         except Exception:
+            break
+        if not isinstance(lg, dict):
             break
 
         season = int(lg.get("season") or 0)
@@ -135,7 +137,7 @@ def snapshot_all(
         week = 1
         while True:
             try:
-                matchups = sc.matchups(lid, week)
+                matchups = sc.matchups(week, lid)
             except Exception:
                 matchups = []
             if not matchups:
@@ -145,7 +147,7 @@ def snapshot_all(
             _safe_write_json(wk_dir / "matchups.json", matchups)
 
             try:
-                txs = sc.transactions(lid, week)
+                txs = sc.transactions(week, lid)
             except Exception:
                 txs = []
             _safe_write_json(wk_dir / "transactions.json", txs)
