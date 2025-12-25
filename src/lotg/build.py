@@ -1264,6 +1264,13 @@ def build_all(repo_root: Path) -> None:
                         elif (not started) and worst_starter_pid:
                             ref_player = pid_meta.get(worst_starter_pid, {}).get("full_name") or worst_starter_pid
 
+                        if inj is None:
+                            inj = False
+                        if susp is None:
+                            susp = False
+                        if bye is None:
+                            bye = False
+
                         player_week_rows.append({
                             "Player": full_name,
                             "Team": team,
@@ -1894,6 +1901,13 @@ def build_all(repo_root: Path) -> None:
     # --------------------------
     # Rollups: player_year/all_time, team_year/all_time, league_week/year/all_time
     # --------------------------
+    if not pw.empty and not tw.empty:
+        win_map = tw.set_index(["Team", "Year", "Week"])["Win?"].to_dict()
+        pw["Team win?"] = [
+            win_map.get((row["Team"], row["Year"], row["Week"]))
+            for row in pw[["Team", "Year", "Week"]].itertuples(index=False, name=None)
+        ]
+
     player_year = pd.DataFrame()
     player_all = pd.DataFrame()
     if not pw.empty:
