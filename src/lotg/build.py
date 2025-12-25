@@ -1271,6 +1271,13 @@ def build_all(repo_root: Path) -> None:
                         if bye is None:
                             bye = False
 
+                        if inj is None:
+                            inj = False
+                        if susp is None:
+                            susp = False
+                        if bye is None:
+                            bye = False
+
                         player_week_rows.append({
                             "Player": full_name,
                             "Team": team,
