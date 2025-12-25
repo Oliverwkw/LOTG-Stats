@@ -1,48 +1,23 @@
-# LOTG Cloud Tracker (no code on your Mac)
+# LOTG-Stats
 
-This project runs **entirely in the cloud** on **GitHub Actions (free)** and exports your league’s history into
-CSV + Excel tabs, using the column schema in:
+Pipeline to generate a complete LOTG_Stats Excel workbook:
 
-- `plan/LOTG Plan - Sheet1.csv`
+- Fully populated sheets
+- Restored Record / Win% vs each team
+- First four columns pinned on every sheet
 
-## What you need
+## Usage
 
-- A free GitHub account (you can sign up with Gmail)
-- A web browser on your Mac
-- Microsoft Excel (optional, but helpful)
+1. Put raw game logs under `./data/` (CSV or Excel).
+2. Edit `config.yaml` to map your columns to the normalized names.
+3. Run:
+   ```bash
+   python -m lotg_stats.cli --config config.yaml
+   ```
 
-## Setup (once)
+Output: `./LOTG_outputs/LOTG_Stats.xlsx`
 
-1. Create a new GitHub repository (public or private).
-2. Upload everything in this folder to that repo (drag/drop on github.com is fine).
-3. In the repo, open `config/league.yaml` and set:
-   - `league_id` to your Sleeper league id (keep it in quotes).
-4. Go to **Actions** and enable GitHub Actions if prompted.
+## Notes
 
-## Run it (one click)
-
-- GitHub repo → **Actions** → **Build LOTG Stats** → **Run workflow**
-
-When it finishes, download the artifact named **LOTG_outputs**.
-
-It contains:
-- `exports/LOTG_Stats.xlsx` (one tab per output table)
-- `exports/LOTG_Exports.zip` (all CSVs)
-- the individual CSVs (so you can import to Sheets/Excel/PowerBI later)
-
-## Outputs
-
-These tables match the column lists in your plan:
-
-- `player_week.csv`
-- `player_year.csv`
-- `player_all_time.csv`
-- `team_week.csv`
-- `team_year.csv`
-- `team_all_time.csv`
-- `league_week.csv`
-- `league_year.csv`
-- `league_all_time.csv`
-- `transactions.csv`
-- `trades.csv`
-- `pick_history.csv`
+- Config-driven column mapping allows your existing file headers to vary.
+- If player stats are missing, the Players sheet is skipped gracefully.

@@ -1,0 +1,36 @@
+inputs:
+  data_dir: "./data"
+  patterns: ["*.csv", "*.xlsx", "*.xls"]
+  sheet_name: null
+
+columns:
+  date: "Date"
+  season: "Season"
+  home_team: "HomeTeam"
+  away_team: "AwayTeam"
+  home_score: "HomeScore"
+  away_score: "AwayScore"
+
+  team: null
+  opponent: null
+  venue: "Venue"
+
+  player: "Player"
+  player_team: "Team"
+  minutes: "MIN"
+  points: "PTS"
+  rebounds: "REB"
+  assists: "AST"
+
+seasons:
+  infer_by_year_boundary: true
+  year_start_month: 1
+
+output:
+  dir: "./LOTG_outputs"
+  file: "LOTG_Stats.xlsx"
+
+options:
+  include_players: true
+  include_vs_team: true
+  include_home_away_splits: true
