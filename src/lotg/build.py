@@ -1489,7 +1489,7 @@ def build_all(repo_root: Path) -> None:
     tw = pd.DataFrame(team_week_rows)
     if not tw.empty:
         log_missing_cols(tw, "team_week", [
-            "Season", "Week", "Team", "PF", "PA", "Margin", "Max PF", "Efficiency"
+            "Year", "Week", "Team", "PF", "Points against", "Margin", "Max PF", "Efficiency"
         ])
         zero_max = int((pd.to_numeric(tw.get("Max PF"), errors="coerce").fillna(0) <= 0).sum())
         LOG.info("team_week: rows=%s zero_max_pf=%s", len(tw), zero_max)
@@ -1922,11 +1922,25 @@ def build_all(repo_root: Path) -> None:
     # --------------------------
     # Rollups: player_year/all_time, team_year/all_time, league_week/year/all_time
     # --------------------------
-    if not pw.empty and not tw.empty:
-        win_map = tw.set_index(["Team", "Year", "Week"])["Win?"].to_dict()
+    if (
+        not pw.empty
+        and not tw.empty
+        and {"Team", "Year", "Week"}.issubset(pw.columns)
+        and {"Team", "Year", "Week", "Win?"}.issubset(tw.columns)
+    ):
+        tw_keys = tw[["Team", "Year", "Week", "Win?"]].copy()
+        tw_keys["Team"] = tw_keys["Team"].astype(str)
+        for col in ["Year", "Week"]:
+            tw_keys[col] = pd.to_numeric(tw_keys[col], errors="coerce").astype("Int64").astype(object)
+        win_map = tw_keys.set_index(["Team", "Year", "Week"])["Win?"].to_dict()
+
+        pw_keys = pw[["Team", "Year", "Week"]].copy()
+        pw_keys["Team"] = pw_keys["Team"].astype(str)
+        for col in ["Year", "Week"]:
+            pw_keys[col] = pd.to_numeric(pw_keys[col], errors="coerce").astype("Int64").astype(object)
         pw["Team win?"] = [
-            win_map.get((row["Team"], row["Year"], row["Week"]))
-            for row in pw[["Team", "Year", "Week"]].itertuples(index=False, name=None)
+            win_map.get((team, year, week))
+            for team, year, week in pw_keys.itertuples(index=False, name=None)
         ]
 
     player_year = pd.DataFrame()
