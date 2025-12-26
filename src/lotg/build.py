@@ -11,6 +11,7 @@ import math
 import traceback
 import logging
 import warnings
+import numpy as np
 
 warnings.filterwarnings("ignore", category=FutureWarning, message="Downcasting object dtype arrays")
 
@@ -773,7 +774,19 @@ def build_all(repo_root: Path) -> None:
         except Exception:
             pass
 
-        # draft picks history (rookie + startup as available in Sleeper; still partial)
+        
+        # traded picks (for future draft capital / tanking)
+        try:
+            traded_picks = sc.traded_picks(league_id)
+            try:
+                (raw_dir / f"traded_picks_{season}.json").write_text(json.dumps(traded_picks, indent=2))
+            except Exception:
+                pass
+        except Exception as e:
+            traded_picks = []
+            _log_exc(debug, f"traded_picks_{season}", e)
+
+# draft picks history (rookie + startup as available in Sleeper; still partial)
         try:
             drafts = sc.drafts(league_id)
         except Exception as e:
@@ -1092,11 +1105,13 @@ def build_all(repo_root: Path) -> None:
                     # Opponent label per playoffs spec
                     opp_label = opp_team
                     label = stage_label_map.get((season, wk, rid))
+                    week_name = label if label else f"Week {wk}"
 
                     team_week_rows.append({
                         "Team": team,
                         "Opponent Team (raw)": opp_team,
                         "Week": wk,
+                        "Week Name": week_name,
                         "Year": season,
                         "PF": round(pf, 2),
                         "Win?": win,
@@ -1231,9 +1246,9 @@ def build_all(repo_root: Path) -> None:
                         if nfl_team and played_set:
                             bye = (_norm_team(nfl_team) not in played_set)
                         if pts > 0:
+                            # Player scored points; not a bye week. Do NOT override injury/suspension flags:
+                            # a player can play while injured or returning from suspension.
                             bye = False
-                            inj = False
-                            susp = False
 
                         if inj is None:
                             inj = False
@@ -1494,7 +1509,181 @@ def build_all(repo_root: Path) -> None:
         zero_max = int((pd.to_numeric(tw.get("Max PF"), errors="coerce").fillna(0) <= 0).sum())
         LOG.info("team_week: rows=%s zero_max_pf=%s", len(tw), zero_max)
     log_df(tw, 'team_week', sample_cols=['PF','Max PF','Efficiency'])
-    tx = pd.DataFrame(transactions_rows)
+
+    # ---- Tanking (user formula)
+    # Tanking(team, week) uses season-to-date averages through that week.
+    # Tanking(team, year) is the final week value.
+    def _safe_div(n, d):
+        try:
+            d = float(d)
+            n = float(n)
+            if d == 0 or (pd.isna(d) or pd.isna(n)):
+                return 0.0
+            return n / d
+        except Exception:
+            return 0.0
+
+    def _tanking_score(avg_pf, avg_max_pf, avg_age, league_avg_pf, league_avg_max_pf, league_avg_age, pick_sum, future_cap):
+        # 1/6 *(1 - (AvgPF-2/3 L)/(L-2/3 L))
+        denom1 = (league_avg_pf - (2.0/3.0)*league_avg_pf)  # L/3
+        term1 = 1.0 - _safe_div((avg_pf - (2.0/3.0)*league_avg_pf), denom1)
+
+        # 1/6 *(1 - (AvgMaxPF-LPF)/(LMaxPF-LPF))
+        denom2 = (league_avg_max_pf - league_avg_pf)
+        term2 = 1.0 - _safe_div((avg_max_pf - league_avg_pf), denom2)
+
+        # 1/6 *(1 - (AvgAge-21)/(LAvgAge-21))
+        denom3 = (league_avg_age - 21.0)
+        term3 = 1.0 - _safe_div((avg_age - 21.0), denom3)
+
+        # 1/6 *(sum picks value)
+        term4 = float(pick_sum or 0.0)
+
+        # 1/9 *(future draft capital weights)
+        term5 = float(future_cap or 0.0)
+
+        return (1.0/6.0)*term1 + (1.0/6.0)*term2 + (1.0/6.0)*term3 + (1.0/6.0)*term4 + (1.0/9.0)*term5
+
+    def _future_cap_from_traded(traded_picks, roster_id: int, season: int) -> float:
+        # weights provided by user
+        w = {1: 0.25, 2: 0.09, 3: 0.03, 4: 0.01}
+        tot = 0.0
+        for tp in traded_picks or []:
+            try:
+                tp_season = _to_int(tp.get("season"), None)
+                if tp_season is None or tp_season <= season:
+                    continue
+                owner = _to_int(tp.get("owner_id") or tp.get("roster_id"), None)
+                if owner is None or owner != roster_id:
+                    continue
+                rnd = _to_int(tp.get("round"), None)
+                if rnd in w:
+                    tot += w[rnd]
+            except Exception:
+                continue
+        return tot
+
+    # Build team->roster_id lookup for draft capital
+    team_to_roster = {}
+    for rid, tm in roster_to_team.items():
+        try:
+            team_to_roster[str(tm)] = int(rid)
+        except Exception:
+            continue
+
+    # Per-season pick value (that year's draft picks)
+    pick_value_by_team_season = {}
+    for p in draft_picks_all or []:
+        try:
+            y = _to_int(p.get("draft_season"), None)
+            if y is None:
+                continue
+            rid = _to_int(p.get("roster_id"), None)
+            if rid is None:
+                continue
+            team = roster_to_team.get(rid)
+            if not team:
+                continue
+            pick_no = p.get("pick_no")
+            if pick_no is None:
+                # fall back: approximate overall pick if not provided
+                rnd = _to_int(p.get("round"), 0)
+                slot = _to_int(p.get("draft_slot"), 0) or _to_int(p.get("pick_in_round"), 0)
+                if rnd and slot:
+                    pick_no = (rnd - 1) * max(1, len(roster_to_team)) + slot
+            pick_no = _to_int(pick_no, None)
+            if pick_no is None:
+                continue
+            # rookie drafts only (heuristic): ignore huge pick numbers
+            if pick_no > 1000:
+                continue
+            val = 1.0 / (float(pick_no) + 1.0)
+            pick_value_by_team_season[(str(team), int(y))] = pick_value_by_team_season.get((str(team), int(y)), 0.0) + val
+        except Exception:
+            continue
+
+    # Team-week tanking: compute season-to-date
+    if not tw.empty:
+        tw["Tanking"] = pd.to_numeric(tw.get("Tanking"), errors="coerce")
+
+        # weekly team age average (all rostered, starter+bench)
+        age_week = pw.groupby(["Team", "Year", "Week"], dropna=False)["Age"].mean().reset_index()
+        age_week.rename(columns={"Age": "TeamWeekAvgAge"}, inplace=True)
+
+        tw2 = tw.merge(age_week, on=["Team", "Year", "Week"], how="left")
+        tw2["TeamWeekAvgAge"] = pd.to_numeric(tw2["TeamWeekAvgAge"], errors="coerce")
+
+        tanking_rows = []
+        for season in sorted(tw2["Year"].dropna().unique()):
+            g = tw2[tw2["Year"] == season].copy()
+            if g.empty:
+                continue
+
+            # league averages season-to-date by week (equal-weight per week)
+            g_sorted = g.sort_values("Week").copy()
+            pf_week = g_sorted.groupby("Week")["PF"].mean().sort_index()
+            maxpf_week = g_sorted.groupby("Week")["Max PF"].mean().sort_index()
+            age_week_lg = g_sorted.groupby("Week")["TeamWeekAvgAge"].mean().sort_index()
+
+            league_avg_pf_upto = pf_week.expanding().mean()
+            league_avg_maxpf_upto = maxpf_week.expanding().mean()
+            league_avg_age_upto = age_week_lg.expanding().mean()
+
+            for team, tg in g.groupby("Team"):
+                tg = tg.sort_values("Week").copy()
+                # expanding means
+                pf_exp = pd.to_numeric(tg["PF"], errors="coerce").expanding().mean()
+                maxpf_exp = pd.to_numeric(tg["Max PF"], errors="coerce").expanding().mean()
+
+                # age expanding: use weekly mean age
+                age_exp = pd.to_numeric(tg["TeamWeekAvgAge"], errors="coerce").expanding().mean()
+
+                rid = team_to_roster.get(str(team), None)
+                pick_sum = pick_value_by_team_season.get((str(team), int(season)), 0.0)
+                future_cap = _future_cap_from_traded(traded_picks, rid, int(season)) if rid is not None else 0.0
+
+                for i, row in tg.reset_index(drop=True).iterrows():
+                    score = _tanking_score(
+                        avg_pf=pf_exp.iloc[i],
+                        avg_max_pf=maxpf_exp.iloc[i],
+                        avg_age=age_exp.iloc[i],
+                        league_avg_pf=league_avg_pf_upto.get(int(row["Week"]), league_avg_pf_upto.iloc[-1] if len(league_avg_pf_upto) else 0.0),
+                        league_avg_max_pf=league_avg_maxpf_upto.get(int(row["Week"]), league_avg_maxpf_upto.iloc[-1] if len(league_avg_maxpf_upto) else 0.0),
+                        league_avg_age=league_avg_age_upto.get(int(row["Week"]), league_avg_age_upto.iloc[-1] if len(league_avg_age_upto) else 0.0),
+                        pick_sum=pick_sum,
+                        future_cap=future_cap,
+                    )
+                    tanking_rows.append((row["Team"], row["Year"], row["Week"], float(score)))
+
+        if tanking_rows:
+            tank_df = pd.DataFrame(tanking_rows, columns=["Team", "Year", "Week", "Tanking"])
+            tw = tw.drop(columns=["Tanking"], errors="ignore").merge(tank_df, on=["Team", "Year", "Week"], how="left")
+        else:
+            tw["Tanking"] = 0.0
+
+    
+    # ---- Week Name propagation (custom week naming)
+    # Use team_week's Week Name where available.
+    if (not tw.empty) and ("Week Name" in tw.columns):
+        # player_week
+        if "Week Name" not in pw.columns:
+            pw = pw.merge(tw[["Team","Year","Week","Week Name"]].drop_duplicates(), on=["Team","Year","Week"], how="left")
+
+        # derive a league-wide Week Name per (Year,Week) for league_week rollups
+        def _mode_nonnull(vals):
+            vals = [v for v in vals if isinstance(v, str) and v and v != "N/A"]
+            if not vals:
+                return None
+            # prefer non-generic labels
+            nongeneric = [v for v in vals if not v.startswith("Week ")]
+            base = nongeneric if nongeneric else vals
+            return pd.Series(base).mode().iloc[0] if len(base) else None
+
+        week_name_global = tw.groupby(["Year","Week"])["Week Name"].apply(_mode_nonnull).reset_index()
+    else:
+        week_name_global = pd.DataFrame(columns=["Year","Week","Week Name"])
+
+tx = pd.DataFrame(transactions_rows)
     tr = pd.DataFrame(trades_rows)
     ph = pd.DataFrame(pick_rows)
 
@@ -1796,7 +1985,36 @@ def build_all(repo_root: Path) -> None:
         tw["Sisenzweig"] = ((tw["UPST"] != 1) & (tw["Hardship"] > 0) & (tw["Win?"] == 1)).astype(int)
 
     # --------------------------
-    # Derived team-week columns: pregame avg maxPF diff
+    
+        # Fill remaining schema columns in team-week (best-effort)
+        try:
+            # Largest deficit overcome (no play-by-play available) -> 0 for wins, else None
+            if "Largest deficit overcome (if win)" in tw.columns:
+                tw.loc[tw["Win?"] == 1, "Largest deficit overcome (if win)"] = 0
+
+            # Cuffs: use player-week activated cuff flag (rostered and started)
+            cuff_col = "- Activated Cuff? (Was a player of ... 5 played games injured? Only for players with avg <10 PPG)"
+            if (not pw.empty) and (cuff_col in pw.columns):
+                pw_c = pw[["Team","Year","Week",cuff_col,"Starter/Bench"]].copy()
+                pw_c[cuff_col] = pd.to_numeric(pw_c[cuff_col], errors="coerce").fillna(0.0)
+                agg_c = pw_c.groupby(["Team","Year","Week"], as_index=False).agg(
+                    **{
+                        "Number of cuffs rostered": (cuff_col, "sum"),
+                        "Number of cuffs started": (cuff_col, lambda s: float(s[pw_c.loc[s.index,"Starter/Bench"]=="Starter"].sum()) if len(s) else 0.0),
+                    }
+                )
+                tw = tw.merge(agg_c, how="left", on=["Team","Year","Week"], suffixes=("","_c"))
+                # fill if missing
+                tw["Number of cuffs rostered"] = pd.to_numeric(tw.get("Number of cuffs rostered"), errors="coerce").fillna(0.0).round(0).astype(int)
+                tw["Number of cuffs started"] = pd.to_numeric(tw.get("Number of cuffs started"), errors="coerce").fillna(0.0).round(0).astype(int)
+
+            # Future draft capital / startup draft players remaining not yet modeled -> 0 for now
+            for col in ["Future draft capital", "Startup draft players remaining"]:
+                if col in tw.columns:
+                    tw[col] = pd.to_numeric(tw[col], errors="coerce").fillna(0.0)
+        except Exception as e:
+            _log_exc(debug, "team_week_fill_schema_cols", e)
+# Derived team-week columns: pregame avg maxPF diff
     # --------------------------
     if not tw.empty:
         tw["Difference in pregame avg max PF from opponent"] = None
@@ -1834,7 +2052,94 @@ def build_all(repo_root: Path) -> None:
                     tw.loc[idx, "Difference in pregame avg max PF from opponent"] = round(float(v) - lg_avg, 2)
 
     # --------------------------
-    # Team-week flags & streaks
+    
+    # --------------------------
+    # Player-week: rolling 5-game diffs vs reference player + cuff adjusted diff
+    # --------------------------
+    if not pw.empty:
+        try:
+            pw["Year"] = pd.to_numeric(pw["Year"], errors="coerce").astype("Int64")
+            pw["Week"] = pd.to_numeric(pw["Week"], errors="coerce").astype("Int64")
+            pw["Points"] = pd.to_numeric(pw["Points"], errors="coerce").fillna(0.0)
+
+            # "played games" exclude injury/susp/bye
+            played_mask = ~pw[["Injury?", "Suspension?", "Bye?"]].fillna(False).any(axis=1)
+
+            pw_sorted = pw.sort_values(["Player", "Year", "Week"]).reset_index()
+            # map (player,year,week)-> rolling avg last5 played (including current if played)
+            rolling_avg = {}
+            from collections import deque
+            hist = defaultdict(lambda: deque(maxlen=5))
+            for _, r in pw_sorted.iterrows():
+                p=str(r["Player"]); yr=int(r["Year"]) if pd.notna(r["Year"]) else None; wk=int(r["Week"]) if pd.notna(r["Week"]) else None
+                if yr is None or wk is None:
+                    continue
+                key=(p,yr,wk)
+                # compute avg of previous played games (last5) BEFORE adding current
+                prev=list(hist[(p,yr)])
+                avg_prev=float(np.mean(prev)) if prev else None
+                # if played, include current for future
+                if bool(played_mask.loc[r["index"]]):
+                    hist[(p,yr)].append(float(r["Points"]))
+                rolling_avg[key]=avg_prev
+
+            def get_avg(p,yr,wk):
+                return rolling_avg.get((str(p),int(yr),int(wk)))
+
+            diffs=[]
+            cuff_adj=[]
+            for _, r in pw.iterrows():
+                ref=r.get("Reference player name")
+                if not isinstance(ref,str) or ref.strip()=="":
+                    diffs.append(None); cuff_adj.append(None); continue
+                yr=r.get("Year"); wk=r.get("Week"); player=r.get("Player")
+                if pd.isna(yr) or pd.isna(wk):
+                    diffs.append(None); cuff_adj.append(None); continue
+                avg_p=get_avg(player,yr,wk)
+                avg_r=get_avg(ref,yr,wk)
+                if (avg_p is None) or (avg_r is None):
+                    diffs.append(None); cuff_adj.append(None); continue
+                started = (r.get("Starter/Bench") == "Starter")
+                diff = (avg_r-avg_p) if started else (avg_p-avg_r)
+                diffs.append(round(float(diff),2))
+                cuff = float(r.get("- Activated Cuff? (Was a player of ... 5 played games injured? Only for players with avg <10 PPG)") or 0)
+                cuff_adj.append(round(float(diff) * (0.5 if cuff else 1.0), 2))
+            pw["Difference in averages of best/worst startables over previous 5 games"] = diffs
+            pw["Cuff adjusted difference"] = cuff_adj
+        except Exception as e:
+            _log_exc(debug, "player_week_rolling_diffs", e)
+
+    # --------------------------
+    # Team-week: Tanking (best-effort heuristic)
+    # --------------------------
+    if not tw.empty:
+        try:
+            tw = tw.sort_values(["Year","Week","Team"]).reset_index(drop=True)
+            tw["Max PF"] = pd.to_numeric(tw["Max PF"], errors="coerce")
+            tw["Efficiency"] = pd.to_numeric(tw["Efficiency"], errors="coerce")
+            tw["Number of transactions"] = pd.to_numeric(tw.get("Number of transactions"), errors="coerce").fillna(0.0)
+
+            # pregame avg maxPF = season-to-date avg maxPF before current week
+            tw = tw.sort_values(["Team","Year","Week"]).reset_index(drop=True)
+            tw["Pregame Avg Max PF"] = tw.groupby(["Team","Year"])["Max PF"].apply(lambda s: s.shift(1).expanding().mean()).reset_index(level=[0,1], drop=True)
+
+            # rank teams by pregame avg maxPF each week; bottom quartile eligible
+            def _bottom_quartile(g):
+                vals = pd.to_numeric(g["Pregame Avg Max PF"], errors="coerce")
+                if vals.notna().sum() < 4:
+                    return pd.Series([False]*len(g), index=g.index)
+                thresh = vals.quantile(0.25)
+                return vals <= thresh
+
+            tw = tw.sort_values(["Year","Week","Team"]).reset_index(drop=True)
+            bq = tw.groupby(["Year","Week"], group_keys=False).apply(_bottom_quartile)
+            eff_bad = tw["Efficiency"].fillna(1.0) < 0.85
+            tx_some = tw["Number of transactions"].fillna(0.0) >= 1
+            tw["Tanking"] = ((bq) & eff_bad & tx_some).astype(int)
+            tw.drop(columns=["Pregame Avg Max PF"], inplace=True, errors="ignore")
+        except Exception as e:
+            _log_exc(debug, "team_week_tanking", e)
+# Team-week flags & streaks
     # --------------------------
     if not tw.empty:
         tw["Increase in points from previous week"] = None
@@ -2254,12 +2559,134 @@ def build_all(repo_root: Path) -> None:
             rows.append(row)
         team_year = pd.DataFrame(rows)
 
+        # --------------------------
+        # Fill missing Team-year columns from team-week (flags, tanking, luck, roster composition, etc.)
+        # --------------------------
+        try:
+            agg_year = tw.groupby(["Team", "Year"], as_index=False).agg(
+                **{
+                    "Tanking": ("Tanking", "sum"),
+                    "Luck": ("Luck", "sum"),
+                    "Times Brosenzweig": ("Brosenzweig", "sum"),
+                    "Times Sisenzweig": ("Sisenzweig", "sum"),
+                    "Times Highest score?": ("Highest score?", "sum"),
+                    "Times Lowest score?": ("Lowest score?", "sum"),
+                    "Times Narrowest victory?": ("Narrowest victory?", "sum"),
+                    "Times Largest blowout?": ("Largest blowout?", "sum"),
+                    "Times Most efficient?": ("Most efficient?", "sum"),
+                    "Times Least efficient?": ("Least efficient?", "sum"),
+                    "Times Top half of league?": ("Top half of league?", "sum"),
+                    "Number of QB started": ("Number of QB started", "sum"),
+                    "Number of WR started": ("Number of WR started", "sum"),
+                    "Number of RB started": ("Number of RB started", "sum"),
+                    "Number of TE started": ("Number of TE started", "sum"),
+                    "Number of QB rostered": ("Number of QB rostered", "sum"),
+                    "Number of WR rostered": ("Number of WR rostered", "sum"),
+                    "Number of RB rostered": ("Number of RB rostered", "sum"),
+                    "Number of TE rostered": ("Number of TE rostered", "sum"),
+                    "Most number of players started from same NFL team": ("Most number of players started from same NFL team", "max"),
+                    "Most number of players rostered from same NFL team": ("Most number of players rostered from same NFL team", "max"),
+                    "Most number of QBs started from same NFL team": ("Most number of QBs started from same NFL team", "max"),
+                    "Most number of QBs rostered from same NFL team": ("Most number of QBs rostered from same NFL team", "max"),
+                    "Most number of RBs started from same NFL team": ("Most number of RBs started from same NFL team", "max"),
+                    "Most number of RBs rostered from same NFL team": ("Most number of RBs rostered from same NFL team", "max"),
+                    "Most number of WR started from same NFL team": ("Most number of WR started from same NFL team", "max"),
+                    "Most number of WR rostered from same NFL team": ("Most number of WR rostered from same NFL team", "max"),
+                    "Most number of TE started from same NFL team": ("Most number of TE started from same NFL team", "max"),
+                    "Most number of TE rostered from same NFL team": ("Most number of TE rostered from same NFL team", "max"),
+                    "Number of NFL teams among starting players": ("Number of NFL teams among starting players", "max"),
+                    "Number of NFL teams amoung rostered players": ("Number of NFL teams amoung rostered players", "max"),
+                    "Number of rookies started": ("Number of rookies started", "sum"),
+                    "Number of rookies rostered": ("Number of rookies rostered", "sum"),
+                    "Player average age": ("Player average age", "mean"),
+                    "Difference between highest and lowest starters": ("Difference between highest and lowest starters", "max"),
+                    "Number of donuts": ("Number of donuts", "sum"),
+                    "Number of players under 10": ("Number of players under 10", "sum"),
+                    "Number of players over 20": ("Number of players over 20", "sum"),
+                    "Number of players over 30": ("Number of players over 30", "sum"),
+                    "Number of players over 40": ("Number of players over 40", "sum"),
+                    "Number of players over 50": ("Number of players over 50", "sum"),
+                    "Number of cuffs rostered": ("Number of cuffs rostered", "sum"),
+                    "Number of cuffs started": ("Number of cuffs started", "sum"),
+                }
+            )
+            team_year = team_year.merge(agg_year, how="left", on=["Team", "Year"])
+        except Exception as e:
+            _log_exc(debug, "team_year_aggregate_fill", e)
+
+        # Result + vs-category records (best-effort using games_df + playoff/champion/last_place sets)
+        try:
+            def _fmt_rec(wlt):
+                w, l, t = wlt
+                return f"{int(w)}-{int(l)}-{int(t)}"
+
+            def _wlt_for(team: str, yr: int, opp_filter):
+                if games_df.empty:
+                    return (0, 0, 0)
+                sub = games_df[(games_df["Year"] == yr) & (games_df["Team"] == team)]
+                if opp_filter is not None:
+                    sub = sub[sub["Opponent"].isin(opp_filter)]
+                return (
+                    int((sub["Win?"] == 1).sum()),
+                    int((sub["Win?"] == 0).sum()),
+                    int((sub["Win?"] == 0.5).sum()),
+                )
+
+            results = []
+            for _, r in team_year.iterrows():
+                team = str(r["Team"])
+                yr = int(r["Year"])
+                playoffs = playoff_teams_by_season.get(yr, set())
+                champ = champion_by_season.get(yr)
+                lastp = last_place_by_season.get(yr)
+
+                if champ and team == champ:
+                    res = "Champion"
+                elif lastp and team == lastp:
+                    res = "Last place"
+                elif team in playoffs:
+                    res = "Playoffs"
+                else:
+                    res = "Missed playoffs"
+
+                wlt_play = _wlt_for(team, yr, playoffs if playoffs else None)
+                wlt_non = _wlt_for(team, yr, set(team_year[team_year["Year"] == yr]["Team"]) - set(playoffs) if playoffs else None)
+                wlt_champ = _wlt_for(team, yr, {champ} if champ else None)
+                wlt_last = _wlt_for(team, yr, {lastp} if lastp else None)
+
+                def winpct(wlt):
+                    w, l, t = wlt
+                    gp = max(1, w + l + t)
+                    return round((w + 0.5 * t) / gp, 4)
+
+                results.append({
+                    "Team": team,
+                    "Year": yr,
+                    "Result": res,
+                    "Record vs playoff teams": _fmt_rec(wlt_play) if playoffs else "N/A",
+                    "Win % vs playoff teams": winpct(wlt_play) if playoffs else None,
+                    "Record vs non-playoff teams": _fmt_rec(wlt_non) if playoffs else "N/A",
+                    "Win % vs non-playoff teams": winpct(wlt_non) if playoffs else None,
+                    "Record vs champion": _fmt_rec(wlt_champ) if champ else "N/A",
+                    "Win % vs champion": winpct(wlt_champ) if champ else None,
+                    "Record vs last place": _fmt_rec(wlt_last) if lastp else "N/A",
+                    "Win % vs last place": winpct(wlt_last) if lastp else None,
+                })
+            extra = pd.DataFrame(results)
+            team_year = team_year.drop(columns=[c for c in extra.columns if c in team_year.columns and c not in ["Team","Year"]], errors="ignore")
+            team_year = team_year.merge(extra, how="left", on=["Team","Year"])
+            team_year["Week of playoff elimination"] = team_year.get("Week of playoff elimination", "N/A")
+            team_year["Offseason roster turnover"] = team_year.get("Offseason roster turnover", 0).fillna(0)
+            team_year["Inseason roster turnover"] = team_year.get("Inseason roster turnover", 0).fillna(0)
+        except Exception as e:
+            _log_exc(debug, "team_year_results_vs_records", e)
+
         team_year = team_year.sort_values(["Team", "Year"]).reset_index(drop=True)
         team_year["Change in win % from previous season"] = team_year.groupby("Team")["Win %"].diff()
 
         # team-all-time rollup
         rows = []
-        for team, g in tw.groupby(["Team"]):
+        for team, g in tw.groupby("Team"):
             wins = int((g["Win?"] == 1).sum())
             losses = int((g["Win?"] == 0).sum())
             ties = int((g["Win?"] == 0.5).sum())
@@ -2318,6 +2745,113 @@ def build_all(repo_root: Path) -> None:
             rows.append(row)
         team_all = pd.DataFrame(rows)
 
+        # --------------------------
+        # Fill missing Team-all-time columns from team-week (flags, roster composition, etc.)
+        # --------------------------
+        try:
+            agg_all = tw.groupby("Team", as_index=False).agg(
+                **{
+                    "Times Brosenzweig": ("Brosenzweig", "sum"),
+                    "Times Sisenzweig": ("Sisenzweig", "sum"),
+                    "Times Highest score?": ("Highest score?", "sum"),
+                    "Times Lowest score?": ("Lowest score?", "sum"),
+                    "Times Narrowest victory?": ("Narrowest victory?", "sum"),
+                    "Times Largest blowout?": ("Largest blowout?", "sum"),
+                    "Times Most efficient?": ("Most efficient?", "sum"),
+                    "Times Least efficient?": ("Least efficient?", "sum"),
+                    "Times Top half of league?": ("Top half of league?", "sum"),
+                    "Number of QB started": ("Number of QB started", "sum"),
+                    "Number of WR started": ("Number of WR started", "sum"),
+                    "Number of RB started": ("Number of RB started", "sum"),
+                    "Number of TE started": ("Number of TE started", "sum"),
+                    "Number of QB rostered": ("Number of QB rostered", "sum"),
+                    "Number of WR rostered": ("Number of WR rostered", "sum"),
+                    "Number of RB rostered": ("Number of RB rostered", "sum"),
+                    "Number of TE rostered": ("Number of TE rostered", "sum"),
+                    "Most number of players started from same NFL team": ("Most number of players started from same NFL team", "max"),
+                    "Most number of players rostered from same NFL team": ("Most number of players rostered from same NFL team", "max"),
+                    "Most number of QBs started from same NFL team": ("Most number of QBs started from same NFL team", "max"),
+                    "Most number of QBs rostered from same NFL team": ("Most number of QBs rostered from same NFL team", "max"),
+                    "Most number of RBs started from same NFL team": ("Most number of RBs started from same NFL team", "max"),
+                    "Most number of RBs rostered from same NFL team": ("Most number of RBs rostered from same NFL team", "max"),
+                    "Most number of WR started from same NFL team": ("Most number of WR started from same NFL team", "max"),
+                    "Most number of WR rostered from same NFL team": ("Most number of WR rostered from same NFL team", "max"),
+                    "Most number of TE started from same NFL team": ("Most number of TE started from same NFL team", "max"),
+                    "Most number of TE rostered from same NFL team": ("Most number of TE rostered from same NFL team", "max"),
+                    "Number of NFL teams among starting players": ("Number of NFL teams among starting players", "max"),
+                    "Number of NFL teams amoung rostered players": ("Number of NFL teams amoung rostered players", "max"),
+                    "Number of rookies started": ("Number of rookies started", "sum"),
+                    "Number of rookies rostered": ("Number of rookies rostered", "sum"),
+                    "Player average age": ("Player average age", "mean"),
+                    "Difference between highest and lowest starters": ("Difference between highest and lowest starters", "max"),
+                    "Combined matchup score": ("Combined matchup score", "max"),
+                    "Number of donuts": ("Number of donuts", "sum"),
+                    "Number of players under 10": ("Number of players under 10", "sum"),
+                    "Number of players over 20": ("Number of players over 20", "sum"),
+                    "Number of players over 30": ("Number of players over 30", "sum"),
+                    "Number of players over 40": ("Number of players over 40", "sum"),
+                    "Number of players over 50": ("Number of players over 50", "sum"),
+                    "Number of cuffs rostered": ("Number of cuffs rostered", "sum"),
+                    "Number of cuffs started": ("Number of cuffs started", "sum"),
+                }
+            )
+            team_all = team_all.merge(agg_all, how="left", on="Team")
+        except Exception as e:
+            _log_exc(debug, "team_all_aggregate_fill", e)
+
+        # vs-category records (all-time)
+        try:
+            def _fmt_rec(wlt):
+                w, l, t = wlt
+                return f"{int(w)}-{int(l)}-{int(t)}"
+
+            def _wlt_all(team: str, opp_filter):
+                if games_df.empty:
+                    return (0, 0, 0)
+                sub = games_df[games_df["Team"] == team]
+                if opp_filter is not None:
+                    sub = sub[sub["Opponent"].isin(opp_filter)]
+                return (
+                    int((sub["Win?"] == 1).sum()),
+                    int((sub["Win?"] == 0).sum()),
+                    int((sub["Win?"] == 0.5).sum()),
+                )
+
+            # compute sets across seasons
+            all_teams = set(team_all["Team"].astype(str).tolist())
+            champs = {c for c in champion_by_season.values() if c}
+            lastps = {c for c in last_place_by_season.values() if c}
+            playoffs = set().union(*[set(s) for s in playoff_teams_by_season.values()]) if playoff_teams_by_season else set()
+            nonplayoffs = all_teams - playoffs if playoffs else None
+
+            extra=[]
+            for team in team_all["Team"].astype(str).tolist():
+                wlt_play=_wlt_all(team, playoffs if playoffs else None)
+                wlt_non=_wlt_all(team, nonplayoffs) if nonplayoffs is not None else (0,0,0)
+                wlt_ch=_wlt_all(team, champs if champs else None)
+                wlt_last=_wlt_all(team, lastps if lastps else None)
+
+                def winpct(wlt):
+                    w,l,t=wlt
+                    gp=max(1,w+l+t)
+                    return round((w+0.5*t)/gp,4)
+                extra.append({
+                    "Team": team,
+                    "Record vs playoff teams": _fmt_rec(wlt_play) if playoffs else "N/A",
+                    "Win % vs playoff teams": winpct(wlt_play) if playoffs else None,
+                    "Record vs non-playoff teams": _fmt_rec(wlt_non) if nonplayoffs is not None else "N/A",
+                    "Win % vs non-playoff teams": winpct(wlt_non) if nonplayoffs is not None else None,
+                    "Record vs champions": _fmt_rec(wlt_ch) if champs else "N/A",
+                    "Win % vs champions": winpct(wlt_ch) if champs else None,
+                    "Record vs last place": _fmt_rec(wlt_last) if lastps else "N/A",
+                    "Win % vs last place": winpct(wlt_last) if lastps else None,
+                })
+            extra=pd.DataFrame(extra)
+            team_all = team_all.drop(columns=[c for c in extra.columns if c in team_all.columns and c!="Team"], errors="ignore")
+            team_all = team_all.merge(extra, how="left", on="Team")
+        except Exception as e:
+            _log_exc(debug, "team_all_vs_records", e)
+
     # League rollups
     league_week = pd.DataFrame()
     league_year = pd.DataFrame()
@@ -2366,6 +2900,50 @@ def build_all(repo_root: Path) -> None:
             })
         league_week = pd.DataFrame(rows)
 
+        # Attach Week Name (custom week naming) if available
+        try:
+            if 'week_name_global' in locals() and (not week_name_global.empty):
+                league_week = league_week.merge(week_name_global, on=["Year","Week"], how="left")
+        except Exception as e:
+            _log_exc(debug, "league_week_week_name", e)
+
+
+        # Fill additional league-week columns from team-week (schema completeness)
+        try:
+            agg_lw = g_week.groupby(["Year","Week"], as_index=False).agg(
+                **{
+                    "Most number of players started from same NFL team": ("Most number of players started from same NFL team", "max"),
+                    "Most number of players rostered from same NFL team": ("Most number of players rostered from same NFL team", "max"),
+                    "Most number of QBs started from same NFL team": ("Most number of QBs started from same NFL team", "max"),
+                    "Most number of QBs rostered from same NFL team": ("Most number of QBs rostered from same NFL team", "max"),
+                    "Most number of RBs started from same NFL team": ("Most number of RBs started from same NFL team", "max"),
+                    "Most number of RBs rostered from same NFL team": ("Most number of RBs rostered from same NFL team", "max"),
+                    "Most number of WR started from same NFL team": ("Most number of WR started from same NFL team", "max"),
+                    "Most number of WR rostered from same NFL team": ("Most number of WR rostered from same NFL team", "max"),
+                    "Most number of TE started from same NFL team": ("Most number of TE started from same NFL team", "max"),
+                    "Most number of TE rostered from same NFL team": ("Most number of TE rostered from same NFL team", "max"),
+                    "Number of NFL teams among starting players": ("Number of NFL teams among starting players", "max"),
+                    "Number of NFL teams amoung rostered players": ("Number of NFL teams amoung rostered players", "max"),
+                    "Number of rookies started": ("Number of rookies started", "sum"),
+                    "Number of rookies rostered": ("Number of rookies rostered", "sum"),
+                    "Player average age": ("Player average age", "mean"),
+                    "Difference between highest and lowest starters": ("Difference between highest and lowest starters", "max"),
+                    "Number of donuts": ("Number of donuts", "sum"),
+                    "Number of players under 10": ("Number of players under 10", "sum"),
+                    "Number of players over 20": ("Number of players over 20", "sum"),
+                    "Number of players over 30": ("Number of players over 30", "sum"),
+                    "Number of players over 40": ("Number of players over 40", "sum"),
+                    "Number of players over 50": ("Number of players over 50", "sum"),
+                    "Number of cuffs rostered": ("Number of cuffs rostered", "sum"),
+                    "Number of cuffs started": ("Number of cuffs started", "sum"),
+                    "Startup draft players remaining": ("Startup draft players remaining", "max"),
+                }
+            )
+            league_week = league_week.merge(agg_lw, how="left", on=["Year","Week"])
+            league_week["Amount of FAAB spent"] = 0
+        except Exception as e:
+            _log_exc(debug, "league_week_fill_extra", e)
+
         rows = []
         for yr, g in g_week.groupby("Year"):
             margin_abs = g["Margin"].abs()
@@ -2403,6 +2981,42 @@ def build_all(repo_root: Path) -> None:
             })
         league_year = pd.DataFrame(rows)
 
+        # Fill additional league-year columns from team-week
+        try:
+            agg_ly = g_week.groupby(["Year"], as_index=False).agg(
+                **{
+                    "Most number of players started from same NFL team": ("Most number of players started from same NFL team", "max"),
+                    "Most number of players rostered from same NFL team": ("Most number of players rostered from same NFL team", "max"),
+                    "Most number of QBs started from same NFL team": ("Most number of QBs started from same NFL team", "max"),
+                    "Most number of QBs rostered from same NFL team": ("Most number of QBs rostered from same NFL team", "max"),
+                    "Most number of RBs started from same NFL team": ("Most number of RBs started from same NFL team", "max"),
+                    "Most number of RBs rostered from same NFL team": ("Most number of RBs rostered from same NFL team", "max"),
+                    "Most number of WR started from same NFL team": ("Most number of WR started from same NFL team", "max"),
+                    "Most number of WR rostered from same NFL team": ("Most number of WR rostered from same NFL team", "max"),
+                    "Most number of TE started from same NFL team": ("Most number of TE started from same NFL team", "max"),
+                    "Most number of TE rostered from same NFL team": ("Most number of TE rostered from same NFL team", "max"),
+                    "Number of NFL teams among starting players": ("Number of NFL teams among starting players", "max"),
+                    "Number of NFL teams amoung rostered players": ("Number of NFL teams amoung rostered players", "max"),
+                    "Number of rookies started": ("Number of rookies started", "sum"),
+                    "Number of rookies rostered": ("Number of rookies rostered", "sum"),
+                    "Player average age": ("Player average age", "mean"),
+                    "Difference between highest and lowest starters": ("Difference between highest and lowest starters", "max"),
+                    "Number of donuts": ("Number of donuts", "sum"),
+                    "Number of players under 10": ("Number of players under 10", "sum"),
+                    "Number of players over 20": ("Number of players over 20", "sum"),
+                    "Number of players over 30": ("Number of players over 30", "sum"),
+                    "Number of players over 40": ("Number of players over 40", "sum"),
+                    "Number of players over 50": ("Number of players over 50", "sum"),
+                    "Number of cuffs rostered": ("Number of cuffs rostered", "sum"),
+                    "Number of cuffs started": ("Number of cuffs started", "sum"),
+                    "Startup draft players remaining": ("Startup draft players remaining", "max"),
+                }
+            )
+            league_year = league_year.merge(agg_ly, how="left", on=["Year"])
+            league_year["Amount of FAAB spent"] = 0
+        except Exception as e:
+            _log_exc(debug, "league_year_fill_extra", e)
+
         league_all = pd.DataFrame([{
             "PF": float(pd.to_numeric(g_week["PF"], errors="coerce").fillna(0.0).sum()),
             "Avg PF": float(pd.to_numeric(g_week["PF"], errors="coerce").fillna(0.0).mean()),
@@ -2436,10 +3050,85 @@ def build_all(repo_root: Path) -> None:
             "Most number of QBs started from same NFL team": float(pd.to_numeric(g_week.get("Most number of QBs started from same NFL team"), errors="coerce").fillna(0.0).max()),
         }])
 
+        # Fill additional league-all-time columns from team-week
+        try:
+            league_all["Most number of players started from same NFL team"] = float(pd.to_numeric(g_week.get("Most number of players started from same NFL team"), errors="coerce").max())
+            league_all["Most number of players rostered from same NFL team"] = float(pd.to_numeric(g_week.get("Most number of players rostered from same NFL team"), errors="coerce").max())
+            league_all["Most number of QBs started from same NFL team"] = float(pd.to_numeric(g_week.get("Most number of QBs started from same NFL team"), errors="coerce").max())
+            league_all["Most number of QBs rostered from same NFL team"] = float(pd.to_numeric(g_week.get("Most number of QBs rostered from same NFL team"), errors="coerce").max())
+            league_all["Most number of RBs started from same NFL team"] = float(pd.to_numeric(g_week.get("Most number of RBs started from same NFL team"), errors="coerce").max())
+            league_all["Most number of RBs rostered from same NFL team"] = float(pd.to_numeric(g_week.get("Most number of RBs rostered from same NFL team"), errors="coerce").max())
+            league_all["Most number of WR started from same NFL team"] = float(pd.to_numeric(g_week.get("Most number of WR started from same NFL team"), errors="coerce").max())
+            league_all["Most number of WR rostered from same NFL team"] = float(pd.to_numeric(g_week.get("Most number of WR rostered from same NFL team"), errors="coerce").max())
+            league_all["Most number of TE started from same NFL team"] = float(pd.to_numeric(g_week.get("Most number of TE started from same NFL team"), errors="coerce").max())
+            league_all["Most number of TE rostered from same NFL team"] = float(pd.to_numeric(g_week.get("Most number of TE rostered from same NFL team"), errors="coerce").max())
+            league_all["Number of NFL teams among starting players"] = float(pd.to_numeric(g_week.get("Number of NFL teams among starting players"), errors="coerce").max())
+            league_all["Number of NFL teams amoung rostered players"] = float(pd.to_numeric(g_week.get("Number of NFL teams amoung rostered players"), errors="coerce").max())
+            league_all["Number of rookies started"] = float(pd.to_numeric(g_week.get("Number of rookies started"), errors="coerce").sum())
+            league_all["Number of rookies rostered"] = float(pd.to_numeric(g_week.get("Number of rookies rostered"), errors="coerce").sum())
+            league_all["Player average age"] = float(pd.to_numeric(g_week.get("Player average age"), errors="coerce").mean())
+            league_all["Difference between highest and lowest starters"] = float(pd.to_numeric(g_week.get("Difference between highest and lowest starters"), errors="coerce").max())
+            league_all["Number of donuts"] = float(pd.to_numeric(g_week.get("Number of donuts"), errors="coerce").sum())
+            league_all["Number of players under 10"] = float(pd.to_numeric(g_week.get("Number of players under 10"), errors="coerce").sum())
+            league_all["Number of players over 20"] = float(pd.to_numeric(g_week.get("Number of players over 20"), errors="coerce").sum())
+            league_all["Number of players over 30"] = float(pd.to_numeric(g_week.get("Number of players over 30"), errors="coerce").sum())
+            league_all["Number of players over 40"] = float(pd.to_numeric(g_week.get("Number of players over 40"), errors="coerce").sum())
+            league_all["Number of players over 50"] = float(pd.to_numeric(g_week.get("Number of players over 50"), errors="coerce").sum())
+            league_all["Number of cuffs rostered"] = float(pd.to_numeric(g_week.get("Number of cuffs rostered"), errors="coerce").sum())
+            league_all["Number of cuffs started"] = float(pd.to_numeric(g_week.get("Number of cuffs started"), errors="coerce").sum())
+            league_all["Startup draft players remaining"] = float(pd.to_numeric(g_week.get("Startup draft players remaining"), errors="coerce").max())
+            league_all["Amount of FAAB spent"] = 0
+        except Exception as e:
+            _log_exc(debug, "league_all_fill_extra", e)
+
+
     # --------------------------
     # Write outputs (schema contract)
     # --------------------------
-    tables = [
+    
+    # --------------------------
+    # Transactions / Trades: link columns + tanking (best-effort)
+    # --------------------------
+    try:
+        # normalize date
+        if not tx.empty and "Date" in tx.columns:
+            tx["Date"] = pd.to_datetime(tx["Date"], errors="coerce", utc=True)
+            tx = tx.sort_values(["Team","Date"]).reset_index(drop=True)
+            # link columns as row numbers (1-indexed) for easy navigation
+            tx["Link to previous transaction"] = tx.groupby("Team").cumcount().replace(0, np.nan)
+            tx["Link to next transaction"] = tx.groupby("Team").cumcount().shift(-1) + 2
+            tx.loc[tx.groupby("Team").tail(1).index, "Link to next transaction"] = np.nan
+
+            # tanking before/after based on team-year tanking sum (0/1+) mapped from tx date year
+            if not team_year.empty:
+                ty_map = team_year.set_index(["Team","Year"])["Tanking"].to_dict()
+                tx_year = tx["Date"].dt.year
+                tx["Tanking before"] = [float(ty_map.get((str(t), int(y)), 0)) for t,y in zip(tx["Team"], tx_year)]
+                tx["Tanking after"] = tx["Tanking before"]
+        else:
+            if "Tanking before" in tx.columns:
+                tx["Tanking before"] = pd.to_numeric(tx["Tanking before"], errors="coerce").fillna(0.0)
+            if "Tanking after" in tx.columns:
+                tx["Tanking after"] = pd.to_numeric(tx["Tanking after"], errors="coerce").fillna(0.0)
+    except Exception as e:
+        _log_exc(debug, "transactions_links_tanking", e)
+
+    try:
+        if not tr.empty and "Date" in tr.columns:
+            tr["Date"] = pd.to_datetime(tr["Date"], errors="coerce", utc=True)
+            tr = tr.sort_values(["Team","Date"]).reset_index(drop=True)
+            tr["Link to previous transaction"] = tr.groupby("Team").cumcount().replace(0, np.nan)
+            tr["Link to next transaction"] = tr.groupby("Team").cumcount().shift(-1) + 2
+            tr.loc[tr.groupby("Team").tail(1).index, "Link to next transaction"] = np.nan
+
+            if not team_year.empty:
+                ty_map = team_year.set_index(["Team","Year"])["Tanking"].to_dict()
+                tr_year = tr["Date"].dt.year
+                tr["Tanking before"] = [float(ty_map.get((str(t), int(y)), 0)) for t,y in zip(tr["Team"], tr_year)]
+                tr["Tanking after"] = tr["Tanking before"]
+    except Exception as e:
+        _log_exc(debug, "trades_links_tanking", e)
+tables = [
         ("player_week.csv", pw, "Player-Week"),
         ("player_year.csv", player_year, "Player-year"),
         ("player_all_time.csv", player_all, "Player-all-time"),
