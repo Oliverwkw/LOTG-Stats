@@ -1607,8 +1607,12 @@ def build_all(repo_root: Path) -> None:
         tw["Tanking"] = pd.to_numeric(tw.get("Tanking"), errors="coerce")
 
         # weekly team age average (all rostered, starter+bench)
-        age_week = pw.groupby(["Team", "Year", "Week"], dropna=False)["Age"].mean().reset_index()
-        age_week.rename(columns={"Age": "TeamWeekAvgAge"}, inplace=True)
+        # Guard against missing/empty age columns.
+        if "Age" in pw.columns:
+            age_week = pw.groupby(["Team", "Year", "Week"], dropna=False)["Age"].mean().reset_index()
+            age_week.rename(columns={"Age": "TeamWeekAvgAge"}, inplace=True)
+        else:
+            age_week = pd.DataFrame(columns=["Team", "Year", "Week", "TeamWeekAvgAge"])
 
         tw2 = tw.merge(age_week, on=["Team", "Year", "Week"], how="left")
         tw2["TeamWeekAvgAge"] = pd.to_numeric(tw2["TeamWeekAvgAge"], errors="coerce")
@@ -1621,6 +1625,11 @@ def build_all(repo_root: Path) -> None:
 
             # league averages season-to-date by week (equal-weight per week)
             g_sorted = g.sort_values("Week").copy()
+            # ensure numeric to avoid object-mean failures
+            g_sorted["PF"] = pd.to_numeric(g_sorted.get("PF"), errors="coerce")
+            g_sorted["Max PF"] = pd.to_numeric(g_sorted.get("Max PF"), errors="coerce")
+            g_sorted["TeamWeekAvgAge"] = pd.to_numeric(g_sorted.get("TeamWeekAvgAge"), errors="coerce")
+
             pf_week = g_sorted.groupby("Week")["PF"].mean().sort_index()
             maxpf_week = g_sorted.groupby("Week")["Max PF"].mean().sort_index()
             age_week_lg = g_sorted.groupby("Week")["TeamWeekAvgAge"].mean().sort_index()
@@ -1632,24 +1641,38 @@ def build_all(repo_root: Path) -> None:
             for team, tg in g.groupby("Team"):
                 tg = tg.sort_values("Week").copy()
                 # expanding means
-                pf_exp = pd.to_numeric(tg["PF"], errors="coerce").expanding().mean()
-                maxpf_exp = pd.to_numeric(tg["Max PF"], errors="coerce").expanding().mean()
+                pf_exp = pd.to_numeric(tg.get("PF"), errors="coerce").expanding().mean()
+                maxpf_exp = pd.to_numeric(tg.get("Max PF"), errors="coerce").expanding().mean()
 
                 # age expanding: use weekly mean age
-                age_exp = pd.to_numeric(tg["TeamWeekAvgAge"], errors="coerce").expanding().mean()
+                age_exp = pd.to_numeric(tg.get("TeamWeekAvgAge"), errors="coerce").expanding().mean()
 
                 rid = team_to_roster.get(str(team), None)
                 pick_sum = pick_value_by_team_season.get((str(team), int(season)), 0.0)
                 future_cap = _future_cap_from_traded(traded_picks, rid, int(season)) if rid is not None else 0.0
 
                 for i, row in tg.reset_index(drop=True).iterrows():
+                    # Week can be missing/NaN in some corrupt rows; guard to avoid crashes.
+                    try:
+                        wk_int = int(row["Week"]) if pd.notna(row["Week"]) else None
+                    except Exception:
+                        wk_int = None
+
+                    lg_pf = league_avg_pf_upto.iloc[-1] if len(league_avg_pf_upto) else 0.0
+                    lg_mx = league_avg_maxpf_upto.iloc[-1] if len(league_avg_maxpf_upto) else 0.0
+                    lg_ag = league_avg_age_upto.iloc[-1] if len(league_avg_age_upto) else 0.0
+                    if wk_int is not None:
+                        lg_pf = league_avg_pf_upto.get(wk_int, lg_pf)
+                        lg_mx = league_avg_maxpf_upto.get(wk_int, lg_mx)
+                        lg_ag = league_avg_age_upto.get(wk_int, lg_ag)
+
                     score = _tanking_score(
                         avg_pf=pf_exp.iloc[i],
                         avg_max_pf=maxpf_exp.iloc[i],
                         avg_age=age_exp.iloc[i],
-                        league_avg_pf=league_avg_pf_upto.get(int(row["Week"]), league_avg_pf_upto.iloc[-1] if len(league_avg_pf_upto) else 0.0),
-                        league_avg_max_pf=league_avg_maxpf_upto.get(int(row["Week"]), league_avg_maxpf_upto.iloc[-1] if len(league_avg_maxpf_upto) else 0.0),
-                        league_avg_age=league_avg_age_upto.get(int(row["Week"]), league_avg_age_upto.iloc[-1] if len(league_avg_age_upto) else 0.0),
+                        league_avg_pf=lg_pf,
+                        league_avg_max_pf=lg_mx,
+                        league_avg_age=lg_ag,
                         pick_sum=pick_sum,
                         future_cap=future_cap,
                     )
@@ -2068,7 +2091,10 @@ def build_all(repo_root: Path) -> None:
             pw_sorted = pw.sort_values(["Player", "Year", "Week"]).reset_index()
             # map (player,year,week)-> rolling avg last5 played (including current if played)
             rolling_avg = {}
-            from collections import deque
+            # NOTE: do NOT import deque inside this function.
+            # An inner import would make `deque` a local variable for the entire
+            # enclosing scope, which breaks earlier lambdas that reference the
+            # global `deque` (CI failure: cannot access free variable 'deque').
             hist = defaultdict(lambda: deque(maxlen=5))
             for _, r in pw_sorted.iterrows():
                 p=str(r["Player"]); yr=int(r["Year"]) if pd.notna(r["Year"]) else None; wk=int(r["Week"]) if pd.notna(r["Week"]) else None
