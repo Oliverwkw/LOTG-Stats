@@ -12,6 +12,7 @@ import traceback
 import logging
 import warnings
 import numpy as np
+import re
 
 warnings.filterwarnings("ignore", category=FutureWarning, message="Downcasting object dtype arrays")
 
