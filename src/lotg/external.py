@@ -76,42 +76,31 @@ def load_nflverse_injuries(cfg: ExternalConfig, season: int) -> pd.DataFrame:
     return pd.read_csv(path)
 
 
-def load_nflverse_player_week_stats(cfg: ExternalConfig, season: int) -> pd.DataFrame:
-    """Load nflverse weekly player stats (team-by-week via recent_team).
-
-    nflverse-data publishes weekly player stats under different filenames
-    across time. We try a few known patterns and rely on gzip support if
-    needed. If all URLs fail, the exception will bubble to caller.
-    """
+def load_nflverse_player_ids(cfg: ExternalConfig) -> pd.DataFrame:
+    """Load nflverse player_ids mapping (includes sleeper_id and gsis_id)."""
     urls = [
-        # Common historical filename
+        "https://github.com/nflverse/nflverse-data/releases/download/player_ids/player_ids.csv",
+        "https://raw.githubusercontent.com/nflverse/nflverse-data/master/data/player_ids/player_ids.csv",
+        "https://raw.githubusercontent.com/nflverse/nflverse-data/master/data/player_ids.csv",
+    ]
+    path = cfg.cache_dir / "nflverse_player_ids.csv"
+    if (not path.exists()) or path.stat().st_size == 0:
+        _download_best_effort(urls, path, cfg.timeout_seconds)
+    return pd.read_csv(path)
+
+def load_nflverse_stats_player_week(cfg: ExternalConfig, season: int) -> pd.DataFrame:
+    """Load nflverse weekly player stats; used for team-by-week and played detection."""
+    urls = [
         f"https://github.com/nflverse/nflverse-data/releases/download/player_stats/stats_player_week_{season}.csv",
         f"https://github.com/nflverse/nflverse-data/releases/download/player_stats/stats_player_week_{season}.csv.gz",
-        # Some mirrors / alternate naming seen in the wild
-        f"https://github.com/nflverse/nflverse-data/releases/download/player_stats/player_stats_week_{season}.csv",
-        f"https://github.com/nflverse/nflverse-data/releases/download/player_stats/player_stats_week_{season}.csv.gz",
+        f"https://raw.githubusercontent.com/nflverse/nflverse-data/master/data/player_stats/stats_player_week_{season}.csv",
+        f"https://raw.githubusercontent.com/nflverse/nflverse-data/master/data/player_stats/stats_player_week_{season}.csv.gz",
     ]
-    path_csv = cfg.cache_dir / f"nflverse_stats_player_week_{season}.csv"
-    path_gz = cfg.cache_dir / f"nflverse_stats_player_week_{season}.csv.gz"
-
-    # prefer cached
-    if path_csv.exists() and path_csv.stat().st_size > 0:
-        return pd.read_csv(path_csv)
-    if path_gz.exists() and path_gz.stat().st_size > 0:
-        return pd.read_csv(path_gz)
-
-    # try download to csv path; if gz is the one that works we'll save to gz
-    last_err: Optional[Exception] = None
-    for url in urls:
-        try:
-            if url.endswith('.gz'):
-                _download(url, path_gz, cfg.timeout_seconds)
-                return pd.read_csv(path_gz)
-            _download(url, path_csv, cfg.timeout_seconds)
-            return pd.read_csv(path_csv)
-        except Exception as e:  # pragma: no cover
-            last_err = e
-            continue
-    if last_err is not None:
-        raise last_err
-    return pd.DataFrame()
+    path = cfg.cache_dir / f"nflverse_stats_player_week_{season}.csv"
+    if (not path.exists()) or path.stat().st_size == 0:
+        _download_best_effort(urls, path, cfg.timeout_seconds)
+    # handle possible gz without relying on pandas compression inference
+    try:
+        return pd.read_csv(path)
+    except Exception:
+        return pd.read_csv(path, compression='gzip')
