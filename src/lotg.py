@@ -13,6 +13,8 @@ import traceback
 import logging
 import warnings
 import numpy as np
+import os
+import sys
 
 warnings.filterwarnings("ignore", category=FutureWarning, message="Downcasting object dtype arrays")
 
@@ -96,9 +98,13 @@ def log_missing_cols(df: pd.DataFrame, name: str, required: list[str]) -> None:
 import yaml
 from dateutil import parser as dateparser
 
-from .utils import HttpConfig, safe_div, clean_name
-from .sleeper import SleeperClient
-from .external import (
+SUPPORT_ROOT = Path(__file__).resolve().parent.parent / "lib"
+if str(SUPPORT_ROOT) not in sys.path:
+    sys.path.insert(0, str(SUPPORT_ROOT))
+
+from lotg_support.utils import HttpConfig, safe_div, clean_name
+from lotg_support.sleeper import SleeperClient
+from lotg_support.external import (
     ExternalConfig,
     load_dynastyprocess_playerids,
     load_dynastyprocess_values_players,
@@ -107,8 +113,36 @@ from .external import (
     load_nflverse_player_ids,
     load_nflverse_stats_player_week,
 )
-from .lineup import compute_optimal_lineup
-from .plan import load_plan_catalog, require_columns
+from lotg_support.lineup import compute_optimal_lineup
+from lotg_support.plan import load_plan_catalog, require_columns
+
+import league_all_time
+import league_week
+import league_year
+import pick_history
+import player_all_time
+import player_week
+import player_year
+import team_all_time
+import team_week
+import team_year
+import trades
+import transactions
+
+DOCUMENT_MODULES = [
+    player_week,
+    player_year,
+    player_all_time,
+    team_week,
+    team_year,
+    team_all_time,
+    league_week,
+    league_year,
+    league_all_time,
+    transactions,
+    trades,
+    pick_history,
+]
 
 
 # ============================================================
@@ -691,28 +725,15 @@ def build_all(repo_root: Path) -> None:
     if not leagues:
         fallback_dir = repo_root / "data"
         fallback_tables = []
-        for fname, plan_key in [
-            ("player_week.csv", "Player-Week"),
-            ("player_year.csv", "Player-year"),
-            ("player_all_time.csv", "Player-all-time"),
-            ("team_week.csv", "team-week"),
-            ("team_year.csv", "team-year"),
-            ("team_all_time.csv", "team-all-time"),
-            ("league_week.csv", "league-week"),
-            ("league_year.csv", "league-year"),
-            ("league_all_time.csv", "league-all-time"),
-            ("transactions.csv", "transactions"),
-            ("trades.csv", "trades"),
-            ("pick_history.csv", "Pick History"),
-        ]:
-            src = fallback_dir / fname
+        for doc in DOCUMENT_MODULES:
+            src = fallback_dir / doc.FILE_NAME
             if src.exists():
                 try:
-                    fallback_tables.append((fname, pd.read_csv(src), plan_key))
+                    fallback_tables.append((doc.FILE_NAME, pd.read_csv(src), doc.PLAN_KEY))
                 except Exception:
-                    fallback_tables.append((fname, pd.DataFrame(), plan_key))
+                    fallback_tables.append((doc.FILE_NAME, pd.DataFrame(), doc.PLAN_KEY))
             else:
-                fallback_tables.append((fname, pd.DataFrame(), plan_key))
+                fallback_tables.append((doc.FILE_NAME, pd.DataFrame(), doc.PLAN_KEY))
         _log(debug, f"[{_now_iso()}] WARN no leagues found; using fallback data/ outputs")
         write_outputs(fallback_tables)
         return
@@ -3578,18 +3599,47 @@ def build_all(repo_root: Path) -> None:
                 tr["Tanking after"] = tr["Tanking before"]
     except Exception as e:
         _log_exc(debug, "trades_links_tanking", e)
+    context = {
+        "player_week": pw,
+        "player_year": player_year,
+        "player_all_time": player_all,
+        "team_week": tw,
+        "team_year": team_year,
+        "team_all_time": team_all,
+        "league_week": league_week,
+        "league_year": league_year,
+        "league_all_time": league_all,
+        "transactions": tx,
+        "trades": tr,
+        "pick_history": ph,
+    }
     tables = [
-        ("player_week.csv", pw, "Player-Week"),
-        ("player_year.csv", player_year, "Player-year"),
-        ("player_all_time.csv", player_all, "Player-all-time"),
-        ("team_week.csv", tw, "team-week"),
-        ("team_year.csv", team_year, "team-year"),
-        ("team_all_time.csv", team_all, "team-all-time"),
-        ("league_week.csv", league_week, "league-week"),
-        ("league_year.csv", league_year, "league-year"),
-        ("league_all_time.csv", league_all, "league-all-time"),
-        ("transactions.csv", tx, "transactions"),
-        ("trades.csv", tr, "trades"),
-        ("pick_history.csv", ph, "Pick History"),
+        (doc.FILE_NAME, doc.build_output(context), doc.PLAN_KEY)
+        for doc in DOCUMENT_MODULES
     ]
     write_outputs(tables)
+
+
+def main() -> None:
+    repo_root = Path(__file__).resolve().parent.parent
+
+    cfg = yaml.safe_load((repo_root / "config/league.yaml").read_text())
+    league_id = str(cfg["league_id"])
+    min_season = cfg.get("min_season")
+    max_season = cfg.get("max_season")
+
+    mode = str(os.environ.get("LOTG_MODE", "both")).lower().strip()
+    if mode not in {"snapshot", "build", "both"}:
+        mode = "both"
+
+    if mode in {"snapshot", "both"}:
+        from lotg_support.snapshot import snapshot_all
+
+        snapshot_all(repo_root, league_id=league_id, min_season=min_season, max_season=max_season)
+
+    if mode in {"build", "both"}:
+        build_all(repo_root)
+
+
+if __name__ == "__main__":
+    main()
