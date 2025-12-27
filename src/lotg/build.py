@@ -8,11 +8,11 @@ from datetime import datetime, timezone, timedelta, date
 from collections import Counter, deque, defaultdict
 import json
 import math
+import re
 import traceback
 import logging
 import warnings
 import numpy as np
-import re
 
 warnings.filterwarnings("ignore", category=FutureWarning, message="Downcasting object dtype arrays")
 
@@ -104,6 +104,7 @@ from .external import (
     load_dynastyprocess_values_players,
     load_dynastyprocess_values_picks,
     load_nflverse_injuries,
+    load_nflverse_player_week_stats,
 )
 from .lineup import compute_optimal_lineup
 from .plan import load_plan_catalog, require_columns
@@ -297,83 +298,29 @@ def _played_teams_by_week(games: pd.DataFrame, season: int) -> Dict[int, set]:
 
 
 # --------------------------
-# Injury/Suspension flags (platform designation at that week)
+# Injury/Suspension flags (brand new approach)
 # --------------------------
 
-def _infer_flags_from_sleeper_player_meta(meta: Dict[str, Any]) -> Tuple[Optional[bool], Optional[bool]]:
-    """
-    Uses Sleeper platform designations from /players/nfl (status/injury_status).
-    Conservative: only True when it's clearly OUT/IR/PUP/NFI or SUSP.
-    """
-    if not isinstance(meta, dict):
-        return (None, None)
+def _canon_name(s: Any) -> str:
+    """Normalize player names for join keys (lowercase, remove punctuation/spaces)."""
+    if s is None:
+        return ""
+    s = str(s)
+    s = s.strip().lower()
+    s = re.sub(r"[^a-z0-9]+", "", s)
+    return s
 
-    status = str(meta.get("status") or "").lower()
-    injury_status = str(meta.get("injury_status") or "").lower()
-
-    # suspension
-    if "susp" in status or "susp" in injury_status:
-        return (False, True)
-
-    healthy_markers = {"active", "", "healthy", "none", "null"}
-    if (status in healthy_markers) and (injury_status in healthy_markers):
-        return (False, False)
-
-    # Out/IR style
-    injury_markers = ["ir", "out", "inactive", "pup", "nfi", "injured", "covid"]
-    if any(k == status for k in injury_markers) or any(k in injury_status for k in injury_markers):
-        return (True, False)
-
-    # questionable/doubtful can still play -> do not mark True
-    if ("question" in status) or ("question" in injury_status) or ("doubt" in injury_status):
-        return (False, False)
-
-    return (None, None)
-
-def _infer_flags_from_nflverse(injuries: pd.DataFrame, gsis_id: Optional[str], season: int, week: int) -> Tuple[Optional[bool], Optional[bool]]:
-    injuries = _safe_df(injuries)
-    if injuries.empty or not gsis_id:
-        return (None, None)
-    if "gsis_id" not in injuries.columns:
-        return (None, None)
-
-    try:
-        sub = injuries.copy()
-        if "season" in sub.columns:
-            sub["season"] = pd.to_numeric(sub["season"], errors="coerce").astype("Int64")
-            sub = sub[sub["season"] == season]
-        if "week" in sub.columns:
-            sub["week"] = pd.to_numeric(sub["week"], errors="coerce").astype("Int64")
-            sub = sub[sub["week"] == week]
-        sub = sub[sub["gsis_id"].astype(str) == str(gsis_id)]
-    except Exception:
-        return (None, None)
-
-    if sub.empty:
-        return (None, None)
-
-    status_col = _first_col(sub, ["report_status", "status", "game_status", "injury_status", "practice_status"])
-    if not status_col:
-        return (None, None)
-
-    s = str(sub.iloc[0].get(status_col) or "").lower()
+def _status_to_flags(status: Any) -> Tuple[bool, bool]:
+    """Convert a text status to (injury, suspension)."""
+    s = str(status or "").strip().lower()
     if not s:
-        return (None, None)
-
-    suspension = ("susp" in s) or ("sspd" in s)
-    injury = (("out" in s) or ("ir" in s) or ("inactive" in s) or ("pup" in s)) and not suspension
-    return (injury, suspension)
-
-def _merge_flags(primary: Tuple[Optional[bool], Optional[bool]], secondary: Tuple[Optional[bool], Optional[bool]]) -> Tuple[Optional[bool], Optional[bool]]:
-    inj1, sus1 = primary
-    inj2, sus2 = secondary
-    if sus1 is True or sus2 is True:
-        return (False, True)
-    if inj1 is True or inj2 is True:
-        return (True, False)
-    if (inj1 is False and sus1 is False) or (inj2 is False and sus2 is False):
         return (False, False)
-    return (None, None)
+    if ("susp" in s) or ("sspd" in s):
+        return (False, True)
+    # only count definite misses
+    if ("out" in s) or ("ir" in s) or ("inactive" in s) or ("pup" in s) or ("nfi" in s):
+        return (True, False)
+    return (False, False)
 
 
 # --------------------------
@@ -739,35 +686,89 @@ def build_all(repo_root: Path) -> None:
             played_by_week_by_season[season] = _played_teams_by_week(games, season) if not games.empty else {}
         played_by_week = played_by_week_by_season.get(season, {})
 
-        # nflverse injuries (optional; used as secondary signal)
+        # nflverse injuries (used for injury/suspension + historical NFL team fill)
         try:
             injuries = _safe_df(load_nflverse_injuries(ext, season))
         except Exception as e:
             injuries = pd.DataFrame()
             _log_exc(debug, f"load_nflverse_injuries_{season}", e)
 
-            # placeholder to anchor following logic (keep in scope)
-        injuries_by_gsis_week: Dict[Tuple[str, int], Tuple[Optional[bool], Optional[bool]]] = {}
-        if not injuries.empty and "gsis_id" in injuries.columns:
+        # Build season-level indexes keyed by (week, gsis_id) and (week, canon_name)
+        injury_status_by_gsis: Dict[Tuple[int, str], str] = {}
+        injury_status_by_name: Dict[Tuple[int, str], str] = {}
+        nfl_team_by_gsis: Dict[Tuple[int, str], str] = {}
+        nfl_team_by_name: Dict[Tuple[int, str], str] = {}
+
+        if not injuries.empty:
             try:
                 inj_df = injuries.copy()
-                inj_df["season"] = pd.to_numeric(inj_df.get("season"), errors="coerce").astype("Int64")
-                inj_df["week"] = pd.to_numeric(inj_df.get("week"), errors="coerce").astype("Int64")
-                inj_df["gsis_id"] = inj_df["gsis_id"].astype(str)
-                status_col = _first_col(
-                    inj_df,
-                    ["report_status", "status", "game_status", "injury_status", "practice_status"],
-                )
-                if status_col:
-                    for (gsis, yr, wk), grp in inj_df.groupby(["gsis_id", "season", "week"]):
-                        if pd.isna(wk) or pd.isna(yr):
-                            continue
-                        s = str(grp.iloc[0].get(status_col) or "").lower()
-                        suspension = ("susp" in s) or ("sspd" in s)
-                        injury = (("out" in s) or ("ir" in s) or ("inactive" in s) or ("pup" in s)) and not suspension
-                        injuries_by_gsis_week[(gsis, int(yr), int(wk))] = (injury, suspension)
+                if "week" in inj_df.columns:
+                    inj_df["week"] = pd.to_numeric(inj_df.get("week"), errors="coerce").astype("Int64")
+                status_col = _first_col(inj_df, ["report_status", "status", "game_status", "injury_status", "practice_status"]) or ""
+                name_col = _first_col(inj_df, ["full_name", "player_name", "name"]) or ""
+                team_col = _first_col(inj_df, ["team", "club", "team_abbr"]) or ""
+                if "gsis_id" in inj_df.columns:
+                    inj_df["gsis_id"] = inj_df["gsis_id"].astype(str)
+                for _, r in inj_df.iterrows():
+                    wk = r.get("week")
+                    if pd.isna(wk):
+                        continue
+                    wk_i = int(wk)
+                    st = str(r.get(status_col) or "").strip()
+                    gsis = str(r.get("gsis_id") or "").strip()
+                    nm = str(r.get(name_col) or "").strip()
+                    tm = str(r.get(team_col) or "").strip()
+                    if gsis:
+                        injury_status_by_gsis[(wk_i, gsis)] = st
+                        if tm:
+                            nfl_team_by_gsis[(wk_i, gsis)] = tm
+                    if nm:
+                        cn = _canon_name(nm)
+                        if cn:
+                            injury_status_by_name[(wk_i, cn)] = st
+                            if tm:
+                                nfl_team_by_name[(wk_i, cn)] = tm
             except Exception as e:
-                _log_exc(debug, f"injury_index_{season}", e)
+                _log_exc(debug, f"injury_index_build_{season}", e)
+
+        # nflverse weekly player stats (best source for team-by-week)
+        # If available, prefer this over Sleeper meta (which is not historical).
+        try:
+            pws = _safe_df(load_nflverse_player_week_stats(ext, season))
+        except Exception as e:
+            pws = pd.DataFrame()
+            _log_exc(debug, f"load_nflverse_player_week_stats_{season}", e)
+
+        if not pws.empty:
+            try:
+                pws2 = pws.copy()
+                if "week" in pws2.columns:
+                    pws2["week"] = pd.to_numeric(pws2.get("week"), errors="coerce").astype("Int64")
+                # known columns in nflverse weekly stats
+                team_col = _first_col(pws2, ["recent_team", "team", "posteam"]) or ""
+                name_col = _first_col(pws2, ["player_name", "name", "full_name"]) or ""
+                # gsis id column varies; try a few
+                gsis_col = _first_col(pws2, ["gsis_id", "player_gsis_id", "gsis"])
+                if gsis_col:
+                    pws2[gsis_col] = pws2[gsis_col].astype(str)
+                for _, r in pws2.iterrows():
+                    wk = r.get("week")
+                    if pd.isna(wk):
+                        continue
+                    wk_i = int(wk)
+                    tm = str(r.get(team_col) or "").strip()
+                    if not tm:
+                        continue
+                    gsis = str(r.get(gsis_col) or "").strip() if gsis_col else ""
+                    nm = str(r.get(name_col) or "").strip()
+                    if gsis:
+                        nfl_team_by_gsis[(wk_i, gsis)] = _norm_team(tm)
+                    if nm:
+                        cn = _canon_name(nm)
+                        if cn:
+                            nfl_team_by_name[(wk_i, cn)] = _norm_team(tm)
+            except Exception as e:
+                _log_exc(debug, f"player_week_team_index_{season}", e)
 
         # users/rosters
         try:
@@ -1059,8 +1060,19 @@ def build_all(repo_root: Path) -> None:
                     if margin is not None:
                         win = 1 if margin > 0 else 0 if margin < 0 else 0.5
 
-                    starters = [str(x) for x in (m.get("starters") or []) if x]
-                    players = [str(x) for x in (m.get("players") or []) if x]
+                    def _valid_pid(x: Any) -> Optional[str]:
+                        if x is None:
+                            return None
+                        s = str(x).strip()
+                        if not s or s.lower() in ("none", "nan"):
+                            return None
+                        # Sleeper sometimes uses 0 placeholders
+                        if s == "0":
+                            return None
+                        return s
+
+                    starters = [pid for pid in (_valid_pid(x) for x in (m.get("starters") or [])) if pid]
+                    players = [pid for pid in (_valid_pid(x) for x in (m.get("players") or [])) if pid]
                     ppts_raw = m.get("players_points") or {}
                     ppts: Dict[str, float] = {}
                     if isinstance(ppts_raw, dict):
@@ -1107,12 +1119,16 @@ def build_all(repo_root: Path) -> None:
                             luck_raw = (win - expected)
 
                     prev = prev_starters_by_team.get(team, set())
-                    turnover = len(set(starters).symmetric_difference(prev)) if prev else None
-                    prev_starters_by_team[team] = set(starters)
+                    cur = set(starters)
+                    # turnover = number of *new* starters compared to prior week (bounded by starter slots)
+                    turnover = len(cur - prev) if prev else None
+                    prev_starters_by_team[team] = cur
 
                     prev_r = prev_roster_by_team.get(team, set())
-                    roster_turnover = len(set(players).symmetric_difference(prev_r)) if prev_r else None
-                    prev_roster_by_team[team] = set(players)
+                    cur_r = set(players)
+                    # roster turnover = number of *new* rostered players compared to prior week
+                    roster_turnover = len(cur_r - prev_r) if prev_r else None
+                    prev_roster_by_team[team] = cur_r
 
                     starter_points = [ppts.get(pid, 0.0) for pid in starters]
                     donuts = sum(1 for x in starter_points if float(x) == 0.0)
@@ -1264,10 +1280,15 @@ def build_all(repo_root: Path) -> None:
                     for pid in players:
                         meta = pid_meta.get(pid, {})
                         full_name = meta.get("full_name") or pid
-                        nfl_team = meta.get("team")
+                        # NFL team should be the team the player was on *that week*.
+                        # Prefer nflverse weekly stats (recent_team), then injury report team,
+                        # and only then fall back to Sleeper meta (which is current-state).
+                        nfl_team = None
                         pts = float(ppts.get(pid, 0.0))
                         started = pid in starters
-                        slot = starter_slot.get(pid) if started else (pid_pos.get(pid) or None)
+                        pos = (pid_pos.get(pid) or meta.get("position") or "")
+                        pos = str(pos).upper() if pos else None
+                        lineup_slot = starter_slot.get(pid) if started else None
 
                         # gsis id lookup for nflverse
                         gsis = None
@@ -1281,46 +1302,33 @@ def build_all(repo_root: Path) -> None:
                         if not gsis:
                             gsis = meta.get("gsis_id")
 
-                        # Flags (platform primary, nflverse secondary)
-                        f1 = _infer_flags_from_sleeper_player_meta(meta)
-                        f2 = _infer_flags_from_nflverse(injuries, gsis, season, wk)
-                        inj, susp = _merge_flags(f1, f2)
-                        if gsis and (gsis, season, wk) in injuries_by_gsis_week:
-                            inj2, susp2 = injuries_by_gsis_week[(gsis, season, wk)]
-                            inj, susp = _merge_flags((inj, susp), (inj2, susp2))
-                        if (inj is None) and (susp is None) and (not injuries.empty) and gsis:
-                            inj = False
-                            susp = False
+                        # ---- Injury / Suspension (brand-new approach) ----
+                        # Primary source: nflverse injuries keyed by (week, gsis_id) with name fallback.
+                        # We mark injury/suspension when a player *missed* the NFL week (0 fantasy points and not a bye)
+                        # and nflverse indicates OUT/IR/INACTIVE/PUP or SUSP.
 
-                        # Bye is schedule-based. If player scored >0 -> not a bye.
-                        bye = None
+                        if gsis:
+                            nfl_team = nfl_team_by_gsis.get((wk, str(gsis)))
+                        if not nfl_team:
+                            nfl_team = nfl_team_by_name.get((wk, _canon_name(full_name)))
+                        if not nfl_team:
+                            nfl_team = meta.get("team")
+
+                        bye = False
                         if nfl_team and played_set:
                             bye = (_norm_team(nfl_team) not in played_set)
                         if pts > 0:
-                            # Player scored points; not a bye week. Do NOT override injury/suspension flags:
-                            # a player can play while injured or returning from suspension.
                             bye = False
 
-                        # Fallback injury/suspension inference (Sleeper metadata is not historical but fixes obvious cases):
-                        # If the player scored 0, was not on bye, and Sleeper marks them OUT/IR/SUSP, treat as missed.
-                        if (pts or 0.0) == 0.0 and bye is False:
-                            meta_p = pid_meta.get(str(pid), {}) if isinstance(pid_meta, dict) else {}
-                            st = str(meta_p.get("status") or "").lower()
-                            inj_st = str(meta_p.get("injury_status") or meta_p.get("injuryStatus") or "").lower()
-                            # suspension signals
-                            if ("susp" in st) or ("susp" in inj_st):
-                                susp = True
-                                inj = False if inj is None else inj
-                            # injury signals
-                            elif any(x in (st + " " + inj_st) for x in ["out", "ir", "inactive", "pup", "doubtful"]):
-                                inj = True
-
-                        if inj is None:
-                            inj = False
-                        if susp is None:
-                            susp = False
-                        if bye is None:
-                            bye = False
+                        inj = False
+                        susp = False
+                        if (pts or 0.0) == 0.0 and (bye is False):
+                            st = None
+                            if gsis:
+                                st = injury_status_by_gsis.get((wk, str(gsis)))
+                            if not st:
+                                st = injury_status_by_name.get((wk, _canon_name(full_name)))
+                            inj, susp = _status_to_flags(st)
 
                         rookie = str(meta.get("years_exp")) in ("0", "0.0")
                         age = _calc_age(meta.get("birth_date"), approx_date)
@@ -1383,7 +1391,10 @@ def build_all(repo_root: Path) -> None:
                             "Bye?": bool(bye),
                             "Starter/Bench": "Starter" if started else "Bench",
                             "% of points (if starter)": round(pts / pf, 4) if started and pf else None,
-                            "Position started in (if starter)": slot,
+                            # Requested: this column should be the player's actual position, not the lineup slot label.
+                            "Position started in (if starter)": pos if started else None,
+                            # Separate column for the player's position.
+                            "Position": pos,
                             "Change from previous week": None,
                             "Change from previous 5 weeks avg": None,
                             "Change from career average to that point": None,
@@ -2599,6 +2610,27 @@ def build_all(repo_root: Path) -> None:
     if not tw.empty:
         # reconstruct team list
         teams = sorted(tw["Team"].dropna().astype(str).unique().tolist())
+        # Ensure head-to-head columns exist in the export schema.
+        # The plan file doesn't include these dynamic fields, but the workbook expects them.
+        try:
+            for plan_key in ("team-year", "team-all-time"):
+                cols = catalog.get(plan_key, [])
+                if not cols:
+                    continue
+                # insert after the main Record column if present; otherwise append.
+                insert_at = cols.index("Record") + 1 if "Record" in cols else len(cols)
+                h2h_cols: List[str] = []
+                for opp in teams:
+                    h2h_cols.append(f"Record vs {opp}")
+                    h2h_cols.append(f"Win % vs {opp}")
+                # add only missing
+                for c in h2h_cols:
+                    if c not in cols:
+                        cols.insert(insert_at, c)
+                        insert_at += 1
+                catalog[plan_key] = cols
+        except Exception as e:
+            _log_exc(debug, "catalog_h2h_extend", e)
         # compute per game outcomes using raw opponent team when available.
         game_rows = []
         for (yr, wk), g in tw.groupby(["Year", "Week"]):
@@ -2818,8 +2850,9 @@ def build_all(repo_root: Path) -> None:
                     s_last = _set_for(team, year, last_w, True)
                     r_first = _set_for(team, year, first_w, False)
                     r_last = _set_for(team, year, last_w, False)
-                    in_s = len(s_first.symmetric_difference(s_last))
-                    in_r = len(r_first.symmetric_difference(r_last))
+                    # Use removed-count so turnover is bounded by spot count
+                    in_s = len(s_first - s_last)
+                    in_r = len(r_first - r_last)
                     team_year.loc[(team_year["Team"]==team)&(team_year["Year"]==year), "Inseason starter turnover"] = in_s
                     team_year.loc[(team_year["Team"]==team)&(team_year["Year"]==year), "Inseason roster turnover"] = in_r
                     # offseason vs previous season
@@ -2831,8 +2864,8 @@ def build_all(repo_root: Path) -> None:
                             prev_last = prev_weeks[-1]
                             s_prev = _set_for(team, prev_year, prev_last, True)
                             r_prev = _set_for(team, prev_year, prev_last, False)
-                            off_s = len(s_prev.symmetric_difference(s_first))
-                            off_r = len(r_prev.symmetric_difference(r_first))
+                            off_s = len(s_prev - s_first)
+                            off_r = len(r_prev - r_first)
                             team_year.loc[(team_year["Team"]==team)&(team_year["Year"]==year), "Offseason starter turnover"] = off_s
                             team_year.loc[(team_year["Team"]==team)&(team_year["Year"]==year), "Offseason roster turnover"] = off_r
         except Exception as e:
@@ -2894,25 +2927,24 @@ def build_all(repo_root: Path) -> None:
             _log_exc(debug, "team_year_aggregate_fill", e)
 
 
-        # Unique-player rollups for positional counts (avoid counting the same player in multiple weeks)
+        # Unique-player rollups for positional counts (avoid counting the same player in multiple weeks).
+        # IMPORTANT: do not sum weekly counts; count unique players over the season.
         try:
             if not pw.empty and "Position" in pw.columns and "Starter/Bench" in pw.columns:
                 pw_u = pw.copy()
-                pw_u["Position"] = pw_u["Position"].astype(str)
+                pw_u["Position"] = pw_u["Position"].astype(str).str.upper()
                 pw_u["Starter/Bench"] = pw_u["Starter/Bench"].astype(str)
-                # rostered unique
-                rostered = pw_u.groupby(["Team","Year","Position"], as_index=False)["Player"].nunique().rename(columns={"Player":"n"})
-                # started unique
-                started = pw_u[pw_u["Starter/Bench"].str.lower().eq("starter")].groupby(["Team","Year","Position"], as_index=False)["Player"].nunique().rename(columns={"Player":"n"})
-                def _pos_n(df, pos):
-                    return df[df["Position"].eq(pos)][["Team","Year","n"]].rename(columns={"n": pos})
-                r_piv = rostered.pivot_table(index=["Team","Year"], columns="Position", values="n", aggfunc="max").fillna(0).reset_index()
-                s_piv = started.pivot_table(index=["Team","Year"], columns="Position", values="n", aggfunc="max").fillna(0).reset_index()
-                for pos in ["QB","WR","RB","TE"]:
-                    if pos in s_piv.columns:
-                        team_year[f"Number of {pos} started"] = team_year.merge(s_piv[["Team","Year",pos]], on=["Team","Year"], how="left")[pos].fillna(0).astype(int)
-                    if pos in r_piv.columns:
-                        team_year[f"Number of {pos} rostered"] = team_year.merge(r_piv[["Team","Year",pos]], on=["Team","Year"], how="left")[pos].fillna(0).astype(int)
+
+                rostered = pw_u.groupby(["Team", "Year", "Position"], as_index=False)["Player"].nunique()
+                started = pw_u[pw_u["Starter/Bench"].str.lower().eq("starter")].groupby(["Team", "Year", "Position"], as_index=False)["Player"].nunique()
+
+                # Build lookup maps keyed by (team,year)
+                r_map = {(str(t), int(y), str(p)): int(n) for t, y, p, n in rostered.itertuples(index=False, name=None)}
+                s_map = {(str(t), int(y), str(p)): int(n) for t, y, p, n in started.itertuples(index=False, name=None)}
+
+                for pos in ["QB", "RB", "WR", "TE"]:
+                    team_year[f"Number of {pos} rostered"] = team_year.apply(lambda r: r_map.get((str(r["Team"]), int(r["Year"]), pos), 0), axis=1)
+                    team_year[f"Number of {pos} started"] = team_year.apply(lambda r: s_map.get((str(r["Team"]), int(r["Year"]), pos), 0), axis=1)
         except Exception as e:
             _log_exc(debug, "team_year_unique_player_counts", e)
 
@@ -3191,6 +3223,29 @@ def build_all(repo_root: Path) -> None:
         except Exception as e:
             _log_exc(debug, "team_all_vs_records", e)
 
+        # Head-to-head totals vs each opponent (all-time)
+        try:
+            if not games_df.empty and not team_all.empty:
+                for team in team_all["Team"].dropna().astype(str).unique().tolist():
+                    for opp in team_all["Team"].dropna().astype(str).unique().tolist():
+                        if team == opp:
+                            continue
+                        gg = games_df[(games_df["Team"] == team) & (games_df["Opponent"] == opp)]
+                        if gg.empty:
+                            rec = "0-0-0"
+                            wp = None
+                        else:
+                            w = int((pd.to_numeric(gg["Win?"], errors="coerce") == 1).sum())
+                            l = int((pd.to_numeric(gg["Win?"], errors="coerce") == 0).sum())
+                            t = int((pd.to_numeric(gg["Win?"], errors="coerce") == 0.5).sum())
+                            gp = max(1, w + l + t)
+                            rec = f"{w}-{l}-{t}"
+                            wp = round((w + 0.5 * t) / gp, 4)
+                        team_all.loc[team_all["Team"] == team, f"Record vs {opp}"] = rec
+                        team_all.loc[team_all["Team"] == team, f"Win % vs {opp}"] = wp
+        except Exception as e:
+            _log_exc(debug, "h2h_team_all", e)
+
     # League rollups
     league_week = pd.DataFrame()
     league_year = pd.DataFrame()
@@ -3467,6 +3522,99 @@ def build_all(repo_root: Path) -> None:
                 tr["Tanking after"] = tr["Tanking before"]
     except Exception as e:
         _log_exc(debug, "trades_links_tanking", e)
+
+    # --------------------------
+    # Final schema tweaks (dynamic columns + ordering)
+    # --------------------------
+    try:
+        # Ensure player_year/player_all_time carry a stable Position column (most common in that span)
+        if "Position" in pw.columns:
+            if "Position" not in player_year.columns and not player_year.empty:
+                pos_map = (
+                    pw.dropna(subset=["Player","Year"])
+                      .groupby(["Player","Year"])["Position"]
+                      .agg(lambda s: (s.dropna().mode().iloc[0] if not s.dropna().mode().empty else None))
+                )
+                player_year = player_year.merge(pos_map.rename("Position"), on=["Player","Year"], how="left")
+            if "Position" not in player_all.columns and not player_all.empty:
+                pos_map2 = (
+                    pw.dropna(subset=["Player"])
+                      .groupby(["Player"])["Position"]
+                      .agg(lambda s: (s.dropna().mode().iloc[0] if not s.dropna().mode().empty else None))
+                )
+                player_all = player_all.merge(pos_map2.rename("Position"), on=["Player"], how="left")
+
+        # Unique-player rollups for team_year/team_all_time positional counts
+        if not pw.empty and "Position" in pw.columns and "Starter/Bench" in pw.columns:
+            pw_u = pw.copy()
+            pw_u["StarterFlag"] = pw_u["Starter/Bench"].astype(str).str.lower().eq("starter")
+            for pos in ["QB","RB","WR","TE"]:
+                started_col = f"Number of {pos} started"
+                rostered_col = f"Number of {pos} rostered"
+                started = (
+                    pw_u[(pw_u["Position"]==pos) & (pw_u["StarterFlag"])]
+                      .groupby(["Team","Year"])["Player"].nunique()
+                      .rename(started_col)
+                )
+                rostered = (
+                    pw_u[pw_u["Position"]==pos]
+                      .groupby(["Team","Year"])["Player"].nunique()
+                      .rename(rostered_col)
+                )
+                team_year = team_year.merge(started, on=["Team","Year"], how="left")
+                team_year = team_year.merge(rostered, on=["Team","Year"], how="left")
+
+            # team_all_time
+            for pos in ["QB","RB","WR","TE"]:
+                started_col = f"Number of {pos} started"
+                rostered_col = f"Number of {pos} rostered"
+                started = (
+                    pw_u[(pw_u["Position"]==pos) & (pw_u["StarterFlag"])]
+                      .groupby(["Team"])["Player"].nunique()
+                      .rename(started_col)
+                )
+                rostered = (
+                    pw_u[pw_u["Position"]==pos]
+                      .groupby(["Team"])["Player"].nunique()
+                      .rename(rostered_col)
+                )
+                team_all = team_all.merge(started, on=["Team"], how="left")
+                team_all = team_all.merge(rostered, on=["Team"], how="left")
+
+        # Dynamic opponent columns: Record/Win% vs each team
+        team_names = []
+        if not team_all.empty and "Team" in team_all.columns:
+            team_names = sorted([str(x) for x in team_all["Team"].dropna().unique().tolist()])
+        if team_names:
+            extra_cols = []
+            for t in team_names:
+                extra_cols.append(f"Record vs {t}")
+                extra_cols.append(f"Win % vs {t}")
+            catalog["team-year"] = catalog.get("team-year", []) + [c for c in extra_cols if c not in catalog.get("team-year", [])]
+            catalog["team-all-time"] = catalog.get("team-all-time", []) + [c for c in extra_cols if c not in catalog.get("team-all-time", [])]
+
+        # Add Position column to all player sheets
+        for k in ["Player-Week","Player-year","Player-all-time"]:
+            cols = catalog.get(k, [])
+            if "Position" not in cols:
+                # place next to NFL team for readability
+                if "NFL team" in cols:
+                    i = cols.index("NFL team")
+                    cols.insert(i, "Position")
+                else:
+                    cols.append("Position")
+                catalog[k] = cols
+
+        # Move Week Name next to Week (ordering only)
+        for k in ["Player-Week","team-week","league-week"]:
+            cols = catalog.get(k, [])
+            if "Week" in cols and "Week Name" in cols:
+                cols = [c for c in cols if c != "Week Name"]
+                wi = cols.index("Week")
+                cols.insert(wi+1, "Week Name")
+                catalog[k] = cols
+    except Exception as e:
+        _log_exc(debug, "final_schema_tweaks", e)
     tables = [
         ("player_week.csv", pw, "Player-Week"),
         ("player_year.csv", player_year, "Player-year"),
