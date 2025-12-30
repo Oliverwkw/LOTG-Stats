@@ -691,7 +691,7 @@ def build_all(repo_root: Path) -> None:
                 ws.append(list(d.columns))
                 for row in d.itertuples(index=False, name=None):
                     ws.append(list(row))
-                ws.freeze_panes = "A2"
+                ws.freeze_panes = "E2"
 
                 if ws.max_column >= 1:
                     ws.auto_filter.ref = f"A1:{get_column_letter(ws.max_column)}{max(1, ws.max_row)}"
