@@ -2821,14 +2821,22 @@ def build_all(repo_root: Path) -> None:
                 gf = tw[(tw["Year"]==season) & (tw["Week"]==finals_week) & (tw["Week label"]=="Final")].copy()
                 gf["PF"] = pd.to_numeric(gf["PF"], errors="coerce").fillna(0.0)
                 if len(gf)==2:
-                    gf = gf.sort_values("PF", ascending=False)
-                    fin_map[str(gf.iloc[0]["Team"])] = "champion"
+                    gf["Win?"] = pd.to_numeric(gf["Win?"], errors="coerce")
+                    if gf["Win?"].notna().any():
+                        gf = gf.sort_values(["Win?", "PF"], ascending=False)
+                    else:
+                        gf = gf.sort_values("PF", ascending=False)
+                    fin_map[str(gf.iloc[0]["Team"])] = "Champion"
                     fin_map[str(gf.iloc[1]["Team"])] = "2nd"
                 # 3rd place
                 g3 = tw[(tw["Year"]==season) & (tw["Week"]==finals_week) & (tw["Week label"]=="3rd Place")].copy()
                 g3["PF"] = pd.to_numeric(g3["PF"], errors="coerce").fillna(0.0)
                 if len(g3)==2:
-                    g3=g3.sort_values("PF", ascending=False)
+                    g3["Win?"] = pd.to_numeric(g3["Win?"], errors="coerce")
+                    if g3["Win?"].notna().any():
+                        g3 = g3.sort_values(["Win?", "PF"], ascending=False)
+                    else:
+                        g3 = g3.sort_values("PF", ascending=False)
                     fin_map[str(g3.iloc[0]["Team"])] = "3rd"
                     fin_map[str(g3.iloc[1]["Team"])] = "4th"
 
@@ -2837,7 +2845,7 @@ def build_all(repo_root: Path) -> None:
                 cutoff = 17 if season < 2025 else 15
                 try:
                     all_teams = [str(t) for t in tw[tw["Year"] == season]["Team"].dropna().unique().tolist()]
-                    playoff_teams = set([t for t, r in fin_map.items() if r in ("champion", "2nd", "3rd", "4th")])
+                    playoff_teams = set([t for t, r in fin_map.items() if r in ("Champion", "2nd", "3rd", "4th")])
                     non_playoff = [t for t in all_teams if t not in playoff_teams]
                     if non_playoff and (not games_df.empty):
                         reg = games_df[(games_df["Year"] == season) & (games_df["Week"] <= cutoff)].copy()
@@ -2850,9 +2858,11 @@ def build_all(repo_root: Path) -> None:
                             l = int((gg["Win?"] == 0).sum())
                             t_ = int((gg["Win?"] == 0.5).sum())
                             pf_sum = float(gg["PF"].sum())
-                            rows_np.append((team_np, w, l, t_, pf_sum))
-                        # Sort: record (wins desc, losses asc), PF desc
-                        rows_np.sort(key=lambda x: (-x[1], x[2], -x[4]))
+                            gp = max(1, w + l + t_)
+                            win_pct = (w + 0.5 * t_) / gp
+                            rows_np.append((team_np, win_pct, pf_sum))
+                        # Sort: record (win% desc), PF desc
+                        rows_np.sort(key=lambda x: (-x[1], -x[2]))
                         place = 5
                         for team_np, *_ in rows_np:
                             if place == 5:
@@ -3156,14 +3166,18 @@ def build_all(repo_root: Path) -> None:
                 teams_in_year = set(team_year[team_year["Year"] == yr]["Team"].astype(str).tolist())
                 non_playoffs = teams_in_year - set(playoffs) if playoffs else set()
 
-                if champ and team == champ:
-                    res = "Champion"
-                elif lastp and team == lastp:
-                    res = "Last place"
-                elif team in playoffs:
-                    res = "Playoffs"
-                else:
-                    res = "Missed playoffs"
+                res = None
+                if season_finish:
+                    res = season_finish.get(yr, {}).get(team)
+                if not res:
+                    if champ and team == champ:
+                        res = "Champion"
+                    elif lastp and team == lastp:
+                        res = "Last place"
+                    elif team in playoffs:
+                        res = "Playoffs"
+                    else:
+                        res = "Missed playoffs"
 
                 wlt_play = _wlt_for_team(games_df, team, year=yr, opps=playoffs if playoffs else None)
                 wlt_non = _wlt_for_team(games_df, team, year=yr, opps=non_playoffs if non_playoffs else None)
