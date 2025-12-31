@@ -1,5 +1,5 @@
 # Put your CURRENT Sleeper league id here (treat as a STRING)
-league_id: "1192931349575991296"
+league_id: "1312101511651655680"
 
 # Seasons are auto-discovered by walking previous_league_id, but you can hard-limit if you want:
 min_season: 2019

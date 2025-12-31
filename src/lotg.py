@@ -13,6 +13,8 @@ import traceback
 import logging
 import warnings
 import numpy as np
+import os
+import sys
 
 warnings.filterwarnings("ignore", category=FutureWarning, message="Downcasting object dtype arrays")
 
@@ -96,9 +98,13 @@ def log_missing_cols(df: pd.DataFrame, name: str, required: list[str]) -> None:
 import yaml
 from dateutil import parser as dateparser
 
-from .utils import HttpConfig, safe_div, clean_name
-from .sleeper import SleeperClient
-from .external import (
+SUPPORT_ROOT = Path(__file__).resolve().parent.parent / "lib"
+if str(SUPPORT_ROOT) not in sys.path:
+    sys.path.insert(0, str(SUPPORT_ROOT))
+
+from lotg_support.utils import HttpConfig, safe_div, clean_name
+from lotg_support.sleeper import SleeperClient
+from lotg_support.external import (
     ExternalConfig,
     load_dynastyprocess_playerids,
     load_dynastyprocess_values_players,
@@ -107,8 +113,36 @@ from .external import (
     load_nflverse_player_ids,
     load_nflverse_stats_player_week,
 )
-from .lineup import compute_optimal_lineup
-from .plan import load_plan_catalog, require_columns
+from lotg_support.lineup import compute_optimal_lineup
+from lotg_support.plan import load_plan_catalog, require_columns
+
+import league_all_time
+import league_week
+import league_year
+import pick_history
+import player_all_time
+import player_week
+import player_year
+import team_all_time
+import team_week
+import team_year
+import trades
+import transactions
+
+DOCUMENT_MODULES = [
+    player_week,
+    player_year,
+    player_all_time,
+    team_week,
+    team_year,
+    team_all_time,
+    league_week,
+    league_year,
+    league_all_time,
+    transactions,
+    trades,
+    pick_history,
+]
 
 
 # ============================================================
@@ -437,6 +471,17 @@ def _ensure_plan_columns(df: pd.DataFrame, cols: List[str]) -> pd.DataFrame:
     return df[cols]
 
 
+def _append_team_vs_columns(frame: pd.DataFrame, cols: List[str]) -> List[str]:
+    if frame.empty or "Team" not in frame.columns:
+        return cols
+    teams = sorted(frame["Team"].dropna().astype(str).unique().tolist())
+    extra = []
+    for team in teams:
+        extra.append(f"Record vs {team}")
+        extra.append(f"Win % vs {team}")
+    return cols + [c for c in extra if c not in cols]
+
+
 def _is_text_column(col: str) -> bool:
     col_l = col.lower()
     text_markers = [
@@ -628,6 +673,8 @@ def build_all(repo_root: Path) -> None:
         out_dir.mkdir(exist_ok=True)
         for fname, frame, plan_key in tables:
             cols = catalog.get(plan_key, [])
+            if plan_key in {"team-year", "team-all-time"}:
+                cols = _append_team_vs_columns(frame, cols)
             frame = _safe_df(frame)
             out = _ensure_plan_columns(frame, cols)
             out = _fill_empty_columns(out, cols)
@@ -657,7 +704,7 @@ def build_all(repo_root: Path) -> None:
                 ws.append(list(d.columns))
                 for row in d.itertuples(index=False, name=None):
                     ws.append(list(row))
-                ws.freeze_panes = "A2"
+                ws.freeze_panes = "E2"
 
                 if ws.max_column >= 1:
                     ws.auto_filter.ref = f"A1:{get_column_letter(ws.max_column)}{max(1, ws.max_row)}"
@@ -691,28 +738,15 @@ def build_all(repo_root: Path) -> None:
     if not leagues:
         fallback_dir = repo_root / "data"
         fallback_tables = []
-        for fname, plan_key in [
-            ("player_week.csv", "Player-Week"),
-            ("player_year.csv", "Player-year"),
-            ("player_all_time.csv", "Player-all-time"),
-            ("team_week.csv", "team-week"),
-            ("team_year.csv", "team-year"),
-            ("team_all_time.csv", "team-all-time"),
-            ("league_week.csv", "league-week"),
-            ("league_year.csv", "league-year"),
-            ("league_all_time.csv", "league-all-time"),
-            ("transactions.csv", "transactions"),
-            ("trades.csv", "trades"),
-            ("pick_history.csv", "Pick History"),
-        ]:
-            src = fallback_dir / fname
+        for doc in DOCUMENT_MODULES:
+            src = fallback_dir / doc.FILE_NAME
             if src.exists():
                 try:
-                    fallback_tables.append((fname, pd.read_csv(src), plan_key))
+                    fallback_tables.append((doc.FILE_NAME, pd.read_csv(src), doc.PLAN_KEY))
                 except Exception:
-                    fallback_tables.append((fname, pd.DataFrame(), plan_key))
+                    fallback_tables.append((doc.FILE_NAME, pd.DataFrame(), doc.PLAN_KEY))
             else:
-                fallback_tables.append((fname, pd.DataFrame(), plan_key))
+                fallback_tables.append((doc.FILE_NAME, pd.DataFrame(), doc.PLAN_KEY))
         _log(debug, f"[{_now_iso()}] WARN no leagues found; using fallback data/ outputs")
         write_outputs(fallback_tables)
         return
@@ -939,6 +973,7 @@ def build_all(repo_root: Path) -> None:
 
         # storage for week/team scoring for expected win, etc.
         team_pf_by_week: Dict[int, Dict[str, float]] = defaultdict(dict)
+        semis_bonus_by_week: Dict[int, Dict[int, float]] = defaultdict(dict)
 
         # ------------- Pre-fetch all weekly matchups & transactions -------------
         matchups_by_week: Dict[int, List[Dict[str, Any]]] = {}
@@ -1026,8 +1061,29 @@ def build_all(repo_root: Path) -> None:
                                     ties += 1
                             reg.append((tm, rid, wins, losses, ties, pf_sum))
                         reg.sort(key=lambda x: (x[2] + 0.5 * x[4], x[5]), reverse=True)
+                        seed_by_rid = {rid: idx + 1 for idx, (_, rid, *_ ) in enumerate(reg)}
                         top4 = set([rid for _, rid, *_ in reg[:4]])
                         bottom4 = set([rid for _, rid, *_ in reg[4:]])
+                        # apply semifinal bonus to higher seeded teams (playoff_start week only)
+                        for rid in list(top4):
+                            opp = opp_rid_map.get((season, playoff_start, rid))
+                            if opp is None:
+                                continue
+                            if rid < opp and opp in top4:
+                                seed_a = seed_by_rid.get(rid)
+                                seed_b = seed_by_rid.get(opp)
+                                if seed_a is None or seed_b is None:
+                                    continue
+                                higher = rid if seed_a < seed_b else opp
+                                semis_bonus_by_week[playoff_start][higher] = 5.0
+                                higher_team = roster_to_team.get(higher, f"Roster {higher}")
+                                lower = opp if higher == rid else rid
+                                lower_team = roster_to_team.get(lower, f"Roster {lower}")
+                                team_pf_by_week[playoff_start][higher_team] = (
+                                    team_pf_by_week[playoff_start].get(higher_team, 0.0) + 5.0
+                                )
+                                opp_pf_map[(season, playoff_start, lower)] = team_pf_by_week[playoff_start].get(higher_team, 0.0)
+                                opp_pf_map[(season, playoff_start, higher)] = team_pf_by_week[playoff_start].get(lower_team, 0.0)
                         # annotate this week (semis) and next week (finals)
                         for rid in top4:
                             stage_label_map[(season, playoff_start, rid)] = "Semifinal"
@@ -1101,6 +1157,9 @@ def build_all(repo_root: Path) -> None:
                         continue
                     team = roster_to_team.get(rid, f"Roster {rid}")
                     pf = float(_to_float(m.get("points"), 0.0) or 0.0)
+                    bonus = semis_bonus_by_week.get(wk, {}).get(rid)
+                    if bonus:
+                        pf += bonus
 
                     opp_rid = opp_rid_map.get((season, wk, rid))
                     opp_team = roster_to_team.get(opp_rid, f"Roster {opp_rid}") if opp_rid is not None else None
@@ -1300,12 +1359,46 @@ def build_all(repo_root: Path) -> None:
                         # leave remaining plan columns to enforcement step
                     })
 
-                    # starter slot labels are not provided reliably by Sleeper; we approximate by roster order
+                    # starter slot labels: map roster positions to labeled starter slots
                     starter_slot = {}
-                    # League has fixed slots; for this build we only need "Position started in" for analysis,
-                    # so we store the player's NFL position as a stable proxy.
-                    for pid in starters:
-                        starter_slot[pid] = pid_pos.get(pid)
+                    roster_positions = [str(x) for x in (lg.get("roster_positions") or []) if x]
+                    non_start_slots = {"BN", "BE", "BENCH", "IR", "TAXI"}
+                    starter_slots = [pos for pos in roster_positions if str(pos).upper() not in non_start_slots]
+
+                    def _base_slot(pos: str) -> str:
+                        upper = str(pos or "").upper()
+                        if upper in ("SUPER_FLEX", "SUPERFLEX", "SFLEX", "SFLX"):
+                            return "SFLX"
+                        if upper in ("FLEX", "FLX"):
+                            return "FLX"
+                        return upper
+
+                    if starter_slots and starters:
+                        counts: Dict[str, int] = {}
+                        for pid, slot in zip(starters, starter_slots):
+                            base = _base_slot(slot)
+                            if not base:
+                                continue
+                            counts[base] = counts.get(base, 0) + 1
+                            idx = counts[base]
+
+                            label = base
+                            if base == "RB":
+                                label = f"RB{idx}"
+                            elif base == "WR":
+                                label = f"WR{idx}"
+                            elif base == "FLX":
+                                label = f"FLX{idx}"
+                            elif base == "SFLX":
+                                label = "SFLX"
+                            elif base == "QB":
+                                label = "QB"
+                            starter_slot[pid] = label
+
+                    # fallback to player position if starter slot data is missing
+                    if not starter_slot:
+                        for pid in starters:
+                            starter_slot[pid] = pid_pos.get(pid)
 
                     played_set = played_by_week.get(wk, set())
 
@@ -1325,10 +1418,12 @@ def build_all(repo_root: Path) -> None:
                     for pid in players:
                         meta = pid_meta.get(pid, {})
                         full_name = meta.get("full_name") or pid
+                        position = pid_pos.get(pid)
                         nfl_team = (player_team_by_week.get((str(gsis), int(wk))) if gsis else None) or meta.get("team")
                         pts = float(ppts.get(pid, 0.0))
                         started = pid in starters
-                        slot = starter_slot.get(pid) if started else (pid_pos.get(pid) or None)
+                        slot = starter_slot.get(pid) if started else "N/A"
+                        player_position = pid_pos.get(pid) or None
 
                         # gsis id lookup for nflverse
                         gsis = None
@@ -1440,6 +1535,7 @@ def build_all(repo_root: Path) -> None:
                             bye = False
 
                         player_week_rows.append({
+                            "Player ID": str(pid) if pid is not None else None,
                             "Player": full_name,
                             "Team": team,
                             "Week": wk,
@@ -1450,7 +1546,9 @@ def build_all(repo_root: Path) -> None:
                             "Bye?": bool(bye),
                             "Starter/Bench": "Starter" if started else "Bench",
                             "% of points (if starter)": round(pts / pf, 4) if started and pf else None,
+                            "Position": position,
                             "Position started in (if starter)": slot,
+                            "Position": player_position,
                             "Change from previous week": None,
                             "Change from previous 5 weeks avg": None,
                             "Change from career average to that point": None,
@@ -2037,6 +2135,8 @@ def build_all(repo_root: Path) -> None:
 
         # league-level player of week among starters
         starters = pw["Starter/Bench"] == "Starter"
+        pos_col = "Position" if "Position" in pw.columns else "Position started in (if starter)"
+        pos_series = pw[pos_col].astype(str).str.upper()
         for (yr, wk), g in pw.groupby(["Year", "Week"]):
             sg = g[starters.loc[g.index]]
             if sg.empty:
@@ -2047,7 +2147,7 @@ def build_all(repo_root: Path) -> None:
             _set_flag((pw["Year"] == yr) & (pw["Week"] == wk) & starters & (pw["Points"] == mn), "Benchwarmer of the week?")
 
             for pos, col in [("QB", "QB of the week?"), ("RB", "RB of the week?"), ("WR", "WR of the week?"), ("TE", "TE of the week?")]:
-                pg = sg[sg["Position started in (if starter)"].astype(str).str.upper() == pos]
+                pg = sg[pos_series.loc[sg.index] == pos]
                 if pg.empty:
                     continue
                 mxp = pg["Points"].max()
@@ -2055,7 +2155,7 @@ def build_all(repo_root: Path) -> None:
                     (pw["Year"] == yr)
                     & (pw["Week"] == wk)
                     & starters
-                    & (pw["Position started in (if starter)"].astype(str).str.upper() == pos)
+                    & (pos_series == pos)
                     & (pw["Points"] == mxp),
                     col,
                 )
@@ -2068,7 +2168,7 @@ def build_all(repo_root: Path) -> None:
                 ("WR", "Bench WR of the week?"),
                 ("TE", "Bench TE of the week?"),
             ]:
-                pg = bg[bg["Position started in (if starter)"].astype(str).str.upper() == pos]
+                pg = bg[pos_series.loc[bg.index] == pos]
                 if pg.empty:
                     continue
                 mxp = pg["Points"].max()
@@ -2076,7 +2176,7 @@ def build_all(repo_root: Path) -> None:
                     (pw["Year"] == yr)
                     & (pw["Week"] == wk)
                     & (~starters)
-                    & (pw["Position started in (if starter)"].astype(str).str.upper() == pos)
+                    & (pos_series == pos)
                     & (pw["Points"] == mxp),
                     col,
                 )
@@ -2697,22 +2797,64 @@ def build_all(repo_root: Path) -> None:
         def _record_str(w, l, t=0):
             return f"{int(w)}-{int(l)}" + (f"-{int(t)}" if t else "")
 
-        def _record_from_games(df: pd.DataFrame) -> Tuple[int, int, int]:
-            w = int((df["Win?"] == 1).sum())
-            l = int((df["Win?"] == 0).sum())
-            t = int((df["Win?"] == 0.5).sum())
-            return w, l, t
+        def _normalize_games(df: pd.DataFrame) -> pd.DataFrame:
+            if df.empty:
+                return df.copy()
+            gdf = df.copy()
+            gdf["Team"] = gdf["Team"].astype(str)
+            gdf["OppTeam"] = gdf["OppTeam"].astype(str)
+            gdf["Win?"] = pd.to_numeric(gdf["Win?"], errors="coerce")
+            gdf["Year"] = pd.to_numeric(gdf["Year"], errors="coerce").fillna(0).astype(int)
+            return gdf
+
+        def _wlt_for_team(df: pd.DataFrame, team: str, year: Optional[int] = None, opps: Optional[set] = None) -> Tuple[int, int, int]:
+            if df.empty:
+                return (0, 0, 0)
+            sub = df[df["Team"] == str(team)]
+            if year is not None:
+                sub = sub[sub["Year"] == int(year)]
+            if opps is not None:
+                sub = sub[sub["OppTeam"].isin({str(o) for o in opps})]
+            w = int((sub["Win?"] == 1).sum())
+            l = int((sub["Win?"] == 0).sum())
+            t = int((sub["Win?"] == 0.5).sum())
+            return (w, l, t)
+
+        def _win_pct(wlt: Tuple[int, int, int]) -> float:
+            w, l, t = wlt
+            gp = w + l + t
+            return round((w + 0.5 * t) / gp, 4) if gp else 0.0
+
+        def _wlt_for_team_pairs(df: pd.DataFrame, team: str, year_team_pairs: set) -> Tuple[int, int, int]:
+            if df.empty or not year_team_pairs:
+                return (0, 0, 0)
+            sub = df[df["Team"] == str(team)]
+            sub = sub[sub["YearOpp"].isin(year_team_pairs)]
+            w = int((sub["Win?"] == 1).sum())
+            l = int((sub["Win?"] == 0).sum())
+            t = int((sub["Win?"] == 0.5).sum())
+            return (w, l, t)
+
+        games_df = _normalize_games(games_df)
+        if not games_df.empty:
+            games_df["YearOpp"] = list(zip(games_df["Year"], games_df["OppTeam"]))
 
         playoff_teams_by_season: Dict[int, set] = {}
         champion_by_season: Dict[int, Optional[str]] = {}
         last_place_by_season: Dict[int, Optional[str]] = {}
+        teams_by_season: Dict[int, set] = {}
+        standings_place_by_season: Dict[int, Dict[str, int]] = {}
+        pf_place_by_season: Dict[int, Dict[str, int]] = {}
+        maxpf_place_by_season: Dict[int, Dict[str, int]] = {}
         for yr, g in tw.groupby("Year"):
             season = int(yr)
+            teams_by_season[season] = set(g["Team"].dropna().astype(str).tolist())
             playoff_start = playoff_start_by_season.get(season)
             reg = g.copy()
             if playoff_start:
                 reg = reg[pd.to_numeric(reg["Week"], errors="coerce") < playoff_start]
             reg["PF"] = pd.to_numeric(reg["PF"], errors="coerce").fillna(0.0)
+            reg["Max PF"] = pd.to_numeric(reg["Max PF"], errors="coerce").fillna(0.0)
             reg["Win?"] = pd.to_numeric(reg["Win?"], errors="coerce")
             standings = []
             for team, tg in reg.groupby("Team"):
@@ -2720,10 +2862,31 @@ def build_all(repo_root: Path) -> None:
                 losses = int((tg["Win?"] == 0).sum())
                 ties = int((tg["Win?"] == 0.5).sum())
                 pf = float(tg["PF"].sum())
-                standings.append((team, wins, losses, ties, pf))
+                maxpf = float(tg["Max PF"].sum())
+                standings.append((team, wins, losses, ties, pf, maxpf))
             standings.sort(key=lambda x: (x[1] + 0.5 * x[3], x[4]), reverse=True)
+            standings_place_by_season[season] = {
+                str(team): idx + 1 for idx, (team, *_rest) in enumerate(standings)
+            }
+            pf_sorted = sorted(standings, key=lambda x: x[4], reverse=True)
+            pf_place_by_season[season] = {
+                str(team): idx + 1 for idx, (team, *_rest) in enumerate(pf_sorted)
+            }
+            reg["Max PF"] = pd.to_numeric(reg.get("Max PF"), errors="coerce").fillna(0.0)
+            maxpf_totals = []
+            for team, tg in reg.groupby("Team"):
+                maxpf_totals.append((team, float(tg["Max PF"].sum())))
+            maxpf_totals.sort(key=lambda x: x[1], reverse=True)
+            maxpf_place_by_season[season] = {
+                str(team): idx + 1 for idx, (team, _maxpf) in enumerate(maxpf_totals)
+            }
             playoff_teams_by_season[season] = set([t for t, *_ in standings[:4]])
             last_place_by_season[season] = standings[-1][0] if standings else None
+            place_record_by_year[season] = _place_map(standings)
+            standings_pf = sorted(standings, key=lambda x: x[4], reverse=True)
+            standings_maxpf = sorted(standings, key=lambda x: x[5], reverse=True)
+            place_pf_by_year[season] = _place_map(standings_pf)
+            place_maxpf_by_year[season] = _place_map(standings_maxpf)
             champ = None
             if "Week label" in g.columns:
                 finals = g[g["Week label"] == "Final"]
@@ -2748,15 +2911,23 @@ def build_all(repo_root: Path) -> None:
                 # Finals
                 gf = tw[(tw["Year"]==season) & (tw["Week"]==finals_week) & (tw["Week label"]=="Final")].copy()
                 gf["PF"] = pd.to_numeric(gf["PF"], errors="coerce").fillna(0.0)
-                if len(gf)==2:
-                    gf = gf.sort_values("PF", ascending=False)
-                    fin_map[str(gf.iloc[0]["Team"])] = "champion"
+                gf["Win?"] = pd.to_numeric(gf["Win?"], errors="coerce")
+                if len(gf) == 2:
+                    if gf["Win?"].notna().any():
+                        gf = gf.sort_values("Win?", ascending=False)
+                    else:
+                        gf = gf.sort_values("PF", ascending=False)
+                    fin_map[str(gf.iloc[0]["Team"])] = "Champion"
                     fin_map[str(gf.iloc[1]["Team"])] = "2nd"
                 # 3rd place
                 g3 = tw[(tw["Year"]==season) & (tw["Week"]==finals_week) & (tw["Week label"]=="3rd Place")].copy()
                 g3["PF"] = pd.to_numeric(g3["PF"], errors="coerce").fillna(0.0)
-                if len(g3)==2:
-                    g3=g3.sort_values("PF", ascending=False)
+                g3["Win?"] = pd.to_numeric(g3["Win?"], errors="coerce")
+                if len(g3) == 2:
+                    if g3["Win?"].notna().any():
+                        g3 = g3.sort_values("Win?", ascending=False)
+                    else:
+                        g3 = g3.sort_values("PF", ascending=False)
                     fin_map[str(g3.iloc[0]["Team"])] = "3rd"
                     fin_map[str(g3.iloc[1]["Team"])] = "4th"
 
@@ -2765,7 +2936,7 @@ def build_all(repo_root: Path) -> None:
                 cutoff = 17 if season < 2025 else 15
                 try:
                     all_teams = [str(t) for t in tw[tw["Year"] == season]["Team"].dropna().unique().tolist()]
-                    playoff_teams = set([t for t, r in fin_map.items() if r in ("champion", "2nd", "3rd", "4th")])
+                    playoff_teams = set([t for t, r in fin_map.items() if r in ("Champion", "2nd", "3rd", "4th")])
                     non_playoff = [t for t in all_teams if t not in playoff_teams]
                     if non_playoff and (not games_df.empty):
                         reg = games_df[(games_df["Year"] == season) & (games_df["Week"] <= cutoff)].copy()
@@ -2778,9 +2949,10 @@ def build_all(repo_root: Path) -> None:
                             l = int((gg["Win?"] == 0).sum())
                             t_ = int((gg["Win?"] == 0.5).sum())
                             pf_sum = float(gg["PF"].sum())
-                            rows_np.append((team_np, w, l, t_, pf_sum))
-                        # Sort: record (wins desc, losses asc), PF desc
-                        rows_np.sort(key=lambda x: (-x[1], x[2], -x[4]))
+                            win_pct = (w + 0.5 * t_) / max(1, w + l + t_)
+                            rows_np.append((team_np, win_pct, pf_sum))
+                        # Sort: record (win %) then PF
+                        rows_np.sort(key=lambda x: (x[1], x[2]), reverse=True)
                         place = 5
                         for team_np, *_ in rows_np:
                             if place == 5:
@@ -2801,6 +2973,19 @@ def build_all(repo_root: Path) -> None:
             _log_exc(debug, "season_finish_map", e)
 
         # team-year rollup
+        all_time_rows = []
+        for team, g in tw.groupby("Team"):
+            wins = int((g["Win?"] == 1).sum())
+            losses = int((g["Win?"] == 0).sum())
+            ties = int((g["Win?"] == 0.5).sum())
+            pf = float(pd.to_numeric(g["PF"], errors="coerce").fillna(0.0).sum())
+            maxpf_sum = float(pd.to_numeric(g["Max PF"], errors="coerce").fillna(0.0).sum())
+            all_time_rows.append((team, wins, losses, ties, pf, maxpf_sum))
+        all_time_rows.sort(key=lambda x: (x[1] + 0.5 * x[3], x[4]), reverse=True)
+        all_time_place_record = _place_map(all_time_rows)
+        all_time_place_pf = _place_map(sorted(all_time_rows, key=lambda x: x[4], reverse=True))
+        all_time_place_maxpf = _place_map(sorted(all_time_rows, key=lambda x: x[5], reverse=True))
+
         rows = []
         for (team, yr), g in tw.groupby(["Team", "Year"]):
             wins = int((g["Win?"] == 1).sum())
@@ -2814,33 +2999,28 @@ def build_all(repo_root: Path) -> None:
             maxpf_avg = float(pd.to_numeric(g["Max PF"], errors="coerce").fillna(0.0).mean())
             rec = _record_str(wins, losses, ties)
             winp = round((wins + 0.5 * ties) / gp, 4)
-            record_vs = "N/A"
-            if not games_df.empty:
-                sub = games_df[(games_df["Team"] == str(team)) & (games_df["Year"] == int(yr))]
-                pieces = []
-                for opp in [t for t in teams if t != str(team)]:
-                    sg = sub[sub["OppTeam"] == opp]
-                    w = int((sg["Win?"] == 1).sum())
-                    l = int((sg["Win?"] == 0).sum())
-                    t_ = int((sg["Win?"] == 0.5).sum())
-                    gp2 = max(0, w + l + t_)
-                    winp2 = round((w + 0.5 * t_) / gp2, 4) if gp2 else 0.0
-                    pieces.append(f"{opp}: {_record_str(w, l, t_)} ({winp2})")
-                record_vs = "; ".join(pieces) if pieces else "N/A"
-
+            place_map = standings_place_by_season.get(int(yr), {})
+            pf_place_map = pf_place_by_season.get(int(yr), {})
+            maxpf_place_map = maxpf_place_by_season.get(int(yr), {})
+            place = place_map.get(str(team))
+            pf_place = pf_place_map.get(str(team))
+            maxpf_place = maxpf_place_map.get(str(team))
+            win_variance = None
+            if place is not None and pf_place is not None and maxpf_place is not None:
+                win_variance = float(place - ((pf_place + maxpf_place) / 2))
             row = {
                 "Team": str(team),
                 "Year": int(yr),
                 "Result": "N/A",
                 "Win %": winp,
                 "Record": rec,
-                "Record & win % vs each team": record_vs,
+                "Record & win % vs each team": "N/A",
                 "Record & win % vs playoff teams": "N/A",
                 "Record & win % vs non-playoff teams": "N/A",
                 "Record & win % vs champion": "N/A",
                 "Record & win % vs last place": "N/A",
                 "Change in win % from previous season": None,
-                "Win Variance": float(pd.to_numeric(g["Win?"], errors="coerce").fillna(0.0).var()),
+                "Win Variance": win_variance,
                 "Week of playoff elimination": "N/A",
                 "Draft Value": 0,
                 "Number of first round picks made": 0,
@@ -2862,6 +3042,56 @@ def build_all(repo_root: Path) -> None:
             }
             rows.append(row)
         team_year = pd.DataFrame(rows)
+
+        # Rebuild all win % and record columns for team-year (single source of truth)
+        try:
+            teams_by_year = team_year.groupby("Year")["Team"].apply(lambda s: sorted(s.dropna().astype(str).unique().tolist())).to_dict()
+            for idx, row in team_year.iterrows():
+                team = str(row["Team"])
+                year = int(row["Year"])
+                wlt = _wlt_for_team(games_df, team, year=year)
+                team_year.at[idx, "Record"] = _record_str(*wlt)
+                team_year.at[idx, "Win %"] = _win_pct(wlt)
+
+                opp_list = [t for t in teams_by_year.get(year, []) if t != team]
+                pieces = []
+                for opp in opp_list:
+                    wlt_opp = _wlt_for_team(games_df, team, year=year, opps={opp})
+                    pieces.append(f"{opp}: {_record_str(*wlt_opp)} ({_win_pct(wlt_opp)})")
+                team_year.at[idx, "Record & win % vs each team"] = "; ".join(pieces) if pieces else "N/A"
+
+                playoffs = playoff_teams_by_season.get(year, set())
+                champ = champion_by_season.get(year)
+                lastp = last_place_by_season.get(year)
+                non_playoffs = set(teams_by_season.get(year, set())) - set(playoffs) if playoffs else set()
+
+                wlt_play = _wlt_for_team(games_df, team, year=year, opps=playoffs if playoffs else None)
+                wlt_non = _wlt_for_team(games_df, team, year=year, opps=non_playoffs if non_playoffs else None)
+                wlt_champ = _wlt_for_team(games_df, team, year=year, opps={champ} if champ else None)
+                wlt_last = _wlt_for_team(games_df, team, year=year, opps={lastp} if lastp else None)
+
+                team_year.at[idx, "Record & win % vs playoff teams"] = f"{_record_str(*wlt_play)} ({_win_pct(wlt_play)})" if playoffs else "N/A"
+                team_year.at[idx, "Record & win % vs non-playoff teams"] = f"{_record_str(*wlt_non)} ({_win_pct(wlt_non)})" if non_playoffs else "N/A"
+                team_year.at[idx, "Record & win % vs champion"] = f"{_record_str(*wlt_champ)} ({_win_pct(wlt_champ)})" if champ else "N/A"
+                team_year.at[idx, "Record & win % vs last place"] = f"{_record_str(*wlt_last)} ({_win_pct(wlt_last)})" if lastp else "N/A"
+
+            if not games_df.empty:
+                for year, teams_list in teams_by_year.items():
+                    for team in teams_list:
+                        for opp in teams_list:
+                            if opp == team:
+                                continue
+                            wlt_opp = _wlt_for_team(games_df, team, year=int(year), opps={opp})
+                            team_year.loc[
+                                (team_year["Year"] == int(year)) & (team_year["Team"] == team),
+                                f"Record vs {opp}",
+                            ] = _record_str(*wlt_opp)
+                            team_year.loc[
+                                (team_year["Year"] == int(year)) & (team_year["Team"] == team),
+                                f"Win % vs {opp}",
+                            ] = _win_pct(wlt_opp)
+        except Exception as e:
+            _log_exc(debug, "team_year_rebuild_records", e)
 
         # Compute starter/roster turnover metrics using unique players
         try:
@@ -2922,14 +3152,6 @@ def build_all(repo_root: Path) -> None:
                     "Times Most efficient?": ("Most efficient?", "sum"),
                     "Times Least efficient?": ("Least efficient?", "sum"),
                     "Times Top half of league?": ("Top half of league?", "sum"),
-                    "Number of QB started": ("Number of QB started", "sum"),
-                    "Number of WR started": ("Number of WR started", "sum"),
-                    "Number of RB started": ("Number of RB started", "sum"),
-                    "Number of TE started": ("Number of TE started", "sum"),
-                    "Number of QB rostered": ("Number of QB rostered", "sum"),
-                    "Number of WR rostered": ("Number of WR rostered", "sum"),
-                    "Number of RB rostered": ("Number of RB rostered", "sum"),
-                    "Number of TE rostered": ("Number of TE rostered", "sum"),
                     "Most number of players started from same NFL team": ("Most number of players started from same NFL team", "max"),
                     "Most number of players rostered from same NFL team": ("Most number of players rostered from same NFL team", "max"),
                     "Most number of QBs started from same NFL team": ("Most number of QBs started from same NFL team", "max"),
@@ -2958,77 +3180,11 @@ def build_all(repo_root: Path) -> None:
             )
             team_year = team_year.merge(agg_year, how="left", on=["Team", "Year"])
 
-            # Unique-player positional rollups (do NOT count the same player multiple weeks)
-            try:
-                if (not pw.empty) and ("Position" in pw.columns):
-                    pw2 = pw[["Team","Year","Player","Position","Starter/Bench"]].copy()
-                    pw2["Year"] = pd.to_numeric(pw2["Year"], errors="coerce").astype("Int64")
-                    pw2["Position"] = pw2["Position"].astype(str).str.upper()
-
-                    started = (
-                        pw2[pw2["Starter/Bench"] == "Starter"]
-                        .dropna(subset=["Player"])
-                        .groupby(["Team","Year","Position"])["Player"]
-                        .nunique()
-                        .unstack("Position")
-                    )
-                    rostered = (
-                        pw2.dropna(subset=["Player"])
-                        .groupby(["Team","Year","Position"])["Player"]
-                        .nunique()
-                        .unstack("Position")
-                    )
-
-                    for pos in ["QB","RB","WR","TE"]:
-                        col_s = f"Number of {pos} started"
-                        col_r = f"Number of {pos} rostered"
-                        if col_s not in team_year.columns:
-                            team_year[col_s] = np.nan
-                        if col_r not in team_year.columns:
-                            team_year[col_r] = np.nan
-                        if pos in started.columns:
-                            sser = started[pos].reset_index().rename(columns={pos: col_s})
-                            team_year = team_year.merge(sser, how="left", on=["Team","Year"], suffixes=("", "_y"))
-                            if col_s + "_y" in team_year.columns:
-                                team_year[col_s] = team_year[col_s].fillna(team_year[col_s + "_y"])
-                                team_year = team_year.drop(columns=[col_s + "_y"])
-                        if pos in rostered.columns:
-                            rser = rostered[pos].reset_index().rename(columns={pos: col_r})
-                            team_year = team_year.merge(rser, how="left", on=["Team","Year"], suffixes=("", "_y"))
-                            if col_r + "_y" in team_year.columns:
-                                team_year[col_r] = team_year[col_r].fillna(team_year[col_r + "_y"])
-                                team_year = team_year.drop(columns=[col_r + "_y"])
-            except Exception as e:
-                _log_exc(debug, "team_year_unique_pos_counts", e)
-
         except Exception as e:
             _log_exc(debug, "team_year_aggregate_fill", e)
 
 
-        # Unique-player rollups for positional counts (avoid counting the same player in multiple weeks)
-        try:
-            if not pw.empty and "Position" in pw.columns and "Starter/Bench" in pw.columns:
-                pw_u = pw.copy()
-                pw_u["Position"] = pw_u["Position"].astype(str)
-                pw_u["Starter/Bench"] = pw_u["Starter/Bench"].astype(str)
-                # rostered unique
-                rostered = pw_u.groupby(["Team","Year","Position"], as_index=False)["Player"].nunique().rename(columns={"Player":"n"})
-                # started unique
-                started = pw_u[pw_u["Starter/Bench"].str.lower().eq("starter")].groupby(["Team","Year","Position"], as_index=False)["Player"].nunique().rename(columns={"Player":"n"})
-                def _pos_n(df, pos):
-                    return df[df["Position"].eq(pos)][["Team","Year","n"]].rename(columns={"n": pos})
-                r_piv = rostered.pivot_table(index=["Team","Year"], columns="Position", values="n", aggfunc="max").fillna(0).reset_index()
-                s_piv = started.pivot_table(index=["Team","Year"], columns="Position", values="n", aggfunc="max").fillna(0).reset_index()
-                for pos in ["QB","WR","RB","TE"]:
-                    if pos in s_piv.columns:
-                        team_year[f"Number of {pos} started"] = team_year.merge(s_piv[["Team","Year",pos]], on=["Team","Year"], how="left")[pos].fillna(0).astype(int)
-                    if pos in r_piv.columns:
-                        team_year[f"Number of {pos} rostered"] = team_year.merge(r_piv[["Team","Year",pos]], on=["Team","Year"], how="left")[pos].fillna(0).astype(int)
-        except Exception as e:
-            _log_exc(debug, "team_year_unique_player_counts", e)
-
-
-        # Result + vs-category records (best-effort using games_df + playoff/champion/last_place sets)
+        # Result + vs-category records (rebuilt using normalized games)
         try:
 
             # Fill Result from bracket-derived finish map when available.
@@ -3038,50 +3194,6 @@ def build_all(repo_root: Path) -> None:
                     return m.get(str(team))
                 team_year["Result"] = team_year.apply(lambda r: _res(r["Team"], r["Year"]), axis=1)
 
-            # Head-to-head records vs each team (per season)
-            try:
-                if not games_df.empty:
-                    teams_in_year = team_year.groupby("Year")["Team"].apply(lambda s: sorted(s.dropna().astype(str).unique().tolist())).to_dict()
-                    for year, teams_list in teams_in_year.items():
-                        g = games_df[games_df["Year"]==int(year)]
-                        if g.empty:
-                            continue
-                        for team in teams_list:
-                            for opp in teams_list:
-                                if opp == team:
-                                    continue
-                                gg = g[(g["Team"]==team) & (g["OppTeam"]==opp)]
-                                if gg.empty:
-                                    rec = "0-0-0"
-                                    wp = None
-                                else:
-                                    w = int((pd.to_numeric(gg["Win?"], errors="coerce")==1).sum())
-                                    l = int((pd.to_numeric(gg["Win?"], errors="coerce")==0).sum())
-                                    t = int((pd.to_numeric(gg["Win?"], errors="coerce")==0.5).sum())
-                                    gp = max(1, w+l+t)
-                                    rec = f"{w}-{l}-{t}"
-                                    wp = round((w + 0.5*t)/gp, 4)
-                                team_year.loc[(team_year["Year"]==int(year)) & (team_year["Team"]==team), f"Record vs {opp}"] = rec
-                                team_year.loc[(team_year["Year"]==int(year)) & (team_year["Team"]==team), f"Win % vs {opp}"] = wp
-            except Exception as e:
-                _log_exc(debug, "h2h_team_year", e)
-
-            def _fmt_rec(wlt):
-                w, l, t = wlt
-                return f"{int(w)}-{int(l)}-{int(t)}"
-
-            def _wlt_for(team: str, yr: int, opp_filter):
-                if games_df.empty:
-                    return (0, 0, 0)
-                sub = games_df[(games_df["Year"] == yr) & (games_df["Team"] == team)]
-                if opp_filter is not None:
-                    sub = sub[sub["Opponent"].isin(opp_filter)]
-                return (
-                    int((sub["Win?"] == 1).sum()),
-                    int((sub["Win?"] == 0).sum()),
-                    int((sub["Win?"] == 0.5).sum()),
-                )
-
             results = []
             for _, r in team_year.iterrows():
                 team = str(r["Team"])
@@ -3089,38 +3201,37 @@ def build_all(repo_root: Path) -> None:
                 playoffs = playoff_teams_by_season.get(yr, set())
                 champ = champion_by_season.get(yr)
                 lastp = last_place_by_season.get(yr)
+                teams_in_year = set(team_year[team_year["Year"] == yr]["Team"].astype(str).tolist())
+                non_playoffs = teams_in_year - set(playoffs) if playoffs else set()
 
-                if champ and team == champ:
-                    res = "Champion"
-                elif lastp and team == lastp:
-                    res = "Last place"
-                elif team in playoffs:
-                    res = "Playoffs"
-                else:
-                    res = "Missed playoffs"
+                res = season_finish.get(yr, {}).get(team, r.get("Result"))
+                if not res:
+                    if champ and team == champ:
+                        res = "Champion"
+                    elif lastp and team == lastp:
+                        res = "Last place"
+                    elif team in playoffs:
+                        res = "Playoffs"
+                    else:
+                        res = "Missed playoffs"
 
-                wlt_play = _wlt_for(team, yr, playoffs if playoffs else None)
-                wlt_non = _wlt_for(team, yr, set(team_year[team_year["Year"] == yr]["Team"]) - set(playoffs) if playoffs else None)
-                wlt_champ = _wlt_for(team, yr, {champ} if champ else None)
-                wlt_last = _wlt_for(team, yr, {lastp} if lastp else None)
-
-                def winpct(wlt):
-                    w, l, t = wlt
-                    gp = max(1, w + l + t)
-                    return round((w + 0.5 * t) / gp, 4)
+                wlt_play = _wlt_for_team(games_df, team, year=yr, opps=playoffs if playoffs else None)
+                wlt_non = _wlt_for_team(games_df, team, year=yr, opps=non_playoffs if non_playoffs else None)
+                wlt_champ = _wlt_for_team(games_df, team, year=yr, opps={champ} if champ else None)
+                wlt_last = _wlt_for_team(games_df, team, year=yr, opps={lastp} if lastp else None)
 
                 results.append({
                     "Team": team,
                     "Year": yr,
                     "Result": res,
-                    "Record vs playoff teams": _fmt_rec(wlt_play) if playoffs else "N/A",
-                    "Win % vs playoff teams": winpct(wlt_play) if playoffs else None,
-                    "Record vs non-playoff teams": _fmt_rec(wlt_non) if playoffs else "N/A",
-                    "Win % vs non-playoff teams": winpct(wlt_non) if playoffs else None,
-                    "Record vs champion": _fmt_rec(wlt_champ) if champ else "N/A",
-                    "Win % vs champion": winpct(wlt_champ) if champ else None,
-                    "Record vs last place": _fmt_rec(wlt_last) if lastp else "N/A",
-                    "Win % vs last place": winpct(wlt_last) if lastp else None,
+                    "Record vs playoff teams": _record_str(*wlt_play) if playoffs else "N/A",
+                    "Win % vs playoff teams": _win_pct(wlt_play) if playoffs else None,
+                    "Record vs non-playoff teams": _record_str(*wlt_non) if non_playoffs else "N/A",
+                    "Win % vs non-playoff teams": _win_pct(wlt_non) if non_playoffs else None,
+                    "Record vs champion": _record_str(*wlt_champ) if champ else "N/A",
+                    "Win % vs champion": _win_pct(wlt_champ) if champ else None,
+                    "Record vs last place": _record_str(*wlt_last) if lastp else "N/A",
+                    "Win % vs last place": _win_pct(wlt_last) if lastp else None,
                 })
             extra = pd.DataFrame(results)
             team_year = team_year.drop(columns=[c for c in extra.columns if c in team_year.columns and c not in ["Team","Year"]], errors="ignore")
@@ -3133,8 +3244,17 @@ def build_all(repo_root: Path) -> None:
 
         team_year = team_year.sort_values(["Team", "Year"]).reset_index(drop=True)
         team_year["Change in win % from previous season"] = team_year.groupby("Team")["Win %"].diff()
+        team_year_win_variance = {}
+        for team, val in team_year.groupby("Team")["Win Variance"].mean().items():
+            team_year_win_variance[str(team)] = float(val) if pd.notna(val) else None
 
         # team-all-time rollup
+        championship_counts = {}
+        for champ in champion_by_season.values():
+            if champ:
+                champ_name = str(champ)
+                championship_counts[champ_name] = championship_counts.get(champ_name, 0) + 1
+
         rows = []
         for team, g in tw.groupby("Team"):
             wins = int((g["Win?"] == 1).sum())
@@ -3146,30 +3266,31 @@ def build_all(repo_root: Path) -> None:
             diff = pf - pa
             maxpf_sum = float(pd.to_numeric(g["Max PF"], errors="coerce").fillna(0.0).sum())
             maxpf_avg = float(pd.to_numeric(g["Max PF"], errors="coerce").fillna(0.0).mean())
-            record_vs = "N/A"
-            if not games_df.empty:
-                sub = games_df[games_df["Team"] == str(team)]
-                pieces = []
-                for opp in [t for t in teams if t != str(team)]:
-                    sg = sub[sub["OppTeam"] == opp]
-                    w = int((sg["Win?"] == 1).sum())
-                    l = int((sg["Win?"] == 0).sum())
-                    t_ = int((sg["Win?"] == 0.5).sum())
-                    gp2 = max(0, w + l + t_)
-                    winp2 = round((w + 0.5 * t_) / gp2, 4) if gp2 else 0.0
-                    pieces.append(f"{opp}: {_record_str(w, l, t_)} ({winp2})")
-                record_vs = "; ".join(pieces) if pieces else "N/A"
-
+            all_time_place_record_value = all_time_place_record.get(str(team))
+            all_time_place_pf_value = all_time_place_pf.get(str(team))
+            all_time_place_maxpf_value = all_time_place_maxpf.get(str(team))
+            if (
+                all_time_place_record_value is not None
+                and all_time_place_pf_value is not None
+                and all_time_place_maxpf_value is not None
+            ):
+                win_variance = -1 * (
+                    all_time_place_record_value
+                    - ((all_time_place_pf_value + all_time_place_maxpf_value) / 2)
+                )
+            else:
+                win_variance = None
             row = {
                 "Team": str(team),
                 "All time win %": round((wins + 0.5 * ties) / gp, 4),
                 "All time record": _record_str(wins, losses, ties),
-                "Record & win % vs each team": record_vs,
+                "Championships": championship_counts.get(str(team), 0),
+                "Record & win % vs each team": "N/A",
                 "Record & win % vs playoff teams": "N/A",
                 "Record & win % vs non-playoff teams": "N/A",
                 "Record & win % vs champions": "N/A",
                 "Record & win % vs last place": "N/A",
-                "Win Variance": float(pd.to_numeric(g["Win?"], errors="coerce").fillna(0.0).var()),
+                "Win Variance": team_year_win_variance.get(str(team)),
                 "Draft Value": 0,
                 "Number of first round picks made": 0,
                 "Total number of picks made": 0,
@@ -3195,6 +3316,58 @@ def build_all(repo_root: Path) -> None:
             rows.append(row)
         team_all = pd.DataFrame(rows)
 
+        # Rebuild all win % and record columns for team-all-time
+        try:
+            playoff_pairs = {
+                (year, team)
+                for year, teams in playoff_teams_by_season.items()
+                for team in teams
+            }
+            champ_pairs = {
+                (year, champ)
+                for year, champ in champion_by_season.items()
+                if champ
+            }
+            last_place_pairs = {
+                (year, lastp)
+                for year, lastp in last_place_by_season.items()
+                if lastp
+            }
+            non_playoff_pairs = {
+                (year, team)
+                for year, teams in teams_by_season.items()
+                for team in teams
+                if team not in playoff_teams_by_season.get(year, set())
+            }
+            for idx, row in team_all.iterrows():
+                team = str(row["Team"])
+                wlt = _wlt_for_team(games_df, team)
+                team_all.at[idx, "All time record"] = _record_str(*wlt)
+                team_all.at[idx, "All time win %"] = _win_pct(wlt)
+
+                opp_list = [t for t in teams if t != team]
+                pieces = []
+                for opp in opp_list:
+                    wlt_opp = _wlt_for_team(games_df, team, opps={opp})
+                    pieces.append(f"{opp}: {_record_str(*wlt_opp)} ({_win_pct(wlt_opp)})")
+                    team_all.at[idx, f"Record vs {opp}"] = _record_str(*wlt_opp)
+                    team_all.at[idx, f"Win % vs {opp}"] = _win_pct(wlt_opp)
+                team_all.at[idx, "Record & win % vs each team"] = "; ".join(pieces) if pieces else "N/A"
+
+            for idx, row in team_all.iterrows():
+                team = str(row["Team"])
+                wlt_play = _wlt_for_team_pairs(games_df, team, playoff_pairs)
+                wlt_non = _wlt_for_team_pairs(games_df, team, non_playoff_pairs)
+                wlt_ch = _wlt_for_team_pairs(games_df, team, champ_pairs)
+                wlt_last = _wlt_for_team_pairs(games_df, team, last_place_pairs)
+
+                team_all.at[idx, "Record & win % vs playoff teams"] = f"{_record_str(*wlt_play)} ({_win_pct(wlt_play)})" if playoff_pairs else "N/A"
+                team_all.at[idx, "Record & win % vs non-playoff teams"] = f"{_record_str(*wlt_non)} ({_win_pct(wlt_non)})" if non_playoff_pairs else "N/A"
+                team_all.at[idx, "Record & win % vs champions"] = f"{_record_str(*wlt_ch)} ({_win_pct(wlt_ch)})" if champ_pairs else "N/A"
+                team_all.at[idx, "Record & win % vs last place"] = f"{_record_str(*wlt_last)} ({_win_pct(wlt_last)})" if last_place_pairs else "N/A"
+        except Exception as e:
+            _log_exc(debug, "team_all_rebuild_records", e)
+
         # --------------------------
         # Fill missing Team-all-time columns from team-week (flags, roster composition, etc.)
         # --------------------------
@@ -3210,14 +3383,6 @@ def build_all(repo_root: Path) -> None:
                     "Times Most efficient?": ("Most efficient?", "sum"),
                     "Times Least efficient?": ("Least efficient?", "sum"),
                     "Times Top half of league?": ("Top half of league?", "sum"),
-                    "Number of QB started": ("Number of QB started", "sum"),
-                    "Number of WR started": ("Number of WR started", "sum"),
-                    "Number of RB started": ("Number of RB started", "sum"),
-                    "Number of TE started": ("Number of TE started", "sum"),
-                    "Number of QB rostered": ("Number of QB rostered", "sum"),
-                    "Number of WR rostered": ("Number of WR rostered", "sum"),
-                    "Number of RB rostered": ("Number of RB rostered", "sum"),
-                    "Number of TE rostered": ("Number of TE rostered", "sum"),
                     "Most number of players started from same NFL team": ("Most number of players started from same NFL team", "max"),
                     "Most number of players rostered from same NFL team": ("Most number of players rostered from same NFL team", "max"),
                     "Most number of QBs started from same NFL team": ("Most number of QBs started from same NFL team", "max"),
@@ -3249,54 +3414,127 @@ def build_all(repo_root: Path) -> None:
         except Exception as e:
             _log_exc(debug, "team_all_aggregate_fill", e)
 
-        # vs-category records (all-time)
+        # Unique-player positional counts for team-year and team-all-time (by Player ID)
         try:
-            def _fmt_rec(wlt):
-                w, l, t = wlt
-                return f"{int(w)}-{int(l)}-{int(t)}"
+            required_cols = {"Team", "Year", "Player ID", "Position", "Starter/Bench"}
+            if not pw.empty and required_cols.issubset(set(pw.columns)):
+                pw_counts = pw[list(required_cols)].copy()
+                pw_counts = pw_counts.dropna(subset=["Player ID", "Team", "Year"])
+                pw_counts["Player ID"] = pw_counts["Player ID"].astype(str)
+                pw_counts["Position"] = pw_counts["Position"].astype(str).str.upper()
+                pw_counts["Starter/Bench"] = pw_counts["Starter/Bench"].astype(str)
+                pw_counts = pw_counts[pw_counts["Position"].isin(["QB", "RB", "WR", "TE"])]
 
-            def _wlt_all(team: str, opp_filter):
-                if games_df.empty:
-                    return (0, 0, 0)
-                sub = games_df[games_df["Team"] == team]
-                if opp_filter is not None:
-                    sub = sub[sub["Opponent"].isin(opp_filter)]
-                return (
-                    int((sub["Win?"] == 1).sum()),
-                    int((sub["Win?"] == 0).sum()),
-                    int((sub["Win?"] == 0.5).sum()),
+                year_rostered = (
+                    pw_counts.groupby(["Team", "Year", "Position"])["Player ID"]
+                    .nunique()
+                    .unstack("Position")
+                    .fillna(0)
+                    .reset_index()
+                )
+                year_started = (
+                    pw_counts[pw_counts["Starter/Bench"].str.lower().eq("starter")]
+                    .groupby(["Team", "Year", "Position"])["Player ID"]
+                    .nunique()
+                    .unstack("Position")
+                    .fillna(0)
+                    .reset_index()
                 )
 
-            # compute sets across seasons
-            all_teams = set(team_all["Team"].astype(str).tolist())
-            champs = {c for c in champion_by_season.values() if c}
-            lastps = {c for c in last_place_by_season.values() if c}
-            playoffs = set().union(*[set(s) for s in playoff_teams_by_season.values()]) if playoff_teams_by_season else set()
-            nonplayoffs = all_teams - playoffs if playoffs else None
+                started_rename = {pos: f"Number of {pos} started" for pos in ["QB", "RB", "WR", "TE"] if pos in year_started.columns}
+                rostered_rename = {pos: f"Number of {pos} rostered" for pos in ["QB", "RB", "WR", "TE"] if pos in year_rostered.columns}
+                year_started = year_started.rename(columns=started_rename)
+                year_rostered = year_rostered.rename(columns=rostered_rename)
 
-            extra=[]
+                if not team_year.empty:
+                    team_year = team_year.merge(year_started, on=["Team", "Year"], how="left")
+                    team_year = team_year.merge(year_rostered, on=["Team", "Year"], how="left")
+                    for pos in ["QB", "RB", "WR", "TE"]:
+                        team_year[f"Number of {pos} started"] = (
+                            pd.to_numeric(team_year.get(f"Number of {pos} started"), errors="coerce")
+                            .fillna(0)
+                            .astype(int)
+                        )
+                        team_year[f"Number of {pos} rostered"] = (
+                            pd.to_numeric(team_year.get(f"Number of {pos} rostered"), errors="coerce")
+                            .fillna(0)
+                            .astype(int)
+                        )
+
+                all_rostered = (
+                    pw_counts.groupby(["Team", "Position"])["Player ID"]
+                    .nunique()
+                    .unstack("Position")
+                    .fillna(0)
+                )
+                all_started = (
+                    pw_counts[pw_counts["Starter/Bench"].str.lower().eq("starter")]
+                    .groupby(["Team", "Position"])["Player ID"]
+                    .nunique()
+                    .unstack("Position")
+                    .fillna(0)
+                )
+
+                if not team_all.empty:
+                    for pos in ["QB", "RB", "WR", "TE"]:
+                        if pos in all_started.columns:
+                            team_all[f"Number of {pos} started"] = (
+                                team_all["Team"].map(all_started[pos]).fillna(0).astype(int)
+                            )
+                        else:
+                            team_all[f"Number of {pos} started"] = 0
+                        if pos in all_rostered.columns:
+                            team_all[f"Number of {pos} rostered"] = (
+                                team_all["Team"].map(all_rostered[pos]).fillna(0).astype(int)
+                            )
+                        else:
+                            team_all[f"Number of {pos} rostered"] = 0
+        except Exception as e:
+            _log_exc(debug, "team_unique_player_counts", e)
+
+        # vs-category records (all-time)
+        try:
+            playoff_pairs = {
+                (year, team)
+                for year, teams in playoff_teams_by_season.items()
+                for team in teams
+            }
+            champ_pairs = {
+                (year, champ)
+                for year, champ in champion_by_season.items()
+                if champ
+            }
+            last_place_pairs = {
+                (year, lastp)
+                for year, lastp in last_place_by_season.items()
+                if lastp
+            }
+            non_playoff_pairs = {
+                (year, team)
+                for year, teams in teams_by_season.items()
+                for team in teams
+                if team not in playoff_teams_by_season.get(year, set())
+            }
+
+            extra = []
             for team in team_all["Team"].astype(str).tolist():
-                wlt_play=_wlt_all(team, playoffs if playoffs else None)
-                wlt_non=_wlt_all(team, nonplayoffs) if nonplayoffs is not None else (0,0,0)
-                wlt_ch=_wlt_all(team, champs if champs else None)
-                wlt_last=_wlt_all(team, lastps if lastps else None)
+                wlt_play = _wlt_for_team_pairs(games_df, team, playoff_pairs)
+                wlt_non = _wlt_for_team_pairs(games_df, team, non_playoff_pairs)
+                wlt_ch = _wlt_for_team_pairs(games_df, team, champ_pairs)
+                wlt_last = _wlt_for_team_pairs(games_df, team, last_place_pairs)
 
-                def winpct(wlt):
-                    w,l,t=wlt
-                    gp=max(1,w+l+t)
-                    return round((w+0.5*t)/gp,4)
                 extra.append({
                     "Team": team,
-                    "Record vs playoff teams": _fmt_rec(wlt_play) if playoffs else "N/A",
-                    "Win % vs playoff teams": winpct(wlt_play) if playoffs else None,
-                    "Record vs non-playoff teams": _fmt_rec(wlt_non) if nonplayoffs is not None else "N/A",
-                    "Win % vs non-playoff teams": winpct(wlt_non) if nonplayoffs is not None else None,
-                    "Record vs champions": _fmt_rec(wlt_ch) if champs else "N/A",
-                    "Win % vs champions": winpct(wlt_ch) if champs else None,
-                    "Record vs last place": _fmt_rec(wlt_last) if lastps else "N/A",
-                    "Win % vs last place": winpct(wlt_last) if lastps else None,
+                    "Record vs playoff teams": _record_str(*wlt_play) if playoff_pairs else "N/A",
+                    "Win % vs playoff teams": _win_pct(wlt_play) if playoff_pairs else None,
+                    "Record vs non-playoff teams": _record_str(*wlt_non) if non_playoff_pairs else "N/A",
+                    "Win % vs non-playoff teams": _win_pct(wlt_non) if non_playoff_pairs else None,
+                    "Record vs champions": _record_str(*wlt_ch) if champ_pairs else "N/A",
+                    "Win % vs champions": _win_pct(wlt_ch) if champ_pairs else None,
+                    "Record vs last place": _record_str(*wlt_last) if last_place_pairs else "N/A",
+                    "Win % vs last place": _win_pct(wlt_last) if last_place_pairs else None,
                 })
-            extra=pd.DataFrame(extra)
+            extra = pd.DataFrame(extra)
             team_all = team_all.drop(columns=[c for c in extra.columns if c in team_all.columns and c!="Team"], errors="ignore")
             team_all = team_all.merge(extra, how="left", on="Team")
         except Exception as e:
@@ -3578,18 +3816,47 @@ def build_all(repo_root: Path) -> None:
                 tr["Tanking after"] = tr["Tanking before"]
     except Exception as e:
         _log_exc(debug, "trades_links_tanking", e)
+    context = {
+        "player_week": pw,
+        "player_year": player_year,
+        "player_all_time": player_all,
+        "team_week": tw,
+        "team_year": team_year,
+        "team_all_time": team_all,
+        "league_week": league_week,
+        "league_year": league_year,
+        "league_all_time": league_all,
+        "transactions": tx,
+        "trades": tr,
+        "pick_history": ph,
+    }
     tables = [
-        ("player_week.csv", pw, "Player-Week"),
-        ("player_year.csv", player_year, "Player-year"),
-        ("player_all_time.csv", player_all, "Player-all-time"),
-        ("team_week.csv", tw, "team-week"),
-        ("team_year.csv", team_year, "team-year"),
-        ("team_all_time.csv", team_all, "team-all-time"),
-        ("league_week.csv", league_week, "league-week"),
-        ("league_year.csv", league_year, "league-year"),
-        ("league_all_time.csv", league_all, "league-all-time"),
-        ("transactions.csv", tx, "transactions"),
-        ("trades.csv", tr, "trades"),
-        ("pick_history.csv", ph, "Pick History"),
+        (doc.FILE_NAME, doc.build_output(context), doc.PLAN_KEY)
+        for doc in DOCUMENT_MODULES
     ]
     write_outputs(tables)
+
+
+def main() -> None:
+    repo_root = Path(__file__).resolve().parent.parent
+
+    cfg = yaml.safe_load((repo_root / "config/league.yaml").read_text())
+    league_id = str(cfg["league_id"])
+    min_season = cfg.get("min_season")
+    max_season = cfg.get("max_season")
+
+    mode = str(os.environ.get("LOTG_MODE", "both")).lower().strip()
+    if mode not in {"snapshot", "build", "both"}:
+        mode = "both"
+
+    if mode in {"snapshot", "both"}:
+        from lotg_support.snapshot import snapshot_all
+
+        snapshot_all(repo_root, league_id=league_id, min_season=min_season, max_season=max_season)
+
+    if mode in {"build", "both"}:
+        build_all(repo_root)
+
+
+if __name__ == "__main__":
+    main()
