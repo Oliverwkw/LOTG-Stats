@@ -2823,22 +2823,87 @@ def build_all(repo_root: Path) -> None:
                 playoff_start = playoff_start_by_season.get(season)
                 if not playoff_start:
                     continue
-                finals_week = playoff_start + 1
                 fin_map: Dict[str, str] = {}
-                # Finals
-                gf = tw[(tw["Year"]==season) & (tw["Week"]==finals_week) & (tw["Week label"]=="Final")].copy()
-                gf["PF"] = pd.to_numeric(gf["PF"], errors="coerce").fillna(0.0)
-                if len(gf)==2:
-                    gf = gf.sort_values("PF", ascending=False)
-                    fin_map[str(gf.iloc[0]["Team"])] = "champion"
-                    fin_map[str(gf.iloc[1]["Team"])] = "2nd"
-                # 3rd place
-                g3 = tw[(tw["Year"]==season) & (tw["Week"]==finals_week) & (tw["Week label"]=="3rd Place")].copy()
-                g3["PF"] = pd.to_numeric(g3["PF"], errors="coerce").fillna(0.0)
-                if len(g3)==2:
-                    g3=g3.sort_values("PF", ascending=False)
-                    fin_map[str(g3.iloc[0]["Team"])] = "3rd"
-                    fin_map[str(g3.iloc[1]["Team"])] = "4th"
+                if games_df.empty:
+                    continue
+                playoff_teams = playoff_teams_by_season.get(season, set())
+                playoff_weeks = sorted(
+                    pd.to_numeric(
+                        games_df[
+                            (games_df["Year"] == season)
+                            & (pd.to_numeric(games_df["Week"], errors="coerce") >= playoff_start)
+                        ]["Week"],
+                        errors="coerce",
+                    )
+                    .dropna()
+                    .astype(int)
+                    .unique()
+                    .tolist()
+                )
+                finals_week = playoff_weeks[-1] if playoff_weeks else None
+                semis_week = finals_week - 1 if finals_week and finals_week > playoff_start else playoff_start
+
+                def _winner_from_row(row):
+                    if pd.notna(row.get("Win?")):
+                        return row["Team"] if row["Win?"] == 1 else row["OppTeam"]
+                    return row["Team"] if row.get("PF", 0) >= row.get("PA", 0) else row["OppTeam"]
+
+                finalists = set()
+                if semis_week and semis_week >= playoff_start:
+                    semis_games = games_df[
+                        (games_df["Year"] == season)
+                        & (games_df["Week"] == semis_week)
+                        & (games_df["Team"].isin(playoff_teams))
+                        & (games_df["OppTeam"].isin(playoff_teams))
+                    ].copy()
+                    if not semis_games.empty:
+                        semis_games["pair"] = semis_games.apply(
+                            lambda r: "-".join(sorted([str(r["Team"]), str(r["OppTeam"])])), axis=1
+                        )
+                        for _, row in semis_games.drop_duplicates(subset=["pair"]).iterrows():
+                            finalists.add(_winner_from_row(row))
+
+                if finals_week is not None:
+                    finals_games = games_df[
+                        (games_df["Year"] == season)
+                        & (games_df["Week"] == finals_week)
+                        & (games_df["Team"].isin(finalists or playoff_teams))
+                        & (games_df["OppTeam"].isin(finalists or playoff_teams))
+                    ].copy()
+                    if not finals_games.empty:
+                        finals_games["pair"] = finals_games.apply(
+                            lambda r: "-".join(sorted([str(r["Team"]), str(r["OppTeam"])])), axis=1
+                        )
+                        finals_games = finals_games.drop_duplicates(subset=["pair"])
+                        if finalists:
+                            finals_games = finals_games[
+                                finals_games["Team"].isin(finalists) & finals_games["OppTeam"].isin(finalists)
+                            ]
+                        if not finals_games.empty:
+                            final_row = finals_games.iloc[0]
+                            champ = _winner_from_row(final_row)
+                            runner = final_row["OppTeam"] if champ == final_row["Team"] else final_row["Team"]
+                            fin_map[str(champ)] = "champion"
+                            fin_map[str(runner)] = "2nd"
+
+                    remaining = [t for t in playoff_teams if t not in fin_map]
+                    if remaining:
+                        third_games = games_df[
+                            (games_df["Year"] == season)
+                            & (games_df["Week"] == finals_week)
+                            & (games_df["Team"].isin(remaining))
+                            & (games_df["OppTeam"].isin(remaining))
+                        ].copy()
+                        if not third_games.empty:
+                            third_games["pair"] = third_games.apply(
+                                lambda r: "-".join(sorted([str(r["Team"]), str(r["OppTeam"])])), axis=1
+                            )
+                            third_games = third_games.drop_duplicates(subset=["pair"])
+                            third_row = third_games.iloc[0]
+                            third = _winner_from_row(third_row)
+                            fourth = third_row["OppTeam"] if third == third_row["Team"] else third_row["Team"]
+                            fin_map[str(third)] = "3rd"
+                            fin_map[str(fourth)] = "4th"
 
                 # Non-playoff finishes (5th-8th) are based on regular-season record cutoff,
                 # with PF as the tiebreaker. (Pre-2025: through 17 games; 2025+: through 15 games.)
@@ -2846,6 +2911,8 @@ def build_all(repo_root: Path) -> None:
                 try:
                     all_teams = [str(t) for t in tw[tw["Year"] == season]["Team"].dropna().unique().tolist()]
                     playoff_teams = set([t for t, r in fin_map.items() if r in ("champion", "2nd", "3rd", "4th")])
+                    if not playoff_teams:
+                        playoff_teams = playoff_teams_by_season.get(season, set())
                     non_playoff = [t for t in all_teams if t not in playoff_teams]
                     if non_playoff and (not games_df.empty):
                         reg = games_df[(games_df["Year"] == season) & (games_df["Week"] <= cutoff)].copy()
