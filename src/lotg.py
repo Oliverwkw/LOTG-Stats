@@ -1637,7 +1637,6 @@ def build_all(repo_root: Path) -> None:
                         meta = pid_meta.get(pid, {})
                         full_name = meta.get("full_name") or pid
                         position = pid_pos.get(pid)
-                        nfl_team = (player_team_by_week.get((str(gsis), int(wk))) if gsis else None) or meta.get("team")
                         pts = float(ppts.get(pid, 0.0))
                         started = pid in starters
                         slot = starter_slot.get(pid) if started else "N/A"
@@ -1654,6 +1653,8 @@ def build_all(repo_root: Path) -> None:
                                 gsis = None
                         if not gsis:
                             gsis = meta.get("gsis_id") or sleeper_to_gsis.get(str(pid))
+
+                        nfl_team = (player_team_by_week.get((str(gsis), int(wk))) if gsis else None) or meta.get("team")
 
                         # Bye is schedule-based. If player scored >0 -> not a bye.
                         bye = None
