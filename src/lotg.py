@@ -966,9 +966,11 @@ def build_all(repo_root: Path) -> None:
             _log(debug, f"[{_now_iso()}] INFO season {season}: no completed weeks, skipping")
             continue
 
-        if playoff_rounds is None and playoff_start:
-            playoff_rounds = max(1, last_week - playoff_start + 1)
-            playoff_rounds_by_season[season] = playoff_rounds
+        if playoff_start:
+            inferred_rounds = max(1, last_week - playoff_start + 1)
+            if playoff_rounds is None or inferred_rounds > playoff_rounds:
+                playoff_rounds = inferred_rounds
+                playoff_rounds_by_season[season] = playoff_rounds
 
         # Exclude week 18 always; if season < 2021 exclude week 17 (kept for future ESPN import)
         def week_allowed(wk: int) -> bool:
