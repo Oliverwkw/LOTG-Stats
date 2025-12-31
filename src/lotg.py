@@ -1359,12 +1359,46 @@ def build_all(repo_root: Path) -> None:
                         # leave remaining plan columns to enforcement step
                     })
 
-                    # starter slot labels are not provided reliably by Sleeper; we approximate by roster order
+                    # starter slot labels: map roster positions to labeled starter slots
                     starter_slot = {}
-                    # League has fixed slots; for this build we only need "Position started in" for analysis,
-                    # so we store the player's NFL position as a stable proxy.
-                    for pid in starters:
-                        starter_slot[pid] = pid_pos.get(pid)
+                    roster_positions = [str(x) for x in (lg.get("roster_positions") or []) if x]
+                    non_start_slots = {"BN", "BE", "BENCH", "IR", "TAXI"}
+                    starter_slots = [pos for pos in roster_positions if str(pos).upper() not in non_start_slots]
+
+                    def _base_slot(pos: str) -> str:
+                        upper = str(pos or "").upper()
+                        if upper in ("SUPER_FLEX", "SUPERFLEX", "SFLEX", "SFLX"):
+                            return "SFLX"
+                        if upper in ("FLEX", "FLX"):
+                            return "FLX"
+                        return upper
+
+                    if starter_slots and starters:
+                        counts: Dict[str, int] = {}
+                        for pid, slot in zip(starters, starter_slots):
+                            base = _base_slot(slot)
+                            if not base:
+                                continue
+                            counts[base] = counts.get(base, 0) + 1
+                            idx = counts[base]
+
+                            label = base
+                            if base == "RB":
+                                label = f"RB{idx}"
+                            elif base == "WR":
+                                label = f"WR{idx}"
+                            elif base == "FLX":
+                                label = f"FLX{idx}"
+                            elif base == "SFLX":
+                                label = "SFLX"
+                            elif base == "QB":
+                                label = "QB"
+                            starter_slot[pid] = label
+
+                    # fallback to player position if starter slot data is missing
+                    if not starter_slot:
+                        for pid in starters:
+                            starter_slot[pid] = pid_pos.get(pid)
 
                     played_set = played_by_week.get(wk, set())
 
@@ -1388,7 +1422,8 @@ def build_all(repo_root: Path) -> None:
                         nfl_team = (player_team_by_week.get((str(gsis), int(wk))) if gsis else None) or meta.get("team")
                         pts = float(ppts.get(pid, 0.0))
                         started = pid in starters
-                        slot = starter_slot.get(pid) if started else (pid_pos.get(pid) or None)
+                        slot = starter_slot.get(pid) if started else "N/A"
+                        player_position = pid_pos.get(pid) or None
 
                         # gsis id lookup for nflverse
                         gsis = None
@@ -1513,6 +1548,7 @@ def build_all(repo_root: Path) -> None:
                             "% of points (if starter)": round(pts / pf, 4) if started and pf else None,
                             "Position": position,
                             "Position started in (if starter)": slot,
+                            "Position": player_position,
                             "Change from previous week": None,
                             "Change from previous 5 weeks avg": None,
                             "Change from career average to that point": None,
@@ -2099,6 +2135,8 @@ def build_all(repo_root: Path) -> None:
 
         # league-level player of week among starters
         starters = pw["Starter/Bench"] == "Starter"
+        pos_col = "Position" if "Position" in pw.columns else "Position started in (if starter)"
+        pos_series = pw[pos_col].astype(str).str.upper()
         for (yr, wk), g in pw.groupby(["Year", "Week"]):
             sg = g[starters.loc[g.index]]
             if sg.empty:
@@ -2109,7 +2147,7 @@ def build_all(repo_root: Path) -> None:
             _set_flag((pw["Year"] == yr) & (pw["Week"] == wk) & starters & (pw["Points"] == mn), "Benchwarmer of the week?")
 
             for pos, col in [("QB", "QB of the week?"), ("RB", "RB of the week?"), ("WR", "WR of the week?"), ("TE", "TE of the week?")]:
-                pg = sg[sg["Position started in (if starter)"].astype(str).str.upper() == pos]
+                pg = sg[pos_series.loc[sg.index] == pos]
                 if pg.empty:
                     continue
                 mxp = pg["Points"].max()
@@ -2117,7 +2155,7 @@ def build_all(repo_root: Path) -> None:
                     (pw["Year"] == yr)
                     & (pw["Week"] == wk)
                     & starters
-                    & (pw["Position started in (if starter)"].astype(str).str.upper() == pos)
+                    & (pos_series == pos)
                     & (pw["Points"] == mxp),
                     col,
                 )
@@ -2130,7 +2168,7 @@ def build_all(repo_root: Path) -> None:
                 ("WR", "Bench WR of the week?"),
                 ("TE", "Bench TE of the week?"),
             ]:
-                pg = bg[bg["Position started in (if starter)"].astype(str).str.upper() == pos]
+                pg = bg[pos_series.loc[bg.index] == pos]
                 if pg.empty:
                     continue
                 mxp = pg["Points"].max()
@@ -2138,7 +2176,7 @@ def build_all(repo_root: Path) -> None:
                     (pw["Year"] == yr)
                     & (pw["Week"] == wk)
                     & (~starters)
-                    & (pw["Position started in (if starter)"].astype(str).str.upper() == pos)
+                    & (pos_series == pos)
                     & (pw["Points"] == mxp),
                     col,
                 )
@@ -2805,13 +2843,9 @@ def build_all(repo_root: Path) -> None:
         champion_by_season: Dict[int, Optional[str]] = {}
         last_place_by_season: Dict[int, Optional[str]] = {}
         teams_by_season: Dict[int, set] = {}
-        place_record_by_year: Dict[int, Dict[str, int]] = {}
-        place_pf_by_year: Dict[int, Dict[str, int]] = {}
-        place_maxpf_by_year: Dict[int, Dict[str, int]] = {}
-
-        def _place_map(rows: List[Tuple[str, int, int, int, float, float]]) -> Dict[str, int]:
-            return {str(team): idx + 1 for idx, (team, *_rest) in enumerate(rows)}
-
+        standings_place_by_season: Dict[int, Dict[str, int]] = {}
+        pf_place_by_season: Dict[int, Dict[str, int]] = {}
+        maxpf_place_by_season: Dict[int, Dict[str, int]] = {}
         for yr, g in tw.groupby("Year"):
             season = int(yr)
             teams_by_season[season] = set(g["Team"].dropna().astype(str).tolist())
@@ -2831,6 +2865,21 @@ def build_all(repo_root: Path) -> None:
                 maxpf = float(tg["Max PF"].sum())
                 standings.append((team, wins, losses, ties, pf, maxpf))
             standings.sort(key=lambda x: (x[1] + 0.5 * x[3], x[4]), reverse=True)
+            standings_place_by_season[season] = {
+                str(team): idx + 1 for idx, (team, *_rest) in enumerate(standings)
+            }
+            pf_sorted = sorted(standings, key=lambda x: x[4], reverse=True)
+            pf_place_by_season[season] = {
+                str(team): idx + 1 for idx, (team, *_rest) in enumerate(pf_sorted)
+            }
+            reg["Max PF"] = pd.to_numeric(reg.get("Max PF"), errors="coerce").fillna(0.0)
+            maxpf_totals = []
+            for team, tg in reg.groupby("Team"):
+                maxpf_totals.append((team, float(tg["Max PF"].sum())))
+            maxpf_totals.sort(key=lambda x: x[1], reverse=True)
+            maxpf_place_by_season[season] = {
+                str(team): idx + 1 for idx, (team, _maxpf) in enumerate(maxpf_totals)
+            }
             playoff_teams_by_season[season] = set([t for t, *_ in standings[:4]])
             last_place_by_season[season] = standings[-1][0] if standings else None
             place_record_by_year[season] = _place_map(standings)
@@ -2950,13 +2999,15 @@ def build_all(repo_root: Path) -> None:
             maxpf_avg = float(pd.to_numeric(g["Max PF"], errors="coerce").fillna(0.0).mean())
             rec = _record_str(wins, losses, ties)
             winp = round((wins + 0.5 * ties) / gp, 4)
-            place_record = place_record_by_year.get(int(yr), {}).get(str(team))
-            place_pf = place_pf_by_year.get(int(yr), {}).get(str(team))
-            place_maxpf = place_maxpf_by_year.get(int(yr), {}).get(str(team))
-            if place_record is not None and place_pf is not None and place_maxpf is not None:
-                win_variance = -1 * (place_record - ((place_pf + place_maxpf) / 2))
-            else:
-                win_variance = None
+            place_map = standings_place_by_season.get(int(yr), {})
+            pf_place_map = pf_place_by_season.get(int(yr), {})
+            maxpf_place_map = maxpf_place_by_season.get(int(yr), {})
+            place = place_map.get(str(team))
+            pf_place = pf_place_map.get(str(team))
+            maxpf_place = maxpf_place_map.get(str(team))
+            win_variance = None
+            if place is not None and pf_place is not None and maxpf_place is not None:
+                win_variance = float(place - ((pf_place + maxpf_place) / 2))
             row = {
                 "Team": str(team),
                 "Year": int(yr),
@@ -2969,7 +3020,7 @@ def build_all(repo_root: Path) -> None:
                 "Record & win % vs champion": "N/A",
                 "Record & win % vs last place": "N/A",
                 "Change in win % from previous season": None,
-                "Win Variance": float(win_variance) if win_variance is not None else None,
+                "Win Variance": win_variance,
                 "Week of playoff elimination": "N/A",
                 "Draft Value": 0,
                 "Number of first round picks made": 0,
@@ -3193,6 +3244,9 @@ def build_all(repo_root: Path) -> None:
 
         team_year = team_year.sort_values(["Team", "Year"]).reset_index(drop=True)
         team_year["Change in win % from previous season"] = team_year.groupby("Team")["Win %"].diff()
+        team_year_win_variance = {}
+        for team, val in team_year.groupby("Team")["Win Variance"].mean().items():
+            team_year_win_variance[str(team)] = float(val) if pd.notna(val) else None
 
         # team-all-time rollup
         championship_counts = {}
@@ -3236,7 +3290,7 @@ def build_all(repo_root: Path) -> None:
                 "Record & win % vs non-playoff teams": "N/A",
                 "Record & win % vs champions": "N/A",
                 "Record & win % vs last place": "N/A",
-                "Win Variance": float(win_variance) if win_variance is not None else None,
+                "Win Variance": team_year_win_variance.get(str(team)),
                 "Draft Value": 0,
                 "Number of first round picks made": 0,
                 "Total number of picks made": 0,
