@@ -574,12 +574,12 @@ def _normalize_transactions(tx: pd.DataFrame) -> pd.DataFrame:
     tx = _safe_df(tx)
     if tx.empty:
         return tx
-    date_col = _first_col(tx, ["date", "transaction_date", "trans_date", "created", "timestamp"])
-    team_col = _first_col(tx, ["team", "team_abbr", "team_code", "club", "to_team", "from_team"])
+    date_col = _first_col(tx, ["date", "transaction_date", "trans_date", "transaction_datetime", "created", "timestamp"])
+    team_col = _first_col(tx, ["team", "team_abbr", "team_code", "club", "to_team", "from_team", "new_team", "old_team"])
     desc_col = _first_col(tx, ["description", "transaction", "transaction_desc", "details", "transaction_description", "note", "notes"])
     gsis_col = _first_col(tx, ["gsis_id", "player_id", "gsis", "player_gsis_id", "nfl_id"])
     player_col = _first_col(tx, ["player_name", "player", "full_name", "name"])
-    if not date_col or not team_col or not desc_col:
+    if not date_col or not team_col:
         return pd.DataFrame()
 
     out = tx.copy()
@@ -588,7 +588,23 @@ def _normalize_transactions(tx: pd.DataFrame) -> pd.DataFrame:
     else:
         out["date"] = pd.to_datetime(out[date_col], errors="coerce").dt.date
     out["team"] = out[team_col].astype(str).map(_norm_team)
-    out["description"] = out[desc_col].astype(str)
+    if desc_col:
+        out["description"] = out[desc_col].astype(str)
+    else:
+        desc_parts = []
+        type_col = _first_col(out, ["transaction_type", "type"])
+        if type_col:
+            desc_parts.append(out[type_col].astype(str))
+        note_col = _first_col(out, ["notes", "note", "details", "transaction_details"])
+        if note_col:
+            desc_parts.append(out[note_col].astype(str))
+        if desc_parts:
+            desc = desc_parts[0]
+            for part in desc_parts[1:]:
+                desc = desc.str.cat(part, sep=" ", na_rep="")
+            out["description"] = desc.astype(str)
+        else:
+            out["description"] = ""
     if gsis_col:
         out["gsis_id"] = out[gsis_col].astype(str)
     else:
@@ -597,7 +613,7 @@ def _normalize_transactions(tx: pd.DataFrame) -> pd.DataFrame:
         out["player_name"] = out[player_col].astype(str)
     else:
         out["player_name"] = ""
-    return out[["date", "team", "description", "gsis_id", "player_name"]]
+    return out[["date", "team", "description", "gsis_id", "player_name"]].dropna(subset=["date", "team"])
 
 def _build_played_players_by_week(
     ext: ExternalConfig,
