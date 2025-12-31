@@ -109,9 +109,9 @@ from lotg_support.external import (
     load_dynastyprocess_playerids,
     load_dynastyprocess_values_players,
     load_dynastyprocess_values_picks,
-    load_nflverse_injuries,
     load_nflverse_player_ids,
     load_nflverse_stats_player_week,
+    load_nflverse_transactions,
 )
 from lotg_support.lineup import compute_optimal_lineup
 from lotg_support.plan import load_plan_catalog, require_columns
@@ -350,83 +350,245 @@ def _played_teams_by_week(games: pd.DataFrame, season: int) -> Dict[int, set]:
 
 
 # --------------------------
-# Injury/Suspension flags (platform designation at that week)
+# Injury/Suspension flags (transactions + played signal)
 # --------------------------
 
-def _infer_flags_from_sleeper_player_meta(meta: Dict[str, Any]) -> Tuple[Optional[bool], Optional[bool]]:
-    """
-    Uses Sleeper platform designations from /players/nfl (status/injury_status).
-    Conservative: only True when it's clearly OUT/IR/PUP/NFI or SUSP.
-    """
-    if not isinstance(meta, dict):
-        return (None, None)
+def _season_from_date(d: date) -> Optional[int]:
+    if not d:
+        return None
+    return d.year if d.month >= 7 else d.year - 1
 
-    status = str(meta.get("status") or "").lower()
-    injury_status = str(meta.get("injury_status") or "").lower()
-
-    # suspension
-    if "susp" in status or "susp" in injury_status:
-        return (False, True)
-
-    healthy_markers = {"active", "", "healthy", "none", "null"}
-    if (status in healthy_markers) and (injury_status in healthy_markers):
-        return (False, False)
-
-    # Out/IR style
-    injury_markers = ["ir", "out", "inactive", "pup", "nfi", "injured", "covid"]
-    if any(k == status for k in injury_markers) or any(k in injury_status for k in injury_markers):
-        return (True, False)
-
-    # questionable/doubtful can still play -> do not mark True
-    if ("question" in status) or ("question" in injury_status) or ("doubt" in injury_status):
-        return (False, False)
-
-    return (None, None)
-
-def _infer_flags_from_nflverse(injuries: pd.DataFrame, gsis_id: Optional[str], season: int, week: int) -> Tuple[Optional[bool], Optional[bool]]:
-    injuries = _safe_df(injuries)
-    if injuries.empty or not gsis_id:
-        return (None, None)
-    if "gsis_id" not in injuries.columns:
-        return (None, None)
-
+def _build_week_date_ranges(games: pd.DataFrame, season: int) -> Dict[int, Tuple[date, date]]:
+    games = _safe_df(games)
+    if games.empty:
+        return {}
+    if not {"season", "week"}.issubset(set(games.columns)):
+        return {}
+    date_col = _first_col(games, ["game_date", "gameday", "game_datetime", "start_time", "game_time"])
+    if not date_col:
+        return {}
+    sub = games.copy()
     try:
-        sub = injuries.copy()
-        if "season" in sub.columns:
+        sub["season"] = pd.to_numeric(sub["season"], errors="coerce").astype("Int64")
+        sub["week"] = pd.to_numeric(sub["week"], errors="coerce").astype("Int64")
+    except Exception:
+        return {}
+    sub = sub[sub["season"] == season]
+    if sub.empty:
+        return {}
+    sub["game_day"] = pd.to_datetime(sub[date_col], errors="coerce").dt.date
+    sub = sub.dropna(subset=["week", "game_day"])
+    if sub.empty:
+        return {}
+    ranges: Dict[int, Tuple[date, date]] = {}
+    for wk, grp in sub.groupby("week"):
+        if pd.isna(wk):
+            continue
+        days = grp["game_day"].dropna().tolist()
+        if not days:
+            continue
+        ranges[int(wk)] = (min(days), max(days))
+    return ranges
+
+def _map_date_to_week(tx_date: date, week_ranges: Dict[int, Tuple[date, date]]) -> Optional[int]:
+    if not tx_date or not week_ranges:
+        return None
+    weeks = sorted(week_ranges)
+    for wk in weeks:
+        start, end = week_ranges[wk]
+        if start <= tx_date <= end:
+            return wk
+    for i, wk in enumerate(weeks[:-1]):
+        end = week_ranges[wk][1]
+        next_start = week_ranges[weeks[i + 1]][0]
+        if end < tx_date < next_start:
+            return weeks[i + 1]
+    if tx_date < week_ranges[weeks[0]][0]:
+        return weeks[0]
+    return weeks[-1]
+
+_OUT_INJURY_PATTERNS = [
+    r"reserve/injured",
+    r"injured reserve",
+    r"reserve/ir",
+    r"injured list",
+    r"placed on ir",
+    r"placed on injured reserve",
+    r"moved to ir",
+    r"\bir\b",
+    r"\bpup\b",
+    r"physically unable",
+    r"\bnfi\b",
+    r"non-football",
+    r"reserve/nfi",
+    r"reserve/pup",
+    r"covid",
+    r"reserve/covid",
+]
+_OUT_SUSPENSION_PATTERNS = [
+    r"reserve/suspended",
+    r"reserve/suspension",
+    r"suspended",
+    r"suspension",
+    r"exempt",
+    r"commissioner exempt",
+    r"reserve/exempt",
+]
+_OUT_END_PATTERNS = [
+    r"activated",
+    r"activated from",
+    r"reinstated",
+    r"restored",
+    r"returned",
+    r"return",
+    r"designated to return",
+    r"removed from",
+]
+_OUT_END_CONTEXT = [
+    r"reserve",
+    r"injured",
+    r"ir",
+    r"pup",
+    r"nfi",
+    r"suspended",
+    r"exempt",
+    r"covid",
+]
+
+def _text_has_pattern(text: str, patterns: List[str]) -> bool:
+    if not text:
+        return False
+    for pat in patterns:
+        if re.search(pat, text):
+            return True
+    return False
+
+def _normalize_tx_text(*parts: Any) -> str:
+    return " ".join([str(p or "") for p in parts]).strip().lower()
+
+def _transaction_out_start(text: str) -> Optional[str]:
+    if _text_has_pattern(text, _OUT_SUSPENSION_PATTERNS):
+        return "suspension"
+    if _text_has_pattern(text, _OUT_INJURY_PATTERNS):
+        return "injury"
+    return None
+
+def _transaction_out_end(text: str) -> bool:
+    if not _text_has_pattern(text, _OUT_END_PATTERNS):
+        return False
+    return _text_has_pattern(text, _OUT_END_CONTEXT)
+
+def _build_out_windows_from_transactions(
+    transactions_df: pd.DataFrame,
+    season: int,
+    week_ranges: Dict[int, Tuple[date, date]],
+    id_map: Optional[Dict[str, str]] = None,
+) -> Dict[Tuple[str, int, int], Tuple[bool, bool]]:
+    transactions_df = _safe_df(transactions_df)
+    if transactions_df.empty or not week_ranges:
+        return {}
+
+    date_col = _first_col(transactions_df, ["transaction_date", "date", "transaction_datetime", "transaction_time"])
+    player_col = _first_col(transactions_df, ["gsis_id", "player_gsis_id", "player_id"])
+    week_col = _first_col(transactions_df, ["week", "transaction_week"])
+    type_col = _first_col(transactions_df, ["transaction_type", "type", "type_of_transaction", "transaction"])
+    desc_col = _first_col(transactions_df, ["transaction_description", "description", "notes", "transaction_desc"])
+    if not player_col or (not date_col and not week_col):
+        return {}
+
+    sub = transactions_df.copy()
+    text_cols = [
+        c for c in sub.columns
+        if isinstance(c, str)
+        and (c in {type_col, desc_col} or "transaction" in c.lower() or "description" in c.lower()
+             or "desc" in c.lower() or "note" in c.lower() or "status" in c.lower()
+             or "type" in c.lower() or "designation" in c.lower() or c.lower() in {"from", "to"})
+    ]
+    if not text_cols:
+        text_cols = [c for c in sub.columns if sub[c].dtype == object]
+    if date_col:
+        sub["tx_date"] = pd.to_datetime(sub[date_col], errors="coerce").dt.date
+    sub[player_col] = sub[player_col].astype(str)
+    drop_cols = [player_col]
+    if date_col:
+        drop_cols.append("tx_date")
+    if week_col:
+        sub[week_col] = pd.to_numeric(sub[week_col], errors="coerce").astype("Int64")
+    sub = sub.dropna(subset=drop_cols)
+    if sub.empty:
+        return {}
+
+    if "season" in sub.columns:
+        try:
             sub["season"] = pd.to_numeric(sub["season"], errors="coerce").astype("Int64")
             sub = sub[sub["season"] == season]
-        if "week" in sub.columns:
-            sub["week"] = pd.to_numeric(sub["week"], errors="coerce").astype("Int64")
-            sub = sub[sub["week"] == week]
-        sub = sub[sub["gsis_id"].astype(str) == str(gsis_id)]
-    except Exception:
-        return (None, None)
+        except Exception:
+            pass
+    if "season" not in sub.columns or sub.empty:
+        sub["season_calc"] = sub["tx_date"].apply(_season_from_date)
+        sub = sub[sub["season_calc"] == season]
 
     if sub.empty:
-        return (None, None)
+        return {}
 
-    status_col = _first_col(sub, ["report_status", "status", "game_status", "injury_status", "practice_status"])
-    if not status_col:
-        return (None, None)
+    sub = sub.sort_values("tx_date" if date_col else week_col)
+    open_windows: Dict[str, Tuple[int, str]] = {}
+    windows: List[Tuple[str, int, int, str]] = []
+    for _, row in sub.iterrows():
+        raw_id = str(row.get(player_col))
+        player_id = id_map.get(raw_id, raw_id) if id_map else raw_id
+        week = None
+        if week_col and row.get(week_col) is not None and not pd.isna(row.get(week_col)):
+            try:
+                week = int(row.get(week_col))
+            except Exception:
+                week = None
+        tx_date = row.get("tx_date") if date_col else None
+        if week is None and isinstance(tx_date, date):
+            week = _map_date_to_week(tx_date, week_ranges) if week_ranges else None
+        if not player_id or week is None:
+            continue
+        text = _normalize_tx_text(*[row.get(c) for c in text_cols])
+        if not text:
+            text = _normalize_tx_text(row.get(type_col), row.get(desc_col))
+        is_end = _transaction_out_end(text)
+        start_type = _transaction_out_start(text)
+        if not start_type:
+            if "reserve" in text and "susp" in text:
+                start_type = "suspension"
+            elif "reserve" in text and any(tok in text for tok in ["injured", "ir", "pup", "nfi", "covid"]):
+                start_type = "injury"
+        if is_end and player_id in open_windows:
+            start_week, win_type = open_windows.pop(player_id)
+            end_week = max(start_week, week - 1)
+            if end_week >= start_week:
+                windows.append((player_id, start_week, end_week, win_type))
+            continue
+        if start_type:
+            if player_id in open_windows:
+                start_week, win_type = open_windows.pop(player_id)
+                end_week = max(start_week, week - 1)
+                if end_week >= start_week:
+                    windows.append((player_id, start_week, end_week, win_type))
+            open_windows[player_id] = (week, start_type)
 
-    s = str(sub.iloc[0].get(status_col) or "").lower()
-    if not s:
-        return (None, None)
+    last_week = max(week_ranges)
+    for player_id, (start_week, win_type) in open_windows.items():
+        if last_week >= start_week:
+            windows.append((player_id, start_week, last_week, win_type))
 
-    suspension = ("susp" in s) or ("sspd" in s)
-    injury = (("out" in s) or ("ir" in s) or ("inactive" in s) or ("pup" in s)) and not suspension
-    return (injury, suspension)
-
-def _merge_flags(primary: Tuple[Optional[bool], Optional[bool]], secondary: Tuple[Optional[bool], Optional[bool]]) -> Tuple[Optional[bool], Optional[bool]]:
-    inj1, sus1 = primary
-    inj2, sus2 = secondary
-    if sus1 is True or sus2 is True:
-        return (False, True)
-    if inj1 is True or inj2 is True:
-        return (True, False)
-    if (inj1 is False and sus1 is False) or (inj2 is False and sus2 is False):
-        return (False, False)
-    return (None, None)
+    flags: Dict[Tuple[str, int, int], Tuple[bool, bool]] = {}
+    for player_id, start_week, end_week, win_type in windows:
+        for wk in range(start_week, end_week + 1):
+            key = (player_id, season, wk)
+            if win_type == "suspension":
+                flags[key] = (False, True)
+            else:
+                cur = flags.get(key)
+                if cur and cur[1]:
+                    continue
+                flags[key] = (True, False)
+    return flags
 
 
 # --------------------------
@@ -597,6 +759,7 @@ def build_all(repo_root: Path) -> None:
 
     # nflverse player id mapping (for injury + team-by-week)
     sleeper_to_gsis: Dict[str, str] = {}
+    player_id_to_gsis: Dict[str, str] = {}
     try:
         nfl_ids = _safe_df(load_nflverse_player_ids(ext))
         if (not nfl_ids.empty) and ("sleeper_id" in nfl_ids.columns) and ("gsis_id" in nfl_ids.columns):
@@ -604,6 +767,11 @@ def build_all(repo_root: Path) -> None:
             nfl_ids["sleeper_id"] = nfl_ids["sleeper_id"].astype(str)
             nfl_ids["gsis_id"] = nfl_ids["gsis_id"].astype(str)
             sleeper_to_gsis = dict(zip(nfl_ids["sleeper_id"], nfl_ids["gsis_id"]))
+        if (not nfl_ids.empty) and ("player_id" in nfl_ids.columns) and ("gsis_id" in nfl_ids.columns):
+            player_map = nfl_ids.dropna(subset=["player_id", "gsis_id"]).copy()
+            player_map["player_id"] = player_map["player_id"].astype(str)
+            player_map["gsis_id"] = player_map["gsis_id"].astype(str)
+            player_id_to_gsis = dict(zip(player_map["player_id"], player_map["gsis_id"]))
     except Exception as e:
         _log_exc(debug, "load_nflverse_player_ids", e)
 
@@ -636,6 +804,13 @@ def build_all(repo_root: Path) -> None:
             games["week"] = pd.to_numeric(games["week"], errors="coerce").astype("Int64")
         except Exception:
             pass
+
+    # nflverse transactions (reserve lists / suspensions)
+    try:
+        nfl_transactions = _safe_df(load_nflverse_transactions(ext))
+    except Exception as e:
+        nfl_transactions = pd.DataFrame()
+        _log_exc(debug, "load_nflverse_transactions", e)
 
     # Sleeper NFL players (meta)
     try:
@@ -824,35 +999,17 @@ def build_all(repo_root: Path) -> None:
         except Exception as e:
             _log_exc(debug, f"load_nflverse_stats_player_week_{season}", e)
 
-        # nflverse injuries (optional; used as secondary signal)
+        week_ranges = _build_week_date_ranges(games, season) if not games.empty else {}
+        out_windows_by_gsis_week: Dict[Tuple[str, int, int], Tuple[bool, bool]] = {}
         try:
-            injuries = _safe_df(load_nflverse_injuries(ext, season))
+            out_windows_by_gsis_week = _build_out_windows_from_transactions(
+                nfl_transactions,
+                season,
+                week_ranges,
+                player_id_to_gsis if player_id_to_gsis else None,
+            )
         except Exception as e:
-            injuries = pd.DataFrame()
-            _log_exc(debug, f"load_nflverse_injuries_{season}", e)
-
-            # placeholder to anchor following logic (keep in scope)
-        injuries_by_gsis_week: Dict[Tuple[str, int], Tuple[Optional[bool], Optional[bool]]] = {}
-        if not injuries.empty and "gsis_id" in injuries.columns:
-            try:
-                inj_df = injuries.copy()
-                inj_df["season"] = pd.to_numeric(inj_df.get("season"), errors="coerce").astype("Int64")
-                inj_df["week"] = pd.to_numeric(inj_df.get("week"), errors="coerce").astype("Int64")
-                inj_df["gsis_id"] = inj_df["gsis_id"].astype(str)
-                status_col = _first_col(
-                    inj_df,
-                    ["report_status", "status", "game_status", "injury_status", "practice_status"],
-                )
-                if status_col:
-                    for (gsis, yr, wk), grp in inj_df.groupby(["gsis_id", "season", "week"]):
-                        if pd.isna(wk) or pd.isna(yr):
-                            continue
-                        s = str(grp.iloc[0].get(status_col) or "").lower()
-                        suspension = ("susp" in s) or ("sspd" in s)
-                        injury = (("out" in s) or ("ir" in s) or ("inactive" in s) or ("pup" in s)) and not suspension
-                        injuries_by_gsis_week[(gsis, int(yr), int(wk))] = (injury, suspension)
-            except Exception as e:
-                _log_exc(debug, f"injury_index_{season}", e)
+            _log_exc(debug, f"transactions_out_windows_{season}", e)
 
         # users/rosters
         try:
@@ -1359,7 +1516,6 @@ def build_all(repo_root: Path) -> None:
                     for pid in players:
                         meta = pid_meta.get(pid, {})
                         full_name = meta.get("full_name") or pid
-                        nfl_team = (player_team_by_week.get((str(gsis), int(wk))) if gsis else None) or meta.get("team")
                         pts = float(ppts.get(pid, 0.0))
                         started = pid in starters
                         slot = starter_slot.get(pid) if started else (pid_pos.get(pid) or None)
@@ -1376,52 +1532,27 @@ def build_all(repo_root: Path) -> None:
                         if not gsis:
                             gsis = meta.get("gsis_id") or sleeper_to_gsis.get(str(pid))
 
-                        # Flags (platform primary, nflverse secondary)
-                        # Injury/suspension (new approach): authoritative nflverse injuries, keyed by gsis_id (via player_ids mapping).
-                        # Only mark if the player did NOT play that week (no stats row) and it is not a bye.
-                        inj = False
-                        susp = False
-                        try:
-                            played_players = played_players_by_week.get(int(wk), set())
-                            played = bool(gsis) and (str(gsis) in played_players)
-                        except Exception:
-                            played = False
-                        if ((pts or 0.0) == 0.0) and (bye is False) and (not played) and gsis:
-                            inj2, susp2 = injuries_by_gsis_week.get((str(gsis), season, int(wk)), (False, False))
-                            inj = bool(inj2)
-                            susp = bool(susp2)
+                        nfl_team = (player_team_by_week.get((str(gsis), int(wk))) if gsis else None) or meta.get("team")
 
+                        played_players = played_players_by_week.get(int(wk), set())
+                        played = bool(gsis) and (str(gsis) in played_players)
 
-
-                        # Bye is schedule-based. If player scored >0 -> not a bye.
-                        bye = None
+                        # Bye is schedule-based. If player scored >0 or logged stats -> not a bye.
+                        bye = False
                         if nfl_team and played_set:
                             bye = (_norm_team(nfl_team) not in played_set)
-                        if pts > 0:
+                        if pts > 0 or played:
                             # Player scored points; not a bye week. Do NOT override injury/suspension flags:
                             # a player can play while injured or returning from suspension.
                             bye = False
 
-                        # Fallback injury/suspension inference (Sleeper metadata is not historical but fixes obvious cases):
-                        # If the player scored 0, was not on bye, and Sleeper marks them OUT/IR/SUSP, treat as missed.
-                        if (pts or 0.0) == 0.0 and bye is False:
-                            meta_p = pid_meta.get(str(pid), {}) if isinstance(pid_meta, dict) else {}
-                            st = str(meta_p.get("status") or "").lower()
-                            inj_st = str(meta_p.get("injury_status") or meta_p.get("injuryStatus") or "").lower()
-                            # suspension signals
-                            if ("susp" in st) or ("susp" in inj_st):
-                                susp = True
-                                inj = False if inj is None else inj
-                            # injury signals
-                            elif any(x in (st + " " + inj_st) for x in ["out", "ir", "inactive", "pup", "doubtful"]):
-                                inj = True
-
-                        if inj is None:
-                            inj = False
-                        if susp is None:
-                            susp = False
-                        if bye is None:
-                            bye = False
+                        # Injury/suspension (transactions + played signal)
+                        inj = False
+                        susp = False
+                        if gsis and (not played) and (pts or 0.0) == 0.0 and (bye is False):
+                            inj2, susp2 = out_windows_by_gsis_week.get((str(gsis), season, int(wk)), (False, False))
+                            inj = bool(inj2)
+                            susp = bool(susp2)
 
                         rookie = str(meta.get("years_exp")) in ("0", "0.0")
                         age = _calc_age(meta.get("birth_date"), approx_date)
@@ -1433,31 +1564,6 @@ def build_all(repo_root: Path) -> None:
                             ref_player = pid_meta.get(best_bench_pid, {}).get("full_name") or best_bench_pid
                         elif (not started) and worst_starter_pid:
                             ref_player = pid_meta.get(worst_starter_pid, {}).get("full_name") or worst_starter_pid
-
-                        rookie = str(meta.get("years_exp")) in ("0", "0.0")
-                        age = _calc_age(meta.get("birth_date"), approx_date)
-
-                        diff_best_bench = (pts - best_bench_pts) if (started and best_bench_pts is not None) else None
-                        diff_worst_starter = (pts - worst_starter_pts) if ((not started) and worst_starter_pts is not None) else None
-                        ref_player = None
-                        if started and best_bench_pid:
-                            ref_player = pid_meta.get(best_bench_pid, {}).get("full_name") or best_bench_pid
-                        elif (not started) and worst_starter_pid:
-                            ref_player = pid_meta.get(worst_starter_pid, {}).get("full_name") or worst_starter_pid
-
-                        if inj is None:
-                            inj = False
-                        if susp is None:
-                            susp = False
-                        if bye is None:
-                            bye = False
-
-                        if inj is None:
-                            inj = False
-                        if susp is None:
-                            susp = False
-                        if bye is None:
-                            bye = False
 
                         if inj is None:
                             inj = False
