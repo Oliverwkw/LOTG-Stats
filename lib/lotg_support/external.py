@@ -88,6 +88,49 @@ def load_nflverse_player_ids(cfg: ExternalConfig) -> pd.DataFrame:
         _download_best_effort(urls, path, cfg.timeout_seconds)
     return pd.read_csv(path)
 
+def load_nflverse_games(cfg: ExternalConfig) -> pd.DataFrame:
+    urls = [
+        "https://github.com/nflverse/nflverse-data/releases/download/games/games.csv.gz",
+        "https://raw.githubusercontent.com/nflverse/nflverse-data/master/data/games/games.csv.gz",
+        "https://raw.githubusercontent.com/nflverse/nflverse-data/master/data/games.csv.gz",
+    ]
+    path = cfg.cache_dir / "nflverse_games.csv.gz"
+    if (not path.exists()) or path.stat().st_size == 0:
+        _download_best_effort(urls, path, cfg.timeout_seconds)
+    try:
+        return pd.read_csv(path)
+    except Exception:
+        return pd.read_csv(path, compression="gzip")
+
+def load_nflverse_snap_counts(cfg: ExternalConfig, season: int) -> pd.DataFrame:
+    urls = [
+        f"https://github.com/nflverse/nflverse-data/releases/download/snap_counts/snap_counts_{season}.csv",
+        f"https://github.com/nflverse/nflverse-data/releases/download/snap_counts/snap_counts_{season}.csv.gz",
+        f"https://raw.githubusercontent.com/nflverse/nflverse-data/master/data/snap_counts/snap_counts_{season}.csv",
+        f"https://raw.githubusercontent.com/nflverse/nflverse-data/master/data/snap_counts/snap_counts_{season}.csv.gz",
+    ]
+    path = cfg.cache_dir / f"nflverse_snap_counts_{season}.csv"
+    if (not path.exists()) or path.stat().st_size == 0:
+        _download_best_effort(urls, path, cfg.timeout_seconds)
+    try:
+        return pd.read_csv(path)
+    except Exception:
+        return pd.read_csv(path, compression="gzip")
+
+def load_nflverse_transactions(cfg: ExternalConfig) -> pd.DataFrame:
+    urls = [
+        "https://github.com/nflverse/nflverse-data/releases/download/transactions/transactions.csv.gz",
+        "https://raw.githubusercontent.com/nflverse/nflverse-data/master/data/transactions/transactions.csv.gz",
+        "https://raw.githubusercontent.com/nflverse/nflverse-data/master/data/transactions.csv.gz",
+    ]
+    path = cfg.cache_dir / "nflverse_transactions.csv.gz"
+    if (not path.exists()) or path.stat().st_size == 0:
+        _download_best_effort(urls, path, cfg.timeout_seconds)
+    try:
+        return pd.read_csv(path)
+    except Exception:
+        return pd.read_csv(path, compression="gzip")
+
 def load_nflverse_stats_player_week(cfg: ExternalConfig, season: int) -> pd.DataFrame:
     """Load nflverse weekly player stats; used for team-by-week and played detection."""
     urls = [
