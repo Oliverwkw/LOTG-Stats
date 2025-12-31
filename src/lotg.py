@@ -1359,12 +1359,35 @@ def build_all(repo_root: Path) -> None:
                         # leave remaining plan columns to enforcement step
                     })
 
-                    # starter slot labels are not provided reliably by Sleeper; we approximate by roster order
+                    # starter slot labels: map Sleeper starter positions to labeled slots
                     starter_slot = {}
-                    # League has fixed slots; for this build we only need "Position started in" for analysis,
-                    # so we store the player's NFL position as a stable proxy.
-                    for pid in starters:
-                        starter_slot[pid] = pid_pos.get(pid)
+                    starter_positions = [str(x) for x in (m.get("starter_positions") or []) if x]
+                    if starter_positions and len(starter_positions) == len(starters):
+                        rb_count = 0
+                        wr_count = 0
+                        flex_count = 0
+                        for pid, slot in zip(starters, starter_positions):
+                            slot_upper = str(slot).upper()
+                            if slot_upper == "RB":
+                                rb_count += 1
+                                label = f"RB{rb_count}"
+                            elif slot_upper == "WR":
+                                wr_count += 1
+                                label = f"WR{wr_count}"
+                            elif slot_upper in ("FLEX", "FLX"):
+                                flex_count += 1
+                                label = f"FLX{flex_count}"
+                            elif slot_upper in ("SUPER_FLEX", "SUPERFLEX", "SFLX"):
+                                label = "SFLX"
+                            elif slot_upper == "QB":
+                                label = "QB"
+                            else:
+                                label = slot_upper
+                            starter_slot[pid] = label
+                    else:
+                        # fallback to player position if starter slot data is missing
+                        for pid in starters:
+                            starter_slot[pid] = pid_pos.get(pid)
 
                     played_set = played_by_week.get(wk, set())
 
@@ -1388,6 +1411,7 @@ def build_all(repo_root: Path) -> None:
                         pts = float(ppts.get(pid, 0.0))
                         started = pid in starters
                         slot = starter_slot.get(pid) if started else (pid_pos.get(pid) or None)
+                        player_position = pid_pos.get(pid) or None
 
                         # gsis id lookup for nflverse
                         gsis = None
@@ -1504,6 +1528,7 @@ def build_all(repo_root: Path) -> None:
                             "Week": wk,
                             "Year": season,
                             "Points": round(pts, 2),
+                            "Position": player_position,
                             "Injury?": bool(inj),
                             "Suspension?": bool(susp),
                             "Bye?": bool(bye),
@@ -2096,6 +2121,8 @@ def build_all(repo_root: Path) -> None:
 
         # league-level player of week among starters
         starters = pw["Starter/Bench"] == "Starter"
+        pos_col = "Position" if "Position" in pw.columns else "Position started in (if starter)"
+        pos_series = pw[pos_col].astype(str).str.upper()
         for (yr, wk), g in pw.groupby(["Year", "Week"]):
             sg = g[starters.loc[g.index]]
             if sg.empty:
@@ -2106,7 +2133,7 @@ def build_all(repo_root: Path) -> None:
             _set_flag((pw["Year"] == yr) & (pw["Week"] == wk) & starters & (pw["Points"] == mn), "Benchwarmer of the week?")
 
             for pos, col in [("QB", "QB of the week?"), ("RB", "RB of the week?"), ("WR", "WR of the week?"), ("TE", "TE of the week?")]:
-                pg = sg[sg["Position started in (if starter)"].astype(str).str.upper() == pos]
+                pg = sg[pos_series.loc[sg.index] == pos]
                 if pg.empty:
                     continue
                 mxp = pg["Points"].max()
@@ -2114,7 +2141,7 @@ def build_all(repo_root: Path) -> None:
                     (pw["Year"] == yr)
                     & (pw["Week"] == wk)
                     & starters
-                    & (pw["Position started in (if starter)"].astype(str).str.upper() == pos)
+                    & (pos_series == pos)
                     & (pw["Points"] == mxp),
                     col,
                 )
@@ -2127,7 +2154,7 @@ def build_all(repo_root: Path) -> None:
                 ("WR", "Bench WR of the week?"),
                 ("TE", "Bench TE of the week?"),
             ]:
-                pg = bg[bg["Position started in (if starter)"].astype(str).str.upper() == pos]
+                pg = bg[pos_series.loc[bg.index] == pos]
                 if pg.empty:
                     continue
                 mxp = pg["Points"].max()
@@ -2135,7 +2162,7 @@ def build_all(repo_root: Path) -> None:
                     (pw["Year"] == yr)
                     & (pw["Week"] == wk)
                     & (~starters)
-                    & (pw["Position started in (if starter)"].astype(str).str.upper() == pos)
+                    & (pos_series == pos)
                     & (pw["Points"] == mxp),
                     col,
                 )
