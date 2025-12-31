@@ -1725,6 +1725,107 @@ def build_all(repo_root: Path) -> None:
         pw["Team"] = pw["_team_canon"].map(canon_to_disp).fillna(pw["Team"])
         pw.drop(columns=["_team_canon"], inplace=True, errors="ignore")
     log_df(pw, 'player_week', sample_cols=['Points','Injury?','Suspension?','Bye?','Starter?'])
+
+    if not pw.empty:
+        try:
+            # -----------------------------------------------------------------
+            # Heuristically infer Injury? and Suspension? flags when nflverse
+            # injury report data is unavailable.  The goal is to flag long
+            # stretches of missed games as injury or suspension based solely
+            # on the scoring patterns in player_week.  This logic operates
+            # per (Player, Year) and inspects consecutive zero-point weeks.
+            #
+            # Strategy:
+            #   1. Convert Week to numeric (1–17) where possible; treat non-
+            #      numeric weeks (e.g. "Final", "Semifinals") as a sentinel value (99).
+            #   2. For each player season, scan for runs of consecutive
+            #      non-bye, zero-point weeks separated by numeric weeks.
+            #   3. Determine the first index where the player recorded
+            #      positive points (first_pos_idx).  Runs entirely before
+            #      this index are considered "early runs"; runs after are
+            #      "late runs".
+            #   4. Classify each run:
+            #        • If the run contains any Starter games (Starter/Bench
+            #          == "Starter") and has length ≥ 2, mark as Injury.
+            #        • Otherwise, if the run is before first_pos_idx
+            #          (early run) and has length ≥ 4, mark as Suspension.
+            #        • Otherwise, if the run has length ≥ 2, mark as Injury.
+            #        • Single-week 0-point runs are ignored.
+            #   5. Runs spanning non-numeric weeks are broken when encountering
+            #      the sentinel (99) or a bye week.
+
+            def _to_week_num(w: Any) -> int:
+                try:
+                    return int(w)
+                except Exception:
+                    return 99
+
+            new_injury_flags = pd.Series(False, index=pw.index)
+            new_susp_flags = pd.Series(False, index=pw.index)
+
+            for (player, yr), g in pw.groupby(["Player", "Year"]):
+                g2 = g.copy()
+                g2["_week_num"] = g2["Week"].apply(_to_week_num)
+                g2 = g2.sort_values("_week_num")
+
+                pts = g2["Points"].astype(float).tolist()
+                statuses = g2["Starter/Bench"].fillna("").astype(str).tolist()
+                byes = g2["Bye?"].fillna(False).tolist()
+                week_nums = g2["_week_num"].tolist()
+                row_indices = g2.index.tolist()
+
+                # find first numeric week with positive points
+                first_pos_idx = None
+                for idx_fp, (p_fp, wn_fp) in enumerate(zip(pts, week_nums)):
+                    if wn_fp != 99 and p_fp > 0:
+                        first_pos_idx = idx_fp
+                        break
+
+                consec = 0
+                run_start = 0
+                n = len(pts)
+
+                def process_run(start_idx: int, end_idx: int) -> None:
+                    if end_idx < start_idx:
+                        return
+                    run_len = end_idx - start_idx + 1
+                    if run_len < 2:
+                        return
+                    is_early = (first_pos_idx is None) or (end_idx < first_pos_idx)
+                    run_stats = statuses[start_idx:end_idx + 1]
+                    run_has_starter = any(s.lower() == "starter" for s in run_stats)
+                    if run_has_starter and run_len >= 2:
+                        for j in range(start_idx, end_idx + 1):
+                            new_injury_flags.at[row_indices[j]] = True
+                        return
+                    if is_early and run_len >= 4:
+                        for j in range(start_idx, end_idx + 1):
+                            new_susp_flags.at[row_indices[j]] = True
+                    elif run_len >= 2:
+                        for j in range(start_idx, end_idx + 1):
+                            new_injury_flags.at[row_indices[j]] = True
+
+                for i, (p, wn, bye_flag) in enumerate(zip(pts, week_nums, byes)):
+                    if wn == 99 or bye_flag:
+                        if consec > 0:
+                            process_run(run_start, i - 1)
+                            consec = 0
+                        continue
+                    if p == 0:
+                        if consec == 0:
+                            run_start = i
+                        consec += 1
+                    else:
+                        if consec > 0:
+                            process_run(run_start, i - 1)
+                            consec = 0
+                if consec > 0:
+                    process_run(run_start, n - 1)
+
+            pw["Injury?"] = pw["Injury?"].fillna(False) | new_injury_flags
+            pw["Suspension?"] = pw["Suspension?"].fillna(False) | new_susp_flags
+        except Exception as e:
+            _log_exc(debug, "player_week_injury_heuristic", e)
     tw = pd.DataFrame(team_week_rows)
 
     # Normalize team names (case-insensitive) across seasons so joins don't duplicate teams like 'Shmuel256' vs 'shmuel256'.
