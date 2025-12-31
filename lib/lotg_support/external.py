@@ -104,3 +104,15 @@ def load_nflverse_stats_player_week(cfg: ExternalConfig, season: int) -> pd.Data
         return pd.read_csv(path)
     except Exception:
         return pd.read_csv(path, compression='gzip')
+
+def load_nflverse_transactions(cfg: ExternalConfig) -> pd.DataFrame:
+    """Load nflverse transactions (reserve lists and activations)."""
+    urls = [
+        "https://github.com/nflverse/nflverse-data/releases/download/transactions/transactions.csv",
+        "https://raw.githubusercontent.com/nflverse/nflverse-data/master/data/transactions/transactions.csv",
+        "https://raw.githubusercontent.com/nflverse/nflverse-data/master/data/transactions.csv",
+    ]
+    path = cfg.cache_dir / "nflverse_transactions.csv"
+    if (not path.exists()) or path.stat().st_size == 0:
+        _download_best_effort(urls, path, cfg.timeout_seconds)
+    return pd.read_csv(path)
