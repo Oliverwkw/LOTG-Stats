@@ -488,9 +488,14 @@ def _build_out_windows_from_transactions(
     if transactions_df.empty or not week_ranges:
         return {}
 
-    date_col = _first_col(transactions_df, ["transaction_date", "date", "transaction_datetime", "transaction_time"])
+    date_col = _first_col(
+        transactions_df,
+        ["transaction_date", "effective_date", "date", "transaction_datetime", "transaction_time"],
+    )
     player_col = _first_col(transactions_df, ["gsis_id", "player_gsis_id", "player_id"])
     week_col = _first_col(transactions_df, ["week", "transaction_week"])
+    from_col = _first_col(transactions_df, ["from", "from_status", "from_list"])
+    to_col = _first_col(transactions_df, ["to", "to_status", "to_list"])
     type_col = _first_col(transactions_df, ["transaction_type", "type", "type_of_transaction", "transaction"])
     desc_col = _first_col(transactions_df, ["transaction_description", "description", "notes", "transaction_desc"])
     if not player_col or (not date_col and not week_col):
@@ -524,7 +529,7 @@ def _build_out_windows_from_transactions(
             sub = sub[sub["season"] == season]
         except Exception:
             pass
-    if "season" not in sub.columns or sub.empty:
+    if (date_col and ("season" not in sub.columns or sub.empty)):
         sub["season_calc"] = sub["tx_date"].apply(_season_from_date)
         sub = sub[sub["season_calc"] == season]
 
@@ -551,12 +556,23 @@ def _build_out_windows_from_transactions(
         text = _normalize_tx_text(*[row.get(c) for c in text_cols])
         if not text:
             text = _normalize_tx_text(row.get(type_col), row.get(desc_col))
-        is_end = _transaction_out_end(text)
-        start_type = _transaction_out_start(text)
-        if not start_type:
-            if "reserve" in text and "susp" in text:
+        from_text = _normalize_tx_text(row.get(from_col)) if from_col else ""
+        to_text = _normalize_tx_text(row.get(to_col)) if to_col else ""
+        text_combo = _normalize_tx_text(text, from_text, to_text)
+        is_end = _transaction_out_end(text_combo)
+        start_type = _transaction_out_start(text_combo)
+        if not start_type and to_text:
+            if _text_has_pattern(to_text, _OUT_SUSPENSION_PATTERNS):
                 start_type = "suspension"
-            elif "reserve" in text and any(tok in text for tok in ["injured", "ir", "pup", "nfi", "covid"]):
+            elif _text_has_pattern(to_text, _OUT_INJURY_PATTERNS):
+                start_type = "injury"
+        if not is_end and from_text and to_text:
+            if _text_has_pattern(from_text, _OUT_END_CONTEXT) and not _text_has_pattern(to_text, _OUT_END_CONTEXT):
+                is_end = True
+        if not start_type:
+            if "reserve" in text_combo and "susp" in text_combo:
+                start_type = "suspension"
+            elif "reserve" in text_combo and any(tok in text_combo for tok in ["injured", "ir", "pup", "nfi", "covid"]):
                 start_type = "injury"
         if is_end and player_id in open_windows:
             start_week, win_type = open_windows.pop(player_id)
