@@ -1384,6 +1384,7 @@ def build_all(repo_root: Path) -> None:
                     for pid in players:
                         meta = pid_meta.get(pid, {})
                         full_name = meta.get("full_name") or pid
+                        position = pid_pos.get(pid)
                         nfl_team = (player_team_by_week.get((str(gsis), int(wk))) if gsis else None) or meta.get("team")
                         pts = float(ppts.get(pid, 0.0))
                         started = pid in starters
@@ -1499,6 +1500,7 @@ def build_all(repo_root: Path) -> None:
                             bye = False
 
                         player_week_rows.append({
+                            "Player ID": str(pid) if pid is not None else None,
                             "Player": full_name,
                             "Team": team,
                             "Week": wk,
@@ -1509,6 +1511,7 @@ def build_all(repo_root: Path) -> None:
                             "Bye?": bool(bye),
                             "Starter/Bench": "Starter" if started else "Bench",
                             "% of points (if starter)": round(pts / pf, 4) if started and pf else None,
+                            "Position": position,
                             "Position started in (if starter)": slot,
                             "Change from previous week": None,
                             "Change from previous 5 weeks avg": None,
@@ -3064,14 +3067,6 @@ def build_all(repo_root: Path) -> None:
                     "Times Most efficient?": ("Most efficient?", "sum"),
                     "Times Least efficient?": ("Least efficient?", "sum"),
                     "Times Top half of league?": ("Top half of league?", "sum"),
-                    "Number of QB started": ("Number of QB started", "sum"),
-                    "Number of WR started": ("Number of WR started", "sum"),
-                    "Number of RB started": ("Number of RB started", "sum"),
-                    "Number of TE started": ("Number of TE started", "sum"),
-                    "Number of QB rostered": ("Number of QB rostered", "sum"),
-                    "Number of WR rostered": ("Number of WR rostered", "sum"),
-                    "Number of RB rostered": ("Number of RB rostered", "sum"),
-                    "Number of TE rostered": ("Number of TE rostered", "sum"),
                     "Most number of players started from same NFL team": ("Most number of players started from same NFL team", "max"),
                     "Most number of players rostered from same NFL team": ("Most number of players rostered from same NFL team", "max"),
                     "Most number of QBs started from same NFL team": ("Most number of QBs started from same NFL team", "max"),
@@ -3100,74 +3095,8 @@ def build_all(repo_root: Path) -> None:
             )
             team_year = team_year.merge(agg_year, how="left", on=["Team", "Year"])
 
-            # Unique-player positional rollups (do NOT count the same player multiple weeks)
-            try:
-                if (not pw.empty) and ("Position" in pw.columns):
-                    pw2 = pw[["Team","Year","Player","Position","Starter/Bench"]].copy()
-                    pw2["Year"] = pd.to_numeric(pw2["Year"], errors="coerce").astype("Int64")
-                    pw2["Position"] = pw2["Position"].astype(str).str.upper()
-
-                    started = (
-                        pw2[pw2["Starter/Bench"] == "Starter"]
-                        .dropna(subset=["Player"])
-                        .groupby(["Team","Year","Position"])["Player"]
-                        .nunique()
-                        .unstack("Position")
-                    )
-                    rostered = (
-                        pw2.dropna(subset=["Player"])
-                        .groupby(["Team","Year","Position"])["Player"]
-                        .nunique()
-                        .unstack("Position")
-                    )
-
-                    for pos in ["QB","RB","WR","TE"]:
-                        col_s = f"Number of {pos} started"
-                        col_r = f"Number of {pos} rostered"
-                        if col_s not in team_year.columns:
-                            team_year[col_s] = np.nan
-                        if col_r not in team_year.columns:
-                            team_year[col_r] = np.nan
-                        if pos in started.columns:
-                            sser = started[pos].reset_index().rename(columns={pos: col_s})
-                            team_year = team_year.merge(sser, how="left", on=["Team","Year"], suffixes=("", "_y"))
-                            if col_s + "_y" in team_year.columns:
-                                team_year[col_s] = team_year[col_s].fillna(team_year[col_s + "_y"])
-                                team_year = team_year.drop(columns=[col_s + "_y"])
-                        if pos in rostered.columns:
-                            rser = rostered[pos].reset_index().rename(columns={pos: col_r})
-                            team_year = team_year.merge(rser, how="left", on=["Team","Year"], suffixes=("", "_y"))
-                            if col_r + "_y" in team_year.columns:
-                                team_year[col_r] = team_year[col_r].fillna(team_year[col_r + "_y"])
-                                team_year = team_year.drop(columns=[col_r + "_y"])
-            except Exception as e:
-                _log_exc(debug, "team_year_unique_pos_counts", e)
-
         except Exception as e:
             _log_exc(debug, "team_year_aggregate_fill", e)
-
-
-        # Unique-player rollups for positional counts (avoid counting the same player in multiple weeks)
-        try:
-            if not pw.empty and "Position" in pw.columns and "Starter/Bench" in pw.columns:
-                pw_u = pw.copy()
-                pw_u["Position"] = pw_u["Position"].astype(str)
-                pw_u["Starter/Bench"] = pw_u["Starter/Bench"].astype(str)
-                # rostered unique
-                rostered = pw_u.groupby(["Team","Year","Position"], as_index=False)["Player"].nunique().rename(columns={"Player":"n"})
-                # started unique
-                started = pw_u[pw_u["Starter/Bench"].str.lower().eq("starter")].groupby(["Team","Year","Position"], as_index=False)["Player"].nunique().rename(columns={"Player":"n"})
-                def _pos_n(df, pos):
-                    return df[df["Position"].eq(pos)][["Team","Year","n"]].rename(columns={"n": pos})
-                r_piv = rostered.pivot_table(index=["Team","Year"], columns="Position", values="n", aggfunc="max").fillna(0).reset_index()
-                s_piv = started.pivot_table(index=["Team","Year"], columns="Position", values="n", aggfunc="max").fillna(0).reset_index()
-                for pos in ["QB","WR","RB","TE"]:
-                    if pos in s_piv.columns:
-                        team_year[f"Number of {pos} started"] = team_year.merge(s_piv[["Team","Year",pos]], on=["Team","Year"], how="left")[pos].fillna(0).astype(int)
-                    if pos in r_piv.columns:
-                        team_year[f"Number of {pos} rostered"] = team_year.merge(r_piv[["Team","Year",pos]], on=["Team","Year"], how="left")[pos].fillna(0).astype(int)
-        except Exception as e:
-            _log_exc(debug, "team_year_unique_player_counts", e)
 
 
         # Result + vs-category records (rebuilt using normalized games)
@@ -3352,14 +3281,6 @@ def build_all(repo_root: Path) -> None:
                     "Times Most efficient?": ("Most efficient?", "sum"),
                     "Times Least efficient?": ("Least efficient?", "sum"),
                     "Times Top half of league?": ("Top half of league?", "sum"),
-                    "Number of QB started": ("Number of QB started", "sum"),
-                    "Number of WR started": ("Number of WR started", "sum"),
-                    "Number of RB started": ("Number of RB started", "sum"),
-                    "Number of TE started": ("Number of TE started", "sum"),
-                    "Number of QB rostered": ("Number of QB rostered", "sum"),
-                    "Number of WR rostered": ("Number of WR rostered", "sum"),
-                    "Number of RB rostered": ("Number of RB rostered", "sum"),
-                    "Number of TE rostered": ("Number of TE rostered", "sum"),
                     "Most number of players started from same NFL team": ("Most number of players started from same NFL team", "max"),
                     "Most number of players rostered from same NFL team": ("Most number of players rostered from same NFL team", "max"),
                     "Most number of QBs started from same NFL team": ("Most number of QBs started from same NFL team", "max"),
@@ -3390,6 +3311,84 @@ def build_all(repo_root: Path) -> None:
             team_all = team_all.merge(agg_all, how="left", on="Team")
         except Exception as e:
             _log_exc(debug, "team_all_aggregate_fill", e)
+
+        # Unique-player positional counts for team-year and team-all-time (by Player ID)
+        try:
+            required_cols = {"Team", "Year", "Player ID", "Position", "Starter/Bench"}
+            if not pw.empty and required_cols.issubset(set(pw.columns)):
+                pw_counts = pw[list(required_cols)].copy()
+                pw_counts = pw_counts.dropna(subset=["Player ID", "Team", "Year"])
+                pw_counts["Player ID"] = pw_counts["Player ID"].astype(str)
+                pw_counts["Position"] = pw_counts["Position"].astype(str).str.upper()
+                pw_counts["Starter/Bench"] = pw_counts["Starter/Bench"].astype(str)
+                pw_counts = pw_counts[pw_counts["Position"].isin(["QB", "RB", "WR", "TE"])]
+
+                year_rostered = (
+                    pw_counts.groupby(["Team", "Year", "Position"])["Player ID"]
+                    .nunique()
+                    .unstack("Position")
+                    .fillna(0)
+                    .reset_index()
+                )
+                year_started = (
+                    pw_counts[pw_counts["Starter/Bench"].str.lower().eq("starter")]
+                    .groupby(["Team", "Year", "Position"])["Player ID"]
+                    .nunique()
+                    .unstack("Position")
+                    .fillna(0)
+                    .reset_index()
+                )
+
+                started_rename = {pos: f"Number of {pos} started" for pos in ["QB", "RB", "WR", "TE"] if pos in year_started.columns}
+                rostered_rename = {pos: f"Number of {pos} rostered" for pos in ["QB", "RB", "WR", "TE"] if pos in year_rostered.columns}
+                year_started = year_started.rename(columns=started_rename)
+                year_rostered = year_rostered.rename(columns=rostered_rename)
+
+                if not team_year.empty:
+                    team_year = team_year.merge(year_started, on=["Team", "Year"], how="left")
+                    team_year = team_year.merge(year_rostered, on=["Team", "Year"], how="left")
+                    for pos in ["QB", "RB", "WR", "TE"]:
+                        team_year[f"Number of {pos} started"] = (
+                            pd.to_numeric(team_year.get(f"Number of {pos} started"), errors="coerce")
+                            .fillna(0)
+                            .astype(int)
+                        )
+                        team_year[f"Number of {pos} rostered"] = (
+                            pd.to_numeric(team_year.get(f"Number of {pos} rostered"), errors="coerce")
+                            .fillna(0)
+                            .astype(int)
+                        )
+
+                all_rostered = (
+                    pw_counts.groupby(["Team", "Position"])["Player ID"]
+                    .nunique()
+                    .unstack("Position")
+                    .fillna(0)
+                )
+                all_started = (
+                    pw_counts[pw_counts["Starter/Bench"].str.lower().eq("starter")]
+                    .groupby(["Team", "Position"])["Player ID"]
+                    .nunique()
+                    .unstack("Position")
+                    .fillna(0)
+                )
+
+                if not team_all.empty:
+                    for pos in ["QB", "RB", "WR", "TE"]:
+                        if pos in all_started.columns:
+                            team_all[f"Number of {pos} started"] = (
+                                team_all["Team"].map(all_started[pos]).fillna(0).astype(int)
+                            )
+                        else:
+                            team_all[f"Number of {pos} started"] = 0
+                        if pos in all_rostered.columns:
+                            team_all[f"Number of {pos} rostered"] = (
+                                team_all["Team"].map(all_rostered[pos]).fillna(0).astype(int)
+                            )
+                        else:
+                            team_all[f"Number of {pos} rostered"] = 0
+        except Exception as e:
+            _log_exc(debug, "team_unique_player_counts", e)
 
         # vs-category records (all-time)
         try:
