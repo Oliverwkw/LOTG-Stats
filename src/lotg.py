@@ -485,7 +485,7 @@ def _build_out_windows_from_transactions(
     id_map: Optional[Dict[str, str]] = None,
 ) -> Dict[Tuple[str, int, int], Tuple[bool, bool]]:
     transactions_df = _safe_df(transactions_df)
-    if transactions_df.empty or not week_ranges:
+    if transactions_df.empty:
         return {}
 
     date_col = _first_col(transactions_df, ["transaction_date", "date", "transaction_datetime", "transaction_time"])
@@ -494,6 +494,8 @@ def _build_out_windows_from_transactions(
     type_col = _first_col(transactions_df, ["transaction_type", "type", "type_of_transaction", "transaction"])
     desc_col = _first_col(transactions_df, ["transaction_description", "description", "notes", "transaction_desc"])
     if not player_col or (not date_col and not week_col):
+        return {}
+    if not week_ranges and not week_col:
         return {}
 
     sub = transactions_df.copy()
