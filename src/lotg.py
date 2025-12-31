@@ -2825,6 +2825,15 @@ def build_all(repo_root: Path) -> None:
             gp = w + l + t
             return round((w + 0.5 * t) / gp, 4) if gp else 0.0
 
+        def _place_map(rows: List[Tuple[Any, ...]]) -> Dict[str, int]:
+            place = {}
+            for idx, row in enumerate(rows, start=1):
+                if not row:
+                    continue
+                team = row[0]
+                place[str(team)] = idx
+            return place
+
         def _wlt_for_team_pairs(df: pd.DataFrame, team: str, year_team_pairs: set) -> Tuple[int, int, int]:
             if df.empty or not year_team_pairs:
                 return (0, 0, 0)
