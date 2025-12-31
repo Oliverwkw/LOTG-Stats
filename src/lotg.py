@@ -249,6 +249,16 @@ def _calc_age(birth_date_str: Optional[str], on_date: date) -> Optional[float]:
         return None
 
 
+def _rookie_season(meta: Dict[str, Any], current_season: Optional[int]) -> Optional[int]:
+    draft_year = _to_int(meta.get("draft_year"), None)
+    if draft_year:
+        return draft_year
+    years_exp = _to_float(meta.get("years_exp"), None)
+    if years_exp is None or current_season is None or years_exp < 0:
+        return None
+    return int(current_season) - int(years_exp)
+
+
 # --------------------------
 # Team handle mapping (HANDLE, not franchise name)
 # --------------------------
@@ -657,6 +667,7 @@ def build_all(repo_root: Path) -> None:
             "team": _norm_team(meta.get("team")),
             "birth_date": meta.get("birth_date") or meta.get("birthdate"),
             "years_exp": meta.get("years_exp"),
+            "draft_year": meta.get("draft_year"),
             "status": meta.get("status"),
             "injury_status": meta.get("injury_status"),
             "gsis_id": meta.get("gsis_id"),
@@ -750,6 +761,18 @@ def build_all(repo_root: Path) -> None:
         _log(debug, f"[{_now_iso()}] WARN no leagues found; using fallback data/ outputs")
         write_outputs(fallback_tables)
         return
+
+    league_seasons = [_to_int(lg.get("season"), None) for lg in leagues]
+    league_seasons = [s for s in league_seasons if s is not None]
+    current_season_for_rookies = max(league_seasons) if league_seasons else (_to_int(run_cfg.max_season, None) or date.today().year)
+    rookie_season_by_pid = {
+        pid: _rookie_season(meta, current_season_for_rookies)
+        for pid, meta in pid_meta.items()
+    }
+
+    def is_rookie_pid(pid: Any, season: int) -> bool:
+        rookie_season = rookie_season_by_pid.get(str(pid))
+        return rookie_season is not None and int(season) == int(rookie_season)
 
     # ------------- Output rows -------------
     player_week_rows: List[Dict[str, Any]] = []
@@ -1249,8 +1272,8 @@ def build_all(repo_root: Path) -> None:
                     qb_s, rb_s, wr_s, te_s = count_pos(starters, "QB"), count_pos(starters, "RB"), count_pos(starters, "WR"), count_pos(starters, "TE")
                     qb_r, rb_r, wr_r, te_r = count_pos(players, "QB"), count_pos(players, "RB"), count_pos(players, "WR"), count_pos(players, "TE")
 
-                    rook_s = sum(1 for pid in starters if str(pid_meta.get(pid, {}).get("years_exp")) in ("0", "0.0"))
-                    rook_r = sum(1 for pid in players if str(pid_meta.get(pid, {}).get("years_exp")) in ("0", "0.0"))
+                    rook_s = sum(1 for pid in starters if is_rookie_pid(pid, season))
+                    rook_r = sum(1 for pid in players if is_rookie_pid(pid, season))
 
                     approx_date = date(season, 9, 1) + timedelta(days=7 * (wk - 1))
                     ages = [a for a in (_calc_age(pid_meta.get(pid, {}).get("birth_date"), approx_date) for pid in players) if a is not None]
@@ -1484,7 +1507,7 @@ def build_all(repo_root: Path) -> None:
                         if bye is None:
                             bye = False
 
-                        rookie = str(meta.get("years_exp")) in ("0", "0.0")
+                        rookie = is_rookie_pid(pid, season)
                         age = _calc_age(meta.get("birth_date"), approx_date)
 
                         diff_best_bench = (pts - best_bench_pts) if (started and best_bench_pts is not None) else None
@@ -1494,45 +1517,6 @@ def build_all(repo_root: Path) -> None:
                             ref_player = pid_meta.get(best_bench_pid, {}).get("full_name") or best_bench_pid
                         elif (not started) and worst_starter_pid:
                             ref_player = pid_meta.get(worst_starter_pid, {}).get("full_name") or worst_starter_pid
-
-                        rookie = str(meta.get("years_exp")) in ("0", "0.0")
-                        age = _calc_age(meta.get("birth_date"), approx_date)
-
-                        diff_best_bench = (pts - best_bench_pts) if (started and best_bench_pts is not None) else None
-                        diff_worst_starter = (pts - worst_starter_pts) if ((not started) and worst_starter_pts is not None) else None
-                        ref_player = None
-                        if started and best_bench_pid:
-                            ref_player = pid_meta.get(best_bench_pid, {}).get("full_name") or best_bench_pid
-                        elif (not started) and worst_starter_pid:
-                            ref_player = pid_meta.get(worst_starter_pid, {}).get("full_name") or worst_starter_pid
-
-                        if inj is None:
-                            inj = False
-                        if susp is None:
-                            susp = False
-                        if bye is None:
-                            bye = False
-
-                        if inj is None:
-                            inj = False
-                        if susp is None:
-                            susp = False
-                        if bye is None:
-                            bye = False
-
-                        if inj is None:
-                            inj = False
-                        if susp is None:
-                            susp = False
-                        if bye is None:
-                            bye = False
-
-                        if inj is None:
-                            inj = False
-                        if susp is None:
-                            susp = False
-                        if bye is None:
-                            bye = False
 
                         player_week_rows.append({
                             "Player ID": str(pid) if pid is not None else None,
