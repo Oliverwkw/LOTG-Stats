@@ -3068,72 +3068,48 @@ def build_all(repo_root: Path) -> None:
 
             # Unique-player positional rollups (do NOT count the same player multiple weeks)
             try:
-                if (not pw.empty) and ("Position" in pw.columns):
-                    pw2 = pw[["Team","Year","Player","Position","Starter/Bench"]].copy()
-                    pw2["Year"] = pd.to_numeric(pw2["Year"], errors="coerce").astype("Int64")
-                    pw2["Position"] = pw2["Position"].astype(str).str.upper()
+                if not pw.empty and {"Position", "Starter/Bench"}.issubset(pw.columns):
+                    pw_u = pw[["Team", "Year", "Player", "Position", "Starter/Bench"]].copy()
+                    pw_u["Year"] = pd.to_numeric(pw_u["Year"], errors="coerce").astype("Int64")
+                    pw_u["Position"] = pw_u["Position"].astype(str).str.upper()
+                    pw_u["Starter/Bench"] = pw_u["Starter/Bench"].astype(str)
 
-                    started = (
-                        pw2[pw2["Starter/Bench"] == "Starter"]
-                        .dropna(subset=["Player"])
-                        .groupby(["Team","Year","Position"])["Player"]
-                        .nunique()
-                        .unstack("Position")
-                    )
                     rostered = (
-                        pw2.dropna(subset=["Player"])
-                        .groupby(["Team","Year","Position"])["Player"]
+                        pw_u.dropna(subset=["Player"])
+                        .groupby(["Team", "Year", "Position"])["Player"]
+                        .nunique()
+                        .unstack("Position")
+                    )
+                    started = (
+                        pw_u[pw_u["Starter/Bench"].str.lower().eq("starter")]
+                        .dropna(subset=["Player"])
+                        .groupby(["Team", "Year", "Position"])["Player"]
                         .nunique()
                         .unstack("Position")
                     )
 
-                    for pos in ["QB","RB","WR","TE"]:
+                    for pos in ["QB", "RB", "WR", "TE"]:
                         col_s = f"Number of {pos} started"
                         col_r = f"Number of {pos} rostered"
-                        if col_s not in team_year.columns:
-                            team_year[col_s] = np.nan
-                        if col_r not in team_year.columns:
-                            team_year[col_r] = np.nan
+                        team_year[col_s] = 0
+                        team_year[col_r] = 0
                         if pos in started.columns:
                             sser = started[pos].reset_index().rename(columns={pos: col_s})
-                            team_year = team_year.merge(sser, how="left", on=["Team","Year"], suffixes=("", "_y"))
+                            team_year = team_year.merge(sser, how="left", on=["Team", "Year"], suffixes=("", "_y"))
                             if col_s + "_y" in team_year.columns:
-                                team_year[col_s] = team_year[col_s].fillna(team_year[col_s + "_y"])
+                                team_year[col_s] = team_year[col_s + "_y"].fillna(0).astype(int)
                                 team_year = team_year.drop(columns=[col_s + "_y"])
                         if pos in rostered.columns:
                             rser = rostered[pos].reset_index().rename(columns={pos: col_r})
-                            team_year = team_year.merge(rser, how="left", on=["Team","Year"], suffixes=("", "_y"))
+                            team_year = team_year.merge(rser, how="left", on=["Team", "Year"], suffixes=("", "_y"))
                             if col_r + "_y" in team_year.columns:
-                                team_year[col_r] = team_year[col_r].fillna(team_year[col_r + "_y"])
+                                team_year[col_r] = team_year[col_r + "_y"].fillna(0).astype(int)
                                 team_year = team_year.drop(columns=[col_r + "_y"])
             except Exception as e:
                 _log_exc(debug, "team_year_unique_pos_counts", e)
 
         except Exception as e:
             _log_exc(debug, "team_year_aggregate_fill", e)
-
-
-        # Unique-player rollups for positional counts (avoid counting the same player in multiple weeks)
-        try:
-            if not pw.empty and "Position" in pw.columns and "Starter/Bench" in pw.columns:
-                pw_u = pw.copy()
-                pw_u["Position"] = pw_u["Position"].astype(str)
-                pw_u["Starter/Bench"] = pw_u["Starter/Bench"].astype(str)
-                # rostered unique
-                rostered = pw_u.groupby(["Team","Year","Position"], as_index=False)["Player"].nunique().rename(columns={"Player":"n"})
-                # started unique
-                started = pw_u[pw_u["Starter/Bench"].str.lower().eq("starter")].groupby(["Team","Year","Position"], as_index=False)["Player"].nunique().rename(columns={"Player":"n"})
-                def _pos_n(df, pos):
-                    return df[df["Position"].eq(pos)][["Team","Year","n"]].rename(columns={"n": pos})
-                r_piv = rostered.pivot_table(index=["Team","Year"], columns="Position", values="n", aggfunc="max").fillna(0).reset_index()
-                s_piv = started.pivot_table(index=["Team","Year"], columns="Position", values="n", aggfunc="max").fillna(0).reset_index()
-                for pos in ["QB","WR","RB","TE"]:
-                    if pos in s_piv.columns:
-                        team_year[f"Number of {pos} started"] = team_year.merge(s_piv[["Team","Year",pos]], on=["Team","Year"], how="left")[pos].fillna(0).astype(int)
-                    if pos in r_piv.columns:
-                        team_year[f"Number of {pos} rostered"] = team_year.merge(r_piv[["Team","Year",pos]], on=["Team","Year"], how="left")[pos].fillna(0).astype(int)
-        except Exception as e:
-            _log_exc(debug, "team_year_unique_player_counts", e)
 
 
         # Result + vs-category records (rebuilt using normalized games)
@@ -3347,6 +3323,47 @@ def build_all(repo_root: Path) -> None:
             team_all = team_all.merge(agg_all, how="left", on="Team")
         except Exception as e:
             _log_exc(debug, "team_all_aggregate_fill", e)
+
+        # Unique-player positional rollups for team-all-time (avoid counting the same player multiple weeks/years)
+        try:
+            if not pw.empty and {"Position", "Starter/Bench"}.issubset(pw.columns):
+                pw_u = pw[["Team", "Player", "Position", "Starter/Bench"]].copy()
+                pw_u["Position"] = pw_u["Position"].astype(str).str.upper()
+                pw_u["Starter/Bench"] = pw_u["Starter/Bench"].astype(str)
+
+                rostered = (
+                    pw_u.dropna(subset=["Player"])
+                    .groupby(["Team", "Position"])["Player"]
+                    .nunique()
+                    .unstack("Position")
+                )
+                started = (
+                    pw_u[pw_u["Starter/Bench"].str.lower().eq("starter")]
+                    .dropna(subset=["Player"])
+                    .groupby(["Team", "Position"])["Player"]
+                    .nunique()
+                    .unstack("Position")
+                )
+
+                for pos in ["QB", "RB", "WR", "TE"]:
+                    col_s = f"Number of {pos} started"
+                    col_r = f"Number of {pos} rostered"
+                    team_all[col_s] = 0
+                    team_all[col_r] = 0
+                    if pos in started.columns:
+                        sser = started[pos].reset_index().rename(columns={pos: col_s})
+                        team_all = team_all.merge(sser, how="left", on="Team", suffixes=("", "_y"))
+                        if col_s + "_y" in team_all.columns:
+                            team_all[col_s] = team_all[col_s + "_y"].fillna(0).astype(int)
+                            team_all = team_all.drop(columns=[col_s + "_y"])
+                    if pos in rostered.columns:
+                        rser = rostered[pos].reset_index().rename(columns={pos: col_r})
+                        team_all = team_all.merge(rser, how="left", on="Team", suffixes=("", "_y"))
+                        if col_r + "_y" in team_all.columns:
+                            team_all[col_r] = team_all[col_r + "_y"].fillna(0).astype(int)
+                            team_all = team_all.drop(columns=[col_r + "_y"])
+        except Exception as e:
+            _log_exc(debug, "team_all_unique_pos_counts", e)
 
         # vs-category records (all-time)
         try:
