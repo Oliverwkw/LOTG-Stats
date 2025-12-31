@@ -3196,6 +3196,12 @@ def build_all(repo_root: Path) -> None:
         team_year["Change in win % from previous season"] = team_year.groupby("Team")["Win %"].diff()
 
         # team-all-time rollup
+        championship_counts = {}
+        for champ in champion_by_season.values():
+            if champ:
+                champ_name = str(champ)
+                championship_counts[champ_name] = championship_counts.get(champ_name, 0) + 1
+
         rows = []
         for team, g in tw.groupby("Team"):
             wins = int((g["Win?"] == 1).sum())
@@ -3211,6 +3217,7 @@ def build_all(repo_root: Path) -> None:
                 "Team": str(team),
                 "All time win %": round((wins + 0.5 * ties) / gp, 4),
                 "All time record": _record_str(wins, losses, ties),
+                "Championships": championship_counts.get(str(team), 0),
                 "Record & win % vs each team": "N/A",
                 "Record & win % vs playoff teams": "N/A",
                 "Record & win % vs non-playoff teams": "N/A",
