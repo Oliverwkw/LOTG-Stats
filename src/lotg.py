@@ -2805,6 +2805,9 @@ def build_all(repo_root: Path) -> None:
         champion_by_season: Dict[int, Optional[str]] = {}
         last_place_by_season: Dict[int, Optional[str]] = {}
         teams_by_season: Dict[int, set] = {}
+        standings_place_by_season: Dict[int, Dict[str, int]] = {}
+        pf_place_by_season: Dict[int, Dict[str, int]] = {}
+        maxpf_place_by_season: Dict[int, Dict[str, int]] = {}
         for yr, g in tw.groupby("Year"):
             season = int(yr)
             teams_by_season[season] = set(g["Team"].dropna().astype(str).tolist())
@@ -2822,6 +2825,21 @@ def build_all(repo_root: Path) -> None:
                 pf = float(tg["PF"].sum())
                 standings.append((team, wins, losses, ties, pf))
             standings.sort(key=lambda x: (x[1] + 0.5 * x[3], x[4]), reverse=True)
+            standings_place_by_season[season] = {
+                str(team): idx + 1 for idx, (team, *_rest) in enumerate(standings)
+            }
+            pf_sorted = sorted(standings, key=lambda x: x[4], reverse=True)
+            pf_place_by_season[season] = {
+                str(team): idx + 1 for idx, (team, *_rest) in enumerate(pf_sorted)
+            }
+            reg["Max PF"] = pd.to_numeric(reg.get("Max PF"), errors="coerce").fillna(0.0)
+            maxpf_totals = []
+            for team, tg in reg.groupby("Team"):
+                maxpf_totals.append((team, float(tg["Max PF"].sum())))
+            maxpf_totals.sort(key=lambda x: x[1], reverse=True)
+            maxpf_place_by_season[season] = {
+                str(team): idx + 1 for idx, (team, _maxpf) in enumerate(maxpf_totals)
+            }
             playoff_teams_by_season[season] = set([t for t, *_ in standings[:4]])
             last_place_by_season[season] = standings[-1][0] if standings else None
             champ = None
@@ -2923,6 +2941,15 @@ def build_all(repo_root: Path) -> None:
             maxpf_avg = float(pd.to_numeric(g["Max PF"], errors="coerce").fillna(0.0).mean())
             rec = _record_str(wins, losses, ties)
             winp = round((wins + 0.5 * ties) / gp, 4)
+            place_map = standings_place_by_season.get(int(yr), {})
+            pf_place_map = pf_place_by_season.get(int(yr), {})
+            maxpf_place_map = maxpf_place_by_season.get(int(yr), {})
+            place = place_map.get(str(team))
+            pf_place = pf_place_map.get(str(team))
+            maxpf_place = maxpf_place_map.get(str(team))
+            win_variance = None
+            if place is not None and pf_place is not None and maxpf_place is not None:
+                win_variance = float(place - ((pf_place + maxpf_place) / 2))
             row = {
                 "Team": str(team),
                 "Year": int(yr),
@@ -2935,7 +2962,7 @@ def build_all(repo_root: Path) -> None:
                 "Record & win % vs champion": "N/A",
                 "Record & win % vs last place": "N/A",
                 "Change in win % from previous season": None,
-                "Win Variance": float(pd.to_numeric(g["Win?"], errors="coerce").fillna(0.0).var()),
+                "Win Variance": win_variance,
                 "Week of playoff elimination": "N/A",
                 "Draft Value": 0,
                 "Number of first round picks made": 0,
@@ -3159,6 +3186,9 @@ def build_all(repo_root: Path) -> None:
 
         team_year = team_year.sort_values(["Team", "Year"]).reset_index(drop=True)
         team_year["Change in win % from previous season"] = team_year.groupby("Team")["Win %"].diff()
+        team_year_win_variance = {}
+        for team, val in team_year.groupby("Team")["Win Variance"].mean().items():
+            team_year_win_variance[str(team)] = float(val) if pd.notna(val) else None
 
         # team-all-time rollup
         championship_counts = {}
@@ -3188,7 +3218,7 @@ def build_all(repo_root: Path) -> None:
                 "Record & win % vs non-playoff teams": "N/A",
                 "Record & win % vs champions": "N/A",
                 "Record & win % vs last place": "N/A",
-                "Win Variance": float(pd.to_numeric(g["Win?"], errors="coerce").fillna(0.0).var()),
+                "Win Variance": team_year_win_variance.get(str(team)),
                 "Draft Value": 0,
                 "Number of first round picks made": 0,
                 "Total number of picks made": 0,
