@@ -3015,7 +3015,7 @@ def build_all(repo_root: Path) -> None:
             maxpf_place = maxpf_place_map.get(str(team))
             win_variance = None
             if place is not None and pf_place is not None and maxpf_place is not None:
-                win_variance = float(place - ((pf_place + maxpf_place) / 2))
+                win_variance = -1 * float(place - ((pf_place + maxpf_place) / 2))
             row = {
                 "Team": str(team),
                 "Year": int(yr),
@@ -3282,7 +3282,7 @@ def build_all(repo_root: Path) -> None:
                 and all_time_place_pf_value is not None
                 and all_time_place_maxpf_value is not None
             ):
-                win_variance = -1 * (
+                win_variance = (
                     all_time_place_record_value
                     - ((all_time_place_pf_value + all_time_place_maxpf_value) / 2)
                 )
