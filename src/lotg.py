@@ -2105,6 +2105,10 @@ def build_all(repo_root: Path) -> None:
     # Use team_week's Week Name where available.
     if (not tw.empty) and ("Week Name" in tw.columns):
         # player_week
+        if pw.empty:
+            pw = pd.DataFrame(columns=["Team", "Year", "Week"])
+        else:
+            pw = ensure_cols(pw, ["Team", "Year", "Week"])
         if "Week Name" not in pw.columns:
             pw = pw.merge(tw[["Team","Year","Week","Week Name","Round"]].drop_duplicates(), on=["Team","Year","Week"], how="left")
 
