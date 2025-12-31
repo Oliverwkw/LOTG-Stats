@@ -2797,6 +2797,11 @@ def build_all(repo_root: Path) -> None:
         def _record_str(w, l, t=0):
             return f"{int(w)}-{int(l)}" + (f"-{int(t)}" if t else "")
 
+        def _place_map(rows: List[Tuple[Any, ...]]) -> Dict[str, int]:
+            if not rows:
+                return {}
+            return {str(team): idx + 1 for idx, (team, *_rest) in enumerate(rows)}
+
         def _normalize_games(df: pd.DataFrame) -> pd.DataFrame:
             if df.empty:
                 return df.copy()
@@ -2843,6 +2848,9 @@ def build_all(repo_root: Path) -> None:
         champion_by_season: Dict[int, Optional[str]] = {}
         last_place_by_season: Dict[int, Optional[str]] = {}
         teams_by_season: Dict[int, set] = {}
+        place_record_by_year: Dict[int, Dict[str, int]] = {}
+        place_pf_by_year: Dict[int, Dict[str, int]] = {}
+        place_maxpf_by_year: Dict[int, Dict[str, int]] = {}
         standings_place_by_season: Dict[int, Dict[str, int]] = {}
         pf_place_by_season: Dict[int, Dict[str, int]] = {}
         maxpf_place_by_season: Dict[int, Dict[str, int]] = {}
