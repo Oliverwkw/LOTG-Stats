@@ -411,6 +411,10 @@ _OUT_INJURY_PATTERNS = [
     r"reserve/injured",
     r"injured reserve",
     r"reserve/ir",
+    r"injured list",
+    r"placed on ir",
+    r"placed on injured reserve",
+    r"moved to ir",
     r"\bir\b",
     r"\bpup\b",
     r"physically unable",
@@ -423,6 +427,7 @@ _OUT_INJURY_PATTERNS = [
 ]
 _OUT_SUSPENSION_PATTERNS = [
     r"reserve/suspended",
+    r"reserve/suspension",
     r"suspended",
     r"suspension",
     r"exempt",
@@ -431,6 +436,7 @@ _OUT_SUSPENSION_PATTERNS = [
 ]
 _OUT_END_PATTERNS = [
     r"activated",
+    r"activated from",
     r"reinstated",
     r"restored",
     r"returned",
@@ -441,6 +447,7 @@ _OUT_END_PATTERNS = [
 _OUT_END_CONTEXT = [
     r"reserve",
     r"injured",
+    r"ir",
     r"pup",
     r"nfi",
     r"suspended",
@@ -455,6 +462,9 @@ def _text_has_pattern(text: str, patterns: List[str]) -> bool:
         if re.search(pat, text):
             return True
     return False
+
+def _normalize_tx_text(*parts: Any) -> str:
+    return " ".join([str(p or "") for p in parts]).strip().lower()
 
 def _transaction_out_start(text: str) -> Optional[str]:
     if _text_has_pattern(text, _OUT_SUSPENSION_PATTERNS):
@@ -480,15 +490,22 @@ def _build_out_windows_from_transactions(
 
     date_col = _first_col(transactions_df, ["transaction_date", "date", "transaction_datetime", "transaction_time"])
     player_col = _first_col(transactions_df, ["gsis_id", "player_gsis_id", "player_id"])
+    week_col = _first_col(transactions_df, ["week", "transaction_week"])
     type_col = _first_col(transactions_df, ["transaction_type", "type", "type_of_transaction", "transaction"])
     desc_col = _first_col(transactions_df, ["transaction_description", "description", "notes", "transaction_desc"])
-    if not date_col or not player_col:
+    if not player_col or (not date_col and not week_col):
         return {}
 
     sub = transactions_df.copy()
-    sub["tx_date"] = pd.to_datetime(sub[date_col], errors="coerce").dt.date
+    if date_col:
+        sub["tx_date"] = pd.to_datetime(sub[date_col], errors="coerce").dt.date
     sub[player_col] = sub[player_col].astype(str)
-    sub = sub.dropna(subset=["tx_date", player_col])
+    drop_cols = [player_col]
+    if date_col:
+        drop_cols.append("tx_date")
+    if week_col:
+        sub[week_col] = pd.to_numeric(sub[week_col], errors="coerce").astype("Int64")
+    sub = sub.dropna(subset=drop_cols)
     if sub.empty:
         return {}
 
@@ -505,21 +522,34 @@ def _build_out_windows_from_transactions(
     if sub.empty:
         return {}
 
-    sub = sub.sort_values("tx_date")
+    sub = sub.sort_values("tx_date" if date_col else week_col)
     open_windows: Dict[str, Tuple[int, str]] = {}
     windows: List[Tuple[str, int, int, str]] = []
     for _, row in sub.iterrows():
         raw_id = str(row.get(player_col))
         player_id = id_map.get(raw_id, raw_id) if id_map else raw_id
-        tx_date = row.get("tx_date")
-        if not player_id or not isinstance(tx_date, date):
+        week = None
+        if week_col and row.get(week_col) is not None and not pd.isna(row.get(week_col)):
+            try:
+                week = int(row.get(week_col))
+            except Exception:
+                week = None
+        tx_date = row.get("tx_date") if date_col else None
+        if week is None and isinstance(tx_date, date):
+            week = _map_date_to_week(tx_date, week_ranges) if week_ranges else None
+        if not player_id or week is None:
             continue
-        week = _map_date_to_week(tx_date, week_ranges)
-        if week is None:
-            continue
-        text = f"{row.get(type_col) or ''} {row.get(desc_col) or ''}".lower()
+        text = _normalize_tx_text(row.get(type_col), row.get(desc_col))
+        type_text = _normalize_tx_text(row.get(type_col))
+        if not text and type_text:
+            text = type_text
         is_end = _transaction_out_end(text)
         start_type = _transaction_out_start(text)
+        if not start_type:
+            if "reserve" in text and "susp" in text:
+                start_type = "suspension"
+            elif "reserve" in text and any(tok in text for tok in ["injured", "ir", "pup", "nfi", "covid"]):
+                start_type = "injury"
         if is_end and player_id in open_windows:
             start_week, win_type = open_windows.pop(player_id)
             end_week = max(start_week, week - 1)
