@@ -1272,8 +1272,8 @@ def build_all(repo_root: Path) -> None:
                     qb_s, rb_s, wr_s, te_s = count_pos(starters, "QB"), count_pos(starters, "RB"), count_pos(starters, "WR"), count_pos(starters, "TE")
                     qb_r, rb_r, wr_r, te_r = count_pos(players, "QB"), count_pos(players, "RB"), count_pos(players, "WR"), count_pos(players, "TE")
 
-                    rook_s = sum(1 for pid in starters if is_rookie_pid(pid, season))
-                    rook_r = sum(1 for pid in players if is_rookie_pid(pid, season))
+                    rook_s = len({pid for pid in starters if is_rookie_pid(pid, season)})
+                    rook_r = len({pid for pid in players if is_rookie_pid(pid, season)})
 
                     approx_date = date(season, 9, 1) + timedelta(days=7 * (wk - 1))
                     ages = [a for a in (_calc_age(pid_meta.get(pid, {}).get("birth_date"), approx_date) for pid in players) if a is not None]
@@ -3481,6 +3481,29 @@ def build_all(repo_root: Path) -> None:
                             )
                         else:
                             team_all[f"Number of {pos} rostered"] = 0
+
+                if "Rookie?" in pw.columns:
+                    rookies = pw[["Team", "Year", "Player ID", "Starter/Bench", "Rookie?"]].copy()
+                    rookies = rookies.dropna(subset=["Player ID", "Team", "Year"])
+                    rookies["Player ID"] = rookies["Player ID"].astype(str)
+                    rookies["Starter/Bench"] = rookies["Starter/Bench"].astype(str)
+                    rookies["Rookie?"] = pd.to_numeric(rookies["Rookie?"], errors="coerce").fillna(0).astype(int)
+                    rookies = rookies[rookies["Rookie?"] == 1]
+
+                    all_rookies_rostered = rookies.groupby("Team")["Player ID"].nunique()
+                    all_rookies_started = (
+                        rookies[rookies["Starter/Bench"].str.lower().eq("starter")]
+                        .groupby("Team")["Player ID"]
+                        .nunique()
+                    )
+
+                    if not team_all.empty:
+                        team_all["Number of rookies started"] = (
+                            team_all["Team"].map(all_rookies_started).fillna(0).astype(int)
+                        )
+                        team_all["Number of rookies rostered"] = (
+                            team_all["Team"].map(all_rookies_rostered).fillna(0).astype(int)
+                        )
         except Exception as e:
             _log_exc(debug, "team_unique_player_counts", e)
 
