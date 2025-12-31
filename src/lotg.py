@@ -471,6 +471,17 @@ def _ensure_plan_columns(df: pd.DataFrame, cols: List[str]) -> pd.DataFrame:
     return df[cols]
 
 
+def _append_team_vs_columns(frame: pd.DataFrame, cols: List[str]) -> List[str]:
+    if frame.empty or "Team" not in frame.columns:
+        return cols
+    teams = sorted(frame["Team"].dropna().astype(str).unique().tolist())
+    extra = []
+    for team in teams:
+        extra.append(f"Record vs {team}")
+        extra.append(f"Win % vs {team}")
+    return cols + [c for c in extra if c not in cols]
+
+
 def _is_text_column(col: str) -> bool:
     col_l = col.lower()
     text_markers = [
@@ -662,6 +673,8 @@ def build_all(repo_root: Path) -> None:
         out_dir.mkdir(exist_ok=True)
         for fname, frame, plan_key in tables:
             cols = catalog.get(plan_key, [])
+            if plan_key in {"team-year", "team-all-time"}:
+                cols = _append_team_vs_columns(frame, cols)
             frame = _safe_df(frame)
             out = _ensure_plan_columns(frame, cols)
             out = _fill_empty_columns(out, cols)
@@ -2746,13 +2759,27 @@ def build_all(repo_root: Path) -> None:
             gp = w + l + t
             return round((w + 0.5 * t) / gp, 4) if gp else 0.0
 
+        def _wlt_for_team_pairs(df: pd.DataFrame, team: str, year_team_pairs: set) -> Tuple[int, int, int]:
+            if df.empty or not year_team_pairs:
+                return (0, 0, 0)
+            sub = df[df["Team"] == str(team)]
+            sub = sub[sub["YearOpp"].isin(year_team_pairs)]
+            w = int((sub["Win?"] == 1).sum())
+            l = int((sub["Win?"] == 0).sum())
+            t = int((sub["Win?"] == 0.5).sum())
+            return (w, l, t)
+
         games_df = _normalize_games(games_df)
+        if not games_df.empty:
+            games_df["YearOpp"] = list(zip(games_df["Year"], games_df["OppTeam"]))
 
         playoff_teams_by_season: Dict[int, set] = {}
         champion_by_season: Dict[int, Optional[str]] = {}
         last_place_by_season: Dict[int, Optional[str]] = {}
+        teams_by_season: Dict[int, set] = {}
         for yr, g in tw.groupby("Year"):
             season = int(yr)
+            teams_by_season[season] = set(g["Team"].dropna().astype(str).tolist())
             playoff_start = playoff_start_by_season.get(season)
             reg = g.copy()
             if playoff_start:
@@ -2914,7 +2941,7 @@ def build_all(repo_root: Path) -> None:
                 playoffs = playoff_teams_by_season.get(year, set())
                 champ = champion_by_season.get(year)
                 lastp = last_place_by_season.get(year)
-                non_playoffs = set(teams_by_year.get(year, [])) - set(playoffs) if playoffs else set()
+                non_playoffs = set(teams_by_season.get(year, set())) - set(playoffs) if playoffs else set()
 
                 wlt_play = _wlt_for_team(games_df, team, year=year, opps=playoffs if playoffs else None)
                 wlt_non = _wlt_for_team(games_df, team, year=year, opps=non_playoffs if non_playoffs else None)
@@ -3217,6 +3244,27 @@ def build_all(repo_root: Path) -> None:
 
         # Rebuild all win % and record columns for team-all-time
         try:
+            playoff_pairs = {
+                (year, team)
+                for year, teams in playoff_teams_by_season.items()
+                for team in teams
+            }
+            champ_pairs = {
+                (year, champ)
+                for year, champ in champion_by_season.items()
+                if champ
+            }
+            last_place_pairs = {
+                (year, lastp)
+                for year, lastp in last_place_by_season.items()
+                if lastp
+            }
+            non_playoff_pairs = {
+                (year, team)
+                for year, teams in teams_by_season.items()
+                for team in teams
+                if team not in playoff_teams_by_season.get(year, set())
+            }
             for idx, row in team_all.iterrows():
                 team = str(row["Team"])
                 wlt = _wlt_for_team(games_df, team)
@@ -3228,24 +3276,21 @@ def build_all(repo_root: Path) -> None:
                 for opp in opp_list:
                     wlt_opp = _wlt_for_team(games_df, team, opps={opp})
                     pieces.append(f"{opp}: {_record_str(*wlt_opp)} ({_win_pct(wlt_opp)})")
+                    team_all.at[idx, f"Record vs {opp}"] = _record_str(*wlt_opp)
+                    team_all.at[idx, f"Win % vs {opp}"] = _win_pct(wlt_opp)
                 team_all.at[idx, "Record & win % vs each team"] = "; ".join(pieces) if pieces else "N/A"
-
-            champs = {c for c in champion_by_season.values() if c}
-            lastps = {c for c in last_place_by_season.values() if c}
-            playoffs = set().union(*[set(s) for s in playoff_teams_by_season.values()]) if playoff_teams_by_season else set()
-            nonplayoffs = set(teams) - playoffs if playoffs else set()
 
             for idx, row in team_all.iterrows():
                 team = str(row["Team"])
-                wlt_play = _wlt_for_team(games_df, team, opps=playoffs if playoffs else None)
-                wlt_non = _wlt_for_team(games_df, team, opps=nonplayoffs if nonplayoffs else None)
-                wlt_ch = _wlt_for_team(games_df, team, opps=champs if champs else None)
-                wlt_last = _wlt_for_team(games_df, team, opps=lastps if lastps else None)
+                wlt_play = _wlt_for_team_pairs(games_df, team, playoff_pairs)
+                wlt_non = _wlt_for_team_pairs(games_df, team, non_playoff_pairs)
+                wlt_ch = _wlt_for_team_pairs(games_df, team, champ_pairs)
+                wlt_last = _wlt_for_team_pairs(games_df, team, last_place_pairs)
 
-                team_all.at[idx, "Record & win % vs playoff teams"] = f"{_record_str(*wlt_play)} ({_win_pct(wlt_play)})" if playoffs else "N/A"
-                team_all.at[idx, "Record & win % vs non-playoff teams"] = f"{_record_str(*wlt_non)} ({_win_pct(wlt_non)})" if nonplayoffs else "N/A"
-                team_all.at[idx, "Record & win % vs champions"] = f"{_record_str(*wlt_ch)} ({_win_pct(wlt_ch)})" if champs else "N/A"
-                team_all.at[idx, "Record & win % vs last place"] = f"{_record_str(*wlt_last)} ({_win_pct(wlt_last)})" if lastps else "N/A"
+                team_all.at[idx, "Record & win % vs playoff teams"] = f"{_record_str(*wlt_play)} ({_win_pct(wlt_play)})" if playoff_pairs else "N/A"
+                team_all.at[idx, "Record & win % vs non-playoff teams"] = f"{_record_str(*wlt_non)} ({_win_pct(wlt_non)})" if non_playoff_pairs else "N/A"
+                team_all.at[idx, "Record & win % vs champions"] = f"{_record_str(*wlt_ch)} ({_win_pct(wlt_ch)})" if champ_pairs else "N/A"
+                team_all.at[idx, "Record & win % vs last place"] = f"{_record_str(*wlt_last)} ({_win_pct(wlt_last)})" if last_place_pairs else "N/A"
         except Exception as e:
             _log_exc(debug, "team_all_rebuild_records", e)
 
@@ -3305,29 +3350,45 @@ def build_all(repo_root: Path) -> None:
 
         # vs-category records (all-time)
         try:
-            all_teams = set(team_all["Team"].astype(str).tolist())
-            champs = {c for c in champion_by_season.values() if c}
-            lastps = {c for c in last_place_by_season.values() if c}
-            playoffs = set().union(*[set(s) for s in playoff_teams_by_season.values()]) if playoff_teams_by_season else set()
-            nonplayoffs = all_teams - playoffs if playoffs else set()
+            playoff_pairs = {
+                (year, team)
+                for year, teams in playoff_teams_by_season.items()
+                for team in teams
+            }
+            champ_pairs = {
+                (year, champ)
+                for year, champ in champion_by_season.items()
+                if champ
+            }
+            last_place_pairs = {
+                (year, lastp)
+                for year, lastp in last_place_by_season.items()
+                if lastp
+            }
+            non_playoff_pairs = {
+                (year, team)
+                for year, teams in teams_by_season.items()
+                for team in teams
+                if team not in playoff_teams_by_season.get(year, set())
+            }
 
             extra = []
             for team in team_all["Team"].astype(str).tolist():
-                wlt_play = _wlt_for_team(games_df, team, opps=playoffs if playoffs else None)
-                wlt_non = _wlt_for_team(games_df, team, opps=nonplayoffs if nonplayoffs else None)
-                wlt_ch = _wlt_for_team(games_df, team, opps=champs if champs else None)
-                wlt_last = _wlt_for_team(games_df, team, opps=lastps if lastps else None)
+                wlt_play = _wlt_for_team_pairs(games_df, team, playoff_pairs)
+                wlt_non = _wlt_for_team_pairs(games_df, team, non_playoff_pairs)
+                wlt_ch = _wlt_for_team_pairs(games_df, team, champ_pairs)
+                wlt_last = _wlt_for_team_pairs(games_df, team, last_place_pairs)
 
                 extra.append({
                     "Team": team,
-                    "Record vs playoff teams": _record_str(*wlt_play) if playoffs else "N/A",
-                    "Win % vs playoff teams": _win_pct(wlt_play) if playoffs else None,
-                    "Record vs non-playoff teams": _record_str(*wlt_non) if nonplayoffs else "N/A",
-                    "Win % vs non-playoff teams": _win_pct(wlt_non) if nonplayoffs else None,
-                    "Record vs champions": _record_str(*wlt_ch) if champs else "N/A",
-                    "Win % vs champions": _win_pct(wlt_ch) if champs else None,
-                    "Record vs last place": _record_str(*wlt_last) if lastps else "N/A",
-                    "Win % vs last place": _win_pct(wlt_last) if lastps else None,
+                    "Record vs playoff teams": _record_str(*wlt_play) if playoff_pairs else "N/A",
+                    "Win % vs playoff teams": _win_pct(wlt_play) if playoff_pairs else None,
+                    "Record vs non-playoff teams": _record_str(*wlt_non) if non_playoff_pairs else "N/A",
+                    "Win % vs non-playoff teams": _win_pct(wlt_non) if non_playoff_pairs else None,
+                    "Record vs champions": _record_str(*wlt_ch) if champ_pairs else "N/A",
+                    "Win % vs champions": _win_pct(wlt_ch) if champ_pairs else None,
+                    "Record vs last place": _record_str(*wlt_last) if last_place_pairs else "N/A",
+                    "Win % vs last place": _win_pct(wlt_last) if last_place_pairs else None,
                 })
             extra = pd.DataFrame(extra)
             team_all = team_all.drop(columns=[c for c in extra.columns if c in team_all.columns and c!="Team"], errors="ignore")
