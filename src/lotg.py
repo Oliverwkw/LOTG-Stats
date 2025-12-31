@@ -1421,7 +1421,7 @@ def build_all(repo_root: Path) -> None:
                         nfl_team = (player_team_by_week.get((str(gsis), int(wk))) if gsis else None) or meta.get("team")
                         pts = float(ppts.get(pid, 0.0))
                         started = pid in starters
-                        slot = starter_slot.get(pid) if started else (pid_pos.get(pid) or None)
+                        slot = starter_slot.get(pid) if started else "N/A"
                         player_position = pid_pos.get(pid) or None
 
                         # gsis id lookup for nflverse
@@ -1539,13 +1539,13 @@ def build_all(repo_root: Path) -> None:
                             "Week": wk,
                             "Year": season,
                             "Points": round(pts, 2),
-                            "Position": player_position,
                             "Injury?": bool(inj),
                             "Suspension?": bool(susp),
                             "Bye?": bool(bye),
                             "Starter/Bench": "Starter" if started else "Bench",
                             "% of points (if starter)": round(pts / pf, 4) if started and pf else None,
                             "Position started in (if starter)": slot,
+                            "Position": player_position,
                             "Change from previous week": None,
                             "Change from previous 5 weeks avg": None,
                             "Change from career average to that point": None,
