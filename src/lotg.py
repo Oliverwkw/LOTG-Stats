@@ -2840,6 +2840,79 @@ def build_all(repo_root: Path) -> None:
             t = int((sub["Win?"] == 0.5).sum())
             return (w, l, t)
 
+        def _playoff_elimination_weeks(
+            df: pd.DataFrame,
+            teams_by_year: Dict[int, set],
+            playoff_starts: Dict[int, Optional[int]],
+            playoff_teams: Dict[int, set],
+        ) -> Dict[int, Dict[str, Optional[int]]]:
+            elim_by_year: Dict[int, Dict[str, Optional[int]]] = {}
+            if df.empty:
+                return elim_by_year
+            gdf = df.copy()
+            gdf["Week"] = pd.to_numeric(gdf["Week"], errors="coerce")
+            gdf["Win?"] = pd.to_numeric(gdf["Win?"], errors="coerce")
+            for season, teams in teams_by_year.items():
+                season_games = gdf[gdf["Year"] == int(season)].copy()
+                playoff_start = playoff_starts.get(int(season))
+                if playoff_start:
+                    season_games = season_games[season_games["Week"] < playoff_start]
+                if season_games.empty:
+                    continue
+                season_games = season_games.dropna(subset=["Week"])
+                weeks = sorted({int(w) for w in season_games["Week"].tolist()})
+                if not weeks:
+                    continue
+
+                season_games["wins"] = (season_games["Win?"] == 1).astype(int)
+                season_games["losses"] = (season_games["Win?"] == 0).astype(int)
+                season_games["ties"] = (season_games["Win?"] == 0.5).astype(int)
+                week_results = season_games.groupby(["Team", "Week"], as_index=False)[["wins", "losses", "ties"]].sum()
+
+                all_rows = pd.MultiIndex.from_product(
+                    [sorted({str(t) for t in teams}), weeks], names=["Team", "Week"]
+                ).to_frame(index=False)
+                week_results = all_rows.merge(week_results, on=["Team", "Week"], how="left").fillna(0)
+                week_results[["wins", "losses", "ties"]] = week_results[["wins", "losses", "ties"]].astype(int)
+
+                week_results["cum_wins"] = week_results.groupby("Team")["wins"].cumsum()
+                week_results["cum_losses"] = week_results.groupby("Team")["losses"].cumsum()
+                week_results["cum_ties"] = week_results.groupby("Team")["ties"].cumsum()
+                total_games = season_games.groupby("Team")["Week"].count().to_dict()
+                week_results["total_games"] = week_results["Team"].map(total_games).fillna(0).astype(int)
+                week_results["games_played"] = (
+                    week_results["cum_wins"] + week_results["cum_losses"] + week_results["cum_ties"]
+                )
+                week_results["remaining"] = (week_results["total_games"] - week_results["games_played"]).clip(lower=0)
+                week_results["max_win_pct"] = (
+                    week_results["cum_wins"]
+                    + week_results["remaining"]
+                    + 0.5 * week_results["cum_ties"]
+                ) / week_results["total_games"].replace(0, np.nan)
+                week_results["min_win_pct"] = (
+                    week_results["cum_wins"] + 0.5 * week_results["cum_ties"]
+                ) / week_results["total_games"].replace(0, np.nan)
+
+                elim_map: Dict[str, Optional[int]] = {}
+                season_playoffs = {str(t) for t in playoff_teams.get(int(season), set())}
+                for team in sorted({str(t) for t in teams}):
+                    if team in season_playoffs:
+                        elim_map[team] = None
+                        continue
+                    elim_week = None
+                    for wk in weeks:
+                        t_row = week_results[(week_results["Team"] == team) & (week_results["Week"] == wk)]
+                        if t_row.empty:
+                            continue
+                        t_max = float(t_row["max_win_pct"].iloc[0])
+                        others = week_results[(week_results["Week"] == wk) & (week_results["Team"] != team)]
+                        if int((others["min_win_pct"] > t_max).sum()) >= 4:
+                            elim_week = int(wk)
+                            break
+                    elim_map[team] = elim_week
+                elim_by_year[int(season)] = elim_map
+            return elim_by_year
+
         games_df = _normalize_games(games_df)
         if not games_df.empty:
             games_df["YearOpp"] = list(zip(games_df["Year"], games_df["OppTeam"]))
@@ -2904,6 +2977,14 @@ def build_all(repo_root: Path) -> None:
             if not champ and standings:
                 champ = standings[0][0]
             champion_by_season[season] = champ
+
+        playoff_elimination_by_season: Dict[int, Dict[str, Optional[int]]] = {}
+        try:
+            playoff_elimination_by_season = _playoff_elimination_weeks(
+                games_df, teams_by_season, playoff_start_by_season, playoff_teams_by_season
+            )
+        except Exception as e:
+            _log_exc(debug, "playoff_elimination_calc", e)
 
         
         # Determine season finishing positions (Result) from playoff/toilet brackets when available.
@@ -3029,7 +3110,7 @@ def build_all(repo_root: Path) -> None:
                 "Record & win % vs last place": "N/A",
                 "Change in win % from previous season": None,
                 "Win Variance": win_variance,
-                "Week of playoff elimination": "N/A",
+                "Week of playoff elimination": playoff_elimination_by_season.get(int(yr), {}).get(str(team)),
                 "Draft Value": 0,
                 "Number of first round picks made": 0,
                 "Total number of picks made": 0,
