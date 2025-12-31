@@ -3527,6 +3527,44 @@ def build_all(repo_root: Path) -> None:
                     rookies["Rookie?"] = pd.to_numeric(rookies["Rookie?"], errors="coerce").fillna(0).astype(int)
                     rookies = rookies[rookies["Rookie?"] == 1]
 
+                    year_rookies_rostered = (
+                        rookies.groupby(["Team", "Year"])["Player ID"]
+                        .nunique()
+                        .reset_index()
+                    )
+                    year_rookies_started = (
+                        rookies[rookies["Starter/Bench"].str.lower().eq("starter")]
+                        .groupby(["Team", "Year"])["Player ID"]
+                        .nunique()
+                        .reset_index()
+                    )
+
+                    if not team_year.empty:
+                        team_year = team_year.drop(
+                            columns=["Number of rookies started", "Number of rookies rostered"],
+                            errors="ignore",
+                        )
+                        team_year = team_year.merge(
+                            year_rookies_started.rename(columns={"Player ID": "Number of rookies started"}),
+                            on=["Team", "Year"],
+                            how="left",
+                        )
+                        team_year = team_year.merge(
+                            year_rookies_rostered.rename(columns={"Player ID": "Number of rookies rostered"}),
+                            on=["Team", "Year"],
+                            how="left",
+                        )
+                        team_year["Number of rookies started"] = (
+                            pd.to_numeric(team_year.get("Number of rookies started"), errors="coerce")
+                            .fillna(0)
+                            .astype(int)
+                        )
+                        team_year["Number of rookies rostered"] = (
+                            pd.to_numeric(team_year.get("Number of rookies rostered"), errors="coerce")
+                            .fillna(0)
+                            .astype(int)
+                        )
+
                     all_rookies_rostered = rookies.groupby("Team")["Player ID"].nunique()
                     all_rookies_started = (
                         rookies[rookies["Starter/Bench"].str.lower().eq("starter")]
