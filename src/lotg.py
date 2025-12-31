@@ -472,6 +472,7 @@ def _build_out_windows_from_transactions(
     transactions_df: pd.DataFrame,
     season: int,
     week_ranges: Dict[int, Tuple[date, date]],
+    id_map: Optional[Dict[str, str]] = None,
 ) -> Dict[Tuple[str, int, int], Tuple[bool, bool]]:
     transactions_df = _safe_df(transactions_df)
     if transactions_df.empty or not week_ranges:
@@ -508,7 +509,8 @@ def _build_out_windows_from_transactions(
     open_windows: Dict[str, Tuple[int, str]] = {}
     windows: List[Tuple[str, int, int, str]] = []
     for _, row in sub.iterrows():
-        player_id = str(row.get(player_col))
+        raw_id = str(row.get(player_col))
+        player_id = id_map.get(raw_id, raw_id) if id_map else raw_id
         tx_date = row.get("tx_date")
         if not player_id or not isinstance(tx_date, date):
             continue
@@ -719,6 +721,7 @@ def build_all(repo_root: Path) -> None:
 
     # nflverse player id mapping (for injury + team-by-week)
     sleeper_to_gsis: Dict[str, str] = {}
+    player_id_to_gsis: Dict[str, str] = {}
     try:
         nfl_ids = _safe_df(load_nflverse_player_ids(ext))
         if (not nfl_ids.empty) and ("sleeper_id" in nfl_ids.columns) and ("gsis_id" in nfl_ids.columns):
@@ -726,6 +729,11 @@ def build_all(repo_root: Path) -> None:
             nfl_ids["sleeper_id"] = nfl_ids["sleeper_id"].astype(str)
             nfl_ids["gsis_id"] = nfl_ids["gsis_id"].astype(str)
             sleeper_to_gsis = dict(zip(nfl_ids["sleeper_id"], nfl_ids["gsis_id"]))
+        if (not nfl_ids.empty) and ("player_id" in nfl_ids.columns) and ("gsis_id" in nfl_ids.columns):
+            player_map = nfl_ids.dropna(subset=["player_id", "gsis_id"]).copy()
+            player_map["player_id"] = player_map["player_id"].astype(str)
+            player_map["gsis_id"] = player_map["gsis_id"].astype(str)
+            player_id_to_gsis = dict(zip(player_map["player_id"], player_map["gsis_id"]))
     except Exception as e:
         _log_exc(debug, "load_nflverse_player_ids", e)
 
@@ -960,6 +968,7 @@ def build_all(repo_root: Path) -> None:
                 nfl_transactions,
                 season,
                 week_ranges,
+                player_id_to_gsis if player_id_to_gsis else None,
             )
         except Exception as e:
             _log_exc(debug, f"transactions_out_windows_{season}", e)
