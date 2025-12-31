@@ -1745,6 +1745,43 @@ def build_all(repo_root: Path) -> None:
         LOG.info("team_week: rows=%s zero_max_pf=%s", len(tw), zero_max)
     log_df(tw, 'team_week', sample_cols=['PF','Max PF','Efficiency'])
 
+    # Override rookie counts to ensure unique rookie IDs per team-week (v3).
+    try:
+        if not pw.empty and {"Team", "Year", "Week", "Player ID", "Starter/Bench", "Rookie?"}.issubset(pw.columns):
+            rookies = pw[["Team", "Year", "Week", "Player ID", "Starter/Bench", "Rookie?"]].copy()
+            rookies = rookies.dropna(subset=["Team", "Year", "Week", "Player ID"])
+            rookies["Player ID"] = rookies["Player ID"].astype(str)
+            rookies["Starter/Bench"] = rookies["Starter/Bench"].astype(str)
+            rookies["Rookie?"] = pd.to_numeric(rookies["Rookie?"], errors="coerce").fillna(0).astype(int)
+            rookies = rookies[rookies["Rookie?"] == 1]
+
+            rookies_rostered = (
+                rookies.groupby(["Team", "Year", "Week"])["Player ID"]
+                .nunique()
+                .reset_index()
+                .rename(columns={"Player ID": "Number of rookies rostered"})
+            )
+            rookies_started = (
+                rookies[rookies["Starter/Bench"].str.lower().eq("starter")]
+                .groupby(["Team", "Year", "Week"])["Player ID"]
+                .nunique()
+                .reset_index()
+                .rename(columns={"Player ID": "Number of rookies started"})
+            )
+
+            if not tw.empty:
+                tw = tw.drop(columns=["Number of rookies started", "Number of rookies rostered"], errors="ignore")
+                tw = tw.merge(rookies_rostered, on=["Team", "Year", "Week"], how="left")
+                tw = tw.merge(rookies_started, on=["Team", "Year", "Week"], how="left")
+                tw["Number of rookies rostered"] = (
+                    pd.to_numeric(tw.get("Number of rookies rostered"), errors="coerce").fillna(0).astype(int)
+                )
+                tw["Number of rookies started"] = (
+                    pd.to_numeric(tw.get("Number of rookies started"), errors="coerce").fillna(0).astype(int)
+                )
+    except Exception as e:
+        _log_exc(debug, "team_week_rookie_unique_counts", e)
+
     # ---- Tanking (user formula)
     # Tanking(team, week) uses season-to-date averages through that week.
     # Tanking(team, year) is the final week value.
