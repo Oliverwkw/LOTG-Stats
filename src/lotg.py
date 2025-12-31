@@ -1359,12 +1359,46 @@ def build_all(repo_root: Path) -> None:
                         # leave remaining plan columns to enforcement step
                     })
 
-                    # starter slot labels are not provided reliably by Sleeper; we approximate by roster order
+                    # starter slot labels: map roster positions to labeled starter slots
                     starter_slot = {}
-                    # League has fixed slots; for this build we only need "Position started in" for analysis,
-                    # so we store the player's NFL position as a stable proxy.
-                    for pid in starters:
-                        starter_slot[pid] = pid_pos.get(pid)
+                    roster_positions = [str(x) for x in (lg.get("roster_positions") or []) if x]
+                    non_start_slots = {"BN", "BE", "BENCH", "IR", "TAXI"}
+                    starter_slots = [pos for pos in roster_positions if str(pos).upper() not in non_start_slots]
+
+                    def _base_slot(pos: str) -> str:
+                        upper = str(pos or "").upper()
+                        if upper in ("SUPER_FLEX", "SUPERFLEX", "SFLEX", "SFLX"):
+                            return "SFLX"
+                        if upper in ("FLEX", "FLX"):
+                            return "FLX"
+                        return upper
+
+                    if starter_slots and starters:
+                        counts: Dict[str, int] = {}
+                        for pid, slot in zip(starters, starter_slots):
+                            base = _base_slot(slot)
+                            if not base:
+                                continue
+                            counts[base] = counts.get(base, 0) + 1
+                            idx = counts[base]
+
+                            label = base
+                            if base == "RB":
+                                label = f"RB{idx}"
+                            elif base == "WR":
+                                label = f"WR{idx}"
+                            elif base == "FLX":
+                                label = f"FLX{idx}"
+                            elif base == "SFLX":
+                                label = "SFLX"
+                            elif base == "QB":
+                                label = "QB"
+                            starter_slot[pid] = label
+
+                    # fallback to player position if starter slot data is missing
+                    if not starter_slot:
+                        for pid in starters:
+                            starter_slot[pid] = pid_pos.get(pid)
 
                     played_set = played_by_week.get(wk, set())
 
@@ -1388,7 +1422,8 @@ def build_all(repo_root: Path) -> None:
                         nfl_team = (player_team_by_week.get((str(gsis), int(wk))) if gsis else None) or meta.get("team")
                         pts = float(ppts.get(pid, 0.0))
                         started = pid in starters
-                        slot = starter_slot.get(pid) if started else (pid_pos.get(pid) or None)
+                        slot = starter_slot.get(pid) if started else "N/A"
+                        player_position = pid_pos.get(pid) or None
 
                         # gsis id lookup for nflverse
                         gsis = None
@@ -1513,6 +1548,7 @@ def build_all(repo_root: Path) -> None:
                             "% of points (if starter)": round(pts / pf, 4) if started and pf else None,
                             "Position": position,
                             "Position started in (if starter)": slot,
+                            "Position": player_position,
                             "Change from previous week": None,
                             "Change from previous 5 weeks avg": None,
                             "Change from career average to that point": None,
@@ -2099,6 +2135,8 @@ def build_all(repo_root: Path) -> None:
 
         # league-level player of week among starters
         starters = pw["Starter/Bench"] == "Starter"
+        pos_col = "Position" if "Position" in pw.columns else "Position started in (if starter)"
+        pos_series = pw[pos_col].astype(str).str.upper()
         for (yr, wk), g in pw.groupby(["Year", "Week"]):
             sg = g[starters.loc[g.index]]
             if sg.empty:
@@ -2109,7 +2147,7 @@ def build_all(repo_root: Path) -> None:
             _set_flag((pw["Year"] == yr) & (pw["Week"] == wk) & starters & (pw["Points"] == mn), "Benchwarmer of the week?")
 
             for pos, col in [("QB", "QB of the week?"), ("RB", "RB of the week?"), ("WR", "WR of the week?"), ("TE", "TE of the week?")]:
-                pg = sg[sg["Position started in (if starter)"].astype(str).str.upper() == pos]
+                pg = sg[pos_series.loc[sg.index] == pos]
                 if pg.empty:
                     continue
                 mxp = pg["Points"].max()
@@ -2117,7 +2155,7 @@ def build_all(repo_root: Path) -> None:
                     (pw["Year"] == yr)
                     & (pw["Week"] == wk)
                     & starters
-                    & (pw["Position started in (if starter)"].astype(str).str.upper() == pos)
+                    & (pos_series == pos)
                     & (pw["Points"] == mxp),
                     col,
                 )
@@ -2130,7 +2168,7 @@ def build_all(repo_root: Path) -> None:
                 ("WR", "Bench WR of the week?"),
                 ("TE", "Bench TE of the week?"),
             ]:
-                pg = bg[bg["Position started in (if starter)"].astype(str).str.upper() == pos]
+                pg = bg[pos_series.loc[bg.index] == pos]
                 if pg.empty:
                     continue
                 mxp = pg["Points"].max()
@@ -2138,7 +2176,7 @@ def build_all(repo_root: Path) -> None:
                     (pw["Year"] == yr)
                     & (pw["Week"] == wk)
                     & (~starters)
-                    & (pw["Position started in (if starter)"].astype(str).str.upper() == pos)
+                    & (pos_series == pos)
                     & (pw["Points"] == mxp),
                     col,
                 )
