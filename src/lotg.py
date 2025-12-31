@@ -3724,14 +3724,15 @@ def build_all(repo_root: Path) -> None:
         rows = []
         for yr, g in g_week.groupby("Year"):
             margin_abs = g["Margin"].abs()
+            win_mask = pd.to_numeric(g.get("Win?"), errors="coerce") == 1
             rows.append({
                 "Year": int(yr),
                 "(smallest) Playoff tiebreaker": "N/A",
                 "PF": float(g["PF"].sum()),
                 "Avg PF": float(g["PF"].mean()) if g["PF"].notna().any() else None,
                 "PF Range": float(g["PF"].max() - g["PF"].min()) if g["PF"].notna().any() else None,
-                "Avg margin": float(g["Margin"].mean()) if g["Margin"].notna().any() else None,
-                "Margin range": float(g["Margin"].max() - g["Margin"].min()) if g["Margin"].notna().any() else None,
+                "Avg margin": float(g.loc[win_mask, "Margin"].mean()) if win_mask.any() else None,
+                "Margin range": float(g.loc[win_mask, "Margin"].max() - g.loc[win_mask, "Margin"].min()) if win_mask.any() else None,
                 "Number of games within 10": int((margin_abs <= 10).sum() / 2),
                 "Number of games within 5": int((margin_abs <= 5).sum() / 2),
                 "Max PF": float(g["Max PF"].sum()),
@@ -3798,8 +3799,8 @@ def build_all(repo_root: Path) -> None:
             "PF": float(pd.to_numeric(g_week["PF"], errors="coerce").fillna(0.0).sum()),
             "Avg PF": float(pd.to_numeric(g_week["PF"], errors="coerce").fillna(0.0).mean()),
             "PF Range": float(g_week["PF"].max() - g_week["PF"].min()) if g_week["PF"].notna().any() else None,
-            "Avg margin": float(g_week["Margin"].mean()) if g_week["Margin"].notna().any() else None,
-            "Margin range": float(g_week["Margin"].max() - g_week["Margin"].min()) if g_week["Margin"].notna().any() else None,
+            "Avg margin": (float(g_week.loc[pd.to_numeric(g_week.get("Win?"), errors="coerce") == 1, "Margin"].mean()) if (pd.to_numeric(g_week.get("Win?"), errors="coerce") == 1).any() else None),
+            "Margin range": (float(g_week.loc[pd.to_numeric(g_week.get("Win?"), errors="coerce") == 1, "Margin"].max() - g_week.loc[pd.to_numeric(g_week.get("Win?"), errors="coerce") == 1, "Margin"].min()) if (pd.to_numeric(g_week.get("Win?"), errors="coerce") == 1).any() else None),
             "Number of games within 10": int((g_week["Margin"].abs() <= 10).sum() / 2),
             "Number of games within 5": int((g_week["Margin"].abs() <= 5).sum() / 2),
             "Max PF": float(pd.to_numeric(g_week["Max PF"], errors="coerce").fillna(0.0).sum()),
