@@ -2,6 +2,7 @@ Player-Week,Player-year,Player-all-time,team-week,team-year,team-all-time,league
 Player,Player,Player,Team,Team,Team,Week,Year,PF,Team,Team,Year
 Team,Year,Top team,Week,Year,All time win %,Year,(smallest) Playoff tiebreaker,Avg PF,Player Added,Team's traded with,Original Team
 Week,Top Team,Last team,Week Name,Result,All time record,PF,PF,PF Range,Player Dropped,Assets recieved,Number
+,,,,,Championships,,,,,,
 Week Name,Last team,Number of teams,Year,Win %,Win Variance,PF Range,Avg PF,Avg margin,type of transaction (waiver/free agency),Assets dropped,Player Picked
 Year,Number of teams,Number of transactions,PF,Record,Draft Value,Avg margin,PF Range,Margin range,Faab,Date,Trade 1
 Points,Number of transactions,Number of trades,Win?,Change in win % from previous season,Number of first round picks made,Margin range,Avg margin,Number of games within 10,Date,KTC value difference at deal time,Trade 2
