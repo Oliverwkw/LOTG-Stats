@@ -1359,33 +1359,44 @@ def build_all(repo_root: Path) -> None:
                         # leave remaining plan columns to enforcement step
                     })
 
-                    # starter slot labels: map Sleeper starter positions to labeled slots
+                    # starter slot labels: map roster positions to labeled starter slots
                     starter_slot = {}
-                    starter_positions = [str(x) for x in (m.get("starter_positions") or []) if x]
-                    if starter_positions and len(starter_positions) == len(starters):
-                        rb_count = 0
-                        wr_count = 0
-                        flex_count = 0
-                        for pid, slot in zip(starters, starter_positions):
-                            slot_upper = str(slot).upper()
-                            if slot_upper == "RB":
-                                rb_count += 1
-                                label = f"RB{rb_count}"
-                            elif slot_upper == "WR":
-                                wr_count += 1
-                                label = f"WR{wr_count}"
-                            elif slot_upper in ("FLEX", "FLX"):
-                                flex_count += 1
-                                label = f"FLX{flex_count}"
-                            elif slot_upper in ("SUPER_FLEX", "SUPERFLEX", "SFLX"):
+                    roster_positions = [str(x) for x in (lg.get("roster_positions") or []) if x]
+                    non_start_slots = {"BN", "BE", "BENCH", "IR", "TAXI"}
+                    starter_slots = [pos for pos in roster_positions if str(pos).upper() not in non_start_slots]
+
+                    def _base_slot(pos: str) -> str:
+                        upper = str(pos or "").upper()
+                        if upper in ("SUPER_FLEX", "SUPERFLEX", "SFLEX", "SFLX"):
+                            return "SFLX"
+                        if upper in ("FLEX", "FLX"):
+                            return "FLX"
+                        return upper
+
+                    if starter_slots and starters:
+                        counts: Dict[str, int] = {}
+                        for pid, slot in zip(starters, starter_slots):
+                            base = _base_slot(slot)
+                            if not base:
+                                continue
+                            counts[base] = counts.get(base, 0) + 1
+                            idx = counts[base]
+
+                            label = base
+                            if base == "RB":
+                                label = f"RB{idx}"
+                            elif base == "WR":
+                                label = f"WR{idx}"
+                            elif base == "FLX":
+                                label = f"FLX{idx}"
+                            elif base == "SFLX":
                                 label = "SFLX"
-                            elif slot_upper == "QB":
+                            elif base == "QB":
                                 label = "QB"
-                            else:
-                                label = slot_upper
                             starter_slot[pid] = label
-                    else:
-                        # fallback to player position if starter slot data is missing
+
+                    # fallback to player position if starter slot data is missing
+                    if not starter_slot:
                         for pid in starters:
                             starter_slot[pid] = pid_pos.get(pid)
 
