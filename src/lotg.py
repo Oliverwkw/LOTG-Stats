@@ -2805,6 +2805,13 @@ def build_all(repo_root: Path) -> None:
         champion_by_season: Dict[int, Optional[str]] = {}
         last_place_by_season: Dict[int, Optional[str]] = {}
         teams_by_season: Dict[int, set] = {}
+        place_record_by_year: Dict[int, Dict[str, int]] = {}
+        place_pf_by_year: Dict[int, Dict[str, int]] = {}
+        place_maxpf_by_year: Dict[int, Dict[str, int]] = {}
+
+        def _place_map(rows: List[Tuple[str, int, int, int, float, float]]) -> Dict[str, int]:
+            return {str(team): idx + 1 for idx, (team, *_rest) in enumerate(rows)}
+
         for yr, g in tw.groupby("Year"):
             season = int(yr)
             teams_by_season[season] = set(g["Team"].dropna().astype(str).tolist())
@@ -2813,6 +2820,7 @@ def build_all(repo_root: Path) -> None:
             if playoff_start:
                 reg = reg[pd.to_numeric(reg["Week"], errors="coerce") < playoff_start]
             reg["PF"] = pd.to_numeric(reg["PF"], errors="coerce").fillna(0.0)
+            reg["Max PF"] = pd.to_numeric(reg["Max PF"], errors="coerce").fillna(0.0)
             reg["Win?"] = pd.to_numeric(reg["Win?"], errors="coerce")
             standings = []
             for team, tg in reg.groupby("Team"):
@@ -2820,10 +2828,16 @@ def build_all(repo_root: Path) -> None:
                 losses = int((tg["Win?"] == 0).sum())
                 ties = int((tg["Win?"] == 0.5).sum())
                 pf = float(tg["PF"].sum())
-                standings.append((team, wins, losses, ties, pf))
+                maxpf = float(tg["Max PF"].sum())
+                standings.append((team, wins, losses, ties, pf, maxpf))
             standings.sort(key=lambda x: (x[1] + 0.5 * x[3], x[4]), reverse=True)
             playoff_teams_by_season[season] = set([t for t, *_ in standings[:4]])
             last_place_by_season[season] = standings[-1][0] if standings else None
+            place_record_by_year[season] = _place_map(standings)
+            standings_pf = sorted(standings, key=lambda x: x[4], reverse=True)
+            standings_maxpf = sorted(standings, key=lambda x: x[5], reverse=True)
+            place_pf_by_year[season] = _place_map(standings_pf)
+            place_maxpf_by_year[season] = _place_map(standings_maxpf)
             champ = None
             if "Week label" in g.columns:
                 finals = g[g["Week label"] == "Final"]
@@ -2910,6 +2924,19 @@ def build_all(repo_root: Path) -> None:
             _log_exc(debug, "season_finish_map", e)
 
         # team-year rollup
+        all_time_rows = []
+        for team, g in tw.groupby("Team"):
+            wins = int((g["Win?"] == 1).sum())
+            losses = int((g["Win?"] == 0).sum())
+            ties = int((g["Win?"] == 0.5).sum())
+            pf = float(pd.to_numeric(g["PF"], errors="coerce").fillna(0.0).sum())
+            maxpf_sum = float(pd.to_numeric(g["Max PF"], errors="coerce").fillna(0.0).sum())
+            all_time_rows.append((team, wins, losses, ties, pf, maxpf_sum))
+        all_time_rows.sort(key=lambda x: (x[1] + 0.5 * x[3], x[4]), reverse=True)
+        all_time_place_record = _place_map(all_time_rows)
+        all_time_place_pf = _place_map(sorted(all_time_rows, key=lambda x: x[4], reverse=True))
+        all_time_place_maxpf = _place_map(sorted(all_time_rows, key=lambda x: x[5], reverse=True))
+
         rows = []
         for (team, yr), g in tw.groupby(["Team", "Year"]):
             wins = int((g["Win?"] == 1).sum())
@@ -2923,6 +2950,13 @@ def build_all(repo_root: Path) -> None:
             maxpf_avg = float(pd.to_numeric(g["Max PF"], errors="coerce").fillna(0.0).mean())
             rec = _record_str(wins, losses, ties)
             winp = round((wins + 0.5 * ties) / gp, 4)
+            place_record = place_record_by_year.get(int(yr), {}).get(str(team))
+            place_pf = place_pf_by_year.get(int(yr), {}).get(str(team))
+            place_maxpf = place_maxpf_by_year.get(int(yr), {}).get(str(team))
+            if place_record is not None and place_pf is not None and place_maxpf is not None:
+                win_variance = -1 * (place_record - ((place_pf + place_maxpf) / 2))
+            else:
+                win_variance = None
             row = {
                 "Team": str(team),
                 "Year": int(yr),
@@ -2935,7 +2969,7 @@ def build_all(repo_root: Path) -> None:
                 "Record & win % vs champion": "N/A",
                 "Record & win % vs last place": "N/A",
                 "Change in win % from previous season": None,
-                "Win Variance": float(pd.to_numeric(g["Win?"], errors="coerce").fillna(0.0).var()),
+                "Win Variance": float(win_variance) if win_variance is not None else None,
                 "Week of playoff elimination": "N/A",
                 "Draft Value": 0,
                 "Number of first round picks made": 0,
@@ -3178,6 +3212,20 @@ def build_all(repo_root: Path) -> None:
             diff = pf - pa
             maxpf_sum = float(pd.to_numeric(g["Max PF"], errors="coerce").fillna(0.0).sum())
             maxpf_avg = float(pd.to_numeric(g["Max PF"], errors="coerce").fillna(0.0).mean())
+            all_time_place_record_value = all_time_place_record.get(str(team))
+            all_time_place_pf_value = all_time_place_pf.get(str(team))
+            all_time_place_maxpf_value = all_time_place_maxpf.get(str(team))
+            if (
+                all_time_place_record_value is not None
+                and all_time_place_pf_value is not None
+                and all_time_place_maxpf_value is not None
+            ):
+                win_variance = -1 * (
+                    all_time_place_record_value
+                    - ((all_time_place_pf_value + all_time_place_maxpf_value) / 2)
+                )
+            else:
+                win_variance = None
             row = {
                 "Team": str(team),
                 "All time win %": round((wins + 0.5 * ties) / gp, 4),
@@ -3188,7 +3236,7 @@ def build_all(repo_root: Path) -> None:
                 "Record & win % vs non-playoff teams": "N/A",
                 "Record & win % vs champions": "N/A",
                 "Record & win % vs last place": "N/A",
-                "Win Variance": float(pd.to_numeric(g["Win?"], errors="coerce").fillna(0.0).var()),
+                "Win Variance": float(win_variance) if win_variance is not None else None,
                 "Draft Value": 0,
                 "Number of first round picks made": 0,
                 "Total number of picks made": 0,
