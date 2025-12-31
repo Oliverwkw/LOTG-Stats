@@ -546,15 +546,23 @@ def _fill_missing_values(df: pd.DataFrame, cols: List[str]) -> pd.DataFrame:
 # Matchup naming for playoffs/toilet
 # --------------------------
 
-def _matchup_stage(week: int, playoff_start: Optional[int]) -> Optional[str]:
+def _matchup_stage(
+    week: int,
+    playoff_start: Optional[int],
+    playoff_rounds: Optional[int] = None,
+) -> Optional[str]:
     if not playoff_start:
         return None
     if week < playoff_start:
         return None
+    rounds = playoff_rounds or 2
+    finals_week = playoff_start + max(rounds - 1, 1)
+    if week > finals_week:
+        return None
+    if week == finals_week:
+        return "FINALS"
     if week == playoff_start:
         return "SEMIS"
-    if week == playoff_start + 1:
-        return "FINALS"
     return None
 
 
@@ -751,6 +759,8 @@ def build_all(repo_root: Path) -> None:
     opp_pf_map: Dict[Tuple[int, int, int], Optional[float]] = {}
     stage_label_map: Dict[Tuple[int, int, int], Optional[str]] = {}
     playoff_start_by_season: Dict[int, Optional[int]] = {}
+    playoff_rounds_by_season: Dict[int, Optional[int]] = {}
+    playoff_team_count_by_season: Dict[int, Optional[int]] = {}
 
     # Determine last completed week per league (robust, per Apps Script)
     def last_completed_week(league_id: str, season: int, max_weeks: int = 30) -> int:
@@ -786,6 +796,12 @@ def build_all(repo_root: Path) -> None:
         settings = lg.get("settings") or {}
         playoff_start = _to_int(settings.get("playoff_week_start"), None)
         playoff_start_by_season[season] = playoff_start
+        playoff_rounds = _to_int(settings.get("playoff_rounds"), None)
+        if playoff_rounds is None:
+            playoff_rounds = _to_int(settings.get("playoff_round"), None)
+        playoff_rounds_by_season[season] = playoff_rounds
+        playoff_team_count = _to_int(settings.get("playoff_teams"), None)
+        playoff_team_count_by_season[season] = playoff_team_count
 
         # cache played_by_week
         if season not in played_by_week_by_season:
@@ -950,6 +966,10 @@ def build_all(repo_root: Path) -> None:
             _log(debug, f"[{_now_iso()}] INFO season {season}: no completed weeks, skipping")
             continue
 
+        if playoff_rounds is None and playoff_start:
+            playoff_rounds = max(1, last_week - playoff_start + 1)
+            playoff_rounds_by_season[season] = playoff_rounds
+
         # Exclude week 18 always; if season < 2021 exclude week 17 (kept for future ESPN import)
         def week_allowed(wk: int) -> bool:
             if wk == 18:
@@ -1000,7 +1020,7 @@ def build_all(repo_root: Path) -> None:
             except Exception:
                 pass
 
-            stage = _matchup_stage(wk, playoff_start)
+            stage = _matchup_stage(wk, playoff_start, playoff_rounds)
 
             for mid, g in mdf.groupby("matchup_id"):
                 rids = [int(x) for x in g["roster_id"].dropna().astype(int).tolist()]
@@ -1047,24 +1067,32 @@ def build_all(repo_root: Path) -> None:
                                     ties += 1
                             reg.append((tm, rid, wins, losses, ties, pf_sum))
                         reg.sort(key=lambda x: (x[2] + 0.5 * x[4], x[5]), reverse=True)
-                        top4 = set([rid for _, rid, *_ in reg[:4]])
-                        bottom4 = set([rid for _, rid, *_ in reg[4:]])
-                        # annotate this week (semis) and next week (finals)
-                        for rid in top4:
-                            stage_label_map[(season, playoff_start, rid)] = "Semifinal"
+                        playoff_team_count = playoff_team_count_by_season.get(season) or 4
+                        playoff_rounds = playoff_rounds_by_season.get(season) or 2
+                        playoff_rids = set([rid for _, rid, *_ in reg[:playoff_team_count]])
+                        bottom4 = set([rid for _, rid, *_ in reg[playoff_team_count:]])
+                        finals_week = playoff_start + max(playoff_rounds - 1, 1)
+                        semis_week = playoff_start if playoff_team_count <= 4 else finals_week - 1
+
+                        if week_allowed(semis_week) and semis_week in matchups_by_week:
+                            for rid in playoff_rids:
+                                opp = opp_rid_map.get((season, semis_week, rid))
+                                if opp is None or opp not in playoff_rids:
+                                    continue
+                                stage_label_map[(season, semis_week, rid)] = "Semifinal"
                         for rid in bottom4:
                             stage_label_map[(season, playoff_start, rid)] = "Toilet Semis"
+
                         # next week labels depend on semis results
-                        finals_week = playoff_start + 1
                         if week_allowed(finals_week) and finals_week in matchups_by_week:
                             # Determine winners/losers within those brackets
-                            for rid in top4:
-                                opp = opp_rid_map.get((season, playoff_start, rid))
-                                if opp is None:
+                            for rid in playoff_rids:
+                                opp = opp_rid_map.get((season, semis_week, rid))
+                                if opp is None or opp not in playoff_rids:
                                     continue
                                 if rid < opp:  # handle each pair once
-                                    pf_a = team_pf_by_week[playoff_start].get(roster_to_team[rid], 0.0)
-                                    pf_b = team_pf_by_week[playoff_start].get(roster_to_team[opp], 0.0)
+                                    pf_a = team_pf_by_week[semis_week].get(roster_to_team[rid], 0.0)
+                                    pf_b = team_pf_by_week[semis_week].get(roster_to_team[opp], 0.0)
                                     win_a = (pf_a > pf_b)
                                     winner = rid if win_a else opp
                                     loser = opp if win_a else rid
@@ -1093,7 +1121,7 @@ def build_all(repo_root: Path) -> None:
         awards_weekly = defaultdict(list)  # (season,wk) -> list of (pid, team, pts, started, pos)
 
         for wk, mu in matchups_by_week.items():
-            stage = _matchup_stage(wk, playoff_start)
+            stage = _matchup_stage(wk, playoff_start, playoff_rounds)
             # tx summaries
             faab_spent: Dict[str, float] = defaultdict(float)
             trade_count: Dict[str, int] = defaultdict(int)
@@ -2730,6 +2758,8 @@ def build_all(repo_root: Path) -> None:
         for yr, g in tw.groupby("Year"):
             season = int(yr)
             playoff_start = playoff_start_by_season.get(season)
+            playoff_rounds = playoff_rounds_by_season.get(season) or 2
+            playoff_team_count = playoff_team_count_by_season.get(season) or 4
             reg = g.copy()
             if playoff_start:
                 reg = reg[pd.to_numeric(reg["Week"], errors="coerce") < playoff_start]
@@ -2743,11 +2773,17 @@ def build_all(repo_root: Path) -> None:
                 pf = float(tg["PF"].sum())
                 standings.append((team, wins, losses, ties, pf))
             standings.sort(key=lambda x: (x[1] + 0.5 * x[3], x[4]), reverse=True)
-            playoff_teams_by_season[season] = set([t for t, *_ in standings[:4]])
+            playoff_teams_by_season[season] = set([t for t, *_ in standings[:playoff_team_count]])
             last_place_by_season[season] = standings[-1][0] if standings else None
             champ = None
             if "Week label" in g.columns:
+                finals_week = playoff_start + max(playoff_rounds - 1, 1) if playoff_start else None
                 finals = g[g["Week label"] == "Final"]
+                if finals_week is not None and finals.empty:
+                    finals = g[
+                        (g["Week"] == finals_week)
+                        & (g["Team"].astype(str).isin(playoff_teams_by_season.get(season, set())))
+                    ]
                 champ_row = finals[finals["Win?"] == 1]
                 if not champ_row.empty:
                     champ = str(champ_row.iloc[0]["Team"])
@@ -2764,7 +2800,8 @@ def build_all(repo_root: Path) -> None:
                 playoff_start = playoff_start_by_season.get(season)
                 if not playoff_start:
                     continue
-                finals_week = playoff_start + 1
+                playoff_rounds = playoff_rounds_by_season.get(season) or 2
+                finals_week = playoff_start + max(playoff_rounds - 1, 1)
                 fin_map: Dict[str, str] = {}
                 # Finals
                 gf = tw[(tw["Year"]==season) & (tw["Week"]==finals_week) & (tw["Week label"]=="Final")].copy()
