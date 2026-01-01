@@ -1727,6 +1727,132 @@ def build_all(repo_root: Path) -> None:
     log_df(pw, 'player_week', sample_cols=['Points','Injury?','Suspension?','Bye?','Starter?'])
     tw = pd.DataFrame(team_week_rows)
 
+    if not pw.empty:
+        try:
+            # -----------------------------------------------------------------
+            # Heuristically infer Injury? and Suspension? flags when nflverse
+            # injury report data is unavailable.  This logic looks for runs of
+            # consecutive zero‑point weeks (excluding byes and playoff weeks),
+            # then classifies each run based on its length, position in the
+            # season, and whether the player recorded positive scores around it.
+            #
+            # Key rules:
+            #   • Any run that includes a 'Starter' week is always an injury.
+            #   • Early runs (before the first positive week) are marked as
+            #     suspensions ONLY if their length is an even number ≤ 6
+            #     (i.e. 2, 4 or 6 weeks).  All other early runs are injuries.
+            #   • Late runs (after the first positive week):
+            #       – Runs of ≥ 3 weeks are injuries.
+            #       – Runs of exactly 2 weeks are suspensions only if there are
+            #         positive‑scoring weeks both before and after the run and
+            #         the run starts before Week 13; otherwise they are injuries.
+            #       – Single‑week zeros are injuries if there are positive weeks
+            #         both before and after.
+            #
+            def _to_week_num(w: Any) -> int:
+                """Convert Week to an integer; playoff labels become 99."""
+                try:
+                    return int(w)
+                except Exception:
+                    return 99
+
+            # prepare new flag series
+            new_injury_flags = pd.Series(False, index=pw.index)
+            new_susp_flags = pd.Series(False, index=pw.index)
+
+            for (player, yr), grp in pw.groupby(["Player", "Year"]):
+                g = grp.copy()
+                g["_week_num"] = g["Week"].apply(_to_week_num)
+                g.sort_values("_week_num", inplace=True)
+                pts = g["Points"].astype(float).tolist()
+                statuses = g["Starter/Bench"].fillna("").astype(str).tolist()
+                byes = g["Bye?"].fillna(False).tolist()
+                week_nums = g["_week_num"].tolist()
+                idxs = g.index.tolist()
+                n = len(pts)
+
+                # find first positive‑scoring week
+                first_pos_idx = None
+                for j, (p, wn) in enumerate(zip(pts, week_nums)):
+                    if wn != 99 and p > 0:
+                        first_pos_idx = j
+                        break
+
+                def process_run(start, end):
+                    """Classify a run of zero‑point weeks from index 'start' to 'end'."""
+                    length = end - start + 1
+                    has_pos_before = any(
+                        (pts[k] > 0 and week_nums[k] != 99) for k in range(0, start)
+                    )
+                    has_pos_after = any(
+                        (pts[k] > 0 and week_nums[k] != 99) for k in range(end + 1, n)
+                    )
+                    run_has_starter = any(
+                        statuses[k].lower() == "starter" for k in range(start, end + 1)
+                    )
+                    is_early = (first_pos_idx is None) or (end < first_pos_idx)
+                    start_week = week_nums[start]
+
+                    target = None
+                    if run_has_starter:
+                        target = "injury"
+                    elif length >= 3:
+                        if is_early:
+                            # Early long runs: only even‑length ≤ 6 are suspensions.
+                            if has_pos_after and length <= 6 and length % 2 == 0:
+                                target = "suspension"
+                            else:
+                                target = "injury"
+                        else:
+                            target = "injury"
+                    elif length == 2:
+                        if is_early:
+                            if has_pos_after and length <= 6 and length % 2 == 0:
+                                target = "suspension"
+                            else:
+                                target = "injury"
+                        else:
+                            if has_pos_before and has_pos_after and start_week <= 12:
+                                target = "suspension"
+                            else:
+                                target = "injury"
+                    else:  # length == 1
+                        # single‑week zeros become injuries if surrounded by positives
+                        if (not is_early) and has_pos_before and has_pos_after:
+                            target = "injury"
+
+                    if target == "injury":
+                        for j in range(start, end + 1):
+                            new_injury_flags.at[idxs[j]] = True
+                    elif target == "suspension":
+                        for j in range(start, end + 1):
+                            new_susp_flags.at[idxs[j]] = True
+
+                # scan through weeks to find zero‑point runs
+                run_start = None
+                for i in range(n):
+                    wn, p, bye = week_nums[i], pts[i], byes[i]
+                    if wn == 99 or bye:
+                        if run_start is not None:
+                            process_run(run_start, i - 1)
+                            run_start = None
+                        continue
+                    if p == 0:
+                        if run_start is None:
+                            run_start = i
+                    else:
+                        if run_start is not None:
+                            process_run(run_start, i - 1)
+                            run_start = None
+                if run_start is not None:
+                    process_run(run_start, n - 1)
+
+            # merge new flags with existing ones
+            pw["Injury?"] = pw["Injury?"].fillna(False) | new_injury_flags
+            pw["Suspension?"] = pw["Suspension?"].fillna(False) | new_susp_flags
+        except Exception as e:
+            _log_exc(debug, "player_week_heuristic_injury_suspension", e)
+
     # Normalize team names (case-insensitive) across seasons so joins don't duplicate teams like 'Shmuel256' vs 'shmuel256'.
     if not tw.empty and "Team" in tw.columns:
         tw["_team_canon"] = tw["Team"].apply(_norm_team_name)
