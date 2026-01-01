@@ -2039,6 +2039,106 @@ def build_all(repo_root: Path) -> None:
         pw["Week"] = pd.to_numeric(pw["Week"], errors="coerce").astype("Int64")
         pw["Points"] = pd.to_numeric(pw["Points"], errors="coerce").fillna(0.0)
 
+        # -----------------------------------------------------------------
+        # Recompute Injury? and Suspension? flags from scratch.
+        # 1) Reset existing flags so we don’t inherit previous mislabels.
+        pw["Injury?"] = False
+        pw["Suspension?"] = False
+
+        # 2) Convert Week labels to integers where possible; playoff weeks become 99.
+        def _to_week_num(w: Any) -> int:
+            try:
+                return int(w)
+            except Exception:
+                return 99
+
+        # 3) Fill missing NFL team values by forward/back filling within each player-season.
+        if "NFL team" in pw.columns:
+            pw["NFL team"] = pw.groupby(["Player", "Year"])["NFL team"].apply(
+                lambda s: s.ffill().bfill()
+            ).reset_index(level=[0, 1], drop=True)
+
+        # 4) Build new flags per player-season
+        for (player, yr), grp in pw.groupby(["Player", "Year"]):
+            g = grp.copy()
+            g["_week_num"] = g["Week"].apply(_to_week_num)
+            g.sort_values("_week_num", inplace=True)
+
+            pts = g["Points"].astype(float).tolist()
+            byes = g["Bye?"].fillna(False).tolist()
+            statuses = g["Starter/Bench"].fillna("").astype(str).tolist()
+            week_nums = g["_week_num"].tolist()
+            idxs = g.index.tolist()
+
+            # index of first positive-scoring week (None if never positive)
+            first_pos_idx = None
+            for j, (p, wn) in enumerate(zip(pts, week_nums)):
+                if wn != 99 and p > 0:
+                    first_pos_idx = j
+                    break
+
+            # Helper: classify a contiguous run of zero-point weeks [start, end].
+            def classify_run(start: int, end: int) -> None:
+                length = end - start + 1
+                # if any week in run was started in fantasy lineup -> treat as a played week
+                if any(statuses[k].lower() == "starter" for k in range(start, end + 1)):
+                    return
+
+                has_pos_before = any(
+                    pts[k] > 0 and week_nums[k] != 99 for k in range(0, start)
+                )
+                has_pos_after = any(
+                    pts[k] > 0 and week_nums[k] != 99 for k in range(end + 1, len(pts))
+                )
+
+                is_early = (first_pos_idx is None) or (end < first_pos_idx)
+                start_week = week_nums[start]
+
+                if is_early:
+                    # Early runs: only lengths of 2, 4, or 6 games (with a later positive)
+                    # are suspensions; everything else is an injury.
+                    if has_pos_after and length in {2, 4, 6}:
+                        for j in range(start, end + 1):
+                            pw.at[idxs[j], "Suspension?"] = True
+                    else:
+                        for j in range(start, end + 1):
+                            pw.at[idxs[j], "Injury?"] = True
+                else:
+                    # Late runs:
+                    if length >= 3:
+                        for j in range(start, end + 1):
+                            pw.at[idxs[j], "Injury?"] = True
+                    elif length == 2:
+                        if has_pos_before and has_pos_after and start_week <= 14:
+                            # mid-season two-game suspension (e.g. PED)
+                            for j in range(start, end + 1):
+                                pw.at[idxs[j], "Suspension?"] = True
+                        else:
+                            for j in range(start, end + 1):
+                                pw.at[idxs[j], "Injury?"] = True
+                    else:  # length == 1
+                        if has_pos_before and has_pos_after:
+                            for j in range(start, end + 1):
+                                pw.at[idxs[j], "Injury?"] = True
+
+            # Scan through weeks to find contiguous zero-point runs (skip byes & playoffs).
+            run_start = None
+            for i, (p, wn, bye) in enumerate(zip(pts, week_nums, byes)):
+                if wn == 99 or bye:
+                    if run_start is not None:
+                        classify_run(run_start, i - 1)
+                        run_start = None
+                    continue
+                if p == 0:
+                    if run_start is None:
+                        run_start = i
+                else:
+                    if run_start is not None:
+                        classify_run(run_start, i - 1)
+                        run_start = None
+            if run_start is not None:
+                classify_run(run_start, len(pts) - 1)
+
         pw = pw.sort_values(["Player", "Year", "Week"]).reset_index(drop=True)
 
         active = ~pw[["Injury?", "Suspension?", "Bye?"]].fillna(False).any(axis=1)
