@@ -10,18 +10,6 @@ dependencies = []
 
 [tool.setuptools]
 package-dir = {"" = "src"}
-py-modules = [
-    "lotg",
-    "player_week",
-    "player_year",
-    "player_all_time",
-    "team_week",
-    "team_year",
-    "team_all_time",
-    "league_week",
-    "league_year",
-    "league_all_time",
-    "transactions",
-    "trades",
-    "pick_history",
-]
+
+[tool.setuptools.packages.find]
+where = ["src"]

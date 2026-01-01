@@ -1,2 +1,156 @@
 {"ts": 1766538336.470831, "level": "INFO", "msg": "Starting build_all", "fields": {"league_id": "1192931349575991296", "min_season": 2019, "max_season": 2025, "season_type": "regular"}}
 {"ts": 1766538478.0924826, "level": "INFO", "msg": "Starting build_all", "fields": {"league_id": "1192931349575991296", "min_season": 2019, "max_season": 2025, "season_type": "regular"}}
+
+[2025-12-31T23:20:34.915929+00:00] ===== Build start =====
+[2025-12-31T23:20:39.977083+00:00] ERROR at load_dynastyprocess_playerids: ConnectionError: HTTPSConnectionPool(host='raw.githubusercontent.com', port=443): Max retries exceeded with url: /DynastyProcess/data/master/files/playerids.csv (Caused by NameResolutionError("<urllib3.connection.HTTPSConnection object at 0x7f987f4878d0>: Failed to resolve 'raw.githubusercontent.com' ([Errno -3] Temporary failure in name resolution)"))
+Traceback (most recent call last):
+  File "/opt/pyvenv/lib/python3.11/site-packages/urllib3/connection.py", line 198, in _new_conn
+    sock = connection.create_connection(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/pyvenv/lib/python3.11/site-packages/urllib3/util/connection.py", line 60, in create_connection
+    for res in socket.getaddrinfo(host, port, family, socket.SOCK_STREAM):
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.11/socket.py", line 962, in getaddrinfo
+    for res in _socket.getaddrinfo(host, port, family, type, proto, flags):
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+socket.gaierror: [Errno -3] Temporary failure in name resolution
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/opt/pyvenv/lib/python3.11/site-packages/urllib3/connectionpool.py", line 787, in urlopen
+    response = self._make_request(
+               ^^^^^^^^^^^^^^^^^^^
+  File "/opt/pyvenv/lib/python3.11/site-packages/urllib3/connectionpool.py", line 488, in _make_request
+    raise new_e
+  File "/opt/pyvenv/lib/python3.11/site-packages/urllib3/connectionpool.py", line 464, in _make_request
+    self._validate_conn(conn)
+  File "/opt/pyvenv/lib/python3.11/site-packages/urllib3/connectionpool.py", line 1093, in _validate_conn
+    conn.connect()
+  File "/opt/pyvenv/lib/python3.11/site-packages/urllib3/connection.py", line 753, in connect
+    self.sock = sock = self._new_conn()
+                       ^^^^^^^^^^^^^^^^
+  File "/opt/pyvenv/lib/python3.11/site-packages/urllib3/connection.py", line 205, in _new_conn
+    raise NameResolutionError(self.host, self, e) from e
+urllib3.exceptions.NameResolutionError: <urllib3.connection.HTTPSConnection object at 0x7f987f4878d0>: Failed to resolve 'raw.githubusercontent.com' ([Errno -3] Temporary failure in name resolution)
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/opt/pyvenv/lib/python3.11/site-packages/requests/adapters.py", line 644, in send
+    resp = conn.urlopen(
+           ^^^^^^^^^^^^^
+  File "/opt/pyvenv/lib/python3.11/site-packages/urllib3/connectionpool.py", line 841, in urlopen
+    retries = retries.increment(
+              ^^^^^^^^^^^^^^^^^^
+  File "/opt/pyvenv/lib/python3.11/site-packages/urllib3/util/retry.py", line 519, in increment
+    raise MaxRetryError(_pool, url, reason) from reason  # type: ignore[arg-type]
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+urllib3.exceptions.MaxRetryError: HTTPSConnectionPool(host='raw.githubusercontent.com', port=443): Max retries exceeded with url: /DynastyProcess/data/master/files/playerids.csv (Caused by NameResolutionError("<urllib3.connection.HTTPSConnection object at 0x7f987f4878d0>: Failed to resolve 'raw.githubusercontent.com' ([Errno -3] Temporary failure in name resolution)"))
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/home/oai/share/repo/LOTG-Stats-main/src/lotg/build.py", line 509, in build_all
+    dp_ids = _safe_df(load_dynastyprocess_playerids(ext))
+                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/oai/share/repo/LOTG-Stats-main/src/lotg/external.py", line 43, in load_dynastyprocess_playerids
+    _download_best_effort(urls, path, cfg.timeout_seconds)
+  File "/home/oai/share/repo/LOTG-Stats-main/src/lotg/external.py", line 33, in _download_best_effort
+    raise last_err
+  File "/home/oai/share/repo/LOTG-Stats-main/src/lotg/external.py", line 27, in _download_best_effort
+    _download(url, out, timeout)
+  File "/home/oai/share/repo/LOTG-Stats-main/src/lotg/external.py", line 17, in _download
+    r = session.get(url, timeout=timeout, proxies={"http": None, "https": None})
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/pyvenv/lib/python3.11/site-packages/requests/sessions.py", line 602, in get
+    return self.request("GET", url, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/pyvenv/lib/python3.11/site-packages/requests/sessions.py", line 589, in request
+    resp = self.send(prep, **send_kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/pyvenv/lib/python3.11/site-packages/requests/sessions.py", line 703, in send
+    r = adapter.send(request, **kwargs)
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/pyvenv/lib/python3.11/site-packages/requests/adapters.py", line 677, in send
+    raise ConnectionError(e, request=request)
+requests.exceptions.ConnectionError: HTTPSConnectionPool(host='raw.githubusercontent.com', port=443): Max retries exceeded with url: /DynastyProcess/data/master/files/playerids.csv (Caused by NameResolutionError("<urllib3.connection.HTTPSConnection object at 0x7f987f4878d0>: Failed to resolve 'raw.githubusercontent.com' ([Errno -3] Temporary failure in name resolution)"))
+
+[2025-12-31T23:20:45.015947+00:00] WARN csv download failed: ConnectionError: HTTPSConnectionPool(host='github.com', port=443): Max retries exceeded with url: /nflverse/nfldata/raw/master/data/games.csv (Caused by NameResolutionError("<urllib3.connection.HTTPSConnection object at 0x7f987f5445d0>: Failed to resolve 'github.com' ([Errno -3] Temporary failure in name resolution)")) https://github.com/nflverse/nfldata/raw/master/data/games.csv
+
+[2026-01-01T01:04:00.356991+00:00] ===== Build start =====
+[2026-01-01T01:04:05.377106+00:00] ERROR at load_dynastyprocess_playerids: ConnectionError: HTTPSConnectionPool(host='raw.githubusercontent.com', port=443): Max retries exceeded with url: /DynastyProcess/data/master/files/playerids.csv (Caused by NameResolutionError("<urllib3.connection.HTTPSConnection object at 0x7fe37f43fa90>: Failed to resolve 'raw.githubusercontent.com' ([Errno -3] Temporary failure in name resolution)"))
+Traceback (most recent call last):
+  File "/opt/pyvenv/lib/python3.11/site-packages/urllib3/connection.py", line 198, in _new_conn
+    sock = connection.create_connection(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/pyvenv/lib/python3.11/site-packages/urllib3/util/connection.py", line 60, in create_connection
+    for res in socket.getaddrinfo(host, port, family, socket.SOCK_STREAM):
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.11/socket.py", line 962, in getaddrinfo
+    for res in _socket.getaddrinfo(host, port, family, type, proto, flags):
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+socket.gaierror: [Errno -3] Temporary failure in name resolution
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/opt/pyvenv/lib/python3.11/site-packages/urllib3/connectionpool.py", line 787, in urlopen
+    response = self._make_request(
+               ^^^^^^^^^^^^^^^^^^^
+  File "/opt/pyvenv/lib/python3.11/site-packages/urllib3/connectionpool.py", line 488, in _make_request
+    raise new_e
+  File "/opt/pyvenv/lib/python3.11/site-packages/urllib3/connectionpool.py", line 464, in _make_request
+    self._validate_conn(conn)
+  File "/opt/pyvenv/lib/python3.11/site-packages/urllib3/connectionpool.py", line 1093, in _validate_conn
+    conn.connect()
+  File "/opt/pyvenv/lib/python3.11/site-packages/urllib3/connection.py", line 753, in connect
+    self.sock = sock = self._new_conn()
+                       ^^^^^^^^^^^^^^^^
+  File "/opt/pyvenv/lib/python3.11/site-packages/urllib3/connection.py", line 205, in _new_conn
+    raise NameResolutionError(self.host, self, e) from e
+urllib3.exceptions.NameResolutionError: <urllib3.connection.HTTPSConnection object at 0x7fe37f43fa90>: Failed to resolve 'raw.githubusercontent.com' ([Errno -3] Temporary failure in name resolution)
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/opt/pyvenv/lib/python3.11/site-packages/requests/adapters.py", line 644, in send
+    resp = conn.urlopen(
+           ^^^^^^^^^^^^^
+  File "/opt/pyvenv/lib/python3.11/site-packages/urllib3/connectionpool.py", line 841, in urlopen
+    retries = retries.increment(
+              ^^^^^^^^^^^^^^^^^^
+  File "/opt/pyvenv/lib/python3.11/site-packages/urllib3/util/retry.py", line 519, in increment
+    raise MaxRetryError(_pool, url, reason) from reason  # type: ignore[arg-type]
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+urllib3.exceptions.MaxRetryError: HTTPSConnectionPool(host='raw.githubusercontent.com', port=443): Max retries exceeded with url: /DynastyProcess/data/master/files/playerids.csv (Caused by NameResolutionError("<urllib3.connection.HTTPSConnection object at 0x7fe37f43fa90>: Failed to resolve 'raw.githubusercontent.com' ([Errno -3] Temporary failure in name resolution)"))
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/home/oai/share/repo/LOTG-Stats-main/src/lotg/build.py", line 509, in build_all
+    dp_ids = _safe_df(load_dynastyprocess_playerids(ext))
+                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/oai/share/repo/LOTG-Stats-main/src/lotg/external.py", line 43, in load_dynastyprocess_playerids
+    _download_best_effort(urls, path, cfg.timeout_seconds)
+  File "/home/oai/share/repo/LOTG-Stats-main/src/lotg/external.py", line 33, in _download_best_effort
+    raise last_err
+  File "/home/oai/share/repo/LOTG-Stats-main/src/lotg/external.py", line 27, in _download_best_effort
+    _download(url, out, timeout)
+  File "/home/oai/share/repo/LOTG-Stats-main/src/lotg/external.py", line 17, in _download
+    r = session.get(url, timeout=timeout, proxies={"http": None, "https": None})
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/pyvenv/lib/python3.11/site-packages/requests/sessions.py", line 602, in get
+    return self.request("GET", url, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/pyvenv/lib/python3.11/site-packages/requests/sessions.py", line 589, in request
+    resp = self.send(prep, **send_kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/pyvenv/lib/python3.11/site-packages/requests/sessions.py", line 703, in send
+    r = adapter.send(request, **kwargs)
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/pyvenv/lib/python3.11/site-packages/requests/adapters.py", line 677, in send
+    raise ConnectionError(e, request=request)
+requests.exceptions.ConnectionError: HTTPSConnectionPool(host='raw.githubusercontent.com', port=443): Max retries exceeded with url: /DynastyProcess/data/master/files/playerids.csv (Caused by NameResolutionError("<urllib3.connection.HTTPSConnection object at 0x7fe37f43fa90>: Failed to resolve 'raw.githubusercontent.com' ([Errno -3] Temporary failure in name resolution)"))
+
+[2026-01-01T01:04:10.395024+00:00] WARN csv download failed: ConnectionError: HTTPSConnectionPool(host='github.com', port=443): Max retries exceeded with url: /nflverse/nfldata/raw/master/data/games.csv (Caused by NameResolutionError("<urllib3.connection.HTTPSConnection object at 0x7fe37f4fc610>: Failed to resolve 'github.com' ([Errno -3] Temporary failure in name resolution)")) https://github.com/nflverse/nfldata/raw/master/data/games.csv
