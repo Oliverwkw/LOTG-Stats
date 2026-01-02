@@ -640,6 +640,7 @@ def build_all(repo_root: Path) -> None:
         debug=debug,
     )
     played_by_week_by_season: Dict[int, Dict[int, set]] = {}
+    nfl_team_by_gsis_week: Dict[Tuple[str, int, int], str] = {}
     if not games.empty:
         try:
             games["season"] = pd.to_numeric(games["season"], errors="coerce").astype("Int64")
@@ -830,16 +831,35 @@ def build_all(repo_root: Path) -> None:
 
         # nflverse weekly player stats (team-by-week + played detection)
         player_team_by_week: Dict[Tuple[str, int], str] = {}
+        player_snaps_by_week: Dict[Tuple[str, int], float] = {}
         played_players_by_week: Dict[int, set] = {}
         try:
             spw = _safe_df(load_nflverse_stats_player_week(ext, season))
             if (not spw.empty) and ("player_id" in spw.columns) and ("week" in spw.columns):
                 spw["week"] = pd.to_numeric(spw["week"], errors="coerce").astype("Int64")
                 spw["player_id"] = spw["player_id"].astype(str)
-                if "recent_team" in spw.columns:
-                    spw["recent_team"] = spw["recent_team"].astype(str)
-                    for r in spw[["player_id","week","recent_team"]].dropna().itertuples(index=False):
-                        player_team_by_week[(str(r.player_id), int(r.week))] = str(r.recent_team)
+                team_col = _first_col(spw, ["recent_team", "team", "posteam", "club"])
+                snap_cols = [c for c in spw.columns if c in {
+                    "offense_snaps",
+                    "defense_snaps",
+                    "special_teams_snaps",
+                    "special_team_snaps",
+                    "snap_count",
+                    "snaps",
+                    "total_snaps",
+                }]
+                if team_col:
+                    spw[team_col] = spw[team_col].astype(str)
+                    for r in spw[["player_id", "week", team_col]].dropna().itertuples(index=False):
+                        player_team_by_week[(str(r.player_id), int(r.week))] = str(r[2])
+                        nfl_team_by_gsis_week[(str(r.player_id), int(season), int(r.week))] = str(r[2])
+                if snap_cols:
+                    spw[snap_cols] = spw[snap_cols].apply(pd.to_numeric, errors="coerce").fillna(0.0)
+                    snap_totals = spw[snap_cols].sum(axis=1)
+                    for pid, wk, snaps in zip(spw["player_id"], spw["week"], snap_totals):
+                        if pd.isna(pid) or pd.isna(wk):
+                            continue
+                        player_snaps_by_week[(str(pid), int(wk))] = float(snaps)
                 for wk_i, g in spw.groupby("week"):
                     if pd.isna(wk_i):
                         continue
@@ -855,7 +875,8 @@ def build_all(repo_root: Path) -> None:
             _log_exc(debug, f"load_nflverse_injuries_{season}", e)
 
             # placeholder to anchor following logic (keep in scope)
-        injuries_by_gsis_week: Dict[Tuple[str, int], Tuple[Optional[bool], Optional[bool]]] = {}
+        injuries_by_gsis_week: Dict[Tuple[str, int, int], Tuple[Optional[bool], Optional[bool]]] = {}
+        injuries_healthy_by_gsis_week: Dict[Tuple[str, int, int], bool] = {}
         if not injuries.empty and "gsis_id" in injuries.columns:
             try:
                 inj_df = injuries.copy()
@@ -873,7 +894,12 @@ def build_all(repo_root: Path) -> None:
                         s = str(grp.iloc[0].get(status_col) or "").lower()
                         suspension = ("susp" in s) or ("sspd" in s)
                         injury = (("out" in s) or ("ir" in s) or ("inactive" in s) or ("pup" in s)) and not suspension
+                        healthy = any(
+                            tok in s
+                            for tok in ["active", "available", "full", "healthy", "cleared"]
+                        )
                         injuries_by_gsis_week[(gsis, int(yr), int(wk))] = (injury, suspension)
+                        injuries_healthy_by_gsis_week[(gsis, int(yr), int(wk))] = healthy
             except Exception as e:
                 _log_exc(debug, f"injury_index_{season}", e)
 
@@ -1442,7 +1468,6 @@ def build_all(repo_root: Path) -> None:
                         meta = pid_meta.get(pid, {})
                         full_name = meta.get("full_name") or pid
                         position = pid_pos.get(pid)
-                        nfl_team = (player_team_by_week.get((str(gsis), int(wk))) if gsis else None) or meta.get("team")
                         pts = float(ppts.get(pid, 0.0))
                         started = pid in starters
                         slot = starter_slot.get(pid) if started else "N/A"
@@ -1460,22 +1485,7 @@ def build_all(repo_root: Path) -> None:
                         if not gsis:
                             gsis = meta.get("gsis_id") or sleeper_to_gsis.get(str(pid))
 
-                        # Flags (platform primary, nflverse secondary)
-                        # Injury/suspension (new approach): authoritative nflverse injuries, keyed by gsis_id (via player_ids mapping).
-                        # Only mark if the player did NOT play that week (no stats row) and it is not a bye.
-                        inj = False
-                        susp = False
-                        try:
-                            played_players = played_players_by_week.get(int(wk), set())
-                            played = bool(gsis) and (str(gsis) in played_players)
-                        except Exception:
-                            played = False
-                        if ((pts or 0.0) == 0.0) and (bye is False) and (not played) and gsis:
-                            inj2, susp2 = injuries_by_gsis_week.get((str(gsis), season, int(wk)), (False, False))
-                            inj = bool(inj2)
-                            susp = bool(susp2)
-
-
+                        nfl_team = (player_team_by_week.get((str(gsis), int(wk))) if gsis else None)
 
                         # Bye is schedule-based. If player scored >0 -> not a bye.
                         bye = None
@@ -1486,9 +1496,29 @@ def build_all(repo_root: Path) -> None:
                             # a player can play while injured or returning from suspension.
                             bye = False
 
+                        # Flags (platform primary, nflverse secondary)
+                        # Injury/suspension (new approach): authoritative nflverse injuries, keyed by gsis_id (via player_ids mapping).
+                        # Only mark if the player did NOT play that week (no stats row) and it is not a bye.
+                        inj = False
+                        susp = False
+                        try:
+                            played_players = played_players_by_week.get(int(wk), set())
+                            nflverse_played = bool(gsis) and (str(gsis) in played_players)
+                        except Exception:
+                            nflverse_played = False
+                        nflverse_snaps = player_snaps_by_week.get((str(gsis), int(wk))) if gsis else None
+                        nflverse_healthy = (
+                            injuries_healthy_by_gsis_week.get((str(gsis), season, int(wk)), False) if gsis else False
+                        )
+                        healthy_signal = bool(pts > 0) or bool(nflverse_played) or bool((nflverse_snaps or 0.0) > 0.0) or bool(nflverse_healthy)
+                        if ((pts or 0.0) == 0.0) and (bye is False) and (not healthy_signal) and gsis:
+                            inj2, susp2 = injuries_by_gsis_week.get((str(gsis), season, int(wk)), (False, False))
+                            inj = bool(inj2)
+                            susp = bool(susp2)
+
                         # Fallback injury/suspension inference (Sleeper metadata is not historical but fixes obvious cases):
                         # If the player scored 0, was not on bye, and Sleeper marks them OUT/IR/SUSP, treat as missed.
-                        if (pts or 0.0) == 0.0 and bye is False:
+                        if (pts or 0.0) == 0.0 and bye is False and (not healthy_signal):
                             meta_p = pid_meta.get(str(pid), {}) if isinstance(pid_meta, dict) else {}
                             st = str(meta_p.get("status") or "").lower()
                             inj_st = str(meta_p.get("injury_status") or meta_p.get("injuryStatus") or "").lower()
@@ -1506,6 +1536,9 @@ def build_all(repo_root: Path) -> None:
                             susp = False
                         if bye is None:
                             bye = False
+                        if healthy_signal:
+                            inj = False
+                            susp = False
 
                         rookie = is_rookie_pid(pid, season)
                         age = _calc_age(meta.get("birth_date"), approx_date)
@@ -1553,6 +1586,10 @@ def build_all(repo_root: Path) -> None:
                             "Rookie?": 1 if rookie else 0,
                             "Age": age,
                             "NFL team": nfl_team,
+                            "_gsis_id": gsis,
+                            "_nflverse_played": bool(nflverse_played),
+                            "_nflverse_snaps": float(nflverse_snaps) if nflverse_snaps is not None else None,
+                            "_nflverse_healthy": bool(nflverse_healthy),
                             # award flags (filled later)
                             "Player of the week?": None,
                             "QB of the week?": None,
@@ -1714,6 +1751,19 @@ def build_all(repo_root: Path) -> None:
     # Convert to DataFrames
     # --------------------------
     pw = pd.DataFrame(player_week_rows)
+
+    # Rebuild NFL team mapping from nflverse weekly stats (historical by week).
+    if not pw.empty and {"_gsis_id", "Year", "Week"}.issubset(pw.columns):
+        yr_series = pd.to_numeric(pw["Year"], errors="coerce").astype("Int64")
+        wk_series = pd.to_numeric(pw["Week"], errors="coerce").astype("Int64")
+        gsis_series = pw["_gsis_id"].fillna("").astype(str)
+        nfl_teams = []
+        for gsis, yr, wk in zip(gsis_series, yr_series, wk_series):
+            if not gsis or pd.isna(yr) or pd.isna(wk):
+                nfl_teams.append(None)
+                continue
+            nfl_teams.append(nfl_team_by_gsis_week.get((gsis, int(yr), int(wk))))
+        pw["NFL team"] = nfl_teams
 
     if not pw.empty and "Team" in pw.columns:
         pw["_team_canon"] = pw["Team"].apply(_norm_team_name)
@@ -2030,6 +2080,136 @@ def build_all(repo_root: Path) -> None:
     except Exception as e:
         _log_exc(debug, "pick_history_reconstruct", e)
 
+
+    # --------------------------
+    # Combine nflverse/NFL.com signals with heuristic injury/suspension inference
+    # --------------------------
+    try:
+        if not pw.empty and {"Player", "Year", "Week", "Points", "Starter/Bench", "Bye?"}.issubset(pw.columns):
+            pw["_inj_base"] = pw["Injury?"].fillna(False).astype(bool)
+            pw["_susp_base"] = pw["Suspension?"].fillna(False).astype(bool)
+            pw["_bye_flag"] = pw["Bye?"].fillna(False).astype(bool)
+            pw["_points_num"] = pd.to_numeric(pw["Points"], errors="coerce").fillna(0.0)
+
+            if "_nflverse_played" not in pw.columns:
+                pw["_nflverse_played"] = False
+            if "_nflverse_snaps" not in pw.columns:
+                pw["_nflverse_snaps"] = None
+            if "_nflverse_healthy" not in pw.columns:
+                pw["_nflverse_healthy"] = False
+
+            nfl_snaps = pd.to_numeric(pw["_nflverse_snaps"], errors="coerce").fillna(0.0)
+            healthy_signal = (
+                (pw["_points_num"] > 0)
+                | pw["_nflverse_played"].fillna(False)
+                | (nfl_snaps > 0)
+                | pw["_nflverse_healthy"].fillna(False)
+            )
+
+            def _to_week_num(w: Any) -> int:
+                try:
+                    return int(w)
+                except Exception:
+                    return 99
+
+            new_injury_flags = pd.Series(False, index=pw.index)
+            new_susp_flags = pd.Series(False, index=pw.index)
+
+            for (player, yr), g in pw.groupby(["Player", "Year"]):
+                g2 = g.copy()
+                g2["_week_num"] = g2["Week"].apply(_to_week_num)
+                g2 = g2.sort_values("_week_num")
+
+                pts = g2["_points_num"].tolist()
+                statuses = g2["Starter/Bench"].fillna("").astype(str).tolist()
+                byes = g2["_bye_flag"].tolist()
+                week_nums = g2["_week_num"].tolist()
+                row_indices = g2.index.tolist()
+                healthy = healthy_signal.loc[g2.index].tolist()
+                inj_base = g2["_inj_base"].tolist()
+                susp_base = g2["_susp_base"].tolist()
+
+                # find first numeric week with positive points
+                first_pos_idx = None
+                for idx_fp, (p_fp, wn_fp) in enumerate(zip(pts, week_nums)):
+                    if wn_fp != 99 and p_fp > 0:
+                        first_pos_idx = idx_fp
+                        break
+
+                consec = 0
+                run_start = 0
+                n = len(pts)
+
+                def process_run(start_idx: int, end_idx: int) -> None:
+                    if end_idx < start_idx:
+                        return
+                    run_len = end_idx - start_idx + 1
+                    run_inj = any(inj_base[start_idx:end_idx + 1])
+                    run_susp = any(susp_base[start_idx:end_idx + 1])
+                    if run_susp:
+                        for j in range(start_idx, end_idx + 1):
+                            new_susp_flags.at[row_indices[j]] = True
+                        return
+                    if run_inj:
+                        for j in range(start_idx, end_idx + 1):
+                            new_injury_flags.at[row_indices[j]] = True
+                        return
+                    if run_len < 2:
+                        return
+                    is_early = (first_pos_idx is None) or (end_idx < first_pos_idx)
+                    run_stats = statuses[start_idx:end_idx + 1]
+                    run_has_starter = any(s.lower() == "starter" for s in run_stats)
+                    if run_has_starter and run_len >= 2:
+                        for j in range(start_idx, end_idx + 1):
+                            new_injury_flags.at[row_indices[j]] = True
+                        return
+                    if is_early and run_len >= 4:
+                        for j in range(start_idx, end_idx + 1):
+                            new_susp_flags.at[row_indices[j]] = True
+                    elif run_len >= 2:
+                        for j in range(start_idx, end_idx + 1):
+                            new_injury_flags.at[row_indices[j]] = True
+
+                for i, (p, wn, bye_flag, is_healthy) in enumerate(zip(pts, week_nums, byes, healthy)):
+                    if wn == 99 or bye_flag or is_healthy:
+                        if consec > 0:
+                            process_run(run_start, i - 1)
+                            consec = 0
+                        continue
+                    if p == 0:
+                        if consec == 0:
+                            run_start = i
+                        consec += 1
+                    else:
+                        if consec > 0:
+                            process_run(run_start, i - 1)
+                            consec = 0
+                if consec > 0:
+                    process_run(run_start, n - 1)
+
+            pw["Injury?"] = pw["_inj_base"] | new_injury_flags
+            pw["Suspension?"] = pw["_susp_base"] | new_susp_flags
+
+            # Healthy signals override injury/suspension flags.
+            pw.loc[healthy_signal, ["Injury?", "Suspension?"]] = False
+            pw.loc[pw["Suspension?"].fillna(False), "Injury?"] = False
+    except Exception as e:
+        _log_exc(debug, "injury_suspension_combined_inference", e)
+
+    if not pw.empty:
+        pw.drop(
+            columns=[
+                "_inj_base",
+                "_susp_base",
+                "_bye_flag",
+                "_points_num",
+                "_nflverse_played",
+                "_nflverse_snaps",
+                "_nflverse_healthy",
+                "_gsis_id",
+            ],
+            errors="ignore",
+        )
 
     # --------------------------
     # Player-week derived columns (deltas, tenure, awards) + Hardship
