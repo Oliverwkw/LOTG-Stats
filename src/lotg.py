@@ -821,6 +821,21 @@ def build_all(repo_root: Path) -> None:
                 pick_trade_events[key] = []
                 pick_holdings[(int(target_season), int(rnd), int(rid))].append(int(rid))
 
+    def _format_pick_number(season: int, round_num: Optional[int], pick_no: Optional[int]) -> Optional[str]:
+        if round_num is None:
+            return None
+        team_count = len(roster_ids_by_season.get(season, [])) or None
+        if pick_no is None or team_count is None:
+            return f"{int(round_num)}.??"
+        slot = ((int(pick_no) - 1) % int(team_count)) + 1
+        return f"{int(round_num)}.{slot:02d}"
+
+    def _format_pick_label(season: int, round_num: Optional[int], pick_no: Optional[int]) -> Optional[str]:
+        num = _format_pick_number(season, round_num, pick_no)
+        if num is None:
+            return None
+        return f"{int(season)} {num}"
+
     def _select_pick_key(
         season: int,
         round_num: int,
@@ -1719,7 +1734,11 @@ def build_all(repo_root: Path) -> None:
                             owner_id = _to_int(dp.get("owner_id"), None)
                             if owner_id is None:
                                 continue
-                            recv_picks[owner_id].append(f"{dp.get('season')} R{dp.get('round')}")
+                            dp_season = _to_int(dp.get("season"), season)
+                            dp_round = _to_int(dp.get("round"), None)
+                            label = _format_pick_label(int(dp_season), dp_round, None)
+                            if label:
+                                recv_picks[owner_id].append(label)
 
                         # Build row per roster in roster_ids_int
                         for rid in roster_ids_int:
@@ -2106,6 +2125,25 @@ def build_all(repo_root: Path) -> None:
                 name_map = roster_to_team_by_season.get(season_id, {})
                 return name_map.get(int(rid)) or roster_name_fallback.get(int(rid)) or f"Roster {rid}"
 
+            def _trade_chain_for_key(key: Tuple[int, int, int]) -> List[int]:
+                events = pick_trade_events.get(key, [])
+                if not events:
+                    return pick_trade_chain.get(key, [key[2]])
+                events_sorted = sorted(
+                    events,
+                    key=lambda e: (
+                        e[0] or datetime.max.replace(tzinfo=timezone.utc),
+                        e[3] or 0,
+                        e[1],
+                        e[2],
+                    ),
+                )
+                chain = [key[2]]
+                for _, _, new_owner, _ in events_sorted:
+                    if chain[-1] != int(new_owner):
+                        chain.append(int(new_owner))
+                return chain
+
             # Assign original owners to draft picks by matching final owner in ledger.
             picks_by_bucket: Dict[Tuple[int, int, int], List[Dict[str, Any]]] = defaultdict(list)
             for rec in draft_picks_records:
@@ -2136,10 +2174,13 @@ def build_all(repo_root: Path) -> None:
                 player = rec.get("player_id")
                 key = pick_key_assignments.get(id(rec))
                 orig_owner = key[2] if key else None
+                orig_team = _roster_name(int(p_season), orig_owner or roster_id)
+                pick_made_by = _roster_name(int(p_season), roster_id)
                 pick_rows.append({
                     "Year": p_season,
-                    "Original Team": _roster_name(int(p_season), orig_owner),
-                    "Number": f"R{p_round}.{pick_no}",
+                    "Pick made by": pick_made_by,
+                    "Original Team": orig_team,
+                    "Number": _format_pick_number(int(p_season), p_round, pick_no),
                     "Player Picked": pid_meta.get(str(player), {}).get("full_name") if player else None,
                     "Trade 1": None, "Trade 2": None, "Trade 3": None, "Trade 4": None, "Trade 5": None,
                     "Trade 6": None, "Trade 7": None, "Trade 8": None, "Trade 9": None, "Trade 10": None,
@@ -2147,7 +2188,7 @@ def build_all(repo_root: Path) -> None:
                 })
                 if not key:
                     continue
-                chain = pick_trade_chain.get(key, [])
+                chain = _trade_chain_for_key(key)
                 if len(chain) <= 1:
                     continue
                 for j in range(1, min(10, len(chain))):
