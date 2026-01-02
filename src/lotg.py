@@ -805,6 +805,7 @@ def build_all(repo_root: Path) -> None:
         roster_ids = roster_ids_by_season.get(target_season) or roster_ids_by_season.get(source_season) or []
         if not rounds or not roster_ids:
             return
+        rounds = min(int(rounds), 5)
         draft_rounds_by_season.setdefault(target_season, int(rounds))
         roster_ids_by_season.setdefault(target_season, list(roster_ids))
         for rnd in range(1, int(rounds) + 1):
@@ -978,7 +979,8 @@ def build_all(repo_root: Path) -> None:
 
         roster_ids_by_season[season] = sorted(roster_to_team.keys())
         roster_to_team_by_season[season] = roster_to_team.copy()
-        draft_rounds_by_season[season] = _to_int(settings.get("draft_rounds"), None) or draft_rounds_by_season.get(season, 0)
+        draft_rounds = _to_int(settings.get("draft_rounds"), None) or draft_rounds_by_season.get(season, 0)
+        draft_rounds_by_season[season] = min(int(draft_rounds), 5) if draft_rounds else 0
         if draft_rounds_by_season[season]:
             _ensure_pick_bases(season, season)
 
@@ -1038,9 +1040,12 @@ def build_all(repo_root: Path) -> None:
             pick_no = p.get("pick_no")
             roster_id = p.get("roster_id")
             player = p.get("player_id")
+            rnd_int = _to_int(rnd, None)
+            if rnd_int is None or rnd_int > 5:
+                continue
             draft_picks_records.append({
                 "draft_season": season,
-                "round": _to_int(rnd, None),
+                "round": rnd_int,
                 "pick_no": _to_int(pick_no, None),
                 "roster_id": _to_int(roster_id, None),
                 "player_id": str(player) if player else None,
@@ -1685,6 +1690,8 @@ def build_all(repo_root: Path) -> None:
                                     prev_owner = [rid for rid in roster_ids_int if rid != new_owner][0]
                                 if dp_season is None or dp_round is None or prev_owner is None or new_owner is None:
                                     continue
+                                if int(dp_round) > 5:
+                                    continue
                                 _ensure_pick_bases(int(dp_season), season)
                                 key = _select_pick_key(int(dp_season), int(dp_round), int(prev_owner), original_owner)
                                 if not key:
@@ -1722,6 +1729,8 @@ def build_all(repo_root: Path) -> None:
                                 continue
                             dp_season = _to_int(dp.get("season"), season)
                             dp_round = _to_int(dp.get("round"), None)
+                            if dp_round is None or int(dp_round) > 5:
+                                continue
                             label = _format_pick_label(int(dp_season), dp_round, None)
                             if label:
                                 recv_picks[owner_id].append(label)
@@ -2149,6 +2158,8 @@ def build_all(repo_root: Path) -> None:
                     continue
                 picks_by_bucket[(int(rec["draft_season"]), int(rec["round"]), int(rec["roster_id"]))].append(rec)
 
+            used_pick_numbers: set[Tuple[int, str]] = set()
+
             pick_key_assignments: Dict[int, Tuple[int, int, int]] = {}
             for (p_season, p_round, owner_id), picks in picks_by_bucket.items():
                 keys = [k for k, owner in pick_current_owner.items() if k[0] == p_season and k[1] == p_round and owner == owner_id]
@@ -2173,16 +2184,22 @@ def build_all(repo_root: Path) -> None:
                 key = pick_key_assignments.get(id(rec))
                 orig_owner = key[2] if key else None
                 pick_made_by = _roster_name(int(p_season), roster_id)
+                number = _format_pick_number(int(p_season), p_round, pick_no)
+                if number is None:
+                    continue
+                if (int(p_season), number) in used_pick_numbers:
+                    continue
                 pick_rows.append({
                     "Year": p_season,
                     "Pick made by": pick_made_by,
                     "Original Team": _roster_name(int(p_season), orig_owner or roster_id),
-                    "Number": _format_pick_number(int(p_season), p_round, pick_no),
+                    "Number": number,
                     "Player Picked": pid_meta.get(str(player), {}).get("full_name") if player else None,
                     "Trade 1": None, "Trade 2": None, "Trade 3": None, "Trade 4": None, "Trade 5": None,
                     "Trade 6": None, "Trade 7": None, "Trade 8": None, "Trade 9": None, "Trade 10": None,
                     "etc": None,
                 })
+                used_pick_numbers.add((int(p_season), number))
                 if not key:
                     continue
                 chain = _trade_chain_for_key(key, roster_id)
@@ -2200,6 +2217,10 @@ def build_all(repo_root: Path) -> None:
                 season_id, round_num, original_owner = key
                 slot = _slot_for_roster(int(season_id), int(original_owner))
                 number = _format_pick_number(int(season_id), int(round_num), slot)
+                if number is None:
+                    continue
+                if (int(season_id), number) in used_pick_numbers:
+                    continue
                 pick_rows.append({
                     "Year": season_id,
                     "Pick made by": _roster_name(int(season_id), owner_id),
@@ -2210,6 +2231,7 @@ def build_all(repo_root: Path) -> None:
                     "Trade 6": None, "Trade 7": None, "Trade 8": None, "Trade 9": None, "Trade 10": None,
                     "etc": None,
                 })
+                used_pick_numbers.add((int(season_id), number))
                 chain = _trade_chain_for_key(key, owner_id)
                 if len(chain) <= 1:
                     continue
