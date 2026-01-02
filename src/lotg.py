@@ -800,7 +800,7 @@ def build_all(repo_root: Path) -> None:
     pick_holdings: Dict[Tuple[int, int, int], List[int]] = defaultdict(list)
 
     def _ensure_pick_bases(target_season: int, source_season: int) -> None:
-        if target_season < 2022:
+        if target_season < 2021:
             return
         if target_season in draft_rounds_by_season:
             rounds = draft_rounds_by_season[target_season]
@@ -829,6 +829,15 @@ def build_all(repo_root: Path) -> None:
             return f"{int(round_num)}.??"
         slot = ((int(pick_no) - 1) % int(team_count)) + 1
         return f"{int(round_num)}.{slot:02d}"
+
+    def _slot_for_roster(season: int, roster_id: int) -> Optional[int]:
+        roster_ids = sorted(roster_ids_by_season.get(season, []))
+        if not roster_ids:
+            return None
+        try:
+            return roster_ids.index(int(roster_id)) + 1
+        except ValueError:
+            return None
 
     def _format_pick_label(season: int, round_num: Optional[int], pick_no: Optional[int]) -> Optional[str]:
         num = _format_pick_number(season, round_num, pick_no)
@@ -1837,6 +1846,16 @@ def build_all(repo_root: Path) -> None:
                 except Exception as e:
                     _log_exc(debug, f"transactions_trades_rows_{season}_wk{wk}", e)
 
+    # Ensure pick ledger includes seasons from 2021 through three years after latest draft.
+    latest_draft_season = max([r.get("draft_season") for r in draft_picks_records if r.get("draft_season") is not None], default=None)
+    latest_league_season = max(roster_ids_by_season.keys(), default=None)
+    base_season = latest_draft_season or latest_league_season
+    if base_season is not None:
+        max_future_season = int(base_season) + 3
+        seed_source = max(draft_rounds_by_season.keys(), default=base_season)
+        for yr in range(2021, max_future_season + 1):
+            _ensure_pick_bases(int(yr), int(seed_source))
+
     # --------------------------
     # Convert to DataFrames
     # --------------------------
@@ -2113,7 +2132,7 @@ def build_all(repo_root: Path) -> None:
     # Reconstruct draft pick trade history from transaction ledger.
     # --------------------------
     try:
-        if draft_picks_records and pick_current_owner:
+        if pick_current_owner:
             roster_name_fallback: Dict[int, str] = {}
             for season_id, mapping in roster_to_team_by_season.items():
                 for rid, name in mapping.items():
@@ -2166,7 +2185,7 @@ def build_all(repo_root: Path) -> None:
 
             for rec in draft_picks_records:
                 p_season = rec.get("draft_season")
-                if p_season is None or int(p_season) < 2022:
+                if p_season is None or int(p_season) < 2021:
                     continue
                 p_round = rec.get("round")
                 pick_no = rec.get("pick_no")
@@ -2189,10 +2208,41 @@ def build_all(repo_root: Path) -> None:
                 if not key:
                     continue
                 chain = _trade_chain_for_key(key)
+                final_owner = int(roster_id) if roster_id is not None else None
+                if final_owner is not None and (not chain or chain[-1] != final_owner):
+                    chain = chain + [final_owner]
                 if len(chain) <= 1:
                     continue
                 for j in range(1, min(10, len(chain))):
                     pick_rows[-1][f"Trade {j}"] = _roster_name(int(p_season), chain[j])
+
+            used_keys = {k for k in pick_key_assignments.values() if k is not None}
+            for key, owner_id in sorted(pick_current_owner.items()):
+                if key[0] < 2021:
+                    continue
+                if key in used_keys:
+                    continue
+                season_id, round_num, original_owner = key
+                slot = _slot_for_roster(int(season_id), int(original_owner))
+                number = _format_pick_number(int(season_id), int(round_num), slot)
+                pick_made_by = _roster_name(int(season_id), owner_id)
+                pick_rows.append({
+                    "Year": season_id,
+                    "Pick made by": pick_made_by,
+                    "Original Team": _roster_name(int(season_id), original_owner),
+                    "Number": number,
+                    "Player Picked": None,
+                    "Trade 1": None, "Trade 2": None, "Trade 3": None, "Trade 4": None, "Trade 5": None,
+                    "Trade 6": None, "Trade 7": None, "Trade 8": None, "Trade 9": None, "Trade 10": None,
+                    "etc": None,
+                })
+                chain = _trade_chain_for_key(key)
+                if owner_id is not None and (not chain or chain[-1] != int(owner_id)):
+                    chain = chain + [int(owner_id)]
+                if len(chain) <= 1:
+                    continue
+                for j in range(1, min(10, len(chain))):
+                    pick_rows[-1][f"Trade {j}"] = _roster_name(int(season_id), chain[j])
             ph = pd.DataFrame(pick_rows)
     except Exception as e:
         _log_exc(debug, "pick_history_reconstruct", e)
