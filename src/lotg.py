@@ -791,6 +791,7 @@ def build_all(repo_root: Path) -> None:
     roster_ids_by_season: Dict[int, List[int]] = {}
     roster_to_team_by_season: Dict[int, Dict[int, str]] = {}
     draft_rounds_by_season: Dict[int, int] = {}
+    included_draft_rounds_by_season: Dict[int, int] = {}
 
     # Draft pick ownership ledger
     # key: (season, round, original_owner_id) -> current_owner_id
@@ -805,7 +806,6 @@ def build_all(repo_root: Path) -> None:
         roster_ids = roster_ids_by_season.get(target_season) or roster_ids_by_season.get(source_season) or []
         if not rounds or not roster_ids:
             return
-        rounds = min(int(rounds), 5)
         draft_rounds_by_season.setdefault(target_season, int(rounds))
         roster_ids_by_season.setdefault(target_season, list(roster_ids))
         for rnd in range(1, int(rounds) + 1):
@@ -980,9 +980,7 @@ def build_all(repo_root: Path) -> None:
         roster_ids_by_season[season] = sorted(roster_to_team.keys())
         roster_to_team_by_season[season] = roster_to_team.copy()
         draft_rounds = _to_int(settings.get("draft_rounds"), None) or draft_rounds_by_season.get(season, 0)
-        draft_rounds_by_season[season] = min(int(draft_rounds), 5) if draft_rounds else 0
-        if draft_rounds_by_season[season]:
-            _ensure_pick_bases(season, season)
+        draft_rounds_by_season[season] = int(draft_rounds) if draft_rounds else 0
 
         # traded picks snapshot (used for pick history reconstruction)
         try:
@@ -1014,7 +1012,7 @@ def build_all(repo_root: Path) -> None:
             traded_picks = []
             _log_exc(debug, f"traded_picks_{season}", e)
 
-# draft picks history (rookie + startup as available in Sleeper; still partial)
+        # draft picks history (rookie + startup as available in Sleeper; still partial)
         try:
             drafts = sc.drafts(league_id)
         except Exception as e:
@@ -1030,10 +1028,40 @@ def build_all(repo_root: Path) -> None:
             except Exception as e:
                 picks = []
                 _log_exc(debug, f"draft_picks_{season}_{did}", e)
+            max_round = 0
+            picks_with_players = 0
+            rookie_picks = 0
+            for p in picks or []:
+                rnd = _to_int(p.get("round"), None)
+                if rnd is not None:
+                    max_round = max(max_round, int(rnd))
+                pid = p.get("player_id")
+                if _valid_pid(pid):
+                    picks_with_players += 1
+                    if is_rookie_pid(pid, season):
+                        rookie_picks += 1
+            if max_round == 5:
+                continue
+            if max_round > 0 and max_round > 5:
+                continue
+            if picks_with_players == 0:
+                continue
+            if (rookie_picks / float(picks_with_players)) <= 0.5:
+                continue
+            if max_round:
+                included_draft_rounds_by_season[season] = max(
+                    included_draft_rounds_by_season.get(season, 0),
+                    int(max_round),
+                )
             for p in picks or []:
                 p["draft_id"] = did
                 p["draft_season"] = season
             draft_picks_all.extend(picks or [])
+
+        if season in included_draft_rounds_by_season:
+            draft_rounds_by_season[season] = included_draft_rounds_by_season[season]
+        if draft_rounds_by_season.get(season):
+            _ensure_pick_bases(season, season)
 
         for p in draft_picks_all:
             rnd = p.get("round")
@@ -1041,7 +1069,7 @@ def build_all(repo_root: Path) -> None:
             roster_id = p.get("roster_id")
             player = p.get("player_id")
             rnd_int = _to_int(rnd, None)
-            if rnd_int is None or rnd_int > 5:
+            if rnd_int is None:
                 continue
             draft_picks_records.append({
                 "draft_season": season,
@@ -1690,8 +1718,6 @@ def build_all(repo_root: Path) -> None:
                                     prev_owner = [rid for rid in roster_ids_int if rid != new_owner][0]
                                 if dp_season is None or dp_round is None or prev_owner is None or new_owner is None:
                                     continue
-                                if int(dp_round) > 5:
-                                    continue
                                 _ensure_pick_bases(int(dp_season), season)
                                 key = _select_pick_key(int(dp_season), int(dp_round), int(prev_owner), original_owner)
                                 if not key:
@@ -1729,7 +1755,7 @@ def build_all(repo_root: Path) -> None:
                                 continue
                             dp_season = _to_int(dp.get("season"), season)
                             dp_round = _to_int(dp.get("round"), None)
-                            if dp_round is None or int(dp_round) > 5:
+                            if dp_round is None:
                                 continue
                             label = _format_pick_label(int(dp_season), dp_round, None)
                             if label:
@@ -2122,6 +2148,56 @@ def build_all(repo_root: Path) -> None:
     # --------------------------
     try:
         if pick_current_owner:
+            playoff_teams_by_season: Dict[int, set] = {}
+            standings_place_by_season: Dict[int, Dict[str, int]] = {}
+            season_finish: Dict[int, Dict[str, str]] = {}
+            if not tw.empty:
+                for yr, g in tw.groupby("Year"):
+                    season = int(yr)
+                    playoff_start = playoff_start_by_season.get(season)
+                    reg = g.copy()
+                    if playoff_start:
+                        reg = reg[pd.to_numeric(reg["Week"], errors="coerce") < playoff_start]
+                    reg["PF"] = pd.to_numeric(reg.get("PF"), errors="coerce").fillna(0.0)
+                    reg["Win?"] = pd.to_numeric(reg.get("Win?"), errors="coerce")
+                    standings = []
+                    for team, tg in reg.groupby("Team"):
+                        wins = int((tg["Win?"] == 1).sum())
+                        losses = int((tg["Win?"] == 0).sum())
+                        ties = int((tg["Win?"] == 0.5).sum())
+                        pf = float(tg["PF"].sum())
+                        standings.append((str(team), wins, losses, ties, pf))
+                    standings.sort(key=lambda x: (x[1] + 0.5 * x[3], x[4]), reverse=True)
+                    standings_place_by_season[season] = {
+                        str(team): idx + 1 for idx, (team, *_rest) in enumerate(standings)
+                    }
+                    playoff_teams_by_season[season] = set([t for t, *_ in standings[:4]])
+
+                    fin_map: Dict[str, str] = {}
+                    if "Week label" in g.columns and playoff_start:
+                        finals_week = playoff_start + 1
+                        gf = g[(g["Week"] == finals_week) & (g["Week label"] == "Final")].copy()
+                        gf["PF"] = pd.to_numeric(gf["PF"], errors="coerce").fillna(0.0)
+                        gf["Win?"] = pd.to_numeric(gf["Win?"], errors="coerce")
+                        if len(gf) == 2:
+                            if gf["Win?"].notna().any():
+                                gf = gf.sort_values("Win?", ascending=False)
+                            else:
+                                gf = gf.sort_values("PF", ascending=False)
+                            fin_map[str(gf.iloc[0]["Team"])] = "Champion"
+                            fin_map[str(gf.iloc[1]["Team"])] = "2nd"
+                        g3 = g[(g["Week"] == finals_week) & (g["Week label"] == "3rd Place")].copy()
+                        g3["PF"] = pd.to_numeric(g3["PF"], errors="coerce").fillna(0.0)
+                        g3["Win?"] = pd.to_numeric(g3["Win?"], errors="coerce")
+                        if len(g3) == 2:
+                            if g3["Win?"].notna().any():
+                                g3 = g3.sort_values("Win?", ascending=False)
+                            else:
+                                g3 = g3.sort_values("PF", ascending=False)
+                            fin_map[str(g3.iloc[0]["Team"])] = "3rd"
+                            fin_map[str(g3.iloc[1]["Team"])] = "4th"
+                    season_finish[season] = fin_map
+
             roster_name_fallback: Dict[int, str] = {}
             for season_id, mapping in roster_to_team_by_season.items():
                 for rid, name in mapping.items():
@@ -2133,7 +2209,84 @@ def build_all(repo_root: Path) -> None:
                 name_map = roster_to_team_by_season.get(season_id, {})
                 return name_map.get(int(rid)) or roster_name_fallback.get(int(rid)) or f"Roster {rid}"
 
-            def _trade_chain_for_key(key: Tuple[int, int, int], final_owner: Optional[int]) -> List[int]:
+            def _team_to_roster_map(season_id: int) -> Dict[str, int]:
+                mapping = {}
+                for rid, name in roster_to_team_by_season.get(season_id, {}).items():
+                    mapping[_norm_team_name(name)] = int(rid)
+                return mapping
+
+            def _original_slot_map(season_id: int) -> Dict[int, str]:
+                prev = int(season_id) - 1
+                if tw.empty:
+                    return {}
+                if prev not in tw["Year"].dropna().unique():
+                    return {}
+                prev_tw = tw[tw["Year"] == prev].copy()
+                if prev_tw.empty:
+                    return {}
+                prev_tw["Week"] = pd.to_numeric(prev_tw.get("Week"), errors="coerce")
+                prev_tw["PF"] = pd.to_numeric(prev_tw.get("PF"), errors="coerce").fillna(0.0)
+                prev_tw["Max PF"] = pd.to_numeric(prev_tw.get("Max PF"), errors="coerce").fillna(0.0)
+                prev_tw["Win?"] = pd.to_numeric(prev_tw.get("Win?"), errors="coerce").fillna(0.0)
+                all_teams = set(prev_tw["Team"].dropna().astype(str).tolist())
+                playoff_teams = playoff_teams_by_season.get(prev, set())
+                non_playoffs = all_teams - set(playoff_teams) if playoff_teams else all_teams
+
+                rows = []
+                if int(season_id) <= 2025:
+                    reg = prev_tw[prev_tw["Week"] <= 8]
+                    for team in non_playoffs:
+                        tg = reg[reg["Team"].astype(str) == str(team)]
+                        wins = int((tg["Win?"] == 1).sum())
+                        losses = int((tg["Win?"] == 0).sum())
+                        ties = int((tg["Win?"] == 0.5).sum())
+                        pf_sum = float(tg["PF"].sum())
+                        win_pct = (wins + 0.5 * ties) / max(1, wins + losses + ties)
+                        rows.append((str(team), win_pct, pf_sum))
+                    rows.sort(key=lambda x: (x[1], x[2]))
+                else:
+                    playoff_start = playoff_start_by_season.get(prev)
+                    reg = prev_tw if not playoff_start else prev_tw[prev_tw["Week"] < playoff_start]
+                    for team in non_playoffs:
+                        tg = reg[reg["Team"].astype(str) == str(team)]
+                        maxpf_sum = float(tg["Max PF"].sum())
+                        pf_sum = float(tg["PF"].sum())
+                        rows.append((str(team), maxpf_sum, pf_sum))
+                    rows.sort(key=lambda x: (x[1], x[2]))
+
+                slot_map: Dict[int, str] = {}
+                for idx, (team, *_rest) in enumerate(rows[:4]):
+                    slot_map[idx + 1] = team
+
+                fin_map = season_finish.get(prev, {})
+                third = next((t for t, r in fin_map.items() if r == "3rd"), None)
+                fourth = next((t for t, r in fin_map.items() if r == "4th"), None)
+                second = next((t for t, r in fin_map.items() if r == "2nd"), None)
+                champion = next((t for t, r in fin_map.items() if r == "Champion"), None)
+                if third:
+                    slot_map[5] = str(third)
+                if fourth:
+                    slot_map[6] = str(fourth)
+                if second:
+                    slot_map[7] = str(second)
+                if champion:
+                    slot_map[8] = str(champion)
+
+                if len(slot_map) < 8:
+                    ordered = sorted(standings_place_by_season.get(prev, {}).items(), key=lambda x: x[1])
+                    remaining = [t for t, _p in ordered if t not in slot_map.values()]
+                    for slot in range(1, 9):
+                        if slot in slot_map:
+                            continue
+                        if remaining:
+                            slot_map[slot] = remaining.pop(0)
+                return slot_map
+
+            def _trade_chain_for_key(
+                key: Tuple[int, int, int],
+                final_owner: Optional[int],
+                original_owner_override: Optional[int],
+            ) -> List[int]:
                 events = pick_trade_events.get(key, [])
                 events_sorted = sorted(
                     events,
@@ -2144,7 +2297,10 @@ def build_all(repo_root: Path) -> None:
                         e[2],
                     ),
                 )
-                chain = [key[2]]
+                base_owner = int(original_owner_override) if original_owner_override is not None else int(key[2])
+                chain = [base_owner]
+                if base_owner != int(key[2]):
+                    chain.append(int(key[2]))
                 for _, _, new_owner, _ in events_sorted:
                     if chain[-1] != int(new_owner):
                         chain.append(int(new_owner))
@@ -2182,17 +2338,22 @@ def build_all(repo_root: Path) -> None:
                 roster_id = rec.get("roster_id")
                 player = rec.get("player_id")
                 key = pick_key_assignments.get(id(rec))
-                orig_owner = key[2] if key else None
                 pick_made_by = _roster_name(int(p_season), roster_id)
                 number = _format_pick_number(int(p_season), p_round, pick_no)
                 if number is None:
                     continue
                 if (int(p_season), number) in used_pick_numbers:
                     continue
+                team_count = len(roster_ids_by_season.get(int(p_season), [])) or 0
+                slot = ((int(pick_no) - 1) % team_count) + 1 if pick_no and team_count else None
+                slot_map = _original_slot_map(int(p_season))
+                orig_team = slot_map.get(slot)
+                roster_lookup = _team_to_roster_map(int(p_season))
+                orig_owner = roster_lookup.get(_norm_team_name(orig_team)) if orig_team else None
                 pick_rows.append({
                     "Year": p_season,
                     "Pick made by": pick_made_by,
-                    "Original Team": _roster_name(int(p_season), orig_owner or roster_id),
+                    "Original Team": orig_team or _roster_name(int(p_season), orig_owner or roster_id),
                     "Number": number,
                     "Player Picked": pid_meta.get(str(player), {}).get("full_name") if player else None,
                     "Trade 1": None, "Trade 2": None, "Trade 3": None, "Trade 4": None, "Trade 5": None,
@@ -2200,9 +2361,14 @@ def build_all(repo_root: Path) -> None:
                     "etc": None,
                 })
                 used_pick_numbers.add((int(p_season), number))
-                if not key:
+                key_override = key
+                if key_override is None and orig_owner is not None:
+                    candidate = (int(p_season), int(p_round), int(orig_owner))
+                    if candidate in pick_current_owner:
+                        key_override = candidate
+                if not key_override:
                     continue
-                chain = _trade_chain_for_key(key, roster_id)
+                chain = _trade_chain_for_key(key_override, roster_id, orig_owner)
                 if len(chain) <= 1:
                     continue
                 for j in range(1, min(10, len(chain))):
@@ -2215,7 +2381,10 @@ def build_all(repo_root: Path) -> None:
                 if key in used_keys:
                     continue
                 season_id, round_num, original_owner = key
-                slot = _slot_for_roster(int(season_id), int(original_owner))
+                slot_map = _original_slot_map(int(season_id))
+                slot_by_roster = {rid: slot for slot, name in slot_map.items()
+                                  for rid in [_team_to_roster_map(int(season_id)).get(_norm_team_name(name))] if rid}
+                slot = slot_by_roster.get(int(original_owner)) or _slot_for_roster(int(season_id), int(original_owner))
                 number = _format_pick_number(int(season_id), int(round_num), slot)
                 if number is None:
                     continue
@@ -2224,7 +2393,7 @@ def build_all(repo_root: Path) -> None:
                 pick_rows.append({
                     "Year": season_id,
                     "Pick made by": _roster_name(int(season_id), owner_id),
-                    "Original Team": _roster_name(int(season_id), original_owner),
+                    "Original Team": slot_map.get(slot) or _roster_name(int(season_id), original_owner),
                     "Number": number,
                     "Player Picked": None,
                     "Trade 1": None, "Trade 2": None, "Trade 3": None, "Trade 4": None, "Trade 5": None,
@@ -2232,7 +2401,7 @@ def build_all(repo_root: Path) -> None:
                     "etc": None,
                 })
                 used_pick_numbers.add((int(season_id), number))
-                chain = _trade_chain_for_key(key, owner_id)
+                chain = _trade_chain_for_key(key, owner_id, original_owner)
                 if len(chain) <= 1:
                     continue
                 for j in range(1, min(10, len(chain))):
