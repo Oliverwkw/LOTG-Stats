@@ -780,6 +780,16 @@ def build_all(repo_root: Path) -> None:
     transactions_rows: List[Dict[str, Any]] = []
     trades_rows: List[Dict[str, Any]] = []
     pick_rows: List[Dict[str, Any]] = []
+    player_tx_week: Dict[Tuple[str, int, int], int] = defaultdict(int)
+    player_drop_week: Dict[Tuple[str, int, int], int] = defaultdict(int)
+    player_tx_year: Dict[Tuple[str, int], int] = defaultdict(int)
+    player_drop_year: Dict[Tuple[str, int], int] = defaultdict(int)
+    player_tx_all: Dict[str, int] = defaultdict(int)
+    player_drop_all: Dict[str, int] = defaultdict(int)
+
+    def _player_display_name(pid: Any) -> str:
+        pid_str = str(pid)
+        return pid_meta.get(pid_str, {}).get("full_name") or pid_str
 
     # Internal ledger helpers
     # key: (season, week, roster_id) -> opponent roster_id + opponent points
@@ -1673,13 +1683,28 @@ def build_all(repo_root: Path) -> None:
                     if not isinstance(drops, dict):
                         drops = {}
 
+                    handled_drop_ids = set()
                     for pid, rrid in adds.items():
                         pid = str(pid)
+                        added_name = _player_display_name(pid)
+                        player_tx_week[(added_name, season, wk)] += 1
+                        player_tx_year[(added_name, season)] += 1
+                        player_tx_all[added_name] += 1
                         dropped = None
                         for dp, drid in drops.items():
                             if str(drid) == str(rrid):
                                 dropped = str(dp)
+                                handled_drop_ids.add(str(dp))
                                 break
+
+                        if dropped:
+                            dropped_name = _player_display_name(dropped)
+                            player_tx_week[(dropped_name, season, wk)] += 1
+                            player_tx_year[(dropped_name, season)] += 1
+                            player_tx_all[dropped_name] += 1
+                            player_drop_week[(dropped_name, season, wk)] += 1
+                            player_drop_year[(dropped_name, season)] += 1
+                            player_drop_all[dropped_name] += 1
 
                         transactions_rows.append({
                             "Team": team,
@@ -1707,6 +1732,18 @@ def build_all(repo_root: Path) -> None:
                             "Tanking after": None,
                             "Number of times picked up by this team": None,
                         })
+
+                    for dp in drops.keys():
+                        dp_str = str(dp)
+                        if dp_str in handled_drop_ids:
+                            continue
+                        dropped_name = _player_display_name(dp_str)
+                        player_tx_week[(dropped_name, season, wk)] += 1
+                        player_tx_year[(dropped_name, season)] += 1
+                        player_tx_all[dropped_name] += 1
+                        player_drop_week[(dropped_name, season, wk)] += 1
+                        player_drop_year[(dropped_name, season)] += 1
+                        player_drop_all[dropped_name] += 1
                 except Exception as e:
                     _log_exc(debug, f"transactions_trades_rows_{season}_wk{wk}", e)
 
@@ -1724,6 +1761,32 @@ def build_all(repo_root: Path) -> None:
                 canon_to_disp[c]=t
         pw["Team"] = pw["_team_canon"].map(canon_to_disp).fillna(pw["Team"])
         pw.drop(columns=["_team_canon"], inplace=True, errors="ignore")
+    if not pw.empty and {"Player", "Year", "Week"}.issubset(pw.columns):
+        pw_keys = pw[["Player", "Year", "Week"]].copy()
+        pw_keys["Year"] = pd.to_numeric(pw_keys["Year"], errors="coerce").astype("Int64")
+        pw_keys["Week"] = pd.to_numeric(pw_keys["Week"], errors="coerce").astype("Int64")
+        pw["Number of transactions"] = [
+            int(player_tx_week.get(
+                (
+                    str(player),
+                    int(year) if pd.notna(year) else None,
+                    int(week) if pd.notna(week) else None,
+                ),
+                0,
+            ))
+            for player, year, week in pw_keys.itertuples(index=False, name=None)
+        ]
+        pw["Number of drops"] = [
+            int(player_drop_week.get(
+                (
+                    str(player),
+                    int(year) if pd.notna(year) else None,
+                    int(week) if pd.notna(week) else None,
+                ),
+                0,
+            ))
+            for player, year, week in pw_keys.itertuples(index=False, name=None)
+        ]
     log_df(pw, 'player_week', sample_cols=['Points','Injury?','Suspension?','Bye?','Starter?'])
     tw = pd.DataFrame(team_week_rows)
 
@@ -2700,7 +2763,14 @@ def build_all(repo_root: Path) -> None:
             }
         )
 
-        py["Number of transactions"] = 0
+        py["Number of transactions"] = [
+            int(player_tx_year.get((str(player), int(year) if pd.notna(year) else None), 0))
+            for player, year in py[["Player", "Year"]].itertuples(index=False, name=None)
+        ]
+        py["Number of drops"] = [
+            int(player_drop_year.get((str(player), int(year) if pd.notna(year) else None), 0))
+            for player, year in py[["Player", "Year"]].itertuples(index=False, name=None)
+        ]
         py["Number of trades"] = 0
 
         py = py.rename(
@@ -2776,7 +2846,14 @@ def build_all(repo_root: Path) -> None:
             }
         )
 
-        pa["Number of transactions"] = 0
+        pa["Number of transactions"] = [
+            int(player_tx_all.get(str(player), 0))
+            for player in pa["Player"].tolist()
+        ]
+        pa["Number of drops"] = [
+            int(player_drop_all.get(str(player), 0))
+            for player in pa["Player"].tolist()
+        ]
         pa["Number of trades"] = 0
 
         player_all = pa
