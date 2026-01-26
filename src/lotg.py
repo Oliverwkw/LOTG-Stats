@@ -1692,9 +1692,12 @@ def build_all(repo_root: Path) -> None:
                         player_tx_all[added_name] += 1
                         dropped = None
                         for dp, drid in drops.items():
+                            dp_str = str(dp)
+                            if dp_str in handled_drop_ids:
+                                continue
                             if str(drid) == str(rrid):
-                                dropped = str(dp)
-                                handled_drop_ids.add(str(dp))
+                                dropped = dp_str
+                                handled_drop_ids.add(dp_str)
                                 break
 
                         if dropped:
