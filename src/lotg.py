@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, List, Any, Tuple, Optional
+from typing import Dict, List, Any, Tuple, Optional, Set
 from datetime import datetime, timezone, timedelta, date
 from collections import Counter, deque, defaultdict
 import json
@@ -1011,6 +1011,7 @@ def build_all(repo_root: Path) -> None:
         # ------------- Pre-fetch all weekly matchups & transactions -------------
         matchups_by_week: Dict[int, List[Dict[str, Any]]] = {}
         tx_by_week: Dict[int, List[Dict[str, Any]]] = {}
+        seen_tx_ids: Set[str] = set()
 
         for wk in range(1, min(last_week, 30) + 1):
             if not week_allowed(wk):
@@ -1028,7 +1029,19 @@ def build_all(repo_root: Path) -> None:
                 _log_exc(debug, f"matchups_{season}_wk{wk}", e)
 
             try:
-                tx_by_week[wk] = sc.transactions(wk, league_id) or []
+                raw_tx = sc.transactions(wk, league_id) or []
+                deduped_tx: List[Dict[str, Any]] = []
+                for t in raw_tx:
+                    tx_id = t.get("transaction_id")
+                    if tx_id is None:
+                        deduped_tx.append(t)
+                        continue
+                    tx_id_str = str(tx_id)
+                    if tx_id_str in seen_tx_ids:
+                        continue
+                    seen_tx_ids.add(tx_id_str)
+                    deduped_tx.append(t)
+                tx_by_week[wk] = deduped_tx
             except Exception as e:
                 tx_by_week[wk] = []
                 _log_exc(debug, f"transactions_{season}_wk{wk}", e)
