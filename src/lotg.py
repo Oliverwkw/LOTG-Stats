@@ -1683,19 +1683,22 @@ def build_all(repo_root: Path) -> None:
                     if not isinstance(drops, dict):
                         drops = {}
 
-                    handled_drop_ids = set()
+                    drops_by_roster: Dict[str, List[str]] = defaultdict(list)
+                    for dp, drid in drops.items():
+                        drops_by_roster[str(drid)].append(str(dp))
                     for pid, rrid in adds.items():
                         pid = str(pid)
+                        rrid_str = str(rrid)
                         added_name = _player_display_name(pid)
                         player_tx_week[(added_name, season, wk)] += 1
                         player_tx_year[(added_name, season)] += 1
                         player_tx_all[added_name] += 1
                         dropped = None
-                        for dp, drid in drops.items():
-                            if str(drid) == str(rrid):
-                                dropped = str(dp)
-                                handled_drop_ids.add(str(dp))
-                                break
+                        drop_list = drops_by_roster.get(rrid_str)
+                        if drop_list:
+                            dropped = drop_list.pop(0)
+                            if not drop_list:
+                                drops_by_roster.pop(rrid_str, None)
 
                         if dropped:
                             dropped_name = _player_display_name(dropped)
@@ -1733,17 +1736,15 @@ def build_all(repo_root: Path) -> None:
                             "Number of times picked up by this team": None,
                         })
 
-                    for dp in drops.keys():
-                        dp_str = str(dp)
-                        if dp_str in handled_drop_ids:
-                            continue
-                        dropped_name = _player_display_name(dp_str)
-                        player_tx_week[(dropped_name, season, wk)] += 1
-                        player_tx_year[(dropped_name, season)] += 1
-                        player_tx_all[dropped_name] += 1
-                        player_drop_week[(dropped_name, season, wk)] += 1
-                        player_drop_year[(dropped_name, season)] += 1
-                        player_drop_all[dropped_name] += 1
+                    for drop_list in drops_by_roster.values():
+                        for dp_str in drop_list:
+                            dropped_name = _player_display_name(dp_str)
+                            player_tx_week[(dropped_name, season, wk)] += 1
+                            player_tx_year[(dropped_name, season)] += 1
+                            player_tx_all[dropped_name] += 1
+                            player_drop_week[(dropped_name, season, wk)] += 1
+                            player_drop_year[(dropped_name, season)] += 1
+                            player_drop_all[dropped_name] += 1
                 except Exception as e:
                     _log_exc(debug, f"transactions_trades_rows_{season}_wk{wk}", e)
 
