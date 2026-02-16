@@ -2806,9 +2806,9 @@ def build_all(repo_root: Path) -> None:
         tw_key["_OppNorm"] = tw_key.get("Opponent", pd.Series(dtype=str)).astype(str).map(_norm_team_name)
 
         by_key = {
-            (int(r.Year), int(r.Week), str(r._TeamNorm)): i
-            for i, r in tw_key[["Year", "Week", "_TeamNorm"]].reset_index().itertuples(index=False)
-            if pd.notna(r.Year) and pd.notna(r.Week)
+            (int(r["Year"]), int(r["Week"]), str(r["_TeamNorm"])): int(i)
+            for i, r in tw_key[["Year", "Week", "_TeamNorm"]].iterrows()
+            if pd.notna(r["Year"]) and pd.notna(r["Week"])
         }
 
         # Primary: direct opponent lookup. Fallback: league-average pregame baseline.
