@@ -681,6 +681,21 @@ def _load_player_week_benchmark_cases(repo_root: Path) -> pd.DataFrame:
     return _default_player_week_benchmark_cases()
 
 
+def _finalize_validation_output(out: List[Dict[str, Any]]) -> pd.DataFrame:
+    df = pd.DataFrame(out)
+    if df.empty:
+        return df
+    # keep detailed reason but force Error marker per request
+    if "Error" in df.columns:
+        df = df.rename(columns={"Error": "Reason"})
+    df["Error"] = "error"
+    wanted = [
+        "Player", "Season", "Week", "Check Type", "Column", "Error", "Reason", "Expected", "Observed Example"
+    ]
+    cols = [c for c in wanted if c in df.columns] + [c for c in df.columns if c not in wanted]
+    return df[cols]
+
+
 def _known_player_column_errors(repo_root: Path, player_week_df: pd.DataFrame) -> pd.DataFrame:
     """Case-based benchmark validation focused on player_week rows."""
     cases = _load_player_week_benchmark_cases(repo_root)
@@ -700,7 +715,7 @@ def _known_player_column_errors(repo_root: Path, player_week_df: pd.DataFrame) -
                 "Expected": c.get("why_this_week"),
                 "Observed Example": "No rows",
             })
-        return pd.DataFrame(out)
+        return _finalize_validation_output(out)
 
     pw["_player_norm"] = pw.get("Player", pd.Series(dtype=str)).astype(str).map(clean_name).str.lower()
     pw["_year"] = pd.to_numeric(pw.get("Year"), errors="coerce").astype("Int64")
@@ -773,7 +788,7 @@ def _known_player_column_errors(repo_root: Path, player_week_df: pd.DataFrame) -
             if (sb == "starter").any():
                 out.append({"Player": clean_name(c.get("player")), "Season": season, "Week": week, "Check Type": check_type, "Column": "Starter/Bench", "Error": "Expected non-start week", "Expected": "Bench", "Observed Example": "Starter"})
 
-    return pd.DataFrame(out)
+    return _finalize_validation_output(out)
 
 
 
@@ -1157,6 +1172,7 @@ def build_all(repo_root: Path) -> None:
             traded_picks = sc.traded_picks(league_id) or []
             traded_picks_by_season[season] = traded_picks
         except Exception as e:
+            traded_picks = []
             traded_picks_by_season[season] = []
             _log_exc(debug, f"traded_picks_{season}", e)
 
