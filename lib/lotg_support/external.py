@@ -116,6 +116,6 @@ def load_nflverse_stats_player_week(cfg: ExternalConfig, season: int) -> pd.Data
         _download_best_effort(urls, path, cfg.timeout_seconds)
     # handle possible gz without relying on pandas compression inference
     try:
-        return pd.read_csv(path)
+        return pd.read_csv(path, low_memory=False)
     except Exception:
-        return pd.read_csv(path, compression='gzip')
+        return pd.read_csv(path, compression='gzip', low_memory=False)
