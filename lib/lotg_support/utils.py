@@ -55,41 +55,87 @@ def get_logger(path: Path) -> BuildLogger:
 
 
 def fetch_json(url: str, cfg: HttpConfig, logger: Optional[BuildLogger] = None) -> Optional[Any]:
-    """GET JSON with retries. Returns parsed object or None."""
+    """GET JSON with retries. Returns parsed object or None.
+
+    Network environments vary (direct egress vs proxy-only). We first try direct
+    requests with environment proxy settings disabled; if connection-level errors
+    indicate egress limitations, we automatically retry with environment settings
+    enabled so CI/container proxy configuration can be honored.
+    """
     headers = {"User-Agent": cfg.user_agent, "Accept": "application/json"}
     last_status = None
-    session = requests.Session()
-    session.trust_env = False
-    for attempt in range(cfg.max_retries):
-        try:
-            resp = session.get(
-                url,
-                headers=headers,
-                timeout=cfg.timeout_seconds,
-                proxies={"http": None, "https": None},
-            )
-            last_status = resp.status_code
-            if resp.status_code == 200:
-                # Sleeper sometimes returns empty string; guard.
-                if not resp.text:
-                    return None
-                return resp.json()
-            # retryable statuses
-            if resp.status_code in (429, 500, 502, 503, 504):
+
+    def _attempt(trust_env: bool) -> Optional[Any]:
+        nonlocal last_status
+        session = requests.Session()
+        session.trust_env = trust_env
+
+        for attempt in range(cfg.max_retries):
+            try:
+                kwargs = {"headers": headers, "timeout": cfg.timeout_seconds}
+                # When bypassing env proxy settings, explicitly disable proxies.
+                if not trust_env:
+                    kwargs["proxies"] = {"http": None, "https": None}
+
+                resp = session.get(url, **kwargs)
+                last_status = resp.status_code
+                if resp.status_code == 200:
+                    if not resp.text:
+                        return None
+                    return resp.json()
+
+                if resp.status_code in (429, 500, 502, 503, 504):
+                    if logger:
+                        logger.warn(
+                            "fetch_json retryable status",
+                            url=url,
+                            status=resp.status_code,
+                            attempt=attempt,
+                            trust_env=trust_env,
+                        )
+                    _sleep_backoff(cfg.backoff_base_seconds, attempt)
+                    continue
+
                 if logger:
-                    logger.warn("fetch_json retryable status", url=url, status=resp.status_code, attempt=attempt)
-                _sleep_backoff(cfg.backoff_base_seconds, attempt)
-                continue
-            if logger:
-                logger.error("fetch_json non-200", url=url, status=resp.status_code, body=resp.text[:2000])
-            return None
-        except requests.RequestException as e:
-            if logger:
-                logger.warn("fetch_json request exception", url=url, err=str(e), attempt=attempt)
-            err_str = str(e).lower()
-            if "network is unreachable" in err_str or "failed to establish a new connection" in err_str:
+                    logger.error(
+                        "fetch_json non-200",
+                        url=url,
+                        status=resp.status_code,
+                        body=resp.text[:2000],
+                        trust_env=trust_env,
+                    )
                 return None
-            _sleep_backoff(cfg.backoff_base_seconds, attempt)
+            except requests.RequestException as e:
+                if logger:
+                    logger.warn(
+                        "fetch_json request exception",
+                        url=url,
+                        err=str(e),
+                        attempt=attempt,
+                        trust_env=trust_env,
+                    )
+                err_str = str(e).lower()
+                # Fast-fail direct mode on hard egress errors so we can quickly try env-proxy mode.
+                hard_net_err = (
+                    "network is unreachable" in err_str
+                    or "failed to establish a new connection" in err_str
+                    or "name or service not known" in err_str
+                )
+                if (not trust_env) and hard_net_err:
+                    break
+                _sleep_backoff(cfg.backoff_base_seconds, attempt)
+
+        return None
+
+    # Try direct first, then env-proxy-aware fallback.
+    data = _attempt(trust_env=False)
+    if data is not None:
+        return data
+
+    data = _attempt(trust_env=True)
+    if data is not None:
+        return data
+
     if logger:
         logger.error("fetch_json exhausted retries", url=url, last_status=last_status)
     return None
