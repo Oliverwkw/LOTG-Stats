@@ -12,11 +12,26 @@ class ExternalConfig:
 
 def _download(url: str, out: Path, timeout: int) -> None:
     out.parent.mkdir(parents=True, exist_ok=True)
-    session = requests.Session()
-    session.trust_env = False
-    r = session.get(url, timeout=timeout, proxies={"http": None, "https": None})
-    r.raise_for_status()
-    out.write_bytes(r.content)
+
+    # Try direct first, then allow env-proxy settings if direct egress is blocked.
+    last_err: Optional[Exception] = None
+    for trust_env in (False, True):
+        try:
+            session = requests.Session()
+            session.trust_env = trust_env
+            kwargs = {"timeout": timeout}
+            if not trust_env:
+                kwargs["proxies"] = {"http": None, "https": None}
+            r = session.get(url, **kwargs)
+            r.raise_for_status()
+            out.write_bytes(r.content)
+            return
+        except Exception as e:
+            last_err = e
+            continue
+
+    if last_err is not None:
+        raise last_err
 
 
 def _download_best_effort(urls: list[str], out: Path, timeout: int) -> None:
