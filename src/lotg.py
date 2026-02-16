@@ -190,6 +190,17 @@ def _log(path: Path, msg: str) -> None:
 def _log_exc(path: Path, where: str, e: Exception) -> None:
     _log(path, f"[{_now_iso()}] ERROR at {where}: {type(e).__name__}: {e}\n{traceback.format_exc()}")
 
+
+def _fatal_log(repo_root: Path, where: str, e: Exception) -> None:
+    """Best-effort fatal logging for CI visibility when process exits non-zero."""
+    debug = repo_root / "exports" / "raw" / "build_debug.log"
+    _log_exc(debug, where, e)
+    try:
+        print(f"FATAL [{where}] {type(e).__name__}: {e}", file=sys.stderr)
+        traceback.print_exc()
+    except Exception:
+        pass
+
 def _to_int(x: Any, default: Optional[int] = None) -> Optional[int]:
     try:
         return int(x)
@@ -4464,23 +4475,37 @@ def build_all(repo_root: Path) -> None:
 def main() -> None:
     repo_root = Path(__file__).resolve().parent.parent
 
-    cfg = yaml.safe_load((repo_root / "config/league.yaml").read_text())
-    league_id = str(cfg["league_id"])
-    min_season = cfg.get("min_season")
-    max_season = cfg.get("max_season")
+    try:
+        cfg = yaml.safe_load((repo_root / "config/league.yaml").read_text())
+        league_id = str(cfg["league_id"])
+        min_season = cfg.get("min_season")
+        max_season = cfg.get("max_season")
 
-    mode = str(os.environ.get("LOTG_MODE", "both")).lower().strip()
-    if mode not in {"snapshot", "build", "both"}:
-        mode = "both"
+        mode = str(os.environ.get("LOTG_MODE", "both")).lower().strip()
+        if mode not in {"snapshot", "build", "both"}:
+            mode = "both"
 
-    if mode in {"snapshot", "both"}:
-        from lotg_support.snapshot import snapshot_all
+        if mode in {"snapshot", "both"}:
+            from lotg_support.snapshot import snapshot_all
+            try:
+                snapshot_all(repo_root, league_id=league_id, min_season=min_season, max_season=max_season)
+            except Exception as e:
+                _fatal_log(repo_root, "snapshot_all", e)
+                raise
 
-        snapshot_all(repo_root, league_id=league_id, min_season=min_season, max_season=max_season)
-
-    if mode in {"build", "both"}:
-        build_all(repo_root)
+        if mode in {"build", "both"}:
+            try:
+                build_all(repo_root)
+            except Exception as e:
+                _fatal_log(repo_root, "build_all", e)
+                raise
+    except Exception as e:
+        _fatal_log(repo_root, "main", e)
+        raise
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except Exception:
+        raise
