@@ -98,6 +98,10 @@ def log_missing_cols(df: pd.DataFrame, name: str, required: list[str]) -> None:
 import yaml
 from dateutil import parser as dateparser
 
+SRC_ROOT = Path(__file__).resolve().parent
+if str(SRC_ROOT) not in sys.path:
+    sys.path.insert(0, str(SRC_ROOT))
+
 SUPPORT_ROOT = Path(__file__).resolve().parent.parent / "lib"
 if str(SUPPORT_ROOT) not in sys.path:
     sys.path.insert(0, str(SUPPORT_ROOT))
