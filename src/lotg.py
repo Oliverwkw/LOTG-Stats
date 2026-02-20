@@ -98,11 +98,15 @@ def log_missing_cols(df: pd.DataFrame, name: str, required: list[str]) -> None:
 import yaml
 from dateutil import parser as dateparser
 
+SRC_ROOT = Path(__file__).resolve().parent
+if str(SRC_ROOT) not in sys.path:
+    sys.path.insert(0, str(SRC_ROOT))
+
 SUPPORT_ROOT = Path(__file__).resolve().parent.parent / "lib"
 if str(SUPPORT_ROOT) not in sys.path:
     sys.path.insert(0, str(SUPPORT_ROOT))
 
-from lotg_support.utils import HttpConfig, safe_div, clean_name
+from lotg_support.utils import HttpConfig, safe_div, clean_name, safe_bool
 from lotg_support.sleeper import SleeperClient
 from lotg_support.external import (
     ExternalConfig,
@@ -185,6 +189,17 @@ def _log(path: Path, msg: str) -> None:
 
 def _log_exc(path: Path, where: str, e: Exception) -> None:
     _log(path, f"[{_now_iso()}] ERROR at {where}: {type(e).__name__}: {e}\n{traceback.format_exc()}")
+
+
+def _fatal_log(repo_root: Path, where: str, e: Exception) -> None:
+    """Best-effort fatal logging for CI visibility when process exits non-zero."""
+    debug = repo_root / "exports" / "raw" / "build_debug.log"
+    _log_exc(debug, where, e)
+    try:
+        print(f"FATAL [{where}] {type(e).__name__}: {e}", file=sys.stderr)
+        traceback.print_exc()
+    except Exception:
+        pass
 
 def _to_int(x: Any, default: Optional[int] = None) -> Optional[int]:
     try:
@@ -315,24 +330,36 @@ def _download_csv_best_effort(urls: List[str], path: Path, timeout: int = 120, d
             return pd.read_csv(path)
         except Exception:
             pass
+
     last_err = None
-    session = requests.Session()
-    session.trust_env = False
     for url in urls:
-        try:
-            r = session.get(url, timeout=timeout, proxies={"http": None, "https": None})
-            if r.status_code == 200 and r.content:
-                path.write_bytes(r.content)
-                try:
-                    return pd.read_csv(path)
-                except Exception:
-                    return pd.DataFrame()
-            last_err = f"{r.status_code} {url}"
-        except Exception as e:
-            last_err = f"{type(e).__name__}: {e} {url}"
+        fetched = False
+        for trust_env in (False, True):
+            try:
+                session = requests.Session()
+                session.trust_env = trust_env
+                kwargs = {"timeout": timeout}
+                if not trust_env:
+                    kwargs["proxies"] = {"http": None, "https": None}
+                r = session.get(url, **kwargs)
+                if r.status_code == 200 and r.content:
+                    path.write_bytes(r.content)
+                    fetched = True
+                    break
+                last_err = f"{r.status_code} {url} trust_env={trust_env}"
+            except Exception as e:
+                last_err = f"{type(e).__name__}: {e} {url} trust_env={trust_env}"
+
+        if fetched:
+            try:
+                return pd.read_csv(path)
+            except Exception:
+                return pd.DataFrame()
+
     if debug:
         _log(debug, f"[{_now_iso()}] WARN csv download failed: {last_err}")
     return pd.DataFrame()
+
 
 def _played_teams_by_week(games: pd.DataFrame, season: int) -> Dict[int, set]:
     games = _safe_df(games)
@@ -492,58 +519,77 @@ def _append_team_vs_columns(frame: pd.DataFrame, cols: List[str]) -> List[str]:
     return cols + [c for c in extra if c not in cols]
 
 
-def _is_text_column(col: str) -> bool:
-    col_l = col.lower()
-    text_markers = [
+def _column_kind(col: str) -> str:
+    """Infer expected output type for a plan column: text | boolean | numeric."""
+    col_l = str(col or "").strip().lower()
+
+    # Explicit text columns first (some contain words like "week"/"year" but are labels).
+    text_exact = {
+        "week name",
         "team",
         "player",
         "opponent",
-        "record",
-        "result",
-        "link",
-        "assets",
-        "type of transaction",
-        "date",
-        "trade",
-        "etc",
-        "original",
-        "number",
-        "pick",
-        "position",
-        "starter/bench",
+        "top team",
+        "last team",
+        "original team",
+        "player picked",
+        "reference player name",
         "nfl team",
+        "position",
+        "position started in (if starter)",
+        "starter/bench",
+        "type of transaction",
+        "assets sent",
+        "assets received",
+        "date",
+        "record",
+        "round",
+        "number",
+        "result",
+        "etc",
+    }
+    if col_l in text_exact:
+        return "text"
+
+    text_markers = [
+        "record vs ",
+        "link to ",
+        "trade ",
+        "pick",
     ]
-    numeric_markers = [
-        "number of ",
-        "points",
-        "pf",
-        "avg",
-        "max",
-        "min",
-        "range",
-        "margin",
-        "win %",
+    if any(m in col_l for m in text_markers):
+        return "text"
+
+    # Boolean / flag-style columns.
+    bool_exact = {
+        "injury?",
+        "suspension?",
+        "bye?",
+        "rookie?",
         "win?",
-        "loss",
-        "efficiency",
-        "hardship",
-        "luck",
-        "tanking",
-        "difference",
-        "change",
-        "weeks",
-        "week",
-        "year",
-        "age",
-        "ppg",
-        "faab",
-        "value",
-        "streak",
-        "score",
-    ]
-    if any(m in col_l for m in numeric_markers):
-        return False
-    return any(m in col_l for m in text_markers)
+        "loss?",
+        "player of the week?",
+        "qb of the week?",
+        "rb of the week?",
+        "wr of the week?",
+        "te of the week?",
+        "benchwarmer of the week?",
+        "bench qb of the week?",
+        "bench rb of the week?",
+        "bench wr of the week?",
+        "bench te of the week?",
+        "highest starter on team?",
+        "lowest starter on team?",
+    }
+    if col_l in bool_exact or col_l.endswith("?"):
+        return "boolean"
+
+    # Remaining metrics are numeric by contract.
+    return "numeric"
+
+
+def _is_text_column(col: str) -> bool:
+    return _column_kind(col) == "text"
 
 
 def _fill_empty_columns(df: pd.DataFrame, cols: List[str]) -> pd.DataFrame:
@@ -551,16 +597,211 @@ def _fill_empty_columns(df: pd.DataFrame, cols: List[str]) -> pd.DataFrame:
         if col not in df.columns:
             continue
         if df[col].isna().all():
-            df[col] = "N/A"
+            df[col] = _default_fill_for_column(col)
     return df
+
+
+def _default_fill_for_column(col: str) -> Any:
+    kind = _column_kind(col)
+    if kind == "text":
+        return "N/A"
+    if kind == "boolean":
+        return False
+    return 0.0
 
 
 def _fill_missing_values(df: pd.DataFrame, cols: List[str]) -> pd.DataFrame:
+    truthy = {"true", "t", "1", "yes", "y"}
+    falsy = {"false", "f", "0", "no", "n", ""}
+
     for col in cols:
         if col not in df.columns:
             continue
-        df[col] = df[col].astype(object).replace("", "N/A").fillna("N/A")
+
+        kind = _column_kind(col)
+        default = _default_fill_for_column(col)
+
+        if kind == "text":
+            df[col] = df[col].astype(object).replace("", default).fillna(default)
+            continue
+
+        if kind == "boolean":
+            def _coerce_bool(v: Any) -> bool:
+                if pd.isna(v):
+                    return default
+                if isinstance(v, bool):
+                    return v
+                if isinstance(v, (int, float)):
+                    return bool(v)
+                s = str(v).strip().lower()
+                if s in truthy:
+                    return True
+                if s in falsy:
+                    return False
+                return default
+
+            df[col] = df[col].map(_coerce_bool)
+            continue
+
+        # numeric path
+        df[col] = pd.to_numeric(df[col], errors="coerce").fillna(default)
+
     return df
+
+
+def _default_player_week_benchmark_cases() -> pd.DataFrame:
+    """Fallback benchmark cases for player_week validation."""
+    rows = [
+        {"player": "Nick Chubb", "season": 2022, "week": 1, "expected_nfl_team": "CLE", "check_type": "HEALTHY_WEEK", "why_this_week": "Healthy baseline (Active/played; no flags)"},
+        {"player": "Nick Chubb", "season": 2023, "week": 3, "expected_nfl_team": "CLE", "check_type": "INJURY_WEEK", "why_this_week": "Post-knee-injury non-start week (should show Injury/IR, not Played)"},
+        {"player": "Nick Chubb", "season": 2024, "week": 16, "expected_nfl_team": "CLE", "check_type": "INJURY_WEEK", "why_this_week": "Post-broken-foot non-start week (clear Injury miss)"},
+        {"player": "Nick Chubb", "season": 2025, "week": 1, "expected_nfl_team": "HOU", "check_type": "TEAM_WEEK", "why_this_week": "Team mapping check: should show Texans in 2025"},
+        {"player": "Cooper Kupp", "season": 2021, "week": 1, "expected_nfl_team": "LAR", "check_type": "HEALTHY_WEEK", "why_this_week": "Healthy baseline"},
+        {"player": "Cooper Kupp", "season": 2022, "week": 11, "expected_nfl_team": "LAR", "check_type": "INJURY_WEEK", "why_this_week": "On IR for high-ankle (non-start; Injury/IR)"},
+        {"player": "Cooper Kupp", "season": 2023, "week": 1, "expected_nfl_team": "LAR", "check_type": "INJURY_WEEK", "why_this_week": "Start-of-season IR (non-start; Injury/IR)"},
+        {"player": "Cooper Kupp", "season": 2024, "week": 3, "expected_nfl_team": "LAR", "check_type": "INJURY_WEEK", "why_this_week": "Post-ankle injury non-start week"},
+        {"player": "Cooper Kupp", "season": 2025, "week": 1, "expected_nfl_team": "SEA", "check_type": "TEAM_WEEK", "why_this_week": "Team mapping check: Seahawks"},
+        {"player": "Rashee Rice", "season": 2023, "week": 1, "expected_nfl_team": "KC", "check_type": "HEALTHY_WEEK", "why_this_week": "Healthy baseline"},
+        {"player": "Rashee Rice", "season": 2024, "week": 5, "expected_nfl_team": "KC", "check_type": "INJURY_WEEK", "why_this_week": "After Week 4 knee injury (non-start; Injury/IR)"},
+        {"player": "Rashee Rice", "season": 2025, "week": 1, "expected_nfl_team": "KC", "check_type": "SUSPENSION_WEEK", "why_this_week": "Start-of-season suspension (must show Suspension, not Injury)"},
+        {"player": "Rashee Rice", "season": 2025, "week": 6, "expected_nfl_team": "KC", "check_type": "SUSPENSION_WEEK", "why_this_week": "Final week of 6-game suspension"},
+        {"player": "Jordan Addison", "season": 2023, "week": 1, "expected_nfl_team": "MIN", "check_type": "HEALTHY_WEEK", "why_this_week": "Healthy rookie baseline"},
+        {"player": "Jordan Addison", "season": 2024, "week": 2, "expected_nfl_team": "MIN", "check_type": "INJURY_WEEK", "why_this_week": "Ruled out (ankle); did not start"},
+        {"player": "Jordan Addison", "season": 2024, "week": 9, "expected_nfl_team": "MIN", "check_type": "SUSPENSION_WEEK", "why_this_week": "MIDSEASON suspension week (must show Suspension, not Injury/Bye)"},
+        {"player": "Jordan Addison", "season": 2025, "week": 1, "expected_nfl_team": "MIN", "check_type": "SUSPENSION_WEEK", "why_this_week": "Start-of-season 3-game suspension"},
+        {"player": "Jordan Addison", "season": 2025, "week": 3, "expected_nfl_team": "MIN", "check_type": "SUSPENSION_WEEK", "why_this_week": "Final week of 3-game suspension"},
+        {"player": "Allen Lazard", "season": 2022, "week": 4, "expected_nfl_team": "GB", "check_type": "HEALTHY_WEEK", "why_this_week": "Healthy Packers baseline"},
+        {"player": "Allen Lazard", "season": 2022, "week": 1, "expected_nfl_team": "GB", "check_type": "INJURY_WEEK", "why_this_week": "Missed opener (ankle; non-start)"},
+        {"player": "Allen Lazard", "season": 2023, "week": 1, "expected_nfl_team": "NYJ", "check_type": "TEAM_WEEK", "why_this_week": "Team mapping check: Jets"},
+        {"player": "Allen Lazard", "season": 2024, "week": 8, "expected_nfl_team": "NYJ", "check_type": "INJURY_WEEK", "why_this_week": "Post-chest-injury IR week (non-start)"},
+        {"player": "Allen Lazard", "season": 2025, "week": 1, "expected_nfl_team": "NYJ", "check_type": "TEAM_WEEK", "why_this_week": "Team mapping continuity check"},
+    ]
+    return pd.DataFrame(rows)
+
+
+def _load_player_week_benchmark_cases(repo_root: Path) -> pd.DataFrame:
+    path = repo_root / "plan" / "player_week_benchmark_cases.csv"
+    if path.exists():
+        try:
+            df = pd.read_csv(path)
+            required = {"player", "season", "week", "expected_nfl_team", "check_type", "why_this_week"}
+            if not df.empty and required.issubset(set(df.columns)):
+                return df
+        except Exception:
+            pass
+    return _default_player_week_benchmark_cases()
+
+
+def _finalize_validation_output(out: List[Dict[str, Any]]) -> pd.DataFrame:
+    df = pd.DataFrame(out)
+    if df.empty:
+        return df
+    # keep detailed reason but force Error marker per request
+    if "Error" in df.columns:
+        df = df.rename(columns={"Error": "Reason"})
+    df["Error"] = "error"
+    wanted = [
+        "Player", "Season", "Week", "Check Type", "Column", "Error", "Reason", "Expected", "Observed Example"
+    ]
+    cols = [c for c in wanted if c in df.columns] + [c for c in df.columns if c not in wanted]
+    return df[cols]
+
+
+def _known_player_column_errors(repo_root: Path, player_week_df: pd.DataFrame) -> pd.DataFrame:
+    """Case-based benchmark validation focused on player_week rows."""
+    cases = _load_player_week_benchmark_cases(repo_root)
+    pw = _safe_df(player_week_df).copy()
+
+    out: List[Dict[str, Any]] = []
+
+    if pw.empty:
+        for _, c in cases.iterrows():
+            out.append({
+                "Player": c.get("player"),
+                "Season": _to_int(c.get("season"), None),
+                "Week": _to_int(c.get("week"), None),
+                "Check Type": c.get("check_type"),
+                "Column": "ALL",
+                "Error": "No player_week rows available for validation",
+                "Expected": c.get("why_this_week"),
+                "Observed Example": "No rows",
+            })
+        return _finalize_validation_output(out)
+
+    pw["_player_norm"] = pw.get("Player", pd.Series(dtype=str)).astype(str).map(clean_name).str.lower()
+    pw["_year"] = pd.to_numeric(pw.get("Year"), errors="coerce").astype("Int64")
+    pw["_week"] = pd.to_numeric(pw.get("Week"), errors="coerce").astype("Int64")
+
+    for _, c in cases.iterrows():
+        player = clean_name(c.get("player")).lower()
+        season = _to_int(c.get("season"), None)
+        week = _to_int(c.get("week"), None)
+        check_type = str(c.get("check_type") or "").upper().strip()
+        expected_team = _norm_team(c.get("expected_nfl_team"))
+        why = str(c.get("why_this_week") or "").strip()
+
+        sub = pw[(pw["_player_norm"] == player) & (pw["_year"] == season) & (pw["_week"] == week)].copy()
+        if sub.empty:
+            out.append({
+                "Player": clean_name(c.get("player")),
+                "Season": season,
+                "Week": week,
+                "Check Type": check_type,
+                "Column": "ALL",
+                "Error": "Case row missing from output",
+                "Expected": why,
+                "Observed Example": "No matching row",
+            })
+            continue
+
+        # team mapping check for all case types
+        obs_team = sub.get("NFL team", pd.Series(dtype=object)).map(_norm_team)
+        if expected_team and not bool((obs_team == expected_team).all()):
+            out.append({
+                "Player": clean_name(c.get("player")),
+                "Season": season,
+                "Week": week,
+                "Check Type": check_type,
+                "Column": "NFL team",
+                "Error": "Team mismatch",
+                "Expected": expected_team,
+                "Observed Example": ", ".join(sorted(set(obs_team.astype(str).tolist()))),
+            })
+
+        inj = sub.get("Injury?", pd.Series(dtype=bool)).map(lambda v: safe_bool(v, default=False))
+        sus = sub.get("Suspension?", pd.Series(dtype=bool)).map(lambda v: safe_bool(v, default=False))
+        bye = sub.get("Bye?", pd.Series(dtype=bool)).map(lambda v: safe_bool(v, default=False))
+        sb = sub.get("Starter/Bench", pd.Series(dtype=object)).astype(str).str.lower().str.strip()
+
+        if check_type == "HEALTHY_WEEK":
+            if bool(inj.any()):
+                out.append({"Player": clean_name(c.get("player")), "Season": season, "Week": week, "Check Type": check_type, "Column": "Injury?", "Error": "Unexpected injury flag", "Expected": "False", "Observed Example": "True"})
+            if bool(sus.any()):
+                out.append({"Player": clean_name(c.get("player")), "Season": season, "Week": week, "Check Type": check_type, "Column": "Suspension?", "Error": "Unexpected suspension flag", "Expected": "False", "Observed Example": "True"})
+            if bool(bye.any()):
+                out.append({"Player": clean_name(c.get("player")), "Season": season, "Week": week, "Check Type": check_type, "Column": "Bye?", "Error": "Unexpected bye flag", "Expected": "False", "Observed Example": "True"})
+
+        elif check_type == "INJURY_WEEK":
+            if not bool(inj.any()):
+                out.append({"Player": clean_name(c.get("player")), "Season": season, "Week": week, "Check Type": check_type, "Column": "Injury?", "Error": "Missing injury flag", "Expected": "True", "Observed Example": "False"})
+            if bool(sus.any()):
+                out.append({"Player": clean_name(c.get("player")), "Season": season, "Week": week, "Check Type": check_type, "Column": "Suspension?", "Error": "Suspension should not be set", "Expected": "False", "Observed Example": "True"})
+            if (sb == "starter").any():
+                out.append({"Player": clean_name(c.get("player")), "Season": season, "Week": week, "Check Type": check_type, "Column": "Starter/Bench", "Error": "Expected non-start week", "Expected": "Bench", "Observed Example": "Starter"})
+
+        elif check_type == "SUSPENSION_WEEK":
+            if not bool(sus.any()):
+                out.append({"Player": clean_name(c.get("player")), "Season": season, "Week": week, "Check Type": check_type, "Column": "Suspension?", "Error": "Missing suspension flag", "Expected": "True", "Observed Example": "False"})
+            if bool(inj.any()):
+                out.append({"Player": clean_name(c.get("player")), "Season": season, "Week": week, "Check Type": check_type, "Column": "Injury?", "Error": "Injury should not be set", "Expected": "False", "Observed Example": "True"})
+            if bool(bye.any()):
+                out.append({"Player": clean_name(c.get("player")), "Season": season, "Week": week, "Check Type": check_type, "Column": "Bye?", "Error": "Bye should not be set during suspension", "Expected": "False", "Observed Example": "True"})
+            if (sb == "starter").any():
+                out.append({"Player": clean_name(c.get("player")), "Season": season, "Week": week, "Check Type": check_type, "Column": "Starter/Bench", "Error": "Expected non-start week", "Expected": "Bench", "Observed Example": "Starter"})
+
+    return _finalize_validation_output(out)
+
+
 
 
 # --------------------------
@@ -628,6 +869,16 @@ def build_all(repo_root: Path) -> None:
     for c in ["sleeper_id", "gsis_id", "name"]:
         if c in dp_ids.columns:
             dp_ids[c] = dp_ids[c].astype(str)
+
+    dp_sleeper_to_gsis: Dict[str, str] = {}
+    if (not dp_ids.empty) and ("sleeper_id" in dp_ids.columns) and ("gsis_id" in dp_ids.columns):
+        try:
+            m = dp_ids[["sleeper_id", "gsis_id"]].dropna().copy()
+            m["sleeper_id"] = m["sleeper_id"].astype(str)
+            m["gsis_id"] = m["gsis_id"].astype(str)
+            dp_sleeper_to_gsis = dict(zip(m["sleeper_id"], m["gsis_id"]))
+        except Exception:
+            dp_sleeper_to_gsis = {}
 
     # nflverse games for byes
     games = _download_csv_best_effort(
@@ -824,6 +1075,11 @@ def build_all(repo_root: Path) -> None:
 
 
     # ------------- Build each season -------------
+    traded_picks_by_season: Dict[int, List[Dict[str, Any]]] = {}
+    season_roster_to_team: Dict[int, Dict[int, str]] = {}
+    season_team_to_roster: Dict[int, Dict[str, int]] = {}
+    season_draft_picks_all: Dict[int, List[Dict[str, Any]]] = {}
+
     for lg in leagues:
         league_id = str(lg.get("league_id"))
         season = _to_int(lg.get("season"), 0) or 0
@@ -917,14 +1173,17 @@ def build_all(repo_root: Path) -> None:
                 team_display[canon] = str(raw_name)
             roster_to_team[rid] = team_display[canon]
 
+        season_roster_to_team[season] = dict(roster_to_team)
+        season_team_to_roster[season] = {
+            _norm_team_name(v): k for k, v in roster_to_team.items() if v is not None
+        }
 
         # traded picks snapshot (used for pick history reconstruction)
         try:
             traded_picks = sc.traded_picks(league_id) or []
-            traded_picks_by_season = locals().get("traded_picks_by_season", {})
             traded_picks_by_season[season] = traded_picks
         except Exception as e:
-            traded_picks_by_season = locals().get("traded_picks_by_season", {})
+            traded_picks = []
             traded_picks_by_season[season] = []
             _log_exc(debug, f"traded_picks_{season}", e)
 
@@ -937,16 +1196,11 @@ def build_all(repo_root: Path) -> None:
             pass
 
         
-        # traded picks (for future draft capital / tanking)
+        # traded picks raw snapshot (for future draft capital / tanking + debugging)
         try:
-            traded_picks = sc.traded_picks(league_id)
-            try:
-                (raw_dir / f"traded_picks_{season}.json").write_text(json.dumps(traded_picks, indent=2))
-            except Exception:
-                pass
-        except Exception as e:
-            traded_picks = []
-            _log_exc(debug, f"traded_picks_{season}", e)
+            (raw_dir / f"traded_picks_{season}.json").write_text(json.dumps(traded_picks, indent=2))
+        except Exception:
+            pass
 
 # draft picks history (rookie + startup as available in Sleeper; still partial)
         try:
@@ -969,21 +1223,72 @@ def build_all(repo_root: Path) -> None:
                 p["draft_season"] = season
             draft_picks_all.extend(picks or [])
 
+        season_draft_picks_all[int(season)] = list(draft_picks_all)
+
         for p in draft_picks_all:
-            rnd = p.get("round")
-            pick_no = p.get("pick_no")
-            roster_id = p.get("roster_id")
+            rnd = _to_int(p.get("round"), None)
+            pick_no = _to_int(p.get("pick_no"), None)
+            roster_id = _to_int(p.get("roster_id"), None)
+            picked_by = _to_int(p.get("picked_by"), None)
             player = p.get("player_id")
-            team = roster_to_team.get(_to_int(roster_id, -1), f"Roster {roster_id}") if roster_id is not None else None
+
+            # Original team should reflect the manager on the clock at selection time.
+            origin_rid = picked_by if picked_by is not None else roster_id
+            team = roster_to_team.get(origin_rid, f"Roster {origin_rid}") if origin_rid is not None else None
+
+            # Draft APIs are not fully consistent; recover display number even when pick_no is missing.
+            if rnd is not None and pick_no is not None:
+                number = f"R{rnd}.{pick_no}"
+            elif rnd is not None:
+                number = f"R{rnd}"
+            else:
+                number = None
+
+            # Resolve player name from Sleeper player map first, then pick metadata.
+            player_name = pid_meta.get(str(player), {}).get("full_name") if player else None
+            if not player_name:
+                md = p.get("metadata") if isinstance(p.get("metadata"), dict) else {}
+                player_name = md.get("first_name") and f"{md.get('first_name')} {md.get('last_name','').strip()}".strip()
+            if not player_name:
+                player_name = p.get("player") or p.get("player_name")
+
             pick_rows.append({
                 "Year": season,
                 "Original Team": team,
-                "Number": f"R{rnd}.{pick_no}",
-                "Player Picked": pid_meta.get(str(player), {}).get("full_name") if player else None,
+                "Number": number,
+                "Player Picked": player_name,
                 "Trade 1": None, "Trade 2": None, "Trade 3": None, "Trade 4": None, "Trade 5": None,
                 "Trade 6": None, "Trade 7": None, "Trade 8": None, "Trade 9": None, "Trade 10": None,
                 "etc": None,
             })
+
+        # If draft picks are unavailable, synthesize pick-history skeleton rows from traded_picks.
+        if not draft_picks_all and traded_picks:
+            for tp in traded_picks:
+                yr = _to_int(tp.get("season"), season)
+                rnd = _to_int(tp.get("round"), None)
+                prev = _to_int(tp.get("previous_owner_id") or tp.get("previous_owner") or tp.get("previous_owner_roster_id"), None)
+                owner = _to_int(tp.get("owner_id") or tp.get("roster_id") or tp.get("owner_roster_id"), None)
+                if yr is None or rnd is None or prev is None:
+                    continue
+                row = {
+                    "Year": int(yr),
+                    "Original Team": roster_to_team.get(int(prev), f"Roster {prev}"),
+                    "Number": f"R{int(rnd)}",
+                    "Player Picked": "Unknown",
+                    "Trade 1": roster_to_team.get(int(owner), f"Roster {owner}") if owner is not None and int(owner) != int(prev) else None,
+                    "Trade 2": None,
+                    "Trade 3": None,
+                    "Trade 4": None,
+                    "Trade 5": None,
+                    "Trade 6": None,
+                    "Trade 7": None,
+                    "Trade 8": None,
+                    "Trade 9": None,
+                    "Trade 10": None,
+                    "etc": "Sourced from traded_picks fallback",
+                }
+                pick_rows.append(row)
 
         # robust last completed week
         try:
@@ -1289,8 +1594,14 @@ def build_all(repo_root: Path) -> None:
                     ages = [a for a in (_calc_age(pid_meta.get(pid, {}).get("birth_date"), approx_date) for pid in players) if a is not None]
                     avg_age = round(sum(ages) / len(ages), 2) if ages else None
 
-                    roster_nfl_teams = [pid_meta.get(pid, {}).get("team") for pid in players if pid_meta.get(pid, {}).get("team")]
-                    start_nfl_teams = [pid_meta.get(pid, {}).get("team") for pid in starters if pid_meta.get(pid, {}).get("team")]
+                    def _nfl_team_for_pid_week(pid_val: Any) -> Optional[str]:
+                        m = pid_meta.get(str(pid_val), {}) if isinstance(pid_meta, dict) else {}
+                        gs = dp_sleeper_to_gsis.get(str(pid_val)) or m.get("gsis_id") or sleeper_to_gsis.get(str(pid_val))
+                        tm = (player_team_by_week.get((str(gs), int(wk))) if gs else None) or m.get("team")
+                        return _norm_team(tm)
+
+                    roster_nfl_teams = [t for t in (_nfl_team_for_pid_week(pid) for pid in players) if t]
+                    start_nfl_teams = [t for t in (_nfl_team_for_pid_week(pid) for pid in starters) if t]
                     most_start_same = max(Counter(start_nfl_teams).values()) if start_nfl_teams else None
                     most_roster_same = max(Counter(roster_nfl_teams).values()) if roster_nfl_teams else None
                     most_start_team = Counter(start_nfl_teams).most_common(1)[0][0] if start_nfl_teams else None
@@ -1335,6 +1646,7 @@ def build_all(repo_root: Path) -> None:
                         "Hardship": None,                  # computed later
                         "Tanking": None,                   # computed later (needs pick ledger; best effort later)
                         "Luck": round(luck_raw, 4) if luck_raw is not None else None,
+                        "Win Variance": round(luck_raw, 4) if luck_raw is not None else None,
                         "Brosenzweig": None,
                         "Sisenzweig": None,
                         "Number of donuts": donuts,
@@ -1452,23 +1764,31 @@ def build_all(repo_root: Path) -> None:
                         meta = pid_meta.get(pid, {})
                         full_name = meta.get("full_name") or pid
                         position = pid_pos.get(pid)
+
+                        # gsis id lookup for nflverse (pre-indexed for speed/reliability)
+                        gsis = (
+                            dp_sleeper_to_gsis.get(str(pid))
+                            or meta.get("gsis_id")
+                            or sleeper_to_gsis.get(str(pid))
+                        )
+
+                        # Prefer week-specific nflverse team when available; fallback to Sleeper player meta.
                         nfl_team = (player_team_by_week.get((str(gsis), int(wk))) if gsis else None) or meta.get("team")
+                        nfl_team = _norm_team(nfl_team)
+
                         pts = float(ppts.get(pid, 0.0))
                         started = pid in starters
                         slot = starter_slot.get(pid) if started else "N/A"
                         player_position = pid_pos.get(pid) or None
 
-                        # gsis id lookup for nflverse
-                        gsis = None
-                        if not dp_ids.empty and "sleeper_id" in dp_ids.columns and "gsis_id" in dp_ids.columns:
-                            try:
-                                match = dp_ids.loc[dp_ids["sleeper_id"].astype(str) == pid]
-                                if not match.empty:
-                                    gsis = str(match["gsis_id"].iloc[0])
-                            except Exception:
-                                gsis = None
-                        if not gsis:
-                            gsis = meta.get("gsis_id") or sleeper_to_gsis.get(str(pid))
+                        # Bye is schedule-based. If player scored >0 -> not a bye.
+                        bye = None
+                        if nfl_team and played_set:
+                            bye = (_norm_team(nfl_team) not in played_set)
+                        if pts > 0:
+                            # Player scored points; not a bye week. Do NOT override injury/suspension flags:
+                            # a player can play while injured or returning from suspension.
+                            bye = False
 
                         # Flags (platform primary, nflverse secondary)
                         # Injury/suspension (new approach): authoritative nflverse injuries, keyed by gsis_id (via player_ids mapping).
@@ -1484,17 +1804,6 @@ def build_all(repo_root: Path) -> None:
                             inj2, susp2 = injuries_by_gsis_week.get((str(gsis), season, int(wk)), (False, False))
                             inj = bool(inj2)
                             susp = bool(susp2)
-
-
-
-                        # Bye is schedule-based. If player scored >0 -> not a bye.
-                        bye = None
-                        if nfl_team and played_set:
-                            bye = (_norm_team(nfl_team) not in played_set)
-                        if pts > 0:
-                            # Player scored points; not a bye week. Do NOT override injury/suspension flags:
-                            # a player can play while injured or returning from suspension.
-                            bye = False
 
                         # Fallback injury/suspension inference (Sleeper metadata is not historical but fixes obvious cases):
                         # If the player scored 0, was not on bye, and Sleeper marks them OUT/IR/SUSP, treat as missed.
@@ -1514,6 +1823,8 @@ def build_all(repo_root: Path) -> None:
                             inj = False
                         if susp is None:
                             susp = False
+                        if susp:
+                            inj = False
                         if bye is None:
                             bye = False
 
@@ -1540,7 +1851,6 @@ def build_all(repo_root: Path) -> None:
                             "Bye?": bool(bye),
                             "Starter/Bench": "Starter" if started else "Bench",
                             "% of points (if starter)": round(pts / pf, 4) if started and pf else None,
-                            "Position": position,
                             "Position started in (if starter)": slot,
                             "Position": player_position,
                             "Change from previous week": None,
@@ -1898,44 +2208,38 @@ def build_all(repo_root: Path) -> None:
                 continue
         return tot
 
-    # Build team->roster_id lookup for draft capital
-    team_to_roster = {}
-    for rid, tm in roster_to_team.items():
-        try:
-            team_to_roster[str(tm)] = int(rid)
-        except Exception:
-            continue
-
     # Per-season pick value (that year's draft picks)
     pick_value_by_team_season = {}
-    for p in draft_picks_all or []:
-        try:
-            y = _to_int(p.get("draft_season"), None)
-            if y is None:
+    for season_key, picks_for_season in season_draft_picks_all.items():
+        season_map = season_roster_to_team.get(int(season_key), {})
+        for p in picks_for_season or []:
+            try:
+                y = _to_int(p.get("draft_season"), season_key)
+                if y is None:
+                    continue
+                rid = _to_int(p.get("roster_id"), None)
+                if rid is None:
+                    continue
+                team = season_map.get(rid)
+                if not team:
+                    continue
+                pick_no = p.get("pick_no")
+                if pick_no is None:
+                    # fall back: approximate overall pick if not provided
+                    rnd = _to_int(p.get("round"), 0)
+                    slot = _to_int(p.get("draft_slot"), 0) or _to_int(p.get("pick_in_round"), 0)
+                    if rnd and slot:
+                        pick_no = (rnd - 1) * max(1, len(season_map)) + slot
+                pick_no = _to_int(pick_no, None)
+                if pick_no is None:
+                    continue
+                # rookie drafts only (heuristic): ignore huge pick numbers
+                if pick_no > 1000:
+                    continue
+                val = 1.0 / (float(pick_no) + 1.0)
+                pick_value_by_team_season[(str(team), int(y))] = pick_value_by_team_season.get((str(team), int(y)), 0.0) + val
+            except Exception:
                 continue
-            rid = _to_int(p.get("roster_id"), None)
-            if rid is None:
-                continue
-            team = roster_to_team.get(rid)
-            if not team:
-                continue
-            pick_no = p.get("pick_no")
-            if pick_no is None:
-                # fall back: approximate overall pick if not provided
-                rnd = _to_int(p.get("round"), 0)
-                slot = _to_int(p.get("draft_slot"), 0) or _to_int(p.get("pick_in_round"), 0)
-                if rnd and slot:
-                    pick_no = (rnd - 1) * max(1, len(roster_to_team)) + slot
-            pick_no = _to_int(pick_no, None)
-            if pick_no is None:
-                continue
-            # rookie drafts only (heuristic): ignore huge pick numbers
-            if pick_no > 1000:
-                continue
-            val = 1.0 / (float(pick_no) + 1.0)
-            pick_value_by_team_season[(str(team), int(y))] = pick_value_by_team_season.get((str(team), int(y)), 0.0) + val
-        except Exception:
-            continue
 
     # Team-week tanking: compute season-to-date
     if not tw.empty:
@@ -1982,9 +2286,9 @@ def build_all(repo_root: Path) -> None:
                 # age expanding: use weekly mean age
                 age_exp = pd.to_numeric(tg.get("TeamWeekAvgAge"), errors="coerce").expanding().mean()
 
-                rid = team_to_roster.get(str(team), None)
+                rid = season_team_to_roster.get(int(season), {}).get(_norm_team_name(team))
                 pick_sum = pick_value_by_team_season.get((str(team), int(season)), 0.0)
-                future_cap = _future_cap_from_traded(traded_picks, rid, int(season)) if rid is not None else 0.0
+                future_cap = _future_cap_from_traded(traded_picks_by_season.get(int(season), []), rid, int(season)) if rid is not None else 0.0
 
                 for i, row in tg.reset_index(drop=True).iterrows():
                     # Week can be missing/NaN in some corrupt rows; guard to avoid crashes.
@@ -2044,13 +2348,20 @@ def build_all(repo_root: Path) -> None:
     tx = pd.DataFrame(transactions_rows)
     tr = pd.DataFrame(trades_rows)
     ph = pd.DataFrame(pick_rows)
+    if not ph.empty:
+        try:
+            dedupe_cols = [c for c in ["Year", "Original Team", "Number", "Player Picked"] if c in ph.columns]
+            if dedupe_cols:
+                ph = ph.drop_duplicates(subset=dedupe_cols, keep="first").reset_index(drop=True)
+        except Exception:
+            pass
 
     # --------------------------
     # Reconstruct draft pick trade history (best-effort) from Sleeper traded_picks.
     # Sleeper traded_picks is per-round (no pick_no), so we apply the same chain to all picks in that round.
     # --------------------------
     try:
-        if not ph.empty and 'traded_picks_by_season' in locals():
+        if not ph.empty and traded_picks_by_season:
             # Build per (season, round, original_owner) -> chain of owners (including original)
             round_chain: Dict[tuple, List[int]] = {}
             for season, tps in traded_picks_by_season.items():
@@ -2063,33 +2374,38 @@ def build_all(repo_root: Path) -> None:
                         continue
                     key = (int(yr), int(rnd), int(prev))
                     chain = round_chain.get(key, [int(prev)])
-                    if chain[-1] == int(prev) and int(owner) not in chain:
+                    if chain[-1] != int(owner):
                         chain.append(int(owner))
                     round_chain[key] = chain
+
             # Apply to pick history rows
             for i, r in ph.iterrows():
                 yr = _to_int(r.get("Year"), None)
                 num = str(r.get("Number") or "")
-                m = re.match(r"R(\d+)\.", num)
+                m = re.match(r"R(\d+)(?:\.|$)", num)
                 if yr is None or not m:
                     continue
                 rnd = int(m.group(1))
-                # try to infer original roster_id by matching Original Team name to roster_to_team map for that season (if available)
+
                 orig_team = str(r.get("Original Team") or "")
-                orig_rid = None
-                # roster_to_team is scoped inside season loop; we can't access it here. Use best-effort: parse "Roster X".
-                m2 = re.search(r"(\d+)$", orig_team)
-                if m2:
-                    orig_rid = int(m2.group(1))
+                orig_rid = season_team_to_roster.get(int(yr), {}).get(_norm_team_name(orig_team))
+                if orig_rid is None:
+                    m2 = re.search(r"(\d+)$", orig_team)
+                    if m2:
+                        orig_rid = int(m2.group(1))
                 if orig_rid is None:
                     continue
-                key=(int(yr), rnd, orig_rid)
-                chain=round_chain.get(key)
-                if not chain or len(chain)<=1:
+
+                key = (int(yr), rnd, int(orig_rid))
+                chain = round_chain.get(key)
+                if not chain or len(chain) <= 1:
                     continue
-                # Fill Trade 1.. with team names if we can, else roster ids
-                for j in range(1, min(10, len(chain))):
-                    ph.at[i, f"Trade {j}"] = f"Roster {chain[j]}"
+
+                rid_to_team = season_roster_to_team.get(int(yr), {})
+                # Fill Trade 1..Trade 10 using display team names if available.
+                for j in range(1, min(11, len(chain))):
+                    owner_rid = chain[j]
+                    ph.at[i, f"Trade {j}"] = rid_to_team.get(owner_rid, f"Roster {owner_rid}")
     except Exception as e:
         _log_exc(debug, "pick_history_reconstruct", e)
 
@@ -2103,6 +2419,14 @@ def build_all(repo_root: Path) -> None:
         pw["Points"] = pd.to_numeric(pw["Points"], errors="coerce").fillna(0.0)
 
         pw = pw.sort_values(["Player", "Year", "Week"]).reset_index(drop=True)
+
+        # Fill missing NFL team with nearest known value for same player-season, then player-level mode.
+        if "NFL team" in pw.columns:
+            pw["NFL team"] = pw["NFL team"].replace("", np.nan)
+            pw["NFL team"] = pw.groupby(["Player", "Year"])["NFL team"].transform(lambda s: s.ffill().bfill())
+            team_mode = pw.groupby("Player")["NFL team"].agg(lambda s: s.dropna().mode().iloc[0] if len(s.dropna()) else np.nan)
+            pw["NFL team"] = pw["NFL team"].fillna(pw["Player"].map(team_mode))
+            pw["NFL team"] = pw["NFL team"].map(_norm_team)
 
         active = ~pw[["Injury?", "Suspension?", "Bye?"]].fillna(False).any(axis=1)
 
@@ -2402,15 +2726,34 @@ def build_all(repo_root: Path) -> None:
                 tw.loc[g.index[mask_b], "Brosenzweig"] = 1
                 tw.loc[g.index[mask_s], "Sisenzweig"] = 1
 
+        # Luck formula override:
+        # 1/3*(1 - Hardship/league_avg_hardship) + WinVariance/4 - 1/10*Brosenzweig + 1/3*Efficiency
+        try:
+            tw["Hardship"] = pd.to_numeric(tw.get("Hardship"), errors="coerce").fillna(0.0)
+            tw["Efficiency"] = pd.to_numeric(tw.get("Efficiency"), errors="coerce").fillna(0.0)
+            if "Win Variance" in tw.columns:
+                tw["Win Variance"] = pd.to_numeric(tw.get("Win Variance"), errors="coerce").fillna(0.0)
+            else:
+                tw["Win Variance"] = pd.to_numeric(tw.get("Luck"), errors="coerce").fillna(0.0)
+            tw["Brosenzweig"] = pd.to_numeric(tw.get("Brosenzweig"), errors="coerce").fillna(0.0)
+
+            lg_hard = tw.groupby(["Year", "Week"])["Hardship"].transform("mean")
+            hardship_term = 1.0 - (tw["Hardship"] / lg_hard.replace(0, np.nan))
+            hardship_term = hardship_term.replace([np.inf, -np.inf], np.nan).fillna(1.0)
+
+            tw["Luck"] = (
+                (1.0/3.0) * hardship_term
+                + 0.25 * tw["Win Variance"]
+                - 0.1 * tw["Brosenzweig"]
+                + (1.0/3.0) * tw["Efficiency"]
+            )
+        except Exception as e:
+            _log_exc(debug, "team_week_luck_formula", e)
 
     # --------------------------
     
         # Fill remaining schema columns in team-week (best-effort)
         try:
-            # Largest deficit overcome (no play-by-play available) -> 0 for wins, else None
-            if "Largest deficit overcome (if win)" in tw.columns:
-                tw.loc[tw["Win?"] == 1, "Largest deficit overcome (if win)"] = 0
-
             # Cuffs: use player-week activated cuff flag (rostered and started)
             cuff_col = "- Activated Cuff? (Was a player of ... 5 played games injured? Only for players with avg <10 PPG)"
             if (not pw.empty) and (cuff_col in pw.columns):
@@ -2427,48 +2770,78 @@ def build_all(repo_root: Path) -> None:
                 tw["Number of cuffs rostered"] = pd.to_numeric(tw.get("Number of cuffs rostered"), errors="coerce").fillna(0.0).round(0).astype(int)
                 tw["Number of cuffs started"] = pd.to_numeric(tw.get("Number of cuffs started"), errors="coerce").fillna(0.0).round(0).astype(int)
 
-            # Future draft capital / startup draft players remaining not yet modeled -> 0 for now
-            for col in ["Future draft capital", "Startup draft players remaining"]:
-                if col in tw.columns:
-                    tw[col] = pd.to_numeric(tw[col], errors="coerce").fillna(0.0)
+            # Future draft capital (weighted rounds) + startup placeholder left blank for now
+            if "Future draft capital" in tw.columns:
+                fdc_vals = []
+                for _, r in tw.iterrows():
+                    yr = _to_int(r.get("Year"), None)
+                    team_norm = _norm_team_name(r.get("Team"))
+                    rid = season_team_to_roster.get(int(yr), {}).get(team_norm) if yr is not None else None
+                    if yr is None or rid is None:
+                        fdc_vals.append(0.0)
+                        continue
+                    fdc_vals.append(float(_future_cap_from_traded(traded_picks_by_season.get(int(yr), []), int(rid), int(yr))))
+                tw["Future draft capital"] = pd.to_numeric(pd.Series(fdc_vals, index=tw.index), errors="coerce").fillna(0.0)
+
+            if "Startup draft players remaining" in tw.columns:
+                tw["Startup draft players remaining"] = None
         except Exception as e:
             _log_exc(debug, "team_week_fill_schema_cols", e)
 # Derived team-week columns: pregame avg maxPF diff
     # --------------------------
     if not tw.empty:
-        tw["Difference in pregame avg max PF from opponent"] = None
-        # build helper: map (Team,Year,Week) -> rid via raw opponent map is not kept, so approximate by using Opponent is label sometimes.
-        # We'll compute using team-week history by team: avg MaxPF prior to this week in same season.
         tw = tw.sort_values(["Team", "Year", "Week"]).reset_index(drop=True)
         tw["Max PF"] = pd.to_numeric(tw["Max PF"], errors="coerce")
-        # opponent avg maxPF requires opponent team identity; we can't recover from Opponent column in playoffs, so
-        # compute against raw points map not in output. We'll approximate using the opponent points against mapping:
-        # if Points against is present we can match to unique opponent that week by that score (in 8-team that's safe enough).
-        for (yr, wk), g in tw.groupby(["Year", "Week"]):
-            # build mapping by (Points against, PF) pair is ambiguous; fallback by symmetric join on Margin
-            pass  # leave None if ambiguous (rare)
-        # At minimum, compute own pregame avg maxPF, and set diff = own - league avg as a proxy when opponent unknown.
-        # This prevents blanks and stays interpretable.
-        tw["Pregame avg MaxPF (proxy)"] = None
-        for (team, yr), g in tw.groupby(["Team", "Year"]):
-            g = g.sort_values("Week")
-            maxpfs = []
-            for idx, row in g.iterrows():
-                pre = (sum(maxpfs) / len(maxpfs)) if maxpfs else None
-                tw.loc[idx, "Pregame avg MaxPF (proxy)"] = round(pre, 2) if pre is not None else None
-                if not pd.isna(row["Max PF"]):
-                    maxpfs.append(float(row["Max PF"]))
-        # league avg pregame
+
+        # Own pregame average Max PF (season-to-date, excluding current week)
+        tw["Pregame avg MaxPF"] = tw.groupby(["Team", "Year"])["Max PF"].apply(
+            lambda s: s.shift(1).expanding().mean()
+        ).reset_index(level=[0, 1], drop=True)
+
+        # Opponent-aware difference where matchup mapping is available.
         tw["Difference in pregame avg max PF from opponent"] = None
-        for (yr, wk), g in tw.groupby(["Year", "Week"]):
-            vals = pd.to_numeric(g["Pregame avg MaxPF (proxy)"], errors="coerce").dropna()
-            lg_avg = float(vals.mean()) if len(vals) else None
-            if lg_avg is None:
+
+        tw_key = tw.copy()
+        tw_key["_TeamNorm"] = tw_key["Team"].astype(str).map(_norm_team_name)
+        tw_key["_OppNorm"] = tw_key.get("Opponent", pd.Series(dtype=str)).astype(str).map(_norm_team_name)
+
+        by_key = {
+            (int(r["Year"]), int(r["Week"]), str(r["_TeamNorm"])): int(i)
+            for i, r in tw_key[["Year", "Week", "_TeamNorm"]].iterrows()
+            if pd.notna(r["Year"]) and pd.notna(r["Week"])
+        }
+
+        # Primary: direct opponent lookup. Fallback: league-average pregame baseline.
+        for i, r in tw_key.iterrows():
+            yr = _to_int(r.get("Year"), None)
+            wk = _to_int(r.get("Week"), None)
+            opp_n = str(r.get("_OppNorm") or "")
+            own_pre = _to_float(r.get("Pregame avg MaxPF"), None)
+            if yr is None or wk is None or own_pre is None:
                 continue
-            for idx in g.index:
-                v = tw.loc[idx, "Pregame avg MaxPF (proxy)"]
-                if v is not None and not pd.isna(v):
-                    tw.loc[idx, "Difference in pregame avg max PF from opponent"] = round(float(v) - lg_avg, 2)
+
+            opp_pre = None
+            if opp_n:
+                j = by_key.get((int(yr), int(wk), opp_n))
+                if j is not None:
+                    opp_pre = _to_float(tw_key.loc[j, "Pregame avg MaxPF"], None)
+
+            if opp_pre is None:
+                same_week = tw_key[(tw_key["Year"] == yr) & (tw_key["Week"] == wk)]
+                vals = pd.to_numeric(same_week["Pregame avg MaxPF"], errors="coerce").dropna()
+                if len(vals):
+                    opp_pre = float(vals.mean())
+
+            if opp_pre is not None:
+                tw.loc[i, "Difference in pregame avg max PF from opponent"] = round(float(own_pre) - float(opp_pre), 2)
+
+        # Align UPST with intended meaning: win despite lower pregame maxPF profile.
+        tw["UPST"] = (
+            (pd.to_numeric(tw.get("Win?"), errors="coerce") == 1)
+            & (pd.to_numeric(tw.get("Difference in pregame avg max PF from opponent"), errors="coerce") < 0)
+        ).astype(int)
+
+        tw.drop(columns=["Pregame avg MaxPF"], inplace=True, errors="ignore")
 
     # --------------------------
     
@@ -3833,6 +4206,7 @@ def build_all(repo_root: Path) -> None:
                 "Number of TE rostered": int(pd.to_numeric(g.get("Number of TE rostered"), errors="coerce").fillna(0.0).sum()),
                 "Number of transactions": int(pd.to_numeric(g.get("Number of transactions"), errors="coerce").fillna(0.0).sum()),
                 "Number of trades": int(pd.to_numeric(g.get("Number of trades"), errors="coerce").fillna(0.0).sum()),
+                "Amount of FAAB spent": float(pd.to_numeric(g.get("Amount of FAAB spent"), errors="coerce").fillna(0.0).sum()),
             })
         league_week = pd.DataFrame(rows)
 
@@ -3876,7 +4250,7 @@ def build_all(repo_root: Path) -> None:
                 }
             )
             league_week = league_week.merge(agg_lw, how="left", on=["Year","Week"])
-            league_week["Amount of FAAB spent"] = 0
+            league_week["Amount of FAAB spent"] = pd.to_numeric(league_week.get("Amount of FAAB spent"), errors="coerce").fillna(0.0)
         except Exception as e:
             _log_exc(debug, "league_week_fill_extra", e)
 
@@ -3915,6 +4289,7 @@ def build_all(repo_root: Path) -> None:
                 "Number of WR rostered": int(pd.to_numeric(g.get("Number of WR rostered"), errors="coerce").fillna(0.0).sum()),
                 "Number of RB rostered": int(pd.to_numeric(g.get("Number of RB rostered"), errors="coerce").fillna(0.0).sum()),
                 "Number of TE rostered": int(pd.to_numeric(g.get("Number of TE rostered"), errors="coerce").fillna(0.0).sum()),
+                "Amount of FAAB spent": float(pd.to_numeric(g.get("Amount of FAAB spent"), errors="coerce").fillna(0.0).sum()),
             })
         league_year = pd.DataFrame(rows)
 
@@ -3950,7 +4325,7 @@ def build_all(repo_root: Path) -> None:
                 }
             )
             league_year = league_year.merge(agg_ly, how="left", on=["Year"])
-            league_year["Amount of FAAB spent"] = 0
+            league_year["Amount of FAAB spent"] = pd.to_numeric(league_year.get("Amount of FAAB spent"), errors="coerce").fillna(0.0)
         except Exception as e:
             _log_exc(debug, "league_year_fill_extra", e)
 
@@ -4014,7 +4389,7 @@ def build_all(repo_root: Path) -> None:
             league_all["Number of cuffs rostered"] = float(pd.to_numeric(g_week.get("Number of cuffs rostered"), errors="coerce").sum())
             league_all["Number of cuffs started"] = float(pd.to_numeric(g_week.get("Number of cuffs started"), errors="coerce").sum())
             league_all["Startup draft players remaining"] = float(pd.to_numeric(g_week.get("Startup draft players remaining"), errors="coerce").max())
-            league_all["Amount of FAAB spent"] = 0
+            league_all["Amount of FAAB spent"] = float(pd.to_numeric(g_week.get("Amount of FAAB spent"), errors="coerce").fillna(0.0).sum())
         except Exception as e:
             _log_exc(debug, "league_all_fill_extra", e)
 
@@ -4065,6 +4440,17 @@ def build_all(repo_root: Path) -> None:
                 tr["Tanking after"] = tr["Tanking before"]
     except Exception as e:
         _log_exc(debug, "trades_links_tanking", e)
+    # Known-player validation report (best-effort): checks core columns against public expectations.
+    try:
+        validation = _known_player_column_errors(repo_root, pw)
+        val_path = repo_root / "exports" / "raw" / "known_player_column_errors.csv"
+        val_path.parent.mkdir(parents=True, exist_ok=True)
+        validation.to_csv(val_path, index=False)
+        if not validation.empty:
+            _log(debug, f"[{_now_iso()}] WARN known-player validation mismatches: {len(validation)}")
+    except Exception as e:
+        _log_exc(debug, "known_player_validation", e)
+
     context = {
         "player_week": pw,
         "player_year": player_year,
@@ -4089,23 +4475,37 @@ def build_all(repo_root: Path) -> None:
 def main() -> None:
     repo_root = Path(__file__).resolve().parent.parent
 
-    cfg = yaml.safe_load((repo_root / "config/league.yaml").read_text())
-    league_id = str(cfg["league_id"])
-    min_season = cfg.get("min_season")
-    max_season = cfg.get("max_season")
+    try:
+        cfg = yaml.safe_load((repo_root / "config/league.yaml").read_text())
+        league_id = str(cfg["league_id"])
+        min_season = cfg.get("min_season")
+        max_season = cfg.get("max_season")
 
-    mode = str(os.environ.get("LOTG_MODE", "both")).lower().strip()
-    if mode not in {"snapshot", "build", "both"}:
-        mode = "both"
+        mode = str(os.environ.get("LOTG_MODE", "both")).lower().strip()
+        if mode not in {"snapshot", "build", "both"}:
+            mode = "both"
 
-    if mode in {"snapshot", "both"}:
-        from lotg_support.snapshot import snapshot_all
+        if mode in {"snapshot", "both"}:
+            from lotg_support.snapshot import snapshot_all
+            try:
+                snapshot_all(repo_root, league_id=league_id, min_season=min_season, max_season=max_season)
+            except Exception as e:
+                _fatal_log(repo_root, "snapshot_all", e)
+                raise
 
-        snapshot_all(repo_root, league_id=league_id, min_season=min_season, max_season=max_season)
-
-    if mode in {"build", "both"}:
-        build_all(repo_root)
+        if mode in {"build", "both"}:
+            try:
+                build_all(repo_root)
+            except Exception as e:
+                _fatal_log(repo_root, "build_all", e)
+                raise
+    except Exception as e:
+        _fatal_log(repo_root, "main", e)
+        raise
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except Exception:
+        raise
