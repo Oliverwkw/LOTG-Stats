@@ -1048,6 +1048,75 @@ def build_all(repo_root: Path) -> None:
     opp_pf_map: Dict[Tuple[int, int, int], Optional[float]] = {}
     stage_label_map: Dict[Tuple[int, int, int], Optional[str]] = {}
     playoff_start_by_season: Dict[int, Optional[int]] = {}
+    roster_ids_by_season: Dict[int, List[int]] = {}
+    roster_to_team_by_season: Dict[int, Dict[int, str]] = {}
+    draft_rounds_by_season: Dict[int, int] = {}
+    included_draft_rounds_by_season: Dict[int, int] = {}
+
+    # Draft pick ownership ledger
+    # key: (season, round, original_owner_id) -> current_owner_id
+    pick_current_owner: Dict[Tuple[int, int, int], int] = {}
+    pick_trade_events: Dict[Tuple[int, int, int], List[Tuple[Optional[datetime], int, int, Optional[int]]]] = {}
+    pick_holdings: Dict[Tuple[int, int, int], List[int]] = defaultdict(list)
+
+    def _ensure_pick_bases(target_season: int, source_season: int) -> None:
+        if target_season < 2021:
+            return
+        rounds = draft_rounds_by_season.get(target_season) or draft_rounds_by_season.get(source_season)
+        roster_ids = roster_ids_by_season.get(target_season) or roster_ids_by_season.get(source_season) or []
+        if not rounds or not roster_ids:
+            return
+        draft_rounds_by_season.setdefault(target_season, int(rounds))
+        roster_ids_by_season.setdefault(target_season, list(roster_ids))
+        for rnd in range(1, int(rounds) + 1):
+            for rid in roster_ids:
+                key = (int(target_season), int(rnd), int(rid))
+                if key in pick_current_owner:
+                    continue
+                pick_current_owner[key] = int(rid)
+                pick_trade_events[key] = []
+                pick_holdings[(int(target_season), int(rnd), int(rid))].append(int(rid))
+
+    def _format_pick_number(season: int, round_num: Optional[int], pick_no: Optional[int]) -> Optional[str]:
+        if round_num is None:
+            return None
+        team_count = len(roster_ids_by_season.get(season, [])) or None
+        if pick_no is None or team_count is None:
+            return f"{int(round_num)}.??"
+        slot = ((int(pick_no) - 1) % int(team_count)) + 1
+        return f"{int(round_num)}.{slot:02d}"
+
+    def _format_pick_label(season: int, round_num: Optional[int], pick_no: Optional[int]) -> Optional[str]:
+        num = _format_pick_number(season, round_num, pick_no)
+        if num is None:
+            return None
+        return f"{int(season)} {num}"
+
+    def _slot_for_roster(season: int, roster_id: int) -> Optional[int]:
+        roster_ids = sorted(roster_ids_by_season.get(season, []))
+        if not roster_ids:
+            return None
+        try:
+            return roster_ids.index(int(roster_id)) + 1
+        except ValueError:
+            return None
+
+    def _select_pick_key(
+        season: int,
+        round_num: int,
+        prev_owner: int,
+        original_owner: Optional[int],
+    ) -> Optional[Tuple[int, int, int]]:
+        if original_owner is not None:
+            key = (int(season), int(round_num), int(original_owner))
+            if key in pick_current_owner:
+                return key
+        candidates = pick_holdings.get((int(season), int(round_num), int(prev_owner)), [])
+        if len(candidates) == 1:
+            return (int(season), int(round_num), int(candidates[0]))
+        if candidates:
+            return (int(season), int(round_num), int(sorted(candidates)[0]))
+        return None
 
     # Determine last completed week per league (robust, per Apps Script)
     def last_completed_week(league_id: str, season: int, max_weeks: int = 30) -> int:
@@ -1202,7 +1271,7 @@ def build_all(repo_root: Path) -> None:
         except Exception:
             pass
 
-# draft picks history (rookie + startup as available in Sleeper; still partial)
+        # draft picks history (rookie + startup as available in Sleeper; still partial)
         try:
             drafts = sc.drafts(league_id)
         except Exception as e:
@@ -1218,6 +1287,31 @@ def build_all(repo_root: Path) -> None:
             except Exception as e:
                 picks = []
                 _log_exc(debug, f"draft_picks_{season}_{did}", e)
+            max_round = 0
+            picks_with_players = 0
+            rookie_picks = 0
+            for p in picks or []:
+                rnd = _to_int(p.get("round"), None)
+                if rnd is not None:
+                    max_round = max(max_round, int(rnd))
+                pid = p.get("player_id")
+                if _valid_pid(pid):
+                    picks_with_players += 1
+                    if is_rookie_pid(pid, season):
+                        rookie_picks += 1
+            if max_round == 5:
+                continue
+            if max_round > 0 and max_round > 5:
+                continue
+            if picks_with_players == 0:
+                continue
+            if (rookie_picks / float(picks_with_players)) <= 0.5:
+                continue
+            if max_round:
+                included_draft_rounds_by_season[season] = max(
+                    included_draft_rounds_by_season.get(season, 0),
+                    int(max_round),
+                )
             for p in picks or []:
                 p["draft_id"] = did
                 p["draft_season"] = season
@@ -1916,6 +2010,44 @@ def build_all(repo_root: Path) -> None:
                         if not isinstance(draft_picks, list):
                             draft_picks = []
 
+                        # update pick ledger with trade order
+                        if draft_picks:
+                            for dp in [x for x in draft_picks if isinstance(x, dict)]:
+                                dp_season = _to_int(dp.get("season"), season)
+                                dp_round = _to_int(dp.get("round"), None)
+                                prev_owner = _to_int(
+                                    dp.get("previous_owner_id") or dp.get("previous_owner") or dp.get("previous_owner_roster_id"),
+                                    None,
+                                )
+                                new_owner = _to_int(
+                                    dp.get("owner_id") or dp.get("roster_id") or dp.get("owner_roster_id"),
+                                    None,
+                                )
+                                original_owner = _to_int(dp.get("original_owner_id") or dp.get("original_owner"), None)
+                                if prev_owner is None and new_owner is not None and len(roster_ids_int) == 2:
+                                    prev_owner = [rid for rid in roster_ids_int if rid != new_owner][0]
+                                if dp_season is None or dp_round is None or prev_owner is None or new_owner is None:
+                                    continue
+                                _ensure_pick_bases(int(dp_season), season)
+                                key = _select_pick_key(int(dp_season), int(dp_round), int(prev_owner), original_owner)
+                                if not key:
+                                    _log(
+                                        debug,
+                                        f"[{_now_iso()}] WARN pick ledger unresolved: season={dp_season} round={dp_round} prev={prev_owner} new={new_owner} orig={original_owner}",
+                                    )
+                                    continue
+                                pick_holdings[(key[0], key[1], int(prev_owner))] = [
+                                    oid for oid in pick_holdings.get((key[0], key[1], int(prev_owner)), []) if oid != key[2]
+                                ]
+                                pick_holdings[(key[0], key[1], int(new_owner))].append(int(key[2]))
+                                pick_holdings[(key[0], key[1], int(new_owner))] = sorted(
+                                    set(pick_holdings[(key[0], key[1], int(new_owner))])
+                                )
+                                pick_current_owner[key] = int(new_owner)
+                                pick_trade_events.setdefault(key, []).append(
+                                    (created_dt, int(prev_owner), int(new_owner), int(wk)),
+                                )
+
                         # received assets by team
                         recv_players: Dict[int, List[str]] = defaultdict(list)
                         for pid, rrid in adds.items():
@@ -1931,7 +2063,13 @@ def build_all(repo_root: Path) -> None:
                             owner_id = _to_int(dp.get("owner_id"), None)
                             if owner_id is None:
                                 continue
-                            recv_picks[owner_id].append(f"{dp.get('season')} R{dp.get('round')}")
+                            dp_season = _to_int(dp.get("season"), season)
+                            dp_round = _to_int(dp.get("round"), None)
+                            if dp_round is None:
+                                continue
+                            label = _format_pick_label(int(dp_season), dp_round, None)
+                            if label:
+                                recv_picks[owner_id].append(label)
 
                         # Build row per roster in roster_ids_int
                         for rid in roster_ids_int:
@@ -2056,6 +2194,19 @@ def build_all(repo_root: Path) -> None:
                         player_drop_all[dropped_name] += 1
                 except Exception as e:
                     _log_exc(debug, f"transactions_trades_rows_{season}_wk{wk}", e)
+
+    # Ensure pick ledger includes seasons from 2021 through three years after latest draft.
+    latest_draft_season = max(
+        [r.get("draft_season") for r in draft_picks_records if r.get("draft_season") is not None],
+        default=None,
+    )
+    latest_league_season = max(roster_ids_by_season.keys(), default=None)
+    base_season = latest_draft_season or latest_league_season
+    if base_season is not None:
+        max_future_season = int(base_season) + 3
+        seed_source = max(draft_rounds_by_season.keys(), default=int(base_season))
+        for yr in range(2021, max_future_season + 1):
+            _ensure_pick_bases(int(yr), int(seed_source))
 
     # --------------------------
     # Convert to DataFrames
@@ -2357,8 +2508,7 @@ def build_all(repo_root: Path) -> None:
             pass
 
     # --------------------------
-    # Reconstruct draft pick trade history (best-effort) from Sleeper traded_picks.
-    # Sleeper traded_picks is per-round (no pick_no), so we apply the same chain to all picks in that round.
+    # Reconstruct draft pick trade history from transaction ledger.
     # --------------------------
     try:
         if not ph.empty and traded_picks_by_season:
