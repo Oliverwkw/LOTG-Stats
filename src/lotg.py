@@ -1289,10 +1289,21 @@ def build_all(repo_root: Path) -> None:
             drafts = []
             _log_exc(debug, f"drafts_{season}", e)
         draft_picks_all: List[Dict[str, Any]] = []
+        draft_slot_to_roster_by_did: Dict[str, Dict[int, int]] = {}
         for d in drafts or []:
             did = str(d.get("draft_id") or "")
             if not did:
                 continue
+            slot_map_raw = d.get("slot_to_roster_id") if isinstance(d, dict) else {}
+            slot_map: Dict[int, int] = {}
+            if isinstance(slot_map_raw, dict):
+                for k, v in slot_map_raw.items():
+                    kk = _to_int(k, None)
+                    vv = _to_int(v, None)
+                    if kk is not None and vv is not None:
+                        slot_map[int(kk)] = int(vv)
+            if slot_map:
+                draft_slot_to_roster_by_did[did] = slot_map
             try:
                 picks = sc.draft_picks(did)
             except Exception as e:
@@ -1330,6 +1341,8 @@ def build_all(repo_root: Path) -> None:
             for p in picks or []:
                 p["draft_id"] = did
                 p["draft_season"] = season
+                if did in draft_slot_to_roster_by_did:
+                    p["slot_to_roster_id"] = draft_slot_to_roster_by_did.get(did)
             draft_picks_all.extend(picks or [])
 
         season_draft_picks_all[int(season)] = list(draft_picks_all)
@@ -1344,8 +1357,19 @@ def build_all(repo_root: Path) -> None:
             picked_by = _to_int(p.get("picked_by"), None)
             player = p.get("player_id")
 
-            # Original team should reflect the manager on the clock at selection time.
-            origin_rid = picked_by if picked_by is not None else roster_id
+            slot_map = p.get("slot_to_roster_id") if isinstance(p.get("slot_to_roster_id"), dict) else {}
+            team_count = len(slot_map) or len(roster_ids_by_season.get(season, [])) or None
+            slot_no = _to_int(p.get("draft_slot"), None) or _to_int(p.get("pick_in_round"), None)
+            if slot_no is None and pick_no is not None and team_count:
+                slot_no = ((int(pick_no) - 1) % int(team_count)) + 1
+
+            # Original team: use draft slot ownership map first; fallback to picker roster.
+            origin_rid = None
+            if slot_no is not None and slot_map:
+                origin_rid = _to_int(slot_map.get(int(slot_no)), None)
+            if origin_rid is None:
+                origin_rid = picked_by if picked_by is not None else roster_id
+
             team = roster_to_team.get(origin_rid, f"Roster {origin_rid}") if origin_rid is not None else None
 
             # Draft APIs are not fully consistent; recover display number even when pick_no is missing.
@@ -2555,20 +2579,48 @@ def build_all(repo_root: Path) -> None:
     # Reconstruct draft pick trade history from transaction ledger.
     # --------------------------
     try:
-        snapshot_chain: Dict[Tuple[int, int, int], List[int]] = {}
+        # Build fallback ledger from traded_picks snapshots (handles off-season trades).
+        fb_current_owner: Dict[Tuple[int, int, int], int] = {}
+        fb_events: Dict[Tuple[int, int, int], List[int]] = defaultdict(list)
+
+        def _seed_fb_pick(key: Tuple[int, int, int]) -> None:
+            if key not in fb_current_owner:
+                fb_current_owner[key] = int(key[2])
+
+        for season_key, rounds in included_draft_rounds_by_season.items():
+            roster_ids = roster_ids_by_season.get(int(season_key), [])
+            if not roster_ids or not rounds:
+                continue
+            for rnd in range(1, int(rounds) + 1):
+                for rid in roster_ids:
+                    _seed_fb_pick((int(season_key), int(rnd), int(rid)))
+
         for season, tps in traded_picks_by_season.items():
             for tp in (tps or []):
                 yr = _to_int(tp.get("season"), season)
                 rnd = _to_int(tp.get("round"), None)
                 prev = _to_int(tp.get("previous_owner_id") or tp.get("previous_owner") or tp.get("previous_owner_roster_id"), None)
                 owner = _to_int(tp.get("owner_id") or tp.get("roster_id") or tp.get("owner_roster_id"), None)
+                orig = _to_int(tp.get("original_owner_id") or tp.get("original_owner"), None)
                 if yr is None or rnd is None or prev is None or owner is None:
                     continue
-                key = (int(yr), int(rnd), int(prev))
-                chain = snapshot_chain.get(key, [int(prev)])
-                if chain[-1] != int(owner):
-                    chain.append(int(owner))
-                snapshot_chain[key] = chain
+
+                key = None
+                if orig is not None:
+                    cand = (int(yr), int(rnd), int(orig))
+                    if cand in fb_current_owner:
+                        key = cand
+                if key is None:
+                    cands = [k for k, curr in fb_current_owner.items() if k[0] == int(yr) and k[1] == int(rnd) and int(curr) == int(prev)]
+                    if len(cands) == 1:
+                        key = cands[0]
+                if key is None:
+                    key = (int(yr), int(rnd), int(prev))
+                    _seed_fb_pick(key)
+
+                if int(fb_current_owner.get(key, key[2])) != int(owner):
+                    fb_events[key].append(int(owner))
+                    fb_current_owner[key] = int(owner)
 
         if not ph.empty:
             for i, r in ph.iterrows():
@@ -2590,9 +2642,10 @@ def build_all(repo_root: Path) -> None:
 
                 key = (int(yr), int(rnd), int(orig_rid))
                 rid_to_team = season_roster_to_team.get(int(yr), {})
+
+                # primary chain from weekly transaction ledger
                 events = pick_trade_events.get(key, [])
                 events = sorted(events, key=lambda x: (x[0] is None, x[0] or datetime.min.replace(tzinfo=timezone.utc)))
-
                 chain_owners: List[int] = []
                 last_owner = int(orig_rid)
                 for evt in events:
@@ -2603,20 +2656,18 @@ def build_all(repo_root: Path) -> None:
                         chain_owners.append(int(new_owner))
                         last_owner = int(new_owner)
 
+                # fallback chain from traded_picks snapshots
                 if not chain_owners:
-                    snap = snapshot_chain.get(key, [])
-                    if len(snap) > 1:
-                        chain_owners = [int(x) for x in snap[1:]]
+                    chain_owners = [int(x) for x in fb_events.get(key, [])]
 
                 for j, owner_rid in enumerate(chain_owners[:10], start=1):
                     ph.at[i, f"Trade {j}"] = rid_to_team.get(int(owner_rid), f"Roster {owner_rid}")
 
                 final_owner_rid = _to_int(pick_current_owner.get(key), None)
                 if final_owner_rid is None:
-                    if chain_owners:
-                        final_owner_rid = int(chain_owners[-1])
-                    else:
-                        final_owner_rid = int(orig_rid)
+                    final_owner_rid = _to_int(fb_current_owner.get(key), None)
+                if final_owner_rid is None:
+                    final_owner_rid = chain_owners[-1] if chain_owners else int(orig_rid)
                 ph.at[i, "Final Team"] = rid_to_team.get(int(final_owner_rid), f"Roster {final_owner_rid}")
     except Exception as e:
         _log_exc(debug, "pick_history_reconstruct", e)
