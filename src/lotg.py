@@ -214,6 +214,15 @@ def _to_float(x: Any, default: Optional[float] = None) -> Optional[float]:
         return default
 
 
+def _format_pick_number(round_no: Optional[int], pick_in_round: Optional[int]) -> Optional[str]:
+    """Return canonical pick notation like 1.01."""
+    if round_no is None:
+        return None
+    if pick_in_round is None:
+        return f"{int(round_no)}"
+    return f"{int(round_no)}.{int(pick_in_round):02d}"
+
+
 def _valid_pid(pid: Any) -> bool:
     """Return True if pid is a real Sleeper player id (not placeholders like '0')."""
     if pid is None:
@@ -532,6 +541,7 @@ def _column_kind(col: str) -> str:
         "top team",
         "last team",
         "original team",
+        "final team",
         "player picked",
         "reference player name",
         "nfl team",
@@ -1077,17 +1087,17 @@ def build_all(repo_root: Path) -> None:
                 pick_trade_events[key] = []
                 pick_holdings[(int(target_season), int(rnd), int(rid))].append(int(rid))
 
-    def _format_pick_number(season: int, round_num: Optional[int], pick_no: Optional[int]) -> Optional[str]:
+    def _format_pick_number_for_season(season: int, round_num: Optional[int], pick_no: Optional[int]) -> Optional[str]:
         if round_num is None:
             return None
         team_count = len(roster_ids_by_season.get(season, [])) or None
         if pick_no is None or team_count is None:
-            return f"{int(round_num)}.??"
+            return _format_pick_number(round_num, None)
         slot = ((int(pick_no) - 1) % int(team_count)) + 1
-        return f"{int(round_num)}.{slot:02d}"
+        return _format_pick_number(round_num, slot)
 
     def _format_pick_label(season: int, round_num: Optional[int], pick_no: Optional[int]) -> Optional[str]:
-        num = _format_pick_number(season, round_num, pick_no)
+        num = _format_pick_number_for_season(season, round_num, pick_no)
         if num is None:
             return None
         return f"{int(season)} {num}"
@@ -1300,8 +1310,6 @@ def build_all(repo_root: Path) -> None:
                     picks_with_players += 1
                     if is_rookie_pid(pid, season):
                         rookie_picks += 1
-            if max_round == 5:
-                continue
             if max_round > 0 and max_round > 5:
                 continue
             if picks_with_players == 0:
@@ -1333,12 +1341,7 @@ def build_all(repo_root: Path) -> None:
             team = roster_to_team.get(origin_rid, f"Roster {origin_rid}") if origin_rid is not None else None
 
             # Draft APIs are not fully consistent; recover display number even when pick_no is missing.
-            if rnd is not None and pick_no is not None:
-                number = f"R{rnd}.{pick_no}"
-            elif rnd is not None:
-                number = f"R{rnd}"
-            else:
-                number = None
+            number = _format_pick_number_for_season(season, rnd, pick_no)
 
             # Resolve player name from Sleeper player map first, then pick metadata.
             player_name = pid_meta.get(str(player), {}).get("full_name") if player else None
@@ -1350,8 +1353,9 @@ def build_all(repo_root: Path) -> None:
 
             pick_rows.append({
                 "Year": season,
-                "Original Team": team,
                 "Number": number,
+                "Original Team": team,
+                "Final Team": team,
                 "Player Picked": player_name,
                 "Trade 1": None, "Trade 2": None, "Trade 3": None, "Trade 4": None, "Trade 5": None,
                 "Trade 6": None, "Trade 7": None, "Trade 8": None, "Trade 9": None, "Trade 10": None,
@@ -1367,10 +1371,12 @@ def build_all(repo_root: Path) -> None:
                 owner = _to_int(tp.get("owner_id") or tp.get("roster_id") or tp.get("owner_roster_id"), None)
                 if yr is None or rnd is None or prev is None:
                     continue
+                slot = _slot_for_roster(int(yr), int(prev))
                 row = {
                     "Year": int(yr),
+                    "Number": _format_pick_number(int(rnd), slot),
                     "Original Team": roster_to_team.get(int(prev), f"Roster {prev}"),
-                    "Number": f"R{int(rnd)}",
+                    "Final Team": roster_to_team.get(int(owner), f"Roster {owner}") if owner is not None else roster_to_team.get(int(prev), f"Roster {prev}"),
                     "Player Picked": "Unknown",
                     "Trade 1": roster_to_team.get(int(owner), f"Roster {owner}") if owner is not None and int(owner) != int(prev) else None,
                     "Trade 2": None,
@@ -2548,7 +2554,7 @@ def build_all(repo_root: Path) -> None:
             for i, r in ph.iterrows():
                 yr = _to_int(r.get("Year"), None)
                 num = str(r.get("Number") or "")
-                m = re.match(r"R(\d+)(?:\.|$)", num)
+                m = re.match(r"(\d+)(?:\.|$)", num)
                 if yr is None or not m:
                     continue
                 rnd = int(m.group(1))
@@ -2572,6 +2578,8 @@ def build_all(repo_root: Path) -> None:
                 for j in range(1, min(11, len(chain))):
                     owner_rid = chain[j]
                     ph.at[i, f"Trade {j}"] = rid_to_team.get(owner_rid, f"Roster {owner_rid}")
+                final_owner_rid = chain[-1]
+                ph.at[i, "Final Team"] = rid_to_team.get(final_owner_rid, f"Roster {final_owner_rid}")
     except Exception as e:
         _log_exc(debug, "pick_history_reconstruct", e)
 
