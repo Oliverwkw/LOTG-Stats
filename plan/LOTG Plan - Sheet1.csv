@@ -1,21 +1,23 @@
 Player-Week,Player-year,Player-all-time,team-week,team-year,team-all-time,league-week,league-year,league-all-time,transactions,trades,Pick History
 Player,Player,Player,Team,Team,Team,Week,Year,PF,Team,Team,Year
-Team,Year,Top team,Week,Year,All time win %,Year,(smallest) Playoff tiebreaker,Avg PF,Player Added,Team's traded with,Pick made by
-Week,Top Team,Last team,Week Name,Result,All time record,PF,PF,PF Range,Player Dropped,Assets recieved,Original Team
-,,,,,Championships,,,,,,Number
+Team,Year,Top team,Week,Year,All time win %,Year,(smallest) Playoff tiebreaker,Avg PF,Player Added,Team's traded with,Original Team
+Week,Top Team,Last team,Week Name,Result,All time record,PF,PF,PF Range,Player Dropped,Assets recieved,Number
+,,,,,Championships,,,,,,
 Week Name,Last team,Number of teams,Year,Win %,Win Variance,PF Range,Avg PF,Avg margin,type of transaction (waiver/free agency),Assets dropped,Player Picked
 Year,Number of teams,Number of transactions,PF,Record,Draft Value,Avg margin,PF Range,Margin range,Faab,Date,Trade 1
+,,Number of drops,,,,,,,,,
 Points,Number of transactions,Number of trades,Win?,Change in win % from previous season,Number of first round picks made,Margin range,Avg margin,Number of games within 10,Date,KTC value difference at deal time,Trade 2
+,Number of drops,,,,,,,,,,
 Injury?,Number of trades,Points,Opponent,Win Variance,Total number of picks made,Number of games within 10,Margin range,Number of games within 5,Number of bids,KTC value difference at end of season,Trade 3
 Suspension?,Points,Avg points,Points against,Week of playoff elimination,Points,Number of games within 5,Number of games within 10,Max PF,Average PPG on team,KTC value difference 1 year later,Trade 4
 Bye?,Avg points,Weeks missed due to injury,Margin,Draft Value,Avg points,Max PF,Number of games within 5,Avg max PF,Average PPG of dropped player over same time,KTC value difference 2 years later,Trade 5
 Starter/Bench,Weeks missed due to injury,Weeks missed due to suspension,Max PF,Number of first round picks made,Points against,Efficiency,Max PF,Efficiency,Difference of averages,Oliver value difference at deal time,Trade 6
 % of points (if starter),Weeks missed due to suspension,Weeks as starter,Efficiency,Total number of picks made,Avg points against,Number of Injuries,Avg max PF,Number of weeks missed due to injury,Difference of averages adjusted by position,Oliver value difference at end of season,Trade 7
 Position started in (if starter),Weeks as starter,% of points (highest team),Number of Injuries,Points,Differential,Number of suspensions,Efficiency,Number of weeks missed due to suspensions,Age difference,Oliver value difference 1 year later,Trade 8
-Position,,,,,,,,,,,Trade 9
-Change from previous week,% of points (highest team),% of points (lowest team),Number of suspensions,Avg points,Avg differential,Number of players on bye,Number of weeks missed due to injury,Number of wins with pregame avg max PF from opponent,Player addition value,Oliver value difference 2 years later,Trade 10
-Change from previous 5 weeks avg,% of points (lowest team),Times as Player of the week?,Number of players on bye,Points against,Max PF,Starter turnover from previous week,Number of weeks missed due to suspensions,Tanking,Cuff at time of pickup?,Pick value recieved,etc
-Change from career average to that point,Change in points from previous season,Times as QB of the week?,Largest deficit overcome (if win),Avg points against,Avg max PF,Number of wins with pregame avg max PF from opponent,Inseason starter turnover,Luck,Weeks between pickup and start,Change in pick value at draft time,
+Position,,,,,,,,,,,
+Change from previous week,% of points (highest team),% of points (lowest team),Number of suspensions,Avg points,Avg differential,Number of players on bye,Number of weeks missed due to injury,Number of wins with pregame avg max PF from opponent,Player addition value,Oliver value difference 2 years later,Trade 9
+Change from previous 5 weeks avg,% of points (lowest team),Times as Player of the week?,Number of players on bye,Points against,Max PF,Starter turnover from previous week,Number of weeks missed due to suspensions,Tanking,Cuff at time of pickup?,Pick value recieved,Trade 10
+Change from career average to that point,Change in points from previous season,Times as QB of the week?,Largest deficit overcome (if win),Avg points against,Avg max PF,Number of wins with pregame avg max PF from opponent,Inseason starter turnover,Luck,Weeks between pickup and start,Change in pick value at draft time,etc
 Change from overall career average,Change in avg points from previous season,Times as RB of the week?,Starter turnover from previous week,Differential,Efficiency,UPST,Offseason starter turnover,Increase in points from previous week,Number of starts before next drop,Assets retained now,
 Number of weeks on team,Change in points from career,Times as WR of the week?,Roster turnover from previous week,Avg differential,Weeks of injuries,Hardship,Inseason roster turnover,Number of QB started,% of starts made while rostered,Assets dropped,
 Number of consecutive weeks on bench before start (if starter),Change in avg points from career,Times as TE of the week?,Difference in pregame avg max PF from opponent,Max PF,Weeks suspensions,Tanking,Offseason roster turnover,Number of WR started,Injury adjusted % of starts made while rostered,Assets traded away,
@@ -43,6 +45,8 @@ Lowest starter on team?,,,Number of TE rostered,Number of WR started,Number of W
 Rookie?,,,Number of transactions,Number of RB started,Number of RB rostered,Most number of TE started from same NFL team,Most number of WR started from same NFL team,Number of rookies started,,,
 Age,,,Number of trades,Number of TE started,Number of TE rostered,Most number of TE rostered from same NFL team,Most number of WR rostered from same NFL team,Number of rookies rostered,,,
 NFL team,,,Amount of FAAB spent,Number of QB rostered,Number of transactions,Number of NFL teams among starting players,Most number of TE started from same NFL team,Player average age,,,
+Number of transactions,,,,,,,,,,,
+Number of drops,,,,,,,,,,,
 ,,,Most number of players started from same NFL team,Number of WR rostered,Number of trades,Number of NFL teams amoung rostered players,Most number of TE rostered from same NFL team,Difference between highest and lowest starters,,,
 ,,,Most number of players rostered from same NFL team,Number of RB rostered,Amount of FAAB spent,Number of rookies started,Number of NFL teams among starting players,Number of donuts,,,
 ,,,Most number of QBs started from same NFL team,Number of TE rostered,Most number of players started from same NFL team,Number of rookies rostered,Number of NFL teams amoung rostered players,Number of players under 10,,,
