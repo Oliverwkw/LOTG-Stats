@@ -1148,6 +1148,7 @@ def build_all(repo_root: Path) -> None:
     season_roster_to_team: Dict[int, Dict[int, str]] = {}
     season_team_to_roster: Dict[int, Dict[str, int]] = {}
     season_draft_picks_all: Dict[int, List[Dict[str, Any]]] = {}
+    draft_picks_records: List[Dict[str, Any]] = []
 
     for lg in leagues:
         league_id = str(lg.get("league_id"))
@@ -1318,6 +1319,7 @@ def build_all(repo_root: Path) -> None:
             draft_picks_all.extend(picks or [])
 
         season_draft_picks_all[int(season)] = list(draft_picks_all)
+        draft_picks_records.extend(draft_picks_all)
 
         for p in draft_picks_all:
             rnd = _to_int(p.get("round"), None)
