@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, List, Any, Tuple, Optional
+from typing import Dict, List, Any, Tuple, Optional, Set
 from datetime import datetime, timezone, timedelta, date
 from collections import Counter, deque, defaultdict
 import json
@@ -1410,6 +1410,7 @@ def build_all(repo_root: Path) -> None:
         # ------------- Pre-fetch all weekly matchups & transactions -------------
         matchups_by_week: Dict[int, List[Dict[str, Any]]] = {}
         tx_by_week: Dict[int, List[Dict[str, Any]]] = {}
+        seen_tx_ids: Set[str] = set()
 
         for wk in range(1, min(last_week, 30) + 1):
             if not week_allowed(wk):
@@ -1427,7 +1428,19 @@ def build_all(repo_root: Path) -> None:
                 _log_exc(debug, f"matchups_{season}_wk{wk}", e)
 
             try:
-                tx_by_week[wk] = sc.transactions(wk, league_id) or []
+                raw_tx = sc.transactions(wk, league_id) or []
+                deduped_tx: List[Dict[str, Any]] = []
+                for t in raw_tx:
+                    tx_id = t.get("transaction_id")
+                    if tx_id is None:
+                        deduped_tx.append(t)
+                        continue
+                    tx_id_str = str(tx_id)
+                    if tx_id_str in seen_tx_ids:
+                        continue
+                    seen_tx_ids.add(tx_id_str)
+                    deduped_tx.append(t)
+                tx_by_week[wk] = deduped_tx
             except Exception as e:
                 tx_by_week[wk] = []
                 _log_exc(debug, f"transactions_{season}_wk{wk}", e)
@@ -2131,28 +2144,30 @@ def build_all(repo_root: Path) -> None:
                     if not isinstance(drops, dict):
                         drops = {}
 
-                    handled_drop_ids = set()
+                    drops_by_roster: Dict[str, List[str]] = defaultdict(list)
+                    for dp, drid in drops.items():
+                        drops_by_roster[str(drid)].append(str(dp))
                     for pid, rrid in adds.items():
                         pid = str(pid)
-                        added_name = _player_display_name(pid)
-                        player_tx_week[(added_name, season, wk)] += 1
-                        player_tx_year[(added_name, season)] += 1
-                        player_tx_all[added_name] += 1
+                        rrid_str = str(rrid)
+                        player_tx_week[(pid, season, wk)] += 1
+                        player_tx_year[(pid, season)] += 1
+                        player_tx_all[pid] += 1
                         dropped = None
-                        for dp, drid in drops.items():
-                            if str(drid) == str(rrid):
-                                dropped = str(dp)
-                                handled_drop_ids.add(str(dp))
-                                break
+                        drop_list = drops_by_roster.get(rrid_str)
+                        if drop_list:
+                            dropped = drop_list.pop(0)
+                            if not drop_list:
+                                drops_by_roster.pop(rrid_str, None)
 
                         if dropped:
-                            dropped_name = _player_display_name(dropped)
-                            player_tx_week[(dropped_name, season, wk)] += 1
-                            player_tx_year[(dropped_name, season)] += 1
-                            player_tx_all[dropped_name] += 1
-                            player_drop_week[(dropped_name, season, wk)] += 1
-                            player_drop_year[(dropped_name, season)] += 1
-                            player_drop_all[dropped_name] += 1
+                            dropped_id = str(dropped)
+                            player_tx_week[(dropped_id, season, wk)] += 1
+                            player_tx_year[(dropped_id, season)] += 1
+                            player_tx_all[dropped_id] += 1
+                            player_drop_week[(dropped_id, season, wk)] += 1
+                            player_drop_year[(dropped_id, season)] += 1
+                            player_drop_all[dropped_id] += 1
 
                         transactions_rows.append({
                             "Team": team,
@@ -2181,17 +2196,15 @@ def build_all(repo_root: Path) -> None:
                             "Number of times picked up by this team": None,
                         })
 
-                    for dp in drops.keys():
-                        dp_str = str(dp)
-                        if dp_str in handled_drop_ids:
-                            continue
-                        dropped_name = _player_display_name(dp_str)
-                        player_tx_week[(dropped_name, season, wk)] += 1
-                        player_tx_year[(dropped_name, season)] += 1
-                        player_tx_all[dropped_name] += 1
-                        player_drop_week[(dropped_name, season, wk)] += 1
-                        player_drop_year[(dropped_name, season)] += 1
-                        player_drop_all[dropped_name] += 1
+                    for drop_list in drops_by_roster.values():
+                        for dp_str in drop_list:
+                            dropped_id = str(dp_str)
+                            player_tx_week[(dropped_id, season, wk)] += 1
+                            player_tx_year[(dropped_id, season)] += 1
+                            player_tx_all[dropped_id] += 1
+                            player_drop_week[(dropped_id, season, wk)] += 1
+                            player_drop_year[(dropped_id, season)] += 1
+                            player_drop_all[dropped_id] += 1
                 except Exception as e:
                     _log_exc(debug, f"transactions_trades_rows_{season}_wk{wk}", e)
 
@@ -2222,31 +2235,32 @@ def build_all(repo_root: Path) -> None:
                 canon_to_disp[c]=t
         pw["Team"] = pw["_team_canon"].map(canon_to_disp).fillna(pw["Team"])
         pw.drop(columns=["_team_canon"], inplace=True, errors="ignore")
-    if not pw.empty and {"Player", "Year", "Week"}.issubset(pw.columns):
-        pw_keys = pw[["Player", "Year", "Week"]].copy()
+    if not pw.empty and {"Player ID", "Year", "Week"}.issubset(pw.columns):
+        pw_keys = pw[["Player ID", "Year", "Week"]].copy()
+        pw_keys["Player ID"] = pw_keys["Player ID"].astype(str)
         pw_keys["Year"] = pd.to_numeric(pw_keys["Year"], errors="coerce").astype("Int64")
         pw_keys["Week"] = pd.to_numeric(pw_keys["Week"], errors="coerce").astype("Int64")
         pw["Number of transactions"] = [
             int(player_tx_week.get(
                 (
-                    str(player),
+                    str(player_id),
                     int(year) if pd.notna(year) else None,
                     int(week) if pd.notna(week) else None,
                 ),
                 0,
             ))
-            for player, year, week in pw_keys.itertuples(index=False, name=None)
+            for player_id, year, week in pw_keys.itertuples(index=False, name=None)
         ]
         pw["Number of drops"] = [
             int(player_drop_week.get(
                 (
-                    str(player),
+                    str(player_id),
                     int(year) if pd.notna(year) else None,
                     int(week) if pd.notna(week) else None,
                 ),
                 0,
             ))
-            for player, year, week in pw_keys.itertuples(index=False, name=None)
+            for player_id, year, week in pw_keys.itertuples(index=False, name=None)
         ]
     log_df(pw, 'player_week', sample_cols=['Points','Injury?','Suspension?','Bye?','Starter?'])
     tw = pd.DataFrame(team_week_rows)
@@ -3197,6 +3211,8 @@ def build_all(repo_root: Path) -> None:
     player_all = pd.DataFrame()
     if not pw.empty:
         pw_work = pw.copy()
+        if "Player ID" in pw_work.columns:
+            pw_work["Player ID"] = pw_work["Player ID"].astype(str)
         pw_work["Points"] = pd.to_numeric(pw_work["Points"], errors="coerce").fillna(0.0)
         pw_work["Missed_injury"] = (pw_work["Injury?"].fillna(False) & (pw_work["Points"] == 0)).astype(int)
         pw_work["Missed_suspension"] = (pw_work["Suspension?"].fillna(False) & (pw_work["Points"] == 0)).astype(int)
@@ -3219,20 +3235,21 @@ def build_all(repo_root: Path) -> None:
 
         pw_work[award_cols] = pw_work[award_cols].fillna(0)
 
-        team_points = pw_work.groupby(["Player", "Year", "Team"], as_index=False)["Points"].sum()
+        team_points = pw_work.groupby(["Player ID", "Year", "Team"], as_index=False)["Points"].sum()
         top_team = (
-            team_points.sort_values(["Player", "Year", "Points"], ascending=[True, True, False])
-            .drop_duplicates(["Player", "Year"])
+            team_points.sort_values(["Player ID", "Year", "Points"], ascending=[True, True, False])
+            .drop_duplicates(["Player ID", "Year"])
             .rename(columns={"Team": "Top Team", "Points": "Top Team Points"})
         )
         last_team = (
-            pw_work.sort_values(["Player", "Year", "Week"])
-            .groupby(["Player", "Year"])
-            .tail(1)[["Player", "Year", "Team"]]
+            pw_work.sort_values(["Player ID", "Year", "Week"])
+            .groupby(["Player ID", "Year"])
+            .tail(1)[["Player ID", "Year", "Team"]]
             .rename(columns={"Team": "Last team"})
         )
 
-        py_base = pw_work.groupby(["Player", "Year"], as_index=False).agg(
+        py_base = pw_work.groupby(["Player ID", "Year"], as_index=False).agg(
+            Player=("Player", "first"),
             Points=("Points", "sum"),
             Avg_points=("Points", "mean"),
             Weeks_missed_injury=("Missed_injury", "sum"),
@@ -3243,22 +3260,22 @@ def build_all(repo_root: Path) -> None:
             **{c: (c, "sum") for c in award_cols},
         )
 
-        py = py_base.merge(top_team[["Player", "Year", "Top Team"]], on=["Player", "Year"], how="left")
-        py = py.merge(last_team, on=["Player", "Year"], how="left")
+        py = py_base.merge(top_team[["Player ID", "Year", "Top Team"]], on=["Player ID", "Year"], how="left")
+        py = py.merge(last_team, on=["Player ID", "Year"], how="left")
 
-        team_points_all = pw_work.groupby(["Player", "Year", "Team"])["Points"].sum()
-        total_points = pw_work.groupby(["Player", "Year"])["Points"].sum()
-        max_share = (team_points_all.groupby(["Player", "Year"]).max() / total_points).rename("% of points (highest team)")
-        min_share = (team_points_all.groupby(["Player", "Year"]).min() / total_points).rename("% of points (lowest team)")
-        py = py.merge(max_share.reset_index(), on=["Player", "Year"], how="left")
-        py = py.merge(min_share.reset_index(), on=["Player", "Year"], how="left")
+        team_points_all = pw_work.groupby(["Player ID", "Year", "Team"])["Points"].sum()
+        total_points = pw_work.groupby(["Player ID", "Year"])["Points"].sum()
+        max_share = (team_points_all.groupby(["Player ID", "Year"]).max() / total_points).rename("% of points (highest team)")
+        min_share = (team_points_all.groupby(["Player ID", "Year"]).min() / total_points).rename("% of points (lowest team)")
+        py = py.merge(max_share.reset_index(), on=["Player ID", "Year"], how="left")
+        py = py.merge(min_share.reset_index(), on=["Player ID", "Year"], how="left")
 
-        py = py.sort_values(["Player", "Year"]).reset_index(drop=True)
-        py["Change in points from previous season"] = py.groupby("Player")["Points"].diff()
-        py["Change in avg points from previous season"] = py.groupby("Player")["Avg_points"].diff()
+        py = py.sort_values(["Player ID", "Year"]).reset_index(drop=True)
+        py["Change in points from previous season"] = py.groupby("Player ID")["Points"].diff()
+        py["Change in avg points from previous season"] = py.groupby("Player ID")["Avg_points"].diff()
 
-        py["Career_points_before"] = py.groupby("Player")["Points"].cumsum().shift(1)
-        py["Career_years_before"] = py.groupby("Player").cumcount()
+        py["Career_points_before"] = py.groupby("Player ID")["Points"].cumsum().shift(1)
+        py["Career_years_before"] = py.groupby("Player ID").cumcount()
         py["Change in points from career"] = py.apply(
             lambda r: (r["Points"] - (r["Career_points_before"] / r["Career_years_before"]))
             if r["Career_years_before"] and r["Career_points_before"] is not None
@@ -3266,8 +3283,8 @@ def build_all(repo_root: Path) -> None:
             axis=1,
         )
 
-        py["Career_points_before_total"] = py.groupby("Player")["Points"].cumsum().shift(1)
-        py["Career_weeks_before_total"] = py.groupby("Player")["Weeks"].cumsum().shift(1)
+        py["Career_points_before_total"] = py.groupby("Player ID")["Points"].cumsum().shift(1)
+        py["Career_weeks_before_total"] = py.groupby("Player ID")["Weeks"].cumsum().shift(1)
         py["Change in avg points from career"] = py.apply(
             lambda r: (r["Avg_points"] - (r["Career_points_before_total"] / r["Career_weeks_before_total"]))
             if r["Career_weeks_before_total"] and r["Career_points_before_total"] is not None
@@ -3287,12 +3304,12 @@ def build_all(repo_root: Path) -> None:
         )
 
         py["Number of transactions"] = [
-            int(player_tx_year.get((str(player), int(year) if pd.notna(year) else None), 0))
-            for player, year in py[["Player", "Year"]].itertuples(index=False, name=None)
+            int(player_tx_year.get((str(player_id), int(year) if pd.notna(year) else None), 0))
+            for player_id, year in py[["Player ID", "Year"]].itertuples(index=False, name=None)
         ]
         py["Number of drops"] = [
-            int(player_drop_year.get((str(player), int(year) if pd.notna(year) else None), 0))
-            for player, year in py[["Player", "Year"]].itertuples(index=False, name=None)
+            int(player_drop_year.get((str(player_id), int(year) if pd.notna(year) else None), 0))
+            for player_id, year in py[["Player ID", "Year"]].itertuples(index=False, name=None)
         ]
         py["Number of trades"] = 0
 
@@ -3315,7 +3332,8 @@ def build_all(repo_root: Path) -> None:
 
         player_year = py
 
-        pa = pw_work.groupby(["Player"], as_index=False).agg(
+        pa = pw_work.groupby(["Player ID"], as_index=False).agg(
+            Player=("Player", "first"),
             Points=("Points", "sum"),
             Avg_points=("Points", "mean"),
             Weeks_missed_injury=("Missed_injury", "sum"),
@@ -3326,26 +3344,26 @@ def build_all(repo_root: Path) -> None:
         )
 
         top_team_all = (
-            pw_work.groupby(["Player", "Team"], as_index=False)["Points"].sum()
-            .sort_values(["Player", "Points"], ascending=[True, False])
-            .drop_duplicates(["Player"])
+            pw_work.groupby(["Player ID", "Team"], as_index=False)["Points"].sum()
+            .sort_values(["Player ID", "Points"], ascending=[True, False])
+            .drop_duplicates(["Player ID"])
             .rename(columns={"Team": "Top team", "Points": "Top team points"})
         )
         last_team_all = (
             pw_work.sort_values(["Year", "Week"])
-            .groupby("Player")
-            .tail(1)[["Player", "Team", "Rookie?", "Age"]]
+            .groupby("Player ID")
+            .tail(1)[["Player ID", "Team", "Rookie?", "Age"]]
             .rename(columns={"Team": "Last team"})
         )
-        team_points_all_time = pw_work.groupby(["Player", "Team"])["Points"].sum()
-        total_points_all_time = pw_work.groupby(["Player"])["Points"].sum()
-        max_share_all = (team_points_all_time.groupby("Player").max() / total_points_all_time).rename("% of points (highest team)")
-        min_share_all = (team_points_all_time.groupby("Player").min() / total_points_all_time).rename("% of points (lowest team)")
+        team_points_all_time = pw_work.groupby(["Player ID", "Team"])["Points"].sum()
+        total_points_all_time = pw_work.groupby(["Player ID"])["Points"].sum()
+        max_share_all = (team_points_all_time.groupby("Player ID").max() / total_points_all_time).rename("% of points (highest team)")
+        min_share_all = (team_points_all_time.groupby("Player ID").min() / total_points_all_time).rename("% of points (lowest team)")
 
-        pa = pa.merge(top_team_all[["Player", "Top team"]], on="Player", how="left")
-        pa = pa.merge(last_team_all, on="Player", how="left")
-        pa = pa.merge(max_share_all.reset_index(), on="Player", how="left")
-        pa = pa.merge(min_share_all.reset_index(), on="Player", how="left")
+        pa = pa.merge(top_team_all[["Player ID", "Top team"]], on="Player ID", how="left")
+        pa = pa.merge(last_team_all, on="Player ID", how="left")
+        pa = pa.merge(max_share_all.reset_index(), on="Player ID", how="left")
+        pa = pa.merge(min_share_all.reset_index(), on="Player ID", how="left")
 
         pa = pa.rename(
             columns={
@@ -3370,12 +3388,12 @@ def build_all(repo_root: Path) -> None:
         )
 
         pa["Number of transactions"] = [
-            int(player_tx_all.get(str(player), 0))
-            for player in pa["Player"].tolist()
+            int(player_tx_all.get(str(player_id), 0))
+            for player_id in pa["Player ID"].tolist()
         ]
         pa["Number of drops"] = [
-            int(player_drop_all.get(str(player), 0))
-            for player in pa["Player"].tolist()
+            int(player_drop_all.get(str(player_id), 0))
+            for player_id in pa["Player ID"].tolist()
         ]
         pa["Number of trades"] = 0
 
