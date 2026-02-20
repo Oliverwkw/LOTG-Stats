@@ -1338,6 +1338,8 @@ def build_all(repo_root: Path) -> None:
         for p in draft_picks_all:
             rnd = _to_int(p.get("round"), None)
             pick_no = _to_int(p.get("pick_no"), None)
+            if pick_no is None:
+                pick_no = _to_int(p.get("pick_in_round"), None) or _to_int(p.get("draft_slot"), None)
             roster_id = _to_int(p.get("roster_id"), None)
             picked_by = _to_int(p.get("picked_by"), None)
             player = p.get("player_id")
@@ -2531,9 +2533,13 @@ def build_all(repo_root: Path) -> None:
     ph = pd.DataFrame(pick_rows)
     if not ph.empty:
         try:
-            dedupe_cols = [c for c in ["Year", "Original Team", "Number", "Player Picked"] if c in ph.columns]
+            if "Player Picked" in ph.columns:
+                ph["_known_player"] = ph["Player Picked"].astype(str).str.strip().str.lower().ne("unknown")
+                ph = ph.sort_values(["_known_player"], ascending=False)
+            dedupe_cols = [c for c in ["Year", "Number", "Original Team"] if c in ph.columns]
             if dedupe_cols:
                 ph = ph.drop_duplicates(subset=dedupe_cols, keep="first").reset_index(drop=True)
+            ph = ph.drop(columns=["_known_player"], errors="ignore")
         except Exception:
             pass
 
@@ -2541,28 +2547,11 @@ def build_all(repo_root: Path) -> None:
     # Reconstruct draft pick trade history from transaction ledger.
     # --------------------------
     try:
-        if not ph.empty and traded_picks_by_season:
-            # Build per (season, round, original_owner) -> chain of owners (including original)
-            round_chain: Dict[tuple, List[int]] = {}
-            for season, tps in traded_picks_by_season.items():
-                for tp in (tps or []):
-                    yr = _to_int(tp.get("season"), season)
-                    rnd = _to_int(tp.get("round"), None)
-                    prev = _to_int(tp.get("previous_owner_id") or tp.get("previous_owner") or tp.get("previous_owner_roster_id"), None)
-                    owner = _to_int(tp.get("owner_id") or tp.get("roster_id") or tp.get("owner_roster_id"), None)
-                    if rnd is None or prev is None or owner is None:
-                        continue
-                    key = (int(yr), int(rnd), int(prev))
-                    chain = round_chain.get(key, [int(prev)])
-                    if chain[-1] != int(owner):
-                        chain.append(int(owner))
-                    round_chain[key] = chain
-
-            # Apply to pick history rows
+        if not ph.empty:
             for i, r in ph.iterrows():
                 yr = _to_int(r.get("Year"), None)
                 num = str(r.get("Number") or "")
-                m = re.match(r"(\d+)(?:\.|$)", num)
+                m = re.match(r"(\d+)(?:\.(\d+))?$", num)
                 if yr is None or not m:
                     continue
                 rnd = int(m.group(1))
@@ -2576,18 +2565,28 @@ def build_all(repo_root: Path) -> None:
                 if orig_rid is None:
                     continue
 
-                key = (int(yr), rnd, int(orig_rid))
-                chain = round_chain.get(key)
-                if not chain or len(chain) <= 1:
-                    continue
-
+                key = (int(yr), int(rnd), int(orig_rid))
                 rid_to_team = season_roster_to_team.get(int(yr), {})
-                # Fill Trade 1..Trade 10 using display team names if available.
-                for j in range(1, min(11, len(chain))):
-                    owner_rid = chain[j]
-                    ph.at[i, f"Trade {j}"] = rid_to_team.get(owner_rid, f"Roster {owner_rid}")
-                final_owner_rid = chain[-1]
-                ph.at[i, "Final Team"] = rid_to_team.get(final_owner_rid, f"Roster {final_owner_rid}")
+                events = pick_trade_events.get(key, [])
+                events = sorted(events, key=lambda x: (x[0] is None, x[0] or datetime.min.replace(tzinfo=timezone.utc)))
+
+                chain_owners: List[int] = []
+                last_owner = int(orig_rid)
+                for evt in events:
+                    new_owner = _to_int(evt[2], None)
+                    if new_owner is None:
+                        continue
+                    if int(new_owner) != int(last_owner):
+                        chain_owners.append(int(new_owner))
+                        last_owner = int(new_owner)
+
+                for j, owner_rid in enumerate(chain_owners[:10], start=1):
+                    ph.at[i, f"Trade {j}"] = rid_to_team.get(int(owner_rid), f"Roster {owner_rid}")
+
+                final_owner_rid = _to_int(pick_current_owner.get(key), None)
+                if final_owner_rid is None:
+                    final_owner_rid = chain_owners[-1] if chain_owners else int(orig_rid)
+                ph.at[i, "Final Team"] = rid_to_team.get(int(final_owner_rid), f"Roster {final_owner_rid}")
     except Exception as e:
         _log_exc(debug, "pick_history_reconstruct", e)
 
