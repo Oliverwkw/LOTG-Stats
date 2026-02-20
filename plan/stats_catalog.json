@@ -60,7 +60,9 @@
     "Lowest starter on team?",
     "Rookie?",
     "Age",
-    "NFL team"
+    "NFL team",
+    "Number of transactions",
+    "Number of drops"
   ],
   "Player-all-time": [
     "Player",
@@ -68,6 +70,7 @@
     "Last team",
     "Number of teams",
     "Number of transactions",
+    "Number of drops",
     "Number of trades",
     "Points",
     "Avg points",
@@ -98,6 +101,7 @@
     "Last team",
     "Number of teams",
     "Number of transactions",
+    "Number of drops",
     "Number of trades",
     "Points",
     "Avg points",
