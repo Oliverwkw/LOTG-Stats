@@ -1300,7 +1300,7 @@ def build_all(repo_root: Path) -> None:
                 _log_exc(debug, f"draft_picks_{season}_{did}", e)
             max_round = 0
             picks_with_players = 0
-            rookie_picks = 0
+            picks_with_names = 0
             for p in picks or []:
                 rnd = _to_int(p.get("round"), None)
                 if rnd is not None:
@@ -1308,13 +1308,19 @@ def build_all(repo_root: Path) -> None:
                 pid = p.get("player_id")
                 if _valid_pid(pid):
                     picks_with_players += 1
-                    if is_rookie_pid(pid, season):
-                        rookie_picks += 1
+                md = p.get("metadata") if isinstance(p.get("metadata"), dict) else {}
+                fname = str(md.get("first_name") or "").strip()
+                lname = str(md.get("last_name") or "").strip()
+                if fname or lname:
+                    picks_with_names += 1
+
+            # Prefer explicit rookie-type drafts when available.
+            draft_type = str(d.get("type") or d.get("draft_type") or "").strip().lower()
+            is_rookie_draft = draft_type in {"rookie", "dynasty"}
+
             if max_round > 0 and max_round > 5:
                 continue
-            if picks_with_players == 0:
-                continue
-            if (rookie_picks / float(picks_with_players)) <= 0.5:
+            if (picks_with_players + picks_with_names) == 0 and not is_rookie_draft:
                 continue
             if max_round:
                 included_draft_rounds_by_season[season] = max(
@@ -1350,6 +1356,8 @@ def build_all(repo_root: Path) -> None:
                 player_name = md.get("first_name") and f"{md.get('first_name')} {md.get('last_name','').strip()}".strip()
             if not player_name:
                 player_name = p.get("player") or p.get("player_name")
+            if not player_name:
+                player_name = "Unknown"
 
             pick_rows.append({
                 "Year": season,
