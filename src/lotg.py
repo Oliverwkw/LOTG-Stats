@@ -1381,10 +1381,18 @@ def build_all(repo_root: Path) -> None:
                 owner = _to_int(tp.get("owner_id") or tp.get("roster_id") or tp.get("owner_roster_id"), None)
                 if yr is None or rnd is None or prev is None:
                     continue
-                slot = _slot_for_roster(int(yr), int(prev))
+                tp_pick_no = _to_int(tp.get("pick_no") or tp.get("pick_in_round") or tp.get("draft_slot"), None)
+                team_count = len(roster_ids_by_season.get(int(yr), []))
+                if tp_pick_no is not None and team_count and tp_pick_no > team_count:
+                    number = _format_pick_number_for_season(int(yr), int(rnd), int(tp_pick_no))
+                elif tp_pick_no is not None and tp_pick_no > 0:
+                    number = _format_pick_number(int(rnd), int(tp_pick_no))
+                else:
+                    slot = _slot_for_roster(int(yr), int(prev))
+                    number = _format_pick_number(int(rnd), slot)
                 row = {
                     "Year": int(yr),
-                    "Number": _format_pick_number(int(rnd), slot),
+                    "Number": number,
                     "Original Team": roster_to_team.get(int(prev), f"Roster {prev}"),
                     "Final Team": roster_to_team.get(int(owner), f"Roster {owner}") if owner is not None else roster_to_team.get(int(prev), f"Roster {prev}"),
                     "Player Picked": "Unknown",
@@ -2547,6 +2555,21 @@ def build_all(repo_root: Path) -> None:
     # Reconstruct draft pick trade history from transaction ledger.
     # --------------------------
     try:
+        snapshot_chain: Dict[Tuple[int, int, int], List[int]] = {}
+        for season, tps in traded_picks_by_season.items():
+            for tp in (tps or []):
+                yr = _to_int(tp.get("season"), season)
+                rnd = _to_int(tp.get("round"), None)
+                prev = _to_int(tp.get("previous_owner_id") or tp.get("previous_owner") or tp.get("previous_owner_roster_id"), None)
+                owner = _to_int(tp.get("owner_id") or tp.get("roster_id") or tp.get("owner_roster_id"), None)
+                if yr is None or rnd is None or prev is None or owner is None:
+                    continue
+                key = (int(yr), int(rnd), int(prev))
+                chain = snapshot_chain.get(key, [int(prev)])
+                if chain[-1] != int(owner):
+                    chain.append(int(owner))
+                snapshot_chain[key] = chain
+
         if not ph.empty:
             for i, r in ph.iterrows():
                 yr = _to_int(r.get("Year"), None)
@@ -2580,12 +2603,20 @@ def build_all(repo_root: Path) -> None:
                         chain_owners.append(int(new_owner))
                         last_owner = int(new_owner)
 
+                if not chain_owners:
+                    snap = snapshot_chain.get(key, [])
+                    if len(snap) > 1:
+                        chain_owners = [int(x) for x in snap[1:]]
+
                 for j, owner_rid in enumerate(chain_owners[:10], start=1):
                     ph.at[i, f"Trade {j}"] = rid_to_team.get(int(owner_rid), f"Roster {owner_rid}")
 
                 final_owner_rid = _to_int(pick_current_owner.get(key), None)
                 if final_owner_rid is None:
-                    final_owner_rid = chain_owners[-1] if chain_owners else int(orig_rid)
+                    if chain_owners:
+                        final_owner_rid = int(chain_owners[-1])
+                    else:
+                        final_owner_rid = int(orig_rid)
                 ph.at[i, "Final Team"] = rid_to_team.get(int(final_owner_rid), f"Roster {final_owner_rid}")
     except Exception as e:
         _log_exc(debug, "pick_history_reconstruct", e)
