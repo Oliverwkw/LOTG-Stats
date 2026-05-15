@@ -925,6 +925,45 @@ def build_all(repo_root: Path) -> None:
         }
         pid_pos[pid] = (pid_meta[pid]["pos"] or "").upper()
 
+    # Enrich pid_meta with nflverse player metadata (authoritative rookie_season,
+    # birth_date, position). Sleeper's draft_year/years_exp are often missing or
+    # current-relative, which is why Rookie? produced False for every row even
+    # for known rookies (Chase 2021, Williams 2024, etc.).
+    try:
+        nfl_players = _safe_df(load_nflverse_player_ids(ext))
+    except Exception as e:
+        nfl_players = pd.DataFrame()
+        _log_exc(debug, "load_nflverse_player_ids_enrich", e)
+
+    if not nfl_players.empty and "gsis_id" in nfl_players.columns:
+        nfl_players = nfl_players.copy()
+        nfl_players["gsis_id"] = nfl_players["gsis_id"].astype(str)
+        nfl_by_gsis = {
+            str(row.get("gsis_id")): row
+            for _, row in nfl_players.iterrows()
+            if isinstance(row.get("gsis_id"), str) and row.get("gsis_id")
+        }
+        for pid, m in pid_meta.items():
+            gsis = m.get("gsis_id")
+            if not gsis:
+                continue
+            nrow = nfl_by_gsis.get(str(gsis))
+            if nrow is None:
+                continue
+            # rookie_season is authoritative; only override Sleeper's draft_year if nflverse has it
+            rs = nrow.get("rookie_season")
+            try:
+                rs_int = int(float(rs)) if rs is not None and str(rs) != "nan" else None
+            except Exception:
+                rs_int = None
+            if rs_int is not None:
+                m["draft_year"] = rs_int
+            # birth_date: prefer nflverse if Sleeper is missing it
+            if not m.get("birth_date"):
+                bd = nrow.get("birth_date")
+                if bd is not None and str(bd) != "nan":
+                    m["birth_date"] = str(bd)
+
     # ------------- League chain -------------
     leagues = _walk_league_chain(sc, run_cfg.league_id, run_cfg.min_season, run_cfg.max_season)
     raw_dir = repo_root / "exports" / "raw"
@@ -1166,16 +1205,26 @@ def build_all(repo_root: Path) -> None:
 
         # nflverse weekly player stats (team-by-week + played detection)
         player_team_by_week: Dict[Tuple[str, int], str] = {}
+        player_pos_by_week: Dict[Tuple[str, int], str] = {}
         played_players_by_week: Dict[int, set] = {}
         try:
             spw = _safe_df(load_nflverse_stats_player_week(ext, season))
             if (not spw.empty) and ("player_id" in spw.columns) and ("week" in spw.columns):
                 spw["week"] = pd.to_numeric(spw["week"], errors="coerce").astype("Int64")
                 spw["player_id"] = spw["player_id"].astype(str)
-                if "recent_team" in spw.columns:
-                    spw["recent_team"] = spw["recent_team"].astype(str)
-                    for r in spw[["player_id","week","recent_team"]].dropna().itertuples(index=False):
-                        player_team_by_week[(str(r.player_id), int(r.week))] = str(r.recent_team)
+                # nflverse has used 'recent_team' historically and 'team' in current releases.
+                # Accept either; older code only checked 'recent_team' and silently produced
+                # an empty mapping for every season, which is why NFL team / Position columns
+                # were stuck on the live Sleeper snapshot for all historical rows.
+                team_col = "recent_team" if "recent_team" in spw.columns else ("team" if "team" in spw.columns else None)
+                if team_col:
+                    spw[team_col] = spw[team_col].astype(str)
+                    for r in spw[["player_id", "week", team_col]].dropna().itertuples(index=False):
+                        player_team_by_week[(str(r.player_id), int(r.week))] = str(getattr(r, team_col))
+                if "position" in spw.columns:
+                    spw["position"] = spw["position"].astype(str)
+                    for r in spw[["player_id", "week", "position"]].dropna().itertuples(index=False):
+                        player_pos_by_week[(str(r.player_id), int(r.week))] = str(r.position).upper()
                 for wk_i, g in spw.groupby("week"):
                     if pd.isna(wk_i):
                         continue
@@ -1212,6 +1261,34 @@ def build_all(repo_root: Path) -> None:
                         injuries_by_gsis_week[(gsis, int(yr), int(wk))] = (injury, suspension)
             except Exception as e:
                 _log_exc(debug, f"injury_index_{season}", e)
+
+        # Overlay curated suspensions (data/suspensions.csv). nflverse's injury
+        # feed is the NFL's official game-status report and does NOT list
+        # suspended players (they're simply absent from the roster). Without
+        # this overlay, Suspension? would always be False for every player and
+        # year. Each row expands to (gsis_id, season, week) keys for the
+        # inclusive range [week_start, week_end].
+        try:
+            susp_path = repo_root / "data" / "suspensions.csv"
+            if susp_path.exists():
+                susp_df = pd.read_csv(susp_path)
+                for _, srow in susp_df.iterrows():
+                    if int(srow.get("season", 0)) != int(season):
+                        continue
+                    g = str(srow.get("gsis_id") or "").strip()
+                    if not g:
+                        continue
+                    try:
+                        wks = int(srow.get("week_start", 0))
+                        wke = int(srow.get("week_end", 0))
+                    except Exception:
+                        continue
+                    if wks <= 0 or wke <= 0 or wke < wks:
+                        continue
+                    for wk_n in range(wks, wke + 1):
+                        injuries_by_gsis_week[(g, int(season), int(wk_n))] = (False, True)
+        except Exception as e:
+            _log_exc(debug, f"suspensions_overlay_{season}", e)
 
         # users/rosters
         try:
@@ -1888,7 +1965,14 @@ def build_all(repo_root: Path) -> None:
                         pts = float(ppts.get(pid, 0.0))
                         started = pid in starters
                         slot = starter_slot.get(pid) if started else "N/A"
-                        player_position = pid_pos.get(pid) or None
+                        # Position-as-of-week from nflverse weekly stats when present; otherwise
+                        # fall back to Sleeper's live position. Handles in-career switchers
+                        # (e.g. Taysom Hill QB/TE) and rookies whose Sleeper meta lags.
+                        player_position = (
+                            (player_pos_by_week.get((str(gsis), int(wk))) if gsis else None)
+                            or pid_pos.get(pid)
+                            or None
+                        )
 
                         # Bye is schedule-based. If player scored >0 -> not a bye.
                         bye = None
@@ -3250,6 +3334,17 @@ def build_all(repo_root: Path) -> None:
             .rename(columns={"Team": "Last team"})
         )
 
+        # Per-season rookie flag is taken as max across the season's weeks (a player
+        # either was a rookie in YYYY or wasn't — every week of that season agrees).
+        # Per-season age is the mean of weekly age (effectively mid-season age).
+        pw_work["_rookie_int"] = pd.to_numeric(pw_work.get("Rookie?"), errors="coerce").fillna(0).astype(int)
+        pw_work["_age_num"] = pd.to_numeric(pw_work.get("Age"), errors="coerce")
+
+        # PPG split by starter/bench needs separate sums + counts.
+        pw_work["_starter_points"] = pw_work["Points"].where(pw_work["Starter?"] == 1, other=0.0)
+        pw_work["_bench_points"] = pw_work["Points"].where(pw_work["Starter?"] == 0, other=0.0)
+        pw_work["_bench_weeks"] = (pw_work["Starter?"] == 0).astype(int)
+
         py_base = pw_work.groupby(["Player ID", "Year"], as_index=False).agg(
             Player=("Player", "first"),
             Points=("Points", "sum"),
@@ -3257,10 +3352,37 @@ def build_all(repo_root: Path) -> None:
             Weeks_missed_injury=("Missed_injury", "sum"),
             Weeks_missed_suspension=("Missed_suspension", "sum"),
             Weeks_as_starter=("Starter?", "sum"),
+            Weeks_as_bench=("_bench_weeks", "sum"),
             Number_of_teams=("Team", "nunique"),
             Weeks=("Points", "count"),
+            Rookie_flag=("_rookie_int", "max"),
+            Age_avg=("_age_num", "mean"),
+            Starter_points_sum=("_starter_points", "sum"),
+            Bench_points_sum=("_bench_points", "sum"),
             **{c: (c, "sum") for c in award_cols},
         )
+
+        # Convert sums + counts -> averages, then drop the helper sum columns.
+        py_base["PPG starter"] = py_base.apply(
+            lambda r: round(r["Starter_points_sum"] / r["Weeks_as_starter"], 4)
+            if r["Weeks_as_starter"] else None,
+            axis=1,
+        )
+        py_base["PPG bench"] = py_base.apply(
+            lambda r: round(r["Bench_points_sum"] / r["Weeks_as_bench"], 4)
+            if r["Weeks_as_bench"] else None,
+            axis=1,
+        )
+        py_base["PPG starter vs bench diff"] = py_base.apply(
+            lambda r: round((r["PPG starter"] or 0) - (r["PPG bench"] or 0), 4)
+            if r["PPG starter"] is not None and r["PPG bench"] is not None else None,
+            axis=1,
+        )
+        py_base["Rookie?"] = py_base["Rookie_flag"].astype(bool)
+        py_base["Age"] = py_base["Age_avg"].round(2)
+        py_base = py_base.drop(columns=[
+            "Rookie_flag", "Age_avg", "Starter_points_sum", "Bench_points_sum",
+        ])
 
         py = py_base.merge(top_team[["Player ID", "Year", "Top Team"]], on=["Player ID", "Year"], how="left")
         py = py.merge(last_team, on=["Player ID", "Year"], how="left")
