@@ -48,8 +48,11 @@ def _download_best_effort(urls: list[str], out: Path, timeout: int) -> None:
         raise last_err
 
 def load_dynastyprocess_playerids(cfg: ExternalConfig) -> pd.DataFrame:
-    # Official DynastyProcess data repo includes player id mappings (incl sleeper_id)
+    # Official DynastyProcess data repo includes player id mappings (incl sleeper_id).
+    # File was renamed from playerids.csv to db_playerids.csv; keep legacy as fallback.
     urls = [
+        "https://raw.githubusercontent.com/dynastyprocess/data/master/files/db_playerids.csv",
+        "https://raw.githubusercontent.com/DynastyProcess/data/master/files/db_playerids.csv",
         "https://raw.githubusercontent.com/dynastyprocess/data/master/files/playerids.csv",
         "https://raw.githubusercontent.com/DynastyProcess/data/master/files/playerids.csv",
     ]
@@ -92,8 +95,15 @@ def load_nflverse_injuries(cfg: ExternalConfig, season: int) -> pd.DataFrame:
 
 
 def load_nflverse_player_ids(cfg: ExternalConfig) -> pd.DataFrame:
-    """Load nflverse player_ids mapping (includes sleeper_id and gsis_id)."""
+    """Load nflverse player metadata (rookie_season, birth_date, position, etc.).
+
+    Note: the nflverse 'player_ids' release was renamed to 'players' and the new
+    'players.csv' does NOT carry sleeper_id. The sleeper_id<->gsis_id mapping is
+    sourced from DynastyProcess (load_dynastyprocess_playerids) and from Sleeper's
+    own /players/nfl feed (which already exposes gsis_id per player).
+    """
     urls = [
+        "https://github.com/nflverse/nflverse-data/releases/download/players/players.csv",
         "https://github.com/nflverse/nflverse-data/releases/download/player_ids/player_ids.csv",
         "https://raw.githubusercontent.com/nflverse/nflverse-data/master/data/player_ids/player_ids.csv",
         "https://raw.githubusercontent.com/nflverse/nflverse-data/master/data/player_ids.csv",
@@ -104,8 +114,15 @@ def load_nflverse_player_ids(cfg: ExternalConfig) -> pd.DataFrame:
     return pd.read_csv(path)
 
 def load_nflverse_stats_player_week(cfg: ExternalConfig, season: int) -> pd.DataFrame:
-    """Load nflverse weekly player stats; used for team-by-week and played detection."""
+    """Load nflverse weekly player stats; used for team-by-week and played detection.
+
+    nflverse maintains two release tags carrying the same per-week stats file:
+    'player_stats' (legacy, older seasons) and 'stats_player' (newer seasons,
+    e.g. 2025+). We try both so historical and current seasons both resolve.
+    """
     urls = [
+        f"https://github.com/nflverse/nflverse-data/releases/download/stats_player/stats_player_week_{season}.csv",
+        f"https://github.com/nflverse/nflverse-data/releases/download/stats_player/stats_player_week_{season}.csv.gz",
         f"https://github.com/nflverse/nflverse-data/releases/download/player_stats/stats_player_week_{season}.csv",
         f"https://github.com/nflverse/nflverse-data/releases/download/player_stats/stats_player_week_{season}.csv.gz",
         f"https://raw.githubusercontent.com/nflverse/nflverse-data/master/data/player_stats/stats_player_week_{season}.csv",
