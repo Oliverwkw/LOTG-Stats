@@ -3029,6 +3029,71 @@ def build_all(repo_root: Path) -> None:
         pw["_expected_points_if_healthy"] = exp_points
         pw["_points_lost_inj_susp"] = points_lost
 
+        # --------------------------
+        # Activated Cuff detection
+        # --------------------------
+        # A player has an "activated cuff" in week W if all of:
+        #   - their own last-5-played PPG average is < 10 (i.e. low-scorer)
+        #   - another NFL teammate (same NFL team AND same position) is
+        #     injured or suspended in W
+        #   - that teammate's last-5-played avg exceeds this player's by >10 PPG
+        # _expected_points_if_healthy is the rolling 5-played-game mean built by
+        # the hardship engine just above, so reuse it as last-5-avg.
+        try:
+            cuff_col = (
+                "- Activated Cuff? (Was a player of the same nfl team/position "
+                "& who averages >10 PPG more over last 5 played games injured? "
+                "Only for players with avg <10 PPG)"
+            )
+            pw_c = pw.copy()
+            pw_c["_avg"] = pd.to_numeric(pw_c.get("_expected_points_if_healthy"), errors="coerce")
+            pw_c["_inj"] = pw_c.get("Injury?", False).fillna(False).astype(bool)
+            pw_c["_sus"] = pw_c.get("Suspension?", False).fillna(False).astype(bool)
+            pw_c["_inj_or_sus"] = pw_c["_inj"] | pw_c["_sus"]
+            pw_c["_nfl_team"] = pw_c.get("NFL team").astype(str)
+            pw_c["_pos"] = pw_c.get("Position").astype(str)
+
+            # Build the injured-teammate index: highest last-5 avg of any
+            # injured/suspended player per (Year, Week, NFL team, Position).
+            # Restricting to max() per group keeps the per-row comparison O(1).
+            inj_rows = pw_c[
+                pw_c["_inj_or_sus"]
+                & pw_c["_avg"].notna()
+                & (pw_c["_nfl_team"] != "")
+                & (pw_c["_nfl_team"].str.lower() != "nan")
+                & (pw_c["_pos"] != "")
+            ]
+            inj_max_by_group: Dict[Tuple[int, int, str, str], float] = {}
+            if not inj_rows.empty:
+                inj_grp = inj_rows.groupby(["Year", "Week", "_nfl_team", "_pos"])["_avg"].max()
+                for (yr, wk, nt, ps), v in inj_grp.items():
+                    try:
+                        inj_max_by_group[(int(yr), int(wk), str(nt), str(ps))] = float(v)
+                    except Exception:
+                        continue
+
+            activated: List[int] = [0] * len(pw_c)
+            if inj_max_by_group:
+                for i, row in pw_c.iterrows():
+                    my_avg = row["_avg"]
+                    if pd.isna(my_avg) or my_avg >= 10.0:
+                        continue
+                    nt = row["_nfl_team"]
+                    ps = row["_pos"]
+                    if not nt or nt.lower() == "nan" or not ps:
+                        continue
+                    try:
+                        yr = int(row["Year"])
+                        wk = int(row["Week"])
+                    except Exception:
+                        continue
+                    best = inj_max_by_group.get((yr, wk, nt, ps))
+                    if best is not None and best > float(my_avg) + 10.0:
+                        activated[i] = 1
+            pw[cuff_col] = activated
+        except Exception as e:
+            _log_exc(debug, "cuff_detection", e)
+
     # --------------------------
     # Recompute team-week injury/susp/bye counts and hardship from player-week
     # --------------------------
@@ -3149,7 +3214,11 @@ def build_all(repo_root: Path) -> None:
         # Fill remaining schema columns in team-week (best-effort)
         try:
             # Cuffs: use player-week activated cuff flag (rostered and started)
-            cuff_col = "- Activated Cuff? (Was a player of ... 5 played games injured? Only for players with avg <10 PPG)"
+            cuff_col = (
+                "- Activated Cuff? (Was a player of the same nfl team/position "
+                "& who averages >10 PPG more over last 5 played games injured? "
+                "Only for players with avg <10 PPG)"
+            )
             if (not pw.empty) and (cuff_col in pw.columns):
                 pw_c = pw[["Team","Year","Week",cuff_col,"Starter/Bench"]].copy()
                 pw_c[cuff_col] = pd.to_numeric(pw_c[cuff_col], errors="coerce").fillna(0.0)
@@ -3291,7 +3360,11 @@ def build_all(repo_root: Path) -> None:
                 started = (r.get("Starter/Bench") == "Starter")
                 diff = (avg_r-avg_p) if started else (avg_p-avg_r)
                 diffs.append(round(float(diff),2))
-                cuff = float(r.get("- Activated Cuff? (Was a player of ... 5 played games injured? Only for players with avg <10 PPG)") or 0)
+                cuff = float(r.get(
+                    "- Activated Cuff? (Was a player of the same nfl team/position "
+                    "& who averages >10 PPG more over last 5 played games injured? "
+                    "Only for players with avg <10 PPG)"
+                ) or 0)
                 cuff_adj.append(round(float(diff) * (0.5 if cuff else 1.0), 2))
             pw["Difference in averages of best/worst startables over previous 5 games"] = diffs
             pw["Cuff adjusted difference"] = cuff_adj
