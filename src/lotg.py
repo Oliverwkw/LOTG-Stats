@@ -1373,41 +1373,44 @@ def build_all(repo_root: Path) -> None:
         except Exception as e:
             _log_exc(debug, f"injuries_overlay_{season}", e)
 
-        # Carry-forward heuristic for season-ending IR. nflverse's weekly injury
-        # report stops listing a player once they're moved to IR / Reserve, so
-        # high-profile season-ending injuries (Travis Hunter 2025 wks 10-17,
-        # Michael Penix Jr 2025 wks 12-17, etc.) come back as Injury?=False
-        # despite the player clearly being out. Detect this by comparing each
-        # player's last week of nflverse stats to the season's max week and
-        # propagating Injury?=True through the gap.
+        # Gap-fill heuristic: for every player who has at least one nflverse
+        # weekly stats row this season AND every week between the season's first
+        # and last played week, mark Injury?=True for the missing weeks.
+        # Catches mid-season IR stints (Aaron Jones 2025 wks 3-5, Adam Thielen
+        # 2024 wks 4-9) AND end-of-season IRs (Travis Hunter 2025 wks 10-17,
+        # Michael Penix Jr 2025 wks 12-17) in one pass.
         #
         # Conservative: only fires for players who played at least one nflverse
-        # game in the season (so we never invent injuries for inactive backups
-        # who never appeared), and never overwrites an existing key (so the
-        # curated suspensions / injuries overlays still win).
+        # game in the season (so we never invent injuries for never-active
+        # backups), and never overwrites an existing key (so the curated
+        # suspensions / injuries overlays and nflverse Out reports still win).
+        played_by_gsis_season: Dict[str, set] = defaultdict(set)
         try:
             if played_players_by_week:
-                last_played_by_gsis: Dict[str, int] = {}
+                season_max_week = 0
                 for wk_i, played_set in played_players_by_week.items():
                     try:
                         wk_int = int(wk_i)
                     except Exception:
                         continue
+                    if wk_int > season_max_week:
+                        season_max_week = wk_int
                     for pid_s in played_set:
                         pid_clean = str(pid_s).strip()
-                        if not pid_clean:
+                        if pid_clean:
+                            played_by_gsis_season[pid_clean].add(wk_int)
+                for gsis_s, played_weeks in played_by_gsis_season.items():
+                    if not played_weeks:
+                        continue
+                    for wk in range(1, int(season_max_week) + 1):
+                        if wk in played_weeks:
                             continue
-                        if last_played_by_gsis.get(pid_clean, 0) < wk_int:
-                            last_played_by_gsis[pid_clean] = wk_int
-                season_max_week = max(last_played_by_gsis.values()) if last_played_by_gsis else 0
-                for gsis_s, last_w in last_played_by_gsis.items():
-                    for wk_after in range(int(last_w) + 1, int(season_max_week) + 1):
-                        key = (gsis_s, int(season), int(wk_after))
+                        key = (gsis_s, int(season), int(wk))
                         if key in injuries_by_gsis_week:
                             continue
                         injuries_by_gsis_week[key] = (True, False)
         except Exception as e:
-            _log_exc(debug, f"injury_carry_forward_{season}", e)
+            _log_exc(debug, f"injury_gap_fill_{season}", e)
 
         # users/rosters
         try:
@@ -1443,6 +1446,41 @@ def build_all(repo_root: Path) -> None:
         season_team_to_roster[season] = {
             _norm_team_name(v): k for k, v in roster_to_team.items() if v is not None
         }
+
+        # Gap-fill (part 2): full-season absences. A player on a fantasy roster
+        # who NEVER appeared in nflverse weekly stats this season is almost
+        # always a season-ending injury sustained before he had a chance to
+        # play (Gus Edwards 2021 ACL, J.J. McCarthy 2024 meniscus, Cam Akers
+        # 2021 Achilles, Jordan Travis 2024 broken leg, etc.). Mark every week
+        # as Injury?=True so Hardship / Weeks of injuries reflect reality.
+        try:
+            if season_max_week_for_fill := (max(played_players_by_week.keys()) if played_players_by_week else 0):
+                rostered_gsis: set = set()
+                for r in rosters or []:
+                    for pid_r in (r.get("players") or []):
+                        gsis_r = (pid_meta.get(str(pid_r), {}) or {}).get("gsis_id")
+                        if not gsis_r:
+                            # Try DP and legacy mappings for completeness.
+                            gsis_r = (
+                                dp_sleeper_to_gsis.get(str(pid_r))
+                                or sleeper_to_gsis.get(str(pid_r))
+                            )
+                        if gsis_r:
+                            rostered_gsis.add(str(gsis_r).strip())
+                for gsis_r in rostered_gsis:
+                    if not gsis_r:
+                        continue
+                    # If this player has any nflverse appearance, the earlier
+                    # gap-fill (part 1) already filled their gaps. Skip.
+                    if played_by_gsis_season.get(gsis_r):
+                        continue
+                    for wk in range(1, int(season_max_week_for_fill) + 1):
+                        key = (gsis_r, int(season), int(wk))
+                        if key in injuries_by_gsis_week:
+                            continue
+                        injuries_by_gsis_week[key] = (True, False)
+        except Exception as e:
+            _log_exc(debug, f"injury_gap_fill_never_played_{season}", e)
 
         # traded picks snapshot (used for pick history reconstruction)
         try:
