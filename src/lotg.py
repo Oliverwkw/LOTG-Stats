@@ -3982,6 +3982,12 @@ def build_all(repo_root: Path) -> None:
                 "Hardship": float(pd.to_numeric(g.get("Hardship"), errors="coerce").fillna(0.0).sum()),
                 "Offseason starter turnover": 0,
                 "Inseason starter turnover": 0,
+                # Roll up per-week activity (already computed in team_week) into
+                # the season total. Previously these stayed at N/A because no
+                # aggregation step carried them across.
+                "Number of transactions": int(pd.to_numeric(g.get("Number of transactions"), errors="coerce").fillna(0.0).sum()),
+                "Number of trades": int(pd.to_numeric(g.get("Number of trades"), errors="coerce").fillna(0.0).sum()),
+                "Amount of FAAB spent": round(float(pd.to_numeric(g.get("Amount of FAAB spent"), errors="coerce").fillna(0.0).sum()), 2),
             }
             rows.append(row)
         team_year = pd.DataFrame(rows)
