@@ -866,6 +866,19 @@ def build_all(repo_root: Path) -> None:
         dp_ids = pd.DataFrame()
         _log_exc(debug, "load_dynastyprocess_playerids", e)
 
+    def _norm_id(x: Any) -> str:
+        """
+        Normalise an id read from a CSV to a bare integer-string.
+        pandas reads columns containing NaN as float64, so a plain
+        astype(str) on '7564' (int) yields '7564.0' (float). Strip
+        the .0 suffix and any whitespace so dict lookups against
+        bare Sleeper pids ('7564', '5859') succeed.
+        """
+        s = str(x).strip()
+        if s.endswith(".0"):
+            s = s[:-2]
+        return s
+
     for c in ["sleeper_id", "gsis_id", "name"]:
         if c in dp_ids.columns:
             dp_ids[c] = dp_ids[c].astype(str)
@@ -874,8 +887,11 @@ def build_all(repo_root: Path) -> None:
     if (not dp_ids.empty) and ("sleeper_id" in dp_ids.columns) and ("gsis_id" in dp_ids.columns):
         try:
             m = dp_ids[["sleeper_id", "gsis_id"]].dropna().copy()
-            m["sleeper_id"] = m["sleeper_id"].astype(str)
-            m["gsis_id"] = m["gsis_id"].astype(str)
+            m["sleeper_id"] = m["sleeper_id"].astype(str).map(_norm_id)
+            m["gsis_id"] = m["gsis_id"].astype(str).map(lambda v: str(v).strip())
+            # Drop rows whose ids degenerated to empty/nan strings after coercion.
+            m = m[(m["sleeper_id"] != "") & (m["sleeper_id"].str.lower() != "nan")]
+            m = m[(m["gsis_id"] != "") & (m["gsis_id"].str.lower() != "nan")]
             dp_sleeper_to_gsis = dict(zip(m["sleeper_id"], m["gsis_id"]))
         except Exception:
             dp_sleeper_to_gsis = {}
