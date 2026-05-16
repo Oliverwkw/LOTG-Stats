@@ -1239,6 +1239,12 @@ def build_all(repo_root: Path) -> None:
         # nflverse weekly player stats (team-by-week + played detection)
         player_team_by_week: Dict[Tuple[str, int], str] = {}
         player_pos_by_week: Dict[Tuple[str, int], str] = {}
+        # Season-level fallback team for each player. Used when a specific week
+        # has no stats row (player injured / inactive / on bye / suspended) —
+        # the right answer is "the team they were on that season," not "the
+        # team they're on today." Fixes A.J. Brown 2021 wks 4/12-15 (was PHI,
+        # should be TEN), Cooper Kupp 2022 wk11+ (was SEA, should be LAR), etc.
+        player_season_team: Dict[str, str] = {}
         played_players_by_week: Dict[int, set] = {}
         try:
             spw = _safe_df(load_nflverse_stats_player_week(ext, season))
@@ -1254,6 +1260,17 @@ def build_all(repo_root: Path) -> None:
                     spw[team_col] = spw[team_col].astype(str)
                     for r in spw[["player_id", "week", team_col]].dropna().itertuples(index=False):
                         player_team_by_week[(str(r.player_id), int(r.week))] = str(getattr(r, team_col))
+                    try:
+                        modes = (
+                            spw[["player_id", team_col]].dropna()
+                            .groupby("player_id")[team_col]
+                            .agg(lambda s: s.mode().iat[0] if not s.mode().empty else None)
+                        )
+                        for pid_x, tm_x in modes.items():
+                            if tm_x and str(tm_x) != "nan":
+                                player_season_team[str(pid_x)] = str(tm_x)
+                    except Exception as e:
+                        _log_exc(debug, f"player_season_team_{season}", e)
                 if "position" in spw.columns:
                     spw["position"] = spw["position"].astype(str)
                     for r in spw[["player_id", "week", "position"]].dropna().itertuples(index=False):
@@ -1816,7 +1833,11 @@ def build_all(repo_root: Path) -> None:
                     def _nfl_team_for_pid_week(pid_val: Any) -> Optional[str]:
                         m = pid_meta.get(str(pid_val), {}) if isinstance(pid_meta, dict) else {}
                         gs = dp_sleeper_to_gsis.get(str(pid_val)) or m.get("gsis_id") or sleeper_to_gsis.get(str(pid_val))
-                        tm = (player_team_by_week.get((str(gs), int(wk))) if gs else None) or m.get("team")
+                        tm = (
+                            (player_team_by_week.get((str(gs), int(wk))) if gs else None)
+                            or (player_season_team.get(str(gs)) if gs else None)
+                            or m.get("team")
+                        )
                         return _norm_team(tm)
 
                     roster_nfl_teams = [t for t in (_nfl_team_for_pid_week(pid) for pid in players) if t]
@@ -1992,7 +2013,11 @@ def build_all(repo_root: Path) -> None:
                         )
 
                         # Prefer week-specific nflverse team when available; fallback to Sleeper player meta.
-                        nfl_team = (player_team_by_week.get((str(gsis), int(wk))) if gsis else None) or meta.get("team")
+                        nfl_team = (
+                            (player_team_by_week.get((str(gsis), int(wk))) if gsis else None)
+                            or (player_season_team.get(str(gsis)) if gsis else None)
+                            or meta.get("team")
+                        )
                         nfl_team = _norm_team(nfl_team)
 
                         pts = float(ppts.get(pid, 0.0))
