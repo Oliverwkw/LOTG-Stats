@@ -1743,16 +1743,54 @@ def build_all(repo_root: Path) -> None:
 
             for t in tx_by_week.get(wk, []):
                 try:
+                    ttype = t.get("type")
                     creator = str(t.get("creator") or "")
-                    team = user_handle.get(creator) if creator else None
-                    if team:
-                        tx_count[team] += 1
-                        if t.get("type") == "trade":
-                            trade_count[team] += 1
+                    creator_team = user_handle.get(creator) if creator else None
+
+                    # Resolve every team participating in this transaction. Sleeper
+                    # stores the participating rosters in 'roster_ids' (and trades
+                    # echo it in 'consenter_ids'). For trades the prior code only
+                    # credited the creator, so only one of the two sides got the
+                    # trade counted.
+                    roster_ids_in_tx = [_to_int(r, None) for r in (t.get("roster_ids") or [])]
+                    roster_ids_in_tx = [r for r in roster_ids_in_tx if r is not None]
+                    teams_in_tx: list[str] = []
+                    for rid_ in roster_ids_in_tx:
+                        nm = roster_to_team.get(int(rid_))
+                        if nm and nm not in teams_in_tx:
+                            teams_in_tx.append(nm)
+                    if creator_team and creator_team not in teams_in_tx:
+                        teams_in_tx.append(creator_team)
+
+                    if ttype == "trade":
+                        # Credit both sides.
+                        for tm in teams_in_tx:
+                            trade_count[tm] += 1
+                            tx_count[tm] += 1
+                    else:
+                        # waiver / free_agent / commissioner — single-side, attributed
+                        # to the manager who created the transaction.
+                        primary = creator_team or (teams_in_tx[0] if teams_in_tx else None)
+                        if primary:
+                            tx_count[primary] += 1
+
+                    # FAAB lives under settings.waiver_bid on Sleeper transactions
+                    # (legacy code looked under metadata, which was always empty).
+                    settings_obj = t.get("settings") or {}
+                    if isinstance(settings_obj, dict):
+                        bid = _to_float(settings_obj.get("waiver_bid"), 0.0) or 0.0
+                    else:
+                        bid = 0.0
+                    if not bid:
                         meta = t.get("metadata") or {}
                         if isinstance(meta, dict):
-                            bid = _to_float(meta.get("waiver_bid") or meta.get("faab") or 0.0, 0.0) or 0.0
-                            faab_spent[team] += float(bid)
+                            bid = _to_float(
+                                meta.get("waiver_bid") or meta.get("faab") or 0.0, 0.0
+                            ) or 0.0
+                    if bid:
+                        primary = creator_team or (teams_in_tx[0] if teams_in_tx else None)
+                        if primary:
+                            faab_spent[primary] += float(bid)
                 except Exception as e:
                     _log_exc(debug, f"tx_summary_{season}_wk{wk}", e)
 
