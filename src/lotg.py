@@ -2211,7 +2211,13 @@ def build_all(repo_root: Path) -> None:
                             played = bool(gsis) and (str(gsis) in played_players)
                         except Exception:
                             played = False
-                        if ((pts or 0.0) == 0.0) and (bye is False) and (not played) and gsis:
+                        # bye may be None when we couldn't compute it (no NFL team
+                        # resolvable + player never had stats this season — e.g.
+                        # career-ending injury cases like Gus Edwards 2021, Tarik
+                        # Cohen 2021). Treat None like False so we still consider
+                        # the player injured when they have pts=0 and no
+                        # contradicting suspension entry.
+                        if ((pts or 0.0) == 0.0) and (bye is not True) and (not played) and gsis:
                             existing = injuries_by_gsis_week.get((str(gsis), season, int(wk)))
                             if existing is not None and existing[1] is True:
                                 # Confirmed suspension wins.
