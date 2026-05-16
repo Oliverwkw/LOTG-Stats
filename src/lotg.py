@@ -1340,6 +1340,39 @@ def build_all(repo_root: Path) -> None:
         except Exception as e:
             _log_exc(debug, f"suspensions_overlay_{season}", e)
 
+        # Overlay curated injuries (data/injuries.csv). The nflverse injury
+        # report only covers weeks a player is on the active roster with a
+        # game-status question — players on season-ending IR usually drop off
+        # the report entirely, so the file doesn't say "Out" for those weeks.
+        # This overlay marks season-ending and multi-week IR stints that the
+        # nflverse feed misses. Only sets Injury? if the key doesn't already
+        # carry a suspension (suspension always wins).
+        try:
+            inj_path = repo_root / "data" / "injuries.csv"
+            if inj_path.exists():
+                inj_overlay_df = pd.read_csv(inj_path)
+                for _, irow in inj_overlay_df.iterrows():
+                    if int(irow.get("season", 0)) != int(season):
+                        continue
+                    g = str(irow.get("gsis_id") or "").strip()
+                    if not g:
+                        continue
+                    try:
+                        wks = int(irow.get("week_start", 0))
+                        wke = int(irow.get("week_end", 0))
+                    except Exception:
+                        continue
+                    if wks <= 0 or wke <= 0 or wke < wks:
+                        continue
+                    for wk_n in range(wks, wke + 1):
+                        existing = injuries_by_gsis_week.get((g, int(season), int(wk_n)))
+                        # Don't overwrite a confirmed suspension
+                        if existing is not None and existing[1] is True:
+                            continue
+                        injuries_by_gsis_week[(g, int(season), int(wk_n))] = (True, False)
+        except Exception as e:
+            _log_exc(debug, f"injuries_overlay_{season}", e)
+
         # users/rosters
         try:
             users = sc.users(league_id)
