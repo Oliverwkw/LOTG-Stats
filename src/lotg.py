@@ -541,7 +541,12 @@ def _column_kind(col: str) -> str:
         "type of transaction",
         "assets sent",
         "assets received",
+        "assets dropped",
+        "assets recieved",
+        "team's traded with",
+        "reason",
         "date",
+        "date dropped/traded",
         "record",
         "round",
         "number",
@@ -551,11 +556,22 @@ def _column_kind(col: str) -> str:
     if col_l in text_exact:
         return "text"
 
+    # Substring-based markers: a column counts as text when its label *contains*
+    # any of these tokens. Important: keep these specific enough that they
+    # don't grab numeric columns by accident.
     text_markers = [
         "record vs ",
         "link to ",
         "trade ",
         "pick",
+        "type of transaction",  # 'type of transaction (waiver/free agency)' variants
+        "player added",
+        "player dropped",
+        "assets received",
+        "assets dropped",
+        "assets recieved",
+        "team's traded with",
+        "teams traded with",
     ]
     if any(m in col_l for m in text_markers):
         return "text"
@@ -581,6 +597,12 @@ def _column_kind(col: str) -> str:
         "highest starter on team?",
         "lowest starter on team?",
     }
+    # "Times X of the week?" / "Times Top half of league?" etc. are aggregate
+    # counts in player_year/team_year — they end in '?' but are integers.
+    # Numeric kind first prevents boolean coercion of summed counts.
+    if col_l.startswith("times ") or col_l.startswith("number of ") or col_l.startswith("weeks "):
+        return "numeric"
+
     if col_l in bool_exact or col_l.endswith("?"):
         return "boolean"
 
@@ -996,6 +1018,15 @@ def build_all(repo_root: Path) -> None:
                 bd = nrow.get("birth_date")
                 if bd is not None and str(bd) != "nan":
                     m["birth_date"] = str(bd)
+            # latest_team / draft_team fallback: when Sleeper shows team=None
+            # (retired / free agent / out of league), use nflverse's last-known
+            # team so per-week NFL team isn't NAN for players whose career ended
+            # within the league window (Tarik Cohen 2021 - BAL, Josh Doctson 2021
+            # - WAS, etc.). We only fill it when Sleeper has nothing.
+            if not m.get("team"):
+                lt = nrow.get("latest_team") or nrow.get("draft_team")
+                if lt is not None and str(lt) != "nan" and str(lt).strip():
+                    m["team"] = _norm_team(str(lt))
 
     # ------------- League chain -------------
     leagues = _walk_league_chain(sc, run_cfg.league_id, run_cfg.min_season, run_cfg.max_season)
@@ -1013,6 +1044,18 @@ def build_all(repo_root: Path) -> None:
             out = _ensure_plan_columns(frame, cols)
             out = _fill_empty_columns(out, cols)
             out = _fill_missing_values(out, cols)
+            # Round numeric columns at output to suppress float noise
+            # (e.g., Luck = 188.49633333333333, change-in-win% = -0.05879999..).
+            # 4 decimals is enough precision for fantasy football stats.
+            try:
+                for c in out.columns:
+                    if _column_kind(c) == "numeric":
+                        try:
+                            out[c] = pd.to_numeric(out[c], errors="ignore").round(4)
+                        except Exception:
+                            continue
+            except Exception as e:
+                _log_exc(debug, f"round_numeric_{fname}", e)
             try:
                 require_columns(out, cols, fname.replace(".csv", ""))
             except Exception as e:
@@ -1559,11 +1602,15 @@ def build_all(repo_root: Path) -> None:
             rnd = _to_int(p.get("round"), None)
             pick_no = _to_int(p.get("pick_no"), None)
             roster_id = _to_int(p.get("roster_id"), None)
-            picked_by = _to_int(p.get("picked_by"), None)
+            # Note: Sleeper's `picked_by` is a USER_ID (long string), not a
+            # roster_id. Using it as a roster_id produces garbage like
+            # "Roster 603431474020032512". The team that made the pick is the
+            # one stored in `roster_id`. For "Original Team" semantics (who
+            # owned the pick before any trades), we look up the chain root in
+            # round_chain later; here, default to roster_id as the team-of-pick.
+            picked_by_uid = p.get("picked_by")
             player = p.get("player_id")
-
-            # Original team should reflect the manager on the clock at selection time.
-            origin_rid = picked_by if picked_by is not None else roster_id
+            origin_rid = roster_id
             team = roster_to_team.get(origin_rid, f"Roster {origin_rid}") if origin_rid is not None else None
 
             # Draft APIs are not fully consistent; recover display number even when pick_no is missing.
@@ -2457,8 +2504,21 @@ def build_all(repo_root: Path) -> None:
                     adds = t.get("adds") or {}
                     drops = t.get("drops") or {}
                     meta = t.get("metadata") or {}
-                    faab = meta.get("waiver_bid") if isinstance(meta, dict) else None
-                    num_bids = meta.get("num_bids") if isinstance(meta, dict) else None
+                    settings_obj = t.get("settings") or {}
+                    # Sleeper exposes the waiver bid on transaction.settings.waiver_bid
+                    # (not on metadata, which is almost always null). The previous
+                    # code looked at metadata only, so Faab was None for every
+                    # transaction, and downstream coercion stamped it as 0.0.
+                    faab = None
+                    if isinstance(settings_obj, dict):
+                        faab = settings_obj.get("waiver_bid")
+                    if faab is None and isinstance(meta, dict):
+                        faab = meta.get("waiver_bid") or meta.get("faab")
+                    num_bids = None
+                    if isinstance(settings_obj, dict):
+                        num_bids = settings_obj.get("num_bids")
+                    if num_bids is None and isinstance(meta, dict):
+                        num_bids = meta.get("num_bids")
 
                     if not isinstance(adds, dict):
                         adds = {}
@@ -2844,26 +2904,32 @@ def build_all(repo_root: Path) -> None:
 
     # --------------------------
     # Reconstruct draft pick trade history from transaction ledger.
+    #
+    # pick_trade_events is keyed by (season, round, original_owner_rid) and
+    # holds a chronologically ordered list of trade events: each event is
+    # (datetime, prev_owner_rid, new_owner_rid, week). pick_current_owner gives
+    # the ultimate final owner for each pick. Sleeper draft_pick rows store the
+    # FINAL owner in their `roster_id` field, so we resolve the chain by
+    # finding the (season, round, original_owner) key whose current_owner
+    # matches the row's roster_id.
+    #
+    # 'Original Team' in pick_rows was already set to the final owner (the team
+    # that actually used the pick on draft day) — that's the most useful single
+    # value when no chain exists. When a chain DOES exist we rewrite Original
+    # Team to the chain's true origin and fill Trade 1..N with the intermediate
+    # owners ending at the final owner.
     # --------------------------
     try:
-        if not ph.empty and traded_picks_by_season:
-            # Build per (season, round, original_owner) -> chain of owners (including original)
-            round_chain: Dict[tuple, List[int]] = {}
-            for season, tps in traded_picks_by_season.items():
-                for tp in (tps or []):
-                    yr = _to_int(tp.get("season"), season)
-                    rnd = _to_int(tp.get("round"), None)
-                    prev = _to_int(tp.get("previous_owner_id") or tp.get("previous_owner") or tp.get("previous_owner_roster_id"), None)
-                    owner = _to_int(tp.get("owner_id") or tp.get("roster_id") or tp.get("owner_roster_id"), None)
-                    if rnd is None or prev is None or owner is None:
-                        continue
-                    key = (int(yr), int(rnd), int(prev))
-                    chain = round_chain.get(key, [int(prev)])
-                    if chain[-1] != int(owner):
-                        chain.append(int(owner))
-                    round_chain[key] = chain
+        if not ph.empty and pick_trade_events:
+            # Build reverse index: (season, round, final_owner_rid) -> origin_rid
+            final_to_origin: Dict[Tuple[int, int, int], int] = {}
+            for key, final_rid in pick_current_owner.items():
+                try:
+                    season_k, round_k, origin_rid = int(key[0]), int(key[1]), int(key[2])
+                    final_to_origin[(season_k, round_k, int(final_rid))] = origin_rid
+                except Exception:
+                    continue
 
-            # Apply to pick history rows
             for i, r in ph.iterrows():
                 yr = _to_int(r.get("Year"), None)
                 num = str(r.get("Number") or "")
@@ -2872,25 +2938,40 @@ def build_all(repo_root: Path) -> None:
                     continue
                 rnd = int(m.group(1))
 
-                orig_team = str(r.get("Original Team") or "")
-                orig_rid = season_team_to_roster.get(int(yr), {}).get(_norm_team_name(orig_team))
-                if orig_rid is None:
-                    m2 = re.search(r"(\d+)$", orig_team)
-                    if m2:
-                        orig_rid = int(m2.group(1))
-                if orig_rid is None:
+                # Resolve the row's final-owner roster_id from the "Original
+                # Team" display name (which we set to roster_to_team[roster_id]
+                # at pick_rows construction).
+                final_team_disp = str(r.get("Original Team") or "")
+                final_rid = season_team_to_roster.get(int(yr), {}).get(_norm_team_name(final_team_disp))
+                if final_rid is None:
                     continue
 
-                key = (int(yr), rnd, int(orig_rid))
-                chain = round_chain.get(key)
-                if not chain or len(chain) <= 1:
+                origin_rid = final_to_origin.get((int(yr), rnd, int(final_rid)))
+                if origin_rid is None or origin_rid == int(final_rid):
+                    # No trades for this pick — it was used by the same team
+                    # that started with it. Leave Original Team as the picker.
+                    continue
+
+                key = (int(yr), rnd, int(origin_rid))
+                events = pick_trade_events.get(key) or []
+                if not events:
                     continue
 
                 rid_to_team = season_roster_to_team.get(int(yr), {})
-                # Fill Trade 1..Trade 10 using display team names if available.
-                for j in range(1, min(11, len(chain))):
-                    owner_rid = chain[j]
-                    ph.at[i, f"Trade {j}"] = rid_to_team.get(owner_rid, f"Roster {owner_rid}")
+                # Rewrite Original Team to the true origin.
+                ph.at[i, "Original Team"] = rid_to_team.get(int(origin_rid), f"Roster {origin_rid}")
+                # Trade 1..N = each event's new_owner in chronological order.
+                # Sort events by timestamp (None timestamps last to preserve
+                # insertion order).
+                events_sorted = sorted(
+                    events,
+                    key=lambda ev: (ev[0] is None, ev[0] or 0)
+                )
+                for j, (_dt, _prev, new_owner_rid, _wk) in enumerate(events_sorted[:10], start=1):
+                    try:
+                        ph.at[i, f"Trade {j}"] = rid_to_team.get(int(new_owner_rid), f"Roster {new_owner_rid}")
+                    except Exception:
+                        continue
     except Exception as e:
         _log_exc(debug, "pick_history_reconstruct", e)
 
@@ -3026,32 +3107,46 @@ def build_all(repo_root: Path) -> None:
             pw.loc[mask, col] = 1
             pw.loc[~mask, col] = pw.loc[~mask, col].fillna(0)
 
-        # league-level player of week among starters
+        # league-level player of week among starters.
+        # Pick exactly ONE winner per (Year, Week) per award. Tie-breaker rules:
+        #   - Player of the week (max score): on tie, alphabetical Player name first
+        #   - Benchwarmer (min score): if 2+ starters tie at 0 points, no winner
+        #     (it's not meaningful to call out one of many who all sat out). If 2+
+        #     tie at a non-zero low, alphabetical first wins.
         starters = pw["Starter/Bench"] == "Starter"
         pos_col = "Position" if "Position" in pw.columns else "Position started in (if starter)"
         pos_series = pw[pos_col].astype(str).str.upper()
+
+        def _pick_one(sub_df: pd.DataFrame, by_max: bool) -> Optional[int]:
+            """Return the row index of the single award winner, or None."""
+            if sub_df.empty:
+                return None
+            extreme = sub_df["Points"].max() if by_max else sub_df["Points"].min()
+            tied = sub_df[sub_df["Points"] == extreme]
+            # Multi-way tie at 0 for min: don't award.
+            if (not by_max) and float(extreme) == 0.0 and len(tied) >= 2:
+                return None
+            tied_sorted = tied.assign(_p=tied["Player"].astype(str)).sort_values("_p", kind="stable")
+            return int(tied_sorted.index[0])
+
         for (yr, wk), g in pw.groupby(["Year", "Week"]):
             sg = g[starters.loc[g.index]]
             if sg.empty:
                 continue
-            mx = sg["Points"].max()
-            mn = sg["Points"].min()
-            _set_flag((pw["Year"] == yr) & (pw["Week"] == wk) & starters & (pw["Points"] == mx), "Player of the week?")
-            _set_flag((pw["Year"] == yr) & (pw["Week"] == wk) & starters & (pw["Points"] == mn), "Benchwarmer of the week?")
+            # Player of the week
+            idx = _pick_one(sg, by_max=True)
+            if idx is not None:
+                _set_flag(pw.index == idx, "Player of the week?")
+            # Benchwarmer of the week
+            idx = _pick_one(sg, by_max=False)
+            if idx is not None:
+                _set_flag(pw.index == idx, "Benchwarmer of the week?")
 
             for pos, col in [("QB", "QB of the week?"), ("RB", "RB of the week?"), ("WR", "WR of the week?"), ("TE", "TE of the week?")]:
                 pg = sg[pos_series.loc[sg.index] == pos]
-                if pg.empty:
-                    continue
-                mxp = pg["Points"].max()
-                _set_flag(
-                    (pw["Year"] == yr)
-                    & (pw["Week"] == wk)
-                    & starters
-                    & (pos_series == pos)
-                    & (pw["Points"] == mxp),
-                    col,
-                )
+                idx = _pick_one(pg, by_max=True)
+                if idx is not None:
+                    _set_flag(pw.index == idx, col)
 
             # bench position awards (bench only)
             bg = g[~starters.loc[g.index]]
@@ -3062,17 +3157,9 @@ def build_all(repo_root: Path) -> None:
                 ("TE", "Bench TE of the week?"),
             ]:
                 pg = bg[pos_series.loc[bg.index] == pos]
-                if pg.empty:
-                    continue
-                mxp = pg["Points"].max()
-                _set_flag(
-                    (pw["Year"] == yr)
-                    & (pw["Week"] == wk)
-                    & (~starters)
-                    & (pos_series == pos)
-                    & (pw["Points"] == mxp),
-                    col,
-                )
+                idx = _pick_one(pg, by_max=True)
+                if idx is not None:
+                    _set_flag(pw.index == idx, col)
 
             # team-level awards: highest/lowest starter per team per week
             for team, tg in sg.groupby("Team"):
@@ -3474,35 +3561,15 @@ def build_all(repo_root: Path) -> None:
             _log_exc(debug, "player_week_rolling_diffs", e)
 
     # --------------------------
-    # Team-week: Tanking (best-effort heuristic)
+    # Team-week: Tanking (math formula computed earlier in build_all by
+    # _tanking_score and merged into tw via tank_df). Keep that score as-is
+    # here — no more binary override. Round to 4 decimals for readability.
     # --------------------------
     if not tw.empty:
         try:
-            tw = tw.sort_values(["Year","Week","Team"]).reset_index(drop=True)
-            tw["Max PF"] = pd.to_numeric(tw["Max PF"], errors="coerce")
-            tw["Efficiency"] = pd.to_numeric(tw["Efficiency"], errors="coerce")
-            tw["Number of transactions"] = pd.to_numeric(tw.get("Number of transactions"), errors="coerce").fillna(0.0)
-
-            # pregame avg maxPF = season-to-date avg maxPF before current week
-            tw = tw.sort_values(["Team","Year","Week"]).reset_index(drop=True)
-            tw["Pregame Avg Max PF"] = tw.groupby(["Team","Year"])["Max PF"].apply(lambda s: s.shift(1).expanding().mean()).reset_index(level=[0,1], drop=True)
-
-            # rank teams by pregame avg maxPF each week; bottom quartile eligible
-            def _bottom_quartile(g):
-                vals = pd.to_numeric(g["Pregame Avg Max PF"], errors="coerce")
-                if vals.notna().sum() < 4:
-                    return pd.Series([False]*len(g), index=g.index)
-                thresh = vals.quantile(0.25)
-                return vals <= thresh
-
-            tw = tw.sort_values(["Year","Week","Team"]).reset_index(drop=True)
-            bq = tw.groupby(["Year","Week"], group_keys=False).apply(_bottom_quartile)
-            eff_bad = tw["Efficiency"].fillna(1.0) < 0.85
-            tx_some = tw["Number of transactions"].fillna(0.0) >= 1
-            tw["Tanking"] = ((bq) & eff_bad & tx_some).astype(int)
-            tw.drop(columns=["Pregame Avg Max PF"], inplace=True, errors="ignore")
+            tw["Tanking"] = pd.to_numeric(tw.get("Tanking"), errors="coerce").fillna(0.0).round(4)
         except Exception as e:
-            _log_exc(debug, "team_week_tanking", e)
+            _log_exc(debug, "team_week_tanking_round", e)
 # Team-week flags & streaks
     # --------------------------
     if not tw.empty:
@@ -4220,6 +4287,58 @@ def build_all(repo_root: Path) -> None:
             rows.append(row)
         team_year = pd.DataFrame(rows)
 
+        # Pick-history-based rollups (Draft Value, # picks made by round).
+        # Uses the final-owner team (who actually drafted) for each pick row,
+        # which after the trade-chain rewrite above lives in pick_rows' Trade
+        # columns (last non-empty Trade N) or in 'Original Team' when no trade
+        # chain exists.
+        try:
+            if not ph.empty:
+                phx = ph.copy()
+                # Resolve picker = last non-empty Trade column, else Original Team
+                def _picker(row):
+                    for j in range(10, 0, -1):
+                        v = row.get(f"Trade {j}")
+                        if v and str(v) != "nan" and str(v).strip() not in ("", "N/A"):
+                            return str(v)
+                    return str(row.get("Original Team") or "")
+                phx["_Picker"] = phx.apply(_picker, axis=1)
+                # Parse round from Number (e.g., 'R1.2' -> 1)
+                phx["_Round"] = phx["Number"].astype(str).str.extract(r"^R(\d+)").astype(float)
+                # Parse pick-no for draft value (1/(pick_no+1)).
+                phx["_PickNo"] = phx["Number"].astype(str).str.extract(r"^R\d+\.(\d+)").astype(float)
+                phx["_DraftVal"] = phx["_PickNo"].apply(lambda x: 1.0 / (x + 1.0) if pd.notna(x) else 0.0)
+                pick_agg = phx.groupby(["_Picker", "Year"], dropna=False).agg(
+                    _draft_value=("_DraftVal", "sum"),
+                    _total_picks=("Number", "count"),
+                    _r1=("_Round", lambda s: int((s == 1.0).sum())),
+                ).reset_index().rename(columns={"_Picker": "Team"})
+                team_year = team_year.merge(pick_agg, on=["Team", "Year"], how="left")
+                team_year["Draft Value"] = team_year["_draft_value"].fillna(0.0).round(4)
+                team_year["Number of first round picks made"] = team_year["_r1"].fillna(0).astype(int)
+                team_year["Total number of picks made"] = team_year["_total_picks"].fillna(0).astype(int)
+                team_year.drop(columns=["_draft_value", "_total_picks", "_r1"], inplace=True, errors="ignore")
+        except Exception as e:
+            _log_exc(debug, "team_year_pick_rollups", e)
+
+        # Future draft capital: weighted future picks owned by team at end of
+        # each season. Uses _future_cap_from_traded against the traded_picks
+        # snapshot stored per season.
+        try:
+            future_cap_vals = []
+            for idx, row in team_year.iterrows():
+                team = str(row["Team"])
+                year = int(row["Year"])
+                rid = season_team_to_roster.get(int(year), {}).get(_norm_team_name(team))
+                if rid is None:
+                    future_cap_vals.append(0.0)
+                    continue
+                tps = traded_picks_by_season.get(int(year), [])
+                future_cap_vals.append(round(_future_cap_from_traded(tps, int(rid), int(year)), 4))
+            team_year["Future draft capital"] = future_cap_vals
+        except Exception as e:
+            _log_exc(debug, "team_year_future_cap", e)
+
         # Rebuild all win % and record columns for team-year (single source of truth)
         try:
             teams_by_year = team_year.groupby("Year")["Team"].apply(lambda s: sorted(s.dropna().astype(str).unique().tolist())).to_dict()
@@ -4921,10 +5040,14 @@ def build_all(repo_root: Path) -> None:
                 "Efficiency": float(g["Efficiency"].mean()) if g["Efficiency"].notna().any() else None,
                 "Number of weeks missed due to injury": int(pd.to_numeric(g.get("Number of Injuries"), errors="coerce").fillna(0.0).sum()),
                 "Number of weeks missed due to suspensions": int(pd.to_numeric(g.get("Number of suspensions"), errors="coerce").fillna(0.0).sum()),
-                "Inseason starter turnover": float(pd.to_numeric(g.get("Starter turnover from previous week"), errors="coerce").fillna(0.0).mean()),
-                "Offseason starter turnover": 0,
-                "Inseason roster turnover": 0,
-                "Offseason roster turnover": 0,
+                # League-year turnover = sum across all teams from team_year
+                # (team_year is computed before league_year). Inseason starter
+                # turnover was previously averaged from team_week, which is a
+                # different thing; switch to team_year sum for consistency.
+                "Inseason starter turnover": 0,  # filled from team_year below
+                "Offseason starter turnover": 0,  # filled from team_year below
+                "Inseason roster turnover": 0,    # filled from team_year below
+                "Offseason roster turnover": 0,   # filled from team_year below
                 "Number of wins with pregame avg max PF from opponent": int(pd.to_numeric(g.get("UPST"), errors="coerce").fillna(0.0).sum()),
                 "Tanking": float(pd.to_numeric(g.get("Tanking"), errors="coerce").fillna(0.0).sum()),
                 "Luck": float(pd.to_numeric(g.get("Luck"), errors="coerce").fillna(0.0).sum()),
@@ -4976,6 +5099,40 @@ def build_all(repo_root: Path) -> None:
             league_year["Amount of FAAB spent"] = pd.to_numeric(league_year.get("Amount of FAAB spent"), errors="coerce").fillna(0.0)
         except Exception as e:
             _log_exc(debug, "league_year_fill_extra", e)
+
+        # Roll up turnover + transactions/trades from team_year into league_year.
+        # These were hardcoded to 0 even though the team_year aggregation produces
+        # real values per team.
+        try:
+            if not team_year.empty:
+                ty_agg = team_year.groupby("Year", as_index=False).agg(
+                    **{
+                        "Offseason starter turnover": ("Offseason starter turnover", "sum"),
+                        "Inseason starter turnover": ("Inseason starter turnover", "sum"),
+                        "Offseason roster turnover": ("Offseason roster turnover", "sum"),
+                        "Inseason roster turnover": ("Inseason roster turnover", "sum"),
+                        "_ty_tx": ("Number of transactions", "sum"),
+                        "_ty_tr": ("Number of trades", "sum"),
+                    }
+                )
+                league_year = league_year.drop(
+                    columns=[
+                        "Offseason starter turnover",
+                        "Inseason starter turnover",
+                        "Offseason roster turnover",
+                        "Inseason roster turnover",
+                    ],
+                    errors="ignore",
+                ).merge(ty_agg, on="Year", how="left")
+                # Number of transactions / trades roll up from team_year too —
+                # league_year had these at 0 before despite team_year being correct.
+                if "_ty_tx" in league_year.columns:
+                    league_year["Number of transactions"] = pd.to_numeric(league_year["_ty_tx"], errors="coerce").fillna(0).astype(int)
+                if "_ty_tr" in league_year.columns:
+                    league_year["Number of trades"] = pd.to_numeric(league_year["_ty_tr"], errors="coerce").fillna(0).astype(int)
+                league_year.drop(columns=["_ty_tx", "_ty_tr"], inplace=True, errors="ignore")
+        except Exception as e:
+            _log_exc(debug, "league_year_team_year_rollup", e)
 
         league_all = pd.DataFrame([{
             "PF": float(pd.to_numeric(g_week["PF"], errors="coerce").fillna(0.0).sum()),
