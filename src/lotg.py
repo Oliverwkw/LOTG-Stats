@@ -4095,45 +4095,76 @@ def build_all(repo_root: Path) -> None:
         except Exception as e:
             _log_exc(debug, "team_year_rebuild_records", e)
 
-        # Compute starter/roster turnover metrics using unique players
+        # Compute starter/roster turnover metrics.
+        # Definitions:
+        #  - Inseason starter turnover  = (distinct players started any week this season)
+        #                                 minus (typical week's starter count)
+        #  - Inseason roster turnover   = same logic for full roster
+        #  - Offseason starter/roster turnover = symmetric-difference between last
+        #    week of prior season and first week of this season, divided by 2 so a
+        #    swap of 3 starters reads as "3" rather than "6".
+        # The endpoints-only inseason calculation we replaced missed streaming,
+        # mid-season trades, and waiver churn whenever the final lineup happened
+        # to resemble the opening one.
         try:
             if not pw.empty and "Starter/Bench" in pw.columns:
                 pw_t = pw.copy()
                 pw_t["Week"] = pd.to_numeric(pw_t["Week"], errors="coerce")
-                # helper to get set of players for (team,year,week) for starters/roster
+
                 def _set_for(team, year, week, starters_only):
-                    df = pw_t[(pw_t["Team"]==team) & (pw_t["Year"]==year) & (pw_t["Week"]==week)]
+                    df = pw_t[(pw_t["Team"] == team) & (pw_t["Year"] == year) & (pw_t["Week"] == week)]
                     if starters_only:
                         df = df[df["Starter/Bench"].astype(str).str.lower().eq("starter")]
                     return set(df["Player"].dropna().astype(str).tolist())
-                # precompute weeks per (team,year)
-                for (team, year), g in pw_t.groupby(["Team","Year"]):
+
+                def _distinct_minus_baseline(team, year, starters_only):
+                    """Return (distinct players used) - (typical week's count).
+                    Typical = median across weeks of the per-week count, so a
+                    single short week (e.g. opening week with empty slots) does
+                    not skew the baseline."""
+                    g = pw_t[(pw_t["Team"] == team) & (pw_t["Year"] == year)]
+                    if starters_only:
+                        g = g[g["Starter/Bench"].astype(str).str.lower().eq("starter")]
+                    weeks = sorted([int(w) for w in g["Week"].dropna().unique().tolist()])
+                    if not weeks:
+                        return 0
+                    weekly_counts = [
+                        len(set(g[g["Week"] == w]["Player"].dropna().astype(str).tolist()))
+                        for w in weeks
+                    ]
+                    weekly_counts = [c for c in weekly_counts if c > 0]
+                    if not weekly_counts:
+                        return 0
+                    baseline = int(round(sorted(weekly_counts)[len(weekly_counts) // 2]))
+                    distinct = len(set(g["Player"].dropna().astype(str).tolist()))
+                    return max(0, distinct - baseline)
+
+                for (team, year), g in pw_t.groupby(["Team", "Year"]):
                     weeks = sorted([int(w) for w in g["Week"].dropna().unique().tolist()])
                     if not weeks:
                         continue
                     first_w = weeks[0]
-                    last_w = weeks[-1]
-                    s_first = _set_for(team, year, first_w, True)
-                    s_last = _set_for(team, year, last_w, True)
-                    r_first = _set_for(team, year, first_w, False)
-                    r_last = _set_for(team, year, last_w, False)
-                    in_s = len(s_first.symmetric_difference(s_last))
-                    in_r = len(r_first.symmetric_difference(r_last))
-                    team_year.loc[(team_year["Team"]==team)&(team_year["Year"]==year), "Inseason starter turnover"] = in_s
-                    team_year.loc[(team_year["Team"]==team)&(team_year["Year"]==year), "Inseason roster turnover"] = in_r
-                    # offseason vs previous season
-                    prev_year = int(year)-1
-                    if ((pw_t["Team"]==team)&(pw_t["Year"]==prev_year)).any():
-                        gprev = pw_t[(pw_t["Team"]==team)&(pw_t["Year"]==prev_year)]
+                    in_s = _distinct_minus_baseline(team, year, starters_only=True)
+                    in_r = _distinct_minus_baseline(team, year, starters_only=False)
+                    team_year.loc[(team_year["Team"] == team) & (team_year["Year"] == year), "Inseason starter turnover"] = in_s
+                    team_year.loc[(team_year["Team"] == team) & (team_year["Year"] == year), "Inseason roster turnover"] = in_r
+
+                    # Offseason vs previous season: endpoint comparison with /2 so
+                    # the count reads as "players swapped" instead of "slot changes".
+                    prev_year = int(year) - 1
+                    if ((pw_t["Team"] == team) & (pw_t["Year"] == prev_year)).any():
+                        gprev = pw_t[(pw_t["Team"] == team) & (pw_t["Year"] == prev_year)]
                         prev_weeks = sorted([int(w) for w in gprev["Week"].dropna().unique().tolist()])
                         if prev_weeks:
                             prev_last = prev_weeks[-1]
                             s_prev = _set_for(team, prev_year, prev_last, True)
                             r_prev = _set_for(team, prev_year, prev_last, False)
-                            off_s = len(s_prev.symmetric_difference(s_first))
-                            off_r = len(r_prev.symmetric_difference(r_first))
-                            team_year.loc[(team_year["Team"]==team)&(team_year["Year"]==year), "Offseason starter turnover"] = off_s
-                            team_year.loc[(team_year["Team"]==team)&(team_year["Year"]==year), "Offseason roster turnover"] = off_r
+                            s_first = _set_for(team, year, first_w, True)
+                            r_first = _set_for(team, year, first_w, False)
+                            off_s = len(s_prev.symmetric_difference(s_first)) // 2
+                            off_r = len(r_prev.symmetric_difference(r_first)) // 2
+                            team_year.loc[(team_year["Team"] == team) & (team_year["Year"] == year), "Offseason starter turnover"] = off_s
+                            team_year.loc[(team_year["Team"] == team) & (team_year["Year"] == year), "Offseason roster turnover"] = off_r
         except Exception as e:
             _log_exc(debug, "turnover_metrics_team_year", e)
 
