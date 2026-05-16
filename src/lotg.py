@@ -1373,6 +1373,42 @@ def build_all(repo_root: Path) -> None:
         except Exception as e:
             _log_exc(debug, f"injuries_overlay_{season}", e)
 
+        # Carry-forward heuristic for season-ending IR. nflverse's weekly injury
+        # report stops listing a player once they're moved to IR / Reserve, so
+        # high-profile season-ending injuries (Travis Hunter 2025 wks 10-17,
+        # Michael Penix Jr 2025 wks 12-17, etc.) come back as Injury?=False
+        # despite the player clearly being out. Detect this by comparing each
+        # player's last week of nflverse stats to the season's max week and
+        # propagating Injury?=True through the gap.
+        #
+        # Conservative: only fires for players who played at least one nflverse
+        # game in the season (so we never invent injuries for inactive backups
+        # who never appeared), and never overwrites an existing key (so the
+        # curated suspensions / injuries overlays still win).
+        try:
+            if played_players_by_week:
+                last_played_by_gsis: Dict[str, int] = {}
+                for wk_i, played_set in played_players_by_week.items():
+                    try:
+                        wk_int = int(wk_i)
+                    except Exception:
+                        continue
+                    for pid_s in played_set:
+                        pid_clean = str(pid_s).strip()
+                        if not pid_clean:
+                            continue
+                        if last_played_by_gsis.get(pid_clean, 0) < wk_int:
+                            last_played_by_gsis[pid_clean] = wk_int
+                season_max_week = max(last_played_by_gsis.values()) if last_played_by_gsis else 0
+                for gsis_s, last_w in last_played_by_gsis.items():
+                    for wk_after in range(int(last_w) + 1, int(season_max_week) + 1):
+                        key = (gsis_s, int(season), int(wk_after))
+                        if key in injuries_by_gsis_week:
+                            continue
+                        injuries_by_gsis_week[key] = (True, False)
+        except Exception as e:
+            _log_exc(debug, f"injury_carry_forward_{season}", e)
+
         # users/rosters
         try:
             users = sc.users(league_id)
