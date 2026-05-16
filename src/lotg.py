@@ -1047,11 +1047,17 @@ def build_all(repo_root: Path) -> None:
             # Round numeric columns at output to suppress float noise
             # (e.g., Luck = 188.49633333333333, change-in-win% = -0.05879999..).
             # 4 decimals is enough precision for fantasy football stats.
+            # Previous version used errors='ignore' which pandas treats as
+            # 'leave unchanged' for any column with a non-numeric value, so
+            # rounding silently no-op'd on most columns.
             try:
                 for c in out.columns:
                     if _column_kind(c) == "numeric":
                         try:
-                            out[c] = pd.to_numeric(out[c], errors="ignore").round(4)
+                            coerced = pd.to_numeric(out[c], errors="coerce")
+                            # Only overwrite when we actually got numeric data.
+                            if coerced.notna().any():
+                                out[c] = coerced.round(4)
                         except Exception:
                             continue
             except Exception as e:
@@ -2947,13 +2953,13 @@ def build_all(repo_root: Path) -> None:
                     continue
 
                 origin_rid = final_to_origin.get((int(yr), rnd, int(final_rid)))
-                if origin_rid is None or origin_rid == int(final_rid):
-                    # No trades for this pick — it was used by the same team
-                    # that started with it. Leave Original Team as the picker.
+                if origin_rid is None:
                     continue
 
                 key = (int(yr), rnd, int(origin_rid))
                 events = pick_trade_events.get(key) or []
+                # Even when origin == final (pick traded out and back), the
+                # chain of trades is still meaningful and worth showing.
                 if not events:
                     continue
 
