@@ -1744,14 +1744,16 @@ def build_all(repo_root: Path) -> None:
             for t in tx_by_week.get(wk, []):
                 try:
                     ttype = t.get("type")
-                    creator = str(t.get("creator") or "")
-                    creator_team = user_handle.get(creator) if creator else None
 
-                    # Resolve every team participating in this transaction. Sleeper
-                    # stores the participating rosters in 'roster_ids' (and trades
-                    # echo it in 'consenter_ids'). For trades the prior code only
-                    # credited the creator, so only one of the two sides got the
-                    # trade counted.
+                    # Resolve every team participating in this transaction via
+                    # roster_ids -> roster_to_team. We deliberately do NOT use
+                    # user_handle.get(creator) here: user_handle is rebuilt per
+                    # season from that season's users feed, so it returns this
+                    # season's display name (e.g. "Shmuel256"), which can drift
+                    # year-to-year. roster_to_team uses the canonical stable
+                    # display name that team_week / team_year rows are keyed by.
+                    # Without this, the same manager's tx fragment under two
+                    # different team labels and the rollup is wrong.
                     roster_ids_in_tx = [_to_int(r, None) for r in (t.get("roster_ids") or [])]
                     roster_ids_in_tx = [r for r in roster_ids_in_tx if r is not None]
                     teams_in_tx: list[str] = []
@@ -1759,8 +1761,20 @@ def build_all(repo_root: Path) -> None:
                         nm = roster_to_team.get(int(rid_))
                         if nm and nm not in teams_in_tx:
                             teams_in_tx.append(nm)
-                    if creator_team and creator_team not in teams_in_tx:
-                        teams_in_tx.append(creator_team)
+
+                    # creator_team is only used as a tiebreaker when roster_ids
+                    # is empty (rare; mostly placeholder transactions). Resolve
+                    # creator -> owner_id -> roster_id -> stable team name when
+                    # possible so we still don't go through user_handle directly.
+                    creator = str(t.get("creator") or "")
+                    creator_team = None
+                    if creator and not teams_in_tx:
+                        for rid_, owner_ in roster_owner.items():
+                            if owner_ == creator:
+                                creator_team = roster_to_team.get(rid_)
+                                break
+                        if creator_team is None:
+                            creator_team = user_handle.get(creator)
 
                     if ttype == "trade":
                         # Credit both sides.
@@ -1769,8 +1783,9 @@ def build_all(repo_root: Path) -> None:
                             tx_count[tm] += 1
                     else:
                         # waiver / free_agent / commissioner — single-side, attributed
-                        # to the manager who created the transaction.
-                        primary = creator_team or (teams_in_tx[0] if teams_in_tx else None)
+                        # to the roster the transaction acted on (typically a single
+                        # roster_id in the transaction).
+                        primary = (teams_in_tx[0] if teams_in_tx else None) or creator_team
                         if primary:
                             tx_count[primary] += 1
 
@@ -1788,7 +1803,7 @@ def build_all(repo_root: Path) -> None:
                                 meta.get("waiver_bid") or meta.get("faab") or 0.0, 0.0
                             ) or 0.0
                     if bid:
-                        primary = creator_team or (teams_in_tx[0] if teams_in_tx else None)
+                        primary = (teams_in_tx[0] if teams_in_tx else None) or creator_team
                         if primary:
                             faab_spent[primary] += float(bid)
                 except Exception as e:
