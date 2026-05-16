@@ -912,6 +912,12 @@ def build_all(repo_root: Path) -> None:
             continue
         pid = str(pid)
         full = meta.get("full_name") or (f"{meta.get('first_name','')} {meta.get('last_name','')}".strip())
+        # Sleeper's /players/nfl returns gsis_id with leading/trailing whitespace for
+        # roughly 22% of players (e.g. A.J. Brown -> ' 00-0035676'). Strip it here
+        # so every downstream lookup (player_team_by_week, injuries_by_gsis_week,
+        # nflverse enrichment) hits the dict keys correctly.
+        raw_gsis = meta.get("gsis_id")
+        clean_gsis = str(raw_gsis).strip() if raw_gsis is not None else None
         pid_meta[pid] = {
             "full_name": full or pid,
             "pos": (meta.get("position") or ""),
@@ -921,7 +927,7 @@ def build_all(repo_root: Path) -> None:
             "draft_year": meta.get("draft_year"),
             "status": meta.get("status"),
             "injury_status": meta.get("injury_status"),
-            "gsis_id": meta.get("gsis_id"),
+            "gsis_id": clean_gsis if clean_gsis else None,
         }
         pid_pos[pid] = (pid_meta[pid]["pos"] or "").upper()
 
@@ -944,13 +950,24 @@ def build_all(repo_root: Path) -> None:
             if isinstance(row.get("gsis_id"), str) and row.get("gsis_id")
         }
         for pid, m in pid_meta.items():
-            gsis = m.get("gsis_id")
+            # Look up gsis_id via the full chain — Sleeper's meta lacks gsis_id for
+            # many players (e.g. Ja'Marr Chase, Caleb Williams). DP's db_playerids
+            # provides the sleeper_id <-> gsis_id mapping that closes the gap.
+            gsis = (
+                m.get("gsis_id")
+                or dp_sleeper_to_gsis.get(str(pid))
+                or sleeper_to_gsis.get(str(pid))
+            )
             if not gsis:
                 continue
+            # Backfill gsis_id onto pid_meta so the per-week injury / team
+            # lookups also benefit (otherwise they re-resolve every row).
+            if not m.get("gsis_id"):
+                m["gsis_id"] = gsis
             nrow = nfl_by_gsis.get(str(gsis))
             if nrow is None:
                 continue
-            # rookie_season is authoritative; only override Sleeper's draft_year if nflverse has it
+            # rookie_season is authoritative; override Sleeper's draft_year when nflverse has it
             rs = nrow.get("rookie_season")
             try:
                 rs_int = int(float(rs)) if rs is not None and str(rs) != "nan" else None
