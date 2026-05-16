@@ -2212,9 +2212,20 @@ def build_all(repo_root: Path) -> None:
                         except Exception:
                             played = False
                         if ((pts or 0.0) == 0.0) and (bye is False) and (not played) and gsis:
-                            inj2, susp2 = injuries_by_gsis_week.get((str(gsis), season, int(wk)), (False, False))
-                            inj = bool(inj2)
-                            susp = bool(susp2)
+                            existing = injuries_by_gsis_week.get((str(gsis), season, int(wk)))
+                            if existing is not None and existing[1] is True:
+                                # Confirmed suspension wins.
+                                susp = True
+                                inj = False
+                            else:
+                                # Player was rostered, scored 0, not on bye, did
+                                # not appear in nflverse stats — they were
+                                # missing for some reason. Default to injury.
+                                # Captures full-season IR cases the per-season
+                                # gap-fill couldn't see because the player was
+                                # dropped from the roster before season end.
+                                inj = True
+                                susp = False
 
                         # Fallback injury/suspension inference (Sleeper metadata is not historical but fixes obvious cases):
                         # If the player scored 0, was not on bye, and Sleeper marks them OUT/IR/SUSP, treat as missed.
@@ -3080,11 +3091,17 @@ def build_all(repo_root: Path) -> None:
 
         pw[award_cols] = pw[award_cols].fillna(0)
 
-        # Hardship engine per your definition
-        # points lost when: Points==0 AND (Injury or Suspension) AND not Bye,
-        # expected points = avg of last 5 HEALTHY games (points>0 and not Inj/Susp/Bye).
+        # Hardship engine.
+        # Points lost when Points==0 AND (Injury or Suspension) AND NOT Bye.
+        # Expected points = mean of the player's 5 active weeks BEFORE their
+        # most recent active week (i.e. exclude the most recent active week
+        # itself, since that game may have been cut short by a mid-game
+        # injury and would otherwise depress the baseline).
+        # An "active week" is points>0 AND not Injury/Susp/Bye.
         pw = pw.sort_values(["Player", "Year", "Week"]).reset_index(drop=True)
-        last5: Dict[str, deque] = defaultdict(lambda: deque(maxlen=5))
+        # Keep up to 6 most-recent active points; we will average the oldest
+        # 5 (everything except the most recent active week).
+        last6: Dict[str, deque] = defaultdict(lambda: deque(maxlen=6))
         exp_points: List[Optional[float]] = [None] * len(pw)
         points_lost: List[float] = [0.0] * len(pw)
         for i, row in pw.iterrows():
@@ -3093,8 +3110,13 @@ def build_all(repo_root: Path) -> None:
             inj = bool(row.get("Injury?") or False)
             susp = bool(row.get("Suspension?") or False)
             bye = bool(row.get("Bye?") or False)
-            hist = last5[player]
-            expected = (sum(hist) / len(hist)) if len(hist) > 0 else None
+            hist = last6[player]
+            # Baseline = up to 5 active weeks *before* the most recent active week.
+            if len(hist) >= 2:
+                baseline = list(hist)[:-1]
+                expected = sum(baseline) / len(baseline)
+            else:
+                expected = None
             exp_points[i] = expected
             missed = (pts == 0.0) and (inj or susp) and (not bye)
             points_lost[i] = float(expected) if (missed and expected is not None) else 0.0
