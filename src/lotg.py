@@ -542,7 +542,7 @@ def _column_kind(col: str) -> str:
         "assets sent",
         "assets received",
         "assets dropped",
-        "assets recieved",
+        "assets received",
         "team's traded with",
         "reason",
         "date",
@@ -571,7 +571,7 @@ def _column_kind(col: str) -> str:
         "player dropped",
         "assets received",
         "assets dropped",
-        "assets recieved",
+        "assets received",
         "team's traded with",
         "teams traded with",
     ]
@@ -2148,7 +2148,7 @@ def build_all(repo_root: Path) -> None:
                         "Most number of TE started from same NFL team": max_same_team_by_pos(starters, "TE"),
                         "Most number of TE rostered from same NFL team": max_same_team_by_pos(players, "TE"),
                         "Number of NFL teams among starting players": len(set(start_nfl_teams)) if start_nfl_teams else None,
-                        "Number of NFL teams amoung rostered players": len(set(roster_nfl_teams)) if roster_nfl_teams else None,
+                        "Number of NFL teams among rostered players": len(set(roster_nfl_teams)) if roster_nfl_teams else None,
                         "Number of rookies started": rook_s,
                         "Number of rookies rostered": rook_r,
                         "Player average age": avg_age,
@@ -2492,7 +2492,7 @@ def build_all(repo_root: Path) -> None:
                             trades_rows.append({
                                 "Team": tm,
                                 "Team's traded with": "; ".join(sorted(set([x for x in others if x]))),
-                                "Assets recieved": "; ".join(received) if received else None,
+                                "Assets received": "; ".join(received) if received else None,
                                 "Assets dropped": "; ".join(dropped) if dropped else None,
                                 "Date": created_dt.isoformat() if created_dt else (str(created_date) if created_date else None),
                                 # KTC/Oliver columns stay blank by design for now
@@ -2504,7 +2504,7 @@ def build_all(repo_root: Path) -> None:
                                 "Oliver value difference at end of season": None,
                                 "Oliver value difference 1 year later": None,
                                 "Oliver value difference 2 years later": None,
-                                "Pick value recieved": None,
+                                "Pick value received": None,
                                 "Change in pick value at draft time": None,
                                 "Assets retained now": None,
                                 "Assets traded away": None,
@@ -2914,6 +2914,136 @@ def build_all(repo_root: Path) -> None:
         week_name_global = tw.groupby(["Year","Week"])["Week Name"].apply(_mode_nonnull).reset_index()
     else:
         week_name_global = pd.DataFrame(columns=["Year","Week","Week Name"])
+
+    # --------------------------
+    # transactions_rows post-processing: fill polish columns now that the
+    # full history is available.
+    #
+    #  - Number of times picked up by this team: running per-(team, player)
+    #    pickup count, chronological.
+    #  - Date dropped/traded: for each pickup, the next date this team
+    #    dropped or traded away this player (None if still rostered).
+    #  - Weeks between pickup and start: count of player_week rows for
+    #    (Team, Player) that occur after the pickup date but before the
+    #    player's first start on that team. None if never started.
+    # --------------------------
+    try:
+        if transactions_rows:
+            # Sort by date so the running counters scan chronologically.
+            def _date_key(r):
+                d = r.get("Date") or ""
+                return str(d)
+            transactions_rows.sort(key=_date_key)
+
+            # 1) Number of times picked up by this team
+            pickup_count: Dict[Tuple[str, str], int] = defaultdict(int)
+            for r in transactions_rows:
+                name = r.get("Player Added")
+                team = r.get("Team")
+                if not name or not team:
+                    continue
+                key = (str(team), str(name))
+                pickup_count[key] += 1
+                r["Number of times picked up by this team"] = pickup_count[key]
+
+            # 2) Build per-(team, player) event log to find next drop/trade-out
+            event_log: Dict[Tuple[str, str], List[Tuple[str, str]]] = defaultdict(list)
+            for r in transactions_rows:
+                team = r.get("Team")
+                add = r.get("Player Added")
+                dropped = r.get("Player Dropped")
+                date = r.get("Date") or ""
+                if team and add:
+                    event_log[(str(team), str(add))].append((str(date), "add"))
+                if team and dropped:
+                    event_log[(str(team), str(dropped))].append((str(date), "drop"))
+            # Players traded away count as "left this team" too.
+            for tr_row in trades_rows:
+                team = tr_row.get("Team")
+                date = tr_row.get("Date") or ""
+                dropped_assets = str(tr_row.get("Assets dropped") or "")
+                if dropped_assets in ("0.0", "None", ""):
+                    continue
+                for asset in dropped_assets.split(";"):
+                    asset = asset.strip()
+                    if not asset or re.match(r"^\d{4}\b", asset):
+                        continue
+                    if team:
+                        event_log[(str(team), asset)].append((str(date), "trade_out"))
+            for k in event_log:
+                event_log[k].sort()
+
+            for r in transactions_rows:
+                team = r.get("Team")
+                add = r.get("Player Added")
+                add_date = r.get("Date") or ""
+                if not (team and add and add_date):
+                    continue
+                # Next departure event strictly after add_date.
+                next_evt = None
+                for ev_date, ev_type in event_log.get((str(team), str(add)), []):
+                    if ev_type == "add":
+                        continue
+                    if ev_date and ev_date > add_date:
+                        next_evt = ev_date
+                        break
+                if next_evt:
+                    r["Date dropped/traded"] = next_evt
+
+            # 3) Weeks between pickup and start. Needs pw which exists at this
+            # point in build_all. Map (Team, Player Name) -> sorted list of
+            # (Year, Week, Starter?) rows. For each pickup, count player_week
+            # rows that fall between pickup date and first start on that team.
+            if not pw.empty and {"Team", "Player", "Year", "Week", "Starter/Bench"}.issubset(set(pw.columns)):
+                # Approximate fantasy-week date: NFL week 1 starts ~Sept 7,
+                # subsequent weeks each Thursday after. Good enough for an
+                # "is this player_week row after the pickup date" gate.
+                def _approx_week_date(year: int, week: int) -> str:
+                    try:
+                        d = date(int(year), 9, 7) + timedelta(days=7 * (int(week) - 1))
+                        return d.isoformat()
+                    except Exception:
+                        return ""
+
+                pw_min = pw[["Team", "Player", "Year", "Week", "Starter/Bench"]].copy()
+                pw_min = pw_min.sort_values(["Team", "Player", "Year", "Week"]).reset_index(drop=True)
+                # Bucket by (team, player) for fast lookup
+                pw_by_tp: Dict[Tuple[str, str], List[Tuple[int, int, bool, str]]] = defaultdict(list)
+                for _, prow in pw_min.iterrows():
+                    try:
+                        yr = int(prow["Year"]); wk = int(prow["Week"])
+                    except Exception:
+                        continue
+                    started = str(prow["Starter/Bench"]) == "Starter"
+                    pw_by_tp[(str(prow["Team"]), str(prow["Player"]))].append(
+                        (yr, wk, started, _approx_week_date(yr, wk))
+                    )
+
+                for r in transactions_rows:
+                    team = r.get("Team")
+                    add = r.get("Player Added")
+                    add_date = r.get("Date") or ""
+                    if not (team and add and add_date):
+                        continue
+                    rows = pw_by_tp.get((str(team), str(add)))
+                    if not rows:
+                        continue
+                    # Walk rows in (year, week) order; count weeks before the first start
+                    # that fall on/after the pickup date.
+                    weeks_before_start = 0
+                    found_start = False
+                    for yr, wk, started, wk_date in rows:
+                        if wk_date and wk_date < add_date:
+                            # Predates the pickup — ignore.
+                            continue
+                        if started:
+                            found_start = True
+                            break
+                        weeks_before_start += 1
+                    if found_start:
+                        r["Weeks between pickup and start"] = weeks_before_start
+    except Exception as e:
+        _log_exc(debug, "transactions_polish", e)
 
     tx = pd.DataFrame(transactions_rows)
     tr = pd.DataFrame(trades_rows)
@@ -3885,10 +4015,10 @@ def build_all(repo_root: Path) -> None:
 
         # Per-player trade counts from trades_rows. Each trade in trades.csv
         # has one row per team involved; the players sent to that team are
-        # listed in that row's 'Assets recieved' (sic — column name is
+        # listed in that row's 'Assets received' (sic — column name is
         # misspelled in the schema and we preserve it). To avoid double
-        # counting we only read the 'recieved' side: every traded player
-        # appears in exactly one team's recieved cell per trade.
+        # counting we only read the 'received' side: every traded player
+        # appears in exactly one team's received cell per trade.
         player_trade_year: Dict[Tuple[str, int], int] = defaultdict(int)
         player_trade_all: Dict[str, int] = defaultdict(int)
         try:
@@ -3900,7 +4030,7 @@ def build_all(repo_root: Path) -> None:
                     yr = int(str(date_s)[:4])
                 except Exception:
                     continue
-                recv = tr_row.get("Assets recieved")
+                recv = tr_row.get("Assets received")
                 if not recv or str(recv) == "0.0":
                     continue
                 for asset in str(recv).split(";"):
@@ -4617,7 +4747,7 @@ def build_all(repo_root: Path) -> None:
                     "Most number of TE started from same NFL team": ("Most number of TE started from same NFL team", "max"),
                     "Most number of TE rostered from same NFL team": ("Most number of TE rostered from same NFL team", "max"),
                     "Number of NFL teams among starting players": ("Number of NFL teams among starting players", "max"),
-                    "Number of NFL teams amoung rostered players": ("Number of NFL teams amoung rostered players", "max"),
+                    "Number of NFL teams among rostered players": ("Number of NFL teams among rostered players", "max"),
                     "Number of rookies started": ("Number of rookies started", "sum"),
                     "Number of rookies rostered": ("Number of rookies rostered", "sum"),
                     "Player average age": ("Player average age", "mean"),
@@ -4848,7 +4978,7 @@ def build_all(repo_root: Path) -> None:
                     "Most number of TE started from same NFL team": ("Most number of TE started from same NFL team", "max"),
                     "Most number of TE rostered from same NFL team": ("Most number of TE rostered from same NFL team", "max"),
                     "Number of NFL teams among starting players": ("Number of NFL teams among starting players", "max"),
-                    "Number of NFL teams amoung rostered players": ("Number of NFL teams amoung rostered players", "max"),
+                    "Number of NFL teams among rostered players": ("Number of NFL teams among rostered players", "max"),
                     "Number of rookies started": ("Number of rookies started", "sum"),
                     "Number of rookies rostered": ("Number of rookies rostered", "sum"),
                     "Player average age": ("Player average age", "mean"),
@@ -5212,7 +5342,7 @@ def build_all(repo_root: Path) -> None:
                     "Most number of TE started from same NFL team": ("Most number of TE started from same NFL team", "max"),
                     "Most number of TE rostered from same NFL team": ("Most number of TE rostered from same NFL team", "max"),
                     "Number of NFL teams among starting players": ("Number of NFL teams among starting players", "max"),
-                    "Number of NFL teams amoung rostered players": ("Number of NFL teams amoung rostered players", "max"),
+                    "Number of NFL teams among rostered players": ("Number of NFL teams among rostered players", "max"),
                     "Number of rookies started": ("Number of rookies started", "sum"),
                     "Number of rookies rostered": ("Number of rookies rostered", "sum"),
                     "Player average age": ("Player average age", "mean"),
@@ -5291,7 +5421,7 @@ def build_all(repo_root: Path) -> None:
                     "Most number of TE started from same NFL team": ("Most number of TE started from same NFL team", "max"),
                     "Most number of TE rostered from same NFL team": ("Most number of TE rostered from same NFL team", "max"),
                     "Number of NFL teams among starting players": ("Number of NFL teams among starting players", "max"),
-                    "Number of NFL teams amoung rostered players": ("Number of NFL teams amoung rostered players", "max"),
+                    "Number of NFL teams among rostered players": ("Number of NFL teams among rostered players", "max"),
                     "Number of rookies started": ("Number of rookies started", "sum"),
                     "Number of rookies rostered": ("Number of rookies rostered", "sum"),
                     "Player average age": ("Player average age", "mean"),
@@ -5392,7 +5522,7 @@ def build_all(repo_root: Path) -> None:
             league_all["Most number of TE started from same NFL team"] = float(pd.to_numeric(g_week.get("Most number of TE started from same NFL team"), errors="coerce").max())
             league_all["Most number of TE rostered from same NFL team"] = float(pd.to_numeric(g_week.get("Most number of TE rostered from same NFL team"), errors="coerce").max())
             league_all["Number of NFL teams among starting players"] = float(pd.to_numeric(g_week.get("Number of NFL teams among starting players"), errors="coerce").max())
-            league_all["Number of NFL teams amoung rostered players"] = float(pd.to_numeric(g_week.get("Number of NFL teams amoung rostered players"), errors="coerce").max())
+            league_all["Number of NFL teams among rostered players"] = float(pd.to_numeric(g_week.get("Number of NFL teams among rostered players"), errors="coerce").max())
             league_all["Number of rookies started"] = float(pd.to_numeric(g_week.get("Number of rookies started"), errors="coerce").sum())
             league_all["Number of rookies rostered"] = float(pd.to_numeric(g_week.get("Number of rookies rostered"), errors="coerce").sum())
             league_all["Player average age"] = float(pd.to_numeric(g_week.get("Player average age"), errors="coerce").mean())
