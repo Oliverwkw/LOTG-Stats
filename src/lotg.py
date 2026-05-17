@@ -4855,6 +4855,63 @@ def build_all(repo_root: Path) -> None:
         except Exception as e:
             _log_exc(debug, "team_all_from_team_year", e)
 
+        # Top-up rollup: trades / transactions / FAAB from preseason seasons
+        # that didn't produce a team_year row (e.g. 2026 before NFL Week 1).
+        # We read trades_rows / transactions_rows directly and add only the
+        # delta — counts already attributed to a team_year stay attributed.
+        try:
+            ty_years = set(team_year["Year"].astype(int).unique().tolist()) if not team_year.empty else set()
+            # Trades not represented in team_year
+            extra_trades_by_team: Dict[str, int] = defaultdict(int)
+            for tr_row in trades_rows:
+                try:
+                    dt = tr_row.get("Date")
+                    if not dt:
+                        continue
+                    yr = int(str(dt)[:4])
+                    if yr in ty_years:
+                        continue
+                    tm = tr_row.get("Team")
+                    if tm:
+                        extra_trades_by_team[str(tm)] += 1
+                except Exception:
+                    continue
+            extra_tx_by_team: Dict[str, int] = defaultdict(int)
+            extra_faab_by_team: Dict[str, float] = defaultdict(float)
+            for tx_row in transactions_rows:
+                try:
+                    dt = tx_row.get("Date")
+                    if not dt:
+                        continue
+                    yr = int(str(dt)[:4])
+                    if yr in ty_years:
+                        continue
+                    tm = tx_row.get("Team")
+                    if tm:
+                        extra_tx_by_team[str(tm)] += 1
+                        try:
+                            faab = float(tx_row.get("Faab") or 0.0)
+                        except Exception:
+                            faab = 0.0
+                        extra_faab_by_team[str(tm)] += faab
+                except Exception:
+                    continue
+
+            if extra_trades_by_team or extra_tx_by_team or extra_faab_by_team:
+                for idx, row in team_all.iterrows():
+                    tm = str(row.get("Team") or "")
+                    if tm in extra_trades_by_team:
+                        cur = pd.to_numeric(team_all.at[idx, "Number of trades"], errors="coerce")
+                        team_all.at[idx, "Number of trades"] = int((0 if pd.isna(cur) else cur) + extra_trades_by_team[tm])
+                    if tm in extra_tx_by_team:
+                        cur = pd.to_numeric(team_all.at[idx, "Number of transactions"], errors="coerce")
+                        team_all.at[idx, "Number of transactions"] = int((0 if pd.isna(cur) else cur) + extra_tx_by_team[tm])
+                    if tm in extra_faab_by_team:
+                        cur = pd.to_numeric(team_all.at[idx, "Amount of FAAB spent"], errors="coerce")
+                        team_all.at[idx, "Amount of FAAB spent"] = round(float((0 if pd.isna(cur) else cur) + extra_faab_by_team[tm]), 2)
+        except Exception as e:
+            _log_exc(debug, "team_all_preseason_topup", e)
+
         # Unique-player positional counts for team-year and team-all-time (by Player ID)
         try:
             required_cols = {"Team", "Year", "Player ID", "Position", "Starter/Bench"}
