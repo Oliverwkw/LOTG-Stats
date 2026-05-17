@@ -2427,7 +2427,34 @@ def build_all(repo_root: Path) -> None:
                     created_date = _epoch_ms_to_date(t.get("created"))
                     created_dt = _epoch_ms_to_dt(t.get("created"))
                     creator = str(t.get("creator") or "")
-                    team = user_handle.get(creator) if creator else None
+                    # Resolve via the canonical roster_to_team mapping so the
+                    # 'Team' column in the output stays consistent across
+                    # seasons even if the manager renames themselves on
+                    # Sleeper (e.g. shmuel256 / Shmuel256). roster_ids in the
+                    # transaction usually has exactly one entry for non-trade
+                    # actions; fall back to user_handle when there's no
+                    # resolvable roster_id (rare).
+                    team = None
+                    try:
+                        tx_roster_ids = [_to_int(r, None) for r in (t.get("roster_ids") or [])]
+                        for rid_ in tx_roster_ids:
+                            if rid_ is None:
+                                continue
+                            nm = roster_to_team.get(int(rid_))
+                            if nm:
+                                team = nm
+                                break
+                    except Exception:
+                        team = None
+                    if not team and creator:
+                        # creator -> owner_id -> roster_id -> canonical team
+                        for rid_, owner_ in roster_owner.items():
+                            if owner_ == creator:
+                                team = roster_to_team.get(rid_)
+                                if team:
+                                    break
+                    if not team and creator:
+                        team = user_handle.get(creator)
 
                     # Trades ledger (one row per involved team)
                     if ttype == "trade":
