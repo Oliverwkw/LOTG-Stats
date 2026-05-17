@@ -634,6 +634,22 @@ def _default_fill_for_column(col: str) -> Any:
     return 0.0
 
 
+def _preserve_na(col: str) -> bool:
+    """Numeric columns where a missing value carries meaning (no prior data)
+    and should render as 'N/A' instead of being filled with 0.0. Most of
+    these describe a *change* relative to a prior period — for the first
+    week/season the comparison literally doesn't exist."""
+    col_l = str(col or "").strip().lower()
+    if col_l.startswith("change from ") or col_l.startswith("change in "):
+        return True
+    if col_l in {
+        "win variance",
+        "weeks between pickup and start",
+    }:
+        return True
+    return False
+
+
 def _fill_missing_values(df: pd.DataFrame, cols: List[str]) -> pd.DataFrame:
     truthy = {"true", "t", "1", "yes", "y"}
     falsy = {"false", "f", "0", "no", "n", ""}
@@ -668,7 +684,12 @@ def _fill_missing_values(df: pd.DataFrame, cols: List[str]) -> pd.DataFrame:
             continue
 
         # numeric path
-        df[col] = pd.to_numeric(df[col], errors="coerce").fillna(default)
+        if _preserve_na(col):
+            # First-occurrence values stay as NaN and render as 'N/A' in CSV.
+            num = pd.to_numeric(df[col], errors="coerce")
+            df[col] = num.astype(object).where(num.notna(), "N/A")
+        else:
+            df[col] = pd.to_numeric(df[col], errors="coerce").fillna(default)
 
     return df
 
@@ -1059,7 +1080,13 @@ def build_all(repo_root: Path) -> None:
                             coerced = pd.to_numeric(out[c], errors="coerce")
                             # Only overwrite when we actually got numeric data.
                             if coerced.notna().any():
-                                out[c] = coerced.round(4)
+                                rounded = coerced.round(4)
+                                if _preserve_na(c):
+                                    # Keep 'N/A' as a string for first-occurrence
+                                    # rows (no prior data to compare against).
+                                    out[c] = rounded.astype(object).where(rounded.notna(), "N/A")
+                                else:
+                                    out[c] = rounded
                         except Exception:
                             continue
             except Exception as e:
