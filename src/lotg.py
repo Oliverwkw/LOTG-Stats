@@ -4006,20 +4006,32 @@ def build_all(repo_root: Path) -> None:
         py["Change in points from previous season"] = py.groupby("Player ID")["Points"].diff()
         py["Change in avg points from previous season"] = py.groupby("Player ID")["Avg_points"].diff()
 
-        py["Career_points_before"] = py.groupby("Player ID")["Points"].cumsum().shift(1)
+        # Use transform() so the shift respects group boundaries. The
+        # previous version was groupby(...).cumsum().shift(1) which shifts the
+        # resulting global Series — first row of each player would inherit
+        # the prior player's career totals, so a rookie's 'Change from career'
+        # could come out positive against some unrelated veteran's stats.
+        py["Career_points_before"] = py.groupby("Player ID")["Points"].transform(
+            lambda s: s.cumsum().shift(1)
+        )
         py["Career_years_before"] = py.groupby("Player ID").cumcount()
         py["Change in points from career"] = py.apply(
             lambda r: (r["Points"] - (r["Career_points_before"] / r["Career_years_before"]))
-            if r["Career_years_before"] and r["Career_points_before"] is not None
+            if r["Career_years_before"] and pd.notna(r["Career_points_before"])
             else None,
             axis=1,
         )
 
-        py["Career_points_before_total"] = py.groupby("Player ID")["Points"].cumsum().shift(1)
-        py["Career_weeks_before_total"] = py.groupby("Player ID")["Weeks"].cumsum().shift(1)
+        py["Career_points_before_total"] = py.groupby("Player ID")["Points"].transform(
+            lambda s: s.cumsum().shift(1)
+        )
+        py["Career_weeks_before_total"] = py.groupby("Player ID")["Weeks"].transform(
+            lambda s: s.cumsum().shift(1)
+        )
         py["Change in avg points from career"] = py.apply(
             lambda r: (r["Avg_points"] - (r["Career_points_before_total"] / r["Career_weeks_before_total"]))
-            if r["Career_weeks_before_total"] and r["Career_points_before_total"] is not None
+            if pd.notna(r["Career_weeks_before_total"]) and r["Career_weeks_before_total"]
+            and pd.notna(r["Career_points_before_total"])
             else None,
             axis=1,
         )
