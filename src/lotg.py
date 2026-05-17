@@ -3086,14 +3086,19 @@ def build_all(repo_root: Path) -> None:
                     rows = pw_by_tp.get((str(team), str(add)))
                     if not rows:
                         continue
-                    # Walk rows in (year, week) order; count weeks before the first start
-                    # that fall on/after the pickup date.
+                    # Counting restarts on each pickup. If the player was
+                    # dropped/traded away after this pickup, the bench window
+                    # ends at that drop. So bound the search at the NEXT
+                    # departure for the same (team, player) after add_date.
+                    drop_after = r.get("Date dropped/traded") or ""
                     weeks_before_start = 0
                     found_start = False
                     for yr, wk, started, wk_date in rows:
                         if wk_date and wk_date < add_date:
-                            # Predates the pickup — ignore.
                             continue
+                        # Stop counting once the player was let go again.
+                        if drop_after and wk_date and wk_date >= drop_after:
+                            break
                         if started:
                             found_start = True
                             break
