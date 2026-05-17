@@ -1682,9 +1682,15 @@ def build_all(repo_root: Path) -> None:
             last_week = 0
             _log_exc(debug, f"last_completed_week_{season}", e)
 
-        if last_week <= 0:
-            _log(debug, f"[{_now_iso()}] INFO season {season}: no completed weeks, skipping")
-            continue
+        # Preseason / in-progress league with no completed games: still scan a
+        # few weeks so offseason transactions (rookie-draft pick swaps, trades,
+        # free-agent adds) flow into trades.csv / transactions.csv. The
+        # team_week / player_week construction inside the loop will produce
+        # empty rows for unplayed weeks; those self-filter at output time.
+        preseason_only = last_week <= 0
+        if preseason_only:
+            _log(debug, f"[{_now_iso()}] INFO season {season}: preseason — scanning offseason transactions only")
+            last_week = 1
 
         # Exclude week 18 always; if season < 2021 exclude week 17 (kept for future ESPN import)
         def week_allowed(wk: int) -> bool:
@@ -2075,6 +2081,14 @@ def build_all(repo_root: Path) -> None:
                     label = stage_label_map.get((season, wk, rid))
                     week_name = label if label else f"Week {wk}"
 
+                    # Skip team_week / player_week rows for preseason weeks
+                    # where no games have been played. Transactions / trades
+                    # for the same week were already harvested earlier in this
+                    # iteration, so 2026 offseason trades still reach
+                    # trades.csv without polluting the score tables with
+                    # phantom 0-PF rows.
+                    if preseason_only:
+                        continue
                     team_week_rows.append({
                         "Team": team,
                         "Opponent Team (raw)": opp_team,
@@ -2322,6 +2336,8 @@ def build_all(repo_root: Path) -> None:
                         elif (not started) and worst_starter_pid:
                             ref_player = pid_meta.get(worst_starter_pid, {}).get("full_name") or worst_starter_pid
 
+                        if preseason_only:
+                            continue
                         player_week_rows.append({
                             "Player ID": str(pid) if pid is not None else None,
                             "Player": full_name,
