@@ -3,6 +3,6 @@ league_id: "1312101511651655680"
 
 # Seasons are auto-discovered by walking previous_league_id, but you can hard-limit if you want:
 min_season: 2019
-max_season: 2025
+max_season: 2026
 
 season_type: "regular"   # regular | postseason | both
