@@ -548,6 +548,8 @@ def _column_kind(col: str) -> str:
         "date",
         "date dropped/traded",
         "record",
+        "all time record",
+        "(smallest) playoff tiebreaker",
         "round",
         "number",
         "result",
@@ -3454,8 +3456,14 @@ def build_all(repo_root: Path) -> None:
                         "Number of cuffs started": (cuff_col, lambda s: float(s[pw_c.loc[s.index,"Starter/Bench"]=="Starter"].sum()) if len(s) else 0.0),
                     }
                 )
-                tw = tw.merge(agg_c, how="left", on=["Team","Year","Week"], suffixes=("","_c"))
-                # fill if missing
+                # Drop any pre-existing cuff cols before merge so the aggregated
+                # values land in the natural column names (not '_c' suffixes).
+                # The original merge used suffixes=("","_c") which kept the all-zero
+                # placeholder column and put the real data under "Number of cuffs
+                # rostered_c" — meaning team_week / team_year / league rollups all
+                # read zeros despite the per-player flag being correct.
+                tw = tw.drop(columns=["Number of cuffs rostered", "Number of cuffs started"], errors="ignore")
+                tw = tw.merge(agg_c, how="left", on=["Team","Year","Week"])
                 tw["Number of cuffs rostered"] = pd.to_numeric(tw.get("Number of cuffs rostered"), errors="coerce").fillna(0.0).round(0).astype(int)
                 tw["Number of cuffs started"] = pd.to_numeric(tw.get("Number of cuffs started"), errors="coerce").fillna(0.0).round(0).astype(int)
 
@@ -3886,9 +3894,30 @@ def build_all(repo_root: Path) -> None:
             Weeks_missed_injury=("Missed_injury", "sum"),
             Weeks_missed_suspension=("Missed_suspension", "sum"),
             Weeks_as_starter=("Starter?", "sum"),
+            Weeks_as_bench=("_bench_weeks", "sum"),
             Number_of_teams=("Team", "nunique"),
+            Starter_points_sum=("_starter_points", "sum"),
+            Bench_points_sum=("_bench_points", "sum"),
             **{c: (c, "sum") for c in award_cols},
         )
+        # Same formula as player_year: derive PPG starter / bench / diff
+        # from the per-week sums, drop the helper columns at the end.
+        pa["PPG starter"] = pa.apply(
+            lambda r: round(r["Starter_points_sum"] / r["Weeks_as_starter"], 4)
+            if r["Weeks_as_starter"] else None,
+            axis=1,
+        )
+        pa["PPG bench"] = pa.apply(
+            lambda r: round(r["Bench_points_sum"] / r["Weeks_as_bench"], 4)
+            if r["Weeks_as_bench"] else None,
+            axis=1,
+        )
+        pa["PPG starter vs bench diff"] = pa.apply(
+            lambda r: round((r["PPG starter"] or 0) - (r["PPG bench"] or 0), 4)
+            if r["PPG starter"] is not None and r["PPG bench"] is not None else None,
+            axis=1,
+        )
+        pa = pa.drop(columns=["Starter_points_sum", "Bench_points_sum", "Weeks_as_bench"], errors="ignore")
 
         top_team_all = (
             pw_work.groupby(["Player ID", "Team"], as_index=False)["Points"].sum()
@@ -4320,6 +4349,10 @@ def build_all(repo_root: Path) -> None:
                 "Number of transactions": int(pd.to_numeric(g.get("Number of transactions"), errors="coerce").fillna(0.0).sum()),
                 "Number of trades": int(pd.to_numeric(g.get("Number of trades"), errors="coerce").fillna(0.0).sum()),
                 "Amount of FAAB spent": round(float(pd.to_numeric(g.get("Amount of FAAB spent"), errors="coerce").fillna(0.0).sum()), 2),
+                # Highest combined matchup score (own PF + opponent PF) the
+                # team participated in during the season. team_week already
+                # computes Combined matchup score per game.
+                "Combined matchup score": float(pd.to_numeric(g.get("Combined matchup score"), errors="coerce").fillna(0.0).max()),
             }
             rows.append(row)
         team_year = pd.DataFrame(rows)
@@ -4777,6 +4810,34 @@ def build_all(repo_root: Path) -> None:
             team_all = team_all.merge(agg_all, how="left", on="Team")
         except Exception as e:
             _log_exc(debug, "team_all_aggregate_fill", e)
+
+        # Roll up team_year-only fields into team_all_time. These were all
+        # hardcoded to 0 (Draft Value, picks made, transactions, trades,
+        # FAAB, turnover, future cap) because the previous agg_all merge
+        # only pulled from team_week which doesn't have them.
+        try:
+            if not team_year.empty:
+                ty_for_all = team_year.groupby("Team", as_index=False).agg(
+                    **{
+                        "Draft Value": ("Draft Value", "sum"),
+                        "Number of first round picks made": ("Number of first round picks made", "sum"),
+                        "Total number of picks made": ("Total number of picks made", "sum"),
+                        "Number of transactions": ("Number of transactions", "sum"),
+                        "Number of trades": ("Number of trades", "sum"),
+                        "Amount of FAAB spent": ("Amount of FAAB spent", "sum"),
+                        "Offseason starter turnover": ("Offseason starter turnover", "sum"),
+                        "Inseason starter turnover": ("Inseason starter turnover", "sum"),
+                        "Offseason roster turnover": ("Offseason roster turnover", "sum"),
+                        "Inseason roster turnover": ("Inseason roster turnover", "sum"),
+                        "Future draft capital": ("Future draft capital", "sum"),
+                    }
+                )
+                team_all = team_all.drop(
+                    columns=[c for c in ty_for_all.columns if c != "Team" and c in team_all.columns],
+                    errors="ignore",
+                ).merge(ty_for_all, on="Team", how="left")
+        except Exception as e:
+            _log_exc(debug, "team_all_from_team_year", e)
 
         # Unique-player positional counts for team-year and team-all-time (by Player ID)
         try:
