@@ -3882,7 +3882,45 @@ def build_all(repo_root: Path) -> None:
             int(player_drop_year.get((str(player_id), int(year) if pd.notna(year) else None), 0))
             for player_id, year in py[["Player ID", "Year"]].itertuples(index=False, name=None)
         ]
-        py["Number of trades"] = 0
+
+        # Per-player trade counts from trades_rows. Each trade in trades.csv
+        # has one row per team involved; the players sent to that team are
+        # listed in that row's 'Assets recieved' (sic — column name is
+        # misspelled in the schema and we preserve it). To avoid double
+        # counting we only read the 'recieved' side: every traded player
+        # appears in exactly one team's recieved cell per trade.
+        player_trade_year: Dict[Tuple[str, int], int] = defaultdict(int)
+        player_trade_all: Dict[str, int] = defaultdict(int)
+        try:
+            for tr_row in trades_rows:
+                date_s = tr_row.get("Date")
+                if not date_s:
+                    continue
+                try:
+                    yr = int(str(date_s)[:4])
+                except Exception:
+                    continue
+                recv = tr_row.get("Assets recieved")
+                if not recv or str(recv) == "0.0":
+                    continue
+                for asset in str(recv).split(";"):
+                    asset = asset.strip()
+                    if not asset:
+                        continue
+                    # Skip pick labels (start with a 4-digit year, e.g.
+                    # '2025 1.??' or '2026 R2'). Player names never start
+                    # with a 4-digit number.
+                    if re.match(r"^\d{4}\b", asset):
+                        continue
+                    player_trade_year[(asset, yr)] += 1
+                    player_trade_all[asset] += 1
+        except Exception as e:
+            _log_exc(debug, "player_trade_count", e)
+
+        py["Number of trades"] = [
+            int(player_trade_year.get((str(player_name), int(year) if pd.notna(year) else 0), 0))
+            for player_name, year in py[["Player", "Year"]].itertuples(index=False, name=None)
+        ]
 
         py = py.rename(
             columns={
@@ -3987,7 +4025,10 @@ def build_all(repo_root: Path) -> None:
             int(player_drop_all.get(str(player_id), 0))
             for player_id in pa["Player ID"].tolist()
         ]
-        pa["Number of trades"] = 0
+        # Career trade count, keyed by Player name (matches trades.csv assets).
+        pa["Number of trades"] = [
+            int(player_trade_all.get(str(name), 0)) for name in pa["Player"].tolist()
+        ]
 
         player_all = pa
 
