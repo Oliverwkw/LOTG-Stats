@@ -1,7 +1,7 @@
 Player-Week,Player-year,Player-all-time,team-week,team-year,team-all-time,league-week,league-year,league-all-time,transactions,trades,Pick History
 Player,Player,Player,Team,Team,Team,Week,Year,PF,Team,Team,Year
 Team,Year,Top team,Week,Year,All time win %,Year,(smallest) Playoff tiebreaker,Avg PF,Player Added,Team's traded with,Original Team
-Week,Top Team,Last team,Week Name,Result,All time record,PF,PF,PF Range,Player Dropped,Assets recieved,Number
+Week,Top Team,Last team,Week Name,Result,All time record,PF,PF,PF Range,Player Dropped,Assets received,Number
 ,,,,,Championships,,,,,,
 Week Name,Last team,Number of teams,Year,Win %,Win Variance,PF Range,Avg PF,Avg margin,type of transaction (waiver/free agency),Assets dropped,Player Picked
 Year,Number of teams,Number of transactions,PF,Record,Draft Value,Avg margin,PF Range,Margin range,Faab,Date,Trade 1
@@ -16,7 +16,7 @@ Starter/Bench,Weeks missed due to injury,Weeks missed due to suspension,Max PF,N
 Position started in (if starter),Weeks as starter,% of points (highest team),Number of Injuries,Points,Differential,Number of suspensions,Efficiency,Number of weeks missed due to suspensions,Age difference,Oliver value difference 1 year later,Trade 8
 Position,,,,,,,,,,,
 Change from previous week,% of points (highest team),% of points (lowest team),Number of suspensions,Avg points,Avg differential,Number of players on bye,Number of weeks missed due to injury,Number of wins with pregame avg max PF from opponent,Player addition value,Oliver value difference 2 years later,Trade 9
-Change from previous 5 weeks avg,% of points (lowest team),Times as Player of the week?,Number of players on bye,Points against,Max PF,Starter turnover from previous week,Number of weeks missed due to suspensions,Tanking,Cuff at time of pickup?,Pick value recieved,Trade 10
+Change from previous 5 weeks avg,% of points (lowest team),Times as Player of the week?,Number of players on bye,Points against,Max PF,Starter turnover from previous week,Number of weeks missed due to suspensions,Tanking,Cuff at time of pickup?,Pick value received,Trade 10
 Change from career average to that point,Change in points from previous season,Times as QB of the week?,Largest deficit overcome (if win),Avg points against,Avg max PF,Number of wins with pregame avg max PF from opponent,Inseason starter turnover,Luck,Weeks between pickup and start,Change in pick value at draft time,etc
 Change from overall career average,Change in avg points from previous season,Times as RB of the week?,Starter turnover from previous week,Differential,Efficiency,UPST,Offseason starter turnover,Increase in points from previous week,Number of starts before next drop,Assets retained now,
 Number of weeks on team,Change in points from career,Times as WR of the week?,Roster turnover from previous week,Avg differential,Weeks of injuries,Hardship,Inseason roster turnover,Number of QB started,% of starts made while rostered,Assets dropped,
@@ -41,15 +41,15 @@ Bench RB of the week?,,,Number of TE started,Times Largest blowout?,Number of WR
 Bench WR of the week?,,,Number of QB rostered,Times Most efficient?,Number of RB started,Most number of RBs started from same NFL team,Most number of QBs started from same NFL team,Most number of TE started from same NFL team,,,
 Bench TE of the week?,,,Number of WR rostered,Times Least efficient?,Number of TE started,Most number of RBs rostered from same NFL team,Most number of QBs rostered from same NFL team,Most number of TE rostered from same NFL team,,,
 Highest starter on team?,,,Number of RB rostered,Number of QB started,Number of QB rostered,Most number of WR started from same NFL team,Most number of RBs started from same NFL team,Number of NFL teams among starting players,,,
-Lowest starter on team?,,,Number of TE rostered,Number of WR started,Number of WR rostered,Most number of WR rostered from same NFL team,Most number of RBs rostered from same NFL team,Number of NFL teams amoung rostered players,,,
+Lowest starter on team?,,,Number of TE rostered,Number of WR started,Number of WR rostered,Most number of WR rostered from same NFL team,Most number of RBs rostered from same NFL team,Number of NFL teams among rostered players,,,
 Rookie?,,,Number of transactions,Number of RB started,Number of RB rostered,Most number of TE started from same NFL team,Most number of WR started from same NFL team,Number of rookies started,,,
 Age,,,Number of trades,Number of TE started,Number of TE rostered,Most number of TE rostered from same NFL team,Most number of WR rostered from same NFL team,Number of rookies rostered,,,
 NFL team,,,Amount of FAAB spent,Number of QB rostered,Number of transactions,Number of NFL teams among starting players,Most number of TE started from same NFL team,Player average age,,,
 Number of transactions,,,,,,,,,,,
 Number of drops,,,,,,,,,,,
-,,,Most number of players started from same NFL team,Number of WR rostered,Number of trades,Number of NFL teams amoung rostered players,Most number of TE rostered from same NFL team,Difference between highest and lowest starters,,,
+,,,Most number of players started from same NFL team,Number of WR rostered,Number of trades,Number of NFL teams among rostered players,Most number of TE rostered from same NFL team,Difference between highest and lowest starters,,,
 ,,,Most number of players rostered from same NFL team,Number of RB rostered,Amount of FAAB spent,Number of rookies started,Number of NFL teams among starting players,Number of donuts,,,
-,,,Most number of QBs started from same NFL team,Number of TE rostered,Most number of players started from same NFL team,Number of rookies rostered,Number of NFL teams amoung rostered players,Number of players under 10,,,
+,,,Most number of QBs started from same NFL team,Number of TE rostered,Most number of players started from same NFL team,Number of rookies rostered,Number of NFL teams among rostered players,Number of players under 10,,,
 ,,,Most number of QBs rostered from same NFL team,Number of transactions,Most number of players rostered from same NFL team,Player average age,Number of rookies started,Number of players over 20,,,
 ,,,Most number of RBs started from same NFL team,Number of trades,Most number of QBs started from same NFL team,Difference between highest and lowest starters,Number of rookies rostered,Number of players over 30,,,
 ,,,Most number of RBs rostered from same NFL team,Amount of FAAB spent,Most number of QBs rostered from same NFL team,Number of donuts,Player average age,Number of players over 40,,,
@@ -58,13 +58,13 @@ Number of drops,,,,,,,,,,,
 ,,,Most number of TE started from same NFL team,Most number of QBs started from same NFL team,Most number of WR started from same NFL team,Number of players over 30,Number of players under 10,Number of cuffs started,,,
 ,,,Most number of TE rostered from same NFL team,Most number of QBs rostered from same NFL team,Most number of WR rostered from same NFL team,Number of players over 40,Number of players over 20,Startup draft players remaining,,,
 ,,,Number of NFL teams among starting players,Most number of RBs started from same NFL team,Most number of TE started from same NFL team,Number of players over 50,Number of players over 30,,,,
-,,,Number of NFL teams amoung rostered players,Most number of RBs rostered from same NFL team,Most number of TE rostered from same NFL team,Number of cuffs rostered,Number of players over 40,,,,
+,,,Number of NFL teams among rostered players,Most number of RBs rostered from same NFL team,Most number of TE rostered from same NFL team,Number of cuffs rostered,Number of players over 40,,,,
 ,,,Number of rookies started,Most number of WR started from same NFL team,Number of NFL teams among starting players,Number of cuffs started,Number of players over 50,,,,
-,,,Number of rookies rostered,Most number of WR rostered from same NFL team,Number of NFL teams amoung rostered players,Startup draft players remaining,Number of cuffs rostered,,,,
+,,,Number of rookies rostered,Most number of WR rostered from same NFL team,Number of NFL teams among rostered players,Startup draft players remaining,Number of cuffs rostered,,,,
 ,,,Player average age,Most number of TE started from same NFL team,Number of rookies started,Week Name,Number of cuffs started,,,,
 ,,,Win streak,Most number of TE rostered from same NFL team,Number of rookies rostered,,Startup draft players remaining,,,,
 ,,,Loss streak,Number of NFL teams among starting players,Player average age,,,,,,
-,,,Win streak counting previous season,Number of NFL teams amoung rostered players,Times Top half of league?,,,,,,
+,,,Win streak counting previous season,Number of NFL teams among rostered players,Times Top half of league?,,,,,,
 ,,,Loss streak counting previous season,Number of rookies started,Difference between highest and lowest starters,,,,,,
 ,,,Top half of league?,Number of rookies rostered,Combined matchup score,,,,,,
 ,,,Difference between highest and lowest starters,Player average age,Number of donuts,,,,,,
