@@ -2909,33 +2909,76 @@ def build_all(repo_root: Path) -> None:
             pass
 
     # --------------------------
-    # Reconstruct draft pick trade history from transaction ledger.
+    # Reconstruct draft pick trade history from Sleeper's traded_picks API.
     #
-    # pick_trade_events is keyed by (season, round, original_owner_rid) and
-    # holds a chronologically ordered list of trade events: each event is
-    # (datetime, prev_owner_rid, new_owner_rid, week). pick_current_owner gives
-    # the ultimate final owner for each pick. Sleeper draft_pick rows store the
-    # FINAL owner in their `roster_id` field, so we resolve the chain by
-    # finding the (season, round, original_owner) key whose current_owner
-    # matches the row's roster_id.
+    # The previous implementation relied on pick_trade_events / pick_holdings
+    # state built during per-season trade processing. That state assumed each
+    # team starts with its own pick in every round, which fails for an
+    # ESPN-era league: trades that originated before Sleeper's tracking
+    # window can't be anchored to an original owner (we saw 445 'pick
+    # ledger unresolved' warnings against this data).
     #
-    # 'Original Team' in pick_rows was already set to the final owner (the team
-    # that actually used the pick on draft day) — that's the most useful single
-    # value when no chain exists. When a chain DOES exist we rewrite Original
-    # Team to the chain's true origin and fill Trade 1..N with the intermediate
-    # owners ending at the final owner.
+    # Simpler approach: read traded_picks_by_season as a flat event log.
+    # Each event has (season, round, previous_owner_id, owner_id). Group
+    # events by (season, round) and walk a directed graph (prev → new) to
+    # find each pick's original owner and its full chain. For an ESPN-era
+    # pick that wasn't traded inside Sleeper, no event row exists and we
+    # leave Original Team set to the picker (no chain to render).
     # --------------------------
     try:
-        if not ph.empty and pick_trade_events:
-            # Build reverse index: (season, round, final_owner_rid) -> origin_rid
-            final_to_origin: Dict[Tuple[int, int, int], int] = {}
-            for key, final_rid in pick_current_owner.items():
+        if not ph.empty and traded_picks_by_season:
+            # Use the most-recent season's snapshot; it accumulates history.
+            latest_season = max(traded_picks_by_season.keys())
+            all_events = traded_picks_by_season.get(latest_season, []) or []
+            # Group events by (season, round). Sleeper returns events in
+            # roughly chronological order within a snapshot; we'll preserve
+            # insertion order.
+            events_by_sr: Dict[Tuple[int, int], List[Tuple[int, int]]] = defaultdict(list)
+            for tp in all_events:
                 try:
-                    season_k, round_k, origin_rid = int(key[0]), int(key[1]), int(key[2])
-                    final_to_origin[(season_k, round_k, int(final_rid))] = origin_rid
+                    s = int(tp.get("season"))
+                    rd = int(tp.get("round"))
+                    prev = _to_int(tp.get("previous_owner_id"), None)
+                    new = _to_int(tp.get("owner_id"), None)
+                    if prev is None or new is None:
+                        continue
+                    events_by_sr[(s, rd)].append((int(prev), int(new)))
                 except Exception:
                     continue
 
+            # For each (season, round), walk chains.
+            # chain_by_final[(season, round, final_rid)] = [origin, mid1, ..., final]
+            chain_by_final: Dict[Tuple[int, int, int], List[int]] = {}
+            for (s, rd), events in events_by_sr.items():
+                if not events:
+                    continue
+                # For each starting prev, follow its chain forward.
+                # A roster can have at most one outgoing edge among events for
+                # a given pick (a pick has one current owner at any time).
+                outgoing: Dict[int, int] = {}
+                incoming: Dict[int, int] = {}
+                for prev, new in events:
+                    # If multiple outgoing for same prev in same (s, rd):
+                    # this means the team had multiple picks in the same round.
+                    # In Sleeper dynasty leagues that's normal (post-trade).
+                    # We can't disambiguate by pick_no, so we take last-seen.
+                    outgoing[prev] = new
+                    incoming[new] = prev
+                # Roots = roster_ids that appear as prev but never as new
+                roots = set(outgoing.keys()) - set(incoming.keys())
+                for root in roots:
+                    chain = [int(root)]
+                    cur = root
+                    while cur in outgoing:
+                        nxt = outgoing[cur]
+                        if nxt in chain:  # cycle guard
+                            break
+                        chain.append(int(nxt))
+                        cur = nxt
+                    final = chain[-1]
+                    chain_by_final[(s, rd, int(final))] = chain
+
+            # Apply to ph
             for i, r in ph.iterrows():
                 yr = _to_int(r.get("Year"), None)
                 num = str(r.get("Number") or "")
@@ -2944,38 +2987,26 @@ def build_all(repo_root: Path) -> None:
                     continue
                 rnd = int(m.group(1))
 
-                # Resolve the row's final-owner roster_id from the "Original
-                # Team" display name (which we set to roster_to_team[roster_id]
-                # at pick_rows construction).
+                # "Original Team" was set to roster_to_team[roster_id] at pick
+                # construction; convert back to roster_id.
                 final_team_disp = str(r.get("Original Team") or "")
                 final_rid = season_team_to_roster.get(int(yr), {}).get(_norm_team_name(final_team_disp))
                 if final_rid is None:
                     continue
 
-                origin_rid = final_to_origin.get((int(yr), rnd, int(final_rid)))
-                if origin_rid is None:
-                    continue
-
-                key = (int(yr), rnd, int(origin_rid))
-                events = pick_trade_events.get(key) or []
-                # Even when origin == final (pick traded out and back), the
-                # chain of trades is still meaningful and worth showing.
-                if not events:
+                chain = chain_by_final.get((int(yr), rnd, int(final_rid)))
+                if not chain or len(chain) < 2:
+                    # Either no trade history found, or chain of length 1
+                    # (picker == origin, no trades on this pick).
                     continue
 
                 rid_to_team = season_roster_to_team.get(int(yr), {})
-                # Rewrite Original Team to the true origin.
-                ph.at[i, "Original Team"] = rid_to_team.get(int(origin_rid), f"Roster {origin_rid}")
-                # Trade 1..N = each event's new_owner in chronological order.
-                # Sort events by timestamp (None timestamps last to preserve
-                # insertion order).
-                events_sorted = sorted(
-                    events,
-                    key=lambda ev: (ev[0] is None, ev[0] or 0)
-                )
-                for j, (_dt, _prev, new_owner_rid, _wk) in enumerate(events_sorted[:10], start=1):
+                # Rewrite Original Team to the chain origin
+                ph.at[i, "Original Team"] = rid_to_team.get(int(chain[0]), f"Roster {chain[0]}")
+                # Trade 1..N = intermediate owners (exclude the origin at index 0)
+                for j, owner_rid in enumerate(chain[1:11], start=1):
                     try:
-                        ph.at[i, f"Trade {j}"] = rid_to_team.get(int(new_owner_rid), f"Roster {new_owner_rid}")
+                        ph.at[i, f"Trade {j}"] = rid_to_team.get(int(owner_rid), f"Roster {owner_rid}")
                     except Exception:
                         continue
     except Exception as e:
