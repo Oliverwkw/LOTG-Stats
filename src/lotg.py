@@ -2946,21 +2946,25 @@ def build_all(repo_root: Path) -> None:
                 pickup_count[key] += 1
                 r["Number of times picked up by this team"] = pickup_count[key]
 
-            # 2) Build per-(team, player) event log to find next drop/trade-out
+            # 2) Build per-(team, player) event log to find next drop/trade-out.
+            # NOTE: don't name a local 'date' here — that would shadow the
+            # imported datetime.date class for the entire build_all function
+            # (Python decides locals at compile time), which broke player_week
+            # construction earlier with an UnboundLocalError. Use dt_str.
             event_log: Dict[Tuple[str, str], List[Tuple[str, str]]] = defaultdict(list)
             for r in transactions_rows:
                 team = r.get("Team")
                 add = r.get("Player Added")
                 dropped = r.get("Player Dropped")
-                date = r.get("Date") or ""
+                dt_str = r.get("Date") or ""
                 if team and add:
-                    event_log[(str(team), str(add))].append((str(date), "add"))
+                    event_log[(str(team), str(add))].append((str(dt_str), "add"))
                 if team and dropped:
-                    event_log[(str(team), str(dropped))].append((str(date), "drop"))
+                    event_log[(str(team), str(dropped))].append((str(dt_str), "drop"))
             # Players traded away count as "left this team" too.
             for tr_row in trades_rows:
                 team = tr_row.get("Team")
-                date = tr_row.get("Date") or ""
+                dt_str = tr_row.get("Date") or ""
                 dropped_assets = str(tr_row.get("Assets dropped") or "")
                 if dropped_assets in ("0.0", "None", ""):
                     continue
@@ -2969,7 +2973,7 @@ def build_all(repo_root: Path) -> None:
                     if not asset or re.match(r"^\d{4}\b", asset):
                         continue
                     if team:
-                        event_log[(str(team), asset)].append((str(date), "trade_out"))
+                        event_log[(str(team), asset)].append((str(dt_str), "trade_out"))
             for k in event_log:
                 event_log[k].sort()
 
