@@ -2705,8 +2705,7 @@ def build_all(repo_root: Path) -> None:
                                 "Additional assets traded away in those deals": None,
                                 "Return from trades of trades...of trades. Keep going until present day": None,
                                 "Asset difference in average age": None,
-                                "Tanking before": None,
-                                "Tanking after": None,
+                                "Tanking": None,
                                 "Link to next transaction": None,
                                 "Link to previous transaction": None,
                             })
@@ -2802,8 +2801,7 @@ def build_all(repo_root: Path) -> None:
                             "% of starts made while rostered": None,
                             "Injury adjusted % of starts made while rostered": None,
                             "Date dropped/traded": None,
-                            "Tanking before": None,
-                            "Tanking after": None,
+                            "Tanking": None,
                             "Number of times picked up by this team": None,
                         })
 
@@ -2866,8 +2864,7 @@ def build_all(repo_root: Path) -> None:
                                         "% of starts made while rostered": None,
                                         "Injury adjusted % of starts made while rostered": None,
                                         "Date dropped/traded": None,
-                                        "Tanking before": None,
-                                        "Tanking after": None,
+                                        "Tanking": None,
                                         "Number of times picked up by this team": None,
                                     })
                             except Exception:
@@ -5875,20 +5872,17 @@ def build_all(repo_root: Path) -> None:
             tx["Link to next transaction"] = tx.groupby("Team").cumcount() + 2
             tx.loc[tx.groupby("Team").tail(1).index, "Link to next transaction"] = np.nan
 
-            # Tanking before/after — joined off team_year. Key by Season
-            # (fantasy year), not the calendar year of the Date string:
-            # offseason transactions in January belong to the prior season
-            # in team_year, so calendar year produced stale/zero rows for
-            # rows at the Dec/Jan boundary and for the in-progress 2026.
+            # Tanking — single column joined off team_year for the row's
+            # Season (fantasy year). Previously this was emitted as separate
+            # 'Tanking before' / 'Tanking after' columns, but the rollup
+            # was always a single season-level value so the two columns
+            # were guaranteed equal — misleading. Collapse to one column.
             if not team_year.empty and "Season" in tx.columns:
                 ty_map = team_year.set_index(["Team","Year"])["Tanking"].to_dict()
-                tx["Tanking before"] = [float(ty_map.get((str(t), int(y)), 0)) for t,y in zip(tx["Team"], tx["Season"])]
-                tx["Tanking after"] = tx["Tanking before"]
+                tx["Tanking"] = [float(ty_map.get((str(t), int(y)), 0)) for t,y in zip(tx["Team"], tx["Season"])]
         else:
-            if "Tanking before" in tx.columns:
-                tx["Tanking before"] = pd.to_numeric(tx["Tanking before"], errors="coerce").fillna(0.0)
-            if "Tanking after" in tx.columns:
-                tx["Tanking after"] = pd.to_numeric(tx["Tanking after"], errors="coerce").fillna(0.0)
+            if "Tanking" in tx.columns:
+                tx["Tanking"] = pd.to_numeric(tx["Tanking"], errors="coerce").fillna(0.0)
     except Exception as e:
         _log_exc(debug, "transactions_links_tanking", e)
 
@@ -5904,8 +5898,7 @@ def build_all(repo_root: Path) -> None:
 
             if not team_year.empty and "Season" in tr.columns:
                 ty_map = team_year.set_index(["Team","Year"])["Tanking"].to_dict()
-                tr["Tanking before"] = [float(ty_map.get((str(t), int(y)), 0)) for t,y in zip(tr["Team"], tr["Season"])]
-                tr["Tanking after"] = tr["Tanking before"]
+                tr["Tanking"] = [float(ty_map.get((str(t), int(y)), 0)) for t,y in zip(tr["Team"], tr["Season"])]
     except Exception as e:
         _log_exc(debug, "trades_links_tanking", e)
     # Known-player validation report (best-effort): checks core columns against public expectations.
