@@ -1769,7 +1769,81 @@ def build_all(repo_root: Path) -> None:
                         continue
                     seen_tx_ids.add(tx_id_str)
                     deduped_tx.append(t)
-                tx_by_week[wk] = deduped_tx
+
+                # Sleeper-data quirk dedup. The transaction_id check above
+                # catches verbatim duplicates only — Sleeper sometimes emits
+                # two distinct transaction_ids for what's logically the same
+                # event:
+                #   (a) Duplicate waiver claim — same creator, same adds set,
+                #       within 60 seconds; one has Player Dropped=None and
+                #       the other carries the real drop. Keep the row with
+                #       the drop, discard the bare one.
+                #   (b) Inverted commissioner swap — same timestamp, two
+                #       rows with adds/drops mirrored. Keep the one whose
+                #       smallest-added-pid is alphabetically first.
+                # Doing this here (before the per-week tx_count / faab
+                # counters consume the list) keeps team_week / team_year
+                # FAAB consistent with transactions.csv.
+                def _tx_ts(t: Dict[str, Any]) -> int:
+                    try:
+                        return int(t.get("created") or 0)
+                    except Exception:
+                        return 0
+                def _tx_adds(t: Dict[str, Any]) -> Tuple[str, ...]:
+                    a = t.get("adds") or {}
+                    if not isinstance(a, dict):
+                        return tuple()
+                    return tuple(sorted(str(k) for k in a.keys()))
+                def _tx_drops(t: Dict[str, Any]) -> Tuple[str, ...]:
+                    d = t.get("drops") or {}
+                    if not isinstance(d, dict):
+                        return tuple()
+                    return tuple(sorted(str(k) for k in d.keys()))
+
+                deduped_tx.sort(key=lambda t: (_tx_ts(t), t.get("transaction_id") or ""))
+                pruned: List[Dict[str, Any]] = []
+                for t in deduped_tx:
+                    t_ts = _tx_ts(t)
+                    t_adds = _tx_adds(t)
+                    t_drops = _tx_drops(t)
+                    t_creator = str(t.get("creator") or "")
+                    replaced = False
+                    drop_self = False
+                    for idx in range(len(pruned) - 1, -1, -1):
+                        p = pruned[idx]
+                        p_ts = _tx_ts(p)
+                        if t_ts and p_ts and abs(t_ts - p_ts) > 60_000:
+                            break  # outside 60-second window
+                        p_adds = _tx_adds(p)
+                        p_drops = _tx_drops(p)
+                        p_creator = str(p.get("creator") or "")
+                        # Case (a): same creator, same adds, drops differ by
+                        # one side being empty.
+                        if (
+                            t_creator and p_creator and t_creator == p_creator
+                            and t_adds == p_adds
+                        ):
+                            if not p_drops and t_drops:
+                                pruned[idx] = t
+                                replaced = True
+                                break
+                            if not t_drops and p_drops:
+                                drop_self = True
+                                break
+                        # Case (b): identical timestamp, inverted swap.
+                        if t_ts and p_ts and t_ts == p_ts:
+                            if t_adds == p_drops and t_drops == p_adds and t_adds and t_drops:
+                                # Inverted view of one event. Keep the
+                                # alphabetically-earlier adds tuple.
+                                if t_adds < p_adds:
+                                    pruned[idx] = t
+                                drop_self = True
+                                break
+                    if replaced or drop_self:
+                        continue
+                    pruned.append(t)
+
+                tx_by_week[wk] = pruned
             except Exception as e:
                 tx_by_week[wk] = []
                 _log_exc(debug, f"transactions_{season}_wk{wk}", e)
@@ -3010,82 +3084,9 @@ def build_all(repo_root: Path) -> None:
                 return str(d)
             transactions_rows.sort(key=_date_key)
 
-            # 0) Dedup quirks from Sleeper's transactions feed.
-            #    a) Two waiver-claim entries within 60 seconds for the same
-            #       (team, player_added) — usually a duplicate publish. Keep
-            #       the one with the more complete drop info.
-            #    b) Commissioner swaps recorded twice with adds/drops inverted
-            #       at the same timestamp — (team, add=A, drop=B) paired with
-            #       (team, add=B, drop=A). Both rows describe one event; keep
-            #       the lexically-smaller-add one and drop the other.
-            from datetime import datetime as _dt
-            def _parse_iso(s: Optional[str]) -> Optional[_dt]:
-                if not s:
-                    return None
-                try:
-                    return _dt.fromisoformat(str(s).replace("Z", "+00:00"))
-                except Exception:
-                    return None
-
-            deduped: List[Dict[str, Any]] = []
-            # Track seen (team, player_added) windows for case (a)
-            recent: Dict[Tuple[str, str], List[int]] = defaultdict(list)
-            for idx, r in enumerate(transactions_rows):
-                team = str(r.get("Team") or "")
-                added = str(r.get("Player Added") or "")
-                dropped = str(r.get("Player Dropped") or "")
-                dt = _parse_iso(r.get("Date"))
-                # Case (a): same team+added within 60s of a prior row.
-                replaced = False
-                if team and added and dt is not None:
-                    bucket = recent.get((team, added)) or []
-                    for prev_pos in reversed(bucket):
-                        prev = deduped[prev_pos]
-                        prev_dt = _parse_iso(prev.get("Date"))
-                        if prev_dt is None:
-                            continue
-                        if abs((dt - prev_dt).total_seconds()) <= 60:
-                            # Keep whichever has a non-empty Player Dropped.
-                            prev_dropped = str(prev.get("Player Dropped") or "")
-                            if dropped and dropped not in ("N/A", "0.0", "") and (
-                                not prev_dropped or prev_dropped in ("N/A", "0.0", "")
-                            ):
-                                deduped[prev_pos] = r
-                            replaced = True
-                            break
-                if replaced:
-                    continue
-                # Case (b): inverted commissioner swap at identical timestamp.
-                if team and added and dropped and dropped not in ("N/A", "0.0", "") and dt is not None:
-                    sib_key = (team, dropped)
-                    bucket_sib = recent.get(sib_key) or []
-                    inverted = False
-                    for prev_pos in reversed(bucket_sib):
-                        prev = deduped[prev_pos]
-                        prev_dt = _parse_iso(prev.get("Date"))
-                        if prev_dt is None or prev_dt != dt:
-                            continue
-                        prev_added = str(prev.get("Player Added") or "")
-                        prev_dropped = str(prev.get("Player Dropped") or "")
-                        if prev_added == dropped and prev_dropped == added:
-                            # Same swap, inverted view. Keep the canonical
-                            # entry with lexically-smaller add name.
-                            if added > prev_added:
-                                # Prior wins, skip this one.
-                                inverted = True
-                            else:
-                                # This one wins; replace prior.
-                                deduped[prev_pos] = r
-                                inverted = True
-                            break
-                    if inverted:
-                        continue
-
-                deduped.append(r)
-                recent[(team, added)].append(len(deduped) - 1)
-
-            # Swap in deduped list
-            transactions_rows[:] = deduped
+            # (Source-level dedup of Sleeper transactions now runs in the
+            # per-week fetch loop, so transactions_rows are already deduped
+            # by the time we get here.)
 
             # 1) Number of times picked up by this team
             pickup_count: Dict[Tuple[str, str], int] = defaultdict(int)
