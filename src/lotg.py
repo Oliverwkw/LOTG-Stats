@@ -1740,6 +1740,13 @@ def build_all(repo_root: Path) -> None:
         matchups_by_week: Dict[int, List[Dict[str, Any]]] = {}
         tx_by_week: Dict[int, List[Dict[str, Any]]] = {}
         seen_tx_ids: Set[str] = set()
+        # bids_per_player_week[(season, wk, player_id)] = total waiver
+        # attempts (complete + failed) targeting that player in that week.
+        # Sleeper doesn't ship a 'num_bids' field; we derive it by counting
+        # waiver transactions BEFORE filtering out failed claims, so the
+        # winning row can carry the contested-bid count for downstream
+        # display.
+        bids_per_player_week: Dict[Tuple[int, int, str], int] = defaultdict(int)
 
         for wk in range(1, min(last_week, 30) + 1):
             if not week_allowed(wk):
@@ -1842,6 +1849,29 @@ def build_all(repo_root: Path) -> None:
                     if replaced or drop_self:
                         continue
                     pruned.append(t)
+
+                # Count waiver attempts per player BEFORE filtering out the
+                # failed claims. Sleeper returns every team's waiver bid as
+                # its own transaction (one status=complete winner, plus
+                # status=failed for each losing bid). The losing bids never
+                # actually moved the player and shouldn't pollute tx_count,
+                # FAAB-spent, or transactions.csv — but we want the count
+                # of contested bids on the winning row.
+                for t in pruned:
+                    if t.get("type") != "waiver":
+                        continue
+                    adds_for_count = t.get("adds") or {}
+                    if not isinstance(adds_for_count, dict):
+                        continue
+                    for pid_key in adds_for_count.keys():
+                        bids_per_player_week[(int(season), int(wk), str(pid_key))] += 1
+
+                # Drop failed transactions. Sleeper's status taxonomy:
+                #   complete -> the move actually happened
+                #   failed   -> rejected (lost waiver, roster full, etc.)
+                # Anything other than 'complete' didn't move players or
+                # money and should not appear in the dataset.
+                pruned = [t for t in pruned if (t.get("status") or "complete") == "complete"]
 
                 tx_by_week[wk] = pruned
             except Exception as e:
@@ -2730,11 +2760,14 @@ def build_all(repo_root: Path) -> None:
                         faab = settings_obj.get("waiver_bid")
                     if faab is None and isinstance(meta, dict):
                         faab = meta.get("waiver_bid") or meta.get("faab")
-                    num_bids = None
-                    if isinstance(settings_obj, dict):
-                        num_bids = settings_obj.get("num_bids")
-                    if num_bids is None and isinstance(meta, dict):
-                        num_bids = meta.get("num_bids")
+                    # Number of bids: derived in the fetch loop from all
+                    # waiver attempts (complete + failed) against the same
+                    # player in the same week. Sleeper's API doesn't carry
+                    # this on the transaction settings — every field they
+                    # do expose (priority, seq, waiver_bid) describes only
+                    # THIS team's claim. Resolved per-add below where we
+                    # have the player id in hand.
+                    num_bids = None  # placeholder; set per-add
 
                     if not isinstance(adds, dict):
                         adds = {}
@@ -2778,6 +2811,15 @@ def build_all(repo_root: Path) -> None:
                             roster_to_team.get(int(row_rrid_int)) if row_rrid_int is not None else None
                         ) or team
 
+                        # Resolve Number of bids from the per-week tally.
+                        # Only meaningful for waiver claims; free-agent and
+                        # commissioner adds aren't bid on.
+                        row_num_bids = None
+                        if ttype == "waiver":
+                            row_num_bids = bids_per_player_week.get(
+                                (int(season), int(wk), str(pid)), 0
+                            ) or None
+
                         transactions_rows.append({
                             "Team": row_team,
                             "Player Added": pid_meta.get(pid, {}).get("full_name") or pid,
@@ -2786,7 +2828,7 @@ def build_all(repo_root: Path) -> None:
                             "Faab": faab,
                             "Date": created_dt.isoformat() if created_dt else (str(created_date) if created_date else None),
                             "Season": int(season),
-                            "Number of bids": num_bids,
+                            "Number of bids": row_num_bids,
                             "Link to next transaction": None,
                             "Link to previous transaction": None,
                             "Average PPG on team": None,
