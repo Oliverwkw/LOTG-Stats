@@ -5841,6 +5841,14 @@ def build_all(repo_root: Path) -> None:
         # normalize date
         if not tx.empty and "Date" in tx.columns:
             tx["Date"] = pd.to_datetime(tx["Date"], errors="coerce", utc=True)
+            # Drop rows that couldn't be anchored to a real timestamp. The
+            # orphan-drop guard in the source loop only catches the case
+            # where both created_dt and created_date are None; values that
+            # stringify but fail pd.to_datetime (e.g., 'None'/'NaT'/garbled
+            # epochs) still produce NaT here. Those rows can't be ordered
+            # for link-prev/next or year-tanking joins, and would otherwise
+            # land in transactions.csv with Date='N/A'.
+            tx = tx[tx["Date"].notna()].reset_index(drop=True)
             tx = tx.sort_values(["Team","Date"]).reset_index(drop=True)
             # link columns as row numbers (1-indexed) for easy navigation
             tx["Link to previous transaction"] = tx.groupby("Team").cumcount().replace(0, np.nan)
@@ -5864,6 +5872,8 @@ def build_all(repo_root: Path) -> None:
     try:
         if not tr.empty and "Date" in tr.columns:
             tr["Date"] = pd.to_datetime(tr["Date"], errors="coerce", utc=True)
+            # Same guard as transactions: drop rows we can't anchor in time.
+            tr = tr[tr["Date"].notna()].reset_index(drop=True)
             tr = tr.sort_values(["Team","Date"]).reset_index(drop=True)
             tr["Link to previous transaction"] = tr.groupby("Team").cumcount().replace(0, np.nan)
             tr["Link to next transaction"] = tr.groupby("Team").cumcount().shift(-1) + 2
