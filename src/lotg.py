@@ -1180,6 +1180,11 @@ def build_all(repo_root: Path) -> None:
     team_week_rows: List[Dict[str, Any]] = []
     transactions_rows: List[Dict[str, Any]] = []
     trades_rows: List[Dict[str, Any]] = []
+    # Orphan drops: a player dropped without a corresponding add in the same
+    # transaction (pure waiver-to-FA). These don't get a transactions.csv row
+    # but they still matter for the per-player event log when computing
+    # 'Weeks between pickup and start' / 'Date dropped/traded'.
+    orphan_drop_events: List[Dict[str, Any]] = []
     pick_rows: List[Dict[str, Any]] = []
     player_tx_week: Dict[Tuple[str, int, int], int] = defaultdict(int)
     player_drop_week: Dict[Tuple[str, int, int], int] = defaultdict(int)
@@ -2655,7 +2660,7 @@ def build_all(repo_root: Path) -> None:
                             "Number of times picked up by this team": None,
                         })
 
-                    for drop_list in drops_by_roster.values():
+                    for rrid_orphan_str, drop_list in drops_by_roster.items():
                         for dp_str in drop_list:
                             dropped_id = str(dp_str)
                             player_tx_week[(dropped_id, season, wk)] += 1
@@ -2664,6 +2669,22 @@ def build_all(repo_root: Path) -> None:
                             player_drop_week[(dropped_id, season, wk)] += 1
                             player_drop_year[(dropped_id, season)] += 1
                             player_drop_all[dropped_id] += 1
+                            # Record an orphan-drop event so the transactions
+                            # polish pass can bound 'Date dropped/traded' /
+                            # 'Weeks between pickup and start' correctly.
+                            try:
+                                rid_int = _to_int(rrid_orphan_str, None)
+                                drop_team = roster_to_team.get(int(rid_int)) if rid_int is not None else None
+                                drop_player_name = (pid_meta.get(dropped_id, {}) or {}).get("full_name") or dropped_id
+                                drop_dt = created_dt.isoformat() if created_dt else (str(created_date) if created_date else None)
+                                if drop_team and drop_player_name and drop_dt:
+                                    orphan_drop_events.append({
+                                        "Team": drop_team,
+                                        "Player Dropped": drop_player_name,
+                                        "Date": drop_dt,
+                                    })
+                            except Exception:
+                                pass
                 except Exception as e:
                     _log_exc(debug, f"transactions_trades_rows_{season}_wk{wk}", e)
 
@@ -3028,6 +3049,15 @@ def build_all(repo_root: Path) -> None:
                         continue
                     if team:
                         event_log[(str(team), asset)].append((str(dt_str), "trade_out"))
+            # Orphan drops (player dropped without a same-transaction add) —
+            # these never made it into transactions_rows but they are real
+            # departures and must close the event window for the prior pickup.
+            for od in orphan_drop_events:
+                t_od = od.get("Team")
+                p_od = od.get("Player Dropped")
+                d_od = od.get("Date") or ""
+                if t_od and p_od and d_od:
+                    event_log[(str(t_od), str(p_od))].append((str(d_od), "drop"))
             for k in event_log:
                 event_log[k].sort()
 
