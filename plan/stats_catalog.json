@@ -561,8 +561,7 @@
     "Additional assets traded away in those deals",
     "Return from trades of trades...of trades. Keep going until present day",
     "Asset difference in average age",
-    "Tanking before",
-    "Tanking after",
+    "Tanking",
     "Link to next transaction",
     "Link to previous transaction"
   ],
@@ -589,8 +588,7 @@
     "Date dropped/traded",
     "Link to next transaction",
     "Link to previous transaction",
-    "Tanking before",
-    "Tanking after",
+    "Tanking",
     "Number of times picked up by this team"
   ]
 }
