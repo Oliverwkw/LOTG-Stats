@@ -2023,12 +2023,20 @@ def build_all(repo_root: Path) -> None:
                             trade_count[tm] += 1
                             tx_count[tm] += 1
                     else:
-                        # waiver / free_agent / commissioner — single-side, attributed
-                        # to the roster the transaction acted on (typically a single
-                        # roster_id in the transaction).
-                        primary = (teams_in_tx[0] if teams_in_tx else None) or creator_team
-                        if primary:
-                            tx_count[primary] += 1
+                        # waiver / free_agent / commissioner — credit the
+                        # destination roster of EACH add. For pure-drop
+                        # transactions (no adds) we credit each dropping team
+                        # below in the orphan-drop loop. This keeps tx_count
+                        # consistent with the per-add / per-orphan rows that
+                        # land in transactions.csv.
+                        if isinstance(t.get("adds"), dict) and t.get("adds"):
+                            for _pid, _rrid in (t.get("adds") or {}).items():
+                                _rid_i = _to_int(_rrid, None)
+                                tm_name = roster_to_team.get(int(_rid_i)) if _rid_i is not None else None
+                                if not tm_name:
+                                    tm_name = (teams_in_tx[0] if teams_in_tx else None) or creator_team
+                                if tm_name:
+                                    tx_count[tm_name] += 1
 
                     # FAAB lives under settings.waiver_bid on Sleeper transactions
                     # (legacy code looked under metadata, which was always empty).
@@ -2755,6 +2763,17 @@ def build_all(repo_root: Path) -> None:
                             player_drop_week[(dropped_id, season, wk)] += 1
                             player_drop_year[(dropped_id, season)] += 1
                             player_drop_all[dropped_id] += 1
+                            # Credit tx_count for the dropping team so team_year
+                            # 'Number of transactions' matches what we emit
+                            # below in transactions.csv (one row per orphan
+                            # drop).
+                            try:
+                                _orph_rid = _to_int(rrid_orphan_str, None)
+                                _orph_team = roster_to_team.get(int(_orph_rid)) if _orph_rid is not None else None
+                                if _orph_team and ttype != "trade":
+                                    tx_count[_orph_team] += 1
+                            except Exception:
+                                pass
                             # Record an orphan-drop event so the transactions
                             # polish pass can bound 'Date dropped/traded' /
                             # 'Weeks between pickup and start' correctly.
@@ -2768,6 +2787,38 @@ def build_all(repo_root: Path) -> None:
                                         "Team": drop_team,
                                         "Player Dropped": drop_player_name,
                                         "Date": drop_dt,
+                                    })
+                                    # Also emit a transactions.csv row so the
+                                    # detail file reconciles with team_year's
+                                    # 'Number of transactions' count. Pure drops
+                                    # are real transactions in Sleeper and were
+                                    # previously invisible — tx_count would
+                                    # increment but no row would be written.
+                                    transactions_rows.append({
+                                        "Team": drop_team,
+                                        "Player Added": None,
+                                        "Player Dropped": drop_player_name,
+                                        "type of transaction (waiver/free agency)": ttype,
+                                        "Faab": None,
+                                        "Date": drop_dt,
+                                        "Number of bids": None,
+                                        "Link to next transaction": None,
+                                        "Link to previous transaction": None,
+                                        "Average PPG on team": None,
+                                        "Average PPG of dropped player over same time": None,
+                                        "Difference of averages": None,
+                                        "Difference of averages adjusted by position": None,
+                                        "Age difference": None,
+                                        "Player addition value": None,
+                                        "Cuff at time of pickup?": None,
+                                        "Weeks between pickup and start": None,
+                                        "Number of starts before next drop": None,
+                                        "% of starts made while rostered": None,
+                                        "Injury adjusted % of starts made while rostered": None,
+                                        "Date dropped/traded": None,
+                                        "Tanking before": None,
+                                        "Tanking after": None,
+                                        "Number of times picked up by this team": None,
                                     })
                             except Exception:
                                 pass
