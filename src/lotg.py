@@ -2024,19 +2024,54 @@ def build_all(repo_root: Path) -> None:
                             tx_count[tm] += 1
                     else:
                         # waiver / free_agent / commissioner — credit the
-                        # destination roster of EACH add. For pure-drop
-                        # transactions (no adds) we credit each dropping team
-                        # below in the orphan-drop loop. This keeps tx_count
-                        # consistent with the per-add / per-orphan rows that
-                        # land in transactions.csv.
-                        if isinstance(t.get("adds"), dict) and t.get("adds"):
-                            for _pid, _rrid in (t.get("adds") or {}).items():
-                                _rid_i = _to_int(_rrid, None)
-                                tm_name = roster_to_team.get(int(_rid_i)) if _rid_i is not None else None
-                                if not tm_name:
-                                    tm_name = (teams_in_tx[0] if teams_in_tx else None) or creator_team
-                                if tm_name:
-                                    tx_count[tm_name] += 1
+                        # destination roster of EACH add AND the dropping
+                        # roster of each drop that doesn't pair with an add
+                        # in this same transaction. Net effect:
+                        #   - swap (1 add + 1 drop on same roster): +1
+                        #   - multi-roster commish swap (2 adds + 2 drops
+                        #     across 2 rosters): +1 per roster
+                        #   - pure drop (0 adds + N drops on same roster):
+                        #     +N (each visible in transactions.csv too)
+                        # team_week / team_year 'Number of transactions'
+                        # reconciles row-for-row with transactions.csv.
+                        adds_dict = t.get("adds") if isinstance(t.get("adds"), dict) else {}
+                        drops_dict = t.get("drops") if isinstance(t.get("drops"), dict) else {}
+                        # rosters that received an add — each gets +1 here.
+                        add_rosters: Set[int] = set()
+                        for _pid, _rrid in (adds_dict or {}).items():
+                            _rid_i = _to_int(_rrid, None)
+                            tm_name = roster_to_team.get(int(_rid_i)) if _rid_i is not None else None
+                            if not tm_name:
+                                tm_name = (teams_in_tx[0] if teams_in_tx else None) or creator_team
+                            if tm_name:
+                                tx_count[tm_name] += 1
+                                if _rid_i is not None:
+                                    add_rosters.add(int(_rid_i))
+                        # remaining drops (per roster) become "orphan" drops
+                        # for tx_count purposes. Group by roster and credit
+                        # +1 per leftover drop after pairing one drop with
+                        # each add on the same roster.
+                        drops_by_rid_count: Dict[int, int] = defaultdict(int)
+                        for _dpid, _drid in (drops_dict or {}).items():
+                            _drid_i = _to_int(_drid, None)
+                            if _drid_i is None:
+                                continue
+                            drops_by_rid_count[int(_drid_i)] += 1
+                        adds_by_rid_count: Dict[int, int] = defaultdict(int)
+                        for _pid, _rrid in (adds_dict or {}).items():
+                            _rid_i = _to_int(_rrid, None)
+                            if _rid_i is None:
+                                continue
+                            adds_by_rid_count[int(_rid_i)] += 1
+                        for _rid_i, n_drops in drops_by_rid_count.items():
+                            n_orphan = max(0, n_drops - adds_by_rid_count.get(_rid_i, 0))
+                            if n_orphan <= 0:
+                                continue
+                            tm_name = roster_to_team.get(int(_rid_i))
+                            if not tm_name:
+                                tm_name = (teams_in_tx[0] if teams_in_tx else None) or creator_team
+                            if tm_name:
+                                tx_count[tm_name] += n_orphan
 
                     # FAAB lives under settings.waiver_bid on Sleeper transactions
                     # (legacy code looked under metadata, which was always empty).
@@ -2763,17 +2798,10 @@ def build_all(repo_root: Path) -> None:
                             player_drop_week[(dropped_id, season, wk)] += 1
                             player_drop_year[(dropped_id, season)] += 1
                             player_drop_all[dropped_id] += 1
-                            # Credit tx_count for the dropping team so team_year
-                            # 'Number of transactions' matches what we emit
-                            # below in transactions.csv (one row per orphan
-                            # drop).
-                            try:
-                                _orph_rid = _to_int(rrid_orphan_str, None)
-                                _orph_team = roster_to_team.get(int(_orph_rid)) if _orph_rid is not None else None
-                                if _orph_team and ttype != "trade":
-                                    tx_count[_orph_team] += 1
-                            except Exception:
-                                pass
+                            # tx_count for orphan drops is credited in Loop 1
+                            # (the per-week tx summary pass earlier) so that
+                            # team_week's read of tx_count sees the right
+                            # totals.
                             # Record an orphan-drop event so the transactions
                             # polish pass can bound 'Date dropped/traded' /
                             # 'Weeks between pickup and start' correctly.
