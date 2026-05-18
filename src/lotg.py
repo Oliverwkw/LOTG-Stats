@@ -2671,6 +2671,7 @@ def build_all(repo_root: Path) -> None:
                                 "Assets received": "; ".join(received) if received else None,
                                 "Assets dropped": "; ".join(dropped) if dropped else None,
                                 "Date": created_dt.isoformat() if created_dt else (str(created_date) if created_date else None),
+                                "Season": int(season),
                                 # KTC/Oliver columns stay blank by design for now
                                 "KTC value difference at deal time": None,
                                 "KTC value difference at end of season": None,
@@ -2769,6 +2770,7 @@ def build_all(repo_root: Path) -> None:
                             "type of transaction (waiver/free agency)": ttype,
                             "Faab": faab,
                             "Date": created_dt.isoformat() if created_dt else (str(created_date) if created_date else None),
+                            "Season": int(season),
                             "Number of bids": num_bids,
                             "Link to next transaction": None,
                             "Link to previous transaction": None,
@@ -2810,6 +2812,9 @@ def build_all(repo_root: Path) -> None:
                                 drop_team = roster_to_team.get(int(rid_int)) if rid_int is not None else None
                                 drop_player_name = (pid_meta.get(dropped_id, {}) or {}).get("full_name") or dropped_id
                                 drop_dt = created_dt.isoformat() if created_dt else (str(created_date) if created_date else None)
+                                # Skip orphan-drop emission when we have no
+                                # timestamp — the row would be unanchored in
+                                # time and pollutes downstream reconciliation.
                                 if drop_team and drop_player_name and drop_dt:
                                     orphan_drop_events.append({
                                         "Team": drop_team,
@@ -2829,6 +2834,7 @@ def build_all(repo_root: Path) -> None:
                                         "type of transaction (waiver/free agency)": ttype,
                                         "Faab": None,
                                         "Date": drop_dt,
+                                        "Season": int(season),
                                         "Number of bids": None,
                                         "Link to next transaction": None,
                                         "Link to previous transaction": None,
@@ -4297,11 +4303,20 @@ def build_all(repo_root: Path) -> None:
         player_trade_all: Dict[str, int] = defaultdict(int)
         try:
             for tr_row in trades_rows:
-                date_s = tr_row.get("Date")
-                if not date_s:
-                    continue
+                # Prefer the fantasy-year Season (which keeps offseason
+                # trades attributed to the league iteration they belong to);
+                # fall back to the calendar year of the Date for safety.
+                yr_val = tr_row.get("Season")
+                if yr_val is None:
+                    date_s = tr_row.get("Date")
+                    if not date_s:
+                        continue
+                    try:
+                        yr_val = int(str(date_s)[:4])
+                    except Exception:
+                        continue
                 try:
-                    yr = int(str(date_s)[:4])
+                    yr = int(yr_val)
                 except Exception:
                     continue
                 recv = tr_row.get("Assets received")
