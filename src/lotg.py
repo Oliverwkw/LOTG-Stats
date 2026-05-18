@@ -2707,8 +2707,20 @@ def build_all(repo_root: Path) -> None:
                             player_drop_year[(dropped_id, season)] += 1
                             player_drop_all[dropped_id] += 1
 
+                        # Team for THIS specific add = the roster the player
+                        # is going TO (rrid). For multi-roster transactions
+                        # like commissioner-driven swaps, the outer 'team'
+                        # variable points at only the first roster, so a
+                        # second add to a different roster needs its own
+                        # team resolution. Fall back to the outer 'team' if
+                        # rrid doesn't resolve.
+                        row_rrid_int = _to_int(rrid_str, None)
+                        row_team = (
+                            roster_to_team.get(int(row_rrid_int)) if row_rrid_int is not None else None
+                        ) or team
+
                         transactions_rows.append({
-                            "Team": team,
+                            "Team": row_team,
                             "Player Added": pid_meta.get(pid, {}).get("full_name") or pid,
                             "Player Dropped": pid_meta.get(dropped, {}).get("full_name") if dropped else None,
                             "type of transaction (waiver/free agency)": ttype,
