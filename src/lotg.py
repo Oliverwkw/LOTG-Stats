@@ -1986,6 +1986,16 @@ def build_all(repo_root: Path) -> None:
                 try:
                     ttype = t.get("type")
 
+                    # Date-validity gate. If Sleeper's 'created' timestamp
+                    # is missing or unparseable, this transaction can't be
+                    # anchored in time — it would emit a row with Date='N/A'
+                    # which breaks Link prev/next ordering, Tanking joins,
+                    # and (Team, Season) reconciliation. Skip the whole
+                    # transaction so tx_count / trade_count / faab_spent
+                    # stay row-for-row consistent with the detail CSVs.
+                    if _epoch_ms_to_dt(t.get("created")) is None:
+                        continue
+
                     # Resolve every team participating in this transaction via
                     # roster_ids -> roster_to_team. We deliberately do NOT use
                     # user_handle.get(creator) here: user_handle is rebuilt per
@@ -2548,6 +2558,12 @@ def build_all(repo_root: Path) -> None:
                     ttype = t.get("type")
                     created_date = _epoch_ms_to_date(t.get("created"))
                     created_dt = _epoch_ms_to_dt(t.get("created"))
+                    # Mirror the date-validity gate from Loop 1 (per-week
+                    # counters). If we can't anchor the transaction in
+                    # time, don't emit a row — the matching tx_count
+                    # entry was already skipped upstream.
+                    if created_dt is None:
+                        continue
                     creator = str(t.get("creator") or "")
                     # Resolve via the canonical roster_to_team mapping so the
                     # 'Team' column in the output stays consistent across
@@ -5850,16 +5866,23 @@ def build_all(repo_root: Path) -> None:
             # land in transactions.csv with Date='N/A'.
             tx = tx[tx["Date"].notna()].reset_index(drop=True)
             tx = tx.sort_values(["Team","Date"]).reset_index(drop=True)
-            # link columns as row numbers (1-indexed) for easy navigation
+            # link columns as row numbers (1-indexed within each team).
+            # 'Link to previous' on row 1 is NaN, otherwise points at row N-1.
+            # 'Link to next' on the last row of each team is NaN, otherwise
+            # points at row N+1. The previous formula used shift(-1)+2 which
+            # was off-by-one (row 1 got linked to row 3 instead of row 2).
             tx["Link to previous transaction"] = tx.groupby("Team").cumcount().replace(0, np.nan)
-            tx["Link to next transaction"] = tx.groupby("Team").cumcount().shift(-1) + 2
+            tx["Link to next transaction"] = tx.groupby("Team").cumcount() + 2
             tx.loc[tx.groupby("Team").tail(1).index, "Link to next transaction"] = np.nan
 
-            # tanking before/after based on team-year tanking sum (0/1+) mapped from tx date year
-            if not team_year.empty:
+            # Tanking before/after — joined off team_year. Key by Season
+            # (fantasy year), not the calendar year of the Date string:
+            # offseason transactions in January belong to the prior season
+            # in team_year, so calendar year produced stale/zero rows for
+            # rows at the Dec/Jan boundary and for the in-progress 2026.
+            if not team_year.empty and "Season" in tx.columns:
                 ty_map = team_year.set_index(["Team","Year"])["Tanking"].to_dict()
-                tx_year = tx["Date"].dt.year
-                tx["Tanking before"] = [float(ty_map.get((str(t), int(y)), 0)) for t,y in zip(tx["Team"], tx_year)]
+                tx["Tanking before"] = [float(ty_map.get((str(t), int(y)), 0)) for t,y in zip(tx["Team"], tx["Season"])]
                 tx["Tanking after"] = tx["Tanking before"]
         else:
             if "Tanking before" in tx.columns:
@@ -5876,13 +5899,12 @@ def build_all(repo_root: Path) -> None:
             tr = tr[tr["Date"].notna()].reset_index(drop=True)
             tr = tr.sort_values(["Team","Date"]).reset_index(drop=True)
             tr["Link to previous transaction"] = tr.groupby("Team").cumcount().replace(0, np.nan)
-            tr["Link to next transaction"] = tr.groupby("Team").cumcount().shift(-1) + 2
+            tr["Link to next transaction"] = tr.groupby("Team").cumcount() + 2
             tr.loc[tr.groupby("Team").tail(1).index, "Link to next transaction"] = np.nan
 
-            if not team_year.empty:
+            if not team_year.empty and "Season" in tr.columns:
                 ty_map = team_year.set_index(["Team","Year"])["Tanking"].to_dict()
-                tr_year = tr["Date"].dt.year
-                tr["Tanking before"] = [float(ty_map.get((str(t), int(y)), 0)) for t,y in zip(tr["Team"], tr_year)]
+                tr["Tanking before"] = [float(ty_map.get((str(t), int(y)), 0)) for t,y in zip(tr["Team"], tr["Season"])]
                 tr["Tanking after"] = tr["Tanking before"]
     except Exception as e:
         _log_exc(debug, "trades_links_tanking", e)
