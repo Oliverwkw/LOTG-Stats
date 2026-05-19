@@ -3406,12 +3406,18 @@ def build_all(repo_root: Path) -> None:
         _log_exc(debug, "transactions_polish", e)
 
     # --------------------------
-    # KTC "value at deal time" pass for trades. Each row carries internal
+    # KTC value-difference pass for trades. Each row carries internal
     # sleeper-id lists (recv/drop) and pick labels populated during emission;
-    # we resolve those against the DynastyProcess values snapshot from the
-    # commit closest to the trade date, sum each side, and write the
-    # difference into 'KTC value difference at deal time'. The three other
-    # KTC time-point columns are populated in a follow-up PR.
+    # we resolve those against DynastyProcess values snapshots and sum each
+    # side. Four reference points per trade:
+    #   - deal time:       the trade date itself
+    #   - end of season:   Jan 5 of (trade.Season + 1)
+    #   - 1 year later:    Jan 5 of (trade.Season + 2)
+    #   - 2 years later:   Jan 5 of (trade.Season + 3)
+    # 'End of season' uses Jan 5 because Sleeper championships finish by
+    # week 17 and 'immediately after the championship' is the year-end
+    # boundary we agreed on (see Season-column PR). Reference dates in
+    # the future leave that column blank for now.
     # --------------------------
     try:
         if trades_rows:
@@ -3424,6 +3430,51 @@ def build_all(repo_root: Path) -> None:
             xwalk = load_playerid_xwalk(repo_root)
             fp_by_sid = build_fp_id_by_sleeper(xwalk)
             snap_cache: Dict[date, pd.DataFrame] = {}
+            today = datetime.utcnow().date()
+
+            def _get_snap(d: date) -> Optional[pd.DataFrame]:
+                if d > today:
+                    return None
+                if d in snap_cache:
+                    return snap_cache[d]
+                s = values_at_date(repo_root, d)
+                snap_cache[d] = s
+                return s if (s is not None and not s.empty) else None
+
+            def _side_total(
+                snap_df: pd.DataFrame,
+                player_ids: List[str],
+                pick_labels: List[str],
+            ) -> Tuple[float, int]:
+                total = 0.0
+                hits = 0
+                for sid in player_ids:
+                    v = asset_value(None, str(sid), snap_df, fp_by_sid)
+                    if v is not None:
+                        total += v
+                        hits += 1
+                for plabel in pick_labels:
+                    v = asset_value(str(plabel), None, snap_df, fp_by_sid)
+                    if v is not None:
+                        total += v
+                        hits += 1
+                return total, hits
+
+            def _diff_at(
+                snap_df: pd.DataFrame,
+                recv_ids: List[str],
+                drop_ids: List[str],
+                recv_picks: List[str],
+                drop_picks: List[str],
+            ) -> Optional[float]:
+                if snap_df is None or snap_df.empty:
+                    return None
+                r_total, r_hits = _side_total(snap_df, recv_ids, recv_picks)
+                d_total, d_hits = _side_total(snap_df, drop_ids, drop_picks)
+                if not (r_hits and d_hits):
+                    return None
+                return round(r_total - d_total, 1)
+
             for row in trades_rows:
                 ds = row.get("Date")
                 if not ds:
@@ -3433,41 +3484,50 @@ def build_all(repo_root: Path) -> None:
                     trade_date = trade_dt.date()
                 except Exception:
                     continue
-                snap = snap_cache.get(trade_date)
-                if snap is None:
-                    snap = values_at_date(repo_root, trade_date)
-                    snap_cache[trade_date] = snap
-                if snap is None or snap.empty:
-                    continue
+                season_i = row.get("Season")
+                try:
+                    season_i = int(season_i) if season_i is not None else None
+                except Exception:
+                    season_i = None
+
                 recv_ids = list(row.get("_recv_player_ids") or [])
                 drop_ids = list(row.get("_drop_player_ids") or [])
                 recv_picks = list(row.get("_recv_picks") or [])
                 drop_picks = list(row.get("_drop_picks") or [])
 
-                def _side_total(player_ids: List[str], pick_labels: List[str]) -> Tuple[float, int]:
-                    total = 0.0
-                    hits = 0
-                    for sid in player_ids:
-                        v = asset_value(None, str(sid), snap, fp_by_sid)
-                        if v is not None:
-                            total += v
-                            hits += 1
-                    for plabel in pick_labels:
-                        v = asset_value(str(plabel), None, snap, fp_by_sid)
-                        if v is not None:
-                            total += v
-                            hits += 1
-                    return total, hits
+                # Deal time
+                snap_now = _get_snap(trade_date)
+                if snap_now is not None:
+                    diff = _diff_at(snap_now, recv_ids, drop_ids, recv_picks, drop_picks)
+                    if diff is not None:
+                        row["KTC value difference at deal time"] = diff
 
-                recv_total, recv_hits = _side_total(recv_ids, recv_picks)
-                drop_total, drop_hits = _side_total(drop_ids, drop_picks)
-                # Only emit a difference if BOTH sides resolved at least
-                # one asset. Otherwise the comparison is meaningless
-                # (mid-2021 KTC data is sparse for older players).
-                if recv_hits and drop_hits:
-                    row["KTC value difference at deal time"] = round(recv_total - drop_total, 1)
+                # Future reference points only make sense if we know Season.
+                if season_i is None:
+                    continue
+
+                ref_points = [
+                    ("KTC value difference at end of season", date(season_i + 1, 1, 5)),
+                    ("KTC value difference 1 year later",     date(season_i + 2, 1, 5)),
+                    ("KTC value difference 2 years later",    date(season_i + 3, 1, 5)),
+                ]
+                for col_name, ref_date in ref_points:
+                    # Skip if the reference date is before the trade
+                    # itself (can happen for trades that occur AFTER
+                    # Jan 5 of the next year — Sleeper still attributes
+                    # them to the just-ended Season). Use the trade
+                    # date itself as a floor so 'end of season' is
+                    # never earlier than 'deal time'.
+                    if ref_date < trade_date:
+                        ref_date = trade_date
+                    snap_ref = _get_snap(ref_date)
+                    if snap_ref is None:
+                        continue
+                    diff = _diff_at(snap_ref, recv_ids, drop_ids, recv_picks, drop_picks)
+                    if diff is not None:
+                        row[col_name] = diff
     except Exception as e:
-        _log_exc(debug, "ktc_at_deal_time", e)
+        _log_exc(debug, "ktc_value_diff", e)
 
     tx = pd.DataFrame(transactions_rows)
     tr = pd.DataFrame(trades_rows)
