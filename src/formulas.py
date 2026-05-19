@@ -156,8 +156,8 @@ _ROWS = [
     {
         "Stat": "Tanking",
         "Sheet": "transactions / trades",
-        "Formula": "Looks up team_year.Tanking for the row's (Team, Season).",
-        "Notes": "Single column reflecting the team's full-season tank state. Previously split into 'before' / 'after' but those were always identical so we collapsed.",
+        "Formula": "team_week.Tanking for the (Team, Season, week-of-transaction). Week is derived from Date: Sept 7 of Season = week 1, each subsequent Thursday is the next week, floored to 1 and capped at 17. Falls back to adjacent weeks then team_year.Tanking if the exact week is missing (e.g., offseason transactions).",
+        "Notes": "Per-week lookup gives the team's tank state AT THE TIME of the decision, rather than the season aggregate. Useful for evaluating mid-season pickups.",
     },
     # -------------------------------- trades.csv --------------------------------
     {
@@ -200,9 +200,9 @@ _ROWS = [
     # -------------------------------- team_week / team_year --------------------------------
     {
         "Stat": "Tanking",
-        "Sheet": "team_year",
-        "Formula": "Differential between (sum of optimal lineup PF) and (sum of actual PF) summed across weeks where the team was eliminated from playoff contention or otherwise mathematically losing.",
-        "Notes": "Higher = more leaving points on the bench late in the season. Treated as a single per-season score.",
+        "Sheet": "team_week / team_year / team_all_time",
+        "Formula": "Per-week: (1/6)*(1 - (AvgPF - 2/3*L_PF) / (L_PF/3)) + (1/6)*(1 - (AvgMaxPF - L_PF) / (L_MaxPF - L_PF)) + (1/6)*(1 - (AvgAge - 21) / (L_AvgAge - 21)) + (1/6)*pick_sum_this_year + (1/9)*future_draft_capital. AvgPF/MaxPF/Age are season-to-date expanding means through that week; L_* are league-wide season-to-date averages. team_year.Tanking = final week's expanding-mean value. team_all_time.Tanking = mean of per-season values.",
+        "Notes": "Positive when the team is under-scoring vs league while accumulating draft capital. Per-week values aggregate by 'last week' (team_year) and 'mean of seasons' (team_all_time) — never summed, since each weekly value is already a season-to-date mean and summing would over-count.",
     },
     {
         "Stat": "Luck",

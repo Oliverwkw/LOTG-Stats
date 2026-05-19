@@ -5871,6 +5871,127 @@ def build_all(repo_root: Path) -> None:
             rows.append(row)
         team_year = pd.DataFrame(rows)
 
+        # In-progress seasons (e.g., 2026 in May 2026 — drafts done,
+        # no games yet) have no team_week rows, so the groupby above
+        # produces no team_year row either. That leaves transactions
+        # and trades for the in-progress season homeless when the
+        # detail tables look for their per-season rollup, and breaks
+        # the "team_year ↔ detail" reconciliation we've been keeping
+        # clean. Emit minimal placeholder rows so the in-progress
+        # season is represented.
+        try:
+            seasons_in_tw = set()
+            if not tw.empty and "Year" in tw.columns:
+                seasons_in_tw = {int(y) for y in tw["Year"].dropna().unique()}
+            # All seasons present in the loaded league chain
+            chain_seasons = {int(lg.get("season")) for lg in (leagues or []) if lg.get("season")}
+            in_progress = chain_seasons - seasons_in_tw
+            if in_progress:
+                # Canonical team list from the most recent completed
+                # season's rosters (or from any team_year row we have).
+                canonical_teams: List[str] = []
+                if not team_year.empty and "Team" in team_year.columns:
+                    canonical_teams = sorted(team_year["Team"].dropna().astype(str).unique().tolist())
+                # Fallback to roster_to_team if team_year was empty
+                if not canonical_teams:
+                    canonical_teams = sorted({str(v) for v in roster_to_team.values() if v})
+
+                placeholder_rows = []
+                for season_i in sorted(in_progress):
+                    for team_name in canonical_teams:
+                        placeholder_rows.append({
+                            "Team": str(team_name),
+                            "Year": int(season_i),
+                            "Result": "N/A",
+                            "Win %": 0.0,
+                            "Record": "0-0-0",
+                            "Record & win % vs each team": "N/A",
+                            "Record & win % vs playoff teams": "N/A",
+                            "Record & win % vs non-playoff teams": "N/A",
+                            "Record & win % vs champion": "N/A",
+                            "Record & win % vs last place": "N/A",
+                            "Change in win % from previous season": None,
+                            "Win Variance": None,
+                            "Week of playoff elimination": None,
+                            "Draft Value": 0,
+                            "Number of first round picks made": 0,
+                            "Total number of picks made": 0,
+                            "Points": 0.0,
+                            "Avg points": 0.0,
+                            "Points against": 0.0,
+                            "Avg points against": 0.0,
+                            "Differential": 0.0,
+                            "Avg differential": 0.0,
+                            "Max PF": 0.0,
+                            "Avg max PF": None,
+                            "Efficiency": None,
+                            "Weeks of injuries": 0,
+                            "Weeks suspensions": 0,
+                            "Hardship": 0.0,
+                            "Offseason starter turnover": 0,
+                            "Inseason starter turnover": 0,
+                            # Number of transactions / trades / FAAB
+                            # spent will be backfilled from the detail
+                            # tables by the post-build reconciliation
+                            # step we already run for completed seasons.
+                            "Number of transactions": 0,
+                            "Number of trades": 0,
+                            "Amount of FAAB spent": 0.0,
+                            "Combined matchup score": 0.0,
+                        })
+                if placeholder_rows:
+                    team_year = pd.concat([team_year, pd.DataFrame(placeholder_rows)], ignore_index=True)
+                    _log(debug, f"[{_now_iso()}] INFO seeded {len(placeholder_rows)} team_year placeholder rows for in-progress season(s) {sorted(in_progress)}")
+
+                    # Backfill transaction / trade / FAAB counts for
+                    # the in-progress rows from the detail tables.
+                    # Without this they'd stay at 0 even though we have
+                    # real offseason activity (drafts, FA pickups,
+                    # trades) for the in-progress season.
+                    tx_count_ip: Dict[Tuple[str, int], int] = defaultdict(int)
+                    tx_faab_ip: Dict[Tuple[str, int], float] = defaultdict(float)
+                    for r in transactions_rows:
+                        try:
+                            t = str(r.get("Team") or "")
+                            s = int(r.get("Season")) if r.get("Season") is not None else None
+                        except Exception:
+                            continue
+                        if not t or s is None or s not in in_progress:
+                            continue
+                        tx_count_ip[(t, s)] += 1
+                        try:
+                            f = float(r.get("Faab") or 0.0)
+                        except Exception:
+                            f = 0.0
+                        tx_faab_ip[(t, s)] += f
+                    tr_count_ip: Dict[Tuple[str, int], int] = defaultdict(int)
+                    for r in trades_rows:
+                        try:
+                            t = str(r.get("Team") or "")
+                            s = int(r.get("Season")) if r.get("Season") is not None else None
+                        except Exception:
+                            continue
+                        if not t or s is None or s not in in_progress:
+                            continue
+                        tr_count_ip[(t, s)] += 1
+                    # Trades are counted by both Number of trades and
+                    # Number of transactions in our schema.
+                    for idx, row in team_year.iterrows():
+                        try:
+                            s = int(row.get("Year"))
+                            t = str(row.get("Team"))
+                        except Exception:
+                            continue
+                        if s not in in_progress:
+                            continue
+                        n_tx = tx_count_ip.get((t, s), 0)
+                        n_tr = tr_count_ip.get((t, s), 0)
+                        team_year.at[idx, "Number of transactions"] = int(n_tx + n_tr)
+                        team_year.at[idx, "Number of trades"] = int(n_tr)
+                        team_year.at[idx, "Amount of FAAB spent"] = round(tx_faab_ip.get((t, s), 0.0), 2)
+        except Exception as e:
+            _log_exc(debug, "team_year_in_progress_seed", e)
+
         # Pick-history-based rollups (Draft Value, # picks made by round).
         # Uses the final-owner team (who actually drafted) for each pick row,
         # which after the trade-chain rewrite above lives in pick_rows' Trade
@@ -6050,9 +6171,24 @@ def build_all(repo_root: Path) -> None:
         # Fill missing Team-year columns from team-week (flags, tanking, luck, roster composition, etc.)
         # --------------------------
         try:
-            agg_year = tw.groupby(["Team", "Year"], as_index=False).agg(
+            # Tanking helper: pick the final week's expanding-mean
+            # value rather than summing every week. The per-week
+            # Tanking score is an expanding mean from season start
+            # through that week (see _tanking_score), so the last
+            # value already represents the team's season-final tank
+            # signal. Summing weeks was wildly inflating the number
+            # and made cross-team comparisons meaningless.
+            def _tank_last_week(s: pd.Series) -> float:
+                vals = pd.to_numeric(s, errors="coerce").dropna()
+                if vals.empty:
+                    return 0.0
+                return float(vals.iloc[-1])
+
+            # Sort by Week first so 'last' actually means latest week.
+            tw_sorted = tw.sort_values(["Team", "Year", "Week"])
+            agg_year = tw_sorted.groupby(["Team", "Year"], as_index=False).agg(
                 **{
-                    "Tanking": ("Tanking", "sum"),
+                    "Tanking": ("Tanking", _tank_last_week),
                     "Luck": ("Luck", "sum"),
                     "Times Brosenzweig": ("Brosenzweig", "sum"),
                     "Times Sisenzweig": ("Sisenzweig", "sum"),
@@ -6221,7 +6357,11 @@ def build_all(repo_root: Path) -> None:
                 "Inseason starter turnover": 0,
                 "Offseason roster turnover": 0,
                 "Inseason roster turnover": 0,
-                "Tanking": float(pd.to_numeric(g.get("Tanking"), errors="coerce").fillna(0.0).sum()),
+                # Average of per-season-final Tanking values, not sum.
+                # Per-season Tanking is already an expanding-mean tank
+                # score; summing seasons creates an unbounded number
+                # with no clear interpretation.
+                "Tanking": float(pd.to_numeric(g.get("Tanking"), errors="coerce").dropna().mean() or 0.0),
                 "Luck": float(pd.to_numeric(g.get("Luck"), errors="coerce").fillna(0.0).sum()),
             }
             rows.append(row)
@@ -6629,7 +6769,10 @@ def build_all(repo_root: Path) -> None:
                 "Number of wins with pregame avg max PF from opponent": int(pd.to_numeric(g.get("UPST"), errors="coerce").fillna(0.0).sum()),
                 "UPST": int(pd.to_numeric(g.get("UPST"), errors="coerce").fillna(0.0).sum()),
                 "Hardship": float(pd.to_numeric(g.get("Hardship"), errors="coerce").fillna(0.0).sum()),
-                "Tanking": float(pd.to_numeric(g.get("Tanking"), errors="coerce").fillna(0.0).sum()),
+                # League-week Tanking = mean across teams. Per-team
+                # Tanking is already a normalized score; summing 8
+                # teams' scores would be misleading.
+                "Tanking": float(pd.to_numeric(g.get("Tanking"), errors="coerce").dropna().mean() or 0.0),
                 "Luck": float(pd.to_numeric(g.get("Luck"), errors="coerce").fillna(0.0).sum()),
                 "Increase in points from previous week": float(pd.to_numeric(g.get("Increase in points from previous week"), errors="coerce").fillna(0.0).sum()),
                 "Number of QB started": int(pd.to_numeric(g.get("Number of QB started"), errors="coerce").fillna(0.0).sum()),
@@ -6718,7 +6861,8 @@ def build_all(repo_root: Path) -> None:
                 "Inseason roster turnover": 0,    # filled from team_year below
                 "Offseason roster turnover": 0,   # filled from team_year below
                 "Number of wins with pregame avg max PF from opponent": int(pd.to_numeric(g.get("UPST"), errors="coerce").fillna(0.0).sum()),
-                "Tanking": float(pd.to_numeric(g.get("Tanking"), errors="coerce").fillna(0.0).sum()),
+                # League-year Tanking = mean of weekly league Tanking.
+                "Tanking": float(pd.to_numeric(g.get("Tanking"), errors="coerce").dropna().mean() or 0.0),
                 "Luck": float(pd.to_numeric(g.get("Luck"), errors="coerce").fillna(0.0).sum()),
                 "Increase in points from previous week": float(pd.to_numeric(g.get("Increase in points from previous week"), errors="coerce").fillna(0.0).sum()),
                 "Number of QB started": int(pd.to_numeric(g.get("Number of QB started"), errors="coerce").fillna(0.0).sum()),
@@ -6817,7 +6961,8 @@ def build_all(repo_root: Path) -> None:
             "Number of weeks missed due to injury": int(pd.to_numeric(g_week.get("Number of Injuries"), errors="coerce").fillna(0.0).sum()),
             "Number of weeks missed due to suspensions": int(pd.to_numeric(g_week.get("Number of suspensions"), errors="coerce").fillna(0.0).sum()),
             "Number of wins with pregame avg max PF from opponent": int(pd.to_numeric(g_week.get("UPST"), errors="coerce").fillna(0.0).sum()),
-            "Tanking": float(pd.to_numeric(g_week.get("Tanking"), errors="coerce").fillna(0.0).sum()),
+            # League-all-time Tanking = mean across all weeks.
+            "Tanking": float(pd.to_numeric(g_week.get("Tanking"), errors="coerce").dropna().mean() or 0.0),
             "Luck": float(pd.to_numeric(g_week.get("Luck"), errors="coerce").fillna(0.0).sum()),
             "Increase in points from previous week": float(pd.to_numeric(g_week.get("Increase in points from previous week"), errors="coerce").fillna(0.0).sum()),
             "Number of QB started": int(pd.to_numeric(g_week.get("Number of QB started"), errors="coerce").fillna(0.0).sum()),
@@ -6904,14 +7049,57 @@ def build_all(repo_root: Path) -> None:
             tx["Link to next transaction"] = tx.groupby("Team").cumcount() + 2
             tx.loc[tx.groupby("Team").tail(1).index, "Link to next transaction"] = np.nan
 
-            # Tanking — single column joined off team_year for the row's
-            # Season (fantasy year). Previously this was emitted as separate
-            # 'Tanking before' / 'Tanking after' columns, but the rollup
-            # was always a single season-level value so the two columns
-            # were guaranteed equal — misleading. Collapse to one column.
-            if not team_year.empty and "Season" in tx.columns:
-                ty_map = team_year.set_index(["Team","Year"])["Tanking"].to_dict()
-                tx["Tanking"] = [float(ty_map.get((str(t), int(y)), 0)) for t,y in zip(tx["Team"], tx["Season"])]
+            # Tanking — look up the team's per-WEEK Tanking score for
+            # the week the transaction landed in, not the season
+            # aggregate. team_week.Tanking is an expanding-mean
+            # season-to-date score, so the value at week N captures
+            # the team's tank state through that point in the season.
+            # That's more meaningful than a single season-final number
+            # for evaluating decisions made mid-season.
+            #
+            # Week-of-transaction derived from Date: NFL Week 1 starts
+            # ~Sept 7; week N starts 7*(N-1) days later. Pre-week-1
+            # dates floor to week 1, post-week-17 to week 17.
+            if not tw.empty and "Season" in tx.columns:
+                tw_tank_map: Dict[Tuple[str, int, int], float] = {}
+                if "Tanking" in tw.columns:
+                    for _, _r in tw[["Team", "Year", "Week", "Tanking"]].dropna(subset=["Team","Year","Week"]).iterrows():
+                        try:
+                            tw_tank_map[(str(_r["Team"]), int(_r["Year"]), int(_r["Week"]))] = float(_r["Tanking"])
+                        except Exception:
+                            continue
+
+                def _week_for_tx(dt_obj, season_val) -> int:
+                    try:
+                        d = dt_obj.date() if hasattr(dt_obj, "date") else dt_obj
+                        season_start = date(int(season_val), 9, 7)
+                        if d < season_start:
+                            return 1
+                        wk = (d - season_start).days // 7 + 1
+                        return max(1, min(17, int(wk)))
+                    except Exception:
+                        return 1
+
+                ty_map = team_year.set_index(["Team","Year"])["Tanking"].to_dict() if not team_year.empty else {}
+                vals: List[float] = []
+                for t, s, d in zip(tx["Team"], tx["Season"], tx["Date"]):
+                    try:
+                        season_i = int(s)
+                    except Exception:
+                        vals.append(0.0); continue
+                    wk_i = _week_for_tx(d, season_i)
+                    v = tw_tank_map.get((str(t), season_i, wk_i))
+                    if v is None:
+                        # Try adjacent weeks if exact week missing
+                        for wk_try in (wk_i - 1, wk_i + 1):
+                            v = tw_tank_map.get((str(t), season_i, wk_try))
+                            if v is not None:
+                                break
+                    if v is None:
+                        # Final fallback: team_year value for the season
+                        v = ty_map.get((str(t), season_i), 0.0)
+                    vals.append(float(v))
+                tx["Tanking"] = vals
         else:
             if "Tanking" in tx.columns:
                 tx["Tanking"] = pd.to_numeric(tx["Tanking"], errors="coerce").fillna(0.0)
@@ -6928,9 +7116,45 @@ def build_all(repo_root: Path) -> None:
             tr["Link to next transaction"] = tr.groupby("Team").cumcount() + 2
             tr.loc[tr.groupby("Team").tail(1).index, "Link to next transaction"] = np.nan
 
-            if not team_year.empty and "Season" in tr.columns:
-                ty_map = team_year.set_index(["Team","Year"])["Tanking"].to_dict()
-                tr["Tanking"] = [float(ty_map.get((str(t), int(y)), 0)) for t,y in zip(tr["Team"], tr["Season"])]
+            # Trades: same per-week lookup as transactions.
+            if not tw.empty and "Season" in tr.columns:
+                tw_tank_map: Dict[Tuple[str, int, int], float] = {}
+                if "Tanking" in tw.columns:
+                    for _, _r in tw[["Team", "Year", "Week", "Tanking"]].dropna(subset=["Team","Year","Week"]).iterrows():
+                        try:
+                            tw_tank_map[(str(_r["Team"]), int(_r["Year"]), int(_r["Week"]))] = float(_r["Tanking"])
+                        except Exception:
+                            continue
+                ty_map = team_year.set_index(["Team","Year"])["Tanking"].to_dict() if not team_year.empty else {}
+
+                def _week_for_tr(dt_obj, season_val) -> int:
+                    try:
+                        d = dt_obj.date() if hasattr(dt_obj, "date") else dt_obj
+                        season_start = date(int(season_val), 9, 7)
+                        if d < season_start:
+                            return 1
+                        wk = (d - season_start).days // 7 + 1
+                        return max(1, min(17, int(wk)))
+                    except Exception:
+                        return 1
+
+                vals: List[float] = []
+                for t, s, d in zip(tr["Team"], tr["Season"], tr["Date"]):
+                    try:
+                        season_i = int(s)
+                    except Exception:
+                        vals.append(0.0); continue
+                    wk_i = _week_for_tr(d, season_i)
+                    v = tw_tank_map.get((str(t), season_i, wk_i))
+                    if v is None:
+                        for wk_try in (wk_i - 1, wk_i + 1):
+                            v = tw_tank_map.get((str(t), season_i, wk_try))
+                            if v is not None:
+                                break
+                    if v is None:
+                        v = ty_map.get((str(t), season_i), 0.0)
+                    vals.append(float(v))
+                tr["Tanking"] = vals
     except Exception as e:
         _log_exc(debug, "trades_links_tanking", e)
     # Known-player validation report (best-effort): checks core columns against public expectations.
