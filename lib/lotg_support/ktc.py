@@ -38,18 +38,37 @@ DP_IDS_PATH = "files/db_playerids.csv"
 USER_AGENT = "lotg-stats-build/1 (+https://github.com/Oliverwkw/LOTG-Stats)"
 
 
+_HTTP_ERRORS: List[str] = []
+
+
 def _http_get(url: str, accept: str = "text/csv") -> bytes:
-    """Fetch a URL with a simple retry policy. Returns raw bytes."""
+    """Fetch a URL with a simple retry policy. Returns raw bytes.
+
+    GitHub's API and raw endpoints both honor a bearer token; setting
+    GITHUB_TOKEN raises the rate limit from 60/hour to 5000/hour, which
+    matters because the value-history walk for a full build does one
+    commits-API call per unique trade date (a few hundred).
+    """
     req = urllib.request.Request(
         url,
         headers={"User-Agent": USER_AGENT, "Accept": accept},
     )
-    # GitHub raw and the REST API both honor a bearer token if present.
     tok = os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN")
     if tok:
         req.add_header("Authorization", f"Bearer {tok}")
-    with urllib.request.urlopen(req, timeout=30) as resp:
-        return resp.read()
+    try:
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            return resp.read()
+    except Exception as exc:
+        # Capture rate-limit / network failures so the caller can surface
+        # them. Returning bytes() would look like 'empty file' to pandas.
+        _HTTP_ERRORS.append(f"{url}: {type(exc).__name__}: {exc}")
+        raise
+
+
+def get_http_errors() -> List[str]:
+    """Return collected fetch errors so the build can log them."""
+    return list(_HTTP_ERRORS)
 
 
 def _cache_dir(repo_root: Path) -> Path:

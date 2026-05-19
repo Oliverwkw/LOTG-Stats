@@ -3536,6 +3536,14 @@ def build_all(repo_root: Path) -> None:
                         row[col_name] = diff
     except Exception as e:
         _log_exc(debug, "ktc_value_diff", e)
+    # Surface any DynastyProcess fetch failures (rate-limit / 404 / etc.)
+    # so a silent partial population is visible in the build log.
+    try:
+        from lotg_support.ktc import get_http_errors
+        for err in get_http_errors()[:25]:
+            _log(debug, f"[{_now_iso()}] WARN ktc fetch: {err}")
+    except Exception:
+        pass
 
     tx = pd.DataFrame(transactions_rows)
     tr = pd.DataFrame(trades_rows)

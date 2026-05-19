@@ -28,6 +28,13 @@ jobs:
       - name: Run LOTG build
         env:
           PYTHONPATH: src
+          # GITHUB_TOKEN raises the GitHub API rate limit from 60/hour
+          # (unauthenticated) to 5000/hour. lotg_support/ktc.py hits
+          # the commits API once per unique trade date when fetching
+          # historical DynastyProcess KTC snapshots — without auth the
+          # build runs out of quota partway through and silently leaves
+          # later trades as N/A.
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           mkdir -p exports/raw
           set -o pipefail
