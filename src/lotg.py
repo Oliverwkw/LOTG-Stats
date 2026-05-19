@@ -132,6 +132,7 @@ import team_week
 import team_year
 import trades
 import transactions
+import formulas
 
 DOCUMENT_MODULES = [
     player_week,
@@ -146,6 +147,7 @@ DOCUMENT_MODULES = [
     transactions,
     trades,
     pick_history,
+    formulas,
 ]
 
 
@@ -673,6 +675,7 @@ def _preserve_na(col: str) -> bool:
     if col_l in {
         "average ppg on team",
         "average ppg of dropped player over same time",
+        "ppg of 5 games before pickup",
         "difference of averages",
         "difference of averages adjusted by position",
         "age difference",
@@ -1228,6 +1231,16 @@ def build_all(repo_root: Path) -> None:
     player_week_rows: List[Dict[str, Any]] = []
     team_week_rows: List[Dict[str, Any]] = []
     transactions_rows: List[Dict[str, Any]] = []
+    # Cross-season per-player NFL game log (sourced from nflverse, so
+    # weeks count as "played" whether or not the player was on a
+    # fantasy roster at the time). Used by the transactions polish
+    # pass to compute pre-pickup PPG without being limited to pw —
+    # rookies and UFAs picked up after their NFL debut now resolve.
+    # Keyed by Sleeper sleeper_id; each entry: {year, week, points,
+    # _wk_date}. Points use fantasy_points_ppr as the approximation
+    # (most leagues are 0.5-PPR or full PPR; rankings are stable
+    # between the two for trend purposes).
+    nfl_log_by_sid: Dict[str, List[Dict[str, Any]]] = defaultdict(list)
     trades_rows: List[Dict[str, Any]] = []
     # Orphan drops: a player dropped without a corresponding add in the same
     # transaction (pure waiver-to-FA). These don't get a transactions.csv row
@@ -1411,6 +1424,48 @@ def build_all(repo_root: Path) -> None:
                     if pd.isna(wk_i):
                         continue
                     played_players_by_week[int(wk_i)] = set(g["player_id"].dropna().astype(str).tolist())
+
+                # Build cross-season per-player game log so the
+                # transactions polish pass can compute pre-pickup PPG
+                # for players who weren't yet rostered (rookies, UFAs).
+                # nflverse uses GSIS player_ids; bridge to Sleeper IDs
+                # via pid_meta.
+                try:
+                    gsis_to_sid = {
+                        str((meta or {}).get("gsis_id") or "").strip(): str(sid)
+                        for sid, meta in pid_meta.items()
+                        if (meta or {}).get("gsis_id")
+                    }
+                    gsis_to_sid.pop("", None)
+                    if gsis_to_sid:
+                        pts_col = "fantasy_points_ppr" if "fantasy_points_ppr" in spw.columns else (
+                            "fantasy_points" if "fantasy_points" in spw.columns else None
+                        )
+                        if pts_col:
+                            for r in spw[["player_id", "week", pts_col]].dropna(subset=["player_id", "week"]).itertuples(index=False):
+                                gsis = str(r.player_id)
+                                sid = gsis_to_sid.get(gsis)
+                                if not sid:
+                                    continue
+                                try:
+                                    wk = int(r.week)
+                                    pts = float(getattr(r, pts_col))
+                                except Exception:
+                                    continue
+                                # Approx Thursday-of-week date for sorting.
+                                try:
+                                    wk_d = date(int(season), 9, 7) + timedelta(days=7 * (wk - 1))
+                                    wk_iso = wk_d.isoformat()
+                                except Exception:
+                                    wk_iso = ""
+                                nfl_log_by_sid[sid].append({
+                                    "year": int(season),
+                                    "week": wk,
+                                    "points": pts,
+                                    "_wk_date": wk_iso,
+                                })
+                except Exception as e:
+                    _log_exc(debug, f"nfl_log_by_sid_{season}", e)
         except Exception as e:
             _log_exc(debug, f"load_nflverse_stats_player_week_{season}", e)
 
@@ -3759,20 +3814,71 @@ def build_all(repo_root: Path) -> None:
                     return ppg
                 return round(ppg * all_starter_avg / p, 4)
 
-            def _avg_ppg_last5_before(player_name: Optional[str], pickup_date_iso: str) -> Optional[float]:
+            # Build name -> sleeper_id once so we can hit nfl_log_by_sid
+            # (which is keyed by Sleeper id) from a player display name.
+            name_to_sid_local: Dict[str, str] = {}
+            for sid, meta in pid_meta.items():
+                fn = (meta or {}).get("full_name")
+                if fn:
+                    name_to_sid_local.setdefault(str(fn), str(sid))
+
+            def _player_games(player_name: Optional[str]) -> List[Dict[str, Any]]:
+                """Return the player's NFL game log: list of dicts with
+                _wk_date and Points. Prefer nflverse (covers all NFL
+                weeks regardless of fantasy roster status); fall back
+                to pw (filtering out bye / injury rows since those
+                aren't 'played' for our purposes)."""
                 if not player_name:
-                    return None
-                rows = pw_by_player.get(player_name, [])
-                played = [
-                    r for r in rows
-                    if r["_wk_date"] and r["_wk_date"] < pickup_date_iso
-                    and not r["Bye?"] and not r["Injury?"]
-                ]
+                    return []
+                sid = name_to_sid_local.get(player_name)
+                games: List[Dict[str, Any]] = []
+                if sid:
+                    for entry in nfl_log_by_sid.get(sid, []):
+                        if entry["_wk_date"]:
+                            games.append({"_wk_date": entry["_wk_date"], "Points": entry["points"]})
+                if not games:
+                    for r in pw_by_player.get(player_name, []):
+                        if r["_wk_date"] and not r["Bye?"] and not r["Injury?"]:
+                            games.append({"_wk_date": r["_wk_date"], "Points": r["Points"]})
+                return games
+
+            def _avg_ppg_last5_before(player_name: Optional[str], pickup_date_iso: str) -> Optional[float]:
+                """Mean fantasy points over the 5 most-recent played
+                games BEFORE the pickup date. If fewer than 5 games
+                exist on record, averages whatever's available (e.g.,
+                2 games -> mean of 2). Used for cuff detection and the
+                'PPG of 5 games before pickup' column."""
+                games = _player_games(player_name)
+                played = [g for g in games if g["_wk_date"] < pickup_date_iso]
                 if not played:
                     return None
-                played.sort(key=lambda r: r["_wk_date"], reverse=True)
-                last5 = played[:5]
-                return round(sum(r["Points"] for r in last5) / len(last5), 4)
+                played.sort(key=lambda g: g["_wk_date"], reverse=True)
+                window = played[:5]
+                return round(sum(g["Points"] for g in window) / len(window), 4)
+
+            def _avg_ppg_in_window(
+                player_name: Optional[str],
+                start_iso: str,
+                end_iso: Optional[str],
+            ) -> Optional[float]:
+                """Mean fantasy points across NFL games in [start, end).
+                end_iso=None means 'no upper bound' — counts through
+                end of dataset. Used for the forward-looking 'Average
+                PPG on team' and 'over same time' columns: the window
+                is the time the added player was on the picking team."""
+                games = _player_games(player_name)
+                in_window: List[float] = []
+                for g in games:
+                    if not g["_wk_date"]:
+                        continue
+                    if g["_wk_date"] < start_iso:
+                        continue
+                    if end_iso and g["_wk_date"] >= end_iso:
+                        continue
+                    in_window.append(g["Points"])
+                if not in_window:
+                    return None
+                return round(sum(in_window) / len(in_window), 4)
 
             def _player_pos_nfl_team_at(player_name: Optional[str], pickup_date_iso: str) -> Tuple[Optional[str], Optional[str]]:
                 """Best-effort position+NFL team for the player AS OF the
@@ -3803,25 +3909,64 @@ def build_all(repo_root: Path) -> None:
                 # Pull a YYYY-MM-DD prefix for week-date string comparison.
                 pickup_iso_prefix = pickup_iso[:10] if len(pickup_iso) >= 10 else pickup_iso
 
+                # Compute the player's tenure window on this team.
+                # 'Average PPG on team' and 'over same time' are
+                # forward-looking: from pickup date to the next
+                # drop/trade of the added player (or open-ended if
+                # the player is still rostered).
+                drop_after_iso = str(r.get("Date dropped/traded") or "")
+                drop_after_prefix = drop_after_iso[:10] if len(drop_after_iso) >= 10 else (
+                    drop_after_iso or None
+                )
+
                 # --- Avg PPG family ---
-                added_avg = _avg_ppg_last5_before(added, pickup_iso_prefix) if added else None
-                dropped_avg = _avg_ppg_last5_before(dropped, pickup_iso_prefix) if dropped else None
-                if added_avg is not None:
-                    r["Average PPG on team"] = added_avg
-                if dropped_avg is not None:
-                    r["Average PPG of dropped player over same time"] = dropped_avg
-                if added_avg is not None or dropped_avg is not None:
-                    r["Difference of averages"] = round((added_avg or 0.0) - (dropped_avg or 0.0), 4)
+                # Forward-looking: how did the added player do on this
+                # team, and what was the dropped player doing in NFL
+                # over the same window?
+                added_on_team = (
+                    _avg_ppg_in_window(added, pickup_iso_prefix, drop_after_prefix)
+                    if added else None
+                )
+                dropped_same_window = (
+                    _avg_ppg_in_window(dropped, pickup_iso_prefix, drop_after_prefix)
+                    if dropped else None
+                )
+                # Pre-pickup snapshot: trailing 5-game average. Useful
+                # for evaluating the pickup decision (what did the
+                # market know about this guy at the time).
+                added_pre5 = _avg_ppg_last5_before(added, pickup_iso_prefix) if added else None
+                # Pre-pickup average for the dropped player too (used
+                # in the cuff comparison; still computed once).
+                dropped_pre5 = _avg_ppg_last5_before(dropped, pickup_iso_prefix) if dropped else None
+
+                if added_on_team is not None:
+                    r["Average PPG on team"] = added_on_team
+                if dropped_same_window is not None:
+                    r["Average PPG of dropped player over same time"] = dropped_same_window
+                if added_pre5 is not None:
+                    r["PPG of 5 games before pickup"] = added_pre5
+                if added_on_team is not None or dropped_same_window is not None:
+                    r["Difference of averages"] = round(
+                        (added_on_team or 0.0) - (dropped_same_window or 0.0), 4
+                    )
 
                 # --- Position adjustment ---
+                # Position adjustment now uses the forward-looking
+                # tenure averages (matches user's clarification:
+                # 'adjust adjusted averages to match this').
                 added_pos, added_nfl = _player_pos_nfl_team_at(added, pickup_iso_prefix)
                 dropped_pos, dropped_nfl = _player_pos_nfl_team_at(dropped, pickup_iso_prefix)
-                added_adj = _pos_adjust(added_avg, added_pos)
-                dropped_adj = _pos_adjust(dropped_avg, dropped_pos)
+                added_adj = _pos_adjust(added_on_team, added_pos)
+                dropped_adj = _pos_adjust(dropped_same_window, dropped_pos)
                 adj_diff = None
                 if added_adj is not None or dropped_adj is not None:
                     adj_diff = round((added_adj or 0.0) - (dropped_adj or 0.0), 4)
                     r["Difference of averages adjusted by position"] = adj_diff
+
+                # The cuff comparison still uses the pre-pickup 5-game
+                # snapshot — that's the form info available at pickup.
+                # Bind it under the original name the cuff code reads.
+                added_avg = added_pre5
 
                 # --- Age difference (added - dropped, years) ---
                 def _age_for(name):
