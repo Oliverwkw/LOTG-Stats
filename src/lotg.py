@@ -3376,6 +3376,13 @@ def build_all(repo_root: Path) -> None:
                 fn = (meta or {}).get("full_name")
                 if fn:
                     name_to_sid.setdefault(str(fn), str(sid))
+            # Build the canonical set of team names so we can refuse to
+            # emit manual rows whose Team doesn't match. A typo silently
+            # showed up as a phantom team in an earlier iteration.
+            canonical_teams: Set[str] = set()
+            if not tw.empty and "Team" in tw.columns:
+                canonical_teams = {str(t) for t in tw["Team"].dropna().unique()}
+
             n_added = 0
             for _, mrow in mdf.iterrows():
                 added_name = (str(mrow.get("Player Added") or "").strip() or None)
@@ -3383,6 +3390,19 @@ def build_all(repo_root: Path) -> None:
                 if added_name in ("", "nan"): added_name = None
                 if dropped_name in ("", "nan"): dropped_name = None
                 if not added_name and not dropped_name:
+                    continue
+                # Sanity-check the Date — a corrupted CSV (e.g.
+                # unquoted commas in Notes) can shift every field one
+                # column left, which surfaced once as Puka Nacua's row
+                # claiming Date=2023 and Faab="waiver". Fail loud.
+                try:
+                    datetime.fromisoformat(str(mrow.get("Date")).replace("Z","+00:00"))
+                except Exception:
+                    _log(debug, f"[{_now_iso()}] WARN manual transactions: skipping row with bad Date {mrow.get('Date')!r} (CSV likely malformed)")
+                    continue
+                team_val = str(mrow.get("Team") or "").strip()
+                if canonical_teams and team_val not in canonical_teams:
+                    _log(debug, f"[{_now_iso()}] WARN manual transactions: Team {team_val!r} doesn't match any canonical team — skipping")
                     continue
                 added_pid = name_to_sid.get(added_name) if added_name else None
                 dropped_pid = name_to_sid.get(dropped_name) if dropped_name else None
