@@ -1747,6 +1747,13 @@ def build_all(repo_root: Path) -> None:
         # winning row can carry the contested-bid count for downstream
         # display.
         bids_per_player_week: Dict[Tuple[int, int, str], int] = defaultdict(int)
+        # total_bids_amount_per_player_week — sum of waiver_bid amounts
+        # across all attempts (winner + losers) on the same player that
+        # week. Surfaces on transactions.csv as 'Total FAAB bid' so the
+        # context for a winning bid is visible: e.g. a 5-FAAB win that
+        # beat a single 1-FAAB bid is much less impressive than a
+        # 5-FAAB win that beat 4 other bids summing to 50.
+        total_bids_amount_per_player_week: Dict[Tuple[int, int, str], float] = defaultdict(float)
 
         for wk in range(1, min(last_week, 30) + 1):
             if not week_allowed(wk):
@@ -1863,8 +1870,17 @@ def build_all(repo_root: Path) -> None:
                     adds_for_count = t.get("adds") or {}
                     if not isinstance(adds_for_count, dict):
                         continue
+                    bid_settings = t.get("settings") or {}
+                    bid_amt = 0.0
+                    if isinstance(bid_settings, dict):
+                        try:
+                            bid_amt = float(bid_settings.get("waiver_bid") or 0)
+                        except Exception:
+                            bid_amt = 0.0
                     for pid_key in adds_for_count.keys():
-                        bids_per_player_week[(int(season), int(wk), str(pid_key))] += 1
+                        key = (int(season), int(wk), str(pid_key))
+                        bids_per_player_week[key] += 1
+                        total_bids_amount_per_player_week[key] += bid_amt
 
                 # Drop failed transactions. Sleeper's status taxonomy:
                 #   complete -> the move actually happened
@@ -2828,14 +2844,16 @@ def build_all(repo_root: Path) -> None:
                             roster_to_team.get(int(row_rrid_int)) if row_rrid_int is not None else None
                         ) or team
 
-                        # Resolve Number of bids from the per-week tally.
-                        # Only meaningful for waiver claims; free-agent and
-                        # commissioner adds aren't bid on.
+                        # Resolve Number of bids + Total FAAB bid from the
+                        # per-week tallies. Only meaningful for waiver
+                        # claims; free-agent and commissioner adds aren't
+                        # bid on.
                         row_num_bids = None
+                        row_total_faab = None
                         if ttype == "waiver":
-                            row_num_bids = bids_per_player_week.get(
-                                (int(season), int(wk), str(pid)), 0
-                            ) or None
+                            key = (int(season), int(wk), str(pid))
+                            row_num_bids = bids_per_player_week.get(key, 0) or None
+                            row_total_faab = total_bids_amount_per_player_week.get(key, 0.0) or None
 
                         transactions_rows.append({
                             "Team": row_team,
@@ -2843,6 +2861,7 @@ def build_all(repo_root: Path) -> None:
                             "Player Dropped": pid_meta.get(dropped, {}).get("full_name") if dropped else None,
                             "type of transaction (waiver/free agency)": ttype,
                             "Faab": faab,
+                            "Total FAAB bid": row_total_faab,
                             "Date": created_dt.isoformat() if created_dt else (str(created_date) if created_date else None),
                             "Season": int(season),
                             "Number of bids": row_num_bids,
@@ -2906,6 +2925,7 @@ def build_all(repo_root: Path) -> None:
                                         "Player Dropped": drop_player_name,
                                         "type of transaction (waiver/free agency)": ttype,
                                         "Faab": None,
+                                        "Total FAAB bid": None,
                                         "Date": drop_dt,
                                         "Season": int(season),
                                         "Number of bids": None,
