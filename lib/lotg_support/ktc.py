@@ -213,10 +213,34 @@ def asset_value(
         dp_labels = _pick_label_to_dp(asset)
         if not dp_labels:
             return None
-        # Walk fallback list, take the first group of labels that resolves
-        # to at least one row. We split into three precedence buckets so
-        # specific-slot match wins over generic, and generic round wins
-        # over averaging all 12 specific slots.
+        is_unknown_slot = "??" in asset
+
+        # For an unknown-slot pick, the right value is "what is a pick
+        # of this round worth this year on average":
+        #   - Pre-draft: DynastyProcess publishes a generic round label
+        #     ('2024 1st') whose value is roughly that average.
+        #   - Post-draft: only specific-slot rows exist ('2024 Pick
+        #     1.01' .. 1.12); we average across whichever are present
+        #     in the snapshot. (Before this change asset_value walked
+        #     the slots in order and returned 1.01's value alone —
+        #     wildly off for late picks.)
+        if is_unknown_slot:
+            generic_labels = [l for l in dp_labels if "Pick" not in l]
+            specific_labels = [l for l in dp_labels if "Pick" in l]
+            for label in generic_labels:
+                picks = values_df[values_df["player"] == label]
+                if not picks.empty:
+                    vals = pd.to_numeric(picks[value_col], errors="coerce").dropna()
+                    if not vals.empty:
+                        return float(vals.mean())
+            picks = values_df[values_df["player"].isin(specific_labels)]
+            if not picks.empty:
+                vals = pd.to_numeric(picks[value_col], errors="coerce").dropna()
+                if not vals.empty:
+                    return float(vals.mean())
+            return None
+
+        # Specific slot — try specific first, fall back to generic.
         for label in dp_labels:
             picks = values_df[values_df["player"] == label]
             if not picks.empty:
