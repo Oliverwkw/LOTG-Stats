@@ -666,6 +666,22 @@ def _preserve_na(col: str) -> bool:
         "faab % difference over second place",
     }:
         return True
+    # PPG / age / start-rate columns on transactions.csv. Blank = the
+    # row had no Player Added/Dropped to compute against, or the
+    # player has no pre-pickup game log. Distinct from 'value is
+    # actually zero'.
+    if col_l in {
+        "average ppg on team",
+        "average ppg of dropped player over same time",
+        "difference of averages",
+        "difference of averages adjusted by position",
+        "age difference",
+        "player addition value",
+        "number of starts before next drop",
+        "% of starts made while rostered",
+        "injury adjusted % of starts made while rostered",
+    }:
+        return True
     # Pick-value columns on trades.csv: blank means the trade had no
     # picks at all, or all picks failed to resolve (e.g., picks for a
     # draft too far in the future). Distinct from 'the pick value is
@@ -3649,6 +3665,268 @@ def build_all(repo_root: Path) -> None:
                         r["Weeks between pickup and start"] = weeks_before_start
     except Exception as e:
         _log_exc(debug, "transactions_polish", e)
+
+    # --------------------------
+    # transactions_rows polish pass 2: PPG-derived columns, age diff,
+    # cuff detection, post-pickup start-rate metrics, and composite
+    # 'Player addition value'.
+    #
+    # Definitions (per league owner):
+    #   Avg PPG (added/dropped): mean of points scored in the last 5
+    #     played games BEFORE the pickup date, regardless of fantasy
+    #     team. Bye and injury weeks are not "played games" — skip them.
+    #   Difference of averages: added_avg - dropped_avg
+    #   Difference adjusted by position:
+    #     added_adj  = added_avg * all_starter_avg / pos_avg[added_pos]
+    #     dropped_adj = dropped_avg * all_starter_avg / pos_avg[dropped_pos]
+    #     adjusted_diff = added_adj - dropped_adj
+    #     (normalises positions to a common scale)
+    #   Cuff at time of pickup?: another STARTER on the picking team
+    #     at the pickup week shares NFL team + position with the added
+    #     player AND averaged 10+ PPG more in last 5 played games.
+    #   Number of starts before next drop: count of pw rows for
+    #     (Team, Player Added) with Starter/Bench=='Starter' that fall
+    #     between Date and Date dropped/traded.
+    #   % of starts made while rostered: starts / weeks_rostered.
+    #   Injury adjusted version: same, but exclude Bye? and Injury?
+    #     rows from BOTH numerator and denominator.
+    #   Player addition value:
+    #     adjusted_diff * (1 + pct_starts) * (1 + pct_starts_inj_adj)
+    #       + CUFF_BONUS  (only added when 'Cuff at time of pickup?'=True)
+    # --------------------------
+    try:
+        if transactions_rows and not pw.empty:
+            from datetime import date as _date_cls
+            # --- precompute per-player game logs across the whole pw ---
+            pw_min_p = pw[["Player", "Team", "Year", "Week", "Points",
+                           "Position", "NFL team", "Starter/Bench",
+                           "Injury?", "Bye?"]].copy()
+
+            def _approx_week_date2(year, week):
+                try:
+                    d = _date_cls(int(year), 9, 7) + timedelta(days=7 * (int(week) - 1))
+                    return d.isoformat()
+                except Exception:
+                    return ""
+
+            pw_min_p["_wk_date"] = [
+                _approx_week_date2(y, w) for y, w in zip(pw_min_p["Year"], pw_min_p["Week"])
+            ]
+
+            # Index by player (regardless of fantasy team) for the
+            # "last 5 played games before date" lookup.
+            pw_by_player: Dict[str, List[Dict[str, Any]]] = defaultdict(list)
+            # Index by (team, week, year) for the cuff lookup — gives
+            # us the picking team's roster snapshot at the pickup week.
+            pw_by_team_week: Dict[Tuple[str, int, int], List[Dict[str, Any]]] = defaultdict(list)
+            # Index by (team, player) for the start-rate walk.
+            pw_by_team_player: Dict[Tuple[str, str], List[Dict[str, Any]]] = defaultdict(list)
+
+            for _, prow in pw_min_p.iterrows():
+                d = {
+                    "Player": str(prow.get("Player") or ""),
+                    "Team": str(prow.get("Team") or ""),
+                    "Year": int(prow["Year"]) if pd.notna(prow["Year"]) else None,
+                    "Week": int(prow["Week"]) if pd.notna(prow["Week"]) else None,
+                    "Points": float(prow["Points"]) if pd.notna(prow["Points"]) else 0.0,
+                    "Position": str(prow.get("Position") or "").upper(),
+                    "NFL team": str(prow.get("NFL team") or ""),
+                    "Starter/Bench": str(prow.get("Starter/Bench") or ""),
+                    "Injury?": bool(prow.get("Injury?")),
+                    "Bye?": bool(prow.get("Bye?")),
+                    "_wk_date": str(prow.get("_wk_date") or ""),
+                }
+                pw_by_player[d["Player"]].append(d)
+                if d["Year"] is not None and d["Week"] is not None:
+                    pw_by_team_week[(d["Team"], d["Year"], d["Week"])].append(d)
+                pw_by_team_player[(d["Team"], d["Player"])].append(d)
+
+            # All-time starter averages for the position adjustment.
+            starters = pw[pw["Starter/Bench"] == "Starter"]
+            all_starter_avg = float(starters["Points"].mean()) if not starters.empty else 0.0
+            pos_avg: Dict[str, float] = {}
+            if not starters.empty and "Position" in starters.columns:
+                pos_avg = {
+                    str(k).upper(): float(v)
+                    for k, v in starters.groupby("Position")["Points"].mean().to_dict().items()
+                }
+
+            def _pos_adjust(ppg: Optional[float], pos: Optional[str]) -> Optional[float]:
+                if ppg is None:
+                    return None
+                p = pos_avg.get((pos or "").upper())
+                if not p or p <= 0 or not all_starter_avg:
+                    return ppg
+                return round(ppg * all_starter_avg / p, 4)
+
+            def _avg_ppg_last5_before(player_name: Optional[str], pickup_date_iso: str) -> Optional[float]:
+                if not player_name:
+                    return None
+                rows = pw_by_player.get(player_name, [])
+                played = [
+                    r for r in rows
+                    if r["_wk_date"] and r["_wk_date"] < pickup_date_iso
+                    and not r["Bye?"] and not r["Injury?"]
+                ]
+                if not played:
+                    return None
+                played.sort(key=lambda r: r["_wk_date"], reverse=True)
+                last5 = played[:5]
+                return round(sum(r["Points"] for r in last5) / len(last5), 4)
+
+            def _player_pos_nfl_team_at(player_name: Optional[str], pickup_date_iso: str) -> Tuple[Optional[str], Optional[str]]:
+                """Best-effort position+NFL team for the player AS OF the
+                pickup date (latest pw row before that)."""
+                if not player_name:
+                    return None, None
+                rows = pw_by_player.get(player_name, [])
+                before = [r for r in rows if r["_wk_date"] and r["_wk_date"] <= pickup_date_iso]
+                if not before:
+                    # fall back to first pw row
+                    if rows:
+                        r = rows[0]
+                        return (r["Position"] or None), (r["NFL team"] or None)
+                    return None, None
+                before.sort(key=lambda r: r["_wk_date"], reverse=True)
+                r = before[0]
+                return (r["Position"] or None), (r["NFL team"] or None)
+
+            CUFF_BONUS = 5.0  # PPG-equivalent bonus when player is a cuff at pickup
+
+            for r in transactions_rows:
+                team = r.get("Team")
+                added = r.get("Player Added")
+                dropped = r.get("Player Dropped")
+                pickup_date = r.get("Date") or ""
+                # Date is an ISO string at this stage; convert for comparison.
+                pickup_iso = str(pickup_date)
+                # Pull a YYYY-MM-DD prefix for week-date string comparison.
+                pickup_iso_prefix = pickup_iso[:10] if len(pickup_iso) >= 10 else pickup_iso
+
+                # --- Avg PPG family ---
+                added_avg = _avg_ppg_last5_before(added, pickup_iso_prefix) if added else None
+                dropped_avg = _avg_ppg_last5_before(dropped, pickup_iso_prefix) if dropped else None
+                if added_avg is not None:
+                    r["Average PPG on team"] = added_avg
+                if dropped_avg is not None:
+                    r["Average PPG of dropped player over same time"] = dropped_avg
+                if added_avg is not None or dropped_avg is not None:
+                    r["Difference of averages"] = round((added_avg or 0.0) - (dropped_avg or 0.0), 4)
+
+                # --- Position adjustment ---
+                added_pos, added_nfl = _player_pos_nfl_team_at(added, pickup_iso_prefix)
+                dropped_pos, dropped_nfl = _player_pos_nfl_team_at(dropped, pickup_iso_prefix)
+                added_adj = _pos_adjust(added_avg, added_pos)
+                dropped_adj = _pos_adjust(dropped_avg, dropped_pos)
+                adj_diff = None
+                if added_adj is not None or dropped_adj is not None:
+                    adj_diff = round((added_adj or 0.0) - (dropped_adj or 0.0), 4)
+                    r["Difference of averages adjusted by position"] = adj_diff
+
+                # --- Age difference (added - dropped, years) ---
+                def _age_for(name):
+                    if not name:
+                        return None
+                    # Find this player's sleeper_id via pid_meta full_name
+                    for sid, meta in pid_meta.items():
+                        if (meta or {}).get("full_name") == name:
+                            bd = meta.get("birth_date")
+                            if bd:
+                                try:
+                                    pickup_d = datetime.fromisoformat(pickup_iso.replace("Z","+00:00")).date()
+                                    born = dateparser.parse(str(bd)).date()
+                                    return round((pickup_d - born).days / 365.25, 2)
+                                except Exception:
+                                    return None
+                            return None
+                    return None
+                added_age = _age_for(added)
+                dropped_age = _age_for(dropped)
+                if added_age is not None or dropped_age is not None:
+                    r["Age difference"] = round((added_age or 0.0) - (dropped_age or 0.0), 2)
+
+                # --- Cuff at time of pickup? ---
+                # Identify the pickup's NFL Year+Week (best effort) so
+                # we can look at the picking team's roster that week.
+                # The pw _wk_date approximation gives us a 7-day bucket
+                # we can match against the pickup_iso.
+                cuff = False
+                if added and team and added_nfl and added_pos:
+                    # Find the team's pw rows for the same week
+                    candidate_team_rows: List[Dict[str, Any]] = []
+                    for r2 in pw_by_team_week.values():
+                        for entry in r2:
+                            if entry["Team"] != team:
+                                continue
+                            # Pickup must fall within ~7 days of this week
+                            if entry["_wk_date"] and entry["_wk_date"] <= pickup_iso_prefix:
+                                if not candidate_team_rows or entry["_wk_date"] > candidate_team_rows[0]["_wk_date"]:
+                                    candidate_team_rows = [entry]
+                                elif entry["_wk_date"] == candidate_team_rows[0]["_wk_date"]:
+                                    candidate_team_rows.append(entry)
+                    # Build the full roster for that week (all players,
+                    # not just the one we found above)
+                    if candidate_team_rows:
+                        wk_date = candidate_team_rows[0]["_wk_date"]
+                        yr = candidate_team_rows[0]["Year"]
+                        wk = candidate_team_rows[0]["Week"]
+                        roster_that_week = pw_by_team_week.get((team, yr, wk), [])
+                        for mate in roster_that_week:
+                            if mate["Player"] == added:
+                                continue
+                            if mate["Starter/Bench"] != "Starter":
+                                continue
+                            if mate["NFL team"] != added_nfl:
+                                continue
+                            if mate["Position"] != added_pos:
+                                continue
+                            # Check mate's last-5 PPG > added's last-5 PPG + 10
+                            mate_avg = _avg_ppg_last5_before(mate["Player"], pickup_iso_prefix)
+                            if mate_avg is not None and (added_avg or 0.0) + 10 <= mate_avg:
+                                cuff = True
+                                break
+                r["Cuff at time of pickup?"] = bool(cuff)
+
+                # --- Start-rate metrics after the pickup ---
+                # Walk pw rows for (Team, Player Added) between Date and
+                # Date dropped/traded. Count starts, weeks rostered,
+                # injury-adjusted starts/weeks.
+                if added and team:
+                    drop_after = str(r.get("Date dropped/traded") or "")
+                    drop_after_prefix = drop_after[:10] if len(drop_after) >= 10 else drop_after
+                    weeks_played = 0
+                    starts = 0
+                    inj_weeks_played = 0
+                    inj_starts = 0
+                    for entry in pw_by_team_player.get((team, added), []):
+                        wk_date = entry["_wk_date"]
+                        if not wk_date or wk_date < pickup_iso_prefix:
+                            continue
+                        if drop_after_prefix and wk_date >= drop_after_prefix:
+                            break
+                        weeks_played += 1
+                        if entry["Starter/Bench"] == "Starter":
+                            starts += 1
+                        if not entry["Bye?"] and not entry["Injury?"]:
+                            inj_weeks_played += 1
+                            if entry["Starter/Bench"] == "Starter":
+                                inj_starts += 1
+                    r["Number of starts before next drop"] = int(starts)
+                    if weeks_played > 0:
+                        r["% of starts made while rostered"] = round(starts / weeks_played, 4)
+                    if inj_weeks_played > 0:
+                        r["Injury adjusted % of starts made while rostered"] = round(inj_starts / inj_weeks_played, 4)
+
+                # --- Player addition value composite ---
+                # Only meaningful when we have the adjusted diff.
+                if adj_diff is not None:
+                    pct_starts = float(r.get("% of starts made while rostered") or 0.0)
+                    pct_inj = float(r.get("Injury adjusted % of starts made while rostered") or 0.0)
+                    cuff_bonus = CUFF_BONUS if cuff else 0.0
+                    addition_val = adj_diff * (1.0 + pct_starts) * (1.0 + pct_inj) + cuff_bonus
+                    r["Player addition value"] = round(addition_val, 4)
+    except Exception as e:
+        _log_exc(debug, "transactions_polish_v2", e)
 
     # --------------------------
     # KTC value pass — single pass that powers all KTC columns on both
