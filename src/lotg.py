@@ -6450,7 +6450,14 @@ def build_all(repo_root: Path) -> None:
     try:
         # normalize date
         if not tx.empty and "Date" in tx.columns:
-            tx["Date"] = pd.to_datetime(tx["Date"], errors="coerce", utc=True)
+            # format='ISO8601' parses each value independently against
+            # any ISO-8601 variant rather than inferring one format
+            # across the column. Without it, pandas locks onto the
+            # first row's format (Sleeper's microsecond-precision
+            # space-separated form) and silently coerces any other
+            # ISO variant to NaT — which dropped the manual Puka row
+            # whose Date was the cleaner 'YYYY-MM-DDTHH:MM:SS+ZZ:ZZ'.
+            tx["Date"] = pd.to_datetime(tx["Date"], errors="coerce", utc=True, format="ISO8601")
             # Drop rows that couldn't be anchored to a real timestamp. The
             # orphan-drop guard in the source loop only catches the case
             # where both created_dt and created_date are None; values that
@@ -6485,7 +6492,7 @@ def build_all(repo_root: Path) -> None:
 
     try:
         if not tr.empty and "Date" in tr.columns:
-            tr["Date"] = pd.to_datetime(tr["Date"], errors="coerce", utc=True)
+            tr["Date"] = pd.to_datetime(tr["Date"], errors="coerce", utc=True, format="ISO8601")
             # Same guard as transactions: drop rows we can't anchor in time.
             tr = tr[tr["Date"].notna()].reset_index(drop=True)
             tr = tr.sort_values(["Team","Date"]).reset_index(drop=True)
