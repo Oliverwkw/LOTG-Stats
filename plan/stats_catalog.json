@@ -581,6 +581,7 @@
     "Number of bids",
     "Average PPG on team",
     "Average PPG of dropped player over same time",
+    "PPG of 5 games before pickup",
     "Difference of averages",
     "Difference of averages adjusted by position",
     "Age difference",
