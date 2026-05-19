@@ -2641,8 +2641,22 @@ def build_all(repo_root: Path) -> None:
             for t in tx_by_week.get(wk, []):
                 try:
                     ttype = t.get("type")
-                    created_date = _epoch_ms_to_date(t.get("created"))
-                    created_dt = _epoch_ms_to_dt(t.get("created"))
+                    # For waivers, 'created' is when the bid was
+                    # submitted but 'status_updated' is when the waiver
+                    # actually ran and the player moved. A single
+                    # submission date can be misleading when waivers
+                    # span multiple processing days — we've seen pairs
+                    # of claims submitted within minutes that actually
+                    # resolved on different days. Prefer status_updated
+                    # for waiver-type transactions; for free_agent,
+                    # commissioner, and trades the events resolve at
+                    # creation, so 'created' is correct.
+                    _t_type = t.get("type")
+                    _resolve_ms = t.get("status_updated") if _t_type == "waiver" else None
+                    if _resolve_ms is None:
+                        _resolve_ms = t.get("created")
+                    created_date = _epoch_ms_to_date(_resolve_ms)
+                    created_dt = _epoch_ms_to_dt(_resolve_ms)
                     # Mirror the date-validity gate from Loop 1 (per-week
                     # counters). If we can't anchor the transaction in
                     # time, don't emit a row — the matching tx_count
@@ -3341,6 +3355,128 @@ def build_all(repo_root: Path) -> None:
         week_name_global = tw.groupby(["Year","Week"])["Week Name"].apply(_mode_nonnull).reset_index()
     else:
         week_name_global = pd.DataFrame(columns=["Year","Week","Week Name"])
+
+    # --------------------------
+    # Merge manual transactions overrides. Sleeper's transactions API
+    # occasionally omits real pickups (we've seen one case: Puka Nacua's
+    # 2023-09-04 add to Shmuel256, confirmed via Week 1 matchup rosters
+    # but missing from the transactions endpoint across every leg).
+    # data/manual_transactions.csv lets us drop in those rows by hand.
+    # We append them BEFORE the polish + KTC passes so they participate
+    # in pickup-counter, drop-date, link-prev/next, and KTC enrichment.
+    # --------------------------
+    try:
+        manual_path = repo_root / "data" / "manual_transactions.csv"
+        if manual_path.exists():
+            mdf = pd.read_csv(manual_path)
+            # Build a quick name -> sleeper_id lookup so KTC enrichment
+            # can resolve added/dropped players downstream.
+            name_to_sid: Dict[str, str] = {}
+            for sid, meta in pid_meta.items():
+                fn = (meta or {}).get("full_name")
+                if fn:
+                    name_to_sid.setdefault(str(fn), str(sid))
+            n_added = 0
+            for _, mrow in mdf.iterrows():
+                added_name = (str(mrow.get("Player Added") or "").strip() or None)
+                dropped_name = (str(mrow.get("Player Dropped") or "").strip() or None)
+                if added_name in ("", "nan"): added_name = None
+                if dropped_name in ("", "nan"): dropped_name = None
+                if not added_name and not dropped_name:
+                    continue
+                added_pid = name_to_sid.get(added_name) if added_name else None
+                dropped_pid = name_to_sid.get(dropped_name) if dropped_name else None
+                row: Dict[str, Any] = {
+                    "Team": str(mrow.get("Team")),
+                    "Player Added": added_name,
+                    "Player Dropped": dropped_name,
+                    "type of transaction (waiver/free agency)": str(mrow.get("Type") or "free_agent"),
+                    "Faab": _to_float(mrow.get("Faab"), None),
+                    "Total FAAB bid": _to_float(mrow.get("Total FAAB bid"), None),
+                    "FAAB difference over second place": None,
+                    "FAAB % difference over second place": None,
+                    "Date": str(mrow.get("Date")),
+                    "Season": int(mrow.get("Season")) if pd.notna(mrow.get("Season")) else None,
+                    "_added_pid": added_pid,
+                    "_dropped_pid": dropped_pid,
+                    "Number of bids": _to_float(mrow.get("Number of bids"), None),
+                    "Link to next transaction": None,
+                    "Link to previous transaction": None,
+                    "Average PPG on team": None,
+                    "Average PPG of dropped player over same time": None,
+                    "Difference of averages": None,
+                    "Difference of averages adjusted by position": None,
+                    "Age difference": None,
+                    "Player addition value": None,
+                    "Cuff at time of pickup?": None,
+                    "Weeks between pickup and start": None,
+                    "Number of starts before next drop": None,
+                    "% of starts made while rostered": None,
+                    "Injury adjusted % of starts made while rostered": None,
+                    "Date dropped/traded": None,
+                    "Tanking": None,
+                    "Number of times picked up by this team": None,
+                }
+                transactions_rows.append(row)
+                # Also credit per-week/year/all counters so player
+                # rollups stay consistent with the manual entries.
+                try:
+                    season_i = int(mrow.get("Season"))
+                except Exception:
+                    season_i = None
+                if added_pid and season_i is not None:
+                    player_tx_year[(str(added_pid), season_i)] += 1
+                    player_tx_all[str(added_pid)] += 1
+                if dropped_pid and season_i is not None:
+                    player_tx_year[(str(dropped_pid), season_i)] += 1
+                    player_tx_all[str(dropped_pid)] += 1
+                    player_drop_year[(str(dropped_pid), season_i)] += 1
+                    player_drop_all[str(dropped_pid)] += 1
+                n_added += 1
+            if n_added:
+                _log(debug, f"[{_now_iso()}] INFO merged {n_added} manual transaction(s) from data/manual_transactions.csv")
+            # Bump team_week / team_year counters so the rollup tables
+            # reflect the manual rows we just added. Find the Year+Week
+            # rows that match each manual row's Date and increment.
+            if n_added and not tw.empty and "Year" in tw.columns and "Week" in tw.columns:
+                from datetime import date as _dt_date
+                # NFL week 1 starts the first Thursday of September. For
+                # the dates we care about, a simple approximation is
+                # enough: week N starts roughly Sep 7 + 7*(N-1) of that
+                # year. Pre-season / week 1 prep dates map to week 1.
+                def _week_for_date(dstr: str, season: int):
+                    try:
+                        d = datetime.fromisoformat(str(dstr).replace("Z","+00:00")).date()
+                    except Exception:
+                        return None
+                    season_start = _dt_date(int(season), 9, 5)
+                    if d < season_start:
+                        return 1
+                    diff = (d - season_start).days // 7 + 1
+                    return min(max(1, diff), 17)
+
+                for _, mrow in mdf.iterrows():
+                    season = mrow.get("Season")
+                    if pd.isna(season):
+                        continue
+                    season = int(season)
+                    wk = _week_for_date(str(mrow.get("Date")), season)
+                    team = str(mrow.get("Team"))
+                    if not wk:
+                        continue
+                    mask = (tw["Team"]==team) & (tw["Year"]==season) & (tw["Week"]==wk)
+                    matches = tw[mask]
+                    if matches.empty:
+                        continue
+                    idx_ = matches.index[0]
+                    cur = pd.to_numeric(tw.at[idx_, "Number of transactions"], errors="coerce")
+                    tw.at[idx_, "Number of transactions"] = int((0 if pd.isna(cur) else cur) + 1)
+                    faab = _to_float(mrow.get("Faab"), 0.0) or 0.0
+                    if faab:
+                        cur_f = pd.to_numeric(tw.at[idx_, "Amount of FAAB spent"], errors="coerce")
+                        tw.at[idx_, "Amount of FAAB spent"] = round((0.0 if pd.isna(cur_f) else cur_f) + faab, 2)
+    except Exception as e:
+        _log_exc(debug, "manual_transactions_merge", e)
 
     # --------------------------
     # transactions_rows post-processing: fill polish columns now that the
