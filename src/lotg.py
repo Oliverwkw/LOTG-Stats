@@ -3516,6 +3516,25 @@ def build_all(repo_root: Path) -> None:
         from lotg_support.ktc import build_index, asset_value_at
         today = datetime.utcnow().date()
 
+        # League-format detection so the KTC values we pull match the
+        # user's setup. dynasty-daddy publishes two value series per
+        # asset: trade_value (1QB) and sf_trade_value (superflex). A
+        # superflex league should use sf_trade_value or QBs read way
+        # too low and trade rollups read backwards.
+        ktc_value_col = "trade_value"
+        try:
+            for lg in leagues or []:
+                rp = [str(x).upper() for x in (lg.get("roster_positions") or [])]
+                if any(p in {"SUPER_FLEX", "SUPERFLEX", "SFLEX", "SFLX"} for p in rp):
+                    ktc_value_col = "sf_trade_value"
+                    break
+                if rp.count("QB") >= 2:
+                    ktc_value_col = "sf_trade_value"
+                    break
+        except Exception:
+            pass
+        _log(debug, f"[{_now_iso()}] INFO ktc value column: {ktc_value_col}")
+
         # Collect every sleeper_id and pick label we'll need across both
         # detail tables. dynasty-daddy serves per-player histories one
         # API call at a time, so pre-fetching only what we use keeps the
@@ -3543,7 +3562,7 @@ def build_all(repo_root: Path) -> None:
             if sid:
                 needed_sids.add(str(sid))
 
-        idx = build_index(repo_root, needed_sids, needed_picks)
+        idx = build_index(repo_root, needed_sids, needed_picks, value_col=ktc_value_col)
 
         def _side_total(
             target: date,
