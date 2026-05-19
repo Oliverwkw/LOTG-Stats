@@ -1,0 +1,4 @@
+# KTC snapshot cache. Each entry is a historical DynastyProcess values.csv
+# keyed by date. Reproducible from the upstream feed and grows by ~500 files
+# over time — not worth committing.
+data/ktc_cache/

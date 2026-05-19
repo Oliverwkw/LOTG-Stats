@@ -2675,13 +2675,17 @@ def build_all(repo_root: Path) -> None:
                                     (created_dt, int(prev_owner), int(new_owner), int(wk)),
                                 )
 
-                        # received assets by team
+                        # received assets by team (display names) plus a
+                        # parallel mapping of sleeper player ids for KTC
+                        # value lookups downstream.
                         recv_players: Dict[int, List[str]] = defaultdict(list)
+                        recv_player_ids: Dict[int, List[str]] = defaultdict(list)
                         for pid, rrid in adds.items():
                             rr = _to_int(rrid, None)
                             if rr is None:
                                 continue
                             recv_players[rr].append(pid_meta.get(str(pid), {}).get("full_name") or str(pid))
+                            recv_player_ids[rr].append(str(pid))
 
                         recv_picks: Dict[int, List[str]] = defaultdict(list)
                         for dp in draft_picks:
@@ -2705,12 +2709,18 @@ def build_all(repo_root: Path) -> None:
                             received = []
                             received.extend(recv_players.get(rid, []))
                             received.extend(recv_picks.get(rid, []))
+                            received_ids = list(recv_player_ids.get(rid, []))
+                            received_picks = list(recv_picks.get(rid, []))
                             dropped = []
+                            dropped_ids: List[str] = []
+                            dropped_picks: List[str] = []
                             for o in roster_ids_int:
                                 if o == rid:
                                     continue
                                 dropped.extend(recv_players.get(o, []))
                                 dropped.extend(recv_picks.get(o, []))
+                                dropped_ids.extend(recv_player_ids.get(o, []))
+                                dropped_picks.extend(recv_picks.get(o, []))
                             trades_rows.append({
                                 "Team": tm,
                                 "Team's traded with": "; ".join(sorted(set([x for x in others if x]))),
@@ -2718,15 +2728,22 @@ def build_all(repo_root: Path) -> None:
                                 "Assets dropped": "; ".join(dropped) if dropped else None,
                                 "Date": created_dt.isoformat() if created_dt else (str(created_date) if created_date else None),
                                 "Season": int(season),
-                                # KTC/Oliver columns stay blank by design for now
+                                # Internal-only sleeper ID lists used by the
+                                # KTC value lookup pass. Not in the schema
+                                # catalog, so they get filtered out before
+                                # write_outputs serializes the CSV.
+                                "_recv_player_ids": received_ids,
+                                "_drop_player_ids": dropped_ids,
+                                "_recv_picks": received_picks,
+                                "_drop_picks": dropped_picks,
+                                # KTC columns — 'at deal time' is computed
+                                # by a post-processing pass; the other three
+                                # time points stay None until a follow-up
+                                # PR populates them.
                                 "KTC value difference at deal time": None,
                                 "KTC value difference at end of season": None,
                                 "KTC value difference 1 year later": None,
                                 "KTC value difference 2 years later": None,
-                                "Oliver value difference at deal time": None,
-                                "Oliver value difference at end of season": None,
-                                "Oliver value difference 1 year later": None,
-                                "Oliver value difference 2 years later": None,
                                 "Pick value received": None,
                                 "Change in pick value at draft time": None,
                                 "Assets retained now": None,
@@ -3367,6 +3384,70 @@ def build_all(repo_root: Path) -> None:
                         r["Weeks between pickup and start"] = weeks_before_start
     except Exception as e:
         _log_exc(debug, "transactions_polish", e)
+
+    # --------------------------
+    # KTC "value at deal time" pass for trades. Each row carries internal
+    # sleeper-id lists (recv/drop) and pick labels populated during emission;
+    # we resolve those against the DynastyProcess values snapshot from the
+    # commit closest to the trade date, sum each side, and write the
+    # difference into 'KTC value difference at deal time'. The three other
+    # KTC time-point columns are populated in a follow-up PR.
+    # --------------------------
+    try:
+        if trades_rows:
+            from lotg_support.ktc import (
+                load_playerid_xwalk,
+                values_at_date,
+                asset_value,
+                build_fp_id_by_sleeper,
+            )
+            xwalk = load_playerid_xwalk(repo_root)
+            fp_by_sid = build_fp_id_by_sleeper(xwalk)
+            snap_cache: Dict[date, pd.DataFrame] = {}
+            for row in trades_rows:
+                ds = row.get("Date")
+                if not ds:
+                    continue
+                try:
+                    trade_dt = datetime.fromisoformat(str(ds).replace("Z", "+00:00"))
+                    trade_date = trade_dt.date()
+                except Exception:
+                    continue
+                snap = snap_cache.get(trade_date)
+                if snap is None:
+                    snap = values_at_date(repo_root, trade_date)
+                    snap_cache[trade_date] = snap
+                if snap is None or snap.empty:
+                    continue
+                recv_ids = list(row.get("_recv_player_ids") or [])
+                drop_ids = list(row.get("_drop_player_ids") or [])
+                recv_picks = list(row.get("_recv_picks") or [])
+                drop_picks = list(row.get("_drop_picks") or [])
+
+                def _side_total(player_ids: List[str], pick_labels: List[str]) -> Tuple[float, int]:
+                    total = 0.0
+                    hits = 0
+                    for sid in player_ids:
+                        v = asset_value(None, str(sid), snap, fp_by_sid)
+                        if v is not None:
+                            total += v
+                            hits += 1
+                    for plabel in pick_labels:
+                        v = asset_value(str(plabel), None, snap, fp_by_sid)
+                        if v is not None:
+                            total += v
+                            hits += 1
+                    return total, hits
+
+                recv_total, recv_hits = _side_total(recv_ids, recv_picks)
+                drop_total, drop_hits = _side_total(drop_ids, drop_picks)
+                # Only emit a difference if BOTH sides resolved at least
+                # one asset. Otherwise the comparison is meaningless
+                # (mid-2021 KTC data is sparse for older players).
+                if recv_hits and drop_hits:
+                    row["KTC value difference at deal time"] = round(recv_total - drop_total, 1)
+    except Exception as e:
+        _log_exc(debug, "ktc_at_deal_time", e)
 
     tx = pd.DataFrame(transactions_rows)
     tr = pd.DataFrame(trades_rows)
