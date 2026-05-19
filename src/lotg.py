@@ -132,6 +132,7 @@ import team_week
 import team_year
 import trades
 import transactions
+import formulas
 
 DOCUMENT_MODULES = [
     player_week,
@@ -146,6 +147,7 @@ DOCUMENT_MODULES = [
     transactions,
     trades,
     pick_history,
+    formulas,
 ]
 
 
@@ -1228,6 +1230,16 @@ def build_all(repo_root: Path) -> None:
     player_week_rows: List[Dict[str, Any]] = []
     team_week_rows: List[Dict[str, Any]] = []
     transactions_rows: List[Dict[str, Any]] = []
+    # Cross-season per-player NFL game log (sourced from nflverse, so
+    # weeks count as "played" whether or not the player was on a
+    # fantasy roster at the time). Used by the transactions polish
+    # pass to compute pre-pickup PPG without being limited to pw —
+    # rookies and UFAs picked up after their NFL debut now resolve.
+    # Keyed by Sleeper sleeper_id; each entry: {year, week, points,
+    # _wk_date}. Points use fantasy_points_ppr as the approximation
+    # (most leagues are 0.5-PPR or full PPR; rankings are stable
+    # between the two for trend purposes).
+    nfl_log_by_sid: Dict[str, List[Dict[str, Any]]] = defaultdict(list)
     trades_rows: List[Dict[str, Any]] = []
     # Orphan drops: a player dropped without a corresponding add in the same
     # transaction (pure waiver-to-FA). These don't get a transactions.csv row
@@ -1411,6 +1423,48 @@ def build_all(repo_root: Path) -> None:
                     if pd.isna(wk_i):
                         continue
                     played_players_by_week[int(wk_i)] = set(g["player_id"].dropna().astype(str).tolist())
+
+                # Build cross-season per-player game log so the
+                # transactions polish pass can compute pre-pickup PPG
+                # for players who weren't yet rostered (rookies, UFAs).
+                # nflverse uses GSIS player_ids; bridge to Sleeper IDs
+                # via pid_meta.
+                try:
+                    gsis_to_sid = {
+                        str((meta or {}).get("gsis_id") or "").strip(): str(sid)
+                        for sid, meta in pid_meta.items()
+                        if (meta or {}).get("gsis_id")
+                    }
+                    gsis_to_sid.pop("", None)
+                    if gsis_to_sid:
+                        pts_col = "fantasy_points_ppr" if "fantasy_points_ppr" in spw.columns else (
+                            "fantasy_points" if "fantasy_points" in spw.columns else None
+                        )
+                        if pts_col:
+                            for r in spw[["player_id", "week", pts_col]].dropna(subset=["player_id", "week"]).itertuples(index=False):
+                                gsis = str(r.player_id)
+                                sid = gsis_to_sid.get(gsis)
+                                if not sid:
+                                    continue
+                                try:
+                                    wk = int(r.week)
+                                    pts = float(getattr(r, pts_col))
+                                except Exception:
+                                    continue
+                                # Approx Thursday-of-week date for sorting.
+                                try:
+                                    wk_d = date(int(season), 9, 7) + timedelta(days=7 * (wk - 1))
+                                    wk_iso = wk_d.isoformat()
+                                except Exception:
+                                    wk_iso = ""
+                                nfl_log_by_sid[sid].append({
+                                    "year": int(season),
+                                    "week": wk,
+                                    "points": pts,
+                                    "_wk_date": wk_iso,
+                                })
+                except Exception as e:
+                    _log_exc(debug, f"nfl_log_by_sid_{season}", e)
         except Exception as e:
             _log_exc(debug, f"load_nflverse_stats_player_week_{season}", e)
 
@@ -3759,20 +3813,49 @@ def build_all(repo_root: Path) -> None:
                     return ppg
                 return round(ppg * all_starter_avg / p, 4)
 
+            # Build name -> sleeper_id once so we can hit nfl_log_by_sid
+            # (which is keyed by Sleeper id) from a player display name.
+            name_to_sid_local: Dict[str, str] = {}
+            for sid, meta in pid_meta.items():
+                fn = (meta or {}).get("full_name")
+                if fn:
+                    name_to_sid_local.setdefault(str(fn), str(sid))
+
             def _avg_ppg_last5_before(player_name: Optional[str], pickup_date_iso: str) -> Optional[float]:
+                """Average fantasy points over the player's 5 most-recent
+                played NFL games BEFORE the pickup date.
+
+                Primary source: nfl_log_by_sid (built from nflverse stats),
+                which includes every NFL week regardless of whether the
+                player was on a fantasy roster. Fallback: pw, our roster
+                history. The fallback only contributes when nflverse has
+                no data for that player (e.g., pre-2020 retired veterans).
+
+                If the player has fewer than 5 played games on record,
+                we average whatever's available rather than returning
+                None (per user spec: '...if 2 games, average the 2').
+                """
                 if not player_name:
                     return None
-                rows = pw_by_player.get(player_name, [])
-                played = [
-                    r for r in rows
-                    if r["_wk_date"] and r["_wk_date"] < pickup_date_iso
-                    and not r["Bye?"] and not r["Injury?"]
-                ]
+                # nflverse-sourced log first (catches unrostered weeks)
+                sid = name_to_sid_local.get(player_name)
+                played: List[Dict[str, Any]] = []
+                if sid:
+                    for entry in nfl_log_by_sid.get(sid, []):
+                        if entry["_wk_date"] and entry["_wk_date"] < pickup_date_iso:
+                            played.append({"_wk_date": entry["_wk_date"], "Points": entry["points"]})
+                # Fallback to pw if nflverse had nothing
+                if not played:
+                    for r in pw_by_player.get(player_name, []):
+                        if r["_wk_date"] and r["_wk_date"] < pickup_date_iso \
+                           and not r["Bye?"] and not r["Injury?"]:
+                            played.append({"_wk_date": r["_wk_date"], "Points": r["Points"]})
                 if not played:
                     return None
                 played.sort(key=lambda r: r["_wk_date"], reverse=True)
-                last5 = played[:5]
-                return round(sum(r["Points"] for r in last5) / len(last5), 4)
+                # Take up to 5; if fewer exist, average whatever we have
+                window = played[:5]
+                return round(sum(r["Points"] for r in window) / len(window), 4)
 
             def _player_pos_nfl_team_at(player_name: Optional[str], pickup_date_iso: str) -> Tuple[Optional[str], Optional[str]]:
                 """Best-effort position+NFL team for the player AS OF the

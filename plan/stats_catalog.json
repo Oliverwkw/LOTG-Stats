@@ -1,4 +1,10 @@
 {
+  "Formulas": [
+    "Stat",
+    "Sheet",
+    "Formula",
+    "Notes"
+  ],
   "Pick History": [
     "Year",
     "Pick made by",
