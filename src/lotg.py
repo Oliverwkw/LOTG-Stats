@@ -650,6 +650,14 @@ def _preserve_na(col: str) -> bool:
     # so don't collapse them to 0.0.
     if col_l.startswith("ktc value difference"):
         return True
+    # Faab-vs-second-place: blank means the row isn't a waiver, or the
+    # waiver was uncontested (no runner-up). Either case is distinct
+    # from 'won by zero' so don't collapse to 0.0.
+    if col_l in {
+        "faab difference over second place",
+        "faab % difference over second place",
+    }:
+        return True
     if col_l in {
         "win variance",
         "weeks between pickup and start",
@@ -1762,6 +1770,11 @@ def build_all(repo_root: Path) -> None:
         # beat a single 1-FAAB bid is much less impressive than a
         # 5-FAAB win that beat 4 other bids summing to 50.
         total_bids_amount_per_player_week: Dict[Tuple[int, int, str], float] = defaultdict(float)
+        # bid_amounts_per_player_week — full sorted list of competing bid
+        # amounts. Powers the 'FAAB difference over second place' and
+        # 'FAAB % difference over second place' columns: how decisively
+        # did the winner outbid the runner-up.
+        bid_amounts_per_player_week: Dict[Tuple[int, int, str], List[float]] = defaultdict(list)
 
         for wk in range(1, min(last_week, 30) + 1):
             if not week_allowed(wk):
@@ -1889,6 +1902,7 @@ def build_all(repo_root: Path) -> None:
                         key = (int(season), int(wk), str(pid_key))
                         bids_per_player_week[key] += 1
                         total_bids_amount_per_player_week[key] += bid_amt
+                        bid_amounts_per_player_week[key].append(float(bid_amt))
 
                 # Drop failed transactions. Sleeper's status taxonomy:
                 #   complete -> the move actually happened
@@ -2852,16 +2866,29 @@ def build_all(repo_root: Path) -> None:
                             roster_to_team.get(int(row_rrid_int)) if row_rrid_int is not None else None
                         ) or team
 
-                        # Resolve Number of bids + Total FAAB bid from the
-                        # per-week tallies. Only meaningful for waiver
-                        # claims; free-agent and commissioner adds aren't
-                        # bid on.
+                        # Resolve Number of bids, Total FAAB bid, and the
+                        # winner-vs-second-place columns from the per-week
+                        # tallies. Only meaningful for waiver claims;
+                        # free-agent and commissioner adds aren't bid on.
                         row_num_bids = None
                         row_total_faab = None
+                        row_faab_diff_2nd = None
+                        row_faab_pct_2nd = None
                         if ttype == "waiver":
                             key = (int(season), int(wk), str(pid))
                             row_num_bids = bids_per_player_week.get(key, 0) or None
                             row_total_faab = total_bids_amount_per_player_week.get(key, 0.0) or None
+                            amounts = sorted(bid_amounts_per_player_week.get(key, []), reverse=True)
+                            if len(amounts) >= 2:
+                                winner, second = amounts[0], amounts[1]
+                                row_faab_diff_2nd = round(winner - second, 2)
+                                if second > 0:
+                                    # Percentage premium of the winning bid
+                                    # over the runner-up. (5 vs 4) -> 25%.
+                                    row_faab_pct_2nd = round((winner - second) / second * 100.0, 2)
+                                # If second == 0 the percentage is
+                                # undefined; leave the % column blank but
+                                # still surface the absolute difference.
 
                         transactions_rows.append({
                             "Team": row_team,
@@ -2870,6 +2897,8 @@ def build_all(repo_root: Path) -> None:
                             "type of transaction (waiver/free agency)": ttype,
                             "Faab": faab,
                             "Total FAAB bid": row_total_faab,
+                            "FAAB difference over second place": row_faab_diff_2nd,
+                            "FAAB % difference over second place": row_faab_pct_2nd,
                             "Date": created_dt.isoformat() if created_dt else (str(created_date) if created_date else None),
                             "Season": int(season),
                             "Number of bids": row_num_bids,
@@ -2934,6 +2963,8 @@ def build_all(repo_root: Path) -> None:
                                         "type of transaction (waiver/free agency)": ttype,
                                         "Faab": None,
                                         "Total FAAB bid": None,
+                                        "FAAB difference over second place": None,
+                                        "FAAB % difference over second place": None,
                                         "Date": drop_dt,
                                         "Season": int(season),
                                         "Number of bids": None,

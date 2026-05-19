@@ -568,6 +568,8 @@
     "type of transaction (waiver/free agency)",
     "Faab",
     "Total FAAB bid",
+    "FAAB difference over second place",
+    "FAAB % difference over second place",
     "Date",
     "Season",
     "Number of bids",
