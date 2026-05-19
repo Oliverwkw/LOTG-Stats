@@ -1,287 +1,333 @@
 """
-KTC (KeepTradeCut) dynasty value lookup, sourced from DynastyProcess.
+KTC (KeepTradeCut) dynasty value lookup, sourced from dynasty-daddy.com.
 
-DynastyProcess publishes a daily-updated KTC values feed on GitHub at:
-  https://github.com/dynastyprocess/data
+We previously used DynastyProcess's values.csv, but their value_1qb is
+derived from FantasyPros ECR, not actual KTC market values — mid- and
+lower-tier players read 5-12x lower than KTC.com's site. dynasty-daddy
+scrapes KTC daily and re-publishes the real values via a public API,
+with per-player history back to April 2021.
 
-We use two files:
-  files/values.csv         — daily snapshot of player + pick values
-  files/db_playerids.csv   — cross-walk between Sleeper, FantasyPros, etc.
+API surface used:
+  GET /api/v1/player/all/today
+      Directory + today's values for every active asset (players + picks).
+      ~700 rows. Fields we need: name_id, sleeper_id, full_name, position,
+      trade_value (1QB), sf_trade_value (superflex).
 
-For 'KTC value difference at deal time' on trades.csv, we need each trade's
-asset values AS THEY WERE at the trade date — not today. DynastyProcess
-commits values.csv approximately daily, so historical values are recoverable
-by walking the file's commit history via the GitHub API and fetching the
-CSV at the closest commit on-or-before each trade date.
+  GET /api/v1/player/{name_id}
+      Full daily history (~1,800 rows per active player). Same fields per
+      row plus a 'date' timestamp.
 
-Network requests are cached on disk at data/ktc_cache/. A cached snapshot
-keyed by date is reused indefinitely (values for a past date never change).
+Identifiers:
+  - Players: lookup by sleeper_id -> name_id -> history
+  - Picks:   lookup by dynasty-daddy 'full_name' string, e.g. '2026 Early 1st'
+
+Local cache layout (gitignored under data/ktc_cache/):
+  directory.json                    today's snapshot
+  players/<name_id>.json            per-player full history
+
+Past-date data never changes; histories are cached indefinitely and only
+the directory is refreshed daily.
 """
 from __future__ import annotations
 
-import io
 import json
 import os
 import urllib.request
 from datetime import date, datetime, timedelta
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, Iterable, List, Optional, Tuple
 
 import pandas as pd
 
 
-DP_OWNER = "dynastyprocess"
-DP_REPO = "data"
-DP_VALUES_PATH = "files/values.csv"
-DP_IDS_PATH = "files/db_playerids.csv"
-
+DD_BASE = "https://dynasty-daddy.com/api/v1"
 USER_AGENT = "lotg-stats-build/1 (+https://github.com/Oliverwkw/LOTG-Stats)"
 
-
+# Captured HTTP errors so the caller can surface them in build_debug.log.
 _HTTP_ERRORS: List[str] = []
 
 
-def _http_get(url: str, accept: str = "text/csv") -> bytes:
-    """Fetch a URL with a simple retry policy. Returns raw bytes.
-
-    GitHub's API and raw endpoints both honor a bearer token; setting
-    GITHUB_TOKEN raises the rate limit from 60/hour to 5000/hour, which
-    matters because the value-history walk for a full build does one
-    commits-API call per unique trade date (a few hundred).
-    """
+def _http_get_json(url: str) -> object:
+    """GET a URL and return parsed JSON. Captures errors into _HTTP_ERRORS."""
     req = urllib.request.Request(
-        url,
-        headers={"User-Agent": USER_AGENT, "Accept": accept},
+        url, headers={"User-Agent": USER_AGENT, "Accept": "application/json"}
     )
-    tok = os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN")
-    if tok:
-        req.add_header("Authorization", f"Bearer {tok}")
     try:
         with urllib.request.urlopen(req, timeout=30) as resp:
-            return resp.read()
+            return json.loads(resp.read())
     except Exception as exc:
-        # Capture rate-limit / network failures so the caller can surface
-        # them. Returning bytes() would look like 'empty file' to pandas.
         _HTTP_ERRORS.append(f"{url}: {type(exc).__name__}: {exc}")
         raise
 
 
 def get_http_errors() -> List[str]:
-    """Return collected fetch errors so the build can log them."""
     return list(_HTTP_ERRORS)
 
 
 def _cache_dir(repo_root: Path) -> Path:
     p = repo_root / "data" / "ktc_cache"
-    p.mkdir(parents=True, exist_ok=True)
+    (p / "players").mkdir(parents=True, exist_ok=True)
     return p
 
 
-def load_playerid_xwalk(repo_root: Path) -> pd.DataFrame:
-    """Load DynastyProcess's db_playerids.csv. Cached after first fetch.
+# --------------------------------------------------------------------------
+# Directory + per-player history fetch (cached on disk)
+# --------------------------------------------------------------------------
 
-    Returns a DataFrame with at minimum: sleeper_id, fantasypros_id, name.
-    Values may include 'NA' strings; callers should coerce as needed.
-    """
-    cache = _cache_dir(repo_root) / "db_playerids.csv"
-    # Refresh once a week — IDs don't change retroactively but new rookies
-    # get added each spring.
-    stale = True
+def load_directory(repo_root: Path) -> List[Dict]:
+    """Today's snapshot of every active asset. Refreshes daily on disk."""
+    cache = _cache_dir(repo_root) / "directory.json"
+    refresh = True
     if cache.exists():
         age = datetime.utcnow().timestamp() - cache.stat().st_mtime
-        if age < 7 * 86400:
-            stale = False
-    if stale:
-        url = f"https://raw.githubusercontent.com/{DP_OWNER}/{DP_REPO}/master/{DP_IDS_PATH}"
-        cache.write_bytes(_http_get(url))
-    df = pd.read_csv(cache, dtype=str)
-    # normalize columns
-    for col in ("sleeper_id", "fantasypros_id", "name"):
-        if col not in df.columns:
-            df[col] = None
-    return df
+        if age < 6 * 3600:  # 6h freshness
+            refresh = False
+    if refresh:
+        data = _http_get_json(f"{DD_BASE}/player/all/today")
+        cache.write_text(json.dumps(data))
+    return json.loads(cache.read_text())
 
 
-def _commit_sha_at_or_before(target: date) -> Optional[str]:
-    """Find the most recent commit to files/values.csv on or before target.
-
-    Returns the commit SHA, or None if the API call fails. We probe one
-    day past `target` (until=target+1, since GitHub's `until` is exclusive
-    on the upper bound for some endpoints) and accept the first hit.
-    """
-    until = (target + timedelta(days=1)).isoformat()
-    url = (
-        f"https://api.github.com/repos/{DP_OWNER}/{DP_REPO}/commits"
-        f"?path={DP_VALUES_PATH}&until={until}T23:59:59Z&per_page=1"
-    )
-    try:
-        raw = _http_get(url, accept="application/vnd.github+json")
-        data = json.loads(raw.decode("utf-8"))
-    except Exception:
-        return None
-    if not isinstance(data, list) or not data:
-        return None
-    return data[0].get("sha")
-
-
-def values_at_date(repo_root: Path, target: date) -> pd.DataFrame:
-    """Return the DynastyProcess values.csv snapshot as it was on `target`.
-
-    Cached on disk. If the GitHub commit lookup fails, returns an empty
-    DataFrame (callers should treat this as 'no KTC data available').
-    """
-    cache = _cache_dir(repo_root) / f"values_{target.isoformat()}.csv"
+def load_history(repo_root: Path, name_id: str) -> List[Dict]:
+    """Per-player full history. Cached indefinitely (past values don't change)."""
+    cache = _cache_dir(repo_root) / "players" / f"{name_id}.json"
     if cache.exists():
-        return pd.read_csv(cache)
-    sha = _commit_sha_at_or_before(target)
-    if not sha:
-        return pd.DataFrame()
-    url = f"https://raw.githubusercontent.com/{DP_OWNER}/{DP_REPO}/{sha}/{DP_VALUES_PATH}"
+        try:
+            return json.loads(cache.read_text())
+        except Exception:
+            cache.unlink(missing_ok=True)
     try:
-        raw = _http_get(url)
+        data = _http_get_json(f"{DD_BASE}/player/{name_id}")
     except Exception:
-        return pd.DataFrame()
-    cache.write_bytes(raw)
-    try:
-        return pd.read_csv(io.BytesIO(raw))
-    except Exception:
-        return pd.DataFrame()
+        return []
+    if not isinstance(data, list):
+        data = []
+    cache.write_text(json.dumps(data))
+    return data
 
 
-_ORD_SUFFIX = {1: "1st", 2: "2nd", 3: "3rd", 4: "4th", 5: "5th"}
+# --------------------------------------------------------------------------
+# In-memory indexes. Built once per build, then queried by row.
+# --------------------------------------------------------------------------
 
+class ValueIndex:
+    """Holds the per-player and per-pick historical lookup tables.
 
-def _pick_label_to_dp(label: str) -> List[str]:
-    """Translate a LOTG pick label like '2024 1.??' or '2024 1.05' to the
-    set of DynastyProcess labels it refers to. Returned in fallback order
-    — the caller should use the first list that produces a match.
-
-    DynastyProcess publishes two kinds of pick rows:
-      - Specific slot: '2024 Pick 1.01' (after the draft happens)
-      - Generic: '2024 1st', '2024 Early 1st', '2024 Mid 1st', '2024 Late 1st'
-        (used while the draft is still in the future)
-
-    For a '??' slot we prefer the generic round label; otherwise we use
-    the specific slot and fall back to the generic average.
+    For each asset we keep a sorted list of (date_str, trade_value) so a
+    binary scan can find the latest entry on or before any target date.
+    Pick label resolution prefers generic round labels first, then walks
+    specific-slot labels.
     """
-    parts = label.strip().split()
+
+    def __init__(self):
+        # sleeper_id -> [(date_str, value), ...] sorted by date asc
+        self.player: Dict[str, List[Tuple[str, float]]] = {}
+        # pick full_name (dynasty-daddy labels) -> sorted history
+        self.pick: Dict[str, List[Tuple[str, float]]] = {}
+
+    @staticmethod
+    def _history_to_pairs(history: List[Dict], value_col: str) -> List[Tuple[str, float]]:
+        out: List[Tuple[str, float]] = []
+        for row in history:
+            d = (row.get("date") or "")[:10]
+            v = row.get(value_col)
+            if not d or v is None:
+                continue
+            try:
+                out.append((d, float(v)))
+            except Exception:
+                continue
+        out.sort(key=lambda kv: kv[0])
+        return out
+
+    def add_player(self, sleeper_id: str, history: List[Dict], value_col: str) -> None:
+        pairs = self._history_to_pairs(history, value_col)
+        if pairs:
+            self.player[str(sleeper_id)] = pairs
+
+    def add_pick(self, full_name: str, history: List[Dict], value_col: str) -> None:
+        pairs = self._history_to_pairs(history, value_col)
+        if pairs:
+            self.pick[full_name] = pairs
+
+    def value_at(self, key: str, target: date, *, is_pick: bool) -> Optional[float]:
+        """Latest value strictly on or before target. Returns None if no entry."""
+        pairs = (self.pick if is_pick else self.player).get(key)
+        if not pairs:
+            return None
+        target_s = target.isoformat()
+        # Walk reverse; histories are sorted ascending so this is a small
+        # tail-scan. Picks have ~1800 entries max; players similar. Could
+        # binary-search if performance ever matters.
+        for ds, v in reversed(pairs):
+            if ds <= target_s:
+                return v
+        return None
+
+
+# --------------------------------------------------------------------------
+# Pick label translation: '2026 1.??' -> dynasty-daddy candidate names
+# --------------------------------------------------------------------------
+
+_ORD = {1: "1st", 2: "2nd", 3: "3rd", 4: "4th", 5: "5th"}
+
+
+def pick_label_candidates(asset: str) -> List[str]:
+    """Translate a LOTG pick label to dynasty-daddy full_name candidates,
+    in fallback order: generic round (most specific first) then named
+    quarters."""
+    parts = asset.strip().split()
     if len(parts) != 2:
         return []
-    year_s, round_pick = parts
-    if "." not in round_pick:
+    year_s, rest = parts
+    if "." not in rest:
         return []
-    rd_s, slot_s = round_pick.split(".", 1)
+    rd_s, slot_s = rest.split(".", 1)
     try:
         year = int(year_s)
         rd = int(rd_s)
     except Exception:
         return []
-    ord_str = _ORD_SUFFIX.get(rd, f"{rd}th")
-    generic = [
-        f"{year} {ord_str}",
-        f"{year} Early {ord_str}",
-        f"{year} Mid {ord_str}",
-        f"{year} Late {ord_str}",
+    ord_s = _ORD.get(rd, f"{rd}th")
+    # Generic round labels first (dynasty-daddy publishes 'YYYY Early Nth',
+    # 'YYYY Mid Nth', 'YYYY Late Nth' for unknown-slot picks). When the
+    # slot is '??', average across Early/Mid/Late at the caller.
+    return [
+        f"{year} Early {ord_s}",
+        f"{year} Mid {ord_s}",
+        f"{year} Late {ord_s}",
     ]
-    if slot_s == "??":
-        return generic + [f"{year} Pick {rd}.{i:02d}" for i in range(1, 13)]
-    try:
-        slot = int(slot_s)
-    except Exception:
-        return generic
-    return [f"{year} Pick {rd}.{slot:02d}"] + generic
 
 
-def asset_value(
-    asset: str,
-    sleeper_id: Optional[str],
-    values_df: pd.DataFrame,
-    fp_id_by_sleeper: Dict[str, str],
-    value_col: str = "value_1qb",
-) -> Optional[float]:
-    """Return the KTC value of one asset on the snapshot in values_df.
+# --------------------------------------------------------------------------
+# Bulk index builder
+# --------------------------------------------------------------------------
 
-    Players are resolved by sleeper_id -> fantasypros_id -> fp_id row.
-    Picks are resolved by label match; '??' slots get the round average.
-    Returns None when no match is found.
+def build_index(
+    repo_root: Path,
+    sleeper_ids: Iterable[str],
+    pick_labels: Iterable[str],
+    value_col: str = "trade_value",
+) -> ValueIndex:
+    """Fetch + cache + index histories for every asset we'll need.
+
+    `value_col` picks the format: 'trade_value' is KTC 1QB, 'sf_trade_value'
+    is superflex. The user's league is 1QB so 'trade_value' is the default.
     """
-    if values_df.empty:
-        return None
+    directory = load_directory(repo_root)
 
-    # Pick label like '2024 1.??' or '2024 1.05'
-    if asset and len(asset) >= 5 and asset[:4].isdigit() and asset[4] == " ":
-        dp_labels = _pick_label_to_dp(asset)
-        if not dp_labels:
+    # Map sleeper_id (str) -> name_id. Multiple players can share a Sleeper ID
+    # if the directory has duplicates; take the first one with the higher
+    # current trade_value as the canonical entry.
+    sid_to_name: Dict[str, str] = {}
+    for p in directory:
+        sid = p.get("sleeper_id")
+        nm = p.get("name_id")
+        if not sid or not nm:
+            continue
+        sid_s = str(sid)
+        # Prefer the entry with a non-None current value if there are dupes.
+        if sid_s not in sid_to_name:
+            sid_to_name[sid_s] = nm
+
+    # Pick name_id mapping. The 'today' directory only carries picks for
+    # drafts that haven't happened yet — after a draft completes,
+    # dynasty-daddy retires those pick records. For historical lookups
+    # we still need them, so derive the name_id from the full_name
+    # directly: '2024 Early 1st' -> '2024early1stpi'.
+    def _pick_full_name_to_id(fn: str) -> str:
+        return fn.replace(" ", "").lower() + "pi"
+
+    pick_name_to_name_id: Dict[str, str] = {}
+    for p in directory:
+        if (p.get("position") or "") != "PI":
+            continue
+        fn = p.get("full_name")
+        nm = p.get("name_id")
+        if fn and nm:
+            pick_name_to_name_id[fn] = nm
+
+    idx = ValueIndex()
+
+    # Players we actually use
+    wanted_sids = {str(s) for s in sleeper_ids if s}
+    for sid in sorted(wanted_sids):
+        nm = sid_to_name.get(sid)
+        if not nm:
+            continue
+        hist = load_history(repo_root, nm)
+        idx.add_player(sid, hist, value_col)
+
+    # Picks: expand each '?? slot' label to its generic candidates, fetch
+    # their histories once.
+    wanted_pick_names: set = set()
+    for label in pick_labels:
+        for cand in pick_label_candidates(str(label)):
+            wanted_pick_names.add(cand)
+    for fn in sorted(wanted_pick_names):
+        # Use directory mapping if present, else derive the name_id.
+        nm = pick_name_to_name_id.get(fn) or _pick_full_name_to_id(fn)
+        hist = load_history(repo_root, nm)
+        if hist:
+            idx.add_pick(fn, hist, value_col)
+
+    return idx
+
+
+# --------------------------------------------------------------------------
+# Per-asset query used by the build's KTC pass
+# --------------------------------------------------------------------------
+
+def asset_value_at(
+    asset_label: Optional[str],
+    sleeper_id: Optional[str],
+    target: date,
+    idx: ValueIndex,
+) -> Optional[float]:
+    """Resolve a single asset's KTC value at `target`.
+
+    asset_label is set for picks ('2026 1.??' / '2026 1.05'); sleeper_id is
+    set for players. For '??'-slot picks we average across Early/Mid/Late
+    of that round; for specific slots we use the named quarter that most
+    closely matches the slot number.
+    """
+    # Pick path
+    if asset_label and len(asset_label) >= 5 and asset_label[:4].isdigit() and asset_label[4] == " ":
+        candidates = pick_label_candidates(asset_label)
+        if not candidates:
             return None
-        is_unknown_slot = "??" in asset
-
-        # For an unknown-slot pick, the right value is "what is a pick
-        # of this round worth this year on average":
-        #   - Pre-draft: DynastyProcess publishes a generic round label
-        #     ('2024 1st') whose value is roughly that average.
-        #   - Post-draft: only specific-slot rows exist ('2024 Pick
-        #     1.01' .. 1.12); we average across whichever are present
-        #     in the snapshot. (Before this change asset_value walked
-        #     the slots in order and returned 1.01's value alone —
-        #     wildly off for late picks.)
+        is_unknown_slot = "??" in asset_label
         if is_unknown_slot:
-            generic_labels = [l for l in dp_labels if "Pick" not in l]
-            specific_labels = [l for l in dp_labels if "Pick" in l]
-            for label in generic_labels:
-                picks = values_df[values_df["player"] == label]
-                if not picks.empty:
-                    vals = pd.to_numeric(picks[value_col], errors="coerce").dropna()
-                    if not vals.empty:
-                        return float(vals.mean())
-            picks = values_df[values_df["player"].isin(specific_labels)]
-            if not picks.empty:
-                vals = pd.to_numeric(picks[value_col], errors="coerce").dropna()
-                if not vals.empty:
-                    return float(vals.mean())
+            # Average across whichever Early/Mid/Late candidates have data
+            vals: List[float] = []
+            for c in candidates:
+                v = idx.value_at(c, target, is_pick=True)
+                if v is not None:
+                    vals.append(v)
+            if not vals:
+                return None
+            return sum(vals) / len(vals)
+        # Specific slot: pick the closest named quarter. dynasty-daddy
+        # uses Early (1-4), Mid (5-8), Late (9-12) approximately. For a
+        # 12-team league this lines up; for other team counts the mapping
+        # degrades. We accept that error in V1.
+        try:
+            slot = int(asset_label.split()[1].split(".")[1])
+        except Exception:
             return None
-
-        # Specific slot — try specific first, fall back to generic.
-        for label in dp_labels:
-            picks = values_df[values_df["player"] == label]
-            if not picks.empty:
-                vals = pd.to_numeric(picks[value_col], errors="coerce").dropna()
-                if not vals.empty:
-                    return float(vals.mean())
+        if slot <= 4:
+            ordered = [candidates[0], candidates[1], candidates[2]]
+        elif slot <= 8:
+            ordered = [candidates[1], candidates[0], candidates[2]]
+        else:
+            ordered = [candidates[2], candidates[1], candidates[0]]
+        for c in ordered:
+            v = idx.value_at(c, target, is_pick=True)
+            if v is not None:
+                return v
         return None
 
-    # Player — resolve sleeper -> fp_id
+    # Player path
     if not sleeper_id:
         return None
-    fp_id = fp_id_by_sleeper.get(str(sleeper_id))
-    if not fp_id:
-        return None
-    if "fp_id" not in values_df.columns:
-        return None
-    # DynastyProcess stores fp_id as a numeric column (parses as float).
-    # Compare numerically so '19788' matches '19788.0'.
-    try:
-        target = float(str(fp_id))
-    except Exception:
-        return None
-    fp_numeric = pd.to_numeric(values_df["fp_id"], errors="coerce")
-    hit = values_df[fp_numeric == target]
-    if hit.empty:
-        return None
-    v = pd.to_numeric(hit[value_col], errors="coerce").dropna()
-    if v.empty:
-        return None
-    return float(v.iloc[0])
-
-
-def build_fp_id_by_sleeper(xwalk: pd.DataFrame) -> Dict[str, str]:
-    """sleeper_id (str) -> fantasypros_id (str). Filters out NA rows."""
-    out: Dict[str, str] = {}
-    if xwalk.empty or "sleeper_id" not in xwalk.columns:
-        return out
-    for _, row in xwalk.iterrows():
-        sid = str(row.get("sleeper_id") or "").strip()
-        fpid = str(row.get("fantasypros_id") or "").strip()
-        if not sid or not fpid or sid.upper() == "NA" or fpid.upper() == "NA":
-            continue
-        out[sid] = fpid
-    return out
+    return idx.value_at(str(sleeper_id), target, is_pick=False)
