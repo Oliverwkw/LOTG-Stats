@@ -658,6 +658,15 @@ def _preserve_na(col: str) -> bool:
         "faab % difference over second place",
     }:
         return True
+    # Pick-value columns on trades.csv: blank means the trade had no
+    # picks at all, or all picks failed to resolve (e.g., picks for a
+    # draft too far in the future). Distinct from 'the pick value is
+    # actually zero', so don't collapse to 0.0.
+    if col_l in {
+        "pick value received",
+        "change in pick value at draft time",
+    }:
+        return True
     if col_l in {
         "win variance",
         "weeks between pickup and start",
@@ -3566,6 +3575,58 @@ def build_all(repo_root: Path) -> None:
                     diff = _diff_at(snap_now, recv_ids, drop_ids, recv_picks, drop_picks)
                     if diff is not None:
                         row["KTC value difference at deal time"] = diff
+
+                    # 'Pick value received' = sum of received-side pick
+                    # KTC values at deal time. Player side intentionally
+                    # excluded; this column is specifically about pick
+                    # value going to this team.
+                    pick_recv_total = 0.0
+                    pick_recv_hits = 0
+                    for plabel in recv_picks:
+                        v = asset_value(str(plabel), None, snap_now, fp_by_sid)
+                        if v is not None:
+                            pick_recv_total += v
+                            pick_recv_hits += 1
+                    if pick_recv_hits:
+                        row["Pick value received"] = round(pick_recv_total, 1)
+
+                # 'Change in pick value at draft time' = sum across each
+                # received pick of (value at post-draft snapshot for that
+                # pick's season) minus (value at trade date). Captures
+                # whether the team did better or worse than the at-trade
+                # generic estimate once the actual slot was known.
+                #
+                # Rookie drafts in this league wrap up in late August.
+                # Use Sept 5 of the pick's year as the post-draft
+                # snapshot date. Picks whose drafts are in the future
+                # don't contribute (we'd need data we don't have yet).
+                pick_change_total = 0.0
+                pick_change_hits = 0
+                for plabel in recv_picks:
+                    # Extract pick year from the label "YYYY R.??"
+                    parts = str(plabel).strip().split()
+                    if len(parts) != 2:
+                        continue
+                    try:
+                        pick_year = int(parts[0])
+                    except Exception:
+                        continue
+                    post_draft = date(pick_year, 9, 5)
+                    if post_draft > today:
+                        continue
+                    snap_post = _get_snap(post_draft)
+                    if snap_post is None:
+                        continue
+                    if snap_now is None:
+                        continue
+                    v_before = asset_value(str(plabel), None, snap_now, fp_by_sid)
+                    v_after = asset_value(str(plabel), None, snap_post, fp_by_sid)
+                    if v_before is None or v_after is None:
+                        continue
+                    pick_change_total += (v_after - v_before)
+                    pick_change_hits += 1
+                if pick_change_hits:
+                    row["Change in pick value at draft time"] = round(pick_change_total, 1)
 
                 # Future reference points only make sense if we know Season.
                 if season_i is None:
