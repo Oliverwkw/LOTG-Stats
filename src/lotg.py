@@ -642,6 +642,14 @@ def _preserve_na(col: str) -> bool:
     col_l = str(col or "").strip().lower()
     if col_l.startswith("change from ") or col_l.startswith("change in "):
         return True
+    # KTC value differences: 'at deal time' / 'at end of season' / '1 year
+    # later' / '2 years later'. A blank here means the reference date is
+    # in the future, or at least one side of the trade had no resolvable
+    # KTC value (e.g. pre-2022 trades where DynastyProcess data is
+    # sparse). Both cases are distinct from 'the diff is actually zero',
+    # so don't collapse them to 0.0.
+    if col_l.startswith("ktc value difference"):
+        return True
     if col_l in {
         "win variance",
         "weeks between pickup and start",
