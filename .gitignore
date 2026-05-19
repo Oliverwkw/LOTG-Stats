@@ -1,4 +1,4 @@
-# KTC snapshot cache. Each entry is a historical DynastyProcess values.csv
-# keyed by date. Reproducible from the upstream feed and grows by ~500 files
-# over time — not worth committing.
+# KTC cache. directory.json is today's snapshot; players/<name_id>.json
+# is per-player full history (back to 2021). Reproducible from dynasty-daddy
+# and accumulates to ~1k files — not worth committing.
 data/ktc_cache/
