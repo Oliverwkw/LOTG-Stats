@@ -3561,7 +3561,23 @@ def build_all(repo_root: Path) -> None:
             if sid:
                 needed_sids.add(str(sid))
 
-        idx = build_index(repo_root, needed_sids, needed_picks, value_col=ktc_value_col)
+        # Pass full_name+pos for every sleeper_id we need so the KTC
+        # module can derive name_id slugs for retired/aged-out players
+        # not in dynasty-daddy's active directory.
+        sid_to_meta = {
+            str(sid): {
+                "full_name": (pid_meta.get(str(sid)) or {}).get("full_name") or "",
+                "pos": (pid_meta.get(str(sid)) or {}).get("pos") or "",
+            }
+            for sid in needed_sids
+        }
+        idx = build_index(
+            repo_root,
+            needed_sids,
+            needed_picks,
+            value_col=ktc_value_col,
+            sid_to_meta=sid_to_meta,
+        )
 
         def _side_total(
             target: date,

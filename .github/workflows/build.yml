@@ -16,6 +16,25 @@ jobs:
         with:
           python-version: "3.11"
 
+      - name: Restore KTC cache
+        # data/ktc_cache/ holds dynasty-daddy's per-player history files
+        # (~1k players, ~1800 daily rows each). Without this cache every
+        # build re-fetches all of them, costing ~7-10 minutes. The
+        # directory.json refresh logic inside lotg_support/ktc.py still
+        # forces today's snapshot every 6 hours, so cache restore here
+        # is safe even when KTC values change.
+        uses: actions/cache@v4
+        with:
+          path: data/ktc_cache
+          # Bust the cache when ktc.py changes so behavior-sensitive
+          # updates (new slug rules, value column choice, etc.) take
+          # effect immediately. Otherwise rotate weekly so we don't
+          # carry stale histories forever.
+          key: ktc-cache-${{ hashFiles('lib/lotg_support/ktc.py') }}-${{ github.run_number }}
+          restore-keys: |
+            ktc-cache-${{ hashFiles('lib/lotg_support/ktc.py') }}-
+            ktc-cache-
+
       - name: Install dependencies (including LOTG package)
         run: |
           mkdir -p exports/raw

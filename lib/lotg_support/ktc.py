@@ -171,6 +171,40 @@ class ValueIndex:
 
 _ORD = {1: "1st", 2: "2nd", 3: "3rd", 4: "4th", 5: "5th"}
 
+# Suffixes dynasty-daddy strips from full_name when building the slug.
+_NAME_SUFFIXES = (" jr", " sr", " ii", " iii", " iv", " v")
+
+
+def derive_player_name_id(full_name: str, position: str) -> Optional[str]:
+    """Compose dynasty-daddy's player slug from Sleeper full_name + position.
+
+    Their convention: lowercase the name, strip apostrophes, periods,
+    hyphens, and whitespace, drop common name suffixes (Jr / Sr / II
+    etc.), then append the lowercase position. We use this as a fallback
+    when the player isn't in today's directory (retired, switched
+    leagues, untracked rookie not yet rated).
+
+    Examples we've validated against dynasty-daddy's API:
+      'Ja\\'Marr Chase' + 'WR' -> 'jamarrchasewr'
+      'Amon-Ra St. Brown' + 'WR' -> 'amonrastbrownwr'
+      'A.J. Brown' + 'WR' -> 'ajbrownwr'
+      'Tom Brady' + 'QB' -> 'tombradyqb'
+    """
+    if not full_name or not position:
+        return None
+    n = str(full_name).lower()
+    # Strip suffixes once. We don't loop; double suffixes don't happen.
+    for suf in _NAME_SUFFIXES:
+        if n.endswith(suf):
+            n = n[: -len(suf)]
+            break
+    for ch in "'.- ":
+        n = n.replace(ch, "")
+    pos = str(position).strip().lower()
+    if not n or not pos:
+        return None
+    return n + pos
+
 
 def pick_label_candidates(asset: str) -> List[str]:
     """Translate a LOTG pick label to dynasty-daddy full_name candidates,
@@ -208,6 +242,7 @@ def build_index(
     sleeper_ids: Iterable[str],
     pick_labels: Iterable[str],
     value_col: str = "trade_value",
+    sid_to_meta: Optional[Dict[str, Dict[str, str]]] = None,
 ) -> ValueIndex:
     """Fetch + cache + index histories for every asset we'll need.
 
@@ -249,14 +284,21 @@ def build_index(
 
     idx = ValueIndex()
 
-    # Players we actually use
+    # Players we actually use. Retired and aged-out players aren't in
+    # dynasty-daddy's 'today' directory, so we derive the name_id slug
+    # from Sleeper's full_name + position when present. Their backend
+    # still serves the full history for those slugs.
     wanted_sids = {str(s) for s in sleeper_ids if s}
     for sid in sorted(wanted_sids):
         nm = sid_to_name.get(sid)
+        if not nm and sid_to_meta:
+            meta = sid_to_meta.get(sid) or {}
+            nm = derive_player_name_id(meta.get("full_name") or "", meta.get("pos") or "")
         if not nm:
             continue
         hist = load_history(repo_root, nm)
-        idx.add_player(sid, hist, value_col)
+        if hist:
+            idx.add_player(sid, hist, value_col)
 
     # Picks: expand each '?? slot' label to its generic candidates, fetch
     # their histories once.
