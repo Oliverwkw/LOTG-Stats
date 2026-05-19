@@ -556,6 +556,11 @@ def _column_kind(col: str) -> str:
         "number",
         "result",
         "etc",
+        # Formulas sheet — pure documentation, all four columns are text
+        "stat",
+        "sheet",
+        "formula",
+        "notes",
     }
     if col_l in text_exact:
         return "text"
