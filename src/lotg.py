@@ -651,13 +651,12 @@ def _preserve_na(col: str) -> bool:
     if col_l.startswith("ktc value difference"):
         return True
     # KTC columns on transactions.csv. Blank means the player wasn't
-    # in DynastyProcess (low-value or untracked), or the row was a
-    # drop-only / no-drop row. Distinct from 'KTC is actually zero'.
-    if col_l in {
-        "ktc value of player added at deal time",
-        "ktc value of player dropped at deal time",
-        "net ktc value at deal time",
-    }:
+    # tracked by dynasty-daddy (low-value / pre-2021), or the row was
+    # a drop-only / no-drop row, or the reference date is in the
+    # future. Distinct from 'KTC is actually zero'.
+    if col_l.startswith("ktc value of player added") or col_l.startswith("ktc value of player dropped"):
+        return True
+    if col_l.startswith("net ktc value"):
         return True
     # Faab-vs-second-place: blank means the row isn't a waiver, or the
     # waiver was uncontested (no runner-up). Either case is distinct
@@ -3679,7 +3678,30 @@ def build_all(repo_root: Path) -> None:
                 if diff is not None:
                     row[col_name] = diff
 
-        # --- Transactions pass (deal-time only for now) ---
+        # --- Transactions pass: 4 reference points × 3 columns each ---
+        # For each transaction we look up the added and dropped players'
+        # KTC values at four moments: the transaction date itself, then
+        # the same Jan-5-after-season-end ladder we use for trades. Net
+        # is added − dropped (missing side treated as zero). Future-
+        # dated references stay N/A via _preserve_na.
+        def _tx_value_at(
+            target: date,
+            added_pid: Optional[str],
+            dropped_pid: Optional[str],
+        ) -> Tuple[Optional[float], Optional[float], Optional[float]]:
+            v_a = asset_value_at(None, str(added_pid), target, idx) if added_pid else None
+            v_d = asset_value_at(None, str(dropped_pid), target, idx) if dropped_pid else None
+            v_net = None
+            if v_a is not None or v_d is not None:
+                v_net = round((v_a or 0.0) - (v_d or 0.0), 1)
+            return v_a, v_d, v_net
+
+        tx_ref_points = [
+            ("at deal time",     "deal"),
+            ("at end of season", "end"),
+            ("1 year later",     "y1"),
+            ("2 years later",    "y2"),
+        ]
         for tx_row in transactions_rows:
             ds = tx_row.get("Date")
             if not ds:
@@ -3689,20 +3711,35 @@ def build_all(repo_root: Path) -> None:
                 tx_date = tx_dt.date()
             except Exception:
                 continue
-            if tx_date > today:
-                continue
+            season_i = tx_row.get("Season")
+            try:
+                season_i = int(season_i) if season_i is not None else None
+            except Exception:
+                season_i = None
             added_pid = tx_row.get("_added_pid")
             dropped_pid = tx_row.get("_dropped_pid")
-            v_added = asset_value_at(None, str(added_pid), tx_date, idx) if added_pid else None
-            v_dropped = asset_value_at(None, str(dropped_pid), tx_date, idx) if dropped_pid else None
-            if v_added is not None:
-                tx_row["KTC value of player added at deal time"] = round(v_added, 1)
-            if v_dropped is not None:
-                tx_row["KTC value of player dropped at deal time"] = round(v_dropped, 1)
-            if v_added is not None or v_dropped is not None:
-                tx_row["Net KTC value at deal time"] = round(
-                    (v_added or 0.0) - (v_dropped or 0.0), 1
-                )
+
+            for label, tag in tx_ref_points:
+                if tag == "deal":
+                    ref = tx_date
+                else:
+                    if season_i is None:
+                        continue
+                    offset = {"end": 1, "y1": 2, "y2": 3}[tag]
+                    ref = date(season_i + offset, 1, 5)
+                    # Never refer to a date earlier than the transaction
+                    # itself — matches the floor used in the trades pass.
+                    if ref < tx_date:
+                        ref = tx_date
+                if ref > today:
+                    continue
+                v_a, v_d, v_net = _tx_value_at(ref, added_pid, dropped_pid)
+                if v_a is not None:
+                    tx_row[f"KTC value of player added {label}"] = round(v_a, 1)
+                if v_d is not None:
+                    tx_row[f"KTC value of player dropped {label}"] = round(v_d, 1)
+                if v_net is not None:
+                    tx_row[f"Net KTC value {label}"] = v_net
     except Exception as e:
         _log_exc(debug, "ktc_value_diff", e)
     # Surface any dynasty-daddy fetch failures so a silent partial
