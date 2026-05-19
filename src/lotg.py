@@ -650,6 +650,15 @@ def _preserve_na(col: str) -> bool:
     # so don't collapse them to 0.0.
     if col_l.startswith("ktc value difference"):
         return True
+    # KTC columns on transactions.csv. Blank means the player wasn't
+    # in DynastyProcess (low-value or untracked), or the row was a
+    # drop-only / no-drop row. Distinct from 'KTC is actually zero'.
+    if col_l in {
+        "ktc value of player added at deal time",
+        "ktc value of player dropped at deal time",
+        "net ktc value at deal time",
+    }:
+        return True
     # Faab-vs-second-place: blank means the row isn't a waiver, or the
     # waiver was uncontested (no runner-up). Either case is distinct
     # from 'won by zero' so don't collapse to 0.0.
@@ -2936,6 +2945,11 @@ def build_all(repo_root: Path) -> None:
                             "FAAB % difference over second place": row_faab_pct_2nd,
                             "Date": created_dt.isoformat() if created_dt else (str(created_date) if created_date else None),
                             "Season": int(season),
+                            # Internal-only sleeper IDs for the KTC pass.
+                            # Filtered out before write_outputs (not in the
+                            # plan catalog).
+                            "_added_pid": str(pid) if pid else None,
+                            "_dropped_pid": str(dropped) if dropped else None,
                             "Number of bids": row_num_bids,
                             "Link to next transaction": None,
                             "Link to previous transaction": None,
@@ -3002,6 +3016,8 @@ def build_all(repo_root: Path) -> None:
                                         "FAAB % difference over second place": None,
                                         "Date": drop_dt,
                                         "Season": int(season),
+                                        "_added_pid": None,
+                                        "_dropped_pid": str(dropped_id) if dropped_id else None,
                                         "Number of bids": None,
                                         "Link to next transaction": None,
                                         "Link to previous transaction": None,
@@ -3652,6 +3668,44 @@ def build_all(repo_root: Path) -> None:
                     diff = _diff_at(snap_ref, recv_ids, drop_ids, recv_picks, drop_picks)
                     if diff is not None:
                         row[col_name] = diff
+            # ----------------------------------------------------------
+            # KTC pass for transactions.csv. Reuses the snap_cache and
+            # asset_value plumbing from the trades pass above. Three
+            # columns at deal time:
+            #   - KTC value of player added at deal time
+            #   - KTC value of player dropped at deal time
+            #   - Net KTC value at deal time   (= added - dropped)
+            # Future time-point columns can layer on later if useful.
+            # ----------------------------------------------------------
+            if transactions_rows:
+                for tx_row in transactions_rows:
+                    ds = tx_row.get("Date")
+                    if not ds:
+                        continue
+                    try:
+                        tx_dt = datetime.fromisoformat(str(ds).replace("Z", "+00:00"))
+                        tx_date = tx_dt.date()
+                    except Exception:
+                        continue
+                    snap_tx = _get_snap(tx_date)
+                    if snap_tx is None:
+                        continue
+                    added_pid = tx_row.get("_added_pid")
+                    dropped_pid = tx_row.get("_dropped_pid")
+                    v_added = asset_value(None, str(added_pid), snap_tx, fp_by_sid) if added_pid else None
+                    v_dropped = asset_value(None, str(dropped_pid), snap_tx, fp_by_sid) if dropped_pid else None
+                    if v_added is not None:
+                        tx_row["KTC value of player added at deal time"] = round(v_added, 1)
+                    if v_dropped is not None:
+                        tx_row["KTC value of player dropped at deal time"] = round(v_dropped, 1)
+                    # Net only meaningful when at least one side
+                    # resolved. Treat the missing side as 0 in the
+                    # subtraction — a waiver pickup with no drop has a
+                    # net equal to the player's KTC, which reads cleanly.
+                    if v_added is not None or v_dropped is not None:
+                        tx_row["Net KTC value at deal time"] = round(
+                            (v_added or 0.0) - (v_dropped or 0.0), 1
+                        )
     except Exception as e:
         _log_exc(debug, "ktc_value_diff", e)
     # Surface any DynastyProcess fetch failures (rate-limit / 404 / etc.)
