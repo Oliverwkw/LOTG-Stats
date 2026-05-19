@@ -2878,17 +2878,43 @@ def build_all(repo_root: Path) -> None:
                             key = (int(season), int(wk), str(pid))
                             row_num_bids = bids_per_player_week.get(key, 0) or None
                             row_total_faab = total_bids_amount_per_player_week.get(key, 0.0) or None
-                            amounts = sorted(bid_amounts_per_player_week.get(key, []), reverse=True)
-                            if len(amounts) >= 2:
-                                winner, second = amounts[0], amounts[1]
-                                row_faab_diff_2nd = round(winner - second, 2)
+                            # Compute the runner-up from the pre-filter
+                            # tally. Two important details:
+                            # 1) The winner is the team owning THIS row
+                            #    (status=complete). Its bid amount is the
+                            #    'faab' value we just read off settings.
+                            #    Don't take amounts[0] — Sleeper records
+                            #    failed bids alongside the winner, and a
+                            #    higher-amount failed bid (roster full,
+                            #    not enough FAAB, etc.) would otherwise
+                            #    look like 'the winner'.
+                            # 2) Any bid > winner_bid_val that ended up
+                            #    losing must have been INVALIDATED — a
+                            #    valid higher bid would have won the
+                            #    auction. Exclude those from runner-up
+                            #    consideration; they aren't real competing
+                            #    bids. This is what was producing diffs
+                            #    larger than the winning bid (e.g. Dont'e
+                            #    Thornton showed diff=40 on a 16-FAAB win).
+                            winner_bid_val = float(faab) if faab is not None else 0.0
+                            competing = list(bid_amounts_per_player_week.get(key, []))
+                            try:
+                                # Remove exactly one occurrence of the
+                                # winning bid (the row we're emitting).
+                                # If multiple bids tied at winner_bid_val,
+                                # the others are legitimate runners-up.
+                                competing.remove(winner_bid_val)
+                            except ValueError:
+                                pass
+                            competing = [b for b in competing if b <= winner_bid_val]
+                            if competing:
+                                second = max(competing)
+                                row_faab_diff_2nd = round(winner_bid_val - second, 2)
                                 if second > 0:
-                                    # Percentage premium of the winning bid
-                                    # over the runner-up. (5 vs 4) -> 25%.
-                                    row_faab_pct_2nd = round((winner - second) / second * 100.0, 2)
+                                    row_faab_pct_2nd = round((winner_bid_val - second) / second * 100.0, 2)
                                 # If second == 0 the percentage is
-                                # undefined; leave the % column blank but
-                                # still surface the absolute difference.
+                                # undefined; leave % blank but still
+                                # surface the absolute difference.
 
                         transactions_rows.append({
                             "Team": row_team,
