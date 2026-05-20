@@ -211,8 +211,8 @@ _ROWS = [
     {
         "Stat": "Asset difference in average age",
         "Sheet": "trades",
-        "Formula": "mean(age of received players at trade date) − mean(age of dropped players at trade date). Picks excluded.",
-        "Notes": "Negative = team got younger. Ages from Sleeper's birth_date metadata.",
+        "Formula": "mean(age of received assets at trade date) − mean(age of sent assets at trade date). Players use Sleeper's birth_date. Picks count as future rookies: synthetic birth_date = Sept 1 of (pick_year − 22), so a 2026 pick traded mid-2025 'expects' a ~21-year-old rookie. Earlier trades of further-out picks come out younger, which lines up with intuition.",
+        "Notes": "Negative = team got younger. NFL rookies average ~22 at draft time; the Sept 1 anchor matches our late-August league rookie draft.",
     },
     {
         "Stat": "Avg PPG of received players on team",
@@ -221,10 +221,10 @@ _ROWS = [
         "Notes": "Forward-looking — actual production while on this team. Sourced from nflverse.",
     },
     {
-        "Stat": "Avg PPG of dropped players over same time",
+        "Stat": "Avg PPG of sent players over same time",
         "Sheet": "trades",
-        "Formula": "Per dropped player, mean fantasy_points_ppr over the COLLECTIVE tenure span of the received players (trade date through latest drop). Aggregated as mean across dropped players.",
-        "Notes": "Measures 'what we'd have gotten by keeping the dropped players over the same span'.",
+        "Formula": "Per sent player, mean fantasy_points_ppr over the COLLECTIVE tenure span of the received players (trade date through latest drop of any received player). Aggregated as mean across sent players.",
+        "Notes": "Measures 'what we'd have gotten by keeping the sent players over the same span'.",
     },
     {
         "Stat": "Avg PPG of received players in 5 games before trade",

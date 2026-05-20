@@ -545,6 +545,7 @@ def _column_kind(col: str) -> str:
         "assets received",
         "assets dropped",
         "assets received",
+        "assets sent",
         "assets retained now",
         "assets traded away",
         "return from trades",
@@ -687,7 +688,7 @@ def _preserve_na(col: str) -> bool:
         "average ppg of dropped player over same time",
         "ppg of 5 games before pickup",
         "avg ppg of received players on team",
-        "avg ppg of dropped players over same time",
+        "avg ppg of sent players over same time",
         "avg ppg of received players in 5 games before trade",
         "asset difference in average age",
         "trade addition value",
@@ -2900,7 +2901,7 @@ def build_all(repo_root: Path) -> None:
                                 "Team": tm,
                                 "Team's traded with": "; ".join(sorted(set([x for x in others if x]))),
                                 "Assets received": "; ".join(received) if received else None,
-                                "Assets dropped": "; ".join(dropped) if dropped else None,
+                                "Assets sent": "; ".join(dropped) if dropped else None,
                                 "Date": created_dt.isoformat() if created_dt else (str(created_date) if created_date else None),
                                 "Season": int(season),
                                 # Internal-only sleeper ID lists used by the
@@ -3660,7 +3661,7 @@ def build_all(repo_root: Path) -> None:
             for tr_row in trades_rows:
                 team = tr_row.get("Team")
                 dt_str = tr_row.get("Date") or ""
-                dropped_assets = str(tr_row.get("Assets dropped") or "")
+                dropped_assets = str(tr_row.get("Assets sent") or "")
                 if dropped_assets in ("0.0", "None", ""):
                     continue
                 for asset in dropped_assets.split(";"):
@@ -4687,15 +4688,53 @@ def build_all(repo_root: Path) -> None:
             row["Assets received"] = _substitute_picks(
                 row.get("Assets received"), row.get("_recv_pick_meta") or []
             )
-            row["Assets dropped"] = _substitute_picks(
-                row.get("Assets dropped"), row.get("_drop_pick_meta") or []
+            row["Assets sent"] = _substitute_picks(
+                row.get("Assets sent"), row.get("_drop_pick_meta") or []
             )
 
             # ----- (b) Asset difference in average age -----
+            # Players use birth_date as usual. Picks count too —
+            # treat each pick as an unknown future rookie. NFL
+            # rookies are ~22 years old at draft time, so a pick for
+            # year Y represents a player born ~Sept 1 of (Y - 22).
+            # Age at the trade date = (trade_date - that birth date)
+            # in years. This makes a pick get YOUNGER (in expected
+            # age) the further out from its draft year it's traded,
+            # which lines up with intuition: a 2027 pick today is
+            # worth a younger eventual player than a 2024 pick.
             recv_player_names = [_player_display(pid) for pid in (row.get("_recv_player_ids") or [])]
             drop_player_names = [_player_display(pid) for pid in (row.get("_drop_player_ids") or [])]
             recv_ages = [a for a in (_player_age_at(n, trade_iso) for n in recv_player_names) if a is not None]
             drop_ages = [a for a in (_player_age_at(n, trade_iso) for n in drop_player_names) if a is not None]
+
+            def _pick_expected_age(year_of_pick: int, at_iso: str) -> Optional[float]:
+                try:
+                    d = datetime.fromisoformat(at_iso.replace("Z", "+00:00")).date()
+                except Exception:
+                    return None
+                # Synthetic birth date: Sept 1 of (Y - 22). Drafted
+                # at age ~22 at our late-August rookie draft.
+                try:
+                    born = date(int(year_of_pick) - 22, 9, 1)
+                except Exception:
+                    return None
+                return round((d - born).days / 365.25, 2)
+
+            for pmeta in (row.get("_recv_pick_meta") or []):
+                yr_i = int(pmeta[0]) if pmeta and pmeta[0] is not None else None
+                if yr_i is None:
+                    continue
+                a = _pick_expected_age(yr_i, trade_iso)
+                if a is not None:
+                    recv_ages.append(a)
+            for pmeta in (row.get("_drop_pick_meta") or []):
+                yr_i = int(pmeta[0]) if pmeta and pmeta[0] is not None else None
+                if yr_i is None:
+                    continue
+                a = _pick_expected_age(yr_i, trade_iso)
+                if a is not None:
+                    drop_ages.append(a)
+
             if recv_ages and drop_ages:
                 row["Asset difference in average age"] = round(
                     (sum(recv_ages) / len(recv_ages)) - (sum(drop_ages) / len(drop_ages)), 2
@@ -4769,7 +4808,7 @@ def build_all(repo_root: Path) -> None:
                     sum(recv_on_team_avgs) / len(recv_on_team_avgs), 4
                 )
             if drop_over_avgs:
-                row["Avg PPG of dropped players over same time"] = round(
+                row["Avg PPG of sent players over same time"] = round(
                     sum(drop_over_avgs) / len(drop_over_avgs), 4
                 )
             if recv_pre5_avgs:
