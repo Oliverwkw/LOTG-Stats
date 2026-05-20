@@ -704,6 +704,25 @@ def _preserve_na(col: str) -> bool:
     # row had no Player Added/Dropped to compute against, or the
     # player has no pre-pickup game log. Distinct from 'value is
     # actually zero'.
+    # Player-week conditional columns: by their column-name spec
+    # ('(if starter)' / '(if bench)') they're only defined for one
+    # half of the rows; the rest should render N/A, not 0.
+    if "(if starter)" in col_l or "(if bench)" in col_l or "(if win)" in col_l:
+        return True
+    # Season-summary stats that should read N/A for in-progress
+    # seasons (no games played yet) instead of 0.0 implying the team
+    # played and scored zero.
+    if col_l in {
+        "points", "avg points",
+        "points against", "avg points against",
+        "differential", "avg differential",
+        "max pf", "avg max pf",
+        "efficiency",
+        "hardship",
+        "combined matchup score",
+        "win %",
+    }:
+        return True
     if col_l in {
         "average ppg on team",
         "average ppg of dropped player over same time",
@@ -6566,11 +6585,16 @@ def build_all(repo_root: Path) -> None:
                 placeholder_rows = []
                 for season_i in sorted(in_progress):
                     for team_name in canonical_teams:
+                        # Play-derived stats stay None (render as N/A)
+                        # for in-progress seasons — they're undefined
+                        # rather than 'team played and scored 0'. Count
+                        # / FAAB columns get real 0 because real-world
+                        # offseason transactions actually count.
                         placeholder_rows.append({
                             "Team": str(team_name),
                             "Year": int(season_i),
                             "Result": "N/A",
-                            "Win %": 0.0,
+                            "Win %": None,
                             "Record": "0-0-0",
                             "Record & win % vs each team": "N/A",
                             "Record & win % vs playoff teams": "N/A",
@@ -6583,18 +6607,18 @@ def build_all(repo_root: Path) -> None:
                             "Draft Value": 0,
                             "Number of first round picks made": 0,
                             "Total number of picks made": 0,
-                            "Points": 0.0,
-                            "Avg points": 0.0,
-                            "Points against": 0.0,
-                            "Avg points against": 0.0,
-                            "Differential": 0.0,
-                            "Avg differential": 0.0,
-                            "Max PF": 0.0,
+                            "Points": None,
+                            "Avg points": None,
+                            "Points against": None,
+                            "Avg points against": None,
+                            "Differential": None,
+                            "Avg differential": None,
+                            "Max PF": None,
                             "Avg max PF": None,
                             "Efficiency": None,
                             "Weeks of injuries": 0,
                             "Weeks suspensions": 0,
-                            "Hardship": 0.0,
+                            "Hardship": None,
                             "Offseason starter turnover": 0,
                             "Inseason starter turnover": 0,
                             # Number of transactions / trades / FAAB
@@ -6604,7 +6628,7 @@ def build_all(repo_root: Path) -> None:
                             "Number of transactions": 0,
                             "Number of trades": 0,
                             "Amount of FAAB spent": 0.0,
-                            "Combined matchup score": 0.0,
+                            "Combined matchup score": None,
                         })
                 if placeholder_rows:
                     team_year = pd.concat([team_year, pd.DataFrame(placeholder_rows)], ignore_index=True)
