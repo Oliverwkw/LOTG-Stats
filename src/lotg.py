@@ -266,6 +266,26 @@ def _calc_age(birth_date_str: Optional[str], on_date: date) -> Optional[float]:
         return None
 
 
+def _pick_expected_age(year_of_pick: int, on_date: date) -> Optional[float]:
+    """Synthetic age of a not-yet-known rookie at a given date.
+
+    NFL rookies average ~22 at draft time and our league's rookie
+    draft wraps up early September. Anchor each pick's expected
+    birth date at Sept 1 of (Y - 22) so a typical rookie reads
+    exactly 22 on draft day. Earlier trades of further-out picks
+    naturally read younger.
+
+    Used wherever picks need to participate in age calculations:
+    trades 'Asset difference in average age', team_week 'Team age
+    including picks', and the avg_age input to the tanking score.
+    """
+    try:
+        born = date(int(year_of_pick) - 22, 9, 1)
+        return round((on_date - born).days / 365.25, 2)
+    except Exception:
+        return None
+
+
 def _rookie_season(meta: Dict[str, Any], current_season: Optional[int]) -> Optional[int]:
     draft_year = _to_int(meta.get("draft_year"), None)
     if draft_year:
@@ -1292,6 +1312,102 @@ def build_all(repo_root: Path) -> None:
     pick_trade_events: Dict[Tuple[int, int, int], List[Tuple[Optional[datetime], int, int, Optional[int]]]] = {}
     pick_holdings: Dict[Tuple[int, int, int], List[int]] = defaultdict(list)
 
+    # Commissioner-moved picks: pick keyed (year, round, original_owner)
+    # whose latest traded_picks owner differs from original but no
+    # trade transaction explains the move. We synthesize 'always
+    # owned by current owner from the earliest data point we have',
+    # which is the right behavior for ownership queries (commissioner
+    # picks were typically moved during pre-Sleeper offseason).
+    commissioner_pick_moves: Dict[Tuple[int, int, int], int] = {}
+
+    def _detect_commissioner_moves(season_now: int) -> None:
+        """Find picks whose current ownership in traded_picks_by_season
+        isn't fully explained by recorded trade events. These are
+        commissioner-driven moves (Sleeper doesn't track them as
+        trades when they happen more than ~3 years before the
+        pick's draft year).
+
+        For each detected pick, set commissioner_pick_moves[key] =
+        current owner. The helpers above treat the pick as 'always
+        belonged to current owner' for ownership queries — matches
+        the user's guidance to assume a single move from original
+        to current.
+        """
+        snapshot = traded_picks_by_season.get(int(season_now), []) or []
+        snapshot_owner: Dict[Tuple[int, int, int], int] = {}
+        for ev in snapshot:
+            if not isinstance(ev, dict):
+                continue
+            ps = _to_int(ev.get("season"), None)
+            rnd_e = _to_int(ev.get("round"), None)
+            orig = _to_int(ev.get("roster_id"), None)
+            nw = _to_int(ev.get("owner_id"), None)
+            if ps is None or rnd_e is None or orig is None or nw is None:
+                continue
+            if ps <= int(season_now):
+                continue
+            # Sleeper returns events in chronological order; last wins.
+            snapshot_owner[(int(ps), int(rnd_e), int(orig))] = int(nw)
+        for key, snap_owner in snapshot_owner.items():
+            events = pick_trade_events.get(key) or []
+            if not events:
+                if snap_owner != key[2]:
+                    commissioner_pick_moves[key] = int(snap_owner)
+            else:
+                last_owner = int(key[2])
+                for ev in events:
+                    try:
+                        last_owner = int(ev[2])
+                    except Exception:
+                        pass
+                if last_owner != snap_owner:
+                    commissioner_pick_moves[key] = int(snap_owner)
+
+    def _picks_held_by_team_at(team_name: str, season_now: int, at_date: date) -> List[float]:
+        """Pick ages (via _pick_expected_age) for all FUTURE picks
+        owned by this team at `at_date`.
+
+        Walks pick_trade_events per (pick_year, round, original_owner)
+        to find the owner at the query date. Commissioner-moved picks
+        layer on top: if a pick has no trade events but its latest
+        traded_picks snapshot shows a different owner, that's a
+        commissioner move and we treat it as 'always with the
+        current owner' (the user's guidance — assume single move
+        from original to current).
+        """
+        rid = season_team_to_roster.get(int(season_now), {}).get(str(team_name))
+        if rid is None:
+            return []
+        rosters_in_season = season_roster_to_team.get(int(season_now), {}) or {}
+        rounds_in_draft = draft_rounds_by_season.get(int(season_now), 4) or 4
+        ages: List[float] = []
+        for offset in range(1, 4):  # 3-year horizon
+            ps = int(season_now) + offset
+            for rnd_e in range(1, int(rounds_in_draft) + 1):
+                for orig_rid in rosters_in_season.keys():
+                    key = (int(ps), int(rnd_e), int(orig_rid))
+                    cur_owner = int(orig_rid)
+                    events = pick_trade_events.get(key) or []
+                    # Walk chronologically, applying events <= at_date.
+                    for ev in events:
+                        ev_dt = ev[0]
+                        if ev_dt is None:
+                            continue
+                        try:
+                            ev_date = ev_dt.date() if hasattr(ev_dt, "date") else ev_dt
+                        except Exception:
+                            continue
+                        if ev_date <= at_date:
+                            cur_owner = int(ev[2])  # new_owner
+                    # Commissioner override
+                    if key in commissioner_pick_moves and not events:
+                        cur_owner = commissioner_pick_moves[key]
+                    if cur_owner == int(rid):
+                        pa = _pick_expected_age(ps, at_date)
+                        if pa is not None:
+                            ages.append(pa)
+        return ages
+
     def _ensure_pick_bases(target_season: int, source_season: int) -> None:
         if target_season < 2021:
             return
@@ -1693,6 +1809,30 @@ def build_all(repo_root: Path) -> None:
             traded_picks = []
             traded_picks_by_season[season] = []
             _log_exc(debug, f"traded_picks_{season}", e)
+
+        # Detect commissioner-moved picks for this season's snapshot.
+        # Has to run AFTER the snapshot is captured but can use prior
+        # seasons' pick_trade_events (mid-season trades in this
+        # season are captured later inside the per-week sub-loop and
+        # will be merged into the same map). The team_week emission
+        # downstream will see the up-to-date commissioner moves.
+        try:
+            _detect_commissioner_moves(int(season))
+        except Exception as e:
+            _log_exc(debug, f"detect_commissioner_moves_{season}", e)
+
+        # Per-pick movement tracking happens via pick_trade_events
+        # (populated as each trade transaction is processed later in
+        # this season loop). Per-week pick ownership for the
+        # 'Team age including picks' column gets computed by querying
+        # those event lists at week-level snapshots — see the
+        # _picks_held_by_team_at helper defined at function scope
+        # below the per-season loop.
+        #
+        # Commissioner-moved picks (whose ownership change isn't in
+        # any trade transaction but does appear in traded_picks) are
+        # synthesized as 'always belonged to current owner' below
+        # and added to pick_history.
 
         # raw snapshots
         try:
@@ -2381,6 +2521,22 @@ def build_all(repo_root: Path) -> None:
                     approx_date = date(season, 9, 1) + timedelta(days=7 * (wk - 1))
                     ages = [a for a in (_calc_age(pid_meta.get(pid, {}).get("birth_date"), approx_date) for pid in players) if a is not None]
                     avg_age = round(sum(ages) / len(ages), 2) if ages else None
+                    # 'Team age including picks' uses the per-week
+                    # pick ownership tracking. The lookup helper
+                    # _picks_held_by_team_at walks pick_trade_events
+                    # (which has real dates from the source trade
+                    # transactions) and synthesizes commissioner-moved
+                    # picks as 'always with current owner'. Each pick
+                    # contributes _pick_expected_age(pick_year,
+                    # approx_date) — a future-rookie age that grows
+                    # as the draft date approaches.
+                    pick_ages_this_week = _picks_held_by_team_at(
+                        team, int(season), approx_date,
+                    )
+                    combined_ages = ages + pick_ages_this_week
+                    avg_age_inc_picks = (
+                        round(sum(combined_ages) / len(combined_ages), 2) if combined_ages else None
+                    )
 
                     def _nfl_team_for_pid_week(pid_val: Any) -> Optional[str]:
                         m = pid_meta.get(str(pid_val), {}) if isinstance(pid_meta, dict) else {}
@@ -2483,6 +2639,7 @@ def build_all(repo_root: Path) -> None:
                         "Number of rookies started": rook_s,
                         "Number of rookies rostered": rook_r,
                         "Player average age": avg_age,
+                        "Team age including picks": avg_age_inc_picks,
                         "Difference between highest and lowest starters": round(diff_hi_lo, 2) if diff_hi_lo is not None else None,
                         "Combined matchup score": round(pf + opp_points, 2) if opp_points is not None else None,
                         "Win streak": None,
@@ -3365,16 +3522,34 @@ def build_all(repo_root: Path) -> None:
     if not tw.empty:
         tw["Tanking"] = pd.to_numeric(tw.get("Tanking"), errors="coerce")
 
-        # weekly team age average (all rostered, starter+bench)
-        # Guard against missing/empty age columns.
-        if "Age" in pw.columns:
+        # Weekly team age average for tanking. Prefer the
+        # 'Team age including picks' column we now emit per
+        # (team, year, week) — that includes held draft capital,
+        # which is the right denominator for the tank-detection
+        # heuristic (a team accumulating picks IS tanking, not just
+        # one running an old roster). Fall back to the old
+        # rostered-player-only average when the new column isn't
+        # available for some reason.
+        if "Team age including picks" in tw.columns:
+            tw2 = tw.copy()
+            tw2["TeamWeekAvgAge"] = pd.to_numeric(tw2["Team age including picks"], errors="coerce")
+            # Fill missing pick-inclusive ages with the player-only
+            # average so the per-week tank score still has signal.
+            if "Age" in pw.columns:
+                fallback = pw.groupby(["Team", "Year", "Week"], dropna=False)["Age"].mean().reset_index()
+                fallback.rename(columns={"Age": "_TeamWeekAvgAgeFallback"}, inplace=True)
+                tw2 = tw2.merge(fallback, on=["Team", "Year", "Week"], how="left")
+                tw2["TeamWeekAvgAge"] = tw2["TeamWeekAvgAge"].fillna(
+                    pd.to_numeric(tw2["_TeamWeekAvgAgeFallback"], errors="coerce")
+                )
+        elif "Age" in pw.columns:
             age_week = pw.groupby(["Team", "Year", "Week"], dropna=False)["Age"].mean().reset_index()
             age_week.rename(columns={"Age": "TeamWeekAvgAge"}, inplace=True)
+            tw2 = tw.merge(age_week, on=["Team", "Year", "Week"], how="left")
+            tw2["TeamWeekAvgAge"] = pd.to_numeric(tw2["TeamWeekAvgAge"], errors="coerce")
         else:
-            age_week = pd.DataFrame(columns=["Team", "Year", "Week", "TeamWeekAvgAge"])
-
-        tw2 = tw.merge(age_week, on=["Team", "Year", "Week"], how="left")
-        tw2["TeamWeekAvgAge"] = pd.to_numeric(tw2["TeamWeekAvgAge"], errors="coerce")
+            tw2 = tw.copy()
+            tw2["TeamWeekAvgAge"] = pd.NA
 
         tanking_rows = []
         for season in sorted(tw2["Year"].dropna().unique()):
@@ -4790,10 +4965,14 @@ def build_all(repo_root: Path) -> None:
 
             drop_over_avgs: List[float] = []
             drop_adj_avgs: List[float] = []
-            if latest_end:
+            # If no received player has been dropped yet, the window
+            # is open-ended — use today as the upper bound so the
+            # sent-side PPG still has a meaningful window.
+            effective_end = latest_end or datetime.utcnow().date().isoformat()
+            if effective_end:
                 for pid in (row.get("_drop_player_ids") or []):
                     name = _player_display(pid)
-                    avg_over = _avg_ppg_window(name, trade_prefix, latest_end)
+                    avg_over = _avg_ppg_window(name, trade_prefix, effective_end)
                     if avg_over is not None:
                         drop_over_avgs.append(avg_over)
                         pos = _player_pos(name)
@@ -6656,6 +6835,7 @@ def build_all(repo_root: Path) -> None:
                     "Number of rookies started": ("Number of rookies started", "sum"),
                     "Number of rookies rostered": ("Number of rookies rostered", "sum"),
                     "Player average age": ("Player average age", "mean"),
+                    "Team age including picks": ("Team age including picks", "mean"),
                     "Difference between highest and lowest starters": ("Difference between highest and lowest starters", "max"),
                     "Number of donuts": ("Number of donuts", "sum"),
                     "Number of players under 10": ("Number of players under 10", "sum"),
@@ -6891,6 +7071,7 @@ def build_all(repo_root: Path) -> None:
                     "Number of rookies started": ("Number of rookies started", "sum"),
                     "Number of rookies rostered": ("Number of rookies rostered", "sum"),
                     "Player average age": ("Player average age", "mean"),
+                    "Team age including picks": ("Team age including picks", "mean"),
                     "Difference between highest and lowest starters": ("Difference between highest and lowest starters", "max"),
                     "Combined matchup score": ("Combined matchup score", "max"),
                     "Number of donuts": ("Number of donuts", "sum"),
@@ -7258,6 +7439,7 @@ def build_all(repo_root: Path) -> None:
                     "Number of rookies started": ("Number of rookies started", "sum"),
                     "Number of rookies rostered": ("Number of rookies rostered", "sum"),
                     "Player average age": ("Player average age", "mean"),
+                    "Team age including picks": ("Team age including picks", "mean"),
                     "Difference between highest and lowest starters": ("Difference between highest and lowest starters", "max"),
                     "Number of donuts": ("Number of donuts", "sum"),
                     "Number of players under 10": ("Number of players under 10", "sum"),
@@ -7338,6 +7520,7 @@ def build_all(repo_root: Path) -> None:
                     "Number of rookies started": ("Number of rookies started", "sum"),
                     "Number of rookies rostered": ("Number of rookies rostered", "sum"),
                     "Player average age": ("Player average age", "mean"),
+                    "Team age including picks": ("Team age including picks", "mean"),
                     "Difference between highest and lowest starters": ("Difference between highest and lowest starters", "max"),
                     "Number of donuts": ("Number of donuts", "sum"),
                     "Number of players under 10": ("Number of players under 10", "sum"),
@@ -7440,6 +7623,7 @@ def build_all(repo_root: Path) -> None:
             league_all["Number of rookies started"] = float(pd.to_numeric(g_week.get("Number of rookies started"), errors="coerce").sum())
             league_all["Number of rookies rostered"] = float(pd.to_numeric(g_week.get("Number of rookies rostered"), errors="coerce").sum())
             league_all["Player average age"] = float(pd.to_numeric(g_week.get("Player average age"), errors="coerce").mean())
+            league_all["Team age including picks"] = float(pd.to_numeric(g_week.get("Team age including picks"), errors="coerce").mean())
             league_all["Difference between highest and lowest starters"] = float(pd.to_numeric(g_week.get("Difference between highest and lowest starters"), errors="coerce").max())
             league_all["Number of donuts"] = float(pd.to_numeric(g_week.get("Number of donuts"), errors="coerce").sum())
             league_all["Number of players under 10"] = float(pd.to_numeric(g_week.get("Number of players under 10"), errors="coerce").sum())
