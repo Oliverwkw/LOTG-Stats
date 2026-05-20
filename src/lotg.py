@@ -4882,31 +4882,25 @@ def build_all(repo_root: Path) -> None:
             recv_ages = [a for a in (_player_age_at(n, trade_iso) for n in recv_player_names) if a is not None]
             drop_ages = [a for a in (_player_age_at(n, trade_iso) for n in drop_player_names) if a is not None]
 
-            def _pick_expected_age(year_of_pick: int, at_iso: str) -> Optional[float]:
-                try:
-                    d = datetime.fromisoformat(at_iso.replace("Z", "+00:00")).date()
-                except Exception:
-                    return None
-                # Synthetic birth date: Sept 1 of (Y - 22). Drafted
-                # at age ~22 at our late-August rookie draft.
-                try:
-                    born = date(int(year_of_pick) - 22, 9, 1)
-                except Exception:
-                    return None
-                return round((d - born).days / 365.25, 2)
+            # Uses the module-level _pick_expected_age helper. Takes a
+            # date (not an ISO string), so parse trade_iso once.
+            try:
+                _trade_dt_for_age = datetime.fromisoformat(trade_iso.replace("Z", "+00:00")).date()
+            except Exception:
+                _trade_dt_for_age = None
 
             for pmeta in (row.get("_recv_pick_meta") or []):
                 yr_i = int(pmeta[0]) if pmeta and pmeta[0] is not None else None
-                if yr_i is None:
+                if yr_i is None or _trade_dt_for_age is None:
                     continue
-                a = _pick_expected_age(yr_i, trade_iso)
+                a = _pick_expected_age(yr_i, _trade_dt_for_age)
                 if a is not None:
                     recv_ages.append(a)
             for pmeta in (row.get("_drop_pick_meta") or []):
                 yr_i = int(pmeta[0]) if pmeta and pmeta[0] is not None else None
-                if yr_i is None:
+                if yr_i is None or _trade_dt_for_age is None:
                     continue
-                a = _pick_expected_age(yr_i, trade_iso)
+                a = _pick_expected_age(yr_i, _trade_dt_for_age)
                 if a is not None:
                     drop_ages.append(a)
 
