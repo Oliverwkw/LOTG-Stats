@@ -178,6 +178,66 @@ _ROWS = [
         "Formula": "For each '??'-slot pick received: (KTC at Sept 5 of pick's draft year) − (KTC at deal time). Sum across picks.",
         "Notes": "Captures whether the team did better or worse than the at-trade generic estimate once the slot was actually drawn. Picks whose drafts are still in the future don't contribute.",
     },
+    {
+        "Stat": "Assets retained now",
+        "Sheet": "trades",
+        "Formula": "Of the assets this team received in this trade, those they have neither subsequently traded nor used. Pick labels display as 'YYYY R.SLOT(F. Last)' for drafted picks, generic for not-yet-drafted.",
+        "Notes": "'No subsequent trade-out event in our log' is the operational test. Players dropped to free agency aren't detected here — known V1 limitation.",
+    },
+    {
+        "Stat": "Assets traded away",
+        "Sheet": "trades",
+        "Formula": "Of the assets this team received in this trade, those they later traded away (had a subsequent trade-out event).",
+        "Notes": "Counterpart to Assets retained now.",
+    },
+    {
+        "Stat": "Return from trades",
+        "Sheet": "trades",
+        "Formula": "Aggregated received-side of the NEXT trade(s) where this team gave up any asset from this trade's received side.",
+        "Notes": "'What this trade's haul turned into one hop later'. Pick labels resolve to specific slot + drafted player where available, e.g. '2024 1.05(B. Robinson)'.",
+    },
+    {
+        "Stat": "Additional assets traded away in those deals",
+        "Sheet": "trades",
+        "Formula": "Other assets given up in those immediate-next trades alongside this trade's haul.",
+        "Notes": "Quantifies the cost of converting the haul. Dedups across multiple downstream hops.",
+    },
+    {
+        "Stat": "Return from trades of trades...of trades. Keep going until present day",
+        "Sheet": "trades",
+        "Formula": "Recursive walk: follow each received asset through every subsequent trade by this team, collecting received assets at each hop. Terminates when an asset has no further trade-out event.",
+        "Notes": "Full chain. Picks display with their drafted player when known.",
+    },
+    {
+        "Stat": "Asset difference in average age",
+        "Sheet": "trades",
+        "Formula": "mean(age of received players at trade date) − mean(age of dropped players at trade date). Picks excluded.",
+        "Notes": "Negative = team got younger. Ages from Sleeper's birth_date metadata.",
+    },
+    {
+        "Stat": "Avg PPG of received players on team",
+        "Sheet": "trades",
+        "Formula": "Per received player, their mean fantasy_points_ppr over NFL games from trade date through next drop/trade from this team. Aggregated as mean across received players.",
+        "Notes": "Forward-looking — actual production while on this team. Sourced from nflverse.",
+    },
+    {
+        "Stat": "Avg PPG of dropped players over same time",
+        "Sheet": "trades",
+        "Formula": "Per dropped player, mean fantasy_points_ppr over the COLLECTIVE tenure span of the received players (trade date through latest drop). Aggregated as mean across dropped players.",
+        "Notes": "Measures 'what we'd have gotten by keeping the dropped players over the same span'.",
+    },
+    {
+        "Stat": "Avg PPG of received players in 5 games before trade",
+        "Sheet": "trades",
+        "Formula": "Per received player, mean fantasy_points_ppr over their 5 most-recent NFL games before trade date. Aggregated as mean across received players. <5 games → average what's available.",
+        "Notes": "Backward-looking snapshot of received players' form at trade time.",
+    },
+    {
+        "Stat": "Trade addition value",
+        "Sheet": "trades",
+        "Formula": "Difference of averages adjusted by position. (V1 simplification — trades don't have a meaningful cuff bonus or playing-time leverage multiplier, so we keep it linear.)",
+        "Notes": "Mirror of the 'Player addition value' metric on transactions but without the cuff / pct-starts adjustments.",
+    },
     # -------------------------------- player_week.csv --------------------------------
     {
         "Stat": "Activated Cuff?",

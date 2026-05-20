@@ -545,6 +545,11 @@ def _column_kind(col: str) -> str:
         "assets received",
         "assets dropped",
         "assets received",
+        "assets retained now",
+        "assets traded away",
+        "return from trades",
+        "additional assets traded away in those deals",
+        "return from trades of trades...of trades. keep going until present day",
         "team's traded with",
         "reason",
         "date",
@@ -681,6 +686,11 @@ def _preserve_na(col: str) -> bool:
         "average ppg on team",
         "average ppg of dropped player over same time",
         "ppg of 5 games before pickup",
+        "avg ppg of received players on team",
+        "avg ppg of dropped players over same time",
+        "avg ppg of received players in 5 games before trade",
+        "asset difference in average age",
+        "trade addition value",
         "difference of averages",
         "difference of averages adjusted by position",
         "age difference",
@@ -2833,6 +2843,12 @@ def build_all(repo_root: Path) -> None:
                             recv_player_ids[rr].append(str(pid))
 
                         recv_picks: Dict[int, List[str]] = defaultdict(list)
+                        # Parallel metadata so a post-pass can substitute
+                        # pick labels with specific-slot + drafted player
+                        # ('2024 1.??' -> '2024 1.05(B. Robinson)') once
+                        # pick_history is built. dp.get('roster_id') is
+                        # the pick's ORIGINAL owner per Sleeper's API.
+                        recv_pick_meta: Dict[int, List[Tuple[int, int, str]]] = defaultdict(list)
                         for dp in draft_picks:
                             if not isinstance(dp, dict):
                                 continue
@@ -2846,6 +2862,17 @@ def build_all(repo_root: Path) -> None:
                             label = _format_pick_label(int(dp_season), dp_round, None)
                             if label:
                                 recv_picks[owner_id].append(label)
+                                # Original team name as of the pick's
+                                # season (roster IDs are stable within
+                                # a league iteration in Sleeper).
+                                orig_roster = _to_int(dp.get("roster_id"), None)
+                                orig_team = (
+                                    season_roster_to_team.get(int(dp_season), {}).get(int(orig_roster))
+                                    if orig_roster is not None else None
+                                ) or roster_to_team.get(int(orig_roster) if orig_roster is not None else -1, "")
+                                recv_pick_meta[owner_id].append(
+                                    (int(dp_season), int(dp_round), str(orig_team or ""))
+                                )
 
                         # Build row per roster in roster_ids_int
                         for rid in roster_ids_int:
@@ -2856,9 +2883,11 @@ def build_all(repo_root: Path) -> None:
                             received.extend(recv_picks.get(rid, []))
                             received_ids = list(recv_player_ids.get(rid, []))
                             received_picks = list(recv_picks.get(rid, []))
+                            received_pick_meta = list(recv_pick_meta.get(rid, []))
                             dropped = []
                             dropped_ids: List[str] = []
                             dropped_picks: List[str] = []
+                            dropped_pick_meta: List[Tuple[int, int, str]] = []
                             for o in roster_ids_int:
                                 if o == rid:
                                     continue
@@ -2866,6 +2895,7 @@ def build_all(repo_root: Path) -> None:
                                 dropped.extend(recv_picks.get(o, []))
                                 dropped_ids.extend(recv_player_ids.get(o, []))
                                 dropped_picks.extend(recv_picks.get(o, []))
+                                dropped_pick_meta.extend(recv_pick_meta.get(o, []))
                             trades_rows.append({
                                 "Team": tm,
                                 "Team's traded with": "; ".join(sorted(set([x for x in others if x]))),
@@ -2881,6 +2911,8 @@ def build_all(repo_root: Path) -> None:
                                 "_drop_player_ids": dropped_ids,
                                 "_recv_picks": received_picks,
                                 "_drop_picks": dropped_picks,
+                                "_recv_pick_meta": received_pick_meta,
+                                "_drop_pick_meta": dropped_pick_meta,
                                 # KTC columns — 'at deal time' is computed
                                 # by a post-processing pass; the other three
                                 # time points stay None until a follow-up
@@ -4465,6 +4497,377 @@ def build_all(repo_root: Path) -> None:
                         continue
     except Exception as e:
         _log_exc(debug, "pick_history_reconstruct", e)
+
+
+    # --------------------------
+    # Trades polish: pick-label substitution + new PPG / age / value
+    # columns + return-from-trades chain. Runs after pick_history is
+    # reconstructed (we need its (Year, Round, Original Team) -> drafted
+    # player mapping to substitute already-made picks with the specific
+    # slot and player they became, e.g. '2024 1.??' -> '2024 1.05(B. Robinson)').
+    # --------------------------
+    try:
+        # 1) Build pick -> 'R.NN(F. Last)' lookup from pick_history.
+        pick_lookup: Dict[Tuple[int, int, str], str] = {}
+        if not ph.empty:
+            for _, prow in ph.iterrows():
+                try:
+                    yr_i = int(prow.get("Year"))
+                except Exception:
+                    continue
+                num = str(prow.get("Number") or "")
+                m = re.match(r"R(\d+)(?:\.(\d+))?", num)
+                if not m:
+                    continue
+                rnd_i = int(m.group(1))
+                slot = m.group(2) or "??"
+                orig_team = str(prow.get("Original Team") or "").strip()
+                if not orig_team:
+                    continue
+                player = str(prow.get("Player Picked") or "").strip()
+                # Initial + last name: 'B. Robinson'. Fall back to full
+                # name when we can't tokenize. Skip 'Unknown' / blank
+                # since those aren't drafted yet.
+                if player and player.lower() not in ("unknown", "nan"):
+                    parts = player.split()
+                    if len(parts) >= 2:
+                        short = f"{parts[0][0]}. {' '.join(parts[1:])}"
+                    else:
+                        short = player
+                    label = f"{yr_i} {rnd_i}.{slot}({short})"
+                else:
+                    # Drafted but no name resolved — show the slot only.
+                    label = f"{yr_i} {rnd_i}.{slot}"
+                pick_lookup[(yr_i, rnd_i, orig_team)] = label
+
+        def _substitute_picks(asset_str: Optional[str], meta_list: List[Tuple[int, int, str]]) -> Optional[str]:
+            """Walk a '; '-joined assets string. For each token that
+            looks like a generic pick label ('YYYY R.??'), pop the
+            next entry from meta_list and substitute the lookup result
+            if available. Player names pass through unchanged."""
+            if not asset_str:
+                return asset_str
+            meta_idx = 0
+            tokens = [t.strip() for t in str(asset_str).split(";")]
+            out_tokens: List[str] = []
+            for tok in tokens:
+                if not tok:
+                    out_tokens.append(tok)
+                    continue
+                # Pick label heuristic: starts with 4-digit year + space.
+                if len(tok) >= 6 and tok[:4].isdigit() and tok[4] == " " and meta_idx < len(meta_list):
+                    yr_i, rnd_i, orig_team = meta_list[meta_idx]
+                    meta_idx += 1
+                    sub = pick_lookup.get((int(yr_i), int(rnd_i), str(orig_team)))
+                    out_tokens.append(sub or tok)
+                else:
+                    out_tokens.append(tok)
+            return "; ".join(t for t in out_tokens if t)
+
+        # 2) Build a per-team event log for the return-from-trades
+        # chain. Each entry: (date, role, trade_idx).
+        team_player_events: Dict[Tuple[str, str], List[Dict[str, Any]]] = defaultdict(list)
+        team_pick_events: Dict[Tuple[str, Tuple[int, int, str]], List[Dict[str, Any]]] = defaultdict(list)
+        for idx, row in enumerate(trades_rows):
+            team = str(row.get("Team") or "")
+            d_iso = str(row.get("Date") or "")
+            if not team or not d_iso:
+                continue
+            for pid in (row.get("_recv_player_ids") or []):
+                team_player_events[(team, str(pid))].append({"date": d_iso, "role": "in", "tx_idx": idx})
+            for pid in (row.get("_drop_player_ids") or []):
+                team_player_events[(team, str(pid))].append({"date": d_iso, "role": "out", "tx_idx": idx})
+            for pmeta in (row.get("_recv_pick_meta") or []):
+                team_pick_events[(team, tuple(pmeta))].append({"date": d_iso, "role": "in", "tx_idx": idx})
+            for pmeta in (row.get("_drop_pick_meta") or []):
+                team_pick_events[(team, tuple(pmeta))].append({"date": d_iso, "role": "out", "tx_idx": idx})
+        for k in team_player_events:
+            team_player_events[k].sort(key=lambda e: e["date"])
+        for k in team_pick_events:
+            team_pick_events[k].sort(key=lambda e: e["date"])
+
+        def _next_out_player(team: str, pid: str, after: str) -> Optional[Dict[str, Any]]:
+            for e in team_player_events.get((team, str(pid)), []):
+                if e["role"] == "out" and e["date"] > after:
+                    return e
+            return None
+
+        def _next_out_pick(team: str, pmeta: Tuple[int, int, str], after: str) -> Optional[Dict[str, Any]]:
+            for e in team_pick_events.get((team, tuple(pmeta)), []):
+                if e["role"] == "out" and e["date"] > after:
+                    return e
+            return None
+
+        def _player_display(pid: str) -> str:
+            return str((pid_meta.get(str(pid)) or {}).get("full_name") or pid)
+
+        def _pick_display(pmeta: Tuple[int, int, str]) -> str:
+            sub = pick_lookup.get((int(pmeta[0]), int(pmeta[1]), str(pmeta[2])))
+            return sub or f"{pmeta[0]} {pmeta[1]}.??"
+
+        def _trade_assets_received(tr_row: Dict[str, Any]) -> Tuple[List[Tuple[str, Any]], List[str]]:
+            """Return (asset_keys, display_labels) for the received
+            side of a trade row. Asset key is ('player', sid) or
+            ('pick', meta_tuple)."""
+            keys: List[Tuple[str, Any]] = []
+            disp: List[str] = []
+            for pid in (tr_row.get("_recv_player_ids") or []):
+                keys.append(("player", str(pid)))
+                disp.append(_player_display(pid))
+            for pmeta in (tr_row.get("_recv_pick_meta") or []):
+                keys.append(("pick", tuple(pmeta)))
+                disp.append(_pick_display(tuple(pmeta)))
+            return keys, disp
+
+        # 3) Per-row trades polish.
+        # Reuse the nflverse log + name lookup from the transactions
+        # polish block. They were function-locals there; rebuild here.
+        name_to_sid_local2: Dict[str, str] = {}
+        for sid, meta in pid_meta.items():
+            fn = (meta or {}).get("full_name")
+            if fn:
+                name_to_sid_local2.setdefault(str(fn), str(sid))
+
+        # League-wide all-starter avg + per-position avg for position adjustment.
+        try:
+            starters_pw = pw[pw.get("Starter/Bench").astype(str).str.lower() == "starter"] if not pw.empty and "Starter/Bench" in pw.columns else pd.DataFrame()
+            league_starter_avg = float(pd.to_numeric(starters_pw.get("Points"), errors="coerce").mean()) if not starters_pw.empty else 0.0
+            pos_avg_map: Dict[str, float] = {}
+            if not starters_pw.empty and "Position" in starters_pw.columns:
+                for pos_g, gpos in starters_pw.groupby(starters_pw["Position"].astype(str).str.upper()):
+                    pos_avg_map[str(pos_g)] = float(pd.to_numeric(gpos.get("Points"), errors="coerce").mean() or 0.0)
+        except Exception:
+            league_starter_avg = 0.0
+            pos_avg_map = {}
+
+        def _player_games(name: Optional[str]) -> List[Tuple[str, float]]:
+            if not name:
+                return []
+            sid = name_to_sid_local2.get(name)
+            out: List[Tuple[str, float]] = []
+            if sid:
+                for entry in nfl_log_by_sid.get(sid, []):
+                    if entry.get("_wk_date"):
+                        out.append((entry["_wk_date"], float(entry["points"])))
+            return out
+
+        def _player_age_at(name: Optional[str], at_iso: str) -> Optional[float]:
+            if not name:
+                return None
+            sid = name_to_sid_local2.get(name)
+            if not sid:
+                return None
+            meta = pid_meta.get(sid) or {}
+            bd = meta.get("birth_date")
+            if not bd:
+                return None
+            try:
+                d = datetime.fromisoformat(at_iso.replace("Z", "+00:00")).date()
+                born = dateparser.parse(str(bd)).date()
+                return round((d - born).days / 365.25, 2)
+            except Exception:
+                return None
+
+        def _player_pos(name: Optional[str]) -> Optional[str]:
+            if not name:
+                return None
+            sid = name_to_sid_local2.get(name)
+            if not sid:
+                return None
+            return ((pid_meta.get(sid) or {}).get("pos") or "").upper() or None
+
+        for idx, row in enumerate(trades_rows):
+            team = str(row.get("Team") or "")
+            trade_iso = str(row.get("Date") or "")
+            trade_prefix = trade_iso[:10] if len(trade_iso) >= 10 else trade_iso
+            if not team:
+                continue
+
+            # ----- (a) Substitute pick labels in Assets received/dropped -----
+            row["Assets received"] = _substitute_picks(
+                row.get("Assets received"), row.get("_recv_pick_meta") or []
+            )
+            row["Assets dropped"] = _substitute_picks(
+                row.get("Assets dropped"), row.get("_drop_pick_meta") or []
+            )
+
+            # ----- (b) Asset difference in average age -----
+            recv_player_names = [_player_display(pid) for pid in (row.get("_recv_player_ids") or [])]
+            drop_player_names = [_player_display(pid) for pid in (row.get("_drop_player_ids") or [])]
+            recv_ages = [a for a in (_player_age_at(n, trade_iso) for n in recv_player_names) if a is not None]
+            drop_ages = [a for a in (_player_age_at(n, trade_iso) for n in drop_player_names) if a is not None]
+            if recv_ages and drop_ages:
+                row["Asset difference in average age"] = round(
+                    (sum(recv_ages) / len(recv_ages)) - (sum(drop_ages) / len(drop_ages)), 2
+                )
+
+            # ----- (c) Forward-looking tenure window + PPG averages -----
+            # For each received player, find their next drop/trade-out
+            # by THIS team. Build per-player [trade_date, drop_date)
+            # windows. The collective window for the dropped side is
+            # [trade_date, latest_drop_among_received].
+            recv_windows: Dict[str, Tuple[str, Optional[str]]] = {}
+            latest_end: Optional[str] = None
+            for pid in (row.get("_recv_player_ids") or []):
+                nx = _next_out_player(team, pid, trade_iso)
+                end_iso = nx["date"][:10] if nx else None
+                recv_windows[str(pid)] = (trade_prefix, end_iso)
+                if end_iso is not None:
+                    latest_end = end_iso if (latest_end is None or end_iso > latest_end) else latest_end
+
+            def _avg_ppg_window(name: str, start: str, end: Optional[str]) -> Optional[float]:
+                games = _player_games(name)
+                pts = [p for d, p in games if d >= start and (end is None or d < end)]
+                if not pts:
+                    return None
+                return sum(pts) / len(pts)
+
+            def _avg_ppg_pre5(name: str, before: str) -> Optional[float]:
+                games = [(d, p) for d, p in _player_games(name) if d < before]
+                if not games:
+                    return None
+                games.sort(key=lambda kv: kv[0], reverse=True)
+                window = games[:5]
+                return sum(p for _, p in window) / len(window)
+
+            recv_on_team_avgs: List[float] = []
+            recv_adj_on_team_avgs: List[float] = []
+            recv_pre5_avgs: List[float] = []
+            for pid in (row.get("_recv_player_ids") or []):
+                name = _player_display(pid)
+                start_i, end_i = recv_windows.get(str(pid), (trade_prefix, None))
+                avg_on = _avg_ppg_window(name, start_i, end_i)
+                if avg_on is not None:
+                    recv_on_team_avgs.append(avg_on)
+                    pos = _player_pos(name)
+                    pos_a = pos_avg_map.get(pos or "", 0.0)
+                    if pos_a and league_starter_avg:
+                        recv_adj_on_team_avgs.append(avg_on * league_starter_avg / pos_a)
+                    else:
+                        recv_adj_on_team_avgs.append(avg_on)
+                pre5 = _avg_ppg_pre5(name, trade_prefix)
+                if pre5 is not None:
+                    recv_pre5_avgs.append(pre5)
+
+            drop_over_avgs: List[float] = []
+            drop_adj_avgs: List[float] = []
+            if latest_end:
+                for pid in (row.get("_drop_player_ids") or []):
+                    name = _player_display(pid)
+                    avg_over = _avg_ppg_window(name, trade_prefix, latest_end)
+                    if avg_over is not None:
+                        drop_over_avgs.append(avg_over)
+                        pos = _player_pos(name)
+                        pos_a = pos_avg_map.get(pos or "", 0.0)
+                        if pos_a and league_starter_avg:
+                            drop_adj_avgs.append(avg_over * league_starter_avg / pos_a)
+                        else:
+                            drop_adj_avgs.append(avg_over)
+
+            if recv_on_team_avgs:
+                row["Avg PPG of received players on team"] = round(
+                    sum(recv_on_team_avgs) / len(recv_on_team_avgs), 4
+                )
+            if drop_over_avgs:
+                row["Avg PPG of dropped players over same time"] = round(
+                    sum(drop_over_avgs) / len(drop_over_avgs), 4
+                )
+            if recv_pre5_avgs:
+                row["Avg PPG of received players in 5 games before trade"] = round(
+                    sum(recv_pre5_avgs) / len(recv_pre5_avgs), 4
+                )
+
+            diff_avg = None
+            if recv_on_team_avgs or drop_over_avgs:
+                a = (sum(recv_on_team_avgs) / len(recv_on_team_avgs)) if recv_on_team_avgs else 0.0
+                b = (sum(drop_over_avgs) / len(drop_over_avgs)) if drop_over_avgs else 0.0
+                diff_avg = round(a - b, 4)
+                row["Difference of averages"] = diff_avg
+            adj_diff = None
+            if recv_adj_on_team_avgs or drop_adj_avgs:
+                a_adj = (sum(recv_adj_on_team_avgs) / len(recv_adj_on_team_avgs)) if recv_adj_on_team_avgs else 0.0
+                b_adj = (sum(drop_adj_avgs) / len(drop_adj_avgs)) if drop_adj_avgs else 0.0
+                adj_diff = round(a_adj - b_adj, 4)
+                row["Difference of averages adjusted by position"] = adj_diff
+
+            if adj_diff is not None:
+                row["Trade addition value"] = round(adj_diff, 4)
+
+            # ----- (d) Return-from-trades chain -----
+            recv_keys, recv_disp = _trade_assets_received(row)
+            retained: List[str] = []
+            traded_away: List[str] = []
+            return_immediate: List[str] = []
+            additional_immediate: List[str] = []
+            return_full: List[str] = []
+            visited: Set[Tuple] = set()
+
+            def _next_event(key_tuple: Tuple[str, Any], after: str) -> Optional[Dict[str, Any]]:
+                if key_tuple[0] == "player":
+                    return _next_out_player(team, key_tuple[1], after)
+                return _next_out_pick(team, key_tuple[1], after)
+
+            def _next_trade_received(nx_idx: int) -> Tuple[List[Tuple[str, Any]], List[str]]:
+                return _trade_assets_received(trades_rows[nx_idx])
+
+            def _next_trade_dropped(nx_idx: int) -> Tuple[List[Tuple[str, Any]], List[str]]:
+                tr_row = trades_rows[nx_idx]
+                keys: List[Tuple[str, Any]] = []
+                disp: List[str] = []
+                for pid in (tr_row.get("_drop_player_ids") or []):
+                    keys.append(("player", str(pid)))
+                    disp.append(_player_display(pid))
+                for pmeta in (tr_row.get("_drop_pick_meta") or []):
+                    keys.append(("pick", tuple(pmeta)))
+                    disp.append(_pick_display(tuple(pmeta)))
+                return keys, disp
+
+            for asset_key, asset_disp in zip(recv_keys, recv_disp):
+                nx = _next_event(asset_key, trade_iso)
+                if nx is None:
+                    retained.append(asset_disp)
+                    continue
+                traded_away.append(asset_disp)
+                nx_keys, nx_disp = _next_trade_received(nx["tx_idx"])
+                return_immediate.extend(nx_disp)
+                # Additional assets traded away in the next trade
+                # alongside our asset (anything else this team gave up).
+                dr_keys, dr_disp = _next_trade_dropped(nx["tx_idx"])
+                for dk, dd in zip(dr_keys, dr_disp):
+                    if dk != asset_key:
+                        additional_immediate.append(dd)
+                # Recurse to build full chain.
+                queue: List[Tuple[Tuple[str, Any], str, str]] = []
+                for k, d in zip(nx_keys, nx_disp):
+                    queue.append((k, d, nx["date"]))
+                while queue:
+                    cur_k, cur_d, cur_after = queue.pop(0)
+                    if cur_k in visited:
+                        continue
+                    visited.add(cur_k)
+                    return_full.append(cur_d)
+                    nxt = _next_event(cur_k, cur_after)
+                    if nxt is None:
+                        continue
+                    more_k, more_d = _next_trade_received(nxt["tx_idx"])
+                    for k2, d2 in zip(more_k, more_d):
+                        queue.append((k2, d2, nxt["date"]))
+
+            if retained:
+                row["Assets retained now"] = "; ".join(retained)
+            if traded_away:
+                row["Assets traded away"] = "; ".join(traded_away)
+            if return_immediate:
+                row["Return from trades"] = "; ".join(dict.fromkeys(return_immediate))
+            if additional_immediate:
+                row["Additional assets traded away in those deals"] = "; ".join(dict.fromkeys(additional_immediate))
+            if return_full:
+                row["Return from trades of trades...of trades. Keep going until present day"] = "; ".join(dict.fromkeys(return_full))
+
+        # 4) Rebuild tr DataFrame with the polished trades_rows.
+        tr = pd.DataFrame(trades_rows)
+    except Exception as e:
+        _log_exc(debug, "trades_polish_v2", e)
 
 
     # --------------------------
