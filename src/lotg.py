@@ -568,6 +568,7 @@ def _column_kind(col: str) -> str:
         "assets sent",
         "assets retained now",
         "assets traded away",
+        "assets dropped to fa",
         "return from trades",
         "additional assets traded away in those deals",
         "return from trades of trades...of trades. keep going until present day",
@@ -4762,10 +4763,34 @@ def build_all(repo_root: Path) -> None:
         for k in team_pick_events:
             team_pick_events[k].sort(key=lambda e: e["date"])
 
+        # V2 chain: also gather FA-drop events from transactions_rows.
+        # When a team RECEIVES a player in a trade and later DROPS that
+        # player to free agency (not traded), the V1 chain wrongly
+        # called them 'retained'. Now they go into a new 'Assets
+        # dropped to FA' bucket and the chain terminates there.
+        team_fa_drops: Dict[Tuple[str, str], List[str]] = defaultdict(list)
+        for r in transactions_rows:
+            team_t = str(r.get("Team") or "")
+            sid_d = r.get("_dropped_pid")
+            if not team_t or not sid_d:
+                continue
+            d_iso = str(r.get("Date") or "")
+            if not d_iso:
+                continue
+            team_fa_drops[(team_t, str(sid_d))].append(d_iso)
+        for k in team_fa_drops:
+            team_fa_drops[k].sort()
+
         def _next_out_player(team: str, pid: str, after: str) -> Optional[Dict[str, Any]]:
             for e in team_player_events.get((team, str(pid)), []):
                 if e["role"] == "out" and e["date"] > after:
                     return e
+            return None
+
+        def _next_fa_drop_player(team: str, pid: str, after: str) -> Optional[str]:
+            for d in team_fa_drops.get((team, str(pid)), []):
+                if d > after:
+                    return d
             return None
 
         def _next_out_pick(team: str, pmeta: Tuple[int, int, str], after: str) -> Optional[Dict[str, Any]]:
@@ -5005,10 +5030,17 @@ def build_all(repo_root: Path) -> None:
             if adj_diff is not None:
                 row["Trade addition value"] = round(adj_diff, 4)
 
-            # ----- (d) Return-from-trades chain -----
+            # ----- (d) Return-from-trades chain (V2: three buckets) -----
+            # Each received asset terminates in one of:
+            #   - Assets retained now    (still on roster, no exit)
+            #   - Assets traded away     (next exit was a trade)
+            #   - Assets dropped to FA   (next exit was a drop, players only)
+            # Picks never drop to FA — they're either used (drafted)
+            # or traded, so the FA classification is player-only.
             recv_keys, recv_disp = _trade_assets_received(row)
             retained: List[str] = []
             traded_away: List[str] = []
+            dropped_to_fa: List[str] = []
             return_immediate: List[str] = []
             additional_immediate: List[str] = []
             return_full: List[str] = []
@@ -5036,9 +5068,27 @@ def build_all(repo_root: Path) -> None:
 
             for asset_key, asset_disp in zip(recv_keys, recv_disp):
                 nx = _next_event(asset_key, trade_iso)
+                # For player assets, also check FA drop events.
+                fa_drop_date: Optional[str] = None
+                if asset_key[0] == "player":
+                    fa_drop_date = _next_fa_drop_player(team, asset_key[1], trade_iso)
+
+                # Choose the EARLIER of trade-out vs FA-drop as the exit.
+                trade_date = nx["date"] if nx else None
+                if trade_date and fa_drop_date:
+                    if fa_drop_date < trade_date:
+                        # FA drop came first → chain ends here.
+                        dropped_to_fa.append(asset_disp)
+                        continue
+                    # else trade came first → fall through to trade handling
+                elif fa_drop_date and not trade_date:
+                    dropped_to_fa.append(asset_disp)
+                    continue
+
                 if nx is None:
                     retained.append(asset_disp)
                     continue
+
                 traded_away.append(asset_disp)
                 nx_keys, nx_disp = _next_trade_received(nx["tx_idx"])
                 return_immediate.extend(nx_disp)
@@ -5069,6 +5119,8 @@ def build_all(repo_root: Path) -> None:
                 row["Assets retained now"] = "; ".join(retained)
             if traded_away:
                 row["Assets traded away"] = "; ".join(traded_away)
+            if dropped_to_fa:
+                row["Assets dropped to FA"] = "; ".join(dropped_to_fa)
             if return_immediate:
                 row["Return from trades"] = "; ".join(dict.fromkeys(return_immediate))
             if additional_immediate:

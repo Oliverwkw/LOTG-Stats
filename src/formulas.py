@@ -181,14 +181,20 @@ _ROWS = [
     {
         "Stat": "Assets retained now",
         "Sheet": "trades",
-        "Formula": "Of the assets this team received in this trade, those they have neither subsequently traded nor used. Pick labels display as 'YYYY R.SLOT(F. Last)' for drafted picks, generic for not-yet-drafted.",
-        "Notes": "'No subsequent trade-out event in our log' is the operational test. Players dropped to free agency aren't detected here — known V1 limitation.",
+        "Formula": "Of the assets this team received in this trade, those they currently hold (no subsequent trade-out AND no subsequent free-agent drop). Pick labels display as 'YYYY R.SLOT(F. Last)' for drafted picks, generic for not-yet-drafted.",
+        "Notes": "V2 of the chain — drops to FA are now broken out into their own column.",
     },
     {
         "Stat": "Assets traded away",
         "Sheet": "trades",
-        "Formula": "Of the assets this team received in this trade, those they later traded away (had a subsequent trade-out event).",
-        "Notes": "Counterpart to Assets retained now.",
+        "Formula": "Of the assets this team received in this trade, those whose first subsequent exit event was a TRADE (not a drop to FA).",
+        "Notes": "Determined by whichever exit event came first: trade vs FA drop. Earliest event wins.",
+    },
+    {
+        "Stat": "Assets dropped to FA",
+        "Sheet": "trades",
+        "Formula": "Of the assets this team received in this trade, those whose first subsequent exit event was a DROP to free agency (via transactions.csv, not a trade). Picks excluded (picks can't be dropped to FA).",
+        "Notes": "Joined off the transactions drop log: any 'Player Dropped' entry from this team after the trade date. New in V2 of the chain.",
     },
     {
         "Stat": "Return from trades",
