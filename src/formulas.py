@@ -215,6 +215,12 @@ _ROWS = [
         "Notes": "Negative = team got younger. NFL rookies average ~22 at draft time; the Sept 1 anchor matches our late-August league rookie draft.",
     },
     {
+        "Stat": "Team age including picks",
+        "Sheet": "team_week / team_year / team_all_time / league_week / league_year / league_all_time",
+        "Formula": "Per (team, year, week): mean over rostered player ages AND future picks held by this team at that week's date. Pick ages use _pick_expected_age — synthetic birth date Sept 1 of (pick_year − 22). Per-week pick ownership is tracked by walking pick_trade_events with their real trade dates. Commissioner-moved picks (in traded_picks but no matching trade event) are treated as 'always with the current owner'. team_year / team_all_time / league_* aggregations average team_week values.",
+        "Notes": "Used in the tanking calculation in place of the rostered-only age average. A team accumulating future draft capital reads younger — which is the tank signal we want.",
+    },
+    {
         "Stat": "Avg PPG of received players on team",
         "Sheet": "trades",
         "Formula": "Per received player, their mean fantasy_points_ppr over NFL games from trade date through next drop/trade from this team. Aggregated as mean across received players.",
