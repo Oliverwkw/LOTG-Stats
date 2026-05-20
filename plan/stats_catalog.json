@@ -563,6 +563,12 @@
     "Additional assets traded away in those deals",
     "Return from trades of trades...of trades. Keep going until present day",
     "Asset difference in average age",
+    "Avg PPG of received players on team",
+    "Avg PPG of dropped players over same time",
+    "Avg PPG of received players in 5 games before trade",
+    "Difference of averages",
+    "Difference of averages adjusted by position",
+    "Trade addition value",
     "Tanking",
     "Link to next transaction",
     "Link to previous transaction"
