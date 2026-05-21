@@ -655,6 +655,12 @@ def _fill_empty_columns(df: pd.DataFrame, cols: List[str]) -> pd.DataFrame:
         if col not in df.columns:
             continue
         if df[col].isna().all():
+            # Columns whose missing values carry semantic meaning
+            # ('Change in X', '(if starter)' etc.) should render N/A,
+            # not get filled with a default. Leave them NaN so
+            # _fill_missing_values' preserve-na branch handles them.
+            if _preserve_na(col):
+                continue
             df[col] = _default_fill_for_column(col)
     return df
 
@@ -721,6 +727,9 @@ def _preserve_na(col: str) -> bool:
         "hardship",
         "combined matchup score",
         "win %",
+        "tanking",
+        "luck",
+        "win variance",
     }:
         return True
     if col_l in {
@@ -6743,7 +6752,13 @@ def build_all(repo_root: Path) -> None:
                 year = int(row["Year"])
                 wlt = _wlt_for_team(games_df, team, year=year)
                 team_year.at[idx, "Record"] = _record_str(*wlt)
-                team_year.at[idx, "Win %"] = _win_pct(wlt)
+                # No games played → leave Win % as None so it renders
+                # as N/A. _win_pct returns 0.0 for an empty record,
+                # which would mistakenly read 'team lost everything'.
+                if sum(wlt) == 0:
+                    team_year.at[idx, "Win %"] = None
+                else:
+                    team_year.at[idx, "Win %"] = _win_pct(wlt)
 
                 opp_list = [t for t in teams_by_year.get(year, []) if t != team]
                 pieces = []
@@ -6869,10 +6884,13 @@ def build_all(repo_root: Path) -> None:
             # value already represents the team's season-final tank
             # signal. Summing weeks was wildly inflating the number
             # and made cross-team comparisons meaningless.
-            def _tank_last_week(s: pd.Series) -> float:
+            def _tank_last_week(s: pd.Series) -> Optional[float]:
                 vals = pd.to_numeric(s, errors="coerce").dropna()
                 if vals.empty:
-                    return 0.0
+                    # No team_week rows for this team-year (e.g. an
+                    # in-progress season placeholder). Return None so
+                    # the team_year cell renders N/A rather than 0.0.
+                    return None
                 return float(vals.iloc[-1])
 
             # Sort by Week first so 'last' actually means latest week.
