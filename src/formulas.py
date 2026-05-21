@@ -250,6 +250,13 @@ _ROWS = [
         "Formula": "Difference of averages adjusted by position. (V1 simplification — trades don't have a meaningful cuff bonus or playing-time leverage multiplier, so we keep it linear.)",
         "Notes": "Mirror of the 'Player addition value' metric on transactions but without the cuff / pct-starts adjustments.",
     },
+    # -------------------------------- pick_history.csv --------------------------------
+    {
+        "Stat": "Commissioner moved?",
+        "Sheet": "pick_history",
+        "Formula": "True if this pick's ownership shift wasn't recorded as a normal trade transaction. Detected when traded_picks_by_season shows a pick belonging to a non-original owner but no trade event in pick_trade_events explains the move (typical for picks moved >3 years before draft year, beyond Sleeper's trade-tracking window).",
+        "Notes": "Such picks are NOT added to trades.csv (the move wasn't a trade); the assumption is a single move from original owner to current owner.",
+    },
     # -------------------------------- player_week.csv --------------------------------
     {
         "Stat": "Activated Cuff?",

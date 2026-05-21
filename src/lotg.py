@@ -1966,6 +1966,7 @@ def build_all(repo_root: Path) -> None:
                 "Trade 1": None, "Trade 2": None, "Trade 3": None, "Trade 4": None, "Trade 5": None,
                 "Trade 6": None, "Trade 7": None, "Trade 8": None, "Trade 9": None, "Trade 10": None,
                 "etc": None,
+                "Commissioner moved?": False,  # filled later if applicable
             })
 
         # If draft picks are unavailable, synthesize pick-history skeleton rows from traded_picks.
@@ -1993,6 +1994,7 @@ def build_all(repo_root: Path) -> None:
                     "Trade 9": None,
                     "Trade 10": None,
                     "etc": "Sourced from traded_picks fallback",
+                    "Commissioner moved?": False,
                 }
                 pick_rows.append(row)
 
@@ -4700,6 +4702,38 @@ def build_all(repo_root: Path) -> None:
                         ph.at[i, f"Trade {j}"] = rid_to_team.get(int(owner_rid), f"Roster {owner_rid}")
                     except Exception:
                         continue
+
+                # Commissioner-moved flag: any (year, round, original_owner)
+                # in commissioner_pick_moves means this pick's ownership
+                # shift wasn't a normal transaction-recorded trade.
+                # Surface this on pick_history so it's visible.
+                if (int(yr), rnd, int(chain[0])) in commissioner_pick_moves:
+                    ph.at[i, "Commissioner moved?"] = True
+
+        # Apply Commissioner-moved? flag to any remaining picks not
+        # covered by the chain reconstruction loop above (e.g.,
+        # picks whose final owner happens to be the original owner
+        # but a commissioner override still applies).
+        for key, new_owner in commissioner_pick_moves.items():
+            pick_yr, pick_rnd, pick_orig = key
+            rid_to_team = season_roster_to_team.get(int(pick_yr), {})
+            orig_team_disp = rid_to_team.get(int(pick_orig))
+            if not orig_team_disp:
+                continue
+            for i, r in ph.iterrows():
+                try:
+                    if int(r.get("Year")) != int(pick_yr):
+                        continue
+                except Exception:
+                    continue
+                num = str(r.get("Number") or "")
+                rm = re.match(r"R(\d+)", num)
+                if not rm or int(rm.group(1)) != int(pick_rnd):
+                    continue
+                if str(r.get("Original Team") or "").strip() != orig_team_disp:
+                    continue
+                ph.at[i, "Commissioner moved?"] = True
+                break
     except Exception as e:
         _log_exc(debug, "pick_history_reconstruct", e)
 
