@@ -6253,6 +6253,50 @@ def build_all(repo_root: Path) -> None:
 
         player_all = pa
 
+        # Mirror the player_year skeleton-row fix on player_all_time:
+        # any player who had a transaction or trade but never appeared
+        # on a roster is missing from pa entirely. Add them with
+        # career counters from player_tx_all / player_drop_all /
+        # player_trade_all. Other columns stay NaN (no roster data
+        # to derive from).
+        try:
+            existing_pa: Set[str] = set()
+            if not player_all.empty and "Player ID" in player_all.columns:
+                existing_pa = {str(p) for p in player_all["Player ID"].astype(str).tolist()}
+
+            tx_sids: Set[str] = set()
+            for r in transactions_rows:
+                for fld in ("_added_pid", "_dropped_pid"):
+                    sid = r.get(fld)
+                    if sid:
+                        tx_sids.add(str(sid))
+            for r in trades_rows:
+                for sid in (r.get("_recv_player_ids") or []):
+                    if sid:
+                        tx_sids.add(str(sid))
+                for sid in (r.get("_drop_player_ids") or []):
+                    if sid:
+                        tx_sids.add(str(sid))
+
+            missing_pa = [s for s in tx_sids if s not in existing_pa]
+            if missing_pa:
+                pad_rows = []
+                for sid in missing_pa:
+                    meta = pid_meta.get(str(sid)) or {}
+                    name = meta.get("full_name") or str(sid)
+                    pad_rows.append({
+                        "Player": name,
+                        "Player ID": str(sid),
+                        "Number of transactions": int(player_tx_all.get(str(sid), 0)),
+                        "Number of drops": int(player_drop_all.get(str(sid), 0)),
+                        "Number of trades": int(player_trade_all.get(str(name), 0)),
+                    })
+                if pad_rows:
+                    player_all = pd.concat([player_all, pd.DataFrame(pad_rows)], ignore_index=True)
+                    _log(debug, f"[{_now_iso()}] INFO seeded {len(pad_rows)} player_all_time rows for tx-only players")
+        except Exception as e:
+            _log_exc(debug, "player_all_tx_only_pad", e)
+
     # Team-year: compute record and vs records using raw opp_rid_map (still available in closures above? not anymore)
     team_year = pd.DataFrame()
     team_all = pd.DataFrame()
