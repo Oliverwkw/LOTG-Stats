@@ -6093,6 +6093,75 @@ def build_all(repo_root: Path) -> None:
 
         player_year = py
 
+        # Ensure player_year has a row for every player×year combo
+        # that appears in transactions/trades, not just in player_week.
+        # Concrete case: Tom Brady was dropped to FA in 2023 (a real
+        # transactions.csv row) but had no roster appearance, so the
+        # pw-derived player_year was missing 2023 Brady — and Brady's
+        # 'Number of transactions' summed across years was 8 vs the
+        # 9 in player_all_time. Pad here with skeleton rows.
+        try:
+            existing = set()
+            if not player_year.empty and "Player ID" in player_year.columns and "Year" in player_year.columns:
+                for pid_val, yr_val in player_year[["Player ID", "Year"]].itertuples(index=False, name=None):
+                    try:
+                        existing.add((str(pid_val), int(yr_val)))
+                    except Exception:
+                        continue
+
+            # Walk transactions / trades for every (player_id, year)
+            # that contributed to the per-year counters.
+            tx_pairs: Set[Tuple[str, int]] = set()
+            for r in transactions_rows:
+                try:
+                    season_i = int(r.get("Season")) if r.get("Season") is not None else None
+                except Exception:
+                    continue
+                if season_i is None:
+                    continue
+                for fld in ("_added_pid", "_dropped_pid"):
+                    sid = r.get(fld)
+                    if sid:
+                        tx_pairs.add((str(sid), int(season_i)))
+            for r in trades_rows:
+                try:
+                    season_i = int(r.get("Season")) if r.get("Season") is not None else None
+                except Exception:
+                    continue
+                if season_i is None:
+                    continue
+                for sid in (r.get("_recv_player_ids") or []):
+                    if sid:
+                        tx_pairs.add((str(sid), int(season_i)))
+                for sid in (r.get("_drop_player_ids") or []):
+                    if sid:
+                        tx_pairs.add((str(sid), int(season_i)))
+
+            missing_pairs = [p for p in tx_pairs if p not in existing]
+            if missing_pairs:
+                pad_rows = []
+                for sid, yr in missing_pairs:
+                    meta = pid_meta.get(str(sid)) or {}
+                    name = meta.get("full_name") or str(sid)
+                    pad_rows.append({
+                        "Player": name,
+                        "Player ID": str(sid),
+                        "Year": int(yr),
+                        # Counters mirror what the main pw-derived
+                        # rows would have gotten from the same dicts.
+                        "Number of transactions": int(player_tx_year.get((str(sid), int(yr)), 0)),
+                        "Number of drops": int(player_drop_year.get((str(sid), int(yr)), 0)),
+                        # player_trade_year is name-keyed (see comment
+                        # on the main-path Number of trades fill).
+                        "Number of trades": int(player_trade_year.get((str(name), int(yr)), 0)),
+                    })
+                if pad_rows:
+                    pad_df = pd.DataFrame(pad_rows)
+                    player_year = pd.concat([player_year, pad_df], ignore_index=True)
+                    _log(debug, f"[{_now_iso()}] INFO seeded {len(pad_rows)} player_year rows for tx-only player×year combos")
+        except Exception as e:
+            _log_exc(debug, "player_year_tx_only_pad", e)
+
         pa = pw_work.groupby(["Player ID"], as_index=False).agg(
             Player=("Player", "first"),
             Points=("Points", "sum"),
