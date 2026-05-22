@@ -1942,6 +1942,7 @@ def build_all(repo_root: Path) -> None:
             max_round = 0
             picks_with_players = 0
             picks_with_names = 0
+            rookie_picks = 0
             for p in picks or []:
                 rnd = _to_int(p.get("round"), None)
                 if rnd is not None:
@@ -1949,6 +1950,8 @@ def build_all(repo_root: Path) -> None:
                 pid = p.get("player_id")
                 if _valid_pid(pid):
                     picks_with_players += 1
+                    if is_rookie_pid(pid, season):
+                        rookie_picks += 1
                 md = p.get("metadata") if isinstance(p.get("metadata"), dict) else {}
                 fname = str(md.get("first_name") or "").strip()
                 lname = str(md.get("last_name") or "").strip()
@@ -1964,6 +1967,15 @@ def build_all(repo_root: Path) -> None:
             if max_round > 0 and max_round > 5:
                 continue
             if (picks_with_players + picks_with_names) == 0 and not is_rookie_draft:
+                continue
+            # Exclude startup drafts that masquerade as 4–5 rounders: when
+            # the draft is NOT flagged rookie and ≤50% of selected players
+            # are NFL rookies for `season`, treat it as a startup/vet draft
+            # and skip. (PR #129 dropped this filter; 2021 was pulling in
+            # the 4-round startup alongside the rookie draft, producing
+            # duplicate slot rows like '2021 1.05 Javonte Williams' AND
+            # '2021 1.05 Michael Gallup'.)
+            if not is_rookie_draft and picks_with_players > 0 and (rookie_picks / float(picks_with_players)) <= 0.5:
                 continue
             if max_round:
                 included_draft_rounds_by_season[season] = max(
