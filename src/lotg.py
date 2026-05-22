@@ -1235,6 +1235,30 @@ def build_all(repo_root: Path) -> None:
                     ws.append(list(row))
                 ws.freeze_panes = "E2"
 
+                # Make 'Link to next/previous transaction' cells
+                # clickable. Each value is a 1-indexed row number
+                # within this same sheet (1 = first data row, header
+                # at row 1 in xlsx so target row = value + 1). Convert
+                # each numeric value into a same-sheet HYPERLINK.
+                LINK_COLS = {"Link to next transaction", "Link to previous transaction"}
+                col_idx_to_link: List[int] = []
+                for j, col in enumerate(d.columns, 1):
+                    if col in LINK_COLS:
+                        col_idx_to_link.append(j)
+                if col_idx_to_link:
+                    for r in range(2, ws.max_row + 1):
+                        for j in col_idx_to_link:
+                            cell = ws.cell(row=r, column=j)
+                            v = cell.value
+                            try:
+                                row_num = int(float(v))
+                            except Exception:
+                                continue
+                            if row_num <= 0:
+                                continue
+                            cell.hyperlink = f"#'{sheet_name}'!A{row_num + 1}"
+                            cell.style = "Hyperlink"
+
                 if ws.max_column >= 1:
                     ws.auto_filter.ref = f"A1:{get_column_letter(ws.max_column)}{max(1, ws.max_row)}"
 
@@ -1942,11 +1966,20 @@ def build_all(repo_root: Path) -> None:
             origin_rid = roster_id
             team = roster_to_team.get(origin_rid, f"Roster {origin_rid}") if origin_rid is not None else None
 
-            # Draft APIs are not fully consistent; recover display number even when pick_no is missing.
+            # Draft APIs are not fully consistent; recover display number
+            # even when pick_no is missing. Format: '{round}.{slot:02d}'
+            # so a 2024 pick #5 in an 8-team league reads '1.05' (not
+            # 'R1.5' which mixed round + overall-pick). For unknown slot,
+            # fall back to '{round}.??'.
             if rnd is not None and pick_no is not None:
-                number = f"R{rnd}.{pick_no}"
+                team_count = len(roster_ids_by_season.get(season, [])) or 8
+                try:
+                    slot = ((int(pick_no) - 1) % int(team_count)) + 1
+                    number = f"{int(rnd)}.{slot:02d}"
+                except Exception:
+                    number = f"{int(rnd)}.??"
             elif rnd is not None:
-                number = f"R{rnd}"
+                number = f"{int(rnd)}.??"
             else:
                 number = None
 
@@ -1981,7 +2014,7 @@ def build_all(repo_root: Path) -> None:
                 row = {
                     "Year": int(yr),
                     "Original Team": roster_to_team.get(int(prev), f"Roster {prev}"),
-                    "Number": f"R{int(rnd)}",
+                    "Number": f"{int(rnd)}.??",
                     "Player Picked": "Unknown",
                     "Trade 1": roster_to_team.get(int(owner), f"Roster {owner}") if owner is not None and int(owner) != int(prev) else None,
                     "Trade 2": None,
@@ -4626,56 +4659,64 @@ def build_all(repo_root: Path) -> None:
             # Group events by (season, round). Sleeper returns events in
             # roughly chronological order within a snapshot; we'll preserve
             # insertion order.
-            events_by_sr: Dict[Tuple[int, int], List[Tuple[int, int]]] = defaultdict(list)
+            # Sleeper's traded_picks entries carry `roster_id` = the
+            # pick's ORIGINAL owner. We key events by (season, round,
+            # original_owner) so each pick is its own chain. The old
+            # (season, round)-only keying collapsed all picks of the
+            # same round into one graph, which dropped chains whenever
+            # two picks passed through the same intermediate team.
+            events_by_pick: Dict[Tuple[int, int, int], List[Tuple[int, int]]] = defaultdict(list)
             for tp in all_events:
                 try:
                     s = int(tp.get("season"))
                     rd = int(tp.get("round"))
+                    orig = _to_int(tp.get("roster_id"), None)
                     prev = _to_int(tp.get("previous_owner_id"), None)
                     new = _to_int(tp.get("owner_id"), None)
-                    if prev is None or new is None:
+                    if orig is None or prev is None or new is None:
                         continue
-                    events_by_sr[(s, rd)].append((int(prev), int(new)))
+                    events_by_pick[(s, rd, int(orig))].append((int(prev), int(new)))
                 except Exception:
                     continue
 
-            # For each (season, round), walk chains.
+            # For each pick, walk its chain by following prev → new
+            # starting from the original owner.
             # chain_by_final[(season, round, final_rid)] = [origin, mid1, ..., final]
+            # chain_by_origin[(season, round, orig_rid)] = same chain
             chain_by_final: Dict[Tuple[int, int, int], List[int]] = {}
-            for (s, rd), events in events_by_sr.items():
-                if not events:
-                    continue
-                # For each starting prev, follow its chain forward.
-                # A roster can have at most one outgoing edge among events for
-                # a given pick (a pick has one current owner at any time).
-                outgoing: Dict[int, int] = {}
-                incoming: Dict[int, int] = {}
-                for prev, new in events:
-                    # If multiple outgoing for same prev in same (s, rd):
-                    # this means the team had multiple picks in the same round.
-                    # In Sleeper dynasty leagues that's normal (post-trade).
-                    # We can't disambiguate by pick_no, so we take last-seen.
-                    outgoing[prev] = new
-                    incoming[new] = prev
-                # Roots = roster_ids that appear as prev but never as new
-                roots = set(outgoing.keys()) - set(incoming.keys())
-                for root in roots:
-                    chain = [int(root)]
-                    cur = root
-                    while cur in outgoing:
-                        nxt = outgoing[cur]
-                        if nxt in chain:  # cycle guard
+            chain_by_origin: Dict[Tuple[int, int, int], List[int]] = {}
+            for (s, rd, orig), events in events_by_pick.items():
+                chain = [int(orig)]
+                cur = int(orig)
+                remaining = list(events)
+                # Greedy walk: at each step find the next event whose
+                # prev_owner matches our current cursor. Avoids needing
+                # events to be in chronological order.
+                guard = 0
+                while remaining and guard < 50:
+                    guard += 1
+                    next_idx = None
+                    for idx, (p, n) in enumerate(remaining):
+                        if p == cur:
+                            next_idx = idx
                             break
-                        chain.append(int(nxt))
-                        cur = nxt
-                    final = chain[-1]
-                    chain_by_final[(s, rd, int(final))] = chain
+                    if next_idx is None:
+                        break
+                    _, n = remaining.pop(next_idx)
+                    if n in chain:  # cycle guard
+                        break
+                    chain.append(int(n))
+                    cur = int(n)
+                final = chain[-1]
+                chain_by_final[(s, rd, int(final))] = chain
+                chain_by_origin[(s, rd, int(orig))] = chain
 
             # Apply to ph
             for i, r in ph.iterrows():
                 yr = _to_int(r.get("Year"), None)
                 num = str(r.get("Number") or "")
-                m = re.match(r"R(\d+)(?:\.|$)", num)
+                # Accept both legacy 'R1.5' format and current '1.05'.
+                m = re.match(r"^R?(\d+)(?:\.|$)", num)
                 if yr is None or not m:
                     continue
                 rnd = int(m.group(1))
@@ -4727,7 +4768,7 @@ def build_all(repo_root: Path) -> None:
                 except Exception:
                     continue
                 num = str(r.get("Number") or "")
-                rm = re.match(r"R(\d+)", num)
+                rm = re.match(r"^R?(\d+)", num)
                 if not rm or int(rm.group(1)) != int(pick_rnd):
                     continue
                 if str(r.get("Original Team") or "").strip() != orig_team_disp:
@@ -4755,7 +4796,7 @@ def build_all(repo_root: Path) -> None:
                 except Exception:
                     continue
                 num = str(prow.get("Number") or "")
-                m = re.match(r"R(\d+)(?:\.(\d+))?", num)
+                m = re.match(r"^R?(\d+)(?:\.(\d+))?", num)
                 if not m:
                     continue
                 rnd_i = int(m.group(1))
