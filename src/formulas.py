@@ -252,6 +252,24 @@ _ROWS = [
     },
     # -------------------------------- pick_history.csv --------------------------------
     {
+        "Stat": "Original Team",
+        "Sheet": "pick_history",
+        "Formula": "The roster that ORIGINALLY owned this pick before any trades — i.e. the team in that draft-position slot per Sleeper's slot_to_roster_id mapping. For traded picks, this is the chain origin (the team whose own pick this is).",
+        "Notes": "Distinct from 'Final Team'. ESPN-era picks (moved before Sleeper's tracking window) fall back to the slot owner; if that's also unavailable, the picker is used.",
+    },
+    {
+        "Stat": "Final Team",
+        "Sheet": "pick_history",
+        "Formula": "The roster that actually MADE the selection (= last owner in the trade chain). Equals Original Team when the pick wasn't traded.",
+        "Notes": "Pulled from Sleeper draft picks (roster_id field) and from the end of the reconstructed trade chain.",
+    },
+    {
+        "Stat": "Number",
+        "Sheet": "pick_history",
+        "Formula": "Canonical pick notation: '{round}.{slot:02d}' (e.g. '1.05' = round 1, slot 5). Slot is derived from draft_slot or pick_in_round, with fallback to ((pick_no − 1) mod team_count) + 1. Shown as bare '{round}' when slot is unknown.",
+        "Notes": "Same notation is used inside trades.csv to substitute already-made picks with the slot they became (e.g. '2024 1.05(B. Robinson)').",
+    },
+    {
         "Stat": "Commissioner moved?",
         "Sheet": "pick_history",
         "Formula": "True if this pick's ownership shift wasn't recorded as a normal trade transaction. Detected when traded_picks_by_season shows a pick belonging to a non-original owner but no trade event in pick_trade_events explains the move (typical for picks moved >3 years before draft year, beyond Sleeper's trade-tracking window).",
