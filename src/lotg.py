@@ -3528,7 +3528,9 @@ def build_all(repo_root: Path) -> None:
         # roster). The chain-reconstruction pass fills in Trade 1..N for
         # picks that have been traded.
         if base_season is not None:
-            _seasons_with_drafts = set(season_draft_picks_all.keys())
+            # Only seasons with ACTUAL draft picks count as "has drafts" —
+            # season_draft_picks_all[2026]=[] should still synthesize.
+            _seasons_with_drafts = {s for s, picks in season_draft_picks_all.items() if picks}
             _future_rosters = roster_ids_by_season.get(int(latest_league_season), []) or []
             _ldraft = int(latest_draft_season) if latest_draft_season is not None else int(base_season)
             # Track existing (year, round, original_owner_roster_id) so we
