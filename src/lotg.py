@@ -1205,6 +1205,14 @@ def build_all(repo_root: Path) -> None:
                     if _column_kind(c) == "numeric":
                         try:
                             coerced = pd.to_numeric(out[c], errors="coerce")
+                            # Skip coercion if any non-empty value failed to
+                            # parse as numeric (e.g. pick_history's "2021
+                            # (vet)" Year tag). Preserves intentional text
+                            # tags in otherwise-numeric columns.
+                            raw_str = out[c].astype(str).str.strip()
+                            non_numeric = out[c].notna() & coerced.isna() & raw_str.ne("") & raw_str.str.lower().ne("nan")
+                            if non_numeric.any():
+                                continue
                             # Only overwrite when we actually got numeric data.
                             if coerced.notna().any():
                                 rounded = coerced.round(4)
@@ -1977,9 +1985,20 @@ def build_all(repo_root: Path) -> None:
                     included_draft_rounds_by_season.get(season, 0),
                     int(max_round),
                 )
+            # Tag supplemental veteran drafts: any draft NOT marked rookie
+            # type whose selections are <50% NFL rookies for the season
+            # (the 2021 league held one). Vet picks get a "(vet)" suffix
+            # in the Year column so they're visually distinct from rookie
+            # picks at the same slot.
+            is_vet_draft = (
+                not is_rookie_draft
+                and picks_with_players > 0
+                and (rookie_picks / float(picks_with_players)) <= 0.5
+            )
             for p in picks or []:
                 p["draft_id"] = did
                 p["draft_season"] = season
+                p["_is_vet_draft"] = bool(is_vet_draft)
                 if did in draft_slot_to_roster_by_did:
                     p["slot_to_roster_id"] = draft_slot_to_roster_by_did.get(did)
             draft_picks_all.extend(picks or [])
@@ -2035,8 +2054,9 @@ def build_all(repo_root: Path) -> None:
             if not player_name:
                 player_name = "Unknown"
 
+            _year_display: Any = f"{int(season)} (vet)" if p.get("_is_vet_draft") else int(season)
             pick_rows.append({
-                "Year": season,
+                "Year": _year_display,
                 "Number": number,
                 "Original Team": origin_team,
                 "Final Team": final_team,
@@ -2047,48 +2067,16 @@ def build_all(repo_root: Path) -> None:
                 "Commissioner moved?": False,  # filled later if applicable
             })
 
-        # If draft picks are unavailable, synthesize pick-history skeleton rows from traded_picks.
-        if not draft_picks_all and traded_picks:
-            for tp in traded_picks:
-                yr = _to_int(tp.get("season"), season)
-                rnd = _to_int(tp.get("round"), None)
-                prev = _to_int(tp.get("previous_owner_id") or tp.get("previous_owner") or tp.get("previous_owner_roster_id"), None)
-                owner = _to_int(tp.get("owner_id") or tp.get("roster_id") or tp.get("owner_roster_id"), None)
-                if yr is None or rnd is None or prev is None:
-                    continue
-                tp_pick_no = _to_int(tp.get("pick_no") or tp.get("pick_in_round") or tp.get("draft_slot"), None)
-                tc = len(roster_ids_by_season.get(int(yr), []))
-                if tp_pick_no is not None and tc and tp_pick_no > tc:
-                    fb_slot = ((int(tp_pick_no) - 1) % int(tc)) + 1
-                    fb_number = _format_pick_number(int(rnd), fb_slot)
-                elif tp_pick_no is not None and tp_pick_no > 0:
-                    fb_number = _format_pick_number(int(rnd), int(tp_pick_no))
-                else:
-                    try:
-                        fb_slot = _slot_for_roster(int(yr), int(prev))
-                    except Exception:
-                        fb_slot = None
-                    fb_number = _format_pick_number(int(rnd), fb_slot)
-                row = {
-                    "Year": int(yr),
-                    "Number": fb_number,
-                    "Original Team": roster_to_team.get(int(prev), f"Roster {prev}"),
-                    "Final Team": roster_to_team.get(int(owner), f"Roster {owner}") if owner is not None else roster_to_team.get(int(prev), f"Roster {prev}"),
-                    "Player Picked": "Unknown",
-                    "Trade 1": roster_to_team.get(int(owner), f"Roster {owner}") if owner is not None and int(owner) != int(prev) else None,
-                    "Trade 2": None,
-                    "Trade 3": None,
-                    "Trade 4": None,
-                    "Trade 5": None,
-                    "Trade 6": None,
-                    "Trade 7": None,
-                    "Trade 8": None,
-                    "Trade 9": None,
-                    "Trade 10": None,
-                    "etc": "Sourced from traded_picks fallback",
-                    "Commissioner moved?": False,
-                }
-                pick_rows.append(row)
+        # NOTE: the prior traded_picks-fallback row generation was removed
+        # here. It emitted one row per trade EVENT (with Original Team set
+        # to the previous owner, which is often an intermediate owner in a
+        # multi-trade chain — not the chain origin). That produced
+        # incomplete future-year pick frames (only the traded picks, with
+        # wrong origins).
+        # Future-year pick frames are now built by the dedicated
+        # synthesis block below, which starts from the canonical rule
+        # "every roster owns one pick in each round of each upcoming
+        # draft" and lets the chain-reconstruction pass fill in trades.
 
         # robust last completed week
         try:
@@ -3478,6 +3466,7 @@ def build_all(repo_root: Path) -> None:
         slot_map_by_did: Dict[str, Dict[int, int]] = {}
         max_round_by_did: Dict[str, int] = {}
         season_by_did: Dict[str, int] = {}
+        is_vet_by_did: Dict[str, bool] = {}
         filled_by_did: Dict[str, Set[Tuple[int, int]]] = defaultdict(set)
         for _season, _picks in season_draft_picks_all.items():
             for _p in _picks or []:
@@ -3485,6 +3474,8 @@ def build_all(repo_root: Path) -> None:
                 if not _did:
                     continue
                 season_by_did[_did] = int(_season)
+                if bool(_p.get("_is_vet_draft")):
+                    is_vet_by_did[_did] = True
                 _sm = _p.get("slot_to_roster_id") if isinstance(_p.get("slot_to_roster_id"), dict) else None
                 if _sm and _did not in slot_map_by_did:
                     _safe_sm: Dict[int, int] = {}
@@ -3522,8 +3513,9 @@ def build_all(repo_root: Path) -> None:
                     if (int(_rnd), _si) in _filled:
                         continue
                     _orig_team = roster_to_team.get(_ri, f"Roster {_ri}")
+                    _year_disp: Any = f"{int(_season)} (vet)" if is_vet_by_did.get(_did) else int(_season)
                     pick_rows.append({
-                        "Year": int(_season),
+                        "Year": _year_disp,
                         "Number": _format_pick_number(int(_rnd), _si),
                         "Original Team": _orig_team,
                         "Final Team": _orig_team,
@@ -3534,47 +3526,24 @@ def build_all(repo_root: Path) -> None:
                         "Commissioner moved?": False,
                     })
 
-        # Future-year skeleton rows: years after the latest real draft, up to
-        # max_future_season. One row per (year, round 1..4, original-owner
-        # roster). The chain-reconstruction pass fills in Trade 1..N for
-        # picks that have been traded.
+        # Future-year skeleton rows.
+        # Premise: every roster owns one pick in each round of each
+        # upcoming rookie draft by default. We unconditionally emit a row
+        # per (year, round 1..4, roster). The chain-reconstruction pass
+        # below fills in Trade 1..N + Final Team for any pick that has
+        # been traded.
         if base_season is not None:
-            # Only seasons with ACTUAL draft picks count as "has drafts" —
-            # season_draft_picks_all[2026]=[] should still synthesize.
             _seasons_with_drafts = {s for s, picks in season_draft_picks_all.items() if picks}
-            # Fall back through latest league → base if rosters missing for one.
-            _rosters_year = latest_league_season if latest_league_season is not None else base_season
-            _future_rosters = roster_ids_by_season.get(int(_rosters_year), []) or []
-            if not _future_rosters:
-                # Walk back through known seasons for the most recent non-empty
-                # roster list (handles in-progress seasons where rosters
-                # haven't populated yet).
-                for _y in sorted(roster_ids_by_season.keys(), reverse=True):
-                    if roster_ids_by_season.get(_y):
-                        _future_rosters = roster_ids_by_season[_y]
-                        _rosters_year = _y
-                        break
+            # Pick the most-recent non-empty roster list (handles
+            # in-progress seasons where rosters may have populated).
+            _future_rosters: List[Any] = []
+            _rosters_year: Optional[int] = None
+            for _y in sorted(roster_ids_by_season.keys(), reverse=True):
+                if roster_ids_by_season.get(_y):
+                    _future_rosters = list(roster_ids_by_season[_y])
+                    _rosters_year = int(_y)
+                    break
             _ldraft = int(latest_draft_season) if latest_draft_season is not None else int(base_season)
-            # Track existing (year, round, original_owner_roster_id) so we
-            # don't double-add for picks the traded_picks fallback already
-            # produced.
-            _existing_keys: Set[Tuple[int, int, int]] = set()
-            t2r = season_team_to_roster.get(int(_rosters_year), {}) if _rosters_year else {}
-            for _row in pick_rows:
-                try:
-                    _yr = int(_row.get("Year"))
-                    _num = str(_row.get("Number") or "")
-                    _m = re.match(r"^R?(\d+)", _num)
-                    if not _m:
-                        continue
-                    _rnd = int(_m.group(1))
-                    _ot = _norm_team_name(str(_row.get("Original Team") or ""))
-                    _orid = t2r.get(_ot)
-                    if _orid is None:
-                        continue
-                    _existing_keys.add((_yr, _rnd, int(_orid)))
-                except Exception:
-                    continue
             for _yr in range(_ldraft + 1, int(max_future_season) + 1):
                 if _yr in _seasons_with_drafts:
                     continue
@@ -3582,8 +3551,6 @@ def build_all(repo_root: Path) -> None:
                     for _rid in _future_rosters:
                         _ri = _to_int(_rid, None)
                         if _ri is None:
-                            continue
-                        if (_yr, _rnd, _ri) in _existing_keys:
                             continue
                         _orig_team = roster_to_team.get(_ri, f"Roster {_ri}")
                         pick_rows.append({
@@ -7159,16 +7126,22 @@ def build_all(repo_root: Path) -> None:
                             return str(v)
                     return str(row.get("Original Team") or "")
                 phx["_Picker"] = phx.apply(_picker, axis=1)
+                # Strip "(vet)" suffix so pick rollups merge against
+                # integer-Year team_year rows. The vet draft picks still
+                # count toward the picker's 2021 totals.
+                phx["_YearKey"] = phx["Year"].astype(str).str.extract(r"^(\d+)").astype(float).astype("Int64")
                 # Parse round from Number — accept legacy 'R1.2' and current '1.05'.
                 phx["_Round"] = phx["Number"].astype(str).str.extract(r"^R?(\d+)").astype(float)
                 # Parse slot for draft value (1/(slot+1)).
                 phx["_PickNo"] = phx["Number"].astype(str).str.extract(r"^R?\d+\.(\d+)").astype(float)
                 phx["_DraftVal"] = phx["_PickNo"].apply(lambda x: 1.0 / (x + 1.0) if pd.notna(x) else 0.0)
-                pick_agg = phx.groupby(["_Picker", "Year"], dropna=False).agg(
+                pick_agg = phx.groupby(["_Picker", "_YearKey"], dropna=False).agg(
                     _draft_value=("_DraftVal", "sum"),
                     _total_picks=("Number", "count"),
                     _r1=("_Round", lambda s: int((s == 1.0).sum())),
-                ).reset_index().rename(columns={"_Picker": "Team"})
+                ).reset_index().rename(columns={"_Picker": "Team", "_YearKey": "Year"})
+                # team_year.Year is Int64; align dtype.
+                pick_agg["Year"] = pick_agg["Year"].astype("Int64")
                 team_year = team_year.merge(pick_agg, on=["Team", "Year"], how="left")
                 team_year["Draft Value"] = team_year["_draft_value"].fillna(0.0).round(4)
                 team_year["Number of first round picks made"] = team_year["_r1"].fillna(0).astype(int)
