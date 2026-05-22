@@ -1968,15 +1968,10 @@ def build_all(repo_root: Path) -> None:
                 continue
             if (picks_with_players + picks_with_names) == 0 and not is_rookie_draft:
                 continue
-            # Exclude startup drafts that masquerade as 4–5 rounders: when
-            # the draft is NOT flagged rookie and ≤50% of selected players
-            # are NFL rookies for `season`, treat it as a startup/vet draft
-            # and skip. (PR #129 dropped this filter; 2021 was pulling in
-            # the 4-round startup alongside the rookie draft, producing
-            # duplicate slot rows like '2021 1.05 Javonte Williams' AND
-            # '2021 1.05 Michael Gallup'.)
-            if not is_rookie_draft and picks_with_players > 0 and (rookie_picks / float(picks_with_players)) <= 0.5:
-                continue
+            # Note: we deliberately do NOT exclude vet/supplemental drafts.
+            # The 2021 league had both a rookie draft AND a 4-round
+            # supplemental veteran draft — both belong in pick_history.
+            # Dedupe below uses Player Picked to keep them distinct.
             if max_round:
                 included_draft_rounds_by_season[season] = max(
                     included_draft_rounds_by_season.get(season, 0),
@@ -4692,12 +4687,28 @@ def build_all(repo_root: Path) -> None:
     ph = pd.DataFrame(pick_rows)
     if not ph.empty:
         try:
-            # Prefer rows with a known player when deduping (drop "Unknown"
-            # traded_picks-fallback rows in favor of the real draft row).
+            # Two-pass dedupe:
+            # 1) Drop "Unknown" traded_picks-fallback rows that collide
+            #    with a real draft row at the same (Year, Number, Original
+            #    Team) — the real row supersedes the placeholder.
+            # 2) Then dedupe on (Year, Number, Original Team, Player
+            #    Picked) so distinct players selected at the same slot
+            #    by the same team in different drafts (e.g. 2021 rookie
+            #    draft AND supplemental vet draft both having a 1.05)
+            #    are preserved.
             if "Player Picked" in ph.columns:
-                ph["_known_player"] = ph["Player Picked"].astype(str).str.strip().str.lower().ne("unknown")
+                pl = ph["Player Picked"].astype(str).str.strip().str.lower()
+                ph["_known_player"] = pl.ne("unknown") & pl.ne("nan") & (pl != "")
+                key_cols = [c for c in ["Year", "Number", "Original Team"] if c in ph.columns]
+                if key_cols:
+                    # For each (Year, Number, Original Team), if ANY known
+                    # row exists, drop the Unknown rows in that group.
+                    has_known = ph.groupby(key_cols)["_known_player"].transform("any")
+                    keep_mask = ph["_known_player"] | (~has_known)
+                    ph = ph[keep_mask].copy()
                 ph = ph.sort_values(["_known_player"], ascending=False)
-            dedupe_cols = [c for c in ["Year", "Number", "Original Team"] if c in ph.columns]
+
+            dedupe_cols = [c for c in ["Year", "Number", "Original Team", "Player Picked"] if c in ph.columns]
             if dedupe_cols:
                 ph = ph.drop_duplicates(subset=dedupe_cols, keep="first").reset_index(drop=True)
             ph = ph.drop(columns=["_known_player"], errors="ignore")
