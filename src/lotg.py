@@ -3457,6 +3457,123 @@ def build_all(repo_root: Path) -> None:
             _ensure_pick_bases(int(yr), int(seed_source))
 
     # --------------------------
+    # Pick-history slot completion.
+    # Goal: every league draft produces exactly (team_count * max_round) rows
+    # (e.g. 8 teams × 4 rounds = 32 per draft). This covers two cases:
+    #   1) Past drafts where Sleeper didn't return a player for every slot
+    #      (typical for the 2021 supplemental veteran draft where some
+    #      managers passed).
+    #   2) Future-year picks that have NEVER been traded — they're absent
+    #      from traded_picks entirely. We synthesize a placeholder row
+    #      owned by the default roster.
+    # The chain-reconstruction pass that runs after pick_rows is built will
+    # populate Trade 1..N and Final Team for any pick whose ownership
+    # changed.
+    # --------------------------
+    try:
+        # Per-draft slot completion (past completed drafts).
+        # Group existing pick_rows by (year, draft_id-ish identity). We don't
+        # carry draft_id on rows, but we can rebuild slot_map from
+        # season_draft_picks_all and match slots already filled.
+        slot_map_by_did: Dict[str, Dict[int, int]] = {}
+        max_round_by_did: Dict[str, int] = {}
+        season_by_did: Dict[str, int] = {}
+        filled_by_did: Dict[str, Set[Tuple[int, int]]] = defaultdict(set)
+        for _season, _picks in season_draft_picks_all.items():
+            for _p in _picks or []:
+                _did = str(_p.get("draft_id") or "")
+                if not _did:
+                    continue
+                season_by_did[_did] = int(_season)
+                _sm = _p.get("slot_to_roster_id") if isinstance(_p.get("slot_to_roster_id"), dict) else None
+                if _sm and _did not in slot_map_by_did:
+                    slot_map_by_did[_did] = {int(k): int(v) for k, v in _sm.items()}
+                _rnd = _to_int(_p.get("round"), None)
+                if _rnd is not None:
+                    max_round_by_did[_did] = max(max_round_by_did.get(_did, 0), int(_rnd))
+                _slot = _to_int(_p.get("draft_slot"), None) or _to_int(_p.get("pick_in_round"), None)
+                _pn = _to_int(_p.get("pick_no"), None)
+                if _slot is None and _pn is not None:
+                    _tc = len(slot_map_by_did.get(_did, {})) or len(roster_ids_by_season.get(int(_season), []))
+                    if _tc:
+                        _slot = ((int(_pn) - 1) % int(_tc)) + 1
+                if _rnd is not None and _slot is not None:
+                    filled_by_did[_did].add((int(_rnd), int(_slot)))
+
+        for _did, _smap in slot_map_by_did.items():
+            _season = season_by_did.get(_did)
+            _max_rnd = max_round_by_did.get(_did, 0)
+            if not _season or not _max_rnd or not _smap:
+                continue
+            _filled = filled_by_did.get(_did, set())
+            for _rnd in range(1, int(_max_rnd) + 1):
+                for _slot, _rid in sorted(_smap.items()):
+                    if (int(_rnd), int(_slot)) in _filled:
+                        continue
+                    _orig_team = roster_to_team.get(int(_rid), f"Roster {_rid}")
+                    pick_rows.append({
+                        "Year": int(_season),
+                        "Number": _format_pick_number(int(_rnd), int(_slot)),
+                        "Original Team": _orig_team,
+                        "Final Team": _orig_team,
+                        "Player Picked": "Unknown",
+                        "Trade 1": None, "Trade 2": None, "Trade 3": None, "Trade 4": None, "Trade 5": None,
+                        "Trade 6": None, "Trade 7": None, "Trade 8": None, "Trade 9": None, "Trade 10": None,
+                        "etc": "Slot unfilled in draft",
+                        "Commissioner moved?": False,
+                    })
+
+        # Future-year skeleton rows: years after the latest real draft, up to
+        # max_future_season. One row per (year, round 1..4, original-owner
+        # roster). The chain-reconstruction pass fills in Trade 1..N for
+        # picks that have been traded.
+        if base_season is not None:
+            _seasons_with_drafts = set(season_draft_picks_all.keys())
+            _future_rosters = roster_ids_by_season.get(int(latest_league_season), []) or []
+            _ldraft = int(latest_draft_season) if latest_draft_season is not None else int(base_season)
+            # Track existing (year, round, original_owner_roster_id) so we
+            # don't double-add for picks the traded_picks fallback already
+            # produced.
+            _existing_keys: Set[Tuple[int, int, int]] = set()
+            t2r = season_team_to_roster.get(int(latest_league_season), {}) if latest_league_season else {}
+            for _row in pick_rows:
+                try:
+                    _yr = int(_row.get("Year"))
+                    _num = str(_row.get("Number") or "")
+                    _m = re.match(r"^R?(\d+)", _num)
+                    if not _m:
+                        continue
+                    _rnd = int(_m.group(1))
+                    _ot = _norm_team_name(str(_row.get("Original Team") or ""))
+                    _orid = t2r.get(_ot)
+                    if _orid is None:
+                        continue
+                    _existing_keys.add((_yr, _rnd, int(_orid)))
+                except Exception:
+                    continue
+            for _yr in range(_ldraft + 1, int(max_future_season) + 1):
+                if _yr in _seasons_with_drafts:
+                    continue
+                for _rnd in range(1, 5):
+                    for _rid in _future_rosters:
+                        if (_yr, _rnd, int(_rid)) in _existing_keys:
+                            continue
+                        _orig_team = roster_to_team.get(int(_rid), f"Roster {_rid}")
+                        pick_rows.append({
+                            "Year": int(_yr),
+                            "Number": _format_pick_number(int(_rnd), None),
+                            "Original Team": _orig_team,
+                            "Final Team": _orig_team,
+                            "Player Picked": "Unknown",
+                            "Trade 1": None, "Trade 2": None, "Trade 3": None, "Trade 4": None, "Trade 5": None,
+                            "Trade 6": None, "Trade 7": None, "Trade 8": None, "Trade 9": None, "Trade 10": None,
+                            "etc": "Future pick (slot TBD)",
+                            "Commissioner moved?": False,
+                        })
+    except Exception as e:
+        _log_exc(debug, "pick_history_slot_completion", e)
+
+    # --------------------------
     # Convert to DataFrames
     # --------------------------
     pw = pd.DataFrame(player_week_rows)
@@ -4687,25 +4804,14 @@ def build_all(repo_root: Path) -> None:
     ph = pd.DataFrame(pick_rows)
     if not ph.empty:
         try:
-            # Two-pass dedupe:
-            # 1) Drop "Unknown" traded_picks-fallback rows that collide
-            #    with a real draft row at the same (Year, Number, Original
-            #    Team) — the real row supersedes the placeholder.
-            # 2) Then dedupe on (Year, Number, Original Team, Player
-            #    Picked) so distinct players selected at the same slot
-            #    by the same team in different drafts (e.g. 2021 rookie
-            #    draft AND supplemental vet draft both having a 1.05)
-            #    are preserved.
+            # Dedupe by (Year, Number, Original Team, Player Picked).
+            # Player Picked is in the key so distinct selections at the
+            # same slot+owner from different drafts (rookie + supplemental
+            # vet) survive as separate rows. Known-player rows sort first
+            # so they win ties against Unknown placeholders.
             if "Player Picked" in ph.columns:
                 pl = ph["Player Picked"].astype(str).str.strip().str.lower()
                 ph["_known_player"] = pl.ne("unknown") & pl.ne("nan") & (pl != "")
-                key_cols = [c for c in ["Year", "Number", "Original Team"] if c in ph.columns]
-                if key_cols:
-                    # For each (Year, Number, Original Team), if ANY known
-                    # row exists, drop the Unknown rows in that group.
-                    has_known = ph.groupby(key_cols)["_known_player"].transform("any")
-                    keep_mask = ph["_known_player"] | (~has_known)
-                    ph = ph[keep_mask].copy()
                 ph = ph.sort_values(["_known_player"], ascending=False)
 
             dedupe_cols = [c for c in ["Year", "Number", "Original Team", "Player Picked"] if c in ph.columns]
