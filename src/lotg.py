@@ -4654,8 +4654,32 @@ def build_all(repo_root: Path) -> None:
     try:
         if not ph.empty and traded_picks_by_season:
             # Use the most-recent season's snapshot; it accumulates history.
-            latest_season = max(traded_picks_by_season.keys())
-            all_events = traded_picks_by_season.get(latest_season, []) or []
+            # Sleeper REMOVES used picks from traded_picks once the
+            # draft happens. So the latest_season snapshot is missing
+            # all historical pick movements (2021-2025 in our chain).
+            # Combine events from every season's snapshot — picks that
+            # were tracked at any point during their lifecycle show up.
+            # Dedup since the same event appears in multiple snapshots
+            # (a 2025 1.05 trade in 2023 shows in the 2023, 2024, and
+            # 2025 snapshots until the draft used the pick).
+            all_events_raw: List[Dict[str, Any]] = []
+            for _snap_yr, _snap in traded_picks_by_season.items():
+                if _snap:
+                    all_events_raw.extend(_snap)
+            seen_ev: Set[Tuple[Any, Any, Any, Any, Any]] = set()
+            all_events: List[Dict[str, Any]] = []
+            for ev in all_events_raw:
+                if not isinstance(ev, dict):
+                    continue
+                key = (
+                    ev.get("season"), ev.get("round"),
+                    ev.get("roster_id"),
+                    ev.get("previous_owner_id"), ev.get("owner_id"),
+                )
+                if key in seen_ev:
+                    continue
+                seen_ev.add(key)
+                all_events.append(ev)
             # Group events by (season, round). Sleeper returns events in
             # roughly chronological order within a snapshot; we'll preserve
             # insertion order.
