@@ -216,6 +216,15 @@ def _to_float(x: Any, default: Optional[float] = None) -> Optional[float]:
         return default
 
 
+def _format_pick_number(round_no: Optional[int], pick_in_round: Optional[int]) -> Optional[str]:
+    """Canonical pick notation: '1.05' for round 1 slot 5. '1' when slot unknown."""
+    if round_no is None:
+        return None
+    if pick_in_round is None:
+        return f"{int(round_no)}"
+    return f"{int(round_no)}.{int(pick_in_round):02d}"
+
+
 def _valid_pid(pid: Any) -> bool:
     """Return True if pid is a real Sleeper player id (not placeholders like '0')."""
     if pid is None:
@@ -554,6 +563,7 @@ def _column_kind(col: str) -> str:
         "top team",
         "last team",
         "original team",
+        "final team",
         "player picked",
         "reference player name",
         "nfl team",
@@ -1479,7 +1489,7 @@ def build_all(repo_root: Path) -> None:
                 pick_trade_events[key] = []
                 pick_holdings[(int(target_season), int(rnd), int(rid))].append(int(rid))
 
-    def _format_pick_number(season: int, round_num: Optional[int], pick_no: Optional[int]) -> Optional[str]:
+    def _format_pick_number_for_season(season: int, round_num: Optional[int], pick_no: Optional[int]) -> Optional[str]:
         if round_num is None:
             return None
         team_count = len(roster_ids_by_season.get(season, [])) or None
@@ -1489,7 +1499,7 @@ def build_all(repo_root: Path) -> None:
         return f"{int(round_num)}.{slot:02d}"
 
     def _format_pick_label(season: int, round_num: Optional[int], pick_no: Optional[int]) -> Optional[str]:
-        num = _format_pick_number(season, round_num, pick_no)
+        num = _format_pick_number_for_season(season, round_num, pick_no)
         if num is None:
             return None
         return f"{int(season)} {num}"
@@ -1909,10 +1919,21 @@ def build_all(repo_root: Path) -> None:
             drafts = []
             _log_exc(debug, f"drafts_{season}", e)
         draft_picks_all: List[Dict[str, Any]] = []
+        draft_slot_to_roster_by_did: Dict[str, Dict[int, int]] = {}
         for d in drafts or []:
             did = str(d.get("draft_id") or "")
             if not did:
                 continue
+            slot_map_raw = d.get("slot_to_roster_id") if isinstance(d, dict) else {}
+            slot_map: Dict[int, int] = {}
+            if isinstance(slot_map_raw, dict):
+                for k, v in slot_map_raw.items():
+                    kk = _to_int(k, None)
+                    vv = _to_int(v, None)
+                    if kk is not None and vv is not None:
+                        slot_map[int(kk)] = int(vv)
+            if slot_map:
+                draft_slot_to_roster_by_did[did] = slot_map
             try:
                 picks = sc.draft_picks(did)
             except Exception as e:
@@ -1920,7 +1941,7 @@ def build_all(repo_root: Path) -> None:
                 _log_exc(debug, f"draft_picks_{season}_{did}", e)
             max_round = 0
             picks_with_players = 0
-            rookie_picks = 0
+            picks_with_names = 0
             for p in picks or []:
                 rnd = _to_int(p.get("round"), None)
                 if rnd is not None:
@@ -1928,15 +1949,21 @@ def build_all(repo_root: Path) -> None:
                 pid = p.get("player_id")
                 if _valid_pid(pid):
                     picks_with_players += 1
-                    if is_rookie_pid(pid, season):
-                        rookie_picks += 1
-            if max_round == 5:
-                continue
+                md = p.get("metadata") if isinstance(p.get("metadata"), dict) else {}
+                fname = str(md.get("first_name") or "").strip()
+                lname = str(md.get("last_name") or "").strip()
+                if fname or lname:
+                    picks_with_names += 1
+
+            # Prefer explicit rookie-type drafts when available.
+            draft_type = str(d.get("type") or d.get("draft_type") or "").strip().lower()
+            is_rookie_draft = draft_type in {"rookie", "dynasty"}
+
+            # Cap at 5-round rookie drafts (per league rules). Startup drafts
+            # are excluded — those have many more rounds.
             if max_round > 0 and max_round > 5:
                 continue
-            if picks_with_players == 0:
-                continue
-            if (rookie_picks / float(picks_with_players)) <= 0.5:
+            if (picks_with_players + picks_with_names) == 0 and not is_rookie_draft:
                 continue
             if max_round:
                 included_draft_rounds_by_season[season] = max(
@@ -1946,6 +1973,8 @@ def build_all(repo_root: Path) -> None:
             for p in picks or []:
                 p["draft_id"] = did
                 p["draft_season"] = season
+                if did in draft_slot_to_roster_by_did:
+                    p["slot_to_roster_id"] = draft_slot_to_roster_by_did.get(did)
             draft_picks_all.extend(picks or [])
 
         season_draft_picks_all[int(season)] = list(draft_picks_all)
@@ -1954,34 +1983,40 @@ def build_all(repo_root: Path) -> None:
         for p in draft_picks_all:
             rnd = _to_int(p.get("round"), None)
             pick_no = _to_int(p.get("pick_no"), None)
+            if pick_no is None:
+                pick_no = _to_int(p.get("pick_in_round"), None) or _to_int(p.get("draft_slot"), None)
             roster_id = _to_int(p.get("roster_id"), None)
             # Note: Sleeper's `picked_by` is a USER_ID (long string), not a
-            # roster_id. Using it as a roster_id produces garbage like
-            # "Roster 603431474020032512". The team that made the pick is the
-            # one stored in `roster_id`. For "Original Team" semantics (who
-            # owned the pick before any trades), we look up the chain root in
-            # round_chain later; here, default to roster_id as the team-of-pick.
-            picked_by_uid = p.get("picked_by")
+            # roster_id. The team that ACTUALLY drafted the player is in
+            # `roster_id` (= Final Team for the pick). For "Original Team"
+            # (who owned the pick before any trades), prefer the draft's
+            # static slot_to_roster_id mapping — it survives ESPN-era picks
+            # that have no event in traded_picks.
             player = p.get("player_id")
-            origin_rid = roster_id
-            team = roster_to_team.get(origin_rid, f"Roster {origin_rid}") if origin_rid is not None else None
 
-            # Draft APIs are not fully consistent; recover display number
-            # even when pick_no is missing. Format: '{round}.{slot:02d}'
-            # so a 2024 pick #5 in an 8-team league reads '1.05' (not
-            # 'R1.5' which mixed round + overall-pick). For unknown slot,
-            # fall back to '{round}.??'.
-            if rnd is not None and pick_no is not None:
-                team_count = len(roster_ids_by_season.get(season, [])) or 8
+            slot_map = p.get("slot_to_roster_id") if isinstance(p.get("slot_to_roster_id"), dict) else {}
+            team_count = len(slot_map) or len(roster_ids_by_season.get(season, [])) or 8
+            slot_no = _to_int(p.get("draft_slot"), None) or _to_int(p.get("pick_in_round"), None)
+            if slot_no is None and pick_no is not None and team_count:
                 try:
-                    slot = ((int(pick_no) - 1) % int(team_count)) + 1
-                    number = f"{int(rnd)}.{slot:02d}"
+                    slot_no = ((int(pick_no) - 1) % int(team_count)) + 1
                 except Exception:
-                    number = f"{int(rnd)}.??"
-            elif rnd is not None:
-                number = f"{int(rnd)}.??"
-            else:
-                number = None
+                    slot_no = None
+
+            # Original team: slot ownership map first; fallback to picker roster.
+            origin_rid: Optional[int] = None
+            if slot_no is not None and slot_map:
+                origin_rid = _to_int(slot_map.get(int(slot_no)), None)
+            if origin_rid is None:
+                origin_rid = roster_id
+            origin_team = roster_to_team.get(origin_rid, f"Roster {origin_rid}") if origin_rid is not None else None
+
+            # Final team: the roster that actually made the selection.
+            final_rid = roster_id if roster_id is not None else origin_rid
+            final_team = roster_to_team.get(final_rid, f"Roster {final_rid}") if final_rid is not None else None
+
+            # Display number — canonical '{round}.{slot:02d}', '{round}' when slot unknown.
+            number = _format_pick_number(rnd, slot_no)
 
             # Resolve player name from Sleeper player map first, then pick metadata.
             player_name = pid_meta.get(str(player), {}).get("full_name") if player else None
@@ -1990,11 +2025,14 @@ def build_all(repo_root: Path) -> None:
                 player_name = md.get("first_name") and f"{md.get('first_name')} {md.get('last_name','').strip()}".strip()
             if not player_name:
                 player_name = p.get("player") or p.get("player_name")
+            if not player_name:
+                player_name = "Unknown"
 
             pick_rows.append({
                 "Year": season,
-                "Original Team": team,
                 "Number": number,
+                "Original Team": origin_team,
+                "Final Team": final_team,
                 "Player Picked": player_name,
                 "Trade 1": None, "Trade 2": None, "Trade 3": None, "Trade 4": None, "Trade 5": None,
                 "Trade 6": None, "Trade 7": None, "Trade 8": None, "Trade 9": None, "Trade 10": None,
@@ -2011,10 +2049,24 @@ def build_all(repo_root: Path) -> None:
                 owner = _to_int(tp.get("owner_id") or tp.get("roster_id") or tp.get("owner_roster_id"), None)
                 if yr is None or rnd is None or prev is None:
                     continue
+                tp_pick_no = _to_int(tp.get("pick_no") or tp.get("pick_in_round") or tp.get("draft_slot"), None)
+                tc = len(roster_ids_by_season.get(int(yr), []))
+                if tp_pick_no is not None and tc and tp_pick_no > tc:
+                    fb_slot = ((int(tp_pick_no) - 1) % int(tc)) + 1
+                    fb_number = _format_pick_number(int(rnd), fb_slot)
+                elif tp_pick_no is not None and tp_pick_no > 0:
+                    fb_number = _format_pick_number(int(rnd), int(tp_pick_no))
+                else:
+                    try:
+                        fb_slot = _slot_for_roster(int(yr), int(prev))
+                    except Exception:
+                        fb_slot = None
+                    fb_number = _format_pick_number(int(rnd), fb_slot)
                 row = {
                     "Year": int(yr),
+                    "Number": fb_number,
                     "Original Team": roster_to_team.get(int(prev), f"Roster {prev}"),
-                    "Number": f"{int(rnd)}.??",
+                    "Final Team": roster_to_team.get(int(owner), f"Roster {owner}") if owner is not None else roster_to_team.get(int(prev), f"Roster {prev}"),
                     "Player Picked": "Unknown",
                     "Trade 1": roster_to_team.get(int(owner), f"Roster {owner}") if owner is not None and int(owner) != int(prev) else None,
                     "Trade 2": None,
@@ -4628,9 +4680,15 @@ def build_all(repo_root: Path) -> None:
     ph = pd.DataFrame(pick_rows)
     if not ph.empty:
         try:
-            dedupe_cols = [c for c in ["Year", "Original Team", "Number", "Player Picked"] if c in ph.columns]
+            # Prefer rows with a known player when deduping (drop "Unknown"
+            # traded_picks-fallback rows in favor of the real draft row).
+            if "Player Picked" in ph.columns:
+                ph["_known_player"] = ph["Player Picked"].astype(str).str.strip().str.lower().ne("unknown")
+                ph = ph.sort_values(["_known_player"], ascending=False)
+            dedupe_cols = [c for c in ["Year", "Number", "Original Team"] if c in ph.columns]
             if dedupe_cols:
                 ph = ph.drop_duplicates(subset=dedupe_cols, keep="first").reset_index(drop=True)
+            ph = ph.drop(columns=["_known_player"], errors="ignore")
         except Exception:
             pass
 
@@ -4745,22 +4803,43 @@ def build_all(repo_root: Path) -> None:
                     continue
                 rnd = int(m.group(1))
 
-                # "Original Team" was set to roster_to_team[roster_id] at pick
-                # construction; convert back to roster_id.
-                final_team_disp = str(r.get("Original Team") or "")
-                final_rid = season_team_to_roster.get(int(yr), {}).get(_norm_team_name(final_team_disp))
-                if final_rid is None:
-                    continue
-
-                chain = chain_by_final.get((int(yr), rnd, int(final_rid)))
-                if not chain or len(chain) < 2:
-                    # Either no trade history found, or chain of length 1
-                    # (picker == origin, no trades on this pick).
-                    continue
-
+                # Pick-row construction now seeds "Original Team" with the
+                # slot owner (true origin) when slot_to_roster_id is
+                # available — convert back to roster_id and look up by
+                # origin. Fall back to Final Team if Original Team is
+                # missing.
                 rid_to_team = season_roster_to_team.get(int(yr), {})
-                # Rewrite Original Team to the chain origin
+                t2r = season_team_to_roster.get(int(yr), {})
+
+                orig_team_disp = str(r.get("Original Team") or "")
+                orig_rid = t2r.get(_norm_team_name(orig_team_disp))
+                final_team_disp = str(r.get("Final Team") or "")
+                final_rid_row = t2r.get(_norm_team_name(final_team_disp))
+
+                chain = None
+                if orig_rid is not None:
+                    chain = chain_by_origin.get((int(yr), rnd, int(orig_rid)))
+                if chain is None and final_rid_row is not None:
+                    chain = chain_by_final.get((int(yr), rnd, int(final_rid_row)))
+                    if chain and orig_rid is None:
+                        orig_rid = int(chain[0])
+
+                if not chain or len(chain) < 2:
+                    # No chain found OR chain has just the origin (no trades).
+                    # Still make sure Final Team reflects chain end if we
+                    # learned one.
+                    if chain and orig_rid is not None:
+                        ph.at[i, "Original Team"] = rid_to_team.get(int(chain[0]), f"Roster {chain[0]}")
+                    # Commissioner flag still applies even without a chain.
+                    if orig_rid is not None and (int(yr), rnd, int(orig_rid)) in commissioner_pick_moves:
+                        ph.at[i, "Commissioner moved?"] = True
+                    continue
+
+                # Rewrite Original Team to the chain origin (covers the
+                # rare case where slot map disagreed with the event log).
                 ph.at[i, "Original Team"] = rid_to_team.get(int(chain[0]), f"Roster {chain[0]}")
+                # Final Team = last owner in the chain (post-trades).
+                ph.at[i, "Final Team"] = rid_to_team.get(int(chain[-1]), f"Roster {chain[-1]}")
                 # Trade 1..N = intermediate owners (exclude the origin at index 0)
                 for j, owner_rid in enumerate(chain[1:11], start=1):
                     try:
@@ -6912,18 +6991,22 @@ def build_all(repo_root: Path) -> None:
         try:
             if not ph.empty:
                 phx = ph.copy()
-                # Resolve picker = last non-empty Trade column, else Original Team
+                # Resolve picker = Final Team (chain end), falling back to the
+                # last non-empty Trade column, then Original Team.
                 def _picker(row):
+                    ft = row.get("Final Team")
+                    if ft and str(ft) != "nan" and str(ft).strip() not in ("", "N/A"):
+                        return str(ft)
                     for j in range(10, 0, -1):
                         v = row.get(f"Trade {j}")
                         if v and str(v) != "nan" and str(v).strip() not in ("", "N/A"):
                             return str(v)
                     return str(row.get("Original Team") or "")
                 phx["_Picker"] = phx.apply(_picker, axis=1)
-                # Parse round from Number (e.g., 'R1.2' -> 1)
-                phx["_Round"] = phx["Number"].astype(str).str.extract(r"^R(\d+)").astype(float)
-                # Parse pick-no for draft value (1/(pick_no+1)).
-                phx["_PickNo"] = phx["Number"].astype(str).str.extract(r"^R\d+\.(\d+)").astype(float)
+                # Parse round from Number — accept legacy 'R1.2' and current '1.05'.
+                phx["_Round"] = phx["Number"].astype(str).str.extract(r"^R?(\d+)").astype(float)
+                # Parse slot for draft value (1/(slot+1)).
+                phx["_PickNo"] = phx["Number"].astype(str).str.extract(r"^R?\d+\.(\d+)").astype(float)
                 phx["_DraftVal"] = phx["_PickNo"].apply(lambda x: 1.0 / (x + 1.0) if pd.notna(x) else 0.0)
                 pick_agg = phx.groupby(["_Picker", "Year"], dropna=False).agg(
                     _draft_value=("_DraftVal", "sum"),
