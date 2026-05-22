@@ -3487,7 +3487,14 @@ def build_all(repo_root: Path) -> None:
                 season_by_did[_did] = int(_season)
                 _sm = _p.get("slot_to_roster_id") if isinstance(_p.get("slot_to_roster_id"), dict) else None
                 if _sm and _did not in slot_map_by_did:
-                    slot_map_by_did[_did] = {int(k): int(v) for k, v in _sm.items()}
+                    _safe_sm: Dict[int, int] = {}
+                    for _k, _v in _sm.items():
+                        _kk = _to_int(_k, None)
+                        _vv = _to_int(_v, None)
+                        if _kk is not None and _vv is not None:
+                            _safe_sm[_kk] = _vv
+                    if _safe_sm:
+                        slot_map_by_did[_did] = _safe_sm
                 _rnd = _to_int(_p.get("round"), None)
                 if _rnd is not None:
                     max_round_by_did[_did] = max(max_round_by_did.get(_did, 0), int(_rnd))
@@ -3508,12 +3515,16 @@ def build_all(repo_root: Path) -> None:
             _filled = filled_by_did.get(_did, set())
             for _rnd in range(1, int(_max_rnd) + 1):
                 for _slot, _rid in sorted(_smap.items()):
-                    if (int(_rnd), int(_slot)) in _filled:
+                    _si = _to_int(_slot, None)
+                    _ri = _to_int(_rid, None)
+                    if _si is None or _ri is None:
                         continue
-                    _orig_team = roster_to_team.get(int(_rid), f"Roster {_rid}")
+                    if (int(_rnd), _si) in _filled:
+                        continue
+                    _orig_team = roster_to_team.get(_ri, f"Roster {_ri}")
                     pick_rows.append({
                         "Year": int(_season),
-                        "Number": _format_pick_number(int(_rnd), int(_slot)),
+                        "Number": _format_pick_number(int(_rnd), _si),
                         "Original Team": _orig_team,
                         "Final Team": _orig_team,
                         "Player Picked": "Unknown",
@@ -3528,14 +3539,27 @@ def build_all(repo_root: Path) -> None:
         # roster). The chain-reconstruction pass fills in Trade 1..N for
         # picks that have been traded.
         if base_season is not None:
-            _seasons_with_drafts = set(season_draft_picks_all.keys())
-            _future_rosters = roster_ids_by_season.get(int(latest_league_season), []) or []
+            # Only seasons with ACTUAL draft picks count as "has drafts" —
+            # season_draft_picks_all[2026]=[] should still synthesize.
+            _seasons_with_drafts = {s for s, picks in season_draft_picks_all.items() if picks}
+            # Fall back through latest league → base if rosters missing for one.
+            _rosters_year = latest_league_season if latest_league_season is not None else base_season
+            _future_rosters = roster_ids_by_season.get(int(_rosters_year), []) or []
+            if not _future_rosters:
+                # Walk back through known seasons for the most recent non-empty
+                # roster list (handles in-progress seasons where rosters
+                # haven't populated yet).
+                for _y in sorted(roster_ids_by_season.keys(), reverse=True):
+                    if roster_ids_by_season.get(_y):
+                        _future_rosters = roster_ids_by_season[_y]
+                        _rosters_year = _y
+                        break
             _ldraft = int(latest_draft_season) if latest_draft_season is not None else int(base_season)
             # Track existing (year, round, original_owner_roster_id) so we
             # don't double-add for picks the traded_picks fallback already
             # produced.
             _existing_keys: Set[Tuple[int, int, int]] = set()
-            t2r = season_team_to_roster.get(int(latest_league_season), {}) if latest_league_season else {}
+            t2r = season_team_to_roster.get(int(_rosters_year), {}) if _rosters_year else {}
             for _row in pick_rows:
                 try:
                     _yr = int(_row.get("Year"))
@@ -3556,9 +3580,12 @@ def build_all(repo_root: Path) -> None:
                     continue
                 for _rnd in range(1, 5):
                     for _rid in _future_rosters:
-                        if (_yr, _rnd, int(_rid)) in _existing_keys:
+                        _ri = _to_int(_rid, None)
+                        if _ri is None:
                             continue
-                        _orig_team = roster_to_team.get(int(_rid), f"Roster {_rid}")
+                        if (_yr, _rnd, _ri) in _existing_keys:
+                            continue
+                        _orig_team = roster_to_team.get(_ri, f"Roster {_ri}")
                         pick_rows.append({
                             "Year": int(_yr),
                             "Number": _format_pick_number(int(_rnd), None),
