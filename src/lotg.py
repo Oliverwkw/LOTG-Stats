@@ -1198,6 +1198,27 @@ def build_all(repo_root: Path) -> None:
             cols = catalog.get(plan_key, [])
             if plan_key in {"team-year", "team-all-time"}:
                 cols = _append_team_vs_columns(frame, cols)
+            # Pick History: trade chains can exceed the schema's 10 Trade
+            # columns (a pick traded 12 times needs Trade 1..12). Extend
+            # the column list dynamically to the longest non-empty chain
+            # present in the frame, inserting the extras just before "etc".
+            if plan_key == "Pick History" and isinstance(frame, pd.DataFrame) and not frame.empty:
+                _present = [c for c in frame.columns if str(c).startswith("Trade ")]
+                _max_n = 0
+                for _c in _present:
+                    try:
+                        _n = int(str(_c).split(" ", 1)[1])
+                    except Exception:
+                        continue
+                    if frame[_c].notna().any() and _n > _max_n:
+                        _max_n = _n
+                if _max_n > 10:
+                    _extras = [f"Trade {i}" for i in range(11, _max_n + 1)]
+                    if "etc" in cols:
+                        _idx = cols.index("etc")
+                        cols = cols[:_idx] + _extras + cols[_idx:]
+                    else:
+                        cols = list(cols) + _extras
             frame = _safe_df(frame)
             out = _ensure_plan_columns(frame, cols)
             out = _fill_empty_columns(out, cols)
@@ -1942,6 +1963,11 @@ def build_all(repo_root: Path) -> None:
         except Exception as e:
             drafts = []
             _log_exc(debug, f"drafts_{season}", e)
+        # Dump raw drafts for audit (slot_to_roster_id verification, etc).
+        try:
+            (raw_dir / f"drafts_{season}.json").write_text(json.dumps(drafts or [], indent=2))
+        except Exception:
+            pass
         draft_picks_all: List[Dict[str, Any]] = []
         draft_slot_to_roster_by_did: Dict[str, Dict[int, int]] = {}
         for d in drafts or []:
@@ -3720,13 +3746,14 @@ def build_all(repo_root: Path) -> None:
                         "Original Team": _orig_team,
                         "Final Team": _final_team,
                         "Player Picked": _player,
-                        "Trade 1": None, "Trade 2": None, "Trade 3": None, "Trade 4": None, "Trade 5": None,
-                        "Trade 6": None, "Trade 7": None, "Trade 8": None, "Trade 9": None, "Trade 10": None,
                         "etc": None,
                         "Commissioner moved?": ((_year, _rnd, _ori) in commissioner_pick_moves) if not _is_vet else False,
                     }
-                    # Trade 1..N from intermediate + final owners (chain[1:]).
-                    for _j, _ownr in enumerate(_chain[1:11], start=1):
+                    # Trade 1..N from intermediate + final owners. Emit
+                    # as many columns as the chain has hops — output
+                    # writer extends the schema to match the longest
+                    # chain across all picks.
+                    for _j, _ownr in enumerate(_chain[1:], start=1):
                         _row[f"Trade {_j}"] = _rid_to_team.get(int(_ownr), f"Roster {_ownr}")
                     pick_rows.append(_row)
     except Exception as e:
