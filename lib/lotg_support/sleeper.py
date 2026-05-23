@@ -55,6 +55,11 @@ class SleeperClient:
     def draft_picks(self, draft_id: str) -> List[Dict[str, Any]]:
         return self.get(f"/draft/{draft_id}/picks") or []
 
+    def draft(self, draft_id: str) -> Dict[str, Any]:
+        """Full draft object — includes `slot_to_roster_id`, which the
+        /league/{id}/drafts list endpoint omits."""
+        return self.get(f"/draft/{draft_id}") or {}
+
     def players_nfl(self) -> Dict[str, Any]:
         return self.get("/players/nfl") or {}
 
