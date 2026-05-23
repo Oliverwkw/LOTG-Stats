@@ -3657,8 +3657,12 @@ def build_all(repo_root: Path) -> None:
             _max_rnd = min(int(_frame.get("max_round") or 4), 4)
             _team_count = len(_slot_map) or 8
 
-            # Index real selections by (round, slot) → player_name.
-            _real_by_slot: Dict[Tuple[int, int], str] = {}
+            # Index real selections by (round, slot) → (player_name, picker_rid).
+            # picker_rid is Sleeper's `roster_id` on a draft pick — the team
+            # that actually drafted the player (i.e. the true final owner
+            # of the pick at draft time). For completed drafts this is
+            # the source of truth and overrides the chain end below.
+            _real_by_slot: Dict[Tuple[int, int], Tuple[str, Optional[int]]] = {}
             for _p in _real_picks:
                 _rnd = _to_int(_p.get("round"), None)
                 _slot = _to_int(_p.get("draft_slot"), None) or _to_int(_p.get("pick_in_round"), None)
@@ -3668,7 +3672,8 @@ def build_all(repo_root: Path) -> None:
                         _slot = ((int(_pn) - 1) % int(_team_count)) + 1
                 if _rnd is None or _slot is None:
                     continue
-                _real_by_slot[(int(_rnd), int(_slot))] = _resolve_player_name(_p)
+                _picker_rid = _to_int(_p.get("roster_id"), None)
+                _real_by_slot[(int(_rnd), int(_slot))] = (_resolve_player_name(_p), _picker_rid)
 
             # Year roster→team map. Future years fall back to the most-recent
             # known season's map so display names work for 2026-2028 rows.
@@ -3681,15 +3686,29 @@ def build_all(repo_root: Path) -> None:
                     if _si is None or _ori is None:
                         continue
 
-                    _player = _real_by_slot.get((_rnd, _si), "Unknown")
+                    _info = _real_by_slot.get((_rnd, _si))
+                    if _info is None:
+                        _player, _picker_rid = "Unknown", None
+                    else:
+                        _player, _picker_rid = _info
 
                     # Walk the chain (vet picks aren't traded by Sleeper —
                     # treat as a single-step chain).
                     _chain = [_ori]
                     if not _is_vet:
-                        _chain = _chain_by_origin.get((_year, _rnd, _ori), [_ori])
+                        _chain = list(_chain_by_origin.get((_year, _rnd, _ori), [_ori]))
                         if not _chain:
                             _chain = [_ori]
+
+                    # If we know the actual picker (completed draft) and it
+                    # doesn't match the chain end, append it. Sleeper's
+                    # transactions ledger occasionally misses the final hop
+                    # of a multi-trade pick (off-platform reassignments,
+                    # late offseason trades not yet ingested), but the
+                    # draft pick's roster_id is authoritative — that's who
+                    # actually made the selection.
+                    if _picker_rid is not None and _chain[-1] != int(_picker_rid):
+                        _chain.append(int(_picker_rid))
 
                     _final_rid = int(_chain[-1])
                     _orig_team = _rid_to_team.get(_ori, f"Roster {_ori}")
