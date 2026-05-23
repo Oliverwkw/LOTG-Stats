@@ -2001,6 +2001,16 @@ def build_all(repo_root: Path) -> None:
                     included_draft_rounds_by_season.get(season, 0),
                     int(max_round),
                 )
+                # Mirror into draft_rounds_by_season — the ledger helpers
+                # (_ensure_pick_bases, _picks_held_by_team_at) read from
+                # that dict to know how many rounds to seed per season.
+                # Without this mirror it stayed empty, which broke
+                # _select_pick_key for every future-pick trade processed
+                # before any season ran _ensure_pick_bases successfully.
+                draft_rounds_by_season[season] = max(
+                    draft_rounds_by_season.get(season, 0),
+                    int(max_round),
+                )
             # Tag supplemental veteran drafts: any draft NOT marked rookie
             # type whose selections are <50% NFL rookies for the season
             # (the 2021 league held one). Vet picks get a "(vet)" suffix
