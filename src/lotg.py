@@ -3557,11 +3557,16 @@ def build_all(repo_root: Path) -> None:
         # Future-year frames: every roster owns one pick per round per
         # upcoming year, default slot assignment 1..N = roster_ids in
         # canonical sort order. Stops at base_season + 3.
+        # NB: scan season_roster_to_team (only processed seasons) for
+        # the fallback year — roster_ids_by_season also contains
+        # synthetic future-season entries created by _ensure_pick_bases,
+        # which would pick a future year that has no team-name map.
         default_year: Optional[int] = None
         default_rosters: List[int] = []
-        for _y in sorted(roster_ids_by_season.keys(), reverse=True):
-            if roster_ids_by_season.get(_y):
-                default_rosters = list(roster_ids_by_season[_y])
+        for _y in sorted(season_roster_to_team.keys(), reverse=True):
+            _rids = roster_ids_by_season.get(_y) or list(season_roster_to_team.get(_y, {}).keys())
+            if _rids:
+                default_rosters = list(_rids)
                 default_year = int(_y)
                 break
         if default_rosters and base_season is not None:
