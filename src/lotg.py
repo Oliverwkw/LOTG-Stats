@@ -3559,52 +3559,54 @@ def build_all(repo_root: Path) -> None:
                     "max_round": 4,
                 })
 
-        # ---- Step 2: chain-by-origin from traded_picks_by_season ------
-        # Combine events across all snapshot years (Sleeper drops used
-        # picks from each year's snapshot after the draft completes —
-        # so 2021's snapshot is the only one still carrying 2021-pick
-        # trade history).
-        _events_by_pick: Dict[Tuple[int, int, int], List[Tuple[int, int]]] = defaultdict(list)
-        _seen_ev: Set[Tuple[Any, Any, Any, Any, Any]] = set()
-        for _snap_yr, _snap in (traded_picks_by_season or {}).items():
-            for _ev in (_snap or []):
-                if not isinstance(_ev, dict):
-                    continue
-                _k = (_ev.get("season"), _ev.get("round"), _ev.get("roster_id"),
-                      _ev.get("previous_owner_id"), _ev.get("owner_id"))
-                if _k in _seen_ev:
-                    continue
-                _seen_ev.add(_k)
-                _s = _to_int(_ev.get("season"), None)
-                _rd = _to_int(_ev.get("round"), None)
-                _orig = _to_int(_ev.get("roster_id"), None)
-                _prev = _to_int(_ev.get("previous_owner_id"), None)
-                _new = _to_int(_ev.get("owner_id"), None)
-                if _s is None or _rd is None or _orig is None or _prev is None or _new is None:
-                    continue
-                _events_by_pick[(_s, _rd, _orig)].append((_prev, _new))
-
+        # ---- Step 2: chain-by-origin from trade transactions ----------
+        # Walk pick_trade_events, which is built from the actual Sleeper
+        # transactions ledger (each entry recorded when a trade
+        # involving this pick is processed). Goal: capture every time
+        # a pick changed hands.
+        #
+        # Each event is (created_date, prev_owner, new_owner, week).
+        # Sort chronologically by date, then build the chain by
+        # appending each new_owner that differs from the running tail.
+        #
+        # commissioner_pick_moves layers on top: picks whose final
+        # ownership in Sleeper's snapshot doesn't match the transaction
+        # ledger (typical for off-platform / commissioner-executed
+        # moves). For those we model a single hop from origin to the
+        # snapshot owner, matching the rule "treat as one trade from
+        # original to current".
         _chain_by_origin: Dict[Tuple[int, int, int], List[int]] = {}
-        for (_s, _rd, _orig), _events in _events_by_pick.items():
-            _chain = [_orig]
-            _cur = _orig
-            _remaining = list(_events)
-            _guard = 0
-            while _remaining and _guard < 50:
-                _guard += 1
-                _next_idx = None
-                for _idx, (_p_, _n_) in enumerate(_remaining):
-                    if _p_ == _cur:
-                        _next_idx = _idx
-                        break
-                if _next_idx is None:
-                    break
-                _, _n_ = _remaining.pop(_next_idx)
-                if _n_ in _chain:  # cycle guard
-                    break
-                _chain.append(_n_)
-                _cur = _n_
-            _chain_by_origin[(_s, _rd, _orig)] = _chain
+
+        for _key, _events in (pick_trade_events or {}).items():
+            if not _events:
+                continue
+            try:
+                _sorted = sorted(
+                    _events,
+                    key=lambda _e: (_e[0] is None, _e[0] or datetime.min.replace(tzinfo=timezone.utc)),
+                )
+            except Exception:
+                _sorted = list(_events)
+            _chain = [int(_key[2])]
+            for _e in _sorted:
+                try:
+                    _new = int(_e[2])
+                except Exception:
+                    continue
+                if _chain[-1] != _new:
+                    _chain.append(_new)
+            if len(_chain) > 1:
+                _chain_by_origin[_key] = _chain
+
+        # Layer commissioner moves (off-platform single-hops).
+        for _cm_key, _cm_new in (commissioner_pick_moves or {}).items():
+            if _cm_key in _chain_by_origin:
+                continue
+            try:
+                if int(_cm_new) != int(_cm_key[2]):
+                    _chain_by_origin[_cm_key] = [int(_cm_key[2]), int(_cm_new)]
+            except Exception:
+                continue
 
         # ---- Step 3: emit one row per (frame, round, slot) ------------
         # Player-name resolution helper.
