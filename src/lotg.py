@@ -1963,6 +1963,24 @@ def build_all(repo_root: Path) -> None:
         except Exception as e:
             drafts = []
             _log_exc(debug, f"drafts_{season}", e)
+        # Hydrate each draft with its FULL object via the /draft/{id}
+        # endpoint. The /league/{id}/drafts list view returns drafts
+        # without `slot_to_roster_id` (it's null there) — the full
+        # draft object has it. Without this, every season fell back
+        # to the canonical sorted-roster slot ordering and Original
+        # Team didn't reflect the real standings-based draft slot.
+        for _d in drafts or []:
+            _did = str(_d.get("draft_id") or "")
+            if not _did:
+                continue
+            if _d.get("slot_to_roster_id"):
+                continue
+            try:
+                _full = sc.draft(_did)
+                if isinstance(_full, dict) and _full.get("slot_to_roster_id"):
+                    _d["slot_to_roster_id"] = _full.get("slot_to_roster_id")
+            except Exception as e:
+                _log_exc(debug, f"draft_detail_{season}_{_did}", e)
         # Dump raw drafts for audit (slot_to_roster_id verification, etc).
         try:
             (raw_dir / f"drafts_{season}.json").write_text(json.dumps(drafts or [], indent=2))
