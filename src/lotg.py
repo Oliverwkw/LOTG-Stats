@@ -1423,7 +1423,7 @@ def build_all(repo_root: Path) -> None:
             nw = _to_int(ev.get("owner_id"), None)
             if ps is None or rnd_e is None or orig is None or nw is None:
                 continue
-            if ps <= int(season_now):
+            if ps < int(season_now):
                 continue
             # Sleeper returns events in chronological order; last wins.
             snapshot_owner[(int(ps), int(rnd_e), int(orig))] = int(nw)
@@ -3087,10 +3087,21 @@ def build_all(repo_root: Path) -> None:
                                     None,
                                 )
                                 new_owner = _to_int(
-                                    dp.get("owner_id") or dp.get("roster_id") or dp.get("owner_roster_id"),
+                                    dp.get("owner_id") or dp.get("owner_roster_id"),
                                     None,
                                 )
-                                original_owner = _to_int(dp.get("original_owner_id") or dp.get("original_owner"), None)
+                                # Sleeper transaction draft_picks carry `roster_id` =
+                                # the pick's ORIGINAL owner (same semantics as
+                                # traded_picks). Using it as a fallback for owner_id
+                                # was a long-standing misread — that swapped origin
+                                # and current owner whenever owner_id was absent
+                                # and dropped the actual origin signal.
+                                original_owner = _to_int(
+                                    dp.get("original_owner_id")
+                                    or dp.get("original_owner")
+                                    or dp.get("roster_id"),
+                                    None,
+                                )
                                 if prev_owner is None and new_owner is not None and len(roster_ids_int) == 2:
                                     prev_owner = [rid for rid in roster_ids_int if rid != new_owner][0]
                                 if dp_season is None or dp_round is None or prev_owner is None or new_owner is None:
