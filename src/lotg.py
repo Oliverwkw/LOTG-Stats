@@ -6562,16 +6562,21 @@ def build_all(repo_root: Path) -> None:
             if r["Played_bench_weeks"] else None,
             axis=1,
         )
+        # PPG starter vs bench diff: per Phase 1C clarification, derived
+        # consumers of player averages use the bye/injury/suspension-
+        # adjusted variants. Difference is therefore between
+        # Adjusted PPG starter and Adjusted PPG bench.
         py_base["PPG starter vs bench diff"] = py_base.apply(
-            lambda r: round((r["PPG starter"] or 0) - (r["PPG bench"] or 0), 4)
-            if r["PPG starter"] is not None and r["PPG bench"] is not None else None,
+            lambda r: round((r["Adjusted PPG starter"] or 0) - (r["Adjusted PPG bench"] or 0), 4)
+            if r["Adjusted PPG starter"] is not None and r["Adjusted PPG bench"] is not None else None,
             axis=1,
         )
         py_base["Rookie?"] = py_base["Rookie_flag"].astype(bool)
         py_base["Age"] = py_base["Age_avg"].round(2)
+        # Drop intermediate helpers but keep Played_* — change-in-career
+        # below needs them; output catalog filter drops them at write.
         py_base = py_base.drop(columns=[
             "Rookie_flag", "Age_avg", "Starter_points_sum", "Bench_points_sum",
-            "Played_points", "Played_weeks",
             "Played_starter_points", "Played_starter_weeks",
             "Played_bench_points", "Played_bench_weeks",
         ])
@@ -6587,14 +6592,17 @@ def build_all(repo_root: Path) -> None:
         py = py.merge(min_share.reset_index(), on=["Player ID", "Year"], how="left")
 
         py = py.sort_values(["Player ID", "Year"]).reset_index(drop=True)
+        # Per Phase 1C: derived consumers of player averages use the
+        # bye/injury/suspension-adjusted variants.
+        # "Change in points from previous season" uses Points (sum) —
+        # that's a season total, not an average, so it stays as-is.
         py["Change in points from previous season"] = py.groupby("Player ID")["Points"].diff()
-        py["Change in avg points from previous season"] = py.groupby("Player ID")["Avg_points"].diff()
+        py["Change in avg points from previous season"] = py.groupby("Player ID")["Adjusted Avg points"].diff()
 
-        # Use transform() so the shift respects group boundaries. The
-        # previous version was groupby(...).cumsum().shift(1) which shifts the
-        # resulting global Series — first row of each player would inherit
-        # the prior player's career totals, so a rookie's 'Change from career'
-        # could come out positive against some unrelated veteran's stats.
+        # "Change in points from career" compares this season's total
+        # to the average season-total of prior years — totals, not
+        # per-game averages, so the played-only filter doesn't apply
+        # here. Unchanged.
         py["Career_points_before"] = py.groupby("Player ID")["Points"].transform(
             lambda s: s.cumsum().shift(1)
         )
@@ -6606,16 +6614,20 @@ def build_all(repo_root: Path) -> None:
             axis=1,
         )
 
-        py["Career_points_before_total"] = py.groupby("Player ID")["Points"].transform(
+        # "Change in avg points from career" compares this season's
+        # per-game avg to the prior career per-game avg. Both sides use
+        # the played-only sums + counts so byes/injuries/suspensions
+        # don't drag the comparison either way.
+        py["Career_played_points_before"] = py.groupby("Player ID")["Played_points"].transform(
             lambda s: s.cumsum().shift(1)
         )
-        py["Career_weeks_before_total"] = py.groupby("Player ID")["Weeks"].transform(
+        py["Career_played_weeks_before"] = py.groupby("Player ID")["Played_weeks"].transform(
             lambda s: s.cumsum().shift(1)
         )
         py["Change in avg points from career"] = py.apply(
-            lambda r: (r["Avg_points"] - (r["Career_points_before_total"] / r["Career_weeks_before_total"]))
-            if pd.notna(r["Career_weeks_before_total"]) and r["Career_weeks_before_total"]
-            and pd.notna(r["Career_points_before_total"])
+            lambda r: (r["Adjusted Avg points"] - (r["Career_played_points_before"] / r["Career_played_weeks_before"]))
+            if pd.notna(r["Career_played_weeks_before"]) and r["Career_played_weeks_before"]
+            and pd.notna(r["Career_played_points_before"]) and r["Adjusted Avg points"] is not None
             else None,
             axis=1,
         )
@@ -6807,9 +6819,10 @@ def build_all(repo_root: Path) -> None:
             if r["Weeks_as_bench"] else None,
             axis=1,
         )
+        # Phase 1C — diff uses adjusted variants (matches player_year).
         pa["PPG starter vs bench diff"] = pa.apply(
-            lambda r: round((r["PPG starter"] or 0) - (r["PPG bench"] or 0), 4)
-            if r["PPG starter"] is not None and r["PPG bench"] is not None else None,
+            lambda r: round((r["Adjusted PPG starter"] or 0) - (r["Adjusted PPG bench"] or 0), 4)
+            if r["Adjusted PPG starter"] is not None and r["Adjusted PPG bench"] is not None else None,
             axis=1,
         )
         # Phase 1C — bye/injury/suspension-adjusted variants.
