@@ -1268,7 +1268,17 @@ def build_all(repo_root: Path) -> None:
             wb = Workbook()
             wb.remove(wb.active)
 
-            for csvf in sorted(out_dir.glob("*.csv")):
+            # Iterate the `tables` list (DOCUMENT_MODULES order) so xlsx tab
+            # order matches the spec. Previously this used
+            # sorted(out_dir.glob("*.csv")), which sorted tabs alphabetically
+            # and ignored the configured order.
+            _csv_order = [fname for (fname, _, _) in tables]
+            _written = set()
+            for fname in _csv_order:
+                csvf = out_dir / fname
+                if not csvf.exists():
+                    continue
+                _written.add(csvf.name)
                 sheet_name = csvf.stem[:31]
                 ws = wb.create_sheet(title=sheet_name)
 
