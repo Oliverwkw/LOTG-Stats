@@ -121,3 +121,22 @@
 ## Phase 12 — ESPN 2020 backfill
 - [ ] Scope when we get there
 - [ ] **Diff sweep**
+
+## Phase 13 — In-season weekly digest email
+**Trigger:** Tuesday 10am ET, in-season only (build runs first, then emails). Skip weeks with no completed games since last email.
+
+**Delivery / recipients:** TBD (user will specify before phase starts).
+
+**What to surface:**
+- All-time top/bottom 5 rank changes (players): "Kyler Murray's −0.4 points passes JJ McCarthy for 4th lowest all-time."
+- All-time team rank changes: "BROsenzweig passes Shmuel256 in Max PF for 3rd place all-time."
+- Projected end-of-season ranks (linear extrapolation from current pace): "Oliverwkw is on pace for 4th-highest yearly hardship."
+
+**Implementation outline:**
+- Capture prior-week ranks snapshot (commit to repo or store as workflow artifact).
+- Diff vs current week's ranks; produce a narrative list of crossings.
+- HTML email template with sections: All-time leaderboard moves / Team all-time moves / On-pace projections.
+- Cron-scheduled workflow with workflow_dispatch fallback for manual reruns.
+- In-season gate: skip if current week is offseason (e.g. before Sleeper's week 1 or after week 17).
+
+- [ ] **Diff sweep**
