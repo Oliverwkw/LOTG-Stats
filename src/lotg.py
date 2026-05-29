@@ -7254,12 +7254,10 @@ def build_all(repo_root: Path) -> None:
                 # computes Combined matchup score per game.
                 "Combined matchup score": float(pd.to_numeric(g.get("Combined matchup score"), errors="coerce").fillna(0.0).max()),
             }
-            # Unique-player position counts (Phase 1B, item 5): distinct
-            # players started / rostered by this team this year.
-            _u = unique_pos_by_team_year.get((str(team), int(yr)), {})
-            for _pos in ["QB", "WR", "RB", "TE"]:
-                row[f"Number of {_pos} started"] = int(_u.get(f"Number of {_pos} started", 0))
-                row[f"Number of {_pos} rostered"] = int(_u.get(f"Number of {_pos} rostered", 0))
+            # NOTE: Unique-player Number of {QB,WR,RB,TE} {started,rostered}
+            # columns are added later (line ~7977 "team_unique_player_counts"
+            # block) via a merge from pw groupby. Adding them here too
+            # creates _x/_y suffix collisions on that merge.
             rows.append(row)
         team_year = pd.DataFrame(rows)
 
@@ -7781,12 +7779,9 @@ def build_all(repo_root: Path) -> None:
                 "Tanking": float(pd.to_numeric(g.get("Tanking"), errors="coerce").dropna().mean() or 0.0),
                 "Luck": float(pd.to_numeric(g.get("Luck"), errors="coerce").fillna(0.0).sum()),
             }
-            # Unique-player position counts (Phase 1B, item 5): distinct
-            # players this team has started / rostered across all years.
-            _u = unique_pos_by_team_all.get((str(team),), {})
-            for _pos in ["QB", "WR", "RB", "TE"]:
-                row[f"Number of {_pos} started"] = int(_u.get(f"Number of {_pos} started", 0))
-                row[f"Number of {_pos} rostered"] = int(_u.get(f"Number of {_pos} rostered", 0))
+            # NOTE: Unique-player position counts for team_all are added
+            # later (line ~7977 "team_unique_player_counts") via direct
+            # team_all["Team"].map() assignment — no need to seed here.
             rows.append(row)
         team_all = pd.DataFrame(rows)
 
