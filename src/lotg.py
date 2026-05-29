@@ -708,6 +708,11 @@ def _preserve_na(col: str) -> bool:
         return True
     if col_l.startswith("net ktc value"):
         return True
+    # Faab columns: blank Faab means the transaction wasn't a waiver
+    # (free-agent / commissioner adds aren't bid on) — surface as N/A
+    # so it's not confused with 'won the claim with a $0 bid'.
+    if col_l == "faab":
+        return True
     # Faab-vs-second-place: blank means the row isn't a waiver, or the
     # waiver was uncontested (no runner-up). Either case is distinct
     # from 'won by zero' so don't collapse to 0.0.
@@ -715,6 +720,12 @@ def _preserve_na(col: str) -> bool:
         "faab difference over second place",
         "faab % difference over second place",
     }:
+        return True
+    # Win % vs / Record vs <team>: blank means "no games played against
+    # this opponent" — typically self-vs-self in team_year / team_all_time.
+    # Surface as N/A so it's not confused with '0-0-0 record / 0% win'
+    # against a team you actually faced.
+    if col_l.startswith("win % vs ") or col_l.startswith("record vs "):
         return True
     # PPG / age / start-rate columns on transactions.csv. Blank = the
     # row had no Player Added/Dropped to compute against, or the
@@ -754,12 +765,14 @@ def _preserve_na(col: str) -> bool:
         "difference of averages",
         "difference of averages adjusted by position",
         "age difference",
-        "player addition value",
-        "number of starts before next drop",
-        "% of starts made while rostered",
-        "injury adjusted % of starts made while rostered",
     }:
         return True
+    # NOTE: removed from preserve_na per Phase 1 spec — these should
+    # never render as N/A:
+    #   "player addition value"  -> defaults to 0.0 when not computable
+    #   "number of starts before next drop" -> 0 when player never started
+    #   "% of starts made while rostered" -> 0 when player never started
+    #   "injury adjusted % of starts made while rostered" -> 0 when never started
     # Pick-value columns on trades.csv: blank means the trade had no
     # picks at all, or all picks failed to resolve (e.g., picks for a
     # draft too far in the future). Distinct from 'the pick value is
