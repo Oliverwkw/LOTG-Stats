@@ -5945,39 +5945,51 @@ def build_all(repo_root: Path) -> None:
 
         pw[award_cols] = pw[award_cols].fillna(0)
 
-        # Hardship engine.
+        # Hardship engine (Phase 2 rebuild).
+        #
         # Points lost when Points==0 AND (Injury or Suspension) AND NOT Bye.
-        # Expected points = mean of the player's 5 active weeks BEFORE their
-        # most recent active week (i.e. exclude the most recent active week
-        # itself, since that game may have been cut short by a mid-game
-        # injury and would otherwise depress the baseline).
-        # An "active week" is points>0 AND not Injury/Susp/Bye.
+        # Expected points = mean of the player's last 5 ACTIVE games — where
+        # "active" matches the Phase 1C adjusted definition: NOT Injury,
+        # NOT Suspension, NOT Bye. (Points==0 is allowed — a real game with
+        # a bad performance still contributes to the baseline.)
+        #
+        # Starter-adjusted Hardship: same per-player points-lost, scaled by
+        # the fraction of the last 5 active weeks the player was a Starter.
+        # E.g. 15 PPG average + started 1 of last 5 weeks -> 3 contributed
+        # to Starter-adjusted Hardship.
         pw = pw.sort_values(["Player", "Year", "Week"]).reset_index(drop=True)
-        # Keep up to 6 most-recent active points; we will average the oldest
-        # 5 (everything except the most recent active week).
-        last6: Dict[str, deque] = defaultdict(lambda: deque(maxlen=6))
+        last5: Dict[str, deque] = defaultdict(lambda: deque(maxlen=5))
+        starter_hist: Dict[str, deque] = defaultdict(lambda: deque(maxlen=5))
         exp_points: List[Optional[float]] = [None] * len(pw)
         points_lost: List[float] = [0.0] * len(pw)
+        starter_adj_lost: List[float] = [0.0] * len(pw)
         for i, row in pw.iterrows():
             player = row["Player"]
             pts = float(row["Points"])
             inj = bool(row.get("Injury?") or False)
             susp = bool(row.get("Suspension?") or False)
             bye = bool(row.get("Bye?") or False)
-            hist = last6[player]
-            # Baseline = up to 5 active weeks *before* the most recent active week.
-            if len(hist) >= 2:
-                baseline = list(hist)[:-1]
-                expected = sum(baseline) / len(baseline)
-            else:
-                expected = None
+            is_starter = (str(row.get("Starter/Bench") or "").strip().lower() == "starter")
+            hist = last5[player]
+            s_hist = starter_hist[player]
+            # Baseline = mean of stored active weeks (up to last 5).
+            expected = (sum(hist) / len(hist)) if hist else None
             exp_points[i] = expected
+            # Starter fraction over the same active window.
+            starter_pct = (sum(s_hist) / len(s_hist)) if s_hist else 0.0
             missed = (pts == 0.0) and (inj or susp) and (not bye)
-            points_lost[i] = float(expected) if (missed and expected is not None) else 0.0
-            if (pts > 0.0) and (not inj) and (not susp) and (not bye):
+            if missed and expected is not None:
+                points_lost[i] = float(expected)
+                starter_adj_lost[i] = float(expected) * float(starter_pct)
+            # Active-week history advances on any week that wasn't Inj/Susp/Bye
+            # — including legitimate 0-point games (matches the Adjusted Avg
+            # points denominator from Phase 1C).
+            if (not inj) and (not susp) and (not bye):
                 hist.append(pts)
+                s_hist.append(1 if is_starter else 0)
         pw["_expected_points_if_healthy"] = exp_points
         pw["_points_lost_inj_susp"] = points_lost
+        pw["_starter_adj_points_lost"] = starter_adj_lost
 
         # --------------------------
         # Activated Cuff detection
@@ -6063,6 +6075,7 @@ def build_all(repo_root: Path) -> None:
 
         agg = pw2.groupby(["Team", "Year", "Week"], as_index=False).agg(
             Hardship_Points_Lost=("_points_lost_inj_susp", "sum"),
+            Starter_Adj_Hardship=("_starter_adj_points_lost", "sum"),
             Number_of_Injuries=("_missed_injury", "sum"),
             Number_of_suspensions=("_missed_susp", "sum"),
             Number_of_players_on_bye=("_on_bye", "sum"),
@@ -6074,6 +6087,7 @@ def build_all(repo_root: Path) -> None:
         # Harden numeric outputs + create friendly display columns (never crash on missing cols)
         for _c in [
             "Hardship_Points_Lost",
+            "Starter_Adj_Hardship",
             "Number_of_Injuries",
             "Number_of_suspensions",
             "Number_of_players_injured_or_suspended",
@@ -6083,12 +6097,14 @@ def build_all(repo_root: Path) -> None:
             safe_to_numeric(tw, _c, default=0.0)
 
         tw["Hardship"] = pd.to_numeric(tw.get("Hardship_Points_Lost"), errors="coerce").fillna(0.0)
+        tw["Starter-adjusted Hardship"] = pd.to_numeric(tw.get("Starter_Adj_Hardship"), errors="coerce").fillna(0.0).round(4)
         tw["Number of Injuries"] = tw["Number_of_Injuries"].round(0).astype(int)
         tw["Number of suspensions"] = tw["Number_of_suspensions"].round(0).astype(int)
         tw["Number of players on bye"] = tw["Number_of_players_on_bye"].round(0).astype(int)
 
         tw.drop(columns=[
             "Hardship_Points_Lost",
+            "Starter_Adj_Hardship",
             "Number_of_Injuries",
             "Number_of_suspensions",
             "Number_of_players_injured_or_suspended",
@@ -6135,10 +6151,16 @@ def build_all(repo_root: Path) -> None:
                 tw.loc[g.index[mask_b], "Brosenzweig"] = 1
                 tw.loc[g.index[mask_s], "Sisenzweig"] = 1
 
-        # Luck formula override:
-        # 1/3*(1 - Hardship/league_avg_hardship) + WinVariance/4 - 1/10*Brosenzweig + 1/3*Efficiency
+        # Luck formula (Phase 2 rebuild — splits the hardship signal
+        # across raw Hardship and Starter-adjusted Hardship):
+        #   1/6 * (1 - Hardship             / lg_avg_Hardship)
+        # + 1/6 * (1 - Starter-adj Hardship / lg_avg_Starter-adj Hardship)
+        # + 1/4 * Win Variance
+        # - 1/10 * Brosenzweig
+        # + 1/3 * Efficiency
         try:
             tw["Hardship"] = pd.to_numeric(tw.get("Hardship"), errors="coerce").fillna(0.0)
+            tw["Starter-adjusted Hardship"] = pd.to_numeric(tw.get("Starter-adjusted Hardship"), errors="coerce").fillna(0.0)
             tw["Efficiency"] = pd.to_numeric(tw.get("Efficiency"), errors="coerce").fillna(0.0)
             if "Win Variance" in tw.columns:
                 tw["Win Variance"] = pd.to_numeric(tw.get("Win Variance"), errors="coerce").fillna(0.0)
@@ -6150,8 +6172,13 @@ def build_all(repo_root: Path) -> None:
             hardship_term = 1.0 - (tw["Hardship"] / lg_hard.replace(0, np.nan))
             hardship_term = hardship_term.replace([np.inf, -np.inf], np.nan).fillna(1.0)
 
+            lg_sa_hard = tw.groupby(["Year", "Week"])["Starter-adjusted Hardship"].transform("mean")
+            sa_hardship_term = 1.0 - (tw["Starter-adjusted Hardship"] / lg_sa_hard.replace(0, np.nan))
+            sa_hardship_term = sa_hardship_term.replace([np.inf, -np.inf], np.nan).fillna(1.0)
+
             tw["Luck"] = (
-                (1.0/3.0) * hardship_term
+                (1.0/6.0) * hardship_term
+                + (1.0/6.0) * sa_hardship_term
                 + 0.25 * tw["Win Variance"]
                 - 0.1 * tw["Brosenzweig"]
                 + (1.0/3.0) * tw["Efficiency"]
@@ -7319,6 +7346,7 @@ def build_all(repo_root: Path) -> None:
                 "Weeks of injuries": int(pd.to_numeric(g.get("Number of Injuries"), errors="coerce").fillna(0.0).sum()),
                 "Weeks suspensions": int(pd.to_numeric(g.get("Number of suspensions"), errors="coerce").fillna(0.0).sum()),
                 "Hardship": float(pd.to_numeric(g.get("Hardship"), errors="coerce").fillna(0.0).sum()),
+                "Starter-adjusted Hardship": round(float(pd.to_numeric(g.get("Starter-adjusted Hardship"), errors="coerce").fillna(0.0).sum()), 4),
                 "Offseason starter turnover": 0,
                 "Inseason starter turnover": 0,
                 # Roll up per-week activity (already computed in team_week) into
@@ -7846,6 +7874,7 @@ def build_all(repo_root: Path) -> None:
                 "Weeks of injuries": int(pd.to_numeric(g.get("Number of Injuries"), errors="coerce").fillna(0.0).sum()),
                 "Weeks suspensions": int(pd.to_numeric(g.get("Number of suspensions"), errors="coerce").fillna(0.0).sum()),
                 "Hardship": float(pd.to_numeric(g.get("Hardship"), errors="coerce").fillna(0.0).sum()),
+                "Starter-adjusted Hardship": round(float(pd.to_numeric(g.get("Starter-adjusted Hardship"), errors="coerce").fillna(0.0).sum()), 4),
                 "Offseason starter turnover": 0,
                 "Inseason starter turnover": 0,
                 "Offseason roster turnover": 0,
@@ -8266,6 +8295,7 @@ def build_all(repo_root: Path) -> None:
                 "Number of wins with pregame avg max PF from opponent": int(pd.to_numeric(g.get("UPST"), errors="coerce").fillna(0.0).sum()),
                 "UPST": int(pd.to_numeric(g.get("UPST"), errors="coerce").fillna(0.0).sum()),
                 "Hardship": float(pd.to_numeric(g.get("Hardship"), errors="coerce").fillna(0.0).sum()),
+                "Starter-adjusted Hardship": round(float(pd.to_numeric(g.get("Starter-adjusted Hardship"), errors="coerce").fillna(0.0).sum()), 4),
                 # League-week Tanking = mean across teams. Per-team
                 # Tanking is already a normalized score; summing 8
                 # teams' scores would be misleading.
