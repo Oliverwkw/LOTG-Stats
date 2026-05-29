@@ -6639,17 +6639,7 @@ def build_all(repo_root: Path) -> None:
         py = py.merge(max_share.reset_index(), on=["Player ID", "Year"], how="left")
         py = py.merge(min_share.reset_index(), on=["Player ID", "Year"], how="left")
 
-        # Sort by Player name (case-insensitive) then Year for a
-        # conventional spreadsheet ordering — was sorted by Sleeper
-        # Player ID (a numeric string) which gave human-arbitrary order
-        # and produced noisy row-position diffs between builds when
-        # Sleeper's player set changes. The Player-ID-keyed groupby /
-        # diff / cumsum operations above remain ID-keyed; only the
-        # final row order changes.
-        py = py.sort_values(
-            ["Player", "Year"],
-            key=lambda s: s.astype(str).str.lower() if s.name == "Player" else s,
-        ).reset_index(drop=True)
+        py = py.sort_values(["Player ID", "Year"]).reset_index(drop=True)
         # Per Phase 1C: derived consumers of player averages use the
         # bye/injury/suspension-adjusted variants.
         # "Change in points from previous season" uses Points (sum) —
@@ -6846,18 +6836,6 @@ def build_all(repo_root: Path) -> None:
         except Exception as e:
             _log_exc(debug, "player_year_tx_only_pad", e)
 
-        # Re-sort alphabetically after pad-rows append (the pre-pad sort
-        # at line ~6642 was disturbed by concat above).
-        try:
-            if not player_year.empty and "Player" in player_year.columns:
-                player_year = player_year.sort_values(
-                    ["Player", "Year"],
-                    key=lambda s: s.astype(str).str.lower() if s.name == "Player" else s,
-                    kind="mergesort",
-                ).reset_index(drop=True)
-        except Exception as e:
-            _log_exc(debug, "player_year_alphabetical_sort", e)
-
         pa = pw_work.groupby(["Player ID"], as_index=False).agg(
             Player=("Player", "first"),
             Points=("Points", "sum"),
@@ -7022,20 +7000,6 @@ def build_all(repo_root: Path) -> None:
                     _log(debug, f"[{_now_iso()}] INFO seeded {len(pad_rows)} player_all_time rows for tx-only players")
         except Exception as e:
             _log_exc(debug, "player_all_tx_only_pad", e)
-
-        # Final alphabetical sort by Player name (case-insensitive). Was
-        # previously left in groupby's Player-ID-keyed order, which gave
-        # arbitrary human ordering and noisy row-position diffs between
-        # builds when Sleeper's player set changed.
-        try:
-            if not player_all.empty and "Player" in player_all.columns:
-                player_all = player_all.sort_values(
-                    "Player",
-                    key=lambda s: s.astype(str).str.lower(),
-                    kind="mergesort",
-                ).reset_index(drop=True)
-        except Exception as e:
-            _log_exc(debug, "player_all_alphabetical_sort", e)
 
     # Team-year: compute record and vs records using raw opp_rid_map (still available in closures above? not anymore)
     team_year = pd.DataFrame()
@@ -8752,6 +8716,57 @@ def build_all(repo_root: Path) -> None:
             _log(debug, f"[{_now_iso()}] WARN known-player validation mismatches: {len(validation)}")
     except Exception as e:
         _log_exc(debug, "known_player_validation", e)
+
+    # ------------------------------------------------------------------
+    # Standardize output row order across every sheet. Was previously
+    # left to upstream-specific sorts (groupby default, sort-by-Sleeper-
+    # Player-ID, etc), which were stable for identical inputs but
+    # produced large row-position diffs whenever a new player joined
+    # the data set or a Sleeper roster snapshot changed.
+    #
+    # Sort spec per sheet (none changes the cell data — only row order):
+    #   player_week      Player(alpha)  Year, Week
+    #   player_year      Player(alpha)  Year
+    #   player_all_time  Player(alpha)
+    #   team_week        Team(alpha)    Year, Week
+    #   team_year        Team(alpha)    Year
+    #   team_all_time    Team(alpha)
+    #   league_week      Year, Week
+    #   league_year      Year
+    #   league_all_time  single row; no sort
+    #   transactions     Team, Date     (already sorted upstream; preserved
+    #                                    so Link to next/previous row
+    #                                    references stay valid)
+    #   trades           Team, Date     (same)
+    #   pick_history     custom order from rebuild; preserved
+    #
+    # case-insensitive `key` lambda + kind="mergesort" for stability.
+    def _ci_key(s):
+        return s.astype(str).str.lower() if s.name in {"Player", "Team"} else s
+
+    def _safe_sort(df, by):
+        if df is None or len(df) == 0:
+            return df
+        keys = [k for k in by if k in df.columns]
+        if not keys:
+            return df
+        try:
+            return df.sort_values(by=keys, key=_ci_key, kind="mergesort").reset_index(drop=True)
+        except Exception as e:
+            _log_exc(debug, f"standardize_sort_{','.join(keys)}", e)
+            return df
+
+    pw           = _safe_sort(pw,           ["Player", "Year", "Week"])
+    player_year  = _safe_sort(player_year,  ["Player", "Year"])
+    player_all   = _safe_sort(player_all,   ["Player"])
+    tw           = _safe_sort(tw,           ["Team", "Year", "Week"])
+    team_year    = _safe_sort(team_year,    ["Team", "Year"])
+    team_all     = _safe_sort(team_all,     ["Team"])
+    league_week  = _safe_sort(league_week,  ["Year", "Week"])
+    league_year  = _safe_sort(league_year,  ["Year"])
+    # transactions / trades / pick_history left as-is (already sorted
+    # by Team+Date upstream so the within-team row-index links remain
+    # valid; pick_history uses its custom Year/Number ordering).
 
     context = {
         "player_week": pw,
