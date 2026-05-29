@@ -135,6 +135,7 @@ import transactions
 import formulas
 
 DOCUMENT_MODULES = [
+    formulas,
     player_week,
     player_year,
     player_all_time,
@@ -147,7 +148,6 @@ DOCUMENT_MODULES = [
     transactions,
     trades,
     pick_history,
-    formulas,
 ]
 
 
