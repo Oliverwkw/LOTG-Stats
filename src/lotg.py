@@ -6819,13 +6819,9 @@ def build_all(repo_root: Path) -> None:
             if r["Weeks_as_bench"] else None,
             axis=1,
         )
-        # Phase 1C — diff uses adjusted variants (matches player_year).
-        pa["PPG starter vs bench diff"] = pa.apply(
-            lambda r: round((r["Adjusted PPG starter"] or 0) - (r["Adjusted PPG bench"] or 0), 4)
-            if r["Adjusted PPG starter"] is not None and r["Adjusted PPG bench"] is not None else None,
-            axis=1,
-        )
-        # Phase 1C — bye/injury/suspension-adjusted variants.
+        # Phase 1C — bye/injury/suspension-adjusted variants must be
+        # computed BEFORE PPG starter vs bench diff since the diff
+        # consumes them.
         pa["Adjusted Avg points"] = pa.apply(
             lambda r: round(r["Played_points"] / r["Played_weeks"], 4)
             if r["Played_weeks"] else None,
@@ -6839,6 +6835,12 @@ def build_all(repo_root: Path) -> None:
         pa["Adjusted PPG bench"] = pa.apply(
             lambda r: round(r["Played_bench_points"] / r["Played_bench_weeks"], 4)
             if r["Played_bench_weeks"] else None,
+            axis=1,
+        )
+        # PPG starter vs bench diff uses the adjusted variants.
+        pa["PPG starter vs bench diff"] = pa.apply(
+            lambda r: round((r["Adjusted PPG starter"] or 0) - (r["Adjusted PPG bench"] or 0), 4)
+            if r["Adjusted PPG starter"] is not None and r["Adjusted PPG bench"] is not None else None,
             axis=1,
         )
         pa = pa.drop(columns=[
