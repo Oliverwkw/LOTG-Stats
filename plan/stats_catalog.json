@@ -44,7 +44,8 @@
     "Age",
     "NFL team",
     "Number of transactions",
-    "Number of drops"
+    "Number of drops",
+    "Number of trades"
   ],
   "Player-year": [
     "Player",
@@ -62,7 +63,9 @@
     "Weeks missed due to suspension",
     "Weeks as starter",
     "% of points (highest team)",
+    "Team for highest % of points",
     "% of points (lowest team)",
+    "Team for lowest % of points",
     "Change in points from previous season",
     "Change in avg points from previous season",
     "Change in points from career",
@@ -102,7 +105,9 @@
     "Weeks missed due to suspension",
     "Weeks as starter",
     "% of points (highest team)",
+    "Team for highest % of points",
     "% of points (lowest team)",
+    "Team for lowest % of points",
     "Times as Player of the week?",
     "Times as QB of the week?",
     "Times as RB of the week?",
