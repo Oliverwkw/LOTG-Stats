@@ -3883,6 +3883,66 @@ def build_all(repo_root: Path) -> None:
 
     if not pw.empty and "Team" in pw.columns:
         pw.drop(columns=["_team_canon"], inplace=True, errors="ignore")
+
+    # Phase 3A item 5: Number of trades per player-week.
+    # Each trades_row has a Date and an "Assets received" string listing
+    # the players (and pick labels — skip those) the row's Team gained
+    # in the trade. Counting once per received player per trade matches
+    # the player_trade_year aggregation downstream.
+    player_trade_week: Dict[Tuple[str, int, int], int] = defaultdict(int)
+    try:
+        # Build a name -> sid resolver. Prefer the longest match (some
+        # pid_meta entries share the same full_name; we just need any
+        # one valid sid since trade counts aren't per-sleeper-id).
+        _name_to_sid_for_trades: Dict[str, str] = {}
+        for _sid, _meta in pid_meta.items():
+            _fn = (_meta or {}).get("full_name")
+            if _fn:
+                _name_to_sid_for_trades.setdefault(str(_fn), str(_sid))
+
+        def _trade_week_for_date(_dt_str: Optional[str], _season: int) -> int:
+            if not _dt_str:
+                return 1
+            try:
+                _d = datetime.fromisoformat(str(_dt_str).replace("Z", "+00:00")).date()
+                _season_start = date(int(_season), 9, 7)
+                if _d < _season_start:
+                    return 1
+                _wk = (_d - _season_start).days // 7 + 1
+                return max(1, min(17, int(_wk)))
+            except Exception:
+                return 1
+
+        for _tr_row in trades_rows:
+            _yr_val = _tr_row.get("Season")
+            _date_s = _tr_row.get("Date")
+            if _yr_val is None and _date_s:
+                try:
+                    _yr_val = int(str(_date_s)[:4])
+                except Exception:
+                    continue
+            try:
+                _yr_i = int(_yr_val)
+            except Exception:
+                continue
+            _wk_i = _trade_week_for_date(_date_s, _yr_i)
+            _recv = _tr_row.get("Assets received")
+            if not _recv or str(_recv) == "0.0":
+                continue
+            for _asset in str(_recv).split(";"):
+                _asset = _asset.strip()
+                if not _asset:
+                    continue
+                # Skip pick labels ('2025 1.05(B. Robinson)' etc).
+                if re.match(r"^\d{4}\b", _asset):
+                    continue
+                _sid = _name_to_sid_for_trades.get(_asset)
+                if not _sid:
+                    continue
+                player_trade_week[(str(_sid), _yr_i, _wk_i)] += 1
+    except Exception as e:
+        _log_exc(debug, "player_trade_week_build", e)
+
     if not pw.empty and {"Player ID", "Year", "Week"}.issubset(pw.columns):
         pw_keys = pw[["Player ID", "Year", "Week"]].copy()
         pw_keys["Player ID"] = pw_keys["Player ID"].astype(str)
@@ -3901,6 +3961,17 @@ def build_all(repo_root: Path) -> None:
         ]
         pw["Number of drops"] = [
             int(player_drop_week.get(
+                (
+                    str(player_id),
+                    int(year) if pd.notna(year) else None,
+                    int(week) if pd.notna(week) else None,
+                ),
+                0,
+            ))
+            for player_id, year, week in pw_keys.itertuples(index=False, name=None)
+        ]
+        pw["Number of trades"] = [
+            int(player_trade_week.get(
                 (
                     str(player_id),
                     int(year) if pd.notna(year) else None,
@@ -6632,12 +6703,48 @@ def build_all(repo_root: Path) -> None:
         py = py_base.merge(top_team[["Player ID", "Year", "Top Team"]], on=["Player ID", "Year"], how="left")
         py = py.merge(last_team, on=["Player ID", "Year"], how="left")
 
-        team_points_all = pw_work.groupby(["Player ID", "Year", "Team"])["Points"].sum()
-        total_points = pw_work.groupby(["Player ID", "Year"])["Points"].sum()
-        max_share = (team_points_all.groupby(["Player ID", "Year"]).max() / total_points).rename("% of points (highest team)")
-        min_share = (team_points_all.groupby(["Player ID", "Year"]).min() / total_points).rename("% of points (lowest team)")
-        py = py.merge(max_share.reset_index(), on=["Player ID", "Year"], how="left")
-        py = py.merge(min_share.reset_index(), on=["Player ID", "Year"], how="left")
+        # Phase 3A item 4: % of points redefined.
+        # OLD: max/min share of the PLAYER'S own points across their teams.
+        # NEW: % contribution as a starter to that TEAM'S total starter
+        #      points over the year. Adds the team name alongside each
+        #      percentage so it's clear which team each number describes.
+        try:
+            starter_pw = pw_work[pw_work.get("Starter?") == 1].copy()
+            if not starter_pw.empty:
+                player_starter_per_team = starter_pw.groupby(
+                    ["Player ID", "Year", "Team"]
+                )["Points"].sum().rename("_player_pts")
+                team_starter_totals = starter_pw.groupby(["Team", "Year"])["Points"].sum().rename("_team_pts")
+                # Join the team total onto each (Player, Year, Team) row.
+                shares = (
+                    player_starter_per_team.reset_index()
+                    .merge(team_starter_totals.reset_index(), on=["Team", "Year"], how="left")
+                )
+                shares["_share"] = shares["_player_pts"] / shares["_team_pts"].replace(0, np.nan)
+                # Per (Player, Year): find the team with highest and lowest share.
+                hi = (
+                    shares.sort_values(["Player ID", "Year", "_share"], ascending=[True, True, False])
+                    .drop_duplicates(["Player ID", "Year"])
+                    [["Player ID", "Year", "Team", "_share"]]
+                    .rename(columns={"Team": "Team for highest % of points", "_share": "% of points (highest team)"})
+                )
+                lo = (
+                    shares.sort_values(["Player ID", "Year", "_share"], ascending=[True, True, True])
+                    .drop_duplicates(["Player ID", "Year"])
+                    [["Player ID", "Year", "Team", "_share"]]
+                    .rename(columns={"Team": "Team for lowest % of points", "_share": "% of points (lowest team)"})
+                )
+                py = py.merge(hi, on=["Player ID", "Year"], how="left")
+                py = py.merge(lo, on=["Player ID", "Year"], how="left")
+                py["% of points (highest team)"] = py["% of points (highest team)"].round(4)
+                py["% of points (lowest team)"] = py["% of points (lowest team)"].round(4)
+            else:
+                py["Team for highest % of points"] = None
+                py["% of points (highest team)"] = None
+                py["Team for lowest % of points"] = None
+                py["% of points (lowest team)"] = None
+        except Exception as e:
+            _log_exc(debug, "player_year_pct_of_points", e)
 
         py = py.sort_values(["Player ID", "Year"]).reset_index(drop=True)
         # Per Phase 1C: derived consumers of player averages use the
@@ -6910,15 +7017,47 @@ def build_all(repo_root: Path) -> None:
             .tail(1)[["Player ID", "Team", "Rookie?", "Age"]]
             .rename(columns={"Team": "Last team"})
         )
-        team_points_all_time = pw_work.groupby(["Player ID", "Team"])["Points"].sum()
-        total_points_all_time = pw_work.groupby(["Player ID"])["Points"].sum()
-        max_share_all = (team_points_all_time.groupby("Player ID").max() / total_points_all_time).rename("% of points (highest team)")
-        min_share_all = (team_points_all_time.groupby("Player ID").min() / total_points_all_time).rename("% of points (lowest team)")
-
         pa = pa.merge(top_team_all[["Player ID", "Top team"]], on="Player ID", how="left")
         pa = pa.merge(last_team_all, on="Player ID", how="left")
-        pa = pa.merge(max_share_all.reset_index(), on="Player ID", how="left")
-        pa = pa.merge(min_share_all.reset_index(), on="Player ID", how="left")
+
+        # Phase 3A item 4 (all-time variant): % of points = player's
+        # starter contribution to the TEAM's all-time starter total.
+        # Adds team-name columns for highest and lowest %.
+        try:
+            starter_pw_at = pw_work[pw_work.get("Starter?") == 1].copy()
+            if not starter_pw_at.empty:
+                player_starter_at = starter_pw_at.groupby(
+                    ["Player ID", "Team"]
+                )["Points"].sum().rename("_player_pts")
+                team_starter_at = starter_pw_at.groupby("Team")["Points"].sum().rename("_team_pts")
+                shares_at = (
+                    player_starter_at.reset_index()
+                    .merge(team_starter_at.reset_index(), on="Team", how="left")
+                )
+                shares_at["_share"] = shares_at["_player_pts"] / shares_at["_team_pts"].replace(0, np.nan)
+                hi_at = (
+                    shares_at.sort_values(["Player ID", "_share"], ascending=[True, False])
+                    .drop_duplicates(["Player ID"])
+                    [["Player ID", "Team", "_share"]]
+                    .rename(columns={"Team": "Team for highest % of points", "_share": "% of points (highest team)"})
+                )
+                lo_at = (
+                    shares_at.sort_values(["Player ID", "_share"], ascending=[True, True])
+                    .drop_duplicates(["Player ID"])
+                    [["Player ID", "Team", "_share"]]
+                    .rename(columns={"Team": "Team for lowest % of points", "_share": "% of points (lowest team)"})
+                )
+                pa = pa.merge(hi_at, on="Player ID", how="left")
+                pa = pa.merge(lo_at, on="Player ID", how="left")
+                pa["% of points (highest team)"] = pa["% of points (highest team)"].round(4)
+                pa["% of points (lowest team)"] = pa["% of points (lowest team)"].round(4)
+            else:
+                pa["Team for highest % of points"] = None
+                pa["% of points (highest team)"] = None
+                pa["Team for lowest % of points"] = None
+                pa["% of points (lowest team)"] = None
+        except Exception as e:
+            _log_exc(debug, "player_all_pct_of_points", e)
 
         pa = pa.rename(
             columns={
