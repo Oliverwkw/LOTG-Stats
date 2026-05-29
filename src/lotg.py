@@ -1622,6 +1622,12 @@ def build_all(repo_root: Path) -> None:
     season_draft_picks_all: Dict[int, List[Dict[str, Any]]] = {}
     draft_picks_records: List[Dict[str, Any]] = []
 
+    # Cross-season state for "from previous week" stats. Hoisted out of the
+    # per-season loop so Week 1 turnover & PF-increase reference the last
+    # played week of the prior season (≈ championship week) instead of None.
+    prev_starters_by_team_xseason: Dict[str, set] = {}
+    prev_roster_by_team_xseason: Dict[str, set] = {}
+
     for lg in leagues:
         league_id = str(lg.get("league_id"))
         season = _to_int(lg.get("season"), 0) or 0
@@ -2485,8 +2491,14 @@ def build_all(repo_root: Path) -> None:
                     _log_exc(debug, f"playoff_labeling_{season}_wk{wk}", e)
 
         # ------------- Weekly loop to build team_week & player_week -------------
-        prev_starters_by_team: Dict[str, set] = {}
-        prev_roster_by_team: Dict[str, set] = {}
+        # Inherit cross-season state: Week 1 of THIS season compares against
+        # the last played week of the prior season (≈ championship week).
+        # Each week's loop updates the cross-season dicts in place via the
+        # `prev_starters_by_team[team] = cur_s` / `prev_roster_by_team[team]
+        # = cur_r` assignments below, so by the time the season ends these
+        # carry the championship-week state forward to next season's wk 1.
+        prev_starters_by_team: Dict[str, set] = prev_starters_by_team_xseason
+        prev_roster_by_team: Dict[str, set] = prev_roster_by_team_xseason
         player_last5_healthy: Dict[str, deque] = defaultdict(lambda: deque(maxlen=5))  # for hardship later
         # for player awards
         awards_weekly = defaultdict(list)  # (season,wk) -> list of (pid, team, pts, started, pos)
@@ -3804,6 +3816,52 @@ def build_all(repo_root: Path) -> None:
     # Convert to DataFrames
     # --------------------------
     pw = pd.DataFrame(player_week_rows)
+
+    # --------------------------------------------------------------
+    # Unique-player position counts (Phase 1B, item 5).
+    # Build lookup dicts so team_year / team_all_time / league_year /
+    # league_all_time can report DISTINCT QBs/WRs/RBs/TEs started or
+    # rostered over the period — not the sum of weekly counts (which
+    # double-counts a QB who started 5 weeks as "5 QBs started").
+    # Computed here once; consumed at each rollup point below.
+    # --------------------------------------------------------------
+    def _build_unique_position_counts(pw_df: pd.DataFrame, group_cols: List[str]) -> Dict[Tuple, Dict[str, int]]:
+        out: Dict[Tuple, Dict[str, int]] = {}
+        if pw_df.empty or "Player ID" not in pw_df.columns or "Position" not in pw_df.columns:
+            return out
+        df = pw_df[pw_df["Player ID"].notna() & pw_df["Position"].notna()].copy()
+        df["_pos"] = df["Position"].astype(str).str.upper().str.strip()
+        df["_starter"] = df.get("Starter/Bench", "").astype(str).str.lower() == "starter"
+        for pos in ["QB", "WR", "RB", "TE"]:
+            pos_df = df[df["_pos"] == pos]
+            if pos_df.empty:
+                continue
+            # rostered = ANY appearance for the position
+            rostered = pos_df.groupby(group_cols)["Player ID"].nunique()
+            for key, val in rostered.items():
+                k = key if isinstance(key, tuple) else (key,)
+                out.setdefault(k, {})[f"Number of {pos} rostered"] = int(val)
+            # started = appearance with Starter/Bench == Starter
+            started = pos_df[pos_df["_starter"]].groupby(group_cols)["Player ID"].nunique()
+            for key, val in started.items():
+                k = key if isinstance(key, tuple) else (key,)
+                out.setdefault(k, {})[f"Number of {pos} started"] = int(val)
+        return out
+
+    unique_pos_by_team_year: Dict[Tuple, Dict[str, int]] = {}
+    unique_pos_by_team_all: Dict[Tuple, Dict[str, int]] = {}
+    unique_pos_by_year: Dict[Tuple, Dict[str, int]] = {}
+    unique_pos_league_all: Dict[str, int] = {}
+    if not pw.empty:
+        try:
+            unique_pos_by_team_year = _build_unique_position_counts(pw, ["Team", "Year"])
+            unique_pos_by_team_all  = _build_unique_position_counts(pw, ["Team"])
+            unique_pos_by_year      = _build_unique_position_counts(pw, ["Year"])
+            # League all-time = one bucket across all rows.
+            _all = _build_unique_position_counts(pw.assign(_all="all"), ["_all"])
+            unique_pos_league_all = _all.get(("all",), {})
+        except Exception as e:
+            _log_exc(debug, "unique_position_counts", e)
 
     if not pw.empty and "Team" in pw.columns:
         pw["_team_canon"] = pw["Team"].apply(_norm_team_name)
@@ -6320,7 +6378,10 @@ def build_all(repo_root: Path) -> None:
             win_streak = loss_streak = 0
             win_streak_season = loss_streak_season = 0
             current_year = None
-            prev_pf_by_year = {}
+            # prev_pf carries across seasons: Week 1's "Increase in points
+            # from previous week" compares to the team's last played week
+            # of the prior season (≈ championship week).
+            prev_pf = None
             for idx, row in g.sort_values(["Year", "Week"]).iterrows():
                 if current_year != row["Year"]:
                     current_year = row["Year"]
@@ -6348,10 +6409,10 @@ def build_all(repo_root: Path) -> None:
                 tw.loc[idx, "Win streak counting previous season"] = win_streak
                 tw.loc[idx, "Loss streak counting previous season"] = loss_streak
 
-                prev_pf = prev_pf_by_year.get(row["Year"])
                 if prev_pf is not None and pd.notna(row["PF"]):
                     tw.loc[idx, "Increase in points from previous week"] = round(float(row["PF"]) - float(prev_pf), 2)
-                prev_pf_by_year[row["Year"]] = row["PF"]
+                if pd.notna(row["PF"]):
+                    prev_pf = row["PF"]
 
     # --------------------------
     # Rollups: player_year/all_time, team_year/all_time, league_week/year/all_time
@@ -7182,6 +7243,12 @@ def build_all(repo_root: Path) -> None:
                 # computes Combined matchup score per game.
                 "Combined matchup score": float(pd.to_numeric(g.get("Combined matchup score"), errors="coerce").fillna(0.0).max()),
             }
+            # Unique-player position counts (Phase 1B, item 5): distinct
+            # players started / rostered by this team this year.
+            _u = unique_pos_by_team_year.get((str(team), int(yr)), {})
+            for _pos in ["QB", "WR", "RB", "TE"]:
+                row[f"Number of {_pos} started"] = int(_u.get(f"Number of {_pos} started", 0))
+                row[f"Number of {_pos} rostered"] = int(_u.get(f"Number of {_pos} rostered", 0))
             rows.append(row)
         team_year = pd.DataFrame(rows)
 
@@ -7703,6 +7770,12 @@ def build_all(repo_root: Path) -> None:
                 "Tanking": float(pd.to_numeric(g.get("Tanking"), errors="coerce").dropna().mean() or 0.0),
                 "Luck": float(pd.to_numeric(g.get("Luck"), errors="coerce").fillna(0.0).sum()),
             }
+            # Unique-player position counts (Phase 1B, item 5): distinct
+            # players this team has started / rostered across all years.
+            _u = unique_pos_by_team_all.get((str(team),), {})
+            for _pos in ["QB", "WR", "RB", "TE"]:
+                row[f"Number of {_pos} started"] = int(_u.get(f"Number of {_pos} started", 0))
+                row[f"Number of {_pos} rostered"] = int(_u.get(f"Number of {_pos} rostered", 0))
             rows.append(row)
         team_all = pd.DataFrame(rows)
 
@@ -8206,14 +8279,13 @@ def build_all(repo_root: Path) -> None:
                 "Tanking": float(pd.to_numeric(g.get("Tanking"), errors="coerce").dropna().mean() or 0.0),
                 "Luck": float(pd.to_numeric(g.get("Luck"), errors="coerce").fillna(0.0).sum()),
                 "Increase in points from previous week": float(pd.to_numeric(g.get("Increase in points from previous week"), errors="coerce").fillna(0.0).sum()),
-                "Number of QB started": int(pd.to_numeric(g.get("Number of QB started"), errors="coerce").fillna(0.0).sum()),
-                "Number of WR started": int(pd.to_numeric(g.get("Number of WR started"), errors="coerce").fillna(0.0).sum()),
-                "Number of RB started": int(pd.to_numeric(g.get("Number of RB started"), errors="coerce").fillna(0.0).sum()),
-                "Number of TE started": int(pd.to_numeric(g.get("Number of TE started"), errors="coerce").fillna(0.0).sum()),
-                "Number of QB rostered": int(pd.to_numeric(g.get("Number of QB rostered"), errors="coerce").fillna(0.0).sum()),
-                "Number of WR rostered": int(pd.to_numeric(g.get("Number of WR rostered"), errors="coerce").fillna(0.0).sum()),
-                "Number of RB rostered": int(pd.to_numeric(g.get("Number of RB rostered"), errors="coerce").fillna(0.0).sum()),
-                "Number of TE rostered": int(pd.to_numeric(g.get("Number of TE rostered"), errors="coerce").fillna(0.0).sum()),
+                # Unique-player position counts (Phase 1B, item 5): distinct
+                # league-wide players started / rostered this year.
+                **{
+                    f"Number of {_pos} {_kind}": int(unique_pos_by_year.get((int(yr),), {}).get(f"Number of {_pos} {_kind}", 0))
+                    for _pos in ["QB", "WR", "RB", "TE"]
+                    for _kind in ["started", "rostered"]
+                },
                 "Amount of FAAB spent": float(pd.to_numeric(g.get("Amount of FAAB spent"), errors="coerce").fillna(0.0).sum()),
             })
         league_year = pd.DataFrame(rows)
@@ -8307,14 +8379,13 @@ def build_all(repo_root: Path) -> None:
             "Tanking": float(pd.to_numeric(g_week.get("Tanking"), errors="coerce").dropna().mean() or 0.0),
             "Luck": float(pd.to_numeric(g_week.get("Luck"), errors="coerce").fillna(0.0).sum()),
             "Increase in points from previous week": float(pd.to_numeric(g_week.get("Increase in points from previous week"), errors="coerce").fillna(0.0).sum()),
-            "Number of QB started": int(pd.to_numeric(g_week.get("Number of QB started"), errors="coerce").fillna(0.0).sum()),
-            "Number of WR started": int(pd.to_numeric(g_week.get("Number of WR started"), errors="coerce").fillna(0.0).sum()),
-            "Number of RB started": int(pd.to_numeric(g_week.get("Number of RB started"), errors="coerce").fillna(0.0).sum()),
-            "Number of TE started": int(pd.to_numeric(g_week.get("Number of TE started"), errors="coerce").fillna(0.0).sum()),
-            "Number of QB rostered": int(pd.to_numeric(g_week.get("Number of QB rostered"), errors="coerce").fillna(0.0).sum()),
-            "Number of WR rostered": int(pd.to_numeric(g_week.get("Number of WR rostered"), errors="coerce").fillna(0.0).sum()),
-            "Number of RB rostered": int(pd.to_numeric(g_week.get("Number of RB rostered"), errors="coerce").fillna(0.0).sum()),
-            "Number of TE rostered": int(pd.to_numeric(g_week.get("Number of TE rostered"), errors="coerce").fillna(0.0).sum()),
+            # Unique-player position counts (Phase 1B, item 5): distinct
+            # players started / rostered league-wide across all years.
+            **{
+                f"Number of {_pos} {_kind}": int(unique_pos_league_all.get(f"Number of {_pos} {_kind}", 0))
+                for _pos in ["QB", "WR", "RB", "TE"]
+                for _kind in ["started", "rostered"]
+            },
             "Number of transactions": int(pd.to_numeric(g_week.get("Number of transactions"), errors="coerce").fillna(0.0).sum()),
             "Number of trades": int(pd.to_numeric(g_week.get("Number of trades"), errors="coerce").fillna(0.0).sum()),
             "Amount of FAAB spent": float(pd.to_numeric(g_week.get("Amount of FAAB spent"), errors="coerce").fillna(0.0).sum()),

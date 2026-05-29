@@ -23,7 +23,6 @@
 - [ ] Week-1 prev-week = previous season's championship week (mid-season pickups: week before pickup)
 - [ ] Pick asset horizon = exactly 3 years
 - [ ] "Number of X started/rostered" → unique players everywhere
-- [ ] Duplicate-column sweep + document survivors
 - [ ] N/A vs 0 sweep (Win % vs self N/A; FAAB on FA/commissioner N/A; % starts made 0 when never started; player addition value never blank)
 - [ ] **Diff sweep**
 
@@ -66,6 +65,8 @@
 - [ ] Cuffs rostered/started → unique players
 - [ ] Activated cuff = cuff becomes starter; injured player doesn't need to have started
 - [ ] Cuff at pickup relaxed (starter at any point in prev 3 weeks)
+- [ ] team_all_time: regroup Win % vs and Record vs columns by stat type (all Win % together, then all Record together)
+- [ ] team_all_time: add 4 columns: Highest Win % vs a team, [opponent team name], Lowest Win % vs a team, [opponent team name]
 - [ ] **Diff sweep**
 
 ## Phase 6 — League sheets
@@ -118,11 +119,17 @@
 - [ ] Survey league.metadata / settings / per-season text across Sleeper years; decide tracked vs manual overlay
 - [ ] **Diff sweep**
 
-## Phase 12 — ESPN 2020 backfill
+## Phase 12 — Duplicate-column sweep
+- [ ] Scan all sheets for identical-valued columns; remove redundancy
+- [ ] Document survivors in formulas sheet
+- [ ] Moved from Phase 1 — better done after Phases 2-11 settle the column set
+- [ ] **Diff sweep**
+
+## Phase 13 — ESPN 2020 backfill
 - [ ] Scope when we get there
 - [ ] **Diff sweep**
 
-## Phase 13 — In-season weekly digest email
+## Phase 14 — In-season weekly digest email
 **Trigger:** Tuesday 10am ET, in-season only (build runs first, then emails). Skip weeks with no completed games since last email.
 
 **Delivery / recipients:** TBD (user will specify before phase starts).
