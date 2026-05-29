@@ -8717,6 +8717,57 @@ def build_all(repo_root: Path) -> None:
     except Exception as e:
         _log_exc(debug, "known_player_validation", e)
 
+    # ------------------------------------------------------------------
+    # Standardize output row order across every sheet. Was previously
+    # left to upstream-specific sorts (groupby default, sort-by-Sleeper-
+    # Player-ID, etc), which were stable for identical inputs but
+    # produced large row-position diffs whenever a new player joined
+    # the data set or a Sleeper roster snapshot changed.
+    #
+    # Sort spec per sheet (none changes the cell data — only row order):
+    #   player_week      Player(alpha)  Year, Week
+    #   player_year      Player(alpha)  Year
+    #   player_all_time  Player(alpha)
+    #   team_week        Team(alpha)    Year, Week
+    #   team_year        Team(alpha)    Year
+    #   team_all_time    Team(alpha)
+    #   league_week      Year, Week
+    #   league_year      Year
+    #   league_all_time  single row; no sort
+    #   transactions     Team, Date     (already sorted upstream; preserved
+    #                                    so Link to next/previous row
+    #                                    references stay valid)
+    #   trades           Team, Date     (same)
+    #   pick_history     custom order from rebuild; preserved
+    #
+    # case-insensitive `key` lambda + kind="mergesort" for stability.
+    def _ci_key(s):
+        return s.astype(str).str.lower() if s.name in {"Player", "Team"} else s
+
+    def _safe_sort(df, by):
+        if df is None or len(df) == 0:
+            return df
+        keys = [k for k in by if k in df.columns]
+        if not keys:
+            return df
+        try:
+            return df.sort_values(by=keys, key=_ci_key, kind="mergesort").reset_index(drop=True)
+        except Exception as e:
+            _log_exc(debug, f"standardize_sort_{','.join(keys)}", e)
+            return df
+
+    pw           = _safe_sort(pw,           ["Player", "Year", "Week"])
+    player_year  = _safe_sort(player_year,  ["Player", "Year"])
+    player_all   = _safe_sort(player_all,   ["Player"])
+    tw           = _safe_sort(tw,           ["Team", "Year", "Week"])
+    team_year    = _safe_sort(team_year,    ["Team", "Year"])
+    team_all     = _safe_sort(team_all,     ["Team"])
+    league_week  = _safe_sort(league_week,  ["Year", "Week"])
+    league_year  = _safe_sort(league_year,  ["Year"])
+    # transactions / trades / pick_history left as-is (already sorted
+    # by Team+Date upstream so the within-team row-index links remain
+    # valid; pick_history uses its custom Year/Number ordering).
+
     context = {
         "player_week": pw,
         "player_year": player_year,
