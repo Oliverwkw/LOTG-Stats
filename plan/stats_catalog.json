@@ -57,6 +57,7 @@
     "Number of trades",
     "Points",
     "Avg points",
+    "Adjusted Avg points",
     "Weeks missed due to injury",
     "Weeks missed due to suspension",
     "Weeks as starter",
@@ -81,7 +82,9 @@
     "Rookie?",
     "Age",
     "PPG starter",
+    "Adjusted PPG starter",
     "PPG bench",
+    "Adjusted PPG bench",
     "PPG starter vs bench diff"
   ],
   "Player-all-time": [
@@ -94,6 +97,7 @@
     "Number of trades",
     "Points",
     "Avg points",
+    "Adjusted Avg points",
     "Weeks missed due to injury",
     "Weeks missed due to suspension",
     "Weeks as starter",
@@ -112,7 +116,9 @@
     "Times as Highest starter on team?",
     "Times as Lowest starter on team?",
     "PPG starter",
+    "Adjusted PPG starter",
     "PPG bench",
+    "Adjusted PPG bench",
     "PPG starter vs bench diff"
   ],
   "team-week": [
