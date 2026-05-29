@@ -5945,21 +5945,32 @@ def build_all(repo_root: Path) -> None:
 
         pw[award_cols] = pw[award_cols].fillna(0)
 
-        # Hardship engine (Phase 2 rebuild).
+        # Hardship engine (Phase 2 rebuild + Phase 2A refinement).
         #
         # Points lost when Points==0 AND (Injury or Suspension) AND NOT Bye.
-        # Expected points = mean of the player's last 5 ACTIVE games — where
-        # "active" matches the Phase 1C adjusted definition: NOT Injury,
-        # NOT Suspension, NOT Bye. (Points==0 is allowed — a real game with
-        # a bad performance still contributes to the baseline.)
+        # Expected points = mean of the player's last 5 ACTIVE games —
+        # where "active" matches the Phase 1C adjusted definition: NOT
+        # Injury, NOT Suspension, NOT Bye. (Points==0 in an active week is
+        # allowed — a real game with a bad performance still contributes
+        # to the baseline.)
         #
-        # Starter-adjusted Hardship: same per-player points-lost, scaled by
-        # the fraction of the last 5 active weeks the player was a Starter.
-        # E.g. 15 PPG average + started 1 of last 5 weeks -> 3 contributed
-        # to Starter-adjusted Hardship.
+        # Refinement (user request): SKIP the most recent active week
+        # when computing the baseline, since that game may have ended
+        # mid-injury (a player who left early would otherwise depress
+        # their own expected). Dynamic for players with <5 career games:
+        #   - N >= 2 active games  -> baseline = mean of N−1 (drop most recent)
+        #   - N == 1 active game   -> baseline = that one game (no exclusion possible)
+        #   - N == 0               -> no baseline (None)
+        # Carrying 6 most-recent active points so the "skip most recent"
+        # rule leaves us with 5 to average.
+        #
+        # Starter-adjusted Hardship: same per-player points-lost, scaled
+        # by the fraction of the last 5 active weeks the player was a
+        # Starter. 15 PPG player who started 1 of last 5 active weeks
+        # contributes 15 × 0.2 = 3 to Starter-adjusted Hardship.
         pw = pw.sort_values(["Player", "Year", "Week"]).reset_index(drop=True)
-        last5: Dict[str, deque] = defaultdict(lambda: deque(maxlen=5))
-        starter_hist: Dict[str, deque] = defaultdict(lambda: deque(maxlen=5))
+        last6: Dict[str, deque] = defaultdict(lambda: deque(maxlen=6))
+        starter_hist: Dict[str, deque] = defaultdict(lambda: deque(maxlen=6))
         exp_points: List[Optional[float]] = [None] * len(pw)
         points_lost: List[float] = [0.0] * len(pw)
         starter_adj_lost: List[float] = [0.0] * len(pw)
@@ -5970,20 +5981,30 @@ def build_all(repo_root: Path) -> None:
             susp = bool(row.get("Suspension?") or False)
             bye = bool(row.get("Bye?") or False)
             is_starter = (str(row.get("Starter/Bench") or "").strip().lower() == "starter")
-            hist = last5[player]
+            hist = last6[player]
             s_hist = starter_hist[player]
-            # Baseline = mean of stored active weeks (up to last 5).
-            expected = (sum(hist) / len(hist)) if hist else None
+            # Baseline: drop most recent active week when we have enough
+            # history; fall back to the single available game when there's
+            # only one.
+            hist_list = list(hist)
+            s_hist_list = list(s_hist)
+            if len(hist_list) >= 2:
+                baseline_pts = hist_list[:-1]
+                baseline_starter = s_hist_list[:-1]
+                expected = sum(baseline_pts) / len(baseline_pts)
+                starter_pct = (sum(baseline_starter) / len(baseline_starter)) if baseline_starter else 0.0
+            elif len(hist_list) == 1:
+                expected = hist_list[0]
+                starter_pct = float(s_hist_list[0]) if s_hist_list else 0.0
+            else:
+                expected = None
+                starter_pct = 0.0
             exp_points[i] = expected
-            # Starter fraction over the same active window.
-            starter_pct = (sum(s_hist) / len(s_hist)) if s_hist else 0.0
             missed = (pts == 0.0) and (inj or susp) and (not bye)
             if missed and expected is not None:
                 points_lost[i] = float(expected)
                 starter_adj_lost[i] = float(expected) * float(starter_pct)
-            # Active-week history advances on any week that wasn't Inj/Susp/Bye
-            # — including legitimate 0-point games (matches the Adjusted Avg
-            # points denominator from Phase 1C).
+            # Advance active-week history on any week that wasn't Inj/Susp/Bye.
             if (not inj) and (not susp) and (not bye):
                 hist.append(pts)
                 s_hist.append(1 if is_starter else 0)
