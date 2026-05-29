@@ -10,28 +10,21 @@
 
 ---
 
-## Phase 0 — Quick foundation
-- [ ] Sheet order: formulas / player_week / player_year / player_all_time / team_week / team_year / team_all_time / league_week / league_year / league_all_time / transactions / trades / pick_history
-- [ ] player_week: Year as 3rd column
-- [ ] league_week: Year → Week Name → Week → rest (note: user wrote "league_year"; that sheet has no Week Name. Treating as league_week. Verify in audit.)
-- [ ] Drop columns: player_all_time (Rookie?, Age); team_week/team_year/team_all_time (Largest deficit overcome, Combined matchup score); league_week/league_year/league_all_time (Tanking, Luck)
-- [ ] **Diff sweep**: confirm no unrelated column moves / value changes
+## Phase 0 — Quick foundation ✅
+- [x] Sheet order
+- [x] player_week: Year as 3rd column
+- [x] league_week: Year → Week Name → Week → rest
+- [x] Drop columns: player_all_time (Rookie?, Age); team sheets (Largest deficit, Combined matchup); league sheets (Tanking, Luck)
 
-## Phase 1 — Global rules
-- [ ] Bye weeks excluded from every average
-- [ ] Injured/suspended weeks excluded from every player-week average
-- [ ] Week-1 prev-week = previous season's championship week (mid-season pickups: week before pickup)
-- [ ] Pick asset horizon = exactly 3 years
-- [ ] "Number of X started/rostered" → unique players everywhere
-- [ ] N/A vs 0 sweep (Win % vs self N/A; FAAB on FA/commissioner N/A; % starts made 0 when never started; player addition value never blank)
-- [ ] **Diff sweep**
+## Phase 1 — Global rules ✅ (1A + 1B + 1C all merged)
+- [x] N/A vs 0 sweep (Faab on FA/commissioner N/A; Win % vs self N/A; % starts made → 0; player addition value → 0)
+- [x] Pick asset horizon verified at 3 years
+- [x] Week-1 prev-week = previous season's last played week (≈ championship week)
+- [x] "Number of X started/rostered" → unique players at team_year / team_all_time / league_year / league_all_time
+- [x] Adjusted Avg points / PPG starter / PPG bench in player_year + player_all_time (alongside non-adjusted)
+- [x] All derived consumers of player averages use Adjusted variants
 
-## Phase 2 — Formulas sheet rebuild
-- [ ] Every non-obvious column gets an entry
-- [ ] xlsx styling (color, wrap text, group by sheet, hyperlinks)
-- [ ] **Diff sweep**
-
-## Phase 3 — Hardship + Luck
+## Phase 2 — Hardship + Luck
 - [ ] Hardship redefined per spec; NFLverse backfill for early-2021 + new pickups
 - [ ] 🔍 Investigate 2021 wk 1-2 hardship=0 with 23/30 injuries
 - [ ] Starter-adjusted hardship column next to every hardship column
@@ -39,21 +32,19 @@
 - [ ] Luck rebuild; audit distribution; iterate weights
 - [ ] **Diff sweep**
 
-## Phase 4 — Player sheets
+## Phase 3 — Player sheets
 - [ ] 🔍 Number of teams bug (Renfrow=5 not 4); fix partial-week rosterings
 - [ ] Top team / Last team → time rostered (not weeks)
 - [ ] Drop yearly rows for never-rostered players
 - [ ] Split Points (while rostered) vs Points (full season, NFLverse)
 - [ ] Change-in stats use full-season values; only N/A for rookie years
-- [ ] Injury/suspension-adjusted average points + change-in pairs
 - [ ] Career average from NFLverse
 - [ ] % of points redefined: starter contribution to team total; + team-name cols for highest/lowest
 - [ ] Taxi-eligible boolean in player_all_time
 - [ ] Number of trades column in player_week (auto-rolls to year + all-time)
-- [ ] Verify PPG bench excludes injured/suspended/bye
 - [ ] **Diff sweep**
 
-## Phase 5 — Team sheets
+## Phase 4 — Team sheets
 - [ ] 🔍 Team age including picks ≈ player age (likely 0-future-pick bug)
 - [ ] Player + team avg age = average of weekly averages (incl with-picks variant)
 - [ ] Exclude 2021 vet draft from team draft stats
@@ -69,7 +60,7 @@
 - [ ] team_all_time: add 4 columns: Highest Win % vs a team, [opponent team name], Lowest Win % vs a team, [opponent team name]
 - [ ] **Diff sweep**
 
-## Phase 6 — League sheets
+## Phase 5 — League sheets
 - [ ] 🔍 # transactions formula trace + # trades (once per trade incl 3+team)
 - [ ] Position/NFL team/players rostered+started: league-wide unique; all-time/yearly = "most"
 - [ ] Number of starting donuts column
@@ -81,7 +72,7 @@
 - [ ] Weekly trades: offseason in wk-1 rollup only if within 7 days prior to Wk 1
 - [ ] **Diff sweep**
 
-## Phase 7 — Transactions
+## Phase 6 — Transactions
 - [ ] Same-day commissioner add+drop heuristic excludes from tx counts
 - [ ] Split link to next/previous (added player + dropped player); include trades
 - [ ] # times picked up by this team includes trades; add # times dropped column
@@ -93,7 +84,7 @@
 - [ ] 🔍 KTC values audit (Ronald Jones / Josh Gordon as canary)
 - [ ] **Diff sweep**
 
-## Phase 8 — Trades
+## Phase 7 — Trades
 - [ ] 🔍 Rows with both Assets received + sent blank — fix root cause
 - [ ] FAAB-as-asset capture (FAAB tradeable)
 - [ ] Enhanced Avg PPG (excludes injured/bye/suspended + includes future-draft-pick PPG)
@@ -105,24 +96,29 @@
 - [ ] V2 trade addition value (Cuffs etc.)
 - [ ] **Diff sweep**
 
-## Phase 9 — Pick history
+## Phase 8 — Pick history
 - [ ] 🔍 Commissioner-moved over-fires — investigate
 - [ ] **Diff sweep**
 
-## Phase 10 — Taxi / IR / suggestions
+## Phase 9 — Taxi / IR / suggestions
 - [ ] Taxi columns: player_week Taxi?; player_year Weeks in taxi; player_all_time Weeks in taxi; team_week Players in taxi; team_year/all_time Unique players in taxi + Total taxi-player-weeks
 - [ ] IR columns (Sleeper roster.reserve, NOT NFL injury designation): player_week IR slot?; player_year/all_time Weeks on IR; team_week Players on IR; team_year/all_time Unique players on IR + Total IR player-weeks
 - [ ] Suggest 3-5 enhancement ideas (draft-class scorecard, schedule luck, trade equity at N years)
 - [ ] **Diff sweep**
 
-## Phase 11 — Revisit league notes
+## Phase 10 — Revisit league notes
 - [ ] Survey league.metadata / settings / per-season text across Sleeper years; decide tracked vs manual overlay
+- [ ] **Diff sweep**
+
+## Phase 11 — Formulas sheet rebuild
+**Moved from Phase 2 per user — better done after Phases 2–10 settle the formulas they describe.**
+- [ ] Every non-obvious column gets an entry
+- [ ] xlsx styling (color, wrap text, group by sheet, hyperlinks)
 - [ ] **Diff sweep**
 
 ## Phase 12 — Duplicate-column sweep
 - [ ] Scan all sheets for identical-valued columns; remove redundancy
 - [ ] Document survivors in formulas sheet
-- [ ] Moved from Phase 1 — better done after Phases 2-11 settle the column set
 - [ ] **Diff sweep**
 
 ## Phase 13 — ESPN 2020 backfill
