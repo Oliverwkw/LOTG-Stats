@@ -6662,6 +6662,14 @@ def build_all(repo_root: Path) -> None:
     tenure_teams_all: Dict[str, Set[str]] = defaultdict(set)
     tenure_time_team_year: Dict[Tuple[str, int], Dict[str, float]] = defaultdict(lambda: defaultdict(float))
     tenure_time_team_all: Dict[str, Dict[str, float]] = defaultdict(lambda: defaultdict(float))
+    # Phase 3A.3 fix: in-season-only time per team. Top team should
+    # reflect who held the player DURING the NFL season, not who held
+    # him through the offseason. User example: Aaron Jones 2023 was on
+    # plehv79 through the long offseason but on shmuel256 the entire
+    # active season — shmuel256 should be Top team.
+    # Season window for fantasy year Y: Sept 1 of Y through Feb 1 of Y+1.
+    tenure_inseason_time_team_year: Dict[Tuple[str, int], Dict[str, float]] = defaultdict(lambda: defaultdict(float))
+    tenure_inseason_time_team_all: Dict[str, Dict[str, float]] = defaultdict(lambda: defaultdict(float))
     tenure_last_event_year: Dict[Tuple[str, int], Tuple[datetime, str]] = {}
     tenure_last_event_all: Dict[str, Tuple[datetime, str]] = {}
     for _pid, tenures in player_tenures.items():
@@ -6674,39 +6682,79 @@ def build_all(repo_root: Path) -> None:
             e_dt = _iso_to_dt(t.get("end")) or _now_dt
             if e_dt < s_dt:
                 e_dt = s_dt
-            # all-time team-time accumulator
+            # all-time team-time accumulator (any tenure time, used for
+            # Number of teams enumeration; not for Top team).
             tenure_time_team_all[_pid][str(tm)] += (e_dt - s_dt).total_seconds()
             # last event (all-time)
             cur_last = tenure_last_event_all.get(_pid)
             if cur_last is None or e_dt > cur_last[0]:
                 tenure_last_event_all[_pid] = (e_dt, str(tm))
-            # split across years for per-year accumulator
+            # Per-calendar-year tenure split (used for Number of teams
+            # per year — partial-week stints during offseason should
+            # still count toward team uniqueness).
             cursor = s_dt
             while cursor < e_dt:
                 yr = cursor.year
-                # end of this year boundary
                 next_year_start = datetime(yr + 1, 1, 1, tzinfo=cursor.tzinfo or timezone.utc)
                 slice_end = min(e_dt, next_year_start)
                 tenure_time_team_year[(_pid, yr)][str(tm)] += (slice_end - cursor).total_seconds()
-                # last event per year
                 cur_last_y = tenure_last_event_year.get((_pid, yr))
                 if cur_last_y is None or slice_end > cur_last_y[0]:
                     tenure_last_event_year[(_pid, yr)] = (slice_end, str(tm))
                 cursor = slice_end
+            # In-season-only overlap per fantasy year. Tenure can span
+            # multiple seasons; iterate every candidate year and take
+            # the overlap with that year's [Sept 1, Feb 1 +1] window.
+            _tz = s_dt.tzinfo or timezone.utc
+            for _yr_candidate in range(s_dt.year - 1, e_dt.year + 2):
+                _win_start = datetime(_yr_candidate, 9, 1, tzinfo=_tz)
+                _win_end = datetime(_yr_candidate + 1, 2, 1, tzinfo=_tz)
+                _overlap_start = max(s_dt, _win_start)
+                _overlap_end = min(e_dt, _win_end)
+                if _overlap_end > _overlap_start:
+                    _secs = (_overlap_end - _overlap_start).total_seconds()
+                    tenure_inseason_time_team_year[(_pid, _yr_candidate)][str(tm)] += _secs
+                    tenure_inseason_time_team_all[_pid][str(tm)] += _secs
+
+    # Phase 3B: NFLverse full-season points aggregation, used for
+    # "Points (full season)" + change-in columns + career stats on
+    # player_year and player_all_time. nfl_log_by_sid entries have
+    # year/week/points/_wk_date keys (built per-season during the
+    # NFLverse fetch). Summing gives the player's full NFL season —
+    # not just the weeks they were rostered in our league.
+    nfl_full_season_points: Dict[Tuple[str, int], float] = defaultdict(float)
+    nfl_full_season_games: Dict[Tuple[str, int], int] = defaultdict(int)
+    nfl_career_total_points: Dict[str, float] = defaultdict(float)
+    nfl_career_total_games: Dict[str, int] = defaultdict(int)
+    for _sid, _entries in nfl_log_by_sid.items():
+        for _e in _entries:
+            try:
+                _yr = int(_e.get("year"))
+                _pts = float(_e.get("points") or 0.0)
+            except Exception:
+                continue
+            nfl_full_season_points[(str(_sid), _yr)] += _pts
+            nfl_full_season_games[(str(_sid), _yr)] += 1
+            nfl_career_total_points[str(_sid)] += _pts
+            nfl_career_total_games[str(_sid)] += 1
 
     # Phase 3A.3: precompute time-rostered top_team / last_team lookups
     # used to override the legacy weeks-on-roster heuristic for every
     # player_year / player_all_time row (not just pad rows).
+    # Top team uses IN-SEASON tenure time so offseason holds don't
+    # win against shorter in-season stints (user fix: Aaron Jones 2023
+    # belongs to shmuel256 — held during the season — not plehv79 who
+    # held him through the offseason but moved him on before kickoff).
     tenure_top_team_by_year: Dict[Tuple[str, int], str] = {}
     tenure_last_team_by_year: Dict[Tuple[str, int], str] = {}
     tenure_top_team_all: Dict[str, str] = {}
     tenure_last_team_all: Dict[str, str] = {}
-    for (_pid, _yr), team_secs in tenure_time_team_year.items():
+    for (_pid, _yr), team_secs in tenure_inseason_time_team_year.items():
         if team_secs:
             tenure_top_team_by_year[(_pid, _yr)] = max(team_secs.items(), key=lambda kv: kv[1])[0]
     for (_pid, _yr), (_dt, _team) in tenure_last_event_year.items():
         tenure_last_team_by_year[(_pid, _yr)] = _team
-    for _pid, team_secs in tenure_time_team_all.items():
+    for _pid, team_secs in tenure_inseason_time_team_all.items():
         if team_secs:
             tenure_top_team_all[_pid] = max(team_secs.items(), key=lambda kv: kv[1])[0]
     for _pid, (_dt, _team) in tenure_last_event_all.items():
@@ -6948,42 +6996,64 @@ def build_all(repo_root: Path) -> None:
             _log_exc(debug, "player_year_pct_of_points", e)
 
         py = py.sort_values(["Player ID", "Year"]).reset_index(drop=True)
-        # Per Phase 1C: derived consumers of player averages use the
-        # bye/injury/suspension-adjusted variants.
-        # "Change in points from previous season" uses Points (sum) —
-        # that's a season total, not an average, so it stays as-is.
-        py["Change in points from previous season"] = py.groupby("Player ID")["Points"].diff()
-        py["Change in avg points from previous season"] = py.groupby("Player ID")["Adjusted Avg points"].diff()
+        # Phase 3B: NFLverse full-season columns + change-in rewrites.
+        # "Points" stays as rostered-only (LOTG league totals); the new
+        # "Points (full season)" sums the player's entire NFL season
+        # from nflverse, filling the gap for weeks they weren't on a
+        # fantasy roster.
+        py["Points (full season)"] = py.apply(
+            lambda r: round(float(nfl_full_season_points.get((str(r.get("Player ID")), int(r.get("Year"))), 0.0)), 2),
+            axis=1,
+        )
+        py["Avg points (full season)"] = py.apply(
+            lambda r: round(
+                nfl_full_season_points.get((str(r.get("Player ID")), int(r.get("Year"))), 0.0)
+                / nfl_full_season_games.get((str(r.get("Player ID")), int(r.get("Year"))), 1),
+                4,
+            ) if nfl_full_season_games.get((str(r.get("Player ID")), int(r.get("Year"))), 0) else None,
+            axis=1,
+        )
 
-        # "Change in points from career" compares this season's total
-        # to the average season-total of prior years — totals, not
-        # per-game averages, so the played-only filter doesn't apply
-        # here. Unchanged.
-        py["Career_points_before"] = py.groupby("Player ID")["Points"].transform(
+        # Change-in (per user spec): use FULL-SEASON values, not rostered.
+        # Rookie years stay N/A because the diff against an absent prior
+        # season is undefined.
+        py["Change in points from previous season"] = (
+            py.groupby("Player ID")["Points (full season)"].diff()
+        )
+        py["Change in avg points from previous season"] = (
+            py.groupby("Player ID")["Avg points (full season)"].diff()
+        )
+
+        # "Change in points from career" — compare this season's full
+        # NFL points to the average of prior-season full NFL points.
+        py["Career_points_before"] = py.groupby("Player ID")["Points (full season)"].transform(
             lambda s: s.cumsum().shift(1)
         )
         py["Career_years_before"] = py.groupby("Player ID").cumcount()
         py["Change in points from career"] = py.apply(
-            lambda r: (r["Points"] - (r["Career_points_before"] / r["Career_years_before"]))
+            lambda r: round(
+                r["Points (full season)"] - (r["Career_points_before"] / r["Career_years_before"]),
+                4,
+            )
             if r["Career_years_before"] and pd.notna(r["Career_points_before"])
             else None,
             axis=1,
         )
 
-        # "Change in avg points from career" compares this season's
-        # per-game avg to the prior career per-game avg. Both sides use
-        # the played-only sums + counts so byes/injuries/suspensions
-        # don't drag the comparison either way.
-        py["Career_played_points_before"] = py.groupby("Player ID")["Played_points"].transform(
+        # "Change in avg points from career" — compare this season's
+        # full-season per-game avg to the prior full-season career avg.
+        py["Career_fullpts_before"] = py.groupby("Player ID")["Points (full season)"].transform(
             lambda s: s.cumsum().shift(1)
         )
-        py["Career_played_weeks_before"] = py.groupby("Player ID")["Played_weeks"].transform(
-            lambda s: s.cumsum().shift(1)
-        )
+        py["Career_fullgames_before"] = py.groupby("Player ID").apply(
+            lambda g: g.apply(lambda r: nfl_full_season_games.get((str(r["Player ID"]), int(r["Year"])), 0), axis=1).cumsum().shift(1)
+        ).reset_index(level=0, drop=True)
         py["Change in avg points from career"] = py.apply(
-            lambda r: (r["Adjusted Avg points"] - (r["Career_played_points_before"] / r["Career_played_weeks_before"]))
-            if pd.notna(r["Career_played_weeks_before"]) and r["Career_played_weeks_before"]
-            and pd.notna(r["Career_played_points_before"]) and r["Adjusted Avg points"] is not None
+            lambda r: round(
+                r["Avg points (full season)"] - (r["Career_fullpts_before"] / r["Career_fullgames_before"]),
+                4,
+            ) if pd.notna(r["Career_fullpts_before"]) and r["Career_fullgames_before"]
+            and r["Avg points (full season)"] is not None
             else None,
             axis=1,
         )
@@ -7316,6 +7386,65 @@ def build_all(repo_root: Path) -> None:
                 pa["% of points (lowest team)"] = None
         except Exception as e:
             _log_exc(debug, "player_all_pct_of_points", e)
+
+        # Phase 3B: NFLverse full-season columns on player_all_time.
+        # "Points (full season)" = career NFL points; "Avg points (full
+        # season)" = career per-game average.
+        pa["Points (full season)"] = pa.apply(
+            lambda r: round(float(nfl_career_total_points.get(str(r.get("Player ID")), 0.0)), 2),
+            axis=1,
+        )
+        pa["Avg points (full season)"] = pa.apply(
+            lambda r: round(
+                nfl_career_total_points.get(str(r.get("Player ID")), 0.0)
+                / nfl_career_total_games.get(str(r.get("Player ID")), 1),
+                4,
+            ) if nfl_career_total_games.get(str(r.get("Player ID")), 0) else None,
+            axis=1,
+        )
+
+        # Phase 3B: Taxi-eligible boolean.
+        # TRUE if: player is currently in their first year in the
+        # league AND has never started for any team. Resets at week 1
+        # of the following season (so rookies finishing year 1 stay
+        # eligible until first snap of year 2).
+        try:
+            # Latest season we have data for (proxy for "current").
+            current_season = int(pw["Year"].max()) if not pw.empty and "Year" in pw.columns else None
+            # First year per player from player_year + tenure_time_team_year.
+            first_year_by_pid: Dict[str, int] = {}
+            if not player_year.empty and "Player ID" in player_year.columns and "Year" in player_year.columns:
+                _g = player_year.dropna(subset=["Player ID", "Year"]).groupby("Player ID")["Year"].min()
+                for _p, _y in _g.items():
+                    try:
+                        first_year_by_pid[str(_p)] = int(_y)
+                    except Exception:
+                        continue
+            for (_p, _y), _tm in tenure_time_team_year.items():
+                try:
+                    if not _tm:
+                        continue
+                    existing = first_year_by_pid.get(str(_p))
+                    if existing is None or int(_y) < existing:
+                        first_year_by_pid[str(_p)] = int(_y)
+                except Exception:
+                    continue
+
+            def _is_taxi_eligible(row) -> bool:
+                if current_season is None:
+                    return False
+                pid = str(row.get("Player ID"))
+                fy = first_year_by_pid.get(pid)
+                if fy is None or fy != current_season:
+                    return False
+                try:
+                    weeks_started = int(pd.to_numeric(row.get("Weeks as starter"), errors="coerce") or 0)
+                except Exception:
+                    weeks_started = 0
+                return weeks_started == 0
+            pa["Taxi-eligible"] = pa.apply(_is_taxi_eligible, axis=1)
+        except Exception as e:
+            _log_exc(debug, "player_all_taxi_eligible", e)
 
         pa = pa.rename(
             columns={

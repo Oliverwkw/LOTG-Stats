@@ -57,7 +57,9 @@
     "Number of drops",
     "Number of trades",
     "Points",
+    "Points (full season)",
     "Avg points",
+    "Avg points (full season)",
     "Adjusted Avg points",
     "Weeks missed due to injury",
     "Weeks missed due to suspension",
@@ -99,7 +101,9 @@
     "Number of drops",
     "Number of trades",
     "Points",
+    "Points (full season)",
     "Avg points",
+    "Avg points (full season)",
     "Adjusted Avg points",
     "Weeks missed due to injury",
     "Weeks missed due to suspension",
@@ -124,7 +128,8 @@
     "Adjusted PPG starter",
     "PPG bench",
     "Adjusted PPG bench",
-    "PPG starter vs bench diff"
+    "PPG starter vs bench diff",
+    "Taxi-eligible"
   ],
   "team-week": [
     "Team",
