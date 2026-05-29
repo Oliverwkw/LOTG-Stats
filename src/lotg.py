@@ -6568,6 +6568,132 @@ def build_all(repo_root: Path) -> None:
             for team, year, week in pw_keys.itertuples(index=False, name=None)
         ]
 
+    # -------------------------------------------------------------------
+    # Phase 3A.2: Player tenures from transactions + trades.
+    # A tenure = (team, start_iso, end_iso?) representing a continuous
+    # span where the player was on that team's roster. Built from the
+    # transactions/trades event ledger so it catches partial-week
+    # sessions invisible to player_week (e.g. Hunter Renfrow's 5th
+    # team — added and dropped between roster snapshots).
+    #
+    # Used downstream to:
+    #   - augment "Number of teams" (union with pw-derived teams)
+    #   - populate top_team / last_team for pad rows of tx-only players
+    #     in player_year / player_all_time
+    #   - identify "truly never rostered" players (no tenure + no pw row)
+    #     whose pad rows should be dropped
+    # -------------------------------------------------------------------
+    player_tenures: Dict[str, List[Dict[str, Any]]] = {}
+    try:
+        events: List[Tuple[str, str, str, str]] = []  # (pid, date_iso, team, kind)
+        for _r in transactions_rows:
+            _date_s = _r.get("Date")
+            if not _date_s:
+                continue
+            _team = _r.get("Team")
+            _added = _r.get("_added_pid")
+            _dropped = _r.get("_dropped_pid")
+            if _added and _team:
+                events.append((str(_added), str(_date_s), str(_team), "add"))
+            # The dropped player on the same row was on `team` before the
+            # tx — its tenure on this team ends at the tx date.
+            if _dropped and _team:
+                events.append((str(_dropped), str(_date_s), str(_team), "drop"))
+        for _r in trades_rows:
+            _date_s = _r.get("Date")
+            if not _date_s:
+                continue
+            _team = _r.get("Team")
+            if not _team:
+                continue
+            for _pid in (_r.get("_recv_player_ids") or []):
+                if _pid:
+                    events.append((str(_pid), str(_date_s), str(_team), "add"))
+            for _pid in (_r.get("_drop_player_ids") or []):
+                if _pid:
+                    events.append((str(_pid), str(_date_s), str(_team), "drop"))
+
+        by_pid: Dict[str, List[Tuple[str, str, str]]] = defaultdict(list)
+        for _pid, _d, _team, _kind in events:
+            by_pid[_pid].append((_d, _team, _kind))
+
+        for _pid, _evs in by_pid.items():
+            _evs.sort(key=lambda e: e[0])
+            tenures: List[Dict[str, Any]] = []
+            open_team: Optional[str] = None
+            open_start: Optional[str] = None
+            for _d, _team, _kind in _evs:
+                if _kind == "add":
+                    # If we already have an open tenure on a different
+                    # team, close it (a missing drop tx); ignore re-adds
+                    # to the same team (idempotent).
+                    if open_team and open_team != _team:
+                        tenures.append({"team": open_team, "start": open_start, "end": _d})
+                        open_team = None
+                        open_start = None
+                    if not open_team:
+                        open_team = _team
+                        open_start = _d
+                elif _kind == "drop":
+                    if open_team == _team:
+                        tenures.append({"team": _team, "start": open_start, "end": _d})
+                        open_team = None
+                        open_start = None
+                    # else: drop without matching add (player joined
+                    # before our tx window) — skipped silently
+            if open_team:
+                tenures.append({"team": open_team, "start": open_start, "end": None})
+            player_tenures[_pid] = tenures
+    except Exception as e:
+        _log_exc(debug, "player_tenures_build", e)
+
+    # Derived aggregates: number-of-teams, time-per-team-year,
+    # time-per-team-all-time, last team per year / all-time.
+    def _iso_to_dt(s: Optional[str]) -> Optional[datetime]:
+        if not s:
+            return None
+        try:
+            return datetime.fromisoformat(str(s).replace("Z", "+00:00"))
+        except Exception:
+            return None
+
+    _now_dt = datetime.now(timezone.utc)
+
+    tenure_teams_all: Dict[str, Set[str]] = defaultdict(set)
+    tenure_time_team_year: Dict[Tuple[str, int], Dict[str, float]] = defaultdict(lambda: defaultdict(float))
+    tenure_time_team_all: Dict[str, Dict[str, float]] = defaultdict(lambda: defaultdict(float))
+    tenure_last_event_year: Dict[Tuple[str, int], Tuple[datetime, str]] = {}
+    tenure_last_event_all: Dict[str, Tuple[datetime, str]] = {}
+    for _pid, tenures in player_tenures.items():
+        for t in tenures:
+            tm = t.get("team")
+            if not tm:
+                continue
+            tenure_teams_all[_pid].add(str(tm))
+            s_dt = _iso_to_dt(t.get("start")) or _now_dt
+            e_dt = _iso_to_dt(t.get("end")) or _now_dt
+            if e_dt < s_dt:
+                e_dt = s_dt
+            # all-time team-time accumulator
+            tenure_time_team_all[_pid][str(tm)] += (e_dt - s_dt).total_seconds()
+            # last event (all-time)
+            cur_last = tenure_last_event_all.get(_pid)
+            if cur_last is None or e_dt > cur_last[0]:
+                tenure_last_event_all[_pid] = (e_dt, str(tm))
+            # split across years for per-year accumulator
+            cursor = s_dt
+            while cursor < e_dt:
+                yr = cursor.year
+                # end of this year boundary
+                next_year_start = datetime(yr + 1, 1, 1, tzinfo=cursor.tzinfo or timezone.utc)
+                slice_end = min(e_dt, next_year_start)
+                tenure_time_team_year[(_pid, yr)][str(tm)] += (slice_end - cursor).total_seconds()
+                # last event per year
+                cur_last_y = tenure_last_event_year.get((_pid, yr))
+                if cur_last_y is None or slice_end > cur_last_y[0]:
+                    tenure_last_event_year[(_pid, yr)] = (slice_end, str(tm))
+                cursor = slice_end
+
     player_year = pd.DataFrame()
     player_all = pd.DataFrame()
     if not pw.empty:
@@ -6702,6 +6828,35 @@ def build_all(repo_root: Path) -> None:
 
         py = py_base.merge(top_team[["Player ID", "Year", "Top Team"]], on=["Player ID", "Year"], how="left")
         py = py.merge(last_team, on=["Player ID", "Year"], how="left")
+
+        # Phase 3A.2: augment Number of teams with tenure-based teams.
+        # Catches partial-week sessions that pw misses (Renfrow's 5th
+        # team was added + dropped between weekly snapshots).
+        try:
+            def _expanded_team_count(_pid: Any, _yr: Any, _existing: Any) -> int:
+                _pid_s = str(_pid)
+                try:
+                    _yr_i = int(_yr)
+                except Exception:
+                    _yr_i = None
+                pw_teams: Set[str] = set()
+                # The existing count is from pw groupby. We also want the
+                # tenure teams overlapping this year.
+                tenure_teams_this_year = set(tenure_time_team_year.get((_pid_s, _yr_i), {}).keys()) if _yr_i else set()
+                # Combine: take the larger of existing count vs the tenure
+                # set size — if tenures show MORE teams (i.e. include
+                # partial-week stints not in pw), use that.
+                try:
+                    existing_n = int(_existing) if pd.notna(_existing) else 0
+                except Exception:
+                    existing_n = 0
+                return max(existing_n, len(tenure_teams_this_year))
+            py["Number_of_teams"] = py.apply(
+                lambda r: _expanded_team_count(r.get("Player ID"), r.get("Year"), r.get("Number_of_teams")),
+                axis=1,
+            )
+        except Exception as e:
+            _log_exc(debug, "player_year_teams_with_tenures", e)
 
         # Phase 3A item 4: % of points redefined.
         # OLD: max/min share of the PLAYER'S own points across their teams.
@@ -6919,15 +7074,38 @@ def build_all(repo_root: Path) -> None:
                         tx_pairs.add((str(sid), int(season_i)))
 
             missing_pairs = [p for p in tx_pairs if p not in existing]
+            # Phase 3A.2: drop pads for players truly never rostered.
+            # If sid has no tenure for the given year AND no pw row, the
+            # transaction was purely phantom (e.g. an add+drop with no
+            # roster realization). Skip those rows per spec — "If the
+            # player was never rostered, they shouldn't get a row for
+            # that year."
+            def _has_tenure_in_year(sid: str, yr: int) -> bool:
+                tenure_yr_map = tenure_time_team_year.get((str(sid), int(yr)))
+                return bool(tenure_yr_map)
+            missing_pairs = [(s, y) for s, y in missing_pairs if _has_tenure_in_year(s, y)]
             if missing_pairs:
                 pad_rows = []
                 for sid, yr in missing_pairs:
                     meta = pid_meta.get(str(sid)) or {}
                     name = meta.get("full_name") or str(sid)
+                    # Derive top/last team from tenure aggregates for this
+                    # (sid, yr) — top = team with the most tenure time in
+                    # year, last = team in tenure_last_event_year.
+                    tenure_team_secs = tenure_time_team_year.get((str(sid), int(yr)), {})
+                    top_team_pad = (
+                        max(tenure_team_secs.items(), key=lambda kv: kv[1])[0]
+                        if tenure_team_secs else None
+                    )
+                    last_event = tenure_last_event_year.get((str(sid), int(yr)))
+                    last_team_pad = last_event[1] if last_event else top_team_pad
                     pad_rows.append({
                         "Player": name,
                         "Player ID": str(sid),
                         "Year": int(yr),
+                        "Top Team": top_team_pad,
+                        "Last team": last_team_pad,
+                        "Number of teams": len(tenure_team_secs),
                         # Counters mirror what the main pw-derived
                         # rows would have gotten from the same dicts.
                         "Number of transactions": int(player_tx_year.get((str(sid), int(yr)), 0)),
@@ -7019,6 +7197,24 @@ def build_all(repo_root: Path) -> None:
         )
         pa = pa.merge(top_team_all[["Player ID", "Top team"]], on="Player ID", how="left")
         pa = pa.merge(last_team_all, on="Player ID", how="left")
+
+        # Phase 3A.2: augment Number of teams with tenure-based teams
+        # (partial-week sessions invisible to pw-derived nunique).
+        try:
+            def _expanded_team_count_all(_pid: Any, _existing: Any) -> int:
+                _pid_s = str(_pid)
+                tenure_teams = tenure_teams_all.get(_pid_s, set())
+                try:
+                    existing_n = int(_existing) if pd.notna(_existing) else 0
+                except Exception:
+                    existing_n = 0
+                return max(existing_n, len(tenure_teams))
+            pa["Number_of_teams"] = pa.apply(
+                lambda r: _expanded_team_count_all(r.get("Player ID"), r.get("Number_of_teams")),
+                axis=1,
+            )
+        except Exception as e:
+            _log_exc(debug, "player_all_teams_with_tenures", e)
 
         # Phase 3A item 4 (all-time variant): % of points = player's
         # starter contribution to the TEAM's all-time starter total.
@@ -7122,14 +7318,26 @@ def build_all(repo_root: Path) -> None:
                         tx_sids.add(str(sid))
 
             missing_pa = [s for s in tx_sids if s not in existing_pa]
+            # Phase 3A.2: drop pads for players truly never rostered.
+            missing_pa = [s for s in missing_pa if tenure_teams_all.get(str(s))]
             if missing_pa:
                 pad_rows = []
                 for sid in missing_pa:
                     meta = pid_meta.get(str(sid)) or {}
                     name = meta.get("full_name") or str(sid)
+                    tenure_team_secs = tenure_time_team_all.get(str(sid), {})
+                    top_team_pad = (
+                        max(tenure_team_secs.items(), key=lambda kv: kv[1])[0]
+                        if tenure_team_secs else None
+                    )
+                    last_event = tenure_last_event_all.get(str(sid))
+                    last_team_pad = last_event[1] if last_event else top_team_pad
                     pad_rows.append({
                         "Player": name,
                         "Player ID": str(sid),
+                        "Top team": top_team_pad,
+                        "Last team": last_team_pad,
+                        "Number of teams": len(tenure_team_secs),
                         "Number of transactions": int(player_tx_all.get(str(sid), 0)),
                         "Number of drops": int(player_drop_all.get(str(sid), 0)),
                         "Number of trades": int(player_trade_all.get(str(name), 0)),
