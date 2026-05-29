@@ -4575,8 +4575,8 @@ def build_all(repo_root: Path) -> None:
                 """Return the player's NFL game log: list of dicts with
                 _wk_date and Points. Prefer nflverse (covers all NFL
                 weeks regardless of fantasy roster status); fall back
-                to pw (filtering out bye / injury rows since those
-                aren't 'played' for our purposes)."""
+                to pw (filtering out bye / injury / suspension rows
+                since those aren't 'played' for our purposes)."""
                 if not player_name:
                     return []
                 sid = name_to_sid_local.get(player_name)
@@ -4587,7 +4587,7 @@ def build_all(repo_root: Path) -> None:
                             games.append({"_wk_date": entry["_wk_date"], "Points": entry["points"]})
                 if not games:
                     for r in pw_by_player.get(player_name, []):
-                        if r["_wk_date"] and not r["Bye?"] and not r["Injury?"]:
+                        if r["_wk_date"] and not r["Bye?"] and not r["Injury?"] and not r.get("Suspension?"):
                             games.append({"_wk_date": r["_wk_date"], "Points": r["Points"]})
                 return games
 
@@ -6500,6 +6500,17 @@ def build_all(repo_root: Path) -> None:
         pw_work["_starter_points"] = pw_work["Points"].where(pw_work["Starter?"] == 1, other=0.0)
         pw_work["_bench_points"] = pw_work["Points"].where(pw_work["Starter?"] == 0, other=0.0)
         pw_work["_bench_weeks"] = (pw_work["Starter?"] == 0).astype(int)
+        # Phase 1C (items 1+2): ALSO carry an injury/suspension/bye-adjusted
+        # variant for every per-player average. Non-adjusted columns stay
+        # as-is (unchanged for player_year display). Adjusted columns get
+        # surfaced next to them AND are what downstream consumers
+        # (transactions / trades / change-from-prev) read.
+        pw_work["_played"] = (~pw_work[["Injury?", "Suspension?", "Bye?"]].fillna(False).any(axis=1)).astype(int)
+        pw_work["_played_points"] = pw_work["Points"] * pw_work["_played"]
+        pw_work["_played_starter_points"] = pw_work["_starter_points"] * pw_work["_played"]
+        pw_work["_played_starter_weeks"] = ((pw_work["Starter?"] == 1) & (pw_work["_played"] == 1)).astype(int)
+        pw_work["_played_bench_points"] = pw_work["_bench_points"] * pw_work["_played"]
+        pw_work["_played_bench_weeks"] = ((pw_work["Starter?"] == 0) & (pw_work["_played"] == 1)).astype(int)
 
         py_base = pw_work.groupby(["Player ID", "Year"], as_index=False).agg(
             Player=("Player", "first"),
@@ -6515,6 +6526,12 @@ def build_all(repo_root: Path) -> None:
             Age_avg=("_age_num", "mean"),
             Starter_points_sum=("_starter_points", "sum"),
             Bench_points_sum=("_bench_points", "sum"),
+            Played_points=("_played_points", "sum"),
+            Played_weeks=("_played", "sum"),
+            Played_starter_points=("_played_starter_points", "sum"),
+            Played_starter_weeks=("_played_starter_weeks", "sum"),
+            Played_bench_points=("_played_bench_points", "sum"),
+            Played_bench_weeks=("_played_bench_weeks", "sum"),
             **{c: (c, "sum") for c in award_cols},
         )
 
@@ -6529,6 +6546,22 @@ def build_all(repo_root: Path) -> None:
             if r["Weeks_as_bench"] else None,
             axis=1,
         )
+        # Adjusted variants (Phase 1C): bye/injury/suspension excluded.
+        py_base["Adjusted Avg points"] = py_base.apply(
+            lambda r: round(r["Played_points"] / r["Played_weeks"], 4)
+            if r["Played_weeks"] else None,
+            axis=1,
+        )
+        py_base["Adjusted PPG starter"] = py_base.apply(
+            lambda r: round(r["Played_starter_points"] / r["Played_starter_weeks"], 4)
+            if r["Played_starter_weeks"] else None,
+            axis=1,
+        )
+        py_base["Adjusted PPG bench"] = py_base.apply(
+            lambda r: round(r["Played_bench_points"] / r["Played_bench_weeks"], 4)
+            if r["Played_bench_weeks"] else None,
+            axis=1,
+        )
         py_base["PPG starter vs bench diff"] = py_base.apply(
             lambda r: round((r["PPG starter"] or 0) - (r["PPG bench"] or 0), 4)
             if r["PPG starter"] is not None and r["PPG bench"] is not None else None,
@@ -6538,6 +6571,9 @@ def build_all(repo_root: Path) -> None:
         py_base["Age"] = py_base["Age_avg"].round(2)
         py_base = py_base.drop(columns=[
             "Rookie_flag", "Age_avg", "Starter_points_sum", "Bench_points_sum",
+            "Played_points", "Played_weeks",
+            "Played_starter_points", "Played_starter_weeks",
+            "Played_bench_points", "Played_bench_weeks",
         ])
 
         py = py_base.merge(top_team[["Player ID", "Year", "Top Team"]], on=["Player ID", "Year"], how="left")
@@ -6751,6 +6787,12 @@ def build_all(repo_root: Path) -> None:
             Number_of_teams=("Team", "nunique"),
             Starter_points_sum=("_starter_points", "sum"),
             Bench_points_sum=("_bench_points", "sum"),
+            Played_points=("_played_points", "sum"),
+            Played_weeks=("_played", "sum"),
+            Played_starter_points=("_played_starter_points", "sum"),
+            Played_starter_weeks=("_played_starter_weeks", "sum"),
+            Played_bench_points=("_played_bench_points", "sum"),
+            Played_bench_weeks=("_played_bench_weeks", "sum"),
             **{c: (c, "sum") for c in award_cols},
         )
         # Same formula as player_year: derive PPG starter / bench / diff
@@ -6770,7 +6812,28 @@ def build_all(repo_root: Path) -> None:
             if r["PPG starter"] is not None and r["PPG bench"] is not None else None,
             axis=1,
         )
-        pa = pa.drop(columns=["Starter_points_sum", "Bench_points_sum", "Weeks_as_bench"], errors="ignore")
+        # Phase 1C — bye/injury/suspension-adjusted variants.
+        pa["Adjusted Avg points"] = pa.apply(
+            lambda r: round(r["Played_points"] / r["Played_weeks"], 4)
+            if r["Played_weeks"] else None,
+            axis=1,
+        )
+        pa["Adjusted PPG starter"] = pa.apply(
+            lambda r: round(r["Played_starter_points"] / r["Played_starter_weeks"], 4)
+            if r["Played_starter_weeks"] else None,
+            axis=1,
+        )
+        pa["Adjusted PPG bench"] = pa.apply(
+            lambda r: round(r["Played_bench_points"] / r["Played_bench_weeks"], 4)
+            if r["Played_bench_weeks"] else None,
+            axis=1,
+        )
+        pa = pa.drop(columns=[
+            "Starter_points_sum", "Bench_points_sum", "Weeks_as_bench",
+            "Played_points", "Played_weeks",
+            "Played_starter_points", "Played_starter_weeks",
+            "Played_bench_points", "Played_bench_weeks",
+        ], errors="ignore")
 
         top_team_all = (
             pw_work.groupby(["Player ID", "Team"], as_index=False)["Points"].sum()
