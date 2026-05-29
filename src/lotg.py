@@ -3832,6 +3832,18 @@ def build_all(repo_root: Path) -> None:
         df = pw_df[pw_df["Player ID"].notna() & pw_df["Position"].notna()].copy()
         df["_pos"] = df["Position"].astype(str).str.upper().str.strip()
         df["_starter"] = df.get("Starter/Bench", "").astype(str).str.lower() == "starter"
+        # Normalize group columns to native Python types so dict keys
+        # compare equal to (str(team), int(year)) lookups downstream
+        # — pandas nullable Int64 keys would otherwise miss.
+        for col in group_cols:
+            if col == "Year":
+                df[col] = pd.to_numeric(df[col], errors="coerce").astype("Int64").astype(object)
+                df[col] = df[col].map(lambda x: int(x) if pd.notna(x) else None)
+            elif col == "Team":
+                df[col] = df[col].astype(str)
+            else:
+                df[col] = df[col].astype(object)
+        df = df.dropna(subset=group_cols)
         for pos in ["QB", "WR", "RB", "TE"]:
             pos_df = df[df["_pos"] == pos]
             if pos_df.empty:
