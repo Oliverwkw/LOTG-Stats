@@ -6694,6 +6694,24 @@ def build_all(repo_root: Path) -> None:
                     tenure_last_event_year[(_pid, yr)] = (slice_end, str(tm))
                 cursor = slice_end
 
+    # Phase 3A.3: precompute time-rostered top_team / last_team lookups
+    # used to override the legacy weeks-on-roster heuristic for every
+    # player_year / player_all_time row (not just pad rows).
+    tenure_top_team_by_year: Dict[Tuple[str, int], str] = {}
+    tenure_last_team_by_year: Dict[Tuple[str, int], str] = {}
+    tenure_top_team_all: Dict[str, str] = {}
+    tenure_last_team_all: Dict[str, str] = {}
+    for (_pid, _yr), team_secs in tenure_time_team_year.items():
+        if team_secs:
+            tenure_top_team_by_year[(_pid, _yr)] = max(team_secs.items(), key=lambda kv: kv[1])[0]
+    for (_pid, _yr), (_dt, _team) in tenure_last_event_year.items():
+        tenure_last_team_by_year[(_pid, _yr)] = _team
+    for _pid, team_secs in tenure_time_team_all.items():
+        if team_secs:
+            tenure_top_team_all[_pid] = max(team_secs.items(), key=lambda kv: kv[1])[0]
+    for _pid, (_dt, _team) in tenure_last_event_all.items():
+        tenure_last_team_all[_pid] = _team
+
     player_year = pd.DataFrame()
     player_all = pd.DataFrame()
     if not pw.empty:
@@ -6828,6 +6846,34 @@ def build_all(repo_root: Path) -> None:
 
         py = py_base.merge(top_team[["Player ID", "Year", "Top Team"]], on=["Player ID", "Year"], how="left")
         py = py.merge(last_team, on=["Player ID", "Year"], how="left")
+
+        # Phase 3A.3: replace pw-derived top_team / last_team (weeks-on-
+        # roster + last-week heuristic) with tenure-time / tenure-last-
+        # event values for every player_year row. Falls back to the
+        # pw-based value when no tenure exists for the (pid, year)
+        # — players on startup roster with no transactions yet remain
+        # unchanged because they only have ONE team either way.
+        try:
+            def _tenure_top(pid: Any, yr: Any, fallback: Any) -> Any:
+                try:
+                    return tenure_top_team_by_year.get((str(pid), int(yr)), fallback)
+                except Exception:
+                    return fallback
+            def _tenure_last(pid: Any, yr: Any, fallback: Any) -> Any:
+                try:
+                    return tenure_last_team_by_year.get((str(pid), int(yr)), fallback)
+                except Exception:
+                    return fallback
+            py["Top Team"] = py.apply(
+                lambda r: _tenure_top(r.get("Player ID"), r.get("Year"), r.get("Top Team")),
+                axis=1,
+            )
+            py["Last team"] = py.apply(
+                lambda r: _tenure_last(r.get("Player ID"), r.get("Year"), r.get("Last team")),
+                axis=1,
+            )
+        except Exception as e:
+            _log_exc(debug, "player_year_top_last_team_tenure_override", e)
 
         # Phase 3A.2: augment Number of teams with tenure-based teams.
         # Catches partial-week sessions that pw misses (Renfrow's 5th
@@ -7197,6 +7243,22 @@ def build_all(repo_root: Path) -> None:
         )
         pa = pa.merge(top_team_all[["Player ID", "Top team"]], on="Player ID", how="left")
         pa = pa.merge(last_team_all, on="Player ID", how="left")
+
+        # Phase 3A.3: replace pw-derived Top team / Last team with
+        # tenure-based values (time rostered + last tenure end) for
+        # every row. pw-based remains as the fallback when no tenure
+        # exists for the player.
+        try:
+            pa["Top team"] = pa.apply(
+                lambda r: tenure_top_team_all.get(str(r.get("Player ID")), r.get("Top team")),
+                axis=1,
+            )
+            pa["Last team"] = pa.apply(
+                lambda r: tenure_last_team_all.get(str(r.get("Player ID")), r.get("Last team")),
+                axis=1,
+            )
+        except Exception as e:
+            _log_exc(debug, "player_all_top_last_team_tenure_override", e)
 
         # Phase 3A.2: augment Number of teams with tenure-based teams
         # (partial-week sessions invisible to pw-derived nunique).
