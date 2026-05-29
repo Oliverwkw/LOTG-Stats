@@ -3817,13 +3817,25 @@ def build_all(repo_root: Path) -> None:
     # --------------------------
     pw = pd.DataFrame(player_week_rows)
 
+    if not pw.empty and "Team" in pw.columns:
+        pw["_team_canon"] = pw["Team"].apply(_norm_team_name)
+        canon_to_disp = {}
+        for t in pw["Team"].dropna().astype(str).tolist():
+            c=_norm_team_name(t)
+            if c and c not in canon_to_disp:
+                canon_to_disp[c]=t
+        pw["Team"] = pw["_team_canon"].map(canon_to_disp).fillna(pw["Team"])
+
     # --------------------------------------------------------------
     # Unique-player position counts (Phase 1B, item 5).
     # Build lookup dicts so team_year / team_all_time / league_year /
     # league_all_time can report DISTINCT QBs/WRs/RBs/TEs started or
     # rostered over the period — not the sum of weekly counts (which
     # double-counts a QB who started 5 weeks as "5 QBs started").
-    # Computed here once; consumed at each rollup point below.
+    # Runs AFTER pw Team canonicalization above so the dict keys use
+    # the same display-name form that team_year groupby will lookup
+    # against. Earlier placement saw pre-canonical names and the
+    # (Team, Year) lookups all missed.
     # --------------------------------------------------------------
     def _build_unique_position_counts(pw_df: pd.DataFrame, group_cols: List[str]) -> Dict[Tuple, Dict[str, int]]:
         out: Dict[Tuple, Dict[str, int]] = {}
@@ -3832,9 +3844,6 @@ def build_all(repo_root: Path) -> None:
         df = pw_df[pw_df["Player ID"].notna() & pw_df["Position"].notna()].copy()
         df["_pos"] = df["Position"].astype(str).str.upper().str.strip()
         df["_starter"] = df.get("Starter/Bench", "").astype(str).str.lower() == "starter"
-        # Normalize group columns to native Python types so dict keys
-        # compare equal to (str(team), int(year)) lookups downstream
-        # — pandas nullable Int64 keys would otherwise miss.
         for col in group_cols:
             if col == "Year":
                 df[col] = pd.to_numeric(df[col], errors="coerce").astype("Int64").astype(object)
@@ -3848,12 +3857,10 @@ def build_all(repo_root: Path) -> None:
             pos_df = df[df["_pos"] == pos]
             if pos_df.empty:
                 continue
-            # rostered = ANY appearance for the position
             rostered = pos_df.groupby(group_cols)["Player ID"].nunique()
             for key, val in rostered.items():
                 k = key if isinstance(key, tuple) else (key,)
                 out.setdefault(k, {})[f"Number of {pos} rostered"] = int(val)
-            # started = appearance with Starter/Bench == Starter
             started = pos_df[pos_df["_starter"]].groupby(group_cols)["Player ID"].nunique()
             for key, val in started.items():
                 k = key if isinstance(key, tuple) else (key,)
@@ -3869,20 +3876,12 @@ def build_all(repo_root: Path) -> None:
             unique_pos_by_team_year = _build_unique_position_counts(pw, ["Team", "Year"])
             unique_pos_by_team_all  = _build_unique_position_counts(pw, ["Team"])
             unique_pos_by_year      = _build_unique_position_counts(pw, ["Year"])
-            # League all-time = one bucket across all rows.
             _all = _build_unique_position_counts(pw.assign(_all="all"), ["_all"])
             unique_pos_league_all = _all.get(("all",), {})
         except Exception as e:
             _log_exc(debug, "unique_position_counts", e)
 
     if not pw.empty and "Team" in pw.columns:
-        pw["_team_canon"] = pw["Team"].apply(_norm_team_name)
-        canon_to_disp = {}
-        for t in pw["Team"].dropna().astype(str).tolist():
-            c=_norm_team_name(t)
-            if c and c not in canon_to_disp:
-                canon_to_disp[c]=t
-        pw["Team"] = pw["_team_canon"].map(canon_to_disp).fillna(pw["Team"])
         pw.drop(columns=["_team_canon"], inplace=True, errors="ignore")
     if not pw.empty and {"Player ID", "Year", "Week"}.issubset(pw.columns):
         pw_keys = pw[["Player ID", "Year", "Week"]].copy()
