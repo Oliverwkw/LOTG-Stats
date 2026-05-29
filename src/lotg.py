@@ -6639,7 +6639,17 @@ def build_all(repo_root: Path) -> None:
         py = py.merge(max_share.reset_index(), on=["Player ID", "Year"], how="left")
         py = py.merge(min_share.reset_index(), on=["Player ID", "Year"], how="left")
 
-        py = py.sort_values(["Player ID", "Year"]).reset_index(drop=True)
+        # Sort by Player name (case-insensitive) then Year for a
+        # conventional spreadsheet ordering — was sorted by Sleeper
+        # Player ID (a numeric string) which gave human-arbitrary order
+        # and produced noisy row-position diffs between builds when
+        # Sleeper's player set changes. The Player-ID-keyed groupby /
+        # diff / cumsum operations above remain ID-keyed; only the
+        # final row order changes.
+        py = py.sort_values(
+            ["Player", "Year"],
+            key=lambda s: s.astype(str).str.lower() if s.name == "Player" else s,
+        ).reset_index(drop=True)
         # Per Phase 1C: derived consumers of player averages use the
         # bye/injury/suspension-adjusted variants.
         # "Change in points from previous season" uses Points (sum) —
@@ -6836,6 +6846,18 @@ def build_all(repo_root: Path) -> None:
         except Exception as e:
             _log_exc(debug, "player_year_tx_only_pad", e)
 
+        # Re-sort alphabetically after pad-rows append (the pre-pad sort
+        # at line ~6642 was disturbed by concat above).
+        try:
+            if not player_year.empty and "Player" in player_year.columns:
+                player_year = player_year.sort_values(
+                    ["Player", "Year"],
+                    key=lambda s: s.astype(str).str.lower() if s.name == "Player" else s,
+                    kind="mergesort",
+                ).reset_index(drop=True)
+        except Exception as e:
+            _log_exc(debug, "player_year_alphabetical_sort", e)
+
         pa = pw_work.groupby(["Player ID"], as_index=False).agg(
             Player=("Player", "first"),
             Points=("Points", "sum"),
@@ -7000,6 +7022,20 @@ def build_all(repo_root: Path) -> None:
                     _log(debug, f"[{_now_iso()}] INFO seeded {len(pad_rows)} player_all_time rows for tx-only players")
         except Exception as e:
             _log_exc(debug, "player_all_tx_only_pad", e)
+
+        # Final alphabetical sort by Player name (case-insensitive). Was
+        # previously left in groupby's Player-ID-keyed order, which gave
+        # arbitrary human ordering and noisy row-position diffs between
+        # builds when Sleeper's player set changed.
+        try:
+            if not player_all.empty and "Player" in player_all.columns:
+                player_all = player_all.sort_values(
+                    "Player",
+                    key=lambda s: s.astype(str).str.lower(),
+                    kind="mergesort",
+                ).reset_index(drop=True)
+        except Exception as e:
+            _log_exc(debug, "player_all_alphabetical_sort", e)
 
     # Team-year: compute record and vs records using raw opp_rid_map (still available in closures above? not anymore)
     team_year = pd.DataFrame()
