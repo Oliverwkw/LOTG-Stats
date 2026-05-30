@@ -6098,8 +6098,18 @@ def build_all(repo_root: Path) -> None:
             exp_points[i] = expected
             missed = (pts == 0.0) and (inj or susp) and (not bye)
             if missed and expected is not None:
-                points_lost[i] = float(expected)
-                starter_adj_lost[i] = float(expected) * float(starter_pct)
+                # Clamp expected ≥ 0 — negative hardship from a freak
+                # negative-points baseline (e.g. a rookie whose only
+                # prior active week was -0.5 from a fumble penalty)
+                # is nonsensical. Audit found this in plehv79 2022 wk3:
+                # Kyle Philips had a single -0.5-point active week
+                # before his wk3 injury, so his "points lost" came out
+                # to -0.5, pulling the team Hardship total below the
+                # Starter-adjusted total and breaking the SA ≤ H
+                # invariant by exactly his magnitude.
+                exp_clamped = max(0.0, float(expected))
+                points_lost[i] = exp_clamped
+                starter_adj_lost[i] = exp_clamped * float(starter_pct)
             # Advance active-week history on any week that wasn't Inj/Susp/Bye.
             if (not inj) and (not susp) and (not bye):
                 hist.append(pts)
@@ -6215,15 +6225,11 @@ def build_all(repo_root: Path) -> None:
 
         tw["Hardship"] = pd.to_numeric(tw.get("Hardship_Points_Lost"), errors="coerce").fillna(0.0)
         tw["Starter-adjusted Hardship"] = pd.to_numeric(tw.get("Starter_Adj_Hardship"), errors="coerce").fillna(0.0).round(4)
-        # Defensive clamp: SA Hardship is supposed to be H × starter_pct
-        # at the player level so per-player SA ≤ H. Sum at team level
-        # should preserve that, but audit caught 1 row out of 680 where
-        # the aggregate slipped above (likely a floating-point edge
-        # case I couldn't reproduce analytically). Clamp at the team
-        # level so the invariant always holds — SA can never exceed H.
-        _h_clamp = pd.to_numeric(tw["Hardship"], errors="coerce").fillna(0.0)
-        _sa_clamp = pd.to_numeric(tw["Starter-adjusted Hardship"], errors="coerce").fillna(0.0)
-        tw["Starter-adjusted Hardship"] = _sa_clamp.where(_sa_clamp <= _h_clamp, _h_clamp).round(4)
+        # (Previously had a defensive SA ≤ H clamp here for a
+        # plehv79 2022 wk3 anomaly. Audit traced it to negative
+        # `expected` from a single-game-history rookie baseline;
+        # fixed at the player level via expected = max(0, expected)
+        # above. Clamp removed.)
         tw["Number of Injuries"] = tw["Number_of_Injuries"].round(0).astype(int)
         tw["Number of suspensions"] = tw["Number_of_suspensions"].round(0).astype(int)
         tw["Number of players on bye"] = tw["Number_of_players_on_bye"].round(0).astype(int)
@@ -6977,12 +6983,20 @@ def build_all(repo_root: Path) -> None:
         # Treat missing side as 0 (a player with no played bench weeks
         # has effective PPG bench = 0; ditto starter). Return None only
         # when BOTH are missing (player has no played weeks at all).
+        # NB: pandas NaN is NOT `is None` — must use pd.isna() to catch
+        # both. Last audit (Rashee Rice 2024 with no played bench
+        # weeks) caught this: bn came through as NaN, the prior
+        # `is None` check passed False, and `NaN or 0` returned NaN
+        # which propagated to a NaN diff and ultimately a 0 in the
+        # filled output.
         def _ppg_diff(r):
             st = r.get("Adjusted PPG starter")
             bn = r.get("Adjusted PPG bench")
-            if st is None and bn is None:
+            st_na = pd.isna(st)
+            bn_na = pd.isna(bn)
+            if st_na and bn_na:
                 return None
-            return round(float(st or 0) - float(bn or 0), 4)
+            return round(float(0 if st_na else st) - float(0 if bn_na else bn), 4)
         py_base["PPG starter vs bench diff"] = py_base.apply(_ppg_diff, axis=1)
         py_base["Rookie?"] = py_base["Rookie_flag"].astype(bool)
         py_base["Age"] = py_base["Age_avg"].round(2)
@@ -7408,14 +7422,17 @@ def build_all(repo_root: Path) -> None:
             axis=1,
         )
         # PPG starter vs bench diff uses the adjusted variants. Same
-        # None-as-zero handling as player_year so a pure-starter or
-        # pure-bench player doesn't drop to None/0 spuriously.
+        # NaN-as-zero handling as player_year (pd.isna catches both
+        # None and NaN; raw `is None` missed pandas NaN in the last
+        # audit).
         def _pa_ppg_diff(r):
             st = r.get("Adjusted PPG starter")
             bn = r.get("Adjusted PPG bench")
-            if st is None and bn is None:
+            st_na = pd.isna(st)
+            bn_na = pd.isna(bn)
+            if st_na and bn_na:
                 return None
-            return round(float(st or 0) - float(bn or 0), 4)
+            return round(float(0 if st_na else st) - float(0 if bn_na else bn), 4)
         pa["PPG starter vs bench diff"] = pa.apply(_pa_ppg_diff, axis=1)
         pa = pa.drop(columns=[
             "Starter_points_sum", "Bench_points_sum", "Weeks_as_bench",
