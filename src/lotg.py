@@ -1640,6 +1640,12 @@ def build_all(repo_root: Path) -> None:
         ) if s is not None
     ]
     _earliest_lotg = min(_lotg_seasons_for_backfill) if _lotg_seasons_for_backfill else None
+    # The current (most-recent) LOTG season is the one whose NFLverse stats
+    # are still updating week-to-week — force a re-download for it so the
+    # CI cache restore (which would otherwise return last week's file)
+    # doesn't pin in-progress data. Historical seasons are immutable, so
+    # they read straight from cache.
+    _current_lotg_season = max(_lotg_seasons_for_backfill) if _lotg_seasons_for_backfill else None
     _nflverse_backfill_yrs = (
         list(range(_earliest_lotg - 2, _earliest_lotg))
         if _earliest_lotg is not None else []
@@ -1724,7 +1730,10 @@ def build_all(repo_root: Path) -> None:
         player_season_team: Dict[str, str] = {}
         played_players_by_week: Dict[int, set] = {}
         try:
-            spw = _safe_df(load_nflverse_stats_player_week(ext, season))
+            spw = _safe_df(load_nflverse_stats_player_week(
+                ext, season,
+                force_refresh=(season == _current_lotg_season),
+            ))
             if (not spw.empty) and ("player_id" in spw.columns) and ("week" in spw.columns):
                 spw["week"] = pd.to_numeric(spw["week"], errors="coerce").astype("Int64")
                 spw["player_id"] = spw["player_id"].astype(str)
@@ -1803,7 +1812,10 @@ def build_all(repo_root: Path) -> None:
 
         # nflverse injuries (optional; used as secondary signal)
         try:
-            injuries = _safe_df(load_nflverse_injuries(ext, season))
+            injuries = _safe_df(load_nflverse_injuries(
+                ext, season,
+                force_refresh=(season == _current_lotg_season),
+            ))
         except Exception as e:
             injuries = pd.DataFrame()
             _log_exc(debug, f"load_nflverse_injuries_{season}", e)
