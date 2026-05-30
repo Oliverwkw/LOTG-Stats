@@ -1620,6 +1620,72 @@ def build_all(repo_root: Path) -> None:
         return last
 
 
+    # Phase 2 audit followup: NFLverse pre-LOTG backfill for hardship.
+    # Players already in the NFL before our LOTG history begins (e.g.
+    # Deshaun Watson, suspended for the entirety of 2021-2022, so pw
+    # has zero active weeks for him) need their pre-LOTG NFL game log
+    # to seed the hardship baseline. Without this, Hardship reports 0
+    # contribution for such players even when they really did "lose"
+    # an expected score's worth of points to suspension/injury.
+    #
+    # Dynamic window: backfill the 2 NFL seasons immediately before
+    # the earliest LOTG league season. Currently leagues start at 2021
+    # so we pull 2019 + 2020. When 2020 ESPN data is added later
+    # (Phase 13), the league window shifts to 2020 and the backfill
+    # auto-adjusts to 2018 + 2019. Two seasons is enough to cover the
+    # 5-active-game baseline window for any player.
+    _lotg_seasons_for_backfill = [
+        s for s in (
+            _to_int(_lg.get("season"), None) for _lg in leagues
+        ) if s is not None
+    ]
+    _earliest_lotg = min(_lotg_seasons_for_backfill) if _lotg_seasons_for_backfill else None
+    _nflverse_backfill_yrs = (
+        list(range(_earliest_lotg - 2, _earliest_lotg))
+        if _earliest_lotg is not None else []
+    )
+    for _bk_yr in _nflverse_backfill_yrs:
+        try:
+            _bk_spw = _safe_df(load_nflverse_stats_player_week(ext, _bk_yr))
+            if _bk_spw.empty or "player_id" not in _bk_spw.columns or "week" not in _bk_spw.columns:
+                continue
+            _bk_spw["week"] = pd.to_numeric(_bk_spw["week"], errors="coerce").astype("Int64")
+            _bk_spw["player_id"] = _bk_spw["player_id"].astype(str)
+            _gsis_to_sid = {
+                str((meta or {}).get("gsis_id") or "").strip(): str(sid)
+                for sid, meta in pid_meta.items()
+                if (meta or {}).get("gsis_id")
+            }
+            _gsis_to_sid.pop("", None)
+            _pts_col = "fantasy_points_ppr" if "fantasy_points_ppr" in _bk_spw.columns else (
+                "fantasy_points" if "fantasy_points" in _bk_spw.columns else None
+            )
+            if not _gsis_to_sid or not _pts_col:
+                continue
+            for r in _bk_spw[["player_id", "week", _pts_col]].dropna(subset=["player_id", "week"]).itertuples(index=False):
+                _gsis = str(r.player_id)
+                _sid_bk = _gsis_to_sid.get(_gsis)
+                if not _sid_bk:
+                    continue
+                try:
+                    _wk_bk = int(r.week)
+                    _pts_bk = float(getattr(r, _pts_col))
+                except Exception:
+                    continue
+                try:
+                    _wk_d = date(int(_bk_yr), 9, 7) + timedelta(days=7 * (_wk_bk - 1))
+                    _wk_iso = _wk_d.isoformat()
+                except Exception:
+                    _wk_iso = ""
+                nfl_log_by_sid[_sid_bk].append({
+                    "year": int(_bk_yr),
+                    "week": _wk_bk,
+                    "points": _pts_bk,
+                    "_wk_date": _wk_iso,
+                })
+        except Exception as e:
+            _log_exc(debug, f"nflverse_backfill_{_bk_yr}", e)
+
     # ------------- Build each season -------------
     traded_picks_by_season: Dict[int, List[Dict[str, Any]]] = {}
     season_roster_to_team: Dict[int, Dict[int, str]] = {}
@@ -6041,35 +6107,109 @@ def build_all(repo_root: Path) -> None:
 
         pw[award_cols] = pw[award_cols].fillna(0)
 
-        # Hardship engine (Phase 2 rebuild + Phase 2A refinement).
+        # Hardship engine (Phase 2 rebuild + Phase 2A refinement +
+        # NFLverse-seeded baseline fix).
         #
-        # Points lost when Points==0 AND (Injury or Suspension) AND NOT Bye.
-        # Expected points = mean of the player's last 5 ACTIVE games —
-        # where "active" matches the Phase 1C adjusted definition: NOT
-        # Injury, NOT Suspension, NOT Bye. (Points==0 in an active week is
-        # allowed — a real game with a bad performance still contributes
-        # to the baseline.)
+        # Per-player expected points = mean of last 5 ACTIVE NFL games
+        # (excluding the most recent active game to avoid using a
+        # potentially-injury-shortened game as part of its own baseline).
+        # "Active" = the player actually played in the NFL that week
+        # (positive games appear in nflverse). Bye / Injury / Suspension
+        # weeks are excluded from baseline.
         #
-        # Refinement (user request): SKIP the most recent active week
-        # when computing the baseline, since that game may have ended
-        # mid-injury (a player who left early would otherwise depress
-        # their own expected). Dynamic for players with <5 career games:
-        #   - N >= 2 active games  -> baseline = mean of N−1 (drop most recent)
-        #   - N == 1 active game   -> baseline = that one game (no exclusion possible)
-        #   - N == 0               -> no baseline (None)
-        # Carrying 6 most-recent active points so the "skip most recent"
-        # rule leaves us with 5 to average.
+        # Critically: baseline uses BOTH LOTG-rostered weeks (from pw)
+        # AND NFLverse-only games (player played in NFL but wasn't on
+        # any LOTG roster that week). Without the NFLverse seed,
+        # newly-picked-up players and recently-suspended players (e.g.
+        # Deshaun Watson 2022 wk3: 2 yrs in pw all-suspended, but he
+        # had 5 active games in 2020 pre-suspension) get an empty
+        # baseline and contribute 0 to Hardship — which understates
+        # the real injury hit.
         #
-        # Starter-adjusted Hardship: same per-player points-lost, scaled
-        # by the fraction of the last 5 active weeks the player was a
-        # Starter. 15 PPG player who started 1 of last 5 active weeks
-        # contributes 15 × 0.2 = 3 to Starter-adjusted Hardship.
+        # starter_hist tracks last 5 active weeks' starter status;
+        # NFLverse-only games count as "not starter" (player wasn't on
+        # any LOTG roster).
         pw = pw.sort_values(["Player", "Year", "Week"]).reset_index(drop=True)
+
+        # Build a per-player chronological NFL game log from nfl_log_by_sid
+        # (already populated season-by-season above). Each entry has
+        # year/week/points/_wk_date. Index by player display name so we
+        # can look up alongside pw which keys by name.
+        name_to_sid_h: Dict[str, str] = {}
+        for _sid_h, _meta_h in pid_meta.items():
+            _fn = (_meta_h or {}).get("full_name")
+            if _fn:
+                name_to_sid_h.setdefault(str(_fn), str(_sid_h))
+
+        nfl_games_by_name: Dict[str, List[Tuple[int, int, float]]] = defaultdict(list)
+        for _name, _sid in name_to_sid_h.items():
+            for _e in nfl_log_by_sid.get(_sid, []):
+                try:
+                    _yr_h = int(_e.get("year"))
+                    _wk_h = int(_e.get("week"))
+                    _pts_h = float(_e.get("points") or 0.0)
+                except Exception:
+                    continue
+                nfl_games_by_name[_name].append((_yr_h, _wk_h, _pts_h))
+        for _name in nfl_games_by_name:
+            nfl_games_by_name[_name].sort()
+
+        # Pre-seed each player's history deque with NFLverse games BEFORE
+        # their first pw row. Then as we iterate pw chronologically, also
+        # inject any nflverse-only games (year, week) that fall between
+        # the prior pw row and the current one. Dedup logic: a pw row
+        # always represents the (year, week) authoritatively (it captures
+        # the LOTG-rostered status + starter flag), so we skip nfl entries
+        # that match an existing pw row's (year, week) for the same player.
+        first_pw_yrwk: Dict[str, Tuple[int, int]] = {}
+        for _, row in pw.iterrows():
+            _p = row["Player"]
+            _y = int(row["Year"]) if pd.notna(row.get("Year")) else None
+            _w = int(row["Week"]) if pd.notna(row.get("Week")) else None
+            if _y is None or _w is None:
+                continue
+            if _p not in first_pw_yrwk:
+                first_pw_yrwk[_p] = (_y, _w)
+
+        # Map (player, year, week) -> True if pw has a row (to skip dup nfl entries)
+        pw_yrwk_set: Set[Tuple[str, int, int]] = set()
+        for _, row in pw.iterrows():
+            _p = row["Player"]
+            _y = int(row["Year"]) if pd.notna(row.get("Year")) else None
+            _w = int(row["Week"]) if pd.notna(row.get("Week")) else None
+            if _y is None or _w is None:
+                continue
+            pw_yrwk_set.add((_p, _y, _w))
+
         last6: Dict[str, deque] = defaultdict(lambda: deque(maxlen=6))
         starter_hist: Dict[str, deque] = defaultdict(lambda: deque(maxlen=6))
+        # Track an iterator position into nfl_games_by_name per player.
+        nfl_cursor: Dict[str, int] = defaultdict(int)
+        # Seed deques with NFLverse games BEFORE the player's first pw row.
+        for _p, (_fy, _fw) in first_pw_yrwk.items():
+            games = nfl_games_by_name.get(_p, [])
+            i_cur = 0
+            for (gy, gw, gp) in games:
+                if (gy, gw) < (_fy, _fw):
+                    # NFLverse-only pre-pw game: append to history.
+                    # Skip if pw will have a matching row for this (year, week)
+                    # — pw is authoritative.
+                    if (_p, gy, gw) in pw_yrwk_set:
+                        i_cur += 1
+                        continue
+                    last6[_p].append(gp)
+                    starter_hist[_p].append(0)  # not on LOTG roster -> not starter
+                    i_cur += 1
+                else:
+                    break
+            nfl_cursor[_p] = i_cur
+
         exp_points: List[Optional[float]] = [None] * len(pw)
         points_lost: List[float] = [0.0] * len(pw)
         starter_adj_lost: List[float] = [0.0] * len(pw)
+
+        prev_yrwk_by_player: Dict[str, Tuple[int, int]] = {}
+
         for i, row in pw.iterrows():
             player = row["Player"]
             pts = float(row["Points"])
@@ -6077,11 +6217,32 @@ def build_all(repo_root: Path) -> None:
             susp = bool(row.get("Suspension?") or False)
             bye = bool(row.get("Bye?") or False)
             is_starter = (str(row.get("Starter/Bench") or "").strip().lower() == "starter")
+            yr = int(row["Year"]) if pd.notna(row.get("Year")) else None
+            wk = int(row["Week"]) if pd.notna(row.get("Week")) else None
             hist = last6[player]
             s_hist = starter_hist[player]
-            # Baseline: drop most recent active week when we have enough
-            # history; fall back to the single available game when there's
-            # only one.
+
+            # Inject any NFLverse-only games between this player's previous
+            # pw row and the current pw row (catches mid-season games where
+            # the player was on no LOTG roster — they played in NFL, scored
+            # points, but didn't appear in pw).
+            if yr is not None and wk is not None:
+                games = nfl_games_by_name.get(player, [])
+                cur_idx = nfl_cursor[player]
+                while cur_idx < len(games):
+                    gy, gw, gp = games[cur_idx]
+                    if (gy, gw) >= (yr, wk):
+                        break
+                    cur_idx += 1
+                    if (player, gy, gw) in pw_yrwk_set:
+                        continue  # pw will/did supply this week
+                    # NFLverse-only active week: append.
+                    hist.append(gp)
+                    s_hist.append(0)
+                nfl_cursor[player] = cur_idx
+
+            # Baseline: drop most recent active week when ≥ 2; single
+            # fallback for N=1; None for empty history.
             hist_list = list(hist)
             s_hist_list = list(s_hist)
             if len(hist_list) >= 2:
@@ -6098,22 +6259,17 @@ def build_all(repo_root: Path) -> None:
             exp_points[i] = expected
             missed = (pts == 0.0) and (inj or susp) and (not bye)
             if missed and expected is not None:
-                # Clamp expected ≥ 0 — negative hardship from a freak
-                # negative-points baseline (e.g. a rookie whose only
-                # prior active week was -0.5 from a fumble penalty)
-                # is nonsensical. Audit found this in plehv79 2022 wk3:
-                # Kyle Philips had a single -0.5-point active week
-                # before his wk3 injury, so his "points lost" came out
-                # to -0.5, pulling the team Hardship total below the
-                # Starter-adjusted total and breaking the SA ≤ H
-                # invariant by exactly his magnitude.
+                # Clamp expected ≥ 0 (negative-baseline edge case).
                 exp_clamped = max(0.0, float(expected))
                 points_lost[i] = exp_clamped
                 starter_adj_lost[i] = exp_clamped * float(starter_pct)
-            # Advance active-week history on any week that wasn't Inj/Susp/Bye.
+            # Advance active-week history when LOTG status is active. We
+            # skip the nflverse dedup here because the current pw row is
+            # the authoritative entry for this (year, week).
             if (not inj) and (not susp) and (not bye):
                 hist.append(pts)
                 s_hist.append(1 if is_starter else 0)
+            prev_yrwk_by_player[player] = (yr, wk) if (yr is not None and wk is not None) else prev_yrwk_by_player.get(player)
         pw["_expected_points_if_healthy"] = exp_points
         pw["_points_lost_inj_susp"] = points_lost
         pw["_starter_adj_points_lost"] = starter_adj_lost
