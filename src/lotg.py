@@ -2875,10 +2875,16 @@ def build_all(repo_root: Path) -> None:
                         roster_turnover = max(len(cur_r), len(prev_r)) - len(inter_r)
                     prev_roster_by_team[team] = cur_r
 
-                    starter_points = [ppts.get(pid, 0.0) for pid in starters]
+                    # Exclude empty/placeholder lineup slots (Sleeper fills an
+                    # unset starter slot with "0"); otherwise an empty starter
+                    # slot counts as a starter "donut" but not a roster donut,
+                    # which made "Number of starter donuts" exceed "Number of
+                    # donuts" in championship weeks with unfilled lineups
+                    # (e.g. plehv79 2022 wk16).
+                    starter_points = [ppts.get(pid, 0.0) for pid in starters if _valid_pid(pid)]
                     # "Number of players ..." count ALL rostered players (item 6);
                     # "Number of starters ..." are the starter-only companions.
-                    roster_points = [ppts.get(pid, 0.0) for pid in players]
+                    roster_points = [ppts.get(pid, 0.0) for pid in players if _valid_pid(pid)]
                     donuts = sum(1 for x in roster_points if float(x) == 0.0)
                     under10 = sum(1 for x in roster_points if float(x) < 10.0)
                     over20 = sum(1 for x in roster_points if float(x) > 20.0)
