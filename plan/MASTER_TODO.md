@@ -59,12 +59,12 @@ When the results-based audit surfaces a bug, log it but continue to the diff swe
 
 - [x] 🔍 Team age including picks ≈ player age (0-future-pick bug) — **4A**: `_picks_held_by_team_at` looked up roster id with the raw display handle against a dict keyed by `_norm_team_name`; 5 of 8 teams (any with capitals) resolved to None → 0 picks counted. Now normalizes the lookup key.
 - [x] Player + team avg age = average of weekly averages (incl with-picks variant) — **4A**: confirmed both columns aggregate as `mean` of weekly team_week values in team_year / team_all_time / league_year / league_all_time.
-- [ ] Exclude 2021 vet draft from team draft stats
+- [x] Exclude 2021 vet draft from team draft stats — **4B**: drop "(vet)"-tagged pick_history rows from the Draft Value / # first round picks / total picks rollups (32 rows). Vet picks remain in pick_history.
 - [ ] Roster turnover refactor (averages, weekly avg, week-1 boundary, in-season = championship-vs-wk1 unique)
 - [ ] Starter injury/suspension weeks column
 - [ ] "Number of starters X over/under Y" companion columns + rollups
-- [ ] Future draft capital fix (updates on trade; 0 only if no picks in 3 years)
-- [ ] NFL-team roll-ups additive (rookie stats already correct — verify)
+- [x] Future draft capital fix (updates on trade; 0 only if no picks in 3 years) — **4B**: replaced `_future_cap_from_traded` (only saw Sleeper's traded_picks snapshot → omitted un-traded own picks) with `_future_cap_held`, which walks the corrected pick-ownership ledger (own retained + acquired − traded away). team_week uses the week's date (updates on trade); team_year + tanking use the season-end (Feb 1) snapshot.
+- [x] NFL-team roll-ups additive (rookie stats already correct — verify) — **4B verified**: team_year "Number of rookies started" = unique rookies (2 for AceMatthew 2024, not the weekly sum of 20); "Most number from same NFL team" rolls up as max. Correct, no change.
 - [ ] Cuffs rostered/started → unique players
 - [ ] Activated cuff = cuff becomes starter; injured player doesn't need to have started
 - [ ] Cuff at pickup relaxed (starter at any point in prev 3 weeks)
