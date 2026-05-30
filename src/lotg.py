@@ -2876,12 +2876,21 @@ def build_all(repo_root: Path) -> None:
                     prev_roster_by_team[team] = cur_r
 
                     starter_points = [ppts.get(pid, 0.0) for pid in starters]
-                    donuts = sum(1 for x in starter_points if float(x) == 0.0)
-                    under10 = sum(1 for x in starter_points if float(x) < 10.0)
-                    over20 = sum(1 for x in starter_points if float(x) > 20.0)
-                    over30 = sum(1 for x in starter_points if float(x) > 30.0)
-                    over40 = sum(1 for x in starter_points if float(x) > 40.0)
-                    over50 = sum(1 for x in starter_points if float(x) > 50.0)
+                    # "Number of players ..." count ALL rostered players (item 6);
+                    # "Number of starters ..." are the starter-only companions.
+                    roster_points = [ppts.get(pid, 0.0) for pid in players]
+                    donuts = sum(1 for x in roster_points if float(x) == 0.0)
+                    under10 = sum(1 for x in roster_points if float(x) < 10.0)
+                    over20 = sum(1 for x in roster_points if float(x) > 20.0)
+                    over30 = sum(1 for x in roster_points if float(x) > 30.0)
+                    over40 = sum(1 for x in roster_points if float(x) > 40.0)
+                    over50 = sum(1 for x in roster_points if float(x) > 50.0)
+                    s_donuts = sum(1 for x in starter_points if float(x) == 0.0)
+                    s_under10 = sum(1 for x in starter_points if float(x) < 10.0)
+                    s_over20 = sum(1 for x in starter_points if float(x) > 20.0)
+                    s_over30 = sum(1 for x in starter_points if float(x) > 30.0)
+                    s_over40 = sum(1 for x in starter_points if float(x) > 40.0)
+                    s_over50 = sum(1 for x in starter_points if float(x) > 50.0)
                     diff_hi_lo = (max(starter_points) - min(starter_points)) if starter_points else None
 
                     def count_pos(pids, pos):
@@ -2981,11 +2990,17 @@ def build_all(repo_root: Path) -> None:
                         "Brosenzweig": None,
                         "Sisenzweig": None,
                         "Number of donuts": donuts,
+                        "Number of starter donuts": s_donuts,
                         "Number of players under 10": under10,
+                        "Number of starters under 10": s_under10,
                         "Number of players over 20": over20,
+                        "Number of starters over 20": s_over20,
                         "Number of players over 30": over30,
+                        "Number of starters over 30": s_over30,
                         "Number of players over 40": over40,
+                        "Number of starters over 40": s_over40,
                         "Number of players over 50": over50,
+                        "Number of starters over 50": s_over50,
                         "Number of QB started": qb_s,
                         "Number of WR started": wr_s,
                         "Number of RB started": rb_s,
@@ -6284,6 +6299,11 @@ def build_all(repo_root: Path) -> None:
         exp_points: List[Optional[float]] = [None] * len(pw)
         points_lost: List[float] = [0.0] * len(pw)
         starter_adj_lost: List[float] = [0.0] * len(pw)
+        # 1 when, at this row, the player counts as a "starter" under the
+        # SAME heuristic Starter-adjusted Hardship uses (starter_pct > 0 over
+        # the SA baseline window). Used for "Weeks of starter injuries/
+        # suspensions".
+        was_recent_starter: List[int] = [0] * len(pw)
 
         prev_yrwk_by_player: Dict[str, Tuple[int, int]] = {}
 
@@ -6334,6 +6354,11 @@ def build_all(repo_root: Path) -> None:
                 expected = None
                 starter_pct = 0.0
             exp_points[i] = expected
+            # Same starter heuristic as Starter-adjusted Hardship: the player
+            # counts as a starter for this week if starter_pct (their started
+            # share over the SA baseline window) is > 0 — i.e. they started at
+            # least once in the recent active games feeding the baseline.
+            was_recent_starter[i] = 1 if (starter_pct and float(starter_pct) > 0.0) else 0
             missed = (pts == 0.0) and (inj or susp) and (not bye)
             if missed and expected is not None:
                 # Clamp expected ≥ 0 (negative-baseline edge case).
@@ -6350,6 +6375,7 @@ def build_all(repo_root: Path) -> None:
         pw["_expected_points_if_healthy"] = exp_points
         pw["_points_lost_inj_susp"] = points_lost
         pw["_starter_adj_points_lost"] = starter_adj_lost
+        pw["_was_recent_starter_injsusp"] = was_recent_starter
 
         # --------------------------
         # Activated Cuff detection
@@ -6430,6 +6456,15 @@ def build_all(repo_root: Path) -> None:
         pw2["_missed_susp"] = (pw2["Suspension?"] & (~pw2["Bye?"]) & (pw2["Points"] == 0)).astype(int)
         pw2["_on_bye"] = (pw2["Bye?"] & (pw2["Points"] == 0)).astype(int)
 
+        # Starter injury/suspension weeks (item 5): a missed week counts only
+        # if the player was a starter under the SA-Hardship heuristic
+        # (_was_recent_starter_injsusp == 1).
+        pw2["_was_recent_starter"] = pd.to_numeric(
+            pw2.get("_was_recent_starter_injsusp"), errors="coerce"
+        ).fillna(0).astype(int)
+        pw2["_missed_injury_starter"] = (pw2["_missed_injury"] & pw2["_was_recent_starter"]).astype(int)
+        pw2["_missed_susp_starter"] = (pw2["_missed_susp"] & pw2["_was_recent_starter"]).astype(int)
+
         pw2["Starter?"] = (pw2["Starter/Bench"] == "Starter").astype(int)
         pw2["Number_of_players_injured_or_suspended"] = pw2["_missed_injury"] + pw2["_missed_susp"]
 
@@ -6438,6 +6473,8 @@ def build_all(repo_root: Path) -> None:
             Starter_Adj_Hardship=("_starter_adj_points_lost", "sum"),
             Number_of_Injuries=("_missed_injury", "sum"),
             Number_of_suspensions=("_missed_susp", "sum"),
+            Number_of_starter_injuries=("_missed_injury_starter", "sum"),
+            Number_of_starter_suspensions=("_missed_susp_starter", "sum"),
             Number_of_players_on_bye=("_on_bye", "sum"),
             Number_of_players_injured_or_suspended=("Number_of_players_injured_or_suspended", "sum"),
             Starter_Count=("Starter?", "sum"),
@@ -6465,6 +6502,10 @@ def build_all(repo_root: Path) -> None:
         # above. Clamp removed.)
         tw["Number of Injuries"] = tw["Number_of_Injuries"].round(0).astype(int)
         tw["Number of suspensions"] = tw["Number_of_suspensions"].round(0).astype(int)
+        safe_to_numeric(tw, "Number_of_starter_injuries", default=0.0)
+        safe_to_numeric(tw, "Number_of_starter_suspensions", default=0.0)
+        tw["Number of starter injuries"] = tw["Number_of_starter_injuries"].round(0).astype(int)
+        tw["Number of starter suspensions"] = tw["Number_of_starter_suspensions"].round(0).astype(int)
         tw["Number of players on bye"] = tw["Number_of_players_on_bye"].round(0).astype(int)
 
         tw.drop(columns=[
@@ -8555,17 +8596,16 @@ def build_all(repo_root: Path) -> None:
         except Exception as e:
             _log_exc(debug, "team_year_rebuild_records", e)
 
-        # Compute starter/roster turnover metrics.
-        # Definitions:
-        #  - Inseason starter turnover  = (distinct players started any week this season)
-        #                                 minus (typical week's starter count)
-        #  - Inseason roster turnover   = same logic for full roster
-        #  - Offseason starter/roster turnover = symmetric-difference between last
-        #    week of prior season and first week of this season, divided by 2 so a
-        #    swap of 3 starters reads as "3" rather than "6".
-        # The endpoints-only inseason calculation we replaced missed streaming,
-        # mid-season trades, and waiver churn whenever the final lineup happened
-        # to resemble the opening one.
+        # Compute starter/roster turnover metrics (item 4 refactor).
+        # Definitions (all "unique players changed between two endpoints" =
+        # symmetric difference of the two rosters/lineups):
+        #  - Inseason  = roster/lineup at Week 1 vs at the championship (final
+        #                played week) of the SAME season.
+        #  - Offseason = roster/lineup at the prior season's championship week
+        #                vs this season's Week 1. The Week-1 boundary is the
+        #                shared seam between the two metrics.
+        #  - Average weekly starter/roster turnover = mean across the season of
+        #    team_week "… turnover from previous week".
         try:
             if not pw.empty and "Starter/Bench" in pw.columns:
                 pw_t = pw.copy()
@@ -8577,54 +8617,51 @@ def build_all(repo_root: Path) -> None:
                         df = df[df["Starter/Bench"].astype(str).str.lower().eq("starter")]
                     return set(df["Player"].dropna().astype(str).tolist())
 
-                def _distinct_minus_baseline(team, year, starters_only):
-                    """Return (distinct players used) - (typical week's count).
-                    Typical = median across weeks of the per-week count, so a
-                    single short week (e.g. opening week with empty slots) does
-                    not skew the baseline."""
-                    g = pw_t[(pw_t["Team"] == team) & (pw_t["Year"] == year)]
-                    if starters_only:
-                        g = g[g["Starter/Bench"].astype(str).str.lower().eq("starter")]
-                    weeks = sorted([int(w) for w in g["Week"].dropna().unique().tolist()])
-                    if not weeks:
-                        return 0
-                    weekly_counts = [
-                        len(set(g[g["Week"] == w]["Player"].dropna().astype(str).tolist()))
-                        for w in weeks
-                    ]
-                    weekly_counts = [c for c in weekly_counts if c > 0]
-                    if not weekly_counts:
-                        return 0
-                    baseline = int(round(sorted(weekly_counts)[len(weekly_counts) // 2]))
-                    distinct = len(set(g["Player"].dropna().astype(str).tolist()))
-                    return max(0, distinct - baseline)
+                # Per (team, year) mean of the team_week weekly turnover columns.
+                twk_s_avg: Dict[Tuple[str, int], float] = {}
+                twk_r_avg: Dict[Tuple[str, int], float] = {}
+                try:
+                    if not tw.empty:
+                        _g = tw.groupby(["Team", "Year"])
+                        _sa = _g["Starter turnover from previous week"].mean()
+                        _ra = _g["Roster turnover from previous week"].mean()
+                        for (t_, y_), v_ in _sa.items():
+                            twk_s_avg[(str(t_), int(y_))] = float(v_) if pd.notna(v_) else 0.0
+                        for (t_, y_), v_ in _ra.items():
+                            twk_r_avg[(str(t_), int(y_))] = float(v_) if pd.notna(v_) else 0.0
+                except Exception as e:
+                    _log_exc(debug, "turnover_weekly_avg", e)
 
                 for (team, year), g in pw_t.groupby(["Team", "Year"]):
                     weeks = sorted([int(w) for w in g["Week"].dropna().unique().tolist()])
                     if not weeks:
                         continue
-                    first_w = weeks[0]
-                    in_s = _distinct_minus_baseline(team, year, starters_only=True)
-                    in_r = _distinct_minus_baseline(team, year, starters_only=False)
-                    team_year.loc[(team_year["Team"] == team) & (team_year["Year"] == year), "Inseason starter turnover"] = in_s
-                    team_year.loc[(team_year["Team"] == team) & (team_year["Year"] == year), "Inseason roster turnover"] = in_r
+                    first_w, champ_w = weeks[0], weeks[-1]
+                    mask = (team_year["Team"] == team) & (team_year["Year"] == year)
 
-                    # Offseason vs previous season: endpoint comparison with /2 so
-                    # the count reads as "players swapped" instead of "slot changes".
+                    # In-season: Wk1 vs championship (final) week, unique changed.
+                    s_first = _set_for(team, year, first_w, True)
+                    r_first = _set_for(team, year, first_w, False)
+                    s_champ = _set_for(team, year, champ_w, True)
+                    r_champ = _set_for(team, year, champ_w, False)
+                    team_year.loc[mask, "Inseason starter turnover"] = len(s_first.symmetric_difference(s_champ))
+                    team_year.loc[mask, "Inseason roster turnover"] = len(r_first.symmetric_difference(r_champ))
+
+                    # Offseason: prior season's championship week vs this Wk1.
                     prev_year = int(year) - 1
                     if ((pw_t["Team"] == team) & (pw_t["Year"] == prev_year)).any():
                         gprev = pw_t[(pw_t["Team"] == team) & (pw_t["Year"] == prev_year)]
                         prev_weeks = sorted([int(w) for w in gprev["Week"].dropna().unique().tolist()])
                         if prev_weeks:
-                            prev_last = prev_weeks[-1]
-                            s_prev = _set_for(team, prev_year, prev_last, True)
-                            r_prev = _set_for(team, prev_year, prev_last, False)
-                            s_first = _set_for(team, year, first_w, True)
-                            r_first = _set_for(team, year, first_w, False)
-                            off_s = len(s_prev.symmetric_difference(s_first)) // 2
-                            off_r = len(r_prev.symmetric_difference(r_first)) // 2
-                            team_year.loc[(team_year["Team"] == team) & (team_year["Year"] == year), "Offseason starter turnover"] = off_s
-                            team_year.loc[(team_year["Team"] == team) & (team_year["Year"] == year), "Offseason roster turnover"] = off_r
+                            prev_champ = prev_weeks[-1]
+                            s_prev = _set_for(team, prev_year, prev_champ, True)
+                            r_prev = _set_for(team, prev_year, prev_champ, False)
+                            team_year.loc[mask, "Offseason starter turnover"] = len(s_prev.symmetric_difference(s_first))
+                            team_year.loc[mask, "Offseason roster turnover"] = len(r_prev.symmetric_difference(r_first))
+
+                    # Weekly averages.
+                    team_year.loc[mask, "Average weekly starter turnover"] = round(twk_s_avg.get((str(team), int(year)), 0.0), 2)
+                    team_year.loc[mask, "Average weekly roster turnover"] = round(twk_r_avg.get((str(team), int(year)), 0.0), 2)
         except Exception as e:
             _log_exc(debug, "turnover_metrics_team_year", e)
 
@@ -8681,13 +8718,21 @@ def build_all(repo_root: Path) -> None:
                     "Team age including picks": ("Team age including picks", "mean"),
                     "Difference between highest and lowest starters": ("Difference between highest and lowest starters", "max"),
                     "Number of donuts": ("Number of donuts", "sum"),
+                    "Number of starter donuts": ("Number of starter donuts", "sum"),
                     "Number of players under 10": ("Number of players under 10", "sum"),
+                    "Number of starters under 10": ("Number of starters under 10", "sum"),
                     "Number of players over 20": ("Number of players over 20", "sum"),
+                    "Number of starters over 20": ("Number of starters over 20", "sum"),
                     "Number of players over 30": ("Number of players over 30", "sum"),
+                    "Number of starters over 30": ("Number of starters over 30", "sum"),
                     "Number of players over 40": ("Number of players over 40", "sum"),
+                    "Number of starters over 40": ("Number of starters over 40", "sum"),
                     "Number of players over 50": ("Number of players over 50", "sum"),
+                    "Number of starters over 50": ("Number of starters over 50", "sum"),
                     "Number of cuffs rostered": ("Number of cuffs rostered", "sum"),
                     "Number of cuffs started": ("Number of cuffs started", "sum"),
+                    "Weeks of starter injuries": ("Number of starter injuries", "sum"),
+                    "Weeks of starter suspensions": ("Number of starter suspensions", "sum"),
                 }
             )
             team_year = team_year.merge(agg_year, how="left", on=["Team", "Year"])
@@ -8751,6 +8796,8 @@ def build_all(repo_root: Path) -> None:
             team_year["Week of playoff elimination"] = team_year.get("Week of playoff elimination", "N/A")
             team_year["Offseason roster turnover"] = team_year.get("Offseason roster turnover", 0).fillna(0)
             team_year["Inseason roster turnover"] = team_year.get("Inseason roster turnover", 0).fillna(0)
+            team_year["Average weekly starter turnover"] = team_year.get("Average weekly starter turnover", 0.0).fillna(0.0)
+            team_year["Average weekly roster turnover"] = team_year.get("Average weekly roster turnover", 0.0).fillna(0.0)
         except Exception as e:
             _log_exc(debug, "team_year_results_vs_records", e)
 
@@ -8922,13 +8969,21 @@ def build_all(repo_root: Path) -> None:
                     "Difference between highest and lowest starters": ("Difference between highest and lowest starters", "max"),
                     "Combined matchup score": ("Combined matchup score", "max"),
                     "Number of donuts": ("Number of donuts", "sum"),
+                    "Number of starter donuts": ("Number of starter donuts", "sum"),
                     "Number of players under 10": ("Number of players under 10", "sum"),
+                    "Number of starters under 10": ("Number of starters under 10", "sum"),
                     "Number of players over 20": ("Number of players over 20", "sum"),
+                    "Number of starters over 20": ("Number of starters over 20", "sum"),
                     "Number of players over 30": ("Number of players over 30", "sum"),
+                    "Number of starters over 30": ("Number of starters over 30", "sum"),
                     "Number of players over 40": ("Number of players over 40", "sum"),
+                    "Number of starters over 40": ("Number of starters over 40", "sum"),
                     "Number of players over 50": ("Number of players over 50", "sum"),
+                    "Number of starters over 50": ("Number of starters over 50", "sum"),
                     "Number of cuffs rostered": ("Number of cuffs rostered", "sum"),
                     "Number of cuffs started": ("Number of cuffs started", "sum"),
+                    "Weeks of starter injuries": ("Number of starter injuries", "sum"),
+                    "Weeks of starter suspensions": ("Number of starter suspensions", "sum"),
                 }
             )
             team_all = team_all.merge(agg_all, how="left", on="Team")
@@ -8949,10 +9004,14 @@ def build_all(repo_root: Path) -> None:
                         "Number of transactions": ("Number of transactions", "sum"),
                         "Number of trades": ("Number of trades", "sum"),
                         "Amount of FAAB spent": ("Amount of FAAB spent", "sum"),
-                        "Offseason starter turnover": ("Offseason starter turnover", "sum"),
-                        "Inseason starter turnover": ("Inseason starter turnover", "sum"),
-                        "Offseason roster turnover": ("Offseason roster turnover", "sum"),
-                        "Inseason roster turnover": ("Inseason roster turnover", "sum"),
+                        # Per-season AVERAGE at all-time (item 4), not a sum —
+                        # "how much does this team typically turn over per year".
+                        "Offseason starter turnover": ("Offseason starter turnover", "mean"),
+                        "Inseason starter turnover": ("Inseason starter turnover", "mean"),
+                        "Offseason roster turnover": ("Offseason roster turnover", "mean"),
+                        "Inseason roster turnover": ("Inseason roster turnover", "mean"),
+                        "Average weekly starter turnover": ("Average weekly starter turnover", "mean"),
+                        "Average weekly roster turnover": ("Average weekly roster turnover", "mean"),
                         "Future draft capital": ("Future draft capital", "sum"),
                     }
                 )
