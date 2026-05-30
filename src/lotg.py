@@ -1547,7 +1547,13 @@ def build_all(repo_root: Path) -> None:
         current owner' (the user's guidance — assume single move
         from original to current).
         """
-        rid = season_team_to_roster.get(int(season_now), {}).get(str(team_name))
+        # season_team_to_roster is keyed by _norm_team_name(...) (lowercased,
+        # space-stripped), but callers pass the display handle (e.g.
+        # "AceMatthew", "BROsenzweig"). Without normalizing here, every team
+        # whose display name isn't already lowercase resolved to rid=None and
+        # silently contributed ZERO picks to "Team age including picks" — only
+        # the all-lowercase handles (plehv79/shmuel256/stevenb123) worked.
+        rid = season_team_to_roster.get(int(season_now), {}).get(_norm_team_name(team_name))
         if rid is None:
             return []
         rosters_in_season = season_roster_to_team.get(int(season_now), {}) or {}
