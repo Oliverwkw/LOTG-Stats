@@ -16,6 +16,24 @@ jobs:
         with:
           python-version: "3.11"
 
+      - name: Restore NFLverse / DynastyProcess cache
+        # .cache/ holds nflverse stats_player_week_{season}.csv,
+        # nflverse_injuries_{season}.csv, nflverse player_ids, and the
+        # DynastyProcess playerids + values files. Loaders in
+        # lib/lotg_support/external.py already skip the download when
+        # the file exists, so this restore turns the cost of those
+        # ~10 fetches into zero once the cache is warm — and acts as
+        # a fallback if NFLverse / DynastyProcess are ever unreachable.
+        # Bust on external.py changes (URL or filename updates) and
+        # rotate weekly so seasons-in-progress get fresh weeks.
+        uses: actions/cache@v4
+        with:
+          path: .cache
+          key: nflverse-cache-${{ hashFiles('lib/lotg_support/external.py') }}-${{ github.run_number }}
+          restore-keys: |
+            nflverse-cache-${{ hashFiles('lib/lotg_support/external.py') }}-
+            nflverse-cache-
+
       - name: Restore KTC cache
         # data/ktc_cache/ holds dynasty-daddy's per-player history files
         # (~1k players, ~1800 daily rows each). Without this cache every

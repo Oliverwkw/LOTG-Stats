@@ -81,7 +81,7 @@ def load_dynastyprocess_values_picks(cfg: ExternalConfig) -> pd.DataFrame:
         _download_best_effort(urls, path, cfg.timeout_seconds)
     return pd.read_csv(path)
 
-def load_nflverse_injuries(cfg: ExternalConfig, season: int) -> pd.DataFrame:
+def load_nflverse_injuries(cfg: ExternalConfig, season: int, force_refresh: bool = False) -> pd.DataFrame:
     # nflverse makes weekly injury report data available via its releases; easiest stable source is nflreadr's hosted files.
     # This URL pattern is stable in practice; if it ever changes, update here.
     urls = [
@@ -89,8 +89,13 @@ def load_nflverse_injuries(cfg: ExternalConfig, season: int) -> pd.DataFrame:
         f"https://raw.githubusercontent.com/nflverse/nflverse-data/master/data/injuries/injuries_{season}.csv",
     ]
     path = cfg.cache_dir / f"nflverse_injuries_{season}.csv"
-    if (not path.exists()) or path.stat().st_size == 0:
-        _download_best_effort(urls, path, cfg.timeout_seconds)
+    if force_refresh or (not path.exists()) or path.stat().st_size == 0:
+        try:
+            _download_best_effort(urls, path, cfg.timeout_seconds)
+        except Exception:
+            # On a forced refresh, fall back to the cached copy if download fails.
+            if not path.exists() or path.stat().st_size == 0:
+                raise
     return pd.read_csv(path)
 
 
@@ -113,7 +118,7 @@ def load_nflverse_player_ids(cfg: ExternalConfig) -> pd.DataFrame:
         _download_best_effort(urls, path, cfg.timeout_seconds)
     return pd.read_csv(path)
 
-def load_nflverse_stats_player_week(cfg: ExternalConfig, season: int) -> pd.DataFrame:
+def load_nflverse_stats_player_week(cfg: ExternalConfig, season: int, force_refresh: bool = False) -> pd.DataFrame:
     """Load nflverse weekly player stats; used for team-by-week and played detection.
 
     nflverse maintains two release tags carrying the same per-week stats file:
@@ -129,8 +134,13 @@ def load_nflverse_stats_player_week(cfg: ExternalConfig, season: int) -> pd.Data
         f"https://raw.githubusercontent.com/nflverse/nflverse-data/master/data/player_stats/stats_player_week_{season}.csv.gz",
     ]
     path = cfg.cache_dir / f"nflverse_stats_player_week_{season}.csv"
-    if (not path.exists()) or path.stat().st_size == 0:
-        _download_best_effort(urls, path, cfg.timeout_seconds)
+    if force_refresh or (not path.exists()) or path.stat().st_size == 0:
+        try:
+            _download_best_effort(urls, path, cfg.timeout_seconds)
+        except Exception:
+            # On forced refresh, fall back to cached copy if download fails.
+            if not path.exists() or path.stat().st_size == 0:
+                raise
     # handle possible gz without relying on pandas compression inference
     try:
         return pd.read_csv(path, low_memory=False)
