@@ -39,17 +39,17 @@ When the results-based audit surfaces a bug, log it but continue to the diff swe
 - [ ] Luck rebuild; audit distribution; iterate weights
 - [ ] **3-part audit** (code / results / diff)
 
-## Phase 3 — Player sheets
-- [ ] 🔍 Number of teams bug (Renfrow=5 not 4); fix partial-week rosterings
-- [ ] Top team / Last team → time rostered (not weeks)
-- [ ] Drop yearly rows for never-rostered players
-- [ ] Split Points (while rostered) vs Points (full season, NFLverse)
-- [ ] Change-in stats use full-season values; only N/A for rookie years
-- [ ] Career average from NFLverse
-- [ ] % of points redefined: starter contribution to team total; + team-name cols for highest/lowest
-- [ ] Taxi-eligible boolean in player_all_time
-- [ ] Number of trades column in player_week (auto-rolls to year + all-time)
-- [ ] **3-part audit** (code / results / diff)
+## Phase 3 — Player sheets ✅
+- [x] 🔍 Number of teams bug (Renfrow=5 not 4); fix partial-week rosterings — verified Renfrow=5
+- [x] Top team / Last team → time rostered (not weeks) — shipped 3A.3; in-season FY window for Last team (PR #162)
+- [x] Drop yearly rows for never-rostered players — verified 0 zero-team rows in player_year (1493 rows, all Number of teams ≥ 1)
+- [x] Split Points (while rostered) vs Points (full season, NFLverse) — both cols present in player_year + player_all_time
+- [x] Change-in stats use full-season values; only N/A for rookie years
+- [x] Career average from NFLverse — Avg points (full season) col present
+- [x] % of points redefined: starter contribution to team total; + team-name cols for highest/lowest — 4 cols present
+- [x] Taxi-eligible boolean in player_all_time
+- [x] Number of trades column in player_week (auto-rolls to year + all-time)
+- [x] **3-part audit** — covered by retroactive audit (AUDIT_RETROACTIVE_3PART.md) + per-PR audits #160-#166. All 4 surfaced bugs fixed in PR #162; Hardship+SA fixes in #163/#164; caching in #165/#166.
 
 ## Phase 4 — Team sheets
 - [ ] 🔍 Team age including picks ≈ player age (likely 0-future-pick bug)
