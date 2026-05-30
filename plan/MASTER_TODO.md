@@ -55,8 +55,10 @@ When the results-based audit surfaces a bug, log it but continue to the diff swe
 - [x] Tyler Conklin / Ryan Izzo gsis_id swap — Sleeper's `gsis_id` field for these 2 TEs is transposed; bridge now validates Sleeper's gsis against NFLverse's display_name last-name and falls back to DP when they disagree.
 
 ## Phase 4 — Team sheets
-- [ ] 🔍 Team age including picks ≈ player age (likely 0-future-pick bug)
-- [ ] Player + team avg age = average of weekly averages (incl with-picks variant)
+**Sub-PR plan:** 4A age/picks (1-2) · 4B draft stats (3,7,8) · 4C roster turnover + starter cols (4,5,6) · 4D cuffs (9,10,11) · 4E win/record regroup (12,13).
+
+- [x] 🔍 Team age including picks ≈ player age (0-future-pick bug) — **4A**: `_picks_held_by_team_at` looked up roster id with the raw display handle against a dict keyed by `_norm_team_name`; 5 of 8 teams (any with capitals) resolved to None → 0 picks counted. Now normalizes the lookup key.
+- [x] Player + team avg age = average of weekly averages (incl with-picks variant) — **4A**: confirmed both columns aggregate as `mean` of weekly team_week values in team_year / team_all_time / league_year / league_all_time.
 - [ ] Exclude 2021 vet draft from team draft stats
 - [ ] Roster turnover refactor (averages, weekly avg, week-1 boundary, in-season = championship-vs-wk1 unique)
 - [ ] Starter injury/suspension weeks column
