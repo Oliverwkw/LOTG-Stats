@@ -6659,19 +6659,55 @@ def build_all(repo_root: Path) -> None:
 
     _now_dt = datetime.now(timezone.utc)
 
+    # Phase 3A.3 rewrite — fantasy year throughout. Calendar year is
+    # never used here. Per user mandate: "we should never being using
+    # calendar year for anything - always fantasy year".
+    #
+    # Fantasy year FY for a date d:
+    #   d.month >= 9  ->  FY = d.year
+    #   else          ->  FY = d.year - 1
+    #
+    # Two windows per FY:
+    #   In-season   = [Sept 1 FY, Feb 1 FY+1]
+    #   Full FY     = [Sept 1 FY, Sept 1 FY+1]   (in-season + offseason)
+    #
+    # Three FY-keyed aggregates per tenure:
+    #   tenure_time_team_fy[(pid, FY)]           Full-FY seconds per team
+    #                                            (used for Number of teams
+    #                                            per FY — partial-week
+    #                                            offseason stints count)
+    #   tenure_inseason_time_team_fy[(pid, FY)]  In-season seconds per team
+    #                                            (used for Top team per FY)
+    #   tenure_last_event_fy[(pid, FY)]          Latest tenure end that
+    #                                            falls inside that FY's
+    #                                            full window (used for
+    #                                            Last team per FY — Jan
+    #                                            championship rolls back
+    #                                            to the season's FY)
+    # All-time variants collapse the FY axis.
+    def _fy_for_date(_d: datetime) -> int:
+        return _d.year if _d.month >= 9 else _d.year - 1
+
+    def _fy_window(_fy: int, _tz_for_window) -> Tuple[datetime, datetime]:
+        return (
+            datetime(_fy, 9, 1, tzinfo=_tz_for_window),
+            datetime(_fy + 1, 9, 1, tzinfo=_tz_for_window),
+        )
+
+    def _fy_inseason_window(_fy: int, _tz_for_window) -> Tuple[datetime, datetime]:
+        return (
+            datetime(_fy, 9, 1, tzinfo=_tz_for_window),
+            datetime(_fy + 1, 2, 1, tzinfo=_tz_for_window),
+        )
+
     tenure_teams_all: Dict[str, Set[str]] = defaultdict(set)
-    tenure_time_team_year: Dict[Tuple[str, int], Dict[str, float]] = defaultdict(lambda: defaultdict(float))
     tenure_time_team_all: Dict[str, Dict[str, float]] = defaultdict(lambda: defaultdict(float))
-    # Phase 3A.3 fix: in-season-only time per team. Top team should
-    # reflect who held the player DURING the NFL season, not who held
-    # him through the offseason. User example: Aaron Jones 2023 was on
-    # plehv79 through the long offseason but on shmuel256 the entire
-    # active season — shmuel256 should be Top team.
-    # Season window for fantasy year Y: Sept 1 of Y through Feb 1 of Y+1.
-    tenure_inseason_time_team_year: Dict[Tuple[str, int], Dict[str, float]] = defaultdict(lambda: defaultdict(float))
+    tenure_time_team_fy: Dict[Tuple[str, int], Dict[str, float]] = defaultdict(lambda: defaultdict(float))
+    tenure_inseason_time_team_fy: Dict[Tuple[str, int], Dict[str, float]] = defaultdict(lambda: defaultdict(float))
     tenure_inseason_time_team_all: Dict[str, Dict[str, float]] = defaultdict(lambda: defaultdict(float))
-    tenure_last_event_year: Dict[Tuple[str, int], Tuple[datetime, str]] = {}
+    tenure_last_event_fy: Dict[Tuple[str, int], Tuple[datetime, str]] = {}
     tenure_last_event_all: Dict[str, Tuple[datetime, str]] = {}
+
     for _pid, tenures in player_tenures.items():
         for t in tenures:
             tm = t.get("team")
@@ -6682,39 +6718,35 @@ def build_all(repo_root: Path) -> None:
             e_dt = _iso_to_dt(t.get("end")) or _now_dt
             if e_dt < s_dt:
                 e_dt = s_dt
-            # all-time team-time accumulator (any tenure time, used for
-            # Number of teams enumeration; not for Top team).
+            _tz = s_dt.tzinfo or timezone.utc
+
+            # All-time tenure time + last event.
             tenure_time_team_all[_pid][str(tm)] += (e_dt - s_dt).total_seconds()
-            # last event (all-time)
             cur_last = tenure_last_event_all.get(_pid)
             if cur_last is None or e_dt > cur_last[0]:
                 tenure_last_event_all[_pid] = (e_dt, str(tm))
-            # Per-calendar-year tenure split (used for Number of teams
-            # per year — partial-week stints during offseason should
-            # still count toward team uniqueness).
-            cursor = s_dt
-            while cursor < e_dt:
-                yr = cursor.year
-                next_year_start = datetime(yr + 1, 1, 1, tzinfo=cursor.tzinfo or timezone.utc)
-                slice_end = min(e_dt, next_year_start)
-                tenure_time_team_year[(_pid, yr)][str(tm)] += (slice_end - cursor).total_seconds()
-                cur_last_y = tenure_last_event_year.get((_pid, yr))
-                if cur_last_y is None or slice_end > cur_last_y[0]:
-                    tenure_last_event_year[(_pid, yr)] = (slice_end, str(tm))
-                cursor = slice_end
-            # In-season-only overlap per fantasy year. Tenure can span
-            # multiple seasons; iterate every candidate year and take
-            # the overlap with that year's [Sept 1, Feb 1 +1] window.
-            _tz = s_dt.tzinfo or timezone.utc
-            for _yr_candidate in range(s_dt.year - 1, e_dt.year + 2):
-                _win_start = datetime(_yr_candidate, 9, 1, tzinfo=_tz)
-                _win_end = datetime(_yr_candidate + 1, 2, 1, tzinfo=_tz)
-                _overlap_start = max(s_dt, _win_start)
-                _overlap_end = min(e_dt, _win_end)
-                if _overlap_end > _overlap_start:
-                    _secs = (_overlap_end - _overlap_start).total_seconds()
-                    tenure_inseason_time_team_year[(_pid, _yr_candidate)][str(tm)] += _secs
-                    tenure_inseason_time_team_all[_pid][str(tm)] += _secs
+
+            # Per-FY accumulation. A tenure can straddle multiple FYs.
+            for _fy in range(_fy_for_date(s_dt), _fy_for_date(e_dt) + 1):
+                _fy_start, _fy_end = _fy_window(_fy, _tz)
+                _ovl_s = max(s_dt, _fy_start)
+                _ovl_e = min(e_dt, _fy_end)
+                if _ovl_e > _ovl_s:
+                    _secs = (_ovl_e - _ovl_s).total_seconds()
+                    tenure_time_team_fy[(_pid, _fy)][str(tm)] += _secs
+                    # Last event within this FY's full window.
+                    cur_fy_last = tenure_last_event_fy.get((_pid, _fy))
+                    if cur_fy_last is None or _ovl_e > cur_fy_last[0]:
+                        tenure_last_event_fy[(_pid, _fy)] = (_ovl_e, str(tm))
+
+                # In-season overlap within this FY.
+                _is_start, _is_end = _fy_inseason_window(_fy, _tz)
+                _is_ovl_s = max(s_dt, _is_start)
+                _is_ovl_e = min(e_dt, _is_end)
+                if _is_ovl_e > _is_ovl_s:
+                    _is_secs = (_is_ovl_e - _is_ovl_s).total_seconds()
+                    tenure_inseason_time_team_fy[(_pid, _fy)][str(tm)] += _is_secs
+                    tenure_inseason_time_team_all[_pid][str(tm)] += _is_secs
 
     # Phase 3B: NFLverse full-season points aggregation, used for
     # "Points (full season)" + change-in columns + career stats on
@@ -6738,27 +6770,50 @@ def build_all(repo_root: Path) -> None:
             nfl_career_total_points[str(_sid)] += _pts
             nfl_career_total_games[str(_sid)] += 1
 
-    # Phase 3A.3: precompute time-rostered top_team / last_team lookups
-    # used to override the legacy weeks-on-roster heuristic for every
-    # player_year / player_all_time row (not just pad rows).
-    # Top team uses IN-SEASON tenure time so offseason holds don't
-    # win against shorter in-season stints (user fix: Aaron Jones 2023
-    # belongs to shmuel256 — held during the season — not plehv79 who
-    # held him through the offseason but moved him on before kickoff).
+    # Phase 3A.3: top/last team lookups, all FY-keyed.
+    # Top team = max in-season tenure time per FY.
+    # Last team = team at the most recent tenure event whose end falls
+    # inside that FY's full window (Sept Y - Sept Y+1).
     tenure_top_team_by_year: Dict[Tuple[str, int], str] = {}
     tenure_last_team_by_year: Dict[Tuple[str, int], str] = {}
     tenure_top_team_all: Dict[str, str] = {}
     tenure_last_team_all: Dict[str, str] = {}
-    for (_pid, _yr), team_secs in tenure_inseason_time_team_year.items():
+    for (_pid, _fy), team_secs in tenure_inseason_time_team_fy.items():
         if team_secs:
-            tenure_top_team_by_year[(_pid, _yr)] = max(team_secs.items(), key=lambda kv: kv[1])[0]
-    for (_pid, _yr), (_dt, _team) in tenure_last_event_year.items():
-        tenure_last_team_by_year[(_pid, _yr)] = _team
+            tenure_top_team_by_year[(_pid, _fy)] = max(team_secs.items(), key=lambda kv: kv[1])[0]
+    for (_pid, _fy), (_dt, _team) in tenure_last_event_fy.items():
+        tenure_last_team_by_year[(_pid, _fy)] = _team
     for _pid, team_secs in tenure_inseason_time_team_all.items():
         if team_secs:
             tenure_top_team_all[_pid] = max(team_secs.items(), key=lambda kv: kv[1])[0]
     for _pid, (_dt, _team) in tenure_last_event_all.items():
         tenure_last_team_all[_pid] = _team
+
+    # Phase 3B build fix: precompute career cumulative full-season
+    # points / games BEFORE each (sid, year). The previous code did
+    # a nested py.groupby("Player ID").apply(g: g.apply(lambda r:
+    # nfl_full_season_games.get((str(r["Player ID"]), ...))))  which
+    # broke because the inner row Series didn't always carry the
+    # Player ID column under the runner's pandas version. Plain dict
+    # lookups in an .apply callback are stable and faster.
+    nfl_career_points_before: Dict[Tuple[str, int], float] = {}
+    nfl_career_games_before: Dict[Tuple[str, int], int] = {}
+    nfl_career_years_before: Dict[Tuple[str, int], int] = {}
+    _by_sid_yr: Dict[str, List[Tuple[int, int, float]]] = defaultdict(list)
+    for (_sid_k, _yr_k), _pts in nfl_full_season_points.items():
+        _by_sid_yr[_sid_k].append((_yr_k, nfl_full_season_games[(_sid_k, _yr_k)], _pts))
+    for _sid_k, _entries in _by_sid_yr.items():
+        _entries.sort()
+        _cum_g = 0
+        _cum_p = 0.0
+        _cum_y = 0
+        for _yr_k, _g, _p in _entries:
+            nfl_career_points_before[(_sid_k, _yr_k)] = _cum_p
+            nfl_career_games_before[(_sid_k, _yr_k)] = _cum_g
+            nfl_career_years_before[(_sid_k, _yr_k)] = _cum_y
+            _cum_g += _g
+            _cum_p += _p
+            _cum_y += 1
 
     player_year = pd.DataFrame()
     player_all = pd.DataFrame()
@@ -6936,7 +6991,7 @@ def build_all(repo_root: Path) -> None:
                 pw_teams: Set[str] = set()
                 # The existing count is from pw groupby. We also want the
                 # tenure teams overlapping this year.
-                tenure_teams_this_year = set(tenure_time_team_year.get((_pid_s, _yr_i), {}).keys()) if _yr_i else set()
+                tenure_teams_this_year = set(tenure_time_team_fy.get((_pid_s, _yr_i), {}).keys()) if _yr_i else set()
                 # Combine: take the larger of existing count vs the tenure
                 # set size — if tenures show MORE teams (i.e. include
                 # partial-week stints not in pw), use that.
@@ -7024,39 +7079,51 @@ def build_all(repo_root: Path) -> None:
             py.groupby("Player ID")["Avg points (full season)"].diff()
         )
 
-        # "Change in points from career" — compare this season's full
-        # NFL points to the average of prior-season full NFL points.
-        py["Career_points_before"] = py.groupby("Player ID")["Points (full season)"].transform(
-            lambda s: s.cumsum().shift(1)
-        )
-        py["Career_years_before"] = py.groupby("Player ID").cumcount()
-        py["Change in points from career"] = py.apply(
-            lambda r: round(
-                r["Points (full season)"] - (r["Career_points_before"] / r["Career_years_before"]),
-                4,
-            )
-            if r["Career_years_before"] and pd.notna(r["Career_points_before"])
-            else None,
-            axis=1,
-        )
+        # "Change in points from career" — full-season points this year
+        # minus the average season-total of prior NFL years.
+        # "Change in avg points from career" — full-season per-game avg
+        # this year minus prior career per-game avg.
+        # Both lookups are O(1) against the precomputed nfl_career_*_before
+        # dicts (built right after the NFLverse aggregation) — replaces
+        # an unstable nested groupby.apply that broke the build under the
+        # CI pandas version.
+        def _change_pts_career(r):
+            pid_s = str(r.get("Player ID"))
+            try:
+                yr_i = int(r.get("Year"))
+            except Exception:
+                return None
+            pre_pts = nfl_career_points_before.get((pid_s, yr_i))
+            pre_yrs = nfl_career_years_before.get((pid_s, yr_i), 0)
+            if not pre_yrs or pre_pts is None:
+                return None
+            try:
+                cur = r.get("Points (full season)")
+                if cur is None:
+                    return None
+                return round(float(cur) - (pre_pts / pre_yrs), 4)
+            except Exception:
+                return None
+        py["Change in points from career"] = py.apply(_change_pts_career, axis=1)
 
-        # "Change in avg points from career" — compare this season's
-        # full-season per-game avg to the prior full-season career avg.
-        py["Career_fullpts_before"] = py.groupby("Player ID")["Points (full season)"].transform(
-            lambda s: s.cumsum().shift(1)
-        )
-        py["Career_fullgames_before"] = py.groupby("Player ID").apply(
-            lambda g: g.apply(lambda r: nfl_full_season_games.get((str(r["Player ID"]), int(r["Year"])), 0), axis=1).cumsum().shift(1)
-        ).reset_index(level=0, drop=True)
-        py["Change in avg points from career"] = py.apply(
-            lambda r: round(
-                r["Avg points (full season)"] - (r["Career_fullpts_before"] / r["Career_fullgames_before"]),
-                4,
-            ) if pd.notna(r["Career_fullpts_before"]) and r["Career_fullgames_before"]
-            and r["Avg points (full season)"] is not None
-            else None,
-            axis=1,
-        )
+        def _change_avg_career(r):
+            pid_s = str(r.get("Player ID"))
+            try:
+                yr_i = int(r.get("Year"))
+            except Exception:
+                return None
+            pre_pts = nfl_career_points_before.get((pid_s, yr_i))
+            pre_g = nfl_career_games_before.get((pid_s, yr_i), 0)
+            if not pre_g or pre_pts is None:
+                return None
+            cur = r.get("Avg points (full season)")
+            if cur is None:
+                return None
+            try:
+                return round(float(cur) - (pre_pts / pre_g), 4)
+            except Exception:
+                return None
+        py["Change in avg points from career"] = py.apply(_change_avg_career, axis=1)
 
         py = py.rename(
             columns={
@@ -7197,7 +7264,7 @@ def build_all(repo_root: Path) -> None:
             # player was never rostered, they shouldn't get a row for
             # that year."
             def _has_tenure_in_year(sid: str, yr: int) -> bool:
-                tenure_yr_map = tenure_time_team_year.get((str(sid), int(yr)))
+                tenure_yr_map = tenure_time_team_fy.get((str(sid), int(yr)))
                 return bool(tenure_yr_map)
             missing_pairs = [(s, y) for s, y in missing_pairs if _has_tenure_in_year(s, y)]
             if missing_pairs:
@@ -7207,13 +7274,18 @@ def build_all(repo_root: Path) -> None:
                     name = meta.get("full_name") or str(sid)
                     # Derive top/last team from tenure aggregates for this
                     # (sid, yr) — top = team with the most tenure time in
-                    # year, last = team in tenure_last_event_year.
-                    tenure_team_secs = tenure_time_team_year.get((str(sid), int(yr)), {})
+                    # year, last = team in tenure_last_event_fy.
+                    # Top team prefers in-season tenure time; falls back
+                    # to full-FY tenure time if the player had no in-
+                    # season tenure at all (rare).
+                    tenure_team_secs_is = tenure_inseason_time_team_fy.get((str(sid), int(yr)), {})
+                    tenure_team_secs_full = tenure_time_team_fy.get((str(sid), int(yr)), {})
+                    tenure_team_secs = tenure_team_secs_is or tenure_team_secs_full
                     top_team_pad = (
                         max(tenure_team_secs.items(), key=lambda kv: kv[1])[0]
                         if tenure_team_secs else None
                     )
-                    last_event = tenure_last_event_year.get((str(sid), int(yr)))
+                    last_event = tenure_last_event_fy.get((str(sid), int(yr)))
                     last_team_pad = last_event[1] if last_event else top_team_pad
                     pad_rows.append({
                         "Player": name,
@@ -7221,7 +7293,9 @@ def build_all(repo_root: Path) -> None:
                         "Year": int(yr),
                         "Top Team": top_team_pad,
                         "Last team": last_team_pad,
-                        "Number of teams": len(tenure_team_secs),
+                        # Use full-FY teams for the uniqueness count so
+                        # partial-week offseason stints still register.
+                        "Number of teams": len(tenure_team_secs_full),
                         # Counters mirror what the main pw-derived
                         # rows would have gotten from the same dicts.
                         "Number of transactions": int(player_tx_year.get((str(sid), int(yr)), 0)),
@@ -7411,7 +7485,7 @@ def build_all(repo_root: Path) -> None:
         try:
             # Latest season we have data for (proxy for "current").
             current_season = int(pw["Year"].max()) if not pw.empty and "Year" in pw.columns else None
-            # First year per player from player_year + tenure_time_team_year.
+            # First year per player from player_year + tenure_time_team_fy.
             first_year_by_pid: Dict[str, int] = {}
             if not player_year.empty and "Player ID" in player_year.columns and "Year" in player_year.columns:
                 _g = player_year.dropna(subset=["Player ID", "Year"]).groupby("Player ID")["Year"].min()
@@ -7420,7 +7494,7 @@ def build_all(repo_root: Path) -> None:
                         first_year_by_pid[str(_p)] = int(_y)
                     except Exception:
                         continue
-            for (_p, _y), _tm in tenure_time_team_year.items():
+            for (_p, _y), _tm in tenure_time_team_fy.items():
                 try:
                     if not _tm:
                         continue
