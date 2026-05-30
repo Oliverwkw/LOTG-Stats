@@ -1168,12 +1168,51 @@ def build_all(repo_root: Path) -> None:
             for _, row in nfl_players.iterrows()
             if isinstance(row.get("gsis_id"), str) and row.get("gsis_id")
         }
+
+        # Last-name index for validating Sleeper's gsis_id against the
+        # actual NFLverse player. Sleeper has a small number of swapped
+        # gsis_ids — e.g. sid=5133 (Tyler Conklin TE) carries gsis
+        # 00-0034439 which is actually Ryan Izzo; sid=5094 (Ryan Izzo)
+        # carries 00-0034270 which is actually Conklin. Without a check
+        # we silently look up the wrong player's NFLverse stats and
+        # produce Points (full season) = 0 for one of them.
+        def _last_name_key(s: Any) -> str:
+            s2 = "".join(c if c.isalpha() or c == " " else "" for c in str(s).lower())
+            parts = [p for p in s2.split() if p not in ("jr", "sr", "ii", "iii", "iv", "v")]
+            return parts[-1] if parts else ""
+
+        gsis_to_lastname: Dict[str, str] = {}
+        name_col = "display_name" if "display_name" in nfl_players.columns else (
+            "football_name" if "football_name" in nfl_players.columns else None
+        )
+        if name_col:
+            for g, row in nfl_by_gsis.items():
+                gsis_to_lastname[g] = _last_name_key(row.get(name_col))
+
         for pid, m in pid_meta.items():
+            sleeper_gsis = m.get("gsis_id")
+            # If Sleeper's gsis_id points to a player with a different
+            # last name, treat it as bad and prefer DP/NFLverse mappings.
+            # Compares against the canonical NFLverse player at that gsis.
+            if sleeper_gsis and gsis_to_lastname:
+                nf_last = gsis_to_lastname.get(str(sleeper_gsis))
+                s_last = _last_name_key(m.get("full_name"))
+                if nf_last and s_last and nf_last != s_last:
+                    dp_gsis = dp_sleeper_to_gsis.get(str(pid))
+                    nv_gsis = sleeper_to_gsis.get(str(pid))
+                    # Pick the first replacement whose last name actually
+                    # matches the Sleeper player.
+                    for cand in (dp_gsis, nv_gsis):
+                        if cand and gsis_to_lastname.get(str(cand)) == s_last:
+                            _log(debug, f"[{_now_iso()}] INFO gsis_correction sid={pid} name={m.get('full_name')!r} sleeper_gsis={sleeper_gsis} -> {cand}")
+                            m["gsis_id"] = cand
+                            sleeper_gsis = cand
+                            break
             # Look up gsis_id via the full chain — Sleeper's meta lacks gsis_id for
             # many players (e.g. Ja'Marr Chase, Caleb Williams). DP's db_playerids
             # provides the sleeper_id <-> gsis_id mapping that closes the gap.
             gsis = (
-                m.get("gsis_id")
+                sleeper_gsis
                 or dp_sleeper_to_gsis.get(str(pid))
                 or sleeper_to_gsis.get(str(pid))
             )
