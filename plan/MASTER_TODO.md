@@ -51,9 +51,8 @@ When the results-based audit surfaces a bug, log it but continue to the diff swe
 - [x] Number of trades column in player_week (auto-rolls to year + all-time)
 - [x] **3-part audit** — covered by retroactive audit (AUDIT_RETROACTIVE_3PART.md) + per-PR audits #160-#166. All 4 surfaced bugs fixed in PR #162; Hardship+SA fixes in #163/#164; caching in #165/#166.
 
-### Phase 3 closeout — data-quality items deferred (not blocking)
-- 🐛 Tyler Conklin 2022-2024 `Points (full season) = 0` — sleeper_id→gsis_id mapping gap in nflverse player_ids (likely others affected). Investigate the bridge in `pid_meta` / `gsis_to_sid`.
-- 🐛 4 players have negative `Points (full season)` from NFLverse bench-QB negative stat lines (Dylan Laube, Sam Howell, Jake Browning, Jaren Hall partial). Consider clamping display to ≥ 0.
+### Phase 3 closeout — data-quality fix-ups
+- [x] Tyler Conklin / Ryan Izzo gsis_id swap — Sleeper's `gsis_id` field for these 2 TEs is transposed; bridge now validates Sleeper's gsis against NFLverse's display_name last-name and falls back to DP when they disagree.
 
 ## Phase 4 — Team sheets
 - [ ] 🔍 Team age including picks ≈ player age (likely 0-future-pick bug)
