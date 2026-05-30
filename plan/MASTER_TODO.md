@@ -3,10 +3,17 @@
 **Workflow per phase:**
 1. PR opened
 2. User merges + runs build
-3. Claude audits results
-4. Iterate until audit clean
-5. **Diff sweep** — confirm only intended changes occurred (no collateral damage on unrelated sheets/columns)
-6. Mark phase complete; move to next
+3. Claude runs **3-part audit** (see below)
+4. Iterate until all three parts pass
+5. Mark phase complete; move to next
+
+**3-part audit (MANDATORY after every PR):**
+
+1. **Code-based audit** — build runs cleanly, expected columns exist, schema matches, no errors in build_debug.log.
+2. **Results-based audit** — for each change in the PR spec, derive **≥5 concrete verification cases** that the spec was actually implemented correctly. e.g. spec says "Last team uses fantasy year, in-season only" → find a player whose 2024 offseason trade should NOT override their 2023 Last team, and verify the cell holds the season-ending team. Cases must come from the change spec — not from comparing to the prior build.
+3. **Diff-based audit** — diff sweep against previous build's CSVs (sorted by canonical keys) to confirm nothing *else* changed. Flag any non-intended sheet/column diff as UNEXPECTED.
+
+When the results-based audit surfaces a bug, log it but continue to the diff sweep — fix all bugs together in a follow-up PR rather than serially.
 
 ---
 
@@ -30,7 +37,7 @@
 - [ ] Starter-adjusted hardship column next to every hardship column
 - [ ] Starter injury count column in league_week
 - [ ] Luck rebuild; audit distribution; iterate weights
-- [ ] **Diff sweep**
+- [ ] **3-part audit** (code / results / diff)
 
 ## Phase 3 — Player sheets
 - [ ] 🔍 Number of teams bug (Renfrow=5 not 4); fix partial-week rosterings
@@ -42,7 +49,7 @@
 - [ ] % of points redefined: starter contribution to team total; + team-name cols for highest/lowest
 - [ ] Taxi-eligible boolean in player_all_time
 - [ ] Number of trades column in player_week (auto-rolls to year + all-time)
-- [ ] **Diff sweep**
+- [ ] **3-part audit** (code / results / diff)
 
 ## Phase 4 — Team sheets
 - [ ] 🔍 Team age including picks ≈ player age (likely 0-future-pick bug)
@@ -58,7 +65,7 @@
 - [ ] Cuff at pickup relaxed (starter at any point in prev 3 weeks)
 - [ ] team_all_time: regroup Win % vs and Record vs columns by stat type (all Win % together, then all Record together)
 - [ ] team_all_time: add 4 columns: Highest Win % vs a team, [opponent team name], Lowest Win % vs a team, [opponent team name]
-- [ ] **Diff sweep**
+- [ ] **3-part audit** (code / results / diff)
 
 ## Phase 5 — League sheets
 - [ ] 🔍 # transactions formula trace + # trades (once per trade incl 3+team)
@@ -70,7 +77,7 @@
 - [ ] 🔍 league_all_time "increase in points from previous week" — define or remove
 - [ ] 🔍 2022 wk 16-17 only 7 TEs started
 - [ ] Weekly trades: offseason in wk-1 rollup only if within 7 days prior to Wk 1
-- [ ] **Diff sweep**
+- [ ] **3-part audit** (code / results / diff)
 
 ## Phase 6 — Transactions
 - [ ] Same-day commissioner add+drop heuristic excludes from tx counts
@@ -82,7 +89,7 @@
 - [ ] KTC pick value at draft = Sept 1 snapshot
 - [ ] KTC future value = Monday of prev championship game
 - [ ] 🔍 KTC values audit (Ronald Jones / Josh Gordon as canary)
-- [ ] **Diff sweep**
+- [ ] **3-part audit** (code / results / diff)
 
 ## Phase 7 — Trades
 - [ ] 🔍 Rows with both Assets received + sent blank — fix root cause
@@ -94,36 +101,36 @@
 - [ ] Avg PPG received includes draft-pick PPG after arrival
 - [ ] Assets retained now / Assets traded away / Assets dropped to FA include relevant draft picks
 - [ ] V2 trade addition value (Cuffs etc.)
-- [ ] **Diff sweep**
+- [ ] **3-part audit** (code / results / diff)
 
 ## Phase 8 — Pick history
 - [ ] 🔍 Commissioner-moved over-fires — investigate
-- [ ] **Diff sweep**
+- [ ] **3-part audit** (code / results / diff)
 
 ## Phase 9 — Taxi / IR / suggestions
 - [ ] Taxi columns: player_week Taxi?; player_year Weeks in taxi; player_all_time Weeks in taxi; team_week Players in taxi; team_year/all_time Unique players in taxi + Total taxi-player-weeks
 - [ ] IR columns (Sleeper roster.reserve, NOT NFL injury designation): player_week IR slot?; player_year/all_time Weeks on IR; team_week Players on IR; team_year/all_time Unique players on IR + Total IR player-weeks
 - [ ] Suggest 3-5 enhancement ideas (draft-class scorecard, schedule luck, trade equity at N years)
-- [ ] **Diff sweep**
+- [ ] **3-part audit** (code / results / diff)
 
 ## Phase 10 — Revisit league notes
 - [ ] Survey league.metadata / settings / per-season text across Sleeper years; decide tracked vs manual overlay
-- [ ] **Diff sweep**
+- [ ] **3-part audit** (code / results / diff)
 
 ## Phase 11 — Formulas sheet rebuild
 **Moved from Phase 2 per user — better done after Phases 2–10 settle the formulas they describe.**
 - [ ] Every non-obvious column gets an entry
 - [ ] xlsx styling (color, wrap text, group by sheet, hyperlinks)
-- [ ] **Diff sweep**
+- [ ] **3-part audit** (code / results / diff)
 
 ## Phase 12 — Duplicate-column sweep
 - [ ] Scan all sheets for identical-valued columns; remove redundancy
 - [ ] Document survivors in formulas sheet
-- [ ] **Diff sweep**
+- [ ] **3-part audit** (code / results / diff)
 
 ## Phase 13 — ESPN 2020 backfill
 - [ ] Scope when we get there
-- [ ] **Diff sweep**
+- [ ] **3-part audit** (code / results / diff)
 
 ## Phase 14 — In-season weekly digest email
 **Trigger:** Tuesday 10am ET, in-season only (build runs first, then emails). Skip weeks with no completed games since last email.
@@ -142,4 +149,4 @@
 - Cron-scheduled workflow with workflow_dispatch fallback for manual reruns.
 - In-season gate: skip if current week is offseason (e.g. before Sleeper's week 1 or after week 17).
 
-- [ ] **Diff sweep**
+- [ ] **3-part audit** (code / results / diff)
