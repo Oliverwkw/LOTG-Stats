@@ -1535,17 +1535,19 @@ def build_all(repo_root: Path) -> None:
                 if last_owner != snap_owner:
                     commissioner_pick_moves[key] = int(snap_owner)
 
-    def _picks_held_by_team_at(team_name: str, season_now: int, at_date: date) -> List[float]:
-        """Pick ages (via _pick_expected_age) for all FUTURE picks
-        owned by this team at `at_date`.
+    def _future_picks_owned(team_name: str, season_now: int, at_date: date) -> List[Tuple[int, int]]:
+        """(pick_year, round) for every FUTURE pick (next 3 seasons) owned
+        by this team at `at_date`. Single ownership source shared by
+        'Team age including picks' and 'Future draft capital'.
 
         Walks pick_trade_events per (pick_year, round, original_owner)
-        to find the owner at the query date. Commissioner-moved picks
-        layer on top: if a pick has no trade events but its latest
-        traded_picks snapshot shows a different owner, that's a
-        commissioner move and we treat it as 'always with the
-        current owner' (the user's guidance — assume single move
-        from original to current).
+        to find the owner at the query date. A pick with no trade events
+        defaults to its original owner — so a team's OWN retained picks
+        are counted (this is exactly what _future_cap_from_traded missed,
+        since the Sleeper traded_picks snapshot only lists picks that have
+        actually moved). Commissioner-moved picks layer on top: if a pick
+        has no trade events but its latest traded_picks snapshot shows a
+        different owner, treat it as 'always with the current owner'.
         """
         # season_team_to_roster is keyed by _norm_team_name(...) (lowercased,
         # space-stripped), but callers pass the display handle (e.g.
@@ -1558,7 +1560,7 @@ def build_all(repo_root: Path) -> None:
             return []
         rosters_in_season = season_roster_to_team.get(int(season_now), {}) or {}
         rounds_in_draft = draft_rounds_by_season.get(int(season_now), 4) or 4
-        ages: List[float] = []
+        owned: List[Tuple[int, int]] = []
         for offset in range(1, 4):  # 3-year horizon
             ps = int(season_now) + offset
             for rnd_e in range(1, int(rounds_in_draft) + 1):
@@ -1581,10 +1583,34 @@ def build_all(repo_root: Path) -> None:
                     if key in commissioner_pick_moves and not events:
                         cur_owner = commissioner_pick_moves[key]
                     if cur_owner == int(rid):
-                        pa = _pick_expected_age(ps, at_date)
-                        if pa is not None:
-                            ages.append(pa)
+                        owned.append((int(ps), int(rnd_e)))
+        return owned
+
+    def _picks_held_by_team_at(team_name: str, season_now: int, at_date: date) -> List[float]:
+        """Pick ages (via _pick_expected_age) for all FUTURE picks owned by
+        this team at `at_date`. Thin wrapper over _future_picks_owned."""
+        ages: List[float] = []
+        for (ps, _rnd) in _future_picks_owned(team_name, season_now, at_date):
+            pa = _pick_expected_age(ps, at_date)
+            if pa is not None:
+                ages.append(pa)
         return ages
+
+    # Round weights for future draft capital (provided by user). Picks in
+    # rounds beyond this map (e.g. a 5th rookie round) contribute 0.
+    _FUTURE_PICK_WEIGHTS = {1: 0.25, 2: 0.09, 3: 0.03, 4: 0.01}
+
+    def _future_cap_held(team_name: str, season_now: int, at_date: date) -> float:
+        """Weighted future draft capital actually held by the team at
+        `at_date` — own retained picks + acquired − traded away. Returns
+        0.0 only when the team holds no picks across the next 3 seasons,
+        per spec. Replaces _future_cap_from_traded, which undercounted by
+        omitting un-traded own picks."""
+        return round(
+            sum(_FUTURE_PICK_WEIGHTS.get(rnd, 0.0)
+                for (_ps, rnd) in _future_picks_owned(team_name, season_now, at_date)),
+            4,
+        )
 
     def _ensure_pick_bases(target_season: int, source_season: int) -> None:
         if target_season < 2021:
@@ -4226,24 +4252,9 @@ def build_all(repo_root: Path) -> None:
 
         return (1.0/6.0)*term1 + (1.0/6.0)*term2 + (1.0/6.0)*term3 + (1.0/6.0)*term4 + (1.0/9.0)*term5
 
-    def _future_cap_from_traded(traded_picks, roster_id: int, season: int) -> float:
-        # weights provided by user
-        w = {1: 0.25, 2: 0.09, 3: 0.03, 4: 0.01}
-        tot = 0.0
-        for tp in traded_picks or []:
-            try:
-                tp_season = _to_int(tp.get("season"), None)
-                if tp_season is None or tp_season <= season:
-                    continue
-                owner = _to_int(tp.get("owner_id") or tp.get("roster_id"), None)
-                if owner is None or owner != roster_id:
-                    continue
-                rnd = _to_int(tp.get("round"), None)
-                if rnd in w:
-                    tot += w[rnd]
-            except Exception:
-                continue
-        return tot
+    # (Future draft capital is now computed by _future_cap_held, defined
+    # near _future_picks_owned above. The old _future_cap_from_traded
+    # helper was removed — it undercounted by ignoring un-traded own picks.)
 
     # Per-season pick value (that year's draft picks)
     pick_value_by_team_season = {}
@@ -4343,7 +4354,11 @@ def build_all(repo_root: Path) -> None:
 
                 rid = season_team_to_roster.get(int(season), {}).get(_norm_team_name(team))
                 pick_sum = pick_value_by_team_season.get((str(team), int(season)), 0.0)
-                future_cap = _future_cap_from_traded(traded_picks_by_season.get(int(season), []), rid, int(season)) if rid is not None else 0.0
+                # End-of-season holdings (own retained + acquired − traded away);
+                # corrected helper replaces _future_cap_from_traded which omitted
+                # un-traded own picks. Feb 1 anchor = after Week 18, before the
+                # next rookie draft, so all in-season pick trades are reflected.
+                future_cap = _future_cap_held(str(team), int(season), date(int(season) + 1, 2, 1))
 
                 for i, row in tg.reset_index(drop=True).iterrows():
                     # Week can be missing/NaN in some corrupt rows; guard to avoid crashes.
@@ -6568,15 +6583,19 @@ def build_all(repo_root: Path) -> None:
 
             # Future draft capital (weighted rounds) + startup placeholder left blank for now
             if "Future draft capital" in tw.columns:
+                # Per-week holdings: capital reflects picks owned as of that
+                # week, so a mid-season pick trade updates the column from
+                # that week forward ("updates on trade"). 0.0 only when the
+                # team holds no picks in the next 3 seasons.
                 fdc_vals = []
                 for _, r in tw.iterrows():
                     yr = _to_int(r.get("Year"), None)
-                    team_norm = _norm_team_name(r.get("Team"))
-                    rid = season_team_to_roster.get(int(yr), {}).get(team_norm) if yr is not None else None
-                    if yr is None or rid is None:
+                    wk = _to_int(r.get("Week"), None)
+                    if yr is None:
                         fdc_vals.append(0.0)
                         continue
-                    fdc_vals.append(float(_future_cap_from_traded(traded_picks_by_season.get(int(yr), []), int(rid), int(yr))))
+                    wk_date = date(int(yr), 9, 1) + timedelta(days=7 * ((wk or 1) - 1))
+                    fdc_vals.append(float(_future_cap_held(str(r.get("Team")), int(yr), wk_date)))
                 tw["Future draft capital"] = pd.to_numeric(pd.Series(fdc_vals, index=tw.index), errors="coerce").fillna(0.0)
 
             if "Startup draft players remaining" in tw.columns:
@@ -8420,6 +8439,14 @@ def build_all(repo_root: Path) -> None:
         try:
             if not ph.empty:
                 phx = ph.copy()
+                # Exclude the 2021 supplemental veteran draft from TEAM draft
+                # stats — Draft Value / # first round picks made / total picks
+                # made should count rookie-draft selections only. The vet picks
+                # remain in pick_history itself (Year tagged "2021 (vet)"); we
+                # just drop them from these rollups.
+                phx = phx[
+                    ~phx["Year"].astype(str).str.contains("vet", case=False, na=False)
+                ].copy()
                 # Resolve picker = Final Team (chain end), falling back to the
                 # last non-empty Trade column, then Original Team.
                 def _picker(row):
@@ -8456,20 +8483,18 @@ def build_all(repo_root: Path) -> None:
         except Exception as e:
             _log_exc(debug, "team_year_pick_rollups", e)
 
-        # Future draft capital: weighted future picks owned by team at end of
-        # each season. Uses _future_cap_from_traded against the traded_picks
-        # snapshot stored per season.
+        # Future draft capital: weighted future picks held by the team at
+        # END of each season (own retained + acquired − traded away). The
+        # corrected _future_cap_held walks the pick-ownership ledger; the
+        # old _future_cap_from_traded only saw picks present in Sleeper's
+        # traded_picks snapshot, so every team's own un-traded picks were
+        # silently dropped. Feb 1 anchor = post-Week-18, pre-next-draft.
         try:
             future_cap_vals = []
             for idx, row in team_year.iterrows():
                 team = str(row["Team"])
                 year = int(row["Year"])
-                rid = season_team_to_roster.get(int(year), {}).get(_norm_team_name(team))
-                if rid is None:
-                    future_cap_vals.append(0.0)
-                    continue
-                tps = traded_picks_by_season.get(int(year), [])
-                future_cap_vals.append(round(_future_cap_from_traded(tps, int(rid), int(year)), 4))
+                future_cap_vals.append(_future_cap_held(team, int(year), date(int(year) + 1, 2, 1)))
             team_year["Future draft capital"] = future_cap_vals
         except Exception as e:
             _log_exc(debug, "team_year_future_cap", e)
