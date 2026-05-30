@@ -1038,10 +1038,15 @@ def build_all(repo_root: Path) -> None:
     )
 
     http = HttpConfig(timeout_seconds=30, max_retries=10, backoff_base_seconds=0.7)
-    sc = SleeperClient(run_cfg.league_id, http)
-
     cache_dir = repo_root / ".cache"
     cache_dir.mkdir(exist_ok=True)
+    # Cache historical Sleeper responses to .cache/sleeper/ (URL-hashed JSON).
+    # Current-league + /players/nfl URLs bypass the cache automatically; see
+    # SleeperClient._should_cache. Restored across CI runs by the workflow's
+    # .cache/ actions/cache step.
+    sleeper_cache_dir = cache_dir / "sleeper"
+    sleeper_cache_dir.mkdir(parents=True, exist_ok=True)
+    sc = SleeperClient(run_cfg.league_id, http, cache_dir=sleeper_cache_dir)
     ext = ExternalConfig(cache_dir=cache_dir, timeout_seconds=120)
 
     # nflverse player id mapping (for injury + team-by-week)
