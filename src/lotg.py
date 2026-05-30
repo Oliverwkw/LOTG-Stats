@@ -6311,6 +6311,43 @@ def build_all(repo_root: Path) -> None:
         # suspensions".
         was_recent_starter: List[int] = [0] * len(pw)
 
+        # Early-season forward-looking starter capture (user spec). In the very
+        # first weeks of the first season a player has no backward LOTG active
+        # history, so starter_pct is 0 and an injured starter contributes ~0 to
+        # Starter-adjusted Hardship. To fix that we pre-build each player's
+        # ordered (year, active, is_starter) sequence; when the backward window
+        # is empty we look FORWARD to their next few active weeks (same season)
+        # to recover their starter share. pw is sorted by Player, Year, Week so
+        # rows for a player arrive in order and align with this sequence.
+        player_seq: Dict[str, List[Tuple[int, bool, int]]] = defaultdict(list)
+        for _, _r in pw.iterrows():
+            _i2 = bool(_r.get("Injury?") or False)
+            _s2 = bool(_r.get("Suspension?") or False)
+            _b2 = bool(_r.get("Bye?") or False)
+            _act = not (_i2 or _s2 or _b2)
+            _st = 1 if (str(_r.get("Starter/Bench") or "").strip().lower() == "starter") else 0
+            _yr2 = _to_int(_r.get("Year"), None)
+            player_seq[_r["Player"]].append((_yr2 if _yr2 is not None else -1, _act, _st))
+        player_pos: Dict[str, int] = defaultdict(int)
+        lotg_active_seen: Dict[str, int] = defaultdict(int)
+
+        def _forward_starter_frac(pl: str, pos: int, year: Optional[int]) -> Optional[float]:
+            """Starter share over the player's next up-to-5 active weeks in the
+            same season (rows strictly after `pos`)."""
+            seq = player_seq.get(pl, [])
+            flags: List[int] = []
+            for j in range(pos + 1, len(seq)):
+                yj, aj, sj = seq[j]
+                if year is not None and yj != year:
+                    break
+                if aj:
+                    flags.append(sj)
+                    if len(flags) >= 5:
+                        break
+            if not flags:
+                return None
+            return sum(flags) / len(flags)
+
         prev_yrwk_by_player: Dict[str, Tuple[int, int]] = {}
 
         for i, row in pw.iterrows():
@@ -6360,23 +6397,40 @@ def build_all(repo_root: Path) -> None:
                 expected = None
                 starter_pct = 0.0
             exp_points[i] = expected
-            # Same starter heuristic as Starter-adjusted Hardship: the player
-            # counts as a starter for this week if starter_pct (their started
-            # share over the SA baseline window) is > 0 — i.e. they started at
-            # least once in the recent active games feeding the baseline.
-            was_recent_starter[i] = 1 if (starter_pct and float(starter_pct) > 0.0) else 0
+            # Effective starter share for this week. Normally starter_pct (the
+            # SA baseline started-share). Early-season fallback: if the backward
+            # window gives no starter signal (starter_pct == 0) AND the player
+            # has < 5 prior LOTG active weeks (i.e. not enough history to judge),
+            # look FORWARD at their next active weeks this season. Week 1 is left
+            # at 0 by design (no signal we trust for the opening week).
+            eff_starter_pct = float(starter_pct)
+            if (
+                eff_starter_pct == 0.0
+                and wk is not None and wk >= 2
+                and lotg_active_seen[player] < 5
+            ):
+                fwd = _forward_starter_frac(player, player_pos[player], yr)
+                if fwd is not None:
+                    eff_starter_pct = float(fwd)
+            # Same starter heuristic as Starter-adjusted Hardship (now including
+            # the early-season forward fallback): the player counts as a starter
+            # for this week when eff_starter_pct > 0. Drives "Weeks of starter
+            # injuries/suspensions" too, keeping the two in lockstep.
+            was_recent_starter[i] = 1 if eff_starter_pct > 0.0 else 0
             missed = (pts == 0.0) and (inj or susp) and (not bye)
             if missed and expected is not None:
                 # Clamp expected ≥ 0 (negative-baseline edge case).
                 exp_clamped = max(0.0, float(expected))
                 points_lost[i] = exp_clamped
-                starter_adj_lost[i] = exp_clamped * float(starter_pct)
+                starter_adj_lost[i] = exp_clamped * eff_starter_pct
             # Advance active-week history when LOTG status is active. We
             # skip the nflverse dedup here because the current pw row is
             # the authoritative entry for this (year, week).
             if (not inj) and (not susp) and (not bye):
                 hist.append(pts)
                 s_hist.append(1 if is_starter else 0)
+                lotg_active_seen[player] += 1
+            player_pos[player] += 1
             prev_yrwk_by_player[player] = (yr, wk) if (yr is not None and wk is not None) else prev_yrwk_by_player.get(player)
         pw["_expected_points_if_healthy"] = exp_points
         pw["_points_lost_inj_susp"] = points_lost
@@ -6595,6 +6649,53 @@ def build_all(repo_root: Path) -> None:
                 - 0.1 * tw["Brosenzweig"]
                 + (1.0/3.0) * tw["Efficiency"]
             )
+
+            # Weekly luck multipliers (user spec). Two factors:
+            #  1) (opponent's season-to-date avg PF) / (opponent's PF that week)
+            #     — weights a week where the opponent wildly over/under-performs
+            #     their own norm. Week 1 is left unscaled (no season-to-date
+            #     average exists yet).
+            #  2) (1.5 - opponent's efficiency that week) — rewards beating an
+            #     opponent who maxed out their lineup; applies every week.
+            twl = tw.copy()
+            twl["_PF_n"] = pd.to_numeric(twl.get("PF"), errors="coerce")
+            twl["_Week_n"] = pd.to_numeric(twl.get("Week"), errors="coerce")
+            twl["_Eff_n"] = pd.to_numeric(twl.get("Efficiency"), errors="coerce")
+            twl = twl.sort_values(["Team", "Year", "_Week_n"])
+            twl["_pf_ytd_avg"] = twl.groupby(["Team", "Year"])["_PF_n"].transform(
+                lambda s: s.expanding().mean()
+            )
+            opp_avg_ytd = {
+                (int(y), int(w), str(t)): (float(v) if pd.notna(v) else None)
+                for t, y, w, v in zip(twl["Team"], twl["Year"], twl["_Week_n"], twl["_pf_ytd_avg"])
+                if pd.notna(w)
+            }
+            opp_eff_wk = {
+                (int(y), int(w), str(t)): (float(v) if pd.notna(v) else None)
+                for t, y, w, v in zip(twl["Team"], twl["Year"], twl["_Week_n"], twl["_Eff_n"])
+                if pd.notna(w)
+            }
+
+            def _luck_mult(r) -> float:
+                wk = _to_int(r.get("Week"), None)
+                yr = _to_int(r.get("Year"), None)
+                opp = r.get("Opponent")
+                if not opp or yr is None or wk is None:
+                    return 1.0
+                mult = 1.0
+                # Factor 1: opponent over/under-performance vs their YTD avg.
+                opp_week_pf = _to_float(r.get("Points against"), None)
+                if wk > 1 and opp_week_pf not in (None, 0) and float(opp_week_pf) != 0.0:
+                    oa = opp_avg_ytd.get((int(yr), int(wk), str(opp)))
+                    if oa is not None:
+                        mult *= float(oa) / float(opp_week_pf)
+                # Factor 2: (1.5 - opponent efficiency), every week.
+                oe = opp_eff_wk.get((int(yr), int(wk), str(opp)))
+                if oe is not None:
+                    mult *= (1.5 - float(oe))
+                return mult
+
+            tw["Luck"] = pd.to_numeric(tw["Luck"], errors="coerce").fillna(0.0) * tw.apply(_luck_mult, axis=1)
         except Exception as e:
             _log_exc(debug, "team_week_luck_formula", e)
 
@@ -8746,6 +8847,17 @@ def build_all(repo_root: Path) -> None:
         except Exception as e:
             _log_exc(debug, "team_year_aggregate_fill", e)
 
+        # Yearly luck scaled by win% (user spec): a team that "should have"
+        # been unlucky but still won a lot has its luck damped, and vice versa.
+        try:
+            if "Luck" in team_year.columns and "Win %" in team_year.columns:
+                team_year["Luck"] = (
+                    pd.to_numeric(team_year["Luck"], errors="coerce").fillna(0.0)
+                    * pd.to_numeric(team_year["Win %"], errors="coerce").fillna(0.0)
+                )
+        except Exception as e:
+            _log_exc(debug, "team_year_luck_winpct", e)
+
 
         # Result + vs-category records (rebuilt using normalized games)
         try:
@@ -9027,6 +9139,18 @@ def build_all(repo_root: Path) -> None:
                 ).merge(ty_for_all, on="Team", how="left")
         except Exception as e:
             _log_exc(debug, "team_all_from_team_year", e)
+
+        # All-time luck scaled by all-time win% (user spec). Sum of weekly luck
+        # (which already carries the per-week opponent multipliers) × all-time
+        # win% — not a sum of yearly luck, so the win% factor isn't doubled.
+        try:
+            if "Luck" in team_all.columns and "All time win %" in team_all.columns:
+                team_all["Luck"] = (
+                    pd.to_numeric(team_all["Luck"], errors="coerce").fillna(0.0)
+                    * pd.to_numeric(team_all["All time win %"], errors="coerce").fillna(0.0)
+                )
+        except Exception as e:
+            _log_exc(debug, "team_all_luck_winpct", e)
 
         # Top-up rollup: trades / transactions / FAAB from preseason seasons
         # that didn't produce a team_year row (e.g. 2026 before NFL Week 1).

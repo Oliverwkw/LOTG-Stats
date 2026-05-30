@@ -303,9 +303,9 @@ _ROWS = [
     },
     {
         "Stat": "Luck",
-        "Sheet": "team_week / team_year",
-        "Formula": "(Wins) − (Expected wins from PF distribution). Expected wins is the average rank-percentile of the team's PF across all matchups in the same week.",
-        "Notes": "Positive = won more games than PF would predict.",
+        "Sheet": "team_week / team_year / team_all_time",
+        "Formula": "Per-week base = (1/6)*(1 - Hardship/L_Hardship) + (1/6)*(1 - StarterAdjHardship/L_StarterAdjHardship) + (1/4)*WinVariance - (1/10)*Brosenzweig + (1/3)*Efficiency, where L_* are league season-to-date weekly means. The base is then multiplied by two factors: (a) for week >= 2, (opponent's season-to-date avg PF) / (opponent's PF that week) [week 1 = 1]; and (b) every week, (1.5 - opponent's efficiency that week). team_year.Luck = (sum of weekly luck) * that season's win%. team_all_time.Luck = (sum of weekly luck) * all-time win%.",
+        "Notes": "Positive = outcomes ran better than the schedule/efficiency context would predict. The opponent multipliers reward beating a team that over-performed its own scoring norm and/or maxed out its lineup; the win% scaling damps luck for teams that didn't convert it into wins.",
     },
     {
         "Stat": "Hardship",
