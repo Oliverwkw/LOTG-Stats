@@ -711,7 +711,12 @@ def _preserve_na(col: str) -> bool:
     # Faab columns: blank Faab means the transaction wasn't a waiver
     # (free-agent / commissioner adds aren't bid on) — surface as N/A
     # so it's not confused with 'won the claim with a $0 bid'.
+    # Also covers 2021- transactions, where the league had no FAAB
+    # system at all (Total FAAB bid / FAAB % difference also preserve
+    # via the dedicated entries below).
     if col_l == "faab":
+        return True
+    if col_l == "total faab bid":
         return True
     # Faab-vs-second-place: blank means the row isn't a waiver, or the
     # waiver was uncontested (no runner-up). Either case is distinct
@@ -3440,15 +3445,35 @@ def build_all(repo_root: Path) -> None:
                                 # undefined; leave % blank but still
                                 # surface the absolute difference.
 
+                        # FAAB column semantics (user spec / audit fix):
+                        # - 2021 and earlier: league had no FAAB; ALL faab
+                        #   columns -> N/A regardless of transaction type.
+                        # - 2022+:
+                        #     waiver       -> numeric (0 if Sleeper didn't
+                        #                     record a bid amount — uncontested
+                        #                     $0 claim, not 'missing data').
+                        #     free_agent   -> N/A (no bidding)
+                        #     commissioner -> N/A (no bidding)
+                        _faab_emit = faab
+                        _total_faab_emit = row_total_faab
+                        _faab_diff_emit = row_faab_diff_2nd
+                        _faab_pct_emit = row_faab_pct_2nd
+                        if int(season) < 2022:
+                            _faab_emit = None
+                            _total_faab_emit = None
+                            _faab_diff_emit = None
+                            _faab_pct_emit = None
+                        elif ttype == "waiver" and _faab_emit is None:
+                            _faab_emit = 0
                         transactions_rows.append({
                             "Team": row_team,
                             "Player Added": pid_meta.get(pid, {}).get("full_name") or pid,
                             "Player Dropped": pid_meta.get(dropped, {}).get("full_name") if dropped else None,
                             "type of transaction (waiver/free agency)": ttype,
-                            "Faab": faab,
-                            "Total FAAB bid": row_total_faab,
-                            "FAAB difference over second place": row_faab_diff_2nd,
-                            "FAAB % difference over second place": row_faab_pct_2nd,
+                            "Faab": _faab_emit,
+                            "Total FAAB bid": _total_faab_emit,
+                            "FAAB difference over second place": _faab_diff_emit,
+                            "FAAB % difference over second place": _faab_pct_emit,
                             "Date": created_dt.isoformat() if created_dt else (str(created_date) if created_date else None),
                             "Season": int(season),
                             # Internal-only sleeper IDs for the KTC pass.
@@ -6190,6 +6215,15 @@ def build_all(repo_root: Path) -> None:
 
         tw["Hardship"] = pd.to_numeric(tw.get("Hardship_Points_Lost"), errors="coerce").fillna(0.0)
         tw["Starter-adjusted Hardship"] = pd.to_numeric(tw.get("Starter_Adj_Hardship"), errors="coerce").fillna(0.0).round(4)
+        # Defensive clamp: SA Hardship is supposed to be H × starter_pct
+        # at the player level so per-player SA ≤ H. Sum at team level
+        # should preserve that, but audit caught 1 row out of 680 where
+        # the aggregate slipped above (likely a floating-point edge
+        # case I couldn't reproduce analytically). Clamp at the team
+        # level so the invariant always holds — SA can never exceed H.
+        _h_clamp = pd.to_numeric(tw["Hardship"], errors="coerce").fillna(0.0)
+        _sa_clamp = pd.to_numeric(tw["Starter-adjusted Hardship"], errors="coerce").fillna(0.0)
+        tw["Starter-adjusted Hardship"] = _sa_clamp.where(_sa_clamp <= _h_clamp, _h_clamp).round(4)
         tw["Number of Injuries"] = tw["Number_of_Injuries"].round(0).astype(int)
         tw["Number of suspensions"] = tw["Number_of_suspensions"].round(0).astype(int)
         tw["Number of players on bye"] = tw["Number_of_players_on_bye"].round(0).astype(int)
@@ -6733,11 +6767,10 @@ def build_all(repo_root: Path) -> None:
                 _ovl_e = min(e_dt, _fy_end)
                 if _ovl_e > _ovl_s:
                     _secs = (_ovl_e - _ovl_s).total_seconds()
+                    # Full-FY tenure time — used for Number of teams
+                    # per FY (partial-week offseason stints should
+                    # count for uniqueness).
                     tenure_time_team_fy[(_pid, _fy)][str(tm)] += _secs
-                    # Last event within this FY's full window.
-                    cur_fy_last = tenure_last_event_fy.get((_pid, _fy))
-                    if cur_fy_last is None or _ovl_e > cur_fy_last[0]:
-                        tenure_last_event_fy[(_pid, _fy)] = (_ovl_e, str(tm))
 
                 # In-season overlap within this FY.
                 _is_start, _is_end = _fy_inseason_window(_fy, _tz)
@@ -6747,6 +6780,15 @@ def build_all(repo_root: Path) -> None:
                     _is_secs = (_is_ovl_e - _is_ovl_s).total_seconds()
                     tenure_inseason_time_team_fy[(_pid, _fy)][str(tm)] += _is_secs
                     tenure_inseason_time_team_all[_pid][str(tm)] += _is_secs
+                    # Last team per FY — gated to IN-SEASON only.
+                    # An offseason trade in March/April would otherwise
+                    # outrank a championship-week event for "Last team
+                    # in FY Y" (Aaron Jones 2023 audit case). Limiting
+                    # last-event to the in-season window correctly
+                    # attributes the season-ending team.
+                    cur_fy_last = tenure_last_event_fy.get((_pid, _fy))
+                    if cur_fy_last is None or _is_ovl_e > cur_fy_last[0]:
+                        tenure_last_event_fy[(_pid, _fy)] = (_is_ovl_e, str(tm))
 
     # Phase 3B: NFLverse full-season points aggregation, used for
     # "Points (full season)" + change-in columns + career stats on
@@ -6932,11 +6974,16 @@ def build_all(repo_root: Path) -> None:
         # consumers of player averages use the bye/injury/suspension-
         # adjusted variants. Difference is therefore between
         # Adjusted PPG starter and Adjusted PPG bench.
-        py_base["PPG starter vs bench diff"] = py_base.apply(
-            lambda r: round((r["Adjusted PPG starter"] or 0) - (r["Adjusted PPG bench"] or 0), 4)
-            if r["Adjusted PPG starter"] is not None and r["Adjusted PPG bench"] is not None else None,
-            axis=1,
-        )
+        # Treat missing side as 0 (a player with no played bench weeks
+        # has effective PPG bench = 0; ditto starter). Return None only
+        # when BOTH are missing (player has no played weeks at all).
+        def _ppg_diff(r):
+            st = r.get("Adjusted PPG starter")
+            bn = r.get("Adjusted PPG bench")
+            if st is None and bn is None:
+                return None
+            return round(float(st or 0) - float(bn or 0), 4)
+        py_base["PPG starter vs bench diff"] = py_base.apply(_ppg_diff, axis=1)
         py_base["Rookie?"] = py_base["Rookie_flag"].astype(bool)
         py_base["Age"] = py_base["Age_avg"].round(2)
         # Drop intermediate helpers but keep Played_* — change-in-career
@@ -7360,12 +7407,16 @@ def build_all(repo_root: Path) -> None:
             if r["Played_bench_weeks"] else None,
             axis=1,
         )
-        # PPG starter vs bench diff uses the adjusted variants.
-        pa["PPG starter vs bench diff"] = pa.apply(
-            lambda r: round((r["Adjusted PPG starter"] or 0) - (r["Adjusted PPG bench"] or 0), 4)
-            if r["Adjusted PPG starter"] is not None and r["Adjusted PPG bench"] is not None else None,
-            axis=1,
-        )
+        # PPG starter vs bench diff uses the adjusted variants. Same
+        # None-as-zero handling as player_year so a pure-starter or
+        # pure-bench player doesn't drop to None/0 spuriously.
+        def _pa_ppg_diff(r):
+            st = r.get("Adjusted PPG starter")
+            bn = r.get("Adjusted PPG bench")
+            if st is None and bn is None:
+                return None
+            return round(float(st or 0) - float(bn or 0), 4)
+        pa["PPG starter vs bench diff"] = pa.apply(_pa_ppg_diff, axis=1)
         pa = pa.drop(columns=[
             "Starter_points_sum", "Bench_points_sum", "Weeks_as_bench",
             "Played_points", "Played_weeks",
