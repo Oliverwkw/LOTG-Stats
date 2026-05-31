@@ -79,15 +79,15 @@ When the results-based audit surfaces a bug, log it but continue to the diff swe
 ## Phase 5 — League sheets
 **Sub-PR plan:** 5A schema/simple fixes (3,4,6,7,8) · 5B count semantics + hi/lo starters + trade window (1,2,5,9).
 
-- [ ] 🔍 # transactions formula trace + # trades (once per trade incl 3+team) — **5B**
-- [ ] Position/NFL team/players rostered+started: league-wide unique; all-time/yearly = "most" — **5B** (decided: unique across the period)
+- [x] 🔍 # transactions formula trace + # trades (once per trade incl 3+team) — **5B**: league `Number of trades` now counts DISTINCT trade events (by timestamp) per period — once per trade regardless of #teams (was the per-team sum: 2024 137→67). # transactions left as-is (sum of team transactions is correct league-wide).
+- [x] Position/NFL team/players rostered+started: league-wide unique; all-time/yearly = unique across period — **5B**: rookies started/rostered and "Number of NFL teams among starting/rostered players" on league_year/all_time now count DISTINCT players / NFL teams across the period (was weekly sum for rookies → 626, weekly max for NFL teams → 10). QB/WR/RB/TE counts were already unique.
 - [x] Number of starting donuts column — **5A**: added to league_week/year/all_time (sum of team_week "Number of starter donuts").
 - [x] Weekly starter turnover = league total (not average) — **5A**: league_week now SUMs team turnover (was mean).
-- [ ] All-time/yearly "highest/lowest starters" disambiguate — **5B** (decided: add explicit Highest/Lowest starter score columns)
+- [x] All-time/yearly "highest/lowest starters" disambiguate — **5B**: added "Highest starter score" + "Lowest starter score" (max/min single-starter score league-wide) next to "Difference between highest and lowest starters" on league_week/year/all_time.
 - [x] 🔍 league_week col O + league_year col S (UPST duplicate?) — **5A**: confirmed `UPST` == `Number of wins with pregame avg max PF from opponent`; dropped the descriptive duplicate, standardized on `UPST` across league_week/year/all_time.
 - [x] 🔍 league_all_time "increase in points from previous week" — define or remove — **5A**: removed from league_all_time (week-over-week delta is meaningless all-time); kept on league_week/year.
 - [x] 🔍 2022 wk 16-17 only 7 TEs started — **5A verified**: legit — toilet-bracket teams that didn't set a full lineup (plehv79 scored 45.4 in 2022 Toilet Semis, JacobRosenzweig in Toilet Trash). Not a rollup bug.
-- [ ] Weekly trades: offseason in wk-1 rollup only if within 7 days prior to Wk 1 — **5B**
+- [ ] Weekly trades: offseason in wk-1 rollup only if within 7 days prior to Wk 1 — **5C** (touches both the per-team `trade_count` and the league weekly bucketing; kept separate from 5B for a clean audit)
 - [ ] **3-part audit** (code / results / diff)
 
 ## Phase 6 — Transactions
