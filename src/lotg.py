@@ -275,6 +275,14 @@ def _calc_age(birth_date_str: Optional[str], on_date: date) -> Optional[float]:
         return None
 
 
+# How strongly yearly/all-time win% scales Luck. multiplier = (1 - B) + B*win%.
+# B=1.0 → raw ×win% (win% dominates and halves every team's luck); B=0.5 →
+# win% influence halved and centered nearer neutral, so big win% gaps don't
+# control the stat while worse records are still discounted vs better ones.
+# Tunable while Luck is workshopped further (see MASTER_TODO before Phase 5).
+_LUCK_WINPCT_BLEND = 0.5
+
+
 def _pick_expected_age(year_of_pick: int, on_date: date) -> Optional[float]:
     """Synthetic age of a not-yet-known rookie at a given date.
 
@@ -8847,13 +8855,20 @@ def build_all(repo_root: Path) -> None:
         except Exception as e:
             _log_exc(debug, "team_year_aggregate_fill", e)
 
-        # Yearly luck scaled by win% (user spec): a team that "should have"
-        # been unlucky but still won a lot has its luck damped, and vice versa.
+        # Yearly luck scaled by win% — but BLENDED toward neutral so win%
+        # doesn't dominate the stat. Multiplier = (1 - B) + B * win%, with
+        # B = _LUCK_WINPCT_BLEND. At B=1 this is the raw ×win% (which both
+        # halved every team's luck and gave a .700 team 2.3× a .300 team's);
+        # at B=0.5 a .300 team is ×0.65 and a .700 team ×0.85 (spread ~1.3×),
+        # so better records still keep more of their luck and worse records
+        # are still discounted, without win% disparities controlling the value.
+        # Tunable while Luck is workshopped (see MASTER_TODO before Phase 5).
         try:
             if "Luck" in team_year.columns and "Win %" in team_year.columns:
+                _wy = pd.to_numeric(team_year["Win %"], errors="coerce").fillna(0.0)
                 team_year["Luck"] = (
                     pd.to_numeric(team_year["Luck"], errors="coerce").fillna(0.0)
-                    * pd.to_numeric(team_year["Win %"], errors="coerce").fillna(0.0)
+                    * ((1.0 - _LUCK_WINPCT_BLEND) + _LUCK_WINPCT_BLEND * _wy)
                 )
         except Exception as e:
             _log_exc(debug, "team_year_luck_winpct", e)
@@ -9140,14 +9155,16 @@ def build_all(repo_root: Path) -> None:
         except Exception as e:
             _log_exc(debug, "team_all_from_team_year", e)
 
-        # All-time luck scaled by all-time win% (user spec). Sum of weekly luck
-        # (which already carries the per-week opponent multipliers) × all-time
-        # win% — not a sum of yearly luck, so the win% factor isn't doubled.
+        # All-time luck scaled by all-time win%, same neutral blend as yearly
+        # (see _LUCK_WINPCT_BLEND). Sum of weekly luck (which already carries
+        # the per-week opponent multipliers) — not a sum of yearly luck, so the
+        # win% factor isn't doubled.
         try:
             if "Luck" in team_all.columns and "All time win %" in team_all.columns:
+                _wa = pd.to_numeric(team_all["All time win %"], errors="coerce").fillna(0.0)
                 team_all["Luck"] = (
                     pd.to_numeric(team_all["Luck"], errors="coerce").fillna(0.0)
-                    * pd.to_numeric(team_all["All time win %"], errors="coerce").fillna(0.0)
+                    * ((1.0 - _LUCK_WINPCT_BLEND) + _LUCK_WINPCT_BLEND * _wa)
                 )
         except Exception as e:
             _log_exc(debug, "team_all_luck_winpct", e)
