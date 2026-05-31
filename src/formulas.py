@@ -148,6 +148,12 @@ _ROWS = [
         "Notes": "Blank if the player is still rostered (or wasn't an add row).",
     },
     {
+        "Stat": "Link to next/previous transaction (added player) / (dropped player)",
+        "Sheet": "transactions",
+        "Formula": "Follows the ADDED player and the DROPPED player to their next/previous event ANYWHERE in the league — across teams and INCLUDING trades. Reference is a row pointer: '#N' = transactions.csv row N, 'T#N' = trades.csv row N (1-indexed, final sorted order).",
+        "Notes": "Replaces the old single per-team 'Link to next/previous transaction'. The chain is date-ordered, so row numbers can look non-monotonic (the CSVs are grouped by team, not global date). Blank at the ends of a player's chain or when the row has no added/dropped player. (Trades.csv keeps its own per-team link chain.)",
+    },
+    {
         "Stat": "Number of times picked up by this team",
         "Sheet": "transactions",
         "Formula": "Running 1-indexed counter of acquisitions of (Team, Player) in chronological order — INCLUDING trades (a player received in a trade counts as a pickup), interleaved with waiver/FA adds by date.",
