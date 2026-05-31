@@ -87,7 +87,7 @@ When the results-based audit surfaces a bug, log it but continue to the diff swe
 - [x] 🔍 league_week col O + league_year col S (UPST duplicate?) — **5A**: confirmed `UPST` == `Number of wins with pregame avg max PF from opponent`; dropped the descriptive duplicate, standardized on `UPST` across league_week/year/all_time.
 - [x] 🔍 league_all_time "increase in points from previous week" — define or remove — **5A**: removed from league_all_time (week-over-week delta is meaningless all-time); kept on league_week/year.
 - [x] 🔍 2022 wk 16-17 only 7 TEs started — **5A verified**: legit — toilet-bracket teams that didn't set a full lineup (plehv79 scored 45.4 in 2022 Toilet Semis, JacobRosenzweig in Toilet Trash). Not a rollup bug.
-- [ ] Weekly trades: offseason in wk-1 rollup only if within 7 days prior to Wk 1 — **5C** (touches both the per-team `trade_count` and the league weekly bucketing; kept separate from 5B for a clean audit)
+- [x] Weekly trades: offseason in wk-1 rollup only if within 7 days prior to Wk 1 — **5C**: per-week sheets keep "Number of trades", bucketing an offseason trade into Wk 1 only if within 7 days of kickoff. PLUS (user request) team_year/all_time + league_year/all_time replace "Number of trades" with **Offseason / Inseason / Total trades** (distinct trade events; offseason = before Sept 7 kickoff). Also redefined league "Difference between highest and lowest starters" = Highest − Lowest starter (league range) so the 5B hi/lo columns reconcile.
 - [ ] **3-part audit** (code / results / diff)
 
 ## Phase 6 — Transactions
