@@ -275,6 +275,12 @@ _ROWS = [
         "Formula": "True if this pick's ownership shift wasn't recorded as a normal trade transaction. Detected when traded_picks_by_season shows a pick belonging to a non-original owner but no trade event in pick_trade_events explains the move (typical for picks moved >3 years before draft year, beyond Sleeper's trade-tracking window).",
         "Notes": "Such picks are NOT added to trades.csv (the move wasn't a trade); the assumption is a single move from original owner to current owner.",
     },
+    {
+        "Stat": "Commissioner wash exclusion",
+        "Sheet": "transactions / trades / all transaction & trade counts",
+        "Formula": "A transaction is dropped entirely when every player it moves nets to zero on its own roster within the same calendar day AND a commissioner action was part of that player-day. I.e. a single-day commissioner correction that leaves the roster exactly as it started.",
+        "Notes": "Covers: commissioner add+drop of a player; a player a team dropped that the commissioner re-added same day; an add the commissioner immediately undid; and a trade the commissioner reversed. These no-ops are excluded from every transaction/trade count and from the transactions.csv / trades.csv detail.",
+    },
     # -------------------------------- player_week.csv --------------------------------
     {
         "Stat": "Activated Cuff?",
