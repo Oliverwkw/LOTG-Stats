@@ -150,8 +150,14 @@ _ROWS = [
     {
         "Stat": "Number of times picked up by this team",
         "Sheet": "transactions",
-        "Formula": "Running 1-indexed counter per (Team, Player Added) sorted chronologically.",
-        "Notes": "If a team picks up the same player twice, the second pickup reads 2 in this column.",
+        "Formula": "Running 1-indexed counter of acquisitions of (Team, Player) in chronological order — INCLUDING trades (a player received in a trade counts as a pickup), interleaved with waiver/FA adds by date.",
+        "Notes": "If a team picks up the same player twice (by any mix of add or trade-in), the second reads 2.",
+    },
+    {
+        "Stat": "Number of times dropped by this team",
+        "Sheet": "transactions",
+        "Formula": "Running 1-indexed counter of departures of (Team, Player Dropped) in chronological order — INCLUDING trades away (a player traded out counts as a drop).",
+        "Notes": "Mirror of 'Number of times picked up by this team'. N/A on a transaction row that didn't drop anyone (a pure pickup).",
     },
     {
         "Stat": "Tanking",
