@@ -9546,6 +9546,107 @@ def build_all(repo_root: Path) -> None:
             _log_exc(debug, "team_all_vs_records", e)
 
     # League rollups
+    # League-wide unique extras (Phase 5B item 2): rookies and NFL-team counts
+    # at year / all-time must be DISTINCT across the whole period, not summed
+    # weekly (rookies) or the weekly max (NFL teams). Built from player_week.
+    def _league_unique_extras(pw_df: pd.DataFrame, group_cols: List[str]) -> Dict[Tuple, Dict[str, int]]:
+        out: Dict[Tuple, Dict[str, int]] = {}
+        if pw_df.empty or "Player ID" not in pw_df.columns:
+            return out
+        df = pw_df.copy()
+        df["_starter"] = df.get("Starter/Bench", "").astype(str).str.lower() == "starter"
+        df["_rookie"] = df.get("Rookie?", "").astype(str).str.lower().isin(["true", "1", "yes"])
+        df["_nfl"] = df.get("NFL team", "").astype(str).str.strip()
+        for col in group_cols:
+            if col == "Year":
+                df[col] = pd.to_numeric(df[col], errors="coerce").astype("Int64").map(
+                    lambda x: int(x) if pd.notna(x) else None
+                )
+            else:
+                df[col] = df[col].astype(object)
+        df = df.dropna(subset=group_cols)
+
+        def _key(k):
+            return k if isinstance(k, tuple) else (k,)
+
+        rk = df[df["_rookie"] & df["Player ID"].notna()]
+        for k, v in rk.groupby(group_cols)["Player ID"].nunique().items():
+            out.setdefault(_key(k), {})["Number of rookies rostered"] = int(v)
+        for k, v in rk[rk["_starter"]].groupby(group_cols)["Player ID"].nunique().items():
+            out.setdefault(_key(k), {})["Number of rookies started"] = int(v)
+        nf = df[df["_nfl"].ne("") & df["_nfl"].str.lower().ne("nan")]
+        for k, v in nf.groupby(group_cols)["_nfl"].nunique().items():
+            out.setdefault(_key(k), {})["Number of NFL teams among rostered players"] = int(v)
+        for k, v in nf[nf["_starter"]].groupby(group_cols)["_nfl"].nunique().items():
+            out.setdefault(_key(k), {})["Number of NFL teams among starting players"] = int(v)
+        return out
+
+    _LX_KEYS = ["Number of rookies started", "Number of rookies rostered",
+                "Number of NFL teams among starting players", "Number of NFL teams among rostered players"]
+    league_extra_by_year: Dict[Tuple, Dict[str, int]] = {}
+    league_extra_all: Dict[str, int] = {}
+    if not pw.empty:
+        try:
+            league_extra_by_year = _league_unique_extras(pw, ["Year"])
+            league_extra_all = _league_unique_extras(pw.assign(_all="all"), ["_all"]).get(("all",), {})
+        except Exception as e:
+            _log_exc(debug, "league_unique_extras", e)
+
+    # Distinct trade events per period (Phase 5B item 1): each trade has a unique
+    # created timestamp shared by all participating teams' rows, so a trade is
+    # counted ONCE league-wide instead of once per team (the old team-sum
+    # double-counted 2-team trades and triple-counted 3-team trades).
+    _trade_dates_by_year: Dict[int, set] = defaultdict(set)
+    _trade_dates_by_yw: Dict[Tuple[int, int], set] = defaultdict(set)
+    _trade_dates_all: set = set()
+
+    def _trade_wk(dt_str, season):
+        # Offseason trades currently roll into Wk 1 (Phase 5B item 9 — the
+        # 7-day window — is handled in a follow-up).
+        if not dt_str:
+            return 1
+        try:
+            d = datetime.fromisoformat(str(dt_str).replace("Z", "+00:00")).date()
+            ss = date(int(season), 9, 7)
+            if d < ss:
+                return 1
+            return max(1, min(17, (d - ss).days // 7 + 1))
+        except Exception:
+            return 1
+
+    for _tr in trades_rows:
+        _d = _tr.get("Date")
+        _sy = _to_int(_tr.get("Season"), None)
+        if _d and _sy is not None:
+            _trade_dates_by_year[int(_sy)].add(str(_d))
+            _trade_dates_by_yw[(int(_sy), int(_trade_wk(_d, int(_sy))))].add(str(_d))
+            _trade_dates_all.add(str(_d))
+
+    # Highest / lowest single STARTER score, league-wide (Phase 5B item 5).
+    _star_hi_yw: Dict[Tuple[int, int], float] = {}
+    _star_lo_yw: Dict[Tuple[int, int], float] = {}
+    _star_hi_y: Dict[int, float] = {}
+    _star_lo_y: Dict[int, float] = {}
+    _star_hi_all = None
+    _star_lo_all = None
+    if not pw.empty and "Starter/Bench" in pw.columns:
+        try:
+            _pst = pw[pw["Starter/Bench"].astype(str).str.lower() == "starter"].copy()
+            _pst["_pts"] = pd.to_numeric(_pst.get("Points"), errors="coerce")
+            _pst["_y"] = pd.to_numeric(_pst.get("Year"), errors="coerce")
+            _pst["_w"] = pd.to_numeric(_pst.get("Week"), errors="coerce")
+            _pst = _pst.dropna(subset=["_pts", "_y", "_w"])
+            for (yy, ww), gg in _pst.groupby(["_y", "_w"]):
+                _star_hi_yw[(int(yy), int(ww))] = float(gg["_pts"].max())
+                _star_lo_yw[(int(yy), int(ww))] = float(gg["_pts"].min())
+            for yy, gg in _pst.groupby("_y"):
+                _star_hi_y[int(yy)] = float(gg["_pts"].max())
+                _star_lo_y[int(yy)] = float(gg["_pts"].min())
+            _star_hi_all = float(_pst["_pts"].max())
+            _star_lo_all = float(_pst["_pts"].min())
+        except Exception as e:
+            _log_exc(debug, "league_starter_hi_lo", e)
+
     league_week = pd.DataFrame()
     league_year = pd.DataFrame()
     league_all = pd.DataFrame()
@@ -9594,7 +9695,11 @@ def build_all(repo_root: Path) -> None:
                 "Number of RB rostered": int(pd.to_numeric(g.get("Number of RB rostered"), errors="coerce").fillna(0.0).sum()),
                 "Number of TE rostered": int(pd.to_numeric(g.get("Number of TE rostered"), errors="coerce").fillna(0.0).sum()),
                 "Number of transactions": int(pd.to_numeric(g.get("Number of transactions"), errors="coerce").fillna(0.0).sum()),
-                "Number of trades": int(pd.to_numeric(g.get("Number of trades"), errors="coerce").fillna(0.0).sum()),
+                # Distinct trade events this week (Phase 5B item 1), not the
+                # per-team sum.
+                "Number of trades": int(len(_trade_dates_by_yw.get((int(yr), int(wk)), set()))),
+                "Highest starter score": _star_hi_yw.get((int(yr), int(wk))),
+                "Lowest starter score": _star_lo_yw.get((int(yr), int(wk))),
                 "Amount of FAAB spent": float(pd.to_numeric(g.get("Amount of FAAB spent"), errors="coerce").fillna(0.0).sum()),
             })
         league_week = pd.DataFrame(rows)
@@ -9772,6 +9877,27 @@ def build_all(repo_root: Path) -> None:
         except Exception as e:
             _log_exc(debug, "league_year_unique_cuffs", e)
 
+        # League-wide unique rookies / NFL-teams per year + distinct trades
+        # (Phase 5B items 1, 2), overriding the summed / max placeholders.
+        try:
+            if not league_year.empty and "Year" in league_year.columns:
+                _yrs = pd.to_numeric(league_year["Year"], errors="coerce")
+                for _col in _LX_KEYS:
+                    if _col in league_year.columns:
+                        league_year[_col] = [
+                            int(league_extra_by_year.get((int(y),), {}).get(_col, 0)) if pd.notna(y) else 0
+                            for y in _yrs
+                        ]
+                if "Number of trades" in league_year.columns:
+                    league_year["Number of trades"] = [
+                        int(len(_trade_dates_by_year.get(int(y), set()))) if pd.notna(y) else 0
+                        for y in _yrs
+                    ]
+                league_year["Highest starter score"] = [_star_hi_y.get(int(y)) if pd.notna(y) else None for y in _yrs]
+                league_year["Lowest starter score"] = [_star_lo_y.get(int(y)) if pd.notna(y) else None for y in _yrs]
+        except Exception as e:
+            _log_exc(debug, "league_year_unique_extras", e)
+
         league_all = pd.DataFrame([{
             "PF": float(pd.to_numeric(g_week["PF"], errors="coerce").fillna(0.0).sum()),
             "Avg PF": float(pd.to_numeric(g_week["PF"], errors="coerce").fillna(0.0).mean()),
@@ -9816,13 +9942,17 @@ def build_all(repo_root: Path) -> None:
             league_all["Most number of WR rostered from same NFL team"] = float(pd.to_numeric(g_week.get("Most number of WR rostered from same NFL team"), errors="coerce").max())
             league_all["Most number of TE started from same NFL team"] = float(pd.to_numeric(g_week.get("Most number of TE started from same NFL team"), errors="coerce").max())
             league_all["Most number of TE rostered from same NFL team"] = float(pd.to_numeric(g_week.get("Most number of TE rostered from same NFL team"), errors="coerce").max())
-            league_all["Number of NFL teams among starting players"] = float(pd.to_numeric(g_week.get("Number of NFL teams among starting players"), errors="coerce").max())
-            league_all["Number of NFL teams among rostered players"] = float(pd.to_numeric(g_week.get("Number of NFL teams among rostered players"), errors="coerce").max())
-            league_all["Number of rookies started"] = float(pd.to_numeric(g_week.get("Number of rookies started"), errors="coerce").sum())
-            league_all["Number of rookies rostered"] = float(pd.to_numeric(g_week.get("Number of rookies rostered"), errors="coerce").sum())
+            # League-wide UNIQUE across all time (Phase 5B item 2): distinct
+            # rookie players and distinct NFL teams, not the weekly max / sum.
+            league_all["Number of NFL teams among starting players"] = int(league_extra_all.get("Number of NFL teams among starting players", 0))
+            league_all["Number of NFL teams among rostered players"] = int(league_extra_all.get("Number of NFL teams among rostered players", 0))
+            league_all["Number of rookies started"] = int(league_extra_all.get("Number of rookies started", 0))
+            league_all["Number of rookies rostered"] = int(league_extra_all.get("Number of rookies rostered", 0))
             league_all["Player average age"] = float(pd.to_numeric(g_week.get("Player average age"), errors="coerce").mean())
             league_all["Team age including picks"] = float(pd.to_numeric(g_week.get("Team age including picks"), errors="coerce").mean())
             league_all["Difference between highest and lowest starters"] = float(pd.to_numeric(g_week.get("Difference between highest and lowest starters"), errors="coerce").max())
+            league_all["Highest starter score"] = _star_hi_all
+            league_all["Lowest starter score"] = _star_lo_all
             league_all["Number of donuts"] = float(pd.to_numeric(g_week.get("Number of donuts"), errors="coerce").sum())
             league_all["Number of starting donuts"] = float(pd.to_numeric(g_week.get("Number of starter donuts"), errors="coerce").sum())
             league_all["Number of players under 10"] = float(pd.to_numeric(g_week.get("Number of players under 10"), errors="coerce").sum())
@@ -9836,6 +9966,8 @@ def build_all(repo_root: Path) -> None:
             league_all["Number of cuffs started"] = int(unique_cuffs_league_all.get("Number of cuffs started", 0))
             league_all["Startup draft players remaining"] = float(pd.to_numeric(g_week.get("Startup draft players remaining"), errors="coerce").max())
             league_all["Amount of FAAB spent"] = float(pd.to_numeric(g_week.get("Amount of FAAB spent"), errors="coerce").fillna(0.0).sum())
+            # Distinct trades all-time (Phase 5B item 1).
+            league_all["Number of trades"] = int(len(_trade_dates_all))
         except Exception as e:
             _log_exc(debug, "league_all_fill_extra", e)
 
