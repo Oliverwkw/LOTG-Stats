@@ -2751,9 +2751,22 @@ def build_all(repo_root: Path) -> None:
                             creator_team = user_handle.get(creator)
 
                     if ttype == "trade":
+                        # Weekly trade rollup (Phase 5C item 9): a deep-offseason
+                        # trade (created > 7 days before kickoff) does NOT count
+                        # toward this week's WEEKLY trade tally; it still appears
+                        # in the season/all-time totals (which are counted from
+                        # the distinct trade ledger, not the weekly sum).
+                        _tr_dt = _epoch_ms_to_dt(t.get("created"))
+                        _kick = date(int(season), 9, 7)
+                        _deep_offseason = bool(
+                            _tr_dt is not None
+                            and _tr_dt.date() < _kick
+                            and (_kick - _tr_dt.date()).days > 7
+                        )
                         # Credit both sides.
                         for tm in teams_in_tx:
-                            trade_count[tm] += 1
+                            if not _deep_offseason:
+                                trade_count[tm] += 1
                             tx_count[tm] += 1
                     else:
                         # waiver / free_agent / commissioner — credit the
@@ -4137,13 +4150,18 @@ def build_all(repo_root: Path) -> None:
                 _name_to_sid_for_trades.setdefault(str(_fn), str(_sid))
 
         def _trade_week_for_date(_dt_str: Optional[str], _season: int) -> int:
+            # Returns the in-season week a trade falls in, or 0 for a deep-
+            # offseason trade that should NOT roll into any weekly bucket
+            # (Phase 5C item 9: offseason trades count in Week 1's WEEKLY rollup
+            # only if within 7 days before kickoff). Year/all-time totals are
+            # counted separately and still include these trades.
             if not _dt_str:
                 return 1
             try:
                 _d = datetime.fromisoformat(str(_dt_str).replace("Z", "+00:00")).date()
                 _season_start = date(int(_season), 9, 7)
                 if _d < _season_start:
-                    return 1
+                    return 1 if (_season_start - _d).days <= 7 else 0
                 _wk = (_d - _season_start).days // 7 + 1
                 return max(1, min(17, int(_wk)))
             except Exception:
@@ -7096,6 +7114,32 @@ def build_all(repo_root: Path) -> None:
                     prev_pf = row["PF"]
 
     # --------------------------
+    # Distinct trade events split into Offseason / Inseason / Total (user
+    # request) for the team_year/all_time and league_year/all_time sheets.
+    # Offseason = trade dated before that season's kickoff (Sept 7).
+    def _trade_is_offseason(dt_str, season) -> Optional[bool]:
+        try:
+            d = datetime.fromisoformat(str(dt_str).replace("Z", "+00:00")).date()
+            return d < date(int(season), 9, 7)
+        except Exception:
+            return None
+    _team_trade_dates_split: Dict[Tuple[str, int], Dict[str, set]] = defaultdict(
+        lambda: {"off": set(), "in": set(), "tot": set()}
+    )
+    _league_trade_dates_split: Dict[int, Dict[str, set]] = defaultdict(
+        lambda: {"off": set(), "in": set(), "tot": set()}
+    )
+    for _tr in trades_rows:
+        _tm = _tr.get("Team"); _d = _tr.get("Date"); _sy = _to_int(_tr.get("Season"), None)
+        if not (_tm and _d and _sy is not None):
+            continue
+        _off = _trade_is_offseason(_d, _sy)
+        _bucket = "off" if _off else "in"
+        _team_trade_dates_split[(str(_tm), int(_sy))][_bucket].add(str(_d))
+        _team_trade_dates_split[(str(_tm), int(_sy))]["tot"].add(str(_d))
+        _league_trade_dates_split[int(_sy)][_bucket].add(str(_d))
+        _league_trade_dates_split[int(_sy)]["tot"].add(str(_d))
+
     # Rollups: player_year/all_time, team_year/all_time, league_week/year/all_time
     # --------------------------
     if (
@@ -8991,6 +9035,22 @@ def build_all(repo_root: Path) -> None:
         except Exception as e:
             _log_exc(debug, "team_year_unique_cuffs", e)
 
+        # Trades split (user request): Offseason / Inseason / Total trades, as
+        # DISTINCT trade events the team was in that season. Offseason = trade
+        # dated before that season's kickoff (Sept 7); Inseason = on/after.
+        # team_all_time sums these per-season counts (a trade lives in one
+        # season). Replaces the single "Number of trades" on the year/all-time
+        # sheets; the per-week sheets keep "Number of trades".
+        try:
+            for _t, _y in [("Offseason trades", "off"), ("Inseason trades", "in"), ("Total trades", "tot")]:
+                if not team_year.empty:
+                    team_year[_t] = [
+                        int(len(_team_trade_dates_split.get((str(t), int(y)), {}).get(_y, set()))) if pd.notna(y) else 0
+                        for t, y in zip(team_year["Team"], pd.to_numeric(team_year["Year"], errors="coerce"))
+                    ]
+        except Exception as e:
+            _log_exc(debug, "team_year_trades_split", e)
+
 
         # Result + vs-category records (rebuilt using normalized games)
         try:
@@ -9266,7 +9326,9 @@ def build_all(repo_root: Path) -> None:
                         "Number of first round picks made": ("Number of first round picks made", "sum"),
                         "Total number of picks made": ("Total number of picks made", "sum"),
                         "Number of transactions": ("Number of transactions", "sum"),
-                        "Number of trades": ("Number of trades", "sum"),
+                        "Offseason trades": ("Offseason trades", "sum"),
+                        "Inseason trades": ("Inseason trades", "sum"),
+                        "Total trades": ("Total trades", "sum"),
                         "Amount of FAAB spent": ("Amount of FAAB spent", "sum"),
                         # Per-season AVERAGE at all-time (item 4), not a sum —
                         # "how much does this team typically turn over per year".
@@ -9346,9 +9408,6 @@ def build_all(repo_root: Path) -> None:
             if extra_trades_by_team or extra_tx_by_team or extra_faab_by_team:
                 for idx, row in team_all.iterrows():
                     tm = str(row.get("Team") or "")
-                    if tm in extra_trades_by_team:
-                        cur = pd.to_numeric(team_all.at[idx, "Number of trades"], errors="coerce")
-                        team_all.at[idx, "Number of trades"] = int((0 if pd.isna(cur) else cur) + extra_trades_by_team[tm])
                     if tm in extra_tx_by_team:
                         cur = pd.to_numeric(team_all.at[idx, "Number of transactions"], errors="coerce")
                         team_all.at[idx, "Number of transactions"] = int((0 if pd.isna(cur) else cur) + extra_tx_by_team[tm])
@@ -9357,6 +9416,20 @@ def build_all(repo_root: Path) -> None:
                         team_all.at[idx, "Amount of FAAB spent"] = round(float((0 if pd.isna(cur) else cur) + extra_faab_by_team[tm]), 2)
         except Exception as e:
             _log_exc(debug, "team_all_preseason_topup", e)
+
+        # team_all_time Offseason/Inseason/Total trades: count distinct trades
+        # directly across ALL seasons (incl. preseason seasons with no team_year
+        # row), authoritative over the team_year sum.
+        try:
+            if not team_all.empty:
+                _tt_all: Dict[str, Dict[str, set]] = defaultdict(lambda: {"off": set(), "in": set(), "tot": set()})
+                for (tm, _sy), buckets in _team_trade_dates_split.items():
+                    for _bk in ("off", "in", "tot"):
+                        _tt_all[tm][_bk] |= buckets[_bk]
+                for _col, _bk in [("Offseason trades", "off"), ("Inseason trades", "in"), ("Total trades", "tot")]:
+                    team_all[_col] = [int(len(_tt_all.get(str(t), {}).get(_bk, set()))) for t in team_all["Team"]]
+        except Exception as e:
+            _log_exc(debug, "team_all_trades_split", e)
 
         # Unique-player positional counts for team-year and team-all-time (by Player ID)
         try:
@@ -9601,15 +9674,17 @@ def build_all(repo_root: Path) -> None:
     _trade_dates_all: set = set()
 
     def _trade_wk(dt_str, season):
-        # Offseason trades currently roll into Wk 1 (Phase 5B item 9 — the
-        # 7-day window — is handled in a follow-up).
+        # Phase 5C item 9: an offseason trade rolls into Wk 1's WEEKLY bucket
+        # only if within 7 days before kickoff; deeper-offseason trades get 0
+        # (no weekly bucket). The league season/all-time totals are counted
+        # from distinct trade dates per Season, so they still include these.
         if not dt_str:
             return 1
         try:
             d = datetime.fromisoformat(str(dt_str).replace("Z", "+00:00")).date()
             ss = date(int(season), 9, 7)
             if d < ss:
-                return 1
+                return 1 if (ss - d).days <= 7 else 0
             return max(1, min(17, (d - ss).days // 7 + 1))
         except Exception:
             return 1
@@ -9747,6 +9822,13 @@ def build_all(repo_root: Path) -> None:
             )
             league_week = league_week.merge(agg_lw, how="left", on=["Year","Week"])
             league_week["Amount of FAAB spent"] = pd.to_numeric(league_week.get("Amount of FAAB spent"), errors="coerce").fillna(0.0)
+            # League range = highest − lowest starter (item-5 disambiguation;
+            # the agg gave the max single-team spread).
+            if {"Highest starter score", "Lowest starter score"} <= set(league_week.columns):
+                league_week["Difference between highest and lowest starters"] = (
+                    pd.to_numeric(league_week["Highest starter score"], errors="coerce")
+                    - pd.to_numeric(league_week["Lowest starter score"], errors="coerce")
+                )
         except Exception as e:
             _log_exc(debug, "league_week_fill_extra", e)
 
@@ -9888,13 +9970,19 @@ def build_all(repo_root: Path) -> None:
                             int(league_extra_by_year.get((int(y),), {}).get(_col, 0)) if pd.notna(y) else 0
                             for y in _yrs
                         ]
-                if "Number of trades" in league_year.columns:
-                    league_year["Number of trades"] = [
-                        int(len(_trade_dates_by_year.get(int(y), set()))) if pd.notna(y) else 0
+                for _tc, _bk in [("Offseason trades", "off"), ("Inseason trades", "in"), ("Total trades", "tot")]:
+                    league_year[_tc] = [
+                        int(len(_league_trade_dates_split.get(int(y), {}).get(_bk, set()))) if pd.notna(y) else 0
                         for y in _yrs
                     ]
                 league_year["Highest starter score"] = [_star_hi_y.get(int(y)) if pd.notna(y) else None for y in _yrs]
                 league_year["Lowest starter score"] = [_star_lo_y.get(int(y)) if pd.notna(y) else None for y in _yrs]
+                # League range = highest − lowest starter (item-5 disambiguation).
+                league_year["Difference between highest and lowest starters"] = [
+                    (float(_star_hi_y[int(y)] - _star_lo_y[int(y)])
+                     if (pd.notna(y) and int(y) in _star_hi_y and int(y) in _star_lo_y) else None)
+                    for y in _yrs
+                ]
         except Exception as e:
             _log_exc(debug, "league_year_unique_extras", e)
 
@@ -9950,9 +10038,15 @@ def build_all(repo_root: Path) -> None:
             league_all["Number of rookies rostered"] = int(league_extra_all.get("Number of rookies rostered", 0))
             league_all["Player average age"] = float(pd.to_numeric(g_week.get("Player average age"), errors="coerce").mean())
             league_all["Team age including picks"] = float(pd.to_numeric(g_week.get("Team age including picks"), errors="coerce").mean())
-            league_all["Difference between highest and lowest starters"] = float(pd.to_numeric(g_week.get("Difference between highest and lowest starters"), errors="coerce").max())
+            # League "Difference between highest and lowest starters" = the
+            # league-wide RANGE (highest starter − lowest starter), so it
+            # reconciles with the Highest/Lowest starter score columns (Phase
+            # 5C item-5 disambiguation; was the max single-team spread).
             league_all["Highest starter score"] = _star_hi_all
             league_all["Lowest starter score"] = _star_lo_all
+            league_all["Difference between highest and lowest starters"] = (
+                float(_star_hi_all - _star_lo_all) if (_star_hi_all is not None and _star_lo_all is not None) else None
+            )
             league_all["Number of donuts"] = float(pd.to_numeric(g_week.get("Number of donuts"), errors="coerce").sum())
             league_all["Number of starting donuts"] = float(pd.to_numeric(g_week.get("Number of starter donuts"), errors="coerce").sum())
             league_all["Number of players under 10"] = float(pd.to_numeric(g_week.get("Number of players under 10"), errors="coerce").sum())
@@ -9967,7 +10061,11 @@ def build_all(repo_root: Path) -> None:
             league_all["Startup draft players remaining"] = float(pd.to_numeric(g_week.get("Startup draft players remaining"), errors="coerce").max())
             league_all["Amount of FAAB spent"] = float(pd.to_numeric(g_week.get("Amount of FAAB spent"), errors="coerce").fillna(0.0).sum())
             # Distinct trades all-time (Phase 5B item 1).
-            league_all["Number of trades"] = int(len(_trade_dates_all))
+            # Offseason / Inseason / Total trades all-time = sum across seasons
+            # (each trade lives in exactly one season).
+            league_all["Offseason trades"] = int(sum(len(v["off"]) for v in _league_trade_dates_split.values()))
+            league_all["Inseason trades"] = int(sum(len(v["in"]) for v in _league_trade_dates_split.values()))
+            league_all["Total trades"] = int(sum(len(v["tot"]) for v in _league_trade_dates_split.values()))
         except Exception as e:
             _log_exc(debug, "league_all_fill_extra", e)
 

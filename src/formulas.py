@@ -344,10 +344,10 @@ _ROWS = [
         "Notes": "The lowest can be negative (a started QB with a net-negative game).",
     },
     {
-        "Stat": "Number of trades (league sheets)",
-        "Sheet": "league_week / league_year / league_all_time",
-        "Formula": "Count of DISTINCT trade events (by trade timestamp) in the period — each trade counted once regardless of how many teams were involved.",
-        "Notes": "Replaces the old per-team sum, which double-counted 2-team trades and triple-counted 3-team trades. (Team sheets still credit each participating team.) Rookies started/rostered and 'Number of NFL teams among …' on league_year/all_time are likewise distinct-across-the-period, not weekly sums/maxes.",
+        "Stat": "Offseason / Inseason / Total trades",
+        "Sheet": "team_year / team_all_time / league_year / league_all_time",
+        "Formula": "DISTINCT trade events (by trade timestamp) the team / league was in: Offseason = dated before that season's kickoff (Sept 7); Inseason = on/after kickoff; Total = Offseason + Inseason. Year sheets are per season; all-time sheets sum across seasons (a trade lives in one season). Each trade counts once regardless of how many teams were involved.",
+        "Notes": "Replaces the single 'Number of trades' on the year/all-time sheets (which summed per team and multi-counted multi-team trades). The per-WEEK sheets keep 'Number of trades' — an offseason trade rolls into Week 1's weekly count only if within 7 days before kickoff. Rookies started/rostered and 'Number of NFL teams among …' on league_year/all_time are likewise distinct-across-the-period.",
     },
 ]
 
