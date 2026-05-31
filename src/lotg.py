@@ -275,13 +275,6 @@ def _calc_age(birth_date_str: Optional[str], on_date: date) -> Optional[float]:
         return None
 
 
-# How strongly yearly/all-time win% scales Luck. multiplier = (1 - B) + B*win%.
-# B=1.0 → raw ×win% (win% dominates and halves every team's luck); B=0.5 →
-# win% influence halved and centered nearer neutral, so big win% gaps don't
-# control the stat while worse records are still discounted vs better ones.
-# Tunable while Luck is workshopped further (see MASTER_TODO before Phase 5).
-_LUCK_WINPCT_BLEND = 0.5
-
 
 def _pick_expected_age(year_of_pick: int, on_date: date) -> Optional[float]:
     """Synthetic age of a not-yet-known rookie at a given date.
@@ -6729,85 +6722,101 @@ def build_all(repo_root: Path) -> None:
                 tw.loc[g.index[mask_b], "Brosenzweig"] = 1
                 tw.loc[g.index[mask_s], "Sisenzweig"] = 1
 
-        # Luck formula (Phase 2 rebuild — splits the hardship signal
-        # across raw Hardship and Starter-adjusted Hardship):
-        #   1/6 * (1 - Hardship             / lg_avg_Hardship)
-        # + 1/6 * (1 - Starter-adj Hardship / lg_avg_Starter-adj Hardship)
-        # + 1/4 * Win Variance
-        # - 1/10 * Brosenzweig
-        # + 1/3 * Efficiency
+        # ── Luck (the "G2" model; full derivation + scorecard in
+        #    plan/LUCK_REWORK.md). All inputs are existing team_week columns.
+        #
+        #  WeeklyLuck = (W_OUT·OUT + W_SIS·SIS − W_BROS·BROS)·POSTBOOST   # result surprise
+        #             + (W_OPP·OPP + W_OWN·OWN)·GATE                       # scoring variance, closeness-gated
+        #             − W_ADV·ADV + W_EFF·EFF + W_CLOSE·CLOSE
+        #  where
+        #    OUT   = Win − pregame_p   (pregame_p = logistic(1.5·blend of full-season
+        #            MaxPF/PF/win% diffs) — calibrated so winning-to-talent nets ~0,
+        #            which folds Win-Variance behaviour into Σweekly)
+        #    OPP   = z_wk(−(opp PF − opp season-avg PF))   own/opp scoring vs norm
+        #    OWN   = z_wk(PF − own season-avg PF)
+        #    ADV   = z_wk(Hardship + Starter-adj Hardship + 3·byes)  (always subtracted, heavy)
+        #    EFF   = z_wk(Efficiency)
+        #    CLOSE = sign(Margin)·max(0, 1−|Margin|/8)   nail-biter term
+        #    GATE  = 1/(1+|Margin|/15)   variance only "counts" if it swung a close game
+        #    POST  = championship-bracket week (Final/Semifinal/3rd Place)
+        #  Season / all-time Luck = Σ WeeklyLuck (no win% multiplier).
         try:
-            tw["Hardship"] = pd.to_numeric(tw.get("Hardship"), errors="coerce").fillna(0.0)
-            tw["Starter-adjusted Hardship"] = pd.to_numeric(tw.get("Starter-adjusted Hardship"), errors="coerce").fillna(0.0)
-            tw["Efficiency"] = pd.to_numeric(tw.get("Efficiency"), errors="coerce").fillna(0.0)
-            if "Win Variance" in tw.columns:
-                tw["Win Variance"] = pd.to_numeric(tw.get("Win Variance"), errors="coerce").fillna(0.0)
-            else:
-                tw["Win Variance"] = pd.to_numeric(tw.get("Luck"), errors="coerce").fillna(0.0)
-            tw["Brosenzweig"] = pd.to_numeric(tw.get("Brosenzweig"), errors="coerce").fillna(0.0)
+            L = tw.copy().reset_index(drop=True)
+            L["_PF"] = pd.to_numeric(L.get("PF"), errors="coerce")
+            L["_MAXPF"] = pd.to_numeric(L.get("Max PF"), errors="coerce")
+            L["_OPPPF"] = pd.to_numeric(L.get("Points against"), errors="coerce")
+            L["_MARGIN"] = pd.to_numeric(L.get("Margin"), errors="coerce").fillna(0.0)
+            L["_EFF"] = pd.to_numeric(L.get("Efficiency"), errors="coerce")
+            L["_HARD"] = pd.to_numeric(L.get("Hardship"), errors="coerce").fillna(0.0)
+            L["_SA"] = pd.to_numeric(L.get("Starter-adjusted Hardship"), errors="coerce").fillna(0.0)
+            L["_BYE"] = pd.to_numeric(L.get("Number of players on bye"), errors="coerce").fillna(0.0)
+            L["_BROS"] = pd.to_numeric(L.get("Brosenzweig"), errors="coerce").fillna(0.0)
+            L["_SIS"] = pd.to_numeric(L.get("Sisenzweig"), errors="coerce").fillna(0.0)
+            # Win? is 1/0/0.5 here; coerce, with a boolean/string fallback.
+            L["_WIN"] = pd.to_numeric(L.get("Win?"), errors="coerce")
+            if L["_WIN"].isna().all():
+                L["_WIN"] = L.get("Win?").astype(str).str.lower().map(
+                    {"true": 1.0, "false": 0.0, "1": 1.0, "0": 0.0, "0.5": 0.5}
+                )
+            _wn = L["Week Name"].astype(str) if "Week Name" in L.columns else pd.Series("", index=L.index)
+            L["_POST"] = _wn.isin(["Final", "Semifinal", "3rd Place"]).astype(float)
 
-            lg_hard = tw.groupby(["Year", "Week"])["Hardship"].transform("mean")
-            hardship_term = 1.0 - (tw["Hardship"] / lg_hard.replace(0, np.nan))
-            hardship_term = hardship_term.replace([np.inf, -np.inf], np.nan).fillna(1.0)
+            def _z_all(s):
+                s = pd.to_numeric(s, errors="coerce")
+                sd = s.std()
+                return (s - s.mean()) / (sd if sd and sd > 0 else 1.0)
 
-            lg_sa_hard = tw.groupby(["Year", "Week"])["Starter-adjusted Hardship"].transform("mean")
-            sa_hardship_term = 1.0 - (tw["Starter-adjusted Hardship"] / lg_sa_hard.replace(0, np.nan))
-            sa_hardship_term = sa_hardship_term.replace([np.inf, -np.inf], np.nan).fillna(1.0)
+            def _z_wk(s):
+                s = pd.to_numeric(pd.Series(s, index=L.index), errors="coerce")
+                m = s.groupby([L["Year"], L["Week"]]).transform("mean")
+                sd = s.groupby([L["Year"], L["Week"]]).transform("std").replace(0, np.nan)
+                return (((s - m) / sd).clip(-2.5, 2.5) / 2.5).fillna(0.0)
 
-            tw["Luck"] = (
-                (1.0/6.0) * hardship_term
-                + (1.0/6.0) * sa_hardship_term
-                + 0.25 * tw["Win Variance"]
-                - 0.1 * tw["Brosenzweig"]
-                + (1.0/3.0) * tw["Efficiency"]
+            _g = L.groupby(["Team", "Year"])
+            L["FS_pf"] = _g["_PF"].transform("mean")
+            L["FS_maxpf"] = _g["_MAXPF"].transform("mean")
+            L["FS_win"] = _g["_WIN"].transform("mean")
+
+            # opponent full-season values via (Year, Week, Team) lookup
+            _idx = {(L.at[i, "Year"], L.at[i, "Week"], str(L.at[i, "Team"])): i for i in L.index}
+            def _opp(col):
+                vals = []
+                for i in L.index:
+                    j = _idx.get((L.at[i, "Year"], L.at[i, "Week"], str(L.at[i, "Opponent"])))
+                    vals.append(L.at[j, col] if j is not None else np.nan)
+                return pd.Series(vals, index=L.index)
+            L["opp_FS_pf"] = _opp("FS_pf")
+            L["opp_FS_maxpf"] = _opp("FS_maxpf")
+            L["opp_FS_win"] = _opp("FS_win")
+
+            dblend = (
+                _z_all(L["FS_maxpf"] - L["opp_FS_maxpf"]).fillna(0.0)
+                + _z_all(L["FS_pf"] - L["opp_FS_pf"]).fillna(0.0)
+                + _z_all(L["FS_win"] - L["opp_FS_win"]).fillna(0.0)
+            ) / 3.0
+            pregame_p = 1.0 / (1.0 + np.exp(-1.5 * dblend))
+
+            OUT = L["_WIN"] - pregame_p
+            OPP = _z_wk(-(L["_OPPPF"] - L["opp_FS_pf"]))
+            OWN = _z_wk(L["_PF"] - L["FS_pf"])
+            ADV = _z_wk(L["_HARD"] + L["_SA"] + 3.0 * L["_BYE"])
+            EFF = _z_wk(L["_EFF"])
+            _mar = L["_MARGIN"]
+            CLOSE = np.sign(_mar) * np.maximum(0.0, 1.0 - _mar.abs() / 8.0)
+            GATE = 1.0 / (1.0 + _mar.abs() / 15.0)
+            postboost = np.where(L["_POST"] > 0, 1.8, 1.0)
+
+            luck = (
+                (0.27 * OUT + 0.14 * L["_SIS"] - 0.14 * L["_BROS"]) * postboost
+                + (0.36 * OPP + 0.10 * OWN) * GATE
+                - 0.36 * ADV
+                + 0.12 * EFF
+                + 0.16 * CLOSE
             )
-
-            # Weekly luck multipliers (user spec). Two factors:
-            #  1) (opponent's season-to-date avg PF) / (opponent's PF that week)
-            #     — weights a week where the opponent wildly over/under-performs
-            #     their own norm. Week 1 is left unscaled (no season-to-date
-            #     average exists yet).
-            #  2) (1.5 - opponent's efficiency that week) — rewards beating an
-            #     opponent who maxed out their lineup; applies every week.
-            twl = tw.copy()
-            twl["_PF_n"] = pd.to_numeric(twl.get("PF"), errors="coerce")
-            twl["_Week_n"] = pd.to_numeric(twl.get("Week"), errors="coerce")
-            twl["_Eff_n"] = pd.to_numeric(twl.get("Efficiency"), errors="coerce")
-            twl = twl.sort_values(["Team", "Year", "_Week_n"])
-            twl["_pf_ytd_avg"] = twl.groupby(["Team", "Year"])["_PF_n"].transform(
-                lambda s: s.expanding().mean()
-            )
-            opp_avg_ytd = {
-                (int(y), int(w), str(t)): (float(v) if pd.notna(v) else None)
-                for t, y, w, v in zip(twl["Team"], twl["Year"], twl["_Week_n"], twl["_pf_ytd_avg"])
-                if pd.notna(w)
-            }
-            opp_eff_wk = {
-                (int(y), int(w), str(t)): (float(v) if pd.notna(v) else None)
-                for t, y, w, v in zip(twl["Team"], twl["Year"], twl["_Week_n"], twl["_Eff_n"])
-                if pd.notna(w)
-            }
-
-            def _luck_mult(r) -> float:
-                wk = _to_int(r.get("Week"), None)
-                yr = _to_int(r.get("Year"), None)
-                opp = r.get("Opponent")
-                if not opp or yr is None or wk is None:
-                    return 1.0
-                mult = 1.0
-                # Factor 1: opponent over/under-performance vs their YTD avg.
-                opp_week_pf = _to_float(r.get("Points against"), None)
-                if wk > 1 and opp_week_pf not in (None, 0) and float(opp_week_pf) != 0.0:
-                    oa = opp_avg_ytd.get((int(yr), int(wk), str(opp)))
-                    if oa is not None:
-                        mult *= float(oa) / float(opp_week_pf)
-                # Factor 2: (1.5 - opponent efficiency), every week.
-                oe = opp_eff_wk.get((int(yr), int(wk), str(opp)))
-                if oe is not None:
-                    mult *= (1.5 - float(oe))
-                return mult
-
-            tw["Luck"] = pd.to_numeric(tw["Luck"], errors="coerce").fillna(0.0) * tw.apply(_luck_mult, axis=1)
+            # No opponent / no game → 0 luck.
+            _has_game = L["Opponent"].astype(str).str.strip().ne("") & L["opp_FS_pf"].notna()
+            luck = luck.where(_has_game, 0.0)
+            tw["Luck"] = pd.to_numeric(pd.Series(luck.values), errors="coerce").fillna(0.0).values
         except Exception as e:
             _log_exc(debug, "team_week_luck_formula", e)
 
@@ -8964,23 +8973,10 @@ def build_all(repo_root: Path) -> None:
         except Exception as e:
             _log_exc(debug, "team_year_aggregate_fill", e)
 
-        # Yearly luck scaled by win% — but BLENDED toward neutral so win%
-        # doesn't dominate the stat. Multiplier = (1 - B) + B * win%, with
-        # B = _LUCK_WINPCT_BLEND. At B=1 this is the raw ×win% (which both
-        # halved every team's luck and gave a .700 team 2.3× a .300 team's);
-        # at B=0.5 a .300 team is ×0.65 and a .700 team ×0.85 (spread ~1.3×),
-        # so better records still keep more of their luck and worse records
-        # are still discounted, without win% disparities controlling the value.
-        # Tunable while Luck is workshopped (see MASTER_TODO before Phase 5).
-        try:
-            if "Luck" in team_year.columns and "Win %" in team_year.columns:
-                _wy = pd.to_numeric(team_year["Win %"], errors="coerce").fillna(0.0)
-                team_year["Luck"] = (
-                    pd.to_numeric(team_year["Luck"], errors="coerce").fillna(0.0)
-                    * ((1.0 - _LUCK_WINPCT_BLEND) + _LUCK_WINPCT_BLEND * _wy)
-                )
-        except Exception as e:
-            _log_exc(debug, "team_year_luck_winpct", e)
+        # Yearly Luck = Σ of weekly Luck (the agg above). No win% multiplier:
+        # the weekly model's calibrated pregame-prob already nets out winning,
+        # so summing tracks Win-Variance-style over/under-achievement on its own
+        # (see plan/LUCK_REWORK.md).
 
         # Override cuff counts with UNIQUE player counts (item 9).
         try:
@@ -9290,19 +9286,8 @@ def build_all(repo_root: Path) -> None:
         except Exception as e:
             _log_exc(debug, "team_all_from_team_year", e)
 
-        # All-time luck scaled by all-time win%, same neutral blend as yearly
-        # (see _LUCK_WINPCT_BLEND). Sum of weekly luck (which already carries
-        # the per-week opponent multipliers) — not a sum of yearly luck, so the
-        # win% factor isn't doubled.
-        try:
-            if "Luck" in team_all.columns and "All time win %" in team_all.columns:
-                _wa = pd.to_numeric(team_all["All time win %"], errors="coerce").fillna(0.0)
-                team_all["Luck"] = (
-                    pd.to_numeric(team_all["Luck"], errors="coerce").fillna(0.0)
-                    * ((1.0 - _LUCK_WINPCT_BLEND) + _LUCK_WINPCT_BLEND * _wa)
-                )
-        except Exception as e:
-            _log_exc(debug, "team_all_luck_winpct", e)
+        # All-time Luck = Σ of all weekly Luck (no win% multiplier — see the
+        # team_year note above and plan/LUCK_REWORK.md).
 
         # Override cuff counts with UNIQUE player counts (item 9).
         try:
