@@ -72,8 +72,9 @@ When the results-based audit surfaces a bug, log it but continue to the diff swe
 - [x] team_all_time: add 4 columns: Highest Win % vs a team, [opponent team name], Lowest Win % vs a team, [opponent team name] — **4E**: "Highest/Lowest Win % vs a team" + "Team for highest/lowest Win %" (opponents actually played only). Injected just before the Win% group.
 - [ ] **3-part audit** (code / results / diff)
 
-## Phase 4.5 — Workshop Luck (before Phase 5)
-- [ ] Validate the full Luck formula end-to-end now that the win% multiplier is blended (`_LUCK_WINPCT_BLEND`, currently 0.5). Audit the distribution: confirm it isn't dominated by win% disparities, that losing teams don't accumulate excess luck, and that the weekly opponent multipliers ((opp YTD avg / opp this week) × (1.5 − opp eff)) behave sensibly at extremes (blowups, very low opponent scores). Tune the blend + per-term weights and re-confirm.
+## Phase 4.5 — Workshop Luck (before Phase 5) ✅
+- [x] Rebuilt Luck from scratch (the "G2" model — full derivation + 12-model experiment in `plan/LUCK_REWORK.md`). Weekly = result-surprise (outcome vs calibrated pregame talent + Bros/Sis, postseason-boosted) + closeness-gated scoring-variance (opp collapse / own pop) − heavy adversity + efficiency + nail-biter term. Season/all-time = plain SUM of weekly (no win% multiplier — calibrated pregame_p nets out winning). Retired the old multiplier-based formula + `_LUCK_WINPCT_BLEND`.
+  - Scorecard: winner>loser 0.88; corr(Σ,win%) +0.18 (winning≠lucky); corr(Σ,WinVar) +0.56; adversity strongly −; 2025 plehv-beats-champion = top outlier; AceMatthew 2024 = 6th unluckiest season; Bros/Sis at extremes; postseason 1.55×; small margins gated in. Weights are tunable constants in `team_week_luck_formula`.
 
 ## Phase 5 — League sheets
 - [ ] 🔍 # transactions formula trace + # trades (once per trade incl 3+team)
