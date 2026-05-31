@@ -337,6 +337,18 @@ _ROWS = [
         "Formula": "League-wide sum of team_week 'Number of starter donuts' (started players who scored exactly 0).",
         "Notes": "Companion to 'Number of donuts' (all rostered players). Starter-only version.",
     },
+    {
+        "Stat": "Highest / Lowest starter score",
+        "Sheet": "league_week / league_year / league_all_time",
+        "Formula": "Max / min single-starter fantasy score league-wide over the period (week / season / all-time). 'Difference between highest and lowest starters' is their gap.",
+        "Notes": "The lowest can be negative (a started QB with a net-negative game).",
+    },
+    {
+        "Stat": "Number of trades (league sheets)",
+        "Sheet": "league_week / league_year / league_all_time",
+        "Formula": "Count of DISTINCT trade events (by trade timestamp) in the period — each trade counted once regardless of how many teams were involved.",
+        "Notes": "Replaces the old per-team sum, which double-counted 2-team trades and triple-counted 3-team trades. (Team sheets still credit each participating team.) Rookies started/rostered and 'Number of NFL teams among …' on league_year/all_time are likewise distinct-across-the-period, not weekly sums/maxes.",
+    },
 ]
 
 
