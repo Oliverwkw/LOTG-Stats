@@ -5018,26 +5018,32 @@ def build_all(repo_root: Path) -> None:
                                     candidate_team_rows = [entry]
                                 elif entry["_wk_date"] == candidate_team_rows[0]["_wk_date"]:
                                     candidate_team_rows.append(entry)
-                    # Build the full roster for that week (all players,
-                    # not just the one we found above)
+                    # Item 11 (relaxed): the qualifying teammate need only have
+                    # been a STARTER at some point in the previous 3 weeks — the
+                    # pickup week and the two before it — not necessarily the
+                    # exact pickup week. Catches handcuffs added right after the
+                    # starter they back up goes down.
                     if candidate_team_rows:
-                        wk_date = candidate_team_rows[0]["_wk_date"]
                         yr = candidate_team_rows[0]["Year"]
                         wk = candidate_team_rows[0]["Week"]
-                        roster_that_week = pw_by_team_week.get((team, yr, wk), [])
-                        for mate in roster_that_week:
-                            if mate["Player"] == added:
+                        for _w in (wk, wk - 1, wk - 2):
+                            if _w is None or _w < 1:
                                 continue
-                            if mate["Starter/Bench"] != "Starter":
-                                continue
-                            if mate["NFL team"] != added_nfl:
-                                continue
-                            if mate["Position"] != added_pos:
-                                continue
-                            # Check mate's last-5 PPG > added's last-5 PPG + 10
-                            mate_avg = _avg_ppg_last5_before(mate["Player"], pickup_iso_prefix)
-                            if mate_avg is not None and (added_avg or 0.0) + 10 <= mate_avg:
-                                cuff = True
+                            for mate in pw_by_team_week.get((team, yr, _w), []):
+                                if mate["Player"] == added:
+                                    continue
+                                if mate["Starter/Bench"] != "Starter":
+                                    continue
+                                if mate["NFL team"] != added_nfl:
+                                    continue
+                                if mate["Position"] != added_pos:
+                                    continue
+                                # Check mate's last-5 PPG > added's last-5 PPG + 10
+                                mate_avg = _avg_ppg_last5_before(mate["Player"], pickup_iso_prefix)
+                                if mate_avg is not None and (added_avg or 0.0) + 10 <= mate_avg:
+                                    cuff = True
+                                    break
+                            if cuff:
                                 break
                 r["Cuff at time of pickup?"] = bool(cuff)
 
@@ -6480,9 +6486,19 @@ def build_all(repo_root: Path) -> None:
                     except Exception:
                         continue
 
+            # Two signals (item 10):
+            #  _cuff_rostered = the player is a handcuff this week — low scorer
+            #     (<10 avg) with a same-NFL-team/position teammate who is
+            #     injured/suspended and averages >10 PPG more. The injured
+            #     teammate does NOT need to have been a starter.
+            #  activated ("Activated Cuff?") = a rostered cuff who BECOMES A
+            #     STARTER this week (Starter/Bench == "Starter").
+            pw_c["_is_starter"] = pw_c.get("Starter/Bench", "").astype(str).str.lower() == "starter"
+            cuff_rostered: List[int] = [0] * len(pw_c)
             activated: List[int] = [0] * len(pw_c)
             if inj_max_by_group:
-                for i, row in pw_c.iterrows():
+                _starter_vals = pw_c["_is_starter"].tolist()
+                for pos_i, (i, row) in enumerate(pw_c.iterrows()):
                     my_avg = row["_avg"]
                     if pd.isna(my_avg) or my_avg >= 10.0:
                         continue
@@ -6497,10 +6513,63 @@ def build_all(repo_root: Path) -> None:
                         continue
                     best = inj_max_by_group.get((yr, wk, nt, ps))
                     if best is not None and best > float(my_avg) + 10.0:
-                        activated[i] = 1
-            pw[cuff_col] = activated
+                        cuff_rostered[pos_i] = 1
+                        if bool(_starter_vals[pos_i]):
+                            activated[pos_i] = 1
+            pw["_cuff_rostered_flag"] = cuff_rostered
+            pw[cuff_col] = activated  # "Activated Cuff?" now requires starting
         except Exception as e:
             _log_exc(debug, "cuff_detection", e)
+
+    # Unique cuff player counts (item 9): "Number of cuffs rostered/started"
+    # at the year / all-time levels count DISTINCT players, not player-weeks.
+    # Built here (after cuff detection) and applied as overrides when each
+    # sheet is assembled below.
+    def _build_unique_cuff_counts(pw_df: pd.DataFrame, group_cols: List[str]) -> Dict[Tuple, Dict[str, int]]:
+        out: Dict[Tuple, Dict[str, int]] = {}
+        _cuff_col = (
+            "- Activated Cuff? (Was a player of the same nfl team/position "
+            "& who averages >10 PPG more over last 5 played games injured? "
+            "Only for players with avg <10 PPG)"
+        )
+        if pw_df.empty or "Player ID" not in pw_df.columns:
+            return out
+        df = pw_df[pw_df["Player ID"].notna()].copy()
+        df["_ros"] = pd.to_numeric(df.get("_cuff_rostered_flag"), errors="coerce").fillna(0.0) > 0
+        df["_act"] = pd.to_numeric(df.get(_cuff_col), errors="coerce").fillna(0.0) > 0
+        for col in group_cols:
+            if col == "Year":
+                df[col] = pd.to_numeric(df[col], errors="coerce").astype("Int64").map(
+                    lambda x: int(x) if pd.notna(x) else None
+                )
+            elif col == "Team":
+                df[col] = df[col].astype(str)
+            else:
+                df[col] = df[col].astype(object)
+        df = df.dropna(subset=group_cols)
+        ros = df[df["_ros"]].groupby(group_cols)["Player ID"].nunique()
+        for key, val in ros.items():
+            k = key if isinstance(key, tuple) else (key,)
+            out.setdefault(k, {})["Number of cuffs rostered"] = int(val)
+        act = df[df["_act"]].groupby(group_cols)["Player ID"].nunique()
+        for key, val in act.items():
+            k = key if isinstance(key, tuple) else (key,)
+            out.setdefault(k, {})["Number of cuffs started"] = int(val)
+        return out
+
+    unique_cuffs_by_team_year: Dict[Tuple, Dict[str, int]] = {}
+    unique_cuffs_by_team_all: Dict[Tuple, Dict[str, int]] = {}
+    unique_cuffs_by_year: Dict[Tuple, Dict[str, int]] = {}
+    unique_cuffs_league_all: Dict[str, int] = {}
+    if not pw.empty:
+        try:
+            unique_cuffs_by_team_year = _build_unique_cuff_counts(pw, ["Team", "Year"])
+            unique_cuffs_by_team_all = _build_unique_cuff_counts(pw, ["Team"])
+            unique_cuffs_by_year = _build_unique_cuff_counts(pw, ["Year"])
+            _allc = _build_unique_cuff_counts(pw.assign(_all="all"), ["_all"])
+            unique_cuffs_league_all = _allc.get(("all",), {})
+        except Exception as e:
+            _log_exc(debug, "unique_cuff_counts", e)
 
     # --------------------------
     # Recompute team-week injury/susp/bye counts and hardship from player-week
@@ -6710,12 +6779,17 @@ def build_all(repo_root: Path) -> None:
                 "Only for players with avg <10 PPG)"
             )
             if (not pw.empty) and (cuff_col in pw.columns):
-                pw_c = pw[["Team","Year","Week",cuff_col,"Starter/Bench"]].copy()
+                # "Number of cuffs rostered" counts handcuffs on the roster
+                # (_cuff_rostered_flag); "Number of cuffs started" counts the
+                # activated cuffs (cuff_col, which already requires starting).
+                _ros_col = "_cuff_rostered_flag" if "_cuff_rostered_flag" in pw.columns else cuff_col
+                pw_c = pw[["Team","Year","Week",cuff_col,_ros_col]].copy()
                 pw_c[cuff_col] = pd.to_numeric(pw_c[cuff_col], errors="coerce").fillna(0.0)
+                pw_c[_ros_col] = pd.to_numeric(pw_c[_ros_col], errors="coerce").fillna(0.0)
                 agg_c = pw_c.groupby(["Team","Year","Week"], as_index=False).agg(
                     **{
-                        "Number of cuffs rostered": (cuff_col, "sum"),
-                        "Number of cuffs started": (cuff_col, lambda s: float(s[pw_c.loc[s.index,"Starter/Bench"]=="Starter"].sum()) if len(s) else 0.0),
+                        "Number of cuffs rostered": (_ros_col, "sum"),
+                        "Number of cuffs started": (cuff_col, "sum"),
                     }
                 )
                 # Drop any pre-existing cuff cols before merge so the aggregated
@@ -8858,6 +8932,19 @@ def build_all(repo_root: Path) -> None:
         except Exception as e:
             _log_exc(debug, "team_year_luck_winpct", e)
 
+        # Override cuff counts with UNIQUE player counts (item 9).
+        try:
+            if not team_year.empty and unique_cuffs_by_team_year:
+                for _col in ["Number of cuffs rostered", "Number of cuffs started"]:
+                    if _col in team_year.columns:
+                        team_year[_col] = [
+                            int(unique_cuffs_by_team_year.get((str(t), int(y)), {}).get(_col, 0))
+                            if pd.notna(y) else 0
+                            for t, y in zip(team_year["Team"], pd.to_numeric(team_year["Year"], errors="coerce"))
+                        ]
+        except Exception as e:
+            _log_exc(debug, "team_year_unique_cuffs", e)
+
 
         # Result + vs-category records (rebuilt using normalized games)
         try:
@@ -9151,6 +9238,18 @@ def build_all(repo_root: Path) -> None:
                 )
         except Exception as e:
             _log_exc(debug, "team_all_luck_winpct", e)
+
+        # Override cuff counts with UNIQUE player counts (item 9).
+        try:
+            if not team_all.empty and unique_cuffs_by_team_all:
+                for _col in ["Number of cuffs rostered", "Number of cuffs started"]:
+                    if _col in team_all.columns:
+                        team_all[_col] = [
+                            int(unique_cuffs_by_team_all.get((str(t),), {}).get(_col, 0))
+                            for t in team_all["Team"]
+                        ]
+        except Exception as e:
+            _log_exc(debug, "team_all_unique_cuffs", e)
 
         # Top-up rollup: trades / transactions / FAAB from preseason seasons
         # that didn't produce a team_year row (e.g. 2026 before NFL Week 1).
@@ -9608,6 +9707,18 @@ def build_all(repo_root: Path) -> None:
         except Exception as e:
             _log_exc(debug, "league_year_team_year_rollup", e)
 
+        # UNIQUE cuff players league-wide per year (item 9), overriding the sum.
+        try:
+            if not league_year.empty and unique_cuffs_by_year and "Year" in league_year.columns:
+                for _col in ["Number of cuffs rostered", "Number of cuffs started"]:
+                    if _col in league_year.columns:
+                        league_year[_col] = [
+                            int(unique_cuffs_by_year.get((int(y),), {}).get(_col, 0)) if pd.notna(y) else 0
+                            for y in pd.to_numeric(league_year["Year"], errors="coerce")
+                        ]
+        except Exception as e:
+            _log_exc(debug, "league_year_unique_cuffs", e)
+
         league_all = pd.DataFrame([{
             "PF": float(pd.to_numeric(g_week["PF"], errors="coerce").fillna(0.0).sum()),
             "Avg PF": float(pd.to_numeric(g_week["PF"], errors="coerce").fillna(0.0).mean()),
@@ -9666,8 +9777,10 @@ def build_all(repo_root: Path) -> None:
             league_all["Number of players over 30"] = float(pd.to_numeric(g_week.get("Number of players over 30"), errors="coerce").sum())
             league_all["Number of players over 40"] = float(pd.to_numeric(g_week.get("Number of players over 40"), errors="coerce").sum())
             league_all["Number of players over 50"] = float(pd.to_numeric(g_week.get("Number of players over 50"), errors="coerce").sum())
-            league_all["Number of cuffs rostered"] = float(pd.to_numeric(g_week.get("Number of cuffs rostered"), errors="coerce").sum())
-            league_all["Number of cuffs started"] = float(pd.to_numeric(g_week.get("Number of cuffs started"), errors="coerce").sum())
+            # UNIQUE cuff players league-wide all-time (item 9), overriding the
+            # player-week sum.
+            league_all["Number of cuffs rostered"] = int(unique_cuffs_league_all.get("Number of cuffs rostered", 0))
+            league_all["Number of cuffs started"] = int(unique_cuffs_league_all.get("Number of cuffs started", 0))
             league_all["Startup draft players remaining"] = float(pd.to_numeric(g_week.get("Startup draft players remaining"), errors="coerce").max())
             league_all["Amount of FAAB spent"] = float(pd.to_numeric(g_week.get("Amount of FAAB spent"), errors="coerce").fillna(0.0).sum())
         except Exception as e:

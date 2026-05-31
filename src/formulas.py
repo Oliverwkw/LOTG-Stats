@@ -90,8 +90,8 @@ _ROWS = [
     {
         "Stat": "Cuff at time of pickup?",
         "Sheet": "transactions",
-        "Formula": "True if the picking team's roster at the pickup week contains another STARTER who: (1) plays the same NFL team, (2) plays the same NFL position, (3) averaged at least 10 PPG more than the added player over the last 5 played games.",
-        "Notes": "Handcuff detection. Roster snapshot uses player_week rows for that (team, year, week). 35 True rows across the dataset to date.",
+        "Formula": "True if, in any of the previous 3 weeks (the pickup week and the two before it), the picking team rostered another player who was a STARTER and: (1) plays the same NFL team, (2) plays the same NFL position, (3) averaged at least 10 PPG more than the added player over the last 5 played games.",
+        "Notes": "Handcuff detection. Relaxed from the pickup week only to a 3-week starter window so a cuff added right after the starter goes down still registers.",
     },
     {
         "Stat": "Weeks between pickup and start",
@@ -279,8 +279,8 @@ _ROWS = [
     {
         "Stat": "Activated Cuff?",
         "Sheet": "player_week",
-        "Formula": "True if a STARTING player on the same NFL team and same position with last-5-game avg ≥ 10 PPG higher than this player was INJURED in this week. Only computed for players whose own last-5 avg is < 10.",
-        "Notes": "Distinct from 'Cuff at time of pickup' — that's static at pickup; this fires each week the cuff window activates.",
+        "Formula": "True if this player STARTED this week AND is a handcuff that week: their own last-5 avg is < 10, and a same-NFL-team/same-position teammate who averages ≥ 10 PPG more (over last 5 played games) is injured/suspended. The injured teammate does NOT need to have been a starter.",
+        "Notes": "Item 10: an 'activated' cuff is one that BECOMES A STARTER. The broader 'rostered handcuff' condition (same logic without the start requirement) drives team_*.'Number of cuffs rostered'; this started version drives 'Number of cuffs started'. team_year/all_time + league_year/all_time count DISTINCT cuff players, not player-weeks.",
     },
     {
         "Stat": "Difference from best startable bench",
