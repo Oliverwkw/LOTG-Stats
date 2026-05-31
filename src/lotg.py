@@ -759,7 +759,7 @@ def _preserve_na(col: str) -> bool:
     # from 'won by zero' so don't collapse to 0.0.
     if col_l in {
         "faab difference over second place",
-        "faab % difference over second place",
+        "faab premium %",
     }:
         return True
     # Win % vs / Record vs <team>: blank means "no games played against
@@ -3663,11 +3663,16 @@ def build_all(repo_root: Path) -> None:
                             if competing:
                                 second = max(competing)
                                 row_faab_diff_2nd = round(winner_bid_val - second, 2)
-                                if second > 0:
-                                    row_faab_pct_2nd = round((winner_bid_val - second) / second * 100.0, 2)
-                                # If second == 0 the percentage is
-                                # undefined; leave % blank but still
-                                # surface the absolute difference.
+                                # FAAB premium % (Phase 6A): the winning bid's
+                                # margin over the runner-up as a share of the
+                                # WINNING bid — normalized by bid size so it's
+                                # comparable across big and small auctions
+                                # ($50 over $40 reads the same 20% as $5 over
+                                # $4). Bounded 0–100; defined whenever the
+                                # winning bid > 0 (premium = 100% vs a $0
+                                # runner-up).
+                                if winner_bid_val > 0:
+                                    row_faab_pct_2nd = round((winner_bid_val - second) / winner_bid_val * 100.0, 2)
 
                         # FAAB column semantics (user spec / audit fix):
                         # - 2021 and earlier: league had no FAAB; ALL faab
@@ -3697,7 +3702,7 @@ def build_all(repo_root: Path) -> None:
                             "Faab": _faab_emit,
                             "Total FAAB bid": _total_faab_emit,
                             "FAAB difference over second place": _faab_diff_emit,
-                            "FAAB % difference over second place": _faab_pct_emit,
+                            "FAAB premium %": _faab_pct_emit,
                             "Date": created_dt.isoformat() if created_dt else (str(created_date) if created_date else None),
                             "Season": int(season),
                             # Internal-only sleeper IDs for the KTC pass.
@@ -3768,7 +3773,7 @@ def build_all(repo_root: Path) -> None:
                                         "Faab": None,
                                         "Total FAAB bid": None,
                                         "FAAB difference over second place": None,
-                                        "FAAB % difference over second place": None,
+                                        "FAAB premium %": None,
                                         "Date": drop_dt,
                                         "Season": int(season),
                                         "_added_pid": None,
@@ -4548,7 +4553,7 @@ def build_all(repo_root: Path) -> None:
                     "Faab": _to_float(mrow.get("Faab"), None),
                     "Total FAAB bid": _to_float(mrow.get("Total FAAB bid"), None),
                     "FAAB difference over second place": None,
-                    "FAAB % difference over second place": None,
+                    "FAAB premium %": None,
                     "Date": str(mrow.get("Date")),
                     "Season": int(mrow.get("Season")) if pd.notna(mrow.get("Season")) else None,
                     "_added_pid": added_pid,

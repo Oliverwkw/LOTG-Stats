@@ -40,10 +40,10 @@ _ROWS = [
         "Notes": "Bids strictly greater than the winning bid are excluded — they were invalidated (roster full, insufficient FAAB) and don't represent real competition. N/A for uncontested waivers.",
     },
     {
-        "Stat": "FAAB % difference over second place",
+        "Stat": "FAAB premium %",
         "Sheet": "transactions",
-        "Formula": "(winning_bid − runner_up) / runner_up × 100.",
-        "Notes": "Blank when runner-up bid was 0 (undefined / div-by-zero) or there was no valid runner-up.",
+        "Formula": "(winning_bid − runner_up) / winning_bid × 100.",
+        "Notes": "How much of the winning bid was a premium over the runner-up, normalized by bid size so it's comparable across big and small auctions (a $50-over-$40 win = the same 20% as $5-over-$4). Bounded 0–100; 100 vs a $0 runner-up. Blank only when there was no valid runner-up. Replaces the old 'FAAB % difference over second place' (which divided by the runner-up and blew up / was undefined for small or $0 runner-ups).",
     },
     {
         "Stat": "Number of bids",
