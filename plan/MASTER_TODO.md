@@ -72,6 +72,9 @@ When the results-based audit surfaces a bug, log it but continue to the diff swe
 - [ ] team_all_time: add 4 columns: Highest Win % vs a team, [opponent team name], Lowest Win % vs a team, [opponent team name]
 - [ ] **3-part audit** (code / results / diff)
 
+## Phase 4.5 — Workshop Luck (before Phase 5)
+- [ ] Validate the full Luck formula end-to-end now that the win% multiplier is blended (`_LUCK_WINPCT_BLEND`, currently 0.5). Audit the distribution: confirm it isn't dominated by win% disparities, that losing teams don't accumulate excess luck, and that the weekly opponent multipliers ((opp YTD avg / opp this week) × (1.5 − opp eff)) behave sensibly at extremes (blowups, very low opponent scores). Tune the blend + per-term weights and re-confirm.
+
 ## Phase 5 — League sheets
 - [ ] 🔍 # transactions formula trace + # trades (once per trade incl 3+team)
 - [ ] Position/NFL team/players rostered+started: league-wide unique; all-time/yearly = "most"
