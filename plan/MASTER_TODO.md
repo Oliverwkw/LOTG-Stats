@@ -77,15 +77,17 @@ When the results-based audit surfaces a bug, log it but continue to the diff swe
   - Scorecard: winner>loser 0.88; corr(Σ,win%) +0.18 (winning≠lucky); corr(Σ,WinVar) +0.56; adversity strongly −; 2025 plehv-beats-champion = top outlier; AceMatthew 2024 = 6th unluckiest season; Bros/Sis at extremes; postseason 1.55×; small margins gated in. Weights are tunable constants in `team_week_luck_formula`.
 
 ## Phase 5 — League sheets
-- [ ] 🔍 # transactions formula trace + # trades (once per trade incl 3+team)
-- [ ] Position/NFL team/players rostered+started: league-wide unique; all-time/yearly = "most"
-- [ ] Number of starting donuts column
-- [ ] Weekly starter turnover = league total (not average)
-- [ ] All-time/yearly "highest/lowest starters" disambiguate
-- [ ] 🔍 league_week col O + league_year col S (UPST duplicate?)
-- [ ] 🔍 league_all_time "increase in points from previous week" — define or remove
-- [ ] 🔍 2022 wk 16-17 only 7 TEs started
-- [ ] Weekly trades: offseason in wk-1 rollup only if within 7 days prior to Wk 1
+**Sub-PR plan:** 5A schema/simple fixes (3,4,6,7,8) · 5B count semantics + hi/lo starters + trade window (1,2,5,9).
+
+- [ ] 🔍 # transactions formula trace + # trades (once per trade incl 3+team) — **5B**
+- [ ] Position/NFL team/players rostered+started: league-wide unique; all-time/yearly = "most" — **5B** (decided: unique across the period)
+- [x] Number of starting donuts column — **5A**: added to league_week/year/all_time (sum of team_week "Number of starter donuts").
+- [x] Weekly starter turnover = league total (not average) — **5A**: league_week now SUMs team turnover (was mean).
+- [ ] All-time/yearly "highest/lowest starters" disambiguate — **5B** (decided: add explicit Highest/Lowest starter score columns)
+- [x] 🔍 league_week col O + league_year col S (UPST duplicate?) — **5A**: confirmed `UPST` == `Number of wins with pregame avg max PF from opponent`; dropped the descriptive duplicate, standardized on `UPST` across league_week/year/all_time.
+- [x] 🔍 league_all_time "increase in points from previous week" — define or remove — **5A**: removed from league_all_time (week-over-week delta is meaningless all-time); kept on league_week/year.
+- [x] 🔍 2022 wk 16-17 only 7 TEs started — **5A verified**: legit — toilet-bracket teams that didn't set a full lineup (plehv79 scored 45.4 in 2022 Toilet Semis, JacobRosenzweig in Toilet Trash). Not a rollup bug.
+- [ ] Weekly trades: offseason in wk-1 rollup only if within 7 days prior to Wk 1 — **5B**
 - [ ] **3-part audit** (code / results / diff)
 
 ## Phase 6 — Transactions

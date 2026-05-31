@@ -327,9 +327,15 @@ _ROWS = [
     },
     {
         "Stat": "UPST",
-        "Sheet": "league_week",
-        "Formula": "Count of matchups where the lower-PF-percentile team beat the higher-PF-percentile team.",
-        "Notes": "Aggregate 'upsets' for the week.",
+        "Sheet": "team_week / league_week / league_year / league_all_time",
+        "Formula": "team_week: 1 if the team won while its pregame avg Max PF was below the opponent's (an upset win). League sheets sum those flags (week = upsets that week; year/all-time = total upsets).",
+        "Notes": "Formerly duplicated on the league sheets as 'Number of wins with pregame avg max PF from opponent' — that redundant column was removed; UPST is the single source.",
+    },
+    {
+        "Stat": "Number of starting donuts",
+        "Sheet": "league_week / league_year / league_all_time",
+        "Formula": "League-wide sum of team_week 'Number of starter donuts' (started players who scored exactly 0).",
+        "Notes": "Companion to 'Number of donuts' (all rostered players). Starter-only version.",
     },
 ]
 
