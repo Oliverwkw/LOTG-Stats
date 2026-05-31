@@ -9573,8 +9573,9 @@ def build_all(repo_root: Path) -> None:
                 "Number of Injuries": int(pd.to_numeric(g.get("Number of Injuries"), errors="coerce").fillna(0.0).sum()),
                 "Number of suspensions": int(pd.to_numeric(g.get("Number of suspensions"), errors="coerce").fillna(0.0).sum()),
                 "Number of players on bye": int(pd.to_numeric(g.get("Number of players on bye"), errors="coerce").fillna(0.0).sum()),
-                "Starter turnover from previous week": float(pd.to_numeric(g.get("Starter turnover from previous week"), errors="coerce").fillna(0.0).mean()),
-                "Number of wins with pregame avg max PF from opponent": int(pd.to_numeric(g.get("UPST"), errors="coerce").fillna(0.0).sum()),
+                # League weekly starter turnover = league-wide TOTAL (sum of
+                # every team's turnover that week), not the average.
+                "Starter turnover from previous week": float(pd.to_numeric(g.get("Starter turnover from previous week"), errors="coerce").fillna(0.0).sum()),
                 "UPST": int(pd.to_numeric(g.get("UPST"), errors="coerce").fillna(0.0).sum()),
                 "Hardship": float(pd.to_numeric(g.get("Hardship"), errors="coerce").fillna(0.0).sum()),
                 "Starter-adjusted Hardship": round(float(pd.to_numeric(g.get("Starter-adjusted Hardship"), errors="coerce").fillna(0.0).sum()), 4),
@@ -9628,6 +9629,7 @@ def build_all(repo_root: Path) -> None:
                     "Team age including picks": ("Team age including picks", "mean"),
                     "Difference between highest and lowest starters": ("Difference between highest and lowest starters", "max"),
                     "Number of donuts": ("Number of donuts", "sum"),
+                    "Number of starting donuts": ("Number of starter donuts", "sum"),
                     "Number of players under 10": ("Number of players under 10", "sum"),
                     "Number of players over 20": ("Number of players over 20", "sum"),
                     "Number of players over 30": ("Number of players over 30", "sum"),
@@ -9670,7 +9672,7 @@ def build_all(repo_root: Path) -> None:
                 "Offseason starter turnover": 0,  # filled from team_year below
                 "Inseason roster turnover": 0,    # filled from team_year below
                 "Offseason roster turnover": 0,   # filled from team_year below
-                "Number of wins with pregame avg max PF from opponent": int(pd.to_numeric(g.get("UPST"), errors="coerce").fillna(0.0).sum()),
+                "UPST": int(pd.to_numeric(g.get("UPST"), errors="coerce").fillna(0.0).sum()),
                 # League-year Tanking = mean of weekly league Tanking.
                 "Tanking": float(pd.to_numeric(g.get("Tanking"), errors="coerce").dropna().mean() or 0.0),
                 "Luck": float(pd.to_numeric(g.get("Luck"), errors="coerce").fillna(0.0).sum()),
@@ -9708,6 +9710,7 @@ def build_all(repo_root: Path) -> None:
                     "Team age including picks": ("Team age including picks", "mean"),
                     "Difference between highest and lowest starters": ("Difference between highest and lowest starters", "max"),
                     "Number of donuts": ("Number of donuts", "sum"),
+                    "Number of starting donuts": ("Number of starter donuts", "sum"),
                     "Number of players under 10": ("Number of players under 10", "sum"),
                     "Number of players over 20": ("Number of players over 20", "sum"),
                     "Number of players over 30": ("Number of players over 30", "sum"),
@@ -9782,11 +9785,10 @@ def build_all(repo_root: Path) -> None:
             "Efficiency": float(pd.to_numeric(g_week["Efficiency"], errors="coerce").dropna().mean()) if g_week["Efficiency"].notna().any() else None,
             "Number of weeks missed due to injury": int(pd.to_numeric(g_week.get("Number of Injuries"), errors="coerce").fillna(0.0).sum()),
             "Number of weeks missed due to suspensions": int(pd.to_numeric(g_week.get("Number of suspensions"), errors="coerce").fillna(0.0).sum()),
-            "Number of wins with pregame avg max PF from opponent": int(pd.to_numeric(g_week.get("UPST"), errors="coerce").fillna(0.0).sum()),
+            "UPST": int(pd.to_numeric(g_week.get("UPST"), errors="coerce").fillna(0.0).sum()),
             # League-all-time Tanking = mean across all weeks.
             "Tanking": float(pd.to_numeric(g_week.get("Tanking"), errors="coerce").dropna().mean() or 0.0),
             "Luck": float(pd.to_numeric(g_week.get("Luck"), errors="coerce").fillna(0.0).sum()),
-            "Increase in points from previous week": float(pd.to_numeric(g_week.get("Increase in points from previous week"), errors="coerce").fillna(0.0).sum()),
             # Unique-player position counts (Phase 1B, item 5): distinct
             # players started / rostered league-wide across all years.
             **{
@@ -9822,6 +9824,7 @@ def build_all(repo_root: Path) -> None:
             league_all["Team age including picks"] = float(pd.to_numeric(g_week.get("Team age including picks"), errors="coerce").mean())
             league_all["Difference between highest and lowest starters"] = float(pd.to_numeric(g_week.get("Difference between highest and lowest starters"), errors="coerce").max())
             league_all["Number of donuts"] = float(pd.to_numeric(g_week.get("Number of donuts"), errors="coerce").sum())
+            league_all["Number of starting donuts"] = float(pd.to_numeric(g_week.get("Number of starter donuts"), errors="coerce").sum())
             league_all["Number of players under 10"] = float(pd.to_numeric(g_week.get("Number of players under 10"), errors="coerce").sum())
             league_all["Number of players over 20"] = float(pd.to_numeric(g_week.get("Number of players over 20"), errors="coerce").sum())
             league_all["Number of players over 30"] = float(pd.to_numeric(g_week.get("Number of players over 30"), errors="coerce").sum())
