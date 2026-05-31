@@ -320,6 +320,12 @@ _ROWS = [
         "Notes": "Negative when a team finishes better than their PF / Max PF percentile would predict (over-performance via luck or close-game wins).",
     },
     {
+        "Stat": "Highest / Lowest Win % vs a team",
+        "Sheet": "team_all_time",
+        "Formula": "Across all individual opponents this team has actually played (≥1 all-time game), the max / min of 'Win % vs <opponent>'. 'Team for highest/lowest Win %' holds the matching opponent handle.",
+        "Notes": "Opponents never played are excluded so 'lowest' isn't trivially 0. On team_all_time the per-opponent vs-columns are regrouped — all 'Win % vs …' together, then all 'Record vs …' together.",
+    },
+    {
         "Stat": "UPST",
         "Sheet": "league_week",
         "Formula": "Count of matchups where the lower-PF-percentile team beat the higher-PF-percentile team.",
