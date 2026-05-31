@@ -762,6 +762,10 @@ def _preserve_na(col: str) -> bool:
         "faab premium %",
     }:
         return True
+    # 'Number of times dropped by this team' is blank on a transaction row that
+    # didn't drop anyone (a pure pickup) — N/A, not 0.
+    if col_l == "number of times dropped by this team":
+        return True
     # Win % vs / Record vs <team>: blank means "no games played against
     # this opponent" — typically self-vs-self in team_year / team_all_time.
     # Surface as N/A so it's not confused with '0-0-0 record / 0% win'
@@ -4725,16 +4729,51 @@ def build_all(repo_root: Path) -> None:
             # per-week fetch loop, so transactions_rows are already deduped
             # by the time we get here.)
 
-            # 1) Number of times picked up by this team
-            pickup_count: Dict[Tuple[str, str], int] = defaultdict(int)
+            # 1) Number of times picked up / dropped by this team (Phase 6C).
+            #    Both now INCLUDE trades: a player received in a trade counts as
+            #    a pickup, a player traded away counts as a drop. We interleave
+            #    transaction adds/drops with trade in/out events chronologically
+            #    so the running count emitted on a transaction row reflects every
+            #    prior acquisition/departure (incl. trades) of that player.
+            def _split_assets(_s):
+                for _a in str(_s or "").split(";"):
+                    _a = _a.strip()
+                    if _a and _a not in ("0.0", "None", "N/A") and not re.match(r"^\d{4}\b", _a):
+                        yield _a
+
+            acq_events = []  # (date, team, player, row_or_None)
+            drop_events = []
             for r in transactions_rows:
-                name = r.get("Player Added")
                 team = r.get("Team")
-                if not name or not team:
+                if not team:
                     continue
-                key = (str(team), str(name))
-                pickup_count[key] += 1
-                r["Number of times picked up by this team"] = pickup_count[key]
+                d = str(r.get("Date") or "")
+                add = r.get("Player Added")
+                if add and str(add) != "N/A":
+                    acq_events.append((d, str(team), str(add), r))
+                dropped = r.get("Player Dropped")
+                if dropped and str(dropped) != "N/A":
+                    drop_events.append((d, str(team), str(dropped), r))
+            for tr_row in trades_rows:
+                team = tr_row.get("Team")
+                if not team:
+                    continue
+                d = str(tr_row.get("Date") or "")
+                for asset in _split_assets(tr_row.get("Assets received")):
+                    acq_events.append((d, str(team), asset, None))
+                for asset in _split_assets(tr_row.get("Assets sent")):
+                    drop_events.append((d, str(team), asset, None))
+
+            pickup_count: Dict[Tuple[str, str], int] = defaultdict(int)
+            for d, team, player, row in sorted(acq_events, key=lambda e: e[0]):
+                pickup_count[(team, player)] += 1
+                if row is not None:
+                    row["Number of times picked up by this team"] = pickup_count[(team, player)]
+            drop_count: Dict[Tuple[str, str], int] = defaultdict(int)
+            for d, team, player, row in sorted(drop_events, key=lambda e: e[0]):
+                drop_count[(team, player)] += 1
+                if row is not None:
+                    row["Number of times dropped by this team"] = drop_count[(team, player)]
 
             # 2) Build per-(team, player) event log to find next drop/trade-out.
             # NOTE: don't name a local 'date' here — that would shadow the
