@@ -547,15 +547,47 @@ def _ensure_plan_columns(df: pd.DataFrame, cols: List[str]) -> pd.DataFrame:
     return df[cols]
 
 
-def _append_team_vs_columns(frame: pd.DataFrame, cols: List[str]) -> List[str]:
+TEAM_VS_EXTREME_COLS = [
+    "Highest Win % vs a team",
+    "Team for highest Win %",
+    "Lowest Win % vs a team",
+    "Team for lowest Win %",
+]
+
+
+def _append_team_vs_columns(frame: pd.DataFrame, cols: List[str], plan_key: str = "team-year") -> List[str]:
     if frame.empty or "Team" not in frame.columns:
         return cols
     teams = sorted(frame["Team"].dropna().astype(str).unique().tolist())
-    extra = []
-    for team in teams:
-        extra.append(f"Record vs {team}")
-        extra.append(f"Win % vs {team}")
-    return cols + [c for c in extra if c not in cols]
+
+    if plan_key != "team-all-time":
+        # team-year: legacy interleaved layout (Record vs T, Win % vs T, ...).
+        extra: List[str] = []
+        for team in teams:
+            extra.append(f"Record vs {team}")
+            extra.append(f"Win % vs {team}")
+        return cols + [c for c in extra if c not in cols]
+
+    # team-all-time (item 12): regroup ALL vs-columns by stat type — every
+    # "Win % vs ..." together, then every "Record vs ..." together (fixed
+    # buckets like playoff/champions first, then per-team alphabetical). The 4
+    # highest/lowest extreme columns (item 13) sit just before the Win % group.
+    def _dedup(seq: List[str]) -> List[str]:
+        seen: set = set()
+        out: List[str] = []
+        for x in seq:
+            if x not in seen:
+                seen.add(x)
+                out.append(x)
+        return out
+
+    _is_vs = lambda c: c.startswith("Win % vs ") or c.startswith("Record vs ")
+    base = [c for c in cols if not _is_vs(c) and c not in TEAM_VS_EXTREME_COLS]
+    fixed_win = [c for c in cols if c.startswith("Win % vs ")]
+    fixed_rec = [c for c in cols if c.startswith("Record vs ")]
+    win_group = _dedup(fixed_win + [f"Win % vs {t}" for t in teams])
+    rec_group = _dedup(fixed_rec + [f"Record vs {t}" for t in teams])
+    return base + TEAM_VS_EXTREME_COLS + win_group + rec_group
 
 
 def _column_kind(col: str) -> str:
@@ -601,6 +633,9 @@ def _column_kind(col: str) -> str:
         "number",
         "result",
         "etc",
+        # team-name holders for the highest/lowest Win% extremes (item 13)
+        "team for highest win %",
+        "team for lowest win %",
         # Formulas sheet — pure documentation, all four columns are text
         "stat",
         "sheet",
@@ -1267,7 +1302,7 @@ def build_all(repo_root: Path) -> None:
         for fname, frame, plan_key in tables:
             cols = catalog.get(plan_key, [])
             if plan_key in {"team-year", "team-all-time"}:
-                cols = _append_team_vs_columns(frame, cols)
+                cols = _append_team_vs_columns(frame, cols, plan_key)
             # Pick History: trade chains can exceed the schema's 10 Trade
             # columns (a pick traded 12 times needs Trade 1..12). Extend
             # the column list dynamically to the longest non-empty chain
@@ -9134,12 +9169,25 @@ def build_all(repo_root: Path) -> None:
 
                 opp_list = [t for t in teams if t != team]
                 pieces = []
+                played_winpcts: List[Tuple[str, float]] = []  # (opp, win%) for opps actually played
                 for opp in opp_list:
                     wlt_opp = _wlt_for_team(games_df, team, opps={opp})
                     pieces.append(f"{opp}: {_record_str(*wlt_opp)} ({_win_pct(wlt_opp)})")
                     team_all.at[idx, f"Record vs {opp}"] = _record_str(*wlt_opp)
                     team_all.at[idx, f"Win % vs {opp}"] = _win_pct(wlt_opp)
+                    if sum(wlt_opp) > 0:  # at least one game vs this opponent
+                        played_winpcts.append((opp, _win_pct(wlt_opp)))
                 team_all.at[idx, "Record & win % vs each team"] = "; ".join(pieces) if pieces else "N/A"
+
+                # Item 13: highest / lowest Win % vs a single opponent (only
+                # opponents actually played), plus the opponent name for each.
+                if played_winpcts:
+                    _hi = max(played_winpcts, key=lambda kv: kv[1])
+                    _lo = min(played_winpcts, key=lambda kv: kv[1])
+                    team_all.at[idx, "Highest Win % vs a team"] = _hi[1]
+                    team_all.at[idx, "Team for highest Win %"] = _hi[0]
+                    team_all.at[idx, "Lowest Win % vs a team"] = _lo[1]
+                    team_all.at[idx, "Team for lowest Win %"] = _lo[0]
 
             for idx, row in team_all.iterrows():
                 team = str(row["Team"])

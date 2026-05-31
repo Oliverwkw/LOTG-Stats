@@ -68,8 +68,8 @@ When the results-based audit surfaces a bug, log it but continue to the diff swe
 - [x] Cuffs rostered/started → unique players — **4D**: `Number of cuffs rostered/started` at team_year/all_time + league_year/all_time now count DISTINCT cuff players (via `_build_unique_cuff_counts` over Player ID), not summed player-weeks. team_week/league_week stay per-week counts.
 - [x] Activated cuff = cuff becomes starter; injured player doesn't need to have started — **4D**: split into `_cuff_rostered_flag` (handcuff present: low scorer + injured/suspended better same-team/pos teammate, injured teammate need not have started) and player_week "Activated Cuff?" = rostered cuff AND the cuff STARTED. team_week rostered=Σ rostered flag, started=Σ activated.
 - [x] Cuff at pickup relaxed (starter at any point in prev 3 weeks) — **4D**: `Cuff at time of pickup?` now true if the qualifying teammate was a STARTER in any of the pickup week + 2 prior weeks (was: pickup week only).
-- [ ] team_all_time: regroup Win % vs and Record vs columns by stat type (all Win % together, then all Record together)
-- [ ] team_all_time: add 4 columns: Highest Win % vs a team, [opponent team name], Lowest Win % vs a team, [opponent team name]
+- [x] team_all_time: regroup Win % vs and Record vs columns by stat type (all Win % together, then all Record together) — **4E**: `_append_team_vs_columns` regroups for team-all-time only (team_year stays interleaved); all "Win % vs …" (fixed buckets then per-team) then all "Record vs …".
+- [x] team_all_time: add 4 columns: Highest Win % vs a team, [opponent team name], Lowest Win % vs a team, [opponent team name] — **4E**: "Highest/Lowest Win % vs a team" + "Team for highest/lowest Win %" (opponents actually played only). Injected just before the Win% group.
 - [ ] **3-part audit** (code / results / diff)
 
 ## Phase 4.5 — Workshop Luck (before Phase 5)
