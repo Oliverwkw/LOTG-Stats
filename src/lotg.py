@@ -10322,6 +10322,63 @@ def build_all(repo_root: Path) -> None:
                 tr["Tanking"] = vals
     except Exception as e:
         _log_exc(debug, "trades_links_tanking", e)
+
+    # Player-chain links (Phase 6D): split the transaction links into chains
+    # that follow the ADDED player and the DROPPED player across every later /
+    # earlier event involving them — transactions AND trades. References are
+    # "#N" = transactions.csv row N, "T#N" = trades.csv row N (1-indexed, final
+    # sorted order). Both tx and tr are fully sorted/indexed by this point.
+    try:
+        if not tx.empty:
+            def _is_player_asset(_a):
+                _a = str(_a).strip()
+                return bool(_a) and _a not in ("0.0", "None", "N/A") and not re.match(r"^\d{4}\b", _a)
+
+            chains: Dict[str, List[Tuple[Any, str]]] = defaultdict(list)
+            for _i in tx.index:
+                _ref = f"#{int(_i) + 1}"; _d = tx.at[_i, "Date"]
+                _add = str(tx.at[_i, "Player Added"]); _drop = str(tx.at[_i, "Player Dropped"])
+                if _add and _add != "N/A":
+                    chains[_add].append((_d, _ref))
+                if _drop and _drop != "N/A":
+                    chains[_drop].append((_d, _ref))
+            if not tr.empty:
+                for _j in tr.index:
+                    _ref = f"T#{int(_j) + 1}"; _d = tr.at[_j, "Date"]
+                    for _col in ("Assets received", "Assets sent"):
+                        for _a in str(tr.at[_j, _col] or "").split(";"):
+                            if _is_player_asset(_a):
+                                chains[_a.strip()].append((_d, _ref))
+            _nat = pd.Timestamp.min.tz_localize("UTC")
+            for _p in chains:
+                chains[_p].sort(key=lambda e: (e[0] if pd.notna(e[0]) else _nat))
+
+            def _neighbors(player, this_ref):
+                ch = chains.get(player, [])
+                for _k in range(len(ch)):
+                    if ch[_k][1] == this_ref:
+                        return (ch[_k + 1][1] if _k + 1 < len(ch) else None,
+                                ch[_k - 1][1] if _k > 0 else None)
+                return None, None
+
+            a_next, a_prev, d_next, d_prev = [], [], [], []
+            for _i in tx.index:
+                _ref = f"#{int(_i) + 1}"
+                _add = str(tx.at[_i, "Player Added"]); _drop = str(tx.at[_i, "Player Dropped"])
+                if _add and _add != "N/A":
+                    _n, _p = _neighbors(_add, _ref); a_next.append(_n); a_prev.append(_p)
+                else:
+                    a_next.append(None); a_prev.append(None)
+                if _drop and _drop != "N/A":
+                    _n, _p = _neighbors(_drop, _ref); d_next.append(_n); d_prev.append(_p)
+                else:
+                    d_next.append(None); d_prev.append(None)
+            tx["Link to next transaction (added player)"] = a_next
+            tx["Link to previous transaction (added player)"] = a_prev
+            tx["Link to next transaction (dropped player)"] = d_next
+            tx["Link to previous transaction (dropped player)"] = d_prev
+    except Exception as e:
+        _log_exc(debug, "transactions_player_chain_links", e)
     # Known-player validation report (best-effort): checks core columns against public expectations.
     try:
         validation = _known_player_column_errors(repo_root, pw)

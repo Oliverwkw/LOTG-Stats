@@ -92,7 +92,7 @@ When the results-based audit surfaces a bug, log it but continue to the diff swe
 
 ## Phase 6 — Transactions
 - [x] Same-day commissioner add+drop heuristic excludes from tx counts — **6B**: a transaction whose every player movement nets to zero on its own roster that day AND involves a commissioner action is a no-op correction → excluded from tx/trade counts AND from the transactions/trades detail. Covers commish add+drop, a team-drop the commish re-added, an add the commish immediately undid, and a commish-reversed trade (15 such commish washes in the data, e.g. LWebs53 2022-09-23 Abdullah/Burkhead).
-- [ ] Split link to next/previous (added player + dropped player); include trades
+- [x] Split link to next/previous (added player + dropped player); include trades — **6D**: transactions now have 4 link columns — next/previous for the ADDED player and the DROPPED player — each following that player's chain across teams AND trades, referenced as `#N` (transaction row) / `T#N` (trade row). (Trades.csv keeps its per-team chain; tanking-delta is 6E.)
 - [x] # times picked up by this team includes trades; add # times dropped column — **6C**: `Number of times picked up by this team` now interleaves trade-ins with waiver/FA adds (chronological running count); added `Number of times dropped by this team` (incl. trades away), N/A on pure-pickup rows.
 - [ ] Tanking = change in tanking (right before vs right after)
 - [x] 🔍 Player addition value never blank — **6A verified**: 0 blank/N-A rows in transactions.csv (already satisfied).

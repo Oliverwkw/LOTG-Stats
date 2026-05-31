@@ -629,8 +629,10 @@
     "% of starts made while rostered",
     "Injury adjusted % of starts made while rostered",
     "Date dropped/traded",
-    "Link to next transaction",
-    "Link to previous transaction",
+    "Link to next transaction (added player)",
+    "Link to previous transaction (added player)",
+    "Link to next transaction (dropped player)",
+    "Link to previous transaction (dropped player)",
     "Tanking",
     "Number of times picked up by this team",
     "Number of times dropped by this team"
