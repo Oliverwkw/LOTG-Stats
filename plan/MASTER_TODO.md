@@ -65,9 +65,9 @@ When the results-based audit surfaces a bug, log it but continue to the diff swe
 - [x] "Number of starters X over/under Y" companion columns + rollups — **4C**: added "Number of starter donuts / starters under 10 / starters over 20/30/40/50" companions; FIXED "Number of players …" to count ALL rostered (gameday) players, not just starters. Rolls up to team_year/all_time. [per user]
 - [x] Future draft capital fix (updates on trade; 0 only if no picks in 3 years) — **4B**: replaced `_future_cap_from_traded` (only saw Sleeper's traded_picks snapshot → omitted un-traded own picks) with `_future_cap_held`, which walks the corrected pick-ownership ledger (own retained + acquired − traded away). team_week uses the week's date (updates on trade); team_year + tanking use the season-end (Feb 1) snapshot.
 - [x] NFL-team roll-ups additive (rookie stats already correct — verify) — **4B verified**: team_year "Number of rookies started" = unique rookies (2 for AceMatthew 2024, not the weekly sum of 20); "Most number from same NFL team" rolls up as max. Correct, no change.
-- [ ] Cuffs rostered/started → unique players
-- [ ] Activated cuff = cuff becomes starter; injured player doesn't need to have started
-- [ ] Cuff at pickup relaxed (starter at any point in prev 3 weeks)
+- [x] Cuffs rostered/started → unique players — **4D**: `Number of cuffs rostered/started` at team_year/all_time + league_year/all_time now count DISTINCT cuff players (via `_build_unique_cuff_counts` over Player ID), not summed player-weeks. team_week/league_week stay per-week counts.
+- [x] Activated cuff = cuff becomes starter; injured player doesn't need to have started — **4D**: split into `_cuff_rostered_flag` (handcuff present: low scorer + injured/suspended better same-team/pos teammate, injured teammate need not have started) and player_week "Activated Cuff?" = rostered cuff AND the cuff STARTED. team_week rostered=Σ rostered flag, started=Σ activated.
+- [x] Cuff at pickup relaxed (starter at any point in prev 3 weeks) — **4D**: `Cuff at time of pickup?` now true if the qualifying teammate was a STARTER in any of the pickup week + 2 prior weeks (was: pickup week only).
 - [ ] team_all_time: regroup Win % vs and Record vs columns by stat type (all Win % together, then all Record together)
 - [ ] team_all_time: add 4 columns: Highest Win % vs a team, [opponent team name], Lowest Win % vs a team, [opponent team name]
 - [ ] **3-part audit** (code / results / diff)
