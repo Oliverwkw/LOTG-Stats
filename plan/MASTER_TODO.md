@@ -139,6 +139,9 @@ When the results-based audit surfaces a bug, log it but continue to the diff swe
 - [ ] Document survivors in formulas sheet
 - [ ] **3-part audit** (code / results / diff)
 
+## Phase 12.5 — Formatting (TBD)
+- [ ] TBD — reserved for output/xlsx formatting work (styling, column widths, number formats, conditional formatting, sheet polish). Scope when we get there.
+
 ## Phase 13 — ESPN 2020 backfill
 - [ ] Scope when we get there
 - [ ] **3-part audit** (code / results / diff)
