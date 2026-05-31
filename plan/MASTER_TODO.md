@@ -91,7 +91,7 @@ When the results-based audit surfaces a bug, log it but continue to the diff swe
 - [ ] **3-part audit** (code / results / diff)
 
 ## Phase 6 — Transactions
-- [ ] Same-day commissioner add+drop heuristic excludes from tx counts
+- [x] Same-day commissioner add+drop heuristic excludes from tx counts — **6B**: a transaction whose every player movement nets to zero on its own roster that day AND involves a commissioner action is a no-op correction → excluded from tx/trade counts AND from the transactions/trades detail. Covers commish add+drop, a team-drop the commish re-added, an add the commish immediately undid, and a commish-reversed trade (15 such commish washes in the data, e.g. LWebs53 2022-09-23 Abdullah/Burkhead).
 - [ ] Split link to next/previous (added player + dropped player); include trades
 - [ ] # times picked up by this team includes trades; add # times dropped column
 - [ ] Tanking = change in tanking (right before vs right after)

@@ -2565,6 +2565,60 @@ def build_all(repo_root: Path) -> None:
                 tx_by_week[wk] = []
                 _log_exc(debug, f"transactions_{season}_wk{wk}", e)
 
+        # ------------- Commissioner "wash" detection (Phase 6B) -------------
+        # A single-day commissioner action that ends with the roster exactly
+        # as it started is a no-op correction, not a real transaction. We flag
+        # any transaction whose every player movement nets to zero ON ITS OWN
+        # roster that day AND where a commissioner action was involved, then
+        # exclude those transactions from the counts (and from trades_rows /
+        # the trade split). Covers: commish add+drop of a player, a player a
+        # team dropped and the commish re-added same day, an add the commish
+        # immediately undid, and a trade the commish reversed.
+        wash_tx_ids: Set[str] = set()
+        try:
+            _pd_net: Dict[Tuple[str, str], Dict[int, int]] = defaultdict(lambda: defaultdict(int))
+            _pd_commish: Dict[Tuple[str, str], bool] = defaultdict(bool)
+            _tx_pdays: Dict[str, set] = {}
+            for _wk_txs in tx_by_week.values():
+                for _t in _wk_txs:
+                    _dt = _epoch_ms_to_dt(_t.get("created"))
+                    if _dt is None:
+                        continue
+                    _day = _dt.date().isoformat()
+                    _is_comm = (str(_t.get("type") or "") == "commissioner")
+                    _txid = str(_t.get("transaction_id") or id(_t))
+                    _adds = _t.get("adds") if isinstance(_t.get("adds"), dict) else {}
+                    _drops = _t.get("drops") if isinstance(_t.get("drops"), dict) else {}
+                    _pset = set()
+                    for _pid, _rid in (_adds or {}).items():
+                        _ri = _to_int(_rid, None)
+                        if _ri is None:
+                            continue
+                        _k = (str(_pid), _day); _pd_net[_k][_ri] += 1
+                        if _is_comm:
+                            _pd_commish[_k] = True
+                        _pset.add(_k)
+                    for _pid, _rid in (_drops or {}).items():
+                        _ri = _to_int(_rid, None)
+                        if _ri is None:
+                            continue
+                        _k = (str(_pid), _day); _pd_net[_k][_ri] -= 1
+                        if _is_comm:
+                            _pd_commish[_k] = True
+                        _pset.add(_k)
+                    _tx_pdays[_txid] = _pset
+            _wash_pdays = {
+                _k for _k, _nets in _pd_net.items()
+                if _pd_commish.get(_k) and all(_v == 0 for _v in _nets.values())
+            }
+            for _txid, _pset in _tx_pdays.items():
+                if _pset and all(_k in _wash_pdays for _k in _pset):
+                    wash_tx_ids.add(_txid)
+            if wash_tx_ids:
+                _log(debug, f"[{_now_iso()}] INFO commissioner-wash {season}: excluded {len(wash_tx_ids)} no-op txns")
+        except Exception as e:
+            _log_exc(debug, f"commish_wash_{season}", e)
+
         # ------------- Build opponent roster mapping + playoff labels -------------
         for wk, mu in matchups_by_week.items():
             mdf = _safe_df(pd.DataFrame(mu))
@@ -2708,6 +2762,11 @@ def build_all(repo_root: Path) -> None:
             for t in tx_by_week.get(wk, []):
                 try:
                     ttype = t.get("type")
+
+                    # Commissioner wash (Phase 6B): a no-op same-day correction —
+                    # don't count it (tx / trade / FAAB).
+                    if str(t.get("transaction_id") or id(t)) in wash_tx_ids:
+                        continue
 
                     # Date-validity gate. If Sleeper's 'created' timestamp
                     # is missing or unparseable, this transaction can't be
@@ -3330,6 +3389,11 @@ def build_all(repo_root: Path) -> None:
             for t in tx_by_week.get(wk, []):
                 try:
                     ttype = t.get("type")
+                    # Commissioner wash (Phase 6B): a no-op same-day correction
+                    # is not a real transaction — omit it from the detail rows
+                    # and the trades ledger as well as the counts.
+                    if str(t.get("transaction_id") or id(t)) in wash_tx_ids:
+                        continue
                     # For waivers, 'created' is when the bid was
                     # submitted but 'status_updated' is when the waiver
                     # actually ran and the player moved. A single
