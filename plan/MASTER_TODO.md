@@ -95,8 +95,8 @@ When the results-based audit surfaces a bug, log it but continue to the diff swe
 - [ ] Split link to next/previous (added player + dropped player); include trades
 - [ ] # times picked up by this team includes trades; add # times dropped column
 - [ ] Tanking = change in tanking (right before vs right after)
-- [ ] 🔍 Player addition value never blank — investigate
-- [ ] FAAB premium % column replaces FAAB % difference
+- [x] 🔍 Player addition value never blank — **6A verified**: 0 blank/N-A rows in transactions.csv (already satisfied).
+- [x] FAAB premium % column replaces FAAB % difference — **6A**: renamed to `FAAB premium %` = (winning_bid − runner_up) / winning_bid × 100 (normalized by bid size, bounded 0–100; was divided by runner-up).
 - [ ] KTC pick value at draft = Sept 1 snapshot
 - [ ] KTC future value = Monday of prev championship game
 - [ ] 🔍 KTC values audit (Ronald Jones / Josh Gordon as canary)
