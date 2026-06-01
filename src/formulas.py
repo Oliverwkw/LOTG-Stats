@@ -150,8 +150,8 @@ _ROWS = [
     {
         "Stat": "Link to next/previous transaction (added player) / (dropped player)",
         "Sheet": "transactions",
-        "Formula": "Follows the ADDED player and the DROPPED player to their next/previous event ANYWHERE in the league — across teams and INCLUDING trades. Reference is a row pointer: '#N' = transactions.csv row N, 'T#N' = trades.csv row N (1-indexed, final sorted order).",
-        "Notes": "Replaces the old single per-team 'Link to next/previous transaction'. The chain is date-ordered, so row numbers can look non-monotonic (the CSVs are grouped by team, not global date). Blank at the ends of a player's chain or when the row has no added/dropped player. (Trades.csv keeps its own per-team link chain.)",
+        "Formula": "Follows the ADDED player and the DROPPED player to their next/previous event ANYWHERE in the league — across teams and INCLUDING trades. Reference is a row pointer: '#N' = transactions.csv row N, 'T#N' = trades.csv row N, 'PH#N' = pick_history.csv row N (1-indexed, final sorted order). A drafted player's chain STARTS at their pick_history draft row, so the 'previous' link on their first-ever event points to 'PH#N'.",
+        "Notes": "Replaces the old single per-team 'Link to next/previous transaction'. The chain is date-ordered, so row numbers can look non-monotonic (the CSVs are grouped by team, not global date). Blank at the very ends of a player's chain (a drafted player's start is their PH# draft row) or when the row has no added/dropped player. In the xlsx all three reference kinds are clickable hyperlinks to the target row.",
     },
     {
         "Stat": "Number of times picked up by this team",
@@ -248,7 +248,7 @@ _ROWS = [
         "Stat": "Link to next transaction per asset / Link to previous transaction per asset",
         "Sheet": "trades",
         "Formula": "For each asset RECEIVED in the trade (in the same order as 'Assets received'), the reference to that asset's next / previous event in its cross-table chain — '#N' = transactions.csv row N, 'T#N' = trades.csv row N. Rendered as a ';'-joined list aligned 1:1 with 'Assets received'. PLAYERS resolve through the shared player chain (the same one the transaction added/dropped links use). DRAFT PICKS resolve through a separate pick chain to the next/prev TRADE that moved that pick — keyed by the pick's canonical identity (year, round, original owner), built from the received side only so the two mirror rows of one trade event don't link to each other; the pick chain deliberately does NOT continue into the player eventually drafted with the pick. FAAB carries 'N/A'.",
-        "Notes": "Phase 7B + pick chains — replaces the old per-team 'Link to next/previous transaction'. Follow a received player OR pick onward to wherever it next moved. (Draft-row bridging — a pick's chain terminating at its pick_history draft row, and a drafted player's chain starting there — is a separate follow-up.)",
+        "Notes": "Phase 7B + pick chains + draft-row bridge — replaces the old per-team 'Link to next/previous transaction'. Follow a received player OR pick onward to wherever it next moved. The pick chain TERMINATES at the pick's pick_history draft row ('PH#N' = pick_history row N), and a drafted player's chain (here and in the transaction added/dropped links) STARTS at that same draft row — so a pick's last trade links forward to the draft and the drafted player's first event links back to it, without the pick chain ever crossing into the player.",
     },
     {
         "Stat": "Team age including picks",
