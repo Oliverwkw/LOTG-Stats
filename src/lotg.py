@@ -1418,28 +1418,29 @@ def build_all(repo_root: Path) -> None:
                     ws.append(list(row))
                 ws.freeze_panes = "E2"
 
-                # Make 'Link to next/previous transaction' cells
-                # clickable. Each value is a 1-indexed row number
-                # within this same sheet (1 = first data row, header
-                # at row 1 in xlsx so target row = value + 1). Convert
-                # each numeric value into a same-sheet HYPERLINK.
-                LINK_COLS = {"Link to next transaction", "Link to previous transaction"}
-                col_idx_to_link: List[int] = []
-                for j, col in enumerate(d.columns, 1):
-                    if col in LINK_COLS:
-                        col_idx_to_link.append(j)
-                if col_idx_to_link:
+                # Make link-reference cells clickable. Every "Link to ..."
+                # column holds cross-table row references: "#N" -> the Nth
+                # data row of the transactions sheet, "T#N" -> the Nth data
+                # row of the trades sheet (1-indexed; xlsx adds 1 for the
+                # header row). A single-ref cell becomes a real hyperlink to
+                # that row in the relevant sheet. Multi-ref cells (the
+                # per-asset ';'-joined lists) stay as text, since a worksheet
+                # cell can carry only one hyperlink.
+                _ref_re = re.compile(r"^(T?)#(\d+)$")
+                link_col_idx = [
+                    j for j, col in enumerate(d.columns, 1)
+                    if "link to " in str(col).lower()
+                ]
+                if link_col_idx:
                     for r in range(2, ws.max_row + 1):
-                        for j in col_idx_to_link:
+                        for j in link_col_idx:
                             cell = ws.cell(row=r, column=j)
-                            v = cell.value
-                            try:
-                                row_num = int(float(v))
-                            except Exception:
-                                continue
-                            if row_num <= 0:
-                                continue
-                            cell.hyperlink = f"#'{sheet_name}'!A{row_num + 1}"
+                            m = _ref_re.match(str(cell.value).strip()) if cell.value is not None else None
+                            if not m:
+                                continue  # blank / N/A / multi-ref list
+                            target_sheet = "trades" if m.group(1) else "transactions"
+                            row_num = int(m.group(2))
+                            cell.hyperlink = f"#'{target_sheet}'!A{row_num + 1}"
                             cell.style = "Hyperlink"
 
                 if ws.max_column >= 1:
