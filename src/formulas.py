@@ -247,8 +247,8 @@ _ROWS = [
     {
         "Stat": "Link to next transaction per asset / Link to previous transaction per asset",
         "Sheet": "trades",
-        "Formula": "For each asset RECEIVED in the trade (in the same order as 'Assets received'), the reference to that asset's next / previous event in its cross-table chain — '#N' = transactions.csv row N, 'T#N' = trades.csv row N. Rendered as a ';'-joined list aligned 1:1 with 'Assets received'. Players resolve through the shared player chain (the same one the transaction added/dropped links use); picks and FAAB carry 'N/A' (no player chain).",
-        "Notes": "Phase 7B — replaces the old per-team 'Link to next/previous transaction' (which just pointed at the team's adjacent trade). Now you can follow each received player onward to wherever it next moved.",
+        "Formula": "For each asset RECEIVED in the trade (in the same order as 'Assets received'), the reference to that asset's next / previous event in its cross-table chain — '#N' = transactions.csv row N, 'T#N' = trades.csv row N. Rendered as a ';'-joined list aligned 1:1 with 'Assets received'. PLAYERS resolve through the shared player chain (the same one the transaction added/dropped links use). DRAFT PICKS resolve through a separate pick chain to the next/prev TRADE that moved that pick — keyed by the pick's canonical identity (year, round, original owner), built from the received side only so the two mirror rows of one trade event don't link to each other; the pick chain deliberately does NOT continue into the player eventually drafted with the pick. FAAB carries 'N/A'.",
+        "Notes": "Phase 7B + pick chains — replaces the old per-team 'Link to next/previous transaction'. Follow a received player OR pick onward to wherever it next moved. (Draft-row bridging — a pick's chain terminating at its pick_history draft row, and a drafted player's chain starting there — is a separate follow-up.)",
     },
     {
         "Stat": "Team age including picks",

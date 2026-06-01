@@ -10580,6 +10580,34 @@ def build_all(repo_root: Path) -> None:
                                 ch[_k - 1][1] if _k > 0 else None)
                 return None, None
 
+            # Pick chains: follow a draft pick to the next / previous TRADE that
+            # moved it, keyed by its canonical identity (year, round, original
+            # owner) — NOT the display label, whose projected slot can drift for
+            # an un-drafted future pick. Built from the RECEIVED side only so the
+            # two mirror rows of a single trade event don't link to each other.
+            # Deliberately does NOT bridge a pick to the player drafted with it.
+            pick_chains: Dict[Tuple[int, int, str], List[Tuple[Any, str]]] = defaultdict(list)
+            if "_recv_pick_meta" in tr.columns:
+                for _j in tr.index:
+                    _ref = f"T#{int(_j) + 1}"; _d = tr.at[_j, "Date"]
+                    _pm = tr.at[_j, "_recv_pick_meta"]
+                    for _m in (_pm if isinstance(_pm, list) else []):
+                        try:
+                            _key = (int(_m[0]), int(_m[1]), str(_m[2]))
+                        except Exception:
+                            continue
+                        pick_chains[_key].append((_d, _ref))
+                for _k in pick_chains:
+                    pick_chains[_k].sort(key=lambda e: (e[0] if pd.notna(e[0]) else _nat))
+
+            def _pick_neighbors(key, this_ref):
+                ch = pick_chains.get(key, [])
+                for _k in range(len(ch)):
+                    if ch[_k][1] == this_ref:
+                        return (ch[_k + 1][1] if _k + 1 < len(ch) else None,
+                                ch[_k - 1][1] if _k > 0 else None)
+                return None, None
+
             a_next, a_prev, d_next, d_prev = [], [], [], []
             for _i in tx.index:
                 _ref = f"#{int(_i) + 1}"
@@ -10597,17 +10625,21 @@ def build_all(repo_root: Path) -> None:
             tx["Link to next transaction (dropped player)"] = d_next
             tx["Link to previous transaction (dropped player)"] = d_prev
 
-            # Per-asset trade links (Phase 7B): for each asset RECEIVED in a
-            # trade, follow that asset's chain to its next / previous event
-            # (transaction "#N" or trade "T#N"), as a ';'-joined list aligned
-            # 1:1 with "Assets received". Players resolve via _neighbors;
-            # picks and FAAB have no player chain → "N/A" placeholder keeps the
-            # list positionally aligned. Replaces the old per-team trade links.
+            # Per-asset trade links (Phase 7B + pick chains): for each asset
+            # RECEIVED in a trade, follow it to its next / previous event as a
+            # ';'-joined list aligned 1:1 with "Assets received". Players resolve
+            # through the player chain (transaction "#N" / trade "T#N"); draft
+            # picks resolve through the pick chain to the next/prev TRADE that
+            # moved that pick (canonical id from _recv_pick_meta, consumed in the
+            # same order the picks appear in "Assets received"). FAAB → "N/A".
             if not tr.empty:
                 tr_next_pa, tr_prev_pa = [], []
                 for _j in tr.index:
                     _ref = f"T#{int(_j) + 1}"
                     _nexts, _prevs = [], []
+                    _pm = tr.at[_j, "_recv_pick_meta"] if "_recv_pick_meta" in tr.columns else None
+                    _pm = _pm if isinstance(_pm, list) else []
+                    _pi = 0
                     for _a in str(tr.at[_j, "Assets received"] or "").split(";"):
                         _a = _a.strip()
                         if not _a or _a.upper() == "N/A":
@@ -10615,7 +10647,20 @@ def build_all(repo_root: Path) -> None:
                         if _is_player_asset(_a):
                             _n, _p = _neighbors(_a, _ref)
                             _nexts.append(_n or "N/A"); _prevs.append(_p or "N/A")
-                        else:  # pick or FAAB — not chainable here
+                        elif re.match(r"^\d{4}\b", _a):  # draft pick
+                            _key = None
+                            if _pi < len(_pm):
+                                try:
+                                    _key = (int(_pm[_pi][0]), int(_pm[_pi][1]), str(_pm[_pi][2]))
+                                except Exception:
+                                    _key = None
+                            _pi += 1
+                            if _key is not None:
+                                _n, _p = _pick_neighbors(_key, _ref)
+                                _nexts.append(_n or "N/A"); _prevs.append(_p or "N/A")
+                            else:
+                                _nexts.append("N/A"); _prevs.append("N/A")
+                        else:  # FAAB / other — not chainable
                             _nexts.append("N/A"); _prevs.append("N/A")
                     tr_next_pa.append("; ".join(_nexts) if _nexts else None)
                     tr_prev_pa.append("; ".join(_prevs) if _prevs else None)
