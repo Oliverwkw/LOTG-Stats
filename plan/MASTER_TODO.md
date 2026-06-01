@@ -75,6 +75,7 @@ When the results-based audit surfaces a bug, log it but continue to the diff swe
 ## Phase 4.5 — Workshop Luck (before Phase 5) ✅
 - [x] Rebuilt Luck from scratch (the "G2" model — full derivation + 12-model experiment in `plan/LUCK_REWORK.md`). Weekly = result-surprise (outcome vs calibrated pregame talent + Bros/Sis, postseason-boosted) + closeness-gated scoring-variance (opp collapse / own pop) − heavy adversity + efficiency + nail-biter term. Season/all-time = plain SUM of weekly (no win% multiplier — calibrated pregame_p nets out winning). Retired the old multiplier-based formula + `_LUCK_WINPCT_BLEND`.
   - Scorecard: winner>loser 0.88; corr(Σ,win%) +0.18 (winning≠lucky); corr(Σ,WinVar) +0.56; adversity strongly −; 2025 plehv-beats-champion = top outlier; AceMatthew 2024 = 6th unluckiest season; Bros/Sis at extremes; postseason 1.55×; small margins gated in. Weights are tunable constants in `team_week_luck_formula`.
+- [x] All-time luck aggregation fix — team_all_time luck was a raw SUM over every week, which let chronic adversity (a persistent roster trait) pile up unbounded (steven +7.1 / shmuel −6.9). Changed to the **MEAN of per-season luck totals**, renamed column **"Avg yearly luck"**. Ranking identical, spread 14.0→2.8, all-time now on a single-season scale + tenure-fair. Weekly model + team_year (sum of weekly) unchanged. Details in `plan/LUCK_REWORK.md`.
 
 ## Phase 5 — League sheets
 **Sub-PR plan:** 5A schema/simple fixes (3,4,6,7,8) · 5B count semantics + hi/lo starters + trade window (1,2,5,9).

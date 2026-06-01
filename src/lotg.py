@@ -9307,6 +9307,20 @@ def build_all(repo_root: Path) -> None:
                 )
             else:
                 win_variance = None
+            # All-time luck = the AVERAGE of each season's luck (a season's
+            # luck is the SUM of its weekly luck — team_year keeps that). Weekly
+            # luck is ~zero-sum per week, but adversity is a persistent team
+            # trait, so a straight sum over every week ever lets a chronically
+            # healthy/injured team's luck pile up without bound and grow purely
+            # with tenure (steven +7.1 / shmuel −6.9). Averaging seasons keeps
+            # all-time luck on the same scale as a single season and is fair
+            # across differing tenures.
+            _luck_w = pd.to_numeric(g.get("Luck"), errors="coerce").fillna(0.0)
+            _luck_yr = g.get("Year")
+            avg_yearly_luck = (
+                float(_luck_w.groupby(_luck_yr).sum().mean())
+                if _luck_yr is not None and len(_luck_w) else 0.0
+            )
             row = {
                 "Team": str(team),
                 "All time win %": round((wins + 0.5 * ties) / gp, 4),
@@ -9343,7 +9357,7 @@ def build_all(repo_root: Path) -> None:
                 # score; summing seasons creates an unbounded number
                 # with no clear interpretation.
                 "Tanking": float(pd.to_numeric(g.get("Tanking"), errors="coerce").dropna().mean() or 0.0),
-                "Luck": float(pd.to_numeric(g.get("Luck"), errors="coerce").fillna(0.0).sum()),
+                "Avg yearly luck": round(avg_yearly_luck, 4),
             }
             # NOTE: Unique-player position counts for team_all are added
             # later (line ~7977 "team_unique_player_counts") via direct

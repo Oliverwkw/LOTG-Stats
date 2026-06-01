@@ -237,3 +237,21 @@ SeasonLuck = Σ WeeklyLuck   (no win% multiplier — winning is already netted o
 | distribution | mean 0.00, sd 0.25, [−0.67, 0.73] | centered ✓ |
 
 Luckiest games = plehv's nail-biter upsets (incl. both wins over the champion); unluckiest = high-scoring close losses & collapses. Weights live as tunable constants.
+
+### All-time aggregation fix (build 26728856739 follow-up)
+team_all_time luck was the plain SUM of every weekly luck value, which let the
+two extremes blow out (stevenb123 **+7.1**, shmuel256 **−6.9**; spread 14.0).
+Decomposition showed ~6 of that ±7 came from the **adversity term alone**:
+adversity (Hardship + Starter-adj Hardship + 3·byes) is a *persistent* roster
+trait — steven is chronically the healthiest team (mean adversity 61 vs league
+~80, above-median only 32% of weeks), shmuel the most banged-up (97, 69%). Its
+weekly z-scores stay same-signed and accumulate over ~90 weeks, while the
+genuine result-luck terms (OUT, CLOSE) flip sign yearly and net ~0.
+
+The yearly numbers are fine (per-season adversity is bounded); the problem is
+purely the all-time *aggregation*. Fix: **team_all_time luck = MEAN of the
+per-season Luck totals** (renamed column **"Avg yearly luck"**), not the sum
+over all weeks. Ranking is identical (Spearman 1.0 vs the old sum), the spread
+drops 14.0 → 2.8 (steven +1.43, shmuel −1.38, plehv +0.49), all-time now sits
+on a single-season scale, and it's fair once team tenures diverge. The weekly
+model and team_year (sum of weekly) are unchanged.
