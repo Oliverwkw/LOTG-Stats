@@ -236,7 +236,7 @@ _ROWS = [
         "Stat": "Asset difference in average age",
         "Sheet": "trades",
         "Formula": "mean(age of received assets at trade date) − mean(age of sent assets at trade date). Players use Sleeper's birth_date. Picks count as future rookies: synthetic birth_date = Sept 1 of (pick_year − 22), so a 2026 pick traded mid-2025 'expects' a ~21-year-old rookie. Earlier trades of further-out picks come out younger, which lines up with intuition.",
-        "Notes": "Negative = team got younger. NFL rookies average ~22 at draft time; the Sept 1 anchor matches our late-August league rookie draft.",
+        "Notes": "Negative = team got younger. NFL rookies average ~22 at draft time; the Sept 1 anchor matches our late-August league rookie draft. Never blank (Phase 7C): when one side has no aged asset (FAAB-only or an empty give-away side) there is no measurable age differential, so it reports 0.",
     },
     {
         "Stat": "Number of teams involved",
@@ -277,8 +277,8 @@ _ROWS = [
     {
         "Stat": "Trade addition value",
         "Sheet": "trades",
-        "Formula": "Difference of averages adjusted by position. (V1 simplification — trades don't have a meaningful cuff bonus or playing-time leverage multiplier, so we keep it linear.)",
-        "Notes": "Mirror of the 'Player addition value' metric on transactions but without the cuff / pct-starts adjustments.",
+        "Formula": "Difference of averages adjusted by position (received-side adjusted on-team PPG − sent-side adjusted PPG; a side with no players contributes 0, so one-sided player trades still resolve). (V1 simplification — trades don't have a meaningful cuff bonus or playing-time leverage multiplier, so we keep it linear.)",
+        "Notes": "Mirror of the 'Player addition value' metric on transactions but without the cuff / pct-starts adjustments. Never blank (Phase 7C): when neither side had a player with on-team production to value (a pick-only / FAAB-only trade, or players who never played here), the net player value added is 0.",
     },
     # -------------------------------- pick_history.csv --------------------------------
     {
