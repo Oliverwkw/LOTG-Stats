@@ -3642,6 +3642,10 @@ def build_all(repo_root: Path) -> None:
                             trades_rows.append({
                                 "Team": tm,
                                 "Team's traded with": "; ".join(sorted(set([x for x in others if x]))),
+                                # Distinct teams in the deal (this team + every
+                                # counterparty) — 2 for a normal swap, 3+ for a
+                                # multi-team trade (Phase 7B).
+                                "Number of teams involved": len({x for x in others if x}) + 1,
                                 "Assets received": "; ".join(received) if received else None,
                                 "Assets sent": "; ".join(dropped) if dropped else None,
                                 "Date": created_dt.isoformat() if created_dt else (str(created_date) if created_date else None),
@@ -10486,9 +10490,10 @@ def build_all(repo_root: Path) -> None:
             # Same guard as transactions: drop rows we can't anchor in time.
             tr = tr[tr["Date"].notna()].reset_index(drop=True)
             tr = tr.sort_values(["Team","Date"]).reset_index(drop=True)
-            tr["Link to previous transaction"] = tr.groupby("Team").cumcount().replace(0, np.nan)
-            tr["Link to next transaction"] = tr.groupby("Team").cumcount() + 2
-            tr.loc[tr.groupby("Team").tail(1).index, "Link to next transaction"] = np.nan
+            # Per-asset link columns ("Link to next/previous transaction per
+            # asset") are filled later in the player-chain block (Phase 7B),
+            # which reuses the same cross-tx/trade chains as the transaction
+            # links. The old per-team cumcount links were removed there.
 
             # Trades (Phase 6E): marginal ΔTanking from the picks/players that
             # changed hands — same delta model as transactions, but trades also
@@ -10590,6 +10595,31 @@ def build_all(repo_root: Path) -> None:
             tx["Link to previous transaction (added player)"] = a_prev
             tx["Link to next transaction (dropped player)"] = d_next
             tx["Link to previous transaction (dropped player)"] = d_prev
+
+            # Per-asset trade links (Phase 7B): for each asset RECEIVED in a
+            # trade, follow that asset's chain to its next / previous event
+            # (transaction "#N" or trade "T#N"), as a ';'-joined list aligned
+            # 1:1 with "Assets received". Players resolve via _neighbors;
+            # picks and FAAB have no player chain → "N/A" placeholder keeps the
+            # list positionally aligned. Replaces the old per-team trade links.
+            if not tr.empty:
+                tr_next_pa, tr_prev_pa = [], []
+                for _j in tr.index:
+                    _ref = f"T#{int(_j) + 1}"
+                    _nexts, _prevs = [], []
+                    for _a in str(tr.at[_j, "Assets received"] or "").split(";"):
+                        _a = _a.strip()
+                        if not _a or _a.upper() == "N/A":
+                            continue
+                        if _is_player_asset(_a):
+                            _n, _p = _neighbors(_a, _ref)
+                            _nexts.append(_n or "N/A"); _prevs.append(_p or "N/A")
+                        else:  # pick or FAAB — not chainable here
+                            _nexts.append("N/A"); _prevs.append("N/A")
+                    tr_next_pa.append("; ".join(_nexts) if _nexts else None)
+                    tr_prev_pa.append("; ".join(_prevs) if _prevs else None)
+                tr["Link to next transaction per asset"] = tr_next_pa
+                tr["Link to previous transaction per asset"] = tr_prev_pa
     except Exception as e:
         _log_exc(debug, "transactions_player_chain_links", e)
     # Known-player validation report (best-effort): checks core columns against public expectations.
