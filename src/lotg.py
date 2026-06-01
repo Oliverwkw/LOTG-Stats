@@ -3103,6 +3103,12 @@ def build_all(repo_root: Path) -> None:
                         "UPST": None,                      # computed later
                         "Hardship": None,                  # computed later
                         "Tanking": None,                   # computed later (needs pick ledger; best effort later)
+                        # Internal-only (filtered from CSV by the plan catalog):
+                        # entity count behind "Team age including picks" =
+                        # rostered players + future picks held. Phase 6E uses
+                        # this as the denominator N when computing the marginal
+                        # tanking delta of a transaction/trade.
+                        "_RosterNInclPicks": len(combined_ages),
                         "Luck": round(luck_raw, 4) if luck_raw is not None else None,
                         "Win Variance": round(luck_raw, 4) if luck_raw is not None else None,
                         "Brosenzweig": None,
@@ -5161,6 +5167,20 @@ def build_all(repo_root: Path) -> None:
                 if added_age is not None or dropped_age is not None:
                     r["Age difference"] = round((added_age or 0.0) - (dropped_age or 0.0), 2)
 
+                # --- Tanking-delta inputs (Phase 6E) ---
+                # Marginal change this transaction makes to the team's roster
+                # age (entities = players + picks). Only count sides whose age
+                # is known, so the swap math stays consistent with how
+                # "Team age including picks" averages known ages. Waiver/FA
+                # transactions never move draft picks, so the future-capital
+                # delta is 0. The late tanking-delta pass combines these with
+                # the team-week roster age/size to produce the final score.
+                r["_tank_recv_age_sum"] = float(added_age) if added_age is not None else 0.0
+                r["_tank_recv_n"] = 1 if added_age is not None else 0
+                r["_tank_sent_age_sum"] = float(dropped_age) if dropped_age is not None else 0.0
+                r["_tank_sent_n"] = 1 if dropped_age is not None else 0
+                r["_tank_fcap_delta"] = 0.0
+
                 # --- Cuff at time of pickup? ---
                 # Identify the pickup's NFL Year+Week (best effort) so
                 # we can look at the picking team's roster that week.
@@ -5964,6 +5984,35 @@ def build_all(repo_root: Path) -> None:
                 row["Asset difference in average age"] = round(
                     (sum(recv_ages) / len(recv_ages)) - (sum(drop_ages) / len(drop_ages)), 2
                 )
+
+            # --- Tanking-delta inputs (Phase 6E) ---
+            # recv_ages / drop_ages already include BOTH players (birth-date
+            # age) and picks (expected future-rookie age), so they are exactly
+            # the entities that move in/out of "Team age including picks".
+            row["_tank_recv_age_sum"] = float(sum(recv_ages))
+            row["_tank_recv_n"] = len(recv_ages)
+            row["_tank_sent_age_sum"] = float(sum(drop_ages))
+            row["_tank_sent_n"] = len(drop_ages)
+            # Future-capital delta = round-weighted future picks received minus
+            # sent. Only picks for the next 3 seasons count toward future
+            # capital (matches _future_cap_held / _future_picks_owned); a
+            # current-season rookie pick (year == season) is not "future".
+            _tr_season = _to_int(row.get("Season"), None)
+            def _fcap_of(meta_list, _s=_tr_season) -> float:
+                if _s is None:
+                    return 0.0
+                tot = 0.0
+                for pmeta in (meta_list or []):
+                    try:
+                        yr_i = int(pmeta[0]); rnd_i = int(pmeta[1])
+                    except Exception:
+                        continue
+                    if _s < yr_i <= _s + 3:
+                        tot += _FUTURE_PICK_WEIGHTS.get(rnd_i, 0.0)
+                return tot
+            row["_tank_fcap_delta"] = round(
+                _fcap_of(row.get("_recv_pick_meta")) - _fcap_of(row.get("_drop_pick_meta")), 4
+            )
 
             # ----- (c) Forward-looking tenure window + PPG averages -----
             # For each received player, find their next drop/trade-out
@@ -10185,6 +10234,80 @@ def build_all(repo_root: Path) -> None:
     # --------------------------
     # Transactions / Trades: link columns + tanking (best-effort)
     # --------------------------
+    # Tanking-delta (Phase 6E): the marginal change in a team's Tanking score
+    # caused by a single transaction/trade, holding everything else constant.
+    #   Tanking = (1/6)t1(PF)+(1/6)t2(MaxPF)+(1/6)t3(age)+(1/6)t4(curr picks)
+    #             +(1/9)t5(future cap)
+    # PF / MaxPF (t1,t2) and the rest of the roster are held fixed, so only the
+    # age term and (for trades) future draft capital move:
+    #     ΔTanking = (1/6)·Δt3 + (1/9)·Δfuture_cap
+    #   Δt3         = −(avg_age_post − avg_age_pre)/(L_age − 21)
+    #   avg_age      = "Team age including picks" (entities = rostered players +
+    #                  future picks). avg_age_pre = A (the team's roster age that
+    #                  week), N = that week's entity count, and
+    #                  avg_age_post = (N·A − Σsent_age + Σrecv_age)/(N − k_sent + k_recv).
+    #   Δfuture_cap  = round-weighted future picks received − sent (trades only;
+    #                  waiver/FA transactions never move picks). Current-year
+    #                  rookie picks aren't tradeable mid-season, so t4 ≈ 0.
+    # Net sign: getting younger and/or richer in picks ⇒ positive (more
+    # tanking); dealing picks/youth for win-now talent ⇒ negative.
+    _TANK_A: Dict[Tuple[str, int, int], float] = {}
+    _TANK_N: Dict[Tuple[str, int, int], float] = {}
+    _TANK_LAGE: Dict[int, float] = {}
+    try:
+        _agecol = "Team age including picks"
+        if not tw.empty and {"Team", "Year", "Week"}.issubset(tw.columns) and _agecol in tw.columns:
+            _has_n = "_RosterNInclPicks" in tw.columns
+            for _, _r in tw.dropna(subset=["Team", "Year", "Week"]).iterrows():
+                try:
+                    _k = (str(_r["Team"]), int(_r["Year"]), int(_r["Week"]))
+                except Exception:
+                    continue
+                _a = pd.to_numeric(pd.Series([_r.get(_agecol)]), errors="coerce").iloc[0]
+                if pd.notna(_a):
+                    _TANK_A[_k] = float(_a)
+                if _has_n:
+                    _n = pd.to_numeric(pd.Series([_r.get("_RosterNInclPicks")]), errors="coerce").iloc[0]
+                    if pd.notna(_n) and _n > 0:
+                        _TANK_N[_k] = float(_n)
+            # League average roster age (incl picks) per season → baseline for
+            # the age term, matching the tank formula's L_age denominator.
+            _la = tw.copy()
+            _la["_AGE"] = pd.to_numeric(_la[_agecol], errors="coerce")
+            for _yr, _gg in _la.dropna(subset=["_AGE"]).groupby("Year"):
+                try:
+                    _TANK_LAGE[int(_yr)] = float(_gg["_AGE"].mean())
+                except Exception:
+                    continue
+    except Exception as e:
+        _log_exc(debug, "tanking_delta_maps", e)
+
+    def _tanking_delta_row(team, season_i, wk_i, recv_sum, recv_n, sent_sum, sent_n, fcap_delta) -> float:
+        """Marginal ΔTanking for one transaction/trade (see block header)."""
+        try:
+            si = int(season_i); wi = int(wk_i)
+            A = _TANK_A.get((str(team), si, wi))
+            N = _TANK_N.get((str(team), si, wi))
+            if A is None or N is None:
+                for wk_try in (wi - 1, wi + 1):  # adjacent-week fallback
+                    if A is None:
+                        A = _TANK_A.get((str(team), si, wk_try))
+                    if N is None:
+                        N = _TANK_N.get((str(team), si, wk_try))
+            dt3 = 0.0
+            if A is not None and N is not None:
+                count_post = float(N) - float(sent_n) + float(recv_n)
+                if count_post > 0:
+                    avg_post = (float(N) * float(A) - float(sent_sum) + float(recv_sum)) / count_post
+                    B = _TANK_LAGE.get(si)
+                    if B is not None:
+                        B = float(B) - 21.0
+                        if abs(B) > 1e-9:
+                            dt3 = -(avg_post - float(A)) / B
+            return round((1.0 / 6.0) * dt3 + (1.0 / 9.0) * float(fcap_delta or 0.0), 4)
+        except Exception:
+            return 0.0
+
     try:
         # normalize date
         if not tx.empty and "Date" in tx.columns:
@@ -10214,26 +10337,14 @@ def build_all(repo_root: Path) -> None:
             tx["Link to next transaction"] = tx.groupby("Team").cumcount() + 2
             tx.loc[tx.groupby("Team").tail(1).index, "Link to next transaction"] = np.nan
 
-            # Tanking — look up the team's per-WEEK Tanking score for
-            # the week the transaction landed in, not the season
-            # aggregate. team_week.Tanking is an expanding-mean
-            # season-to-date score, so the value at week N captures
-            # the team's tank state through that point in the season.
-            # That's more meaningful than a single season-final number
-            # for evaluating decisions made mid-season.
-            #
-            # Week-of-transaction derived from Date: NFL Week 1 starts
-            # ~Sept 7; week N starts 7*(N-1) days later. Pre-week-1
-            # dates floor to week 1, post-week-17 to week 17.
+            # Tanking (Phase 6E) — marginal ΔTanking from THIS transaction,
+            # holding all else constant (see the tanking-delta block header).
+            # Waiver/FA transactions only shift the roster's age term; the
+            # week the move landed in supplies the team's roster age (A) and
+            # entity count (N). Week derived from Date: NFL Week 1 ~Sept 7,
+            # week N starts 7*(N-1) days later; pre-Wk1 floors to 1, post-Wk17
+            # caps at 17.
             if not tw.empty and "Season" in tx.columns:
-                tw_tank_map: Dict[Tuple[str, int, int], float] = {}
-                if "Tanking" in tw.columns:
-                    for _, _r in tw[["Team", "Year", "Week", "Tanking"]].dropna(subset=["Team","Year","Week"]).iterrows():
-                        try:
-                            tw_tank_map[(str(_r["Team"]), int(_r["Year"]), int(_r["Week"]))] = float(_r["Tanking"])
-                        except Exception:
-                            continue
-
                 def _week_for_tx(dt_obj, season_val) -> int:
                     try:
                         d = dt_obj.date() if hasattr(dt_obj, "date") else dt_obj
@@ -10245,25 +10356,23 @@ def build_all(repo_root: Path) -> None:
                     except Exception:
                         return 1
 
-                ty_map = team_year.set_index(["Team","Year"])["Tanking"].to_dict() if not team_year.empty else {}
+                def _tcol(name):
+                    return (pd.to_numeric(tx[name], errors="coerce").fillna(0.0)
+                            if name in tx.columns else pd.Series(0.0, index=tx.index))
+                _rs = _tcol("_tank_recv_age_sum"); _rn = _tcol("_tank_recv_n")
+                _ss = _tcol("_tank_sent_age_sum"); _sn = _tcol("_tank_sent_n")
+                _fc = _tcol("_tank_fcap_delta")
                 vals: List[float] = []
-                for t, s, d in zip(tx["Team"], tx["Season"], tx["Date"]):
+                for i, (t, s, d) in enumerate(zip(tx["Team"], tx["Season"], tx["Date"])):
                     try:
                         season_i = int(s)
                     except Exception:
                         vals.append(0.0); continue
                     wk_i = _week_for_tx(d, season_i)
-                    v = tw_tank_map.get((str(t), season_i, wk_i))
-                    if v is None:
-                        # Try adjacent weeks if exact week missing
-                        for wk_try in (wk_i - 1, wk_i + 1):
-                            v = tw_tank_map.get((str(t), season_i, wk_try))
-                            if v is not None:
-                                break
-                    if v is None:
-                        # Final fallback: team_year value for the season
-                        v = ty_map.get((str(t), season_i), 0.0)
-                    vals.append(float(v))
+                    vals.append(_tanking_delta_row(
+                        t, season_i, wk_i,
+                        _rs.iloc[i], _rn.iloc[i], _ss.iloc[i], _sn.iloc[i], _fc.iloc[i],
+                    ))
                 tx["Tanking"] = vals
         else:
             if "Tanking" in tx.columns:
@@ -10281,17 +10390,10 @@ def build_all(repo_root: Path) -> None:
             tr["Link to next transaction"] = tr.groupby("Team").cumcount() + 2
             tr.loc[tr.groupby("Team").tail(1).index, "Link to next transaction"] = np.nan
 
-            # Trades: same per-week lookup as transactions.
+            # Trades (Phase 6E): marginal ΔTanking from the picks/players that
+            # changed hands — same delta model as transactions, but trades also
+            # move the future-capital term.
             if not tw.empty and "Season" in tr.columns:
-                tw_tank_map: Dict[Tuple[str, int, int], float] = {}
-                if "Tanking" in tw.columns:
-                    for _, _r in tw[["Team", "Year", "Week", "Tanking"]].dropna(subset=["Team","Year","Week"]).iterrows():
-                        try:
-                            tw_tank_map[(str(_r["Team"]), int(_r["Year"]), int(_r["Week"]))] = float(_r["Tanking"])
-                        except Exception:
-                            continue
-                ty_map = team_year.set_index(["Team","Year"])["Tanking"].to_dict() if not team_year.empty else {}
-
                 def _week_for_tr(dt_obj, season_val) -> int:
                     try:
                         d = dt_obj.date() if hasattr(dt_obj, "date") else dt_obj
@@ -10303,22 +10405,23 @@ def build_all(repo_root: Path) -> None:
                     except Exception:
                         return 1
 
+                def _trcol(name):
+                    return (pd.to_numeric(tr[name], errors="coerce").fillna(0.0)
+                            if name in tr.columns else pd.Series(0.0, index=tr.index))
+                _rs = _trcol("_tank_recv_age_sum"); _rn = _trcol("_tank_recv_n")
+                _ss = _trcol("_tank_sent_age_sum"); _sn = _trcol("_tank_sent_n")
+                _fc = _trcol("_tank_fcap_delta")
                 vals: List[float] = []
-                for t, s, d in zip(tr["Team"], tr["Season"], tr["Date"]):
+                for i, (t, s, d) in enumerate(zip(tr["Team"], tr["Season"], tr["Date"])):
                     try:
                         season_i = int(s)
                     except Exception:
                         vals.append(0.0); continue
                     wk_i = _week_for_tr(d, season_i)
-                    v = tw_tank_map.get((str(t), season_i, wk_i))
-                    if v is None:
-                        for wk_try in (wk_i - 1, wk_i + 1):
-                            v = tw_tank_map.get((str(t), season_i, wk_try))
-                            if v is not None:
-                                break
-                    if v is None:
-                        v = ty_map.get((str(t), season_i), 0.0)
-                    vals.append(float(v))
+                    vals.append(_tanking_delta_row(
+                        t, season_i, wk_i,
+                        _rs.iloc[i], _rn.iloc[i], _ss.iloc[i], _sn.iloc[i], _fc.iloc[i],
+                    ))
                 tr["Tanking"] = vals
     except Exception as e:
         _log_exc(debug, "trades_links_tanking", e)
