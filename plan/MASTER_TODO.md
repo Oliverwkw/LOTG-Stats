@@ -109,9 +109,9 @@ When the results-based audit surfaces a bug, log it but continue to the diff swe
 - [ ] Enhanced Avg PPG (excludes injured/bye/suspended + includes future-draft-pick PPG)
 - [x] # teams involved in trade column — **7B**: `Number of teams involved` = distinct teams in the deal (this team + counterparties), 2 for a normal swap, 3+ for multi-team. (Appended at the end of the trades column order for a clean catalog diff — reposition in the formatting phase if desired.)
 - [x] Link to next transaction per asset — **7B**: replaced the per-team `Link to next/previous transaction` with `Link to next/previous transaction per asset` — a `;`-joined list aligned 1:1 with `Assets received`, each received player's next/prev event ref (`#N` tx / `T#N` trade) via the shared player chain; picks/FAAB carry `N/A`.
-- [ ] Trade addition value never blank; Asset age difference never blank
+- [x] Trade addition value never blank; Asset age difference never blank — **7C**: both now always populated. `Trade addition value` already resolved one-sided player trades (missing side = 0); the only remaining blanks were pick-only / FAAB-only / never-played trades → now 0 (no on-team player value). `Asset difference in average age` was blank whenever one side had no aged asset (FAAB-only / empty give-away side) → now 0 (no measurable age differential; players + picks both carry ages). No two-sides-with-players trade was ever wrongly blank (verified).
 - [ ] Avg PPG received includes draft-pick PPG after arrival
-- [ ] Assets retained now / Assets traded away / Assets dropped to FA include relevant draft picks
+- [x] Assets retained now / Assets traded away / Assets dropped to FA include relevant draft picks — **7C verified**: the V2 return-from-trades classifier already keys received assets as `("player", pid)` AND `("pick", meta)`, so picks flow into `Assets retained now` (114 rows) and `Assets traded away` (204 rows). `Assets dropped to FA` is correctly player-only (0 picks) — a draft pick can't be dropped to free agency (it's either traded or used in the draft). No change needed.
 - [ ] V2 trade addition value (Cuffs etc.)
 - [ ] **3-part audit** (code / results / diff)
 

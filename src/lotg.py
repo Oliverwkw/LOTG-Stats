@@ -6077,6 +6077,13 @@ def build_all(repo_root: Path) -> None:
                 row["Asset difference in average age"] = round(
                     (sum(recv_ages) / len(recv_ages)) - (sum(drop_ages) / len(drop_ages)), 2
                 )
+            else:
+                # Never blank (Phase 7C): one side has no aged asset (it was
+                # FAAB-only or empty — a give-away), so there is no measurable
+                # average-age differential. Report 0 rather than leaving it
+                # blank. Players and picks (as future rookies) both carry ages;
+                # only FAAB / nothing sides land here.
+                row["Asset difference in average age"] = 0.0
 
             # --- Tanking-delta inputs (Phase 6E) ---
             # recv_ages / drop_ages already include BOTH players (birth-date
@@ -6200,8 +6207,12 @@ def build_all(repo_root: Path) -> None:
                 adj_diff = round(a_adj - b_adj, 4)
                 row["Difference of averages adjusted by position"] = adj_diff
 
-            if adj_diff is not None:
-                row["Trade addition value"] = round(adj_diff, 4)
+            # Never blank (Phase 7C): adj_diff is None only when NEITHER side
+            # had a player with on-team production to value (a pick-only /
+            # FAAB-only trade, or players who never played here) — net player
+            # value added is then 0. One-sided player trades already resolve
+            # via the missing-side-as-0 averages above.
+            row["Trade addition value"] = round(adj_diff, 4) if adj_diff is not None else 0.0
 
             # ----- (d) Return-from-trades chain (V2: three buckets) -----
             # Each received asset terminates in one of:
