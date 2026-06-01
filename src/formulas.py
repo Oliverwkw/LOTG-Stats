@@ -173,6 +173,12 @@ _ROWS = [
     },
     # -------------------------------- trades.csv --------------------------------
     {
+        "Stat": "Assets received / Assets sent",
+        "Sheet": "trades",
+        "Formula": "Semicolon-joined list of everything that came to (received) or left (sent) the team in the trade, from that team's perspective: players, draft picks ('2025 1.05(B. Robinson)'), and FAAB ('$N FAAB'). FAAB is summed per receiving roster from Sleeper's waiver_budget and rendered as one '$N FAAB' asset.",
+        "Notes": "FAAB capture (Phase 7A) is what makes FAAB-only trades show real assets instead of blank both sides. Net-zero swaps — trades where nothing actually changed hands (no players/picks, FAAB nets to zero for every roster, e.g. a symmetric $5-for-$5 swap) — are deleted entirely from trades.csv and from all trade counts.",
+    },
+    {
         "Stat": "KTC value difference at deal time / end of season / 1 year later / 2 years later",
         "Sheet": "trades",
         "Formula": "Σ(KTC of received assets) − Σ(KTC of dropped assets) at each reference date. Same date scheme as transactions.",
