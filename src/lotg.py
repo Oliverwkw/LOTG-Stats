@@ -1426,7 +1426,9 @@ def build_all(repo_root: Path) -> None:
                 # that row in the relevant sheet. Multi-ref cells (the
                 # per-asset ';'-joined lists) stay as text, since a worksheet
                 # cell can carry only one hyperlink.
-                _ref_re = re.compile(r"^(T?)#(\d+)$")
+                # "#N" -> transactions, "T#N" -> trades, "PH#N" -> pick_history.
+                _ref_re = re.compile(r"^(PH|T)?#(\d+)$")
+                _ref_sheet = {"": "transactions", "T": "trades", "PH": "pick_history"}
                 link_col_idx = [
                     j for j, col in enumerate(d.columns, 1)
                     if "link to " in str(col).lower()
@@ -1438,7 +1440,7 @@ def build_all(repo_root: Path) -> None:
                             m = _ref_re.match(str(cell.value).strip()) if cell.value is not None else None
                             if not m:
                                 continue  # blank / N/A / multi-ref list
-                            target_sheet = "trades" if m.group(1) else "transactions"
+                            target_sheet = _ref_sheet[m.group(1) or ""]
                             row_num = int(m.group(2))
                             cell.hyperlink = f"#'{target_sheet}'!A{row_num + 1}"
                             cell.style = "Hyperlink"
@@ -10599,6 +10601,36 @@ def build_all(repo_root: Path) -> None:
                         pick_chains[_key].append((_d, _ref))
                 for _k in pick_chains:
                     pick_chains[_k].sort(key=lambda e: (e[0] if pd.notna(e[0]) else _nat))
+
+            # Draft-row bridging: connect the pick chain and the player chain
+            # through the pick_history DRAFT row, without crossing them. A
+            # pick's chain TERMINATES at its draft row (its last trade's "next"
+            # -> the draft); the drafted player's chain STARTS at the same draft
+            # row (their first event's "previous" -> the draft). Reference
+            # "PH#N" = pick_history.csv row N (ph keeps its build order through
+            # output, so the index is stable). Anchor date = late August of the
+            # draft year: after the offseason pick trades, before the rookie
+            # season's events, so it sorts last for the pick and first for the
+            # player.
+            if not ph.empty and {"Year", "Number", "Original Team", "Player Picked"}.issubset(set(ph.columns)):
+                for _pi in ph.index:
+                    _phref = f"PH#{int(_pi) + 1}"
+                    _ym = re.match(r"\s*(\d{4})", str(ph.at[_pi, "Year"]))
+                    _nm = re.match(r"\s*(\d+)\.", str(ph.at[_pi, "Number"]))
+                    if not _ym or not _nm:
+                        continue
+                    _yr = int(_ym.group(1)); _rd = int(_nm.group(1))
+                    _orig = str(ph.at[_pi, "Original Team"]).strip()
+                    _ddt = pd.Timestamp(year=_yr, month=8, day=28, tz="UTC")
+                    pick_chains[(_yr, _rd, _orig)].append((_ddt, _phref))  # pick terminal
+                    _pl = str(ph.at[_pi, "Player Picked"]).strip()
+                    if _real_player(_pl):
+                        chains[_pl].append((_ddt, _phref))  # player chain start
+                _ksort = lambda e: (e[0] if pd.notna(e[0]) else _nat)
+                for _k in pick_chains:
+                    pick_chains[_k].sort(key=_ksort)
+                for _p in chains:
+                    chains[_p].sort(key=_ksort)
 
             def _pick_neighbors(key, this_ref):
                 ch = pick_chains.get(key, [])
