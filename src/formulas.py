@@ -132,7 +132,7 @@ _ROWS = [
     {
         "Stat": "KTC value of player added/dropped at end of season / 1 year later / 2 years later",
         "Sheet": "transactions",
-        "Formula": "Same lookup, at: Jan 5 of (Season + 1), Jan 5 of (Season + 2), Jan 5 of (Season + 3) respectively. Future-dated references stay N/A.",
+        "Formula": "Same lookup, at the Monday after the fantasy championship game of Season, Season+1, and Season+2 respectively (championship Monday = the day after NFL week-17 Sunday). Future-dated references stay N/A.",
         "Notes": "Captures whether the pickup held value (or the drop turned out to be a mistake).",
     },
     {
@@ -187,7 +187,7 @@ _ROWS = [
     {
         "Stat": "Change in pick value at draft time",
         "Sheet": "trades",
-        "Formula": "For each '??'-slot pick received: (KTC at Sept 5 of pick's draft year) − (KTC at deal time). Sum across picks.",
+        "Formula": "For each '??'-slot pick received: (KTC at Sept 1 of pick's draft year — the post-draft snapshot once the pick resolved into a rookie) − (KTC at deal time). Sum across picks.",
         "Notes": "Captures whether the team did better or worse than the at-trade generic estimate once the slot was actually drawn. Picks whose drafts are still in the future don't contribute.",
     },
     {

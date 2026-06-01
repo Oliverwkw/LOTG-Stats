@@ -98,9 +98,9 @@ When the results-based audit surfaces a bug, log it but continue to the diff swe
 - [x] Tanking = change in tanking (right before vs right after) — **6E**: the transactions/trades `Tanking` column is now the MARGINAL change in the team's tanking score from that single move, holding all else constant — `(1/6)·Δage_term + (1/9)·Δfuture_cap`. PF/MaxPF terms cancel; age term recomputes the roster's "Team age including picks" with the added/dropped (or received/sent, incl. picks-as-future-rookies) entities swapped against the team-week roster age `A` and entity count `N`; future-capital term = round-weighted future picks received − sent (trades only). Positive = younger/more-picks (tank), negative = win-now.
 - [x] 🔍 Player addition value never blank — **6A verified**: 0 blank/N-A rows in transactions.csv (already satisfied).
 - [x] FAAB premium % column replaces FAAB % difference — **6A**: renamed to `FAAB premium %` = (winning_bid − runner_up) / winning_bid × 100 (normalized by bid size, bounded 0–100; was divided by runner-up).
-- [ ] KTC pick value at draft = Sept 1 snapshot
-- [ ] KTC future value = Monday of prev championship game
-- [ ] 🔍 KTC values audit (Ronald Jones / Josh Gordon as canary)
+- [x] KTC pick value at draft = Sept 1 snapshot — **6F**: "Change in pick value at draft time" now snapshots the pick's post-draft value at **Sept 1** of the pick's draft year (was Sept 5).
+- [x] KTC future value = Monday of prev championship game — **6F**: the end-of-season / 1-year / 2-year KTC reference dates (trades.csv + transactions.csv) now anchor to the **Monday after the fantasy championship game** of Season / Season+1 / Season+2 (championship Monday = day after NFL wk-17 Sunday: 2021→Jan 3 '22, 2024→Dec 30 '24), replacing the fixed Jan-5 ladder.
+- [x] 🔍 KTC values audit (Ronald Jones / Josh Gordon as canary) — **6F**: verified the KTC engine is faithful to KTC. Build values match dynasty-daddy `sf_trade_value` (correct for this superflex league) **to the dollar** (Josh Gordon 61/61/14, Ronald Jones 1892/2392/6); date-aware NaN-before-existence handled (Gordon pre-Sept-2021 reinstatement). dynasty-daddy uses the verbatim KTC 0–9999 scale (top assets = 9999 today and historically), so values are genuine KTC — they read low only due to superflex non-QB deflation.
 - [ ] **3-part audit** (code / results / diff)
 
 ## Phase 7 — Trades

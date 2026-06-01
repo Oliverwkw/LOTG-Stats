@@ -5278,18 +5278,30 @@ def build_all(repo_root: Path) -> None:
     #
     # Reference points per trade (4):
     #   - deal time:       the trade date itself
-    #   - end of season:   Jan 5 of (trade.Season + 1)
-    #   - 1 year later:    Jan 5 of (trade.Season + 2)
-    #   - 2 years later:   Jan 5 of (trade.Season + 3)
-    # 'End of season' uses Jan 5 because Sleeper championships finish by
-    # week 17 and 'immediately after the championship' is the year-end
-    # boundary we agreed on (see Season-column PR).
+    #   - end of season:   the Monday after (trade.Season)'s championship game
+    #   - 1 year later:    the Monday after (trade.Season + 1)'s championship
+    #   - 2 years later:   the Monday after (trade.Season + 2)'s championship
+    # 'Future value' is anchored to the Monday after each season's fantasy
+    # championship game (Phase 6F) rather than a fixed Jan-5 — that pins every
+    # reference to the actual season end. KTC barely moves week-to-week, so
+    # this lands within a day or two of the old anchor but is correctly dated.
     #
     # Per transaction row: KTC of added, dropped, and net at deal time.
     # --------------------------
     try:
         from lotg_support.ktc import build_index, asset_value_at
         today = datetime.utcnow().date()
+
+        # Monday after a season's championship game. Sleeper playoffs end at
+        # NFL week 17 (2021+); NFL week 1's Sunday is 6 days after Labor Day
+        # (the first Monday of September), the championship Sunday is 16 weeks
+        # later, and the snapshot Monday is the day after. e.g. 2021 -> Jan 3
+        # 2022, 2023 -> Jan 1 2024, 2024 -> Dec 30 2024.
+        def _championship_monday(season_year: int) -> date:
+            sept1 = date(int(season_year), 9, 1)
+            first_monday = sept1 + timedelta(days=(7 - sept1.weekday()) % 7)
+            week1_sunday = first_monday + timedelta(days=6)
+            return week1_sunday + timedelta(weeks=16) + timedelta(days=1)
 
         # League-format detection so the KTC values we pull match the
         # user's setup. dynasty-daddy publishes two value series per
@@ -5429,9 +5441,12 @@ def build_all(repo_root: Path) -> None:
                     row["Pick value received"] = round(pick_recv_total, 1)
 
             # 'Change in pick value at draft time' — for each received
-            # pick, (value at post-draft snapshot for that pick's year)
-            # minus (value at trade date). Sums across picks. Picks
-            # whose drafts are in the future don't contribute.
+            # pick, (value at the draft snapshot for that pick's year)
+            # minus (value at trade date). The draft snapshot is Sept 1 of
+            # the pick's year (Phase 6F): rookie drafts have completed and
+            # the pick has resolved into a settled rookie value by then.
+            # Sums across picks. Picks whose drafts are in the future don't
+            # contribute.
             pick_change_total = 0.0
             pick_change_hits = 0
             for plabel in recv_picks:
@@ -5442,7 +5457,7 @@ def build_all(repo_root: Path) -> None:
                     pick_year = int(parts[0])
                 except Exception:
                     continue
-                post_draft = date(pick_year, 9, 5)
+                post_draft = date(pick_year, 9, 1)
                 if post_draft > today:
                     continue
                 v_before = asset_value_at(str(plabel), None, trade_date, idx)
@@ -5457,9 +5472,9 @@ def build_all(repo_root: Path) -> None:
             if season_i is None:
                 continue
             ref_points = [
-                ("KTC value difference at end of season", date(season_i + 1, 1, 5)),
-                ("KTC value difference 1 year later",     date(season_i + 2, 1, 5)),
-                ("KTC value difference 2 years later",    date(season_i + 3, 1, 5)),
+                ("KTC value difference at end of season", _championship_monday(season_i)),
+                ("KTC value difference 1 year later",     _championship_monday(season_i + 1)),
+                ("KTC value difference 2 years later",    _championship_monday(season_i + 2)),
             ]
             for col_name, ref_date in ref_points:
                 # Floor at the trade date — an end-of-season ref earlier
@@ -5473,7 +5488,7 @@ def build_all(repo_root: Path) -> None:
         # --- Transactions pass: 4 reference points × 3 columns each ---
         # For each transaction we look up the added and dropped players'
         # KTC values at four moments: the transaction date itself, then
-        # the same Jan-5-after-season-end ladder we use for trades. Net
+        # the same championship-Monday ladder we use for trades. Net
         # is added − dropped (missing side treated as zero). Future-
         # dated references stay N/A via _preserve_na.
         def _tx_value_at(
@@ -5517,8 +5532,10 @@ def build_all(repo_root: Path) -> None:
                 else:
                     if season_i is None:
                         continue
-                    offset = {"end": 1, "y1": 2, "y2": 3}[tag]
-                    ref = date(season_i + offset, 1, 5)
+                    # Future value anchored to the Monday after the season's
+                    # championship game (Phase 6F): end=this season, y1/y2=+1/+2.
+                    offset = {"end": 0, "y1": 1, "y2": 2}[tag]
+                    ref = _championship_monday(season_i + offset)
                     # Never refer to a date earlier than the transaction
                     # itself — matches the floor used in the trades pass.
                     if ref < tx_date:
