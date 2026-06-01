@@ -132,7 +132,7 @@ _ROWS = [
     {
         "Stat": "KTC value of player added/dropped at end of season / 1 year later / 2 years later",
         "Sheet": "transactions",
-        "Formula": "Same lookup, at the Monday after the fantasy championship game of Season, Season+1, and Season+2 respectively (championship Monday = the day after NFL week-17 Sunday). Future-dated references stay N/A.",
+        "Formula": "Same lookup at three future moments: 'end of season' = the Monday after this season's fantasy championship game (the day after NFL week-17 Sunday — the next championship after the move); '1 year later' / '2 years later' = exactly 1 and 2 calendar years after the transaction date itself. Future-dated references stay N/A.",
         "Notes": "Captures whether the pickup held value (or the drop turned out to be a mistake).",
     },
     {
