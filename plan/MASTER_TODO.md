@@ -117,6 +117,7 @@ When the results-based audit surfaces a bug, log it but continue to the diff swe
 
 ## Phase 8 — Pick history
 - [ ] 🔍 Commissioner-moved over-fires — investigate
+- [ ] Each "Trade N" team cell hyperlinks to the corresponding trade row on the trades page (the trade that moved the pick to that team).
 - [ ] **3-part audit** (code / results / diff)
 
 ## Phase 9 — Taxi / IR / suggestions
