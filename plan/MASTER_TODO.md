@@ -107,8 +107,8 @@ When the results-based audit surfaces a bug, log it but continue to the diff swe
 - [x] 🔍 Rows with both Assets received + sent blank — fix root cause — **7A**: investigated all 8 both-blank rows (= 4 unique trades). Root cause = **FAAB-only trades** (Sleeper moved `waiver_budget` but no players/picks). Same root cause as the FAAB-as-asset item below.
 - [x] FAAB-as-asset capture (FAAB tradeable) — **7A**: FAAB is now captured as a `$N FAAB` asset in Assets received/sent (summed per receiving roster from `waiver_budget`). **Net-zero swaps deleted**: trades where nothing changed hands (no players/picks, FAAB nets to zero per roster — symmetric $5↔$5 / $1↔$1 joke trades) are dropped from trades.csv and all trade counts. Two of the four blank trades were such swaps (deleted); the other two are real one-way FAAB transfers (now show `$2 FAAB` / `$5 FAAB`). FAAB excluded from player-chain links, # picked-up/dropped, and event-log tenure windows.
 - [ ] Enhanced Avg PPG (excludes injured/bye/suspended + includes future-draft-pick PPG)
-- [ ] # teams involved in trade column
-- [ ] Link to next transaction per asset
+- [x] # teams involved in trade column — **7B**: `Number of teams involved` = distinct teams in the deal (this team + counterparties), 2 for a normal swap, 3+ for multi-team. (Appended at the end of the trades column order for a clean catalog diff — reposition in the formatting phase if desired.)
+- [x] Link to next transaction per asset — **7B**: replaced the per-team `Link to next/previous transaction` with `Link to next/previous transaction per asset` — a `;`-joined list aligned 1:1 with `Assets received`, each received player's next/prev event ref (`#N` tx / `T#N` trade) via the shared player chain; picks/FAAB carry `N/A`.
 - [ ] Trade addition value never blank; Asset age difference never blank
 - [ ] Avg PPG received includes draft-pick PPG after arrival
 - [ ] Assets retained now / Assets traded away / Assets dropped to FA include relevant draft picks
@@ -133,6 +133,8 @@ When the results-based audit surfaces a bug, log it but continue to the diff swe
 **Moved from Phase 2 per user — better done after Phases 2–10 settle the formulas they describe.**
 - [ ] Every non-obvious column gets an entry
 - [ ] xlsx styling (color, wrap text, group by sheet, hyperlinks)
+- [ ] **Player-name hyperlinks**: every instance of a player's name anywhere in the dataset (transactions, trades, player sheets, team rosters, links, etc.) hyperlinks to that player's row in player_all_time. (xlsx hyperlink feature; needs a name→player_all_time anchor map.)
+  - Exception: best-alternative-bench / best-alternative-starter player references (e.g. "Reference player name", "Difference from best startable bench", "Difference from worst benchable starter") link to the relevant **player-week** row instead of player_all_time, since they point at a specific player in a specific week.
 - [ ] **3-part audit** (code / results / diff)
 
 ## Phase 12 — Duplicate-column sweep

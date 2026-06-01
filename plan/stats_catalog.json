@@ -664,8 +664,9 @@
     "Difference of averages adjusted by position",
     "Trade addition value",
     "Tanking",
-    "Link to next transaction",
-    "Link to previous transaction"
+    "Link to next transaction per asset",
+    "Link to previous transaction per asset",
+    "Number of teams involved"
   ],
   "Pick History": [
     "Year",

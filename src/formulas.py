@@ -239,6 +239,18 @@ _ROWS = [
         "Notes": "Negative = team got younger. NFL rookies average ~22 at draft time; the Sept 1 anchor matches our late-August league rookie draft.",
     },
     {
+        "Stat": "Number of teams involved",
+        "Sheet": "trades",
+        "Formula": "Count of distinct teams in the trade = this team + every counterparty. 2 for a normal swap, 3+ for a multi-team trade.",
+        "Notes": "Phase 7B. Derived from Sleeper's roster_ids on the trade transaction.",
+    },
+    {
+        "Stat": "Link to next transaction per asset / Link to previous transaction per asset",
+        "Sheet": "trades",
+        "Formula": "For each asset RECEIVED in the trade (in the same order as 'Assets received'), the reference to that asset's next / previous event in its cross-table chain — '#N' = transactions.csv row N, 'T#N' = trades.csv row N. Rendered as a ';'-joined list aligned 1:1 with 'Assets received'. Players resolve through the shared player chain (the same one the transaction added/dropped links use); picks and FAAB carry 'N/A' (no player chain).",
+        "Notes": "Phase 7B — replaces the old per-team 'Link to next/previous transaction' (which just pointed at the team's adjacent trade). Now you can follow each received player onward to wherever it next moved.",
+    },
+    {
         "Stat": "Team age including picks",
         "Sheet": "team_week / team_year / team_all_time / league_week / league_year / league_all_time",
         "Formula": "Per (team, year, week): mean over rostered player ages AND future picks held by this team at that week's date. Pick ages use _pick_expected_age — synthetic birth date Sept 1 of (pick_year − 22). Per-week pick ownership is tracked by walking pick_trade_events with their real trade dates. Commissioner-moved picks (in traded_picks but no matching trade event) are treated as 'always with the current owner'. team_year / team_all_time / league_* aggregations average team_week values.",
