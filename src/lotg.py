@@ -5279,12 +5279,13 @@ def build_all(repo_root: Path) -> None:
     # Reference points per trade (4):
     #   - deal time:       the trade date itself
     #   - end of season:   the Monday after (trade.Season)'s championship game
-    #   - 1 year later:    the Monday after (trade.Season + 1)'s championship
-    #   - 2 years later:   the Monday after (trade.Season + 2)'s championship
-    # 'Future value' is anchored to the Monday after each season's fantasy
-    # championship game (Phase 6F) rather than a fixed Jan-5 — that pins every
-    # reference to the actual season end. KTC barely moves week-to-week, so
-    # this lands within a day or two of the old anchor but is correctly dated.
+    #                      (the NEXT championship after the deal)
+    #   - 1 year later:    exactly 1 calendar year after the deal date
+    #   - 2 years later:   exactly 2 calendar years after the deal date
+    # 'End of season' is anchored to the Monday after the season's fantasy
+    # championship game (Phase 6F) rather than a fixed Jan-5, so it tracks the
+    # actual season end. The 1- and 2-year columns are simply the deal date
+    # plus 1/2 calendar years — a fixed horizon from the move itself.
     #
     # Per transaction row: KTC of added, dropped, and net at deal time.
     # --------------------------
@@ -5302,6 +5303,15 @@ def build_all(repo_root: Path) -> None:
             first_monday = sept1 + timedelta(days=(7 - sept1.weekday()) % 7)
             week1_sunday = first_monday + timedelta(days=6)
             return week1_sunday + timedelta(weeks=16) + timedelta(days=1)
+
+        # Exactly N calendar years after a date (Feb 29 -> Feb 28 in non-leap
+        # years). Used for the '1 year later' / '2 years later' KTC references,
+        # which are a fixed horizon from the deal date itself.
+        def _plus_years(d: date, n: int) -> date:
+            try:
+                return d.replace(year=d.year + n)
+            except ValueError:
+                return d.replace(year=d.year + n, day=28)
 
         # League-format detection so the KTC values we pull match the
         # user's setup. dynasty-daddy publishes two value series per
@@ -5473,8 +5483,8 @@ def build_all(repo_root: Path) -> None:
                 continue
             ref_points = [
                 ("KTC value difference at end of season", _championship_monday(season_i)),
-                ("KTC value difference 1 year later",     _championship_monday(season_i + 1)),
-                ("KTC value difference 2 years later",    _championship_monday(season_i + 2)),
+                ("KTC value difference 1 year later",     _plus_years(trade_date, 1)),
+                ("KTC value difference 2 years later",     _plus_years(trade_date, 2)),
             ]
             for col_name, ref_date in ref_points:
                 # Floor at the trade date — an end-of-season ref earlier
@@ -5529,17 +5539,20 @@ def build_all(repo_root: Path) -> None:
             for label, tag in tx_ref_points:
                 if tag == "deal":
                     ref = tx_date
-                else:
+                elif tag == "end":
                     if season_i is None:
                         continue
-                    # Future value anchored to the Monday after the season's
-                    # championship game (Phase 6F): end=this season, y1/y2=+1/+2.
-                    offset = {"end": 0, "y1": 1, "y2": 2}[tag]
-                    ref = _championship_monday(season_i + offset)
+                    # End of season = Monday after this season's championship
+                    # (the next championship after the move).
+                    ref = _championship_monday(season_i)
                     # Never refer to a date earlier than the transaction
                     # itself — matches the floor used in the trades pass.
                     if ref < tx_date:
                         ref = tx_date
+                else:
+                    # 1/2 years later = exactly 1/2 calendar years after the
+                    # transaction date itself.
+                    ref = _plus_years(tx_date, 1 if tag == "y1" else 2)
                 if ref > today:
                     continue
                 v_a, v_d, v_net = _tx_value_at(ref, added_pid, dropped_pid)
