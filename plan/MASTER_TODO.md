@@ -104,8 +104,8 @@ When the results-based audit surfaces a bug, log it but continue to the diff swe
 - [x] **3-part audit** (code / results / diff) — **Phase 6 wrap-up**: holistic sweep of transactions.csv + trades.csv. Schema matches catalog exactly (43 / 28 cols). All features verified: FAAB premium % ∈ [0,100], Player addition value 0 blank, # picked-up/dropped gated to Player Added/Dropped presence, KTC dates exact, tanking delta both-signed, link refs in range. **One bug found + fixed**: the 6D player-chain links bucketed every no-add row into a phantom `chains["nan"]` (pure-drop rows carry `Player Added`=NaN→`str()`="nan", which slipped past the `!= "N/A"` guard), so the added-player link columns were populated with garbage on all 362 no-add rows (and symmetrically the dropped-player links on no-drop rows). Fixed with a `_real_player()` guard — see fix PR.
 
 ## Phase 7 — Trades
-- [ ] 🔍 Rows with both Assets received + sent blank — fix root cause
-- [ ] FAAB-as-asset capture (FAAB tradeable)
+- [x] 🔍 Rows with both Assets received + sent blank — fix root cause — **7A**: investigated all 8 both-blank rows (= 4 unique trades). Root cause = **FAAB-only trades** (Sleeper moved `waiver_budget` but no players/picks). Same root cause as the FAAB-as-asset item below.
+- [x] FAAB-as-asset capture (FAAB tradeable) — **7A**: FAAB is now captured as a `$N FAAB` asset in Assets received/sent (summed per receiving roster from `waiver_budget`). **Net-zero swaps deleted**: trades where nothing changed hands (no players/picks, FAAB nets to zero per roster — symmetric $5↔$5 / $1↔$1 joke trades) are dropped from trades.csv and all trade counts. Two of the four blank trades were such swaps (deleted); the other two are real one-way FAAB transfers (now show `$2 FAAB` / `$5 FAAB`). FAAB excluded from player-chain links, # picked-up/dropped, and event-log tenure windows.
 - [ ] Enhanced Avg PPG (excludes injured/bye/suspended + includes future-draft-pick PPG)
 - [ ] # teams involved in trade column
 - [ ] Link to next transaction per asset

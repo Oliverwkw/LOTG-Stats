@@ -1058,6 +1058,30 @@ def _matchup_stage(week: int, playoff_start: Optional[int]) -> Optional[str]:
     return None
 
 
+def _trade_is_netzero_swap(t: Dict[str, Any]) -> bool:
+    """A 'joke' trade where nothing actually changed hands: no players added/
+    dropped, no draft picks moved, and FAAB nets to zero for every roster
+    (e.g. a symmetric $5-for-$5 swap). These are deleted entirely from the
+    dataset — not counted and not written to trades.csv (Phase 7A)."""
+    if t.get("adds") or t.get("drops") or t.get("draft_picks"):
+        return False
+    net: Dict[int, int] = {}
+    for wb in (t.get("waiver_budget") or []):
+        if not isinstance(wb, dict):
+            continue
+        try:
+            amt = int(wb.get("amount") or 0)
+        except Exception:
+            amt = 0
+        r, s = wb.get("receiver"), wb.get("sender")
+        if r is not None:
+            net[int(r)] = net.get(int(r), 0) + amt
+        if s is not None:
+            net[int(s)] = net.get(int(s), 0) - amt
+    # Every involved roster ends even (or no FAAB at all → empty no-op trade).
+    return all(v == 0 for v in net.values())
+
+
 # --------------------------
 # Main build
 # --------------------------
@@ -2772,6 +2796,11 @@ def build_all(repo_root: Path) -> None:
                     if str(t.get("transaction_id") or id(t)) in wash_tx_ids:
                         continue
 
+                    # Net-zero FAAB swap (Phase 7A): a joke trade where nothing
+                    # changed hands — delete it entirely (no count, no row).
+                    if ttype == "trade" and _trade_is_netzero_swap(t):
+                        continue
+
                     # Date-validity gate. If Sleeper's 'created' timestamp
                     # is missing or unparseable, this transaction can't be
                     # anchored in time — it would emit a row with Date='N/A'
@@ -3404,6 +3433,9 @@ def build_all(repo_root: Path) -> None:
                     # and the trades ledger as well as the counts.
                     if str(t.get("transaction_id") or id(t)) in wash_tx_ids:
                         continue
+                    # Net-zero FAAB swap (Phase 7A): joke trade, delete entirely.
+                    if ttype == "trade" and _trade_is_netzero_swap(t):
+                        continue
                     # For waivers, 'created' is when the bid was
                     # submitted but 'status_updated' is when the waiver
                     # actually ran and the player moved. A single
@@ -3562,6 +3594,27 @@ def build_all(repo_root: Path) -> None:
                                     (int(dp_season), int(dp_round), str(orig_team or ""))
                                 )
 
+                        # FAAB as a tradeable asset (Phase 7A). Sleeper records
+                        # moved waiver budget in `waiver_budget` as
+                        # {amount, sender(roster), receiver(roster)} entries.
+                        # Sum per receiver and render one "$N FAAB" asset on the
+                        # side that received it; the per-roster dropped pass
+                        # below picks it up as 'sent' for the counterparty. This
+                        # is what makes FAAB-only trades (previously blank on
+                        # both sides) show real assets.
+                        _faab_by_rcv: Dict[int, int] = defaultdict(int)
+                        for wb in (t.get("waiver_budget") or []):
+                            if not isinstance(wb, dict):
+                                continue
+                            _amt = _to_int(wb.get("amount"), None)
+                            _rcv = _to_int(wb.get("receiver"), None)
+                            if _amt is None or _rcv is None or int(_amt) <= 0:
+                                continue
+                            _faab_by_rcv[int(_rcv)] += int(_amt)
+                        recv_faab: Dict[int, List[str]] = {
+                            _r: [f"${_a} FAAB"] for _r, _a in _faab_by_rcv.items()
+                        }
+
                         # Build row per roster in roster_ids_int
                         for rid in roster_ids_int:
                             tm = roster_to_team.get(rid, f"Roster {rid}")
@@ -3569,6 +3622,7 @@ def build_all(repo_root: Path) -> None:
                             received = []
                             received.extend(recv_players.get(rid, []))
                             received.extend(recv_picks.get(rid, []))
+                            received.extend(recv_faab.get(rid, []))
                             received_ids = list(recv_player_ids.get(rid, []))
                             received_picks = list(recv_picks.get(rid, []))
                             received_pick_meta = list(recv_pick_meta.get(rid, []))
@@ -3581,6 +3635,7 @@ def build_all(repo_root: Path) -> None:
                                     continue
                                 dropped.extend(recv_players.get(o, []))
                                 dropped.extend(recv_picks.get(o, []))
+                                dropped.extend(recv_faab.get(o, []))
                                 dropped_ids.extend(recv_player_ids.get(o, []))
                                 dropped_picks.extend(recv_picks.get(o, []))
                                 dropped_pick_meta.extend(recv_pick_meta.get(o, []))
@@ -4744,7 +4799,8 @@ def build_all(repo_root: Path) -> None:
             def _split_assets(_s):
                 for _a in str(_s or "").split(";"):
                     _a = _a.strip()
-                    if _a and _a not in ("0.0", "None", "N/A") and not re.match(r"^\d{4}\b", _a):
+                    if (_a and _a not in ("0.0", "None", "N/A")
+                            and not re.match(r"^\d{4}\b", _a) and not _a.endswith("FAAB")):
                         yield _a
 
             acq_events = []  # (date, team, player, row_or_None)
@@ -4805,7 +4861,7 @@ def build_all(repo_root: Path) -> None:
                     continue
                 for asset in dropped_assets.split(";"):
                     asset = asset.strip()
-                    if not asset or re.match(r"^\d{4}\b", asset):
+                    if not asset or re.match(r"^\d{4}\b", asset) or asset.endswith("FAAB"):
                         continue
                     if team:
                         event_log[(str(team), asset)].append((str(dt_str), "trade_out"))
@@ -10487,7 +10543,9 @@ def build_all(repo_root: Path) -> None:
                 return bool(_s) and _s.lower() not in ("nan", "none", "n/a") and _s != "0.0"
 
             def _is_player_asset(_a):
-                return _real_player(_a) and not re.match(r"^\d{4}\b", str(_a).strip())
+                _s = str(_a).strip()
+                # Exclude pick labels (YYYY ...) and FAAB ("$N FAAB").
+                return _real_player(_a) and not re.match(r"^\d{4}\b", _s) and not _s.endswith("FAAB")
 
             chains: Dict[str, List[Tuple[Any, str]]] = defaultdict(list)
             for _i in tx.index:
