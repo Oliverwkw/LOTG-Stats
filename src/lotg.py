@@ -6021,6 +6021,22 @@ def build_all(repo_root: Path) -> None:
                 return None
             return ((pid_meta.get(sid) or {}).get("pos") or "").upper() or None
 
+        # Drafted-pick lookup (Phase 7D): canonical pick identity
+        # (year, round, original owner) -> (drafted player, team that actually
+        # made the pick, draft year). Used to fold the PPG of the player drafted
+        # with a received pick into "Avg PPG of received players on team" —
+        # but only for the team that ended up making the selection.
+        _pick_to_drafted: Dict[Tuple[int, int, str], Tuple[str, str, int]] = {}
+        if not ph.empty and {"Year", "Number", "Original Team", "Final Team", "Player Picked"}.issubset(set(ph.columns)):
+            for _, _phr in ph.iterrows():
+                _ym = re.match(r"\s*(\d{4})", str(_phr.get("Year", "")))
+                _nm = re.match(r"\s*(\d+)\.", str(_phr.get("Number", "")))
+                _plp = str(_phr.get("Player Picked", "")).strip()
+                if not _ym or not _nm or not _plp or _plp.upper() == "N/A":
+                    continue
+                _key = (int(_ym.group(1)), int(_nm.group(1)), _norm_team_name(_phr.get("Original Team", "")))
+                _pick_to_drafted[_key] = (_plp, _norm_team_name(_phr.get("Final Team", "")), int(_ym.group(1)))
+
         for idx, row in enumerate(trades_rows):
             team = str(row.get("Team") or "")
             trade_iso = str(row.get("Date") or "")
@@ -6161,6 +6177,41 @@ def build_all(repo_root: Path) -> None:
                 pre5 = _avg_ppg_pre5(name, trade_prefix)
                 if pre5 is not None:
                     recv_pre5_avgs.append(pre5)
+
+            # Phase 7D: fold in the PPG of players DRAFTED with received picks,
+            # over their post-draft tenure on THIS team. Only when this team
+            # actually made the selection (Final Team == team) — a pick flipped
+            # again before the draft never became a player here. Undrafted
+            # future picks contribute nothing. The drafted player's window
+            # starts at the draft (late August of the pick year) and ends at
+            # their next exit from this team; injured/bye/suspended weeks are
+            # already absent from the nflverse game log the avg is built on.
+            for _pm in (row.get("_recv_pick_meta") or []):
+                try:
+                    _pk = (int(_pm[0]), int(_pm[1]), _norm_team_name(_pm[2]))
+                except Exception:
+                    continue
+                _drafted = _pick_to_drafted.get(_pk)
+                if not _drafted:
+                    continue
+                _dpl, _dfinal, _dyear = _drafted
+                if _dfinal != _norm_team_name(team):
+                    continue  # pick was flipped before the draft
+                _dstart = f"{_dyear}-08-28"
+                _dsid = name_to_sid_local2.get(_dpl)
+                _dend = None
+                if _dsid:
+                    _nxo = _next_out_player(team, _dsid, _dstart)
+                    _dend = _nxo["date"][:10] if _nxo else None
+                _davg = _avg_ppg_window(_dpl, _dstart, _dend)
+                if _davg is not None:
+                    recv_on_team_avgs.append(_davg)
+                    _dpos = _player_pos(_dpl)
+                    _dposa = pos_avg_map.get(_dpos or "", 0.0)
+                    if _dposa and league_starter_avg:
+                        recv_adj_on_team_avgs.append(_davg * league_starter_avg / _dposa)
+                    else:
+                        recv_adj_on_team_avgs.append(_davg)
 
             drop_over_avgs: List[float] = []
             drop_adj_avgs: List[float] = []
