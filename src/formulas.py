@@ -168,8 +168,8 @@ _ROWS = [
     {
         "Stat": "Tanking",
         "Sheet": "transactions / trades",
-        "Formula": "team_week.Tanking for the (Team, Season, week-of-transaction). Week is derived from Date: Sept 7 of Season = week 1, each subsequent Thursday is the next week, floored to 1 and capped at 17. Falls back to adjacent weeks then team_year.Tanking if the exact week is missing (e.g., offseason transactions).",
-        "Notes": "Per-week lookup gives the team's tank state AT THE TIME of the decision, rather than the season aggregate. Useful for evaluating mid-season pickups.",
+        "Formula": "Marginal CHANGE in the team's Tanking score caused by THIS move, holding everything else constant: (1/6)*Δt3_age + (1/9)*Δfuture_cap. PF/MaxPF terms are unaffected by a roster move so they drop out. Δt3_age = -(avg_age_post - avg_age_pre)/(L_AvgAge - 21), where avg_age is 'Team age including picks' (entities = rostered players + future picks); avg_age_pre = A (the team's roster age that week, from team_week), N = that week's entity count, and avg_age_post = (N*A - Σsent_age + Σrecv_age)/(N - k_sent + k_recv). For transactions the assets are the added/dropped players; for trades they are the players AND picks received/sent (picks use expected future-rookie age). Δfuture_cap = round-weighted future picks received - sent ({R1:0.25, R2:0.09, R3:0.03, R4:0.01}, only picks 1-3 seasons out); waiver/FA transactions move no picks so this is 0. Week-of-move derived from Date (Sept 7 = wk1, capped 1..17), with adjacent-week fallback for A/N.",
+        "Notes": "Pre/post-transaction tanking delta (replaces the old per-week team-level lookup). Positive = the move made the team younger and/or richer in picks (more tanking); negative = dealt picks/youth for win-now talent. Current-year rookie picks aren't tradeable mid-season, so the t4 (this-year pick) term is ~0 and omitted.",
     },
     # -------------------------------- trades.csv --------------------------------
     {
