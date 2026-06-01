@@ -10621,11 +10621,24 @@ def build_all(repo_root: Path) -> None:
                         continue
                     _yr = int(_ym.group(1)); _rd = int(_nm.group(1))
                     _orig = str(ph.at[_pi, "Original Team"]).strip()
-                    _ddt = pd.Timestamp(year=_yr, month=8, day=28, tz="UTC")
-                    pick_chains[(_yr, _rd, _orig)].append((_ddt, _phref))  # pick terminal
+                    # Anchor each PH# RELATIVE to the chain it joins, not a fixed
+                    # calendar date (which mis-orders the 2021 startup/vet draft
+                    # and draft-day pick trades). For a pick the draft is its
+                    # TERMINAL, so anchor just after its last trade; for a player
+                    # the draft is the START, so anchor just before their first
+                    # event. Fallback to late-August when the chain is empty
+                    # (no other event references it then anyway). The date is
+                    # only used for sort order — the "PH#N" ref is identical.
+                    _fallback = pd.Timestamp(year=_yr, month=8, day=28, tz="UTC")
+                    _pk = (_yr, _rd, _orig)
+                    _pdates = [e[0] for e in pick_chains.get(_pk, []) if pd.notna(e[0])]
+                    _term = (max(_pdates) + pd.Timedelta(days=1)) if _pdates else _fallback
+                    pick_chains[_pk].append((_term, _phref))  # pick terminal
                     _pl = str(ph.at[_pi, "Player Picked"]).strip()
                     if _real_player(_pl):
-                        chains[_pl].append((_ddt, _phref))  # player chain start
+                        _edates = [e[0] for e in chains.get(_pl, []) if pd.notna(e[0])]
+                        _start = (min(_edates) - pd.Timedelta(days=1)) if _edates else _fallback
+                        chains[_pl].append((_start, _phref))  # player chain start
                 _ksort = lambda e: (e[0] if pd.notna(e[0]) else _nat)
                 for _k in pick_chains:
                     pick_chains[_k].sort(key=_ksort)
