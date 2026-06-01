@@ -10477,17 +10477,25 @@ def build_all(repo_root: Path) -> None:
     # sorted order). Both tx and tr are fully sorted/indexed by this point.
     try:
         if not tx.empty:
+            # A real player name — excludes blanks and every "absent" sentinel
+            # the data uses. Critically, pure-drop rows carry Player Added as
+            # NaN/None (rendered "N/A" only at write time), so str() yields
+            # "nan"/"None"; without filtering those, every no-add row collapses
+            # into one phantom chains["nan"] bucket and links to each other.
+            def _real_player(_v):
+                _s = str(_v).strip()
+                return bool(_s) and _s.lower() not in ("nan", "none", "n/a") and _s != "0.0"
+
             def _is_player_asset(_a):
-                _a = str(_a).strip()
-                return bool(_a) and _a not in ("0.0", "None", "N/A") and not re.match(r"^\d{4}\b", _a)
+                return _real_player(_a) and not re.match(r"^\d{4}\b", str(_a).strip())
 
             chains: Dict[str, List[Tuple[Any, str]]] = defaultdict(list)
             for _i in tx.index:
                 _ref = f"#{int(_i) + 1}"; _d = tx.at[_i, "Date"]
-                _add = str(tx.at[_i, "Player Added"]); _drop = str(tx.at[_i, "Player Dropped"])
-                if _add and _add != "N/A":
+                _add = str(tx.at[_i, "Player Added"]).strip(); _drop = str(tx.at[_i, "Player Dropped"]).strip()
+                if _real_player(_add):
                     chains[_add].append((_d, _ref))
-                if _drop and _drop != "N/A":
+                if _real_player(_drop):
                     chains[_drop].append((_d, _ref))
             if not tr.empty:
                 for _j in tr.index:
@@ -10511,12 +10519,12 @@ def build_all(repo_root: Path) -> None:
             a_next, a_prev, d_next, d_prev = [], [], [], []
             for _i in tx.index:
                 _ref = f"#{int(_i) + 1}"
-                _add = str(tx.at[_i, "Player Added"]); _drop = str(tx.at[_i, "Player Dropped"])
-                if _add and _add != "N/A":
+                _add = str(tx.at[_i, "Player Added"]).strip(); _drop = str(tx.at[_i, "Player Dropped"]).strip()
+                if _real_player(_add):
                     _n, _p = _neighbors(_add, _ref); a_next.append(_n); a_prev.append(_p)
                 else:
                     a_next.append(None); a_prev.append(None)
-                if _drop and _drop != "N/A":
+                if _real_player(_drop):
                     _n, _p = _neighbors(_drop, _ref); d_next.append(_n); d_prev.append(_p)
                 else:
                     d_next.append(None); d_prev.append(None)
