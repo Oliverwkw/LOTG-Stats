@@ -635,7 +635,13 @@
     "Link to previous transaction (dropped player)",
     "Tanking",
     "Number of times picked up by this team",
-    "Number of times dropped by this team"
+    "Number of times dropped by this team",
+    "Points Added",
+    "Points Lost",
+    "Net points",
+    "Avg points added",
+    "Avg points lost",
+    "Avg net points"
   ],
   "trades": [
     "Team",
@@ -666,7 +672,13 @@
     "Tanking",
     "Link to next transaction per asset",
     "Link to previous transaction per asset",
-    "Number of teams involved"
+    "Number of teams involved",
+    "Points added",
+    "Points lost",
+    "Net points",
+    "Avg points added",
+    "Avg points lost",
+    "Avg net points"
   ],
   "Pick History": [
     "Year",

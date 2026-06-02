@@ -5228,6 +5228,50 @@ def build_all(repo_root: Path) -> None:
                     adj_diff = round((added_adj or 0.0) - (dropped_adj or 0.0), 4)
                     r["Difference of averages adjusted by position"] = adj_diff
 
+                # --- Points Added / Lost / Net (+ per-week averages) ---
+                # Points Added: the added player's fantasy points in the weeks
+                # they STARTED for this team, from pickup until their next exit.
+                # Points Lost: the dropped player's REAL NFL points (game log,
+                # 0 for any DNP/bye) over exactly those same started weeks — the
+                # opportunity cost of starting the add instead of the drop. The
+                # averages divide by the number of started weeks so swaps of
+                # different lengths are comparable. Pure drop (no add) -> all 0.
+                def _is_name(_v):
+                    _s = str(_v).strip()
+                    return bool(_s) and _s.upper() != "N/A" and _s.lower() not in ("nan", "none")
+                pts_added = 0.0
+                started_yw: List[Tuple[int, int]] = []
+                if _is_name(added):
+                    for _d in pw_by_team_player.get((str(team), str(added)), []):
+                        if _d.get("Starter/Bench") != "Starter":
+                            continue
+                        _wd = _d.get("_wk_date") or ""
+                        if _wd < pickup_iso_prefix:
+                            continue
+                        if drop_after_prefix and _wd >= drop_after_prefix:
+                            continue
+                        if _d.get("Year") is None or _d.get("Week") is None:
+                            continue
+                        started_yw.append((int(_d["Year"]), int(_d["Week"])))
+                        pts_added += float(_d.get("Points") or 0.0)
+                pts_lost = 0.0
+                if _is_name(dropped) and started_yw:
+                    _dlog = {
+                        (int(_e["year"]), int(_e["week"])): float(_e.get("points") or 0.0)
+                        for _e in nfl_log_by_sid.get(str(r.get("_dropped_pid")), [])
+                        if _e.get("year") is not None and _e.get("week") is not None
+                    }
+                    for _yw in started_yw:
+                        pts_lost += _dlog.get(_yw, 0.0)
+                _nwk = len(started_yw)
+                _net = pts_added - pts_lost
+                r["Points Added"] = round(pts_added, 2)
+                r["Points Lost"] = round(pts_lost, 2)
+                r["Net points"] = round(_net, 2)
+                r["Avg points added"] = round(pts_added / _nwk, 2) if _nwk else 0.0
+                r["Avg points lost"] = round(pts_lost / _nwk, 2) if _nwk else 0.0
+                r["Avg net points"] = round(_net / _nwk, 2) if _nwk else 0.0
+
                 # The cuff comparison still uses the pre-pickup 5-game
                 # snapshot — that's the form info available at pickup.
                 # Bind it under the original name the cuff code reads.
@@ -6062,6 +6106,32 @@ def build_all(repo_root: Path) -> None:
                 _key = (int(_ym.group(1)), int(_nm.group(1)), _norm_team_name(_phr.get("Original Team", "")))
                 _pick_to_drafted[_key] = (_plp, _norm_team_name(_phr.get("Final Team", "")), int(_ym.group(1)))
 
+        # (fantasy team, player name) -> [(year, week, points, wk_date)] for
+        # weeks that player STARTED for that team — powers the trade Points
+        # Added (received assets' starter output, per week).
+        _started_idx: Dict[Tuple[str, str], List[Tuple[int, int, float, str]]] = defaultdict(list)
+        _scols = ["Team", "Player", "Year", "Week", "Points", "Starter/Bench"]
+        if not pw.empty and set(_scols).issubset(pw.columns):
+            for _t, _p, _y, _w, _pt, _sb in zip(*[pw[c] for c in _scols]):
+                if str(_sb) != "Starter" or pd.isna(_y) or pd.isna(_w):
+                    continue
+                try:
+                    _yi, _wi = int(_y), int(_w)
+                except Exception:
+                    continue
+                _wkd = (date(_yi, 9, 7) + timedelta(days=7 * (_wi - 1))).isoformat()
+                _started_idx[(str(_t), str(_p))].append((_yi, _wi, float(_pt or 0.0), _wkd))
+
+        def _nfl_wk_pts(sid=None, name=None) -> Dict[Tuple[int, int], float]:
+            """A player's real NFL fantasy points keyed by (year, week)."""
+            if not sid and name:
+                sid = name_to_sid_local2.get(name)
+            out: Dict[Tuple[int, int], float] = {}
+            for _e in nfl_log_by_sid.get(str(sid), []):
+                if _e.get("year") is not None and _e.get("week") is not None:
+                    out[(int(_e["year"]), int(_e["week"]))] = float(_e.get("points") or 0.0)
+            return out
+
         for idx, row in enumerate(trades_rows):
             team = str(row.get("Team") or "")
             trade_iso = str(row.get("Date") or "")
@@ -6289,6 +6359,62 @@ def build_all(repo_root: Path) -> None:
             # value added is then 0. One-sided player trades already resolve
             # via the missing-side-as-0 averages above.
             row["Trade addition value"] = round(adj_diff, 4) if adj_diff is not None else 0.0
+
+            # --- Points Added / Lost / Net (+ per-week averages) ---
+            # Received assets = received players + players THIS team drafted
+            # with received picks (window starts at the draft). Per week,
+            # Points Added = points of received assets that STARTED that week;
+            # k = how many started. Points Lost = the top-k players-traded-away
+            # by real NFL points that week (each sent asset once, capped at the
+            # number sent) — the best plays forgone. Sent picks contribute the
+            # player drafted with them. Averages divide by the matched weeks.
+            _trade_dt10 = trade_iso[:10] if len(trade_iso) >= 10 else trade_iso
+            _recv_assets: List[Tuple[str, str]] = []
+            for _pid in (row.get("_recv_player_ids") or []):
+                _nm = _player_display(_pid)
+                if _nm:
+                    _recv_assets.append((_nm, _trade_dt10))
+            for _m in (row.get("_recv_pick_meta") or []):
+                try:
+                    _pk = (int(_m[0]), int(_m[1]), _norm_team_name(_m[2]))
+                except Exception:
+                    continue
+                _dr = _pick_to_drafted.get(_pk)
+                if _dr and _dr[1] == _norm_team_name(team):
+                    _recv_assets.append((_dr[0], f"{_dr[2]}-08-28"))
+            _recv_week: Dict[Tuple[int, int], List[float]] = defaultdict(list)
+            for _nm, _wstart in _recv_assets:
+                for (_yi, _wi, _pt, _wkd) in _started_idx.get((str(team), _nm), []):
+                    if _wkd >= _wstart:
+                        _recv_week[(_yi, _wi)].append(_pt)
+            _sent_logs: List[Dict[Tuple[int, int], float]] = []
+            for _pid in (row.get("_drop_player_ids") or []):
+                _sent_logs.append(_nfl_wk_pts(sid=_pid))
+            for _m in (row.get("_drop_pick_meta") or []):
+                try:
+                    _pk = (int(_m[0]), int(_m[1]), _norm_team_name(_m[2]))
+                except Exception:
+                    continue
+                _dr = _pick_to_drafted.get(_pk)
+                if _dr:
+                    _sent_logs.append(_nfl_wk_pts(name=_dr[0]))
+            _tp_added = 0.0
+            _tp_lost = 0.0
+            _tnwk = 0
+            for _w, _rpts in _recv_week.items():
+                _k = len(_rpts)
+                if _k == 0:
+                    continue
+                _tnwk += 1
+                _tp_added += sum(_rpts)
+                _tp_lost += sum(sorted((_lg.get(_w, 0.0) for _lg in _sent_logs), reverse=True)[:_k])
+            _tnet = _tp_added - _tp_lost
+            row["Points added"] = round(_tp_added, 2)
+            row["Points lost"] = round(_tp_lost, 2)
+            row["Net points"] = round(_tnet, 2)
+            row["Avg points added"] = round(_tp_added / _tnwk, 2) if _tnwk else 0.0
+            row["Avg points lost"] = round(_tp_lost / _tnwk, 2) if _tnwk else 0.0
+            row["Avg net points"] = round(_tnet / _tnwk, 2) if _tnwk else 0.0
 
             # ----- (d) Return-from-trades chain (V2: three buckets) -----
             # Each received asset terminates in one of:
