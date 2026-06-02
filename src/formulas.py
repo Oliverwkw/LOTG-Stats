@@ -259,8 +259,8 @@ _ROWS = [
     {
         "Stat": "Avg PPG of received players on team",
         "Sheet": "trades",
-        "Formula": "Per received player, their mean fantasy_points_ppr over NFL games from trade date through next drop/trade from this team. Aggregated as mean across received players.",
-        "Notes": "Forward-looking — actual production while on this team. Sourced from nflverse.",
+        "Formula": "Per received player, their mean fantasy_points_ppr over NFL games from trade date through next drop/trade from this team. ALSO includes received DRAFT PICKS (Phase 7D): the player drafted with the pick contributes their mean PPG over their post-draft tenure on this team (draft ≈ late August of the pick year → next exit) — but only when this team actually made the selection (pick_history Final Team == this team); a pick flipped before the draft, or a not-yet-drafted future pick, contributes nothing. Aggregated as the mean across all these received assets.",
+        "Notes": "Forward-looking — actual production while on this team, players and drafted picks alike. Sourced from nflverse, so injured/bye/suspended weeks (no game log row) are already excluded; only games actually played count.",
     },
     {
         "Stat": "Avg PPG of sent players over same time",
