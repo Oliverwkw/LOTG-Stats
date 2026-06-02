@@ -3643,6 +3643,64 @@ def build_all(repo_root: Path) -> None:
                             _r: [f"${_a} FAAB"] for _r, _a in _faab_by_rcv.items()
                         }
 
+                        # SENT side, keyed by the roster that actually GAVE UP
+                        # each asset (Phase 7 fix). Building "sent" from "what
+                        # the OTHER teams received" double-counts in 3+ team
+                        # trades — each team then lists every other team's haul.
+                        # Instead attribute each asset to its real source: a
+                        # player to the roster that DROPPED it, a pick to its
+                        # previous owner, FAAB to its sender.
+                        _drops_dict = t.get("drops") if isinstance(t.get("drops"), dict) else {}
+                        drop_players: Dict[int, List[str]] = defaultdict(list)
+                        drop_player_ids: Dict[int, List[str]] = defaultdict(list)
+                        for _pid, _rrid in _drops_dict.items():
+                            _rr = _to_int(_rrid, None)
+                            if _rr is None:
+                                continue
+                            drop_players[_rr].append(pid_meta.get(str(_pid), {}).get("full_name") or str(_pid))
+                            drop_player_ids[_rr].append(str(_pid))
+                        drop_picks: Dict[int, List[str]] = defaultdict(list)
+                        drop_pick_meta: Dict[int, List[Tuple[int, int, str]]] = defaultdict(list)
+                        for dp in draft_picks:
+                            if not isinstance(dp, dict):
+                                continue
+                            _prev = _to_int(
+                                dp.get("previous_owner_id") or dp.get("previous_owner") or dp.get("previous_owner_roster_id"),
+                                None,
+                            )
+                            if _prev is None and len(roster_ids_int) == 2:
+                                _no = _to_int(dp.get("owner_id"), None)
+                                if _no is not None:
+                                    _prev = next((rid for rid in roster_ids_int if rid != _no), None)
+                            if _prev is None:
+                                continue
+                            _ds = _to_int(dp.get("season"), season)
+                            _dr = _to_int(dp.get("round"), None)
+                            if _dr is None:
+                                continue
+                            _lbl = _format_pick_label(int(_ds), _dr, None)
+                            if not _lbl:
+                                continue
+                            _or = _to_int(dp.get("roster_id"), None)
+                            _ot = (
+                                season_roster_to_team.get(int(_ds), {}).get(int(_or))
+                                if _or is not None else None
+                            ) or roster_to_team.get(int(_or) if _or is not None else -1, "")
+                            drop_picks[_prev].append(_lbl)
+                            drop_pick_meta[_prev].append((int(_ds), int(_dr), str(_ot or "")))
+                        _faab_by_snd: Dict[int, int] = defaultdict(int)
+                        for wb in (t.get("waiver_budget") or []):
+                            if not isinstance(wb, dict):
+                                continue
+                            _amt = _to_int(wb.get("amount"), None)
+                            _snd = _to_int(wb.get("sender"), None)
+                            if _amt is None or _snd is None or int(_amt) <= 0:
+                                continue
+                            _faab_by_snd[int(_snd)] += int(_amt)
+                        drop_faab: Dict[int, List[str]] = {
+                            _r: [f"${_a} FAAB"] for _r, _a in _faab_by_snd.items()
+                        }
+
                         # Build row per roster in roster_ids_int
                         for rid in roster_ids_int:
                             tm = roster_to_team.get(rid, f"Roster {rid}")
@@ -3655,18 +3713,12 @@ def build_all(repo_root: Path) -> None:
                             received_picks = list(recv_picks.get(rid, []))
                             received_pick_meta = list(recv_pick_meta.get(rid, []))
                             dropped = []
-                            dropped_ids: List[str] = []
-                            dropped_picks: List[str] = []
-                            dropped_pick_meta: List[Tuple[int, int, str]] = []
-                            for o in roster_ids_int:
-                                if o == rid:
-                                    continue
-                                dropped.extend(recv_players.get(o, []))
-                                dropped.extend(recv_picks.get(o, []))
-                                dropped.extend(recv_faab.get(o, []))
-                                dropped_ids.extend(recv_player_ids.get(o, []))
-                                dropped_picks.extend(recv_picks.get(o, []))
-                                dropped_pick_meta.extend(recv_pick_meta.get(o, []))
+                            dropped.extend(drop_players.get(rid, []))
+                            dropped.extend(drop_picks.get(rid, []))
+                            dropped.extend(drop_faab.get(rid, []))
+                            dropped_ids: List[str] = list(drop_player_ids.get(rid, []))
+                            dropped_picks: List[str] = list(drop_picks.get(rid, []))
+                            dropped_pick_meta: List[Tuple[int, int, str]] = list(drop_pick_meta.get(rid, []))
                             trades_rows.append({
                                 "Team": tm,
                                 "Team's traded with": "; ".join(sorted(set([x for x in others if x]))),

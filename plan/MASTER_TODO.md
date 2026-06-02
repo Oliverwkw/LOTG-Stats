@@ -112,12 +112,22 @@ When the results-based audit surfaces a bug, log it but continue to the diff swe
 - [x] Trade addition value never blank; Asset age difference never blank — **7C**: both now always populated. `Trade addition value` already resolved one-sided player trades (missing side = 0); the only remaining blanks were pick-only / FAAB-only / never-played trades → now 0 (no on-team player value). `Asset difference in average age` was blank whenever one side had no aged asset (FAAB-only / empty give-away side) → now 0 (no measurable age differential; players + picks both carry ages). No two-sides-with-players trade was ever wrongly blank (verified).
 - [x] Avg PPG received includes draft-pick PPG after arrival — **7D**: "Avg PPG of received players on team" now folds in the player drafted with each received pick, over their post-draft tenure on THIS team (draft ≈ late Aug of the pick year → next exit), but only when this team actually made the selection (pick_history Final Team == team). Picks flipped before the draft (288 of 478 received-pick instances) and not-yet-drafted future picks contribute nothing. Cascades into Difference of averages (adjusted) and Trade addition value. Default chosen (questions dismissed): exclude undrafted picks; window = post-draft on-team tenure.
 - [x] Assets retained now / Assets traded away / Assets dropped to FA include relevant draft picks — **7C verified**: the V2 return-from-trades classifier already keys received assets as `("player", pid)` AND `("pick", meta)`, so picks flow into `Assets retained now` (114 rows) and `Assets traded away` (204 rows). `Assets dropped to FA` is correctly player-only (0 picks) — a draft pick can't be dropped to free agency (it's either traded or used in the draft). No change needed.
-- [ ] V2 trade addition value (Cuffs etc.)
+- [x] Points Added/Lost/Net (+ per-week avgs) on transactions & trades — **#200**: realized starter-points outcome of each move. Transactions: added player's started-week points; dropped player's real NFL points over those same weeks; net; + avgs. Trades: top-k "maximize" rule (received starters matched vs best players traded away each week); + avgs.
+- [ ] **(do-now) Fix 3-team trades** — "Assets sent" must be ONLY what each team actually dropped (each asset appears once in received, once in sent across the deal). Currently Assets sent = union of every other team's received → 3+ team trades double-count (see 2023-06-12 01:21:38). Rebuild the sent side (+ `_drop_player_ids`/`_drop_pick_meta`/sent FAAB) from the real drops / pick previous-owner / FAAB sender.
+- [ ] **(do-now) Fix transaction & trade links** — each link must point to the next/previous transaction OR trade **chronologically** that includes the added/dropped player; many trade link cells aren't real hyperlinks. Make trade links real cross-sheet hyperlinks too.
+- [ ] **(do-now) 6 position-adjusted points-avg columns** — add `Avg points added/lost/net adjusted by position` (3 per sheet) alongside the new points avgs.
+- [ ] **(do-now) "Length of tenure on team"** column on transactions (for the added player); **reorder** transactions + trades so all the Link columns are at the END of the sheet.
+- [ ] **(do-now) Cuff at time of pickup** — require the reference (handcuff) player to STILL be rostered by the team; current formulas wording implies it needn't be. Fix logic + wording.
+- [ ] **(do-now) Ridley/rosters** — the "NFL" sentinel (#199) over-fires on rostered-but-suspended/IR-all-season players (e.g. Calvin Ridley 2022 was on JAX, suspended). Pull nflverse seasonal rosters so only true FA/retired get "NFL". **Combine with 7E in one PR.**
+- [ ] V2 trade addition value (Cuffs etc.) — **7E**. (Combine with Ridley/rosters.)
 - [ ] **3-part audit** (code / results / diff)
 
-## Phase 8 — Pick history
+## Phase 8 — Picks (rename from "pick history")
+- [ ] **Rename the sheet "pick history" → "picks"** (catalog header + all references).
 - [ ] 🔍 Commissioner-moved over-fires — investigate
 - [ ] Each "Trade N" team cell hyperlinks to the corresponding trade row on the trades page (the trade that moved the pick to that team).
+- [ ] **"Length of tenure on team"** column.
+- [ ] Add columns: avg PPG on team; avg PPG on team adjusted by position; age when drafted; KTC on draft day; KTC at end of rookie year; KTC 1 year after draft day; KTC 2 years after draft day; KTC 5 years after draft day; Player addition value; cuff when drafted; weeks before first start; number of starts before next transaction; % of starts made while rostered by drafting team; injury-adjusted % of starts made while rostered by drafting team; change in tanking; points added; avg points added; avg points added adjusted by position; Link to next/previous transaction.
 - [ ] **3-part audit** (code / results / diff)
 
 ## Phase 9 — Taxi / IR / suggestions
