@@ -313,6 +313,12 @@ _ROWS = [
     },
     # -------------------------------- player_week.csv --------------------------------
     {
+        "Stat": "NFL team",
+        "Sheet": "player_week (drives the 'same NFL team' / 'Number of NFL teams' / bye columns too)",
+        "Formula": "The player's real NFL team that week, resolved deterministically: nflverse week-specific team → that season's nflverse team → the '33rd' sentinel \"NFL\" when the player has an NFL identity (gsis_id) but no nflverse team that season (a free agent or retired — unrostered in the real NFL). Players with no gsis (team DSTs / unmapped) keep Sleeper's team field.",
+        "Notes": "The \"NFL\" sentinel replaces the old live-Sleeper-snapshot fallback, which returned the player's CURRENT team (wrong for a past season) and churned between builds for free agents — e.g. Odell Beckham 2022 flipped MIA↔NYG, cascading through his bye → Hardship → z-scored Luck across every team. A sentinel-team player is never flagged on bye (it has no schedule).",
+    },
+    {
         "Stat": "Activated Cuff?",
         "Sheet": "player_week",
         "Formula": "True if this player STARTED this week AND is a handcuff that week: their own last-5 avg is < 10, and a same-NFL-team/same-position teammate who averages ≥ 10 PPG more (over last 5 played games) is injured/suspended. The injured teammate does NOT need to have been a starter.",

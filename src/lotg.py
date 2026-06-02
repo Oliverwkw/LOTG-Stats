@@ -3078,6 +3078,14 @@ def build_all(repo_root: Path) -> None:
                         tm = (
                             (player_team_by_week.get((str(gs), int(wk))) if gs else None)
                             or (player_season_team.get(str(gs)) if gs else None)
+                            # A player with a real NFL identity (gsis) but no
+                            # nflverse team that season wasn't on any NFL roster
+                            # — a free agent or retired. Assign the 33rd "NFL"
+                            # sentinel team rather than the live Sleeper snapshot
+                            # (current-team, churns between builds and is wrong
+                            # for a past season). Deterministic. Players with no
+                            # gsis (team DSTs / unmapped) keep the Sleeper team.
+                            or ("NFL" if gs else None)
                             or m.get("team")
                         )
                         return _norm_team(tm)
@@ -3090,11 +3098,16 @@ def build_all(repo_root: Path) -> None:
                     most_roster_team = Counter(roster_nfl_teams).most_common(1)[0][0] if roster_nfl_teams else None
 
                     def max_same_team_by_pos(pids, pos):
-                        teams = [
-                            pid_meta.get(pid, {}).get("team")
-                            for pid in pids
-                            if (pid_pos.get(pid) or "").upper() == pos and pid_meta.get(pid, {}).get("team")
-                        ]
+                        # Resolve via the same deterministic helper as the other
+                        # NFL-team columns (week stats -> season stats -> "NFL"
+                        # sentinel), not the raw Sleeper snapshot, so unrostered
+                        # players don't churn this count between builds.
+                        teams = []
+                        for pid in pids:
+                            if (pid_pos.get(pid) or "").upper() == pos:
+                                _t = _nfl_team_for_pid_week(pid)
+                                if _t:
+                                    teams.append(_t)
                         return max(Counter(teams).values()) if teams else None
 
                     # Opponent label per playoffs spec
@@ -3275,10 +3288,16 @@ def build_all(repo_root: Path) -> None:
                             or sleeper_to_gsis.get(str(pid))
                         )
 
-                        # Prefer week-specific nflverse team when available; fallback to Sleeper player meta.
+                        # Prefer week-specific nflverse team when available;
+                        # then a "NFL" sentinel for a player with a gsis but no
+                        # nflverse team that season (free agent / retired —
+                        # unrostered in the real NFL), so they show up as such
+                        # deterministically instead of via the churny Sleeper
+                        # snapshot. No-gsis players (DSTs / unmapped) keep it.
                         nfl_team = (
                             (player_team_by_week.get((str(gsis), int(wk))) if gsis else None)
                             or (player_season_team.get(str(gsis)) if gsis else None)
+                            or ("NFL" if gsis else None)
                             or meta.get("team")
                         )
                         nfl_team = _norm_team(nfl_team)
@@ -3296,8 +3315,14 @@ def build_all(repo_root: Path) -> None:
                         )
 
                         # Bye is schedule-based. If player scored >0 -> not a bye.
+                        # The "NFL" sentinel (unrostered: free agent / retired)
+                        # isn't a real team, so it has no bye week — never flag
+                        # it as on bye (otherwise it'd read as on bye every week
+                        # since it's never in the played set).
                         bye = None
-                        if nfl_team and played_set:
+                        if nfl_team and _norm_team(nfl_team) == "NFL":
+                            bye = False
+                        elif nfl_team and played_set:
                             bye = (_norm_team(nfl_team) not in played_set)
                         if pts > 0:
                             # Player scored points; not a bye week. Do NOT override injury/suspension flags:
