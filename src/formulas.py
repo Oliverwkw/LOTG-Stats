@@ -124,6 +124,12 @@ _ROWS = [
         "Notes": "Composite metric blending pure PPG difference with playing-time leverage and handcuff insurance. Tune CUFF_BONUS by editing the constant in src/lotg.py.",
     },
     {
+        "Stat": "Points Added / Points Lost / Net points (+ Avg variants)",
+        "Sheet": "transactions",
+        "Formula": "Points Added = the ADDED player's fantasy points summed over the weeks they STARTED for this team, from pickup until their next exit (drop/trade); 0 if no add. Points Lost = the DROPPED player's real NFL fantasy points (game log, 0 for any bye/injury/DNP week) summed over exactly those same started weeks — the opportunity cost of starting the add instead of the drop; 0 if no drop or no add. Net points = Points Added − Points Lost (0 for a pure drop). Avg variants = each divided by the number of started weeks, so swaps of different lengths are comparable (0 when no started weeks).",
+        "Notes": "Started weeks come from player_week (Starter/Bench == Starter) bounded by the pickup→next-exit window; the dropped player's counterfactual points come from the nflverse game log regardless of where they actually landed.",
+    },
+    {
         "Stat": "KTC value of player added at deal time",
         "Sheet": "transactions",
         "Formula": "Player's KTC sf_trade_value on the pickup date (superflex format, matching league setup).",
@@ -279,6 +285,12 @@ _ROWS = [
         "Sheet": "trades",
         "Formula": "Difference of averages adjusted by position (received-side adjusted on-team PPG − sent-side adjusted PPG; a side with no players contributes 0, so one-sided player trades still resolve). (V1 simplification — trades don't have a meaningful cuff bonus or playing-time leverage multiplier, so we keep it linear.)",
         "Notes": "Mirror of the 'Player addition value' metric on transactions but without the cuff / pct-starts adjustments. Never blank (Phase 7C): when neither side had a player with on-team production to value (a pick-only / FAAB-only trade, or players who never played here), the net player value added is 0.",
+    },
+    {
+        "Stat": "Points added / Points lost / Net points (+ Avg variants)",
+        "Sheet": "trades",
+        "Formula": "RECEIVED assets = received players + the players THIS team drafted with received picks (their window starts at the draft, ~late Aug of the pick year). For each NFL week, let k = how many received assets STARTED for this team that week. Points added += the sum of those k starters' points. Points lost += the sum of the TOP-k players-traded-away by their real NFL points that week (each sent asset counted at most once per week, capped at the number actually sent) — the best plays you forwent by trading them. Sent picks contribute the player drafted with them. Net points = Points added − Points lost. Avg variants = each divided by the number of matched weeks (weeks with ≥1 received starter).",
+        "Notes": "The top-k 'maximize' rule generalizes the 1-for-1 transaction Points Lost to multi-asset trades: a received starter each week is matched against the single best player you gave up. Started weeks/points come from player_week; sent assets' counterfactual points from the nflverse game log.",
     },
     # -------------------------------- pick_history.csv --------------------------------
     {
