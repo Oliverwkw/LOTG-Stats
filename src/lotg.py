@@ -1437,9 +1437,20 @@ def build_all(repo_root: Path) -> None:
                     for r in range(2, ws.max_row + 1):
                         for j in link_col_idx:
                             cell = ws.cell(row=r, column=j)
-                            m = _ref_re.match(str(cell.value).strip()) if cell.value is not None else None
-                            if not m:
-                                continue  # blank / N/A / multi-ref list
+                            if cell.value is None:
+                                continue
+                            # A cell may hold a single ref or a ';'-joined
+                            # per-asset list (trades). Hyperlink to the FIRST
+                            # valid ref so every link cell is clickable (xlsx
+                            # allows one hyperlink per cell).
+                            first = next(
+                                (t.strip() for t in str(cell.value).split(";")
+                                 if _ref_re.match(t.strip())),
+                                None,
+                            )
+                            if not first:
+                                continue
+                            m = _ref_re.match(first)
                             target_sheet = _ref_sheet[m.group(1) or ""]
                             row_num = int(m.group(2))
                             cell.hyperlink = f"#'{target_sheet}'!A{row_num + 1}"
@@ -3740,6 +3751,11 @@ def build_all(repo_root: Path) -> None:
                                 "_drop_picks": dropped_picks,
                                 "_recv_pick_meta": received_pick_meta,
                                 "_drop_pick_meta": dropped_pick_meta,
+                                # Shared id for all rows of the SAME trade event
+                                # (a 3-team trade emits N rows). Lets the link
+                                # chains skip a trade's own mirror rows when
+                                # finding the next/previous DISTINCT event.
+                                "_tx_id": str(t.get("transaction_id") or id(t)),
                                 # KTC columns — 'at deal time' is computed
                                 # by a post-processing pass; the other three
                                 # time points stay None until a follow-up
@@ -10839,13 +10855,27 @@ def build_all(repo_root: Path) -> None:
             for _p in chains:
                 chains[_p].sort(key=lambda e: (e[0] if pd.notna(e[0]) else _nat))
 
+            # Map each ref to its EVENT. Every transaction is its own event; all
+            # rows of one trade (a 3-team trade emits several) share the trade's
+            # _tx_id. A player's next/previous link then skips the OTHER rows of
+            # the same trade it's already on and lands on the next DISTINCT
+            # transaction/trade that involves them.
+            _ref_event: Dict[str, str] = {f"#{int(_i) + 1}": f"X{int(_i) + 1}" for _i in tx.index}
+            if not tr.empty and "_tx_id" in tr.columns:
+                for _j in tr.index:
+                    _ref_event[f"T#{int(_j) + 1}"] = f"E{tr.at[_j, '_tx_id']}"
+
             def _neighbors(player, this_ref):
                 ch = chains.get(player, [])
-                for _k in range(len(ch)):
-                    if ch[_k][1] == this_ref:
-                        return (ch[_k + 1][1] if _k + 1 < len(ch) else None,
-                                ch[_k - 1][1] if _k > 0 else None)
-                return None, None
+                _pos = next((_k for _k in range(len(ch)) if ch[_k][1] == this_ref), None)
+                if _pos is None:
+                    return None, None
+                _ev = _ref_event.get(this_ref)
+                _nxt = next((ch[_k][1] for _k in range(_pos + 1, len(ch))
+                             if _ref_event.get(ch[_k][1]) != _ev), None)
+                _prv = next((ch[_k][1] for _k in range(_pos - 1, -1, -1)
+                             if _ref_event.get(ch[_k][1]) != _ev), None)
+                return _nxt, _prv
 
             # Pick chains: follow a draft pick to the next / previous TRADE that
             # moved it, keyed by its canonical identity (year, round, original
