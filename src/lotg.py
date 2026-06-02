@@ -354,6 +354,30 @@ def _norm_team(t: Any) -> Optional[str]:
     s = str(t).strip().upper()
     return _TEAM_NORMALIZE.get(s, s)
 
+def _resolve_historical_nfl_team(history: Dict[int, str], target_year: int) -> Optional[str]:
+    """Deterministically resolve a player's NFL team for a season in which they
+    have no nflverse stats (free agent / unsigned / out of league that year).
+
+    `history` maps {season -> team} for every season the player actually
+    appeared in nflverse weekly stats. We return the team from the most recent
+    season ON OR BEFORE `target_year`. When the player has no such prior season
+    we return None (NFL team stays blank) rather than guessing among historical
+    teams or borrowing the live Sleeper snapshot.
+
+    Determinism is the point: keying on max(prior season) — never set/dict
+    iteration order, .mode() ties, or a live roster snapshot — means the same
+    player + year always yields the same NFL team across otherwise-identical
+    builds. Fixes Odell Beckham 2022 (a free agent all season, recovering from
+    a torn ACL) flipping between MIA and NYG between builds, which used to
+    cascade into bye / Injury? / Hardship / z-scored Luck across every team.
+    """
+    if not history:
+        return None
+    prior = [y for y in history if y <= target_year]
+    if not prior:
+        return None
+    return _norm_team(history[max(prior)])
+
 def _download_csv_best_effort(urls: List[str], path: Path, timeout: int = 120, debug: Optional[Path]=None) -> pd.DataFrame:
     import requests
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -1516,6 +1540,23 @@ def build_all(repo_root: Path) -> None:
     # (most leagues are 0.5-PPR or full PPR; rankings are stable
     # between the two for trend purposes).
     nfl_log_by_sid: Dict[str, List[Dict[str, Any]]] = defaultdict(list)
+    # Cross-season per-player NFL team history, keyed by gsis_id -> {season ->
+    # season team}. Accumulated as the (chronologically ordered) league chain is
+    # walked, so when a player has no stats for a given season (free agent /
+    # unsigned), _resolve_historical_nfl_team can deterministically fall back to
+    # the team from their most recent prior season instead of the churny live
+    # snapshot. See _resolve_historical_nfl_team for why this matters.
+    nfl_season_team_by_gsis: Dict[str, Dict[int, str]] = defaultdict(dict)
+
+    def _historical_nfl_team(gs: Any, target_year: Any) -> Optional[str]:
+        if not gs:
+            return None
+        try:
+            ty = int(target_year)
+        except (TypeError, ValueError):
+            return None
+        return _resolve_historical_nfl_team(nfl_season_team_by_gsis.get(str(gs), {}), ty)
+
     trades_rows: List[Dict[str, Any]] = []
     # Orphan drops: a player dropped without a corresponding add in the same
     # transaction (pure waiver-to-FA). These don't get a transactions.csv row
@@ -1898,6 +1939,7 @@ def build_all(repo_root: Path) -> None:
                         for pid_x, tm_x in modes.items():
                             if tm_x and str(tm_x) != "nan":
                                 player_season_team[str(pid_x)] = str(tm_x)
+                                nfl_season_team_by_gsis[str(pid_x)][int(season)] = str(tm_x)
                     except Exception as e:
                         _log_exc(debug, f"player_season_team_{season}", e)
                 if "position" in spw.columns:
@@ -3078,6 +3120,11 @@ def build_all(repo_root: Path) -> None:
                         tm = (
                             (player_team_by_week.get((str(gs), int(wk))) if gs else None)
                             or (player_season_team.get(str(gs)) if gs else None)
+                            # Free agent / unsigned this season: deterministically
+                            # resolve to their most recent prior NFL team rather
+                            # than the live Sleeper snapshot (which churns between
+                            # builds). Preempts m.get("team") for OBJ 2022.
+                            or _historical_nfl_team(gs, season)
                             or m.get("team")
                         )
                         return _norm_team(tm)
@@ -3090,10 +3137,16 @@ def build_all(repo_root: Path) -> None:
                     most_roster_team = Counter(roster_nfl_teams).most_common(1)[0][0] if roster_nfl_teams else None
 
                     def max_same_team_by_pos(pids, pos):
+                        # Use the same deterministic week/season/historical
+                        # resolution as the roster-wide metric (not the live
+                        # pid_meta snapshot) so a free agent like OBJ 2022 can't
+                        # flip a WR/QB/RB/TE "same NFL team" count between builds.
                         teams = [
-                            pid_meta.get(pid, {}).get("team")
+                            t
                             for pid in pids
-                            if (pid_pos.get(pid) or "").upper() == pos and pid_meta.get(pid, {}).get("team")
+                            if (pid_pos.get(pid) or "").upper() == pos
+                            for t in (_nfl_team_for_pid_week(pid),)
+                            if t
                         ]
                         return max(Counter(teams).values()) if teams else None
 
@@ -3279,6 +3332,11 @@ def build_all(repo_root: Path) -> None:
                         nfl_team = (
                             (player_team_by_week.get((str(gsis), int(wk))) if gsis else None)
                             or (player_season_team.get(str(gsis)) if gsis else None)
+                            # Free agent / unsigned this season: deterministic
+                            # most-recent-prior team instead of the churny live
+                            # snapshot. This is the bye/Injury? path whose flips
+                            # cascade into z-scored Luck across every team.
+                            or _historical_nfl_team(gsis, season)
                             or meta.get("team")
                         )
                         nfl_team = _norm_team(nfl_team)
