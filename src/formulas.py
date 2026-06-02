@@ -157,7 +157,7 @@ _ROWS = [
         "Stat": "Link to next/previous transaction (added player) / (dropped player)",
         "Sheet": "transactions",
         "Formula": "Follows the ADDED player and the DROPPED player to their next/previous event ANYWHERE in the league — across teams and INCLUDING trades. Reference is a row pointer: '#N' = transactions.csv row N, 'T#N' = trades.csv row N, 'PH#N' = pick_history.csv row N (1-indexed, final sorted order). A drafted player's chain STARTS at their pick_history draft row, so the 'previous' link on their first-ever event points to 'PH#N'.",
-        "Notes": "Replaces the old single per-team 'Link to next/previous transaction'. The chain is date-ordered, so row numbers can look non-monotonic (the CSVs are grouped by team, not global date). Blank at the very ends of a player's chain (a drafted player's start is their PH# draft row) or when the row has no added/dropped player. In the xlsx all three reference kinds are clickable hyperlinks to the target row.",
+        "Notes": "Replaces the old single per-team 'Link to next/previous transaction'. The chain is date-ordered, so row numbers can look non-monotonic (the CSVs are grouped by team, not global date). A multi-row trade (e.g. a 3-team deal) counts as ONE event, so the link skips the trade's own other-team rows and lands on the next DISTINCT transaction/trade involving the player. Blank at the very ends of a player's chain (a drafted player's start is their PH# draft row) or when the row has no added/dropped player. In the xlsx every link cell is a clickable hyperlink to the target row (a per-asset list links to its first ref).",
     },
     {
         "Stat": "Number of times picked up by this team",
