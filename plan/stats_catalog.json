@@ -689,7 +689,7 @@
     "Link to next transaction per asset",
     "Link to previous transaction per asset"
   ],
-  "Pick History": [
+  "picks": [
     "Year",
     "Number",
     "Original Team",

@@ -45,4 +45,4 @@ These tables match the column lists in your plan:
 - `league_all_time.csv`
 - `transactions.csv`
 - `trades.csv`
-- `pick_history.csv`
+- `picks.csv`
