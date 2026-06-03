@@ -6341,6 +6341,13 @@ def build_all(repo_root: Path) -> None:
                 _player_nflpos_idx[_pname].append((_wkd, _nflt, _posu))
 
         _TRADE_CUFF_BONUS = 5.0  # mirror the transaction CUFF_BONUS
+        # Item 7E (pick value): future draft picks received/sent are valued with
+        # the SAME round weights tanking uses (_FUTURE_PICK_WEIGHTS: 1st=0.25,
+        # 2nd=0.09, 3rd=0.03, 4th=0.01, next-3-seasons only) and converted to a
+        # PPG-equivalent by this coefficient, then added to Trade addition value
+        # so pick-heavy hauls register. 20.0 => a future 1st ≈ +5 (≈ one cuff
+        # bonus). TUNABLE — adjust to taste.
+        _TRADE_PICK_COEFF = 20.0
 
         def _recv_is_cuff(name: str, team: str, at_prefix: str) -> bool:
             """A received player is a cuff (mirrors 'Cuff at time of pickup?'):
@@ -6634,9 +6641,15 @@ def build_all(repo_root: Path) -> None:
             # made while rostered on THIS team over their post-trade tenure
             # (trade -> next exit); the injury-adjusted variant divides by
             # injury/bye-free weeks. Players drafted from received picks feed
-            # adj_diff (above) but not the leverage term. adj_diff is None only
-            # for pick-only / FAAB-only trades where there is no on-team
-            # production to value -> value added is 0 (never blank, Phase 7C).
+            # adj_diff (above) but not the leverage term.
+            #
+            # Pick value: future picks (next 3 seasons) are valued with the
+            # tanking round weights and added in via _TRADE_PICK_COEFF so
+            # pick-heavy hauls register. Current-season picks that get drafted
+            # are already captured by adj_diff (7D), so only future capital is
+            # added here -> no double count. This term applies even when
+            # adj_diff is None (a pick-only haul is no longer flat 0).
+            _pick_val = _TRADE_PICK_COEFF * float(row.get("_tank_fcap_delta") or 0.0)
             if adj_diff is not None:
                 _pct_list: List[float] = []
                 _pinj_list: List[float] = []
@@ -6672,9 +6685,10 @@ def build_all(repo_root: Path) -> None:
                 )
                 _cuff_bonus = _TRADE_CUFF_BONUS if _cuff_hit else 0.0
                 row["Trade addition value"] = round(
-                    adj_diff * (1.0 + _pct_starts) * (1.0 + _pct_inj) + _cuff_bonus, 4)
+                    adj_diff * (1.0 + _pct_starts) * (1.0 + _pct_inj)
+                    + _cuff_bonus + _pick_val, 4)
             else:
-                row["Trade addition value"] = 0.0
+                row["Trade addition value"] = round(_pick_val, 4)
 
             # --- Points Added / Lost / Net (+ per-week averages) ---
             # Received assets = received players + players THIS team drafted
