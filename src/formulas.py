@@ -289,8 +289,8 @@ _ROWS = [
     {
         "Stat": "Trade addition value",
         "Sheet": "trades",
-        "Formula": "Difference of averages adjusted by position (received-side adjusted on-team PPG − sent-side adjusted PPG; a side with no players contributes 0, so one-sided player trades still resolve). (V1 simplification — trades don't have a meaningful cuff bonus or playing-time leverage multiplier, so we keep it linear.)",
-        "Notes": "Mirror of the 'Player addition value' metric on transactions but without the cuff / pct-starts adjustments. Never blank (Phase 7C): when neither side had a player with on-team production to value (a pick-only / FAAB-only trade, or players who never played here), the net player value added is 0.",
+        "Formula": "V2 composite mirroring the transaction 'Player addition value': adj_diff × (1 + pct_starts) × (1 + pct_starts_injury_adjusted) + CUFF_BONUS(5). adj_diff = 'Difference of averages adjusted by position' (received-side adjusted on-team PPG − sent-side adjusted PPG; a side with no players contributes 0). pct_starts = average over the RECEIVED players of their '% of starts made while rostered' on this team over their post-trade tenure (trade → next exit); pct_starts_injury_adjusted divides starts by injury/bye-free weeks only. CUFF_BONUS (+5) is added once if ANY received player was a cuff at the trade — the team already rostered a STARTER on the same NFL team + position (still rostered at the trade week) whose last-5 PPG was 10+ above the received player's last-5, the same handcuff test as the transaction 'Cuff at time of pickup?'.",
+        "Notes": "Item 7E. Players DRAFTED with received picks feed adj_diff (Phase 7D) but not the playing-time leverage term (which is over received players only). Never blank (Phase 7C): adj_diff is None only for pick-only / FAAB-only trades with no on-team production to value → value added is 0.",
     },
     {
         "Stat": "Points added / Points lost / Net points (+ Avg + Avg-adjusted-by-position variants)",
