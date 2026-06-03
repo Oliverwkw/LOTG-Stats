@@ -120,7 +120,7 @@ When the results-based audit surfaces a bug, log it but continue to the diff swe
 - [x] **Cuff at time of pickup** — the reference (handcuff) player must now STILL be rostered by the team at the pickup week (not just a starter in the prior 3 weeks). Logic + formulas wording fixed.
 - [x] **Ridley/rosters** — pull nflverse WEEKLY rosters so players on a roster but with no stats (IR / suspended / PUP, e.g. Calvin Ridley 2022 on JAX) keep their real team; only true FA/retired get the "NFL" sentinel. Resolution: week stats → season stats → weekly roster → season roster → "NFL".
 - [x] V2 trade addition value (Cuffs etc.) — **7E**. Trade addition value now mirrors the transaction Player addition value: adj_diff × (1 + pct_starts) × (1 + pct_starts_inj) + CUFF_BONUS(5), with received players' playing-time leverage and the same handcuff test for the cuff bonus. [confirmed w/ user: mirror transaction V2, cuff def = same as transactions]
-- [ ] **3-part audit** (code / results / diff)
+- [x] **3-part audit** (code / results / diff) — see `plan/AUDIT_PHASE7_3PART.md`. Code review: every Phase 7 item faithfully implemented. Results: 38/38 spec-derived invariants pass against the live build (run via `plan/audit_phase7.py` in CI). Diff: trades/transactions changed exactly as intended (incl. trades 499→495 rows = the 2 deleted net-zero FAAB swaps); pick_history identical. **One minor cosmetic finding**: FAAB string lumping in a multi-sender 3-team trade (dollars conserve, players/picks conserve — the do-now double-count fix is intact). Catalog dup-column quirk deferred to Phase 12.
 
 ## Phase 8 — Picks (rename from "pick history")
 - [ ] **Rename the sheet "pick history" → "picks"** (catalog header + all references).
