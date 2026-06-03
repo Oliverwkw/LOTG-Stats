@@ -72,7 +72,7 @@ jobs:
       - name: Run Phase 7 audit
         env:
           EXPORTS_DIR: exports
-          BASELINE_DIR: baseline/exports
+          BASELINE_DIR: baseline
           CATALOG: plan/stats_catalog.json
         run: |
           set -o pipefail

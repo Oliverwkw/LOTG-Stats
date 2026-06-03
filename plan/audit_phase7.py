@@ -119,23 +119,36 @@ def raw_header(name: str) -> list[str]:
         return next(_csv.reader(fh))
 
 
-for key, df, fname in (("transactions", tx, "transactions.csv"), ("trades", tr, "trades.csv")):
+def dedup(seq):
+    seen, out = set(), []
+    for c in seq:
+        if c not in seen:
+            seen.add(c)
+            out.append(c)
+    return out
+
+
+for key, fname in (("transactions", "transactions.csv"), ("trades", "trades.csv")):
     want = list(catalog[key])
+    want_distinct = dedup(want)
     got = raw_header(fname)
     if got == want:
-        check(PASS, f"{key}: columns match catalog exactly ({len(got)})")
+        check(PASS, f"{key}: header matches catalog exactly ({len(got)})")
+    elif got == want_distinct:
+        n_dup = len(want) - len(want_distinct)
+        check(PASS, f"{key}: header matches catalog's distinct columns ({len(got)})",
+              f"catalog lists {len(want)} entries incl {n_dup} self-duplicate(s); "
+              f"output carries the {len(got)} distinct cols in catalog order")
     else:
-        check(FAIL, f"{key}: column mismatch",
-              f"want {len(want)} got {len(got)}")
-        missing = [c for c in want if c not in got]
-        extra = [c for c in got if c not in want]
+        check(FAIL, f"{key}: column mismatch", f"want {len(want)} got {len(got)}")
+        missing = [c for c in want_distinct if c not in got]
+        extra = [c for c in got if c not in want_distinct]
         if missing:
             print("        missing:", missing)
         if extra:
             print("        extra  :", extra)
-        # order differences among shared columns
-        shared_want = [c for c in want if c in got]
-        shared_got = [c for c in got if c in want]
+        shared_want = [c for c in want_distinct if c in got]
+        shared_got = [c for c in got if c in want_distinct]
         if shared_want != shared_got:
             print("        order differs among shared columns")
 
@@ -198,19 +211,28 @@ print("\n-- do-now: 3+ team trade asset conservation --")
 multi = tr[pd.to_numeric(tr["Number of teams involved"], errors="coerce") >= 3]
 n_multi_groups = multi["Date"].nunique() if not multi.empty else 0
 print(f"   {len(multi)} rows across {n_multi_groups} multi-team (3+) trade groups")
+from collections import Counter
 conservation_bad = []
 for date, grp in tr.groupby("Date"):
-    recv = sorted(a for c in grp["Assets received"] for a in split_assets(c))
-    sent = sorted(a for c in grp["Assets sent"] for a in split_assets(c))
+    recv = Counter(a for c in grp["Assets received"] for a in split_assets(c))
+    sent = Counter(a for c in grp["Assets sent"] for a in split_assets(c))
     if recv != sent:
-        conservation_bad.append((date, len(grp)))
+        only_recv = list((recv - sent).elements())
+        only_sent = list((sent - recv).elements())
+        conservation_bad.append((date, len(grp), only_recv, only_sent))
 check(PASS if not conservation_bad else FAIL,
       "every asset received by someone is sent by someone (per trade group)",
-      f"{len(conservation_bad)} groups violate conservation"
-      + (f"; e.g. {conservation_bad[:3]}" if conservation_bad else ""))
+      f"{len(conservation_bad)} groups violate conservation")
+for date, n, only_recv, only_sent in conservation_bad[:5]:
+    print(f"        group {date} ({n} rows):")
+    print(f"          received-but-not-sent: {only_recv}")
+    print(f"          sent-but-not-received: {only_sent}")
 # focused: the multi-team groups specifically must not double-count
 multi_bad = [g for g in conservation_bad
              if pd.to_numeric(tr[tr['Date'] == g[0]]['Number of teams involved'], errors='coerce').max() >= 3]
+nonmulti_bad = [g for g in conservation_bad if g not in multi_bad]
+if nonmulti_bad:
+    print(f"        ({len(nonmulti_bad)} of the violating groups are 2-team)")
 check(PASS if not multi_bad else FAIL,
       "3+ team trades do not double-count the sent side",
       f"{len(multi_bad)} multi-team groups violate conservation")
@@ -254,41 +276,60 @@ check(PASS if faab_pick_link_bad == 0 else FAIL,
       "FAAB received assets carry N/A in the aligned link slot",
       f"{faab_pick_link_bad} FAAB slots non-N/A")
 
-# link tokens are well-formed and in range
-tx_ref_re = re.compile(r"^#(\d+)$")
-tr_ref_re = re.compile(r"^T#(\d+)$")
-bad_ref = 0
-out_of_range = 0
-for col in ("Link to next transaction per asset", "Link to previous transaction per asset"):
-    for cell in tr[col]:
-        for tok in split_assets(cell):
-            if tok.upper() == "N/A":
-                continue
-            m1, m2 = tx_ref_re.match(tok), tr_ref_re.match(tok)
-            if not (m1 or m2):
-                bad_ref += 1
-            elif m1 and not (1 <= int(m1.group(1)) <= len(tx)):
-                out_of_range += 1
-            elif m2 and not (1 <= int(m2.group(1)) <= len(tr)):
-                out_of_range += 1
-check(PASS if bad_ref == 0 else FAIL, "trade link tokens are '#N' / 'T#N' / 'N/A'", f"{bad_ref} malformed")
-check(PASS if out_of_range == 0 else FAIL, "trade link refs point in-range", f"{out_of_range} out of range")
+# link tokens are well-formed and in range. Valid refs:
+#   #N    -> transactions.csv row N      (1..len(tx))
+#   T#N   -> trades.csv row N            (1..len(tr))
+#   PH#N  -> pick_history.csv row N      (1..len(ph)) — draft-row bridge (#194/#195)
+ph = load("pick_history.csv")
+n_ph = len(ph) if ph is not None else None
+REF_RES = {
+    "tx": (re.compile(r"^#(\d+)$"), len(tx)),
+    "tr": (re.compile(r"^T#(\d+)$"), len(tr)),
+    "ph": (re.compile(r"^PH#(\d+)$"), n_ph),
+}
 
-# transaction link refs in range too
+
+def classify_tokens(series, examples):
+    bad = oor = 0
+    for cell in series:
+        for tok in split_assets(cell):
+            t = tok.strip()
+            if not t or t.upper() == "N/A":
+                continue
+            matched = False
+            for _re, _n in REF_RES.values():
+                m = _re.match(t)
+                if m:
+                    matched = True
+                    if _n is None or not (1 <= int(m.group(1)) <= _n):
+                        oor += 1
+                    break
+            if not matched:
+                bad += 1
+                if len(examples) < 8:
+                    examples.append(t)
+    return bad, oor
+
+
+tr_ex: list[str] = []
+tr_bad = tr_oor = 0
+for col in ("Link to next transaction per asset", "Link to previous transaction per asset"):
+    b, o = classify_tokens(tr[col], tr_ex)
+    tr_bad += b
+    tr_oor += o
+check(PASS if tr_bad == 0 else FAIL, "trade link tokens are '#N' / 'T#N' / 'PH#N' / 'N/A'",
+      f"{tr_bad} malformed" + (f"; e.g. {tr_ex}" if tr_ex else ""))
+check(PASS if tr_oor == 0 else FAIL, "trade link refs point in-range", f"{tr_oor} out of range")
+
 tx_link_cols = [c for c in tx.columns if c.startswith("Link to ")]
-tx_bad_ref = tx_oor = 0
+tx_ex: list[str] = []
+tx_bad = tx_oor = 0
 for col in tx_link_cols:
-    for tok in tx[col]:
-        if is_blank(tok) or str(tok).upper() == "N/A":
-            continue
-        m1, m2 = tx_ref_re.match(str(tok).strip()), tr_ref_re.match(str(tok).strip())
-        if not (m1 or m2):
-            tx_bad_ref += 1
-        elif m1 and not (1 <= int(m1.group(1)) <= len(tx)):
-            tx_oor += 1
-        elif m2 and not (1 <= int(m2.group(1)) <= len(tr)):
-            tx_oor += 1
-check(PASS if tx_bad_ref == 0 else FAIL, "transaction link tokens well-formed", f"{tx_bad_ref} malformed")
+    b, o = classify_tokens(tx[col], tx_ex)
+    tx_bad += b
+    tx_oor += o
+check(PASS if tx_bad == 0 else FAIL, "transaction link tokens well-formed",
+      f"{tx_bad} malformed" + (f"; e.g. {tx_ex}" if tx_ex else ""))
 check(PASS if tx_oor == 0 else FAIL, "transaction link refs in range", f"{tx_oor} out of range")
 
 # ---- 7C: Trade addition value & Asset age difference never blank; picks in retained/away ----
@@ -345,12 +386,17 @@ check(PASS if all(c.startswith("Link to ") for c in list(tr.columns)[-2:]) else 
 print("\n-- Ridley / weekly rosters / 'NFL' sentinel --")
 pw = load("player_week.csv")
 if pw is not None:
-    team_col = next((c for c in pw.columns if c.lower() in ("team", "nfl team", "nfl_team")), None)
-    if team_col:
-        nfl_rows = int((pw[team_col] == "NFL").sum())
-        check(INFO, "'NFL' sentinel usage in player_week", f"{nfl_rows} rows / {len(pw)} ({100*nfl_rows/max(len(pw),1):.1f}%)")
-        check(PASS if 0 < nfl_rows < 0.5 * len(pw) else INFO,
-              "'NFL' sentinel is a minority (true FA/retired only)", f"{nfl_rows} rows")
+    team_col = next((c for c in pw.columns if c.strip().lower() in ("nfl team", "nfl_team")), None)
+    if team_col is None:
+        check(INFO, "player_week has no 'NFL team' column to check sentinel on", str([c for c in pw.columns if 'team' in c.lower()]))
+    else:
+        nfl_rows = int((pw[team_col].str.strip() == "NFL").sum())
+        frac = 100 * nfl_rows / max(len(pw), 1)
+        check(INFO, f"'NFL' sentinel usage in player_week['{team_col}']",
+              f"{nfl_rows} rows / {len(pw)} ({frac:.1f}%)")
+        # spec: sentinel is for true FA/retired only -> a minority; IR/PUP/susp keep real team
+        check(PASS if 0 <= nfl_rows < 0.5 * len(pw) else FAIL,
+              "'NFL' sentinel is a minority (true FA/retired only)", f"{frac:.1f}% of rows")
 
 # ---- Cuff / V2 trade addition value plausibility ----
 print("\n-- Cuff column + V2 trade addition value plausibility --")
@@ -379,10 +425,27 @@ EXPECTED_CHANGED = {
     "team_week.csv", "team_year.csv", "team_all_time.csv",
 }
 
-if not BASELINE_DIR or not Path(BASELINE_DIR).exists():
-    print("BASELINE_DIR not set / missing — diff sweep skipped.")
+def resolve_baseline(root: str) -> Path | None:
+    """The uploaded artifact's zip root is the least-common-ancestor of its
+    paths (often `exports/`), so the CSVs may sit at <root>/ or <root>/exports/
+    or one level deeper. Find the dir that actually contains the sheets."""
+    if not root:
+        return None
+    rp = Path(root)
+    if not rp.exists():
+        return None
+    for cand in [rp, rp / "exports"]:
+        if (cand / "transactions.csv").exists() or (cand / "player_week.csv").exists():
+            return cand
+    # last resort: search
+    hits = list(rp.rglob("transactions.csv"))
+    return hits[0].parent if hits else None
+
+
+base = resolve_baseline(BASELINE_DIR)
+if base is None:
+    print(f"BASELINE_DIR ({BASELINE_DIR!r}) has no recognizable CSVs — diff sweep skipped.")
 else:
-    base = Path(BASELINE_DIR)
     print("baseline:", base)
     for name in SHEETS:
         cur = load(name)
