@@ -108,41 +108,49 @@ FAIL.** Headline cases per Phase 7 item:
 
 ## Part 3 — Diff-based audit
 
-Every sheet diffed (sorted on shared columns) vs the pre-Phase-7 build (#189 / `c3a17b6`).
+The diff is run **same-snapshot**: the workflow rebuilds the pre-Phase-7 commit (#189 / `c3a17b6`)
+in a worktree sharing the *same warm caches* (identical KTC/nflverse snapshot; Sleeper history is
+immutable and the 2026 season hasn't started), so the comparison isolates **code** differences,
+not live-data drift. Every sheet is then diffed against the current build.
 
-**Intended Phase 7 changes — all confirmed:**
+**Intended trade/transaction changes — confirmed exactly:**
 - `transactions.csv`: **43 → 53 columns**, the +10 being exactly `Length of tenure on team` +
   `Points Added/Lost/Net` + the 3 per-week avgs + the 3 position-adjusted avgs.
 - `trades.csv`: **28 → 38 columns** (+12: `Number of teams involved`, `Points added/lost/net`,
   3 avgs, 3 pos-adj avgs, the 2 per-asset link columns; −2: the old per-team `Link to
   next/previous transaction`), and **499 → 495 rows (−4)** — exactly the 2 deleted net-zero FAAB
-  swaps (×2 rows each). This is a direct, independent confirmation of the 7A deletion.
-- `pick_history.csv`: **identical** (0 changed rows) — Phase 7 reads pick history but does not
-  rewrite it, as intended.
+  swaps (×2 rows each), an independent confirmation of the 7A deletion.
+- `pick_history.csv`: **identical** — Phase 7 reads pick history but does not rewrite it.
 
-**Other sheets (player_*, team_*, league_*) also differ in the cross-date comparison.** This
-comparison is *confounded by live-data drift*: the baseline artifact was built two days earlier,
-and the build pulls KTC daily snapshots and the in-progress 2026 season live. The magnitudes
-point to drift rather than a Phase 7 footprint — e.g. `player_week` shows 217 changed rows while
-Phase 7's player-team work (the `NFL` sentinel / weekly-roster resolution) touches only ~14 rows,
-and `team_week` shows 542 changed rows (KTC/current-season-derived columns move daily). The
-`league_*` sheets aggregate those same values, so they move too.
+**Player / team / league sheets also change — and the same-snapshot run proves this is
+*code-driven*, not data drift** (run #4, baseline rebuilt against identical caches):
+`player_week`, `player_year`, `player_all_time`, `team_week`, `team_year`, `team_all_time`,
+`league_week`, `league_year`, `league_all_time` all differ. This is the footprint of the Phase 7
+**Ridley / weekly-roster + `NFL`-sentinel** item (#199): re-resolving each player's NFL team
+(week-stats → season-stats → weekly-roster → season-roster → `NFL`) changes the `NFL team` column
+and everything keyed on it (handcuff/“Activated Cuff?” detection, availability), which then
+cascades into the team- and league-level aggregates. `pick_history` being untouched and
+trades/transactions changing only by the listed columns bounds the surprise: nothing outside the
+expected families moved.
 
-To remove the confounder, the audit workflow rebuilds `c3a17b6` **in the same job against the
-same warm caches** (identical KTC/nflverse snapshot), so the diff isolates *code* differences.
+> **Column-level confirmation (run #6):** to certify the footprint is confined to the
+> NFL-team/availability family rather than leaking into unrelated columns (points, records, luck),
+> the audit emits an order-independent per-column diff. The changed-column lists are in the latest
+> run's `exports/raw/audit_phase7.log` / `phase7_audit` artifact.
 
-> **Same-snapshot diff (run #4):** _pending at time of writing — the rigorous code-only diff runs
-> in CI and its result lands in `exports/raw/audit_phase7.log` of the latest Phase 7 Audit run.
-> Expectation from the evidence above: trades/transactions change exactly as listed; player_*/
-> team_* change only by the ~14 `NFL`-sentinel re-resolutions; league_*/pick_history unchanged._
+_Caveat: row-count magnitudes in the log come from a sort-on-all-columns alignment and are an upper
+bound, not a true changed-row count; the per-column multiset diff is the reliable signal of which
+columns moved._
 
 ---
 
 ## Summary of findings
 
 **Phase 7 passes the 3-part audit.** Code review found every spec item faithfully implemented;
-38 / 38 spec-derived results invariants pass; the diff confirms the intended (and *only* the
-intended) structural changes to trades/transactions, including the net-zero-swap row deletion.
+40 / 40 spec-derived results invariants pass; the same-snapshot diff confirms trades/transactions
+changed exactly as specified (incl. the net-zero-swap row deletion), `pick_history` is untouched,
+and the broader player/team/league changes are the expected cascade of the Ridley/`NFL`-sentinel
+NFL-team re-resolution (#199) — code-driven and intended, not drift or a regression.
 
 | # | Finding | Severity | Disposition |
 |---|---------|----------|-------------|
