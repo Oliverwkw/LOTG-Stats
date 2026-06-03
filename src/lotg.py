@@ -1325,11 +1325,11 @@ def build_all(repo_root: Path) -> None:
             cols = catalog.get(plan_key, [])
             if plan_key in {"team-year", "team-all-time"}:
                 cols = _append_team_vs_columns(frame, cols, plan_key)
-            # Pick History: trade chains can exceed the schema's 10 Trade
+            # picks (pick history): trade chains can exceed the schema's 10 Trade
             # columns (a pick traded 12 times needs Trade 1..12). Extend
             # the column list dynamically to the longest non-empty chain
             # present in the frame, inserting the extras just before "etc".
-            if plan_key == "Pick History" and isinstance(frame, pd.DataFrame) and not frame.empty:
+            if plan_key == "picks" and isinstance(frame, pd.DataFrame) and not frame.empty:
                 _present = [c for c in frame.columns if str(c).startswith("Trade ")]
                 _max_n = 0
                 for _c in _present:
@@ -1419,7 +1419,7 @@ def build_all(repo_root: Path) -> None:
                 # "#N" -> transactions row N, "T#N" -> trades row N, "PH#N" ->
                 # pick_history row N (1-indexed; xlsx adds 1 for the header).
                 _ref_re = re.compile(r"^(PH|T)?#(\d+)$")
-                _ref_sheet = {"": "transactions", "T": "trades", "PH": "pick_history"}
+                _ref_sheet = {"": "transactions", "T": "trades", "PH": "picks"}
 
                 def _set_ref_link(cell, ref):
                     m = _ref_re.match(str(ref).strip())
@@ -11183,7 +11183,7 @@ def build_all(repo_root: Path) -> None:
             # pick's chain TERMINATES at its draft row (its last trade's "next"
             # -> the draft); the drafted player's chain STARTS at the same draft
             # row (their first event's "previous" -> the draft). Reference
-            # "PH#N" = pick_history.csv row N (ph keeps its build order through
+            # "PH#N" = picks.csv row N (ph keeps its build order through
             # output, so the index is stable). Anchor date = late August of the
             # draft year: after the offseason pick trades, before the rookie
             # season's events, so it sorts last for the pick and first for the

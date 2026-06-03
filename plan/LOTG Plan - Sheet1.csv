@@ -1,4 +1,4 @@
-Player-Week,Player-year,Player-all-time,team-week,team-year,team-all-time,league-week,league-year,league-all-time,transactions,trades,Pick History,Formulas
+Player-Week,Player-year,Player-all-time,team-week,team-year,team-all-time,league-week,league-year,league-all-time,transactions,trades,picks,Formulas
 Player,Player,Player,Team,Team,Team,Year,Year,PF,Team,Team,Year,Stat
 Team,Year,Top team,Week,Year,All time win %,Week Name,(smallest) Playoff tiebreaker,Avg PF,Player Added,Team's traded with,Number,Sheet
 Year,Top Team,Last team,Week Name,Result,All time record,Week,PF,PF Range,Player Dropped,Assets received,Original Team,Formula

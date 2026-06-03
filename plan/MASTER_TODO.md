@@ -123,7 +123,7 @@ When the results-based audit surfaces a bug, log it but continue to the diff swe
 - [x] **3-part audit** (code / results / diff) — **PASS** (see `plan/AUDIT_PHASE7_3PART.md`, PR #207): build clean; 40/40 spec invariants pass; same-snapshot diff confirms only intended trade/transaction columns + the expected NFL-team/availability/cuff cascade changed; `pick_history` untouched. Open cosmetic follow-ups: FAAB string lumping in one 3-team trade (low), `trades` catalog duplicate columns (→ Phase 12).
 
 ## Phase 8 — Picks (rename from "pick history")
-- [ ] **Rename the sheet "pick history" → "picks"** (catalog header + all references).
+- [x] **Rename the sheet "pick history" → "picks"** (#8A): output sheet/CSV `pick_history.csv`→`picks.csv`, catalog header + stats_catalog.json key `Pick History`→`picks`, the `PH#N` link target sheet, README, and formulas references all updated. Internal frame/var names (`ph`, `FRAME_KEY`) unchanged.
 - [ ] 🔍 Commissioner-moved over-fires — investigate
 - [ ] Each "Trade N" team cell hyperlinks to the corresponding trade row on the trades page (the trade that moved the pick to that team).
 - [ ] **"Length of tenure on team"** column.

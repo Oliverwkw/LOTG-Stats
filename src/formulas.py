@@ -162,7 +162,7 @@ _ROWS = [
     {
         "Stat": "Link to next/previous transaction (added player) / (dropped player)",
         "Sheet": "transactions",
-        "Formula": "Follows the ADDED player and the DROPPED player to their next/previous event ANYWHERE in the league — across teams and INCLUDING trades. Reference is a row pointer: '#N' = transactions.csv row N, 'T#N' = trades.csv row N, 'PH#N' = pick_history.csv row N (1-indexed, final sorted order). A drafted player's chain STARTS at their pick_history draft row, so the 'previous' link on their first-ever event points to 'PH#N'.",
+        "Formula": "Follows the ADDED player and the DROPPED player to their next/previous event ANYWHERE in the league — across teams and INCLUDING trades. Reference is a row pointer: '#N' = transactions.csv row N, 'T#N' = trades.csv row N, 'PH#N' = picks.csv (pick history) row N (1-indexed, final sorted order). A drafted player's chain STARTS at their picks draft row, so the 'previous' link on their first-ever event points to 'PH#N'.",
         "Notes": "Replaces the old single per-team 'Link to next/previous transaction'. The chain is date-ordered, so row numbers can look non-monotonic (the CSVs are grouped by team, not global date). A multi-row trade (e.g. a 3-team deal) counts as ONE event, so the link skips the trade's own other-team rows and lands on the next DISTINCT transaction/trade involving the player. Blank at the very ends of a player's chain (a drafted player's start is their PH# draft row) or when the row has no added/dropped player. In the xlsx every link cell is a clickable hyperlink to the target row (a per-asset list links to its first ref).",
     },
     {
@@ -260,7 +260,7 @@ _ROWS = [
         "Stat": "Link to next transaction per asset / Link to previous transaction per asset",
         "Sheet": "trades",
         "Formula": "For each asset RECEIVED in the trade (in the same order as 'Assets received'), the reference to that asset's next / previous event in its cross-table chain — '#N' = transactions.csv row N, 'T#N' = trades.csv row N. Rendered as a ';'-joined list aligned 1:1 with 'Assets received'. PLAYERS resolve through the shared player chain (the same one the transaction added/dropped links use). DRAFT PICKS resolve through a separate pick chain to the next/prev TRADE that moved that pick — keyed by the pick's canonical identity (year, round, original owner), built from the received side only so the two mirror rows of one trade event don't link to each other; the pick chain deliberately does NOT continue into the player eventually drafted with the pick. FAAB carries 'N/A'.",
-        "Notes": "In the xlsx these two columns are exploded into one clickable column PER received asset, under a merged group header: each cell shows the asset's NAME and hyperlinks to that asset's next/previous event (the CSV keeps the ';'-joined ref list). Phase 7B + pick chains + draft-row bridge — replaces the old per-team 'Link to next/previous transaction'. Follow a received player OR pick onward to wherever it next moved. The pick chain TERMINATES at the pick's pick_history draft row ('PH#N' = pick_history row N), and a drafted player's chain (here and in the transaction added/dropped links) STARTS at that same draft row — so a pick's last trade links forward to the draft and the drafted player's first event links back to it, without the pick chain ever crossing into the player.",
+        "Notes": "In the xlsx these two columns are exploded into one clickable column PER received asset, under a merged group header: each cell shows the asset's NAME and hyperlinks to that asset's next/previous event (the CSV keeps the ';'-joined ref list). Phase 7B + pick chains + draft-row bridge — replaces the old per-team 'Link to next/previous transaction'. Follow a received player OR pick onward to wherever it next moved. The pick chain TERMINATES at the pick's draft row in picks ('PH#N' = picks row N), and a drafted player's chain (here and in the transaction added/dropped links) STARTS at that same draft row — so a pick's last trade links forward to the draft and the drafted player's first event links back to it, without the pick chain ever crossing into the player.",
     },
     {
         "Stat": "Team age including picks",
@@ -271,7 +271,7 @@ _ROWS = [
     {
         "Stat": "Avg PPG of received players on team",
         "Sheet": "trades",
-        "Formula": "Per received player, their mean fantasy_points_ppr over NFL games from trade date through next drop/trade from this team. ALSO includes received DRAFT PICKS (Phase 7D): the player drafted with the pick contributes their mean PPG over their post-draft tenure on this team (draft ≈ late August of the pick year → next exit) — but only when this team actually made the selection (pick_history Final Team == this team); a pick flipped before the draft, or a not-yet-drafted future pick, contributes nothing. Aggregated as the mean across all these received assets.",
+        "Formula": "Per received player, their mean fantasy_points_ppr over NFL games from trade date through next drop/trade from this team. ALSO includes received DRAFT PICKS (Phase 7D): the player drafted with the pick contributes their mean PPG over their post-draft tenure on this team (draft ≈ late August of the pick year → next exit) — but only when this team actually made the selection (picks Final Team == this team); a pick flipped before the draft, or a not-yet-drafted future pick, contributes nothing. Aggregated as the mean across all these received assets.",
         "Notes": "Forward-looking — actual production while on this team, players and drafted picks alike. Sourced from nflverse, so injured/bye/suspended weeks (no game log row) are already excluded; only games actually played count.",
     },
     {
@@ -298,28 +298,28 @@ _ROWS = [
         "Formula": "RECEIVED assets = received players + the players THIS team drafted with received picks (their window starts at the draft, ~late Aug of the pick year). For each NFL week, let k = how many received assets STARTED for this team that week. Points added += the sum of those k starters' points. Points lost += the sum of the TOP-k players-traded-away by their real NFL points that week (each sent asset counted at most once per week, capped at the number actually sent) — the best plays you forwent by trading them. Sent picks contribute the player drafted with them. Net points = Points added − Points lost. Avg variants = each divided by the number of matched weeks (weeks with ≥1 received starter). 'Avg ... adjusted by position' variants scale EACH asset's points by its own position (× league_starter_avg / pos_avg) before summing — the lost side keeps the same top-k assets chosen by raw points, but sums their position-adjusted points.",
         "Notes": "The top-k 'maximize' rule generalizes the 1-for-1 transaction Points Lost to multi-asset trades: a received starter each week is matched against the single best player you gave up. Started weeks/points come from player_week; sent assets' counterfactual points from the nflverse game log.",
     },
-    # -------------------------------- pick_history.csv --------------------------------
+    # -------------------------------- picks.csv (pick history) --------------------------------
     {
         "Stat": "Original Team",
-        "Sheet": "pick_history",
+        "Sheet": "picks",
         "Formula": "The roster that ORIGINALLY owned this pick before any trades — i.e. the team in that draft-position slot per Sleeper's slot_to_roster_id mapping. For traded picks, this is the chain origin (the team whose own pick this is).",
         "Notes": "Distinct from 'Final Team'. ESPN-era picks (moved before Sleeper's tracking window) fall back to the slot owner; if that's also unavailable, the picker is used.",
     },
     {
         "Stat": "Final Team",
-        "Sheet": "pick_history",
+        "Sheet": "picks",
         "Formula": "The roster that actually MADE the selection (= last owner in the trade chain). Equals Original Team when the pick wasn't traded.",
         "Notes": "Pulled from Sleeper draft picks (roster_id field) and from the end of the reconstructed trade chain.",
     },
     {
         "Stat": "Number",
-        "Sheet": "pick_history",
+        "Sheet": "picks",
         "Formula": "Canonical pick notation: '{round}.{slot:02d}' (e.g. '1.05' = round 1, slot 5). Slot is derived from draft_slot or pick_in_round, with fallback to ((pick_no − 1) mod team_count) + 1. Shown as bare '{round}' when slot is unknown.",
         "Notes": "Same notation is used inside trades.csv to substitute already-made picks with the slot they became (e.g. '2024 1.05(B. Robinson)').",
     },
     {
         "Stat": "Commissioner moved?",
-        "Sheet": "pick_history",
+        "Sheet": "picks",
         "Formula": "True if this pick's ownership shift wasn't recorded as a normal trade transaction. Detected when traded_picks_by_season shows a pick belonging to a non-original owner but no trade event in pick_trade_events explains the move (typical for picks moved >3 years before draft year, beyond Sleeper's trade-tracking window).",
         "Notes": "Such picks are NOT added to trades.csv (the move wasn't a trade); the assumption is a single move from original owner to current owner.",
     },
