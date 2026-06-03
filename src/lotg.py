@@ -3721,22 +3721,30 @@ def build_all(repo_root: Path) -> None:
                         # FAAB as a tradeable asset (Phase 7A). Sleeper records
                         # moved waiver budget in `waiver_budget` as
                         # {amount, sender(roster), receiver(roster)} entries.
-                        # Sum per receiver and render one "$N FAAB" asset on the
-                        # side that received it; the per-roster dropped pass
-                        # below picks it up as 'sent' for the counterparty. This
-                        # is what makes FAAB-only trades (previously blank on
-                        # both sides) show real assets.
-                        _faab_by_rcv: Dict[int, int] = defaultdict(int)
+                        # Render received FAAB PER SENDER (one "$N FAAB" asset
+                        # per source roster) rather than lumping a receiver's
+                        # total into a single "$N FAAB". This mirrors the sent
+                        # side (which sums per sender) so a multi-sender 3-team
+                        # deal shows e.g. "$4 FAAB" + "$15 FAAB" on the receiver
+                        # instead of a lumped "$19 FAAB". Dollars still conserve.
+                        # The per-roster dropped pass below picks each up as
+                        # 'sent' for the counterparty.
+                        _faab_rcv_by_snd: Dict[int, Dict[int, int]] = defaultdict(lambda: defaultdict(int))
                         for wb in (t.get("waiver_budget") or []):
                             if not isinstance(wb, dict):
                                 continue
                             _amt = _to_int(wb.get("amount"), None)
                             _rcv = _to_int(wb.get("receiver"), None)
+                            _snd = _to_int(wb.get("sender"), None)
                             if _amt is None or _rcv is None or int(_amt) <= 0:
                                 continue
-                            _faab_by_rcv[int(_rcv)] += int(_amt)
+                            # Group by sender so multiple budget entries from the
+                            # same sender collapse into one asset (sender id may
+                            # be None — bucket those together under -1).
+                            _faab_rcv_by_snd[int(_rcv)][int(_snd) if _snd is not None else -1] += int(_amt)
                         recv_faab: Dict[int, List[str]] = {
-                            _r: [f"${_a} FAAB"] for _r, _a in _faab_by_rcv.items()
+                            _r: [f"${_a} FAAB" for _s, _a in sorted(_by_snd.items())]
+                            for _r, _by_snd in _faab_rcv_by_snd.items()
                         }
 
                         # SENT side, keyed by the roster that actually GAVE UP
@@ -6225,6 +6233,38 @@ def build_all(repo_root: Path) -> None:
             fn = (meta or {}).get("full_name")
             if fn:
                 name_to_sid_local2.setdefault(str(fn), str(sid))
+
+        # --- Phase 8B: "Length of tenure on team" on picks ---
+        # For each made pick, how long the DRAFTED player stayed on the team
+        # that drafted it (Final Team): days from the draft (≈ late August of
+        # the pick year, mirroring the 7D draft anchor) to that player's next
+        # exit from the team (or today if still rostered). Blank for picks not
+        # yet made / no resolved player.
+        try:
+            if not ph.empty and {"Year", "Final Team", "Player Picked"}.issubset(set(ph.columns)):
+                _today_iso = datetime.utcnow().date().isoformat()
+                for _i, _pr in ph.iterrows():
+                    _ply = str(_pr.get("Player Picked") or "").strip()
+                    if not _ply or _ply.lower() in ("unknown", "nan", "n/a", ""):
+                        continue
+                    _ft = str(_pr.get("Final Team") or "").strip()
+                    _ym = re.match(r"\s*(\d{4})", str(_pr.get("Year") or ""))
+                    if not _ft or not _ym:
+                        continue
+                    _draft_iso = f"{int(_ym.group(1))}-08-28"
+                    _sid = name_to_sid_local2.get(_ply)
+                    if not _sid:
+                        continue
+                    _nx = _next_out_player(_ft, _sid, _draft_iso)
+                    _end_iso = (_nx["date"][:10] if _nx else _today_iso)
+                    try:
+                        _d0 = datetime.fromisoformat(_draft_iso).date()
+                        _d1 = datetime.fromisoformat(_end_iso).date()
+                        ph.at[_i, "Length of tenure on team"] = max(0, (_d1 - _d0).days)
+                    except Exception:
+                        continue
+        except Exception as e:
+            _log_exc(debug, "picks_tenure_8b", e)
 
         # League-wide all-starter avg + per-position avg for position adjustment.
         try:

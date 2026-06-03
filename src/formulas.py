@@ -187,7 +187,7 @@ _ROWS = [
     {
         "Stat": "Assets received / Assets sent",
         "Sheet": "trades",
-        "Formula": "Semicolon-joined list of everything that came to (received) or left (sent) the team in the trade, from that team's perspective: players, draft picks ('2025 1.05(B. Robinson)'), and FAAB ('$N FAAB'). FAAB is summed per receiving roster from Sleeper's waiver_budget and rendered as one '$N FAAB' asset.",
+        "Formula": "Semicolon-joined list of everything that came to (received) or left (sent) the team in the trade, from that team's perspective: players, draft picks ('2025 1.05(B. Robinson)'), and FAAB ('$N FAAB'). FAAB comes from Sleeper's waiver_budget: on the SENT side it's summed per sending roster; on the RECEIVED side it's rendered PER SENDER (one '$N FAAB' asset per source roster), so a multi-sender 3-team deal shows e.g. '$4 FAAB' + '$15 FAAB' on the receiver rather than a lumped '$19 FAAB' — the two sides mirror and dollars conserve.",
         "Notes": "FAAB capture (Phase 7A) is what makes FAAB-only trades show real assets instead of blank both sides. Net-zero swaps — trades where nothing actually changed hands (no players/picks, FAAB nets to zero for every roster, e.g. a symmetric $5-for-$5 swap) — are deleted entirely from trades.csv and from all trade counts. Assets sent is attributed to the roster that actually GAVE UP each asset (player it dropped, pick's previous owner, FAAB sender), so a 3+ team trade lists each asset exactly once per side instead of every team claiming the whole pot.",
     },
     {
