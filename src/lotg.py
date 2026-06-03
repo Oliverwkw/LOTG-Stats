@@ -116,6 +116,7 @@ from lotg_support.external import (
     load_nflverse_injuries,
     load_nflverse_player_ids,
     load_nflverse_stats_player_week,
+    load_nflverse_weekly_rosters,
 )
 from lotg_support.lineup import compute_optimal_lineup
 from lotg_support.plan import load_plan_catalog, require_columns
@@ -1928,6 +1929,13 @@ def build_all(repo_root: Path) -> None:
         # team they're on today." Fixes A.J. Brown 2021 wks 4/12-15 (was PHI,
         # should be TEN), Cooper Kupp 2022 wk11+ (was SEA, should be LAR), etc.
         player_season_team: Dict[str, str] = {}
+        # nflverse WEEKLY rosters: (gsis, season, week) -> team, plus a per-
+        # (gsis, season) fallback. These list players who were ON a roster but
+        # never accumulated stats (IR / suspended / PUP) — so a player like
+        # Calvin Ridley 2022 (suspended all year, on JAX) gets his real team
+        # instead of the 'NFL' free-agent sentinel.
+        roster_team_by_week: Dict[Tuple[str, int, int], str] = {}
+        roster_team_by_season: Dict[Tuple[str, int], str] = {}
         played_players_by_week: Dict[int, set] = {}
         try:
             spw = _safe_df(load_nflverse_stats_player_week(
@@ -2009,6 +2017,31 @@ def build_all(repo_root: Path) -> None:
                     _log_exc(debug, f"nfl_log_by_sid_{season}", e)
         except Exception as e:
             _log_exc(debug, f"load_nflverse_stats_player_week_{season}", e)
+
+        # nflverse weekly rosters — players on a team that week even with no
+        # stats (IR / suspended / PUP). Lets unrostered-but-suspended players
+        # keep their real team instead of the 'NFL' sentinel.
+        try:
+            wr = _safe_df(load_nflverse_weekly_rosters(
+                ext, season, force_refresh=(season == _current_lotg_season),
+            ))
+            if not wr.empty and "gsis_id" in wr.columns and "team" in wr.columns and "week" in wr.columns:
+                wr = wr[["gsis_id", "week", "team"]].dropna()
+                wr["week"] = pd.to_numeric(wr["week"], errors="coerce").astype("Int64")
+                for _r in wr.dropna(subset=["week"]).itertuples(index=False):
+                    _gs = str(_r.gsis_id); _tm = str(_r.team)
+                    if _gs and _gs != "nan" and _tm and _tm != "nan":
+                        roster_team_by_week[(_gs, int(season), int(_r.week))] = _tm
+                try:
+                    _modes = wr[["gsis_id", "team"]].dropna().groupby("gsis_id")["team"].agg(
+                        lambda s: s.mode().iat[0] if not s.mode().empty else None)
+                    for _gs, _tm in _modes.items():
+                        if _tm and str(_tm) != "nan":
+                            roster_team_by_season[(str(_gs), int(season))] = str(_tm)
+                except Exception:
+                    pass
+        except Exception as e:
+            _log_exc(debug, f"load_nflverse_weekly_rosters_{season}", e)
 
         # nflverse injuries (optional; used as secondary signal)
         try:
@@ -3135,13 +3168,16 @@ def build_all(repo_root: Path) -> None:
                         tm = (
                             (player_team_by_week.get((str(gs), int(wk))) if gs else None)
                             or (player_season_team.get(str(gs)) if gs else None)
-                            # A player with a real NFL identity (gsis) but no
-                            # nflverse team that season wasn't on any NFL roster
-                            # — a free agent or retired. Assign the 33rd "NFL"
-                            # sentinel team rather than the live Sleeper snapshot
+                            # On a roster that week/season but with no stats
+                            # (IR / suspended / PUP) -> keep their real team.
+                            or (roster_team_by_week.get((str(gs), int(season), int(wk))) if gs else None)
+                            or (roster_team_by_season.get((str(gs), int(season))) if gs else None)
+                            # A real NFL identity (gsis) but on NO roster that
+                            # season — a free agent or retired. Assign the 33rd
+                            # "NFL" sentinel rather than the live Sleeper snapshot
                             # (current-team, churns between builds and is wrong
-                            # for a past season). Deterministic. Players with no
-                            # gsis (team DSTs / unmapped) keep the Sleeper team.
+                            # for a past season). Players with no gsis (team DSTs
+                            # / unmapped) keep the Sleeper team.
                             or ("NFL" if gs else None)
                             or m.get("team")
                         )
@@ -3354,6 +3390,9 @@ def build_all(repo_root: Path) -> None:
                         nfl_team = (
                             (player_team_by_week.get((str(gsis), int(wk))) if gsis else None)
                             or (player_season_team.get(str(gsis)) if gsis else None)
+                            # On a roster but no stats (IR / suspended / PUP).
+                            or (roster_team_by_week.get((str(gsis), int(season), int(wk))) if gsis else None)
+                            or (roster_team_by_season.get((str(gsis), int(season))) if gsis else None)
                             or ("NFL" if gsis else None)
                             or meta.get("team")
                         )
@@ -6267,6 +6306,100 @@ def build_all(repo_root: Path) -> None:
                 _wkd = (date(_yi, 9, 7) + timedelta(days=7 * (_wi - 1))).isoformat()
                 _started_idx[(str(_t), str(_p))].append((_yi, _wi, float(_pt or 0.0), _wkd))
 
+        # ---- Item 7E indexes (V2 Trade addition value: leverage + cuff) ----
+        # (fantasy team, player) -> per-week roster rows with starter + injury
+        # flags, so we can compute a received player's % of starts made while
+        # rostered (and the injury-adjusted variant) exactly like the
+        # transaction "Player addition value" leverage multipliers.
+        _pwfull_idx: Dict[Tuple[str, str], List[Dict[str, Any]]] = defaultdict(list)
+        # (fantasy team, year, week) -> teammates that week (for cuff teammate
+        # scan) and player -> (wk_date, NFL team, position) (for a received
+        # player's own NFL team/position near the trade).
+        _twk_idx: Dict[Tuple[str, int, int], List[Dict[str, Any]]] = defaultdict(list)
+        _player_nflpos_idx: Dict[str, List[Tuple[str, str, str]]] = defaultdict(list)
+        _fcols = ["Team", "Player", "Year", "Week", "Starter/Bench",
+                  "NFL team", "Position", "Injury?", "Bye?"]
+        if not pw.empty and set(_fcols).issubset(pw.columns):
+            for _t, _p, _y, _w, _sb, _nt, _ps, _inj, _bye in zip(*[pw[c] for c in _fcols]):
+                if pd.isna(_y) or pd.isna(_w):
+                    continue
+                try:
+                    _yi, _wi = int(_y), int(_w)
+                except Exception:
+                    continue
+                _wkd = (date(_yi, 9, 7) + timedelta(days=7 * (_wi - 1))).isoformat()
+                _is_starter = str(_sb) == "Starter"
+                _inj_free = (not bool(_inj)) and (not bool(_bye))
+                _nflt = str(_nt or "")
+                _posu = str(_ps or "").upper()
+                _pname = str(_p)
+                _pwfull_idx[(str(_t), _pname)].append(
+                    {"wkd": _wkd, "starter": _is_starter, "inj_free": _inj_free})
+                _twk_idx[(str(_t), _yi, _wi)].append(
+                    {"Player": _pname, "starter": _is_starter, "nfl": _nflt,
+                     "pos": _posu, "wkd": _wkd})
+                _player_nflpos_idx[_pname].append((_wkd, _nflt, _posu))
+
+        _TRADE_CUFF_BONUS = 5.0  # mirror the transaction CUFF_BONUS
+        # Item 7E (pick value): future draft picks received/sent are valued with
+        # the SAME round weights tanking uses (_FUTURE_PICK_WEIGHTS: 1st=0.25,
+        # 2nd=0.09, 3rd=0.03, 4th=0.01, next-3-seasons only) and converted to a
+        # PPG-equivalent by this coefficient, then added to Trade addition value
+        # so pick-heavy hauls register. 20.0 => a future 1st ≈ +5 (≈ one cuff
+        # bonus). TUNABLE — adjust to taste.
+        _TRADE_PICK_COEFF = 20.0
+
+        def _recv_is_cuff(name: str, team: str, at_prefix: str) -> bool:
+            """A received player is a cuff (mirrors 'Cuff at time of pickup?'):
+            at the trade the team already rosters a STARTER on the SAME NFL
+            team + position whose last-5 PPG is 10+ above the received player's
+            last-5, and that teammate is still rostered at the trade week."""
+            if not name or not at_prefix:
+                return False
+            # received player's own NFL team + position near the trade
+            _own = [e for e in _player_nflpos_idx.get(name, []) if e[0] <= at_prefix]
+            if _own:
+                _own.sort(key=lambda e: e[0])
+                _nflt, _pos = _own[-1][1], _own[-1][2]
+            else:
+                _nflt, _pos = "", (_player_pos(name) or "")
+            if not _nflt or not _pos:
+                return False
+
+            def _pre5(_nm: str) -> Optional[float]:
+                _g = [(d, p) for d, p in _player_games(_nm) if d < at_prefix]
+                if not _g:
+                    return None
+                _g.sort(key=lambda kv: kv[0], reverse=True)
+                _win = _g[:5]
+                return sum(p for _, p in _win) / len(_win)
+
+            # latest roster week for THIS team at/just before the trade
+            _cand = None
+            for (_t, _yi, _wi), _ents in _twk_idx.items():
+                if _t != team:
+                    continue
+                _wkd = _ents[0]["wkd"]
+                if _wkd <= at_prefix and (_cand is None or _wkd > _cand[0]):
+                    _cand = (_wkd, _yi, _wi)
+            if _cand is None:
+                return False
+            _, _yr, _wk = _cand
+            _rostered = {m["Player"] for m in _twk_idx.get((team, _yr, _wk), [])}
+            _added_avg = _pre5(name) or 0.0
+            for _w in (_wk, _wk - 1, _wk - 2):
+                if _w < 1:
+                    continue
+                for mate in _twk_idx.get((team, _yr, _w), []):
+                    if mate["Player"] == name or mate["Player"] not in _rostered:
+                        continue
+                    if (not mate["starter"]) or mate["nfl"] != _nflt or mate["pos"] != _pos:
+                        continue
+                    _mavg = _pre5(mate["Player"])
+                    if _mavg is not None and _added_avg + 10 <= _mavg:
+                        return True
+            return False
+
         def _nfl_wk_pts(sid=None, name=None) -> Dict[Tuple[int, int], float]:
             """A player's real NFL fantasy points keyed by (year, week)."""
             if not sid and name:
@@ -6498,12 +6631,64 @@ def build_all(repo_root: Path) -> None:
                 adj_diff = round(a_adj - b_adj, 4)
                 row["Difference of averages adjusted by position"] = adj_diff
 
-            # Never blank (Phase 7C): adj_diff is None only when NEITHER side
-            # had a player with on-team production to value (a pick-only /
-            # FAAB-only trade, or players who never played here) — net player
-            # value added is then 0. One-sided player trades already resolve
-            # via the missing-side-as-0 averages above.
-            row["Trade addition value"] = round(adj_diff, 4) if adj_diff is not None else 0.0
+            # ----- Trade addition value (V2, Item 7E) -----
+            # Mirror the transaction "Player addition value" composite:
+            #   adj_diff * (1 + pct_starts) * (1 + pct_starts_inj_adj)
+            #     + CUFF_BONUS   (added once if ANY received player was a cuff
+            #                     at the trade — same handcuff test as the
+            #                     transaction "Cuff at time of pickup?").
+            # The leverage multipliers use the received PLAYERS' % of starts
+            # made while rostered on THIS team over their post-trade tenure
+            # (trade -> next exit); the injury-adjusted variant divides by
+            # injury/bye-free weeks. Players drafted from received picks feed
+            # adj_diff (above) but not the leverage term.
+            #
+            # Pick value: future picks (next 3 seasons) are valued with the
+            # tanking round weights and added in via _TRADE_PICK_COEFF so
+            # pick-heavy hauls register. Current-season picks that get drafted
+            # are already captured by adj_diff (7D), so only future capital is
+            # added here -> no double count. This term applies even when
+            # adj_diff is None (a pick-only haul is no longer flat 0).
+            _pick_val = _TRADE_PICK_COEFF * float(row.get("_tank_fcap_delta") or 0.0)
+            if adj_diff is not None:
+                _pct_list: List[float] = []
+                _pinj_list: List[float] = []
+                for _rpid in (row.get("_recv_player_ids") or []):
+                    _rnm = _player_display(_rpid)
+                    if not _rnm:
+                        continue
+                    _wstart, _wend = recv_windows.get(str(_rpid), (trade_prefix, None))
+                    _wk_n = _st_n = _iwk_n = _ist_n = 0
+                    for _e in _pwfull_idx.get((team, _rnm), []):
+                        _wkd = _e["wkd"]
+                        if _wkd < _wstart:
+                            continue
+                        if _wend and _wkd >= _wend:
+                            continue
+                        _wk_n += 1
+                        if _e["starter"]:
+                            _st_n += 1
+                        if _e["inj_free"]:
+                            _iwk_n += 1
+                            if _e["starter"]:
+                                _ist_n += 1
+                    if _wk_n > 0:
+                        _pct_list.append(_st_n / _wk_n)
+                    if _iwk_n > 0:
+                        _pinj_list.append(_ist_n / _iwk_n)
+                _pct_starts = (sum(_pct_list) / len(_pct_list)) if _pct_list else 0.0
+                _pct_inj = (sum(_pinj_list) / len(_pinj_list)) if _pinj_list else 0.0
+                _cuff_hit = any(
+                    _recv_is_cuff(_player_display(_rpid), team, trade_prefix)
+                    for _rpid in (row.get("_recv_player_ids") or [])
+                    if _player_display(_rpid)
+                )
+                _cuff_bonus = _TRADE_CUFF_BONUS if _cuff_hit else 0.0
+                row["Trade addition value"] = round(
+                    adj_diff * (1.0 + _pct_starts) * (1.0 + _pct_inj)
+                    + _cuff_bonus + _pick_val, 4)
+            else:
+                row["Trade addition value"] = round(_pick_val, 4)
 
             # --- Points Added / Lost / Net (+ per-week averages) ---
             # Received assets = received players + players THIS team drafted

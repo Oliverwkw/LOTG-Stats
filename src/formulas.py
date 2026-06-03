@@ -289,8 +289,8 @@ _ROWS = [
     {
         "Stat": "Trade addition value",
         "Sheet": "trades",
-        "Formula": "Difference of averages adjusted by position (received-side adjusted on-team PPG − sent-side adjusted PPG; a side with no players contributes 0, so one-sided player trades still resolve). (V1 simplification — trades don't have a meaningful cuff bonus or playing-time leverage multiplier, so we keep it linear.)",
-        "Notes": "Mirror of the 'Player addition value' metric on transactions but without the cuff / pct-starts adjustments. Never blank (Phase 7C): when neither side had a player with on-team production to value (a pick-only / FAAB-only trade, or players who never played here), the net player value added is 0.",
+        "Formula": "V2 composite mirroring the transaction 'Player addition value': adj_diff × (1 + pct_starts) × (1 + pct_starts_injury_adjusted) + CUFF_BONUS(5). adj_diff = 'Difference of averages adjusted by position' (received-side adjusted on-team PPG − sent-side adjusted PPG; a side with no players contributes 0). pct_starts = average over the RECEIVED players of their '% of starts made while rostered' on this team over their post-trade tenure (trade → next exit); pct_starts_injury_adjusted divides starts by injury/bye-free weeks only. CUFF_BONUS (+5) is added once if ANY received player was a cuff at the trade — the team already rostered a STARTER on the same NFL team + position (still rostered at the trade week) whose last-5 PPG was 10+ above the received player's last-5, the same handcuff test as the transaction 'Cuff at time of pickup?'. PLUS a pick-value term: future picks (next 3 seasons only) on each side are valued with the SAME round weights tanking uses (1st=0.25, 2nd=0.09, 3rd=0.03, 4th=0.01) and the received−sent difference is scaled by a coefficient (currently 20 → a future 1st ≈ +5, about one cuff bonus) and added in, so pick-heavy hauls register. The pick term applies even when adj_diff is None, so a pick-only haul is no longer flat 0.",
+        "Notes": "Item 7E. Players DRAFTED with received picks feed adj_diff (Phase 7D); the pick-value term only counts FUTURE (next-3-season) capital, so a current-season pick that gets drafted isn't double-counted. Playing-time leverage is over received players only. The pick coefficient (20) is tunable.",
     },
     {
         "Stat": "Points added / Points lost / Net points (+ Avg + Avg-adjusted-by-position variants)",
@@ -333,7 +333,7 @@ _ROWS = [
     {
         "Stat": "NFL team",
         "Sheet": "player_week (drives the 'same NFL team' / 'Number of NFL teams' / bye columns too)",
-        "Formula": "The player's real NFL team that week, resolved deterministically: nflverse week-specific team → that season's nflverse team → the '33rd' sentinel \"NFL\" when the player has an NFL identity (gsis_id) but no nflverse team that season (a free agent or retired — unrostered in the real NFL). Players with no gsis (team DSTs / unmapped) keep Sleeper's team field.",
+        "Formula": "The player's real NFL team that week, resolved deterministically: nflverse week-specific stats team → that season's nflverse stats team → nflverse WEEKLY ROSTER team (catches players on a roster but with no stats — IR / suspended / PUP, e.g. Calvin Ridley 2022 on JAX while suspended) → the '33rd' sentinel \"NFL\" only when the player has an NFL identity (gsis_id) but was on NO roster that season (a true free agent or retired). Players with no gsis (team DSTs / unmapped) keep Sleeper's team field.",
         "Notes": "The \"NFL\" sentinel replaces the old live-Sleeper-snapshot fallback, which returned the player's CURRENT team (wrong for a past season) and churned between builds for free agents — e.g. Odell Beckham 2022 flipped MIA↔NYG, cascading through his bye → Hardship → z-scored Luck across every team. A sentinel-team player is never flagged on bye (it has no schedule).",
     },
     {
