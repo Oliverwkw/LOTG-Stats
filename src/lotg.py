@@ -116,6 +116,7 @@ from lotg_support.external import (
     load_nflverse_injuries,
     load_nflverse_player_ids,
     load_nflverse_stats_player_week,
+    load_nflverse_weekly_rosters,
 )
 from lotg_support.lineup import compute_optimal_lineup
 from lotg_support.plan import load_plan_catalog, require_columns
@@ -1928,6 +1929,13 @@ def build_all(repo_root: Path) -> None:
         # team they're on today." Fixes A.J. Brown 2021 wks 4/12-15 (was PHI,
         # should be TEN), Cooper Kupp 2022 wk11+ (was SEA, should be LAR), etc.
         player_season_team: Dict[str, str] = {}
+        # nflverse WEEKLY rosters: (gsis, season, week) -> team, plus a per-
+        # (gsis, season) fallback. These list players who were ON a roster but
+        # never accumulated stats (IR / suspended / PUP) — so a player like
+        # Calvin Ridley 2022 (suspended all year, on JAX) gets his real team
+        # instead of the 'NFL' free-agent sentinel.
+        roster_team_by_week: Dict[Tuple[str, int, int], str] = {}
+        roster_team_by_season: Dict[Tuple[str, int], str] = {}
         played_players_by_week: Dict[int, set] = {}
         try:
             spw = _safe_df(load_nflverse_stats_player_week(
@@ -2009,6 +2017,31 @@ def build_all(repo_root: Path) -> None:
                     _log_exc(debug, f"nfl_log_by_sid_{season}", e)
         except Exception as e:
             _log_exc(debug, f"load_nflverse_stats_player_week_{season}", e)
+
+        # nflverse weekly rosters — players on a team that week even with no
+        # stats (IR / suspended / PUP). Lets unrostered-but-suspended players
+        # keep their real team instead of the 'NFL' sentinel.
+        try:
+            wr = _safe_df(load_nflverse_weekly_rosters(
+                ext, season, force_refresh=(season == _current_lotg_season),
+            ))
+            if not wr.empty and "gsis_id" in wr.columns and "team" in wr.columns and "week" in wr.columns:
+                wr = wr[["gsis_id", "week", "team"]].dropna()
+                wr["week"] = pd.to_numeric(wr["week"], errors="coerce").astype("Int64")
+                for _r in wr.dropna(subset=["week"]).itertuples(index=False):
+                    _gs = str(_r.gsis_id); _tm = str(_r.team)
+                    if _gs and _gs != "nan" and _tm and _tm != "nan":
+                        roster_team_by_week[(_gs, int(season), int(_r.week))] = _tm
+                try:
+                    _modes = wr[["gsis_id", "team"]].dropna().groupby("gsis_id")["team"].agg(
+                        lambda s: s.mode().iat[0] if not s.mode().empty else None)
+                    for _gs, _tm in _modes.items():
+                        if _tm and str(_tm) != "nan":
+                            roster_team_by_season[(str(_gs), int(season))] = str(_tm)
+                except Exception:
+                    pass
+        except Exception as e:
+            _log_exc(debug, f"load_nflverse_weekly_rosters_{season}", e)
 
         # nflverse injuries (optional; used as secondary signal)
         try:
@@ -3135,13 +3168,16 @@ def build_all(repo_root: Path) -> None:
                         tm = (
                             (player_team_by_week.get((str(gs), int(wk))) if gs else None)
                             or (player_season_team.get(str(gs)) if gs else None)
-                            # A player with a real NFL identity (gsis) but no
-                            # nflverse team that season wasn't on any NFL roster
-                            # — a free agent or retired. Assign the 33rd "NFL"
-                            # sentinel team rather than the live Sleeper snapshot
+                            # On a roster that week/season but with no stats
+                            # (IR / suspended / PUP) -> keep their real team.
+                            or (roster_team_by_week.get((str(gs), int(season), int(wk))) if gs else None)
+                            or (roster_team_by_season.get((str(gs), int(season))) if gs else None)
+                            # A real NFL identity (gsis) but on NO roster that
+                            # season — a free agent or retired. Assign the 33rd
+                            # "NFL" sentinel rather than the live Sleeper snapshot
                             # (current-team, churns between builds and is wrong
-                            # for a past season). Deterministic. Players with no
-                            # gsis (team DSTs / unmapped) keep the Sleeper team.
+                            # for a past season). Players with no gsis (team DSTs
+                            # / unmapped) keep the Sleeper team.
                             or ("NFL" if gs else None)
                             or m.get("team")
                         )
@@ -3354,6 +3390,9 @@ def build_all(repo_root: Path) -> None:
                         nfl_team = (
                             (player_team_by_week.get((str(gsis), int(wk))) if gsis else None)
                             or (player_season_team.get(str(gsis)) if gsis else None)
+                            # On a roster but no stats (IR / suspended / PUP).
+                            or (roster_team_by_week.get((str(gsis), int(season), int(wk))) if gsis else None)
+                            or (roster_team_by_season.get((str(gsis), int(season))) if gsis else None)
                             or ("NFL" if gsis else None)
                             or meta.get("team")
                         )

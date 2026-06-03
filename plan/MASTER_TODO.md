@@ -118,8 +118,8 @@ When the results-based audit surfaces a bug, log it but continue to the diff swe
 - [x] **6 position-adjusted points-avg columns** — added `Avg points added/lost/net adjusted by position` (3 per sheet). Transactions scale by the added/dropped player's position; trades scale each asset by its own position (× league_starter_avg / pos_avg).
 - [ ] **(do-now) "Length of tenure on team"** column on transactions (for the added player); **reorder** transactions + trades so all the Link columns are at the END of the sheet.
 - [x] **Cuff at time of pickup** — the reference (handcuff) player must now STILL be rostered by the team at the pickup week (not just a starter in the prior 3 weeks). Logic + formulas wording fixed.
-- [ ] **(do-now) Ridley/rosters** — the "NFL" sentinel (#199) over-fires on rostered-but-suspended/IR-all-season players (e.g. Calvin Ridley 2022 was on JAX, suspended). Pull nflverse seasonal rosters so only true FA/retired get "NFL". **Combine with 7E in one PR.**
-- [ ] V2 trade addition value (Cuffs etc.) — **7E**. (Combine with Ridley/rosters.)
+- [x] **Ridley/rosters** — pull nflverse WEEKLY rosters so players on a roster but with no stats (IR / suspended / PUP, e.g. Calvin Ridley 2022 on JAX) keep their real team; only true FA/retired get the "NFL" sentinel. Resolution: week stats → season stats → weekly roster → season roster → "NFL".
+- [ ] V2 trade addition value (Cuffs etc.) — **7E**. (Exact formula TBD — clarify with user; "Cuffs etc." underspecified.)
 - [ ] **3-part audit** (code / results / diff)
 
 ## Phase 8 — Picks (rename from "pick history")

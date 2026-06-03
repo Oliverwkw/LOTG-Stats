@@ -333,7 +333,7 @@ _ROWS = [
     {
         "Stat": "NFL team",
         "Sheet": "player_week (drives the 'same NFL team' / 'Number of NFL teams' / bye columns too)",
-        "Formula": "The player's real NFL team that week, resolved deterministically: nflverse week-specific team → that season's nflverse team → the '33rd' sentinel \"NFL\" when the player has an NFL identity (gsis_id) but no nflverse team that season (a free agent or retired — unrostered in the real NFL). Players with no gsis (team DSTs / unmapped) keep Sleeper's team field.",
+        "Formula": "The player's real NFL team that week, resolved deterministically: nflverse week-specific stats team → that season's nflverse stats team → nflverse WEEKLY ROSTER team (catches players on a roster but with no stats — IR / suspended / PUP, e.g. Calvin Ridley 2022 on JAX while suspended) → the '33rd' sentinel \"NFL\" only when the player has an NFL identity (gsis_id) but was on NO roster that season (a true free agent or retired). Players with no gsis (team DSTs / unmapped) keep Sleeper's team field.",
         "Notes": "The \"NFL\" sentinel replaces the old live-Sleeper-snapshot fallback, which returned the player's CURRENT team (wrong for a past season) and churned between builds for free agents — e.g. Odell Beckham 2022 flipped MIA↔NYG, cascading through his bye → Hardship → z-scored Luck across every team. A sentinel-team player is never flagged on bye (it has no schedule).",
     },
     {
