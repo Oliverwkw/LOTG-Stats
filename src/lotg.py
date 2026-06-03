@@ -5385,6 +5385,17 @@ def build_all(repo_root: Path) -> None:
                 r["Avg points added"] = round(pts_added / _nwk, 2) if _nwk else 0.0
                 r["Avg points lost"] = round(pts_lost / _nwk, 2) if _nwk else 0.0
                 r["Avg net points"] = round(_net / _nwk, 2) if _nwk else 0.0
+                # Position-adjusted variants (Item 4): scale each side by the
+                # mover's position (added player for added, dropped for lost)
+                # via the same league_starter_avg / pos_avg normalizer used by
+                # 'Difference of averages adjusted by position'.
+                _adj_add = _pos_adjust(pts_added, added_pos) if added_pos else pts_added
+                _adj_lost = _pos_adjust(pts_lost, dropped_pos) if dropped_pos else pts_lost
+                _adj_add = pts_added if _adj_add is None else _adj_add
+                _adj_lost = pts_lost if _adj_lost is None else _adj_lost
+                r["Avg points added adjusted by position"] = round(_adj_add / _nwk, 2) if _nwk else 0.0
+                r["Avg points lost adjusted by position"] = round(_adj_lost / _nwk, 2) if _nwk else 0.0
+                r["Avg net points adjusted by position"] = round((_adj_add - _adj_lost) / _nwk, 2) if _nwk else 0.0
 
                 # Length of tenure on team (added player): days from pickup to
                 # the next exit (or to today if still rostered). Blank if no add.
@@ -5465,11 +5476,20 @@ def build_all(repo_root: Path) -> None:
                     if candidate_team_rows:
                         yr = candidate_team_rows[0]["Year"]
                         wk = candidate_team_rows[0]["Week"]
+                        # The reference (handcuff) player must STILL be rostered
+                        # by the team at the pickup week — a teammate who was a
+                        # starter two weeks ago but has since been dropped is no
+                        # longer insurance you hold (Item 8).
+                        pickup_roster = {
+                            m["Player"] for m in pw_by_team_week.get((team, yr, wk), [])
+                        }
                         for _w in (wk, wk - 1, wk - 2):
                             if _w is None or _w < 1:
                                 continue
                             for mate in pw_by_team_week.get((team, yr, _w), []):
                                 if mate["Player"] == added:
+                                    continue
+                                if mate["Player"] not in pickup_roster:
                                     continue
                                 if mate["Starter/Bench"] != "Starter":
                                     continue
@@ -6507,14 +6527,23 @@ def build_all(repo_root: Path) -> None:
                 _dr = _pick_to_drafted.get(_pk)
                 if _dr and _dr[1] == _norm_team_name(team):
                     _recv_assets.append((_dr[0], f"{_dr[2]}-08-28"))
-            _recv_week: Dict[Tuple[int, int], List[float]] = defaultdict(list)
+            # Position-adjustment factor: scale an asset's points by the same
+            # league_starter_avg / pos_avg normalizer used elsewhere (Item 4).
+            def _afac(_n):
+                _pa = pos_avg_map.get(_player_pos(_n) or "", 0.0)
+                return (league_starter_avg / _pa) if (_pa and league_starter_avg) else 1.0
+            # received: per week, list of (raw, position-adjusted) points
+            _recv_week: Dict[Tuple[int, int], List[Tuple[float, float]]] = defaultdict(list)
             for _nm, _wstart in _recv_assets:
+                _f = _afac(_nm)
                 for (_yi, _wi, _pt, _wkd) in _started_idx.get((str(team), _nm), []):
                     if _wkd >= _wstart:
-                        _recv_week[(_yi, _wi)].append(_pt)
-            _sent_logs: List[Dict[Tuple[int, int], float]] = []
+                        _recv_week[(_yi, _wi)].append((_pt, _pt * _f))
+            # sent: per asset, {(year, week): (raw, position-adjusted)}
+            _sent_logs: List[Dict[Tuple[int, int], Tuple[float, float]]] = []
             for _pid in (row.get("_drop_player_ids") or []):
-                _sent_logs.append(_nfl_wk_pts(sid=_pid))
+                _f = _afac(_player_display(_pid))
+                _sent_logs.append({_k2: (_v, _v * _f) for _k2, _v in _nfl_wk_pts(sid=_pid).items()})
             for _m in (row.get("_drop_pick_meta") or []):
                 try:
                     _pk = (int(_m[0]), int(_m[1]), _norm_team_name(_m[2]))
@@ -6522,24 +6551,34 @@ def build_all(repo_root: Path) -> None:
                     continue
                 _dr = _pick_to_drafted.get(_pk)
                 if _dr:
-                    _sent_logs.append(_nfl_wk_pts(name=_dr[0]))
-            _tp_added = 0.0
-            _tp_lost = 0.0
+                    _f = _afac(_dr[0])
+                    _sent_logs.append({_k2: (_v, _v * _f) for _k2, _v in _nfl_wk_pts(name=_dr[0]).items()})
+            _tp_added = _tp_lost = _tadj_added = _tadj_lost = 0.0
             _tnwk = 0
             for _w, _rpts in _recv_week.items():
                 _k = len(_rpts)
                 if _k == 0:
                     continue
                 _tnwk += 1
-                _tp_added += sum(_rpts)
-                _tp_lost += sum(sorted((_lg.get(_w, 0.0) for _lg in _sent_logs), reverse=True)[:_k])
+                _tp_added += sum(p[0] for p in _rpts)
+                _tadj_added += sum(p[1] for p in _rpts)
+                # top-k players-traded-away by RAW points that week; sum their
+                # raw AND position-adjusted points for the two Lost variants.
+                _cand = sorted((_lg.get(_w, (0.0, 0.0)) for _lg in _sent_logs),
+                               key=lambda x: x[0], reverse=True)[:_k]
+                _tp_lost += sum(c[0] for c in _cand)
+                _tadj_lost += sum(c[1] for c in _cand)
             _tnet = _tp_added - _tp_lost
+            _tadj_net = _tadj_added - _tadj_lost
             row["Points added"] = round(_tp_added, 2)
             row["Points lost"] = round(_tp_lost, 2)
             row["Net points"] = round(_tnet, 2)
             row["Avg points added"] = round(_tp_added / _tnwk, 2) if _tnwk else 0.0
             row["Avg points lost"] = round(_tp_lost / _tnwk, 2) if _tnwk else 0.0
             row["Avg net points"] = round(_tnet / _tnwk, 2) if _tnwk else 0.0
+            row["Avg points added adjusted by position"] = round(_tadj_added / _tnwk, 2) if _tnwk else 0.0
+            row["Avg points lost adjusted by position"] = round(_tadj_lost / _tnwk, 2) if _tnwk else 0.0
+            row["Avg net points adjusted by position"] = round(_tadj_net / _tnwk, 2) if _tnwk else 0.0
 
             # ----- (d) Return-from-trades chain (V2: three buckets) -----
             # Each received asset terminates in one of:
