@@ -13,6 +13,9 @@ jobs:
     steps:
       - name: Checkout repo
         uses: actions/checkout@v4
+        with:
+          # full history so the worktree can check out the pre-Phase-7 baseline commit
+          fetch-depth: 0
 
       - name: Setup Python
         uses: actions/setup-python@v5
@@ -70,6 +73,7 @@ jobs:
           mkdir -p "$BASE/data"
           ln -s "$GITHUB_WORKSPACE/data/ktc_cache" "$BASE/data/ktc_cache"
           python -m venv "$RUNNER_TEMP/vbase"
+          "$RUNNER_TEMP/vbase/bin/pip" install --upgrade pip setuptools wheel
           "$RUNNER_TEMP/vbase/bin/pip" install --no-cache-dir -r "$BASE/requirements.txt"
           "$RUNNER_TEMP/vbase/bin/pip" install --no-cache-dir --no-build-isolation -e "$BASE"
           ( cd "$BASE" && PYTHONPATH=src "$RUNNER_TEMP/vbase/bin/python" -m lotg 2>&1 \
