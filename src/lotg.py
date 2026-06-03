@@ -5386,6 +5386,17 @@ def build_all(repo_root: Path) -> None:
                 r["Avg points lost"] = round(pts_lost / _nwk, 2) if _nwk else 0.0
                 r["Avg net points"] = round(_net / _nwk, 2) if _nwk else 0.0
 
+                # Length of tenure on team (added player): days from pickup to
+                # the next exit (or to today if still rostered). Blank if no add.
+                if _is_name(added):
+                    try:
+                        _pk_d = datetime.fromisoformat(pickup_iso_prefix).date()
+                        _end_d = (datetime.fromisoformat(drop_after_prefix).date()
+                                  if drop_after_prefix else datetime.utcnow().date())
+                        r["Length of tenure on team"] = max(0, (_end_d - _pk_d).days)
+                    except Exception:
+                        pass
+
                 # The cuff comparison still uses the pre-pickup 5-game
                 # snapshot — that's the form info available at pickup.
                 # Bind it under the original name the cuff code reads.
