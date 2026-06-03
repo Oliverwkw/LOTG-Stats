@@ -1390,6 +1390,7 @@ def build_all(repo_root: Path) -> None:
         try:
             from openpyxl import Workbook
             from openpyxl.utils import get_column_letter
+            from openpyxl.styles import Alignment
 
             wb = Workbook()
             wb.remove(wb.active)
@@ -1413,56 +1414,101 @@ def build_all(repo_root: Path) -> None:
                 except Exception:
                     d = pd.DataFrame()
 
-                ws.append(list(d.columns))
-                for row in d.itertuples(index=False, name=None):
-                    ws.append(list(row))
-                ws.freeze_panes = "E2"
-
-                # Make link-reference cells clickable. Every "Link to ..."
-                # column holds cross-table row references: "#N" -> the Nth
-                # data row of the transactions sheet, "T#N" -> the Nth data
-                # row of the trades sheet (1-indexed; xlsx adds 1 for the
-                # header row). A single-ref cell becomes a real hyperlink to
-                # that row in the relevant sheet. Multi-ref cells (the
-                # per-asset ';'-joined lists) stay as text, since a worksheet
-                # cell can carry only one hyperlink.
-                # "#N" -> transactions, "T#N" -> trades, "PH#N" -> pick_history.
+                # Cross-table row references in any "Link to ..." cell:
+                # "#N" -> transactions row N, "T#N" -> trades row N, "PH#N" ->
+                # pick_history row N (1-indexed; xlsx adds 1 for the header).
                 _ref_re = re.compile(r"^(PH|T)?#(\d+)$")
                 _ref_sheet = {"": "transactions", "T": "trades", "PH": "pick_history"}
-                link_col_idx = [
-                    j for j, col in enumerate(d.columns, 1)
-                    if "link to " in str(col).lower()
-                ]
-                if link_col_idx:
+
+                def _set_ref_link(cell, ref):
+                    m = _ref_re.match(str(ref).strip())
+                    if not m:
+                        return
+                    cell.hyperlink = f"#'{_ref_sheet[m.group(1) or '']}'!A{int(m.group(2)) + 1}"
+                    cell.style = "Hyperlink"
+
+                # Trades: explode each per-asset link column into one clickable
+                # column PER received asset, under a merged group header. Each
+                # cell shows the asset NAME and hyperlinks to that asset's
+                # next/previous event. (The CSV keeps the ';'-joined ref list.)
+                _pa_cols = [c for c in d.columns
+                            if "link to " in str(c).lower() and "per asset" in str(c).lower()]
+                _did_expand = False
+                if sheet_name == "trades" and _pa_cols and "Assets received" in d.columns and not d.empty:
+                    _did_expand = True
+                    def _split(s):
+                        return [t.strip() for t in str(s if pd.notna(s) else "").split(";")]
+                    def _names(s):
+                        return [t for t in _split(s) if t and t.upper() != "N/A"]
+                    _recv = [_names(v) for v in d["Assets received"]]
+                    K = max((len(n) for n in _recv), default=1) or 1
+                    headers, spec = [], []
+                    for c in d.columns:
+                        if c in _pa_cols:
+                            for s in range(K):
+                                headers.append(c if s == 0 else "")
+                                spec.append(("asset", c, s))
+                        else:
+                            headers.append(c)
+                            spec.append(("plain", c))
+                    ws.append(headers)
+                    _records = d.to_dict("records")
+                    _ref_lists = {c: [_split(v) for v in d[c]] for c in _pa_cols}
+                    for ri, rec in enumerate(_records):
+                        outrow = []
+                        for sp in spec:
+                            if sp[0] == "plain":
+                                v = rec.get(sp[1])
+                                outrow.append(None if (isinstance(v, float) and pd.isna(v)) else v)
+                            else:
+                                nm = _recv[ri]
+                                outrow.append(nm[sp[2]] if sp[2] < len(nm) else None)
+                        ws.append(outrow)
+                    for ci, sp in enumerate(spec, start=1):
+                        if sp[0] != "asset":
+                            continue
+                        for ri in range(len(d)):
+                            refs = _ref_lists[sp[1]][ri]
+                            if sp[2] < len(refs):
+                                _set_ref_link(ws.cell(row=ri + 2, column=ci), refs[sp[2]])
+                    if K > 1:
+                        ci = 1
+                        while ci <= len(spec):
+                            if spec[ci - 1][0] == "asset":
+                                ws.merge_cells(start_row=1, start_column=ci, end_row=1, end_column=ci + K - 1)
+                                ws.cell(row=1, column=ci).alignment = Alignment(horizontal="center")
+                                ci += K
+                            else:
+                                ci += 1
+                else:
+                    ws.append(list(d.columns))
+                    for row in d.itertuples(index=False, name=None):
+                        ws.append(list(row))
+                    link_col_idx = [j for j, col in enumerate(d.columns, 1)
+                                    if "link to " in str(col).lower()]
                     for r in range(2, ws.max_row + 1):
                         for j in link_col_idx:
                             cell = ws.cell(row=r, column=j)
                             if cell.value is None:
                                 continue
-                            # A cell may hold a single ref or a ';'-joined
-                            # per-asset list (trades). Hyperlink to the FIRST
-                            # valid ref so every link cell is clickable (xlsx
-                            # allows one hyperlink per cell).
-                            first = next(
-                                (t.strip() for t in str(cell.value).split(";")
-                                 if _ref_re.match(t.strip())),
-                                None,
-                            )
-                            if not first:
-                                continue
-                            m = _ref_re.match(first)
-                            target_sheet = _ref_sheet[m.group(1) or ""]
-                            row_num = int(m.group(2))
-                            cell.hyperlink = f"#'{target_sheet}'!A{row_num + 1}"
-                            cell.style = "Hyperlink"
+                            # single ref, or first ref of a ';'-joined list
+                            first = next((t.strip() for t in str(cell.value).split(";")
+                                          if _ref_re.match(t.strip())), None)
+                            if first:
+                                _set_ref_link(cell, first)
+                ws.freeze_panes = "E2"
 
-                if ws.max_column >= 1:
+                # Skip the auto-filter on the trades sheet — its merged group
+                # headers don't play nicely with a filter dropdown row.
+                if ws.max_column >= 1 and not _did_expand:
                     ws.auto_filter.ref = f"A1:{get_column_letter(ws.max_column)}{max(1, ws.max_row)}"
 
                 try:
-                    for j, col in enumerate(d.columns, 1):
-                        max_len = max([len(str(col))] + [len(str(x)) for x in d[col].head(200).fillna("").astype(str).tolist()])
-                        ws.column_dimensions[get_column_letter(j)].width = min(60, max(10, max_len + 2))
+                    for j in range(1, ws.max_column + 1):
+                        vals = [str(ws.cell(row=1, column=j).value or "")]
+                        for r in range(2, min(ws.max_row, 201) + 1):
+                            vals.append(str(ws.cell(row=r, column=j).value or ""))
+                        ws.column_dimensions[get_column_letter(j)].width = min(60, max(10, max(len(v) for v in vals) + 2))
                 except Exception:
                     pass
 
