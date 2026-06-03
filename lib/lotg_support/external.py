@@ -146,3 +146,26 @@ def load_nflverse_stats_player_week(cfg: ExternalConfig, season: int, force_refr
         return pd.read_csv(path, low_memory=False)
     except Exception:
         return pd.read_csv(path, compression='gzip', low_memory=False)
+
+
+def load_nflverse_weekly_rosters(cfg: ExternalConfig, season: int, force_refresh: bool = False) -> pd.DataFrame:
+    """Load nflverse WEEKLY rosters for a season (every player on a team that
+    week, including IR / suspended / PUP — players who never accumulate stats).
+    Used to give those players their real NFL team instead of the 'NFL'
+    free-agent sentinel. Columns of interest: season, week, team, gsis_id."""
+    urls = [
+        f"https://github.com/nflverse/nflverse-data/releases/download/weekly_rosters/roster_weekly_{season}.csv",
+        f"https://github.com/nflverse/nflverse-data/releases/download/weekly_rosters/roster_weekly_{season}.csv.gz",
+        f"https://raw.githubusercontent.com/nflverse/nflverse-data/master/data/weekly_rosters/roster_weekly_{season}.csv",
+    ]
+    path = cfg.cache_dir / f"nflverse_weekly_rosters_{season}.csv"
+    if force_refresh or (not path.exists()) or path.stat().st_size == 0:
+        try:
+            _download_best_effort(urls, path, cfg.timeout_seconds)
+        except Exception:
+            if not path.exists() or path.stat().st_size == 0:
+                raise
+    try:
+        return pd.read_csv(path, low_memory=False)
+    except Exception:
+        return pd.read_csv(path, compression='gzip', low_memory=False)
