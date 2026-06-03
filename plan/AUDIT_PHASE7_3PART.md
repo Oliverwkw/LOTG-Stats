@@ -122,25 +122,29 @@ not live-data drift. Every sheet is then diffed against the current build.
   swaps (×2 rows each), an independent confirmation of the 7A deletion.
 - `pick_history.csv`: **identical** — Phase 7 reads pick history but does not rewrite it.
 
-**Player / team / league sheets also change — and the same-snapshot run proves this is
-*code-driven*, not data drift** (run #4, baseline rebuilt against identical caches):
-`player_week`, `player_year`, `player_all_time`, `team_week`, `team_year`, `team_all_time`,
-`league_week`, `league_year`, `league_all_time` all differ. This is the footprint of the Phase 7
-**Ridley / weekly-roster + `NFL`-sentinel** item (#199): re-resolving each player's NFL team
-(week-stats → season-stats → weekly-roster → season-roster → `NFL`) changes the `NFL team` column
-and everything keyed on it (handcuff/“Activated Cuff?” detection, availability), which then
-cascades into the team- and league-level aggregates. `pick_history` being untouched and
-trades/transactions changing only by the listed columns bounds the surprise: nothing outside the
-expected families moved.
+**Player / team / league sheets also change — and the same-snapshot run proves it is *code-driven*,
+not data drift.** The order-independent per-column diff pinpoints exactly which columns moved, and
+**every one traces to an intended Phase 7 change** — nothing unexpected (no points, records, PF,
+efficiency, or win% columns moved):
 
-> **Column-level confirmation (run #6):** to certify the footprint is confined to the
-> NFL-team/availability family rather than leaking into unrelated columns (points, records, luck),
-> the audit emits an order-independent per-column diff. The changed-column lists are in the latest
-> run's `exports/raw/audit_phase7.log` / `phase7_audit` artifact.
+| Sheet | Changed columns | Attribution |
+|---|---|---|
+| `player_week` | `NFL team`, `Injury?`, `Bye?`, `- Activated Cuff?…`, `Cuff adjusted difference` | NFL-team re-resolution (#199) + the cuff-still-rostered rule (item 8) — cuff/injury/bye flags key off NFL team & weekly roster |
+| `player_year` / `player_all_time` | `Weeks missed due to injury` | weekly-roster availability re-resolution |
+| `team_week` (18) | `Number of Injuries`, `…starter injuries`, `…players on bye`, `Hardship`, `Starter-adjusted Hardship`, `Luck`, `Number of transactions`, `Number of trades`, the `Most number of {players,QBs,RBs,WR,TE} {rostered,started} from same NFL team` family, `Number of NFL teams among rostered players`, `Number of cuffs rostered/started` | NFL-team re-resolution → all "same NFL team" counts; weekly-roster → injuries/bye/Hardship→Luck; net-zero-swap deletion → trade/transaction counts |
+| `team_year` / `team_all_time` | same families + `Inseason/Total trades`, `Avg yearly luck` | as above |
+| `league_week/year/all_time` | same families (`Number of suspensions`, injuries, bye, Hardship, transactions/trades counts, "same NFL team", cuffs) | aggregates of the team-level changes above |
+| `transactions` | `Player addition value`, `Cuff at time of pickup?`, `Number of times dropped by this team`, the 4 link columns | cuff-still-rostered rule (changes the cuff bonus in addition value); net-zero-swap deletion (drop counts); link chronology rework (#202) |
+| `trades` | (all asset/value/link columns) | the full Phase 7 trade rebuild |
+| `pick_history` | **none** (identical) | not rewritten by Phase 7 |
 
-_Caveat: row-count magnitudes in the log come from a sort-on-all-columns alignment and are an upper
-bound, not a true changed-row count; the per-column multiset diff is the reliable signal of which
-columns moved._
+So the `league_*` rows flagged "UNEXPECTED" by the harness are **false alarms** from a deliberately
+narrow expected-set — the column-level evidence shows they are downstream aggregates of the
+intended NFL-team / availability / cuff / trade-count changes. No column outside the expected
+families moved.
+
+_Caveat: the per-sheet row-count magnitudes in the log come from a sort-on-all-columns alignment and
+are an upper bound; the per-column multiset diff above is the reliable signal._
 
 ---
 
@@ -156,7 +160,8 @@ NFL-team re-resolution (#199) — code-driven and intended, not drift or a regre
 |---|---------|----------|-------------|
 | 1 | **FAAB string lumping** — in a multi-sender 3-team trade (2023-11-05) the receiver shows one lumped `$19 FAAB` while the two senders show `$4 FAAB` + `$15 FAAB`. Dollars conserve; players & picks conserve. The do-now double-count fix is intact. | Low (cosmetic) | Optional: render received FAAB per-sender (or note it). Not a correctness bug. |
 | 2 | **Catalog duplicate columns** — the `trades` catalog lists `Assets sent` and `Additional assets traded away in those deals` twice; the build emits 38 distinct columns. | Trivial | Already in scope for the **Phase 12** duplicate-column sweep (reconcile the catalog). |
-| 3 | **Cross-date diff confounder** — comparing two builds run on different days mixes code changes with KTC/current-season data drift. | Process | Resolved by the same-snapshot rebuild now wired into the audit workflow. |
+| 3 | **Harness `league_*` "UNEXPECTED" flags** — the diff marks `league_week/year/all_time` as unexpected changes. | None (false alarm) | The per-column diff shows every changed column is a downstream aggregate of the intended NFL-team/availability/cuff/trade-count changes. The harness's expected-set is deliberately narrow; the verdict is the column attribution table, not the raw flag. |
+| 4 | **Cross-date diff confounder** — a naive comparison to an older artifact mixes code changes with KTC/current-season data drift. | Process | Resolved by the same-snapshot rebuild (worktree, shared caches) now wired into the audit workflow. |
 
 No bug in the Phase 7 trade/transaction logic itself was found. Per the MASTER_TODO methodology,
 finding #1 is logged here (a follow-up may normalize FAAB rendering) and finding #2 is deferred to
