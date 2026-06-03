@@ -155,6 +155,7 @@ When the results-based audit surfaces a bug, log it but continue to the diff swe
 
 ## Phase 12.5 — Formatting (TBD)
 - [ ] TBD — reserved for output/xlsx formatting work (styling, column widths, number formats, conditional formatting, sheet polish). Scope when we get there.
+- [ ] **Trades per-asset link columns** — the xlsx explodes the two per-asset link columns into one column per received asset under a merged header (`#203`). Because K = max received assets across all trades (a mega-trade received 15), this adds ~30 mostly-empty columns. Revisit during formatting: cap/scroll the slots, hide empties, narrow widths, or otherwise tame the width.
 
 ## Phase 13 — ESPN 2020 backfill
 - [ ] Scope when we get there
