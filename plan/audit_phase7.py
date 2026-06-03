@@ -481,7 +481,14 @@ else:
         rows_changed = "n/a"
         if c2.shape == o2.shape:
             rows_changed = int((c2.fillna("") != o2.fillna("")).any(axis=1).sum())
-        changed = bool(added_cols or removed_cols or cur.shape[0] != old.shape[0] or (rows_changed not in (0, "n/a")))
+        # Column-level diff: a column "moved" if its multiset of values differs
+        # (order-independent, so it's robust to row re-sorting). This pinpoints
+        # exactly which columns Phase 7 touched.
+        changed_cols = []
+        for c in shared:
+            if sorted(cur[c].fillna("").tolist()) != sorted(old[c].fillna("").tolist()):
+                changed_cols.append(c)
+        changed = bool(added_cols or removed_cols or cur.shape[0] != old.shape[0] or changed_cols)
         status = "CHANGED" if changed else "identical"
         expected = name in EXPECTED_CHANGED
         tag = INFO
@@ -490,13 +497,17 @@ else:
         elif changed and expected:
             tag = PASS  # expected diff present
         detail = (f"rows {old.shape[0]}->{cur.shape[0]}, cols {len(old_cols)}->{len(cur_cols)}"
-                  f", changed_rows={rows_changed}")
+                  f", {len(changed_cols)} cols changed")
         if added_cols:
             detail += f", +cols={added_cols}"
         if removed_cols:
             detail += f", -cols={removed_cols}"
         label = f"{name}: {status}" + ("" if expected else " (UNEXPECTED if changed)")
         check(tag, label, detail)
+        if changed_cols:
+            # show only the columns that aren't brand-new Phase 7 additions
+            moved = [c for c in changed_cols if c not in added_cols]
+            print(f"        changed columns: {moved}")
 
 
 # ---------------------------------------------------------------------------
