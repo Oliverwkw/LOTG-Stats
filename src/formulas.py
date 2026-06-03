@@ -106,6 +106,12 @@ _ROWS = [
         "Notes": "If the player was never dropped, counts all starts through end of dataset.",
     },
     {
+        "Stat": "Length of tenure on team",
+        "Sheet": "transactions",
+        "Formula": "Days the ADDED player spent on this team: from the pickup Date to the next drop/trade off this team (Date dropped/traded), or to today if still rostered. Blank when the transaction has no added player.",
+        "Notes": "Calendar-day span of the tenure window used by the forward-looking PPG / Points Added metrics.",
+    },
+    {
         "Stat": "% of starts made while rostered",
         "Sheet": "transactions",
         "Formula": "(Number of starts before next drop) / (weeks rostered between Date and Date dropped/traded).",
