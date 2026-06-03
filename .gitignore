@@ -2,3 +2,7 @@
 # is per-player full history (back to 2021). Reproducible from dynasty-daddy
 # and accumulates to ~1k files — not worth committing.
 data/ktc_cache/
+
+# Python bytecode caches
+__pycache__/
+*.pyc
