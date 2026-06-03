@@ -212,30 +212,41 @@ multi = tr[pd.to_numeric(tr["Number of teams involved"], errors="coerce") >= 3]
 n_multi_groups = multi["Date"].nunique() if not multi.empty else 0
 print(f"   {len(multi)} rows across {n_multi_groups} multi-team (3+) trade groups")
 from collections import Counter
-conservation_bad = []
+# The do-now fix is specifically about players & picks no longer being
+# double-counted on the sent side of 3+ team trades. Test those as an exact
+# multiset; test FAAB separately by dollars (the receiver side lumps FAAB
+# summed-per-receiver, the sender side is per-sender, so in a multi-sender
+# deal the *strings* legitimately differ even though the dollars conserve).
+pp_bad = []     # player/pick multiset mismatch  -> the real double-count test
+faab_bad = []   # FAAB dollar-sum mismatch per group
+faab_lump = []  # FAAB strings asymmetric but dollars conserve (cosmetic)
 for date, grp in tr.groupby("Date"):
-    recv = Counter(a for c in grp["Assets received"] for a in split_assets(c))
-    sent = Counter(a for c in grp["Assets sent"] for a in split_assets(c))
-    if recv != sent:
-        only_recv = list((recv - sent).elements())
-        only_sent = list((sent - recv).elements())
-        conservation_bad.append((date, len(grp), only_recv, only_sent))
-check(PASS if not conservation_bad else FAIL,
-      "every asset received by someone is sent by someone (per trade group)",
-      f"{len(conservation_bad)} groups violate conservation")
-for date, n, only_recv, only_sent in conservation_bad[:5]:
-    print(f"        group {date} ({n} rows):")
-    print(f"          received-but-not-sent: {only_recv}")
-    print(f"          sent-but-not-received: {only_sent}")
-# focused: the multi-team groups specifically must not double-count
-multi_bad = [g for g in conservation_bad
-             if pd.to_numeric(tr[tr['Date'] == g[0]]['Number of teams involved'], errors='coerce').max() >= 3]
-nonmulti_bad = [g for g in conservation_bad if g not in multi_bad]
-if nonmulti_bad:
-    print(f"        ({len(nonmulti_bad)} of the violating groups are 2-team)")
-check(PASS if not multi_bad else FAIL,
-      "3+ team trades do not double-count the sent side",
-      f"{len(multi_bad)} multi-team groups violate conservation")
+    recv_pp = Counter(a for c in grp["Assets received"] for a in split_assets(c) if asset_kind(a) in ("player", "pick"))
+    sent_pp = Counter(a for c in grp["Assets sent"] for a in split_assets(c) if asset_kind(a) in ("player", "pick"))
+    if recv_pp != sent_pp:
+        pp_bad.append((date, len(grp), list((recv_pp - sent_pp).elements()), list((sent_pp - recv_pp).elements())))
+    rf, sf = faab_total(grp["Assets received"]), faab_total(grp["Assets sent"])
+    if rf != sf:
+        faab_bad.append((date, rf, sf))
+    else:
+        recv_f = Counter(a for c in grp["Assets received"] for a in split_assets(c) if asset_kind(a) == "faab")
+        sent_f = Counter(a for c in grp["Assets sent"] for a in split_assets(c) if asset_kind(a) == "faab")
+        if recv_f != sent_f:
+            faab_lump.append((date, list((recv_f - sent_f).elements()), list((sent_f - recv_f).elements())))
+
+check(PASS if not pp_bad else FAIL,
+      "players & picks conserve across each trade group (no 3+ team double-count)",
+      f"{len(pp_bad)} groups violate")
+for date, n, only_recv, only_sent in pp_bad[:5]:
+    print(f"        group {date} ({n} rows): recv-only={only_recv} sent-only={only_sent}")
+check(PASS if not faab_bad else FAIL,
+      "FAAB dollars conserve across each trade group",
+      f"{len(faab_bad)} groups violate")
+for date, rf, sf in faab_bad[:5]:
+    print(f"        group {date}: received ${rf} vs sent ${sf}")
+if faab_lump:
+    check(INFO, "FAAB string lumping asymmetric in multi-sender trades (dollars still conserve)",
+          f"{len(faab_lump)} group(s); e.g. {faab_lump[0]}")
 
 # ---- 7B: Number of teams involved + per-asset link alignment ----
 print("\n-- 7B: # teams involved + per-asset link alignment --")

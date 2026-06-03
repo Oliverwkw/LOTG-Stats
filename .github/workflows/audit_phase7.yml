@@ -54,25 +54,32 @@ jobs:
           set -o pipefail
           python -m lotg 2>&1 | tee exports/raw/runner.log
 
-      - name: Download pre-Phase-7 baseline artifact (run 277 / commit c3a17b6)
+      - name: Build pre-Phase-7 baseline at the SAME data snapshot (worktree)
+        # Rebuild the last pre-Phase-7 commit (c3a17b6, #189) in a detached
+        # worktree, sharing the SAME warm .cache / ktc_cache so KTC daily
+        # snapshots and nflverse data are byte-identical to the current build.
+        # This isolates the diff to CODE changes (Phase 7) and removes the
+        # live-data drift that contaminates a cross-date artifact comparison.
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -o pipefail
-          # Baseline = pre-Phase-7 build (artifact id from run #277).
-          curl -sSL \
-            -H "Authorization: Bearer $GH_TOKEN" \
-            -H "Accept: application/vnd.github+json" \
-            "https://api.github.com/repos/${{ github.repository }}/actions/artifacts/7321935583/zip" \
-            -o baseline.zip
-          mkdir -p baseline
-          unzip -q baseline.zip -d baseline || { echo "baseline unzip failed"; ls -la; }
-          echo "baseline contents:"; ls -R baseline | head -40
+          BASE="$RUNNER_TEMP/base"
+          git worktree add --detach "$BASE" c3a17b6
+          ln -s "$GITHUB_WORKSPACE/.cache" "$BASE/.cache"
+          mkdir -p "$BASE/data"
+          ln -s "$GITHUB_WORKSPACE/data/ktc_cache" "$BASE/data/ktc_cache"
+          python -m venv "$RUNNER_TEMP/vbase"
+          "$RUNNER_TEMP/vbase/bin/pip" install --no-cache-dir -r "$BASE/requirements.txt"
+          "$RUNNER_TEMP/vbase/bin/pip" install --no-cache-dir --no-build-isolation -e "$BASE"
+          ( cd "$BASE" && PYTHONPATH=src "$RUNNER_TEMP/vbase/bin/python" -m lotg 2>&1 \
+              | tee "$GITHUB_WORKSPACE/exports/raw/baseline_build.log" )
+          echo "baseline exports:"; ls "$BASE/exports" || true
 
       - name: Run Phase 7 audit
         env:
           EXPORTS_DIR: exports
-          BASELINE_DIR: baseline
+          BASELINE_DIR: ${{ runner.temp }}/base/exports
           CATALOG: plan/stats_catalog.json
         run: |
           set -o pipefail
