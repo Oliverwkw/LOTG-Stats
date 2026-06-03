@@ -6,6 +6,12 @@ on:
     branches:
       - "claude/phase-7-audit-**"
 
+# Only keep the newest audit run for the branch; cancel superseded ones so
+# rapid pushes don't pile up duplicate two-build jobs.
+concurrency:
+  group: phase7-audit-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   audit:
     runs-on: ubuntu-latest
