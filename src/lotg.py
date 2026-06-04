@@ -3904,6 +3904,10 @@ def build_all(repo_root: Path) -> None:
                                 "_drop_picks": dropped_picks,
                                 "_recv_pick_meta": received_pick_meta,
                                 "_drop_pick_meta": dropped_pick_meta,
+                                # FAAB $ moved (numeric) — valued in KTC via the
+                                # avg KTC-per-$ implied by FAAB-for-asset trades.
+                                "_recv_faab": float(sum(_faab_rcv_by_snd.get(rid, {}).values())),
+                                "_drop_faab": float(_faab_by_snd.get(rid, 0)),
                                 # Shared id for all rows of the SAME trade event
                                 # (a 3-team trade emits N rows). Lets the link
                                 # chains skip a trade's own mirror rows when
@@ -5659,6 +5663,11 @@ def build_all(repo_root: Path) -> None:
                     cuff_bonus = CUFF_BONUS if cuff else 0.0
                     addition_val = adj_diff * (1.0 + pct_starts) * (1.0 + pct_inj) + cuff_bonus
                     r["Player addition value"] = round(addition_val, 4)
+                elif added and team and weeks_played == 0:
+                    # An added player who was never rostered for a full week
+                    # added nothing measurable → 0 (not N/A). Pure drops (no
+                    # added player) are left N/A.
+                    r["Player addition value"] = 0.0
     except Exception as e:
         _log_exc(debug, "transactions_polish_v2", e)
 
@@ -5813,8 +5822,10 @@ def build_all(repo_root: Path) -> None:
             target: date,
             player_ids: List[str],
             pick_labels: List[str],
+            faab: float = 0.0,
         ) -> List[float]:
-            """Per-asset KTC values on one side (for the package-tax diff)."""
+            """Per-asset KTC values on one side (for the package-tax diff). FAAB
+            dollars are valued at the league-wide avg KTC-per-$ (Fix 3)."""
             out: List[float] = []
             for sid in player_ids:
                 v = asset_value_at(None, str(sid), target, idx)
@@ -5824,7 +5835,39 @@ def build_all(repo_root: Path) -> None:
                 v = asset_value_at(str(plabel), None, target, idx)
                 if v is not None and v > 0:
                     out.append(float(v))
+            if faab and faab > 0 and _ktc_per_faab > 0:
+                out.append(float(faab) * _ktc_per_faab)
             return out
+
+        # --- Fix 3: average KTC value of $1 FAAB ---
+        # From "similar trades": a side that is PURE FAAB exchanged for a side of
+        # KTC-valued assets implies KTC-per-$ = (asset-side KTC) / FAAB$. Median
+        # across all such clean FAAB-for-asset trades.
+        _ktc_per_faab = 0.0
+        try:
+            _faab_ratios: List[float] = []
+            for _r in trades_rows:
+                _ds = _r.get("Date")
+                try:
+                    _dt = datetime.fromisoformat(str(_ds).replace("Z", "+00:00")).date()
+                except Exception:
+                    continue
+                if _dt > today:
+                    continue
+                _rf = float(_r.get("_recv_faab") or 0.0)
+                _df = float(_r.get("_drop_faab") or 0.0)
+                _rv = _side_values(_dt, _r.get("_recv_player_ids") or [], _r.get("_recv_picks") or [])
+                _sv = _side_values(_dt, _r.get("_drop_player_ids") or [], _r.get("_drop_picks") or [])
+                if _rf > 0 and _df == 0 and _sv and not _rv:        # got FAAB for assets
+                    _faab_ratios.append(sum(_sv) / _rf)
+                elif _df > 0 and _rf == 0 and _rv and not _sv:      # gave FAAB for assets
+                    _faab_ratios.append(sum(_rv) / _df)
+            if _faab_ratios:
+                _faab_ratios.sort()
+                _ktc_per_faab = _faab_ratios[len(_faab_ratios) // 2]
+            _log(debug, f"[{_now_iso()}] INFO KTC per $1 FAAB ≈ {_ktc_per_faab:.1f} (from {len(_faab_ratios)} FAAB-for-asset trades)")
+        except Exception as e:
+            _log_exc(debug, "ktc_per_faab", e)
 
         # --- Package-tax adjustment for uneven multi-asset trades (Item 2) ---
         # A naive Σreceived − Σsent over-values the side with MORE pieces: in
@@ -5860,11 +5903,13 @@ def build_all(repo_root: Path) -> None:
             drop_ids: List[str],
             recv_picks: List[str],
             drop_picks: List[str],
+            recv_faab: float = 0.0,
+            drop_faab: float = 0.0,
         ) -> Optional[float]:
             if target > today:
                 return None
-            recv_vals = _side_values(target, recv_ids, recv_picks)
-            sent_vals = _side_values(target, drop_ids, drop_picks)
+            recv_vals = _side_values(target, recv_ids, recv_picks, recv_faab)
+            sent_vals = _side_values(target, drop_ids, drop_picks, drop_faab)
             if not (recv_vals and sent_vals):
                 return None
             # Package-tax-adjusted difference (Item 2), replacing the old naive
@@ -5891,10 +5936,12 @@ def build_all(repo_root: Path) -> None:
             drop_ids = list(row.get("_drop_player_ids") or [])
             recv_picks = list(row.get("_recv_picks") or [])
             drop_picks = list(row.get("_drop_picks") or [])
+            recv_faab = float(row.get("_recv_faab") or 0.0)
+            drop_faab = float(row.get("_drop_faab") or 0.0)
 
             # Deal time
             if trade_date <= today:
-                diff = _diff_at(trade_date, recv_ids, drop_ids, recv_picks, drop_picks)
+                diff = _diff_at(trade_date, recv_ids, drop_ids, recv_picks, drop_picks, recv_faab, drop_faab)
                 if diff is not None:
                     row["KTC value difference at deal time"] = diff
 
@@ -5951,7 +5998,7 @@ def build_all(repo_root: Path) -> None:
                 # than the trade itself doesn't make sense.
                 if ref_date < trade_date:
                     ref_date = trade_date
-                diff = _diff_at(ref_date, recv_ids, drop_ids, recv_picks, drop_picks)
+                diff = _diff_at(ref_date, recv_ids, drop_ids, recv_picks, drop_picks, recv_faab, drop_faab)
                 if diff is not None:
                     row[col_name] = diff
 
@@ -12162,7 +12209,8 @@ def build_all(repo_root: Path) -> None:
     # percentile pool — and its rows are N/A.
     # ------------------------------------------------------------------
     def _add_oscore(df: pd.DataFrame, stat_cols: List[str], ktc_cols: List[str],
-                    exclude_mask: Optional[pd.Series] = None) -> None:
+                    exclude_mask: Optional[pd.Series] = None,
+                    droppable: Tuple[str, ...] = ()) -> None:
         if df is None or df.empty:
             return
         # Most-recent populated KTC value (ktc_cols ordered latest → earliest).
@@ -12186,8 +12234,15 @@ def build_all(repo_root: Path) -> None:
             _min = _s.rank(pct=True, method="min") * 100.0
             return _avg.where(_s != 0, _min)
         _pcts = pd.concat([_pct(_s) for _s in _series], axis=1)
-        # Require all four components → O-Score N/A otherwise.
-        _osc = _pcts.mean(axis=1).where(_pcts.notna().all(axis=1))
+        # Average the AVAILABLE components, but a 'droppable' component (e.g. the
+        # addition value of a player never rostered for a full week) may be
+        # missing — every REQUIRED component must be present or the O-Score is
+        # N/A. So picks with no on-team addition value still score off the other
+        # three, while a missing required signal (retired/untracked → no KTC,
+        # pure drop, one-sided untracked trade) → N/A.
+        _req = [_i for _i, _sc in enumerate(stat_cols) if _sc not in droppable]
+        _req_present = _pcts.iloc[:, _req].notna().all(axis=1)
+        _osc = _pcts.mean(axis=1).where(_req_present)
         df["O-Score"] = _osc.round(1)
 
     try:
@@ -12198,6 +12253,7 @@ def build_all(repo_root: Path) -> None:
             ["KTC 5 years after draft day", "KTC 2 years after draft day",
              "KTC 1 year after draft day", "KTC at end of rookie year", "KTC on draft day"],
             exclude_mask=(ph["Year"].astype(str).str.contains("vet") if (not ph.empty and "Year" in ph.columns) else None),
+            droppable=("Player addition value",),
         )
         _add_oscore(
             tx,
