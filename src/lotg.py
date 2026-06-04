@@ -6610,6 +6610,7 @@ def build_all(repo_root: Path) -> None:
                 for _c in _pick_ktc_cols:
                     ph[_c] = "N/A"
                     ph[_c] = ph[_c].astype(object)
+                _ktc_today = datetime.utcnow().date()
                 for _i, _pr in ph.iterrows():
                     _ply = str(_pr.get("Player Picked") or "").strip()
                     if not _ply or _ply.lower() in ("unknown", "nan", "n/a", ""):
@@ -6627,6 +6628,13 @@ def build_all(repo_root: Path) -> None:
                         ("KTC 5 years after draft day", date(_yr + 5, 8, 28)),
                     ]
                     for _col, _tgt in _checkpoints:
+                        # A checkpoint still in the FUTURE has no KTC yet — leave
+                        # it N/A. Without this guard the index lookup (latest
+                        # value on-or-before target) clamps to today's value and
+                        # mislabels it as the future checkpoint. Mirrors the
+                        # transactions/trades KTC pass (`if ref > today: skip`).
+                        if _tgt > _ktc_today:
+                            continue
                         try:
                             _v = _ktc_value_at(None, str(_sid), _tgt, _ktc_idx)
                         except Exception:
