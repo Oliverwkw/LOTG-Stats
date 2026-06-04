@@ -645,7 +645,8 @@
     "Link to next transaction (added player)",
     "Link to previous transaction (added player)",
     "Link to next transaction (dropped player)",
-    "Link to previous transaction (dropped player)"
+    "Link to previous transaction (dropped player)",
+    "O-Score"
   ],
   "trades": [
     "Team",
@@ -656,7 +657,7 @@
     "Season",
     "KTC value difference at deal time",
     "KTC value difference at end of season",
-    "Team performance improvement",
+    "Trade impact score",
     "KTC value difference 1 year later",
     "KTC value difference 2 years later",
     "Pick value received",
@@ -688,7 +689,8 @@
     "Avg points lost adjusted by position",
     "Avg net points adjusted by position",
     "Link to next transaction per asset",
-    "Link to previous transaction per asset"
+    "Link to previous transaction per asset",
+    "O-Score"
   ],
   "picks": [
     "Year",
@@ -738,7 +740,8 @@
     "etc",
     "Commissioner moved?",
     "Link to next transaction",
-    "Link to previous transaction"
+    "Link to previous transaction",
+    "O-Score"
   ],
   "Formulas": [
     "Stat",
