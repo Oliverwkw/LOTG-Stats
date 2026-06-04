@@ -7357,8 +7357,9 @@ def build_all(repo_root: Path) -> None:
                     _has_margin = True
                     _net_wk = _wk_added - _wk_lost
                     _wins_flipped += int(_mg > 0) - int((_mg - _net_wk) > 0)
-            if _has_margin:
-                row["Team performance improvement"] = round(_TPI_COEFF * _wins_flipped, 1)
+            # Raw win-impact (games the trade flipped). Folded into the
+            # "Team performance improvement" composite in a post-loop pass below.
+            row["_tpi_wins"] = float(_wins_flipped) if _has_margin else None
             _tnet = _tp_added - _tp_lost
             _tadj_net = _tadj_added - _tadj_lost
             row["Points added"] = round(_tp_added, 2)
@@ -7379,6 +7380,12 @@ def build_all(repo_root: Path) -> None:
             # Picks never drop to FA — they're either used (drafted)
             # or traded, so the FA classification is player-only.
             recv_keys, recv_disp = _trade_assets_received(row)
+            # Item 3: for each received asset that this team later RE-TRADED,
+            # record (downstream trade idx, the asset, the re-trade date) so the
+            # win-impact can be credited downstream, weighted by the asset's KTC
+            # value SHARE of that downstream trade (no separate hop discount —
+            # the share itself decays the credit each link).
+            _tpi_down_list: List[Tuple[int, Tuple[str, Any], str]] = []
             retained: List[str] = []
             traded_away: List[str] = []
             dropped_to_fa: List[str] = []
@@ -7431,6 +7438,10 @@ def build_all(repo_root: Path) -> None:
                     continue
 
                 traded_away.append(asset_disp)
+                try:
+                    _tpi_down_list.append((int(nx["tx_idx"]), asset_key, str(nx["date"])))
+                except Exception:
+                    pass
                 nx_keys, nx_disp = _next_trade_received(nx["tx_idx"])
                 return_immediate.extend(nx_disp)
                 # Additional assets traded away in the next trade
@@ -7456,6 +7467,7 @@ def build_all(repo_root: Path) -> None:
                     for k2, d2 in zip(more_k, more_d):
                         queue.append((k2, d2, nxt["date"]))
 
+            row["_tpi_down"] = _tpi_down_list  # Item 3 downstream re-trade links
             if retained:
                 row["Assets retained now"] = "; ".join(retained)
             if traded_away:
@@ -7468,6 +7480,142 @@ def build_all(repo_root: Path) -> None:
                 row["Additional assets traded away in those deals"] = "; ".join(dict.fromkeys(additional_immediate))
             if return_full:
                 row["Return from trades of trades...of trades. Keep going until present day"] = "; ".join(dict.fromkeys(return_full))
+
+        # --- Item 3: "Team performance improvement" composite. ---
+        # Win impact = the games the trade flipped (counterfactual weekly margins
+        # from received-asset production) PLUS a share of the games flipped by
+        # LATER trades that re-used the received assets. Each downstream trade is
+        # credited by the FRACTION of its sent-side KTC value (on the later
+        # trade's day) that came from THIS trade's assets — so a minor add-on
+        # later bundled for a stud earns only its small share, recursively. That
+        # downstream-aware win impact is HEAVILY weighted (per user) and blended
+        # (z-scored across all trades) with realized production (Avg net points),
+        # overall trade value incl. picks (Trade addition value), future pick
+        # capital (Pick value received), and youth (−Asset diff in avg age) into
+        # one continuous, percentile-rankable score. The output uses no KTC
+        # directly (KTC only proportions the downstream credit); all signals
+        # credit a rebuild, so tank trades aren't punished.
+        try:
+            def _tpi_f(_v):
+                try:
+                    return float(_v)
+                except Exception:
+                    return None
+            try:
+                from lotg_support.ktc import asset_value_at as _tpi_kv
+            except Exception:
+                _tpi_kv = None
+            try:
+                _tpi_idx = _ktc_idx  # may be undefined if the KTC pass was skipped
+            except NameError:
+                _tpi_idx = None
+
+            def _tpi_pdate(_s):
+                try:
+                    return datetime.fromisoformat(str(_s).replace("Z", "+00:00")).date()
+                except Exception:
+                    return None
+
+            def _tpi_asset_ktc(_ak, _jidx, _dstr):
+                if _tpi_kv is None or _tpi_idx is None:
+                    return 0.0
+                _d = _tpi_pdate(_dstr)
+                if _d is None:
+                    return 0.0
+                try:
+                    if _ak[0] == "player":
+                        return float(_tpi_kv(None, str(_ak[1]), _d, _tpi_idx) or 0.0)
+                    _rj = trades_rows[_jidx]
+                    for _m, _l in zip(_rj.get("_drop_pick_meta") or [], _rj.get("_drop_picks") or []):
+                        if tuple(_m) == tuple(_ak[1]):
+                            return float(_tpi_kv(str(_l), None, _d, _tpi_idx) or 0.0)
+                except Exception:
+                    return 0.0
+                return 0.0
+
+            _sent_tot_cache: Dict[int, float] = {}
+
+            def _tpi_sent_total(_jidx):
+                if _jidx in _sent_tot_cache:
+                    return _sent_tot_cache[_jidx]
+                _tot = 0.0
+                if _tpi_kv is not None and _tpi_idx is not None:
+                    _rj = trades_rows[_jidx]
+                    _d = _tpi_pdate(_rj.get("Date"))
+                    if _d is not None:
+                        for _pid in (_rj.get("_drop_player_ids") or []):
+                            _tot += float(_tpi_kv(None, str(_pid), _d, _tpi_idx) or 0.0)
+                        for _l in (_rj.get("_drop_picks") or []):
+                            _tot += float(_tpi_kv(str(_l), None, _d, _tpi_idx) or 0.0)
+                _sent_tot_cache[_jidx] = _tot
+                return _tot
+
+            _winimpact: Dict[int, float] = {}
+            _wi_active: Set[int] = set()
+
+            def _tpi_total(_i):
+                if _i in _winimpact:
+                    return _winimpact[_i]
+                if _i in _wi_active:
+                    return 0.0  # cycle guard (trades are time-ordered; shouldn't fire)
+                _wi_active.add(_i)
+                _val = _tpi_f(trades_rows[_i].get("_tpi_wins")) or 0.0
+                _by_j: Dict[int, List[Tuple[Tuple[str, Any], str]]] = defaultdict(list)
+                for (_j, _ak, _ds) in (trades_rows[_i].get("_tpi_down") or []):
+                    if 0 <= _j < len(trades_rows):
+                        _by_j[_j].append((_ak, _ds))
+                for _j, _assets in _by_j.items():
+                    _st = _tpi_sent_total(_j)
+                    if _st > 0:
+                        _num = sum(_tpi_asset_ktc(_ak, _j, _ds) for (_ak, _ds) in _assets)
+                        _share = max(0.0, min(1.0, _num / _st))
+                        if _share > 0:
+                            _val += _share * _tpi_total(_j)
+                _wi_active.discard(_i)
+                _winimpact[_i] = _val
+                return _val
+
+            for _i in range(len(trades_rows)):
+                trades_rows[_i]["_tpi_winimpact"] = _tpi_total(_i)
+
+            _tpi_specs = [
+                ("_tpi_winimpact", 2.0, True),                        # downstream-aware win impact (HEAVY)
+                ("Avg net points", 0.8, False),                       # realized production
+                ("Trade addition value", 0.5, False),                 # value incl. picks
+                ("Pick value received", 0.5, True),                   # future capital
+                ("Asset difference in average age", -0.3, False),     # youth (neg weight)
+            ]
+            _tpi_stats = {}
+            for _col, _w, _fill0 in _tpi_specs:
+                _vals = []
+                for _r in trades_rows:
+                    _fv = _tpi_f(_r.get(_col))
+                    if _fv is None and _fill0:
+                        _fv = 0.0
+                    if _fv is not None:
+                        _vals.append(_fv)
+                if _vals:
+                    _mu = sum(_vals) / len(_vals)
+                    _sd = (sum((x - _mu) ** 2 for x in _vals) / len(_vals)) ** 0.5 or 1.0
+                else:
+                    _mu, _sd = 0.0, 1.0
+                _tpi_stats[_col] = (_mu, _sd)
+            for _r in trades_rows:
+                _score = 0.0
+                for _col, _w, _fill0 in _tpi_specs:
+                    _fv = _tpi_f(_r.get(_col))
+                    if _fv is None:
+                        if _fill0:
+                            _fv = 0.0
+                        else:
+                            continue
+                    _mu, _sd = _tpi_stats[_col]
+                    _score += _w * ((_fv - _mu) / _sd)
+                _r["Team performance improvement"] = round(1500.0 * _score, 1)
+                for _k in ("_tpi_wins", "_tpi_down", "_tpi_winimpact"):
+                    _r.pop(_k, None)
+        except Exception as e:
+            _log_exc(debug, "team_perf_improvement_item3", e)
 
         # 4) Rebuild tr DataFrame with the polished trades_rows.
         tr = pd.DataFrame(trades_rows)
