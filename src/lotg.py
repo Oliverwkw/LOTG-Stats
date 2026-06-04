@@ -6863,6 +6863,7 @@ def build_all(repo_root: Path) -> None:
             "Avg PPG on team adjusted by position",
             "Avg career PPG adjusted by position",
             "Avg points added adjusted by position",
+            "Player addition value",
             "KTC on draft day", "KTC at end of rookie year",
             "KTC 1 year after draft day", "KTC 2 years after draft day",
             "KTC 5 years after draft day",
