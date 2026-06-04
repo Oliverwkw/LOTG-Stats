@@ -5,6 +5,11 @@ Year,Top Team,Last team,Week Name,Result,All time record,Week,PF,PF Range,Player
 Week,Last team,Number of teams,Year,Win %,Championships,PF,Avg PF,Avg margin,type of transaction (waiver/free agency),Assets sent,Final Team,Notes
 Week Name,Number of teams,Number of transactions,PF,Record,Win Variance,PF Range,PF Range,Margin range,Faab,Date,Player Picked,
 ,,,,,,,,,,,Length of tenure on team,
+,,,,,,,,,,,Avg PPG on team,
+,,,,,,,,,,,Avg PPG on team adjusted by position,
+,,,,,,,,,,,Points added,
+,,,,,,,,,,,Avg points added,
+,,,,,,,,,,,Avg points added adjusted by position,
 Points,Number of transactions,Number of drops,Win?,Change in win % from previous season,Draft Value,Avg margin,Avg margin,Number of games within 10,Total FAAB bid,Season,Trade 1,
 Injury?,Number of drops,Number of trades,Opponent,Win Variance,Number of first round picks made,Margin range,Margin range,Number of games within 5,FAAB difference over second place,KTC value difference at deal time,,
 Suspension?,Number of trades,Points,Points against,Week of playoff elimination,Total number of picks made,Number of games within 10,Number of games within 10,Max PF,FAAB premium %,KTC value difference at end of season,Trade 2,
