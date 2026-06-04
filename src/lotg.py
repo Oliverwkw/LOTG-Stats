@@ -6850,6 +6850,85 @@ def build_all(repo_root: Path) -> None:
         except Exception as e:
             _log_exc(debug, "picks_usage_8e", e)
 
+        # --- Item 1: "Pick-adjusted Difference in [...]" columns on picks ---
+        # For each position-adjusted average and each KTC column, a companion
+        # column = (this pick's stat) − (mean of that stat over ALL non-vet
+        # picks, all years, made in the 3-SLOT window around this pick). The
+        # window is by OVERALL draft position (crossing round boundaries), with
+        # the user's edge rule: the very first pick uses {this, next} (2 slots),
+        # the very last uses {prev-2, prev, this} (3), everything else uses
+        # {prev, this, next}. The 2021 vet/startup draft is excluded entirely —
+        # its rows are N/A and it is left out of every reference average.
+        _padj_diff_stats = [
+            "Avg PPG on team adjusted by position",
+            "Avg career PPG adjusted by position",
+            "Avg points added adjusted by position",
+            "Player addition value",
+            "KTC on draft day", "KTC at end of rookie year",
+            "KTC 1 year after draft day", "KTC 2 years after draft day",
+            "KTC 5 years after draft day",
+        ]
+        try:
+            if not ph.empty and {"Year", "Number"}.issubset(set(ph.columns)):
+                _vals_by_slot: Dict[str, Dict[Tuple[int, int], List[float]]] = {
+                    _st: defaultdict(list) for _st in _padj_diff_stats
+                }
+                _rs_of: Dict[Any, Tuple[int, int]] = {}
+                _max_slot = 0
+                _max_round = 0
+                for _pi in ph.index:
+                    if "(vet)" in str(ph.at[_pi, "Year"]).lower():
+                        continue
+                    _m = re.match(r"\s*(\d+)\.(\d+)", str(ph.at[_pi, "Number"]))
+                    if not _m:
+                        continue
+                    _R, _S = int(_m.group(1)), int(_m.group(2))
+                    _rs_of[_pi] = (_R, _S)
+                    _max_slot = max(_max_slot, _S)
+                    _max_round = max(_max_round, _R)
+                    for _st in _padj_diff_stats:
+                        try:
+                            _vals_by_slot[_st][(_R, _S)].append(float(ph.at[_pi, _st]))
+                        except Exception:
+                            pass
+                _rsize = _max_slot or 1
+                _maxpos = _rsize * (_max_round or 1)
+
+                def _window_slots(_R: int, _S: int) -> List[Tuple[int, int]]:
+                    _pos = (_R - 1) * _rsize + _S
+                    if _pos <= 1:
+                        _ps = [1, 2]
+                    elif _pos >= _maxpos:
+                        _ps = [_maxpos - 2, _maxpos - 1, _maxpos]
+                    else:
+                        _ps = [_pos - 1, _pos, _pos + 1]
+                    _out = []
+                    for _p in _ps:
+                        if 1 <= _p <= _maxpos:
+                            _out.append(((_p - 1) // _rsize + 1, (_p - 1) % _rsize + 1))
+                    return _out
+
+                for _st in _padj_diff_stats:
+                    _col = f"Pick-adjusted Difference in {_st}"
+                    ph[_col] = "N/A"
+                    ph[_col] = ph[_col].astype(object)
+                for _pi in ph.index:
+                    _rs = _rs_of.get(_pi)
+                    if not _rs:
+                        continue  # vet / unparseable → leave N/A
+                    _ws = _window_slots(_rs[0], _rs[1])
+                    for _st in _padj_diff_stats:
+                        _col = f"Pick-adjusted Difference in {_st}"
+                        try:
+                            _my = float(ph.at[_pi, _st])
+                        except Exception:
+                            continue  # this pick's stat is N/A → diff stays N/A
+                        _ref = [v for _sl in _ws for v in _vals_by_slot[_st].get(_sl, [])]
+                        if _ref:
+                            ph.at[_pi, _col] = round(_my - sum(_ref) / len(_ref), 4)
+        except Exception as e:
+            _log_exc(debug, "picks_pickadj_diff_item1", e)
+
         for idx, row in enumerate(trades_rows):
             team = str(row.get("Team") or "")
             trade_iso = str(row.get("Date") or "")
@@ -11647,9 +11726,18 @@ def build_all(repo_root: Path) -> None:
                     # only used for sort order — the "PH#N" ref is identical.
                     _fallback = pd.Timestamp(year=_yr, month=8, day=28, tz="UTC")
                     _pk = (_yr, _rd, _orig)
-                    _pdates = [e[0] for e in pick_chains.get(_pk, []) if pd.notna(e[0])]
-                    _term = (max(_pdates) + pd.Timedelta(days=1)) if _pdates else _fallback
-                    pick_chains[_pk].append((_term, _phref))  # pick terminal
+                    # The 2021 startup/vet draft shares its (year, round, orig)
+                    # canonical key with the 2021 ROOKIE draft, so adding a vet
+                    # PH# terminal here would pollute the rookie pick's chain
+                    # (its "previous" would land on the vet draft row). Vet picks
+                    # were never traded — they have no pick chain — so skip the
+                    # terminal for them. Their drafted player's chain start is
+                    # still anchored below.
+                    _is_vet = "(vet)" in str(ph.at[_pi, "Year"]).lower()
+                    if not _is_vet:
+                        _pdates = [e[0] for e in pick_chains.get(_pk, []) if pd.notna(e[0])]
+                        _term = (max(_pdates) + pd.Timedelta(days=1)) if _pdates else _fallback
+                        pick_chains[_pk].append((_term, _phref))  # pick terminal
                     _pl = str(ph.at[_pi, "Player Picked"]).strip()
                     if _real_player(_pl):
                         _edates = [e[0] for e in chains.get(_pl, []) if pd.notna(e[0])]
