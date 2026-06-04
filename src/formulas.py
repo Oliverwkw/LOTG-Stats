@@ -320,26 +320,26 @@ _ROWS = [
     {
         "Stat": "Avg PPG on team",
         "Sheet": "picks",
-        "Formula": "Mean fantasy_points_ppr of the DRAFTED player over every NFL game they played while on the team that drafted them (Final Team), in the tenure window: draft anchor (≈ Aug 28 of the pick year) → next exit off the team (or today). N/A for an unmade pick (no player yet) or a made pick whose player logged no games in the window (no value to average).",
-        "Notes": "Pick analogue of the transactions 'Average PPG on team' / the 7D drafted-pick PPG; built on the nflverse game log (games actually played, so injured/bye/suspended weeks are already excluded).",
+        "Formula": "Mean fantasy_points_ppr of the DRAFTED player over the NFL games they played while on the team that drafted them (Final Team), in the tenure window: draft anchor (≈ Aug 28 of the pick year) → next exit off the team (or today). N/A ONLY when the player was never on the team's roster for an NFL week (cut after the draft before week 1) — or for an unmade pick. If the player was rostered for ≥1 NFL week but logged no games (injured/inactive all tenure), it's 0, not N/A.",
+        "Notes": "Pick analogue of the transactions 'Average PPG on team' / the 7D drafted-pick PPG; built on the nflverse game log (games actually played, so injured/bye/suspended weeks are excluded). Roster presence comes from player_week (starter or bench).",
     },
     {
         "Stat": "Avg PPG on team adjusted by position",
         "Sheet": "picks",
-        "Formula": "Avg PPG on team × league_starter_avg / pos_avg[player_position] — normalises QB/RB/WR/TE scoring scales (a 12-PPG TE ≠ a 12-PPG QB). N/A whenever Avg PPG on team is N/A.",
+        "Formula": "Avg PPG on team × league_starter_avg / pos_avg[player_position] — normalises QB/RB/WR/TE scoring scales (a 12-PPG TE ≠ a 12-PPG QB). N/A / 0 exactly when Avg PPG on team is.",
         "Notes": "Same position normaliser used across transactions/trades adjusted metrics.",
     },
     {
         "Stat": "Avg career PPG",
         "Sheet": "picks",
-        "Formula": "Mean fantasy_points_ppr of the DRAFTED player over EVERY NFL game they have played on record (their whole career, not scoped to the drafting team). Injury-adjusted by construction: the nflverse game log only has rows for games actually played, so DNP (injury/bye/suspension/inactive) weeks are excluded. N/A for an unmade pick or a player with no games on record.",
-        "Notes": "Per user, the picks PPG is the player's career rate (how good the pick turned out), distinct from 'Avg PPG on team' (only their tenure on the drafting team). 'Career' = the seasons nflverse covers in this dataset (2021+); for picks drafted in-window that is their full career.",
+        "Formula": "Mean fantasy_points_ppr of the DRAFTED player over every NFL game they played FROM THE DRAFT ONWARD (across all teams, not scoped to the drafting team). Vets are treated as rookies: only post-draft games count, so a startup/vet-draft player's pre-draft history is excluded. Injury-adjusted by construction (the nflverse log only has games played). NEVER N/A for a made pick — a player with no post-draft games (e.g. a vet drafted at the end of his career who never played again) is 0. N/A only for an unmade pick (no player).",
+        "Notes": "Per user: the player's rate since being drafted (how the pick panned out), distinct from 'Avg PPG on team' (only their tenure on the drafting team). 'Career' is bounded below by the draft and by nflverse coverage (2021+).",
     },
     {
         "Stat": "Avg career PPG adjusted by position",
         "Sheet": "picks",
-        "Formula": "Avg career PPG × league_starter_avg / pos_avg[player_position] — same position normaliser as the other adjusted metrics. N/A whenever Avg career PPG is N/A.",
-        "Notes": "Position-normalised career rate.",
+        "Formula": "Avg career PPG × league_starter_avg / pos_avg[player_position] — same position normaliser as the other adjusted metrics. 0 / N/A exactly when Avg career PPG is.",
+        "Notes": "Position-normalised post-draft rate.",
     },
     {
         "Stat": "KTC on draft day / at end of rookie year / 1 / 2 / 5 years after draft day",

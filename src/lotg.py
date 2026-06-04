@@ -4355,7 +4355,9 @@ def build_all(repo_root: Path) -> None:
                 if _rnd is None or _slot is None:
                     continue
                 _picker_rid = _to_int(_p.get("roster_id"), None)
-                _real_by_slot[(int(_rnd), int(_slot))] = (_resolve_player_name(_p), _picker_rid)
+                _real_by_slot[(int(_rnd), int(_slot))] = (
+                    _resolve_player_name(_p), _picker_rid, _p.get("player_id"),
+                )
 
             # Year roster→team map. Future years fall back to the most-recent
             # known season's map so display names work for 2026-2028 rows.
@@ -4370,9 +4372,9 @@ def build_all(repo_root: Path) -> None:
 
                     _info = _real_by_slot.get((_rnd, _si))
                     if _info is None:
-                        _player, _picker_rid = "Unknown", None
+                        _player, _picker_rid, _player_id = "Unknown", None, None
                     else:
-                        _player, _picker_rid = _info
+                        _player, _picker_rid, _player_id = _info
 
                     # Walk the chain (vet picks aren't traded by Sleeper —
                     # treat as a single-step chain).
@@ -4402,6 +4404,12 @@ def build_all(repo_root: Path) -> None:
                         "Original Team": _orig_team,
                         "Final Team": _final_team,
                         "Player Picked": _player,
+                        # Internal (dropped from output by _ensure_plan_columns):
+                        # the Sleeper player_id of the drafted player, so the
+                        # picks PPG/KTC passes resolve by ID (robust to name
+                        # suffixes like "III" and duplicate names) instead of by
+                        # display name.
+                        "_player_id": (str(_player_id) if _player_id else None),
                         "etc": None,
                         "Commissioner moved?": ((_year, _rnd, _ori) in commissioner_pick_moves) if not _is_vet else False,
                     }
@@ -5710,19 +5718,23 @@ def build_all(repo_root: Path) -> None:
             if sid:
                 needed_sids.add(str(sid))
         # Phase 8D: include every DRAFTED player so the KTC index also covers
-        # the picks sheet's KTC-over-time columns (build a name→sid map from
-        # player metadata; pick_rows carries "Player Picked").
+        # the picks sheet's KTC-over-time columns. Resolve by the pick's Sleeper
+        # player_id (threaded through pick_rows) — robust to name suffixes and
+        # duplicate names — falling back to a name lookup only when the id is
+        # absent.
         _ktc_name_to_sid: Dict[str, str] = {}
         for _ks, _km in pid_meta.items():
             _kfn = (_km or {}).get("full_name")
             if _kfn:
                 _ktc_name_to_sid.setdefault(str(_kfn), str(_ks))
         for _prow in pick_rows:
-            _pname = str(_prow.get("Player Picked") or "").strip()
-            if _pname and _pname.lower() not in ("unknown", "nan", "n/a", ""):
-                _psid = _ktc_name_to_sid.get(_pname)
-                if _psid:
-                    needed_sids.add(_psid)
+            _psid = _prow.get("_player_id")
+            if not _psid:
+                _pname = str(_prow.get("Player Picked") or "").strip()
+                if _pname and _pname.lower() not in ("unknown", "nan", "n/a", ""):
+                    _psid = _ktc_name_to_sid.get(_pname)
+            if _psid:
+                needed_sids.add(str(_psid))
 
         # Pass full_name+pos for every sleeper_id we need so the KTC
         # module can derive name_id slugs for retired/aged-out players
@@ -6397,6 +6409,23 @@ def build_all(repo_root: Path) -> None:
                 _wkd = (date(_yi, 9, 7) + timedelta(days=7 * (_wi - 1))).isoformat()
                 _started_idx[(str(_t), str(_p))].append((_yi, _wi, float(_pt or 0.0), _wkd))
 
+        # (fantasy team, player name) -> sorted wk_dates the player was ROSTERED
+        # for that team in ANY NFL week (starter OR bench). Lets the picks pass
+        # tell "cut after the draft before week 1" (never rostered → on-team PPG
+        # N/A) apart from "rostered but no game production" (→ 0).
+        _pw_rostered_idx: Dict[Tuple[str, str], List[str]] = defaultdict(list)
+        _rcols = ["Team", "Player", "Year", "Week"]
+        if not pw.empty and set(_rcols).issubset(pw.columns):
+            for _t, _p, _y, _w in zip(*[pw[c] for c in _rcols]):
+                if pd.isna(_y) or pd.isna(_w):
+                    continue
+                try:
+                    _yi, _wi = int(_y), int(_w)
+                except Exception:
+                    continue
+                _wkd = (date(_yi, 9, 7) + timedelta(days=7 * (_wi - 1))).isoformat()
+                _pw_rostered_idx[(str(_t), str(_p))].append(_wkd)
+
         # ---- Item 7E indexes (V2 Trade addition value: leverage + cuff) ----
         # (fantasy team, player) -> per-week roster rows with starter + injury
         # flags, so we can compute a received player's % of starts made while
@@ -6542,35 +6571,65 @@ def build_all(repo_root: Path) -> None:
                     _ply = str(_pr.get("Player Picked") or "").strip()
                     if not _ply or _ply.lower() in ("unknown", "nan", "n/a", ""):
                         continue  # unmade pick → all stay "N/A"
-                    # Made pick → point columns are numbers ≥ 0 (default 0).
+                    # Made pick → these are numbers ≥ 0 (default 0). Career PPG
+                    # is NEVER N/A for a made pick: a drafted player who logged
+                    # no post-draft games (e.g. a vet drafted near end of career
+                    # who never played again) is 0.0, not N/A.
                     ph.at[_i, "Points added"] = 0.0
                     ph.at[_i, "Avg points added"] = 0.0
                     ph.at[_i, "Avg points added adjusted by position"] = 0.0
+                    ph.at[_i, "Avg career PPG"] = 0.0
+                    ph.at[_i, "Avg career PPG adjusted by position"] = 0.0
                     _ft = str(_pr.get("Final Team") or "").strip()
                     _ym = re.match(r"\s*(\d{4})", str(_pr.get("Year") or ""))
-                    _sid = name_to_sid_local2.get(_ply)
+                    # Resolve by Sleeper player_id (threaded from the draft data)
+                    # so suffixes ("III") and duplicate names don't silently
+                    # drop the game log; fall back to a name lookup if absent.
+                    _sid = _pr.get("_player_id") or name_to_sid_local2.get(_ply)
                     if not (_ft and _ym and _sid):
                         continue  # PPG stays N/A (no data), points stay 0
+                    _sid = str(_sid)
                     _draft_iso = f"{int(_ym.group(1))}-08-28"
                     _nx = _next_out_player(_ft, _sid, _draft_iso)
                     _end_iso = (_nx["date"][:10] if _nx else _today_iso2)
-                    _pos = _player_pos(_ply)
+                    _pos = ((pid_meta.get(_sid) or {}).get("pos") or "").upper() or None
                     _posa = pos_avg_map.get(_pos or "", 0.0)
                     _fac = (league_starter_avg / _posa) if (_posa and league_starter_avg) else 1.0
-                    _all_games = _player_games(_ply)
-                    # Avg PPG on team: games played while on the drafting team.
+                    _all_games = [
+                        (_e["_wk_date"], float(_e["points"]))
+                        for _e in nfl_log_by_sid.get(_sid, [])
+                        if _e.get("_wk_date")
+                    ]
+                    # Avg PPG on team: PPG over the games the player played while
+                    # on the drafting team (draft → next exit). N/A ONLY if the
+                    # player was never on the team's roster for an NFL week (cut
+                    # after the draft before week 1); if they were rostered for
+                    # ≥1 NFL week but logged no games (injured all year, etc.)
+                    # it's 0, not N/A.
                     _on_team = [
                         _p for _d, _p in _all_games
                         if _d >= _draft_iso and (not _end_iso or _d < _end_iso)
+                    ]
+                    _rostered_wk = [
+                        _wkd for _wkd in _pw_rostered_idx.get((_ft, _ply), [])
+                        if _wkd >= _draft_iso and (not _end_iso or _wkd < _end_iso)
                     ]
                     if _on_team:
                         _avg = sum(_on_team) / len(_on_team)
                         ph.at[_i, "Avg PPG on team"] = round(_avg, 2)
                         ph.at[_i, "Avg PPG on team adjusted by position"] = round(_avg * _fac, 2)
-                    # Avg career PPG: every nflverse game the player has played
-                    # (whole career on record; injury-adjusted — DNP weeks aren't
-                    # in the log). NOT windowed to the drafting team.
-                    _career = [_p for _d, _p in _all_games]
+                    elif _rostered_wk:
+                        # rostered for ≥1 NFL week but no game production → 0
+                        ph.at[_i, "Avg PPG on team"] = 0.0
+                        ph.at[_i, "Avg PPG on team adjusted by position"] = 0.0
+                    # else: never rostered an NFL week here → stays N/A
+                    # Avg career PPG: every nflverse game the player played FROM
+                    # THE DRAFT ONWARD (across all teams, not just the drafting
+                    # one; injury-adjusted — DNP weeks aren't in the log). Vets
+                    # are treated as rookies here: only post-draft games count,
+                    # so their pre-draft history is excluded. Stays 0.0 (set
+                    # above) when there are no post-draft games.
+                    _career = [_p for _d, _p in _all_games if _d >= _draft_iso]
                     if _career:
                         _cavg = sum(_career) / len(_career)
                         ph.at[_i, "Avg career PPG"] = round(_cavg, 2)
@@ -6610,14 +6669,16 @@ def build_all(repo_root: Path) -> None:
                 for _c in _pick_ktc_cols:
                     ph[_c] = "N/A"
                     ph[_c] = ph[_c].astype(object)
+                _ktc_today = datetime.utcnow().date()
                 for _i, _pr in ph.iterrows():
                     _ply = str(_pr.get("Player Picked") or "").strip()
                     if not _ply or _ply.lower() in ("unknown", "nan", "n/a", ""):
                         continue  # unmade pick → all stay "N/A"
                     _ym = re.match(r"\s*(\d{4})", str(_pr.get("Year") or ""))
-                    _sid = name_to_sid_local2.get(_ply)
+                    _sid = _pr.get("_player_id") or name_to_sid_local2.get(_ply)
                     if not (_ym and _sid):
                         continue
+                    _sid = str(_sid)
                     _yr = int(_ym.group(1))
                     _checkpoints = [
                         ("KTC on draft day", date(_yr, 8, 28)),
@@ -6627,6 +6688,13 @@ def build_all(repo_root: Path) -> None:
                         ("KTC 5 years after draft day", date(_yr + 5, 8, 28)),
                     ]
                     for _col, _tgt in _checkpoints:
+                        # A checkpoint still in the FUTURE has no KTC yet — leave
+                        # it N/A. Without this guard the index lookup (latest
+                        # value on-or-before target) clamps to today's value and
+                        # mislabels it as the future checkpoint. Mirrors the
+                        # transactions/trades KTC pass (`if ref > today: skip`).
+                        if _tgt > _ktc_today:
+                            continue
                         try:
                             _v = _ktc_value_at(None, str(_sid), _tgt, _ktc_idx)
                         except Exception:
