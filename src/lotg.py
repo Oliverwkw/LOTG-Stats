@@ -6614,15 +6614,24 @@ def build_all(repo_root: Path) -> None:
                         _wkd for _wkd in _pw_rostered_idx.get((_ft, _ply), [])
                         if _wkd >= _draft_iso and (not _end_iso or _wkd < _end_iso)
                     ]
-                    if _on_team:
+                    # ROSTER PRESENCE GATES FIRST. If the player was never on the
+                    # drafting team's roster for an NFL week, on-team PPG is N/A —
+                    # even if they have a game log (a pick drafted then dropped/
+                    # traded before week 1 has no on-team exit, so the window
+                    # would otherwise degenerate to their whole career and mis-
+                    # report that career PPG as on-team). Only when they WERE
+                    # rostered do we average their games here (0 if rostered but
+                    # no game production).
+                    if not _rostered_wk:
+                        pass  # never rostered an NFL week here → stays N/A
+                    elif _on_team:
                         _avg = sum(_on_team) / len(_on_team)
                         ph.at[_i, "Avg PPG on team"] = round(_avg, 2)
                         ph.at[_i, "Avg PPG on team adjusted by position"] = round(_avg * _fac, 2)
-                    elif _rostered_wk:
+                    else:
                         # rostered for ≥1 NFL week but no game production → 0
                         ph.at[_i, "Avg PPG on team"] = 0.0
                         ph.at[_i, "Avg PPG on team adjusted by position"] = 0.0
-                    # else: never rostered an NFL week here → stays N/A
                     # Avg career PPG: every nflverse game the player played FROM
                     # THE DRAFT ONWARD (across all teams, not just the drafting
                     # one; injury-adjusted — DNP weeks aren't in the log). Vets
@@ -6763,14 +6772,6 @@ def build_all(repo_root: Path) -> None:
                                 (date(_yr, 8, 28) - _born).days / 365.25, 2)
                         except Exception:
                             pass
-                    # Cuff when drafted? — handcuff test at the draft.
-                    _cuff = False
-                    try:
-                        _cuff = bool(_recv_is_cuff(_ply, _ft, _draft_iso))
-                    except Exception:
-                        _cuff = False
-                    if _cuff:
-                        ph.at[_i, "Cuff when drafted?"] = True
                     # Post-draft tenure window + per-week roster/start stats.
                     _nx = _next_out_player(_ft, _sid, _draft_iso)
                     _end_iso = (_nx["date"][:10] if _nx else _today_iso3)
@@ -6778,6 +6779,20 @@ def build_all(repo_root: Path) -> None:
                         _e for _e in _pwfull_idx.get((_ft, _ply), [])
                         if _e["wkd"] >= _draft_iso and (not _end_iso or _e["wkd"] < _end_iso)
                     ]
+                    # Cuff when drafted? — the handcuff test evaluated at the
+                    # player's FIRST week on the drafting team's roster (per
+                    # user), not the draft date: at the draft a rookie's NFL
+                    # team/position isn't known yet, but by their first rostered
+                    # week it is. False if never rostered here.
+                    _cuff = False
+                    if _ents:
+                        _first_roster_wkd = min(_e["wkd"] for _e in _ents)
+                        try:
+                            _cuff = bool(_recv_is_cuff(_ply, _ft, _first_roster_wkd))
+                        except Exception:
+                            _cuff = False
+                    if _cuff:
+                        ph.at[_i, "Cuff when drafted?"] = True
                     _wk = len(_ents)
                     _st = sum(1 for _e in _ents if _e["starter"])
                     _iwk = sum(1 for _e in _ents if _e["inj_free"])

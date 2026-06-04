@@ -362,7 +362,7 @@ _ROWS = [
     {
         "Stat": "Cuff when drafted?",
         "Sheet": "picks",
-        "Formula": "True if, at the draft, the drafting team already rostered a STARTER on the same NFL team + position whose last-5 PPG was 10+ above the drafted player — the same handcuff test as 'Cuff at time of pickup?'. Best effort: a rookie's NFL team/position is often unknown until they actually play, so this skews toward False at draft time. False for an unmade pick.",
+        "Formula": "True if, at the drafted player's FIRST week on the drafting team's roster, the team already rostered a STARTER on the same NFL team + position whose last-5 PPG was 10+ above them — the same handcuff test as 'Cuff at time of pickup?'. Evaluated at the first rostered week (not the draft date) because a rookie's NFL team/position isn't known until they actually play. False if the player was never rostered here (or an unmade pick).",
         "Notes": "Feeds the CUFF_BONUS in Player addition value.",
     },
     {
