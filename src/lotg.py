@@ -766,10 +766,12 @@ def _preserve_na(col: str) -> bool:
         return True
     if col_l.startswith("net ktc value"):
         return True
-    # Team performance improvement (trades): blank when the ±10-game window
-    # around the trade isn't available (e.g. a very recent trade with no games
-    # played after it yet) — distinct from a measured 0 improvement.
-    if col_l == "team performance improvement":
+    # Trade impact score (trades): always computed, but keep the N/A-not-0
+    # convention in case the composite is ever skipped for a row.
+    if col_l == "trade impact score":
+        return True
+    # O-Score: N/A unless all four percentile components are present.
+    if col_l == "o-score":
         return True
     # Length of tenure on team: a blank means there is NO player whose tenure
     # to measure — a transactions pure drop (no added player) or an unmade pick
@@ -6981,7 +6983,7 @@ def build_all(repo_root: Path) -> None:
         except Exception as e:
             _log_exc(debug, "picks_pickadj_diff_item1", e)
 
-        # --- Item 3: "Team performance improvement" = wins the trade actually
+        # --- Item 3: "Trade impact score" = wins the trade actually
         # flipped (player stats → win impact). For each week AFTER the trade in
         # which a received asset started for this team, we already know the
         # week's net points (received starters − the top-k players traded away,
@@ -7358,7 +7360,7 @@ def build_all(repo_root: Path) -> None:
                     _net_wk = _wk_added - _wk_lost
                     _wins_flipped += int(_mg > 0) - int((_mg - _net_wk) > 0)
             # Raw win-impact (games the trade flipped). Folded into the
-            # "Team performance improvement" composite in a post-loop pass below.
+            # "Trade impact score" composite in a post-loop pass below.
             row["_tpi_wins"] = float(_wins_flipped) if _has_margin else None
             _tnet = _tp_added - _tp_lost
             _tadj_net = _tadj_added - _tadj_lost
@@ -7481,7 +7483,7 @@ def build_all(repo_root: Path) -> None:
             if return_full:
                 row["Return from trades of trades...of trades. Keep going until present day"] = "; ".join(dict.fromkeys(return_full))
 
-        # --- Item 3: "Team performance improvement" composite. ---
+        # --- Item 3: "Trade impact score" composite. ---
         # Win impact = the games the trade flipped (counterfactual weekly margins
         # from received-asset production) PLUS a share of the games flipped by
         # LATER trades that re-used the received assets. Each downstream trade is
@@ -7611,7 +7613,7 @@ def build_all(repo_root: Path) -> None:
                             continue
                     _mu, _sd = _tpi_stats[_col]
                     _score += _w * ((_fv - _mu) / _sd)
-                _r["Team performance improvement"] = round(1500.0 * _score, 1)
+                _r["Trade impact score"] = round(1500.0 * _score, 1)
                 for _k in ("_tpi_wins", "_tpi_down", "_tpi_winimpact"):
                     _r.pop(_k, None)
         except Exception as e:
@@ -12149,6 +12151,61 @@ def build_all(repo_root: Path) -> None:
     # transactions / trades / pick_history left as-is (already sorted
     # by Team+Date upstream so the within-team row-index links remain
     # valid; pick_history uses its custom Year/Number ordering).
+
+    # ------------------------------------------------------------------
+    # Item 4: "O-Score" on picks / transactions / trades.
+    # For each sheet, take 4 stats, convert each to its PERCENTILE (0-100)
+    # across that sheet's rows, and average the four. The KTC component is the
+    # percentile of the MOST RECENT populated KTC value/diff on the row. O-Score
+    # is N/A unless all four components are present (per user). For picks, the
+    # 2021 vet/startup draft is excluded entirely — from the stat AND from every
+    # percentile pool — and its rows are N/A.
+    # ------------------------------------------------------------------
+    def _add_oscore(df: pd.DataFrame, stat_cols: List[str], ktc_cols: List[str],
+                    exclude_mask: Optional[pd.Series] = None) -> None:
+        if df is None or df.empty:
+            return
+        # Most-recent populated KTC value (ktc_cols ordered latest → earliest).
+        _mr = pd.Series(np.nan, index=df.index)
+        for _c in ktc_cols:
+            if _c in df.columns:
+                _v = pd.to_numeric(df[_c], errors="coerce")
+                _mr = _mr.where(_mr.notna(), _v)
+        _series: List[pd.Series] = []
+        for _sc in stat_cols:
+            _s = _mr.copy() if _sc == "__MOST_RECENT_KTC__" else pd.to_numeric(df.get(_sc), errors="coerce")
+            if exclude_mask is not None:
+                _s = _s.where(~exclude_mask)
+            _series.append(_s)
+        _pcts = pd.concat([_s.rank(pct=True) * 100.0 for _s in _series], axis=1)
+        # Require all four components → O-Score N/A otherwise.
+        _osc = _pcts.mean(axis=1).where(_pcts.notna().all(axis=1))
+        df["O-Score"] = _osc.round(1)
+
+    try:
+        _add_oscore(
+            ph,
+            ["Avg points added", "Player addition value", "__MOST_RECENT_KTC__",
+             "Pick-adjusted Difference in Avg career PPG adjusted by position"],
+            ["KTC 5 years after draft day", "KTC 2 years after draft day",
+             "KTC 1 year after draft day", "KTC at end of rookie year", "KTC on draft day"],
+            exclude_mask=(ph["Year"].astype(str).str.contains("vet") if (not ph.empty and "Year" in ph.columns) else None),
+        )
+        _add_oscore(
+            tx,
+            ["Avg net points", "Player addition value", "__MOST_RECENT_KTC__",
+             "% of starts made while rostered"],
+            ["KTC value of player added 2 years later", "KTC value of player added 1 year later",
+             "KTC value of player added at end of season", "KTC value of player added at deal time"],
+        )
+        _add_oscore(
+            tr,
+            ["Avg net points", "Trade addition value", "__MOST_RECENT_KTC__", "Trade impact score"],
+            ["KTC value difference 2 years later", "KTC value difference 1 year later",
+             "KTC value difference at end of season", "KTC value difference at deal time"],
+        )
+    except Exception as e:
+        _log_exc(debug, "oscore_item4", e)
 
     # Convert every timestamp column in the dataset to US Eastern (DST-aware)
     # for display — done LAST, after all date-based logic and sorting, so it's
