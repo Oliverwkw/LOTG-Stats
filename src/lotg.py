@@ -12177,7 +12177,15 @@ def build_all(repo_root: Path) -> None:
             if exclude_mask is not None:
                 _s = _s.where(~exclude_mask)
             _series.append(_s)
-        _pcts = pd.concat([_s.rank(pct=True) * 100.0 for _s in _series], axis=1)
+        # Percentile per stat: normal 'average' tie handling, EXCEPT a value of
+        # exactly 0 (no production — e.g. the ~87% of adds that never started →
+        # % of starts = 0) is pushed to the BOTTOM of its tie via the 'min' rank
+        # instead of the middle. Non-zero ties keep the average (middle) rule.
+        def _pct(_s):
+            _avg = _s.rank(pct=True, method="average") * 100.0
+            _min = _s.rank(pct=True, method="min") * 100.0
+            return _avg.where(_s != 0, _min)
+        _pcts = pd.concat([_pct(_s) for _s in _series], axis=1)
         # Require all four components → O-Score N/A otherwise.
         _osc = _pcts.mean(axis=1).where(_pcts.notna().all(axis=1))
         df["O-Score"] = _osc.round(1)
