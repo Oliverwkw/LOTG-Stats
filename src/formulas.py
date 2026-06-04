@@ -330,6 +330,24 @@ _ROWS = [
         "Notes": "Same position normaliser used across transactions/trades adjusted metrics.",
     },
     {
+        "Stat": "Avg career PPG",
+        "Sheet": "picks",
+        "Formula": "Mean fantasy_points_ppr of the DRAFTED player over EVERY NFL game they have played on record (their whole career, not scoped to the drafting team). Injury-adjusted by construction: the nflverse game log only has rows for games actually played, so DNP (injury/bye/suspension/inactive) weeks are excluded. N/A for an unmade pick or a player with no games on record.",
+        "Notes": "Per user, the picks PPG is the player's career rate (how good the pick turned out), distinct from 'Avg PPG on team' (only their tenure on the drafting team). 'Career' = the seasons nflverse covers in this dataset (2021+); for picks drafted in-window that is their full career.",
+    },
+    {
+        "Stat": "Avg career PPG adjusted by position",
+        "Sheet": "picks",
+        "Formula": "Avg career PPG × league_starter_avg / pos_avg[player_position] — same position normaliser as the other adjusted metrics. N/A whenever Avg career PPG is N/A.",
+        "Notes": "Position-normalised career rate.",
+    },
+    {
+        "Stat": "KTC on draft day / at end of rookie year / 1 / 2 / 5 years after draft day",
+        "Sheet": "picks",
+        "Formula": "The DRAFTED player's KeepTradeCut value (1QB trade_value, via dynasty-daddy daily history) at five checkpoints relative to the draft (anchor ≈ Aug 28 of the pick year): the draft day itself; the end of the rookie year (≈ Feb 1 of the following year); and exactly 1, 2, and 5 years after the draft day. Each is the same single-asset KTC lookup used for the transactions/trades KTC columns. N/A for an unmade pick, an untracked player, or a checkpoint date that is in the future or before KTC history begins (≈ April 2021).",
+        "Notes": "Lets you watch a pick's player gain/lose dynasty value over its first five years. KTC history starts April 2021, so 'on draft day' is N/A for the very earliest picks and the 2/5-year marks are N/A until enough time has passed.",
+    },
+    {
         "Stat": "Points added",
         "Sheet": "picks",
         "Formula": "Σ of the drafted player's fantasy points over the weeks they STARTED for the drafting team (Final Team) within the tenure window (draft anchor → next exit). N/A for an unmade pick; a number ≥ 0 for every made pick (0 if the player never started here / can't be resolved).",

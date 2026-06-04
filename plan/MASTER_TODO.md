@@ -128,8 +128,8 @@ When the results-based audit surfaces a bug, log it but continue to the diff swe
 - [ ] Each "Trade N" team cell hyperlinks to the corresponding trade row on the trades page (the trade that moved the pick to that team).
 - [x] **"Length of tenure on team"** column (#8B): days the DRAFTED player stayed on the drafting team (Final Team), from the draft anchor (≈ Aug 28 of the pick year) to that player's next exit (or today). Mirrors the transactions tenure column. Placed right after "Player Picked".
 - [ ] Add columns (split across sub-PRs):
-  - [x] **8C** PPG/points cluster — `Avg PPG on team`, `Avg PPG on team adjusted by position`, `Points added`, `Avg points added`, `Avg points added adjusted by position` (drafted player's production on the drafting team over draft→next-exit; N/A for unmade picks).
-  - [ ] **8D** KTC cluster — KTC on draft day; KTC at end of rookie year; KTC 1 / 2 / 5 years after draft day.
+  - [x] **8C** PPG/points cluster — `Avg PPG on team`, `Avg PPG on team adjusted by position`, **`Avg career PPG`, `Avg career PPG adjusted by position`** (split per user: on-team window AND whole-career, each position-adjusted; career = injury-adjusted nflverse games-played), `Points added`, `Avg points added`, `Avg points added adjusted by position`. N/A for unmade picks.
+  - [x] **8D** KTC cluster (this PR) — `KTC on draft day`, `KTC at end of rookie year`, `KTC 1 / 2 / 5 years after draft day` (drafted player's 1QB KTC at each checkpoint; drafted players added to the KTC index; N/A for unmade/untracked/future-or-pre-April-2021 dates). Also: **removed the one-off `audit_phase7.yml` workflow** from the Actions list; added a weekly-audit note to Phase 14.
   - [ ] **8E** draft/usage cluster — age when drafted; Player addition value; cuff when drafted; weeks before first start; number of starts before next transaction; % of starts made while rostered by drafting team; injury-adjusted % of starts; change in tanking.
   - [ ] **8F** links — `Link to next/previous transaction`; + each `Trade N` team cell hyperlinks to its trades-page row.
 - [x] **All dataset times → US Eastern (DST-aware)** — folded into the 8C PR per user. The 3 timestamp columns (`transactions.Date`, `transactions."Date dropped/traded"`, `trades.Date`) convert UTC→America/New_York, formatted `YYYY-MM-DD HH:MM:SS` (no offset). Display-only, applied last (after all date logic), so internal comparisons stay on UTC.
@@ -182,5 +182,7 @@ When the results-based audit surfaces a bug, log it but continue to the diff swe
 - HTML email template with sections: All-time leaderboard moves / Team all-time moves / On-pace projections.
 - Cron-scheduled workflow with workflow_dispatch fallback for manual reruns.
 - In-season gate: skip if current week is offseason (e.g. before Sleeper's week 1 or after week 17).
+
+**Also schedule a weekly automated audit** (alongside the digest): run the 3-part audit harness against the latest build on a weekly cron, surface any UNEXPECTED diffs / schema breaks / non-2026 build errors (e.g. email or log them), so regressions from data drift or upstream-source changes are caught without a manual pass. Reuse the audit methodology; workflow_dispatch fallback for ad-hoc runs.
 
 - [ ] **3-part audit** (code / results / diff)
