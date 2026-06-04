@@ -533,6 +533,27 @@ def _walk_league_chain(sc: SleeperClient, start_league_id: str, min_season: int 
 # Plan column enforcement
 # --------------------------
 
+def _to_eastern_display(series: pd.Series) -> pd.Series:
+    """Convert a UTC timestamp column to US Eastern wall-clock time for display.
+
+    All raw Sleeper timestamps are UTC (e.g. '2021-09-07 22:42:20.159000+00:00').
+    We render them in America/New_York — DST-aware, so EST (UTC-5) in winter and
+    EDT (UTC-4) during daylight saving — formatted 'YYYY-MM-DD HH:MM:SS' with no
+    offset and no microseconds. Values that don't parse (blank / 'N/A') pass
+    through unchanged. This is display-only and runs after ALL date-based logic
+    (window comparisons, links, sorting), so internal computations stay on UTC.
+    """
+    # format="mixed" parses each value independently so the 'T'-vs-space
+    # separator and microsecond differences across rows all resolve (a single
+    # inferred format would NaT the non-matching ones).
+    try:
+        parsed = pd.to_datetime(series, errors="coerce", utc=True, format="mixed")
+    except (ValueError, TypeError):
+        parsed = pd.to_datetime(series, errors="coerce", utc=True)
+    out = parsed.dt.tz_convert("America/New_York").dt.strftime("%Y-%m-%d %H:%M:%S")
+    return out.where(parsed.notna(), series)
+
+
 def _ensure_plan_columns(df: pd.DataFrame, cols: List[str]) -> pd.DataFrame:
     df = _safe_df(df).copy()
     for c in cols:
@@ -6463,6 +6484,76 @@ def build_all(repo_root: Path) -> None:
                     out[(int(_e["year"]), int(_e["week"]))] = float(_e.get("points") or 0.0)
             return out
 
+        # --- Phase 8C: PPG / points columns on picks ---
+        # For each MADE pick, the drafted player's production on the team that
+        # drafted it (Final Team), over their post-draft tenure (draft ≈ Aug 28
+        # of the pick year → next exit, or today). Mirrors the trade 7D drafted-
+        # pick PPG and the trade Points-added (started-week) machinery:
+        #   Avg PPG on team                          mean fantasy PPG over every
+        #                                            NFL game in the window
+        #   Avg PPG on team adjusted by position     × league_starter_avg/pos_avg
+        #   Points added                             Σ points in weeks STARTED
+        #                                            for this team in the window
+        #   Avg points added                         Points added / started weeks
+        #   Avg points added adjusted by position    same, position-adjusted
+        # N/A only for an unmade pick (no player) or PPG with no games to
+        # average; every made pick's point columns are a number ≥ 0 (0 if the
+        # player never started / can't be resolved). Same N/A⇔no-data rule as
+        # the tenure column, scoped to ph via explicit "N/A" so it never touches
+        # the identically-named trades columns.
+        _pick_ppg_cols = [
+            "Avg PPG on team", "Avg PPG on team adjusted by position",
+            "Points added", "Avg points added",
+            "Avg points added adjusted by position",
+        ]
+        try:
+            if not ph.empty and {"Year", "Final Team", "Player Picked"}.issubset(set(ph.columns)):
+                for _c in _pick_ppg_cols:
+                    ph[_c] = "N/A"
+                    ph[_c] = ph[_c].astype(object)
+                _today_iso2 = datetime.utcnow().date().isoformat()
+                for _i, _pr in ph.iterrows():
+                    _ply = str(_pr.get("Player Picked") or "").strip()
+                    if not _ply or _ply.lower() in ("unknown", "nan", "n/a", ""):
+                        continue  # unmade pick → all stay "N/A"
+                    # Made pick → point columns are numbers ≥ 0 (default 0).
+                    ph.at[_i, "Points added"] = 0.0
+                    ph.at[_i, "Avg points added"] = 0.0
+                    ph.at[_i, "Avg points added adjusted by position"] = 0.0
+                    _ft = str(_pr.get("Final Team") or "").strip()
+                    _ym = re.match(r"\s*(\d{4})", str(_pr.get("Year") or ""))
+                    _sid = name_to_sid_local2.get(_ply)
+                    if not (_ft and _ym and _sid):
+                        continue  # PPG stays N/A (no data), points stay 0
+                    _draft_iso = f"{int(_ym.group(1))}-08-28"
+                    _nx = _next_out_player(_ft, _sid, _draft_iso)
+                    _end_iso = (_nx["date"][:10] if _nx else _today_iso2)
+                    _pos = _player_pos(_ply)
+                    _posa = pos_avg_map.get(_pos or "", 0.0)
+                    _fac = (league_starter_avg / _posa) if (_posa and league_starter_avg) else 1.0
+                    # Avg PPG on team: every NFL game played in the window.
+                    _games = [
+                        _p for _d, _p in _player_games(_ply)
+                        if _d >= _draft_iso and (not _end_iso or _d < _end_iso)
+                    ]
+                    if _games:
+                        _avg = sum(_games) / len(_games)
+                        ph.at[_i, "Avg PPG on team"] = round(_avg, 2)
+                        ph.at[_i, "Avg PPG on team adjusted by position"] = round(_avg * _fac, 2)
+                    # Points added: points in weeks the player STARTED here.
+                    _pa = 0.0
+                    _nwk = 0
+                    for (_yi, _wi, _pt, _wkd) in _started_idx.get((_ft, _ply), []):
+                        if _wkd >= _draft_iso and (not _end_iso or _wkd < _end_iso):
+                            _pa += _pt
+                            _nwk += 1
+                    ph.at[_i, "Points added"] = round(_pa, 2)
+                    if _nwk:
+                        ph.at[_i, "Avg points added"] = round(_pa / _nwk, 2)
+                        ph.at[_i, "Avg points added adjusted by position"] = round(_pa * _fac / _nwk, 2)
+        except Exception as e:
+            _log_exc(debug, "picks_ppg_8c", e)
+
         for idx, row in enumerate(trades_rows):
             team = str(row.get("Team") or "")
             trade_iso = str(row.get("Date") or "")
@@ -11403,6 +11494,20 @@ def build_all(repo_root: Path) -> None:
     # transactions / trades / pick_history left as-is (already sorted
     # by Team+Date upstream so the within-team row-index links remain
     # valid; pick_history uses its custom Year/Number ordering).
+
+    # Convert every timestamp column in the dataset to US Eastern (DST-aware)
+    # for display — done LAST, after all date-based logic and sorting, so it's
+    # purely cosmetic. These three are the only time-of-day columns; all other
+    # date columns are date-only or numeric.
+    try:
+        if not tx.empty and "Date" in tx.columns:
+            tx["Date"] = _to_eastern_display(tx["Date"])
+        if not tx.empty and "Date dropped/traded" in tx.columns:
+            tx["Date dropped/traded"] = _to_eastern_display(tx["Date dropped/traded"])
+        if not tr.empty and "Date" in tr.columns:
+            tr["Date"] = _to_eastern_display(tr["Date"])
+    except Exception as e:
+        _log_exc(debug, "eastern_time_convert", e)
 
     context = {
         "player_week": pw,

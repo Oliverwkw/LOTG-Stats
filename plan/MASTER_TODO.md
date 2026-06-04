@@ -127,7 +127,12 @@ When the results-based audit surfaces a bug, log it but continue to the diff swe
 - [ ] 🔍 Commissioner-moved over-fires — investigate
 - [ ] Each "Trade N" team cell hyperlinks to the corresponding trade row on the trades page (the trade that moved the pick to that team).
 - [x] **"Length of tenure on team"** column (#8B): days the DRAFTED player stayed on the drafting team (Final Team), from the draft anchor (≈ Aug 28 of the pick year) to that player's next exit (or today). Mirrors the transactions tenure column. Placed right after "Player Picked".
-- [ ] Add columns: avg PPG on team; avg PPG on team adjusted by position; age when drafted; KTC on draft day; KTC at end of rookie year; KTC 1 year after draft day; KTC 2 years after draft day; KTC 5 years after draft day; Player addition value; cuff when drafted; weeks before first start; number of starts before next transaction; % of starts made while rostered by drafting team; injury-adjusted % of starts made while rostered by drafting team; change in tanking; points added; avg points added; avg points added adjusted by position; Link to next/previous transaction.
+- [ ] Add columns (split across sub-PRs):
+  - [x] **8C** PPG/points cluster — `Avg PPG on team`, `Avg PPG on team adjusted by position`, `Points added`, `Avg points added`, `Avg points added adjusted by position` (drafted player's production on the drafting team over draft→next-exit; N/A for unmade picks).
+  - [ ] **8D** KTC cluster — KTC on draft day; KTC at end of rookie year; KTC 1 / 2 / 5 years after draft day.
+  - [ ] **8E** draft/usage cluster — age when drafted; Player addition value; cuff when drafted; weeks before first start; number of starts before next transaction; % of starts made while rostered by drafting team; injury-adjusted % of starts; change in tanking.
+  - [ ] **8F** links — `Link to next/previous transaction`; + each `Trade N` team cell hyperlinks to its trades-page row.
+- [x] **All dataset times → US Eastern (DST-aware)** — folded into the 8C PR per user. The 3 timestamp columns (`transactions.Date`, `transactions."Date dropped/traded"`, `trades.Date`) convert UTC→America/New_York, formatted `YYYY-MM-DD HH:MM:SS` (no offset). Display-only, applied last (after all date logic), so internal comparisons stay on UTC.
 - [ ] **3-part audit** (code / results / diff)
 
 ## Phase 9 — Taxi / IR / suggestions
