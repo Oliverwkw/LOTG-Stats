@@ -6704,6 +6704,111 @@ def build_all(repo_root: Path) -> None:
         except Exception as e:
             _log_exc(debug, "picks_ktc_8d", e)
 
+        # --- Phase 8E: draft/usage cluster on picks ---
+        # Characterise the drafted player's usage on the drafting team over the
+        # post-draft tenure (draft ≈ Aug 28 → next exit), mirroring the
+        # transaction usage columns:
+        #   Age when drafted
+        #   Player addition value   on-team adj PPG × (1+%starts)
+        #                           × (1+injury-adj %starts) + CUFF_BONUS (5 when
+        #                           cuff-when-drafted). On-team baseline (per
+        #                           user): a pick gives up no player, so there is
+        #                           no "dropped" side.
+        #   Cuff when drafted?      handcuff test at the draft (best effort; the
+        #                           rookie's NFL team/pos may be unknown until
+        #                           they play, so this skews toward False)
+        #   Weeks before first start
+        #   Number of starts before next transaction
+        #   % of starts made while rostered by drafting team
+        #   Injury adjusted % of starts made while rostered by drafting team
+        # N/A for unmade picks and for ratios with no rostered/uninjured weeks
+        # (never rostered an NFL week here). "Number of starts" is a count (≥0).
+        # Scoped to ph via explicit "N/A".
+        _PICK_CUFF_BONUS = 5.0
+        _pick_usage_na = [
+            "Age when drafted", "Weeks before first start",
+            "Number of starts before next transaction",
+            "% of starts made while rostered by drafting team",
+            "Injury adjusted % of starts made while rostered by drafting team",
+            "Player addition value",
+        ]
+        try:
+            if not ph.empty and {"Year", "Final Team", "Player Picked"}.issubset(set(ph.columns)):
+                for _c in _pick_usage_na:
+                    ph[_c] = "N/A"
+                    ph[_c] = ph[_c].astype(object)
+                ph["Cuff when drafted?"] = False
+                ph["Cuff when drafted?"] = ph["Cuff when drafted?"].astype(object)
+                _today_iso3 = datetime.utcnow().date().isoformat()
+                for _i, _pr in ph.iterrows():
+                    _ply = str(_pr.get("Player Picked") or "").strip()
+                    if not _ply or _ply.lower() in ("unknown", "nan", "n/a", ""):
+                        continue  # unmade pick → all stay N/A / False
+                    _ft = str(_pr.get("Final Team") or "").strip()
+                    _ym = re.match(r"\s*(\d{4})", str(_pr.get("Year") or ""))
+                    _sid = _pr.get("_player_id") or name_to_sid_local2.get(_ply)
+                    if not (_ft and _ym and _sid):
+                        continue
+                    _sid = str(_sid)
+                    _yr = int(_ym.group(1))
+                    _draft_iso = f"{_yr}-08-28"
+                    # Number of starts is a count → made picks get 0+ (not N/A).
+                    ph.at[_i, "Number of starts before next transaction"] = 0
+                    # Age when drafted (years at the draft anchor).
+                    _bd = (pid_meta.get(_sid) or {}).get("birth_date")
+                    if _bd:
+                        try:
+                            _born = dateparser.parse(str(_bd)).date()
+                            ph.at[_i, "Age when drafted"] = round(
+                                (date(_yr, 8, 28) - _born).days / 365.25, 2)
+                        except Exception:
+                            pass
+                    # Cuff when drafted? — handcuff test at the draft.
+                    _cuff = False
+                    try:
+                        _cuff = bool(_recv_is_cuff(_ply, _ft, _draft_iso))
+                    except Exception:
+                        _cuff = False
+                    if _cuff:
+                        ph.at[_i, "Cuff when drafted?"] = True
+                    # Post-draft tenure window + per-week roster/start stats.
+                    _nx = _next_out_player(_ft, _sid, _draft_iso)
+                    _end_iso = (_nx["date"][:10] if _nx else _today_iso3)
+                    _ents = [
+                        _e for _e in _pwfull_idx.get((_ft, _ply), [])
+                        if _e["wkd"] >= _draft_iso and (not _end_iso or _e["wkd"] < _end_iso)
+                    ]
+                    _wk = len(_ents)
+                    _st = sum(1 for _e in _ents if _e["starter"])
+                    _iwk = sum(1 for _e in _ents if _e["inj_free"])
+                    _ist = sum(1 for _e in _ents if _e["inj_free"] and _e["starter"])
+                    ph.at[_i, "Number of starts before next transaction"] = int(_st)
+                    _pct = (_st / _wk) if _wk > 0 else 0.0
+                    if _wk > 0:
+                        ph.at[_i, "% of starts made while rostered by drafting team"] = round(_pct, 4)
+                    _ipct = (_ist / _iwk) if _iwk > 0 else 0.0
+                    if _iwk > 0:
+                        ph.at[_i, "Injury adjusted % of starts made while rostered by drafting team"] = round(_ipct, 4)
+                    # Weeks before first start = rostered weeks before the first start.
+                    _start_wkds = sorted(_e["wkd"] for _e in _ents if _e["starter"])
+                    if _start_wkds:
+                        _first = _start_wkds[0]
+                        ph.at[_i, "Weeks before first start"] = int(
+                            sum(1 for _e in _ents if _e["wkd"] < _first))
+                    # Player addition value (on-team baseline). N/A when there's
+                    # no on-team production to value (Avg PPG on team adj is N/A).
+                    _otadj = ph.at[_i, "Avg PPG on team adjusted by position"]
+                    try:
+                        _otadj_f = float(_otadj)
+                    except Exception:
+                        _otadj_f = None
+                    if _otadj_f is not None:
+                        _cuffb = _PICK_CUFF_BONUS if _cuff else 0.0
+                        ph.at[_i, "Player addition value"] = round(
+                            _otadj_f * (1.0 + _pct) * (1.0 + _ipct) + _cuffb, 4)
+        except Exception as e:
+            _log_exc(debug, "picks_usage_8e", e)
+
         for idx, row in enumerate(trades_rows):
             team = str(row.get("Team") or "")
             trade_iso = str(row.get("Date") or "")
