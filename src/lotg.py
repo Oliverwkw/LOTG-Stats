@@ -6409,6 +6409,23 @@ def build_all(repo_root: Path) -> None:
                 _wkd = (date(_yi, 9, 7) + timedelta(days=7 * (_wi - 1))).isoformat()
                 _started_idx[(str(_t), str(_p))].append((_yi, _wi, float(_pt or 0.0), _wkd))
 
+        # (fantasy team, player name) -> sorted wk_dates the player was ROSTERED
+        # for that team in ANY NFL week (starter OR bench). Lets the picks pass
+        # tell "cut after the draft before week 1" (never rostered → on-team PPG
+        # N/A) apart from "rostered but no game production" (→ 0).
+        _pw_rostered_idx: Dict[Tuple[str, str], List[str]] = defaultdict(list)
+        _rcols = ["Team", "Player", "Year", "Week"]
+        if not pw.empty and set(_rcols).issubset(pw.columns):
+            for _t, _p, _y, _w in zip(*[pw[c] for c in _rcols]):
+                if pd.isna(_y) or pd.isna(_w):
+                    continue
+                try:
+                    _yi, _wi = int(_y), int(_w)
+                except Exception:
+                    continue
+                _wkd = (date(_yi, 9, 7) + timedelta(days=7 * (_wi - 1))).isoformat()
+                _pw_rostered_idx[(str(_t), str(_p))].append(_wkd)
+
         # ---- Item 7E indexes (V2 Trade addition value: leverage + cuff) ----
         # (fantasy team, player) -> per-week roster rows with starter + injury
         # flags, so we can compute a received player's % of starts made while
@@ -6554,10 +6571,15 @@ def build_all(repo_root: Path) -> None:
                     _ply = str(_pr.get("Player Picked") or "").strip()
                     if not _ply or _ply.lower() in ("unknown", "nan", "n/a", ""):
                         continue  # unmade pick → all stay "N/A"
-                    # Made pick → point columns are numbers ≥ 0 (default 0).
+                    # Made pick → these are numbers ≥ 0 (default 0). Career PPG
+                    # is NEVER N/A for a made pick: a drafted player who logged
+                    # no post-draft games (e.g. a vet drafted near end of career
+                    # who never played again) is 0.0, not N/A.
                     ph.at[_i, "Points added"] = 0.0
                     ph.at[_i, "Avg points added"] = 0.0
                     ph.at[_i, "Avg points added adjusted by position"] = 0.0
+                    ph.at[_i, "Avg career PPG"] = 0.0
+                    ph.at[_i, "Avg career PPG adjusted by position"] = 0.0
                     _ft = str(_pr.get("Final Team") or "").strip()
                     _ym = re.match(r"\s*(\d{4})", str(_pr.get("Year") or ""))
                     # Resolve by Sleeper player_id (threaded from the draft data)
@@ -6578,19 +6600,36 @@ def build_all(repo_root: Path) -> None:
                         for _e in nfl_log_by_sid.get(_sid, [])
                         if _e.get("_wk_date")
                     ]
-                    # Avg PPG on team: games played while on the drafting team.
+                    # Avg PPG on team: PPG over the games the player played while
+                    # on the drafting team (draft → next exit). N/A ONLY if the
+                    # player was never on the team's roster for an NFL week (cut
+                    # after the draft before week 1); if they were rostered for
+                    # ≥1 NFL week but logged no games (injured all year, etc.)
+                    # it's 0, not N/A.
                     _on_team = [
                         _p for _d, _p in _all_games
                         if _d >= _draft_iso and (not _end_iso or _d < _end_iso)
+                    ]
+                    _rostered_wk = [
+                        _wkd for _wkd in _pw_rostered_idx.get((_ft, _ply), [])
+                        if _wkd >= _draft_iso and (not _end_iso or _wkd < _end_iso)
                     ]
                     if _on_team:
                         _avg = sum(_on_team) / len(_on_team)
                         ph.at[_i, "Avg PPG on team"] = round(_avg, 2)
                         ph.at[_i, "Avg PPG on team adjusted by position"] = round(_avg * _fac, 2)
-                    # Avg career PPG: every nflverse game the player has played
-                    # (whole career on record; injury-adjusted — DNP weeks aren't
-                    # in the log). NOT windowed to the drafting team.
-                    _career = [_p for _d, _p in _all_games]
+                    elif _rostered_wk:
+                        # rostered for ≥1 NFL week but no game production → 0
+                        ph.at[_i, "Avg PPG on team"] = 0.0
+                        ph.at[_i, "Avg PPG on team adjusted by position"] = 0.0
+                    # else: never rostered an NFL week here → stays N/A
+                    # Avg career PPG: every nflverse game the player played FROM
+                    # THE DRAFT ONWARD (across all teams, not just the drafting
+                    # one; injury-adjusted — DNP weeks aren't in the log). Vets
+                    # are treated as rookies here: only post-draft games count,
+                    # so their pre-draft history is excluded. Stays 0.0 (set
+                    # above) when there are no post-draft games.
+                    _career = [_p for _d, _p in _all_games if _d >= _draft_iso]
                     if _career:
                         _cavg = sum(_career) / len(_career)
                         ph.at[_i, "Avg career PPG"] = round(_cavg, 2)
