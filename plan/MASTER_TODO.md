@@ -125,13 +125,13 @@ When the results-based audit surfaces a bug, log it but continue to the diff swe
 ## Phase 8 — Picks (rename from "pick history")
 - [x] **Rename the sheet "pick history" → "picks"** (#8A): output sheet/CSV `pick_history.csv`→`picks.csv`, catalog header + stats_catalog.json key `Pick History`→`picks`, the `PH#N` link target sheet, README, and formulas references all updated. Internal frame/var names (`ph`, `FRAME_KEY`) unchanged.
 - [ ] 🔍 Commissioner-moved over-fires — investigate
-- [ ] Each "Trade N" team cell hyperlinks to the corresponding trade row on the trades page (the trade that moved the pick to that team).
+- [x] Each "Trade N" team cell hyperlinks to the corresponding trade row on the trades page — done in **8F** (xlsx hyperlink; best-effort alignment, commissioner-moved hops un-linked).
 - [x] **"Length of tenure on team"** column (#8B): days the DRAFTED player stayed on the drafting team (Final Team), from the draft anchor (≈ Aug 28 of the pick year) to that player's next exit (or today). Mirrors the transactions tenure column. Placed right after "Player Picked".
 - [ ] Add columns (split across sub-PRs):
   - [x] **8C** PPG/points cluster — `Avg PPG on team`, `Avg PPG on team adjusted by position`, **`Avg career PPG`, `Avg career PPG adjusted by position`** (split per user: on-team window AND whole-career, each position-adjusted; career = injury-adjusted nflverse games-played), `Points added`, `Avg points added`, `Avg points added adjusted by position`. N/A for unmade picks.
   - [x] **8D** KTC cluster (this PR) — `KTC on draft day`, `KTC at end of rookie year`, `KTC 1 / 2 / 5 years after draft day` (drafted player's 1QB KTC at each checkpoint; drafted players added to the KTC index; N/A for unmade/untracked/future-or-pre-April-2021 dates). Also: **removed the one-off `audit_phase7.yml` workflow** from the Actions list; added a weekly-audit note to Phase 14.
   - [x] **8E** draft/usage cluster — age when drafted; Player addition value (on-team baseline: on-team adj PPG × (1+%starts) × (1+inj %starts) + CUFF_BONUS); cuff when drafted; weeks before first start; number of starts before next transaction; % of starts made while rostered by drafting team; injury-adjusted % of starts. [user: removed "change in tanking" from this cluster]
-  - [ ] **8F** links — `Link to next/previous transaction`; + each `Trade N` team cell hyperlinks to its trades-page row.
+  - [x] **8F** links — `Link to next transaction` (drafted player's first post-draft event) + `Link to previous transaction` (pick's last trade); each `Trade N` team cell hyperlinks (xlsx) to its trades-page row. Bridges player + pick chains through the draft row.
 - [x] **All dataset times → US Eastern (DST-aware)** — folded into the 8C PR per user. The 3 timestamp columns (`transactions.Date`, `transactions."Date dropped/traded"`, `trades.Date`) convert UTC→America/New_York, formatted `YYYY-MM-DD HH:MM:SS` (no offset). Display-only, applied last (after all date logic), so internal comparisons stay on UTC.
 - [ ] **3-part audit** (code / results / diff)
 

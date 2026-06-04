@@ -420,6 +420,18 @@ _ROWS = [
         "Notes": "Such picks are NOT added to trades.csv (the move wasn't a trade); the assumption is a single move from original owner to current owner.",
     },
     {
+        "Stat": "Trade 1 / Trade 2 / … (xlsx hyperlinks)",
+        "Sheet": "picks",
+        "Formula": "Each 'Trade N' cell shows the team that owned the pick after its Nth trade. In the xlsx, the cell also HYPERLINKS to the trades-sheet row of that trade (the one that moved the pick to that team) — refs come from the pick's canonical chain, aligned to the Trade N hops in order.",
+        "Notes": "Best effort: a commissioner move (not a real trade) has no trades row, so a Trade N produced by such a move is left un-linked and can shift the alignment of later hops for that pick. CSV cells are plain team names (no hyperlinks).",
+    },
+    {
+        "Stat": "Link to next transaction / Link to previous transaction",
+        "Sheet": "picks",
+        "Formula": "Bridges the pick and the drafted player through the draft row. 'Link to next transaction' = the drafted PLAYER's next event after the draft (their first transaction '#N' or trade 'T#N'). 'Link to previous transaction' = the PICK's last trade before the draft ('T#N'). Both are clickable row pointers in the xlsx (the same '#N' / 'T#N' / 'PH#N' scheme as the transactions/trades links). Blank when there is no such event (an unmade or never-traded pick / a player with no post-draft events).",
+        "Notes": "The draft row is the player chain's START and the pick chain's TERMINAL, so 'next' walks into the player's career and 'previous' walks back into the pick's trade history.",
+    },
+    {
         "Stat": "Commissioner wash exclusion",
         "Sheet": "transactions / trades / all transaction & trade counts",
         "Formula": "A transaction is dropped entirely when every player it moves nets to zero on its own roster within the same calendar day AND a commissioner action was part of that player-day. I.e. a single-day commissioner correction that leaves the roster exactly as it started.",

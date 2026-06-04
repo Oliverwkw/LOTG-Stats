@@ -1345,6 +1345,13 @@ def build_all(repo_root: Path) -> None:
     raw_dir = repo_root / "exports" / "raw"
     raw_dir.mkdir(parents=True, exist_ok=True)
 
+    # Phase 8F: per picks row, the ordered trades-sheet refs ("T#N") for its
+    # Trade 1..N ownership hops — populated in the link pass below and read by
+    # write_outputs (a closure) to hyperlink each Trade N cell to the trade that
+    # moved the pick to that team. Initialised empty so the closure is safe even
+    # if the link pass is skipped.
+    _pick_trade_link_refs: List[List[str]] = []
+
     def write_outputs(tables: List[Tuple[str, pd.DataFrame, str]]) -> None:
         out_dir = repo_root / "exports"
         out_dir.mkdir(exist_ok=True)
@@ -1524,6 +1531,25 @@ def build_all(repo_root: Path) -> None:
                                           if _ref_re.match(t.strip())), None)
                             if first:
                                 _set_ref_link(cell, first)
+                    # Phase 8F: on the picks sheet, hyperlink each "Trade N" team
+                    # cell to the trades-sheet row of the trade that moved the
+                    # pick to that team. The cell keeps showing the team name; we
+                    # only attach the link. Refs come from _pick_trade_link_refs
+                    # (per-row ordered T#refs), aligned to the Trade N columns.
+                    if sheet_name == "picks" and _pick_trade_link_refs:
+                        _tn_cols = [
+                            (int(re.match(r"^Trade (\d+)$", str(col)).group(1)), j)
+                            for j, col in enumerate(d.columns, 1)
+                            if re.match(r"^Trade \d+$", str(col))
+                        ]
+                        for _n, _j in _tn_cols:
+                            for _ri in range(len(d)):
+                                _refs = (_pick_trade_link_refs[_ri]
+                                         if _ri < len(_pick_trade_link_refs) else [])
+                                if _n - 1 < len(_refs) and _refs[_n - 1]:
+                                    _cell = ws.cell(row=_ri + 2, column=_j)
+                                    if _cell.value not in (None, ""):
+                                        _set_ref_link(_cell, _refs[_n - 1])
                 ws.freeze_panes = "E2"
 
                 # Skip the auto-filter on the trades sheet — its merged group
@@ -11701,6 +11727,42 @@ def build_all(repo_root: Path) -> None:
                     tr_prev_pa.append("; ".join(_prevs) if _prevs else None)
                 tr["Link to next transaction per asset"] = tr_next_pa
                 tr["Link to previous transaction per asset"] = tr_prev_pa
+
+            # Phase 8F: picks links. Bridge both chains through the draft row:
+            #   Link to next transaction      = the drafted PLAYER's first event
+            #                                   AFTER the draft (player chain,
+            #                                   whose start is this PH# row)
+            #   Link to previous transaction  = the PICK's last trade BEFORE the
+            #                                   draft (pick chain, whose terminal
+            #                                   is this PH# row)
+            # Also build _pick_trade_link_refs (ordered T#refs per pick) so the
+            # xlsx writer can hyperlink each Trade N team cell to its trade row.
+            if not ph.empty and {"Year", "Number", "Original Team", "Player Picked"}.issubset(set(ph.columns)):
+                _ph_next, _ph_prev = [], []
+                _pick_trade_link_refs.clear()
+                for _pi in ph.index:
+                    _phref = f"PH#{int(_pi) + 1}"
+                    _pl = str(ph.at[_pi, "Player Picked"]).strip()
+                    _ym = re.match(r"\s*(\d{4})", str(ph.at[_pi, "Year"]))
+                    _nm = re.match(r"\s*(\d+)\.", str(ph.at[_pi, "Number"]))
+                    _nx = _pv = None
+                    _refs: List[str] = []
+                    if _ym and _nm:
+                        _pk = (int(_ym.group(1)), int(_nm.group(1)),
+                               str(ph.at[_pi, "Original Team"]).strip())
+                        # previous = the pick's last trade before the draft
+                        _, _pv = _pick_neighbors(_pk, _phref)
+                        # ordered T#refs for the Trade 1..N hyperlinks
+                        _refs = [str(_r) for (_dd, _r) in pick_chains.get(_pk, [])
+                                 if str(_r).startswith("T#")]
+                    # next = the drafted player's first event after the draft
+                    if _real_player(_pl):
+                        _nx, _ = _neighbors(_pl, _phref)
+                    _ph_next.append(_nx)
+                    _ph_prev.append(_pv)
+                    _pick_trade_link_refs.append(_refs)
+                ph["Link to next transaction"] = _ph_next
+                ph["Link to previous transaction"] = _ph_prev
     except Exception as e:
         _log_exc(debug, "transactions_player_chain_links", e)
     # Known-player validation report (best-effort): checks core columns against public expectations.
