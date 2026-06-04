@@ -318,6 +318,36 @@ _ROWS = [
         "Notes": "Pick analogue of the transactions 'Length of tenure on team'. Uses the same next-exit lookup; the draft anchor matches the 7D drafted-pick PPG window.",
     },
     {
+        "Stat": "Avg PPG on team",
+        "Sheet": "picks",
+        "Formula": "Mean fantasy_points_ppr of the DRAFTED player over every NFL game they played while on the team that drafted them (Final Team), in the tenure window: draft anchor (≈ Aug 28 of the pick year) → next exit off the team (or today). N/A for an unmade pick (no player yet) or a made pick whose player logged no games in the window (no value to average).",
+        "Notes": "Pick analogue of the transactions 'Average PPG on team' / the 7D drafted-pick PPG; built on the nflverse game log (games actually played, so injured/bye/suspended weeks are already excluded).",
+    },
+    {
+        "Stat": "Avg PPG on team adjusted by position",
+        "Sheet": "picks",
+        "Formula": "Avg PPG on team × league_starter_avg / pos_avg[player_position] — normalises QB/RB/WR/TE scoring scales (a 12-PPG TE ≠ a 12-PPG QB). N/A whenever Avg PPG on team is N/A.",
+        "Notes": "Same position normaliser used across transactions/trades adjusted metrics.",
+    },
+    {
+        "Stat": "Points added",
+        "Sheet": "picks",
+        "Formula": "Σ of the drafted player's fantasy points over the weeks they STARTED for the drafting team (Final Team) within the tenure window (draft anchor → next exit). N/A for an unmade pick; a number ≥ 0 for every made pick (0 if the player never started here / can't be resolved).",
+        "Notes": "Pick analogue of the trades 'Points added' (received-starter output), restricted to the player drafted with this pick.",
+    },
+    {
+        "Stat": "Avg points added",
+        "Sheet": "picks",
+        "Formula": "Points added / number of weeks the drafted player started for this team in the window. N/A for an unmade pick; 0 for a made pick with no started weeks.",
+        "Notes": "Per-start average of the started-week output.",
+    },
+    {
+        "Stat": "Avg points added adjusted by position",
+        "Sheet": "picks",
+        "Formula": "(Σ position-adjusted started-week points) / started weeks, where each week's points are × league_starter_avg / pos_avg[position]. N/A for an unmade pick; 0 for a made pick with no started weeks.",
+        "Notes": "Position-normalised variant of Avg points added.",
+    },
+    {
         "Stat": "Number",
         "Sheet": "picks",
         "Formula": "Canonical pick notation: '{round}.{slot:02d}' (e.g. '1.05' = round 1, slot 5). Slot is derived from draft_slot or pick_in_round, with fallback to ((pick_no − 1) mod team_count) + 1. Shown as bare '{round}' when slot is unknown.",
