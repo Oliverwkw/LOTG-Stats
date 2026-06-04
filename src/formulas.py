@@ -354,6 +354,12 @@ _ROWS = [
         "Notes": "Lets you watch a pick's player gain/lose dynasty value over its first five years. KTC history starts April 2021, so 'on draft day' is N/A for the very earliest picks and the 2/5-year marks are N/A until enough time has passed.",
     },
     {
+        "Stat": "Pick-adjusted Difference in [stat] (one per position-adjusted average, Player addition value, and each KTC column)",
+        "Sheet": "picks",
+        "Formula": "This pick's value of the stat MINUS the average of that stat across ALL non-vet picks (every draft year) made in the 3-SLOT window around this pick. The window is by OVERALL draft position (crossing round boundaries, e.g. 1.08 → 2.01 → 2.02): the very first pick (1.01) uses {this, next} = {1.01, 1.02}; the very last (4.08) uses {prev-2, prev, this} = {4.06, 4.07, 4.08}; every other pick uses {prev, this, next}. The reference average pools every non-vet pick at the window's slots across all years (e.g. 2.01 is compared to all 1.08s + 2.01s + 2.02s), so it isolates how this pick over/under-performed its draft-slot neighbourhood. Companion to each of the 3 position-adjusted averages and the 5 KTC columns.",
+        "Notes": "The 2021 vet/startup draft is excluded: its rows are N/A and it never enters a reference average. N/A when the pick's own stat is N/A (e.g. an unmade or never-rostered pick), and for vet rows.",
+    },
+    {
         "Stat": "Player addition value",
         "Sheet": "picks",
         "Formula": "Mirror of the transactions composite, with an ON-TEAM baseline (a pick gives up no player, so there is no 'dropped' side): (Avg PPG on team adjusted by position) × (1 + % of starts made while rostered by drafting team) × (1 + injury-adjusted % of starts) + CUFF_BONUS(5 when Cuff when drafted? is True). N/A when there is no on-team production to value (the player was never on the drafting team's roster for an NFL week) or for an unmade pick.",
