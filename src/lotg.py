@@ -5802,6 +5802,51 @@ def build_all(repo_root: Path) -> None:
                     hits += 1
             return total, hits
 
+        def _side_values(
+            target: date,
+            player_ids: List[str],
+            pick_labels: List[str],
+        ) -> List[float]:
+            """Per-asset KTC values on one side (for the package-tax diff)."""
+            out: List[float] = []
+            for sid in player_ids:
+                v = asset_value_at(None, str(sid), target, idx)
+                if v is not None and v > 0:
+                    out.append(float(v))
+            for plabel in pick_labels:
+                v = asset_value_at(str(plabel), None, target, idx)
+                if v is not None and v > 0:
+                    out.append(float(v))
+            return out
+
+        # --- Package-tax adjustment for uneven multi-asset trades (Item 2) ---
+        # A naive Σreceived − Σsent over-values the side with MORE pieces: in
+        # dynasty you can only start so many, so three scrubs are worth less than
+        # their summed KTC. KTC's calculator reverse-engineers to a per-asset
+        # "raw adjustment" (~10-42% of KTC) but applying that literally also
+        # rewards merely holding the single best asset on an otherwise balanced
+        # even-count trade, which we don't want.
+        # Depth-tax (per user): on each side keep the BEST asset at full KTC and
+        # discount every subsequent asset geometrically (2nd × f, 3rd × f², …),
+        # so three scrubs aren't worth their summed KTC. Even-count balanced
+        # trades stay ≈ the naive diff; only the deeper side is taxed. f tunable.
+        _KTC_DEPTH_FACTOR = 0.6
+
+        def _depth_adjusted_value(vals: List[float]) -> float:
+            _tot = 0.0
+            for _i, _v in enumerate(sorted(vals, reverse=True)):
+                _tot += _v * (_KTC_DEPTH_FACTOR ** _i)
+            return _tot
+
+        def _ktc_adjusted_diff(recv_vals: List[float], sent_vals: List[float]) -> Optional[float]:
+            """Depth-tax-adjusted KTC margin (received − sent), in KTC value
+            units. Positive ⇒ received side got more value. Best asset per side
+            counts in full; each lesser asset is discounted, so a scrubs-for-stud
+            package is penalised while a balanced even-count swap stays ≈ naive."""
+            if not (recv_vals and sent_vals):
+                return None
+            return round(_depth_adjusted_value(recv_vals) - _depth_adjusted_value(sent_vals), 1)
+
         def _diff_at(
             target: date,
             recv_ids: List[str],
@@ -5811,11 +5856,13 @@ def build_all(repo_root: Path) -> None:
         ) -> Optional[float]:
             if target > today:
                 return None
-            r_total, r_hits = _side_total(target, recv_ids, recv_picks)
-            d_total, d_hits = _side_total(target, drop_ids, drop_picks)
-            if not (r_hits and d_hits):
+            recv_vals = _side_values(target, recv_ids, recv_picks)
+            sent_vals = _side_values(target, drop_ids, drop_picks)
+            if not (recv_vals and sent_vals):
                 return None
-            return round(r_total - d_total, 1)
+            # Package-tax-adjusted difference (Item 2), replacing the old naive
+            # Σreceived − Σsent so uneven multi-asset trades value correctly.
+            return _ktc_adjusted_diff(recv_vals, sent_vals)
 
         # --- Trades pass ---
         for row in trades_rows:
