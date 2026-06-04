@@ -193,8 +193,8 @@ _ROWS = [
     {
         "Stat": "KTC value difference at deal time / end of season / 1 year later / 2 years later",
         "Sheet": "trades",
-        "Formula": "Σ(KTC of received assets) − Σ(KTC of dropped assets) at each reference date. Same date scheme as transactions.",
-        "Notes": "Includes both players (sleeper_id → dynasty-daddy slug) and picks. Picks resolve to dynasty-daddy generic round labels ('2024 Early 1st', 'Mid 1st', 'Late 1st') and average for '??'-slot picks.",
+        "Formula": "(depth-adjusted KTC of received assets) − (depth-adjusted KTC of dropped assets) at each reference date. Depth tax (Item 2): on each side the assets' KTC values are sorted descending, the BEST counts in full, and each subsequent asset is discounted geometrically (2nd × 0.6, 3rd × 0.6², …) — so a side getting more pieces isn't over-credited (you can only start so many). A 1-for-1 is unchanged from the raw difference; a 3-scrubs-for-1-stud package is taxed (the scrubs' summed KTC no longer beats the stud). Same date scheme as transactions.",
+        "Notes": "Replaces the old naive Σreceived − Σsent. Depth factor 0.6 is tunable. Includes both players (sleeper_id → dynasty-daddy slug) and picks; picks resolve to dynasty-daddy generic round labels ('2024 Early 1st', 'Mid 1st', 'Late 1st') and average for '??'-slot picks. Applied to trades only — transactions' Net KTC (1-for-1) is left as the raw difference.",
     },
     {
         "Stat": "Pick value received",
