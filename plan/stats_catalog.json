@@ -726,7 +726,9 @@
     "Trade 9",
     "Trade 10",
     "etc",
-    "Commissioner moved?"
+    "Commissioner moved?",
+    "Link to next transaction",
+    "Link to previous transaction"
   ],
   "Formulas": [
     "Stat",
