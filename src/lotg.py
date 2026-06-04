@@ -5709,6 +5709,20 @@ def build_all(repo_root: Path) -> None:
             sid = tx_row.get("_dropped_pid")
             if sid:
                 needed_sids.add(str(sid))
+        # Phase 8D: include every DRAFTED player so the KTC index also covers
+        # the picks sheet's KTC-over-time columns (build a name→sid map from
+        # player metadata; pick_rows carries "Player Picked").
+        _ktc_name_to_sid: Dict[str, str] = {}
+        for _ks, _km in pid_meta.items():
+            _kfn = (_km or {}).get("full_name")
+            if _kfn:
+                _ktc_name_to_sid.setdefault(str(_kfn), str(_ks))
+        for _prow in pick_rows:
+            _pname = str(_prow.get("Player Picked") or "").strip()
+            if _pname and _pname.lower() not in ("unknown", "nan", "n/a", ""):
+                _psid = _ktc_name_to_sid.get(_pname)
+                if _psid:
+                    needed_sids.add(_psid)
 
         # Pass full_name+pos for every sleeper_id we need so the KTC
         # module can derive name_id slugs for retired/aged-out players
@@ -5727,6 +5741,9 @@ def build_all(repo_root: Path) -> None:
             value_col=ktc_value_col,
             sid_to_meta=sid_to_meta,
         )
+        # Capture under a stable name: `idx` is later reused as a loop variable
+        # (the trades enumerate loop), so the picks-KTC pass uses _ktc_idx.
+        _ktc_idx = idx
 
         def _side_total(
             target: date,
@@ -6485,24 +6502,33 @@ def build_all(repo_root: Path) -> None:
             return out
 
         # --- Phase 8C: PPG / points columns on picks ---
-        # For each MADE pick, the drafted player's production on the team that
-        # drafted it (Final Team), over their post-draft tenure (draft ≈ Aug 28
-        # of the pick year → next exit, or today). Mirrors the trade 7D drafted-
-        # pick PPG and the trade Points-added (started-week) machinery:
-        #   Avg PPG on team                          mean fantasy PPG over every
-        #                                            NFL game in the window
+        # For each MADE pick, evaluating the player it became. Two PPG flavours
+        # (each with a position-adjusted variant), then the on-team points added:
+        #   Avg PPG on team                          mean nflverse PPG over the
+        #                                            games played while on the
+        #                                            DRAFTING team (draft ≈ Aug 28
+        #                                            of the pick year → next exit)
         #   Avg PPG on team adjusted by position     × league_starter_avg/pos_avg
-        #   Points added                             Σ points in weeks STARTED
-        #                                            for this team in the window
+        #   Avg career PPG                           mean nflverse PPG over EVERY
+        #                                            game the player has played
+        #                                            (whole career on record —
+        #                                            injury-adjusted by construct-
+        #                                            ion, the log has only games
+        #                                            played; NOT team-scoped)
+        #   Avg career PPG adjusted by position      × league_starter_avg/pos_avg
+        #   Points added                             Σ points in weeks STARTED for
+        #                                            the drafting team in the
+        #                                            post-draft tenure window
         #   Avg points added                         Points added / started weeks
         #   Avg points added adjusted by position    same, position-adjusted
-        # N/A only for an unmade pick (no player) or PPG with no games to
-        # average; every made pick's point columns are a number ≥ 0 (0 if the
-        # player never started / can't be resolved). Same N/A⇔no-data rule as
-        # the tenure column, scoped to ph via explicit "N/A" so it never touches
+        # N/A only for an unmade pick (no player) or a PPG with no games to
+        # average (on-team PPG can be N/A while career PPG is a number — e.g. a
+        # pick traded before ever playing here). Every made pick's point columns
+        # are a number ≥ 0. Scoped to ph via explicit "N/A" so it never touches
         # the identically-named trades columns.
         _pick_ppg_cols = [
             "Avg PPG on team", "Avg PPG on team adjusted by position",
+            "Avg career PPG", "Avg career PPG adjusted by position",
             "Points added", "Avg points added",
             "Avg points added adjusted by position",
         ]
@@ -6531,15 +6557,24 @@ def build_all(repo_root: Path) -> None:
                     _pos = _player_pos(_ply)
                     _posa = pos_avg_map.get(_pos or "", 0.0)
                     _fac = (league_starter_avg / _posa) if (_posa and league_starter_avg) else 1.0
-                    # Avg PPG on team: every NFL game played in the window.
-                    _games = [
-                        _p for _d, _p in _player_games(_ply)
+                    _all_games = _player_games(_ply)
+                    # Avg PPG on team: games played while on the drafting team.
+                    _on_team = [
+                        _p for _d, _p in _all_games
                         if _d >= _draft_iso and (not _end_iso or _d < _end_iso)
                     ]
-                    if _games:
-                        _avg = sum(_games) / len(_games)
+                    if _on_team:
+                        _avg = sum(_on_team) / len(_on_team)
                         ph.at[_i, "Avg PPG on team"] = round(_avg, 2)
                         ph.at[_i, "Avg PPG on team adjusted by position"] = round(_avg * _fac, 2)
+                    # Avg career PPG: every nflverse game the player has played
+                    # (whole career on record; injury-adjusted — DNP weeks aren't
+                    # in the log). NOT windowed to the drafting team.
+                    _career = [_p for _d, _p in _all_games]
+                    if _career:
+                        _cavg = sum(_career) / len(_career)
+                        ph.at[_i, "Avg career PPG"] = round(_cavg, 2)
+                        ph.at[_i, "Avg career PPG adjusted by position"] = round(_cavg * _fac, 2)
                     # Points added: points in weeks the player STARTED here.
                     _pa = 0.0
                     _nwk = 0
@@ -6553,6 +6588,53 @@ def build_all(repo_root: Path) -> None:
                         ph.at[_i, "Avg points added adjusted by position"] = round(_pa * _fac / _nwk, 2)
         except Exception as e:
             _log_exc(debug, "picks_ppg_8c", e)
+
+        # --- Phase 8D: KTC-over-time columns on picks ---
+        # The drafted player's KeepTradeCut value (1QB trade_value) at five
+        # checkpoints relative to the draft (anchor ≈ Aug 28 of the pick year):
+        #   KTC on draft day            the draft anchor itself
+        #   KTC at end of rookie year   ≈ Feb 1 of the year AFTER the draft
+        #   KTC 1 / 2 / 5 years after draft day
+        # Uses the same dynasty-daddy KTC index (_ktc_idx) that powers the
+        # transactions/trades KTC columns. N/A for an unmade pick, an untracked
+        # player, or a checkpoint date in the future / before KTC history began
+        # (≈ April 2021) — explicit "N/A" scoped to ph.
+        _pick_ktc_cols = [
+            "KTC on draft day", "KTC at end of rookie year",
+            "KTC 1 year after draft day", "KTC 2 years after draft day",
+            "KTC 5 years after draft day",
+        ]
+        try:
+            from lotg_support.ktc import asset_value_at as _ktc_value_at
+            if not ph.empty and {"Year", "Player Picked"}.issubset(set(ph.columns)) and _ktc_idx is not None:
+                for _c in _pick_ktc_cols:
+                    ph[_c] = "N/A"
+                    ph[_c] = ph[_c].astype(object)
+                for _i, _pr in ph.iterrows():
+                    _ply = str(_pr.get("Player Picked") or "").strip()
+                    if not _ply or _ply.lower() in ("unknown", "nan", "n/a", ""):
+                        continue  # unmade pick → all stay "N/A"
+                    _ym = re.match(r"\s*(\d{4})", str(_pr.get("Year") or ""))
+                    _sid = name_to_sid_local2.get(_ply)
+                    if not (_ym and _sid):
+                        continue
+                    _yr = int(_ym.group(1))
+                    _checkpoints = [
+                        ("KTC on draft day", date(_yr, 8, 28)),
+                        ("KTC at end of rookie year", date(_yr + 1, 2, 1)),
+                        ("KTC 1 year after draft day", date(_yr + 1, 8, 28)),
+                        ("KTC 2 years after draft day", date(_yr + 2, 8, 28)),
+                        ("KTC 5 years after draft day", date(_yr + 5, 8, 28)),
+                    ]
+                    for _col, _tgt in _checkpoints:
+                        try:
+                            _v = _ktc_value_at(None, str(_sid), _tgt, _ktc_idx)
+                        except Exception:
+                            _v = None
+                        if _v is not None:
+                            ph.at[_i, _col] = round(_v, 1)
+        except Exception as e:
+            _log_exc(debug, "picks_ktc_8d", e)
 
         for idx, row in enumerate(trades_rows):
             team = str(row.get("Team") or "")
