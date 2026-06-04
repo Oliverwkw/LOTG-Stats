@@ -6981,59 +6981,27 @@ def build_all(repo_root: Path) -> None:
         except Exception as e:
             _log_exc(debug, "picks_pickadj_diff_item1", e)
 
-        # --- Item 3: per-team ordered game log (win / luck / tanking) for the
-        # "Team performance improvement" trade column. ---
-        _team_games: Dict[str, List[Tuple[str, float, float, float]]] = defaultdict(list)
-        _gcols = ["Team", "Year", "Week", "Win?", "Luck", "Tanking"]
-        if not tw.empty and set(_gcols).issubset(tw.columns):
-            for _t, _y, _w, _win, _lk, _tk in zip(*[tw[c] for c in _gcols]):
+        # --- Item 3: "Team performance improvement" = wins the trade actually
+        # flipped (player stats → win impact). For each week AFTER the trade in
+        # which a received asset started for this team, we already know the
+        # week's net points (received starters − the top-k players traded away,
+        # the existing maximize rule). Counterfactual: had the team NOT made the
+        # trade, that week's margin would be (actual margin − net points). If the
+        # win/loss outcome flips between the two, the trade is credited (+1) or
+        # debited (−1) that game. Picks count via the players drafted with them
+        # (future weeks), so a rebuild is credited when its rookies win games —
+        # it is not punished for shedding veterans. Σ over weeks × coefficient.
+        _team_margin: Dict[Tuple[str, int, int], float] = {}
+        _mcols = ["Team", "Year", "Week", "Margin"]
+        if not tw.empty and set(_mcols).issubset(tw.columns):
+            for _t, _y, _w, _mg in zip(*[tw[c] for c in _mcols]):
                 if pd.isna(_y) or pd.isna(_w):
                     continue
                 try:
-                    _yi, _wi = int(_y), int(_w)
+                    _team_margin[(str(_t), int(_y), int(_w))] = float(_mg)
                 except Exception:
                     continue
-                _wkd = (date(_yi, 9, 7) + timedelta(days=7 * (_wi - 1))).isoformat()
-                _win01 = 1.0 if str(_win).strip().lower() in ("true", "1", "win", "yes") else 0.0
-                try:
-                    _lkf = float(_lk)
-                except Exception:
-                    _lkf = 0.0
-                try:
-                    _tkf = float(_tk)
-                except Exception:
-                    _tkf = 0.0
-                _team_games[str(_t)].append((_wkd, _win01, _lkf, _tkf))
-        for _t in _team_games:
-            _team_games[_t].sort(key=lambda e: e[0])
-
-        # Coefficients (Item 3 — tunable). _TPI_LUCK weights how much of the
-        # win% swing is attributed to luck and removed; _TPI_COEFF scales the
-        # final product into roughly the KTC-at-end-of-season magnitude band.
-        _TPI_LUCK = 1.0
-        _TPI_COEFF = 30000.0
-
-        def _team_perf_improvement(_tm: str, _date_prefix: str) -> Optional[float]:
-            _games = _team_games.get(_tm) or []
-            if not _games or not _date_prefix:
-                return None
-            _before = [g for g in _games if g[0] < _date_prefix][-10:]
-            _after = [g for g in _games if g[0] >= _date_prefix][:10]
-            if not _before or not _after:
-                return None
-            def _mean(seq, i):
-                return sum(g[i] for g in seq) / len(seq)
-            # Luck-adjusted on-field swing over ±10 games (real improvement, not
-            # lucky wins).
-            _dw = (_mean(_after, 1) - _mean(_before, 1)) - _TPI_LUCK * (_mean(_after, 2) - _mean(_before, 2))
-            # Strategic swing. Multiplying by −ΔTanking means the score is
-            # POSITIVE when the win% movement matches the team's strategic
-            # direction: a contender winning more (win%↑, tanking↓) AND a tanker
-            # tanking effectively (win%↓, tanking↑) both improve — so a trade
-            # made to tank is NOT penalised. Genuinely getting worse (win%↓ with
-            # no extra tanking) stays negative.
-            _dt = _mean(_after, 3) - _mean(_before, 3)
-            return round(_TPI_COEFF * _dw * (-_dt), 1)
+        _TPI_COEFF = 1000.0  # KTC-points per net game flipped (tunable)
 
         for idx, row in enumerate(trades_rows):
             team = str(row.get("Team") or "")
@@ -7315,11 +7283,6 @@ def build_all(repo_root: Path) -> None:
             else:
                 row["Trade addition value"] = round(_pick_val, 4)
 
-            # --- Item 3: Team performance improvement ---
-            _tpi = _team_perf_improvement(team, trade_prefix)
-            if _tpi is not None:
-                row["Team performance improvement"] = _tpi
-
             # --- Points Added / Lost / Net (+ per-week averages) ---
             # Received assets = received players + players THIS team drafted
             # with received picks (window starts at the draft). Per week,
@@ -7370,19 +7333,32 @@ def build_all(repo_root: Path) -> None:
                     _sent_logs.append({_k2: (_v, _v * _f) for _k2, _v in _nfl_wk_pts(name=_dr[0]).items()})
             _tp_added = _tp_lost = _tadj_added = _tadj_lost = 0.0
             _tnwk = 0
+            _wins_flipped = 0  # Item 3: net games the trade actually flipped
+            _has_margin = False
             for _w, _rpts in _recv_week.items():
                 _k = len(_rpts)
                 if _k == 0:
                     continue
                 _tnwk += 1
-                _tp_added += sum(p[0] for p in _rpts)
+                _wk_added = sum(p[0] for p in _rpts)
+                _tp_added += _wk_added
                 _tadj_added += sum(p[1] for p in _rpts)
                 # top-k players-traded-away by RAW points that week; sum their
                 # raw AND position-adjusted points for the two Lost variants.
                 _cand = sorted((_lg.get(_w, (0.0, 0.0)) for _lg in _sent_logs),
                                key=lambda x: x[0], reverse=True)[:_k]
-                _tp_lost += sum(c[0] for c in _cand)
+                _wk_lost = sum(c[0] for c in _cand)
+                _tp_lost += _wk_lost
                 _tadj_lost += sum(c[1] for c in _cand)
+                # Item 3: did this week's net swing flip the team's result? The
+                # counterfactual margin (no trade) = actual margin − net points.
+                _mg = _team_margin.get((str(team), int(_w[0]), int(_w[1])))
+                if _mg is not None:
+                    _has_margin = True
+                    _net_wk = _wk_added - _wk_lost
+                    _wins_flipped += int(_mg > 0) - int((_mg - _net_wk) > 0)
+            if _has_margin:
+                row["Team performance improvement"] = round(_TPI_COEFF * _wins_flipped, 1)
             _tnet = _tp_added - _tp_lost
             _tadj_net = _tadj_added - _tadj_lost
             row["Points added"] = round(_tp_added, 2)
