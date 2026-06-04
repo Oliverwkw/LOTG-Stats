@@ -4355,7 +4355,9 @@ def build_all(repo_root: Path) -> None:
                 if _rnd is None or _slot is None:
                     continue
                 _picker_rid = _to_int(_p.get("roster_id"), None)
-                _real_by_slot[(int(_rnd), int(_slot))] = (_resolve_player_name(_p), _picker_rid)
+                _real_by_slot[(int(_rnd), int(_slot))] = (
+                    _resolve_player_name(_p), _picker_rid, _p.get("player_id"),
+                )
 
             # Year roster→team map. Future years fall back to the most-recent
             # known season's map so display names work for 2026-2028 rows.
@@ -4370,9 +4372,9 @@ def build_all(repo_root: Path) -> None:
 
                     _info = _real_by_slot.get((_rnd, _si))
                     if _info is None:
-                        _player, _picker_rid = "Unknown", None
+                        _player, _picker_rid, _player_id = "Unknown", None, None
                     else:
-                        _player, _picker_rid = _info
+                        _player, _picker_rid, _player_id = _info
 
                     # Walk the chain (vet picks aren't traded by Sleeper —
                     # treat as a single-step chain).
@@ -4402,6 +4404,12 @@ def build_all(repo_root: Path) -> None:
                         "Original Team": _orig_team,
                         "Final Team": _final_team,
                         "Player Picked": _player,
+                        # Internal (dropped from output by _ensure_plan_columns):
+                        # the Sleeper player_id of the drafted player, so the
+                        # picks PPG/KTC passes resolve by ID (robust to name
+                        # suffixes like "III" and duplicate names) instead of by
+                        # display name.
+                        "_player_id": (str(_player_id) if _player_id else None),
                         "etc": None,
                         "Commissioner moved?": ((_year, _rnd, _ori) in commissioner_pick_moves) if not _is_vet else False,
                     }
@@ -5710,19 +5718,23 @@ def build_all(repo_root: Path) -> None:
             if sid:
                 needed_sids.add(str(sid))
         # Phase 8D: include every DRAFTED player so the KTC index also covers
-        # the picks sheet's KTC-over-time columns (build a name→sid map from
-        # player metadata; pick_rows carries "Player Picked").
+        # the picks sheet's KTC-over-time columns. Resolve by the pick's Sleeper
+        # player_id (threaded through pick_rows) — robust to name suffixes and
+        # duplicate names — falling back to a name lookup only when the id is
+        # absent.
         _ktc_name_to_sid: Dict[str, str] = {}
         for _ks, _km in pid_meta.items():
             _kfn = (_km or {}).get("full_name")
             if _kfn:
                 _ktc_name_to_sid.setdefault(str(_kfn), str(_ks))
         for _prow in pick_rows:
-            _pname = str(_prow.get("Player Picked") or "").strip()
-            if _pname and _pname.lower() not in ("unknown", "nan", "n/a", ""):
-                _psid = _ktc_name_to_sid.get(_pname)
-                if _psid:
-                    needed_sids.add(_psid)
+            _psid = _prow.get("_player_id")
+            if not _psid:
+                _pname = str(_prow.get("Player Picked") or "").strip()
+                if _pname and _pname.lower() not in ("unknown", "nan", "n/a", ""):
+                    _psid = _ktc_name_to_sid.get(_pname)
+            if _psid:
+                needed_sids.add(str(_psid))
 
         # Pass full_name+pos for every sleeper_id we need so the KTC
         # module can derive name_id slugs for retired/aged-out players
@@ -6548,16 +6560,24 @@ def build_all(repo_root: Path) -> None:
                     ph.at[_i, "Avg points added adjusted by position"] = 0.0
                     _ft = str(_pr.get("Final Team") or "").strip()
                     _ym = re.match(r"\s*(\d{4})", str(_pr.get("Year") or ""))
-                    _sid = name_to_sid_local2.get(_ply)
+                    # Resolve by Sleeper player_id (threaded from the draft data)
+                    # so suffixes ("III") and duplicate names don't silently
+                    # drop the game log; fall back to a name lookup if absent.
+                    _sid = _pr.get("_player_id") or name_to_sid_local2.get(_ply)
                     if not (_ft and _ym and _sid):
                         continue  # PPG stays N/A (no data), points stay 0
+                    _sid = str(_sid)
                     _draft_iso = f"{int(_ym.group(1))}-08-28"
                     _nx = _next_out_player(_ft, _sid, _draft_iso)
                     _end_iso = (_nx["date"][:10] if _nx else _today_iso2)
-                    _pos = _player_pos(_ply)
+                    _pos = ((pid_meta.get(_sid) or {}).get("pos") or "").upper() or None
                     _posa = pos_avg_map.get(_pos or "", 0.0)
                     _fac = (league_starter_avg / _posa) if (_posa and league_starter_avg) else 1.0
-                    _all_games = _player_games(_ply)
+                    _all_games = [
+                        (_e["_wk_date"], float(_e["points"]))
+                        for _e in nfl_log_by_sid.get(_sid, [])
+                        if _e.get("_wk_date")
+                    ]
                     # Avg PPG on team: games played while on the drafting team.
                     _on_team = [
                         _p for _d, _p in _all_games
@@ -6616,9 +6636,10 @@ def build_all(repo_root: Path) -> None:
                     if not _ply or _ply.lower() in ("unknown", "nan", "n/a", ""):
                         continue  # unmade pick → all stay "N/A"
                     _ym = re.match(r"\s*(\d{4})", str(_pr.get("Year") or ""))
-                    _sid = name_to_sid_local2.get(_ply)
+                    _sid = _pr.get("_player_id") or name_to_sid_local2.get(_ply)
                     if not (_ym and _sid):
                         continue
+                    _sid = str(_sid)
                     _yr = int(_ym.group(1))
                     _checkpoints = [
                         ("KTC on draft day", date(_yr, 8, 28)),
