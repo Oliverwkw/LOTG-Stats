@@ -272,7 +272,7 @@ _ROWS = [
         "Stat": "Link to next transaction per asset / Link to previous transaction per asset",
         "Sheet": "trades",
         "Formula": "For each asset RECEIVED in the trade (in the same order as 'Assets received'), the reference to that asset's next / previous event in its cross-table chain — '#N' = transactions.csv row N, 'T#N' = trades.csv row N. Rendered as a ';'-joined list aligned 1:1 with 'Assets received'. PLAYERS resolve through the shared player chain (the same one the transaction added/dropped links use). DRAFT PICKS resolve through a separate pick chain to the next/prev TRADE that moved that pick — keyed by the pick's canonical identity (year, round, original owner), built from the received side only so the two mirror rows of one trade event don't link to each other; the pick chain deliberately does NOT continue into the player eventually drafted with the pick. FAAB carries 'N/A'.",
-        "Notes": "In the xlsx these two columns are exploded into one clickable column PER received asset, under a merged group header: each cell shows the asset's NAME and hyperlinks to that asset's next/previous event (the CSV keeps the ';'-joined ref list). Phase 7B + pick chains + draft-row bridge — replaces the old per-team 'Link to next/previous transaction'. Follow a received player OR pick onward to wherever it next moved. The pick chain TERMINATES at the pick's draft row in picks ('PH#N' = picks row N), and a drafted player's chain (here and in the transaction added/dropped links) STARTS at that same draft row — so a pick's last trade links forward to the draft and the drafted player's first event links back to it, without the pick chain ever crossing into the player.",
+        "Notes": "In the xlsx these two columns are exploded into one clickable column PER received asset, the group label sitting in the first sub-column's header (the headers are NOT merged, so the trades sheet stays a sortable/filterable table): each cell shows the asset's NAME and hyperlinks to that asset's next/previous event (the CSV keeps the ';'-joined ref list). Phase 7B + pick chains + draft-row bridge — replaces the old per-team 'Link to next/previous transaction'. Follow a received player OR pick onward to wherever it next moved. The pick chain TERMINATES at the pick's draft row in picks ('PH#N' = picks row N), and a drafted player's chain (here and in the transaction added/dropped links) STARTS at that same draft row — so a pick's last trade links forward to the draft and the drafted player's first event links back to it, without the pick chain ever crossing into the player.",
     },
     {
         "Stat": "Team age including picks",
@@ -311,6 +311,12 @@ _ROWS = [
         "Notes": "The top-k 'maximize' rule generalizes the 1-for-1 transaction Points Lost to multi-asset trades: a received starter each week is matched against the single best player you gave up. Started weeks/points come from player_week; sent assets' counterfactual points from the nflverse game log.",
     },
     # -------------------------------- picks.csv (pick history) --------------------------------
+    {
+        "Stat": "Number",
+        "Sheet": "picks",
+        "Formula": "round.position, where position is the pick's place in DRAFT ORDER within the round (2.01 = first pick of round 2). For LINEAR drafts position == draft_slot. For SNAKE drafts (the 2021 rookie drafts) even rounds reverse, so the team at draft_slot 1 picks last in round 2 (2.08) and first in round 3 (3.01); position = team_count + 1 − draft_slot on even rounds.",
+        "Notes": "Earlier builds labelled every round by raw draft_slot, which mis-numbered even rounds of the 2021 snake drafts (e.g. Trey Sermon showed 2.05 instead of 2.04). Player / Original Team / chain stay keyed by draft_slot — only the displayed number follows draft order. All post-2021 rookie drafts are linear, so they're unaffected.",
+    },
     {
         "Stat": "Original Team",
         "Sheet": "picks",
