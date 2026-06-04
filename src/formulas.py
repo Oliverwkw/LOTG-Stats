@@ -342,10 +342,52 @@ _ROWS = [
         "Notes": "Position-normalised post-draft rate.",
     },
     {
+        "Stat": "Age when drafted",
+        "Sheet": "picks",
+        "Formula": "The drafted player's age in years (decimal) at the draft anchor (≈ Aug 28 of the pick year), from their birth_date. N/A for an unmade pick or a player with no birth_date on record.",
+        "Notes": "How old the player a pick became was on draft day.",
+    },
+    {
         "Stat": "KTC on draft day / at end of rookie year / 1 / 2 / 5 years after draft day",
         "Sheet": "picks",
         "Formula": "The DRAFTED player's KeepTradeCut value (1QB trade_value, via dynasty-daddy daily history) at five checkpoints relative to the draft (anchor ≈ Aug 28 of the pick year): the draft day itself; the end of the rookie year (≈ Feb 1 of the following year); and exactly 1, 2, and 5 years after the draft day. Each is the same single-asset KTC lookup used for the transactions/trades KTC columns. N/A for an unmade pick, an untracked player, or a checkpoint date that is in the future or before KTC history begins (≈ April 2021).",
         "Notes": "Lets you watch a pick's player gain/lose dynasty value over its first five years. KTC history starts April 2021, so 'on draft day' is N/A for the very earliest picks and the 2/5-year marks are N/A until enough time has passed.",
+    },
+    {
+        "Stat": "Player addition value",
+        "Sheet": "picks",
+        "Formula": "Mirror of the transactions composite, with an ON-TEAM baseline (a pick gives up no player, so there is no 'dropped' side): (Avg PPG on team adjusted by position) × (1 + % of starts made while rostered by drafting team) × (1 + injury-adjusted % of starts) + CUFF_BONUS(5 when Cuff when drafted? is True). N/A when there is no on-team production to value (the player was never on the drafting team's roster for an NFL week) or for an unmade pick.",
+        "Notes": "Per user: on-team baseline. Same CUFF_BONUS and leverage shape as the transactions 'Player addition value'.",
+    },
+    {
+        "Stat": "Cuff when drafted?",
+        "Sheet": "picks",
+        "Formula": "True if, at the draft, the drafting team already rostered a STARTER on the same NFL team + position whose last-5 PPG was 10+ above the drafted player — the same handcuff test as 'Cuff at time of pickup?'. Best effort: a rookie's NFL team/position is often unknown until they actually play, so this skews toward False at draft time. False for an unmade pick.",
+        "Notes": "Feeds the CUFF_BONUS in Player addition value.",
+    },
+    {
+        "Stat": "Weeks before first start",
+        "Sheet": "picks",
+        "Formula": "Number of weeks the drafted player was on the drafting team's roster (starter or bench) before their FIRST start for that team, within the post-draft tenure window. N/A if the player never started for the drafting team (or an unmade pick).",
+        "Notes": "Pick analogue of the transactions 'Weeks between pickup and start'.",
+    },
+    {
+        "Stat": "Number of starts before next transaction",
+        "Sheet": "picks",
+        "Formula": "Count of weeks the drafted player STARTED for the drafting team between the draft and their next exit off that team (trade/drop). A number ≥ 0 for every made pick (0 if they never started here); N/A only for an unmade pick.",
+        "Notes": "Pick analogue of the transactions 'Number of starts before next drop'.",
+    },
+    {
+        "Stat": "% of starts made while rostered by drafting team",
+        "Sheet": "picks",
+        "Formula": "(starts for the drafting team) / (weeks rostered by the drafting team) over the post-draft tenure window. N/A when the player was never rostered for an NFL week by the drafting team (no denominator); 0 when rostered but never started.",
+        "Notes": "Roster + start weeks from player_week. Pick analogue of the transactions '% of starts made while rostered'.",
+    },
+    {
+        "Stat": "Injury adjusted % of starts made while rostered by drafting team",
+        "Sheet": "picks",
+        "Formula": "(starts in injury/bye-free weeks) / (injury/bye-free weeks rostered) over the same window — divides only by weeks the player was available. N/A when there were no injury-free rostered weeks (or an unmade pick).",
+        "Notes": "Removes weeks the player couldn't have started (injury/bye) from the denominator, like the transactions injury-adjusted variant.",
     },
     {
         "Stat": "Points added",
