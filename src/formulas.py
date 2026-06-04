@@ -108,7 +108,7 @@ _ROWS = [
     {
         "Stat": "Length of tenure on team",
         "Sheet": "transactions",
-        "Formula": "Days the ADDED player spent on this team: from the pickup Date to the next drop/trade off this team (Date dropped/traded), or to today if still rostered. Blank when the transaction has no added player.",
+        "Formula": "Days the ADDED player spent on this team: from the pickup Date to the next drop/trade off this team (Date dropped/traded), or to today if still rostered. N/A when the transaction has no added player (a pure drop) — no player whose tenure to measure; a genuine 0-day tenure (added then immediately moved) stays 0.",
         "Notes": "Calendar-day span of the tenure window used by the forward-looking PPG / Points Added metrics.",
     },
     {
@@ -310,6 +310,12 @@ _ROWS = [
         "Sheet": "picks",
         "Formula": "The roster that actually MADE the selection (= last owner in the trade chain). Equals Original Team when the pick wasn't traded.",
         "Notes": "Pulled from Sleeper draft picks (roster_id field) and from the end of the reconstructed trade chain.",
+    },
+    {
+        "Stat": "Length of tenure on team",
+        "Sheet": "picks",
+        "Formula": "Days the DRAFTED player stayed on the team that drafted it (Final Team): from the draft anchor (≈ Aug 28 of the pick year, after offseason pick trades, before the rookie draft) to that player's next exit (drop/trade) off the team, or to today if still rostered. N/A for an unmade pick (a future pick with no player selected yet — 'Unknown') — no player whose tenure to measure, mirroring a transactions pure drop; every MADE pick is a number ≥ 0 (a genuine 0-day tenure, or a pick whose player can't be mapped to a game log, falls back to 0).",
+        "Notes": "Pick analogue of the transactions 'Length of tenure on team'. Uses the same next-exit lookup; the draft anchor matches the 7D drafted-pick PPG window.",
     },
     {
         "Stat": "Number",

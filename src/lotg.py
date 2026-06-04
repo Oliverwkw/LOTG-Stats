@@ -745,6 +745,12 @@ def _preserve_na(col: str) -> bool:
         return True
     if col_l.startswith("net ktc value"):
         return True
+    # Length of tenure on team: a blank means there is NO player whose tenure
+    # to measure — a transactions pure drop (no added player) or an unmade pick
+    # (no player drafted yet). Render those as N/A. A genuine 0-day tenure
+    # (added/drafted then immediately moved) is computed as 0 and stays 0.
+    if col_l == "length of tenure on team":
+        return True
     # Faab columns: blank Faab means the transaction wasn't a waiver
     # (free-agent / commissioner adds aren't bid on) — surface as N/A
     # so it's not confused with 'won the claim with a $0 bid'.
@@ -6235,34 +6241,41 @@ def build_all(repo_root: Path) -> None:
                 name_to_sid_local2.setdefault(str(fn), str(sid))
 
         # --- Phase 8B: "Length of tenure on team" on picks ---
-        # For each made pick, how long the DRAFTED player stayed on the team
-        # that drafted it (Final Team): days from the draft (≈ late August of
-        # the pick year, mirroring the 7D draft anchor) to that player's next
-        # exit from the team (or today if still rostered). Blank for picks not
-        # yet made / no resolved player.
+        # How long the DRAFTED player stayed on the team that drafted it (Final
+        # Team): days from the draft (≈ late August of the pick year, mirroring
+        # the 7D draft anchor) to that player's next exit from the team (or
+        # today if still rostered).
+        #
+        # An UNMADE pick (no player drafted yet — "Unknown"/blank) is left blank
+        # so the output coercion renders it "N/A" (via _preserve_na): there is
+        # no player whose tenure to measure — the same as a transactions pure
+        # drop (no added player). Every MADE pick gets a number ≥ 0: a genuine
+        # 0-day tenure (drafted then immediately moved) is 0, and a made pick we
+        # can't otherwise resolve also falls back to 0 (there IS a player).
         try:
             if not ph.empty and {"Year", "Final Team", "Player Picked"}.issubset(set(ph.columns)):
                 _today_iso = datetime.utcnow().date().isoformat()
                 for _i, _pr in ph.iterrows():
                     _ply = str(_pr.get("Player Picked") or "").strip()
                     if not _ply or _ply.lower() in ("unknown", "nan", "n/a", ""):
+                        # Pick not made yet → leave blank → N/A.
                         continue
+                    # Made pick → always a number ≥ 0 (default 0 if unresolved).
+                    _tenure = 0
                     _ft = str(_pr.get("Final Team") or "").strip()
                     _ym = re.match(r"\s*(\d{4})", str(_pr.get("Year") or ""))
-                    if not _ft or not _ym:
-                        continue
-                    _draft_iso = f"{int(_ym.group(1))}-08-28"
                     _sid = name_to_sid_local2.get(_ply)
-                    if not _sid:
-                        continue
-                    _nx = _next_out_player(_ft, _sid, _draft_iso)
-                    _end_iso = (_nx["date"][:10] if _nx else _today_iso)
-                    try:
-                        _d0 = datetime.fromisoformat(_draft_iso).date()
-                        _d1 = datetime.fromisoformat(_end_iso).date()
-                        ph.at[_i, "Length of tenure on team"] = max(0, (_d1 - _d0).days)
-                    except Exception:
-                        continue
+                    if _ft and _ym and _sid:
+                        _draft_iso = f"{int(_ym.group(1))}-08-28"
+                        _nx = _next_out_player(_ft, _sid, _draft_iso)
+                        _end_iso = (_nx["date"][:10] if _nx else _today_iso)
+                        try:
+                            _d0 = datetime.fromisoformat(_draft_iso).date()
+                            _d1 = datetime.fromisoformat(_end_iso).date()
+                            _tenure = max(0, (_d1 - _d0).days)
+                        except Exception:
+                            _tenure = 0
+                    ph.at[_i, "Length of tenure on team"] = _tenure
         except Exception as e:
             _log_exc(debug, "picks_tenure_8b", e)
 
