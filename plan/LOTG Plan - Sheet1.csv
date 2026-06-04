@@ -36,6 +36,7 @@ Week Name,Number of teams,Number of transactions,PF,Record,Win Variance,PF Range
 Points,Number of transactions,Number of drops,Win?,Change in win % from previous season,Draft Value,Avg margin,Avg margin,Number of games within 10,Total FAAB bid,Season,Trade 1,
 Injury?,Number of drops,Number of trades,Opponent,Win Variance,Number of first round picks made,Margin range,Margin range,Number of games within 5,FAAB difference over second place,KTC value difference at deal time,,
 Suspension?,Number of trades,Points,Points against,Week of playoff elimination,Total number of picks made,Number of games within 10,Number of games within 10,Max PF,FAAB premium %,KTC value difference at end of season,Trade 2,
+,,,,,,,,,,Team performance improvement,,
 Bye?,Points,Points (full season),Margin,Draft Value,Points,Number of games within 5,Number of games within 5,Avg max PF,Date,KTC value difference 1 year later,,
 Starter/Bench,Points (full season),Avg points,Max PF,Number of first round picks made,Avg points,Max PF,Max PF,Efficiency,Season,KTC value difference 2 years later,Trade 3,
 % of points (if starter),Avg points,Avg points (full season),Efficiency,Total number of picks made,Points against,Efficiency,Avg max PF,Number of weeks missed due to injury,Number of bids,Pick value received,Trade 4,

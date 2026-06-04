@@ -191,6 +191,12 @@ _ROWS = [
         "Notes": "FAAB capture (Phase 7A) is what makes FAAB-only trades show real assets instead of blank both sides. Net-zero swaps — trades where nothing actually changed hands (no players/picks, FAAB nets to zero for every roster, e.g. a symmetric $5-for-$5 swap) — are deleted entirely from trades.csv and from all trade counts. Assets sent is attributed to the roster that actually GAVE UP each asset (player it dropped, pick's previous owner, FAAB sender), so a 3+ team trade lists each asset exactly once per side instead of every team claiming the whole pot.",
     },
     {
+        "Stat": "Team performance improvement",
+        "Sheet": "trades",
+        "Formula": "How much the trading team actually got better, measured around the trade and built so a tank trade is NOT penalised. = COEFF × (luck-adjusted change in win% over the next vs previous 10 games) × (−change in Tanking). Luck-adjusted win% swing = (win% in the 10 games after − win% in the 10 games before) − (mean Luck after − mean Luck before), so lucky wins don't count as improvement. Multiplying by −ΔTanking makes the score POSITIVE when the win% movement matches the strategic direction: a contender winning more (win%↑, Tanking↓) AND a tanker tanking effectively (win%↓, Tanking↑) both improve; only genuinely getting worse (win%↓ without extra tanking) is negative. COEFF (30000) and the luck weight (1.0) are tunable; the scale is calibrated to roughly track 'KTC value difference at end of season' (a soft ~65% target, not exact).",
+        "Notes": "Item 3. Windows are the team's ±10 matchups around the trade date (cross-season). N/A when no games exist on one side of the trade (e.g. a very recent trade). Win/Luck/Tanking come from team_week.",
+    },
+    {
         "Stat": "KTC value difference at deal time / end of season / 1 year later / 2 years later",
         "Sheet": "trades",
         "Formula": "(depth-adjusted KTC of received assets) − (depth-adjusted KTC of dropped assets) at each reference date. Depth tax (Item 2): on each side the assets' KTC values are sorted descending, the BEST counts in full, and each subsequent asset is discounted geometrically (2nd × 0.6, 3rd × 0.6², …) — so a side getting more pieces isn't over-credited (you can only start so many). A 1-for-1 is unchanged from the raw difference; a 3-scrubs-for-1-stud package is taxed (the scrubs' summed KTC no longer beats the stud). Same date scheme as transactions.",
