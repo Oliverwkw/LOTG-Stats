@@ -766,6 +766,11 @@ def _preserve_na(col: str) -> bool:
         return True
     if col_l.startswith("net ktc value"):
         return True
+    # Team performance improvement (trades): blank when the ±10-game window
+    # around the trade isn't available (e.g. a very recent trade with no games
+    # played after it yet) — distinct from a measured 0 improvement.
+    if col_l == "team performance improvement":
+        return True
     # Length of tenure on team: a blank means there is NO player whose tenure
     # to measure — a transactions pure drop (no added player) or an unmade pick
     # (no player drafted yet). Render those as N/A. A genuine 0-day tenure
@@ -6976,6 +6981,60 @@ def build_all(repo_root: Path) -> None:
         except Exception as e:
             _log_exc(debug, "picks_pickadj_diff_item1", e)
 
+        # --- Item 3: per-team ordered game log (win / luck / tanking) for the
+        # "Team performance improvement" trade column. ---
+        _team_games: Dict[str, List[Tuple[str, float, float, float]]] = defaultdict(list)
+        _gcols = ["Team", "Year", "Week", "Win?", "Luck", "Tanking"]
+        if not tw.empty and set(_gcols).issubset(tw.columns):
+            for _t, _y, _w, _win, _lk, _tk in zip(*[tw[c] for c in _gcols]):
+                if pd.isna(_y) or pd.isna(_w):
+                    continue
+                try:
+                    _yi, _wi = int(_y), int(_w)
+                except Exception:
+                    continue
+                _wkd = (date(_yi, 9, 7) + timedelta(days=7 * (_wi - 1))).isoformat()
+                _win01 = 1.0 if str(_win).strip().lower() in ("true", "1", "win", "yes") else 0.0
+                try:
+                    _lkf = float(_lk)
+                except Exception:
+                    _lkf = 0.0
+                try:
+                    _tkf = float(_tk)
+                except Exception:
+                    _tkf = 0.0
+                _team_games[str(_t)].append((_wkd, _win01, _lkf, _tkf))
+        for _t in _team_games:
+            _team_games[_t].sort(key=lambda e: e[0])
+
+        # Coefficients (Item 3 — tunable). _TPI_LUCK weights how much of the
+        # win% swing is attributed to luck and removed; _TPI_COEFF scales the
+        # final product into roughly the KTC-at-end-of-season magnitude band.
+        _TPI_LUCK = 1.0
+        _TPI_COEFF = 30000.0
+
+        def _team_perf_improvement(_tm: str, _date_prefix: str) -> Optional[float]:
+            _games = _team_games.get(_tm) or []
+            if not _games or not _date_prefix:
+                return None
+            _before = [g for g in _games if g[0] < _date_prefix][-10:]
+            _after = [g for g in _games if g[0] >= _date_prefix][:10]
+            if not _before or not _after:
+                return None
+            def _mean(seq, i):
+                return sum(g[i] for g in seq) / len(seq)
+            # Luck-adjusted on-field swing over ±10 games (real improvement, not
+            # lucky wins).
+            _dw = (_mean(_after, 1) - _mean(_before, 1)) - _TPI_LUCK * (_mean(_after, 2) - _mean(_before, 2))
+            # Strategic swing. Multiplying by −ΔTanking means the score is
+            # POSITIVE when the win% movement matches the team's strategic
+            # direction: a contender winning more (win%↑, tanking↓) AND a tanker
+            # tanking effectively (win%↓, tanking↑) both improve — so a trade
+            # made to tank is NOT penalised. Genuinely getting worse (win%↓ with
+            # no extra tanking) stays negative.
+            _dt = _mean(_after, 3) - _mean(_before, 3)
+            return round(_TPI_COEFF * _dw * (-_dt), 1)
+
         for idx, row in enumerate(trades_rows):
             team = str(row.get("Team") or "")
             trade_iso = str(row.get("Date") or "")
@@ -7255,6 +7314,11 @@ def build_all(repo_root: Path) -> None:
                     + _cuff_bonus + _pick_val, 4)
             else:
                 row["Trade addition value"] = round(_pick_val, 4)
+
+            # --- Item 3: Team performance improvement ---
+            _tpi = _team_perf_improvement(team, trade_prefix)
+            if _tpi is not None:
+                row["Team performance improvement"] = _tpi
 
             # --- Points Added / Lost / Net (+ per-week averages) ---
             # Received assets = received players + players THIS team drafted
