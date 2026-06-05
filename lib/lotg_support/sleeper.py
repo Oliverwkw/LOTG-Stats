@@ -95,6 +95,10 @@ class SleeperClient:
         lid = league_id or self.league_id
         return self.get(f"/league/{lid}/traded_picks") or []
 
+    def losers_bracket(self, league_id: Optional[str] = None) -> List[Dict[str, Any]]:
+        lid = league_id or self.league_id
+        return self.get(f"/league/{lid}/losers_bracket") or []
+
     def drafts(self, league_id: Optional[str] = None) -> List[Dict[str, Any]]:
         lid = league_id or self.league_id
         return self.get(f"/league/{lid}/drafts") or []
