@@ -695,9 +695,9 @@
   "picks": [
     "Year",
     "Number",
-    "Original Team",
-    "Final Team",
     "Player Picked",
+    "Team",
+    "Original Team",
     "Length of tenure on team",
     "Avg PPG on team",
     "Avg PPG on team adjusted by position",

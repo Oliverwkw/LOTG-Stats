@@ -1513,15 +1513,13 @@ def build_all(repo_root: Path) -> None:
                             refs = _ref_lists[sp[1]][ri]
                             if sp[2] < len(refs):
                                 _set_ref_link(ws.cell(row=ri + 2, column=ci), refs[sp[2]])
-                    if K > 1:
-                        ci = 1
-                        while ci <= len(spec):
-                            if spec[ci - 1][0] == "asset":
-                                ws.merge_cells(start_row=1, start_column=ci, end_row=1, end_column=ci + K - 1)
-                                ws.cell(row=1, column=ci).alignment = Alignment(horizontal="center")
-                                ci += K
-                            else:
-                                ci += 1
+                    # NB: we intentionally do NOT merge the per-asset group
+                    # headers. A merged cell in the header row makes Excel
+                    # refuse to apply an auto-filter (the table stops being
+                    # sortable / re-orderable). The group label already sits
+                    # in the first sub-column header (blank on the rest), so
+                    # the columns stay visually grouped while remaining a
+                    # filterable, sortable table.
                 else:
                     ws.append(list(d.columns))
                     for row in d.itertuples(index=False, name=None):
@@ -1559,9 +1557,10 @@ def build_all(repo_root: Path) -> None:
                                         _set_ref_link(_cell, _refs[_n - 1])
                 ws.freeze_panes = "E2"
 
-                # Skip the auto-filter on the trades sheet — its merged group
-                # headers don't play nicely with a filter dropdown row.
-                if ws.max_column >= 1 and not _did_expand:
+                # Auto-filter every sheet (incl. trades) so the tables stay
+                # sortable/re-orderable. The per-asset expansion no longer
+                # merges header cells, so the filter applies cleanly.
+                if ws.max_column >= 1:
                     ws.auto_filter.ref = f"A1:{get_column_letter(ws.max_column)}{max(1, ws.max_row)}"
 
                 try:
@@ -2470,10 +2469,18 @@ def build_all(repo_root: Path) -> None:
                 and picks_with_players > 0
                 and (rookie_picks / float(picks_with_players)) <= 0.5
             )
+            # Snake drafts reverse pick ORDER on even rounds (the team that
+            # picked last in round 1 picks first in round 2). Capture the
+            # type + reversal_round so the pick-number rebuild can label
+            # picks by true draft order, not by raw draft_slot. The 2021
+            # rookie drafts are snake; all later rookie drafts are linear.
+            _reversal_round = _to_int((d.get("settings") or {}).get("reversal_round"), 0) or 0
             for p in picks or []:
                 p["draft_id"] = did
                 p["draft_season"] = season
                 p["_is_vet_draft"] = bool(is_vet_draft)
+                p["_draft_type"] = draft_type
+                p["_reversal_round"] = int(_reversal_round)
                 if did in draft_slot_to_roster_by_did:
                     p["slot_to_roster_id"] = draft_slot_to_roster_by_did.get(did)
             draft_picks_all.extend(picks or [])
@@ -4218,6 +4225,29 @@ def build_all(repo_root: Path) -> None:
     #      single source of truth here.
     # =====================================================================
     pick_rows = []
+
+    # Earliest-week rosterer per (year, player_id) — the team that first held
+    # a player that season. For a drafted rookie this is the team that drafted
+    # them (they join via the draft, not a transaction). Used to repair the
+    # 2021 rookie draft, whose EVEN-round (snake) picks have corrupted
+    # roster_id / picked_by in Sleeper's data: Sleeper failed to track those
+    # picks' trades and defaulted the picker to the slot's original owner, so
+    # e.g. Trey Sermon (actually drafted by BROsenzweig) was attributed to
+    # plehv79. The empirical roster ledger is the source of truth.
+    _first_team_by_pid_year: Dict[Tuple[int, str], str] = {}
+    _first_week_by_pid_year: Dict[Tuple[int, str], int] = {}
+    for _pwr in player_week_rows:
+        _pid = _pwr.get("Player ID")
+        _yr = _to_int(_pwr.get("Year"), None)
+        _wk = _to_int(_pwr.get("Week"), None)
+        _tm = _pwr.get("Team")
+        if _pid is None or _yr is None or _wk is None or not _tm:
+            continue
+        _k = (int(_yr), str(_pid))
+        if _k not in _first_week_by_pid_year or _wk < _first_week_by_pid_year[_k]:
+            _first_week_by_pid_year[_k] = int(_wk)
+            _first_team_by_pid_year[_k] = str(_tm)
+
     try:
         # ---- Step 1: collect draft frames -----------------------------
         # Real Sleeper drafts: group picks by draft_id, capture slot_map,
@@ -4232,6 +4262,8 @@ def build_all(repo_root: Path) -> None:
                     drafts_by_id[_did] = {
                         "year": int(_season_key),
                         "is_vet": bool(_p.get("_is_vet_draft")),
+                        "is_snake": (str(_p.get("_draft_type") or "").strip().lower() == "snake"),
+                        "reversal_round": int(_to_int(_p.get("_reversal_round"), 0) or 0),
                         "slot_map": {},
                         "max_round": 0,
                         "picks": [],
@@ -4268,6 +4300,8 @@ def build_all(repo_root: Path) -> None:
             draft_frames.append({
                 "year": int(_info["year"]),
                 "is_vet": bool(_info["is_vet"]),
+                "is_snake": bool(_info.get("is_snake")),
+                "reversal_round": int(_info.get("reversal_round") or 0),
                 "slot_map": _smap,
                 "real_picks": _info["picks"],
                 "max_round": min(int(_info["max_round"]), 4),  # cap at 4 for rookie/supplemental drafts
@@ -4375,6 +4409,20 @@ def build_all(repo_root: Path) -> None:
             _real_picks = _frame["real_picks"]
             _max_rnd = min(int(_frame.get("max_round") or 4), 4)
             _team_count = len(_slot_map) or 8
+            _is_snake = bool(_frame.get("is_snake"))
+
+            # In a snake draft the pick ORDER reverses on even rounds (the
+            # team at draft_slot 1 picks last in round 2, first in round 3,
+            # etc.). draft_slot itself stays constant per team, so the
+            # player / original-team mapping keyed by draft_slot is correct
+            # — only the displayed pick NUMBER must follow draft order.
+            # 2.01 = first pick of round 2 = draft_slot N (not slot 1).
+            # reversal_round 0 = standard snake; non-standard reversal
+            # variants aren't used by this league (all drafts use 0).
+            def _pick_position(_round: int, _draft_slot: int) -> int:
+                if _is_snake and (int(_round) % 2 == 0):
+                    return int(_team_count) + 1 - int(_draft_slot)
+                return int(_draft_slot)
 
             # Index real selections by (round, slot) → (player_name, picker_rid).
             # picker_rid is Sleeper's `roster_id` on a draft pick — the team
@@ -4401,9 +4449,13 @@ def build_all(repo_root: Path) -> None:
             _rid_to_team = season_roster_to_team.get(_year, {}) or season_roster_to_team.get(default_year or _year, {})
 
             for _rnd in range(1, _max_rnd + 1):
-                for _slot, _orig_rid in sorted(_slot_map.items()):
-                    _si = _to_int(_slot, None)
-                    _ori = _to_int(_orig_rid, None)
+                # Iterate in pick-ORDER position (1 = first pick of the
+                # round) so rows emit in true draft order. _pick_position
+                # is an involution, so it maps order position -> draft_slot
+                # too (snake reverses even rounds; linear is identity).
+                for _pos in range(1, _team_count + 1):
+                    _si = _pick_position(int(_rnd), int(_pos))
+                    _ori = _to_int(_slot_map.get(_si), None)
                     if _si is None or _ori is None:
                         continue
 
@@ -4431,13 +4483,31 @@ def build_all(repo_root: Path) -> None:
                     if _picker_rid is not None and _chain[-1] != int(_picker_rid):
                         _chain.append(int(_picker_rid))
 
+                    # Repair corrupted even-round picks of the 2021 rookie
+                    # snake draft. Sleeper mis-attributed those picks to the
+                    # slot's original owner (it didn't track the pick trade),
+                    # so the drafter is wrong. The team that actually first
+                    # rostered the drafted player IS the drafter — override
+                    # to it (and collapse the chain, since the slot-based
+                    # origin is unreliable for these picks). Only fires when
+                    # the roster ledger disagrees with Sleeper, so untouched
+                    # / correctly-traded picks (e.g. DeVonta Smith) are left
+                    # alone with their real origin->drafter chain intact.
+                    if _is_snake and not _is_vet and (int(_rnd) % 2 == 0) and _player_id:
+                        _rost_team = _first_team_by_pid_year.get((int(_year), str(_player_id)))
+                        if _rost_team:
+                            _rost_rid = season_team_to_roster.get(int(_year), {}).get(_norm_team_name(_rost_team))
+                            if _rost_rid is not None and int(_rost_rid) != int(_chain[-1]):
+                                _chain = [int(_rost_rid)]
+                                _ori = int(_rost_rid)  # Original=Final=drafter
+
                     _final_rid = int(_chain[-1])
                     _orig_team = _rid_to_team.get(_ori, f"Roster {_ori}")
                     _final_team = _rid_to_team.get(_final_rid, f"Roster {_final_rid}")
 
                     _row: Dict[str, Any] = {
                         "Year": (f"{_year} (vet)" if _is_vet else _year),
-                        "Number": _format_pick_number(int(_rnd), int(_si)),
+                        "Number": _format_pick_number(int(_rnd), int(_pos)),
                         "Original Team": _orig_team,
                         "Final Team": _final_team,
                         "Player Picked": _player,
@@ -5862,10 +5932,16 @@ def build_all(repo_root: Path) -> None:
                     _faab_ratios.append(sum(_sv) / _rf)
                 elif _df > 0 and _rf == 0 and _rv and not _sv:      # gave FAAB for assets
                     _faab_ratios.append(sum(_rv) / _df)
+            _est = 0.0
             if _faab_ratios:
                 _faab_ratios.sort()
-                _ktc_per_faab = _faab_ratios[len(_faab_ratios) // 2]
-            _log(debug, f"[{_now_iso()}] INFO KTC per $1 FAAB ≈ {_ktc_per_faab:.1f} (from {len(_faab_ratios)} FAAB-for-asset trades)")
+                _est = _faab_ratios[len(_faab_ratios) // 2]
+            # The data-derived median (~329) over-values FAAB: it's skewed by a
+            # few small-$ overpays. Use a flat 100 KTC per $1 FAAB — arbitrary
+            # but a more accurate, conservative valuation. (Estimate still
+            # logged for reference.)
+            _ktc_per_faab = 100.0
+            _log(debug, f"[{_now_iso()}] INFO KTC per $1 FAAB = {_ktc_per_faab:.0f} (fixed; data-derived median {_est:.1f} from {len(_faab_ratios)} FAAB-for-asset trades)")
         except Exception as e:
             _log_exc(debug, "ktc_per_faab", e)
 
@@ -12261,6 +12337,11 @@ def build_all(repo_root: Path) -> None:
              "% of starts made while rostered"],
             ["KTC value of player added 2 years later", "KTC value of player added 1 year later",
              "KTC value of player added at end of season", "KTC value of player added at deal time"],
+            # '% of starts made while rostered' is N/A for adds never rostered
+            # a full week (weeks_played==0) — drop it so those adds still score
+            # off net points / addition value (0) / KTC instead of going N/A.
+            # Pure drops stay N/A (no added player -> no KTC) as intended.
+            droppable=("% of starts made while rostered",),
         )
         _add_oscore(
             tr,
@@ -12284,6 +12365,17 @@ def build_all(repo_root: Path) -> None:
             tr["Date"] = _to_eastern_display(tr["Date"])
     except Exception as e:
         _log_exc(debug, "eastern_time_convert", e)
+
+    # Display rename: picks 'Final Team' -> 'Team'. Kept as 'Final Team'
+    # internally (all reconstruction / lookup logic above uses that name);
+    # renamed here, after every consumer has run, so only the output column
+    # changes. The plan/catalog list it as 'Team' and order it right after
+    # 'Player Picked' (which the picks freeze pins, alongside Year/Number).
+    try:
+        if not ph.empty and "Final Team" in ph.columns and "Team" not in ph.columns:
+            ph = ph.rename(columns={"Final Team": "Team"})
+    except Exception as e:
+        _log_exc(debug, "picks_final_team_rename", e)
 
     context = {
         "player_week": pw,
