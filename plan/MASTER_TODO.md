@@ -124,7 +124,7 @@ When the results-based audit surfaces a bug, log it but continue to the diff swe
 
 ## Phase 8 — Picks (rename from "pick history")
 - [x] **Rename the sheet "pick history" → "picks"** (#8A): output sheet/CSV `pick_history.csv`→`picks.csv`, catalog header + stats_catalog.json key `Pick History`→`picks`, the `PH#N` link target sheet, README, and formulas references all updated. Internal frame/var names (`ph`, `FRAME_KEY`) unchanged.
-- [ ] 🔍 Commissioner-moved over-fires — investigate
+- [x] 🔍 Commissioner-moved over-fires — **8G**: detection ran per-season BEFORE that season's own trades were folded into `pick_trade_events`, so every ordinary traded pick hit the "no events" branch and got flagged (172/288 fired). Fix: (1) rewrite the test to "is the snapshot owner reachable through ANY recorded trade hop?" (membership, not chain-END equality — robust to picks traded again in a later season), and (2) clear + rerun detection AFTER the season loop once the ledger is complete. True commissioner moves (off-platform reassignments the ledger never explains) still flag.
 - [x] Each "Trade N" team cell hyperlinks to the corresponding trade row on the trades page — done in **8F** (xlsx hyperlink; best-effort alignment, commissioner-moved hops un-linked).
 - [x] **"Length of tenure on team"** column (#8B): days the DRAFTED player stayed on the drafting team (Final Team), from the draft anchor (≈ Aug 28 of the pick year) to that player's next exit (or today). Mirrors the transactions tenure column. Placed right after "Player Picked".
 - [ ] Add columns (split across sub-PRs):

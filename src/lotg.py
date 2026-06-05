@@ -1706,18 +1706,24 @@ def build_all(repo_root: Path) -> None:
             snapshot_owner[(int(ps), int(rnd_e), int(orig))] = int(nw)
         for key, snap_owner in snapshot_owner.items():
             events = pick_trade_events.get(key) or []
-            if not events:
-                if snap_owner != key[2]:
-                    commissioner_pick_moves[key] = int(snap_owner)
-            else:
-                last_owner = int(key[2])
-                for ev in events:
-                    try:
-                        last_owner = int(ev[2])
-                    except Exception:
-                        pass
-                if last_owner != snap_owner:
-                    commissioner_pick_moves[key] = int(snap_owner)
+            # A pick is commissioner-moved only if its snapshot owner is NOT
+            # reachable through any RECORDED trade — i.e. snap_owner is neither
+            # the original owner nor any team a trade event handed it to. This
+            # is membership (not chain-END equality) on purpose: a pick traded
+            # again in a LATER season has a chain that continues past this
+            # season's snapshot, yet the snapshot owner is still a real hop in
+            # that chain, so it must NOT be flagged. Only a snapshot owner the
+            # ledger never explains (off-platform / commissioner reassignment)
+            # counts. NB: requires pick_trade_events to be fully populated, so
+            # the authoritative pass runs AFTER the season loop.
+            chain_owners = {int(key[2])}
+            for ev in events:
+                try:
+                    chain_owners.add(int(ev[2]))
+                except Exception:
+                    pass
+            if int(snap_owner) not in chain_owners:
+                commissioner_pick_moves[key] = int(snap_owner)
 
     def _future_picks_owned(team_name: str, season_now: int, at_date: date) -> List[Tuple[int, int]]:
         """(pick_year, round) for every FUTURE pick (next 3 seasons) owned
@@ -4193,6 +4199,19 @@ def build_all(repo_root: Path) -> None:
                                 pass
                 except Exception as e:
                     _log_exc(debug, f"transactions_trades_rows_{season}_wk{wk}", e)
+
+    # Authoritative commissioner-move detection — RERUN now that every
+    # trade transaction across all seasons has been folded into
+    # pick_trade_events. The per-season calls above ran before each
+    # season's own trades were recorded, so they over-flagged ordinary
+    # traded picks (snapshot owner present, but the chain not yet built).
+    # Clear those provisional entries and rebuild from the complete ledger.
+    commissioner_pick_moves.clear()
+    for _cm_season in sorted(traded_picks_by_season.keys()):
+        try:
+            _detect_commissioner_moves(int(_cm_season))
+        except Exception as e:
+            _log_exc(debug, f"detect_commissioner_moves_final_{_cm_season}", e)
 
     # Ensure pick ledger includes seasons from 2021 through three years after latest draft.
     latest_draft_season = max(
@@ -12327,12 +12346,12 @@ def build_all(repo_root: Path) -> None:
     try:
         _add_oscore(
             ph,
-            ["Avg points added", "Player addition value", "__MOST_RECENT_KTC__",
+            ["Avg points added", "Pick-adjusted Difference in Player addition value", "__MOST_RECENT_KTC__",
              "Pick-adjusted Difference in Avg career PPG adjusted by position"],
             ["KTC 5 years after draft day", "KTC 2 years after draft day",
              "KTC 1 year after draft day", "KTC at end of rookie year", "KTC on draft day"],
             exclude_mask=(ph["Year"].astype(str).str.contains("vet") if (not ph.empty and "Year" in ph.columns) else None),
-            droppable=("Player addition value",),
+            droppable=("Pick-adjusted Difference in Player addition value",),
         )
         _add_oscore(
             tx,
