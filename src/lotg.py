@@ -4225,6 +4225,29 @@ def build_all(repo_root: Path) -> None:
     #      single source of truth here.
     # =====================================================================
     pick_rows = []
+
+    # Earliest-week rosterer per (year, player_id) — the team that first held
+    # a player that season. For a drafted rookie this is the team that drafted
+    # them (they join via the draft, not a transaction). Used to repair the
+    # 2021 rookie draft, whose EVEN-round (snake) picks have corrupted
+    # roster_id / picked_by in Sleeper's data: Sleeper failed to track those
+    # picks' trades and defaulted the picker to the slot's original owner, so
+    # e.g. Trey Sermon (actually drafted by BROsenzweig) was attributed to
+    # plehv79. The empirical roster ledger is the source of truth.
+    _first_team_by_pid_year: Dict[Tuple[int, str], str] = {}
+    _first_week_by_pid_year: Dict[Tuple[int, str], int] = {}
+    for _pwr in player_week_rows:
+        _pid = _pwr.get("Player ID")
+        _yr = _to_int(_pwr.get("Year"), None)
+        _wk = _to_int(_pwr.get("Week"), None)
+        _tm = _pwr.get("Team")
+        if _pid is None or _yr is None or _wk is None or not _tm:
+            continue
+        _k = (int(_yr), str(_pid))
+        if _k not in _first_week_by_pid_year or _wk < _first_week_by_pid_year[_k]:
+            _first_week_by_pid_year[_k] = int(_wk)
+            _first_team_by_pid_year[_k] = str(_tm)
+
     try:
         # ---- Step 1: collect draft frames -----------------------------
         # Real Sleeper drafts: group picks by draft_id, capture slot_map,
@@ -4459,6 +4482,24 @@ def build_all(repo_root: Path) -> None:
                     # actually made the selection.
                     if _picker_rid is not None and _chain[-1] != int(_picker_rid):
                         _chain.append(int(_picker_rid))
+
+                    # Repair corrupted even-round picks of the 2021 rookie
+                    # snake draft. Sleeper mis-attributed those picks to the
+                    # slot's original owner (it didn't track the pick trade),
+                    # so the drafter is wrong. The team that actually first
+                    # rostered the drafted player IS the drafter — override
+                    # to it (and collapse the chain, since the slot-based
+                    # origin is unreliable for these picks). Only fires when
+                    # the roster ledger disagrees with Sleeper, so untouched
+                    # / correctly-traded picks (e.g. DeVonta Smith) are left
+                    # alone with their real origin->drafter chain intact.
+                    if _is_snake and not _is_vet and (int(_rnd) % 2 == 0) and _player_id:
+                        _rost_team = _first_team_by_pid_year.get((int(_year), str(_player_id)))
+                        if _rost_team:
+                            _rost_rid = season_team_to_roster.get(int(_year), {}).get(_norm_team_name(_rost_team))
+                            if _rost_rid is not None and int(_rost_rid) != int(_chain[-1]):
+                                _chain = [int(_rost_rid)]
+                                _ori = int(_rost_rid)  # Original=Final=drafter
 
                     _final_rid = int(_chain[-1])
                     _orig_team = _rid_to_team.get(_ori, f"Roster {_ori}")
@@ -5891,10 +5932,16 @@ def build_all(repo_root: Path) -> None:
                     _faab_ratios.append(sum(_sv) / _rf)
                 elif _df > 0 and _rf == 0 and _rv and not _sv:      # gave FAAB for assets
                     _faab_ratios.append(sum(_rv) / _df)
+            _est = 0.0
             if _faab_ratios:
                 _faab_ratios.sort()
-                _ktc_per_faab = _faab_ratios[len(_faab_ratios) // 2]
-            _log(debug, f"[{_now_iso()}] INFO KTC per $1 FAAB ≈ {_ktc_per_faab:.1f} (from {len(_faab_ratios)} FAAB-for-asset trades)")
+                _est = _faab_ratios[len(_faab_ratios) // 2]
+            # The data-derived median (~329) over-values FAAB: it's skewed by a
+            # few small-$ overpays. Use a flat 100 KTC per $1 FAAB — arbitrary
+            # but a more accurate, conservative valuation. (Estimate still
+            # logged for reference.)
+            _ktc_per_faab = 100.0
+            _log(debug, f"[{_now_iso()}] INFO KTC per $1 FAAB = {_ktc_per_faab:.0f} (fixed; data-derived median {_est:.1f} from {len(_faab_ratios)} FAAB-for-asset trades)")
         except Exception as e:
             _log_exc(debug, "ktc_per_faab", e)
 
@@ -12318,6 +12365,17 @@ def build_all(repo_root: Path) -> None:
             tr["Date"] = _to_eastern_display(tr["Date"])
     except Exception as e:
         _log_exc(debug, "eastern_time_convert", e)
+
+    # Display rename: picks 'Final Team' -> 'Team'. Kept as 'Final Team'
+    # internally (all reconstruction / lookup logic above uses that name);
+    # renamed here, after every consumer has run, so only the output column
+    # changes. The plan/catalog list it as 'Team' and order it right after
+    # 'Player Picked' (which the picks freeze pins, alongside Year/Number).
+    try:
+        if not ph.empty and "Final Team" in ph.columns and "Team" not in ph.columns:
+            ph = ph.rename(columns={"Final Team": "Team"})
+    except Exception as e:
+        _log_exc(debug, "picks_final_team_rename", e)
 
     context = {
         "player_week": pw,
