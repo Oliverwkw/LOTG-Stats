@@ -7116,15 +7116,37 @@ def build_all(repo_root: Path) -> None:
                     if not _rs:
                         continue  # vet / unparseable → leave N/A
                     _ws = _window_slots(_rs[0], _rs[1])
+                    _pos0 = (_rs[0] - 1) * _rsize + _rs[1]
                     for _st in _padj_diff_stats:
                         _col = f"Pick-adjusted Difference in {_st}"
                         try:
                             _my = float(ph.at[_pi, _st])
                         except Exception:
                             continue  # this pick's stat is N/A → diff stays N/A
-                        _ref = [v for _sl in _ws for v in _vals_by_slot[_st].get(_sl, [])]
-                        if _ref:
-                            ph.at[_pi, _col] = round(_my - sum(_ref) / len(_ref), 4)
+                        # From overall pick 1.05 onward (_pos0 >= 5), the two
+                        # OUTER slots of the 3-slot window are averaged into a
+                        # synthetic 4th comparison pick, and the baseline is the
+                        # mean of the four per-slot means (3 window slots + the
+                        # outer-average), up-weighting the window's edges. Picks
+                        # 1.01-1.04 keep the original rule: a flat pooled mean of
+                        # every value in the edge-clamped window.
+                        if _pos0 >= 5 and len(_ws) == 3:
+                            _means = []
+                            for _sl in _ws:
+                                _vv = _vals_by_slot[_st].get(_sl, [])
+                                _means.append(sum(_vv) / len(_vv) if _vv else None)
+                            if _means[0] is not None and _means[2] is not None:
+                                _fourth = (_means[0] + _means[2]) / 2.0
+                                _terms = [_m for _m in _means if _m is not None] + [_fourth]
+                                ph.at[_pi, _col] = round(_my - sum(_terms) / len(_terms), 4)
+                            else:
+                                _present = [_m for _m in _means if _m is not None]
+                                if _present:
+                                    ph.at[_pi, _col] = round(_my - sum(_present) / len(_present), 4)
+                        else:
+                            _ref = [v for _sl in _ws for v in _vals_by_slot[_st].get(_sl, [])]
+                            if _ref:
+                                ph.at[_pi, _col] = round(_my - sum(_ref) / len(_ref), 4)
         except Exception as e:
             _log_exc(debug, "picks_pickadj_diff_item1", e)
 
@@ -12348,8 +12370,14 @@ def build_all(repo_root: Path) -> None:
             ph,
             ["Avg points added", "Pick-adjusted Difference in Player addition value", "__MOST_RECENT_KTC__",
              "Pick-adjusted Difference in Avg career PPG adjusted by position"],
-            ["KTC 5 years after draft day", "KTC 2 years after draft day",
-             "KTC 1 year after draft day", "KTC at end of rookie year", "KTC on draft day"],
+            # KTC component is the PICK-ADJUSTED KTC difference (most-recent
+            # populated), so a pick's market value is judged vs its draft-slot
+            # window, not in absolute terms (points added stays absolute).
+            ["Pick-adjusted Difference in KTC 5 years after draft day",
+             "Pick-adjusted Difference in KTC 2 years after draft day",
+             "Pick-adjusted Difference in KTC 1 year after draft day",
+             "Pick-adjusted Difference in KTC at end of rookie year",
+             "Pick-adjusted Difference in KTC on draft day"],
             exclude_mask=(ph["Year"].astype(str).str.contains("vet") if (not ph.empty and "Year" in ph.columns) else None),
             droppable=("Pick-adjusted Difference in Player addition value",),
         )
