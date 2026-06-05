@@ -135,11 +135,9 @@ When the results-based audit surfaces a bug, log it but continue to the diff swe
 - [x] **All dataset times → US Eastern (DST-aware)** — folded into the 8C PR per user. The 3 timestamp columns (`transactions.Date`, `transactions."Date dropped/traded"`, `trades.Date`) convert UTC→America/New_York, formatted `YYYY-MM-DD HH:MM:SS` (no offset). Display-only, applied last (after all date logic), so internal comparisons stay on UTC.
 - [ ] **3-part audit** (code / results / diff)
 
-## Phase 9 — Taxi / IR / suggestions
-- [ ] Taxi columns: player_week Taxi?; player_year Weeks in taxi; player_all_time Weeks in taxi; team_week Players in taxi; team_year/all_time Unique players in taxi + Total taxi-player-weeks
-- [ ] IR columns (Sleeper roster.reserve, NOT NFL injury designation): player_week IR slot?; player_year/all_time Weeks on IR; team_week Players on IR; team_year/all_time Unique players on IR + Total IR player-weeks
+## Phase 9 — Taxi / IR / suggestions — **SCRAPPED (taxi/IR)**
+- [~] ~~Taxi columns~~ / ~~IR columns~~ — **dropped: no weekly data available.** Sleeper exposes `roster.taxi`/`roster.reserve` only as a single roster SNAPSHOT (end-of-season per past year; live week for current). Transactions don't record IR/taxi slot moves, and matchup `players` includes IR/taxi players every week (no per-week flag). So genuine per-week taxi/IR history isn't reconstructable; only end-of-season membership is, which isn't worth the columns. (`Taxi-eligible` boolean in player_all_time, already shipped, stays.)
 - [ ] Suggest 3-5 enhancement ideas (draft-class scorecard, schedule luck, trade equity at N years)
-- [ ] **3-part audit** (code / results / diff)
 
 ## Phase 10 — Revisit league notes
 - [ ] Survey league.metadata / settings / per-season text across Sleeper years; decide tracked vs manual overlay
