@@ -272,7 +272,7 @@ _ROWS = [
         "Stat": "Link to next transaction per asset / Link to previous transaction per asset",
         "Sheet": "trades",
         "Formula": "For each asset RECEIVED in the trade (in the same order as 'Assets received'), the reference to that asset's next / previous event in its cross-table chain — '#N' = transactions.csv row N, 'T#N' = trades.csv row N. Rendered as a ';'-joined list aligned 1:1 with 'Assets received'. PLAYERS resolve through the shared player chain (the same one the transaction added/dropped links use). DRAFT PICKS resolve through a separate pick chain to the next/prev TRADE that moved that pick — keyed by the pick's canonical identity (year, round, original owner), built from the received side only so the two mirror rows of one trade event don't link to each other; the pick chain deliberately does NOT continue into the player eventually drafted with the pick. FAAB carries 'N/A'.",
-        "Notes": "In the xlsx these two columns are exploded into one clickable column PER received asset, under a merged group header: each cell shows the asset's NAME and hyperlinks to that asset's next/previous event (the CSV keeps the ';'-joined ref list). Phase 7B + pick chains + draft-row bridge — replaces the old per-team 'Link to next/previous transaction'. Follow a received player OR pick onward to wherever it next moved. The pick chain TERMINATES at the pick's draft row in picks ('PH#N' = picks row N), and a drafted player's chain (here and in the transaction added/dropped links) STARTS at that same draft row — so a pick's last trade links forward to the draft and the drafted player's first event links back to it, without the pick chain ever crossing into the player.",
+        "Notes": "In the xlsx these two columns are exploded into one clickable column PER received asset, the group label sitting in the first sub-column's header (the headers are NOT merged, so the trades sheet stays a sortable/filterable table): each cell shows the asset's NAME and hyperlinks to that asset's next/previous event (the CSV keeps the ';'-joined ref list). Phase 7B + pick chains + draft-row bridge — replaces the old per-team 'Link to next/previous transaction'. Follow a received player OR pick onward to wherever it next moved. The pick chain TERMINATES at the pick's draft row in picks ('PH#N' = picks row N), and a drafted player's chain (here and in the transaction added/dropped links) STARTS at that same draft row — so a pick's last trade links forward to the draft and the drafted player's first event links back to it, without the pick chain ever crossing into the player.",
     },
     {
         "Stat": "Team age including picks",
@@ -283,7 +283,7 @@ _ROWS = [
     {
         "Stat": "Avg PPG of received players on team",
         "Sheet": "trades",
-        "Formula": "Per received player, their mean fantasy_points_ppr over NFL games from trade date through next drop/trade from this team. ALSO includes received DRAFT PICKS (Phase 7D): the player drafted with the pick contributes their mean PPG over their post-draft tenure on this team (draft ≈ late August of the pick year → next exit) — but only when this team actually made the selection (picks Final Team == this team); a pick flipped before the draft, or a not-yet-drafted future pick, contributes nothing. Aggregated as the mean across all these received assets.",
+        "Formula": "Per received player, their mean fantasy_points_ppr over NFL games from trade date through next drop/trade from this team. ALSO includes received DRAFT PICKS (Phase 7D): the player drafted with the pick contributes their mean PPG over their post-draft tenure on this team (draft ≈ late August of the pick year → next exit) — but only when this team actually made the selection (picks Team == this team); a pick flipped before the draft, or a not-yet-drafted future pick, contributes nothing. Aggregated as the mean across all these received assets.",
         "Notes": "Forward-looking — actual production while on this team, players and drafted picks alike. Sourced from nflverse, so injured/bye/suspended weeks (no game log row) are already excluded; only games actually played count.",
     },
     {
@@ -312,27 +312,33 @@ _ROWS = [
     },
     # -------------------------------- picks.csv (pick history) --------------------------------
     {
+        "Stat": "Number",
+        "Sheet": "picks",
+        "Formula": "round.position, where position is the pick's place in DRAFT ORDER within the round (2.01 = first pick of round 2). For LINEAR drafts position == draft_slot. For SNAKE drafts (the 2021 rookie drafts) even rounds reverse, so the team at draft_slot 1 picks last in round 2 (2.08) and first in round 3 (3.01); position = team_count + 1 − draft_slot on even rounds.",
+        "Notes": "Earlier builds labelled every round by raw draft_slot, which mis-numbered even rounds of the 2021 snake drafts (e.g. Trey Sermon showed 2.05 instead of 2.04). Player / Original Team / chain stay keyed by draft_slot — only the displayed number follows draft order. All post-2021 rookie drafts are linear, so they're unaffected.",
+    },
+    {
         "Stat": "Original Team",
         "Sheet": "picks",
         "Formula": "The roster that ORIGINALLY owned this pick before any trades — i.e. the team in that draft-position slot per Sleeper's slot_to_roster_id mapping. For traded picks, this is the chain origin (the team whose own pick this is).",
-        "Notes": "Distinct from 'Final Team'. ESPN-era picks (moved before Sleeper's tracking window) fall back to the slot owner; if that's also unavailable, the picker is used.",
+        "Notes": "Distinct from 'Team'. ESPN-era picks (moved before Sleeper's tracking window) fall back to the slot owner; if that's also unavailable, the picker is used.",
     },
     {
-        "Stat": "Final Team",
+        "Stat": "Team",
         "Sheet": "picks",
-        "Formula": "The roster that actually MADE the selection (= last owner in the trade chain). Equals Original Team when the pick wasn't traded.",
-        "Notes": "Pulled from Sleeper draft picks (roster_id field) and from the end of the reconstructed trade chain.",
+        "Formula": "The roster that actually MADE the selection (= last owner in the trade chain). Equals Original Team when the pick wasn't traded. (Formerly 'Final Team'.)",
+        "Notes": "Pulled from Sleeper draft picks (roster_id field) and from the end of the reconstructed trade chain. For 2021 rookie-draft EVEN rounds (whose Sleeper picker data is corrupted), this is repaired from the roster ledger — the team that actually first rostered the drafted player.",
     },
     {
         "Stat": "Length of tenure on team",
         "Sheet": "picks",
-        "Formula": "Days the DRAFTED player stayed on the team that drafted it (Final Team): from the draft anchor (≈ Aug 28 of the pick year, after offseason pick trades, before the rookie draft) to that player's next exit (drop/trade) off the team, or to today if still rostered. N/A for an unmade pick (a future pick with no player selected yet — 'Unknown') — no player whose tenure to measure, mirroring a transactions pure drop; every MADE pick is a number ≥ 0 (a genuine 0-day tenure, or a pick whose player can't be mapped to a game log, falls back to 0).",
+        "Formula": "Days the DRAFTED player stayed on the team that drafted it (Team): from the draft anchor (≈ Aug 28 of the pick year, after offseason pick trades, before the rookie draft) to that player's next exit (drop/trade) off the team, or to today if still rostered. N/A for an unmade pick (a future pick with no player selected yet — 'Unknown') — no player whose tenure to measure, mirroring a transactions pure drop; every MADE pick is a number ≥ 0 (a genuine 0-day tenure, or a pick whose player can't be mapped to a game log, falls back to 0).",
         "Notes": "Pick analogue of the transactions 'Length of tenure on team'. Uses the same next-exit lookup; the draft anchor matches the 7D drafted-pick PPG window.",
     },
     {
         "Stat": "Avg PPG on team",
         "Sheet": "picks",
-        "Formula": "Mean fantasy_points_ppr of the DRAFTED player over the NFL games they played while on the team that drafted them (Final Team), in the tenure window: draft anchor (≈ Aug 28 of the pick year) → next exit off the team (or today). N/A ONLY when the player was never on the team's roster for an NFL week (cut after the draft before week 1) — or for an unmade pick. If the player was rostered for ≥1 NFL week but logged no games (injured/inactive all tenure), it's 0, not N/A.",
+        "Formula": "Mean fantasy_points_ppr of the DRAFTED player over the NFL games they played while on the team that drafted them (Team), in the tenure window: draft anchor (≈ Aug 28 of the pick year) → next exit off the team (or today). N/A ONLY when the player was never on the team's roster for an NFL week (cut after the draft before week 1) — or for an unmade pick. If the player was rostered for ≥1 NFL week but logged no games (injured/inactive all tenure), it's 0, not N/A.",
         "Notes": "Pick analogue of the transactions 'Average PPG on team' / the 7D drafted-pick PPG; built on the nflverse game log (games actually played, so injured/bye/suspended weeks are excluded). Roster presence comes from player_week (starter or bench).",
     },
     {
@@ -410,7 +416,7 @@ _ROWS = [
     {
         "Stat": "Points added",
         "Sheet": "picks",
-        "Formula": "Σ of the drafted player's fantasy points over the weeks they STARTED for the drafting team (Final Team) within the tenure window (draft anchor → next exit). N/A for an unmade pick; a number ≥ 0 for every made pick (0 if the player never started here / can't be resolved).",
+        "Formula": "Σ of the drafted player's fantasy points over the weeks they STARTED for the drafting team (Team) within the tenure window (draft anchor → next exit). N/A for an unmade pick; a number ≥ 0 for every made pick (0 if the player never started here / can't be resolved).",
         "Notes": "Pick analogue of the trades 'Points added' (received-starter output), restricted to the player drafted with this pick.",
     },
     {

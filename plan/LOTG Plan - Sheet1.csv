@@ -1,9 +1,9 @@
 Player-Week,Player-year,Player-all-time,team-week,team-year,team-all-time,league-week,league-year,league-all-time,transactions,trades,picks,Formulas
 Player,Player,Player,Team,Team,Team,Year,Year,PF,Team,Team,Year,Stat
 Team,Year,Top team,Week,Year,All time win %,Week Name,(smallest) Playoff tiebreaker,Avg PF,Player Added,Team's traded with,Number,Sheet
-Year,Top Team,Last team,Week Name,Result,All time record,Week,PF,PF Range,Player Dropped,Assets received,Original Team,Formula
-Week,Last team,Number of teams,Year,Win %,Championships,PF,Avg PF,Avg margin,type of transaction (waiver/free agency),Assets sent,Final Team,Notes
-Week Name,Number of teams,Number of transactions,PF,Record,Win Variance,PF Range,PF Range,Margin range,Faab,Date,Player Picked,
+Year,Top Team,Last team,Week Name,Result,All time record,Week,PF,PF Range,Player Dropped,Assets received,Player Picked,Formula
+Week,Last team,Number of teams,Year,Win %,Championships,PF,Avg PF,Avg margin,type of transaction (waiver/free agency),Assets sent,Team,Notes
+Week Name,Number of teams,Number of transactions,PF,Record,Win Variance,PF Range,PF Range,Margin range,Faab,Date,Original Team,
 ,,,,,,,,,,,Length of tenure on team,
 ,,,,,,,,,,,Avg PPG on team,
 ,,,,,,,,,,,Avg PPG on team adjusted by position,
