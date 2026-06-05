@@ -1662,6 +1662,17 @@ def build_all(repo_root: Path) -> None:
     draft_rounds_by_season: Dict[int, int] = {}
     included_draft_rounds_by_season: Dict[int, int] = {}
 
+    # Phase 10 — synthetic draft-day picks from commissioner-forced adds.
+    # draft_dates_by_season: actual draft day(s) per season (for matching adds).
+    # draft_day_commish_adds: per season, the commissioner-type adds landing on a
+    #   draft day, sorted by time -> [(created_ms, roster_id, player_id, tx_id)].
+    #   From 2024 the FIRST add is the 2.09 (toilet-bracket reward); from 2025 the
+    #   rest are 5.0X picks (20-FAAB draft-day buys). toilet_winner_by_season holds
+    #   each season's losers-bracket champion (p=1 winner) = next year's 2.09 owner.
+    draft_dates_by_season: Dict[int, Set] = {}
+    draft_day_commish_adds: Dict[int, List[Tuple[int, int, str, str]]] = {}
+    toilet_winner_by_season: Dict[int, Optional[int]] = {}
+
     # Draft pick ownership ledger
     # key: (season, round, original_owner_id) -> current_owner_id
     pick_current_owner: Dict[Tuple[int, int, int], int] = {}
@@ -2373,6 +2384,30 @@ def build_all(repo_root: Path) -> None:
         except Exception as e:
             drafts = []
             _log_exc(debug, f"drafts_{season}", e)
+        # Capture actual draft day(s) — when picks were really made — for
+        # matching commissioner-forced adds (the 2.09 / 5.0X synthetic picks).
+        try:
+            _dd: Set = set()
+            for _dr in drafts or []:
+                for _k in ("last_picked", "start_time"):
+                    _x = _epoch_ms_to_dt(_dr.get(_k))
+                    if _x is not None:
+                        _dd.add(_x.date())
+            draft_dates_by_season[int(season)] = _dd
+        except Exception as e:
+            _log_exc(debug, f"draft_dates_{season}", e)
+        # Losers-bracket champion (p=1 winner) = the toilet-bracket winner, who
+        # earns NEXT season's 2.09 pick.
+        try:
+            _lb = sc.losers_bracket(league_id) or []
+            _tw = None
+            for _m in _lb:
+                if _m.get("p") == 1:
+                    _tw = _to_int(_m.get("w"), None)
+                    break
+            toilet_winner_by_season[int(season)] = _tw
+        except Exception as e:
+            _log_exc(debug, f"losers_bracket_{season}", e)
         # Hydrate each draft with its FULL object via the /draft/{id}
         # endpoint. The /league/{id}/drafts list view returns drafts
         # without `slot_to_roster_id` (it's null there) — the full
@@ -2812,6 +2847,46 @@ def build_all(repo_root: Path) -> None:
                 _log(debug, f"[{_now_iso()}] INFO commissioner-wash {season}: excluded {len(wash_tx_ids)} no-op txns")
         except Exception as e:
             _log_exc(debug, f"commish_wash_{season}", e)
+
+        # Phase 10 — capture commissioner-forced adds that land on a draft day.
+        # These become synthetic picks (the 2.09 toilet reward from 2024+, and
+        # 5.0X FAAB buys from 2025+) and are removed from the transactions sheet.
+        # We capture for every season but only CONVERT/REMOVE the qualifying ones,
+        # so the rule fires automatically in future years.
+        try:
+            _ddays = draft_dates_by_season.get(int(season)) or set()
+            _dda: List[Tuple[int, int, str, str]] = []
+            if _ddays:
+                for _wk_txs in tx_by_week.values():
+                    for _t in _wk_txs:
+                        if str(_t.get("type") or "") != "commissioner":
+                            continue
+                        _a = _t.get("adds") if isinstance(_t.get("adds"), dict) else {}
+                        if not _a:
+                            continue
+                        _dt = _epoch_ms_to_dt(_t.get("created"))
+                        if _dt is None or not any(abs((_dt.date() - _d).days) <= 1 for _d in _ddays):
+                            continue
+                        _txid = str(_t.get("transaction_id") or id(_t))
+                        for _pid, _rid in _a.items():
+                            _ri = _to_int(_rid, None)
+                            if _ri is not None:
+                                _dda.append((int(_t.get("created") or 0), _ri, str(_pid), _txid))
+                _dda.sort(key=lambda x: x[0])
+            draft_day_commish_adds[int(season)] = _dda
+            # Convert: 2.09 (idx 0) from 2024+, 5.0X (idx 1+) from 2025+. Remove
+            # only the converted adds from the transactions output.
+            _conv: List[Tuple[int, int, str, str]] = []
+            if int(season) >= 2024 and _dda:
+                _conv.append(_dda[0])
+                if int(season) >= 2025:
+                    _conv.extend(_dda[1:])
+            for _ca in _conv:
+                wash_tx_ids.add(_ca[3])
+            if _conv:
+                _log(debug, f"[{_now_iso()}] INFO draft-day synthetic picks {season}: {len(_conv)} commish-add(s) -> picks, removed from transactions")
+        except Exception as e:
+            _log_exc(debug, f"draft_day_commish_adds_{season}", e)
 
         # ------------- Build opponent roster mapping + playoff labels -------------
         for wk, mu in matchups_by_week.items():
@@ -4548,6 +4623,55 @@ def build_all(repo_root: Path) -> None:
                     pick_rows.append(_row)
     except Exception as e:
         _log_exc(debug, "pick_history_rebuild", e)
+
+    # ----- Phase 10: inject synthetic draft-day picks (2.09 + 5.0X) -----
+    # Built from the commissioner-forced adds captured per season. They carry a
+    # _player_id, so they flow through every downstream pick stat pass (PPG /
+    # KTC / addition value / pick-adjusted / O-Score) exactly like real picks.
+    # 2.09: original team = prior-season toilet-bracket winner, final team = the
+    #   roster the player was force-added to, one synthetic trade hop if they
+    #   differ. 5.0X: original = final = the buyer, no trade.
+    try:
+        def _pid_name(_pid: Any) -> str:
+            return pid_meta.get(str(_pid), {}).get("full_name") or str(_pid)
+        for _sea, _adds in sorted(draft_day_commish_adds.items()):
+            if int(_sea) < 2024 or not _adds:
+                continue
+            _rid2tm = season_roster_to_team.get(int(_sea), {})
+            # 2.09 (toilet-bracket reward)
+            _ts0, _rid0, _pid0, _txid0 = _adds[0]
+            _final0 = _rid2tm.get(_rid0, f"Roster {_rid0}")
+            _tw_rid = toilet_winner_by_season.get(int(_sea) - 1)
+            _orig0 = _rid2tm.get(_tw_rid, _final0) if _tw_rid is not None else _final0
+            _row209: Dict[str, Any] = {
+                "Year": int(_sea),
+                "Number": "2.09",
+                "Original Team": _orig0,
+                "Final Team": _final0,
+                "Player Picked": _pid_name(_pid0),
+                "_player_id": str(_pid0),
+                "etc": None,
+                "Commissioner moved?": False,
+            }
+            if _orig0 != _final0:
+                _row209["Trade 1"] = _final0
+            pick_rows.append(_row209)
+            # 5.0X (FAAB draft-day buys) — only from 2025; chronological order.
+            if int(_sea) >= 2025:
+                for _j, (_tsj, _ridj, _pidj, _txidj) in enumerate(_adds[1:], start=1):
+                    _tmj = _rid2tm.get(_ridj, f"Roster {_ridj}")
+                    pick_rows.append({
+                        "Year": int(_sea),
+                        "Number": f"5.{_j:02d}",
+                        "Original Team": _tmj,
+                        "Final Team": _tmj,
+                        "Player Picked": _pid_name(_pidj),
+                        "_player_id": str(_pidj),
+                        "etc": None,
+                        "Commissioner moved?": False,
+                    })
+    except Exception as e:
+        _log_exc(debug, "synthetic_draft_day_picks", e)
 
     # --------------------------
     # Convert to DataFrames
@@ -6384,6 +6508,12 @@ def build_all(repo_root: Path) -> None:
                     continue
                 rnd_i = int(m.group(1))
                 slot = m.group(2) or "??"
+                # Synthetic draft-day picks (2.09 toilet reward, 5.0X FAAB buys)
+                # are off-platform and never referenced in Sleeper trades; keep
+                # them out of the trade pick-label map so they can't shadow a
+                # real same-(year,round,owner) pick.
+                if num.strip() == "2.09" or rnd_i >= 5:
+                    continue
                 orig_team = str(prow.get("Original Team") or "").strip()
                 if not orig_team:
                     continue
@@ -6611,9 +6741,13 @@ def build_all(repo_root: Path) -> None:
         if not ph.empty and {"Year", "Number", "Original Team", "Final Team", "Player Picked"}.issubset(set(ph.columns)):
             for _, _phr in ph.iterrows():
                 _ym = re.match(r"\s*(\d{4})", str(_phr.get("Year", "")))
-                _nm = re.match(r"\s*(\d+)\.", str(_phr.get("Number", "")))
+                _nm = re.match(r"\s*(\d+)\.(\d+)", str(_phr.get("Number", "")))
                 _plp = str(_phr.get("Player Picked", "")).strip()
                 if not _ym or not _nm or not _plp or _plp.upper() == "N/A":
+                    continue
+                # Skip synthetic off-platform picks (2.09 / 5.0X) — they aren't
+                # Sleeper-traded and must not shadow a real (year,round,owner) pick.
+                if str(_phr.get("Number", "")).strip() == "2.09" or int(_nm.group(1)) >= 5:
                     continue
                 _key = (int(_ym.group(1)), int(_nm.group(1)), _norm_team_name(_phr.get("Original Team", "")))
                 _pick_to_drafted[_key] = (_plp, _norm_team_name(_phr.get("Final Team", "")), int(_ym.group(1)))
@@ -7082,6 +7216,16 @@ def build_all(repo_root: Path) -> None:
                     if not _m:
                         continue
                     _R, _S = int(_m.group(1)), int(_m.group(2))
+                    # Synthetic picks compare as their equivalent slot: the 2.09
+                    # toilet pick counts as a 2.08, and every 5.0X counts as a
+                    # 4.08 — both for its OWN comparison window and for the pools
+                    # the real 2.08 / 4.08 picks compare against. Mapping here
+                    # (before _max_slot/_max_round) also keeps slot 9 / round 5
+                    # out of the window-position math.
+                    if (_R, _S) == (2, 9):
+                        _R, _S = 2, 8
+                    elif _R == 5:
+                        _R, _S = 4, 8
                     _rs_of[_pi] = (_R, _S)
                     _max_slot = max(_max_slot, _S)
                     _max_round = max(_max_round, _R)
@@ -10520,6 +10664,14 @@ def build_all(repo_root: Path) -> None:
                 phx["_Round"] = phx["Number"].astype(str).str.extract(r"^R?(\d+)").astype(float)
                 # Parse slot for draft value (1/(slot+1)).
                 phx["_PickNo"] = phx["Number"].astype(str).str.extract(r"^R?\d+\.(\d+)").astype(float)
+                # Synthetic picks count as their equivalent slot for draft
+                # value / round tallies: 2.09 -> round 2 slot 8, 5.0X -> round 4
+                # slot 8 (so a fifth never inflates round counts as a "round 5").
+                _num = phx["Number"].astype(str).str.strip()
+                phx.loc[_num == "2.09", "_PickNo"] = 8.0
+                _is5 = phx["_Round"] == 5.0
+                phx.loc[_is5, "_Round"] = 4.0
+                phx.loc[_is5, "_PickNo"] = 8.0
                 phx["_DraftVal"] = phx["_PickNo"].apply(lambda x: 1.0 / (x + 1.0) if pd.notna(x) else 0.0)
                 pick_agg = phx.groupby(["_Picker", "_YearKey"], dropna=False).agg(
                     _draft_value=("_DraftVal", "sum"),
