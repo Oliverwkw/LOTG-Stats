@@ -5733,10 +5733,13 @@ def build_all(repo_root: Path) -> None:
                     cuff_bonus = CUFF_BONUS if cuff else 0.0
                     addition_val = adj_diff * (1.0 + pct_starts) * (1.0 + pct_inj) + cuff_bonus
                     r["Player addition value"] = round(addition_val, 4)
-                elif added and team and weeks_played == 0:
-                    # An added player who was never rostered for a full week
-                    # added nothing measurable → 0 (not N/A). Pure drops (no
-                    # added player) are left N/A.
+                elif added and team:
+                    # An added player with no measurable PPG impact (no
+                    # position-adjusted average and no dropped counterpart —
+                    # e.g. never rostered a full week, or rostered but logged
+                    # no fantasy points the whole tenure) added nothing → 0
+                    # (not N/A), so the O-Score still scores them off net
+                    # points / KTC. Pure drops (no added player) stay N/A.
                     r["Player addition value"] = 0.0
     except Exception as e:
         _log_exc(debug, "transactions_polish_v2", e)
