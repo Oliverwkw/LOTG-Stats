@@ -536,6 +536,18 @@ _ROWS = [
         "Notes": "Healthy BENCH players are deliberately excluded — this asks 'what if their hurt guys were available?', NOT 'what if they had also start/sat optimally', so it doesn't credit start/sit decisions they never made. Bounding to the lineup slots also stops a swarm of injured bench/IR players from manufacturing winnable losses (the earlier 'SA-Hardship + Margin > 0' rule over-counted heavily-injured teams). Counts injury AND suspension, never byes. Each flagged week also subtracts 0.25 from that week's Luck. Count is N/A for a (team, year) with no games; a real 0 stays 0.",
     },
     {
+        "Stat": "Scoring volatility / Scoring floor / Scoring ceiling / Boom % / Bust %",
+        "Sheet": "player_year / player_all_time",
+        "Formula": "Computed over the player's STARTED weeks only. Scoring volatility = standard deviation of started-week points. Scoring floor / ceiling = the lowest / highest single started-week points (absolute min / max, not a percentile). Boom % = share of started weeks scoring ≥ 20; Bust % = share scoring ≤ 5.",
+        "Notes": "All N/A for a player who never started; volatility additionally N/A with fewer than 2 started weeks. Boom % / Bust % keep a real 0 for a player who started but never boomed / busted. Player_year is per season; player_all_time pools every started week.",
+    },
+    {
+        "Stat": "PAR / PAR per game",
+        "Sheet": "player_year / player_all_time",
+        "Formula": "Points Above Replacement over started weeks. For each (year, week, position) the replacement level = the mean of the BOTTOM THIRD of that week's STARTED scores at the position (the 'last-startable' tier). Per started week, PAR_week = the player's points − that replacement level. PAR = the season/all-time SUM of PAR_week; PAR per game = its mean.",
+        "Notes": "Captures value over a freely-startable option at the player's position, week by week (so a stud in a weak position week is rewarded; a low-end starter nets ~0 or negative). N/A for a player who never started.",
+    },
+    {
         "Stat": "Highest / Lowest Win % vs a team",
         "Sheet": "team_all_time",
         "Formula": "Across all individual opponents this team has actually played (≥1 all-time game), the max / min of 'Win % vs <opponent>'. 'Team for highest/lowest Win %' holds the matching opponent handle.",
