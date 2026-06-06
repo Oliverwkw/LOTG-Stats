@@ -7021,7 +7021,7 @@ def build_all(repo_root: Path) -> None:
         # checkpoints relative to the draft (anchor ≈ Aug 28 of the pick year):
         #   KTC on draft day            the draft anchor itself
         #   KTC at end of rookie year   ≈ Feb 1 of the year AFTER the draft
-        #   KTC 1 / 2 / 5 years after draft day
+        #   KTC 1 / 2 / 3 / 4 years after draft day
         # Uses the same dynasty-daddy KTC index (_ktc_idx) that powers the
         # transactions/trades KTC columns. N/A for an unmade pick, an untracked
         # player, or a checkpoint date in the future / before KTC history began
@@ -7029,7 +7029,7 @@ def build_all(repo_root: Path) -> None:
         _pick_ktc_cols = [
             "KTC on draft day", "KTC at end of rookie year",
             "KTC 1 year after draft day", "KTC 2 years after draft day",
-            "KTC 5 years after draft day",
+            "KTC 3 years after draft day", "KTC 4 years after draft day",
         ]
         try:
             from lotg_support.ktc import asset_value_at as _ktc_value_at
@@ -7053,7 +7053,8 @@ def build_all(repo_root: Path) -> None:
                         ("KTC at end of rookie year", date(_yr + 1, 2, 1)),
                         ("KTC 1 year after draft day", date(_yr + 1, 8, 28)),
                         ("KTC 2 years after draft day", date(_yr + 2, 8, 28)),
-                        ("KTC 5 years after draft day", date(_yr + 5, 8, 28)),
+                        ("KTC 3 years after draft day", date(_yr + 3, 8, 28)),
+                        ("KTC 4 years after draft day", date(_yr + 4, 8, 28)),
                     ]
                     for _col, _tgt in _checkpoints:
                         # A checkpoint still in the FUTURE has no KTC yet — leave
@@ -7199,7 +7200,7 @@ def build_all(repo_root: Path) -> None:
             "Player addition value",
             "KTC on draft day", "KTC at end of rookie year",
             "KTC 1 year after draft day", "KTC 2 years after draft day",
-            "KTC 5 years after draft day",
+            "KTC 3 years after draft day", "KTC 4 years after draft day",
         ]
         try:
             if not ph.empty and {"Year", "Number"}.issubset(set(ph.columns)):
@@ -9086,6 +9087,20 @@ def build_all(repo_root: Path) -> None:
             for _pid in (_r.get("_drop_player_ids") or []):
                 if _pid:
                     events.append((str(_pid), str(_date_s), str(_team), "drop"))
+        # Synthetic draft-day picks (2.09 / 5.0X) are removed from the
+        # transactions sheet, but the force-added player genuinely JOINED the
+        # final team that day — keep that as a tenure 'add' so the player's
+        # Top team / time-rostered / Number of teams stay correct.
+        for _sea, _adds in draft_day_commish_adds.items():
+            if int(_sea) < 2024 or not _adds:
+                continue
+            _rid2tm = season_roster_to_team.get(int(_sea), {})
+            _conv = [_adds[0]] + (_adds[1:] if int(_sea) >= 2025 else [])
+            for _ms, _rid, _pid, _txid in _conv:
+                _dt = _epoch_ms_to_dt(_ms)
+                _tm = _rid2tm.get(_rid)
+                if _dt and _tm and _pid:
+                    events.append((str(_pid), _dt.isoformat(), str(_tm), "add"))
 
         by_pid: Dict[str, List[Tuple[str, str, str]]] = defaultdict(list)
         for _pid, _d, _team, _kind in events:
@@ -12525,7 +12540,8 @@ def build_all(repo_root: Path) -> None:
             # KTC component is the PICK-ADJUSTED KTC difference (most-recent
             # populated), so a pick's market value is judged vs its draft-slot
             # window, not in absolute terms (points added stays absolute).
-            ["Pick-adjusted Difference in KTC 5 years after draft day",
+            ["Pick-adjusted Difference in KTC 4 years after draft day",
+             "Pick-adjusted Difference in KTC 3 years after draft day",
              "Pick-adjusted Difference in KTC 2 years after draft day",
              "Pick-adjusted Difference in KTC 1 year after draft day",
              "Pick-adjusted Difference in KTC at end of rookie year",
