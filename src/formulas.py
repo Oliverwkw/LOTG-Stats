@@ -512,6 +512,12 @@ _ROWS = [
         "Notes": "Negative when a team finishes better than their PF / Max PF percentile would predict (over-performance via luck or close-game wins).",
     },
     {
+        "Stat": "Drafting skill / Trading skill / Transaction skill",
+        "Sheet": "team_year / team_all_time",
+        "Formula": "Sample-size-shrunk mean O-Score of the team's moves of that type: Drafting = the picks it MADE (picks.Final Team), Trading = the trades it was in (trades.Team), Transaction = the transactions it made (transactions.Team). Per (Team, Year) on team_year and per Team all-time. Shrinkage toward the league-neutral 50: skill = (n·mean + K·50) / (n + K), K=5, where n = the number of that team's moves with a non-N/A O-Score and mean = their average O-Score.",
+        "Notes": "The shrinkage keeps a manager with 2 great moves from out-ranking one with 25 solid ones, and parks inactive managers near 50 rather than over-rewarding them; on team_year (small per-season samples) values pull harder toward 50. N/A for a (team, year) with no moves of that type (didn't draft / trade / transact). Moves with an N/A O-Score (vet picks, pure-drop transactions, one-sided untracked trades, retired players) drop out of the mean.",
+    },
+    {
         "Stat": "Highest / Lowest Win % vs a team",
         "Sheet": "team_all_time",
         "Formula": "Across all individual opponents this team has actually played (≥1 all-time game), the max / min of 'Win % vs <opponent>'. 'Team for highest/lowest Win %' holds the matching opponent handle.",
