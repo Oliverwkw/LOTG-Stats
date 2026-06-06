@@ -782,6 +782,12 @@ def _preserve_na(col: str) -> bool:
     # games that season (e.g. the not-yet-played current/future season).
     if col_l in {"all-play win %", "all-play win % minus win %", "losses from hardship"}:
         return True
+    # Player consistency + PAR: N/A for players who never started (volatility
+    # also N/A with < 2 starts). Boom/Bust % keep a real 0 for players who did
+    # start but never boomed/busted.
+    if col_l in {"scoring volatility", "scoring floor", "scoring ceiling",
+                 "boom %", "bust %", "par", "par per game"}:
+        return True
     # Length of tenure on team: a blank means there is NO player whose tenure
     # to measure — a transactions pure drop (no added player) or an unmade pick
     # (no player drafted yet). Render those as N/A. A genuine 0-day tenure
@@ -10217,6 +10223,59 @@ def build_all(repo_root: Path) -> None:
                     _log(debug, f"[{_now_iso()}] INFO seeded {len(pad_rows)} player_all_time rows for tx-only players")
         except Exception as e:
             _log_exc(debug, "player_all_tx_only_pad", e)
+
+        # ----- PR C: player consistency + PAR (player_year + player_all_time) -----
+        # Over STARTED weeks only. Volatility = std of started-week points; floor /
+        # ceiling = min / max started-week points ever; Boom % / Bust % = share of
+        # starts >= 20 / <= 5. PAR = points above positional replacement, where the
+        # replacement for (year, week, position) = mean of the BOTTOM THIRD of that
+        # week's started scores at the position (the "last startable" tier); PAR is
+        # the season/all-time total, PAR per game its mean. All N/A for players who
+        # never started (volatility also N/A with < 2 starts).
+        try:
+            _newc = ["Scoring volatility", "Scoring floor", "Scoring ceiling",
+                     "Boom %", "Bust %", "PAR", "PAR per game"]
+            _st = pw_work[pw_work.get("Starter?") == 1].copy()
+            _st["Points"] = pd.to_numeric(_st["Points"], errors="coerce")
+            _st = _st.dropna(subset=["Points"])
+            if {"Player ID", "Year", "Week", "Position"}.issubset(_st.columns) and not _st.empty:
+                def _repl(_s):
+                    _s = _s.sort_values()
+                    _k = max(1, int(np.ceil(len(_s) / 3.0)))
+                    return float(_s.iloc[:_k].mean())
+                _rep = (_st.groupby(["Year", "Week", "Position"])["Points"]
+                        .apply(_repl).rename("_repl").reset_index())
+                _stp = _st.merge(_rep, on=["Year", "Week", "Position"], how="left")
+                _stp["_par"] = _stp["Points"] - _stp["_repl"]
+
+                def _agg(_keys, _src_par):
+                    _g = _st.groupby(_keys)["Points"]
+                    _cnt = _g.count()
+                    _d = pd.DataFrame({
+                        "Scoring volatility": _g.std().round(2),
+                        "Scoring floor": _g.min().round(2),
+                        "Scoring ceiling": _g.max().round(2),
+                        "Boom %": (_st[_st["Points"] >= 20].groupby(_keys)["Points"].count().reindex(_cnt.index).fillna(0) / _cnt * 100).round(1),
+                        "Bust %": (_st[_st["Points"] <= 5].groupby(_keys)["Points"].count().reindex(_cnt.index).fillna(0) / _cnt * 100).round(1),
+                        "PAR": _src_par.groupby(_keys)["_par"].sum().round(2),
+                        "PAR per game": _src_par.groupby(_keys)["_par"].mean().round(2),
+                    })
+                    return _d
+                _dy = _agg(["Player ID", "Year"], _stp)
+                _da = _agg(["Player ID"], _stp)
+                _yd = {(str(k[0]), int(k[1])): r for k, r in _dy.iterrows()}
+                _ad = {str(k): r for k, r in _da.iterrows()}
+                for _c in _newc:
+                    if not player_year.empty and {"Player ID", "Year"}.issubset(player_year.columns):
+                        _yy = pd.to_numeric(player_year["Year"], errors="coerce")
+                        player_year[_c] = [
+                            (_yd[(str(p), int(y))][_c] if (pd.notna(y) and (str(p), int(y)) in _yd) else None)
+                            for p, y in zip(player_year["Player ID"], _yy)
+                        ]
+                    if not player_all.empty and "Player ID" in player_all.columns:
+                        player_all[_c] = [(_ad[str(p)][_c] if str(p) in _ad else None) for p in player_all["Player ID"]]
+        except Exception as e:
+            _log_exc(debug, "player_consistency_par", e)
 
     # Team-year: compute record and vs records using raw opp_rid_map (still available in closures above? not anymore)
     team_year = pd.DataFrame()
