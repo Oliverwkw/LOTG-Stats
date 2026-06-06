@@ -518,6 +518,18 @@ _ROWS = [
         "Notes": "The shrinkage keeps a manager with 2 great moves from out-ranking one with 25 solid ones, and parks inactive managers near 50 rather than over-rewarding them; on team_year (small per-season samples) values pull harder toward 50. N/A for a (team, year) with no moves of that type (didn't draft / trade / transact). Moves with an N/A O-Score (vet picks, pure-drop transactions, one-sided untracked trades, retired players) drop out of the mean.",
     },
     {
+        "Stat": "All-play win %",
+        "Sheet": "team_year / team_all_time",
+        "Formula": "Schedule-luck-free win rate: each week, score the team against EVERY other team (not just its actual opponent). Win % = (Σ over weeks of teams with strictly lower PF that week) / (Σ over weeks of other teams). Per (Team, Year) on team_year; pooled over all weeks on team_all_time. Ties count as neither a win nor a loss but stay in the denominator (so they depress the rate). Format 0–1, 4 decimals like Win %.",
+        "Notes": "Reveals true scoring strength independent of who you were scheduled against — a team can be top-half (the existing flag) yet have a mediocre all-play %, or vice versa. N/A for a (team, year) with no games (e.g. the not-yet-played current/future season).",
+    },
+    {
+        "Stat": "Loss from hardship? / Losses from hardship",
+        "Sheet": "team_week (flag) / team_year + team_all_time (count)",
+        "Formula": "team_week 'Loss from hardship?' = TRUE when a LOSS would have flipped to a win with the team's injured/suspended STARTERS healthy: Starter-adjusted Hardship (expected points lost by likely-starters to injury+suspension — byes excluded, bench injuries excluded) exceeds the margin of defeat, i.e. (Starter-adjusted Hardship + Margin) > 0. team_year / team_all_time 'Losses from hardship' = the count of those flagged weeks per (Team, Year) / per Team.",
+        "Notes": "Uses Starter-adjusted (not plain) Hardship so bench injuries — which wouldn't have changed the score — don't flip a game; with plain Hardship ~74% of losses qualified, with starter-adjusted ~40%. Counts injury AND suspension, never byes. The count is N/A for a (team, year) with no games; a real 0 (no hardship losses) stays 0.",
+    },
+    {
         "Stat": "Highest / Lowest Win % vs a team",
         "Sheet": "team_all_time",
         "Formula": "Across all individual opponents this team has actually played (≥1 all-time game), the max / min of 'Win % vs <opponent>'. 'Team for highest/lowest Win %' holds the matching opponent handle.",

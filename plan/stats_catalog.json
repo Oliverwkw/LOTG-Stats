@@ -154,6 +154,7 @@
     "UPST",
     "Hardship",
     "Starter-adjusted Hardship",
+    "Loss from hardship?",
     "Tanking",
     "Luck",
     "Brosenzweig",
@@ -220,6 +221,8 @@
     "Year",
     "Result",
     "Win %",
+    "All-play win %",
+    "Losses from hardship",
     "Record",
     "Change in win % from previous season",
     "Win Variance",
@@ -414,7 +417,9 @@
     "Record vs champions",
     "Win % vs champions",
     "Record vs last place",
-    "Win % vs last place"
+    "Win % vs last place",
+    "All-play win %",
+    "Losses from hardship"
   ],
   "league-week": [
     "Year",

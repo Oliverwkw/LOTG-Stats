@@ -778,6 +778,10 @@ def _preserve_na(col: str) -> bool:
     # (didn't draft/trade/transact) — N/A, distinct from a real low score.
     if col_l in {"drafting skill", "trading skill", "transaction skill"}:
         return True
+    # All-play win % / Losses from hardship: N/A for a (team, year) with no
+    # games that season (e.g. the not-yet-played current/future season).
+    if col_l in {"all-play win %", "losses from hardship"}:
+        return True
     # Length of tenure on team: a blank means there is NO player whose tenure
     # to measure — a transactions pure drop (no added player) or an unmade pick
     # (no player drafted yet). Render those as N/A. A genuine 0-day tenure
@@ -8563,6 +8567,19 @@ def build_all(repo_root: Path) -> None:
 
         tw["Hardship"] = pd.to_numeric(tw.get("Hardship_Points_Lost"), errors="coerce").fillna(0.0)
         tw["Starter-adjusted Hardship"] = pd.to_numeric(tw.get("Starter_Adj_Hardship"), errors="coerce").fillna(0.0).round(4)
+        # Loss from hardship? — a loss the team would have WON with its
+        # injured/suspended STARTERS healthy. Uses Starter-adjusted Hardship
+        # (the expected points lost by likely-starters to injury+suspension;
+        # byes already excluded, and bench injuries don't count — they wouldn't
+        # have changed the score). Flag = loss AND PF + SA-Hardship > opponent
+        # PF  <=>  SA-Hardship + Margin > 0.
+        try:
+            _hard = pd.to_numeric(tw.get("Starter-adjusted Hardship"), errors="coerce")
+            _marg = pd.to_numeric(tw.get("Margin"), errors="coerce")
+            _won = tw.get("Win?").astype(str).str.lower().isin(["true", "1", "yes"]) if "Win?" in tw.columns else False
+            tw["Loss from hardship?"] = (~_won) & _marg.notna() & _hard.notna() & ((_hard + _marg) > 0)
+        except Exception as e:
+            _log_exc(debug, "loss_from_hardship_flag", e)
         # (Previously had a defensive SA ≤ H clamp here for a
         # plehv79 2022 wk3 anomaly. Audit traced it to negative
         # `expected` from a single-game-history rookie baseline;
@@ -12636,6 +12653,55 @@ def build_all(repo_root: Path) -> None:
                 team_all[_name] = [_amap.get(str(t)) for t in team_all["Team"]]
     except Exception as e:
         _log_exc(debug, "manager_skill", e)
+
+    # ----- PR B: All-play win % + Losses from hardship (team_year + all_time) -----
+    # All-play = score the team vs EVERY other team each week (schedule-luck-free):
+    # win % = (Σ teams with strictly lower PF) / (Σ other teams). Losses from
+    # hardship = count of team_week 'Loss from hardship?' flags.
+    try:
+        _ay_w, _ay_g = defaultdict(float), defaultdict(float)   # (team, year)
+        _at_w, _at_g = defaultdict(float), defaultdict(float)   # team all-time
+        _lh_y, _lh_t = defaultdict(int), defaultdict(int)       # losses-from-hardship
+        if not tw.empty and {"Team", "Year", "Week", "PF"}.issubset(tw.columns):
+            _t = tw.copy()
+            _t["_pf"] = pd.to_numeric(_t["PF"], errors="coerce")
+            _t["_yr"] = pd.to_numeric(_t["Year"], errors="coerce")
+            _t = _t.dropna(subset=["_pf", "_yr"])
+            _lhflag = (_t["Loss from hardship?"].astype(str).str.lower().isin(["true", "1", "yes"])
+                       if "Loss from hardship?" in _t.columns else pd.Series(False, index=_t.index))
+            for (_yr, _wk), _grp in _t.groupby(["_yr", "Week"]):
+                _pfs = _grp["_pf"].tolist()
+                _n = len(_grp)
+                for _i2, _r in _grp.iterrows():
+                    _tm, _y = str(_r["Team"]), int(_yr)
+                    _w = float(sum(1 for v in _pfs if v < _r["_pf"]))
+                    _ay_w[(_tm, _y)] += _w; _ay_g[(_tm, _y)] += float(_n - 1)
+                    _at_w[_tm] += _w; _at_g[_tm] += float(_n - 1)
+                    if bool(_lhflag.loc[_i2]):
+                        _lh_y[(_tm, _y)] += 1; _lh_t[_tm] += 1
+        if not team_year.empty and {"Team", "Year"}.issubset(team_year.columns):
+            _yrs = pd.to_numeric(team_year["Year"], errors="coerce")
+            team_year["All-play win %"] = [
+                (round(_ay_w[(str(t), int(y))] / _ay_g[(str(t), int(y))], 4)
+                 if pd.notna(y) and _ay_g.get((str(t), int(y)), 0) > 0 else None)
+                for t, y in zip(team_year["Team"], _yrs)
+            ]
+            team_year["Losses from hardship"] = [
+                (_lh_y.get((str(t), int(y)), 0)
+                 if pd.notna(y) and _ay_g.get((str(t), int(y)), 0) > 0 else None)
+                for t, y in zip(team_year["Team"], _yrs)
+            ]
+        if not team_all.empty and "Team" in team_all.columns:
+            team_all["All-play win %"] = [
+                (round(_at_w[str(t)] / _at_g[str(t)], 4) if _at_g.get(str(t), 0) > 0 else None)
+                for t in team_all["Team"]
+            ]
+            team_all["Losses from hardship"] = [
+                (_lh_t.get(str(t), 0) if _at_g.get(str(t), 0) > 0 else None)
+                for t in team_all["Team"]
+            ]
+    except Exception as e:
+        _log_exc(debug, "allplay_losses_hardship", e)
 
     # Convert every timestamp column in the dataset to US Eastern (DST-aware)
     # for display — done LAST, after all date-based logic and sorting, so it's
