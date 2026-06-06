@@ -9087,20 +9087,27 @@ def build_all(repo_root: Path) -> None:
             for _pid in (_r.get("_drop_player_ids") or []):
                 if _pid:
                     events.append((str(_pid), str(_date_s), str(_team), "drop"))
-        # Synthetic draft-day picks (2.09 / 5.0X) are removed from the
-        # transactions sheet, but the force-added player genuinely JOINED the
-        # final team that day — keep that as a tenure 'add' so the player's
-        # Top team / time-rostered / Number of teams stay correct.
-        for _sea, _adds in draft_day_commish_adds.items():
-            if int(_sea) < 2024 or not _adds:
-                continue
-            _rid2tm = season_roster_to_team.get(int(_sea), {})
-            _conv = [_adds[0]] + (_adds[1:] if int(_sea) >= 2025 else [])
-            for _ms, _rid, _pid, _txid in _conv:
-                _dt = _epoch_ms_to_dt(_ms)
-                _tm = _rid2tm.get(_rid)
-                if _dt and _tm and _pid:
-                    events.append((str(_pid), _dt.isoformat(), str(_tm), "add"))
+        # EVERY made pick (real rookie picks + the synthetic 2.09 / 5.0X) is a
+        # roster acquisition: the drafted/awarded player JOINED the final team at
+        # the draft. Without this the draft has no 'add' event, so a player later
+        # traded/dropped off the drafting team loses that whole tenure span (the
+        # 'drop from drafter' has no matching add and is skipped) — e.g. Najee
+        # Harris's 56 weeks on stevenb123 vanished and his Top team read LWebs53.
+        # Anchor the add at the draft (≈ Aug 28 of the pick year), matching the
+        # pick PPG/tenure window. Pure draft-and-hold players (no later events)
+        # are unchanged — they previously fell back to player_week and now have
+        # an equivalent open tenure on the drafter.
+        if not ph.empty and {"Year", "Final Team", "Player Picked"}.issubset(set(ph.columns)):
+            for _, _phr in ph.iterrows():
+                _ply = str(_phr.get("Player Picked") or "").strip()
+                _pid = _phr.get("_player_id")
+                _tm = str(_phr.get("Final Team") or "").strip()
+                if not _pid or not _tm or _ply.lower() in ("", "unknown", "n/a", "nan"):
+                    continue
+                _ym = re.match(r"\s*(\d{4})", str(_phr.get("Year") or ""))
+                if not _ym:
+                    continue
+                events.append((str(_pid), date(int(_ym.group(1)), 8, 28).isoformat(), _tm, "add"))
 
         by_pid: Dict[str, List[Tuple[str, str, str]]] = defaultdict(list)
         for _pid, _d, _team, _kind in events:
@@ -10002,7 +10009,12 @@ def build_all(repo_root: Path) -> None:
         try:
             # Latest season we have data for (proxy for "current").
             current_season = int(pw["Year"].max()) if not pw.empty and "Year" in pw.columns else None
-            # First year per player from player_year + tenure_time_team_fy.
+            # First SEASON per player — from player_year only. (Earlier this also
+            # folded in tenure_time_team_fy, but an OFFSEASON acquisition is filed
+            # under the PRIOR fantasy year, so a rookie added in the offseason read
+            # as a year early — wrongly failing the first-year test below. A player
+            # in player_all_time always has player_year rows, so min(player_year)
+            # is the correct, pollution-free first season.)
             first_year_by_pid: Dict[str, int] = {}
             if not player_year.empty and "Player ID" in player_year.columns and "Year" in player_year.columns:
                 _g = player_year.dropna(subset=["Player ID", "Year"]).groupby("Player ID")["Year"].min()
@@ -10011,15 +10023,6 @@ def build_all(repo_root: Path) -> None:
                         first_year_by_pid[str(_p)] = int(_y)
                     except Exception:
                         continue
-            for (_p, _y), _tm in tenure_time_team_fy.items():
-                try:
-                    if not _tm:
-                        continue
-                    existing = first_year_by_pid.get(str(_p))
-                    if existing is None or int(_y) < existing:
-                        first_year_by_pid[str(_p)] = int(_y)
-                except Exception:
-                    continue
 
             def _is_taxi_eligible(row) -> bool:
                 if current_season is None:
@@ -10028,8 +10031,14 @@ def build_all(repo_root: Path) -> None:
                 fy = first_year_by_pid.get(pid)
                 if fy is None or fy != current_season:
                     return False
+                # NB: pa is still pre-rename here — the column is 'Weeks_as_starter'
+                # (it becomes 'Weeks as starter' a few lines below). Read both so
+                # the no-start test actually fires (it silently read 0 before).
+                _ws = row.get("Weeks_as_starter")
+                if _ws is None:
+                    _ws = row.get("Weeks as starter")
                 try:
-                    weeks_started = int(pd.to_numeric(row.get("Weeks as starter"), errors="coerce") or 0)
+                    weeks_started = int(pd.to_numeric(_ws, errors="coerce") or 0)
                 except Exception:
                     weeks_started = 0
                 return weeks_started == 0
