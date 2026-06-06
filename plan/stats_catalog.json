@@ -222,6 +222,7 @@
     "Result",
     "Win %",
     "All-play win %",
+    "All-play win % minus Win %",
     "Losses from hardship",
     "Record",
     "Change in win % from previous season",
@@ -419,6 +420,7 @@
     "Record vs last place",
     "Win % vs last place",
     "All-play win %",
+    "All-play win % minus Win %",
     "Losses from hardship"
   ],
   "league-week": [
