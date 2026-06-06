@@ -137,11 +137,18 @@ When the results-based audit surfaces a bug, log it but continue to the diff swe
 
 ## Phase 9 — Taxi / IR / suggestions — **SCRAPPED (taxi/IR)**
 - [~] ~~Taxi columns~~ / ~~IR columns~~ — **dropped: no weekly data available.** Sleeper exposes `roster.taxi`/`roster.reserve` only as a single roster SNAPSHOT (end-of-season per past year; live week for current). Transactions don't record IR/taxi slot moves, and matchup `players` includes IR/taxi players every week (no per-week flag). So genuine per-week taxi/IR history isn't reconstructable; only end-of-season membership is, which isn't worth the columns. (`Taxi-eligible` boolean in player_all_time, already shipped, stays.)
-- [ ] Suggest 3-5 enhancement ideas (draft-class scorecard, schedule luck, trade equity at N years)
+- [x] Suggested **25** enhancement ideas; user selected a batch → tracked in **Enhancements** below.
 
-## Phase 10 — Revisit league notes
-- [ ] Survey league.metadata / settings / per-season text across Sleeper years; decide tracked vs manual overlay
-- [ ] **3-part audit** (code / results / diff)
+## Enhancements — user-selected from the 25-idea list (batched PRs, each gets the 3-part audit)
+- [x] **PR A — Manager skill** (#234, merged): team_year + team_all_time `Drafting / Trading / Transaction skill` = sample-size-shrunk mean O-Score, K=5. **REVISION (in progress):** user wants more credit for activity (Jacob ranked top only by being least active; Luke traded away most picks). Switch to **value-vs-category-average** `Σ(O − μ_category)` so volume of ABOVE-average moves is rewarded and low-sample managers can't inflate; rename columns to `Drafting / Trading / Transaction value`.
+- [ ] **PR B — Team cluster:** All-play **win %** (team_year + team_all_time); **Losses from hardship** — injury-only (verify/fix the Hardship calc counts injury not bye) — + a team_week `Loss from hardship?` T/F flag.
+- [ ] **PR C — Player cluster** (player_year + player_all_time): consistency = scoring **volatility** (std-dev of started-week points), **floor** = lowest started-week points ever, **ceiling** = highest ever, **boom %** (≥20), **bust %** (≤5); + **PAR** (points above positional replacement). [floor/ceiling are absolute min/max over started weeks, not percentiles — no existing column dupes them]
+- [ ] **PR D — Awards + streaks:** awards = **One-man army** (team_week: highest single-starter share of team PF), **Most bench points** (team_week), **Captain** (player_week: biggest single-team carry); streaks as RUNNING team_week columns → team_year/all_time longest (mirroring Win/Loss streak) = top-half, bottom-half, playoff-appearance (consecutive seasons), winning-season (consecutive seasons), **150+ PF**, standings-leader, quiet (no roster moves), and **rivalry** = longest H2H win streak vs EACH opponent (team_all_time per-opponent like "Record vs [team]" + running team_week "Win streak vs this opponent").
+- [ ] **After PR D — in-season freshness audit:** confirm the data-update timeline for each upstream source (nflverse weekly stats / weekly rosters / injuries, DynastyDaddy KTC daily history, Sleeper) and determine which columns need adjustment so they update CORRECTLY mid-season (e.g. forward-looking windows, "most-recent KTC", current-season tenures, projections, anything anchored to "today" or end-of-season). Output: a list of columns that go stale/incorrect in-season + the fix for each.
+- Dropped from the batch: ⑨ asset lineage (already in trades sheet), ⑬ all-play *record* (win% only), ⑳ bench-blunder/blowout/nail-biter/toilet (already covered by max PF / margin / PF extremes), ㉕ projections (deferred to Phase 14).
+
+## Phase 10 — Revisit league notes — **SCRAPPED**
+- [~] ~~Survey league.metadata / settings / per-season text; decide tracked vs manual overlay~~ — **dropped per user.** The only league-notes use we wanted was the commissioner's per-player notes for the off-platform 2.09 / 5.0X picks; we got those a different way (detecting draft-day commissioner-forced adds → synthetic picks, PRs #230–#233).
 
 ## Phase 11 — Formulas sheet rebuild
 **Moved from Phase 2 per user — better done after Phases 2–10 settle the formulas they describe.**
