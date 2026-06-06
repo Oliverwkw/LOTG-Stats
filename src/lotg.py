@@ -9107,7 +9107,10 @@ def build_all(repo_root: Path) -> None:
                 _ym = re.match(r"\s*(\d{4})", str(_phr.get("Year") or ""))
                 if not _ym:
                     continue
-                events.append((str(_pid), date(int(_ym.group(1)), 8, 28).isoformat(), _tm, "add"))
+                # tz-AWARE anchor (other tenure events are offset-aware; a bare
+                # date string parses naive and breaks the start/end comparison).
+                _anchor = datetime(int(_ym.group(1)), 8, 28, tzinfo=timezone.utc).isoformat()
+                events.append((str(_pid), _anchor, _tm, "add"))
 
         by_pid: Dict[str, List[Tuple[str, str, str]]] = defaultdict(list)
         for _pid, _d, _team, _kind in events:
