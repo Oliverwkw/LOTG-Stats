@@ -780,7 +780,7 @@ def _preserve_na(col: str) -> bool:
         return True
     # All-play win % / Losses from hardship: N/A for a (team, year) with no
     # games that season (e.g. the not-yet-played current/future season).
-    if col_l in {"all-play win %", "losses from hardship"}:
+    if col_l in {"all-play win %", "all-play win % minus win %", "losses from hardship"}:
         return True
     # Length of tenure on team: a blank means there is NO player whose tenure
     # to measure — a transactions pure drop (no added player) or an unmade pick
@@ -8386,6 +8386,50 @@ def build_all(repo_root: Path) -> None:
         pw["_starter_adj_points_lost"] = starter_adj_lost
         pw["_was_recent_starter_injsusp"] = was_recent_starter
 
+        # Healthy-lineup score per team-week for the "Loss from hardship?" flag.
+        # Pool = the team's ACTUAL STARTERS (at their real points) + the hurt
+        # would-be-starters who MISSED (injury/suspension, 0 pts), each subbed in
+        # at their STARTER-ADJUSTED hardship value. compute_optimal_lineup then
+        # picks the best valid lineup from that pool — so a hurt player only
+        # helps by displacing a weaker actual starter (bounded to the lineup
+        # slots, nets the replacement). Healthy bench players are deliberately
+        # EXCLUDED: this asks "what if their hurt guys were available?", NOT
+        # "what if they had also start/sat optimally".
+        _healthy_opt_by_tw: Dict[Tuple[str, str, str], float] = {}
+        try:
+            _need = {"Team", "Year", "Week", "Position", "Points", "Injury?",
+                     "Suspension?", "Starter/Bench", "Player ID", "_starter_adj_points_lost"}
+            if _need.issubset(pw.columns):
+                _pwm = pw[list(_need)].copy()
+                _pwm["_pt"] = pd.to_numeric(_pwm["Points"], errors="coerce").fillna(0.0)
+                _pwm["_sa"] = pd.to_numeric(_pwm["_starter_adj_points_lost"], errors="coerce")
+                _pwm["_st"] = _pwm["Starter/Bench"].astype(str).str.strip().str.lower().eq("starter")
+                _pwm["_hurt"] = (
+                    (_pwm["Injury?"].astype(str).str.strip().str.lower().isin(["true", "1"])
+                     | _pwm["Suspension?"].astype(str).str.strip().str.lower().isin(["true", "1"]))
+                    & (_pwm["_pt"] == 0.0) & _pwm["_sa"].notna() & (_pwm["_sa"] > 0)
+                )
+                _pwm = _pwm[_pwm["_st"] | _pwm["_hurt"]]
+                for (_tm, _yr, _wk), _g in _pwm.groupby(["Team", "Year", "Week"]):
+                    _hp, _pp = {}, {}
+                    for _pid, _pos, _st, _pt, _sa in zip(
+                        _g["Player ID"].astype(str), _g["Position"].astype(str),
+                        _g["_st"], _g["_pt"], _g["_sa"]):
+                        if not _pid or _pid in ("None", "nan"):
+                            continue
+                        _hp[_pid] = float(_pt) if _st else float(_sa)
+                        _pp[_pid] = _pos
+                    if not _hp:
+                        continue
+                    try:
+                        _ho = compute_optimal_lineup(_hp, _pp, int(_yr) if str(_yr).strip().isdigit() else _yr)
+                    except Exception:
+                        _ho = None
+                    if _ho is not None:
+                        _healthy_opt_by_tw[(str(_tm), str(_yr), str(_wk))] = float(_ho)
+        except Exception as e:
+            _log_exc(debug, "healthy_optimal_lineup", e)
+
         # --------------------------
         # Activated Cuff detection
         # --------------------------
@@ -8567,17 +8611,20 @@ def build_all(repo_root: Path) -> None:
 
         tw["Hardship"] = pd.to_numeric(tw.get("Hardship_Points_Lost"), errors="coerce").fillna(0.0)
         tw["Starter-adjusted Hardship"] = pd.to_numeric(tw.get("Starter_Adj_Hardship"), errors="coerce").fillna(0.0).round(4)
-        # Loss from hardship? — a loss the team would have WON with its
-        # injured/suspended STARTERS healthy. Uses Starter-adjusted Hardship
-        # (the expected points lost by likely-starters to injury+suspension;
-        # byes already excluded, and bench injuries don't count — they wouldn't
-        # have changed the score). Flag = loss AND PF + SA-Hardship > opponent
-        # PF  <=>  SA-Hardship + Margin > 0.
+        # Loss from hardship? — a LOSS the team would have WON if its hurt
+        # would-be-starters had been available: the healthy-lineup score
+        # (_healthy_opt_by_tw — actual starters + hurt players at SA-hardship,
+        # best valid lineup, bounded to the slots, NO healthy-bench re-optimizing)
+        # beats the opponent's actual PF.
         try:
-            _hard = pd.to_numeric(tw.get("Starter-adjusted Hardship"), errors="coerce")
-            _marg = pd.to_numeric(tw.get("Margin"), errors="coerce")
-            _won = tw.get("Win?").astype(str).str.lower().isin(["true", "1", "yes"]) if "Win?" in tw.columns else False
-            tw["Loss from hardship?"] = (~_won) & _marg.notna() & _hard.notna() & ((_hard + _marg) > 0)
+            _won = tw.get("Win?").astype(str).str.lower().isin(["true", "1", "yes"]) if "Win?" in tw.columns else pd.Series(False, index=tw.index)
+            _pa = pd.to_numeric(tw.get("Points against"), errors="coerce")
+            _ho = pd.Series(
+                [_healthy_opt_by_tw.get((str(t), str(y), str(w)))
+                 for t, y, w in zip(tw.get("Team"), tw.get("Year"), tw.get("Week"))],
+                index=tw.index, dtype="float64",
+            )
+            tw["Loss from hardship?"] = (~_won) & _pa.notna() & _ho.notna() & (_ho > _pa)
         except Exception as e:
             _log_exc(debug, "loss_from_hardship_flag", e)
         # (Previously had a defensive SA ≤ H clamp here for a
@@ -8725,6 +8772,12 @@ def build_all(repo_root: Path) -> None:
             CLOSE = np.sign(_mar) * np.maximum(0.0, 1.0 - _mar.abs() / 8.0)
             GATE = 1.0 / (1.0 + _mar.abs() / 15.0)
             postboost = np.where(L["_POST"] > 0, 1.8, 1.0)
+            # Flat penalty for a "Loss from hardship?" week — a winnable game lost
+            # to injured starters is bad luck. 0.25 ≈ a typical weekly luck swing
+            # (per-week |luck| ≈ 0.20), so one such loss roughly doubles that
+            # week's misfortune without dominating the season total.
+            LFH = (L.get("Loss from hardship?").astype(str).str.lower().isin(["true", "1"]).astype(float)
+                   if "Loss from hardship?" in L.columns else 0.0)
 
             luck = (
                 (0.27 * OUT + 0.14 * L["_SIS"] - 0.14 * L["_BROS"]) * postboost
@@ -8732,6 +8785,7 @@ def build_all(repo_root: Path) -> None:
                 - 0.36 * ADV
                 + 0.12 * EFF
                 + 0.16 * CLOSE
+                - 0.25 * LFH
             )
             # No opponent / no game → 0 luck.
             _has_game = L["Opponent"].astype(str).str.strip().ne("") & L["opp_FS_pf"].notna()
@@ -12679,27 +12733,29 @@ def build_all(repo_root: Path) -> None:
                     _at_w[_tm] += _w; _at_g[_tm] += float(_n - 1)
                     if bool(_lhflag.loc[_i2]):
                         _lh_y[(_tm, _y)] += 1; _lh_t[_tm] += 1
+        def _ap_diff(_ap_list, _winpct_series):
+            _wp = pd.to_numeric(_winpct_series, errors="coerce")
+            return [(round(a - w, 4) if (a is not None and pd.notna(w)) else None)
+                    for a, w in zip(_ap_list, _wp)]
         if not team_year.empty and {"Team", "Year"}.issubset(team_year.columns):
             _yrs = pd.to_numeric(team_year["Year"], errors="coerce")
-            team_year["All-play win %"] = [
-                (round(_ay_w[(str(t), int(y))] / _ay_g[(str(t), int(y))], 4)
-                 if pd.notna(y) and _ay_g.get((str(t), int(y)), 0) > 0 else None)
-                for t, y in zip(team_year["Team"], _yrs)
-            ]
-            team_year["Losses from hardship"] = [
-                (_lh_y.get((str(t), int(y)), 0)
-                 if pd.notna(y) and _ay_g.get((str(t), int(y)), 0) > 0 else None)
-                for t, y in zip(team_year["Team"], _yrs)
-            ]
+            _ap = [(round(_ay_w[(str(t), int(y))] / _ay_g[(str(t), int(y))], 4)
+                    if pd.notna(y) and _ay_g.get((str(t), int(y)), 0) > 0 else None)
+                   for t, y in zip(team_year["Team"], _yrs)]
+            team_year["All-play win %"] = _ap
+            team_year["All-play win % minus Win %"] = _ap_diff(_ap, team_year.get("Win %"))
+            team_year["Losses from hardship"] = pd.array(
+                [(int(_lh_y.get((str(t), int(y)), 0))
+                  if pd.notna(y) and _ay_g.get((str(t), int(y)), 0) > 0 else None)
+                 for t, y in zip(team_year["Team"], _yrs)], dtype="Int64")
         if not team_all.empty and "Team" in team_all.columns:
-            team_all["All-play win %"] = [
-                (round(_at_w[str(t)] / _at_g[str(t)], 4) if _at_g.get(str(t), 0) > 0 else None)
-                for t in team_all["Team"]
-            ]
-            team_all["Losses from hardship"] = [
-                (_lh_t.get(str(t), 0) if _at_g.get(str(t), 0) > 0 else None)
-                for t in team_all["Team"]
-            ]
+            _apa = [(round(_at_w[str(t)] / _at_g[str(t)], 4) if _at_g.get(str(t), 0) > 0 else None)
+                    for t in team_all["Team"]]
+            team_all["All-play win %"] = _apa
+            team_all["All-play win % minus Win %"] = _ap_diff(_apa, team_all.get("All time win %"))
+            team_all["Losses from hardship"] = pd.array(
+                [(int(_lh_t.get(str(t), 0)) if _at_g.get(str(t), 0) > 0 else None)
+                 for t in team_all["Team"]], dtype="Int64")
     except Exception as e:
         _log_exc(debug, "allplay_losses_hardship", e)
 
