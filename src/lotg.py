@@ -1229,6 +1229,17 @@ def build_all(repo_root: Path) -> None:
     plan_csv = repo_root / "plan" / "LOTG Plan - Sheet1.csv"
     catalog = load_plan_catalog(plan_csv)
 
+    # Phase 11A: flag any output column missing a Formulas-sheet entry so the
+    # documentation can't silently drift as new stats ship. Non-fatal — logged.
+    try:
+        _undoc = formulas.undocumented_columns(catalog)
+        if _undoc:
+            _log(debug, f"WARNING formulas coverage: {len(_undoc)} undocumented column(s): {_undoc}")
+        else:
+            _log(debug, "formulas coverage: all non-obvious columns documented")
+    except Exception as e:
+        _log_exc(debug, "formulas_coverage_check", e)
+
     cfg = yaml.safe_load((repo_root / "config/league.yaml").read_text())
     run_cfg = RunConfig(
         league_id=str(cfg["league_id"]),
