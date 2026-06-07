@@ -1508,9 +1508,35 @@ def build_all(repo_root: Path) -> None:
                 ws = wb.create_sheet(title=sheet_name)
 
                 try:
-                    d = pd.read_csv(csvf)
+                    d = pd.read_csv(csvf, low_memory=False)
                 except Exception:
                     d = pd.DataFrame()
+
+                # Terminal-encoded streak columns hold a mix of integers (a
+                # run's length on its final week), the text "In Progress", and
+                # 0 / "N/A". read_csv types the whole column as text, so the
+                # xlsx would store the lengths as strings and they wouldn't sort
+                # numerically (breaking the top-N longest-streak use case).
+                # Re-type each cell: numbers -> int, keep "In Progress"/"N/A".
+                for _scol in d.columns:
+                    _cl = str(_scol)
+                    if not (_cl.endswith(" streak") or _cl == "Win streak vs this opponent"):
+                        continue
+                    def _streak_cell(v: Any) -> Any:
+                        s = str(v).strip()
+                        if s in ("In Progress", "N/A"):
+                            return s
+                        # Blank/NaN only arises for season-grain streaks in a
+                        # not-yet-played season (read_csv turns the CSV's "N/A"
+                        # into NaN); surface it as "N/A" to match the sheet.
+                        if s in ("", "nan", "None"):
+                            return "N/A"
+                        try:
+                            f = float(s)
+                            return int(f) if f == int(f) else f
+                        except Exception:
+                            return v
+                    d[_scol] = d[_scol].map(_streak_cell).astype(object)
 
                 # Cross-table row references in any "Link to ..." cell:
                 # "#N" -> transactions row N, "T#N" -> trades row N, "PH#N" ->
