@@ -202,11 +202,11 @@ def _nfl_kickoff_thursday(season: int) -> date:
 
 def _week_complete_cutoff(season: int, week: int) -> datetime:
     """UTC instant after which fantasy `week`'s NFL games are safely final:
-    Tuesday 04:00 UTC (≈ 11pm-12am ET, just after that week's Monday Night
-    game), matching the fix-B injury-capture time."""
+    Tuesday 08:00 UTC (≈ 3am ET), a few hours after that week's Monday Night
+    game so the in-progress week is never finalized early."""
     monday = _nfl_kickoff_thursday(season) + timedelta(days=4 + 7 * (int(week) - 1))
     tuesday = monday + timedelta(days=1)
-    return datetime(tuesday.year, tuesday.month, tuesday.day, 4, 0, tzinfo=timezone.utc)
+    return datetime(tuesday.year, tuesday.month, tuesday.day, 8, 0, tzinfo=timezone.utc)
 
 
 def _week_is_complete(season: int, week: int, now: Optional[datetime] = None) -> bool:
