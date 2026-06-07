@@ -1,0 +1,60 @@
+name: Capture weekly injuries
+
+# Snapshots Sleeper's live injury_status for every rostered player and commits
+# it to data/injury_tracker.csv (PR E fix B). Runs Monday ~11pm ET (Tue 04:00
+# UTC) during the NFL season — late enough to catch the week's final injury
+# picture, before Sleeper rolls the statuses to the next week. Also runnable
+# on demand. First real capture: 2026 week 1.
+on:
+  schedule:
+    - cron: "0 4 * 9-12 2"   # Tuesdays 04:00 UTC, Sep–Dec
+    - cron: "0 4 * 1 2"      # Tuesdays 04:00 UTC, January (week 18 tail)
+  workflow_dispatch:
+    inputs:
+      season:
+        description: "Override season (optional)"
+        required: false
+      week:
+        description: "Override week (optional)"
+        required: false
+
+permissions:
+  contents: write
+
+concurrency:
+  group: capture-injuries
+  cancel-in-progress: false
+
+jobs:
+  capture:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install minimal deps
+        run: pip install --no-cache-dir pyyaml requests
+
+      - name: Capture injury snapshot
+        run: |
+          ARGS=""
+          if [ -n "${{ github.event.inputs.season }}" ]; then ARGS="$ARGS --season ${{ github.event.inputs.season }}"; fi
+          if [ -n "${{ github.event.inputs.week }}" ]; then ARGS="$ARGS --week ${{ github.event.inputs.week }}"; fi
+          python scripts/capture_injuries.py $ARGS
+
+      - name: Commit snapshot
+        run: |
+          git config user.name "lotg-injury-bot"
+          git config user.email "noreply@anthropic.com"
+          git add data/injury_tracker.csv
+          if git diff --cached --quiet; then
+            echo "No change to injury_tracker.csv"
+          else
+            git commit -m "Weekly Sleeper injury snapshot [skip ci]"
+            git push
+          fi
