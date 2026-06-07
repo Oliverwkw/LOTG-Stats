@@ -9672,6 +9672,7 @@ def build_all(repo_root: Path) -> None:
             "Bench TE of the week?",
             "Highest starter on team?",
             "Lowest starter on team?",
+            "Captain?",
         ]
 
         pw_work[award_cols] = pw_work[award_cols].fillna(0)
