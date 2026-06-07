@@ -1708,6 +1708,39 @@ def build_all(repo_root: Path) -> None:
             # sorted(out_dir.glob("*.csv")), which sorted tabs alphabetically
             # and ignored the configured order.
             _csv_order = [fname for (fname, _, _) in tables]
+
+            # Phase 11D: player-name hyperlink anchors. Every single-name cell
+            # links to that player's player_all_time row; per-week references
+            # (Reference player name) link to the player_week row for that exact
+            # (year, week). Built from the already-written CSVs (CSV order ==
+            # xlsx row order; sheet row = csv index + 2 for the header).
+            def _yw(v) -> str:
+                s = str(v).strip()
+                try:
+                    return str(int(float(s)))
+                except Exception:
+                    return s
+            name_to_patrow: Dict[str, int] = {}
+            try:
+                _pat = pd.read_csv(out_dir / "player_all_time.csv")
+                if "Player" in _pat.columns:
+                    for i, nm in enumerate(_pat["Player"].astype(str)):
+                        nm = nm.strip()
+                        if nm and nm not in name_to_patrow:
+                            name_to_patrow[nm] = i + 2
+            except Exception:
+                pass
+            nameyw_to_pwrow: Dict[Tuple[str, str, str], int] = {}
+            try:
+                _pwk = pd.read_csv(out_dir / "player_week.csv", low_memory=False)
+                if {"Player", "Year", "Week"}.issubset(_pwk.columns):
+                    for i, (nm, yr, wk) in enumerate(zip(_pwk["Player"].astype(str), _pwk["Year"], _pwk["Week"])):
+                        key = (nm.strip(), _yw(yr), _yw(wk))
+                        if key not in nameyw_to_pwrow:
+                            nameyw_to_pwrow[key] = i + 2
+            except Exception:
+                pass
+
             _written = set()
             for fname in _csv_order:
                 csvf = out_dir / fname
@@ -1940,6 +1973,58 @@ def build_all(repo_root: Path) -> None:
                                 ws.cell(row=r, column=j).number_format = nf
                 except Exception:
                     pass
+
+                # Phase 11D: hyperlink single player-name cells. Most link to the
+                # player's player_all_time row; 'Reference player name' (a
+                # specific player in a specific week) links to the player_week
+                # row for that (year, week). Multi-name list cells (trades
+                # Assets …) are left to their existing per-asset event links.
+                try:
+                    _link_pat = []   # columns -> player_all_time
+                    _link_pw = []    # columns -> player_week (per-week ref)
+                    if sheet_name in ("player_week", "player_year", "player_all_time"):
+                        _link_pat.append("Player")
+                    if sheet_name == "picks":
+                        _link_pat.append("Player Picked")
+                    if sheet_name == "transactions":
+                        _link_pat += ["Player Added", "Player Dropped"]
+                    if sheet_name == "player_week":
+                        _link_pw.append("Reference player name")
+                    if _link_pat or _link_pw:
+                        _hdr = [ws.cell(row=1, column=j).value for j in range(1, ws.max_column + 1)]
+                        _yr_j = _hdr.index("Year") + 1 if "Year" in _hdr else None
+                        _wk_j = _hdr.index("Week") + 1 if "Week" in _hdr else None
+                        _bluefont = Font(color="0563C1")
+
+                        def _linkcell(cell, target):
+                            cell.hyperlink = target
+                            cell.font = _bluefont
+
+                        for colname in _link_pat:
+                            if colname not in _hdr:
+                                continue
+                            j = _hdr.index(colname) + 1
+                            for r in range(2, ws.max_row + 1):
+                                nm = str(ws.cell(row=r, column=j).value or "").strip()
+                                if not nm or nm.lower() in ("nan", "n/a"):
+                                    continue
+                                row = name_to_patrow.get(nm)
+                                if row:
+                                    _linkcell(ws.cell(row=r, column=j), f"#'player_all_time'!A{row}")
+                        for colname in _link_pw:
+                            if colname not in _hdr or _yr_j is None or _wk_j is None:
+                                continue
+                            j = _hdr.index(colname) + 1
+                            for r in range(2, ws.max_row + 1):
+                                nm = str(ws.cell(row=r, column=j).value or "").strip()
+                                if not nm or nm.lower() in ("nan", "n/a"):
+                                    continue
+                                key = (nm, _yw(ws.cell(row=r, column=_yr_j).value), _yw(ws.cell(row=r, column=_wk_j).value))
+                                row = nameyw_to_pwrow.get(key)
+                                if row:
+                                    _linkcell(ws.cell(row=r, column=j), f"#'player_week'!A{row}")
+                except Exception as e:
+                    _log_exc(debug, "player_name_hyperlinks", e)
 
                 # Auto-filter every sheet (incl. trades) so the tables stay
                 # sortable/re-orderable. The per-asset expansion no longer
