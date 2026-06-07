@@ -552,6 +552,8 @@ _ROWS = [
         "Sheet": "team_week (flag) + team_year/team_all_time (Times count)",
         "Formula": "Weekly team awards (one winner per league-week, ties shared). One-man army? = the team whose single top starter supplied the greatest share of its PF that week (highest '% of points (if starter)' among any team's top starter). Most bench points? = the team with the highest total bench points. Most injured? = the team with the most injured players on its roster (starters + bench) that week. team_year / team_all_time carry 'Times One-man army?' / 'Times Most bench points?' / 'Times Most injured?' = how often the team won each.",
         "Notes": "Mirror the existing weekly-award pattern (Highest score?, Most efficient?, …). Most injured? requires at least one injury; a 0-injury week has no winner.",
+        "Columns": ["One-man army?", "Most bench points?", "Most injured?",
+                    "Times One-man army?", "Times Most bench points?", "Times Most injured?"],
     },
     {
         "Stat": "Captain? / Times as Captain?",
@@ -564,6 +566,20 @@ _ROWS = [
         "Sheet": "team_week + player_week",
         "Formula": "For every weekly award and condition there is a running streak that is ALL-TIME — it counts consecutive qualifying weeks and does NOT reset between seasons. team_week: Highest/Lowest score, Narrowest victory, Largest blowout, Most/Least efficient, Top half, One-man army, Most bench points, Most injured (award streaks); Bottom half, 150+ PF (PF ≥ 150), Standings leader (regular-season weeks at #1 in cumulative standings), Quiet (0 transactions + 0 trades), and 'Win streak vs this opponent' (consecutive H2H wins vs that week's opponent). player_week: a streak per player award (Player/QB/RB/WR/TE of the week, Benchwarmer, Bench QB/RB/WR/TE, Highest/Lowest starter on team, Captain).",
         "Notes": "TERMINAL ENCODING so each run lists once and the column stays sortable for top-N lists: a run shows its LENGTH only on its final week (the most recent week if still active, else the peak week before it reset); earlier weeks of the run read 'In Progress'; weeks not on a run read 0. Sorting a column descending surfaces each streak exactly once (numbers sort above the 'In Progress' text). Win streak / Loss streak are the exception — they keep their running within-season and cross-season columns unchanged (not terminal-encoded).",
+        "Columns": [
+            "Highest score streak", "Lowest score streak", "Narrowest victory streak",
+            "Largest blowout streak", "Most efficient streak", "Least efficient streak",
+            "Top half streak", "One-man army streak", "Most bench points streak",
+            "Most injured streak", "Bottom half streak", "150+ PF streak",
+            "Standings leader streak", "Quiet streak", "Win streak vs this opponent",
+            "Win streak", "Loss streak", "Win streak counting previous season",
+            "Loss streak counting previous season",
+            "Player of the week streak", "QB of the week streak", "RB of the week streak",
+            "WR of the week streak", "TE of the week streak", "Benchwarmer of the week streak",
+            "Bench QB of the week streak", "Bench RB of the week streak",
+            "Bench WR of the week streak", "Bench TE of the week streak",
+            "Highest starter on team streak", "Lowest starter on team streak", "Captain streak",
+        ],
     },
     {
         "Stat": "Playoff appearance streak / Winning season streak",
@@ -600,9 +616,470 @@ _ROWS = [
         "Sheet": "team_year / team_all_time / league_year / league_all_time",
         "Formula": "DISTINCT trade events (by trade timestamp) the team / league was in: Offseason = dated before that season's kickoff (Sept 7); Inseason = on/after kickoff; Total = Offseason + Inseason. Year sheets are per season; all-time sheets sum across seasons (a trade lives in one season). Each trade counts once regardless of how many teams were involved.",
         "Notes": "Replaces the single 'Number of trades' on the year/all-time sheets (which summed per team and multi-counted multi-team trades). The per-WEEK sheets keep 'Number of trades' — an offseason trade rolls into Week 1's weekly count only if within 7 days before kickoff. Rookies started/rostered and 'Number of NFL teams among …' on league_year/all_time are likewise distinct-across-the-period.",
+        "Columns": ["Offseason trades", "Inseason trades", "Total trades"],
+    },
+    {
+        "Stat": "Top team / Last team",
+        "Sheet": "player_year / player_all_time",
+        "Formula": "Top team / Top Team = the fantasy team (manager) that rostered the player for the most TIME over the period (by rostered duration, not week count). Last team = the team that held the player at the END of the season (in-season window only, so an offseason move doesn't overwrite it).",
+        "Notes": "Phase 3 definition. These are manager names (could link to team_all_time, but that's out of Phase 11D's player-name scope).",
+        "Columns": ["Top team", "Top Team", "Last team"],
+    },
+    {
+        "Stat": "Age / Rookie?",
+        "Sheet": "player_week (+ player_year/all Age)",
+        "Formula": "Age = the player's age as of that week (birth_date vs the week's date; per-season = mean weekly age ≈ mid-season). Rookie? = TRUE in the player's rookie NFL season.",
+        "Notes": "Age is anchored to the week, not 'today', so historical weeks stay correct.",
+        "Columns": ["Age", "Rookie?"],
+    },
+
+    # ================= Phase 11A: complete the coverage =================
+    # -------------------------------- player_week --------------------------------
+    {
+        "Stat": "Injury? / Suspension? / Bye?",
+        "Sheet": "player_week",
+        "Formula": "Per player-week status flags. Bye? = the player's NFL team had no game that week (player scored 0). Suspension? = serving an NFL suspension. Injury? = on a roster, scored 0, did not play, and not a bye/suspension. Primary source is the in-house weekly Sleeper injury tracker (data/injury_tracker.csv); nflverse stats/injuries + curated overlays are the backup.",
+        "Notes": "A player who scored > 0 is never flagged (you can play hurt). Suspension wins over injury; bye wins over both. byes excluded from Hardship.",
+        "Columns": ["Injury?", "Suspension?", "Bye?"],
+    },
+    {
+        "Stat": "% of points (if starter)",
+        "Sheet": "player_week",
+        "Formula": "A started player's share of his team's starting PF that week = player points / team PF. Blank for bench players.",
+        "Notes": "Drives the weekly Captain / One-man army awards.",
+        "Columns": ["% of points (if starter)"],
+    },
+    {
+        "Stat": "Change from previous week / previous 5 weeks avg / career average to that point / overall career average",
+        "Sheet": "player_week",
+        "Formula": "Differences of the week's points vs: the prior played week; the mean of the previous 5 played weeks; the player's career PPG through the prior week; and the player's full-career PPG. All use full-season (NFLverse) scoring and exclude bye/injury/suspension non-played weeks from the baselines.",
+        "Notes": "N/A when the baseline period doesn't exist yet (first week / no prior games).",
+        "Columns": ["Change from previous week", "Change from previous 5 weeks avg",
+                    "Change from career average to that point", "Change from overall career average"],
+    },
+    {
+        "Stat": "Number of weeks on team / Total weeks as team starter to that point / Total weeks on bench to that point",
+        "Sheet": "player_week",
+        "Formula": "Running tenure counters for the player on his current team: consecutive weeks rostered, cumulative weeks started, and cumulative weeks benched, each through that week.",
+        "Notes": "Reset when the player joins a new team.",
+        "Columns": ["Number of weeks on team", "Total weeks as team starter to that point",
+                    "Total weeks on bench to that point"],
+    },
+    {
+        "Stat": "Number of consecutive weeks on bench before start (if starter) / excluding injury/bye",
+        "Sheet": "player_week",
+        "Formula": "On a week the player starts, how many consecutive weeks he sat on the bench immediately beforehand. The second variant doesn't count weeks the player was unavailable (injury/bye/suspension) as 'benched'.",
+        "Notes": "Only populated on a starting week.",
+        "Columns": ["Number of consecutive weeks on bench before start (if starter)",
+                    "Number of consecutive weeks on bench before start excluding injury/bye (if starter)"],
+    },
+    {
+        "Stat": "Start/sit reference: best-startable-bench & worst-benchable-starter diffs",
+        "Sheet": "player_week",
+        "Formula": "For a STARTER: 'Difference from best startable bench (if starter)' = his points minus the best-scoring eligible bench player he could have started; the bench player's name is 'Reference player name'. For a BENCH player: 'Difference from worst benchable starter (if bench)' = his points minus the weakest starter he could have replaced. 'Difference in averages of best/worst startables over previous 5 games' compares the same pair on their trailing-5 averages instead of that week's points. 'Cuff adjusted difference' folds in the handcuff signal. '- Activated Cuff?…' flags that a rostered handcuff (same NFL team/position, much higher recent PPG) was started while its starter was hurt.",
+        "Notes": "These reference a specific player in a specific week (the Phase-11 hyperlink exception → link to player_week, not player_all_time).",
+        "Columns": ["Difference from best startable bench (if starter)",
+                    "Difference from worst benchable starter (if bench)", "Reference player name",
+                    "Difference in averages of best/worst startables over previous 5 games",
+                    "Cuff adjusted difference",
+                    "- Activated Cuff? (Was a player of the same nfl team/position & who averages >10 PPG more over last 5 played games injured? Only for players with avg <10 PPG)"],
+    },
+    {
+        "Stat": "Weekly player awards (Player/QB/RB/WR/TE of the week, Benchwarmer, Bench QB/RB/WR/TE, Highest/Lowest starter) + Times-as counts",
+        "Sheet": "player_week (flag) + player_year/player_all_time (Times as … count)",
+        "Formula": "One winner per (Year, Week) per award among the relevant pool. Player of the week = highest-scoring starter league-wide; QB/RB/WR/TE of the week = highest starter at that position; Benchwarmer of the week = lowest-scoring starter (no winner if 2+ tie at 0); Bench QB/RB/WR/TE = highest-scoring bencher at that position; Highest / Lowest starter on team = the team's top / bottom starter (per team, each week). Alphabetical tie-break. player_year / player_all_time carry 'Times as <award>?' = season / career counts.",
+        "Notes": "Companion streak columns are documented in the Streaks entry.",
+        "Columns": ["Player of the week?", "QB of the week?", "RB of the week?", "WR of the week?",
+                    "TE of the week?", "Benchwarmer of the week?", "Bench QB of the week?",
+                    "Bench RB of the week?", "Bench WR of the week?", "Bench TE of the week?",
+                    "Highest starter on team?", "Lowest starter on team?",
+                    "Times as Player of the week?", "Times as QB of the week?", "Times as RB of the week?",
+                    "Times as WR of the week?", "Times as TE of the week?", "Times as Benchwarmer of the week?",
+                    "Times as Bench QB of the week?", "Times as Bench RB of the week?",
+                    "Times as Bench WR of the week?", "Times as Bench TE of the week?",
+                    "Times as Highest starter on team?", "Times as Lowest starter on team?"],
+    },
+    {
+        "Stat": "Number of transactions / Number of drops / Number of trades",
+        "Sheet": "player_week / player_year / player_all_time / team_week / team_year / team_all_time / league_week / league_year / league_all_time",
+        "Formula": "Counts of roster moves involving the row's subject: adds+drops (transactions), drops only, and trades. On player sheets they count moves of that player; on team/league sheets they count the team's / league's moves that period and roll week → year → all-time.",
+        "Notes": "On the year/all-time TEAM/LEAGUE sheets 'Number of trades' is superseded by the distinct Offseason/Inseason/Total trades (multi-team trades counted once).",
+        "Columns": ["Number of transactions", "Number of drops", "Number of trades"],
+    },
+
+    # -------------------------------- player_year / player_all_time --------------------------------
+    {
+        "Stat": "Avg points / Adjusted Avg points / Points (full season) / Avg points (full season)",
+        "Sheet": "player_year / player_all_time / team_year / team_all_time (Avg points)",
+        "Formula": "Avg points = mean points over weeks ROSTERED by the subject. Adjusted Avg points excludes bye/injury/suspension non-played weeks from the denominator (a per-played-week average). Points (full season) = the player's TOTAL NFLverse points that season/career (incl. weeks he wasn't rostered here); Avg points (full season) = its per-game mean.",
+        "Notes": "Derived consumers use the Adjusted variants. Full-season columns come from NFLverse, not LOTG rosters.",
+        "Columns": ["Avg points", "Adjusted Avg points", "Points (full season)", "Avg points (full season)"],
+    },
+    {
+        "Stat": "PPG starter / bench (+ Adjusted) / PPG starter vs bench diff",
+        "Sheet": "player_year / player_all_time",
+        "Formula": "Points-per-game split by lineup role: PPG starter = mean points in started weeks; PPG bench = mean in benched weeks; the Adjusted variants drop bye/injury/suspension weeks from the denominator. 'PPG starter vs bench diff' = PPG starter − PPG bench (how much better the player did when started).",
+        "Notes": "N/A when the player never started / never benched that period.",
+        "Columns": ["PPG starter", "PPG bench", "Adjusted PPG starter", "Adjusted PPG bench",
+                    "PPG starter vs bench diff"],
+    },
+    {
+        "Stat": "% of points (highest/lowest team) + team names",
+        "Sheet": "player_year / player_all_time",
+        "Formula": "The player's highest and lowest single-week starter share of team PF over the period, with the team (manager) it happened on in 'Team for highest / lowest % of points'.",
+        "Notes": "Uses the per-week '% of points (if starter)'.",
+        "Columns": ["% of points (highest team)", "% of points (lowest team)",
+                    "Team for highest % of points", "Team for lowest % of points"],
+    },
+    {
+        "Stat": "Number of teams",
+        "Sheet": "player_year / player_all_time",
+        "Formula": "Distinct fantasy teams (managers) that rostered the player during the season / career, counting partial-week rosterings.",
+        "Notes": "Phase 3 fix: counts every team that held the player at any point (Renfrow = 5).",
+        "Columns": ["Number of teams"],
+    },
+    {
+        "Stat": "Weeks as starter / Weeks missed due to injury / suspension",
+        "Sheet": "player_year / player_all_time",
+        "Formula": "Counts over the period: weeks the player was a starter; weeks missed (rostered, 0 pts) flagged injury; weeks missed flagged suspension.",
+        "Notes": "League sheets carry the league-wide totals ('Number of weeks missed due to injury / suspensions').",
+        "Columns": ["Weeks as starter", "Weeks missed due to injury", "Weeks missed due to suspension"],
+    },
+    {
+        "Stat": "Change in points / avg points from previous season & from career",
+        "Sheet": "player_year",
+        "Formula": "Season-over-season and vs-career deltas of the player's full-season total and average points: 'Change in points from previous season', 'Change in avg points from previous season', 'Change in points from career', 'Change in avg points from career'.",
+        "Notes": "N/A for a rookie year / when there's no prior season or career baseline.",
+        "Columns": ["Change in points from previous season", "Change in avg points from previous season",
+                    "Change in points from career", "Change in avg points from career"],
+    },
+    {
+        "Stat": "Taxi-eligible",
+        "Sheet": "player_all_time",
+        "Formula": "TRUE if the player has never been a fantasy starter in any LOTG week (eligible to be stashed on a taxi/practice squad).",
+        "Notes": "Keyed off Weeks-as-starter == 0 across the player's whole history; undrafted never-started rookies stay eligible.",
+        "Columns": ["Taxi-eligible"],
+    },
+
+    # -------------------------------- team_week core --------------------------------
+    {
+        "Stat": "PF / Points against / Max PF / Margin / Win? / Efficiency",
+        "Sheet": "team_week (+ rollups)",
+        "Formula": "PF = the team's started-lineup points; Points against = opponent PF; Margin = PF − Points against; Win? = 1/0/0.5 (tie). Max PF = the team's best possible (optimal) lineup score that week; Efficiency = PF / Max PF (how close the actual lineup came to optimal).",
+        "Notes": "Used throughout standings, Luck and the optimal-lineup metrics.",
+        "Columns": ["PF", "Points against", "Max PF", "Margin", "Win?", "Efficiency"],
+    },
+    {
+        "Stat": "Brosenzweig / Sisenzweig (+ Times)",
+        "Sheet": "team_week (flag) + team_year/team_all_time (Times count)",
+        "Formula": "League in-jokes for luck extremes: Brosenzweig = lost despite a top-half score that week (unlucky loss); Sisenzweig = won despite a bottom-half score (lucky win). team_year/all carry 'Times Brosenzweig' / 'Times Sisenzweig'.",
+        "Notes": "Feed the Luck model.",
+        "Columns": ["Brosenzweig", "Sisenzweig", "Times Brosenzweig", "Times Sisenzweig"],
+    },
+    {
+        "Stat": "Weekly team awards (Highest/Lowest score, Narrowest victory, Largest blowout, Most/Least efficient, Top half) + Times counts",
+        "Sheet": "team_week (flag) + team_year/team_all_time (Times count)",
+        "Formula": "Per (Year, Week): Highest / Lowest score = max / min PF; Narrowest victory / Largest blowout = smallest / largest winning margin; Most / Least efficient = max / min Efficiency; Top half of league? = PF at or above the week's median. team_year/all carry 'Times <award>?' counts.",
+        "Notes": "Companion streaks are in the Streaks entry.",
+        "Columns": ["Highest score?", "Lowest score?", "Narrowest victory?", "Largest blowout?",
+                    "Most efficient?", "Least efficient?", "Top half of league?",
+                    "Times Highest score?", "Times Lowest score?", "Times Narrowest victory?",
+                    "Times Largest blowout?", "Times Most efficient?", "Times Least efficient?",
+                    "Times Top half of league?"],
+    },
+    {
+        "Stat": "Increase in points from previous week / Roster & Starter turnover from previous week / Difference in pregame avg max PF from opponent",
+        "Sheet": "team_week (+ league_week)",
+        "Formula": "Increase in points from previous week = PF − prior week's PF (week 1 vs last season's final week). Roster / Starter turnover from previous week = number of roster / starting-lineup slots that changed vs the prior week. 'Difference in pregame avg max PF from opponent' = the team's trailing average Max PF minus the opponent's, a pregame talent gauge.",
+        "Notes": "Turnover rolls up to season averages on the year/all-time sheets.",
+        "Columns": ["Increase in points from previous week", "Roster turnover from previous week",
+                    "Starter turnover from previous week", "Difference in pregame avg max PF from opponent"],
+    },
+    {
+        "Stat": "Hardship: Number of (starter) injuries / suspensions, players on bye + Starter-adjusted Hardship",
+        "Sheet": "team_week (+ league_week / team_year / team_all_time)",
+        "Formula": "Weekly counts of the team's injured / suspended players and players on bye, plus starter-only variants ('Number of starter injuries / suspensions'). Starter-adjusted Hardship = expected points lost from injured/suspended would-be starters, each weighted by how likely they were to start (effective starter %).",
+        "Notes": "Bye excluded from Hardship. Year/all-time carry the season sums (Weeks of injuries / starter injuries / starter suspensions).",
+        "Columns": ["Number of Injuries", "Number of suspensions", "Number of players on bye",
+                    "Number of starter injuries", "Number of starter suspensions",
+                    "Starter-adjusted Hardship"],
+    },
+    {
+        "Stat": "Luck",
+        "Sheet": "team_week / team_year",
+        "Formula": "Weekly composite of how much a team's RESULT diverged from its performance/schedule: rewards unlucky losses / strong-but-beaten weeks and penalizes lucky wins, gated by win/loss, with opponent-strength, own-strength, closeness, efficiency and a losses-from-hardship penalty. team_year Luck = Σ weekly Luck (see plan/LUCK_REWORK.md for the exact weighting).",
+        "Notes": "Each loss-from-hardship week subtracts 0.25. Calibrated so winning-to-talent nets ≈ 0.",
+        "Columns": ["Luck"],
+    },
+
+    # -------------------------------- team_year / team_all_time --------------------------------
+    {
+        "Stat": "Win % / Record / All time record / All time win % / Differential / Avg differential",
+        "Sheet": "team_year / team_all_time",
+        "Formula": "Win % = wins+½·ties over games; Record = 'W-L' (regular season). All time record / win % pool every season. Differential = Σ Margin (PF − PA) over the period; Avg differential = its per-game mean.",
+        "Notes": "Standalone identity columns (Team/Year) aren't documented; these computed aggregates are.",
+        "Columns": ["Win %", "Record", "All time record", "All time win %", "Differential", "Avg differential"],
+    },
+    {
+        "Stat": "Record / Win % vs playoff teams / non-playoff teams / champion(s) / last place",
+        "Sheet": "team_year / team_all_time",
+        "Formula": "Head-to-head record and win% restricted to opponents in a class that season: playoff teams (top-4 seed), non-playoff teams, the champion, and the last-place team. team_all_time pools the per-season class memberships.",
+        "Notes": "PR E fix C: N/A for an in-progress season (classes unknown until it ends). 'champion' vs 'champions' / singular-plural variants exist across year vs all-time.",
+        "Columns": ["Record vs playoff teams", "Win % vs playoff teams", "Record vs non-playoff teams",
+                    "Win % vs non-playoff teams", "Record vs champion", "Win % vs champion",
+                    "Record vs champions", "Win % vs champions", "Record vs last place", "Win % vs last place"],
+    },
+    {
+        "Stat": "Result / Week of playoff elimination / Championships",
+        "Sheet": "team_year / team_all_time",
+        "Formula": "Result = the team's finish that season (Champion / 2nd / 3rd / 4th / Missed playoffs / Last place) from the playoff & toilet brackets. Week of playoff elimination = the week the team was knocked out (0 if it won it all / didn't make the bracket as scored). Championships (all-time) = career title count.",
+        "Notes": "PR E fix C: N/A for an in-progress season.",
+        "Columns": ["Result", "Week of playoff elimination", "Championships"],
+    },
+    {
+        "Stat": "Roster / starter turnover (weekly avg, in-season, off-season)",
+        "Sheet": "team_year / team_all_time / league_year",
+        "Formula": "Average weekly roster / starter turnover = mean of the week-over-week turnover. Inseason turnover = unique roster / starting-lineup players changed between Week 1 and the championship week. Offseason turnover = change from the prior season's championship roster to this season's Week-1 roster.",
+        "Notes": "All-time = per-season average, not a sum.",
+        "Columns": ["Average weekly roster turnover", "Average weekly starter turnover",
+                    "Inseason roster turnover", "Inseason starter turnover",
+                    "Offseason roster turnover", "Offseason starter turnover"],
+    },
+    {
+        "Stat": "Draft Value / Number of first round picks made / Total number of picks made",
+        "Sheet": "team_year / team_all_time",
+        "Formula": "Draft Value = Σ pick-slot value of the picks the team actually MADE that season (1/(slot+1)-style curve). Plus the counts of first-round and total picks made.",
+        "Notes": "Excludes the 2021 vet/startup draft.",
+        "Columns": ["Draft Value", "Number of first round picks made", "Total number of picks made"],
+    },
+    {
+        "Stat": "Future draft capital / Amount of FAAB spent / Change in win % from previous season",
+        "Sheet": "team_year / team_all_time (+ team_week future cap, league sheets FAAB)",
+        "Formula": "Future draft capital = value of picks the team currently HOLDS for the next 3 years (own retained + acquired − traded away). Amount of FAAB spent = Σ winning waiver bids. Change in win % from previous season = this season's Win % minus last season's.",
+        "Notes": "team_week future cap updates on each trade; team_year uses the season-end snapshot.",
+        "Columns": ["Future draft capital", "Amount of FAAB spent", "Change in win % from previous season"],
+    },
+    {
+        "Stat": "Avg yearly luck / Avg PF / Avg max PF / Avg points against / Avg margin",
+        "Sheet": "team_year / team_all_time (+ league_year / league_all_time)",
+        "Formula": "Per-period means: Avg yearly luck = mean of season Luck totals (all-time); Avg PF / Avg max PF / Avg points against / Avg margin = per-game means of PF / Max PF / Points against / Margin.",
+        "Notes": "League sheets carry the league-wide versions.",
+        "Columns": ["Avg yearly luck", "Avg PF", "Avg max PF", "Avg points against", "Avg margin"],
+    },
+    {
+        "Stat": "Weeks of injuries / starter injuries / starter suspensions / suspensions + league weeks-missed totals",
+        "Sheet": "team_year / team_all_time / league_year / league_all_time",
+        "Formula": "Season/career sums of injured / suspended player-weeks (and starter-only variants) for the team; the league sheets carry the league-wide 'Number of weeks missed due to injury / suspensions'.",
+        "Notes": "Starter variants use the same starter heuristic as Starter-adjusted Hardship.",
+        "Columns": ["Weeks of injuries", "Weeks of starter injuries", "Weeks of starter suspensions",
+                    "Weeks suspensions", "Number of weeks missed due to injury",
+                    "Number of weeks missed due to suspensions"],
+    },
+
+    # -------------------------------- roster composition (team + league) --------------------------------
+    {
+        "Stat": "Number of QB/RB/WR/TE started & rostered",
+        "Sheet": "team_week / team_year / team_all_time / league_week / league_year / league_all_time",
+        "Formula": "Counts of players at each position the team started / rostered. Week sheets are per-week counts; year/all-time count DISTINCT players over the period.",
+        "Columns": ["Number of QB started", "Number of QB rostered", "Number of RB started",
+                    "Number of RB rostered", "Number of WR started", "Number of WR rostered",
+                    "Number of TE started", "Number of TE rostered"],
+    },
+    {
+        "Stat": "Same-NFL-team concentration + NFL-team spread",
+        "Sheet": "team_week / team_year / team_all_time / league_week / league_year / league_all_time",
+        "Formula": "'Most number of <players/QBs/RBs/WR/TE> started/rostered from same NFL team' = the largest group of the team's started/rostered players sharing one NFL team. 'Number of NFL teams among starting/rostered players' = how many distinct NFL teams were represented.",
+        "Notes": "Year/all-time take the max (concentration) and distinct counts over the period.",
+        "Columns": ["Most number of players started from same NFL team",
+                    "Most number of players rostered from same NFL team",
+                    "Most number of QBs started from same NFL team",
+                    "Most number of QBs rostered from same NFL team",
+                    "Most number of RBs started from same NFL team",
+                    "Most number of RBs rostered from same NFL team",
+                    "Most number of WR started from same NFL team",
+                    "Most number of WR rostered from same NFL team",
+                    "Most number of TE started from same NFL team",
+                    "Most number of TE rostered from same NFL team",
+                    "Number of NFL teams among starting players",
+                    "Number of NFL teams among rostered players"],
+    },
+    {
+        "Stat": "Number of rookies / cuffs started & rostered",
+        "Sheet": "team_week / team_year / team_all_time / league_week / league_year / league_all_time",
+        "Formula": "Counts of rookies and handcuffs (cuffs) the team started / rostered. Week = per-week; year/all-time = DISTINCT players.",
+        "Columns": ["Number of rookies started", "Number of rookies rostered",
+                    "Number of cuffs rostered", "Number of cuffs started"],
+    },
+    {
+        "Stat": "Scoring-threshold counts (donuts / under 10 / over 20-50) + highest-vs-lowest starter spread",
+        "Sheet": "team_week / team_year / team_all_time (+ league sheets for the non-starter variants)",
+        "Formula": "Counts of the team's players (and starter-only variants) whose week score was a donut (0), under 10, or over 20/30/40/50. 'Difference between highest and lowest starters' = top starter score − bottom starter score that week.",
+        "Notes": "Week = per-week counts; year/all-time = sums.",
+        "Columns": ["Number of donuts", "Number of starter donuts", "Number of players under 10",
+                    "Number of starters under 10", "Number of players over 20", "Number of starters over 20",
+                    "Number of players over 30", "Number of starters over 30", "Number of players over 40",
+                    "Number of starters over 40", "Number of players over 50", "Number of starters over 50",
+                    "Difference between highest and lowest starters"],
+    },
+    {
+        "Stat": "Player average age / Startup draft players remaining",
+        "Sheet": "team_week / team_year / team_all_time / league_week / league_year / league_all_time",
+        "Formula": "Player average age = mean age of the team's rostered players (year/all-time = mean of weekly averages, ≈ mid-season age). Startup draft players remaining = how many of the team's original 2021 startup-draft picks it still rosters.",
+        "Notes": "Age anchored to the week date, not 'today'.",
+        "Columns": ["Player average age", "Startup draft players remaining"],
+    },
+
+    # -------------------------------- league sheets (spread / extremes) --------------------------------
+    {
+        "Stat": "League weekly spread & extremes",
+        "Sheet": "league_week / league_year / league_all_time",
+        "Formula": "PF = total league points that week. Highest starter score = the single best starter score in the league. PF Range / Margin range = max−min of team PF / game margin. 'Number of games within 5 / within 10' = close games by final margin. '(smallest) Playoff tiebreaker' = the tightest seeding tiebreaker margin that season.",
+        "Notes": "Year/all-time aggregate the weekly league values.",
+        "Columns": ["PF", "Highest starter score", "PF Range", "Margin range",
+                    "Number of games within 5", "Number of games within 10",
+                    "(smallest) Playoff tiebreaker"],
+    },
+
+    # -------------------------------- transactions --------------------------------
+    {
+        "Stat": "Player Added / Player Dropped / Date dropped/traded / type of transaction",
+        "Sheet": "transactions",
+        "Formula": "The added and dropped player names for the move, the date the added player later left the team ('Date dropped/traded'), and 'type of transaction (waiver/free agency)' = how the add happened (waiver claim vs free-agent pickup vs commissioner add).",
+        "Notes": "Player names are hyperlink targets (Phase 11D).",
+        "Columns": ["Player Added", "Player Dropped", "Date dropped/traded",
+                    "type of transaction (waiver/free agency)"],
+    },
+    {
+        "Stat": "Transaction/trade value: Net points / Avg net points (± position) / Avg points lost (± position)",
+        "Sheet": "transactions / trades",
+        "Formula": "Production the move netted the team: Net points = points the added/received player(s) scored for the team minus points the dropped/sent player(s) would have scored over the same window. 'Avg net points' = per-game; '… adjusted by position' scales by positional value. 'Avg points lost (± position)' = the dropped/sent side's per-game production over the window.",
+        "Notes": "Windows run from the move to the player's next exit (or today if still rostered).",
+        "Columns": ["Net points", "Avg net points", "Avg net points adjusted by position",
+                    "Avg points lost", "Avg points lost adjusted by position",
+                    "Average PPG of dropped player over same time"],
+    },
+    {
+        "Stat": "Transaction KTC: player added/dropped at deal time / end of season / 1 & 2 years later (+ Net KTC)",
+        "Sheet": "transactions",
+        "Formula": "KeepTradeCut (1QB) value of the added and dropped player at four reference points relative to the move — deal day, that season's end, and 1 & 2 years later — plus 'Net KTC value …' = added-side value minus dropped-side value at each. Sourced from the dynasty-daddy KTC history.",
+        "Notes": "N/A for an untracked player, a future reference date, or pre-April-2021 history.",
+        "Columns": ["KTC value of player added at end of season", "KTC value of player added 1 year later",
+                    "KTC value of player added 2 years later", "KTC value of player dropped at deal time",
+                    "KTC value of player dropped at end of season", "KTC value of player dropped 1 year later",
+                    "KTC value of player dropped 2 years later", "Net KTC value at end of season",
+                    "Net KTC value 1 year later", "Net KTC value 2 years later"],
+    },
+    {
+        "Stat": "Transaction lineage links (next/previous, added/dropped player)",
+        "Sheet": "transactions",
+        "Formula": "Cross-references to the next / previous transaction involving the same added or dropped player, so you can follow a player's move chain. In the xlsx these are clickable links to the referenced transaction row.",
+        "Columns": ["Link to next transaction (added player)", "Link to previous transaction (added player)",
+                    "Link to next transaction (dropped player)", "Link to previous transaction (dropped player)"],
+    },
+
+    # -------------------------------- trades --------------------------------
+    {
+        "Stat": "Team's traded with / trade KTC value difference (end of season / 1 & 2 years later)",
+        "Sheet": "trades",
+        "Formula": "Team's traded with = the counterparties in the deal. 'KTC value difference …' = (received-asset KTC) − (sent-asset KTC) at that season's end and 1 & 2 years later — i.e. who came out ahead by realized dynasty value over time.",
+        "Notes": "Positive favors the row's team. N/A when references are in the future / untracked.",
+        "Columns": ["Team's traded with", "KTC value difference at end of season",
+                    "KTC value difference 1 year later", "KTC value difference 2 years later"],
+    },
+
+    # -------------------------------- picks --------------------------------
+    {
+        "Stat": "Player Picked",
+        "Sheet": "picks",
+        "Formula": "The player the pick was used on (blank/'Unknown' for an unmade pick).",
+        "Notes": "Hyperlink target (Phase 11D).",
+        "Columns": ["Player Picked"],
+    },
+    {
+        "Stat": "Pick KTC checkpoints (draft day / end of rookie year / 1-4 years after)",
+        "Sheet": "picks",
+        "Formula": "The drafted player's KTC (1QB) value at six checkpoints relative to the draft: draft day (≈ Aug 28), end of rookie year (≈ Feb 1 after), and 1/2/3/4 years after draft day.",
+        "Notes": "Future checkpoints and pre-history dates are N/A.",
+        "Columns": ["KTC on draft day", "KTC at end of rookie year", "KTC 1 year after draft day",
+                    "KTC 2 years after draft day", "KTC 3 years after draft day", "KTC 4 years after draft day"],
+    },
+    {
+        "Stat": "Pick-adjusted Difference columns (value vs the pick's slot expectation)",
+        "Sheet": "picks",
+        "Formula": "Each 'Pick-adjusted Difference in <X>' = the pick's realized <X> minus the average <X> of a comparison set of nearby pick slots (the slot's expected return), so a positive value means the pick beat its draft position. Applies to Player addition value, the on-team / career / points-added adjusted PPGs, and each KTC checkpoint.",
+        "Notes": "Comparison baseline = the 3-pick window around the slot plus a 4th averaged-outer pick (from slot 1.05 on); 1.01–1.04 use the pooled mean.",
+        "Columns": ["Pick-adjusted Difference in Player addition value",
+                    "Pick-adjusted Difference in Avg PPG on team adjusted by position",
+                    "Pick-adjusted Difference in Avg career PPG adjusted by position",
+                    "Pick-adjusted Difference in Avg points added adjusted by position",
+                    "Pick-adjusted Difference in KTC on draft day",
+                    "Pick-adjusted Difference in KTC at end of rookie year",
+                    "Pick-adjusted Difference in KTC 1 year after draft day",
+                    "Pick-adjusted Difference in KTC 2 years after draft day",
+                    "Pick-adjusted Difference in KTC 3 years after draft day",
+                    "Pick-adjusted Difference in KTC 4 years after draft day"],
     },
 ]
 
 
+# Output columns of the Formulas sheet (in order). "Columns" is INTERNAL
+# coverage metadata (the exact column names an entry documents, used by
+# the coverage check below + tests/test_formulas_coverage.py) and is NOT emitted.
+_OUTPUT_FIELDS = ["Stat", "Sheet", "Formula", "Notes"]
+
+
 def build_output(context):
-    return pd.DataFrame(_ROWS)
+    return pd.DataFrame([{k: r.get(k, "") for k in _OUTPUT_FIELDS} for r in _ROWS])
+
+
+# --- Phase 11A coverage check (shared by the build-time assert and the test) ---
+import re as _re
+
+# Pure identity / label columns exempt from needing a formula entry.
+IDENTITY_ALLOWLIST = {
+    "player", "player id", "team", "year", "week", "week name", "position",
+    "position started in (if starter)", "nfl team", "opponent",
+    "opponent team (raw)", "starter/bench", "season", "date", "points", "etc",
+}
+# Dynamically generated per-opponent / per-team / pick-hop columns, documented generically.
+_GENERATED_PREFIXES = ("record vs ", "win % vs ", "longest win streak vs ",
+                       "team for ", "trade ")
+
+
+def _norm(s):
+    return _re.sub(r"\s+", " ", str(s).strip().lower())
+
+
+def documented_columns():
+    """Normalized set of every column name an entry documents (Stat tokens + Columns)."""
+    out = set()
+    for e in _ROWS:
+        for part in str(e.get("Stat", "")).split("/"):
+            out.add(_norm(part))
+        for c in (e.get("Columns") or []):
+            out.add(_norm(c))
+    return out
+
+
+def undocumented_columns(catalog):
+    """Return the sorted list of output columns (across the data sheets in
+    `catalog`, a {sheet: [cols]} dict) that have no Formulas entry and aren't
+    identity/generated. Empty when coverage is complete."""
+    documented = documented_columns()
+    data_sheets = ["Player-Week", "Player-year", "Player-all-time",
+                   "team-week", "team-year", "team-all-time",
+                   "league-week", "league-year", "league-all-time",
+                   "transactions", "trades", "picks"]
+    seen, missing = set(), []
+    for sheet in data_sheets:
+        for col in (catalog.get(sheet) or []):
+            n = _norm(col)
+            if n in seen:
+                continue
+            seen.add(n)
+            if n in IDENTITY_ALLOWLIST or n in documented:
+                continue
+            if any(n.startswith(p) for p in _GENERATED_PREFIXES):
+                continue
+            missing.append(col)
+    return sorted(missing)
