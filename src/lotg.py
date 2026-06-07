@@ -828,6 +828,53 @@ def _terminalize_streaks(df: pd.DataFrame, group_cols: List[str],
     return df
 
 
+def _encode_player_streaks(df: pd.DataFrame, group_col: str, order_cols: List[str],
+                           played, specs: Dict[str, Any]) -> pd.DataFrame:
+    """Compute terminal-encoded PLAYER streaks that SKIP non-played weeks.
+
+    A bye / injury / suspension week (played[i] is False) does NOT count toward
+    a streak and does NOT break it — the run simply bridges across it (those
+    cells read 'N/A'). Among PLAYED weeks the encoding matches
+    _terminalize_streaks: a run shows its length on its final played week,
+    'In Progress' before, 0 on a played week that didn't qualify.
+
+    `played` is a boolean array aligned to df (post-sort here); `specs` maps each
+    output column -> a boolean array of 'did the player qualify that week'."""
+    df = df.sort_values([group_col] + order_cols).reset_index(drop=True)
+    n = len(df)
+    import numpy as _np
+    played = _np.asarray(played, dtype=bool)
+    groups = df.groupby([group_col], sort=False).groups
+    for out_col, qual in specs.items():
+        qual = _np.asarray(qual, dtype=bool)
+        vals: List[Any] = [0] * n
+        for _gk, idx in groups.items():
+            idx = list(idx)
+            raw: Dict[int, int] = {}
+            played_seq: List[int] = []
+            c = 0
+            for i in idx:
+                if not played[i]:
+                    continue
+                c = c + 1 if qual[i] else 0
+                raw[i] = c
+                played_seq.append(i)
+            for k, i in enumerate(played_seq):
+                cc = raw[i]
+                nxt = raw[played_seq[k + 1]] if k + 1 < len(played_seq) else None
+                if cc == 0:
+                    vals[i] = 0
+                elif nxt is not None and nxt == cc + 1:
+                    vals[i] = "In Progress"
+                else:
+                    vals[i] = cc
+            for i in idx:
+                if not played[i]:
+                    vals[i] = "N/A"
+        df[out_col] = pd.Series(vals, index=df.index, dtype=object)
+    return df
+
+
 def _preserve_na(col: str) -> bool:
     """Numeric columns where a missing value carries meaning (no prior data)
     and should render as 'N/A' instead of being filled with 0.0. Most of
@@ -8397,48 +8444,30 @@ def build_all(repo_root: Path) -> None:
 
         pw[award_cols] = pw[award_cols].fillna(0)
 
-        # Player award streaks: for each weekly player award, the count of
-        # consecutive ROSTERED weeks the player won it. ALL-TIME (continuous
-        # across seasons), then terminal-encoded so each run is listed once
-        # (length on its final week, 'In Progress' before, 0 when not on a run).
+        # Player streaks (award + point-threshold). ALL-TIME (continuous across
+        # seasons) and terminal-encoded so each run lists once. Per user, these
+        # SKIP bye / injury / suspension weeks: a week the player didn't play
+        # doesn't count toward a streak and doesn't break it (the run bridges
+        # across it; those cells read 'N/A').
         try:
-            _pa_streak_cols = [c[:-1] + " streak" for c in award_cols]  # "X?" -> "X streak"
             _grp_key = "Player ID" if "Player ID" in pw.columns else "Player"
             pw = pw.sort_values([_grp_key, "Year", "Week"]).reset_index(drop=True)
-            for _sc in _pa_streak_cols:
-                pw[_sc] = 0
-            for _gk, _idx in pw.groupby([_grp_key], sort=False).groups.items():
-                _counters = {c: 0 for c in award_cols}
-                for _i in list(_idx):
-                    for _fc in award_cols:
-                        _v = pw.at[_i, _fc]
-                        _counters[_fc] = (_counters[_fc] + 1) if (pd.notna(_v) and float(_v) == 1) else 0
-                        pw.at[_i, _fc[:-1] + " streak"] = _counters[_fc]
-            pw = _terminalize_streaks(pw, [_grp_key], ["Year", "Week"], _pa_streak_cols)
+            _played = ~(
+                pw.get("Injury?", pd.Series(False, index=pw.index)).fillna(False).astype(bool)
+                | pw.get("Suspension?", pd.Series(False, index=pw.index)).fillna(False).astype(bool)
+                | pw.get("Bye?", pd.Series(False, index=pw.index)).fillna(False).astype(bool)
+            ).to_numpy()
+            # Award streaks: "<award>?" -> "<award> streak"
+            _specs = {}
+            for _fc in award_cols:
+                _specs[_fc[:-1] + " streak"] = (pd.to_numeric(pw[_fc], errors="coerce").fillna(0) == 1).to_numpy()
+            # Point-threshold streaks: >= 10/20/30/40/50 (starter OR bench)
+            _pts = pd.to_numeric(pw["Points"], errors="coerce").fillna(0.0).to_numpy()
+            for _t in (10, 20, 30, 40, 50):
+                _specs[f"{_t}+ point streak"] = (_pts >= _t)
+            pw = _encode_player_streaks(pw, _grp_key, ["Year", "Week"], _played, _specs)
         except Exception as e:
-            _log_exc(debug, "player_award_streaks", e)
-
-        # Point-threshold streaks (player_week): consecutive ROSTERED weeks the
-        # player scored >= 10/20/30/40/50 points (starter OR bench). ALL-TIME
-        # (continuous across seasons), terminal-encoded like the other streaks.
-        try:
-            _pt_thresholds = [10, 20, 30, 40, 50]
-            _pt_cols = [f"{t}+ point streak" for t in _pt_thresholds]
-            _grp_key = "Player ID" if "Player ID" in pw.columns else "Player"
-            pw = pw.sort_values([_grp_key, "Year", "Week"]).reset_index(drop=True)
-            _pts = pd.to_numeric(pw["Points"], errors="coerce").fillna(0.0)
-            for _c in _pt_cols:
-                pw[_c] = 0
-            for _gk, _idx in pw.groupby([_grp_key], sort=False).groups.items():
-                _cnt = {t: 0 for t in _pt_thresholds}
-                for _i in list(_idx):
-                    _p = float(_pts.loc[_i])
-                    for t in _pt_thresholds:
-                        _cnt[t] = (_cnt[t] + 1) if _p >= t else 0
-                        pw.at[_i, f"{t}+ point streak"] = _cnt[t]
-            pw = _terminalize_streaks(pw, [_grp_key], ["Year", "Week"], _pt_cols)
-        except Exception as e:
-            _log_exc(debug, "player_point_streaks", e)
+            _log_exc(debug, "player_streaks", e)
 
         # Hardship engine (Phase 2 rebuild + Phase 2A refinement +
         # NFLverse-seeded baseline fix).
