@@ -108,7 +108,10 @@ if str(SUPPORT_ROOT) not in sys.path:
 
 from lotg_support.utils import HttpConfig, safe_div, clean_name, safe_bool
 from lotg_support.sleeper import SleeperClient
-from lotg_support.injury_tracker import load_status_index as _load_injury_tracker
+from lotg_support.injury_tracker import (
+    load_status_index as _load_injury_tracker,
+    resolve_injury_flags as _resolve_injury_flags,
+)
 from lotg_support.external import (
     ExternalConfig,
     load_dynastyprocess_playerids,
@@ -3770,20 +3773,17 @@ def build_all(repo_root: Path) -> None:
                         # until 2026 wk1 -> a no-op on historical data.
                         _trk = injury_tracker_idx.get((str(pid), int(season), int(wk)))
                         if _trk:
-                            if _trk.get("bye") is True and (pts or 0.0) == 0.0:
-                                bye = True
-                                inj = False
-                                susp = False
-                            elif (pts or 0.0) == 0.0 and bye is not True:
-                                _ts = _trk.get("status") or ""
-                                if "sus" in _ts:
-                                    susp = True
+                            _ov = _resolve_injury_flags(_trk.get("status"), _trk.get("bye"), pts)
+                            if _ov is not None:
+                                _oi, _os, _ob = _ov
+                                if _ob is True:
+                                    bye = True
                                     inj = False
-                                elif any(x in _ts for x in ("out", "ir", "inactive", "pup",
-                                                            "doubtful", "questionable", "dnr",
-                                                            "cov", "reserve", " na")):
-                                    inj = True
                                     susp = False
+                                elif bye is not True:
+                                    # Don't override a real bye with injury/suspension.
+                                    inj = _oi
+                                    susp = _os
 
                         if inj is None:
                             inj = False
