@@ -29,6 +29,36 @@ TRACKER_COLUMNS = [
 _SCHEDULE_URL = "https://github.com/nflverse/nflverse-data/releases/download/schedules/games.csv"
 
 
+# injury_status / status substrings that mean the player MISSED the week for
+# injury reasons (suspension is handled separately via "sus"). A bye always wins.
+_INJURY_TERMS = ("out", "ir", "inactive", "pup", "doubtful", "questionable",
+                 "dnr", "cov", "reserve", " na")
+
+
+def resolve_injury_flags(status: Optional[str], tracker_bye: Optional[bool],
+                         points: float) -> Optional[Tuple[bool, bool, bool]]:
+    """Single source of truth for the player_week tracker overlay.
+
+    Given a tracker entry (`status` = combined lowercased injury_status+status;
+    `tracker_bye` = captured on_bye) and the player's fantasy `points` that week,
+    return the (injury, suspension, bye) override to apply, or None for "no
+    override". A player can play hurt, so a miss is only asserted when points==0.
+    Bye (from the fixed schedule) wins over injury/suspension; the third element
+    is True only for the bye case. The caller applies injury/suspension only when
+    the player isn't already on a (separately determined) bye."""
+    pts = points or 0.0
+    if pts != 0.0:
+        return None
+    if tracker_bye is True:
+        return (False, False, True)
+    s = (status or "")
+    if "sus" in s:
+        return (False, True, False)
+    if any(t in s for t in _INJURY_TERMS):
+        return (True, False, False)
+    return None
+
+
 def tracker_path(repo_root: Path) -> Path:
     return repo_root / "data" / "injury_tracker.csv"
 
