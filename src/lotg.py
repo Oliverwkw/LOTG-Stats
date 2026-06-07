@@ -620,18 +620,6 @@ def _append_team_vs_columns(frame: pd.DataFrame, cols: List[str], plan_key: str 
         return cols
     teams = sorted(frame["Team"].dropna().astype(str).unique().tolist())
 
-    if plan_key != "team-all-time":
-        # team-year: legacy interleaved layout (Record vs T, Win % vs T, ...).
-        extra: List[str] = []
-        for team in teams:
-            extra.append(f"Record vs {team}")
-            extra.append(f"Win % vs {team}")
-        return cols + [c for c in extra if c not in cols]
-
-    # team-all-time (item 12): regroup ALL vs-columns by stat type — every
-    # "Win % vs ..." together, then every "Record vs ..." together (fixed
-    # buckets like playoff/champions first, then per-team alphabetical). The 4
-    # highest/lowest extreme columns (item 13) sit just before the Win % group.
     def _dedup(seq: List[str]) -> List[str]:
         seen: set = set()
         out: List[str] = []
@@ -641,13 +629,26 @@ def _append_team_vs_columns(frame: pd.DataFrame, cols: List[str], plan_key: str 
                 out.append(x)
         return out
 
-    _is_vs = lambda c: c.startswith("Win % vs ") or c.startswith("Record vs ")
-    base = [c for c in cols if not _is_vs(c) and c not in TEAM_VS_EXTREME_COLS]
-    fixed_win = [c for c in cols if c.startswith("Win % vs ")]
-    fixed_rec = [c for c in cols if c.startswith("Record vs ")]
-    win_group = _dedup(fixed_win + [f"Win % vs {t}" for t in teams])
-    rec_group = _dedup(fixed_rec + [f"Record vs {t}" for t in teams])
-    return base + TEAM_VS_EXTREME_COLS + win_group + rec_group
+    # Per-opponent vs columns (NOT in the plan — generated here). team-all-time
+    # groups by stat type (all Win % then all Record); team-year interleaves.
+    if plan_key == "team-all-time":
+        per = _dedup([f"Win % vs {t}" for t in teams] + [f"Record vs {t}" for t in teams])
+    else:
+        per = _dedup([c for t in teams for c in (f"Record vs {t}", f"Win % vs {t}")])
+    per = [c for c in per if c not in cols]
+    if not per:
+        return cols
+
+    # Phase 11C-1: insert the per-opponent block right after the END OF THE
+    # OUTCOME vs-cluster (the fixed Record/Win % vs buckets + the high/low
+    # extremes, which the reorder already places at the end of Outcome) — not
+    # at the end of the whole sheet.
+    def _is_vs(c: str) -> bool:
+        return (c.startswith("Record vs ") or c.startswith("Win % vs ")
+                or c in TEAM_VS_EXTREME_COLS or c.startswith("Team for "))
+    idxs = [i for i, c in enumerate(cols) if _is_vs(c)]
+    anchor = max(idxs) if idxs else len(cols) - 1
+    return cols[:anchor + 1] + per + cols[anchor + 1:]
 
 
 def _column_kind(col: str) -> str:
