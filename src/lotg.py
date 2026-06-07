@@ -615,6 +615,101 @@ TEAM_VS_EXTREME_COLS = [
 ]
 
 
+# Phase 11C-2: header color-banding by topic (mirrors the 11C-1 reorder groups),
+# a consistent palette across every data sheet + family tab colors.
+_TOPIC_FILL = {
+    "Identity": "D9D9D9", "Outcome": "C6E0B4", "Scoring": "BDD7EE",
+    "Value": "8EAADB", "Awards": "FFE699", "Streaks": "F4B183",
+    "Roster": "D9C3E9", "Hardship & Luck": "FFC7CE", "Activity": "FFD966",
+    "KTC": "9CD3DC", "Tenure": "C9E4CA", "Change": "F8CBAD",
+}
+_FAMILY_TAB = {
+    "player": "5B9BD5", "team": "70AD47", "league": "FFC000",
+    "transactions": "ED7D31", "trades": "7030A0", "picks": "808080",
+    "formulas": "44546A",
+}
+_TOPIC_IDENTITY = {
+    "player", "player id", "team", "year", "week", "week name", "position",
+    "position started in (if starter)", "nfl team", "opponent", "opponent team (raw)",
+    "starter/bench", "season", "date", "date dropped/traded", "top team", "last team",
+    "top team points", "player picked", "player added", "player dropped",
+    "reference player name", "team's traded with", "age", "rookie?", "taxi-eligible",
+    "type of transaction (waiver/free agency)", "etc", "number", "original team",
+}
+
+
+def _col_topic(col: str) -> str:
+    """Topic group for header color-banding — mirrors the 11C-1 reorder classifier."""
+    n = re.sub(r"\s+", " ", str(col).strip().lower())
+    if n in _TOPIC_IDENTITY:
+        return "Identity"
+    if n.startswith("change from") or n.startswith("change in"):
+        return "Change"
+    if "streak" in n:
+        return "Streaks"
+    if n in ("injury?", "suspension?", "bye?", "loss from hardship?"):
+        return "Hardship & Luck"
+    if n == "win?":
+        return "Outcome"
+    if n in ("cuff when drafted?", "cuff at time of pickup?"):
+        return "Roster"
+    if n == "commissioner moved?":
+        return "Activity"
+    if n.endswith("?") or n.startswith("times ") or n.startswith("times as ") or n in ("brosenzweig", "sisenzweig"):
+        return "Awards"
+    if "ktc" in n or "value difference" in n or "net ktc" in n:
+        return "KTC"
+    if (n.startswith("link to") or "tenure" in n or "weeks on team" in n
+            or "weeks as team starter" in n or "weeks on bench" in n
+            or "consecutive weeks on bench" in n or "weeks before first start" in n
+            or "weeks between pickup" in n):
+        return "Tenure"
+    if n == "tanking":
+        return "Roster"
+    if any(k in n for k in ("injur", "suspensi", "bye", "hardship", "luck", "weeks missed", "weeks of ")):
+        return "Hardship & Luck"
+    if any(k in n for k in ("startable bench", "benchable starter", "startables", "cuff adjusted",
+                            "% of points", "ppg", "par", "volatility", "scoring floor", "scoring ceiling",
+                            "boom", "bust", "addition value", "points added", "net points", "points lost",
+                            "avg net", "o-score", "skill", "difference of averages", "% of starts",
+                            "difference from best", "difference from worst", "weeks as starter")):
+        return "Value"
+    if any(k in n for k in ("age", "number of qb", "number of rb", "number of wr", "number of te",
+                            "number of rookies", "number of cuff", "donut", "under 10", "over 20",
+                            "over 30", "over 40", "over 50", "nfl team", "rostered from same",
+                            "started from same", "startup draft", "difference between highest and lowest",
+                            "number of players on bye", "number of teams")):
+        return "Roster"
+    if any(k in n for k in ("assets received", "assets sent", "assets retained", "assets traded",
+                            "assets dropped", "additional assets", "return from trades", "pick value received",
+                            "number of bids", "number of times picked up", "transaction", "trade", "drop",
+                            "faab", "draft value", "picks made", "future draft", "turnover",
+                            "first round picks", "number of picks")):
+        return "Activity"
+    if any(k in n for k in ("record vs", "win % vs", "win %", "record", "result", "week of playoff",
+                            "championship", "margin", "differential", "all time", "upst", "win variance",
+                            "playoff tiebreaker", "games within")):
+        return "Outcome"
+    if any(k in n for k in ("pf", "points against", "max pf", "efficiency", "points", "avg points",
+                            "highest starter score", "lowest starter score", "increase in points")):
+        return "Scoring"
+    return "Identity"
+
+
+def _col_number_format(col: str) -> Optional[str]:
+    """A safe Excel number format for a column, or None to leave it General.
+    Conservative: only KTC (thousands) and clear integer counts — avoids the
+    0-1-fraction vs 0-100 percent ambiguity (left to General)."""
+    n = re.sub(r"\s+", " ", str(col).strip().lower())
+    if "ktc" in n or "net ktc" in n or n.startswith("ktc value difference"):
+        return "#,##0"
+    if (n.startswith("number of ") or n.startswith("times ") or n.startswith("times as ")
+            or n.startswith("most number of ") or n.startswith("weeks ")
+            or n in ("championships", "number", "win streak", "loss streak")):
+        return "0"
+    return None
+
+
 def _append_team_vs_columns(frame: pd.DataFrame, cols: List[str], plan_key: str = "team-year") -> List[str]:
     if frame.empty or "Team" not in frame.columns:
         return cols
@@ -1717,6 +1812,7 @@ def build_all(repo_root: Path) -> None:
                         ws.column_dimensions[get_column_letter(j)].width = {
                             "Stat": 36, "Sheet": 30, "Formula": 90, "Notes": 70}.get(col, 20)
                     ws.freeze_panes = "A2"
+                    ws.sheet_properties.tabColor = _FAMILY_TAB["formulas"]
                     continue
 
                 # Cross-table row references in any "Link to ..." cell:
@@ -1818,7 +1914,32 @@ def build_all(repo_root: Path) -> None:
                                     _cell = ws.cell(row=_ri + 2, column=_j)
                                     if _cell.value not in (None, ""):
                                         _set_ref_link(_cell, _refs[_n - 1])
-                ws.freeze_panes = "E2"
+                # Phase 11C-2: freeze through the pinned columns (team_week also
+                # pins Opponent -> 5 cols).
+                _pin_n = 5 if sheet_name == "team_week" else 4
+                ws.freeze_panes = f"{get_column_letter(_pin_n + 1)}2"
+
+                # Family tab color.
+                _fam = next((k for k in _FAMILY_TAB if k in sheet_name.lower()), None)
+                if _fam:
+                    ws.sheet_properties.tabColor = _FAMILY_TAB[_fam]
+
+                # Style the header row: bold + wrap + a per-topic color band so
+                # adjacent same-topic columns read as a group.
+                try:
+                    for j in range(1, ws.max_column + 1):
+                        hc = ws.cell(row=1, column=j)
+                        topic = _col_topic(hc.value) if hc.value else "Identity"
+                        hc.fill = PatternFill("solid", fgColor=_TOPIC_FILL.get(topic, "D9D9D9"))
+                        hc.font = Font(bold=True)
+                        hc.alignment = Alignment(wrap_text=True, vertical="center", horizontal="center")
+                        # Conservative number format on the data cells of this column.
+                        nf = _col_number_format(hc.value) if hc.value else None
+                        if nf:
+                            for r in range(2, ws.max_row + 1):
+                                ws.cell(row=r, column=j).number_format = nf
+                except Exception:
+                    pass
 
                 # Auto-filter every sheet (incl. trades) so the tables stay
                 # sortable/re-orderable. The per-asset expansion no longer
@@ -1831,9 +1952,23 @@ def build_all(repo_root: Path) -> None:
                         vals = [str(ws.cell(row=1, column=j).value or "")]
                         for r in range(2, min(ws.max_row, 201) + 1):
                             vals.append(str(ws.cell(row=r, column=j).value or ""))
-                        ws.column_dimensions[get_column_letter(j)].width = min(60, max(10, max(len(v) for v in vals) + 2))
+                        ws.column_dimensions[get_column_letter(j)].width = min(40, max(10, max(len(v) for v in vals) + 2))
                 except Exception:
                     pass
+
+                # Phase 11C-2: tame the trades per-asset link explosion — narrow
+                # the blank-header slot columns and hide any that are fully empty.
+                if sheet_name == "trades":
+                    try:
+                        for j in range(1, ws.max_column + 1):
+                            if (ws.cell(row=1, column=j).value or "") != "":
+                                continue  # only the exploded (blank-header) slots
+                            letter = get_column_letter(j)
+                            ws.column_dimensions[letter].width = 16
+                            if all((ws.cell(row=r, column=j).value in (None, "")) for r in range(2, ws.max_row + 1)):
+                                ws.column_dimensions[letter].hidden = True
+                    except Exception:
+                        pass
 
             wb.save(out_dir / "LOTG_Stats.xlsx")
         except Exception as e:
