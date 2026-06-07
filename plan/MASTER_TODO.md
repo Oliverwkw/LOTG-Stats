@@ -166,25 +166,24 @@ When the results-based audit surfaces a bug, log it but continue to the diff swe
 ## Phase 10 — Revisit league notes — **SCRAPPED**
 - [~] ~~Survey league.metadata / settings / per-season text; decide tracked vs manual overlay~~ — **dropped per user.** The only league-notes use we wanted was the commissioner's per-player notes for the off-platform 2.09 / 5.0X picks; we got those a different way (detecting draft-day commissioner-forced adds → synthetic picks, PRs #230–#233).
 
-## Phase 11 — Formulas sheet rebuild
-**Moved from Phase 2 per user — better done after Phases 2–10 settle the formulas they describe.**
-- [ ] Every non-obvious column gets an entry
-- [ ] xlsx styling (color, wrap text, group by sheet, hyperlinks)
-- [ ] **Player-name hyperlinks**: every instance of a player's name anywhere in the dataset (transactions, trades, player sheets, team rosters, links, etc.) hyperlinks to that player's row in player_all_time. (xlsx hyperlink feature; needs a name→player_all_time anchor map.)
-  - Exception: best-alternative-bench / best-alternative-starter player references (e.g. "Reference player name", "Difference from best startable bench", "Difference from worst benchable starter") link to the relevant **player-week** row instead of player_all_time, since they point at a specific player in a specific week.
-- [ ] **3-part audit** (code / results / diff)
+## Phase 11 — Formulas sheet + full xlsx styling, hyperlinks & formatting
+**Moved from Phase 2 per user — better done after Phases 2–10 settle the formulas they describe. Old Phase 12.5 (formatting) folded in here as 11C–11E.** Each sub-PR gets its own **3-part audit** (code / results / diff). Run sequentially (each builds on the prior).
 
-## Phase 12 — Duplicate-column sweep
-- [ ] Scan all sheets for identical-valued columns; remove redundancy
-- [ ] Document survivors in formulas sheet
-- [ ] **3-part audit** (code / results / diff)
+- [ ] **11A — Formulas-sheet content completeness.** A `_ROWS` entry (`src/formulas.py`) for every NON-OBVIOUS output column (skip pure identity cols: Player/Team/Year/Week/Position/Points). ~80–100 new entries (e.g. Cuff adjusted difference, PPG starter-vs-bench diff, Brosenzweig/Sisenzweig, the weekly award flags, Taxi-eligible, the new awards/streaks/PAR cluster). Add a build-time assert that flags any output column with no Formulas entry so coverage can't silently drift. (Pure docs → diff = formulas.csv only.)
+- [ ] **11B — Formulas-sheet styling + color-led organization.** Bold/filled header row; wrap-text on Formula/Notes; per-column widths; group/section the rows by their `Sheet` value with **color-coded bands per sheet** so it reads as a reference. (xlsx-only; CSV unchanged.)
+- [ ] **11C — Style ALL other sheets.** Reorder columns into a sensible reading order, **color-code** (headers + per-section/topic banding, consistent palette across sheets), header styling, freeze panes, number formats, wrap where useful. Also tame the **trades per-asset link columns** (the xlsx explodes them into one col per received asset, K≈15 → ~30 mostly-empty cols; `#203`): cap/scroll slots, hide empties, narrow widths.
+- [ ] **11D — Hyperlinks.** **Player-name hyperlinks**: every single-name cell (`Player`, `Player Picked`, `Player Added`/`Dropped`) links to that player's `player_all_time` row (needs a name→row anchor map). Exception: per-week player references (`Reference player name`, best-startable/worst-benchable refs) link to the relevant **player_week** row instead. Decide trades multi-name list cells (xlsx = one link per cell: leave to the existing per-asset event links, or explode). (xlsx-only.)
+- [ ] **11E — General formatting sweep for max usability.** Final polish pass across the whole workbook: conditional formatting, alignment, consistent number/percent formats, sheet/tab order & colors, anything that improves day-to-day usability.
 
-## Phase 12.5 — Formatting (TBD)
-- [ ] TBD — reserved for output/xlsx formatting work (styling, column widths, number formats, conditional formatting, sheet polish). Scope when we get there.
-- [ ] **Trades per-asset link columns** — the xlsx explodes the two per-asset link columns into one column per received asset under a merged header (`#203`). Because K = max received assets across all trades (a mega-trade received 15), this adds ~30 mostly-empty columns. Revisit during formatting: cap/scroll the slots, hide empties, narrow widths, or otherwise tame the width.
+## Phase 12 — Large-scale full-dataset audit
+**Upgraded from a duplicate-column sweep to a deep, end-to-end correctness audit of the entire dataset.**
+- [ ] Duplicate / redundant column sweep (identical-valued columns) — remove redundancy, document survivors in the formulas sheet.
+- [ ] Full-dataset, in-depth correctness audit: cross-sheet consistency (rollups match their weekly sources; player↔team↔league totals reconcile), spot-check every stat family against hand-computed cases, hunt N/A-vs-0 errors, stale/incorrect values, edge cases (multi-team players, 2021 vet draft, synthetic picks, commissioner moves, taxi/IR), and any remaining data-quality gaps.
+- [ ] **3-part audit** (code / results / diff)
 
 ## Phase 13 — ESPN 2020 backfill
 - [ ] Scope when we get there
+- [ ] **Off-platform pick-trade backfill:** try to manually determine and add all 1st- and 2nd-round pick trades that happened OFF-platform (pre-Sleeper / side deals) so trade metrics (KTC won/lost, retro grades, pick-vs-player outcomes, manager Trading skill) are balanced and not missing legs.
 - [ ] **3-part audit** (code / results / diff)
 
 ## Phase 14 — In-season weekly digest email
