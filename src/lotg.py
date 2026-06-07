@@ -1555,7 +1555,7 @@ def build_all(repo_root: Path) -> None:
         try:
             from openpyxl import Workbook
             from openpyxl.utils import get_column_letter
-            from openpyxl.styles import Alignment
+            from openpyxl.styles import Alignment, PatternFill, Font
 
             wb = Workbook()
             wb.remove(wb.active)
@@ -1604,6 +1604,72 @@ def build_all(repo_root: Path) -> None:
                         except Exception:
                             return v
                     d[_scol] = d[_scol].map(_streak_cell).astype(object)
+
+                # Phase 11B: the Formulas tab is a reference doc, not a data
+                # table — render it grouped into color-coded sections by the
+                # sheet each stat belongs to, with a styled header and wrapped
+                # Formula/Notes. (CSV row order is unchanged; this is xlsx-only.)
+                if sheet_name == "formulas" and {"Stat", "Sheet", "Formula", "Notes"}.issubset(set(d.columns)):
+                    _fcols = ["Stat", "Sheet", "Formula", "Notes"]
+
+                    def _fcat(sv):
+                        s = str(sv).lower()
+                        if "player" in s: return "Player sheets"
+                        if "team" in s: return "Team sheets"
+                        if "league" in s: return "League sheets"
+                        if "transaction" in s: return "Transactions"
+                        if "trade" in s: return "Trades"
+                        if "pick" in s: return "Picks"
+                        return "Other"
+                    _forder = ["Player sheets", "Team sheets", "League sheets",
+                               "Transactions", "Trades", "Picks", "Other"]
+                    _fband = {  # (row fill, section-header fill)
+                        "Player sheets": ("DDEBF7", "9DC3E6"),
+                        "Team sheets":   ("E2EFDA", "A9D08E"),
+                        "League sheets": ("FFF2CC", "FFD966"),
+                        "Transactions":  ("FCE4D6", "F4B183"),
+                        "Trades":        ("E4DFEC", "B4A7D6"),
+                        "Picks":         ("F2F2F2", "BFBFBF"),
+                        "Other":         ("F2F2F2", "BFBFBF"),
+                    }
+                    _wrap = Alignment(wrap_text=True, vertical="top")
+                    # Header row
+                    ws.append(_fcols)
+                    for j in range(1, len(_fcols) + 1):
+                        c = ws.cell(row=1, column=j)
+                        c.fill = PatternFill("solid", fgColor="305496")
+                        c.font = Font(bold=True, color="FFFFFF")
+                        c.alignment = Alignment(wrap_text=True, vertical="center", horizontal="left")
+                    # Group rows by category (preserve _ROWS order within a group)
+                    _by = {k: [] for k in _forder}
+                    for rec in d.to_dict("records"):
+                        _by[_fcat(rec.get("Sheet"))].append(rec)
+                    _r = 1
+                    for cat in _forder:
+                        recs = _by.get(cat) or []
+                        if not recs:
+                            continue
+                        _r += 1
+                        ws.cell(row=_r, column=1, value=cat.upper())
+                        ws.merge_cells(start_row=_r, start_column=1, end_row=_r, end_column=len(_fcols))
+                        sh = ws.cell(row=_r, column=1)
+                        sh.fill = PatternFill("solid", fgColor=_fband[cat][1])
+                        sh.font = Font(bold=True)
+                        sh.alignment = Alignment(vertical="center", horizontal="left")
+                        _rowfill = PatternFill("solid", fgColor=_fband[cat][0])
+                        for rec in recs:
+                            _r += 1
+                            for j, col in enumerate(_fcols, 1):
+                                cell = ws.cell(row=_r, column=j, value=rec.get(col, ""))
+                                cell.fill = _rowfill
+                                cell.alignment = _wrap
+                                if col == "Stat":
+                                    cell.font = Font(bold=True)
+                    for j, col in enumerate(_fcols, 1):
+                        ws.column_dimensions[get_column_letter(j)].width = {
+                            "Stat": 36, "Sheet": 30, "Formula": 90, "Notes": 70}.get(col, 20)
+                    ws.freeze_panes = "A2"
+                    continue
 
                 # Cross-table row references in any "Link to ..." cell:
                 # "#N" -> transactions row N, "T#N" -> trades row N, "PH#N" ->
