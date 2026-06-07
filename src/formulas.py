@@ -564,7 +564,7 @@ _ROWS = [
     {
         "Stat": "Streaks (weekly award & condition streaks — terminal-encoded)",
         "Sheet": "team_week + player_week",
-        "Formula": "For every weekly award and condition there is a running streak that is ALL-TIME — it counts consecutive qualifying weeks and does NOT reset between seasons. team_week: Highest/Lowest score, Narrowest victory, Largest blowout, Most/Least efficient, Top half, One-man army, Most bench points, Most injured (award streaks); Bottom half, 150+ PF (PF ≥ 150), Standings leader (regular-season weeks at #1 in cumulative standings), Quiet (0 transactions + 0 trades), and 'Win streak vs this opponent' (consecutive H2H wins vs that week's opponent). player_week: a streak per player award (Player/QB/RB/WR/TE of the week, Benchwarmer, Bench QB/RB/WR/TE, Highest/Lowest starter on team, Captain).",
+        "Formula": "For every weekly award and condition there is a running streak that is ALL-TIME — it counts consecutive qualifying weeks and does NOT reset between seasons. team_week: Highest/Lowest score, Narrowest victory, Largest blowout, Most/Least efficient, Top half, One-man army, Most bench points, Most injured (award streaks); Bottom half, 150+ PF (PF ≥ 150), Standings leader (regular-season weeks at #1 in cumulative standings), Quiet (0 transactions + 0 trades), and 'Win streak vs this opponent' (consecutive H2H wins vs that week's opponent). player_week: a streak per player award (Player/QB/RB/WR/TE of the week, Benchwarmer, Bench QB/RB/WR/TE, Highest/Lowest starter on team, Captain), plus point-threshold streaks (consecutive ROSTERED weeks scoring ≥ 10/20/30/40/50 points, starter OR bench).",
         "Notes": "TERMINAL ENCODING so each run lists once and the column stays sortable for top-N lists: a run shows its LENGTH only on its final week (the most recent week if still active, else the peak week before it reset); earlier weeks of the run read 'In Progress'; weeks not on a run read 0. Sorting a column descending surfaces each streak exactly once (numbers sort above the 'In Progress' text). Win streak / Loss streak are the exception — they keep their running within-season and cross-season columns unchanged (not terminal-encoded).",
         "Columns": [
             "Highest score streak", "Lowest score streak", "Narrowest victory streak",
@@ -579,6 +579,8 @@ _ROWS = [
             "Bench QB of the week streak", "Bench RB of the week streak",
             "Bench WR of the week streak", "Bench TE of the week streak",
             "Highest starter on team streak", "Lowest starter on team streak", "Captain streak",
+            "10+ point streak", "20+ point streak", "30+ point streak",
+            "40+ point streak", "50+ point streak",
         ],
     },
     {

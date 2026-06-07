@@ -8418,6 +8418,28 @@ def build_all(repo_root: Path) -> None:
         except Exception as e:
             _log_exc(debug, "player_award_streaks", e)
 
+        # Point-threshold streaks (player_week): consecutive ROSTERED weeks the
+        # player scored >= 10/20/30/40/50 points (starter OR bench). ALL-TIME
+        # (continuous across seasons), terminal-encoded like the other streaks.
+        try:
+            _pt_thresholds = [10, 20, 30, 40, 50]
+            _pt_cols = [f"{t}+ point streak" for t in _pt_thresholds]
+            _grp_key = "Player ID" if "Player ID" in pw.columns else "Player"
+            pw = pw.sort_values([_grp_key, "Year", "Week"]).reset_index(drop=True)
+            _pts = pd.to_numeric(pw["Points"], errors="coerce").fillna(0.0)
+            for _c in _pt_cols:
+                pw[_c] = 0
+            for _gk, _idx in pw.groupby([_grp_key], sort=False).groups.items():
+                _cnt = {t: 0 for t in _pt_thresholds}
+                for _i in list(_idx):
+                    _p = float(_pts.loc[_i])
+                    for t in _pt_thresholds:
+                        _cnt[t] = (_cnt[t] + 1) if _p >= t else 0
+                        pw.at[_i, f"{t}+ point streak"] = _cnt[t]
+            pw = _terminalize_streaks(pw, [_grp_key], ["Year", "Week"], _pt_cols)
+        except Exception as e:
+            _log_exc(debug, "player_point_streaks", e)
+
         # Hardship engine (Phase 2 rebuild + Phase 2A refinement +
         # NFLverse-seeded baseline fix).
         #
