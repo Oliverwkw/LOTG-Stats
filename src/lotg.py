@@ -697,17 +697,31 @@ def _col_topic(col: str) -> str:
 
 
 def _col_number_format(col: str) -> Optional[str]:
-    """A safe Excel number format for a column, or None to leave it General.
-    Conservative: only KTC (thousands) and clear integer counts — avoids the
-    0-1-fraction vs 0-100 percent ambiguity (left to General)."""
+    """Excel number format for a column (Phase 11E): uniform 2 decimals, NO
+    thousands commas, on all value/stat/percent columns. Counts, streaks and
+    Year/Week/Season stay whole numbers; text/date columns are left General."""
     n = re.sub(r"\s+", " ", str(col).strip().lower())
-    if "ktc" in n or "net ktc" in n or n.startswith("ktc value difference"):
-        return "#,##0"
+    # Identity / labels / dates / pick-number -> leave alone.
+    if n in ("year", "week", "season", "number") or "date" in n:
+        return None
+    # Whole-number columns: counts, aggregates, streaks.
     if (n.startswith("number of ") or n.startswith("times ") or n.startswith("times as ")
             or n.startswith("most number of ") or n.startswith("weeks ")
-            or n in ("championships", "number", "win streak", "loss streak")):
+            or n.endswith("streak") or n == "championships" or n == "upst"
+            or "number of teams" in n):
         return "0"
-    return None
+    # Percent columns that are stored 0-100 (NOT fractions) -> show with a "%"
+    # literal and no x100.
+    if n in ("starter boom %", "starter bust %", "faab premium %"):
+        return '0.00"%"'
+    # Percent columns stored 0-1 -> Excel percent (x100).
+    if (n.endswith("%") or n.startswith("win % vs ") or "win %" in n or n == "efficiency"
+            or "% of points" in n or "% of starts" in n or "all-play win" in n
+            or n in ("highest win % vs a team", "lowest win % vs a team")):
+        return "0.00%"
+    # Everything else numeric (PPG, points, PF, PAR, KTC, addition value, Luck,
+    # skill, O-Score, …) -> 2 decimals, no commas. (Harmless on text cells.)
+    return "0.00"
 
 
 def _append_team_vs_columns(frame: pd.DataFrame, cols: List[str], plan_key: str = "team-year") -> List[str]:
@@ -1699,6 +1713,7 @@ def build_all(repo_root: Path) -> None:
             from openpyxl import Workbook
             from openpyxl.utils import get_column_letter
             from openpyxl.styles import Alignment, PatternFill, Font
+            from openpyxl.formatting.rule import ColorScaleRule
 
             wb = Workbook()
             wb.remove(wb.active)
@@ -2025,6 +2040,31 @@ def build_all(repo_root: Path) -> None:
                                     _linkcell(ws.cell(row=r, column=j), f"#'player_week'!A{row}")
                 except Exception as e:
                     _log_exc(debug, "player_name_hyperlinks", e)
+
+                # Phase 11E: light red->yellow->green 3-color scale on each
+                # sheet's headline value column (O-Score; team Win %/PF; player
+                # PAR/Points) so good/bad pops at a glance.
+                try:
+                    _scale_cols = {
+                        "picks": "O-Score", "transactions": "O-Score", "trades": "O-Score",
+                        "team_year": "Win %", "team_all_time": "All time win %", "team_week": "PF",
+                        "player_year": "Starter PAR", "player_all_time": "Starter PAR",
+                        "player_week": "Points",
+                    }
+                    _scol = _scale_cols.get(sheet_name)
+                    if _scol:
+                        _hdr2 = [ws.cell(row=1, column=j).value for j in range(1, ws.max_column + 1)]
+                        if _scol in _hdr2 and ws.max_row >= 2:
+                            _cl = get_column_letter(_hdr2.index(_scol) + 1)
+                            ws.conditional_formatting.add(
+                                f"{_cl}2:{_cl}{ws.max_row}",
+                                ColorScaleRule(
+                                    start_type="percentile", start_value=5, start_color="F8696B",
+                                    mid_type="percentile", mid_value=50, mid_color="FFEB84",
+                                    end_type="percentile", end_value=95, end_color="63BE7B"),
+                            )
+                except Exception as e:
+                    _log_exc(debug, "color_scale", e)
 
                 # Auto-filter every sheet (incl. trades) so the tables stay
                 # sortable/re-orderable. The per-asset expansion no longer
