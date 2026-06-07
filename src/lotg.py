@@ -742,6 +742,47 @@ def _default_fill_for_column(col: str) -> Any:
     return 0.0
 
 
+def _terminalize_streaks(df: pd.DataFrame, group_cols: List[str],
+                         order_cols: List[str], streak_cols: List[str]) -> pd.DataFrame:
+    """Collapse running streak counters into a 'terminal' encoding so each
+    maximal run is represented exactly once and the column stays sortable:
+
+      * the FINAL row of a run carries the run's length (the most recent row if
+        the streak is still active, else the peak row right before it reset),
+      * every earlier row of the run reads the text 'In Progress',
+      * rows not in any run (counter 0) stay 0.
+
+    A descending sort then surfaces each streak once (numbers sort above the
+    'In Progress' text), which is what feeds the top-N longest-streak lists."""
+    cols_present = [c for c in streak_cols if c in df.columns]
+    if not cols_present or df.empty:
+        return df
+    s = df.sort_values(group_cols + order_cols)
+    idx = s.index.tolist()
+    keys = list(s[group_cols].itertuples(index=False, name=None))
+    n = len(idx)
+    for col in cols_present:
+        raw: List[int] = []
+        for v in s[col].tolist():
+            try:
+                raw.append(int(v) if pd.notna(v) else 0)
+            except Exception:
+                raw.append(0)
+        out: List[Any] = [0] * n
+        for k in range(n):
+            c = raw[k]
+            same_next = (k + 1 < n) and (keys[k + 1] == keys[k])
+            if c == 0:
+                out[k] = 0
+            elif same_next and raw[k + 1] == c + 1:
+                out[k] = "In Progress"
+            else:
+                out[k] = c
+        df[col] = df[col].astype(object)
+        df.loc[idx, col] = pd.Series(out, index=idx, dtype=object)
+    return df
+
+
 def _preserve_na(col: str) -> bool:
     """Numeric columns where a missing value carries meaning (no prior data)
     and should render as 'N/A' instead of being filled with 0.0. Most of
@@ -785,8 +826,8 @@ def _preserve_na(col: str) -> bool:
     # Player consistency + PAR: N/A for players who never started (volatility
     # also N/A with < 2 starts). Boom/Bust % keep a real 0 for players who did
     # start but never boomed/busted.
-    if col_l in {"scoring volatility", "scoring floor", "scoring ceiling",
-                 "boom %", "bust %", "par", "par per game"}:
+    if col_l in {"starter scoring volatility", "starter scoring floor", "starter scoring ceiling",
+                 "starter boom %", "starter bust %", "starter par", "starter par per game"}:
         return True
     # Length of tenure on team: a blank means there is NO player whose tenure
     # to measure — a transactions pure drop (no added player) or an unmade pick
@@ -8077,6 +8118,7 @@ def build_all(repo_root: Path) -> None:
             "Bench TE of the week?",
             "Highest starter on team?",
             "Lowest starter on team?",
+            "Captain?",
         ]
 
         def _set_flag(mask, col):
@@ -8113,6 +8155,14 @@ def build_all(repo_root: Path) -> None:
             idx = _pick_one(sg, by_max=True)
             if idx is not None:
                 _set_flag(pw.index == idx, "Player of the week?")
+            # Captain of the week: the starter, league-wide, who supplied the
+            # highest share of his team's PF (most indispensable single player).
+            _sh = pd.to_numeric(sg.get("% of points (if starter)"), errors="coerce")
+            if _sh is not None and _sh.notna().any():
+                _mx = _sh.max()
+                _cand = sg.loc[_sh[_sh == _mx].index]
+                _cand = _cand.assign(_p=_cand["Player"].astype(str)).sort_values("_p", kind="stable")
+                _set_flag(pw.index == int(_cand.index[0]), "Captain?")
             # Benchwarmer of the week
             idx = _pick_one(sg, by_max=False)
             if idx is not None:
@@ -8159,6 +8209,27 @@ def build_all(repo_root: Path) -> None:
                 )
 
         pw[award_cols] = pw[award_cols].fillna(0)
+
+        # Player award streaks: for each weekly player award, the count of
+        # consecutive ROSTERED weeks the player won it. ALL-TIME (continuous
+        # across seasons), then terminal-encoded so each run is listed once
+        # (length on its final week, 'In Progress' before, 0 when not on a run).
+        try:
+            _pa_streak_cols = [c[:-1] + " streak" for c in award_cols]  # "X?" -> "X streak"
+            _grp_key = "Player ID" if "Player ID" in pw.columns else "Player"
+            pw = pw.sort_values([_grp_key, "Year", "Week"]).reset_index(drop=True)
+            for _sc in _pa_streak_cols:
+                pw[_sc] = 0
+            for _gk, _idx in pw.groupby([_grp_key], sort=False).groups.items():
+                _counters = {c: 0 for c in award_cols}
+                for _i in list(_idx):
+                    for _fc in award_cols:
+                        _v = pw.at[_i, _fc]
+                        _counters[_fc] = (_counters[_fc] + 1) if (pd.notna(_v) and float(_v) == 1) else 0
+                        pw.at[_i, _fc[:-1] + " streak"] = _counters[_fc]
+            pw = _terminalize_streaks(pw, [_grp_key], ["Year", "Week"], _pa_streak_cols)
+        except Exception as e:
+            _log_exc(debug, "player_award_streaks", e)
 
         # Hardship engine (Phase 2 rebuild + Phase 2A refinement +
         # NFLverse-seeded baseline fix).
@@ -9029,12 +9100,102 @@ def build_all(repo_root: Path) -> None:
                 median_pf = g2["PF"].median()
                 tw.loc[(tw["Year"] == yr) & (tw["Week"] == wk) & (tw["PF"] >= median_pf), "Top half of league?"] = 1
 
+        # Three new weekly team awards derived from player_week:
+        #   One-man army?  = the team whose single top starter supplied the
+        #                    greatest share of its PF that week (most top-heavy).
+        #   Most bench points? = the team with the highest total bench points.
+        #   Most injured?  = the team with the most injured players on its
+        #                    roster (starters + bench) that week.
+        tw["One-man army?"] = 0
+        tw["Most bench points?"] = 0
+        tw["Most injured?"] = 0
+        try:
+            _p = pw.copy()
+            _p["Year"] = pd.to_numeric(_p["Year"], errors="coerce")
+            _p["Week"] = pd.to_numeric(_p["Week"], errors="coerce")
+            _p["Points"] = pd.to_numeric(_p["Points"], errors="coerce").fillna(0.0)
+            _p["_inj"] = _p["Injury?"].fillna(False).astype(bool).astype(int)
+            _is_st = _p["Starter/Bench"] == "Starter"
+            _st = _p[_is_st].copy()
+            _st["_share"] = pd.to_numeric(_st["% of points (if starter)"], errors="coerce")
+            _tops = _st.groupby(["Year", "Week", "Team"])["_share"].max().reset_index()
+            _tops = _tops.dropna(subset=["_share"])
+            _tops["_rk"] = _tops.groupby(["Year", "Week"])["_share"].transform("max")
+            _oma = _tops[_tops["_share"] == _tops["_rk"]]
+            _bn = _p[~_is_st].groupby(["Year", "Week", "Team"])["Points"].sum().reset_index()
+            _bn["_rk"] = _bn.groupby(["Year", "Week"])["Points"].transform("max")
+            _mbp = _bn[(_bn["Points"] == _bn["_rk"]) & (_bn["_rk"] > 0)]
+            _ij = _p.groupby(["Year", "Week", "Team"])["_inj"].sum().reset_index()
+            _ij["_rk"] = _ij.groupby(["Year", "Week"])["_inj"].transform("max")
+            _mij = _ij[(_ij["_inj"] == _ij["_rk"]) & (_ij["_rk"] > 0)]
+            _oma_keys = set(zip(_oma["Year"], _oma["Week"], _oma["Team"].astype(str)))
+            _mbp_keys = set(zip(_mbp["Year"], _mbp["Week"], _mbp["Team"].astype(str)))
+            _mij_keys = set(zip(_mij["Year"], _mij["Week"], _mij["Team"].astype(str)))
+            _twy = pd.to_numeric(tw["Year"], errors="coerce")
+            _tww = pd.to_numeric(tw["Week"], errors="coerce")
+            _twt = tw["Team"].astype(str)
+            tw["One-man army?"] = [1 if k in _oma_keys else 0 for k in zip(_twy, _tww, _twt)]
+            tw["Most bench points?"] = [1 if k in _mbp_keys else 0 for k in zip(_twy, _tww, _twt)]
+            tw["Most injured?"] = [1 if k in _mij_keys else 0 for k in zip(_twy, _tww, _twt)]
+        except Exception as e:
+            _log_exc(debug, "team_week_new_awards", e)
+
+        # Per-week regular-season standings leader (cumulative through that
+        # week): used for the "Standings leader streak" below.
+        _leader_set = set()
+        try:
+            _t = tw.copy()
+            _t["_Y"] = pd.to_numeric(_t["Year"], errors="coerce")
+            _t["_W"] = pd.to_numeric(_t["Week"], errors="coerce")
+            _t["_PF"] = pd.to_numeric(_t["PF"], errors="coerce").fillna(0.0)
+            _t["_win"] = pd.to_numeric(_t["Win?"], errors="coerce")
+            for _yr, _g in _t.groupby("_Y"):
+                if pd.isna(_yr):
+                    continue
+                _ps = playoff_start_by_season.get(int(_yr))
+                _gg = _g[_g["_W"] < _ps] if _ps else _g
+                for _wk in sorted(w for w in _gg["_W"].dropna().unique()):
+                    _cur = _gg[_gg["_W"] <= _wk]
+                    _rank = []
+                    for _tm, _d in _cur.groupby("Team"):
+                        _w = float((_d["_win"] == 1).sum()) + 0.5 * float((_d["_win"] == 0.5).sum())
+                        _rank.append((str(_tm), _w, float(_d["_PF"].sum())))
+                    if _rank:
+                        _rank.sort(key=lambda r: (r[1], r[2]), reverse=True)
+                        _leader_set.add((int(_yr), int(_wk), _rank[0][0]))
+        except Exception as e:
+            _log_exc(debug, "standings_leader_calc", e)
+
         # streaks + increase from previous week
         tw = tw.sort_values(["Team", "Year", "Week"]).reset_index(drop=True)
         tw["Win streak"] = 0
         tw["Loss streak"] = 0
         tw["Win streak counting previous season"] = 0
         tw["Loss streak counting previous season"] = 0
+        # Award streaks (one running column per weekly team award) + dedicated
+        # streaks. Per the design these are ALL-TIME: they run continuously and
+        # do NOT reset at the season boundary (only Win/Loss keep a separate
+        # within-season variant). The running counters are computed here and
+        # then terminal-encoded below so each run is listed once.
+        _team_award_streaks = [
+            ("Highest score?", "Highest score streak"),
+            ("Lowest score?", "Lowest score streak"),
+            ("Narrowest victory?", "Narrowest victory streak"),
+            ("Largest blowout?", "Largest blowout streak"),
+            ("Most efficient?", "Most efficient streak"),
+            ("Least efficient?", "Least efficient streak"),
+            ("Top half of league?", "Top half streak"),
+            ("One-man army?", "One-man army streak"),
+            ("Most bench points?", "Most bench points streak"),
+            ("Most injured?", "Most injured streak"),
+        ]
+        _ts_dedicated = ["Bottom half streak", "150+ PF streak",
+                         "Standings leader streak", "Quiet streak",
+                         "Win streak vs this opponent"]
+        for _fc, _sc in _team_award_streaks:
+            tw[_sc] = 0
+        for _sc in _ts_dedicated:
+            tw[_sc] = 0
         for team, g in tw.groupby("Team"):
             win_streak = loss_streak = 0
             win_streak_season = loss_streak_season = 0
@@ -9043,6 +9204,9 @@ def build_all(repo_root: Path) -> None:
             # from previous week" compares to the team's last played week
             # of the prior season (≈ championship week).
             prev_pf = None
+            _aw = {_sc: 0 for _fc, _sc in _team_award_streaks}  # all-time award counters
+            _bot = _pf150 = _lead = _quiet = 0  # all-time dedicated counters
+            _rival: Dict[str, int] = {}  # opponent -> consecutive H2H wins
             for idx, row in g.sort_values(["Year", "Week"]).iterrows():
                 if current_year != row["Year"]:
                     current_year = row["Year"]
@@ -9070,10 +9234,64 @@ def build_all(repo_root: Path) -> None:
                 tw.loc[idx, "Win streak counting previous season"] = win_streak
                 tw.loc[idx, "Loss streak counting previous season"] = loss_streak
 
+                # Award streaks (all-time, no season reset)
+                for _fc, _sc in _team_award_streaks:
+                    _v = row.get(_fc)
+                    _aw[_sc] = (_aw[_sc] + 1) if (pd.notna(_v) and float(_v) == 1) else 0
+                    tw.loc[idx, _sc] = _aw[_sc]
+
+                # Dedicated streaks (all-time, no season reset)
+                _played = result in (0, 1, 0.5)
+                _top = pd.notna(row.get("Top half of league?")) and float(row.get("Top half of league?")) == 1
+                _bot = (_bot + 1) if (_played and not _top) else 0
+                tw.loc[idx, "Bottom half streak"] = _bot
+
+                _pf = pd.to_numeric(pd.Series([row.get("PF")]), errors="coerce").iloc[0]
+                _pf150 = (_pf150 + 1) if (pd.notna(_pf) and float(_pf) >= 150) else 0
+                tw.loc[idx, "150+ PF streak"] = _pf150
+
+                # Standings leader: defined only on regular-season weeks; on
+                # playoff weeks hold the value steady rather than break it.
+                _yk = pd.to_numeric(pd.Series([row.get("Year")]), errors="coerce").iloc[0]
+                _wk = pd.to_numeric(pd.Series([row.get("Week")]), errors="coerce").iloc[0]
+                _ps = playoff_start_by_season.get(int(_yk)) if pd.notna(_yk) else None
+                _is_reg = (_ps is None) or (pd.notna(_wk) and _wk < _ps)
+                if _is_reg:
+                    _is_lead = pd.notna(_yk) and pd.notna(_wk) and (int(_yk), int(_wk), str(team)) in _leader_set
+                    _lead = (_lead + 1) if _is_lead else 0
+                tw.loc[idx, "Standings leader streak"] = _lead
+
+                _ntx = pd.to_numeric(pd.Series([row.get("Number of transactions")]), errors="coerce").iloc[0]
+                _ntr = pd.to_numeric(pd.Series([row.get("Number of trades")]), errors="coerce").iloc[0]
+                _moves = (0 if pd.isna(_ntx) else float(_ntx)) + (0 if pd.isna(_ntr) else float(_ntr))
+                _quiet = (_quiet + 1) if (_played and _moves == 0) else 0
+                tw.loc[idx, "Quiet streak"] = _quiet
+
+                # Rivalry: consecutive H2H wins vs this week's opponent.
+                _opp = row.get("Opponent")
+                _opp = str(_opp).strip() if (_opp is not None and pd.notna(_opp)) else ""
+                if _opp:
+                    if result == 1:
+                        _rival[_opp] = _rival.get(_opp, 0) + 1
+                    elif result in (0, 0.5):
+                        _rival[_opp] = 0
+                    tw.loc[idx, "Win streak vs this opponent"] = _rival.get(_opp, 0)
+
                 if prev_pf is not None and pd.notna(row["PF"]):
                     tw.loc[idx, "Increase in points from previous week"] = round(float(row["PF"]) - float(prev_pf), 2)
                 if pd.notna(row["PF"]):
                     prev_pf = row["PF"]
+
+        # Terminal-encode the all-time streaks: list each run once (length on
+        # its final week, 'In Progress' before that, 0 when not streaking).
+        # Win/Loss streaks are intentionally left as running counts.
+        try:
+            _non_rival = [_sc for _fc, _sc in _team_award_streaks] + \
+                         ["Bottom half streak", "150+ PF streak", "Standings leader streak", "Quiet streak"]
+            tw = _terminalize_streaks(tw, ["Team"], ["Year", "Week"], _non_rival)
+            tw = _terminalize_streaks(tw, ["Team", "Opponent"], ["Year", "Week"], ["Win streak vs this opponent"])
+        except Exception as e:
+            _log_exc(debug, "team_week_terminalize", e)
 
     # --------------------------
     # Distinct trade events split into Offseason / Inseason / Total (user
@@ -9809,6 +10027,7 @@ def build_all(repo_root: Path) -> None:
                 "Bench TE of the week?": "Times as Bench TE of the week?",
                 "Highest starter on team?": "Times as Highest starter on team?",
                 "Lowest starter on team?": "Times as Lowest starter on team?",
+                "Captain?": "Times as Captain?",
             }
         )
 
@@ -10150,6 +10369,7 @@ def build_all(repo_root: Path) -> None:
                 "Bench TE of the week?": "Times as Bench TE of the week?",
                 "Highest starter on team?": "Times as Highest starter on team?",
                 "Lowest starter on team?": "Times as Lowest starter on team?",
+                "Captain?": "Times as Captain?",
             }
         )
 
@@ -10233,8 +10453,8 @@ def build_all(repo_root: Path) -> None:
         # the season/all-time total, PAR per game its mean. All N/A for players who
         # never started (volatility also N/A with < 2 starts).
         try:
-            _newc = ["Scoring volatility", "Scoring floor", "Scoring ceiling",
-                     "Boom %", "Bust %", "PAR", "PAR per game"]
+            _newc = ["Starter scoring volatility", "Starter scoring floor", "Starter scoring ceiling",
+                     "Starter boom %", "Starter bust %", "Starter PAR", "Starter PAR per game"]
             _st = pw_work[pw_work.get("Starter?") == 1].copy()
             _st["Points"] = pd.to_numeric(_st["Points"], errors="coerce")
             _st = _st.dropna(subset=["Points"])
@@ -10252,13 +10472,13 @@ def build_all(repo_root: Path) -> None:
                     _g = _st.groupby(_keys)["Points"]
                     _cnt = _g.count()
                     _d = pd.DataFrame({
-                        "Scoring volatility": _g.std().round(2),
-                        "Scoring floor": _g.min().round(2),
-                        "Scoring ceiling": _g.max().round(2),
-                        "Boom %": (_st[_st["Points"] >= 20].groupby(_keys)["Points"].count().reindex(_cnt.index).fillna(0) / _cnt * 100).round(1),
-                        "Bust %": (_st[_st["Points"] <= 5].groupby(_keys)["Points"].count().reindex(_cnt.index).fillna(0) / _cnt * 100).round(1),
-                        "PAR": _src_par.groupby(_keys)["_par"].sum().round(2),
-                        "PAR per game": _src_par.groupby(_keys)["_par"].mean().round(2),
+                        "Starter scoring volatility": _g.std().round(2),
+                        "Starter scoring floor": _g.min().round(2),
+                        "Starter scoring ceiling": _g.max().round(2),
+                        "Starter boom %": (_st[_st["Points"] >= 20].groupby(_keys)["Points"].count().reindex(_cnt.index).fillna(0) / _cnt * 100).round(1),
+                        "Starter bust %": (_st[_st["Points"] <= 5].groupby(_keys)["Points"].count().reindex(_cnt.index).fillna(0) / _cnt * 100).round(1),
+                        "Starter PAR": _src_par.groupby(_keys)["_par"].sum().round(2),
+                        "Starter PAR per game": _src_par.groupby(_keys)["_par"].mean().round(2),
                     })
                     return _d
                 _dy = _agg(["Player ID", "Year"], _stp)
@@ -11026,6 +11246,9 @@ def build_all(repo_root: Path) -> None:
                     "Times Most efficient?": ("Most efficient?", "sum"),
                     "Times Least efficient?": ("Least efficient?", "sum"),
                     "Times Top half of league?": ("Top half of league?", "sum"),
+                    "Times One-man army?": ("One-man army?", "sum"),
+                    "Times Most bench points?": ("Most bench points?", "sum"),
+                    "Times Most injured?": ("Most injured?", "sum"),
                     "Most number of players started from same NFL team": ("Most number of players started from same NFL team", "max"),
                     "Most number of players rostered from same NFL team": ("Most number of players rostered from same NFL team", "max"),
                     "Most number of QBs started from same NFL team": ("Most number of QBs started from same NFL team", "max"),
@@ -11337,6 +11560,9 @@ def build_all(repo_root: Path) -> None:
                     "Times Most efficient?": ("Most efficient?", "sum"),
                     "Times Least efficient?": ("Least efficient?", "sum"),
                     "Times Top half of league?": ("Top half of league?", "sum"),
+                    "Times One-man army?": ("One-man army?", "sum"),
+                    "Times Most bench points?": ("Most bench points?", "sum"),
+                    "Times Most injured?": ("Most injured?", "sum"),
                     "Most number of players started from same NFL team": ("Most number of players started from same NFL team", "max"),
                     "Most number of players rostered from same NFL team": ("Most number of players rostered from same NFL team", "max"),
                     "Most number of QBs started from same NFL team": ("Most number of QBs started from same NFL team", "max"),
@@ -11376,6 +11602,56 @@ def build_all(repo_root: Path) -> None:
             team_all = team_all.merge(agg_all, how="left", on="Team")
         except Exception as e:
             _log_exc(debug, "team_all_aggregate_fill", e)
+
+        # Season-based streaks (the season grain is the natural "weekly" unit
+        # for these, so they live on team_year, not team_week): consecutive
+        # seasons making the playoffs / finishing >= .500. Terminal-encoded
+        # like the weekly streaks — only the final season of a run carries the
+        # length, intermediate seasons read "In Progress", broken/none reads 0,
+        # and a not-yet-complete season reads "N/A".
+        try:
+            if not team_year.empty and {"Team", "Year"}.issubset(team_year.columns):
+                ty = team_year.copy()
+                ty["__yr"] = pd.to_numeric(ty["Year"], errors="coerce")
+                _wpct = pd.to_numeric(ty.get("Win %"), errors="coerce")
+                pa_out: Dict[Any, Any] = {}
+                ws_out: Dict[Any, Any] = {}
+                for team, g in ty.sort_values(["Team", "__yr"]).groupby("Team"):
+                    g = g.reset_index()  # 'index' col holds the team_year row index
+                    pa_run = []  # (row_index, value_or_None_if_incomplete)
+                    ws_run = []
+                    pa = ws = 0
+                    for _, r in g.iterrows():
+                        ri = r["index"]
+                        yr = r["__yr"]
+                        if pd.notna(yr) and int(yr) in playoff_teams_by_season:
+                            made = str(team) in playoff_teams_by_season.get(int(yr), set())
+                            pa = pa + 1 if made else 0
+                            pa_run.append((ri, pa))
+                        else:
+                            pa_run.append((ri, None))
+                        wp = r.get("Win %")
+                        wp = pd.to_numeric(pd.Series([wp]), errors="coerce").iloc[0]
+                        if pd.notna(wp):
+                            ws = ws + 1 if float(wp) >= 0.5 else 0
+                            ws_run.append((ri, ws))
+                        else:
+                            ws_run.append((ri, None))
+                    for run, out in ((pa_run, pa_out), (ws_run, ws_out)):
+                        for k in range(len(run)):
+                            ri, c = run[k]
+                            if c is None:
+                                out[ri] = "N/A"
+                            elif c == 0:
+                                out[ri] = 0
+                            elif k + 1 < len(run) and run[k + 1][1] == c + 1:
+                                out[ri] = "In Progress"
+                            else:
+                                out[ri] = c
+                team_year["Playoff appearance streak"] = [pa_out.get(i, "N/A") for i in team_year.index]
+                team_year["Winning season streak"] = [ws_out.get(i, "N/A") for i in team_year.index]
+        except Exception as e:
+            _log_exc(debug, "season_based_streaks", e)
 
         # Roll up team_year-only fields into team_all_time. These were all
         # hardcoded to 0 (Draft Value, picks made, transactions, trades,
