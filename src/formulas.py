@@ -593,7 +593,9 @@ _ROWS = [
         "Stat": "Highest / Lowest Win % vs a team",
         "Sheet": "team_all_time",
         "Formula": "Across all individual opponents this team has actually played (≥1 all-time game), the max / min of 'Win % vs <opponent>'. 'Team for highest/lowest Win %' holds the matching opponent handle.",
-        "Notes": "Opponents never played are excluded so 'lowest' isn't trivially 0. On team_all_time the per-opponent vs-columns are regrouped — all 'Win % vs …' together, then all 'Record vs …' together.",
+        "Notes": "Opponents never played are excluded so 'lowest' isn't trivially 0. On team_all_time the per-opponent vs-columns are grouped — all 'Win % vs …' together, then all 'Record vs …' together — and sit at the end of the Outcome block.",
+        "Columns": ["Highest Win % vs a team", "Lowest Win % vs a team",
+                    "Team for highest Win %", "Team for lowest Win %"],
     },
     {
         "Stat": "UPST",
