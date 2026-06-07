@@ -183,6 +183,47 @@ def _norm_team_name(name: Any) -> str:
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
+
+# --------------------------
+# In-season freshness gates (PR E follow-ups A & C)
+# --------------------------
+# These keep an actively-running (mid-season) build from finalizing games or
+# standings that aren't actually done yet. They are PURELY TIME-BASED — we do
+# NOT wait on nflverse (which lags ~Tue–Wed); a week/season is "done" once
+# enough real time has passed that its NFL games are over. For any historical
+# season these always return True, so completed seasons are unaffected.
+
+def _nfl_kickoff_thursday(season: int) -> date:
+    """NFL Week 1 Thursday ≈ the Thursday after Labor Day (1st Monday of Sept)."""
+    sept1 = date(int(season), 9, 1)
+    labor_day = sept1 + timedelta(days=(0 - sept1.weekday()) % 7)  # Monday == 0
+    return labor_day + timedelta(days=3)
+
+
+def _week_complete_cutoff(season: int, week: int) -> datetime:
+    """UTC instant after which fantasy `week`'s NFL games are safely final:
+    Tuesday 08:00 UTC (≈ 3am ET), a few hours after that week's Monday Night
+    game so the in-progress week is never finalized early."""
+    monday = _nfl_kickoff_thursday(season) + timedelta(days=4 + 7 * (int(week) - 1))
+    tuesday = monday + timedelta(days=1)
+    return datetime(tuesday.year, tuesday.month, tuesday.day, 8, 0, tzinfo=timezone.utc)
+
+
+def _week_is_complete(season: int, week: int, now: Optional[datetime] = None) -> bool:
+    """True once `week`'s games are over by the clock (independent of nflverse)."""
+    now = now or datetime.now(timezone.utc)
+    try:
+        return now >= _week_complete_cutoff(int(season), int(week))
+    except Exception:
+        return True  # never block on a date we can't compute
+
+
+def _season_is_complete(season: int, now: Optional[datetime] = None) -> bool:
+    """True once the season's fantasy championship is over. Week 18's Tuesday
+    cutoff is comfortably after the fantasy final (≤ NFL week 17), so we gate on
+    that. Used to suppress provisional playoff/champion/finish for a live season."""
+    return _week_is_complete(int(season), 18, now)
+
 def _log(path: Path, msg: str) -> None:
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -1974,7 +2015,13 @@ def build_all(repo_root: Path) -> None:
             if not mu:
                 continue
             has_real = any((_to_float(m.get("points"), 0.0) or 0.0) > 0.0 for m in mu)
-            if has_real:
+            # PR E fix A: don't finalize a week whose games aren't over yet.
+            # Sleeper points go live DURING games, so a week can have points
+            # while still in progress. Gate on a purely time-based cutoff
+            # (Tuesday after the week's MNF) so a mid-season build drops the
+            # in-progress week instead of treating partial scores as final.
+            # Historical seasons are always past the cutoff -> no change.
+            if has_real and _week_is_complete(season, wk):
                 last = wk
         return last
 
@@ -10725,22 +10772,32 @@ def build_all(repo_root: Path) -> None:
             maxpf_place_by_season[season] = {
                 str(team): idx + 1 for idx, (team, _maxpf) in enumerate(maxpf_totals)
             }
-            playoff_teams_by_season[season] = set([t for t, *_ in standings[:4]])
-            last_place_by_season[season] = standings[-1][0] if standings else None
+            # PR E fix C: playoff seeding / champion / last place / finish are
+            # only meaningful once the season is OVER. Mid-season the standings
+            # are provisional and `champ` would fall back to the current leader
+            # (mislabeling the leader "Champion"). Gate these to completed
+            # seasons; a live season is left out of the dicts so every
+            # "vs playoff / vs champion / vs last place / Result" downstream
+            # renders N/A for it. Standings/place maps below stay (they are
+            # legitimately "current standings").
+            _season_done = _season_is_complete(season)
             place_record_by_year[season] = _place_map(standings)
             standings_pf = sorted(standings, key=lambda x: x[4], reverse=True)
             standings_maxpf = sorted(standings, key=lambda x: x[5], reverse=True)
             place_pf_by_year[season] = _place_map(standings_pf)
             place_maxpf_by_year[season] = _place_map(standings_maxpf)
-            champ = None
-            if "Week label" in g.columns:
-                finals = g[g["Week label"] == "Final"]
-                champ_row = finals[finals["Win?"] == 1]
-                if not champ_row.empty:
-                    champ = str(champ_row.iloc[0]["Team"])
-            if not champ and standings:
-                champ = standings[0][0]
-            champion_by_season[season] = champ
+            if _season_done:
+                playoff_teams_by_season[season] = set([t for t, *_ in standings[:4]])
+                last_place_by_season[season] = standings[-1][0] if standings else None
+                champ = None
+                if "Week label" in g.columns:
+                    finals = g[g["Week label"] == "Final"]
+                    champ_row = finals[finals["Win?"] == 1]
+                    if not champ_row.empty:
+                        champ = str(champ_row.iloc[0]["Team"])
+                if not champ and standings:
+                    champ = standings[0][0]
+                champion_by_season[season] = champ
 
         playoff_elimination_by_season: Dict[int, Dict[str, Optional[int]]] = {}
         try:
@@ -10756,6 +10813,10 @@ def build_all(repo_root: Path) -> None:
         try:
             for yr, g in tw.groupby("Year"):
                 season = int(yr)
+                # PR E fix C: a finish/Result is only real once the season is
+                # over. Skip a live season so its Result renders N/A.
+                if not _season_is_complete(season):
+                    continue
                 playoff_start = playoff_start_by_season.get(season)
                 if not playoff_start:
                     continue
@@ -11372,7 +11433,12 @@ def build_all(repo_root: Path) -> None:
                 non_playoffs = teams_in_year - set(playoffs) if playoffs else set()
 
                 res = season_finish.get(yr, {}).get(team, r.get("Result"))
-                if not res:
+                # PR E fix C: a live (incomplete) season has no finish yet —
+                # force N/A rather than letting the fallback below brand every
+                # team "Missed playoffs".
+                if not _season_is_complete(yr):
+                    res = "N/A"
+                elif not res:
                     if champ and team == champ:
                         res = "Champion"
                     elif lastp and team == lastp:
