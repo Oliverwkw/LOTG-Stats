@@ -59,7 +59,12 @@
     "Bench TE of the week streak",
     "Highest starter on team streak",
     "Lowest starter on team streak",
-    "Captain streak"
+    "Captain streak",
+    "10+ point streak",
+    "20+ point streak",
+    "30+ point streak",
+    "40+ point streak",
+    "50+ point streak"
   ],
   "Player-year": [
     "Player",
