@@ -108,6 +108,7 @@ if str(SUPPORT_ROOT) not in sys.path:
 
 from lotg_support.utils import HttpConfig, safe_div, clean_name, safe_bool
 from lotg_support.sleeper import SleeperClient
+from lotg_support.injury_tracker import load_status_index as _load_injury_tracker
 from lotg_support.external import (
     ExternalConfig,
     load_dynastyprocess_playerids,
@@ -1203,6 +1204,17 @@ def build_all(repo_root: Path) -> None:
     sleeper_cache_dir.mkdir(parents=True, exist_ok=True)
     sc = SleeperClient(run_cfg.league_id, http, cache_dir=sleeper_cache_dir)
     ext = ExternalConfig(cache_dir=cache_dir, timeout_seconds=120)
+
+    # PR E fix B: in-house weekly Sleeper injury tracker (captured every Monday
+    # night into data/injury_tracker.csv). Used as the PRIMARY injury/suspension
+    # source per (player_id, season, week) in the player_week loop; nflverse is
+    # the backup. Empty until 2026 wk1, so a no-op on all historical data.
+    try:
+        injury_tracker_idx = _load_injury_tracker(repo_root)
+    except Exception as e:
+        injury_tracker_idx = {}
+        _log_exc(debug, "load_injury_tracker", e)
+    _log(debug, f"injury tracker rows loaded: {len(injury_tracker_idx)}")
 
     # nflverse player id mapping (for injury + team-by-week)
     sleeper_to_gsis: Dict[str, str] = {}
@@ -3700,6 +3712,31 @@ def build_all(repo_root: Path) -> None:
                             # injury signals
                             elif any(x in (st + " " + inj_st) for x in ["out", "ir", "inactive", "pup", "doubtful"]):
                                 inj = True
+
+                        # PR E fix B: the in-house weekly Sleeper injury tracker
+                        # is the PRIMARY source — it's the historical, per-week
+                        # snapshot of Sleeper's own diagnoses, so it overrides the
+                        # nflverse/meta inference above when it has this exact
+                        # (player, season, week). Covers injury, suspension AND
+                        # bye (bye via the captured NFL team vs the fixed
+                        # schedule, so traded players get the right bye). Empty
+                        # until 2026 wk1 -> a no-op on historical data.
+                        _trk = injury_tracker_idx.get((str(pid), int(season), int(wk)))
+                        if _trk:
+                            if _trk.get("bye") is True and (pts or 0.0) == 0.0:
+                                bye = True
+                                inj = False
+                                susp = False
+                            elif (pts or 0.0) == 0.0 and bye is not True:
+                                _ts = _trk.get("status") or ""
+                                if "sus" in _ts:
+                                    susp = True
+                                    inj = False
+                                elif any(x in _ts for x in ("out", "ir", "inactive", "pup",
+                                                            "doubtful", "questionable", "dnr",
+                                                            "cov", "reserve", " na")):
+                                    inj = True
+                                    susp = False
 
                         if inj is None:
                             inj = False
