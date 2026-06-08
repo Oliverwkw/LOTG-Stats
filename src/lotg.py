@@ -271,6 +271,94 @@ def _format_pick_number(round_no: Optional[int], pick_in_round: Optional[int]) -
     return f"{int(round_no)}.{int(pick_in_round):02d}"
 
 
+# Phase 12 #5: re-score nflverse weekly stats with the LEAGUE's own (Sleeper)
+# scoring settings, so "Points (full season)" lives on the same scale as the
+# rostered "Points" (which use Sleeper scoring). Offensive scoring only —
+# nflverse stats_player_week is offense; the league rosters no K/DST. Each
+# season uses its OWN scoring_settings, so a settings change is handled
+# automatically (a build-time log flags when they differ year-to-year).
+_LEAGUE_SCORE_MAP = {
+    # Passing
+    "pass_yd": ("passing_yards",),
+    "pass_td": ("passing_tds",),
+    "pass_int": ("passing_interceptions",),
+    "pass_2pt": ("passing_2pt_conversions",),
+    "pass_fd": ("passing_first_downs",),
+    # Rushing
+    "rush_yd": ("rushing_yards",),
+    "rush_td": ("rushing_tds",),
+    "rush_2pt": ("rushing_2pt_conversions",),
+    "rush_fd": ("rushing_first_downs",),
+    # Receiving
+    "rec": ("receptions",),
+    "rec_yd": ("receiving_yards",),
+    "rec_td": ("receiving_tds",),
+    "rec_2pt": ("receiving_2pt_conversions",),
+    "rec_fd": ("receiving_first_downs",),
+    # Fumbles. The league scores 'fum' (ANY fumble) on TOP of 'fum_lost', so a
+    # lost fumble is fum + fum_lost. 'fum_rec' is opponent-fumble recovery
+    # (recovering your OWN fumble is not awarded — verified vs Sleeper).
+    "fum": ("sack_fumbles", "rushing_fumbles", "receiving_fumbles"),
+    "fum_lost": ("sack_fumbles_lost", "rushing_fumbles_lost", "receiving_fumbles_lost"),
+    "fum_rec": ("fumble_recovery_opp",),
+    "fum_rec_td": ("fumble_recovery_tds",),
+    "fum_ret_yd": ("fumble_recovery_yards_own", "fumble_recovery_yards_opp"),
+    # Special teams (returners)
+    "st_td": ("special_teams_tds",),
+    # Kicking (future-proof — scored if a kicker is ever rostered)
+    "fgm_0_19": ("fg_made_0_19",),
+    "fgm_20_29": ("fg_made_20_29",),
+    "fgm_30_39": ("fg_made_30_39",),
+    "fgm_40_49": ("fg_made_40_49",),
+    "fgm_50p": ("fg_made_50_59", "fg_made_60_"),
+    "fgmiss": ("fg_missed",),
+    "xpm": ("pat_made",),
+    "xpmiss": ("pat_missed",),
+    # Individual defense (IDP) — future-proof
+    "def_td": ("def_tds",),
+    "int": ("def_interceptions",),
+    "sack": ("def_sacks",),
+    "ff": ("def_fumbles_forced",),
+    "safe": ("def_safeties",),
+}
+_LEAGUE_SCORE_BONUS = (  # (scoring_key, stat_col, threshold)
+    ("bonus_pass_yd_300", "passing_yards", 300), ("bonus_pass_yd_400", "passing_yards", 400),
+    ("bonus_rush_yd_100", "rushing_yards", 100), ("bonus_rush_yd_200", "rushing_yards", 200),
+    ("bonus_rec_yd_100", "receiving_yards", 100), ("bonus_rec_yd_200", "receiving_yards", 200),
+)
+
+
+def _league_score(stats: Dict[str, Any], scoring: Dict[str, Any], position: Optional[str] = None) -> float:
+    """Fantasy points for one nflverse stat row under `scoring` (Sleeper)."""
+    pts = 0.0
+    for key, cols in _LEAGUE_SCORE_MAP.items():
+        mult = scoring.get(key)
+        if not mult:
+            continue
+        val = 0.0
+        for c in cols:
+            v = stats.get(c)
+            if v is not None:
+                try:
+                    val += float(v)
+                except Exception:
+                    pass
+        pts += float(mult) * val
+    if position == "TE" and scoring.get("bonus_rec_te"):
+        try:
+            pts += float(scoring["bonus_rec_te"]) * float(stats.get("receptions") or 0.0)
+        except Exception:
+            pass
+    for bkey, col, thresh in _LEAGUE_SCORE_BONUS:
+        if scoring.get(bkey):
+            try:
+                if float(stats.get(col) or 0.0) >= thresh:
+                    pts += float(scoring[bkey])
+            except Exception:
+                pass
+    return round(pts, 2)
+
+
 def _valid_pid(pid: Any) -> bool:
     """Return True if pid is a real Sleeper player id (not placeholders like '0')."""
     if pid is None:
@@ -2525,6 +2613,19 @@ def build_all(repo_root: Path) -> None:
 
         # playoff start week (Sleeper setting)
         settings = lg.get("settings") or {}
+        scoring_settings = lg.get("scoring_settings") or {}  # Phase 12 #5: league scoring
+        # Auto-detect a scoring-settings change vs the prior season (the
+        # re-score already uses each year's own table; this just flags it).
+        try:
+            _relevant = set(_LEAGUE_SCORE_MAP) | {"bonus_rec_te"} | {b[0] for b in _LEAGUE_SCORE_BONUS}
+            _cur_sc = {k: round(float(scoring_settings[k]), 4) for k in _relevant if k in scoring_settings}
+            _prev_sc = locals().get("_prev_scoring_sig")
+            if _prev_sc is not None and _prev_sc != _cur_sc:
+                _diff = {k: (_prev_sc.get(k), _cur_sc.get(k)) for k in set(_prev_sc) | set(_cur_sc) if _prev_sc.get(k) != _cur_sc.get(k)}
+                _log(debug, f"INFO league scoring settings changed in {season}: {_diff}")
+            _prev_scoring_sig = _cur_sc
+        except Exception:
+            pass
         playoff_start = _to_int(settings.get("playoff_week_start"), None)
         playoff_start_by_season[season] = playoff_start
 
@@ -2600,20 +2701,39 @@ def build_all(repo_root: Path) -> None:
                     }
                     gsis_to_sid.pop("", None)
                     if gsis_to_sid:
-                        pts_col = "fantasy_points_ppr" if "fantasy_points_ppr" in spw.columns else (
+                        # Phase 12 #5: score each week with the LEAGUE's scoring
+                        # settings from the raw nflverse stats (same scale as the
+                        # rostered "Points"); fall back to nflverse's PPR total
+                        # only if scoring_settings is unavailable.
+                        _score_cols = [c for cols in _LEAGUE_SCORE_MAP.values()
+                                       for c in cols if c in spw.columns]
+                        _pos_col = "position" if "position" in spw.columns else None
+                        _ppr_col = "fantasy_points_ppr" if "fantasy_points_ppr" in spw.columns else (
                             "fantasy_points" if "fantasy_points" in spw.columns else None
                         )
-                        if pts_col:
-                            for r in spw[["player_id", "week", pts_col]].dropna(subset=["player_id", "week"]).itertuples(index=False):
-                                gsis = str(r.player_id)
+                        _read_cols = list(dict.fromkeys(
+                            [c for c in (["player_id", "week", _pos_col, _ppr_col] + _score_cols) if c]
+                        ))
+                        _use_league = bool(scoring_settings) and bool(_score_cols)
+                        if _use_league or _ppr_col:
+                            for r in spw[_read_cols].dropna(subset=["player_id", "week"]).itertuples(index=False):
+                                gsis = str(getattr(r, "player_id"))
                                 sid = gsis_to_sid.get(gsis)
                                 if not sid:
                                     continue
                                 try:
-                                    wk = int(r.week)
-                                    pts = float(getattr(r, pts_col))
+                                    wk = int(getattr(r, "week"))
                                 except Exception:
                                     continue
+                                if _use_league:
+                                    _stats = {c: getattr(r, c, None) for c in _score_cols}
+                                    _pos = getattr(r, _pos_col, None) if _pos_col else (pid_meta.get(sid, {}) or {}).get("position")
+                                    pts = _league_score(_stats, scoring_settings, _pos)
+                                else:
+                                    try:
+                                        pts = float(getattr(r, _ppr_col))
+                                    except Exception:
+                                        continue
                                 # Approx Thursday-of-week date for sorting.
                                 try:
                                     wk_d = date(int(season), 9, 7) + timedelta(days=7 * (wk - 1))
@@ -10075,13 +10195,42 @@ def build_all(repo_root: Path) -> None:
     nfl_full_season_games: Dict[Tuple[str, int], int] = defaultdict(int)
     nfl_career_total_points: Dict[str, float] = defaultdict(float)
     nfl_career_total_games: Dict[str, int] = defaultdict(int)
+    # Phase 12 #5: full-season points blend. For weeks the player was on a LOTG
+    # roster we have the league's OWN (Sleeper) score — authoritative, exact —
+    # so use it; fall back to the nflverse re-score only for weeks we don't have
+    # Sleeper data (non-rostered NFL games). This is exact on rostered weeks
+    # (matches the rostered "Points" to the cent) and guarantees full ≥ rostered.
+    _sleeper_by_sid: Dict[str, Dict[Tuple[int, int], float]] = defaultdict(dict)
+    try:
+        if not pw.empty and {"Player ID", "Year", "Week", "Points"}.issubset(pw.columns):
+            _pwp = pd.to_numeric(pw["Points"], errors="coerce")
+            _pwy = pd.to_numeric(pw["Year"], errors="coerce")
+            _pww = pd.to_numeric(pw["Week"], errors="coerce")
+            for _i, _sid_v in enumerate(pw["Player ID"].astype(str)):
+                _yv, _wv, _pv = _pwy.iloc[_i], _pww.iloc[_i], _pwp.iloc[_i]
+                if pd.notna(_yv) and pd.notna(_wv) and pd.notna(_pv):
+                    _sleeper_by_sid[_sid_v][(int(_yv), int(_wv))] = float(_pv)
+    except Exception as e:
+        _log_exc(debug, "sleeper_pts_index", e)
     for _sid, _entries in nfl_log_by_sid.items():
+        # Per (sid): nflverse re-scored weeks are the "games" (weeks the player
+        # actually played); OVERRIDE each with the exact Sleeper score where the
+        # player was rostered. Add Sleeper weeks nflverse MISSED only if they
+        # carry a non-zero score (a real game nflverse lacks) — never bye/0
+        # weeks, which would wrongly inflate the games denominator.
+        _by_yw: Dict[Tuple[int, int], float] = {}
         for _e in _entries:
             try:
-                _yr = int(_e.get("year"))
-                _pts = float(_e.get("points") or 0.0)
+                _by_yw[(int(_e.get("year")), int(_e.get("week")))] = float(_e.get("points") or 0.0)
             except Exception:
                 continue
+        _sl = _sleeper_by_sid.get(str(_sid)) or {}
+        for _yw, _spts in _sl.items():
+            if _yw in _by_yw:
+                _by_yw[_yw] = _spts          # rostered + played -> exact Sleeper score
+            elif _spts != 0.0:
+                _by_yw[_yw] = _spts          # game nflverse missed (skip 0/bye weeks)
+        for (_yr, _wk), _pts in _by_yw.items():
             nfl_full_season_points[(str(_sid), _yr)] += _pts
             nfl_full_season_games[(str(_sid), _yr)] += 1
             nfl_career_total_points[str(_sid)] += _pts
