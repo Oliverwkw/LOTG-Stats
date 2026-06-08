@@ -1031,6 +1031,11 @@ def _preserve_na(col: str) -> bool:
     if col_l in {"starter scoring volatility", "starter scoring floor", "starter scoring ceiling",
                  "starter boom %", "starter bust %", "starter par", "starter par per game"}:
         return True
+    # Phase 12 fix #3: role-split scoring averages are N/A (not 0) when the
+    # player never started / never benched / never played that period.
+    if col_l in {"ppg starter", "ppg bench", "adjusted ppg starter", "adjusted ppg bench",
+                 "adjusted avg points", "ppg starter vs bench diff"}:
+        return True
     # Length of tenure on team: a blank means there is NO player whose tenure
     # to measure — a transactions pure drop (no added player) or an unmade pick
     # (no player drafted yet). Render those as N/A. A genuine 0-day tenure
@@ -9366,7 +9371,10 @@ def build_all(repo_root: Path) -> None:
             # No opponent / no game → 0 luck.
             _has_game = L["Opponent"].astype(str).str.strip().ne("") & L["opp_FS_pf"].notna()
             luck = luck.where(_has_game, 0.0)
-            tw["Luck"] = pd.to_numeric(pd.Series(luck.values), errors="coerce").fillna(0.0).values
+            # Round weekly Luck so the season/all-time SUMS are deterministic
+            # (floating-point summation order otherwise leaves ~1e-16 noise that
+            # pollutes every build diff). 6 dp keeps full display precision.
+            tw["Luck"] = pd.to_numeric(pd.Series(luck.values), errors="coerce").fillna(0.0).round(6).values
         except Exception as e:
             _log_exc(debug, "team_week_luck_formula", e)
 
