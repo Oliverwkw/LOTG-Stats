@@ -10616,10 +10616,15 @@ def build_all(repo_root: Path) -> None:
                     )
                     last_event = tenure_last_event_fy.get((str(sid), int(yr)))
                     last_team_pad = last_event[1] if last_event else top_team_pad
+                    # Phase 12 fix #2: padded (tx-only) rows had no Age (defaulted
+                    # to 0). Compute the player's age as of mid-season of that
+                    # year from birth_date (same source the weekly path uses).
+                    _pad_age = _calc_age(meta.get("birth_date"), date(int(yr), 11, 1))
                     pad_rows.append({
                         "Player": name,
                         "Player ID": str(sid),
                         "Year": int(yr),
+                        "Age": round(_pad_age, 2) if _pad_age is not None else None,
                         "Top Team": top_team_pad,
                         "Last team": last_team_pad,
                         # Use full-FY teams for the uniqueness count so
