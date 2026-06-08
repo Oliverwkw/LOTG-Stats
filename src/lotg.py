@@ -1980,17 +1980,20 @@ def build_all(repo_root: Path) -> None:
                 # Style the header row: bold + wrap + a per-topic color band so
                 # adjacent same-topic columns read as a group.
                 try:
+                    _data_wrap = Alignment(wrap_text=True, vertical="top")  # Phase 12 #7: wrap ALL cells
                     for j in range(1, ws.max_column + 1):
                         hc = ws.cell(row=1, column=j)
                         topic = _col_topic(hc.value) if hc.value else "Identity"
                         hc.fill = PatternFill("solid", fgColor=_TOPIC_FILL.get(topic, "D9D9D9"))
                         hc.font = Font(bold=True)
                         hc.alignment = Alignment(wrap_text=True, vertical="center", horizontal="center")
-                        # Conservative number format on the data cells of this column.
+                        # Wrap every data cell (#7) + conservative number format.
                         nf = _col_number_format(hc.value) if hc.value else None
-                        if nf:
-                            for r in range(2, ws.max_row + 1):
-                                ws.cell(row=r, column=j).number_format = nf
+                        for r in range(2, ws.max_row + 1):
+                            dc = ws.cell(row=r, column=j)
+                            dc.alignment = _data_wrap
+                            if nf:
+                                dc.number_format = nf
                 except Exception:
                     pass
 
