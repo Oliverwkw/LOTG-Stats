@@ -70,11 +70,12 @@ def reconcile(frames) -> list:
     d = (_num(m["Times Highest score?"]) - _num(m["Highest score?"])).abs()
     out.append(("Times Highest score? = Σ weekly", bool(d.max() <= 0.5), f"max Δ {d.max():.0f}", False))
 
-    # KNOWN-OPEN: player_all #tx = Σ player_year — fails for players whose only
-    # activity in a not-yet-played season is off-season transactions (no
-    # player_year row). Phase 12 finding #1; flip `known` to False once fixed.
+    # player_all #tx = Σ player_year. Phase 12 finding #1 (now FIXED): player_year
+    # is padded with a row for every (player, season) that has real transaction
+    # activity but no weekly appearance — offseason-only moves (bucketed under the
+    # prior fantasy year) and initial-roster vets dropped with no recorded 'add'.
     cmp_group(py, "Player", "Number of transactions", pa, "Player", 0.5,
-              "player_all #tx = Σ player_year", known=True)
+              "player_all #tx = Σ player_year", known=False)
     return out
 
 

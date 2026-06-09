@@ -10712,6 +10712,20 @@ def build_all(repo_root: Path) -> None:
             # Walk transactions / trades for every (player_id, year)
             # that contributed to the per-year counters.
             tx_pairs: Set[Tuple[str, int]] = set()
+            # The team(s) each (sid, season) was actually ON per its real moves —
+            # the row's `Team` is the team the player joined (add/received) or was
+            # removed from (drop/sent). Used as a realized-roster signal + a
+            # Top/Last-team source for players with no player_tenures stint (a
+            # vet dropped off an INITIAL roster has a real drop but no recorded
+            # 'add', so player_tenures can't see them). Fix #1.
+            tx_team_events_by_pair: Dict[Tuple[str, int], List[Tuple[str, str]]] = defaultdict(list)
+
+            def _add_tx_team_event(sid_v, season_v, date_v, team_v):
+                if sid_v and team_v:
+                    tx_team_events_by_pair[(str(sid_v), int(season_v))].append(
+                        (str(date_v or ""), str(team_v))
+                    )
+
             for r in transactions_rows:
                 try:
                     season_i = int(r.get("Season")) if r.get("Season") is not None else None
@@ -10723,6 +10737,7 @@ def build_all(repo_root: Path) -> None:
                     sid = r.get(fld)
                     if sid:
                         tx_pairs.add((str(sid), int(season_i)))
+                        _add_tx_team_event(sid, season_i, r.get("Date"), r.get("Team"))
             for r in trades_rows:
                 try:
                     season_i = int(r.get("Season")) if r.get("Season") is not None else None
@@ -10733,9 +10748,11 @@ def build_all(repo_root: Path) -> None:
                 for sid in (r.get("_recv_player_ids") or []):
                     if sid:
                         tx_pairs.add((str(sid), int(season_i)))
+                        _add_tx_team_event(sid, season_i, r.get("Date"), r.get("Team"))
                 for sid in (r.get("_drop_player_ids") or []):
                     if sid:
                         tx_pairs.add((str(sid), int(season_i)))
+                        _add_tx_team_event(sid, season_i, r.get("Date"), r.get("Team"))
 
             missing_pairs = [p for p in tx_pairs if p not in existing]
             # Phase 3A.2: drop pads for players truly never rostered.
@@ -10744,9 +10761,71 @@ def build_all(repo_root: Path) -> None:
             # roster realization). Skip those rows per spec — "If the
             # player was never rostered, they shouldn't get a row for
             # that year."
+            def _season_leadin_tenure(sid: str, yr: int):
+                """Realized stints in season `yr`'s LEAD-IN offseason window
+                [Jan 1 yr, min(now, Sept 1 yr)).
+
+                Sleeper tags a pre-season move (Jan–Aug yr) as Season=yr, but
+                `_fy_for_date` buckets those dates into FY (yr-1) — an offseason
+                date's fantasy year is the prior year. So a player whose ONLY
+                Season-yr activity is a pre-season offseason move has no
+                (sid, yr) FY tenure entry and would be dropped by the realized-
+                roster filter below. Recover their membership + Top/Last team
+                straight from player_tenures. Bounded at Sept 1 yr so it captures
+                only the lead-in (in-season players already have an FY-yr entry +
+                a pw-derived row, so they never reach this path). For the live
+                season Sept 1 yr is in the future, so the bound is `now`.
+                Returns (secs_by_team, last_event). Fix #1."""
+                _lead_start = datetime(int(yr), 1, 1, tzinfo=timezone.utc)
+                _lead_end = min(_now_dt, datetime(int(yr), 9, 1, tzinfo=timezone.utc))
+                _secs: Dict[str, float] = defaultdict(float)
+                _last: Optional[Tuple[datetime, str]] = None
+                for t in player_tenures.get(str(sid), []):
+                    tm = t.get("team")
+                    if not tm:
+                        continue
+                    s_dt = _iso_to_dt(t.get("start"))
+                    e_dt = _iso_to_dt(t.get("end")) or _now_dt
+                    if s_dt is None:
+                        continue
+                    ov_s = max(s_dt, _lead_start)
+                    ov_e = min(e_dt, _lead_end)
+                    if ov_e > ov_s:
+                        _secs[str(tm)] += (ov_e - ov_s).total_seconds()
+                        if _last is None or ov_e > _last[0]:
+                            _last = (ov_e, str(tm))
+                return dict(_secs), _last
+
+            def _tx_team_summary(sid: str, yr: int):
+                """Top/Last team + distinct-team count from the (sid, yr) real
+                transaction `Team`s — the fallback realized source when the
+                player has no player_tenures stint (initial-roster vet dropped).
+                Top = most-frequent team, Last = team of the latest-dated move."""
+                evs = tx_team_events_by_pair.get((str(sid), int(yr)))
+                if not evs:
+                    return None, None, 0
+                counts: Dict[str, int] = {}
+                for _d, tm in evs:
+                    counts[tm] = counts.get(tm, 0) + 1
+                top = max(counts.items(), key=lambda kv: kv[1])[0]
+                last = max(evs, key=lambda e: e[0])[1]
+                return top, last, len(counts)
+
             def _has_tenure_in_year(sid: str, yr: int) -> bool:
                 tenure_yr_map = tenure_time_team_fy.get((str(sid), int(yr)))
-                return bool(tenure_yr_map)
+                if tenure_yr_map:
+                    return True
+                # Phase 12 fix #1: a Season-yr offseason-only realization is
+                # bucketed under FY (yr-1), so the FY-keyed lookup above misses
+                # it (any completed season, not just the live one). Check the
+                # lead-in window directly.
+                _secs, _ = _season_leadin_tenure(str(sid), int(yr))
+                if _secs:
+                    return True
+                # A real move with a Team (e.g. a vet dropped off an initial
+                # roster — a genuine roster removal with no recorded 'add', so no
+                # tenure stint) is still a realized rostering.
+                return bool(tx_team_events_by_pair.get((str(sid), int(yr))))
             missing_pairs = [(s, y) for s, y in missing_pairs if _has_tenure_in_year(s, y)]
             if missing_pairs:
                 pad_rows = []
@@ -10759,15 +10838,33 @@ def build_all(repo_root: Path) -> None:
                     # Top team prefers in-season tenure time; falls back
                     # to full-FY tenure time if the player had no in-
                     # season tenure at all (rare).
-                    tenure_team_secs_is = tenure_inseason_time_team_fy.get((str(sid), int(yr)), {})
                     tenure_team_secs_full = tenure_time_team_fy.get((str(sid), int(yr)), {})
-                    tenure_team_secs = tenure_team_secs_is or tenure_team_secs_full
+                    _tx_top = _tx_last = None
+                    _tx_nteams = 0
+                    if tenure_team_secs_full:
+                        tenure_team_secs_is = tenure_inseason_time_team_fy.get((str(sid), int(yr)), {})
+                        tenure_team_secs = tenure_team_secs_is or tenure_team_secs_full
+                        last_event = tenure_last_event_fy.get((str(sid), int(yr)))
+                    else:
+                        # Offseason-only Season-yr player: the FY dicts bucket the
+                        # lead-in under yr-1, so recover teams from the lead-in
+                        # window. Fix #1 (covers the live season AND historical
+                        # pre-season-only stints, e.g. Dee Eskridge 2022).
+                        _lead_secs, _lead_last = _season_leadin_tenure(str(sid), int(yr))
+                        tenure_team_secs = _lead_secs
+                        tenure_team_secs_full = _lead_secs
+                        last_event = _lead_last
+                        if not _lead_secs:
+                            # No tenure stint at all (initial-roster vet with only
+                            # a drop). Fall back to the real transaction Team(s).
+                            _tx_top, _tx_last, _tx_nteams = _tx_team_summary(str(sid), int(yr))
                     top_team_pad = (
                         max(tenure_team_secs.items(), key=lambda kv: kv[1])[0]
-                        if tenure_team_secs else None
+                        if tenure_team_secs else _tx_top
                     )
-                    last_event = tenure_last_event_fy.get((str(sid), int(yr)))
-                    last_team_pad = last_event[1] if last_event else top_team_pad
+                    last_team_pad = (
+                        last_event[1] if last_event else (_tx_last or top_team_pad)
+                    )
                     # Phase 12 fix #2: padded (tx-only) rows had no Age (defaulted
                     # to 0). Compute the player's age as of mid-season of that
                     # year from birth_date (same source the weekly path uses).
@@ -10780,8 +10877,10 @@ def build_all(repo_root: Path) -> None:
                         "Top Team": top_team_pad,
                         "Last team": last_team_pad,
                         # Use full-FY teams for the uniqueness count so
-                        # partial-week offseason stints still register.
-                        "Number of teams": len(tenure_team_secs_full),
+                        # partial-week offseason stints still register; fall back
+                        # to the real-transaction team count for initial-roster
+                        # vets with no tenure stint (Fix #1).
+                        "Number of teams": len(tenure_team_secs_full) or _tx_nteams,
                         # Counters mirror what the main pw-derived
                         # rows would have gotten from the same dicts.
                         "Number of transactions": int(player_tx_year.get((str(sid), int(yr)), 0)),
