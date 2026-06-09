@@ -3463,6 +3463,50 @@ def build_all(repo_root: Path) -> None:
                 tx_by_week[wk] = []
                 _log_exc(debug, f"transactions_{season}_wk{wk}", e)
 
+        # ------------- Manual 2021 botched-trade merge -------------
+        # Sleeper split ONE draft-day pick trade (shmuel256's 2021 2.08 for
+        # LWebs53's 3.06 + a 2022 4th + a 2023 4.08) into a pick swap PLUS a
+        # phantom PLAYER swap (Michael Carter <-> Rhamondre Stevenson). The
+        # players never changed hands — each was simply drafted with the pick the
+        # other team sent (Carter by LWebs53 off the 2.08, Stevenson by shmuel256
+        # off the 3.06; see _DRAFTER_FIX_2021). Merge the phantom trade's draft
+        # pick(s) into the real pick trade and drop the phantom player legs so the
+        # deal reads as picks-only and both rookies stay traceable from their true
+        # drafters. The 2023 4.08 is kept (dropping it would orphan its later
+        # hops). Matched precisely by the two players' Sleeper ids.
+        if int(season) == 2021:
+            try:
+                _MC, _RS = "7607", "7611"  # Michael Carter, Rhamondre Stevenson
+                _all_trades = [(wk, t) for wk, txs in tx_by_week.items()
+                               for t in txs if t.get("type") == "trade"]
+                _phantom = None
+                for _wk, _t in _all_trades:
+                    _pids = (set(str(k) for k in (_t.get("adds") or {}))
+                             | set(str(k) for k in (_t.get("drops") or {})))
+                    if {_MC, _RS} <= _pids:
+                        _phantom = (_wk, _t)
+                        break
+                if _phantom is not None:
+                    _pw, _pt = _phantom
+                    _rosters = set(int(r) for r in (_pt.get("roster_ids") or []))
+                    _pickswap = None
+                    for _wk, _t in _all_trades:
+                        if _t is _pt or not _t.get("draft_picks"):
+                            continue
+                        if set(int(r) for r in (_t.get("roster_ids") or [])) == _rosters:
+                            _pickswap = _t
+                            break
+                    if _pickswap is not None:
+                        _pickswap.setdefault("draft_picks", [])
+                        _pickswap["draft_picks"].extend(_pt.get("draft_picks") or [])
+                        for _wb in (_pt.get("waiver_budget") or []):
+                            _pickswap.setdefault("waiver_budget", []).append(_wb)
+                        tx_by_week[_pw] = [t for t in tx_by_week[_pw] if t is not _pt]
+                        _log(debug, f"[{_now_iso()}] INFO merged the 2021 phantom "
+                                    f"Carter/Stevenson player swap into the pick trade")
+            except Exception as e:
+                _log_exc(debug, "merge_2021_phantom_trade", e)
+
         # ------------- Commissioner "wash" detection (Phase 6B) -------------
         # A single-day commissioner action that ends with the roster exactly
         # as it started is a no-op correction, not a real transaction. We flag
@@ -5187,6 +5231,27 @@ def build_all(repo_root: Path) -> None:
                 _name = _p.get("player") or _p.get("player_name")
             return str(_name) if _name else "Unknown"
 
+        # Manual drafter corrections for the 2021 rookie draft. Sleeper's draft
+        # data is doubly wrong here: it is snake-encoded AND it never reflected
+        # the draft-DAY pick trades, so the recorded drafter (roster_id) for a
+        # few picks can't be recovered automatically. Each correction was
+        # established by tracing the rookie's first real transaction back to its
+        # origin team (start-to-finish career check). Keyed by (round, position)
+        # -> correct drafting team. NONE is a commissioner move: three are self-
+        # drafts (the owner drafted, then traded the PLAYER away) and one is a
+        # recorded draft-day PICK trade:
+        #   2.05 Elijah Moore      -> plehv79    (plehv drafted; player traded)
+        #   4.05 Nico Collins      -> plehv79    (plehv drafted; player traded)
+        #   4.03 Dyami Brown       -> AceMatthew (AceMatthew drafted; player traded)
+        #   3.06 Rhamondre Stevenson -> shmuel256 (shmuel got the pick in the
+        #        2.08-for-3.06 + 2022-4th draft-day swap; players never moved)
+        _DRAFTER_FIX_2021: Dict[Tuple[int, int], str] = {
+            (2, 5): "plehv79",
+            (4, 5): "plehv79",
+            (4, 3): "AceMatthew",
+            (3, 6): "shmuel256",
+        }
+
         for _frame in draft_frames:
             _year = int(_frame["year"])
             _is_vet = bool(_frame["is_vet"])
@@ -5306,6 +5371,20 @@ def build_all(repo_root: Path) -> None:
                                 _chain = ([int(_ori)] if int(_rost_rid) == int(_ori)
                                           else [int(_ori), int(_rost_rid)])
 
+                    # Manual 2021-rookie drafter corrections (see _DRAFTER_FIX_2021):
+                    # override the chain's final owner with the true drafter and
+                    # mark it non-commish (self-draft or recorded draft-day pick
+                    # trade). Keeps the player's career traceable from its drafter.
+                    _manual_fix = False
+                    if _force_linear and int(_year) == 2021:
+                        _fix_team = _DRAFTER_FIX_2021.get((int(_rnd), int(_pos)))
+                        if _fix_team is not None:
+                            _fix_rid = season_team_to_roster.get(int(_year), {}).get(_norm_team_name(_fix_team))
+                            if _fix_rid is not None:
+                                _chain = ([int(_ori)] if int(_fix_rid) == int(_ori)
+                                          else [int(_ori), int(_fix_rid)])
+                                _manual_fix = True
+
                     _final_rid = int(_chain[-1])
                     _orig_team = _rid_to_team.get(_ori, f"Roster {_ori}")
                     _final_team = _rid_to_team.get(_final_rid, f"Roster {_final_rid}")
@@ -5320,8 +5399,16 @@ def build_all(repo_root: Path) -> None:
                     # off-platform startup move = commissioner move. A genuinely
                     # traded pick (e.g. 2.08 J. Fields, shmuel256->LWebs53, in the
                     # trade ledger) lands in _ledger_owners and stays un-flagged.
+                    # If the position owner MADE the selection themselves
+                    # (Sleeper's raw picker == owner), the pick never moved — any
+                    # later change of hands is a PLAYER trade, not a pick move
+                    # (e.g. 4.03 Dyami Brown: AceMatthew drafted their own pick,
+                    # then traded the player to plehv79). Don't flag those.
+                    _owner_drafted = (_picker_rid is not None and int(_picker_rid) == int(_ori))
                     _untracked_move = bool(
                         _force_linear
+                        and not _owner_drafted
+                        and not _manual_fix
                         and _final_rid != int(_ori)
                         and _final_rid not in _ledger_owners
                     )
