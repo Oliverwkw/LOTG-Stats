@@ -18,8 +18,10 @@ _ROOT = Path(__file__).resolve().parent.parent
 
 
 def _exports_dir() -> Path:
-    if len(sys.argv) > 1:
-        return Path(sys.argv[1])
+    # Test-time exports dir: $LOTG_EXPORTS or the default. Deliberately does NOT
+    # read sys.argv — under pytest sys.argv holds pytest's own args ("tests/",
+    # "-v"), which made this guard silently SKIP in CI. The CLI path below
+    # handles an explicit dir argument.
     return Path(os.environ.get("LOTG_EXPORTS", _ROOT / "exports"))
 
 
@@ -90,7 +92,8 @@ def test_cross_sheet_reconciliation():
 
 
 if __name__ == "__main__":
-    frames = _load(_exports_dir())
+    _cli_dir = Path(sys.argv[1]) if len(sys.argv) > 1 else _exports_dir()
+    frames = _load(_cli_dir)
     if frames is None:
         print("No built exports found; skipping.")
         sys.exit(0)
