@@ -5187,6 +5187,27 @@ def build_all(repo_root: Path) -> None:
                 _name = _p.get("player") or _p.get("player_name")
             return str(_name) if _name else "Unknown"
 
+        # Manual drafter corrections for the 2021 rookie draft. Sleeper's draft
+        # data is doubly wrong here: it is snake-encoded AND it never reflected
+        # the draft-DAY pick trades, so the recorded drafter (roster_id) for a
+        # few picks can't be recovered automatically. Each correction was
+        # established by tracing the rookie's first real transaction back to its
+        # origin team (start-to-finish career check). Keyed by (round, position)
+        # -> correct drafting team. NONE is a commissioner move: three are self-
+        # drafts (the owner drafted, then traded the PLAYER away) and one is a
+        # recorded draft-day PICK trade:
+        #   2.05 Elijah Moore      -> plehv79    (plehv drafted; player traded)
+        #   4.05 Nico Collins      -> plehv79    (plehv drafted; player traded)
+        #   4.03 Dyami Brown       -> AceMatthew (AceMatthew drafted; player traded)
+        #   3.06 Rhamondre Stevenson -> shmuel256 (shmuel got the pick in the
+        #        2.08-for-3.06 + 2022-4th draft-day swap; players never moved)
+        _DRAFTER_FIX_2021: Dict[Tuple[int, int], str] = {
+            (2, 5): "plehv79",
+            (4, 5): "plehv79",
+            (4, 3): "AceMatthew",
+            (3, 6): "shmuel256",
+        }
+
         for _frame in draft_frames:
             _year = int(_frame["year"])
             _is_vet = bool(_frame["is_vet"])
@@ -5306,6 +5327,20 @@ def build_all(repo_root: Path) -> None:
                                 _chain = ([int(_ori)] if int(_rost_rid) == int(_ori)
                                           else [int(_ori), int(_rost_rid)])
 
+                    # Manual 2021-rookie drafter corrections (see _DRAFTER_FIX_2021):
+                    # override the chain's final owner with the true drafter and
+                    # mark it non-commish (self-draft or recorded draft-day pick
+                    # trade). Keeps the player's career traceable from its drafter.
+                    _manual_fix = False
+                    if _force_linear and int(_year) == 2021:
+                        _fix_team = _DRAFTER_FIX_2021.get((int(_rnd), int(_pos)))
+                        if _fix_team is not None:
+                            _fix_rid = season_team_to_roster.get(int(_year), {}).get(_norm_team_name(_fix_team))
+                            if _fix_rid is not None:
+                                _chain = ([int(_ori)] if int(_fix_rid) == int(_ori)
+                                          else [int(_ori), int(_fix_rid)])
+                                _manual_fix = True
+
                     _final_rid = int(_chain[-1])
                     _orig_team = _rid_to_team.get(_ori, f"Roster {_ori}")
                     _final_team = _rid_to_team.get(_final_rid, f"Roster {_final_rid}")
@@ -5329,6 +5364,7 @@ def build_all(repo_root: Path) -> None:
                     _untracked_move = bool(
                         _force_linear
                         and not _owner_drafted
+                        and not _manual_fix
                         and _final_rid != int(_ori)
                         and _final_rid not in _ledger_owners
                     )
