@@ -14099,6 +14099,20 @@ def build_all(repo_root: Path) -> None:
     ]
     write_outputs(tables)
 
+    # Phase 12 #45: build-time data-quality log. Run the same sanity checks the
+    # committed test (tests/test_sanity_ranges.py) uses over the just-written
+    # CSVs and record a one-line summary + every ERROR/WARN into build_debug.log,
+    # so range anomalies / N/A-vs-0 regressions surface in every build's log
+    # without a manual audit pass.
+    try:
+        from lotg_support.sanity import collect_findings, summarize
+        _sf = collect_findings(repo_root / "exports")
+        _log(debug, f"[{_now_iso()}] INFO {summarize(_sf)}")
+        for _f in _sf:
+            _log(debug, f"[{_now_iso()}] {_f.severity} sanity {_f.sheet}.{_f.column}: {_f.detail}")
+    except Exception as e:
+        _log_exc(debug, "data_quality_sanity_log", e)
+
 
 def main() -> None:
     repo_root = Path(__file__).resolve().parent.parent
