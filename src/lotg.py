@@ -8644,6 +8644,21 @@ def build_all(repo_root: Path) -> None:
                 except Exception:
                     return None
 
+            # Phase 12 #45a: count win-impact KTC lookups that come back EMPTY
+            # (no history at that date) vs total. A high empty rate means the
+            # build fetched KTC incompletely (rate-limit / cold cache), which
+            # silently 0-fills the downstream-credit proportioning and makes
+            # "Trade impact score" non-deterministic across builds. Logged after
+            # the loop so an incomplete build is obvious instead of silent.
+            _tpi_ktc_stats = {"total": 0, "empty": 0}
+
+            def _tpi_kv_counted(_pl, _pid, _d):
+                _v = _tpi_kv(_pl, _pid, _d, _tpi_idx)
+                _tpi_ktc_stats["total"] += 1
+                if _v is None:
+                    _tpi_ktc_stats["empty"] += 1
+                return float(_v or 0.0)
+
             def _tpi_asset_ktc(_ak, _jidx, _dstr):
                 if _tpi_kv is None or _tpi_idx is None:
                     return 0.0
@@ -8652,11 +8667,11 @@ def build_all(repo_root: Path) -> None:
                     return 0.0
                 try:
                     if _ak[0] == "player":
-                        return float(_tpi_kv(None, str(_ak[1]), _d, _tpi_idx) or 0.0)
+                        return _tpi_kv_counted(None, str(_ak[1]), _d)
                     _rj = trades_rows[_jidx]
                     for _m, _l in zip(_rj.get("_drop_pick_meta") or [], _rj.get("_drop_picks") or []):
                         if tuple(_m) == tuple(_ak[1]):
-                            return float(_tpi_kv(str(_l), None, _d, _tpi_idx) or 0.0)
+                            return _tpi_kv_counted(str(_l), None, _d)
                 except Exception:
                     return 0.0
                 return 0.0
@@ -8672,9 +8687,9 @@ def build_all(repo_root: Path) -> None:
                     _d = _tpi_pdate(_rj.get("Date"))
                     if _d is not None:
                         for _pid in (_rj.get("_drop_player_ids") or []):
-                            _tot += float(_tpi_kv(None, str(_pid), _d, _tpi_idx) or 0.0)
+                            _tot += _tpi_kv_counted(None, str(_pid), _d)
                         for _l in (_rj.get("_drop_picks") or []):
-                            _tot += float(_tpi_kv(str(_l), None, _d, _tpi_idx) or 0.0)
+                            _tot += _tpi_kv_counted(str(_l), None, _d)
                 _sent_tot_cache[_jidx] = _tot
                 return _tot
 
@@ -8705,6 +8720,15 @@ def build_all(repo_root: Path) -> None:
 
             for _i in range(len(trades_rows)):
                 trades_rows[_i]["_tpi_winimpact"] = _tpi_total(_i)
+
+            _tt = _tpi_ktc_stats["total"]
+            _te = _tpi_ktc_stats["empty"]
+            if _tt:
+                _rate = 100.0 * _te / _tt
+                _log(debug, f"[{_now_iso()}] INFO KTC win-impact lookups: {_te}/{_tt} empty ({_rate:.1f}%)")
+                if _rate > 25.0:
+                    _log(debug, f"[{_now_iso()}] WARN KTC win-impact incomplete ({_te}/{_tt} empty) "
+                                f"— Trade impact score may be non-deterministic this build; check the KTC cache/fetch")
 
             _tpi_specs = [
                 ("_tpi_winimpact", 2.0, True),                        # downstream-aware win impact (HEAVY)
