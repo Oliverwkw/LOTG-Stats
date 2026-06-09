@@ -5320,8 +5320,15 @@ def build_all(repo_root: Path) -> None:
                     # off-platform startup move = commissioner move. A genuinely
                     # traded pick (e.g. 2.08 J. Fields, shmuel256->LWebs53, in the
                     # trade ledger) lands in _ledger_owners and stays un-flagged.
+                    # If the position owner MADE the selection themselves
+                    # (Sleeper's raw picker == owner), the pick never moved — any
+                    # later change of hands is a PLAYER trade, not a pick move
+                    # (e.g. 4.03 Dyami Brown: AceMatthew drafted their own pick,
+                    # then traded the player to plehv79). Don't flag those.
+                    _owner_drafted = (_picker_rid is not None and int(_picker_rid) == int(_ori))
                     _untracked_move = bool(
                         _force_linear
+                        and not _owner_drafted
                         and _final_rid != int(_ori)
                         and _final_rid not in _ledger_owners
                     )
