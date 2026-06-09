@@ -2010,9 +2010,21 @@ def build_all(repo_root: Path) -> None:
                         if sp[0] != "asset":
                             continue
                         for ri in range(len(d)):
+                            cell = ws.cell(row=ri + 2, column=ci)
                             refs = _ref_lists[sp[1]][ri]
                             if sp[2] < len(refs):
-                                _set_ref_link(ws.cell(row=ri + 2, column=ci), refs[sp[2]])
+                                _set_ref_link(cell, refs[sp[2]])
+                            # Bug #6: an asset with no next/previous event ref
+                            # (a chain endpoint) still shows its NAME — link that
+                            # name to the asset's home so every non-FAAB cell is a
+                            # working link. Players -> player_all_time row; picks
+                            # already fall back to their PH# home ref above; FAAB
+                            # ("$N FAAB") has no home page and stays unlinked.
+                            if cell.hyperlink is None and cell.value is not None:
+                                _home_row = name_to_patrow.get(str(cell.value).strip())
+                                if _home_row:
+                                    cell.hyperlink = f"#'player_all_time'!A{_home_row}"
+                                    cell.style = "Hyperlink"
                     # NB: we intentionally do NOT merge the per-asset group
                     # headers. A merged cell in the header row makes Excel
                     # refuse to apply an auto-filter (the table stops being
@@ -13492,6 +13504,11 @@ def build_all(repo_root: Path) -> None:
             # two mirror rows of a single trade event don't link to each other.
             # Deliberately does NOT bridge a pick to the player drafted with it.
             pick_chains: Dict[Tuple[int, int, str], List[Tuple[Any, str]]] = defaultdict(list)
+            # Bug #6: a pick's HOME row on the picks sheet, by canonical key. Used
+            # as the fallback link when a pick has no earlier trade (its first
+            # trade's "previous") so the cell links to the pick's origin instead
+            # of dead "N/A". Populated in the draft-row bridging loop below.
+            pick_home_phref: Dict[Tuple[int, int, str], str] = {}
             if "_recv_pick_meta" in tr.columns:
                 for _j in tr.index:
                     _ref = f"T#{int(_j) + 1}"; _d = tr.at[_j, "Date"]
@@ -13546,6 +13563,7 @@ def build_all(repo_root: Path) -> None:
                         _pdates = [e[0] for e in pick_chains.get(_pk, []) if pd.notna(e[0])]
                         _term = (max(_pdates) + pd.Timedelta(days=1)) if _pdates else _fallback
                         pick_chains[_pk].append((_term, _phref))  # pick terminal
+                        pick_home_phref[_pk] = _phref  # pick's home row (Bug #6)
                     _pl = str(ph.at[_pi, "Player Picked"]).strip()
                     if _real_player(_pl):
                         _edates = [e[0] for e in chains.get(_pl, []) if pd.notna(e[0])]
@@ -13614,7 +13632,12 @@ def build_all(repo_root: Path) -> None:
                             _pi += 1
                             if _key is not None:
                                 _n, _p = _pick_neighbors(_key, _ref)
-                                _nexts.append(_n or "N/A"); _prevs.append(_p or "N/A")
+                                # Bug #6: with no earlier/later trade, fall back to
+                                # the pick's own picks-sheet home row so the cell
+                                # is never a dead "N/A" (FAAB is the only exception).
+                                _home = pick_home_phref.get(_key)
+                                _nexts.append(_n or _home or "N/A")
+                                _prevs.append(_p or _home or "N/A")
                             else:
                                 _nexts.append("N/A"); _prevs.append("N/A")
                         else:  # FAAB / other — not chainable

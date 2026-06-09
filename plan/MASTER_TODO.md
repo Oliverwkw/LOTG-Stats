@@ -230,6 +230,7 @@ list in `plan/AUDIT_PHASE12_FINDINGS.md`. Flow: implement the queue below (with 
 ## Phase 13 — ESPN 2020 backfill
 - [ ] Scope when we get there
 - [ ] **Off-platform pick-trade backfill:** try to manually determine and add all 1st- and 2nd-round pick trades that happened OFF-platform (pre-Sleeper / side deals) so trade metrics (KTC won/lost, retro grades, pick-vs-player outcomes, manager Trading skill) are balanced and not missing legs.
+- [ ] **Trades can no longer be an asset start point:** after this backfill, re-audit the trades-sheet `Link to previous transaction per asset` — a trade must never be an asset's origin (every first-trade `previous`=N/A endpoint must chain back to the earlier draft/acquisition). See the Phase 12 bug #6 note.
 - [ ] **3-part audit** (code / results / diff)
 
 ## Phase 14 — In-season weekly digest email
