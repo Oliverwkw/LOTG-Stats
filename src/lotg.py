@@ -12084,19 +12084,30 @@ def build_all(repo_root: Path) -> None:
         # top-4 bracket), championship-game appearances (reached the Final =
         # Champion or runner-up), and last-place finishes. Gated to completed
         # seasons via the same dicts that drive Result, so 2026 isn't counted.
+        # All three counts derive from `season_finish` — the SAME dict that
+        # drives the displayed team_year `Result` (set at line ~12058) — so the
+        # counts always agree with the finishes a user can read off the sheet.
+        # (last_place_by_season = standings[-1] uses a different, full-standings
+        # ordering than Result's regular-season "8th"; using season_finish keeps
+        # the three columns mutually + Result-consistent.)
+        _finish_rank = {"Champion": 1, "2nd": 2, "3rd": 3, "4th": 4,
+                        "5th": 5, "6th": 6, "7th": 7, "8th": 8}
         playoff_appearance_counts: Dict[str, int] = {}
-        for _ps, _pteams in playoff_teams_by_season.items():
-            for _pt in _pteams:
-                playoff_appearance_counts[str(_pt)] = playoff_appearance_counts.get(str(_pt), 0) + 1
         champ_appearance_counts: Dict[str, int] = {}
+        last_place_counts: Dict[str, int] = {}
         for _fs, _fin in season_finish.items():
+            if not _fin:
+                continue
+            # Last place = the worst ordinal actually present that season
+            # (robust to leagues with !=8 teams, e.g. the ESPN 2020 backfill).
+            _worst = max((_finish_rank.get(v, 0) for v in _fin.values()), default=0)
             for _ft, _fres in _fin.items():
+                if _fres in ("Champion", "2nd", "3rd", "4th"):
+                    playoff_appearance_counts[str(_ft)] = playoff_appearance_counts.get(str(_ft), 0) + 1
                 if _fres in ("Champion", "2nd"):
                     champ_appearance_counts[str(_ft)] = champ_appearance_counts.get(str(_ft), 0) + 1
-        last_place_counts: Dict[str, int] = {}
-        for _ls, _lt in last_place_by_season.items():
-            if _lt:
-                last_place_counts[str(_lt)] = last_place_counts.get(str(_lt), 0) + 1
+                if _worst and _finish_rank.get(_fres, 0) == _worst:
+                    last_place_counts[str(_ft)] = last_place_counts.get(str(_ft), 0) + 1
 
         rows = []
         for team, g in tw.groupby("Team"):
