@@ -77,6 +77,22 @@ jobs:
           set -o pipefail
           python -m lotg 2>&1 | tee exports/raw/runner.log
 
+      - name: Run test suite against the build
+        # Phase 12 #49: run the committed guards (cross-sheet reconciliation,
+        # Formulas coverage, in-season freshness, data-quality sanity ranges)
+        # against the freshly built exports on every build, so regressions from
+        # code or upstream-data drift fail the run instead of slipping through.
+        # continue-on-error keeps the artifact upload (below) running so the
+        # outputs stay downloadable for a manual audit when a guard trips.
+        continue-on-error: true
+        env:
+          PYTHONPATH: src:lib
+          LOTG_EXPORTS: exports
+        run: |
+          set -o pipefail
+          pip install --no-cache-dir pytest 2>&1 | tail -n 2
+          python -m pytest tests/ -v 2>&1 | tee exports/raw/pytest.log
+
       - name: Dump debug logs on failure
         if: failure()
         run: |
