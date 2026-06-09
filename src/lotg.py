@@ -12080,6 +12080,23 @@ def build_all(repo_root: Path) -> None:
             if champ:
                 champ_name = str(champ)
                 championship_counts[champ_name] = championship_counts.get(champ_name, 0) + 1
+        # New team_all_time counts (per user): playoff appearances (made the
+        # top-4 bracket), championship-game appearances (reached the Final =
+        # Champion or runner-up), and last-place finishes. Gated to completed
+        # seasons via the same dicts that drive Result, so 2026 isn't counted.
+        playoff_appearance_counts: Dict[str, int] = {}
+        for _ps, _pteams in playoff_teams_by_season.items():
+            for _pt in _pteams:
+                playoff_appearance_counts[str(_pt)] = playoff_appearance_counts.get(str(_pt), 0) + 1
+        champ_appearance_counts: Dict[str, int] = {}
+        for _fs, _fin in season_finish.items():
+            for _ft, _fres in _fin.items():
+                if _fres in ("Champion", "2nd"):
+                    champ_appearance_counts[str(_ft)] = champ_appearance_counts.get(str(_ft), 0) + 1
+        last_place_counts: Dict[str, int] = {}
+        for _ls, _lt in last_place_by_season.items():
+            if _lt:
+                last_place_counts[str(_lt)] = last_place_counts.get(str(_lt), 0) + 1
 
         rows = []
         for team, g in tw.groupby("Team"):
@@ -12125,6 +12142,9 @@ def build_all(repo_root: Path) -> None:
                 "All time win %": round((wins + 0.5 * ties) / gp, 4),
                 "All time record": _record_str(wins, losses, ties),
                 "Championships": championship_counts.get(str(team), 0),
+                "Number of playoff appearances": playoff_appearance_counts.get(str(team), 0),
+                "Number of championship appearances": champ_appearance_counts.get(str(team), 0),
+                "Number of last place finishes": last_place_counts.get(str(team), 0),
                 "Record & win % vs each team": "N/A",
                 "Record & win % vs playoff teams": "N/A",
                 "Record & win % vs non-playoff teams": "N/A",
