@@ -1740,9 +1740,11 @@ def build_all(repo_root: Path) -> None:
             if plan_key in {"team-year", "team-all-time"}:
                 cols = _append_team_vs_columns(frame, cols, plan_key)
             # picks (pick history): trade chains can exceed the schema's 10 Trade
-            # columns (a pick traded 12 times needs Trade 1..12). Extend
-            # the column list dynamically to the longest non-empty chain
-            # present in the frame, inserting the extras just before "etc".
+            # columns (a pick traded 12 times needs Trade 1..12). Extend the
+            # column list dynamically to the longest non-empty chain present in
+            # the frame, inserting the extras right AFTER the highest "Trade N"
+            # already in the schema so the chain stays contiguous (Trade 11 used
+            # to land next to the retired "etc" spacer).
             if plan_key == "picks" and isinstance(frame, pd.DataFrame) and not frame.empty:
                 _present = [c for c in frame.columns if str(c).startswith("Trade ")]
                 _max_n = 0
@@ -1755,8 +1757,10 @@ def build_all(repo_root: Path) -> None:
                         _max_n = _n
                 if _max_n > 10:
                     _extras = [f"Trade {i}" for i in range(11, _max_n + 1)]
-                    if "etc" in cols:
-                        _idx = cols.index("etc")
+                    _trade_pos = [i for i, c in enumerate(cols)
+                                  if str(c).startswith("Trade ") and str(c)[6:].isdigit()]
+                    if _trade_pos:
+                        _idx = max(_trade_pos) + 1
                         cols = cols[:_idx] + _extras + cols[_idx:]
                     else:
                         cols = list(cols) + _extras
@@ -3254,9 +3258,7 @@ def build_all(repo_root: Path) -> None:
                 "Final Team": final_team,
                 "Player Picked": player_name,
                 "Trade 1": None, "Trade 2": None, "Trade 3": None, "Trade 4": None, "Trade 5": None,
-                "Trade 6": None, "Trade 7": None, "Trade 8": None, "Trade 9": None, "Trade 10": None,
-                "etc": None,
-                "Commissioner moved?": False,  # filled later if applicable
+                "Trade 6": None, "Trade 7": None, "Trade 8": None, "Trade 9": None, "Trade 10": None,                "Commissioner moved?": False,  # filled later if applicable
             })
 
         # NOTE: the prior traded_picks-fallback row generation was removed
@@ -5428,9 +5430,7 @@ def build_all(repo_root: Path) -> None:
                         # picks PPG/KTC passes resolve by ID (robust to name
                         # suffixes like "III" and duplicate names) instead of by
                         # display name.
-                        "_player_id": (str(_player_id) if _player_id else None),
-                        "etc": None,
-                        "Commissioner moved?": _commish,
+                        "_player_id": (str(_player_id) if _player_id else None),                        "Commissioner moved?": _commish,
                     }
                     # Trade 1..N from intermediate + final owners. Emit
                     # as many columns as the chain has hops — output
@@ -5467,9 +5467,7 @@ def build_all(repo_root: Path) -> None:
                 "Original Team": _orig0,
                 "Final Team": _final0,
                 "Player Picked": _pid_name(_pid0),
-                "_player_id": str(_pid0),
-                "etc": None,
-                "Commissioner moved?": False,
+                "_player_id": str(_pid0),                "Commissioner moved?": False,
             }
             if _orig0 != _final0:
                 _row209["Trade 1"] = _final0
@@ -5484,9 +5482,7 @@ def build_all(repo_root: Path) -> None:
                         "Original Team": _tmj,
                         "Final Team": _tmj,
                         "Player Picked": _pid_name(_pidj),
-                        "_player_id": str(_pidj),
-                        "etc": None,
-                        "Commissioner moved?": False,
+                        "_player_id": str(_pidj),                        "Commissioner moved?": False,
                     })
     except Exception as e:
         _log_exc(debug, "synthetic_draft_day_picks", e)
