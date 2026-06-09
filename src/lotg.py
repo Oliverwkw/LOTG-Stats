@@ -3463,6 +3463,50 @@ def build_all(repo_root: Path) -> None:
                 tx_by_week[wk] = []
                 _log_exc(debug, f"transactions_{season}_wk{wk}", e)
 
+        # ------------- Manual 2021 botched-trade merge -------------
+        # Sleeper split ONE draft-day pick trade (shmuel256's 2021 2.08 for
+        # LWebs53's 3.06 + a 2022 4th + a 2023 4.08) into a pick swap PLUS a
+        # phantom PLAYER swap (Michael Carter <-> Rhamondre Stevenson). The
+        # players never changed hands — each was simply drafted with the pick the
+        # other team sent (Carter by LWebs53 off the 2.08, Stevenson by shmuel256
+        # off the 3.06; see _DRAFTER_FIX_2021). Merge the phantom trade's draft
+        # pick(s) into the real pick trade and drop the phantom player legs so the
+        # deal reads as picks-only and both rookies stay traceable from their true
+        # drafters. The 2023 4.08 is kept (dropping it would orphan its later
+        # hops). Matched precisely by the two players' Sleeper ids.
+        if int(season) == 2021:
+            try:
+                _MC, _RS = "7607", "7611"  # Michael Carter, Rhamondre Stevenson
+                _all_trades = [(wk, t) for wk, txs in tx_by_week.items()
+                               for t in txs if t.get("type") == "trade"]
+                _phantom = None
+                for _wk, _t in _all_trades:
+                    _pids = (set(str(k) for k in (_t.get("adds") or {}))
+                             | set(str(k) for k in (_t.get("drops") or {})))
+                    if {_MC, _RS} <= _pids:
+                        _phantom = (_wk, _t)
+                        break
+                if _phantom is not None:
+                    _pw, _pt = _phantom
+                    _rosters = set(int(r) for r in (_pt.get("roster_ids") or []))
+                    _pickswap = None
+                    for _wk, _t in _all_trades:
+                        if _t is _pt or not _t.get("draft_picks"):
+                            continue
+                        if set(int(r) for r in (_t.get("roster_ids") or [])) == _rosters:
+                            _pickswap = _t
+                            break
+                    if _pickswap is not None:
+                        _pickswap.setdefault("draft_picks", [])
+                        _pickswap["draft_picks"].extend(_pt.get("draft_picks") or [])
+                        for _wb in (_pt.get("waiver_budget") or []):
+                            _pickswap.setdefault("waiver_budget", []).append(_wb)
+                        tx_by_week[_pw] = [t for t in tx_by_week[_pw] if t is not _pt]
+                        _log(debug, f"[{_now_iso()}] INFO merged the 2021 phantom "
+                                    f"Carter/Stevenson player swap into the pick trade")
+            except Exception as e:
+                _log_exc(debug, "merge_2021_phantom_trade", e)
+
         # ------------- Commissioner "wash" detection (Phase 6B) -------------
         # A single-day commissioner action that ends with the roster exactly
         # as it started is a no-op correction, not a real transaction. We flag
