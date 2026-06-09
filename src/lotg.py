@@ -5195,17 +5195,23 @@ def build_all(repo_root: Path) -> None:
             _max_rnd = min(int(_frame.get("max_round") or 4), 4)
             _team_count = len(_slot_map) or 8
             _is_snake = bool(_frame.get("is_snake"))
+            # This league runs LINEAR rookie drafts: pick N.SS belongs to draft
+            # slot SS in EVERY round, and its original owner is that slot's team
+            # (so each team appears exactly once per round). Sleeper mislabeled
+            # the 2021 ROOKIE draft as snake (the 2021 startup/vet draft is
+            # genuinely snake). Treat any non-vet snake draft as linear for pick
+            # NUMBERING + original-team-by-slot, while still repairing the
+            # corrupted even-round drafters Sleeper left behind (below).
+            _force_linear = _is_snake and not _is_vet
 
-            # In a snake draft the pick ORDER reverses on even rounds (the
-            # team at draft_slot 1 picks last in round 2, first in round 3,
-            # etc.). draft_slot itself stays constant per team, so the
-            # player / original-team mapping keyed by draft_slot is correct
-            # — only the displayed pick NUMBER must follow draft order.
-            # 2.01 = first pick of round 2 = draft_slot N (not slot 1).
-            # reversal_round 0 = standard snake; non-standard reversal
-            # variants aren't used by this league (all drafts use 0).
+            # In a (genuine) snake draft the pick ORDER reverses on even rounds
+            # (the team at draft_slot 1 picks last in round 2, first in round 3).
+            # draft_slot itself stays constant per team, so the player /
+            # original-team mapping keyed by draft_slot is correct — only the
+            # displayed pick NUMBER follows draft order. A linear draft (incl. a
+            # linearized rookie draft) numbers by slot directly: 2.01 = slot 1.
             def _pick_position(_round: int, _draft_slot: int) -> int:
-                if _is_snake and (int(_round) % 2 == 0):
+                if _is_snake and not _force_linear and (int(_round) % 2 == 0):
                     return int(_team_count) + 1 - int(_draft_slot)
                 return int(_draft_slot)
 
@@ -5257,6 +5263,10 @@ def build_all(repo_root: Path) -> None:
                         _chain = list(_chain_by_origin.get((_year, _rnd, _ori), [_ori]))
                         if not _chain:
                             _chain = [_ori]
+                    # Owners reachable through RECORDED trades (origin + every
+                    # ledger hop). Used below to tell a real (tracked) trade from
+                    # an untracked move on the linearized rookie draft.
+                    _ledger_owners = set(int(_o) for _o in _chain)
 
                     # If we know the actual picker (completed draft) and it
                     # doesn't match the chain end, append it. Sleeper's
@@ -5283,12 +5293,37 @@ def build_all(repo_root: Path) -> None:
                         if _rost_team:
                             _rost_rid = season_team_to_roster.get(int(_year), {}).get(_norm_team_name(_rost_team))
                             if _rost_rid is not None and int(_rost_rid) != int(_chain[-1]):
-                                _chain = [int(_rost_rid)]
-                                _ori = int(_rost_rid)  # Original=Final=drafter
+                                # The slot's ORIGINAL owner (_ori) is correct;
+                                # only the DRAFTER was corrupted by Sleeper. Set
+                                # the final owner to the real (empirical) drafter
+                                # and keep original -> drafter as a chain hop, so
+                                # Original Team stays the slot's linear owner.
+                                _chain = ([int(_ori)] if int(_rost_rid) == int(_ori)
+                                          else [int(_ori), int(_rost_rid)])
 
                     _final_rid = int(_chain[-1])
                     _orig_team = _rid_to_team.get(_ori, f"Roster {_ori}")
                     _final_team = _rid_to_team.get(_final_rid, f"Roster {_final_rid}")
+
+                    # Commissioner-move determination. The standard detector
+                    # (_detect_commissioner_moves) only sees UN-drafted future
+                    # picks in Sleeper's traded_picks snapshot, so it can't catch
+                    # the linearized 2021 rookie picks (already drafted). For
+                    # those, a pick whose final owner (drafter) differs from its
+                    # original slot owner and was NOT reached through a recorded
+                    # trade (picker_rid append / empirical-roster repair) is an
+                    # off-platform startup move = commissioner move. A genuinely
+                    # traded pick (e.g. 2.08 J. Fields, shmuel256->LWebs53, in the
+                    # trade ledger) lands in _ledger_owners and stays un-flagged.
+                    _untracked_move = bool(
+                        _force_linear
+                        and _final_rid != int(_ori)
+                        and _final_rid not in _ledger_owners
+                    )
+                    _commish = (
+                        False if _is_vet
+                        else (((_year, _rnd, _ori) in commissioner_pick_moves) or _untracked_move)
+                    )
 
                     _row: Dict[str, Any] = {
                         "Year": (f"{_year} (vet)" if _is_vet else _year),
@@ -5303,7 +5338,7 @@ def build_all(repo_root: Path) -> None:
                         # display name.
                         "_player_id": (str(_player_id) if _player_id else None),
                         "etc": None,
-                        "Commissioner moved?": ((_year, _rnd, _ori) in commissioner_pick_moves) if not _is_vet else False,
+                        "Commissioner moved?": _commish,
                     }
                     # Trade 1..N from intermediate + final owners. Emit
                     # as many columns as the chain has hops — output
