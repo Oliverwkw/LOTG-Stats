@@ -176,10 +176,56 @@ When the results-based audit surfaces a bug, log it but continue to the diff swe
 - [ ] **11E — General formatting sweep for max usability.** Final polish pass across the whole workbook: conditional formatting, alignment, consistent number/percent formats, sheet/tab order & colors, anything that improves day-to-day usability.
 
 ## Phase 12 — Large-scale full-dataset audit
-**Upgraded from a duplicate-column sweep to a deep, end-to-end correctness audit of the entire dataset.**
-- [ ] Duplicate / redundant column sweep (identical-valued columns) — remove redundancy, document survivors in the formulas sheet.
-- [ ] Full-dataset, in-depth correctness audit: cross-sheet consistency (rollups match their weekly sources; player↔team↔league totals reconcile), spot-check every stat family against hand-computed cases, hunt N/A-vs-0 errors, stale/incorrect values, edge cases (multi-team players, 2021 vet draft, synthetic picks, commissioner moves, taxi/IR), and any remaining data-quality gaps.
-- [ ] **3-part audit** (code / results / diff)
+**Upgraded to a deep, end-to-end correctness audit of the entire dataset. Reusable
+9-part format lives in `plan/AUDIT_PHASE12.md`; first-pass findings + the 55-improvement
+list in `plan/AUDIT_PHASE12_FINDINGS.md`. Flow: implement the queue below (with periodic
+3-part audits per run), THEN re-run the full 9-part battery until all 9 parts are clean.**
+
+### 9-part audit — first pass complete
+- [x] First full 9-part run: dataset largely clean (Parts 8/9 clean, 54/55 edge cases pass, 8/9 rollups reconcile). 8 bugs + 55-improvement list produced.
+- [x] Reconciliation logic committed as durable guard — `tests/test_cross_sheet_reconciliation.py` (1 known-open: player_all #tx = Σ player_year, = Bug #1).
+- [ ] **Re-run the full 9-part battery until ALL 9 parts come back clean** (after the queue below).
+
+### Bugs (batched fixes; each gets a 3-part audit)
+- [x] **#2 Age=0 → real age** on padded tx-only player_year rows — computed from birth_date at Nov 1 of the year (user: "Age should never be 0").
+- [x] **#3 PPG starter/bench (+adjusted) = 0 → N/A** for never-started/never-benched — added the 5 cols to `_preserve_na`.
+- [x] **#5 Re-score from PPR → actual league scoring** — `_league_score` + COMPLETE `_LEAGUE_SCORE_MAP`/`_BONUS` (all Sleeper keys → nflverse cols, incl. league pass-int −2, distinct fumble rules, st_td, IDP, kicking). Auto-detect log fires on ANY scoring-settings change (`_prev_scoring_sig`). 98.6% exact; residuals are nflverse-vs-Sleeper RAW DATA diffs, not formula gaps. Full-season blend uses Sleeper pts for rostered weeks. (Audited #256 — tiny ripple, CLEAN.)
+- [x] **#8 Round Luck at output** (round(6)) — kills the ~1e-16 nondeterminism.
+- [x] **3 new team_all_time columns** (this branch `p12-team-alltime-counts`): Number of playoff appearances / championship appearances (Champion or runner-up) / last place finishes. Placed right after `Championships`; in-progress 2026 not counted. Sanity holds (appearances ≥ champ-appearances ≥ titles; totals 20/10/5 over 5 completed seasons).
+- [ ] **#1 player_year missing not-yet-played-season rows** — players whose only 2026 activity is off-season tx get no player_year 2026 row → `player_all #tx` ≠ Σ player_year (114 players) + asset-story hole. Pad player_year with current-season rows for players with off-season tx/trades (Age/Result/etc. N/A). Flips the known-open reconciliation guard to hard once fixed.
+- [ ] **#6 Trades next/previous links** — every NON-FAAB next/previous cell must be a working link (FAAB is the only exception); ~120 currently broken. Builder-level fix at the `tr_next_pa`/`tr_prev_pa` construction.
+- [~] **#4 Unused/leftover FAAB column — DROPPED** per user: Sleeper budgets mix 120/125 + per-team rollover + 20-FAAB pick purchases from leftover FAAB; "unless this can all be tracked with certainty, not estimates, don't make this column." Reverted.
+- [x] **#7 Wrap all cells on all sheets** — data cells wrap on every sheet (audited #255, CLEAN).
+
+### Selected improvements (from the 55 list — user-chosen; build BEFORE the next full 9-part audit, with periodic 3-part audits)
+- [ ] **9** Clutch index — **team_all_time only** (reg-season vs playoff PF/win% delta).
+- [ ] **10** Consistency rank — **position-adjusted** league-wide percentile of volatility/floor/ceiling.
+- [ ] **15** Trade tree / lineage string — one readable "2021 1.04 → … → 2026 1st" per current asset.
+- [ ] **16** → **"3-year retention rate"** — % of draft capital still on roster after **N=3** years; **exclude returners**; **team_year + team_all_time**; measured at **start-of-year**.
+- [ ] **26** Sparklines for weekly PF / player PPG trends.
+- [ ] **27** Hyperlink team names → team_all_time — **opponent / counterparty links only**.
+- [ ] **28** Hyperlink pick labels in trades → picks sheet.
+- [ ] **30** Conditional highlight of all-time records (highs/lows) in their cells.
+- [ ] **32** Tooltip/comment on cryptic headers pulling the Formulas definition.
+- [ ] **33** Color "In Progress" streak cells subtly so active runs stand out.
+- [ ] **34** Two-tone bands alternating within topic groups (**subtle**) for wide sheets.
+- [ ] **35** Backfill missing birth_dates from a secondary source (mostly handled by Bug #2; finish coverage).
+- [ ] **36** Position-switcher audit (Taysom Hill etc.) — confirm weekly position.
+- [ ] **37** NFL-team-per-week validation vs schedule for traded players.
+- [ ] **38** Dedup near-identical name variants ("AJ" vs "A.J.") across sources.
+- [ ] **39** Confidence flag on KTC values sourced from sparse pre-2021 history.
+- [ ] **40** Cross-check Sleeper points vs nflverse fantasy points; flag divergences — **effectively folded into Bug #5**; confirm/close.
+- [ ] **41** Injury-tracker coverage report once 2026 data lands (PR E follow-up).
+
+### Infra (assistant's judgment — selected)
+- [ ] **42** Round all float outputs deterministically (extend the Luck fix everywhere).
+- [ ] **43** Promote the audit battery to committed tests (reconciliation done; add sanity-range + N/A-vs-0 + edge-case suites).
+- [ ] **45** Build-time data-quality log → emit sanity-range/anomaly summary into build_debug.log every run.
+- [ ] **49** CI step running the test suite (coverage + reconciliation + freshness) on every build.
+
+**Skipped from the 55:** 44/46/47/48/50, and nothing from section E except the already-planned Phase 14 digest email.
+
+- [ ] **3-part audit** per fix PR, then the full **9-part audit re-run until clean**.
 
 ## Phase 13 — ESPN 2020 backfill
 - [ ] Scope when we get there

@@ -834,11 +834,13 @@ _ROWS = [
                     "Record vs champions", "Win % vs champions", "Record vs last place", "Win % vs last place"],
     },
     {
-        "Stat": "Result / Week of playoff elimination / Championships",
+        "Stat": "Result / Week of playoff elimination / Championships + appearance counts",
         "Sheet": "team_year / team_all_time",
-        "Formula": "Result = the team's finish that season (Champion / 2nd / 3rd / 4th / Missed playoffs / Last place) from the playoff & toilet brackets. Week of playoff elimination = the week the team was knocked out (0 if it won it all / didn't make the bracket as scored). Championships (all-time) = career title count.",
-        "Notes": "PR E fix C: N/A for an in-progress season.",
-        "Columns": ["Result", "Week of playoff elimination", "Championships"],
+        "Formula": "Result = the team's finish that season (Champion / 2nd / 3rd / 4th / Missed playoffs / Last place) from the playoff & toilet brackets. Week of playoff elimination = the week the team was knocked out (0 if it won it all / didn't make the bracket as scored). team_all_time counts: Championships = career title count; Number of playoff appearances = seasons made the top-4 playoff bracket; Number of championship appearances = seasons that reached the Final (Champion or runner-up); Number of last place finishes = seasons finished last.",
+        "Notes": "PR E fix C: N/A / not counted for an in-progress season (e.g. 2026).",
+        "Columns": ["Result", "Week of playoff elimination", "Championships",
+                    "Number of playoff appearances", "Number of championship appearances",
+                    "Number of last place finishes"],
     },
     {
         "Stat": "Roster / starter turnover (weekly avg, in-season, off-season)",
