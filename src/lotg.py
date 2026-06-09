@@ -5195,23 +5195,23 @@ def build_all(repo_root: Path) -> None:
             _max_rnd = min(int(_frame.get("max_round") or 4), 4)
             _team_count = len(_slot_map) or 8
             _is_snake = bool(_frame.get("is_snake"))
-            # This league runs LINEAR rookie drafts: pick N.SS belongs to draft
-            # slot SS in EVERY round, and its original owner is that slot's team
-            # (so each team appears exactly once per round). Sleeper mislabeled
-            # the 2021 ROOKIE draft as snake (the 2021 startup/vet draft is
-            # genuinely snake). Treat any non-vet snake draft as linear for pick
-            # NUMBERING + original-team-by-slot, while still repairing the
-            # corrupted even-round drafters Sleeper left behind (below).
+            # This league runs LINEAR rookie drafts: the team picking Pth in a
+            # round OWNS pick N.0P, so original ownership follows the pick NUMBER
+            # (position), and each team appears exactly once per round. Sleeper
+            # mislabeled the 2021 ROOKIE draft as snake (the 2021 startup/vet
+            # draft is genuinely snake), which left the original owner reading off
+            # the reversed even-round draft_slot. Treat any non-vet snake draft
+            # as linear for ORIGINAL-TEAM-by-position only — the displayed pick
+            # number + drafted player (keyed by Sleeper's draft_slot) are already
+            # correct and must NOT change.
             _force_linear = _is_snake and not _is_vet
 
-            # In a (genuine) snake draft the pick ORDER reverses on even rounds
-            # (the team at draft_slot 1 picks last in round 2, first in round 3).
-            # draft_slot itself stays constant per team, so the player /
-            # original-team mapping keyed by draft_slot is correct — only the
-            # displayed pick NUMBER follows draft order. A linear draft (incl. a
-            # linearized rookie draft) numbers by slot directly: 2.01 = slot 1.
+            # In a snake draft the pick ORDER reverses on even rounds (the team
+            # at draft_slot 1 picks last in round 2, first in round 3). draft_slot
+            # stays constant per team, so the player keyed by draft_slot and the
+            # displayed pick NUMBER (by draft order) are correct as-is.
             def _pick_position(_round: int, _draft_slot: int) -> int:
-                if _is_snake and not _force_linear and (int(_round) % 2 == 0):
+                if _is_snake and (int(_round) % 2 == 0):
                     return int(_team_count) + 1 - int(_draft_slot)
                 return int(_draft_slot)
 
@@ -5246,7 +5246,12 @@ def build_all(repo_root: Path) -> None:
                 # too (snake reverses even rounds; linear is identity).
                 for _pos in range(1, _team_count + 1):
                     _si = _pick_position(int(_rnd), int(_pos))
-                    _ori = _to_int(_slot_map.get(_si), None)
+                    # Original owner = the team at this pick's NUMBER position in
+                    # the round (linear). For a genuine linear draft _pos == _si,
+                    # so this is unchanged; for the snake-encoded 2021 rookie
+                    # draft it corrects the reversed even-round owner (e.g. the
+                    # first pick of round 2 belongs to slot 1, not slot N).
+                    _ori = _to_int(_slot_map.get(_pos if _force_linear else _si), None)
                     if _si is None or _ori is None:
                         continue
 
