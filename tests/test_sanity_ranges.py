@@ -19,8 +19,10 @@ from lotg_support.sanity import collect_findings, summarize  # noqa: E402
 
 
 def _exports_dir() -> Path:
-    if len(sys.argv) > 1:
-        return Path(sys.argv[1])
+    # Test-time exports dir: $LOTG_EXPORTS or the default. Deliberately does NOT
+    # read sys.argv — under pytest sys.argv holds pytest's own args ("tests/",
+    # "-v"), which made this guard silently SKIP ("no built exports") in CI. The
+    # CLI path below handles an explicit dir argument.
     return Path(os.environ.get("LOTG_EXPORTS", _ROOT / "exports"))
 
 
@@ -37,7 +39,7 @@ def test_sanity_ranges():
 
 
 if __name__ == "__main__":
-    d = _exports_dir()
+    d = Path(sys.argv[1]) if len(sys.argv) > 1 else _exports_dir()
     if not (d / "team_year.csv").exists():
         print("No built exports found; skipping.")
         sys.exit(0)
