@@ -530,6 +530,13 @@ _ROWS = [
         "Notes": "A compact schedule-luck read. N/A when all-play % is N/A (no games).",
     },
     {
+        "Stat": "Playoff PF minus regular-season PF / Playoff win % minus regular-season win %",
+        "Sheet": "team_all_time",
+        "Formula": "Clutch index — the team's average in the WINNERS'-bracket playoffs (Semifinal / Final / 3rd Place) minus its average in the regular season (the 'Week N' games), all-time. PF version uses average points-for per game; win % version uses win rate. Positive = the manager raises their game in the playoffs; negative = they fade.",
+        "Notes": "team_all_time only (improvement #9). N/A for a team that never reached the winners'-bracket playoffs (no playoff games to compare). The toilet/consolation bracket is excluded.",
+        "Columns": ["Playoff PF minus regular-season PF", "Playoff win % minus regular-season win %"],
+    },
+    {
         "Stat": "Loss from hardship? / Losses from hardship",
         "Sheet": "team_week (flag) / team_year + team_all_time (count)",
         "Formula": "team_week 'Loss from hardship?' = TRUE when a LOSS would have flipped to a win had the team's hurt would-be-starters been available. Build a counterfactual lineup from the team's ACTUAL STARTERS (at their real points) PLUS the injured/suspended players who MISSED (0 pts, byes excluded), each subbed in at their STARTER-ADJUSTED hardship value; take the best valid lineup of that pool (compute_optimal_lineup, so it's bounded to the lineup slots and a hurt player only helps by displacing a weaker actual starter). Flag = loss AND that healthy-lineup score > opponent's actual PF. team_year / team_all_time 'Losses from hardship' = the count per (Team, Year) / per Team.",
