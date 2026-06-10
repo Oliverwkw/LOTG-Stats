@@ -1123,7 +1123,10 @@ def _preserve_na(col: str) -> bool:
     # start but never boomed/busted.
     if col_l in {"starter scoring volatility", "starter scoring floor", "starter scoring ceiling",
                  "starter boom %", "starter bust %", "starter par", "starter par per game",
-                 "consistency percentile", "floor percentile", "ceiling percentile"}:
+                 "consistency percentile", "floor percentile", "ceiling percentile",
+                 "rostered scoring volatility", "rostered scoring floor", "rostered scoring ceiling",
+                 "rostered boom %", "rostered bust %",
+                 "rostered consistency percentile", "rostered floor percentile", "rostered ceiling percentile"}:
         return True
     # Phase 12 fix #3: role-split scoring averages are N/A (not 0) when the
     # player never started / never benched / never played that period.
@@ -11447,6 +11450,66 @@ def build_all(repo_root: Path) -> None:
                                 .rank(pct=True, ascending=_asc) * 100
                             ).round(1)
                     _frame.drop(columns=["_pos"], inplace=True)
+
+                # While-ROSTERED consistency: the same metrics over every week the
+                # player actually PLAYED while rostered — started OR benched —
+                # excluding bye / injury / suspension weeks (no NFL game = a 0 that
+                # isn't a real scoring week and would tank the floor / inflate
+                # volatility). Captures the player's true scoring range, including
+                # the low weeks a manager benched them for, vs the "Starter scoring"
+                # set which only sees weeks they were started.
+                def _flag(_df, _c):
+                    if _c in _df.columns:
+                        return _df[_c].map(lambda v: safe_bool(v, default=False))
+                    return pd.Series(False, index=_df.index)
+                _ro = pw_work.copy()
+                _ro["Points"] = pd.to_numeric(_ro["Points"], errors="coerce")
+                _played = ~(_flag(_ro, "Bye?") | _flag(_ro, "Injury?") | _flag(_ro, "Suspension?"))
+                _ro = _ro[_played].dropna(subset=["Points"])
+                if {"Player ID", "Year"}.issubset(_ro.columns) and not _ro.empty:
+                    def _ragg(_keys):
+                        _g = _ro.groupby(_keys)["Points"]
+                        _cnt = _g.count()
+                        return pd.DataFrame({
+                            "Rostered scoring volatility": _g.std().round(2),
+                            "Rostered scoring floor": _g.min().round(2),
+                            "Rostered scoring ceiling": _g.max().round(2),
+                            "Rostered boom %": (_ro[_ro["Points"] >= 20].groupby(_keys)["Points"].count().reindex(_cnt.index).fillna(0) / _cnt * 100).round(1),
+                            "Rostered bust %": (_ro[_ro["Points"] <= 5].groupby(_keys)["Points"].count().reindex(_cnt.index).fillna(0) / _cnt * 100).round(1),
+                        })
+                    _rdy = _ragg(["Player ID", "Year"])
+                    _rda = _ragg(["Player ID"])
+                    _rydict = {(str(k[0]), int(k[1])): r for k, r in _rdy.iterrows()}
+                    _radict = {str(k): r for k, r in _rda.iterrows()}
+                    _rcols = ["Rostered scoring volatility", "Rostered scoring floor",
+                              "Rostered scoring ceiling", "Rostered boom %", "Rostered bust %"]
+                    for _c in _rcols:
+                        if not player_year.empty and {"Player ID", "Year"}.issubset(player_year.columns):
+                            _yy = pd.to_numeric(player_year["Year"], errors="coerce")
+                            player_year[_c] = [
+                                (_rydict[(str(p), int(y))][_c] if (pd.notna(y) and (str(p), int(y)) in _rydict) else None)
+                                for p, y in zip(player_year["Player ID"], _yy)
+                            ]
+                        if not player_all.empty and "Player ID" in player_all.columns:
+                            player_all[_c] = [(_radict[str(p)][_c] if str(p) in _radict else None) for p in player_all["Player ID"]]
+                    # Position-adjusted percentiles, mirroring i3.
+                    _rpct_specs = [
+                        ("Rostered scoring volatility", "Rostered consistency percentile", False),
+                        ("Rostered scoring floor", "Rostered floor percentile", True),
+                        ("Rostered scoring ceiling", "Rostered ceiling percentile", True),
+                    ]
+                    for _frame, _grp in ((player_year, ["Year", "_pos"]), (player_all, ["_pos"])):
+                        if _frame.empty or "Player ID" not in _frame.columns:
+                            continue
+                        _frame["_pos"] = [pid_pos.get(str(p)) for p in _frame["Player ID"]]
+                        for _src, _out, _asc in _rpct_specs:
+                            if _src in _frame.columns:
+                                _v = pd.to_numeric(_frame[_src], errors="coerce")
+                                _frame[_out] = (
+                                    _frame.assign(_v=_v).groupby(_grp)["_v"]
+                                    .rank(pct=True, ascending=_asc) * 100
+                                ).round(1)
+                        _frame.drop(columns=["_pos"], inplace=True)
         except Exception as e:
             _log_exc(debug, "player_consistency_par", e)
 
