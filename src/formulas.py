@@ -434,8 +434,8 @@ _ROWS = [
     {
         "Stat": "Number",
         "Sheet": "picks",
-        "Formula": "Canonical pick notation: '{round}.{slot:02d}' (e.g. '1.05' = round 1, slot 5). Slot is derived from draft_slot or pick_in_round, with fallback to ((pick_no − 1) mod team_count) + 1. Shown as bare '{round}' when slot is unknown.",
-        "Notes": "Same notation is used inside trades.csv to substitute already-made picks with the slot they became (e.g. '2024 1.05(B. Robinson)').",
+        "Formula": "Canonical pick notation: '{round}.{slot:02d}' (e.g. '1.05' = round 1, slot 5), from draft_slot once the season is drafted. A FUTURE pick's draft order isn't finalized, so on its own row the slot is shown as '??' ('2.??') — the Original Team column identifies it. Dynamic: it resolves to the real slot once that season drafts.",
+        "Notes": "In references elsewhere (trades.csv, history comments) a MADE pick is substituted with the player it became ('2024 1.05(B. Robinson)') and a FUTURE pick is shown by its original owner ('2027 2(Oliverwkw)') rather than a guessed slot.",
     },
     {
         "Stat": "Commissioner moved?",
