@@ -1113,6 +1113,11 @@ def _preserve_na(col: str) -> bool:
     # games that season (e.g. the not-yet-played current/future season).
     if col_l in {"all-play win %", "all-play win % minus win %", "losses from hardship"}:
         return True
+    # Clutch index (team_all_time): playoff-vs-regular PF / win% delta. N/A when
+    # the team never reached the winners'-bracket playoffs (no delta to take).
+    if col_l in {"playoff pf minus regular-season pf",
+                 "playoff win % minus regular-season win %"}:
+        return True
     # Player consistency + PAR: N/A for players who never started (volatility
     # also N/A with < 2 starts). Boom/Bust % keep a real 0 for players who did
     # start but never boomed/busted.
@@ -12406,11 +12411,29 @@ def build_all(repo_root: Path) -> None:
                 float(_luck_w.groupby(_luck_yr).sum().mean())
                 if _luck_yr is not None and len(_luck_w) else 0.0
             )
+            # Clutch index (improvement #9, team_all_time only): how a manager
+            # performs in the WINNERS'-bracket playoffs vs the regular season,
+            # all-time. Playoff = Semifinal / Final / 3rd Place; regular = the
+            # "Week N" games. N/A for a team that never reached the playoffs
+            # (no delta to take). Win? is numeric (1/0) in-build.
+            _clutch_pf = None
+            _clutch_wp = None
+            _wkn = g.get("Week Name")
+            if _wkn is not None:
+                _is_po = _wkn.isin(("Semifinal", "Final", "3rd Place"))
+                _is_rg = _wkn.astype(str).str.startswith("Week ")
+                _pf_n = pd.to_numeric(g["PF"], errors="coerce")
+                _w_n = pd.to_numeric(g["Win?"], errors="coerce")
+                if _is_po.any() and _is_rg.any():
+                    _clutch_pf = round(float(_pf_n[_is_po].mean() - _pf_n[_is_rg].mean()), 2)
+                    _clutch_wp = round(float(_w_n[_is_po].mean() - _w_n[_is_rg].mean()), 4)
             row = {
                 "Team": str(team),
                 "All time win %": round((wins + 0.5 * ties) / gp, 4),
                 "All time record": _record_str(wins, losses, ties),
                 "Championships": championship_counts.get(str(team), 0),
+                "Playoff PF minus regular-season PF": _clutch_pf,
+                "Playoff win % minus regular-season win %": _clutch_wp,
                 "Number of playoff appearances": playoff_appearance_counts.get(str(team), 0),
                 "Number of championship appearances": champ_appearance_counts.get(str(team), 0),
                 "Number of last place finishes": last_place_counts.get(str(team), 0),
