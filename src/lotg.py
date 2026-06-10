@@ -1122,7 +1122,8 @@ def _preserve_na(col: str) -> bool:
     # also N/A with < 2 starts). Boom/Bust % keep a real 0 for players who did
     # start but never boomed/busted.
     if col_l in {"starter scoring volatility", "starter scoring floor", "starter scoring ceiling",
-                 "starter boom %", "starter bust %", "starter par", "starter par per game"}:
+                 "starter boom %", "starter bust %", "starter par", "starter par per game",
+                 "consistency percentile", "floor percentile", "ceiling percentile"}:
         return True
     # Phase 12 fix #3: role-split scoring averages are N/A (not 0) when the
     # player never started / never benched / never played that period.
@@ -11422,6 +11423,30 @@ def build_all(repo_root: Path) -> None:
                         ]
                     if not player_all.empty and "Player ID" in player_all.columns:
                         player_all[_c] = [(_ad[str(p)][_c] if str(p) in _ad else None) for p in player_all["Player ID"]]
+
+                # i3 (#10): position-adjusted, league-wide consistency percentiles.
+                # Higher percentile = better WITHIN the player's position:
+                # Consistency = LOW volatility; Floor / Ceiling = HIGH. player_year
+                # ranks within (Year, position); player_all_time within position.
+                # NaN source (never started) -> NaN percentile (renders N/A).
+                _pct_specs = [
+                    ("Starter scoring volatility", "Consistency percentile", False),  # low vol -> high
+                    ("Starter scoring floor", "Floor percentile", True),
+                    ("Starter scoring ceiling", "Ceiling percentile", True),
+                ]
+                for _frame, _grp in ((player_year, ["Year", "_pos"]), (player_all, ["_pos"])):
+                    if _frame.empty or "Player ID" not in _frame.columns:
+                        continue
+                    _frame["_pos"] = [pid_pos.get(str(p)) for p in _frame["Player ID"]]
+                    for _src, _out, _asc in _pct_specs:
+                        if _src in _frame.columns:
+                            _v = pd.to_numeric(_frame[_src], errors="coerce")
+                            _frame[_out] = (
+                                _frame.assign(_v=_v)
+                                .groupby(_grp)["_v"]
+                                .rank(pct=True, ascending=_asc) * 100
+                            ).round(1)
+                    _frame.drop(columns=["_pos"], inplace=True)
         except Exception as e:
             _log_exc(debug, "player_consistency_par", e)
 
