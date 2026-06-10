@@ -1015,11 +1015,11 @@ _ROWS = [
 
     # -------------------------------- trades --------------------------------
     {
-        "Stat": "Team's traded with / trade KTC value difference (end of season / 1 & 2 years later)",
+        "Stat": "Team's traded with 1/2/… / trade KTC value difference (end of season / 1 & 2 years later)",
         "Sheet": "trades",
-        "Formula": "Team's traded with = the counterparties in the deal. 'KTC value difference …' = (received-asset KTC) − (sent-asset KTC) at that season's end and 1 & 2 years later — i.e. who came out ahead by realized dynasty value over time.",
-        "Notes": "Positive favors the row's team. N/A when references are in the future / untracked.",
-        "Columns": ["Team's traded with", "KTC value difference at end of season",
+        "Formula": "Team's traded with N = the deal's counterparties, ONE team per column (1 for a normal swap, 2+ for a multi-team trade) so each can hyperlink to that team's row of the SAME trade. 'KTC value difference …' = (received-asset KTC) − (sent-asset KTC) at that season's end and 1 & 2 years later — i.e. who came out ahead by realized dynasty value over time.",
+        "Notes": "Positive favors the row's team. N/A when references are in the future / untracked. (In the xlsx, Opponent links to the opponent's same-week row and pure team references like Top/Last team link to team_all_time.)",
+        "Columns": ["Team's traded with 1", "Team's traded with 2", "KTC value difference at end of season",
                     "KTC value difference 1 year later", "KTC value difference 2 years later"],
     },
 
