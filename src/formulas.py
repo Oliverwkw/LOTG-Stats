@@ -1097,6 +1097,28 @@ def documented_columns():
     return out
 
 
+def column_definitions():
+    """Map normalized column name -> a hover-tooltip definition (Formula, plus a
+    'Notes:' tail when present). Keyed off every entry's Stat tokens and its
+    explicit Columns list. First entry wins on conflict. (i7 #32: used to attach
+    a header comment to each non-identity column so cryptic headers are self-
+    explanatory in the xlsx.)"""
+    out = {}
+    for e in _ROWS:
+        text = str(e.get("Formula") or "").strip()
+        notes = str(e.get("Notes") or "").strip()
+        if notes:
+            text = f"{text}\n\nNotes: {notes}" if text else notes
+        if not text:
+            continue
+        keys = list(str(e.get("Stat", "")).split("/")) + list(e.get("Columns") or [])
+        for k in keys:
+            nk = _norm(k)
+            if nk and nk not in out:
+                out[nk] = text
+    return out
+
+
 def undocumented_columns(catalog):
     """Return the sorted list of output columns (across the data sheets in
     `catalog`, a {sheet: [cols]} dict) that have no Formulas entry and aren't

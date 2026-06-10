@@ -1895,6 +1895,12 @@ def build_all(repo_root: Path) -> None:
                             team_to_tatrow[nm] = i + 2
             except Exception:
                 pass
+            # i7 (#32): normalized column name -> Formulas-sheet definition, for
+            # the header hover-tooltips attached below.
+            try:
+                _col_defs = formulas.column_definitions()
+            except Exception:
+                _col_defs = {}
             nameyw_to_pwrow: Dict[Tuple[str, str, str], int] = {}
             try:
                 _pwk = pd.read_csv(out_dir / "player_week.csv", low_memory=False)
@@ -2120,6 +2126,7 @@ def build_all(repo_root: Path) -> None:
                 # DATA columns in a subtle two-tone WITHIN each topic run (#34) and
                 # tint "In Progress" cells amber so active streaks stand out (#33).
                 try:
+                    from openpyxl.comments import Comment as _HdrComment  # i7 #32
                     _data_wrap = Alignment(wrap_text=True, vertical="top")  # Phase 12 #7: wrap ALL cells
                     _band_fill = PatternFill("solid", fgColor="F2F2F2")  # 2nd tone (light gray)
                     _inprog_fill = PatternFill("solid", fgColor="C6EFCE")  # opaque light green (#33)
@@ -2138,6 +2145,19 @@ def build_all(repo_root: Path) -> None:
                         hc.fill = PatternFill("solid", fgColor=_TOPIC_FILL.get(topic, "D9D9D9"))
                         hc.font = Font(bold=True)
                         hc.alignment = Alignment(wrap_text=True, vertical="center", horizontal="center")
+                        # i7 (#32): hover-tooltip on the header pulling this column's
+                        # Formulas-sheet definition, so cryptic headers explain
+                        # themselves. Identity/label columns (Team, Player, Year,
+                        # Points, …) are self-evident -> skipped even if some entry
+                        # happens to document them.
+                        _hn = re.sub(r"\s+", " ", str(hc.value).strip().lower()) if hc.value else ""
+                        _def = _col_defs.get(_hn) if _hn and _hn not in formulas.IDENTITY_ALLOWLIST else None
+                        if _def and hc.comment is None:
+                            _hc_cm = _HdrComment(_def, "LOTG Formulas")
+                            _hc_cm.width = 460
+                            _hc_nl = _def.count("\n") + 1 + len(_def) // 70
+                            _hc_cm.height = min(520, max(80, 16 * _hc_nl))
+                            hc.comment = _hc_cm
                         # Wrap every data cell (#7) + conservative number format.
                         nf = _col_number_format(hc.value) if hc.value else None
                         _band = _band_fill if _parity[j - 1] else None
