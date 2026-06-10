@@ -882,6 +882,12 @@ _ROWS = [
         "Columns": ["Draft Value", "Number of first round picks made", "Total number of picks made"],
     },
     {
+        "Stat": "3-year roster retention rate",
+        "Sheet": "team_year / team_all_time",
+        "Formula": "Of the players on a team's WEEK-1 roster in year Y, the FRACTION still on that team's WEEK-1 roster in year Y+3 (|roster_Y ∩ roster_{Y+3}| / |roster_Y|). A rate, not a count, because roster sizes have grown over the years. team_year carries the rate for that season's class; team_all_time = the average of a team's measurable yearly rates.",
+        "Notes": "Improvement #16. N/A when the Y+3 week-1 roster doesn't exist yet — currently only 2021→2024 and 2022→2025 are measurable (2023+ pending). Simple roster-snapshot retention: a player traded away and re-acquired by Y+3 week 1 still counts.",
+    },
+    {
         "Stat": "Future draft capital / Amount of FAAB spent / Change in win % from previous season",
         "Sheet": "team_year / team_all_time (+ team_week future cap, league sheets FAAB)",
         "Formula": "Future draft capital = value of picks the team currently HOLDS for the next 3 years (own retained + acquired − traded away). Amount of FAAB spent = Σ winning waiver bids. Change in win % from previous season = this season's Win % minus last season's.",
