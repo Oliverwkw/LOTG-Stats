@@ -2116,22 +2116,40 @@ def build_all(repo_root: Path) -> None:
                     ws.sheet_properties.tabColor = _FAMILY_TAB[_fam]
 
                 # Style the header row: bold + wrap + a per-topic color band so
-                # adjacent same-topic columns read as a group.
+                # adjacent same-topic columns read as a group. Also (i7) band the
+                # DATA columns in a subtle two-tone WITHIN each topic run (#34) and
+                # tint "In Progress" cells amber so active streaks stand out (#33).
                 try:
                     _data_wrap = Alignment(wrap_text=True, vertical="top")  # Phase 12 #7: wrap ALL cells
+                    _band_fill = PatternFill("solid", fgColor="F2F2F2")  # 2nd tone (light gray)
+                    _inprog_fill = PatternFill("solid", fgColor="FFF2CC")  # subtle amber (#33)
+                    _topics = [(_col_topic(ws.cell(row=1, column=j).value)
+                                if ws.cell(row=1, column=j).value else "Identity")
+                               for j in range(1, ws.max_column + 1)]
+                    # Parity of each column within its contiguous same-topic run.
+                    _parity = []
+                    _runi = 0
+                    for _ci in range(len(_topics)):
+                        _runi = _runi + 1 if (_ci and _topics[_ci] == _topics[_ci - 1]) else 0
+                        _parity.append(_runi % 2)
                     for j in range(1, ws.max_column + 1):
                         hc = ws.cell(row=1, column=j)
-                        topic = _col_topic(hc.value) if hc.value else "Identity"
+                        topic = _topics[j - 1]
                         hc.fill = PatternFill("solid", fgColor=_TOPIC_FILL.get(topic, "D9D9D9"))
                         hc.font = Font(bold=True)
                         hc.alignment = Alignment(wrap_text=True, vertical="center", horizontal="center")
                         # Wrap every data cell (#7) + conservative number format.
                         nf = _col_number_format(hc.value) if hc.value else None
+                        _band = _band_fill if _parity[j - 1] else None
                         for r in range(2, ws.max_row + 1):
                             dc = ws.cell(row=r, column=j)
                             dc.alignment = _data_wrap
                             if nf:
                                 dc.number_format = nf
+                            if str(dc.value).strip() == "In Progress":
+                                dc.fill = _inprog_fill
+                            elif _band is not None:
+                                dc.fill = _band
                 except Exception:
                     pass
 
@@ -2327,6 +2345,41 @@ def build_all(repo_root: Path) -> None:
                             )
                 except Exception as e:
                     _log_exc(debug, "color_scale", e)
+
+                # i7 (#30): highlight ALL-TIME RECORDS — the highest (gold) and
+                # lowest (blue) value of each comparable numeric column on the
+                # all-time sheets, so each stat's record / anti-record holder pops.
+                # Ties highlight every holder. Gold/blue mean simply highest/lowest
+                # value, not good/bad.
+                try:
+                    if sheet_name in ("team_all_time", "player_all_time") and ws.max_row >= 3:
+                        _hi_fill = PatternFill("solid", fgColor="FFD966")  # record high
+                        _lo_fill = PatternFill("solid", fgColor="BDD7EE")  # record low
+                        _rec_skip = {"player id", "season", "year", "week", "number"}
+                        _hdr2 = [str(ws.cell(row=1, column=k).value or "")
+                                 for k in range(1, ws.max_column + 1)]
+                        _hpos = {c: i + 1 for i, c in enumerate(_hdr2)}
+                        for _cn in d.columns:
+                            if str(_cn).strip().lower() in _rec_skip or _cn not in _hpos:
+                                continue
+                            _num = pd.to_numeric(
+                                d[_cn].replace({"N/A": None, "In Progress": None, "": None}),
+                                errors="coerce")
+                            _valid = _num.dropna()
+                            if _valid.nunique() < 2:
+                                continue  # all-equal / single value isn't a record
+                            _mx, _mn = _valid.max(), _valid.min()
+                            j = _hpos[_cn]
+                            for _ri in range(len(d)):
+                                v = _num.iloc[_ri]
+                                if pd.isna(v):
+                                    continue
+                                if v == _mx:
+                                    ws.cell(row=_ri + 2, column=j).fill = _hi_fill
+                                elif v == _mn:
+                                    ws.cell(row=_ri + 2, column=j).fill = _lo_fill
+                except Exception as e:
+                    _log_exc(debug, "record_highlight", e)
 
                 # Auto-filter every sheet (incl. trades) so the tables stay
                 # sortable/re-orderable. The per-asset expansion no longer
