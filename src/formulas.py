@@ -549,6 +549,13 @@ _ROWS = [
         "Notes": "All N/A for a player who never started; volatility additionally N/A with fewer than 2 started weeks. Boom % / Bust % keep a real 0 for a player who started but never boomed / busted. Player_year is per season; player_all_time pools every started week.",
     },
     {
+        "Stat": "Consistency percentile / Floor percentile / Ceiling percentile",
+        "Sheet": "player_year / player_all_time",
+        "Formula": "Position-adjusted, league-wide percentile (0–100) of the three consistency metrics, where HIGHER is always better within the player's position (QB/RB/WR/TE). Consistency percentile ranks on Starter scoring volatility INVERTED — lowest volatility (steadiest) = 100. Floor / Ceiling percentile rank on Starter scoring floor / ceiling — highest = 100. player_year ranks within (season, position); player_all_time ranks within position across all players.",
+        "Notes": "Improvement #10. N/A for a player with no underlying metric (never started; volatility also N/A with < 2 starts). Ties share the average rank.",
+        "Columns": ["Consistency percentile", "Floor percentile", "Ceiling percentile"],
+    },
+    {
         "Stat": "Starter PAR / Starter PAR per game",
         "Sheet": "player_year / player_all_time",
         "Formula": "Points Above Replacement over started weeks (the 'Starter' prefix flags that only started weeks count). For each (year, week, position) the replacement level = the mean of the BOTTOM THIRD of that week's STARTED scores at the position (the 'last-startable' tier). Per started week, PAR_week = the player's points − that replacement level. Starter PAR = the season/all-time SUM of PAR_week; Starter PAR per game = its mean.",
