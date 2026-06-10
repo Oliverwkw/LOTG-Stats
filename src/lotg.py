@@ -7406,8 +7406,12 @@ def build_all(repo_root: Path) -> None:
                         short = player
                     label = f"{yr_i} {rnd_i}.{slot}({short})"
                 else:
-                    # Drafted but no name resolved — show the slot only.
-                    label = f"{yr_i} {rnd_i}.{slot}"
+                    # Not yet drafted (future pick) — the draft ORDER isn't
+                    # finalized, so a slot like '.07' is just a guess off the
+                    # owner's roster position. Reference it by ORIGINAL TEAM
+                    # instead: '2027 2(Oliverwkw)'. Dynamic — once the season is
+                    # drafted, the branch above emits the real slot + player.
+                    label = f"{yr_i} {int(rnd_i)}({orig_team})"
                 pick_lookup[(yr_i, rnd_i, orig_team)] = label
 
         def _substitute_picks(asset_str: Optional[str], meta_list: List[Tuple[int, int, str]]) -> Optional[str]:
@@ -14106,7 +14110,7 @@ def build_all(repo_root: Path) -> None:
             _yr_disp = str(ph.at[_pi, "Year"])
             _ym = re.match(r"\s*(\d{4})", _yr_disp)
             if not _ym:
-                return []
+                return [], 0
             _yr = int(_ym.group(1)); _num = _cl(ph.at[_pi, "Number"])
             _orig = _cl(ph.at[_pi, "Original Team"])
             _final = (_cl(ph.at[_pi, "Final Team"]) if "Final Team" in ph.columns
