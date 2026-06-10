@@ -687,6 +687,58 @@ def _to_eastern_display(series: pd.Series) -> pd.Series:
     return out.where(parsed.notna(), series)
 
 
+def _bold_comment_verbs(xlsx_path: Path, debug: Optional[Path] = None) -> None:
+    """Bold the action verbs inside every cell-comment. openpyxl writes a comment
+    as a single plain `<text><t>…</t></text>`; we rewrite it with rich-text runs,
+    bolding the event verbs. Each rewritten comment file is ET-validated; on ANY
+    error the original workbook is restored so a bad rewrite can't corrupt it."""
+    import zipfile
+    import shutil
+    import xml.etree.ElementTree as ET
+
+    _vpat = re.compile(r"\b(drafted|traded|dropped|added|got|sent)\b", re.IGNORECASE)
+    _tpat = re.compile(r"<text><t(?:[^>]*)>(.*?)</t></text>", re.DOTALL)
+    _rpr = '<rPr><sz val="9"/><color indexed="81"/><rFont val="Tahoma"/><family val="2"/></rPr>'
+    _rprb = '<rPr><b/><sz val="9"/><color indexed="81"/><rFont val="Tahoma"/><family val="2"/></rPr>'
+
+    def _runs(_txt: str) -> str:
+        parts: List[str] = []
+        _last = 0
+        for _m in _vpat.finditer(_txt):
+            if _m.start() > _last:
+                parts.append(f'<r>{_rpr}<t xml:space="preserve">{_txt[_last:_m.start()]}</t></r>')
+            parts.append(f'<r>{_rprb}<t xml:space="preserve">{_m.group(0)}</t></r>')
+            _last = _m.end()
+        if _last < len(_txt):
+            parts.append(f'<r>{_rpr}<t xml:space="preserve">{_txt[_last:]}</t></r>')
+        return "<text>" + "".join(parts) + "</text>"
+
+    _bak = Path(str(xlsx_path) + ".bak")
+    _tmp = Path(str(xlsx_path) + ".tmp")
+    shutil.copy(xlsx_path, _bak)
+    try:
+        with zipfile.ZipFile(xlsx_path, "r") as zin, zipfile.ZipFile(_tmp, "w", zipfile.ZIP_DEFLATED) as zout:
+            for _it in zin.namelist():
+                _data = zin.read(_it)
+                if re.match(r"xl/comments/comment\d+\.xml$", _it):
+                    _new = _tpat.sub(lambda m: _runs(m.group(1)), _data.decode("utf-8"))
+                    ET.fromstring(_new)  # well-formedness guard
+                    _data = _new.encode("utf-8")
+                zout.writestr(_it, _data)
+        _tmp.replace(xlsx_path)
+        _bak.unlink()
+        if debug:
+            _log(debug, f"[{_now_iso()}] INFO bolded comment verbs in cell history popups")
+    except Exception:
+        shutil.copy(_bak, xlsx_path)  # restore the good file
+        for _p in (_bak, _tmp):
+            try:
+                _p.unlink()
+            except Exception:
+                pass
+        raise
+
+
 def _ensure_plan_columns(df: pd.DataFrame, cols: List[str]) -> pd.DataFrame:
     df = _safe_df(df).copy()
     for c in cols:
@@ -1745,6 +1797,13 @@ def build_all(repo_root: Path) -> None:
     # if the link pass is skipped.
     _pick_trade_link_refs: List[List[str]] = []
 
+    # i5 (#15): full Sleeper-style asset history for hover-comments. Picks keyed
+    # by picks.csv row index; players by display name. A player's history begins
+    # with the history of the pick they were drafted at, then continues through
+    # every later add / drop / trade. Populated in the per-asset link pass.
+    pick_history_text: Dict[int, str] = {}
+    player_history_text: Dict[str, str] = {}
+
     def write_outputs(tables: List[Tuple[str, pd.DataFrame, str]]) -> None:
         out_dir = repo_root / "exports"
         out_dir.mkdir(exist_ok=True)
@@ -2166,6 +2225,34 @@ def build_all(repo_root: Path) -> None:
                 except Exception as e:
                     _log_exc(debug, "player_name_hyperlinks", e)
 
+                # i5 (#15): full asset-history hover-comment on COLUMN 1 — picks
+                # (per pick) and player_all_time (per player). A small red marker
+                # on the cell; hover/click reveals the whole history, else hidden.
+                try:
+                    from openpyxl.comments import Comment
+
+                    def _attach_hist(_cell, _txt):
+                        _cm = Comment(_txt, "LOTG")
+                        _nlines = _txt.count("\n") + 1
+                        _cm.width = 460
+                        _cm.height = min(620, max(90, 15 * _nlines))
+                        _cell.comment = _cm
+
+                    if sheet_name == "picks" and pick_history_text and not d.empty:
+                        for _ri in range(len(d)):
+                            _txt = pick_history_text.get(_ri)
+                            if _txt:
+                                _attach_hist(ws.cell(row=_ri + 2, column=1), _txt)
+                    elif sheet_name == "player_all_time" and player_history_text and "Player" in d.columns:
+                        _pj = list(d.columns).index("Player") + 1
+                        for _r in range(2, ws.max_row + 1):
+                            _nm = str(ws.cell(row=_r, column=_pj).value or "").strip()
+                            _txt = player_history_text.get(_nm)
+                            if _txt:
+                                _attach_hist(ws.cell(row=_r, column=1), _txt)
+                except Exception as e:
+                    _log_exc(debug, "asset_history_comments", e)
+
                 # Phase 11E: light red->yellow->green 3-color scale on each
                 # sheet's headline value column (O-Score; team Win %/PF; player
                 # PAR/Points) so good/bad pops at a glance.
@@ -2221,6 +2308,12 @@ def build_all(repo_root: Path) -> None:
                         pass
 
             wb.save(out_dir / "LOTG_Stats.xlsx")
+            # i5: bold the action verbs in the history hover-comments (openpyxl
+            # flattens comments to plain text). Self-restoring on any failure.
+            try:
+                _bold_comment_verbs(out_dir / "LOTG_Stats.xlsx", debug)
+            except Exception as e:
+                _log_exc(debug, "bold_comment_verbs", e)
         except Exception as e:
             _log_exc(debug, "excel_write", e)
 
@@ -13998,6 +14091,101 @@ def build_all(repo_root: Path) -> None:
                 ph["Link to previous transaction"] = _ph_prev
     except Exception as e:
         _log_exc(debug, "transactions_player_chain_links", e)
+
+    # i5 (#15): build the full Sleeper-style asset history for hover-comments.
+    # Every event on its own line, with the FULL deal/transaction detail; the
+    # draft is its own event; a player's history begins with the history of the
+    # pick they were drafted at.
+    try:
+        def _hd(_s):  # YYYY-MM-DD in US Eastern, matching the displayed sheets
+            try:
+                return pd.to_datetime(_s, utc=True).tz_convert("America/New_York").strftime("%Y-%m-%d")
+            except Exception:
+                return str(_s or "")[:10]
+        def _cl(_s):
+            return str(_s or "").strip()
+        def _present(_s):
+            return _cl(_s) and _cl(_s).lower() not in ("n/a", "nan")
+
+        # Pick-trade hops keyed by canonical (year, round, original-owner name),
+        # carrying the full deal text, matched off each trade's receiving side.
+        _ph_hops: Dict[Tuple[int, int, str], List[Tuple[str, str]]] = defaultdict(list)
+        for _tr in trades_rows:
+            _tm = _cl(_tr.get("Team")); _d = _hd(_tr.get("Date"))
+            _recv = _cl(_tr.get("Assets received")); _sent = _cl(_tr.get("Assets sent"))
+            _deal = f"{_d}: pick traded to {_tm} ({_tm} got {_recv}; sent {_sent})"
+            for _m in (_tr.get("_recv_pick_meta") or []):
+                try:
+                    _k = (int(_m[0]), int(_m[1]), str(_m[2]))
+                except Exception:
+                    continue
+                _ph_hops[_k].append((_d, _deal))
+
+        # Per-player post-draft events (full detail), by Sleeper player_id.
+        _pl_events: Dict[str, List[Tuple[str, str]]] = defaultdict(list)
+        for _tx in transactions_rows:
+            _tm = _cl(_tx.get("Team")); _d = _hd(_tx.get("Date"))
+            _added = _cl(_tx.get("Player Added")); _dropped = _cl(_tx.get("Player Dropped"))
+            _faab = _cl(_tx.get("Faab"))
+            _how = f"waiver ${_faab}" if _present(_faab) else "free agent"
+            if _tx.get("_added_pid"):
+                _ex = f"; dropped {_dropped}" if _present(_dropped) else ""
+                _pl_events[str(_tx["_added_pid"])].append((_d, f"{_d}: added by {_tm} ({_how}{_ex})"))
+            if _tx.get("_dropped_pid"):
+                _ex = f" (added {_added})" if _present(_added) else ""
+                _pl_events[str(_tx["_dropped_pid"])].append((_d, f"{_d}: dropped by {_tm}{_ex}"))
+        for _tr in trades_rows:
+            _tm = _cl(_tr.get("Team")); _d = _hd(_tr.get("Date"))
+            _recv = _cl(_tr.get("Assets received")); _sent = _cl(_tr.get("Assets sent"))
+            _deal = f"{_d}: traded to {_tm} ({_tm} got {_recv}; sent {_sent})"
+            for _pid in (_tr.get("_recv_player_ids") or []):
+                if _pid:
+                    _pl_events[str(_pid)].append((_d, _deal))
+
+        def _pick_hist_lines(_pi) -> List[Tuple[str, str]]:
+            """(sort_date, line) for the pick at ph row index _pi: original owner
+            -> trade hops -> draft (its own event)."""
+            _ym = re.match(r"\s*(\d{4})", str(ph.at[_pi, "Year"]))
+            if not _ym:
+                return []
+            _yr = int(_ym.group(1)); _num = _cl(ph.at[_pi, "Number"])
+            _orig = _cl(ph.at[_pi, "Original Team"])
+            _final = (_cl(ph.at[_pi, "Final Team"]) if "Final Team" in ph.columns
+                      else (_cl(ph.at[_pi, "Team"]) if "Team" in ph.columns else _orig))
+            _ply = _cl(ph.at[_pi, "Player Picked"])
+            _lines: List[Tuple[str, str]] = [(f"{_yr}-00-00", f"{_yr} {_num} — originally {_orig}'s pick")]
+            _nm = re.match(r"\s*(\d+)\.", _num)
+            if _nm:
+                _key = (_yr, int(_nm.group(1)), _orig)
+                for _d, _line in sorted(_ph_hops.get(_key, [])):
+                    _lines.append((_d, _line))
+            # Draft sorts after August pick trades, before the season's events.
+            _lines.append((f"{_yr}-08-31",
+                           f"{_yr} Draft: {_final} drafted " + (f"{_ply} " if _real_player(_ply) else "") + f"({_num})"))
+            return _lines
+
+        _pid_to_pick_idx: Dict[str, int] = {}
+        if not ph.empty:
+            for _pi in ph.index:
+                _lines = _pick_hist_lines(_pi)
+                if _lines:
+                    pick_history_text[int(_pi)] = "\n".join(_l for _, _l in sorted(_lines))
+                _ppid = ph.at[_pi, "_player_id"] if "_player_id" in ph.columns else None
+                if _ppid and "(vet)" not in str(ph.at[_pi, "Year"]).lower():
+                    _pid_to_pick_idx.setdefault(str(_ppid), int(_pi))
+
+        for _pid, _meta in pid_meta.items():
+            _name = _cl(_meta.get("full_name"))
+            if not _name:
+                continue
+            _seed = _pick_hist_lines(_pid_to_pick_idx[str(_pid)]) if str(_pid) in _pid_to_pick_idx else []
+            _all = _seed + _pl_events.get(str(_pid), [])
+            if _all:
+                player_history_text[_name] = "\n".join(_l for _, _l in sorted(_all))
+        _log(debug, f"[{_now_iso()}] INFO built asset history: {len(pick_history_text)} picks, {len(player_history_text)} players")
+    except Exception as e:
+        _log_exc(debug, "asset_history_text", e)
+
     # Known-player validation report (best-effort): checks core columns against public expectations.
     try:
         validation = _known_player_column_errors(repo_root, pw)
