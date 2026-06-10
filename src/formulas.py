@@ -562,6 +562,15 @@ _ROWS = [
         "Notes": "Captures value over a freely-startable option at the player's position, week by week (so a stud in a weak position week is rewarded; a low-end starter nets ~0 or negative). N/A for a player who never started.",
     },
     {
+        "Stat": "Rostered scoring volatility / floor / ceiling / boom % / bust % (+ Rostered consistency/floor/ceiling percentile)",
+        "Sheet": "player_year / player_all_time",
+        "Formula": "The same consistency metrics as the 'Starter scoring …' set, but over every week the player actually PLAYED while rostered — started OR benched — EXCLUDING bye / injury / suspension weeks (a 0 with no NFL game isn't a real scoring week). Volatility = std-dev of those weeks' points; floor / ceiling = min / max; boom % / bust % = share ≥ 20 / ≤ 5. The 'Rostered …percentile' columns rank these vs same-position peers exactly like the Starter percentiles (Consistency = volatility inverted so steadiest = 100; Floor / Ceiling = higher is 100; player_year within (season, position), player_all_time within position).",
+        "Notes": "Companion to the started-only set: captures a player's true scoring range including the low weeks a manager benched them for. N/A for a player with no played weeks (volatility N/A with < 2). boom % / bust % keep a real 0 for a player who played but never boomed / busted.",
+        "Columns": ["Rostered scoring volatility", "Rostered scoring floor", "Rostered scoring ceiling",
+                    "Rostered boom %", "Rostered bust %",
+                    "Rostered consistency percentile", "Rostered floor percentile", "Rostered ceiling percentile"],
+    },
+    {
         "Stat": "One-man army? / Most bench points? / Most injured?",
         "Sheet": "team_week (flag) + team_year/team_all_time (Times count)",
         "Formula": "Weekly team awards (one winner per league-week, ties shared). One-man army? = the team whose single top starter supplied the greatest share of its PF that week (highest '% of points (if starter)' among any team's top starter). Most bench points? = the team with the highest total bench points. Most injured? = the team with the most injured players on its roster (starters + bench) that week. team_year / team_all_time carry 'Times One-man army?' / 'Times Most bench points?' / 'Times Most injured?' = how often the team won each.",
