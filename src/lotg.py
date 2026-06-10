@@ -1118,6 +1118,10 @@ def _preserve_na(col: str) -> bool:
     if col_l in {"playoff pf minus regular-season pf",
                  "playoff win % minus regular-season win %"}:
         return True
+    # 3-year roster retention rate: N/A when the +3-year week-1 roster doesn't
+    # exist yet (recent classes) — distinct from a real 0% retention.
+    if col_l == "3-year roster retention rate":
+        return True
     # Player consistency + PAR: N/A for players who never started (volatility
     # also N/A with < 2 starts). Boom/Bust % keep a real 0 for players who did
     # start but never boomed/busted.
@@ -11513,6 +11517,32 @@ def build_all(repo_root: Path) -> None:
         except Exception as e:
             _log_exc(debug, "player_consistency_par", e)
 
+    # 3-year roster retention rate (improvement #16): of a team's WEEK-1 roster in
+    # year Y, the fraction still on that team's WEEK-1 roster in year Y+3. Rate
+    # (not count) because roster sizes have grown over the years. N/A when the
+    # Y+3 week-1 roster doesn't exist yet (so currently only 2021->2024 and
+    # 2022->2025 are measurable). Keyed by (team, Y) for team_year; team_all_time
+    # averages a team's measurable rates.
+    retention_3yr_by_ty: Dict[Tuple[str, int], float] = {}
+    try:
+        if not pw.empty and {"Player ID", "Year", "Week", "Team"}.issubset(pw.columns):
+            _w1 = pw[pd.to_numeric(pw["Week"], errors="coerce") == 1]
+            _wk1_roster: Dict[Tuple[str, int], set] = {}
+            for _tm, _yr, _pid in _w1[["Team", "Year", "Player ID"]].itertuples(index=False, name=None):
+                try:
+                    _k = (str(_tm), int(_yr))
+                except Exception:
+                    continue
+                if _pid is None or str(_pid) == "nan":
+                    continue
+                _wk1_roster.setdefault(_k, set()).add(str(_pid))
+            for (_tm, _yr), _ros in _wk1_roster.items():
+                _future = _wk1_roster.get((_tm, _yr + 3))
+                if _future and _ros:
+                    retention_3yr_by_ty[(_tm, _yr)] = round(len(_ros & _future) / len(_ros), 4)
+    except Exception as e:
+        _log_exc(debug, "retention_3yr", e)
+
     # Team-year: compute record and vs records using raw opp_rid_map (still available in closures above? not anymore)
     team_year = pd.DataFrame()
     team_all = pd.DataFrame()
@@ -12100,6 +12130,17 @@ def build_all(repo_root: Path) -> None:
         except Exception as e:
             _log_exc(debug, "team_year_pick_rollups", e)
 
+        # 3-year roster retention rate (improvement #16) — per (team, year).
+        try:
+            if not team_year.empty and {"Team", "Year"}.issubset(team_year.columns):
+                team_year["3-year roster retention rate"] = [
+                    retention_3yr_by_ty.get((str(t), int(y)))
+                    if pd.notna(y) and str(y).strip() not in ("", "nan") else None
+                    for t, y in zip(team_year["Team"], pd.to_numeric(team_year["Year"], errors="coerce"))
+                ]
+        except Exception as e:
+            _log_exc(debug, "team_year_retention", e)
+
         # Future draft capital: weighted future picks held by the team at
         # END of each season (own retained + acquired − traded away). The
         # corrected _future_cap_held walks the pick-ownership ledger; the
@@ -12563,6 +12604,21 @@ def build_all(repo_root: Path) -> None:
             # team_all["Team"].map() assignment — no need to seed here.
             rows.append(row)
         team_all = pd.DataFrame(rows)
+
+        # 3-year roster retention rate (improvement #16) — team_all_time = the
+        # AVERAGE of a team's measurable yearly retention rates (N/A if none).
+        try:
+            if not team_all.empty and "Team" in team_all.columns:
+                _ret_by_team: Dict[str, List[float]] = {}
+                for (_tm, _yr), _r in retention_3yr_by_ty.items():
+                    _ret_by_team.setdefault(str(_tm), []).append(_r)
+                team_all["3-year roster retention rate"] = [
+                    (round(sum(_ret_by_team[str(t)]) / len(_ret_by_team[str(t)]), 4)
+                     if str(t) in _ret_by_team else None)
+                    for t in team_all["Team"]
+                ]
+        except Exception as e:
+            _log_exc(debug, "team_all_retention", e)
 
         # Rebuild all win % and record columns for team-all-time
         try:
