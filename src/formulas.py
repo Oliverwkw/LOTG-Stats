@@ -434,8 +434,8 @@ _ROWS = [
     {
         "Stat": "Number",
         "Sheet": "picks",
-        "Formula": "Canonical pick notation: '{round}.{slot:02d}' (e.g. '1.05' = round 1, slot 5). Slot is derived from draft_slot or pick_in_round, with fallback to ((pick_no − 1) mod team_count) + 1. Shown as bare '{round}' when slot is unknown.",
-        "Notes": "Same notation is used inside trades.csv to substitute already-made picks with the slot they became (e.g. '2024 1.05(B. Robinson)').",
+        "Formula": "Canonical pick notation: '{round}.{slot:02d}' (e.g. '1.05' = round 1, slot 5), from draft_slot once the season is drafted. A FUTURE pick's draft order isn't finalized, so on its own row the slot is shown as '??' ('2.??') — the Original Team column identifies it. Dynamic: it resolves to the real slot once that season drafts.",
+        "Notes": "In references elsewhere (trades.csv, history comments) a MADE pick is substituted with the player it became ('2024 1.05(B. Robinson)') and a FUTURE pick is shown by its original owner ('2027 2(Oliverwkw)') rather than a guessed slot.",
     },
     {
         "Stat": "Commissioner moved?",
@@ -446,8 +446,8 @@ _ROWS = [
     {
         "Stat": "Number of trades",
         "Sheet": "picks",
-        "Formula": "Count of RECORDED Sleeper trades the pick was part of (the hops in its canonical ownership chain that have a matching pick_trade_events row). The full ownership lineage — original owner, every recorded trade WITH its full deal, commissioner moves, the draft, and then the drafted player's entire post-draft career — lives in the hover-comment on the pick's first cell (identical to the comment on that player's player_all_time row).",
-        "Notes": "Replaces the former per-hop 'Trade 1 / Trade 2 / …' chain columns. Commissioner moves and the 2021 startup (vet) / synthetic award picks (2.09 toilet reward, 5.xx off-platform) are NOT recorded trades, so they count 0 here but still appear in the comment.",
+        "Formula": "Count of times the pick changed hands by TRADE: recorded Sleeper trades PLUS off-platform commissioner moves (real trades Sleeper dropped because they happened beyond its ~3-year tracking window — the commissioner re-applied them by hand). The full ownership lineage — original owner, every trade WITH its full deal, each commissioner move, the draft, and then the drafted player's entire post-draft career — lives in the hover-comment on the pick's first cell (identical to the comment on that player's player_all_time row).",
+        "Notes": "Replaces the former per-hop 'Trade 1 / Trade 2 / …' chain columns. The 2021 startup (vet) draft and the synthetic award picks (2.09 toilet reward, 5.xx FAAB buy) are AWARDS, not trades, so they count 0 here even though the 2.09's commissioner-assignment still shows in the comment.",
         "Columns": ["Number of trades"],
     },
     {

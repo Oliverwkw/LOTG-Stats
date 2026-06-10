@@ -7406,8 +7406,12 @@ def build_all(repo_root: Path) -> None:
                         short = player
                     label = f"{yr_i} {rnd_i}.{slot}({short})"
                 else:
-                    # Drafted but no name resolved — show the slot only.
-                    label = f"{yr_i} {rnd_i}.{slot}"
+                    # Not yet drafted (future pick) — the draft ORDER isn't
+                    # finalized, so a slot like '.07' is just a guess off the
+                    # owner's roster position. Reference it by ORIGINAL TEAM
+                    # instead: '2027 2(Oliverwkw)'. Dynamic — once the season is
+                    # drafted, the branch above emits the real slot + player.
+                    label = f"{yr_i} {int(rnd_i)}({orig_team})"
                 pick_lookup[(yr_i, rnd_i, orig_team)] = label
 
         def _substitute_picks(asset_str: Optional[str], meta_list: List[Tuple[int, int, str]]) -> Optional[str]:
@@ -14099,56 +14103,90 @@ def build_all(repo_root: Path) -> None:
                 if _pid:
                     _pl_events[str(_pid)].append((_ts, _deal))
 
-        def _pick_hist_lines(_pi) -> List[Tuple[str, str]]:
-            """(sort_ts, line) for the pick lineage at ph row index _pi: original
-            owner -> trade hops -> commissioner moves -> draft. The 2021 startup
-            (vet) draft has no prior owner / trades, so it renders only the draft."""
+        def _draft_anchor(_y) -> str:
+            """Date (YYYY-MM-DD) the season's draft actually happened, so the draft
+            EVENT sorts after the pick's pre-draft trades and before the drafted
+            player's post-draft moves. Falls back to Aug 31 for not-yet-drafted
+            seasons. Fixes draft-then-traded-same-period mis-ordering (Higgins)."""
+            _dds = draft_dates_by_season.get(int(_y))
+            if _dds:
+                return max(_dds).strftime("%Y-%m-%d")
+            return f"{int(_y)}-08-31"
+
+        def _pick_hist_lines(_pi) -> Tuple[List[Tuple[str, str]], int]:
+            """(sorted lines, number_of_trades) for the pick at ph row index _pi:
+            original owner -> recorded trades -> commissioner moves -> draft. The
+            trade count includes off-platform commissioner moves (real trades
+            Sleeper missed beyond its 3-yr window) but NOT the toilet/FAAB award."""
             _yr_disp = str(ph.at[_pi, "Year"])
             _ym = re.match(r"\s*(\d{4})", _yr_disp)
             if not _ym:
-                return []
+                return [], 0
             _yr = int(_ym.group(1)); _num = _cl(ph.at[_pi, "Number"])
             _orig = _cl(ph.at[_pi, "Original Team"])
             _final = (_cl(ph.at[_pi, "Final Team"]) if "Final Team" in ph.columns
                       else (_cl(ph.at[_pi, "Team"]) if "Team" in ph.columns else _orig))
             _ply = _cl(ph.at[_pi, "Player Picked"])
-            _drafted_txt = "drafted " + (f"{_ply} " if _real_player(_ply) else "") + f"({_num})"
-            # The "originally …'s pick" header pins to the very top of every
-            # comment (sort key 0000) so all histories start the same way (#7),
-            # ahead of even a player's pre-draft free-agent stints.
-            _orig_line = ("0000-00-00 00:00:00", f"{_yr} {_num} — originally {_orig}'s pick")
-            # Synthetic picks (2.09 toilet reward, 5.xx off-platform/FAAB buy) are
-            # NOT real draft slots: they share a (year, round, orig) canonical key
-            # with the round's real picks, so they must NOT pull _ph_hops or they
-            # inherit the wrong pick's trades (#8). They were awarded, not traded —
-            # render only the award (if the owner changed) and the draft.
-            _is_synth = _num == "2.09" or bool(re.match(r"\s*5\.", _num))
+            _drafted = _ply.lower() not in ("", "unknown", "n/a", "nan", "none")
+            _drafted_txt = "drafted " + (f"{_ply} " if _drafted else "") + f"({_num})"
+            _draft_key = f"{_draft_anchor(_yr)} 12:00:00"          # draft (noon)
+            _move_key = f"{_draft_anchor(_yr)} 00:00:00"           # a move, just before
+            # The "originally …'s pick" header pins to the top of every comment
+            # (sort key 0000) so all histories start the same way, ahead of even a
+            # player's pre-draft free-agent stints.
+            _is_209 = _num == "2.09"
+            _is_5xx = bool(re.match(r"\s*5\.", _num))
             if "(vet)" in _yr_disp.lower():
-                return [_orig_line,
-                        (f"{_yr}-08-31 00:00:00", f"{_yr} startup (vet) draft: {_final} {_drafted_txt}")]
-            if _is_synth:
-                _lines = [_orig_line]
+                # The startup (vet) draft is the league's first event — anchor it
+                # at the start of the year so it sorts ahead of every later trade.
+                return [("0000-00-00 00:00:00", f"{_yr} {_num} — originally {_orig}'s pick"),
+                        (f"{_yr}-01-01 00:00:00", f"{_yr} startup (vet) draft: {_final} {_drafted_txt}")], 0
+            if _is_209 or _is_5xx:
+                # 2.09 toilet reward / 5.xx FAAB buy: an off-platform AWARD, not a
+                # trade. The 2.09 originates with the prior toilet-bracket winner
+                # and is then commissioner-assigned to the team that drafts; the
+                # 5.xx is bought by and stays with one team. Either way the award
+                # itself does NOT count toward Number of trades.
+                _hdr = f"{_yr} {_num} — originally {_orig}'s pick" + (" (toilet-bowl reward)" if _is_209 else "")
+                _lines = [("0000-00-00 00:00:00", _hdr)]
                 if _final and _final != _orig and _present(_final):
-                    _why = "toilet-bowl reward" if _num == "2.09" else "off-platform / FAAB"
-                    _lines.append((f"{_yr}-08-30 00:00:00", f"{_yr}: awarded to {_final} ({_why})"))
-                _lines.append((f"{_yr}-08-31 00:00:00", f"{_yr} draft: {_final} {_drafted_txt}"))
-                return _lines
-            _lines: List[Tuple[str, str]] = [_orig_line]
+                    _lines.append((_move_key, f"{_yr}: Commissioner moved to {_final}"))
+                _lines.append((_draft_key, f"{_yr} draft: {_final} {_drafted_txt}"))
+                return _lines, 0
+            _lines: List[Tuple[str, str]] = [("0000-00-00 00:00:00", f"{_yr} {_num} — originally {_orig}'s pick")]
             _nm = re.match(r"\s*(\d+)\.", _num)
             _covered: set = set()
+            _ntr = 0
             if _nm:
                 _key = (_yr, int(_nm.group(1)), _orig)
                 for _ts, _recv, _line in sorted(_ph_hops.get(_key, [])):
                     _lines.append((_ts, _line))
-                    _covered.add(_recv)
-            # Untracked chain hops (no recorded Sleeper trade) = commissioner moves.
+                    _covered.add(_recv); _ntr += 1
+            # Untracked chain hops (no recorded Sleeper trade) = commissioner-applied
+            # off-platform trades, beyond Sleeper's 3-yr window. They ARE trades, so
+            # they count toward Number of trades and show in the history.
             for _tc in _ph_trade_cols:
                 _own = _cl(ph.at[_pi, _tc])
                 if _own and _own.lower() not in ("n/a", "nan") and _own != _orig and _own not in _covered:
-                    _lines.append((f"{_yr}-08-30 00:00:00", f"{_yr}: Commissioner moved to {_own}"))
-                    _covered.add(_own)
-            _lines.append((f"{_yr}-08-31 00:00:00", f"{_yr} Draft: {_final} {_drafted_txt}"))
-            return _lines
+                    _lines.append((_move_key, f"{_yr}: Commissioner moved to {_own}"))
+                    _covered.add(_own); _ntr += 1
+            # A future pick (not yet drafted) gets no draft line — the lineage
+            # just runs to the latest move.
+            if _drafted:
+                _lines.append((_draft_key, f"{_yr} Draft: {_final} {_drafted_txt}"))
+            return _lines, _ntr
+
+        # (#change 4) Future picks: the draft ORDER isn't finalized, so the slot
+        # on the pick's OWN row is just a guess off the owner's roster position.
+        # Blank it to "R.??" (the Original Team column already identifies it;
+        # embedded references elsewhere use "{yr} {round}(team)" via pick_lookup).
+        # Dynamic — a drafted pick keeps its real slot.
+        if not ph.empty and "Player Picked" in ph.columns:
+            for _pi in ph.index:
+                if _cl(ph.at[_pi, "Player Picked"]).lower() in ("", "unknown", "n/a", "nan", "none"):
+                    _mr = re.match(r"\s*(\d+)", str(ph.at[_pi, "Number"]))
+                    if _mr:
+                        ph.at[_pi, "Number"] = f"{int(_mr.group(1))}.??"
 
         # Build each pick's lineage BEFORE dropping the Trade N columns it reads.
         _pick_lineage: Dict[int, List[Tuple[str, str]]] = {}
@@ -14156,17 +14194,9 @@ def build_all(repo_root: Path) -> None:
         _pid_to_pick_idx: Dict[str, int] = {}
         if not ph.empty:
             for _pi in ph.index:
-                _pick_lineage[int(_pi)] = _pick_hist_lines(_pi)
-                _yr_disp = str(ph.at[_pi, "Year"])
-                _num2 = str(ph.at[_pi, "Number"]).strip()
-                _ym2 = re.match(r"\s*(\d{4})", _yr_disp)
-                _nm2 = re.match(r"\s*(\d+)\.", _num2)
-                _synth2 = _num2 == "2.09" or bool(re.match(r"\s*5\.", _num2))
-                if "(vet)" in _yr_disp.lower() or _synth2:
-                    _pick_ntrades[int(_pi)] = 0  # startup / awarded picks were never traded
-                elif _ym2 and _nm2:
-                    _key2 = (int(_ym2.group(1)), int(_nm2.group(1)), _cl(ph.at[_pi, "Original Team"]))
-                    _pick_ntrades[int(_pi)] = len(_ph_hops.get(_key2, []))
+                _lines, _nt = _pick_hist_lines(_pi)
+                _pick_lineage[int(_pi)] = _lines
+                _pick_ntrades[int(_pi)] = _nt
                 _ppid = ph.at[_pi, "_player_id"] if "_player_id" in ph.columns else None
                 if _ppid:
                     _pid_to_pick_idx.setdefault(str(_ppid), int(_pi))
