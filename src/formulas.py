@@ -446,8 +446,8 @@ _ROWS = [
     {
         "Stat": "Number of trades",
         "Sheet": "picks",
-        "Formula": "Count of times the pick changed hands by TRADE: recorded Sleeper trades PLUS off-platform commissioner moves (real trades Sleeper dropped because they happened beyond its ~3-year tracking window — the commissioner re-applied them by hand). The full ownership lineage — original owner, every trade WITH its full deal, each commissioner move, the draft, and then the drafted player's entire post-draft career — lives in the hover-comment on the pick's first cell (identical to the comment on that player's player_all_time row).",
-        "Notes": "Replaces the former per-hop 'Trade 1 / Trade 2 / …' chain columns. The 2021 startup (vet) draft and the synthetic award picks (2.09 toilet reward, 5.xx FAAB buy) are AWARDS, not trades, so they count 0 here even though the 2.09's commissioner-assignment still shows in the comment.",
+        "Formula": "Count of RECORDED Sleeper trades the pick was part of (the hops in its canonical ownership chain that have a matching pick_trade_events row). The full ownership lineage — original owner, every recorded trade WITH its full deal, commissioner moves, the draft, and then the drafted player's entire post-draft career — lives in the hover-comment on the pick's first cell (identical to the comment on that player's player_all_time row).",
+        "Notes": "Replaces the former per-hop 'Trade 1 / Trade 2 / …' chain columns. Commissioner moves and the 2021 startup (vet) / synthetic award picks (2.09 toilet reward, 5.xx off-platform) are NOT recorded trades, so they count 0 here but still appear in the comment.",
         "Columns": ["Number of trades"],
     },
     {
