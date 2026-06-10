@@ -757,7 +757,8 @@
   ],
   "trades": [
     "Team",
-    "Team's traded with",
+    "Team's traded with 1",
+    "Team's traded with 2",
     "Assets received",
     "Assets sent",
     "Date",

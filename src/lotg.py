@@ -781,7 +781,7 @@ _TOPIC_IDENTITY = {
 def _col_topic(col: str) -> str:
     """Topic group for header color-banding — mirrors the 11C-1 reorder classifier."""
     n = re.sub(r"\s+", " ", str(col).strip().lower())
-    if n in _TOPIC_IDENTITY:
+    if n in _TOPIC_IDENTITY or n.startswith("team's traded with"):
         return "Identity"
     if n.startswith("change from") or n.startswith("change in"):
         return "Change"
@@ -2187,31 +2187,84 @@ def build_all(repo_root: Path) -> None:
                 except Exception as e:
                     _log_exc(debug, "player_name_hyperlinks", e)
 
-                # i7 (#27): hyperlink single-team reference cells -> team_all_time
-                # (Opponent, Top/Last team, Team for highest/lowest %, etc.). A
-                # column qualifies when EVERY non-empty cell in it is a known team
-                # name (so the identity "Team" column and multi-asset trade cells
-                # are skipped automatically). Self-maintaining as columns evolve.
+                # i7 (#27): team-name cells link by CONTEXT, not always all-time.
+                #   - team_week "Opponent" -> the opponent's row of that SAME
+                #     (year, week) matchup.
+                #   - trades "Team's traded with N" -> the counterparty's row of
+                #     that SAME trade (matched on the shared Date timestamp).
+                #   - every OTHER single-team reference cell (Top/Last team, Team
+                #     for highest/lowest %/Win%) -> that team's team_all_time row.
+                _bluefont2 = Font(color="0563C1")
+                _hdr2 = [str(ws.cell(row=1, column=j).value or "")
+                         for j in range(1, ws.max_column + 1)]
+
+                def _hcol(name):
+                    return _hdr2.index(name) + 1 if name in _hdr2 else None
+
+                try:
+                    # Opponent -> same-week matchup row.
+                    if sheet_name == "team_week" and {"Opponent", "Year", "Week"} <= set(_hdr2):
+                        _tj, _yj, _wj, _oj = _hcol("Team"), _hcol("Year"), _hcol("Week"), _hcol("Opponent")
+                        _twrow: Dict[Tuple[str, str, str], int] = {}
+                        for r in range(2, ws.max_row + 1):
+                            _twrow[(str(ws.cell(row=r, column=_tj).value or "").strip(),
+                                    _yw(ws.cell(row=r, column=_yj).value),
+                                    _yw(ws.cell(row=r, column=_wj).value))] = r
+                        for r in range(2, ws.max_row + 1):
+                            _opp = str(ws.cell(row=r, column=_oj).value or "").strip()
+                            _row = _twrow.get((_opp, _yw(ws.cell(row=r, column=_yj).value),
+                                               _yw(ws.cell(row=r, column=_wj).value)))
+                            if _row:
+                                _c = ws.cell(row=r, column=_oj)
+                                _c.hyperlink = f"#'team_week'!A{_row}"
+                                _c.font = _bluefont2
+                    # Trade counterparties -> the other team's row of the same trade.
+                    if sheet_name == "trades" and "Date" in _hdr2:
+                        _dj, _tj = _hcol("Date"), _hcol("Team")
+                        _trrow: Dict[Tuple[str, str], int] = {}
+                        for r in range(2, ws.max_row + 1):
+                            _trrow[(str(ws.cell(row=r, column=_dj).value or "").strip(),
+                                    str(ws.cell(row=r, column=_tj).value or "").strip())] = r
+                        for _cn in [c for c in _hdr2 if c.startswith("Team's traded with")]:
+                            _cj = _hcol(_cn)
+                            for r in range(2, ws.max_row + 1):
+                                _ct = str(ws.cell(row=r, column=_cj).value or "").strip()
+                                if not _ct:
+                                    continue
+                                _row = _trrow.get((str(ws.cell(row=r, column=_dj).value or "").strip(), _ct))
+                                if _row:
+                                    _c = ws.cell(row=r, column=_cj)
+                                    _c.hyperlink = f"#'trades'!A{_row}"
+                                    _c.font = _bluefont2
+                except Exception as e:
+                    _log_exc(debug, "matchup_trade_hyperlinks", e)
+
+                # Pure team-reference cells -> team_all_time. A column qualifies
+                # when EVERY non-empty cell is a known team; the identity "Team"
+                # column and the context columns above (Opponent / Team's traded
+                # with N) are excluded so they keep their contextual links.
                 try:
                     if team_to_tatrow:
                         _teams = set(team_to_tatrow)
                         _blank = {"", "nan", "n/a", "in progress"}
-                        _hdr2 = [str(ws.cell(row=1, column=j).value or "")
-                                 for j in range(1, ws.max_column + 1)]
                         for _cn in d.columns:
-                            if str(_cn).strip() == "Team" or _cn not in _hdr2:
-                                continue  # identity column / expanded asset sub-col
+                            _cns = str(_cn).strip()
+                            if (_cns in ("Team", "Opponent") or _cns.startswith("Team's traded with")
+                                    or _cn not in _hdr2):
+                                continue
                             _nb = [str(v).strip() for v in d[_cn].tolist()
                                    if str(v).strip().lower() not in _blank]
                             if not _nb or any(v not in _teams for v in _nb):
                                 continue  # not an all-team reference column
                             j = _hdr2.index(_cn) + 1
                             for r in range(2, ws.max_row + 1):
+                                if ws.cell(row=r, column=j).hyperlink is not None:
+                                    continue
                                 _row = team_to_tatrow.get(str(ws.cell(row=r, column=j).value or "").strip())
                                 if _row:
                                     _c = ws.cell(row=r, column=j)
                                     _c.hyperlink = f"#'team_all_time'!A{_row}"
-                                    _c.font = Font(color="0563C1")
+                                    _c.font = _bluefont2
                 except Exception as e:
                     _log_exc(debug, "team_name_hyperlinks", e)
 
@@ -4813,7 +4866,12 @@ def build_all(repo_root: Path) -> None:
                             dropped_pick_meta: List[Tuple[int, int, str]] = list(drop_pick_meta.get(rid, []))
                             trades_rows.append({
                                 "Team": tm,
-                                "Team's traded with": "; ".join(sorted(set([x for x in others if x]))),
+                                # i7 (#27): counterparties go in their OWN numbered
+                                # columns ("Team's traded with 1/2/…") — one per
+                                # other team in the deal — so each can hyperlink to
+                                # that team's row of the SAME trade. Injected just
+                                # below the append (dynamic count: 1 for a swap, 2+
+                                # for a multi-team trade).
                                 # Distinct teams in the deal (this team + every
                                 # counterparty) — 2 for a normal swap, 3+ for a
                                 # multi-team trade (Phase 7B).
@@ -4861,6 +4919,11 @@ def build_all(repo_root: Path) -> None:
                                 "Link to next transaction": None,
                                 "Link to previous transaction": None,
                             })
+                            # Split counterparties into numbered columns (one team
+                            # each) so the writer can hyperlink each to the other
+                            # side of this same trade.
+                            for _ti, _to in enumerate(sorted({x for x in others if x}), 1):
+                                trades_rows[-1][f"Team's traded with {_ti}"] = _to
 
                         continue  # don't add to transactions.csv
 
