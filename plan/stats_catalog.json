@@ -392,6 +392,8 @@
     "Avg differential",
     "All-play win %",
     "All-play win % minus Win %",
+    "Playoff PF minus regular-season PF",
+    "Playoff win % minus regular-season win %",
     "Highest Win % vs a team",
     "Team for highest Win %",
     "Lowest Win % vs a team",
