@@ -2122,7 +2122,7 @@ def build_all(repo_root: Path) -> None:
                 try:
                     _data_wrap = Alignment(wrap_text=True, vertical="top")  # Phase 12 #7: wrap ALL cells
                     _band_fill = PatternFill("solid", fgColor="F2F2F2")  # 2nd tone (light gray)
-                    _inprog_fill = PatternFill("solid", fgColor="FFF2CC")  # subtle amber (#33)
+                    _inprog_fill = PatternFill("solid", fgColor="C6EFCE")  # opaque light green (#33)
                     _topics = [(_col_topic(ws.cell(row=1, column=j).value)
                                 if ws.cell(row=1, column=j).value else "Identity")
                                for j in range(1, ws.max_column + 1)]
@@ -2346,13 +2346,15 @@ def build_all(repo_root: Path) -> None:
                 except Exception as e:
                     _log_exc(debug, "color_scale", e)
 
-                # i7 (#30): highlight ALL-TIME RECORDS — the highest (gold) and
-                # lowest (blue) value of each comparable numeric column on the
-                # all-time sheets, so each stat's record / anti-record holder pops.
-                # Ties highlight every holder. Gold/blue mean simply highest/lowest
-                # value, not good/bad.
+                # i7 (#30): highlight RECORDS — the highest (gold) and lowest
+                # (blue) value of EVERY comparable numeric column on EVERY sheet,
+                # so each stat's record / anti-record holder pops. Gold/blue mean
+                # simply highest/lowest value, not good/bad. All ties are colored,
+                # EXCEPT a degenerate extreme tied by a large share of the column
+                # (e.g. the thousands of 0-point weeks on player_week) — that's the
+                # common value, not a record, so it's skipped to avoid flooding.
                 try:
-                    if sheet_name in ("team_all_time", "player_all_time") and ws.max_row >= 3:
+                    if ws.max_row >= 3:
                         _hi_fill = PatternFill("solid", fgColor="FFD966")  # record high
                         _lo_fill = PatternFill("solid", fgColor="BDD7EE")  # record low
                         _rec_skip = {"player id", "season", "year", "week", "number"}
@@ -2365,19 +2367,21 @@ def build_all(repo_root: Path) -> None:
                             _num = pd.to_numeric(
                                 d[_cn].replace({"N/A": None, "In Progress": None, "": None}),
                                 errors="coerce")
-                            _valid = _num.dropna()
-                            if _valid.nunique() < 2:
+                            _n_valid = int(_num.notna().sum())
+                            if _num.nunique(dropna=True) < 2:
                                 continue  # all-equal / single value isn't a record
-                            _mx, _mn = _valid.max(), _valid.min()
+                            # A record can be tied by a few; an extreme shared by a
+                            # large fraction is just the common value -> not a record.
+                            _cap = max(8, int(_n_valid * 0.02))
+                            _arr = _num.to_numpy()
                             j = _hpos[_cn]
-                            for _ri in range(len(d)):
-                                v = _num.iloc[_ri]
-                                if pd.isna(v):
+                            for _ext, _fill in ((np.nanmax(_arr), _hi_fill),
+                                                (np.nanmin(_arr), _lo_fill)):
+                                _pos = np.where(_arr == _ext)[0]
+                                if len(_pos) > _cap:
                                     continue
-                                if v == _mx:
-                                    ws.cell(row=_ri + 2, column=j).fill = _hi_fill
-                                elif v == _mn:
-                                    ws.cell(row=_ri + 2, column=j).fill = _lo_fill
+                                for _p in _pos:
+                                    ws.cell(row=int(_p) + 2, column=j).fill = _fill
                 except Exception as e:
                     _log_exc(debug, "record_highlight", e)
 
