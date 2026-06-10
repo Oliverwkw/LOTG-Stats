@@ -210,13 +210,13 @@ list in `plan/AUDIT_PHASE12_FINDINGS.md`. Flow: implement the queue below (with 
 - [ ] **32** Tooltip/comment on cryptic headers pulling the Formulas definition.
 - [ ] **33** Color "In Progress" streak cells subtly so active runs stand out.
 - [ ] **34** Two-tone bands alternating within topic groups (**subtle**) for wide sheets.
-- [ ] **35** Backfill missing birth_dates from a secondary source (mostly handled by Bug #2; finish coverage).
-- [ ] **36** Position-switcher audit (Taysom Hill etc.) — confirm weekly position.
-- [ ] **37** NFL-team-per-week validation vs schedule for traded players.
-- [ ] **38** Dedup near-identical name variants ("AJ" vs "A.J.") across sources.
-- [ ] **39** Confidence flag on KTC values sourced from sparse pre-2021 history.
-- [ ] **40** Cross-check Sleeper points vs nflverse fantasy points; flag divergences — **effectively folded into Bug #5**; confirm/close.
-- [ ] **41** Injury-tracker coverage report once 2026 data lands (PR E follow-up).
+- [x] **35** Backfill missing birth_dates — DONE: 0/201 drafted picks have N/A `Age when drafted` (96 N/A are future picks). Bug #2 finished it.
+- [x] **36** Position-switcher audit — HANDLED: one stable position/player, 0 per-week variance; Taysom Hill→TE, Travis Hunter→WR sensible.
+- [x] **37** NFL-team-per-week — DONE: `NFL team` 0/18,744 N/A, correctly reflects mid-season NFL trades (Adams LV→NYJ, Hopkins KC/TEN, Diggs→HOU→NE).
+- [x] **38** Dedup name variants — DONE: 0 normalized-name collisions (players keyed by Sleeper pid).
+- [~] **39** KTC confidence flag — SKIPPED (low payoff): KTC 99.5% covered (1/201 picks N/A); build log already reports the win-impact gap. Revisit only if sparse-history issue surfaces.
+- [x] **40** Sleeper-vs-nflverse points — DONE (folded into Bug #5: `Points (full season)`).
+- [ ] **41** Injury-tracker coverage report — DEFERRED to Phase 14 (needs 2026 in-season data).
 
 ### Infra (assistant's judgment — selected)
 - [ ] **42** Round all float outputs deterministically (extend the Luck fix everywhere).

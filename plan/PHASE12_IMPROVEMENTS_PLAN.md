@@ -28,15 +28,15 @@ Position-adjusted league-wide **percentile** of each player's scoring volatility
 ## i5 — Trade lineage string (15)
 One readable chain per current asset: `2021 1.04 → … → 2026 1st`. Built from the pick/player chains already computed; a display string column (picks and/or trades sheet). Decide host sheet during build.
 
-## i6 — Data quality (35–41) — batch, mostly checks/flags
-- **35 Backfill missing birth_dates** from a secondary source (finish the Age coverage started by Bug #2).
-- **36 Position-switcher audit** (Taysom Hill etc.) — verify weekly position is right; fix or flag.
-- **37 NFL-team-per-week validation** vs schedule for traded players.
-- **38 Dedup near-identical name variants** ("AJ" vs "A.J.") across sources.
-- **39 KTC confidence flag** for values sourced from sparse pre-2021 history.
-- **40 Sleeper-vs-nflverse points cross-check** — effectively folded into Bug #5; **confirm + close** (likely no new column).
-- **41 Injury-tracker coverage report** — deferred until 2026 in-season data lands (note; revisit Phase 14).
-Split: 35/38 (identity/data), 36/37 (position/team validation), 39 (flag). 40/41 are confirm/defer.
+## i6 — Data quality (35–41) — ✅ CONFIRM-CLOSED (no new columns)
+Scoped against the #275 CI build; 5 of 7 already satisfied by earlier work, 1 deferred, 1 skipped as low-payoff. No code change.
+- **35 Backfill missing birth_dates** — ✅ DONE. 0/201 *drafted* picks have N/A `Age when drafted`; the only 96 N/A are future (un-drafted) picks. Bug #2 already finished the coverage.
+- **36 Position-switcher audit** — ✅ HANDLED. Each player has ONE stable position (pid_pos) with 0 per-week variance; Taysom Hill→TE, Travis Hunter→WR are sensible (both Sleeper-eligible there). Nothing per-week to fix.
+- **37 NFL-team-per-week validation** — ✅ DONE. `NFL team` is 0/18,744 N/A and correctly reflects mid-season NFL trades (Adams LV→NYJ 2024, Hopkins KC/TEN 2024, Diggs→HOU→NE).
+- **38 Dedup near-identical name variants** — ✅ DONE. 0 normalized-name collisions in player_all_time (players are keyed by Sleeper pid, not name).
+- **39 KTC confidence flag** — ⏭ SKIPPED (low payoff). KTC is 99.5% covered (1/201 picks N/A) and the build log already reports the win-impact gap ("KTC win-impact lookups: N/M empty"). A per-value flag would read "high confidence" ~99% of the time. Revisit only if a sparse-history problem surfaces.
+- **40 Sleeper-vs-nflverse points cross-check** — ✅ DONE (folded into Bug #5: `Points (full season)` re-scored with league settings).
+- **41 Injury-tracker coverage report** — ⏸ DEFERRED to Phase 14 (needs 2026 in-season data).
 
 ## i7 — Visual / xlsx UX (26–34) — LAST (styling after columns settle)
 - **27 Hyperlink team names → team_all_time** — opponent / counterparty cells only.
