@@ -444,10 +444,11 @@ _ROWS = [
         "Notes": "Such picks are NOT added to trades.csv (the move wasn't a trade); the assumption is a single move from original owner to current owner.",
     },
     {
-        "Stat": "Trade 1 / Trade 2 / … (xlsx hyperlinks)",
+        "Stat": "Number of trades",
         "Sheet": "picks",
-        "Formula": "Each 'Trade N' cell shows the team that owned the pick after its Nth trade. In the xlsx, the cell also HYPERLINKS to the trades-sheet row of that trade (the one that moved the pick to that team) — refs come from the pick's canonical chain, aligned to the Trade N hops in order.",
-        "Notes": "Best effort: a commissioner move (not a real trade) has no trades row, so a Trade N produced by such a move is left un-linked and can shift the alignment of later hops for that pick. CSV cells are plain team names (no hyperlinks).",
+        "Formula": "Count of RECORDED Sleeper trades the pick was part of (the hops in its canonical ownership chain that have a matching pick_trade_events row). The full ownership lineage — original owner, every recorded trade WITH its full deal, commissioner moves, the draft, and then the drafted player's entire post-draft career — lives in the hover-comment on the pick's first cell (identical to the comment on that player's player_all_time row).",
+        "Notes": "Replaces the former per-hop 'Trade 1 / Trade 2 / …' chain columns. Commissioner moves and the 2021 startup (vet) / synthetic award picks (2.09 toilet reward, 5.xx off-platform) are NOT recorded trades, so they count 0 here but still appear in the comment.",
+        "Columns": ["Number of trades"],
     },
     {
         "Stat": "Link to next transaction / Link to previous transaction",
