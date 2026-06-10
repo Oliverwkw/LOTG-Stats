@@ -1883,6 +1883,18 @@ def build_all(repo_root: Path) -> None:
                             name_to_patrow[nm] = i + 2
             except Exception:
                 pass
+            # i7 (#27): team display name -> team_all_time row, for hyperlinking
+            # single-team reference cells (Opponent, Top/Last team, Team-for-X).
+            team_to_tatrow: Dict[str, int] = {}
+            try:
+                _tat = pd.read_csv(out_dir / "team_all_time.csv")
+                if "Team" in _tat.columns:
+                    for i, nm in enumerate(_tat["Team"].astype(str)):
+                        nm = nm.strip()
+                        if nm and nm not in team_to_tatrow:
+                            team_to_tatrow[nm] = i + 2
+            except Exception:
+                pass
             nameyw_to_pwrow: Dict[Tuple[str, str, str], int] = {}
             try:
                 _pwk = pd.read_csv(out_dir / "player_week.csv", low_memory=False)
@@ -2174,6 +2186,34 @@ def build_all(repo_root: Path) -> None:
                                     _linkcell(ws.cell(row=r, column=j), f"#'player_week'!A{row}")
                 except Exception as e:
                     _log_exc(debug, "player_name_hyperlinks", e)
+
+                # i7 (#27): hyperlink single-team reference cells -> team_all_time
+                # (Opponent, Top/Last team, Team for highest/lowest %, etc.). A
+                # column qualifies when EVERY non-empty cell in it is a known team
+                # name (so the identity "Team" column and multi-asset trade cells
+                # are skipped automatically). Self-maintaining as columns evolve.
+                try:
+                    if team_to_tatrow:
+                        _teams = set(team_to_tatrow)
+                        _blank = {"", "nan", "n/a", "in progress"}
+                        _hdr2 = [str(ws.cell(row=1, column=j).value or "")
+                                 for j in range(1, ws.max_column + 1)]
+                        for _cn in d.columns:
+                            if str(_cn).strip() == "Team" or _cn not in _hdr2:
+                                continue  # identity column / expanded asset sub-col
+                            _nb = [str(v).strip() for v in d[_cn].tolist()
+                                   if str(v).strip().lower() not in _blank]
+                            if not _nb or any(v not in _teams for v in _nb):
+                                continue  # not an all-team reference column
+                            j = _hdr2.index(_cn) + 1
+                            for r in range(2, ws.max_row + 1):
+                                _row = team_to_tatrow.get(str(ws.cell(row=r, column=j).value or "").strip())
+                                if _row:
+                                    _c = ws.cell(row=r, column=j)
+                                    _c.hyperlink = f"#'team_all_time'!A{_row}"
+                                    _c.font = Font(color="0563C1")
+                except Exception as e:
+                    _log_exc(debug, "team_name_hyperlinks", e)
 
                 # i5 (#15): full asset-history hover-comment on COLUMN 1 — picks
                 # (per pick) and player_all_time (per player). A small red marker
