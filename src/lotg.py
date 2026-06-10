@@ -1791,12 +1791,6 @@ def build_all(repo_root: Path) -> None:
     raw_dir.mkdir(parents=True, exist_ok=True)
 
     # Phase 8F: per picks row, the ordered trades-sheet refs ("T#N") for its
-    # Trade 1..N ownership hops — populated in the link pass below and read by
-    # write_outputs (a closure) to hyperlink each Trade N cell to the trade that
-    # moved the pick to that team. Initialised empty so the closure is safe even
-    # if the link pass is skipped.
-    _pick_trade_link_refs: List[List[str]] = []
-
     # i5 (#15): full Sleeper-style asset history for hover-comments. Picks keyed
     # by picks.csv row index; players by display name. A player's history begins
     # with the history of the pick they were drafted at, then continues through
@@ -1811,31 +1805,6 @@ def build_all(repo_root: Path) -> None:
             cols = catalog.get(plan_key, [])
             if plan_key in {"team-year", "team-all-time"}:
                 cols = _append_team_vs_columns(frame, cols, plan_key)
-            # picks (pick history): trade chains can exceed the schema's 10 Trade
-            # columns (a pick traded 12 times needs Trade 1..12). Extend the
-            # column list dynamically to the longest non-empty chain present in
-            # the frame, inserting the extras right AFTER the highest "Trade N"
-            # already in the schema so the chain stays contiguous (Trade 11 used
-            # to land next to the retired "etc" spacer).
-            if plan_key == "picks" and isinstance(frame, pd.DataFrame) and not frame.empty:
-                _present = [c for c in frame.columns if str(c).startswith("Trade ")]
-                _max_n = 0
-                for _c in _present:
-                    try:
-                        _n = int(str(_c).split(" ", 1)[1])
-                    except Exception:
-                        continue
-                    if frame[_c].notna().any() and _n > _max_n:
-                        _max_n = _n
-                if _max_n > 10:
-                    _extras = [f"Trade {i}" for i in range(11, _max_n + 1)]
-                    _trade_pos = [i for i, c in enumerate(cols)
-                                  if str(c).startswith("Trade ") and str(c)[6:].isdigit()]
-                    if _trade_pos:
-                        _idx = max(_trade_pos) + 1
-                        cols = cols[:_idx] + _extras + cols[_idx:]
-                    else:
-                        cols = list(cols) + _extras
             frame = _safe_df(frame)
             out = _ensure_plan_columns(frame, cols)
             out = _fill_empty_columns(out, cols)
@@ -2124,25 +2093,6 @@ def build_all(repo_root: Path) -> None:
                                           if _ref_re.match(t.strip())), None)
                             if first:
                                 _set_ref_link(cell, first)
-                    # Phase 8F: on the picks sheet, hyperlink each "Trade N" team
-                    # cell to the trades-sheet row of the trade that moved the
-                    # pick to that team. The cell keeps showing the team name; we
-                    # only attach the link. Refs come from _pick_trade_link_refs
-                    # (per-row ordered T#refs), aligned to the Trade N columns.
-                    if sheet_name == "picks" and _pick_trade_link_refs:
-                        _tn_cols = [
-                            (int(re.match(r"^Trade (\d+)$", str(col)).group(1)), j)
-                            for j, col in enumerate(d.columns, 1)
-                            if re.match(r"^Trade \d+$", str(col))
-                        ]
-                        for _n, _j in _tn_cols:
-                            for _ri in range(len(d)):
-                                _refs = (_pick_trade_link_refs[_ri]
-                                         if _ri < len(_pick_trade_link_refs) else [])
-                                if _n - 1 < len(_refs) and _refs[_n - 1]:
-                                    _cell = ws.cell(row=_ri + 2, column=_j)
-                                    if _cell.value not in (None, ""):
-                                        _set_ref_link(_cell, _refs[_n - 1])
                 # Phase 11C-2: freeze through the pinned columns (team_week also
                 # pins Opponent -> 5 cols).
                 _pin_n = 5 if sheet_name == "team_week" else 4
@@ -2233,9 +2183,16 @@ def build_all(repo_root: Path) -> None:
 
                     def _attach_hist(_cell, _txt):
                         _cm = Comment(_txt, "LOTG")
-                        _nlines = _txt.count("\n") + 1
-                        _cm.width = 460
-                        _cm.height = min(620, max(90, 15 * _nlines))
+                        # Size the box for the WRAPPED line count, not the logical
+                        # one: trade lines run ~150 chars and wrap to 2-3 visual
+                        # rows at this width, so a flat 15px/line box clipped long
+                        # histories (only ~6 of 11 trades showed). Estimate visual
+                        # rows from each line's length at ~88 chars/row.
+                        _w = 560
+                        _cpr = 88
+                        _vis = sum(max(1, -(-len(_l) // _cpr)) for _l in _txt.split("\n"))
+                        _cm.width = _w
+                        _cm.height = min(1100, max(90, 15 * _vis + 12))
                         _cell.comment = _cm
 
                     if sheet_name == "picks" and pick_history_text and not d.empty:
@@ -14061,32 +14018,24 @@ def build_all(repo_root: Path) -> None:
             #   Link to previous transaction  = the PICK's last trade BEFORE the
             #                                   draft (pick chain, whose terminal
             #                                   is this PH# row)
-            # Also build _pick_trade_link_refs (ordered T#refs per pick) so the
-            # xlsx writer can hyperlink each Trade N team cell to its trade row.
             if not ph.empty and {"Year", "Number", "Original Team", "Player Picked"}.issubset(set(ph.columns)):
                 _ph_next, _ph_prev = [], []
-                _pick_trade_link_refs.clear()
                 for _pi in ph.index:
                     _phref = f"PH#{int(_pi) + 1}"
                     _pl = str(ph.at[_pi, "Player Picked"]).strip()
                     _ym = re.match(r"\s*(\d{4})", str(ph.at[_pi, "Year"]))
                     _nm = re.match(r"\s*(\d+)\.", str(ph.at[_pi, "Number"]))
                     _nx = _pv = None
-                    _refs: List[str] = []
                     if _ym and _nm:
                         _pk = (int(_ym.group(1)), int(_nm.group(1)),
                                str(ph.at[_pi, "Original Team"]).strip())
                         # previous = the pick's last trade before the draft
                         _, _pv = _pick_neighbors(_pk, _phref)
-                        # ordered T#refs for the Trade 1..N hyperlinks
-                        _refs = [str(_r) for (_dd, _r) in pick_chains.get(_pk, [])
-                                 if str(_r).startswith("T#")]
                     # next = the drafted player's first event after the draft
                     if _real_player(_pl):
                         _nx, _ = _neighbors(_pl, _phref)
                     _ph_next.append(_nx)
                     _ph_prev.append(_pv)
-                    _pick_trade_link_refs.append(_refs)
                 ph["Link to next transaction"] = _ph_next
                 ph["Link to previous transaction"] = _ph_prev
     except Exception as e:
@@ -14106,12 +14055,18 @@ def build_all(repo_root: Path) -> None:
             return str(_s or "").strip()
         def _present(_s):
             return _cl(_s) and _cl(_s).lower() not in ("n/a", "nan")
+        def _hts(_s):  # full Eastern timestamp — sort key so same-day events order by TIME
+            try:
+                return pd.to_datetime(_s, utc=True).tz_convert("America/New_York").strftime("%Y-%m-%d %H:%M:%S")
+            except Exception:
+                return str(_s or "")[:19]
 
         # Pick-trade hops keyed by canonical (year, round, original-owner name),
-        # carrying the full deal text, matched off each trade's receiving side.
-        _ph_hops: Dict[Tuple[int, int, str], List[Tuple[str, str]]] = defaultdict(list)
+        # carrying (sort_ts, receiving team, full deal text), matched off each
+        # trade's receiving side.
+        _ph_hops: Dict[Tuple[int, int, str], List[Tuple[str, str, str]]] = defaultdict(list)
         for _tr in trades_rows:
-            _tm = _cl(_tr.get("Team")); _d = _hd(_tr.get("Date"))
+            _tm = _cl(_tr.get("Team")); _d = _hd(_tr.get("Date")); _ts = _hts(_tr.get("Date"))
             _recv = _cl(_tr.get("Assets received")); _sent = _cl(_tr.get("Assets sent"))
             _deal = f"{_d}: pick traded to {_tm} ({_tm} got {_recv}; sent {_sent})"
             for _m in (_tr.get("_recv_pick_meta") or []):
@@ -14119,33 +14074,37 @@ def build_all(repo_root: Path) -> None:
                     _k = (int(_m[0]), int(_m[1]), str(_m[2]))
                 except Exception:
                     continue
-                _ph_hops[_k].append((_d, _deal))
+                _ph_hops[_k].append((_ts, _tm, _deal))
+        _ph_trade_cols = [c for c in ph.columns
+                          if str(c).startswith("Trade ") and str(c)[6:].isdigit()]
 
-        # Per-player post-draft events (full detail), by Sleeper player_id.
+        # Per-player events (full detail), by Sleeper player_id, keyed by sort_ts.
         _pl_events: Dict[str, List[Tuple[str, str]]] = defaultdict(list)
         for _tx in transactions_rows:
-            _tm = _cl(_tx.get("Team")); _d = _hd(_tx.get("Date"))
+            _tm = _cl(_tx.get("Team")); _d = _hd(_tx.get("Date")); _ts = _hts(_tx.get("Date"))
             _added = _cl(_tx.get("Player Added")); _dropped = _cl(_tx.get("Player Dropped"))
             _faab = _cl(_tx.get("Faab"))
             _how = f"waiver ${_faab}" if _present(_faab) else "free agent"
             if _tx.get("_added_pid"):
                 _ex = f"; dropped {_dropped}" if _present(_dropped) else ""
-                _pl_events[str(_tx["_added_pid"])].append((_d, f"{_d}: added by {_tm} ({_how}{_ex})"))
+                _pl_events[str(_tx["_added_pid"])].append((_ts, f"{_d}: added by {_tm} ({_how}{_ex})"))
             if _tx.get("_dropped_pid"):
                 _ex = f" (added {_added})" if _present(_added) else ""
-                _pl_events[str(_tx["_dropped_pid"])].append((_d, f"{_d}: dropped by {_tm}{_ex}"))
+                _pl_events[str(_tx["_dropped_pid"])].append((_ts, f"{_d}: dropped by {_tm}{_ex}"))
         for _tr in trades_rows:
-            _tm = _cl(_tr.get("Team")); _d = _hd(_tr.get("Date"))
+            _tm = _cl(_tr.get("Team")); _d = _hd(_tr.get("Date")); _ts = _hts(_tr.get("Date"))
             _recv = _cl(_tr.get("Assets received")); _sent = _cl(_tr.get("Assets sent"))
             _deal = f"{_d}: traded to {_tm} ({_tm} got {_recv}; sent {_sent})"
             for _pid in (_tr.get("_recv_player_ids") or []):
                 if _pid:
-                    _pl_events[str(_pid)].append((_d, _deal))
+                    _pl_events[str(_pid)].append((_ts, _deal))
 
         def _pick_hist_lines(_pi) -> List[Tuple[str, str]]:
-            """(sort_date, line) for the pick at ph row index _pi: original owner
-            -> trade hops -> draft (its own event)."""
-            _ym = re.match(r"\s*(\d{4})", str(ph.at[_pi, "Year"]))
+            """(sort_ts, line) for the pick lineage at ph row index _pi: original
+            owner -> trade hops -> commissioner moves -> draft. The 2021 startup
+            (vet) draft has no prior owner / trades, so it renders only the draft."""
+            _yr_disp = str(ph.at[_pi, "Year"])
+            _ym = re.match(r"\s*(\d{4})", _yr_disp)
             if not _ym:
                 return []
             _yr = int(_ym.group(1)); _num = _cl(ph.at[_pi, "Number"])
@@ -14153,35 +14112,90 @@ def build_all(repo_root: Path) -> None:
             _final = (_cl(ph.at[_pi, "Final Team"]) if "Final Team" in ph.columns
                       else (_cl(ph.at[_pi, "Team"]) if "Team" in ph.columns else _orig))
             _ply = _cl(ph.at[_pi, "Player Picked"])
-            _lines: List[Tuple[str, str]] = [(f"{_yr}-00-00", f"{_yr} {_num} — originally {_orig}'s pick")]
+            _drafted_txt = "drafted " + (f"{_ply} " if _real_player(_ply) else "") + f"({_num})"
+            # The "originally …'s pick" header pins to the very top of every
+            # comment (sort key 0000) so all histories start the same way (#7),
+            # ahead of even a player's pre-draft free-agent stints.
+            _orig_line = ("0000-00-00 00:00:00", f"{_yr} {_num} — originally {_orig}'s pick")
+            # Synthetic picks (2.09 toilet reward, 5.xx off-platform/FAAB buy) are
+            # NOT real draft slots: they share a (year, round, orig) canonical key
+            # with the round's real picks, so they must NOT pull _ph_hops or they
+            # inherit the wrong pick's trades (#8). They were awarded, not traded —
+            # render only the award (if the owner changed) and the draft.
+            _is_synth = _num == "2.09" or bool(re.match(r"\s*5\.", _num))
+            if "(vet)" in _yr_disp.lower():
+                return [_orig_line,
+                        (f"{_yr}-08-31 00:00:00", f"{_yr} startup (vet) draft: {_final} {_drafted_txt}")]
+            if _is_synth:
+                _lines = [_orig_line]
+                if _final and _final != _orig and _present(_final):
+                    _why = "toilet-bowl reward" if _num == "2.09" else "off-platform / FAAB"
+                    _lines.append((f"{_yr}-08-30 00:00:00", f"{_yr}: awarded to {_final} ({_why})"))
+                _lines.append((f"{_yr}-08-31 00:00:00", f"{_yr} draft: {_final} {_drafted_txt}"))
+                return _lines
+            _lines: List[Tuple[str, str]] = [_orig_line]
             _nm = re.match(r"\s*(\d+)\.", _num)
+            _covered: set = set()
             if _nm:
                 _key = (_yr, int(_nm.group(1)), _orig)
-                for _d, _line in sorted(_ph_hops.get(_key, [])):
-                    _lines.append((_d, _line))
-            # Draft sorts after August pick trades, before the season's events.
-            _lines.append((f"{_yr}-08-31",
-                           f"{_yr} Draft: {_final} drafted " + (f"{_ply} " if _real_player(_ply) else "") + f"({_num})"))
+                for _ts, _recv, _line in sorted(_ph_hops.get(_key, [])):
+                    _lines.append((_ts, _line))
+                    _covered.add(_recv)
+            # Untracked chain hops (no recorded Sleeper trade) = commissioner moves.
+            for _tc in _ph_trade_cols:
+                _own = _cl(ph.at[_pi, _tc])
+                if _own and _own.lower() not in ("n/a", "nan") and _own != _orig and _own not in _covered:
+                    _lines.append((f"{_yr}-08-30 00:00:00", f"{_yr}: Commissioner moved to {_own}"))
+                    _covered.add(_own)
+            _lines.append((f"{_yr}-08-31 00:00:00", f"{_yr} Draft: {_final} {_drafted_txt}"))
             return _lines
 
+        # Build each pick's lineage BEFORE dropping the Trade N columns it reads.
+        _pick_lineage: Dict[int, List[Tuple[str, str]]] = {}
+        _pick_ntrades: Dict[int, int] = {}
         _pid_to_pick_idx: Dict[str, int] = {}
         if not ph.empty:
             for _pi in ph.index:
-                _lines = _pick_hist_lines(_pi)
-                if _lines:
-                    pick_history_text[int(_pi)] = "\n".join(_l for _, _l in sorted(_lines))
+                _pick_lineage[int(_pi)] = _pick_hist_lines(_pi)
+                _yr_disp = str(ph.at[_pi, "Year"])
+                _num2 = str(ph.at[_pi, "Number"]).strip()
+                _ym2 = re.match(r"\s*(\d{4})", _yr_disp)
+                _nm2 = re.match(r"\s*(\d+)\.", _num2)
+                _synth2 = _num2 == "2.09" or bool(re.match(r"\s*5\.", _num2))
+                if "(vet)" in _yr_disp.lower() or _synth2:
+                    _pick_ntrades[int(_pi)] = 0  # startup / awarded picks were never traded
+                elif _ym2 and _nm2:
+                    _key2 = (int(_ym2.group(1)), int(_nm2.group(1)), _cl(ph.at[_pi, "Original Team"]))
+                    _pick_ntrades[int(_pi)] = len(_ph_hops.get(_key2, []))
                 _ppid = ph.at[_pi, "_player_id"] if "_player_id" in ph.columns else None
-                if _ppid and "(vet)" not in str(ph.at[_pi, "Year"]).lower():
+                if _ppid:
                     _pid_to_pick_idx.setdefault(str(_ppid), int(_pi))
 
+        # Player history = the lineage of the pick they were drafted at (vet
+        # included) + every later add / drop / trade, sorted by full timestamp.
         for _pid, _meta in pid_meta.items():
             _name = _cl(_meta.get("full_name"))
             if not _name:
                 continue
-            _seed = _pick_hist_lines(_pid_to_pick_idx[str(_pid)]) if str(_pid) in _pid_to_pick_idx else []
+            _seed = _pick_lineage.get(_pid_to_pick_idx.get(str(_pid), -1), [])
             _all = _seed + _pl_events.get(str(_pid), [])
             if _all:
                 player_history_text[_name] = "\n".join(_l for _, _l in sorted(_all))
+
+        # Pick comment = the drafted player's FULL history (it shouldn't stop at
+        # the draft); an Unknown / not-yet-drafted pick falls back to its lineage.
+        if not ph.empty:
+            for _pi in ph.index:
+                _ppid = ph.at[_pi, "_player_id"] if "_player_id" in ph.columns else None
+                _pname = _cl(pid_meta.get(str(_ppid), {}).get("full_name")) if _ppid else ""
+                if _pname and _pname in player_history_text:
+                    pick_history_text[int(_pi)] = player_history_text[_pname]
+                elif _pick_lineage.get(int(_pi)):
+                    pick_history_text[int(_pi)] = "\n".join(_l for _, _l in sorted(_pick_lineage[int(_pi)]))
+            # Add "Number of trades" and DROP the now-redundant Trade N chain cols.
+            ph["Number of trades"] = [int(_pick_ntrades.get(int(_pi), 0)) for _pi in ph.index]
+            if _ph_trade_cols:
+                ph.drop(columns=_ph_trade_cols, inplace=True, errors="ignore")
         _log(debug, f"[{_now_iso()}] INFO built asset history: {len(pick_history_text)} picks, {len(player_history_text)} players")
     except Exception as e:
         _log_exc(debug, "asset_history_text", e)

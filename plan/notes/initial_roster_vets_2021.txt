@@ -1,0 +1,80 @@
+# 2021 startup initial-roster veterans missing a history origin (Phase 13)
+
+These 71 players were on 2021 startup rosters but were never recorded in the
+vet draft and never added as a free agent, so their player_all_time asset-history
+hover-comment begins at their first TRADE rather than an "originally …" origin
+line. No startup pick exists to seed them and player_tenures can't see the
+pre-trade initial stint (no `add` event). Resolve post-ESPN/off-platform backfill
+by assigning each an "originally on ___'s 2021 startup roster" origin.
+
+- A.J. Brown
+- Aaron Jones
+- Aaron Rodgers
+- Adam Thielen
+- Allen Robinson
+- Alvin Kamara
+- Amari Cooper
+- Antonio Gibson
+- Austin Ekeler
+- Calvin Ridley
+- Cam Akers
+- CeeDee Lamb
+- Chase Claypool
+- Chase Edmonds
+- Chris Godwin
+- Christian McCaffrey
+- Clyde Edwards-Helaire
+- Cooper Kupp
+- Courtland Sutton
+- Curtis Samuel
+- D'Andre Swift
+- DJ Moore
+- DK Metcalf
+- Dallas Goedert
+- Dalvin Cook
+- Darren Waller
+- Davante Adams
+- David Montgomery
+- DeAndre Hopkins
+- Deebo Samuel
+- Derek Carr
+- Derrick Henry
+- Devin Singletary
+- Diontae Johnson
+- George Kittle
+- Henry Ruggs
+- J.K. Dobbins
+- Jamaal Williams
+- James Conner
+- James Robinson
+- Jerry Jeudy
+- Joe Burrow
+- Joe Mixon
+- Jonathan Taylor
+- Julio Jones
+- Justin Herbert
+- Justin Jefferson
+- Kareem Hunt
+- Keenan Allen
+- Kenny Golladay
+- Kyler Murray
+- Lamar Jackson
+- Laviska Shenault
+- Leonard Fournette
+- Mark Andrews
+- Michael Pittman
+- Michael Thomas
+- Mike Evans
+- Raheem Mostert
+- Robbie Chosen
+- Robert Woods
+- Russell Wilson
+- Ryan Tannehill
+- T.J. Hockenson
+- Tee Higgins
+- Terry McLaurin
+- Travis Kelce
+- Tua Tagovailoa
+- Tyler Boyd
+- Tyler Lockett
+- Tyreek Hill
