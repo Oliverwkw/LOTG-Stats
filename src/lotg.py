@@ -995,6 +995,10 @@ def _column_kind(col: str) -> str:
         "bench te of the week?",
         "highest starter on team?",
         "lowest starter on team?",
+        # No trailing '?' but still a flag — without this it falls through to
+        # numeric and renders 1.0/0.0 while every other flag reads True/False
+        # (audit run-2 F6).
+        "taxi-eligible",
     }
     # "Times X of the week?" / "Times Top half of league?" etc. are aggregate
     # counts in player_year/team_year — they end in '?' but are integers.
@@ -1164,6 +1168,14 @@ def _preserve_na(col: str) -> bool:
     # All-play win % / Losses from hardship: N/A for a (team, year) with no
     # games that season (e.g. the not-yet-played current/future season).
     if col_l in {"all-play win %", "all-play win % minus win %", "losses from hardship"}:
+        return True
+    # Week-over-week comparison columns: on the league's very first week
+    # (2021 w1) the prior week doesn't exist, so the comparison is N/A, not
+    # 0 (audit run-2 F5 — they rendered 0.0, reading as "no change").
+    if col_l in {"increase in points from previous week",
+                 "roster turnover from previous week",
+                 "starter turnover from previous week",
+                 "difference in pregame avg max pf from opponent"}:
         return True
     # Clutch index (team_all_time): playoff-vs-regular PF / win% delta. N/A when
     # the team never reached the winners'-bracket playoffs (no delta to take).
@@ -1356,14 +1368,20 @@ def _default_player_week_benchmark_cases() -> pd.DataFrame:
         {"player": "Rashee Rice", "season": 2025, "week": 6, "expected_nfl_team": "KC", "check_type": "SUSPENSION_WEEK", "why_this_week": "Final week of 6-game suspension"},
         {"player": "Jordan Addison", "season": 2023, "week": 1, "expected_nfl_team": "MIN", "check_type": "HEALTHY_WEEK", "why_this_week": "Healthy rookie baseline"},
         {"player": "Jordan Addison", "season": 2024, "week": 2, "expected_nfl_team": "MIN", "check_type": "INJURY_WEEK", "why_this_week": "Ruled out (ankle); did not start"},
-        {"player": "Jordan Addison", "season": 2024, "week": 9, "expected_nfl_team": "MIN", "check_type": "SUSPENSION_WEEK", "why_this_week": "MIDSEASON suspension week (must show Suspension, not Injury/Bye)"},
+        # Audit run-2 F8: the old 2024 w9 "midseason suspension" case was
+        # factually wrong — Addison PLAYED that week (16.1 pts); his real
+        # suspension was the 3-game start of 2025 (covered below).
+        {"player": "Jordan Addison", "season": 2024, "week": 12, "expected_nfl_team": "MIN", "check_type": "HEALTHY_WEEK", "why_this_week": "Healthy big game (30.2 pts); validates no stray flags"},
         {"player": "Jordan Addison", "season": 2025, "week": 1, "expected_nfl_team": "MIN", "check_type": "SUSPENSION_WEEK", "why_this_week": "Start-of-season 3-game suspension"},
         {"player": "Jordan Addison", "season": 2025, "week": 3, "expected_nfl_team": "MIN", "check_type": "SUSPENSION_WEEK", "why_this_week": "Final week of 3-game suspension"},
         {"player": "Allen Lazard", "season": 2022, "week": 4, "expected_nfl_team": "GB", "check_type": "HEALTHY_WEEK", "why_this_week": "Healthy Packers baseline"},
         {"player": "Allen Lazard", "season": 2022, "week": 1, "expected_nfl_team": "GB", "check_type": "INJURY_WEEK", "why_this_week": "Missed opener (ankle; non-start)"},
         {"player": "Allen Lazard", "season": 2023, "week": 1, "expected_nfl_team": "NYJ", "check_type": "TEAM_WEEK", "why_this_week": "Team mapping check: Jets"},
         {"player": "Allen Lazard", "season": 2024, "week": 8, "expected_nfl_team": "NYJ", "check_type": "INJURY_WEEK", "why_this_week": "Post-chest-injury IR week (non-start)"},
-        {"player": "Allen Lazard", "season": 2025, "week": 1, "expected_nfl_team": "NYJ", "check_type": "TEAM_WEEK", "why_this_week": "Team mapping continuity check"},
+        # Audit run-2 F8: the old 2025 w1 case expected a row, but Lazard was
+        # dropped 2024-11-10 and never re-rostered — no 2025 row is CORRECT.
+        # Replaced with a week inside his real 2024 rostered window (Sep-Nov).
+        {"player": "Allen Lazard", "season": 2024, "week": 6, "expected_nfl_team": "NYJ", "check_type": "TEAM_WEEK", "why_this_week": "Team mapping continuity check (rostered Sep-Nov 2024)"},
     ]
     return pd.DataFrame(rows)
 
@@ -1831,6 +1849,16 @@ def build_all(repo_root: Path) -> None:
                             # Only overwrite when we actually got numeric data.
                             if coerced.notna().any():
                                 rounded = coerced.round(4)
+                                # COUNT columns render as integers ('1' not
+                                # '1.0') so same-family columns read uniformly
+                                # (audit run-2 F7: dtype luck made e.g. Most-QBs
+                                # render 1 while Most-TE rendered 1.0).
+                                _cl0 = str(c).strip().lower()
+                                if (any(_cl0.startswith(p) for p in (
+                                        "number of", "most number of", "times ",
+                                        "weeks ", "total number"))
+                                        and rounded.dropna().mod(1).eq(0).all()):
+                                    rounded = rounded.astype("Int64")
                                 if _preserve_na(c):
                                     # Keep 'N/A' as a string for first-occurrence
                                     # rows (no prior data to compare against).
@@ -4511,13 +4539,18 @@ def build_all(repo_root: Path) -> None:
                         )
 
                         # Bye is schedule-based. If player scored >0 -> not a bye.
-                        # The "NFL" sentinel (unrostered: free agent / retired)
-                        # isn't a real team, so it has no bye week — never flag
-                        # it as on bye (otherwise it'd read as on bye every week
-                        # since it's never in the played set).
+                        # The "NFL" sentinel (no active NFL team: retired /
+                        # unsigned / out of the league) has no game at all, so
+                        # the week is a BYE, not an injury — audit run-2 F4:
+                        # retired meme-pickups (Brady '24/'25, Brees '24, OBJ
+                        # '22, …) were counted as injuries, inflating team
+                        # injury tallies and deciding a Most injured? award.
+                        # bye=True also keeps these weeks out of the played-week
+                        # denominators (Adjusted Avg, rostered floors), same as
+                        # before when they were flagged injured.
                         bye = None
                         if nfl_team and _norm_team(nfl_team) == "NFL":
-                            bye = False
+                            bye = True
                         elif nfl_team and played_set:
                             bye = (_norm_team(nfl_team) not in played_set)
                         if pts > 0:
