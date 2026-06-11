@@ -11463,14 +11463,15 @@ def build_all(repo_root: Path) -> None:
         except Exception as e:
             _log_exc(debug, "player_all_pct_of_points", e)
 
-        # Phase 3B: NFLverse full-season columns on player_all_time.
-        # "Points (full season)" = career NFL points; "Avg points (full
-        # season)" = career per-game average.
-        pa["Points (full season)"] = pa.apply(
+        # Phase 3B: NFLverse career columns on player_all_time. Named "(full
+        # career)" (not "(full season)" as on player_year) because all-time pools
+        # every season: "Points (full career)" = career NFL points; "Avg points
+        # (full career)" = career per-game average.
+        pa["Points (full career)"] = pa.apply(
             lambda r: round(float(nfl_career_total_points.get(str(r.get("Player ID")), 0.0)), 2),
             axis=1,
         )
-        pa["Avg points (full season)"] = pa.apply(
+        pa["Avg points (full career)"] = pa.apply(
             lambda r: round(
                 nfl_career_total_points.get(str(r.get("Player ID")), 0.0)
                 / nfl_career_total_games.get(str(r.get("Player ID")), 1),

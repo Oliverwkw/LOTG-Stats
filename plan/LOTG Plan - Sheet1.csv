@@ -5,9 +5,9 @@ Year,Top Team,Last team,Week Name,Result,All time record,Week,PF,PF Range,Player
 Week,Last team,Number of teams,Year,Win %,Championships,PF,Avg PF,Avg margin,type of transaction (waiver/free agency),Assets received,Team,Notes
 Week Name,Rookie?,Taxi-eligible,Opponent,All-play win %,Number of playoff appearances,Avg margin,Avg margin,Margin range,Date,Assets sent,Original Team,
 Starter/Bench,Age,Points,Win?,All-play win % minus Win %,Number of championship appearances,Margin range,Margin range,Number of games within 10,Season,Date,Number of starts before next transaction,
-Position started in (if starter),Points,Points (full season),Margin,Record,Number of last place finishes,Number of games within 10,Number of games within 10,Number of games within 5,Date dropped/traded,Season,Number of trades,
+Position started in (if starter),Points,Points (full career),Margin,Record,Number of last place finishes,Number of games within 10,Number of games within 10,Number of games within 5,Date dropped/traded,Season,Number of trades,
 Position,Points (full season),Avg points,UPST,Win Variance,Win Variance,Number of games within 5,Number of games within 5,UPST,Faab,Trade impact score,Commissioner moved?,
-Rookie?,Avg points,Avg points (full season),PF,Week of playoff elimination,Differential,UPST,UPST,Max PF,Total FAAB bid,Pick value received,Avg PPG on team,
+Rookie?,Avg points,Avg points (full career),PF,Week of playoff elimination,Differential,UPST,UPST,Max PF,Total FAAB bid,Pick value received,Avg PPG on team,
 Age,Avg points (full season),Adjusted Avg points,Points against,Differential,Avg differential,PF Range,PF Range,Avg max PF,FAAB difference over second place,Assets retained now,Avg PPG on team adjusted by position,
 NFL team,Adjusted Avg points,Times as Player of the week?,Max PF,Avg differential,All-play win %,Max PF,Max PF,Efficiency,FAAB premium %,Assets traded away,Pick-adjusted Difference in Avg PPG on team adjusted by position,
 Points,Times as Player of the week?,Times as QB of the week?,Efficiency,Record vs playoff teams,All-play win % minus Win %,Efficiency,Avg max PF,Highest starter score,Number of bids,Assets dropped to FA,Avg career PPG,
