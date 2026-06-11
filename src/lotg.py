@@ -1182,6 +1182,11 @@ def _preserve_na(col: str) -> bool:
     if col_l in {"playoff pf minus regular-season pf",
                  "playoff win % minus regular-season win %"}:
         return True
+    # Bracket-specific win % (regular season / playoff / toilet bowl): N/A for a
+    # bracket with no games (e.g. a team that never made the playoffs, or the
+    # not-yet-played current season). Distinct from a real 0% win rate.
+    if col_l in {"regular season win %", "playoff win %", "toilet bowl win %"}:
+        return True
     # 3-year roster retention rate: N/A when the +3-year week-1 roster doesn't
     # exist yet (recent classes) — distinct from a real 0% retention.
     if col_l == "3-year roster retention rate":
@@ -11844,6 +11849,7 @@ def build_all(repo_root: Path) -> None:
                         "Team": str(row["Team"]),
                         "OppTeam": str(opp),
                         "Win?": row.get("Win?"),
+                        "Week Name": row.get("Week Name"),
                         "PF": float(row["PF"]),
                         "PA": float(row["Points against"]),
                     })
@@ -11884,6 +11890,40 @@ def build_all(repo_root: Path) -> None:
             w, l, t = wlt
             gp = w + l + t
             return round((w + 0.5 * t) / gp, 4) if gp else 0.0
+
+        # Bracket-specific W-L records. The CONSOLATION games are split out:
+        #   regular  = the 'Week N' games
+        #   playoff  = winners' bracket CHAMPIONSHIP path (Semifinal + Final);
+        #              the 3rd-place game is NOT counted here.
+        #   toilet   = losers' bracket (Toilet Semis + Toilet Final); the
+        #              toilet-losers game (Toilet Trash) is NOT counted here.
+        #   third_place / toilet_losers = the two consolation games on their own.
+        _BRACKET = {
+            "regular": lambda wn: wn.startswith("Week"),
+            "playoff": lambda wn: wn in ("Semifinal", "Final"),
+            "toilet": lambda wn: wn in ("Toilet Semis", "Toilet Final"),
+            "third_place": lambda wn: wn == "3rd Place",
+            "toilet_losers": lambda wn: wn == "Toilet Trash",
+        }
+
+        def _wlt_bracket(df: pd.DataFrame, team: str, kind: str, year: Optional[int] = None) -> Tuple[int, int, int]:
+            if df.empty or "Win?" not in df.columns or "Week Name" not in df.columns:
+                return (0, 0, 0)
+            d = df.loc[:, ~df.columns.duplicated()]  # robust to a duplicated col
+            sub = d[d["Team"].astype(str) == str(team)]
+            if year is not None:
+                sub = sub[sub["Year"] == int(year)]
+            if sub.empty:
+                return (0, 0, 0)
+            keep = sub["Week Name"].astype(str).map(_BRACKET[kind])
+            win = pd.to_numeric(sub["Win?"], errors="coerce")
+            w = int((keep & (win == 1)).sum())
+            l = int((keep & (win == 0)).sum())
+            t = int((keep & (win == 0.5)).sum())
+            return (w, l, t)
+
+        def _win_pct_or_na(wlt: Tuple[int, int, int]):
+            return _win_pct(wlt) if sum(wlt) else None
 
         def _wlt_for_team_pairs(df: pd.DataFrame, team: str, year_team_pairs: set) -> Tuple[int, int, int]:
             if df.empty or not year_team_pairs:
@@ -12444,6 +12484,10 @@ def build_all(repo_root: Path) -> None:
                     team_year.at[idx, "Win %"] = None
                 else:
                     team_year.at[idx, "Win %"] = _win_pct(wlt)
+                # Regular-season-only record + win % (the standings record).
+                _reg = _wlt_bracket(games_df, team, "regular", year=year)
+                team_year.at[idx, "Regular season record"] = _record_str(*_reg)
+                team_year.at[idx, "Regular season win %"] = _win_pct_or_na(_reg)
 
                 opp_list = [t for t in teams_by_year.get(year, []) if t != team]
                 pieces = []
@@ -12920,6 +12964,16 @@ def build_all(repo_root: Path) -> None:
                 wlt = _wlt_for_team(games_df, team)
                 team_all.at[idx, "All time record"] = _record_str(*wlt)
                 team_all.at[idx, "All time win %"] = _win_pct(wlt)
+                # All-time bracket records: regular season / winners' playoffs
+                # (Semifinal+Final) / toilet bowl (Toilet Semis+Final). Win % is
+                # N/A for a bracket never reached.
+                for _kind, _lbl in (("regular", "Regular season"), ("playoff", "Playoff"), ("toilet", "Toilet bowl")):
+                    _b = _wlt_bracket(games_df, team, _kind)
+                    team_all.at[idx, f"{_lbl} record"] = _record_str(*_b)
+                    team_all.at[idx, f"{_lbl} win %"] = _win_pct_or_na(_b)
+                # The two consolation games on their own (record only — small N).
+                team_all.at[idx, "Third place game record"] = _record_str(*_wlt_bracket(games_df, team, "third_place"))
+                team_all.at[idx, "Toilet losers game record"] = _record_str(*_wlt_bracket(games_df, team, "toilet_losers"))
 
                 opp_list = [t for t in teams if t != team]
                 pieces = []
