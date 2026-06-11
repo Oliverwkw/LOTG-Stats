@@ -314,8 +314,9 @@ _ROWS = [
     {
         "Stat": "Number",
         "Sheet": "picks",
-        "Formula": "round.position, where position is the pick's place in DRAFT ORDER within the round (2.01 = first pick of round 2). For LINEAR drafts position == draft_slot. For SNAKE drafts (the 2021 rookie drafts) even rounds reverse, so the team at draft_slot 1 picks last in round 2 (2.08) and first in round 3 (3.01); position = team_count + 1 − draft_slot on even rounds.",
-        "Notes": "Earlier builds labelled every round by raw draft_slot, which mis-numbered even rounds of the 2021 snake drafts (e.g. Trey Sermon showed 2.05 instead of 2.04). Player / Original Team / chain stay keyed by draft_slot — only the displayed number follows draft order. All post-2021 rookie drafts are linear, so they're unaffected. SYNTHETIC draft-day picks: '2.09' is the toilet-bracket reward pick (2024+), its drafted player = the FIRST commissioner-forced add on draft day, original team = the prior season's losers-bracket (toilet) champion, final team = whoever it was force-added to (one synthetic trade hop if they differ). '5.01, 5.02, …' are the 20-FAAB draft-day buys (2025+), the remaining draft-day commissioner adds in chronological order, original = final = buyer. These rows are removed from the transactions sheet and, for every slot-based comparison (pick-adjusted differences, Draft Value), 2.09 counts as a 2.08 and each 5.0X as a 4.08. Fires automatically each year from the draft-day commissioner-add pattern.",
+        "Columns": ["Number"],
+        "Formula": "Canonical pick notation 'round.position' (e.g. '1.05' = round 1, slot 5): position is the pick's place in DRAFT ORDER within the round (2.01 = first pick of round 2). LINEAR drafts: position == draft_slot. SNAKE drafts (the 2021 rookie drafts) reverse even rounds, so draft_slot 1 picks last in round 2 (2.08) and first in round 3 (3.01); position = team_count + 1 − draft_slot on even rounds. A FUTURE pick's draft order isn't finalized, so on its own row the slot shows as '??' ('2.??') — the Original Team column identifies it — and resolves to the real slot once that season drafts.",
+        "Notes": "Earlier builds labelled every round by raw draft_slot, which mis-numbered even rounds of the 2021 snake drafts (e.g. Trey Sermon showed 2.05 instead of 2.04). Player / Original Team / chain stay keyed by draft_slot — only the displayed number follows draft order. In references elsewhere (trades.csv, history comments) a MADE pick is substituted with the player it became ('2024 1.05(B. Robinson)') and a FUTURE pick is shown by its original owner ('2027 2(Oliverwkw)'). SYNTHETIC draft-day picks: '2.09' is the toilet-bracket reward pick (2024+), drafted player = the FIRST commissioner-forced add on draft day, original team = the prior season's losers-bracket (toilet) champion, final team = whoever it was force-added to. '5.01, 5.02, …' are the 20-FAAB draft-day buys (2025+), original = final = buyer. For slot-based comparisons (pick-adjusted differences, Draft Value), 2.09 counts as a 2.08 and each 5.0X as a 4.08.",
     },
     {
         "Stat": "Original Team",
@@ -364,18 +365,6 @@ _ROWS = [
         "Sheet": "picks",
         "Formula": "The drafted player's age in years (decimal) at the draft anchor (≈ Aug 28 of the pick year), from their birth_date. N/A for an unmade pick or a player with no birth_date on record.",
         "Notes": "How old the player a pick became was on draft day.",
-    },
-    {
-        "Stat": "KTC on draft day / at end of rookie year / 1 / 2 / 3 / 4 years after draft day",
-        "Sheet": "picks",
-        "Formula": "The DRAFTED player's KeepTradeCut value (1QB trade_value, via dynasty-daddy daily history) at six checkpoints relative to the draft (anchor ≈ Aug 28 of the pick year): the draft day itself; the end of the rookie year (≈ Feb 1 of the following year); and exactly 1, 2, 3, and 4 years after the draft day. Each is the same single-asset KTC lookup used for the transactions/trades KTC columns. N/A for an unmade pick, an untracked player, or a checkpoint date that is in the future or before KTC history begins (≈ April 2021).",
-        "Notes": "Lets you watch a pick's player gain/lose dynasty value over its first four years. KTC history starts April 2021, so 'on draft day' is N/A for the very earliest picks and the 3/4-year marks are N/A until enough time has passed. (The former 5-year mark was dropped in favour of 3- and 4-year checkpoints.)",
-    },
-    {
-        "Stat": "Pick-adjusted Difference in [stat] (one per position-adjusted average, Player addition value, and each KTC column)",
-        "Sheet": "picks",
-        "Formula": "This pick's value of the stat MINUS a comparison average over the 3-SLOT window around this pick (by OVERALL draft position, crossing round boundaries e.g. 1.08 → 2.01 → 2.02). Picks 1.01–1.04 (overall positions 1–4) use the ORIGINAL rule: a flat pooled mean of every non-vet pick value at the window slots — 1.01 uses {1.01,1.02}; otherwise {prev,this,next}. From 1.05 onward (position ≥ 5) the baseline is the mean of FOUR per-slot means: the three window slots PLUS a synthetic 'fourth pick' = the average of the two OUTER slot means, which up-weights the window's edges. E.g. 1.05: slots {1.04,1.05,1.06}, fourth = (avg(1.04) + avg(1.06))/2, baseline = (avg(1.04)+avg(1.05)+avg(1.06)+fourth)/4. The very last pick (4.08) uses the left-shifted window {4.06,4.07,4.08} with 4.06 & 4.08 as the outer ends. Companion to each of the 3 position-adjusted averages and the 5 KTC columns.",
-        "Notes": "The 2021 vet/startup draft is excluded: its rows are N/A and it never enters a reference average. N/A when the pick's own stat is N/A (e.g. an unmade or never-rostered pick), and for vet rows.",
     },
     {
         "Stat": "Player addition value",
@@ -432,12 +421,6 @@ _ROWS = [
         "Notes": "Position-normalised variant of Avg points added.",
     },
     {
-        "Stat": "Number",
-        "Sheet": "picks",
-        "Formula": "Canonical pick notation: '{round}.{slot:02d}' (e.g. '1.05' = round 1, slot 5), from draft_slot once the season is drafted. A FUTURE pick's draft order isn't finalized, so on its own row the slot is shown as '??' ('2.??') — the Original Team column identifies it. Dynamic: it resolves to the real slot once that season drafts.",
-        "Notes": "In references elsewhere (trades.csv, history comments) a MADE pick is substituted with the player it became ('2024 1.05(B. Robinson)') and a FUTURE pick is shown by its original owner ('2027 2(Oliverwkw)') rather than a guessed slot.",
-    },
-    {
         "Stat": "Commissioner moved?",
         "Sheet": "picks",
         "Formula": "True if this pick's ownership shift wasn't recorded as a normal trade transaction. Detected when traded_picks_by_season shows a pick belonging to a non-original owner but no trade event in pick_trade_events explains the move (typical for picks moved >3 years before draft year, beyond Sleeper's trade-tracking window).",
@@ -451,10 +434,14 @@ _ROWS = [
         "Columns": ["Number of trades"],
     },
     {
-        "Stat": "Link to next transaction / Link to previous transaction",
-        "Sheet": "picks",
-        "Formula": "Bridges the pick and the drafted player through the draft row. 'Link to next transaction' = the drafted PLAYER's next event after the draft (their first transaction '#N' or trade 'T#N'). 'Link to previous transaction' = the PICK's last trade before the draft ('T#N'). Both are clickable row pointers in the xlsx (the same '#N' / 'T#N' / 'PH#N' scheme as the transactions/trades links). Blank when there is no such event (an unmade or never-traded pick / a player with no post-draft events).",
-        "Notes": "The draft row is the player chain's START and the pick chain's TERMINAL, so 'next' walks into the player's career and 'previous' walks back into the pick's trade history.",
+        "Stat": "Link to next transaction", "Sheet": "picks", "Columns": ["Link to next transaction"],
+        "Formula": "On picks, the drafted PLAYER's next event after the draft — their first transaction '#N' or trade 'T#N' — a clickable row pointer in the xlsx. The draft row is the player chain's START, so 'next' walks forward into the player's career.",
+        "Notes": "Blank for an unmade pick or a player with no post-draft events. Uses the same '#N' / 'T#N' / 'PH#N' ref scheme as the transactions/trades links.",
+    },
+    {
+        "Stat": "Link to previous transaction", "Sheet": "picks", "Columns": ["Link to previous transaction"],
+        "Formula": "On picks, the PICK's last trade before the draft ('T#N') — a clickable row pointer in the xlsx. The draft row is the pick chain's TERMINAL, so 'previous' walks back into the pick's trade history.",
+        "Notes": "Blank for an unmade or never-traded pick. Uses the same '#N' / 'T#N' / 'PH#N' ref scheme as the transactions/trades links.",
     },
     {
         "Stat": "Commissioner wash exclusion",
@@ -1031,30 +1018,66 @@ _ROWS = [
         "Notes": "Hyperlink target (Phase 11D).",
         "Columns": ["Player Picked"],
     },
-    {
-        "Stat": "Pick KTC checkpoints (draft day / end of rookie year / 1-4 years after)",
-        "Sheet": "picks",
-        "Formula": "The drafted player's KTC (1QB) value at six checkpoints relative to the draft: draft day (≈ Aug 28), end of rookie year (≈ Feb 1 after), and 1/2/3/4 years after draft day.",
-        "Notes": "Future checkpoints and pre-history dates are N/A.",
-        "Columns": ["KTC on draft day", "KTC at end of rookie year", "KTC 1 year after draft day",
-                    "KTC 2 years after draft day", "KTC 3 years after draft day", "KTC 4 years after draft day"],
-    },
-    {
-        "Stat": "Pick-adjusted Difference columns (value vs the pick's slot expectation)",
-        "Sheet": "picks",
-        "Formula": "Each 'Pick-adjusted Difference in <X>' = the pick's realized <X> minus the average <X> of a comparison set of nearby pick slots (the slot's expected return), so a positive value means the pick beat its draft position. Applies to Player addition value, the on-team / career / points-added adjusted PPGs, and each KTC checkpoint.",
-        "Notes": "Comparison baseline = the 3-pick window around the slot plus a 4th averaged-outer pick (from slot 1.05 on); 1.01–1.04 use the pooled mean.",
-        "Columns": ["Pick-adjusted Difference in Player addition value",
-                    "Pick-adjusted Difference in Avg PPG on team adjusted by position",
-                    "Pick-adjusted Difference in Avg career PPG adjusted by position",
-                    "Pick-adjusted Difference in Avg points added adjusted by position",
-                    "Pick-adjusted Difference in KTC on draft day",
-                    "Pick-adjusted Difference in KTC at end of rookie year",
-                    "Pick-adjusted Difference in KTC 1 year after draft day",
-                    "Pick-adjusted Difference in KTC 2 years after draft day",
-                    "Pick-adjusted Difference in KTC 3 years after draft day",
-                    "Pick-adjusted Difference in KTC 4 years after draft day"],
-    },
+    # --- KTC checkpoints: one row per column (drafted player's KTC 1QB value) ---
+    {"Stat": "KTC on draft day", "Sheet": "picks", "Columns": ["KTC on draft day"],
+     "Formula": "The drafted player's KeepTradeCut (1QB) value on draft day (≈ Aug 28 of the draft year).",
+     "Notes": "N/A for an unmade pick or when the date predates the player's KTC history."},
+    {"Stat": "KTC at end of rookie year", "Sheet": "picks", "Columns": ["KTC at end of rookie year"],
+     "Formula": "The drafted player's KTC (1QB) value at the end of their rookie season (≈ Feb 1 after the draft).",
+     "Notes": "N/A for an unmade pick or a date before the player's KTC history begins."},
+    {"Stat": "KTC 1 year after draft day", "Sheet": "picks", "Columns": ["KTC 1 year after draft day"],
+     "Formula": "The drafted player's KTC (1QB) value exactly one year after draft day.",
+     "Notes": "N/A for an unmade pick or a still-future checkpoint."},
+    {"Stat": "KTC 2 years after draft day", "Sheet": "picks", "Columns": ["KTC 2 years after draft day"],
+     "Formula": "The drafted player's KTC (1QB) value exactly two years after draft day.",
+     "Notes": "N/A for an unmade pick or a still-future checkpoint."},
+    {"Stat": "KTC 3 years after draft day", "Sheet": "picks", "Columns": ["KTC 3 years after draft day"],
+     "Formula": "The drafted player's KTC (1QB) value exactly three years after draft day.",
+     "Notes": "N/A for an unmade pick or a still-future checkpoint."},
+    {"Stat": "KTC 4 years after draft day", "Sheet": "picks", "Columns": ["KTC 4 years after draft day"],
+     "Formula": "The drafted player's KTC (1QB) value exactly four years after draft day.",
+     "Notes": "N/A for an unmade pick or a still-future checkpoint."},
+    # --- Pick-adjusted differences: one row per column (realized − slot expectation) ---
+    {"Stat": "Pick-adjusted Difference in Player addition value", "Sheet": "picks",
+     "Columns": ["Pick-adjusted Difference in Player addition value"],
+     "Formula": "The pick's realized Player addition value minus the average Player addition value of its slot's comparison set (the slot's expected return); positive = the pick beat its draft position.",
+     "Notes": "Comparison baseline = the 3-pick window around the slot plus a 4th averaged-outer pick (from slot 1.05 on); 1.01–1.04 use the pooled mean."},
+    {"Stat": "Pick-adjusted Difference in Avg PPG on team adjusted by position", "Sheet": "picks",
+     "Columns": ["Pick-adjusted Difference in Avg PPG on team adjusted by position"],
+     "Formula": "The pick's realized Avg PPG on team adjusted by position minus that stat's average across the slot's comparison set; positive = the pick out-produced its draft slot while on the drafting team.",
+     "Notes": "Baseline = the 3-pick window around the slot + a 4th averaged-outer pick (from 1.05 on); 1.01–1.04 use the pooled mean."},
+    {"Stat": "Pick-adjusted Difference in Avg career PPG adjusted by position", "Sheet": "picks",
+     "Columns": ["Pick-adjusted Difference in Avg career PPG adjusted by position"],
+     "Formula": "The pick's realized Avg career PPG adjusted by position minus that stat's average across the slot's comparison set; positive = the player's whole-career production beat the draft slot.",
+     "Notes": "Baseline = the 3-pick window around the slot + a 4th averaged-outer pick (from 1.05 on); 1.01–1.04 use the pooled mean."},
+    {"Stat": "Pick-adjusted Difference in Avg points added adjusted by position", "Sheet": "picks",
+     "Columns": ["Pick-adjusted Difference in Avg points added adjusted by position"],
+     "Formula": "The pick's realized Avg points added adjusted by position minus that stat's average across the slot's comparison set; positive = the pick's started-week output beat its draft slot.",
+     "Notes": "Baseline = the 3-pick window around the slot + a 4th averaged-outer pick (from 1.05 on); 1.01–1.04 use the pooled mean."},
+    {"Stat": "Pick-adjusted Difference in KTC on draft day", "Sheet": "picks",
+     "Columns": ["Pick-adjusted Difference in KTC on draft day"],
+     "Formula": "The pick's KTC on draft day minus the average draft-day KTC of its slot's comparison set; positive = the player was valued above the slot's expectation at the draft.",
+     "Notes": "Baseline = the 3-pick window around the slot + a 4th averaged-outer pick (from 1.05 on); 1.01–1.04 use the pooled mean."},
+    {"Stat": "Pick-adjusted Difference in KTC at end of rookie year", "Sheet": "picks",
+     "Columns": ["Pick-adjusted Difference in KTC at end of rookie year"],
+     "Formula": "The pick's KTC at end of rookie year minus the average end-of-rookie-year KTC of its slot's comparison set; positive = beat the slot one rookie season in.",
+     "Notes": "Baseline = the 3-pick window around the slot + a 4th averaged-outer pick (from 1.05 on); 1.01–1.04 use the pooled mean."},
+    {"Stat": "Pick-adjusted Difference in KTC 1 year after draft day", "Sheet": "picks",
+     "Columns": ["Pick-adjusted Difference in KTC 1 year after draft day"],
+     "Formula": "The pick's KTC 1 year after draft day minus that checkpoint's average across the slot's comparison set; positive = above slot expectation a year out.",
+     "Notes": "Baseline = the 3-pick window around the slot + a 4th averaged-outer pick (from 1.05 on); 1.01–1.04 use the pooled mean."},
+    {"Stat": "Pick-adjusted Difference in KTC 2 years after draft day", "Sheet": "picks",
+     "Columns": ["Pick-adjusted Difference in KTC 2 years after draft day"],
+     "Formula": "The pick's KTC 2 years after draft day minus that checkpoint's average across the slot's comparison set; positive = above slot expectation two years out.",
+     "Notes": "Baseline = the 3-pick window around the slot + a 4th averaged-outer pick (from 1.05 on); 1.01–1.04 use the pooled mean."},
+    {"Stat": "Pick-adjusted Difference in KTC 3 years after draft day", "Sheet": "picks",
+     "Columns": ["Pick-adjusted Difference in KTC 3 years after draft day"],
+     "Formula": "The pick's KTC 3 years after draft day minus that checkpoint's average across the slot's comparison set; positive = above slot expectation three years out.",
+     "Notes": "Baseline = the 3-pick window around the slot + a 4th averaged-outer pick (from 1.05 on); 1.01–1.04 use the pooled mean."},
+    {"Stat": "Pick-adjusted Difference in KTC 4 years after draft day", "Sheet": "picks",
+     "Columns": ["Pick-adjusted Difference in KTC 4 years after draft day"],
+     "Formula": "The pick's KTC 4 years after draft day minus that checkpoint's average across the slot's comparison set; positive = above slot expectation four years out.",
+     "Notes": "Baseline = the 3-pick window around the slot + a 4th averaged-outer pick (from 1.05 on); 1.01–1.04 use the pooled mean."},
 ]
 
 
@@ -1097,12 +1120,23 @@ def documented_columns():
     return out
 
 
+_OUTPUT_SHEETS = (
+    "player_week", "player_year", "player_all_time",
+    "team_week", "team_year", "team_all_time",
+    "league_week", "league_year", "league_all_time",
+    "transactions", "trades", "picks",
+)
+
+
 def column_definitions():
-    """Map normalized column name -> a hover-tooltip definition (Formula, plus a
-    'Notes:' tail when present). Keyed off every entry's Stat tokens and its
-    explicit Columns list. First entry wins on conflict. (i7 #32: used to attach
-    a header comment to each non-identity column so cryptic headers are self-
-    explanatory in the xlsx.)"""
+    """Map -> a hover-tooltip definition (Formula, plus a 'Notes:' tail when
+    present), keyed BOTH per-sheet and globally:
+        (sheet, normcol) -> the definition for that column ON that sheet
+        (None,  normcol) -> first-win global fallback
+    Per-sheet keys disambiguate columns that mean different things on different
+    sheets (e.g. 'Number of trades' on picks vs team, 'Length of tenure on team'
+    on picks vs transactions); the entry's free-form Sheet field is scanned for
+    the known output-sheet names. (i7 #32: header comments on non-identity cols.)"""
     out = {}
     for e in _ROWS:
         text = str(e.get("Formula") or "").strip()
@@ -1111,11 +1145,15 @@ def column_definitions():
             text = f"{text}\n\nNotes: {notes}" if text else notes
         if not text:
             continue
-        keys = list(str(e.get("Stat", "")).split("/")) + list(e.get("Columns") or [])
-        for k in keys:
-            nk = _norm(k)
-            if nk and nk not in out:
-                out[nk] = text
+        keys = [_norm(k) for k in
+                list(str(e.get("Stat", "")).split("/")) + list(e.get("Columns") or [])]
+        ent_sheets = [s for s in _OUTPUT_SHEETS if s in str(e.get("Sheet", ""))]
+        for nk in keys:
+            if not nk:
+                continue
+            for s in ent_sheets:
+                out.setdefault((s, nk), text)   # per-sheet (first win per sheet)
+            out.setdefault((None, nk), text)    # global fallback (first win)
     return out
 
 

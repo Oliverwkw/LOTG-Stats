@@ -2151,7 +2151,11 @@ def build_all(repo_root: Path) -> None:
                         # Points, …) are self-evident -> skipped even if some entry
                         # happens to document them.
                         _hn = re.sub(r"\s+", " ", str(hc.value).strip().lower()) if hc.value else ""
-                        _def = _col_defs.get(_hn) if _hn and _hn not in formulas.IDENTITY_ALLOWLIST else None
+                        # Prefer the definition documented for THIS sheet (so e.g.
+                        # picks 'Number of trades' doesn't get the team note), then
+                        # fall back to the global one.
+                        _def = ((_col_defs.get((sheet_name, _hn)) or _col_defs.get((None, _hn)))
+                                if _hn and _hn not in formulas.IDENTITY_ALLOWLIST else None)
                         if _def and hc.comment is None:
                             _hc_cm = _HdrComment(_def, "LOTG Formulas")
                             _hc_cm.width = 460
