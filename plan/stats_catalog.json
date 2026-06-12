@@ -741,6 +741,8 @@
     "Avg points added adjusted by position",
     "Avg points lost adjusted by position",
     "Avg net points adjusted by position",
+    "Dropped avg points",
+    "Dropped total points",
     "O-Score",
     "Age difference",
     "Cuff at time of pickup?",
