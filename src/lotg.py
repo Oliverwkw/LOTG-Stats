@@ -1153,6 +1153,10 @@ def _preserve_na(col: str) -> bool:
         return True
     if col_l.startswith("net ktc value"):
         return True
+    # Dropped avg/total points: N/A when the row dropped nobody; an explicit
+    # 0 is real (the dropped player never played another NFL game).
+    if col_l in {"dropped avg points", "dropped total points"}:
+        return True
     # Trade impact score (trades): always computed, but keep the N/A-not-0
     # convention in case the composite is ever skipped for a row.
     if col_l == "trade impact score":
@@ -6827,6 +6831,22 @@ def build_all(repo_root: Path) -> None:
                 r["Avg points added adjusted by position"] = round(_adj_add / _nwk, 2) if _nwk else 0.0
                 r["Avg points lost adjusted by position"] = round(_adj_lost / _nwk, 2) if _nwk else 0.0
                 r["Avg net points adjusted by position"] = round((_adj_add - _adj_lost) / _nwk, 2) if _nwk else 0.0
+
+                # --- Dropped avg / total points (next 17 PLAYED games) ---
+                # The dropped player's realized NFL output after leaving, NEGATED
+                # (points that walked out the door): his next 17 games actually
+                # played per the nflverse log, from the drop date on. Dynamic —
+                # fewer than 17 games so far averages/sums what exists; a player
+                # who never played again scores a real 0 (the perfect drop).
+                if _is_name(dropped):
+                    _post = sorted(
+                        (g for g in _player_games(dropped)
+                         if g["_wk_date"] and g["_wk_date"] >= pickup_iso_prefix),
+                        key=lambda g: g["_wk_date"],
+                    )[:17]
+                    _ptot = sum(float(g["Points"] or 0.0) for g in _post)
+                    r["Dropped avg points"] = round(-_ptot / len(_post), 4) if _post else 0.0
+                    r["Dropped total points"] = round(-_ptot, 2) if _post else 0.0
 
                 # Length of tenure on team (added player): days from pickup to
                 # the next exit (or to today if still rostered). Blank if no add.
@@ -14387,7 +14407,7 @@ def build_all(repo_root: Path) -> None:
 
         def _pick_hist_lines(_pi) -> Tuple[List[Tuple[str, str]], int]:
             """(sorted lines, number_of_trades) for the pick at ph row index _pi:
-            original owner -> recorded trades -> commissioner moves -> draft. The
+            original owner -> commissioner moves -> recorded trades -> draft. The
             trade count includes off-platform commissioner moves (real trades
             Sleeper missed beyond its 3-yr window) but NOT the toilet/FAAB award."""
             _yr_disp = str(ph.at[_pi, "Year"])
@@ -14402,7 +14422,10 @@ def build_all(repo_root: Path) -> None:
             _drafted = _ply.lower() not in ("", "unknown", "n/a", "nan", "none")
             _drafted_txt = "drafted " + (f"{_ply} " if _drafted else "") + f"({_num})"
             _draft_key = f"{_draft_anchor(_yr)} 12:00:00"          # draft (noon)
-            _move_key = f"{_draft_anchor(_yr)} 00:00:00"           # a move, just before
+            # Commissioner moves sort SECOND, immediately after the "originally
+            # …'s pick" header: they're off-platform moves that predate Sleeper's
+            # recorded trades, so anywhere later reads out of order (user flag).
+            _move_key = "0000-00-00 00:00:01"
             # The "originally …'s pick" header pins to the top of every comment
             # (sort key 0000) so all histories start the same way, ahead of even a
             # player's pre-draft free-agent stints.
@@ -14431,16 +14454,29 @@ def build_all(repo_root: Path) -> None:
             _ntr = 0
             if _nm:
                 _key = (_yr, int(_nm.group(1)), _orig)
+                _anchor_d = _draft_anchor(_yr)
+                _same_day = 0
                 for _ts, _recv, _line in sorted(_ph_hops.get(_key, [])):
-                    _lines.append((_ts, _line))
+                    _k = _ts
+                    if _drafted and str(_ts)[:10] == _anchor_d:
+                        # A pick can only be traded BEFORE it's used, so a trade
+                        # on draft DAY always precedes the draft even when its
+                        # clock time is after the noon draft anchor (e.g. the
+                        # 2025 draft + its day-of pick trades). Clamp to 11:MM,
+                        # preserving the trades' real order.
+                        _same_day += 1
+                        _k = f"{_anchor_d} 11:{_same_day:02d}:00"
+                    _lines.append((_k, _line))
                     _covered.add(_recv); _ntr += 1
             # Untracked chain hops (no recorded Sleeper trade) = commissioner-applied
             # off-platform trades, beyond Sleeper's 3-yr window. They ARE trades, so
             # they count toward Number of trades and show in the history.
+            _cm_n = 0
             for _tc in _ph_trade_cols:
                 _own = _cl(ph.at[_pi, _tc])
                 if _own and _own.lower() not in ("n/a", "nan") and _own != _orig and _own not in _covered:
-                    _lines.append((_move_key, f"{_yr}: Commissioner moved to {_own}"))
+                    _cm_n += 1
+                    _lines.append((f"0000-00-00 00:00:{_cm_n:02d}", f"{_yr}: Commissioner moved to {_own}"))
                     _covered.add(_own); _ntr += 1
             # A future pick (not yet drafted) gets no draft line — the lineage
             # just runs to the latest move.
@@ -14697,6 +14733,48 @@ def build_all(repo_root: Path) -> None:
                 team_all[_name] = [_amap.get(str(t)) for t in team_all["Team"]]
     except Exception as e:
         _log_exc(debug, "manager_skill", e)
+
+    # ----- O-Score for PURE DROPS (drop-only transactions) -----
+    # Scored in a SEPARATE universe: percentile ranks computed only against the
+    # other pure drops, averaged over the available components, then DIVIDED BY
+    # TWO so the ceiling is 50 (a drop can never out-score a good add).
+    # Components (higher = better):
+    #   1) most recent populated Net KTC value (2yr -> 1yr -> end-of-season ->
+    #      deal time), with 0 filled in when the row has no populated net KTC
+    #      at all (untracked dropped player)
+    #   2) Dropped avg points   (negated post-drop PPG; 0 = never played again)
+    #   3) Dropped total points (negated post-drop total over the same window)
+    #   4) Player addition value (the composite already on the row)
+    # No zero-to-bottom tie rule here: a 0 in the dropped-points columns is the
+    # BEST outcome (the player never played again), not "no production".
+    # Deliberately placed AFTER the manager-skill aggregation above so
+    # Transaction skill and every non-pure-drop O-Score are untouched.
+    try:
+        if tx is not None and not tx.empty and "O-Score" in tx.columns:
+            def _txt(_c):
+                return tx[_c].astype(str).str.strip().str.lower() if _c in tx.columns else pd.Series("", index=tx.index)
+            _isname = lambda _s: ~_s.isin(["", "n/a", "nan", "none"])
+            _pure = (~_isname(_txt("Player Added"))) & _isname(_txt("Player Dropped"))
+            if _pure.any():
+                _mr = pd.Series(np.nan, index=tx.index)
+                for _c in ["Net KTC value 2 years later", "Net KTC value 1 year later",
+                           "Net KTC value at end of season", "Net KTC value at deal time"]:
+                    _v = pd.to_numeric(tx.get(_c), errors="coerce")
+                    _mr = _mr.where(_mr.notna(), _v)
+                _comps = [
+                    _mr.fillna(0.0),
+                    pd.to_numeric(tx.get("Dropped avg points"), errors="coerce"),
+                    pd.to_numeric(tx.get("Dropped total points"), errors="coerce"),
+                    pd.to_numeric(tx.get("Player addition value"), errors="coerce"),
+                ]
+                _pcts = pd.concat(
+                    [(_s.where(_pure)).rank(pct=True, method="average") * 100.0 for _s in _comps],
+                    axis=1)
+                _osc_drop = (_pcts.mean(axis=1) / 2.0).where(_pure)
+                tx.loc[_pure, "O-Score"] = _osc_drop[_pure].round(1)
+                _log(debug, f"[{_now_iso()}] INFO pure-drop O-Score: scored {int(_pure.sum())} drop-only transactions (ceiling 50)")
+    except Exception as e:
+        _log_exc(debug, "oscore_pure_drops", e)
 
     # ----- PR B: All-play win % + Losses from hardship (team_year + all_time) -----
     # All-play = score the team vs EVERY other team each week (schedule-luck-free):
