@@ -14751,11 +14751,24 @@ def build_all(repo_root: Path) -> None:
     # Transaction skill and every non-pure-drop O-Score are untouched.
     try:
         if tx is not None and not tx.empty and "O-Score" in tx.columns:
-            def _txt(_c):
-                return tx[_c].astype(str).str.strip().str.lower() if _c in tx.columns else pd.Series("", index=tx.index)
-            _isname = lambda _s: ~_s.isin(["", "n/a", "nan", "none"])
-            _pure = (~_isname(_txt("Player Added"))) & _isname(_txt("Player Dropped"))
-            if _pure.any():
+            def _blank(_c):
+                # True where the cell is empty / N/A — robust to "", None, NaN,
+                # "N/A", "nan". Missing column -> treat every row as blank.
+                if _c not in tx.columns:
+                    return pd.Series(True, index=tx.index)
+                _s = tx[_c].astype("string").str.strip().str.lower()
+                return _s.isna() | _s.isin(["", "n/a", "nan", "none"])
+            # A pure drop is an add-nobody / drop-somebody row. Use the internal
+            # sleeper-id columns as the source of truth (present pre-output) and
+            # fall back to the display names, so this can't be fooled by however
+            # the empty add side happens to be rendered on a given build.
+            _add_blank = _blank("_added_pid") if "_added_pid" in tx.columns else _blank("Player Added")
+            _drop_set = ~(_blank("_dropped_pid") if "_dropped_pid" in tx.columns else _blank("Player Dropped"))
+            _pure = (_add_blank & _drop_set).fillna(False)
+            _n_pure = int(_pure.sum())
+            _log(debug, f"[{_now_iso()}] INFO pure-drop O-Score: {_n_pure} drop-only txns detected "
+                        f"(cols: _added_pid={'_added_pid' in tx.columns}, Player Added={'Player Added' in tx.columns})")
+            if _n_pure:
                 _mr = pd.Series(np.nan, index=tx.index)
                 for _c in ["Net KTC value 2 years later", "Net KTC value 1 year later",
                            "Net KTC value at end of season", "Net KTC value at deal time"]:
@@ -14770,9 +14783,9 @@ def build_all(repo_root: Path) -> None:
                 _pcts = pd.concat(
                     [(_s.where(_pure)).rank(pct=True, method="average") * 100.0 for _s in _comps],
                     axis=1)
-                _osc_drop = (_pcts.mean(axis=1) / 2.0).where(_pure)
-                tx.loc[_pure, "O-Score"] = _osc_drop[_pure].round(1)
-                _log(debug, f"[{_now_iso()}] INFO pure-drop O-Score: scored {int(_pure.sum())} drop-only transactions (ceiling 50)")
+                _osc_drop = (_pcts.mean(axis=1) / 2.0).round(1)
+                tx.loc[_pure, "O-Score"] = _osc_drop[_pure]
+                _log(debug, f"[{_now_iso()}] INFO pure-drop O-Score: scored {_n_pure} drop-only transactions (ceiling 50)")
     except Exception as e:
         _log_exc(debug, "oscore_pure_drops", e)
 
