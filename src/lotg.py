@@ -14684,56 +14684,6 @@ def build_all(repo_root: Path) -> None:
     except Exception as e:
         _log_exc(debug, "oscore_item4", e)
 
-    # ----- Manager skill: O-Score aggregates (drafting / trading / transaction) -----
-    # Per (Team, Year) and per Team all-time, the SAMPLE-SIZE-SHRUNK mean O-Score
-    # of the picks the team MADE, the trades it was in, and the transactions it
-    # made. Shrinkage toward the league-neutral 50 via (n·mean + K·50)/(n+K),
-    # K=5: a manager with 2 great moves can't out-rank one with 25 solid ones,
-    # and inactive managers sit near neutral instead of being over-rewarded.
-    # N/A for a (team, year) with no events of that type. Picks use Final Team
-    # (the drafter); trades/transactions use Team + Season; vet picks / pure-drop
-    # txns etc. carry an N/A O-Score and drop out of the mean automatically.
-    try:
-        _SKILL_K, _SKILL_PRIOR = 5.0, 50.0
-
-        def _skill_maps(_df, _team_col, _year_col):
-            """-> ({(team, year): skill}, {team: skill}) of shrunk-mean O-Scores."""
-            if _df is None or _df.empty or "O-Score" not in _df.columns or _team_col not in _df.columns:
-                return {}, {}
-            _w = pd.DataFrame({
-                "_tm": _df[_team_col].astype(str),
-                "_o": pd.to_numeric(_df["O-Score"], errors="coerce"),
-                "_yr": _df[_year_col].astype(str).str.extract(r"(\d{4})")[0] if _year_col in _df.columns else None,
-            }).dropna(subset=["_o"])
-            def _shrink(g):
-                return ((g["count"] * g["mean"] + _SKILL_K * _SKILL_PRIOR) / (g["count"] + _SKILL_K)).round(1)
-            _ga = _w.groupby("_tm")["_o"].agg(["mean", "count"])
-            all_map = _shrink(_ga).to_dict()
-            year_map = {}
-            if _w["_yr"].notna().any():
-                _gy = _w.dropna(subset=["_yr"]).groupby(["_tm", "_yr"])["_o"].agg(["mean", "count"])
-                for (tm, yr), v in _shrink(_gy).items():
-                    year_map[(tm, int(yr))] = v
-            return year_map, all_map
-
-        _skill_specs = [
-            ("Drafting skill", ph, "Final Team", "Year"),
-            ("Trading skill", tr, "Team", "Season"),
-            ("Transaction skill", tx, "Team", "Season"),
-        ]
-        for _name, _df, _tc, _yc in _skill_specs:
-            _ymap, _amap = _skill_maps(_df, _tc, _yc)
-            if not team_year.empty and {"Team", "Year"}.issubset(team_year.columns):
-                _yrs = pd.to_numeric(team_year["Year"], errors="coerce")
-                team_year[_name] = [
-                    (_ymap.get((str(t), int(y))) if pd.notna(y) else None)
-                    for t, y in zip(team_year["Team"], _yrs)
-                ]
-            if not team_all.empty and "Team" in team_all.columns:
-                team_all[_name] = [_amap.get(str(t)) for t in team_all["Team"]]
-    except Exception as e:
-        _log_exc(debug, "manager_skill", e)
-
     # ----- O-Score for PURE DROPS (drop-only transactions) -----
     # Scored in a SEPARATE universe: percentile ranks computed only against the
     # other pure drops, averaged over the available components, then DIVIDED BY
@@ -14747,8 +14697,10 @@ def build_all(repo_root: Path) -> None:
     #   4) Player addition value (the composite already on the row)
     # No zero-to-bottom tie rule here: a 0 in the dropped-points columns is the
     # BEST outcome (the player never played again), not "no production".
-    # Deliberately placed AFTER the manager-skill aggregation above so
-    # Transaction skill and every non-pure-drop O-Score are untouched.
+    # Placed BEFORE the manager-skill aggregation so these scores feed the
+    # Transaction skill at 1/3 weight (see _tx_pure below); every NON-pure-drop
+    # O-Score is left exactly as computed above.
+    _tx_pure = None    # boolean mask of pure-drop tx rows, reused by Transaction skill
     try:
         if tx is not None and not tx.empty and "O-Score" in tx.columns:
             def _blank(_c):
@@ -14765,6 +14717,7 @@ def build_all(repo_root: Path) -> None:
             _add_blank = _blank("_added_pid") if "_added_pid" in tx.columns else _blank("Player Added")
             _drop_set = ~(_blank("_dropped_pid") if "_dropped_pid" in tx.columns else _blank("Player Dropped"))
             _pure = (_add_blank & _drop_set).fillna(False)
+            _tx_pure = _pure
             _n_pure = int(_pure.sum())
             _log(debug, f"[{_now_iso()}] INFO pure-drop O-Score: {_n_pure} drop-only txns detected "
                         f"(cols: _added_pid={'_added_pid' in tx.columns}, Player Added={'Player Added' in tx.columns})")
@@ -14788,6 +14741,70 @@ def build_all(repo_root: Path) -> None:
                 _log(debug, f"[{_now_iso()}] INFO pure-drop O-Score: scored {_n_pure} drop-only transactions (ceiling 50)")
     except Exception as e:
         _log_exc(debug, "oscore_pure_drops", e)
+
+    # ----- Manager skill: O-Score aggregates (drafting / trading / transaction) -----
+    # Per (Team, Year) and per Team all-time, the SAMPLE-SIZE-SHRUNK mean O-Score
+    # of the picks the team MADE, the trades it was in, and the transactions it
+    # made. Shrinkage toward the league-neutral 50 via (Σw·o + K·50)/(Σw + K),
+    # K=5: a manager with 2 great moves can't out-rank one with 25 solid ones,
+    # and inactive managers sit near neutral instead of being over-rewarded.
+    # N/A for a (team, year) with no events of that type. Picks use Final Team
+    # (the drafter); trades/transactions use Team + Season; vet picks carry an
+    # N/A O-Score and drop out of the mean automatically. Transaction skill now
+    # INCLUDES pure-drop txns, but each counts 1/3 as much as an add/swap (weight
+    # 1/3 vs 1) so a flurry of drops can't dominate the score.
+    try:
+        _SKILL_K, _SKILL_PRIOR = 5.0, 50.0
+
+        def _skill_maps(_df, _team_col, _year_col, _weights=None):
+            """-> ({(team, year): skill}, {team: skill}) of weighted shrunk-mean
+            O-Scores. _weights: optional per-row weight Series (default 1.0)."""
+            if _df is None or _df.empty or "O-Score" not in _df.columns or _team_col not in _df.columns:
+                return {}, {}
+            _wt = (pd.to_numeric(_weights, errors="coerce").reindex(_df.index).fillna(1.0)
+                   if _weights is not None else pd.Series(1.0, index=_df.index))
+            _w = pd.DataFrame({
+                "_tm": _df[_team_col].astype(str),
+                "_o": pd.to_numeric(_df["O-Score"], errors="coerce"),
+                "_yr": _df[_year_col].astype(str).str.extract(r"(\d{4})")[0] if _year_col in _df.columns else None,
+                "_wt": _wt.astype(float),
+            }).dropna(subset=["_o"])
+            _w["_wo"] = _w["_wt"] * _w["_o"]
+            def _shrink(g):
+                # weighted shrinkage: (Σ w·o + K·prior) / (Σ w + K)
+                return ((g["_wo"] + _SKILL_K * _SKILL_PRIOR) / (g["_wt"] + _SKILL_K)).round(1)
+            _ga = _w.groupby("_tm")[["_wo", "_wt"]].sum()
+            all_map = _shrink(_ga).to_dict()
+            year_map = {}
+            if _w["_yr"].notna().any():
+                _gy = _w.dropna(subset=["_yr"]).groupby(["_tm", "_yr"])[["_wo", "_wt"]].sum()
+                for (tm, yr), v in _shrink(_gy).items():
+                    year_map[(tm, int(yr))] = v
+            return year_map, all_map
+
+        # Transactions: pure drops (drop-only rows) count 1/3 as much as adds/swaps.
+        _tx_wt = None
+        if _tx_pure is not None and tx is not None and not tx.empty:
+            _tx_wt = pd.Series(1.0, index=tx.index)
+            _tx_wt[_tx_pure.reindex(tx.index).fillna(False)] = 1.0 / 3.0
+
+        _skill_specs = [
+            ("Drafting skill", ph, "Final Team", "Year", None),
+            ("Trading skill", tr, "Team", "Season", None),
+            ("Transaction skill", tx, "Team", "Season", _tx_wt),
+        ]
+        for _name, _df, _tc, _yc, _wts in _skill_specs:
+            _ymap, _amap = _skill_maps(_df, _tc, _yc, _wts)
+            if not team_year.empty and {"Team", "Year"}.issubset(team_year.columns):
+                _yrs = pd.to_numeric(team_year["Year"], errors="coerce")
+                team_year[_name] = [
+                    (_ymap.get((str(t), int(y))) if pd.notna(y) else None)
+                    for t, y in zip(team_year["Team"], _yrs)
+                ]
+            if not team_all.empty and "Team" in team_all.columns:
+                team_all[_name] = [_amap.get(str(t)) for t in team_all["Team"]]
+    except Exception as e:
+        _log_exc(debug, "manager_skill", e)
 
     # ----- PR B: All-play win % + Losses from hardship (team_year + all_time) -----
     # All-play = score the team vs EVERY other team each week (schedule-luck-free):
