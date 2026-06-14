@@ -175,7 +175,7 @@ When the results-based audit surfaces a bug, log it but continue to the diff swe
 - [ ] **11D — Hyperlinks.** **Player-name hyperlinks**: every single-name cell (`Player`, `Player Picked`, `Player Added`/`Dropped`) links to that player's `player_all_time` row (needs a name→row anchor map). Exception: per-week player references (`Reference player name`, best-startable/worst-benchable refs) link to the relevant **player_week** row instead. Decide trades multi-name list cells (xlsx = one link per cell: leave to the existing per-asset event links, or explode). (xlsx-only.)
 - [ ] **11E — General formatting sweep for max usability.** Final polish pass across the whole workbook: conditional formatting, alignment, consistent number/percent formats, sheet/tab order & colors, anything that improves day-to-day usability.
 
-## Phase 12 — Large-scale full-dataset audit
+## Phase 12 — Large-scale full-dataset audit ✅
 **Upgraded to a deep, end-to-end correctness audit of the entire dataset. Reusable
 9-part format lives in `plan/AUDIT_PHASE12.md`; first-pass findings + the 55-improvement
 list in `plan/AUDIT_PHASE12_FINDINGS.md`. Flow: implement the queue below (with periodic
@@ -184,7 +184,7 @@ list in `plan/AUDIT_PHASE12_FINDINGS.md`. Flow: implement the queue below (with 
 ### 9-part audit — first pass complete
 - [x] First full 9-part run: dataset largely clean (Parts 8/9 clean, 54/55 edge cases pass, 8/9 rollups reconcile). 8 bugs + 55-improvement list produced.
 - [x] Reconciliation logic committed as durable guard — `tests/test_cross_sheet_reconciliation.py` (1 known-open: player_all #tx = Σ player_year, = Bug #1).
-- [ ] **Re-run the full 9-part battery until ALL 9 parts come back clean** (after the queue below).
+- [x] **Re-run the full 9-part battery until ALL 9 parts come back clean** — runs 2 (#283) and 3 (`plan/AUDIT_PHASE12_FINDINGS_RUN3.md`) both CLEAN on data correctness. Run-3 fixes: F1 docs / F2 Playoff-tiebreaker / F5 league_week first-week N/A (#288), F6 team NFL-teams-among distinct (#289). Cross-type sweep (every fix-class from runs 1-3) came back clean. Deferred: F3 → Phase 13, F4 (float-noise) + F7 (NFL sentinel) won't-fix per user.
 
 ### Bugs (batched fixes; each gets a 3-part audit)
 - [x] **#2 Age=0 → real age** on padded tx-only player_year rows — computed from birth_date at Nov 1 of the year (user: "Age should never be 0").
@@ -199,17 +199,17 @@ list in `plan/AUDIT_PHASE12_FINDINGS.md`. Flow: implement the queue below (with 
 - [x] **#7 Wrap all cells on all sheets** — data cells wrap on every sheet (audited #255, CLEAN).
 
 ### Selected improvements (from the 55 list — user-chosen; build BEFORE the next full 9-part audit, with periodic 3-part audits)
-- [ ] **9** Clutch index — **team_all_time only** (reg-season vs playoff PF/win% delta).
-- [ ] **10** Consistency rank — **position-adjusted** league-wide percentile of volatility/floor/ceiling.
-- [ ] **15** Trade tree / lineage string — one readable "2021 1.04 → … → 2026 1st" per current asset.
-- [ ] **16** → **"3-year retention rate"** — % of draft capital still on roster after **N=3** years; **exclude returners**; **team_year + team_all_time**; measured at **start-of-year**.
-- [ ] **26** Sparklines for weekly PF / player PPG trends.
-- [ ] **27** Hyperlink team names → team_all_time — **opponent / counterparty links only**.
-- [ ] **28** Hyperlink pick labels in trades → picks sheet.
-- [ ] **30** Conditional highlight of all-time records (highs/lows) in their cells.
-- [ ] **32** Tooltip/comment on cryptic headers pulling the Formulas definition.
-- [ ] **33** Color "In Progress" streak cells subtly so active runs stand out.
-- [ ] **34** Two-tone bands alternating within topic groups (**subtle**) for wide sheets.
+- [x] **9** Clutch index — DONE: team_all_time `Playoff PF minus regular-season PF` + `Playoff win % minus regular-season win %` (reg-vs-playoff delta).
+- [x] **10** Consistency rank — DONE: `Consistency / Floor / Ceiling percentile` (player_year), confirmed **position-adjusted** (ranked within season, position).
+- [x] **15** Trade tree / lineage string — DONE **via the pick hover-comments** (full "originally …'s pick → commissioner moved → drafted → traded to … → …" lineage per asset). No separate column, per user.
+- [x] **16** **"3-year retention rate"** — DONE: % of draft capital still on roster after N=3 years, team_year + team_all_time (measured start-of-year; audited run 3, populated 2021/2022, N/A once 3yr-later is in-progress).
+- [~] **26** Sparklines for weekly PF / player PPG trends — **SCRAPPED** per user.
+- [x] **27** Hyperlink team names → team_all_time (opponent/counterparty) — DONE (i7 #277, context-aware team-name hyperlinks).
+- [x] **28** Hyperlink pick labels in trades → picks sheet — DONE (per-asset pick links fall back to the picks-sheet home row via `pick_home_phref`/PH# refs, #261).
+- [x] **30** Conditional highlight of all-time records (highs/lows) — DONE (i7 #278/#279 conditional-formatting batch).
+- [x] **32** Tooltip/comment on cryptic headers pulling the Formulas definition — DONE (i7 #280/#281 sheet-aware header tooltips).
+- [x] **33** Color "In Progress" streak cells — DONE (i7 #279 light-green In-Progress).
+- [x] **34** Two-tone bands within topic groups (subtle) for wide sheets — DONE (i7 #278 banding).
 - [x] **35** Backfill missing birth_dates — DONE: 0/201 drafted picks have N/A `Age when drafted` (96 N/A are future picks). Bug #2 finished it.
 - [x] **36** Position-switcher audit — HANDLED: one stable position/player, 0 per-week variance; Taysom Hill→TE, Travis Hunter→WR sensible.
 - [x] **37** NFL-team-per-week — DONE: `NFL team` 0/18,744 N/A, correctly reflects mid-season NFL trades (Adams LV→NYJ, Hopkins KC/TEN, Diggs→HOU→NE).
@@ -219,14 +219,16 @@ list in `plan/AUDIT_PHASE12_FINDINGS.md`. Flow: implement the queue below (with 
 - [ ] **41** Injury-tracker coverage report — DEFERRED to Phase 14 (needs 2026 in-season data).
 
 ### Infra (assistant's judgment — selected)
-- [ ] **42** Round all float outputs deterministically (extend the Luck fix everywhere).
-- [ ] **43** Promote the audit battery to committed tests (reconciliation done; add sanity-range + N/A-vs-0 + edge-case suites).
-- [ ] **45** Build-time data-quality log → emit sanity-range/anomaly summary into build_debug.log every run.
-- [ ] **49** CI step running the test suite (coverage + reconciliation + freshness) on every build.
+- [~] **42** Round all float outputs deterministically — **WON'T FIX** per user (= run-3 F4; the ~1e-16 noise in team_year/all aggregates is masked in the xlsx by the `0.00` number format).
+- [~] **43** Promote the audit battery to committed tests — reconciliation + sanity-range + freshness + formulas-coverage suites committed (`tests/`); the extra **N/A-vs-0 + edge-case suites SCRAPPED** per user.
+- [x] **45** Build-time data-quality log — DONE (`src/lotg.py:14965`; emits sanity/anomaly summary each build).
+- [x] **49** CI step running the test suite — DONE (`build.yml` "Run test suite against the build" runs `pytest tests/` every build).
 
 **Skipped from the 55:** 44/46/47/48/50, and nothing from section E except the already-planned Phase 14 digest email.
 
-- [ ] **3-part audit** per fix PR, then the full **9-part audit re-run until clean**.
+- [x] **3-part audit** per fix PR, then the full **9-part audit re-run until clean** — complete (runs 1-3; every fix PR 3-part-audited, full battery re-run clean).
+
+**✅ Phase 12 COMPLETE.** Only intentionally-deferred items remain: F3 → Phase 13; F4/#42 (float-noise) and F7 (NFL sentinel) won't-fix; #26 sparklines + #43 extra test suites scrapped; #41 injury-tracker → Phase 14.
 
 ## Phase 13 — ESPN 2020 backfill
 - [ ] Scope when we get there

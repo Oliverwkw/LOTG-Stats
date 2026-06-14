@@ -185,6 +185,29 @@ the "NFL" sentinel so rostered tops out at 32.
   33rd team in "Number of NFL teams among rostered players" is acceptable;
   kept consistent across team and league grains.
 
+---
+
+## Cross-type sweep (post-#289) — scan for every fix-class from runs 1/2/3
+#289 verified CLEAN (F6 lands: team_all_time starting 28-31, AceMatthew 15/18/15/20/20;
+only the 4 NFL-teams columns changed, no other sheet moved). Then swept for an instance of
+EVERY fix-class raised across the three batteries. **All clean — no new findings.**
+
+| Fix-class (origin) | Scan | Result |
+|---|---|---|
+| N/A-vs-0 in delta cols (r1 #2/#3, r2 F5, r3 F5) | every "change/from-previous/turnover" col in the genuine first week (2021 wk1, all 3 grains) + first season + rookie career deltas | all correctly N/A ✅ |
+| distinct vs sum/max rollup (r1 unique, r3 F6) | team QB/WR/RB/TE/rookies/cuffs/NFL-teams; player_all_time "Number of teams" | distinct everywhere; "Number of teams" ≥ player_week (tenure ledger, 0 undercounts) ✅ |
+| doc-vs-behavior (r2 F1/F2/F3, r3 F1) | 10 machine-checked Formula claims: Margin, Efficiency, UPST, One-man-army (1/wk), Top-half (4/wk), Highest/Lowest/PotW/Captain/QBotW (1/wk) | 10/10 match ✅ |
+| boolean rendered 1.0/0.0 (r2 F6) | all "?"-flags + known booleans, every sheet | True/False everywhere (only F3's count col shows 0.0) ✅ |
+| number-format 1-vs-1.0 (r2 F7) | integer-family cols, all sheets (xlsx fmt) | consistent per sheet ✅ |
+| injury/bye/suspension misclass (r2 F4) | Injury?/Suspension? with Points>0; Bye? with Points≠0; injury∩bye | 0 / 0 / 0 / 0 ✅ |
+| cross-sheet reconciliation (r1 #1) | run-3 Part 1 (league=Σteam, Record↔Win?, awards, PF=Σstarters, player rollups) | all Δ=0 ✅ |
+| links / asset chains (r1 #6) | run-3 Part 8 (2731+233 tx refs, 658+912 trade refs) | 0 out-of-range ✅ |
+| vestigial / stub columns (r3 F2/F3) | all-N/A & all-constant scan | only F3 (Startup-draft-remaining → Phase 13) ✅ |
+| determinism / float noise (r1 #8, r3 F4) | ≥7-dp aggregate scan | F4 (deferred per user); nothing new |
+
+Outstanding (all previously triaged): F3 → Phase 13; F4 → won't-fix; F7 → won't-fix. No new
+bugs. The fixes from runs 1–3 are all holding.
+
 Verified-intentional / regressions-held: RUN2 F4 (no-NFL-team→Bye), F6 (Taxi True/False),
 F7 (integer number formats) all still good. % of points, streak terminal encoding, #284
 records, #285 dropped points, #287 1/3-weight Transaction skill all correct.
