@@ -13557,6 +13557,14 @@ def build_all(repo_root: Path) -> None:
         g_week["Efficiency"] = pd.to_numeric(g_week["Efficiency"], errors="coerce")
         g_week["Max PF"] = pd.to_numeric(g_week["Max PF"], errors="coerce").fillna(0.0)
 
+        def _sum_or_na(series):
+            """League-week sum that stays N/A when EVERY team's value is missing
+            — e.g. a 'from previous week' column in the very first week of the
+            dataset (2021 wk1), where no prior week exists. Mirrors the N/A the
+            team_week / player_week sheets already render there."""
+            s = pd.to_numeric(series, errors="coerce")
+            return None if not s.notna().any() else float(s.fillna(0.0).sum())
+
         rows = []
         for (yr, wk), g in g_week.groupby(["Year", "Week"]):
             margin_abs = g["Margin"].abs()
@@ -13576,7 +13584,7 @@ def build_all(repo_root: Path) -> None:
                 "Number of players on bye": int(pd.to_numeric(g.get("Number of players on bye"), errors="coerce").fillna(0.0).sum()),
                 # League weekly starter turnover = league-wide TOTAL (sum of
                 # every team's turnover that week), not the average.
-                "Starter turnover from previous week": float(pd.to_numeric(g.get("Starter turnover from previous week"), errors="coerce").fillna(0.0).sum()),
+                "Starter turnover from previous week": _sum_or_na(g.get("Starter turnover from previous week")),
                 "UPST": int(pd.to_numeric(g.get("UPST"), errors="coerce").fillna(0.0).sum()),
                 "Hardship": float(pd.to_numeric(g.get("Hardship"), errors="coerce").fillna(0.0).sum()),
                 "Starter-adjusted Hardship": round(float(pd.to_numeric(g.get("Starter-adjusted Hardship"), errors="coerce").fillna(0.0).sum()), 4),
@@ -13585,7 +13593,7 @@ def build_all(repo_root: Path) -> None:
                 # teams' scores would be misleading.
                 "Tanking": float(pd.to_numeric(g.get("Tanking"), errors="coerce").dropna().mean() or 0.0),
                 "Luck": float(pd.to_numeric(g.get("Luck"), errors="coerce").fillna(0.0).sum()),
-                "Increase in points from previous week": float(pd.to_numeric(g.get("Increase in points from previous week"), errors="coerce").fillna(0.0).sum()),
+                "Increase in points from previous week": _sum_or_na(g.get("Increase in points from previous week")),
                 "Number of QB started": int(pd.to_numeric(g.get("Number of QB started"), errors="coerce").fillna(0.0).sum()),
                 "Number of WR started": int(pd.to_numeric(g.get("Number of WR started"), errors="coerce").fillna(0.0).sum()),
                 "Number of RB started": int(pd.to_numeric(g.get("Number of RB started"), errors="coerce").fillna(0.0).sum()),
@@ -13661,9 +13669,30 @@ def build_all(repo_root: Path) -> None:
         for yr, g in g_week.groupby("Year"):
             margin_abs = g["Margin"].abs()
             win_mask = pd.to_numeric(g.get("Win?"), errors="coerce") == 1
+            # (smallest) Playoff tiebreaker: the tightest regular-season PF gap
+            # that broke a same-record seeding tie this season. Seeding ranks by
+            # (wins + 0.5*ties) then PF; among adjacent equal-record pairs the
+            # smallest PF gap is the closest the seeding came to flipping on the
+            # PF tiebreaker. N/A when every team had a distinct record (no
+            # tiebreaker was needed). Regular-season weeks only ("Week N").
+            _reg = g[g["Week Name"].astype(str).str.match(r"^Week \d", na=False)]
+            _smallest_tb = "N/A"
+            if not _reg.empty:
+                _stand = []
+                for _tm, _tg in _reg.groupby("Team"):
+                    _wn = pd.to_numeric(_tg.get("Win?"), errors="coerce")
+                    _rec = float((_wn == 1).sum()) + 0.5 * float((_wn == 0.5).sum())
+                    _pf = float(pd.to_numeric(_tg.get("PF"), errors="coerce").sum())
+                    _stand.append((_rec, _pf))
+                _stand.sort(key=lambda x: (x[0], x[1]), reverse=True)
+                _gaps = [round(_stand[i][1] - _stand[i + 1][1], 2)
+                         for i in range(len(_stand) - 1)
+                         if _stand[i][0] == _stand[i + 1][0]]
+                if _gaps:
+                    _smallest_tb = min(_gaps)
             rows.append({
                 "Year": int(yr),
-                "(smallest) Playoff tiebreaker": "N/A",
+                "(smallest) Playoff tiebreaker": _smallest_tb,
                 "PF": float(g["PF"].sum()),
                 "Avg PF": float(g["PF"].mean()) if g["PF"].notna().any() else None,
                 "PF Range": float(g["PF"].max() - g["PF"].min()) if g["PF"].notna().any() else None,
