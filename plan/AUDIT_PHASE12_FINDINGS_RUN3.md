@@ -140,6 +140,51 @@ or edge-case failures. 5 findings, all low-severity (doc / cleanup / determinism
 - F2: `src/lotg.py` league_year builder — replaced the `"N/A"` stub with a real computation: final regular-season standings (wins+0.5·ties, then PF), smallest PF gap among adjacent same-record pairs; N/A only if no record ties. Validated against team_year records (2021 = 23.18 among the three 10-5 teams; 2022 = 14.42; 2023 = 77.92; 2024 = 59.64; 2025 = 94.5). Formulas entry restored with the accurate description.
 - F5: `src/lotg.py` league_week builder — `_sum_or_na` helper; "Increase in points / Starter turnover from previous week" now N/A when every team's value is missing (2021 wk1), matching team_week/player_week.
 
+---
+
+## Follow-up scan (post-#288) — "similar types of issues"
+#288 verified CLEAN (tiebreaker 23.18/14.42/77.92/59.64/94.5; league_week 2021 wk1 N/A;
+Bros/Sis docs corrected; only intended diffs + benign KTC/F4-noise). Then scanned the three
+run-3 categories: (A) vestigial/stub columns, (B) incomplete-propagation across grains, (C)
+doc-vs-behavior mismatches.
+
+### F6 (real bug — incomplete propagation, same class as F5) — **NEW**
+`Number of NFL teams among starting players` and `Number of NFL teams among rostered players`
+roll up as **weekly `max`** on **team_year** (`src/lotg.py:12669-12670`) and **team_all_time**
+(`13062-13063`) instead of **distinct-across-period**. League got the distinct fix (Phase 5B,
+override at `13477-13483`/`13889`) but the **team grain was missed**.
+- Evidence: team_all_time = **10 for all 8 teams** (the max possible in a 10-starter week);
+  true distinct all-time = **28–31**. team_year AceMatthew 2024 = 10 vs true 20 (Δ team_year
+  up to 11/12, team_all_time up to 21/11).
+- The sibling distinct families (QB/WR/RB/TE started Δ=0, rookies Δ=0, cuffs accumulate 16–44)
+  are all correct — only the NFL-teams-among pair was missed.
+- Doc also under-specifies: Formula says "distinct … that week" but the column ships on
+  year/all-time too (where league=distinct, team=max). Fix the rollup + clarify the doc.
+
+### F7 (minor — sentinel leak) — **NEW**
+`Number of NFL teams among rostered players` counts the **"NFL" FA/retired sentinel** as a
+33rd NFL team → league_year/all-time render **33** (impossible; only 32 exist). Starters = 32
+(no sentinel, since FA/retired never start). The team-grain distinct fix (F6) should exclude
+the "NFL" sentinel so rostered tops out at 32.
+
+### Categories clean
+- (A) vestigial columns: only `Startup draft players remaining` (= F3, deferred Phase 13) and
+  the known same-NFL-team `Most number of …` family (RUN2 F7, low-information by design). No new
+  all-N/A or all-constant columns (league_all_time "constants" are the single-row artifact).
+- (C) doc spot-checks: UPST, One-man army?, Number of QB started, Difference hi/lo starters all
+  match behavior. Bros/Sis fixed in this PR.
+
+### Dispositions
+- **F6 — FIXED** (`src/lotg.py`, follow-up PR): team_year/team_all_time
+  "Number of NFL teams among starting/rostered players" now use the league's
+  `_league_unique_extras` distinct helper (`["Team","Year"]` and `["Team"]`),
+  matching the behavior the Formulas Notes already documented. team_all_time
+  starting → 28-31 (was 10); team_year → real per-season distinct (e.g.
+  AceMatthew 15/18/15/20/20, was 8-10). Sibling distinct families untouched.
+- **F7 — WON'T FIX** (per user): counting the "NFL" FA/retired sentinel as a
+  33rd team in "Number of NFL teams among rostered players" is acceptable;
+  kept consistent across team and league grains.
+
 Verified-intentional / regressions-held: RUN2 F4 (no-NFL-team→Bye), F6 (Taxi True/False),
 F7 (integer number formats) all still good. % of points, streak terminal encoding, #284
 records, #285 dropped points, #287 1/3-weight Transaction skill all correct.
