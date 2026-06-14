@@ -13490,6 +13490,37 @@ def build_all(repo_root: Path) -> None:
         except Exception as e:
             _log_exc(debug, "league_unique_extras", e)
 
+    # F6: team_year / team_all_time "Number of NFL teams among starting/rostered
+    # players" must count DISTINCT NFL teams across the period — like the league
+    # sheets already do — not the weekly MAX (the old "max" rollup pinned every
+    # team near 10, a 10-starter week's ceiling, instead of the true 28-31
+    # all-time). Reuse the same distinct helper the league grain uses so the
+    # semantics match exactly (the "NFL" FA/retired sentinel is kept as a team,
+    # consistent with the league sheets). The sibling distinct families
+    # (rookies, QB/WR/RB/TE, cuffs) already roll up correctly and are untouched.
+    if not pw.empty:
+        try:
+            _NFL_DISTINCT = ["Number of NFL teams among starting players",
+                             "Number of NFL teams among rostered players"]
+            _team_extra_by_year = _league_unique_extras(pw, ["Team", "Year"])
+            _team_extra_all = _league_unique_extras(pw, ["Team"])
+            if not team_year.empty and {"Team", "Year"}.issubset(team_year.columns):
+                _tyrs = pd.to_numeric(team_year["Year"], errors="coerce")
+                for _c in _NFL_DISTINCT:
+                    team_year[_c] = [
+                        (int(_team_extra_by_year.get((str(t), int(y)), {}).get(_c, 0))
+                         if pd.notna(y) else None)
+                        for t, y in zip(team_year["Team"], _tyrs)
+                    ]
+            if not team_all.empty and "Team" in team_all.columns:
+                for _c in _NFL_DISTINCT:
+                    team_all[_c] = [
+                        int(_team_extra_all.get((str(t),), {}).get(_c, 0))
+                        for t in team_all["Team"]
+                    ]
+        except Exception as e:
+            _log_exc(debug, "team_nfl_teams_distinct", e)
+
     # Distinct trade events per period (Phase 5B item 1): each trade has a unique
     # created timestamp shared by all participating teams' rows, so a trade is
     # counted ONCE league-wide instead of once per team (the old team-sum
