@@ -5859,8 +5859,14 @@ def build_all(repo_root: Path) -> None:
                 if _slot is None and _ov is not None and _slot_by_rid:
                     _slot = ((int(_ov) - 1) % len(_slot_by_rid)) + 1
                 _md = _p.get("metadata") if isinstance(_p.get("metadata"), dict) else {}
-                _nm = (f"{_md.get('first_name','')} {_md.get('last_name','')}".strip()
-                       or _player_display_name(_p.get("player_id")))
+                # Prefer the canonical Sleeper name (pid_meta), so the picks sheet matches
+                # player_week / links by name (e.g. "DJ Moore", not the DP spelling "D.J.
+                # Moore"). Fall back to the DP draft-metadata name only when pid_meta has no
+                # entry (_player_display_name then returns the bare id, which we reject).
+                _pid_s = str(_p.get("player_id")) if _valid_pid(_p.get("player_id")) else None
+                _sleeper_nm = _player_display_name(_pid_s) if _pid_s else None
+                _dp_nm = f"{_md.get('first_name','')} {_md.get('last_name','')}".strip()
+                _nm = (_sleeper_nm if (_sleeper_nm and _sleeper_nm != _pid_s) else None) or _dp_nm or _sleeper_nm
                 _tm = _su_rid_to_team.get(int(_rid), f"Roster {_rid}")
                 pick_rows.append({
                     # Computed as a normal 2020 draft so every downstream pick pass
