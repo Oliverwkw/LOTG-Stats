@@ -124,6 +124,11 @@ class ValueIndex:
         self.player: Dict[str, List[Tuple[str, float]]] = {}
         # pick full_name (dynasty-daddy labels) -> sorted history
         self.pick: Dict[str, List[Tuple[str, float]]] = {}
+        # sleeper_ids currently in KTC's rolls (today's directory). A player NOT
+        # in this set is off the rolls (retired / aged out, e.g. Drew Brees) and
+        # is worth 0 — distinct from an active player who simply has no value at a
+        # pre-history date. Populated by build_index.
+        self.active_sids: set = set()
 
     @staticmethod
     def _history_to_pairs(history: List[Dict], value_col: str) -> List[Tuple[str, float]]:
@@ -283,6 +288,9 @@ def build_index(
             pick_name_to_name_id[fn] = nm
 
     idx = ValueIndex()
+    # Current KTC rolls (active assets in today's directory), so the query can
+    # tell "off the rolls -> value 0" from "active but pre-history -> unknown".
+    idx.active_sids = {str(p.get("sleeper_id")) for p in directory if p.get("sleeper_id")}
 
     # Players we actually use. Retired and aged-out players aren't in
     # dynasty-daddy's 'today' directory, so we derive the name_id slug
@@ -372,4 +380,21 @@ def asset_value_at(
     # Player path
     if not sleeper_id:
         return None
-    return idx.value_at(str(sleeper_id), target, is_pick=False)
+    sid = str(sleeper_id)
+    pairs = idx.player.get(sid)
+    off_rolls = sid not in idx.active_sids
+    if not pairs:
+        # No KTC history at all. If the player is off the current rolls
+        # (retired / aged out, e.g. Drew Brees) their value is 0, not unknown.
+        return 0.0 if off_rolls else None
+    target_s = target.isoformat()
+    # Off the rolls AND past their last recorded value -> they've dropped out of
+    # KTC entirely by this date, so they're worth 0.
+    if off_rolls and target_s > pairs[-1][0]:
+        return 0.0
+    v = idx.value_at(sid, target, is_pick=False)
+    if v is not None:
+        return v
+    # target precedes their first recorded value: 0 if off the rolls, else unknown
+    # (an active player simply predates KTC's history at this checkpoint).
+    return 0.0 if off_rolls else None
