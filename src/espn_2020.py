@@ -76,13 +76,20 @@ def load_raw(raw_dir: str = RAW_DIR_DEFAULT) -> Dict[str, Any]:
     """Load the dump's JSON files into a dict of parsed views + per-week files."""
     raw_dir = os.path.abspath(raw_dir)
     out: Dict[str, Any] = {"_dir": raw_dir}
-    out["combined"] = _load(raw_dir, "league_combined.json")
     out["settings"] = _load(raw_dir, "view_mSettings.json").get("settings", {})
     out["teams"] = _load(raw_dir, "view_mTeam.json")
     out["draft"] = _load(raw_dir, "view_mDraftDetail.json").get("draftDetail", {})
     out["matchup"] = _load(raw_dir, "view_mMatchup.json").get("schedule", [])
     out["transactions"] = _load(raw_dir, "transactions_all.json").get("transactions", [])
-    out["player_universe"] = _load(raw_dir, "player_universe.json").get("players", [])
+    # Optional/heavy files — not needed once player_id_map.csv is baked (trimmed
+    # out of the committed dump to keep CI small).
+    for opt in ("league_combined.json", "player_universe.json"):
+        try:
+            key = "combined" if "combined" in opt else "player_universe"
+            data = _load(raw_dir, opt)
+            out[key] = data.get("players", data) if key == "player_universe" else data
+        except FileNotFoundError:
+            out[key] = [] if key == "player_universe" else {}
     weeks = {}
     for wf in sorted(glob.glob(os.path.join(raw_dir, "week_*.json"))):
         wk = int(os.path.basename(wf).split("_")[1].split(".")[0])
@@ -95,9 +102,22 @@ def load_raw(raw_dir: str = RAW_DIR_DEFAULT) -> Dict[str, Any]:
 # player identity bridge: ESPN playerId -> {gsis_id, sleeper_id, name, position}
 # --------------------------------------------------------------------------- #
 def build_player_bridge(raw: Dict[str, Any], dp_path: str = DP_IDS_DEFAULT) -> Dict[int, Dict[str, Any]]:
-    """ESPN playerId -> identity. Primary join via DynastyProcess espn_id; for any
-    ESPN player not in DP, fall back to the ESPN player object (name/pos/team) so
-    nothing is dropped (the main build's existing name/gsis bridge resolves the rest)."""
+    """ESPN playerId -> identity. Prefer the committed, pre-resolved
+    `data/espn_2020_raw/player_id_map.csv` (so the build is self-contained and does
+    NOT depend on the DP file being downloaded yet at injection time). If that map is
+    absent (local dev), fall back to DynastyProcess espn_id + the ESPN player objects."""
+    baked = os.path.join(raw.get("_dir", "."), "player_id_map.csv")
+    if os.path.exists(baked):
+        bridge: Dict[int, Dict[str, Any]] = {}
+        for r in csv.DictReader(open(baked)):
+            pid = int(r["espn_id"])
+            bridge[pid] = {"espn_id": pid,
+                           "sleeper_id": r.get("sleeper_id") or None,
+                           "gsis_id": r.get("gsis_id") or None,
+                           "name": r.get("name") or None,
+                           "position": r.get("position") or None,
+                           "nfl_team": r.get("nfl_team") or None}
+        return bridge
     dp_by_espn: Dict[str, Dict[str, str]] = {}
     if os.path.exists(dp_path):
         for r in csv.DictReader(open(dp_path)):
@@ -447,6 +467,9 @@ def emit_sleeper_2020(loaded: Dict[str, Any]) -> Dict[str, Any]:
         "total_rosters": len(TEAM_TO_MANAGER), "roster_positions": _roster_positions(raw),
         "settings": {"playoff_week_start": 15, "playoff_teams": 4, "num_teams": 8,
                      "last_scored_leg": 16, "leg": 16},
+        # 2020 scoring is supplied as actual per-player points on each matchup
+        # (players_points), so the build's re-score path has nothing to recompute.
+        "scoring_settings": {},
     }
     users = [{"user_id": owners.get(tid), "display_name": mgr,
               "metadata": {"team_name": mgr}} for tid, mgr in TEAM_TO_MANAGER.items()]
