@@ -138,6 +138,7 @@ import team_year
 import trades
 import transactions
 import formulas
+import espn_2020
 
 DOCUMENT_MODULES = [
     formulas,
@@ -1564,6 +1565,54 @@ def _trade_is_netzero_swap(t: Dict[str, Any]) -> bool:
 # Main build
 # --------------------------
 
+class _Espn2020Client:
+    """Phase 13 — guarded SleeperClient wrapper. Returns ESPN-adapted, Sleeper-shaped
+    data for the synthetic 2020 league ("espn_2020") only; every other call delegates
+    to the real client, so the Sleeper path (2021+) is completely untouched."""
+
+    def __init__(self, real, emit):
+        self._real = real
+        self._e = emit
+        self._lid = espn_2020.SLEEPER_LEAGUE_ID
+        self._did = "espn_2020_draft"
+
+    def _is2020(self, lid):
+        return str(lid) == self._lid
+
+    def league(self, lid):
+        return self._e["league"] if self._is2020(lid) else self._real.league(lid)
+
+    def users(self, lid):
+        return self._e["users"] if self._is2020(lid) else self._real.users(lid)
+
+    def rosters(self, lid):
+        return self._e["rosters"] if self._is2020(lid) else self._real.rosters(lid)
+
+    def matchups(self, wk, lid):
+        return (self._e["matchups_by_week"].get(int(wk), [])
+                if self._is2020(lid) else self._real.matchups(wk, lid))
+
+    def transactions(self, wk, lid):
+        return (self._e["transactions_by_week"].get(int(wk), [])
+                if self._is2020(lid) else self._real.transactions(wk, lid))
+
+    def drafts(self, lid):
+        return [self._e["draft"]] if self._is2020(lid) else self._real.drafts(lid)
+
+    def draft_picks(self, did):
+        return self._e["draft_picks"] if str(did) == self._did else self._real.draft_picks(did)
+
+    def losers_bracket(self, lid):
+        return self._e["losers_bracket"] if self._is2020(lid) else self._real.losers_bracket(lid)
+
+    def traded_picks(self, lid):
+        return [] if self._is2020(lid) else self._real.traded_picks(lid)
+
+    def __getattr__(self, name):
+        # Anything not overridden (players_nfl, draft, round, get, ...) -> real client.
+        return getattr(self._real, name)
+
+
 def build_all(repo_root: Path) -> None:
     debug = repo_root / "exports" / "raw" / "build_debug.log"
     _log(debug, f"\n[{_now_iso()}] ===== Build start =====")
@@ -1814,6 +1863,25 @@ def build_all(repo_root: Path) -> None:
 
     # ------------- League chain -------------
     leagues = _walk_league_chain(sc, run_cfg.league_id, run_cfg.min_season, run_cfg.max_season)
+
+    # Phase 13: fold in the 2020 ESPN season (leagueId 34086, the league's first year
+    # before Sleeper) as the new EARLIEST season. Guarded — only the synthetic
+    # "espn_2020" league routes to ESPN-adapted data via _Espn2020Client; the Sleeper
+    # path (2021+) is untouched. No-op if the committed dump is absent or 2020 is below
+    # the configured min_season.
+    try:
+        _espn_dir = repo_root / "data" / "espn_2020_raw"
+        _want_2020 = run_cfg.min_season is None or int(run_cfg.min_season) <= 2020
+        if _want_2020 and (_espn_dir / "view_mSettings.json").exists():
+            _e2020 = espn_2020.emit_sleeper_2020(espn_2020.load_espn_2020(str(_espn_dir)))
+            sc = _Espn2020Client(sc, _e2020)
+            leagues = [_e2020["league"]] + leagues
+            _log(debug, f"[{_now_iso()}] INFO Phase 13: injected ESPN 2020 season "
+                        f"(8 teams, {len(_e2020['draft_picks'])} draft picks, "
+                        f"{sum(len(v) for v in _e2020['transactions_by_week'].values())} transactions)")
+    except Exception as e:
+        _log_exc(debug, "espn_2020_inject", e)
+
     raw_dir = repo_root / "exports" / "raw"
     raw_dir.mkdir(parents=True, exist_ok=True)
 
