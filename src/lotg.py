@@ -15000,8 +15000,14 @@ def build_all(repo_root: Path) -> None:
             _tx_wt = pd.Series(1.0, index=tx.index)
             _tx_wt[_tx_pure.reindex(tx.index).fillna(False)] = 1.0 / 3.0
 
+        # Drafting skill is a shrunk mean of pick O-Scores. The 2020 startup picks
+        # have no (rookie-baseline) O-Score, so exclude them — otherwise 2020 and
+        # all-time Drafting skill would be built on O-Scores we deliberately blank.
+        _ph_skill = ph
+        if isinstance(ph, pd.DataFrame) and "_is_startup" in ph.columns:
+            _ph_skill = ph[~ph["_is_startup"].fillna(False).astype(bool)]
         _skill_specs = [
-            ("Drafting skill", ph, "Final Team", "Year", None),
+            ("Drafting skill", _ph_skill, "Final Team", "Year", None),
             ("Trading skill", tr, "Team", "Season", None),
             ("Transaction skill", tx, "Team", "Season", _tx_wt),
         ]
@@ -15102,7 +15108,16 @@ def build_all(repo_root: Path) -> None:
         if isinstance(ph, pd.DataFrame) and not ph.empty and "_is_startup" in ph.columns:
             _su_mask = ph["_is_startup"].fillna(False).astype(bool)
             ph.loc[_su_mask, "Year"] = "startup"
-            _log(debug, f"[{_now_iso()}] INFO 2020 startup picks relabeled Year='startup': {int(_su_mask.sum())} rows")
+            # O-Score and every "Pick-adjusted Difference in ..." column normalize a
+            # pick against a ROOKIE-draft pick-value baseline (what slot N is worth),
+            # which is meaningless for a one-time veteran startup. Blank them (-> N/A)
+            # for startup picks; a bespoke startup O-Score may come later.
+            _su_blank = [c for c in ph.columns
+                         if c == "O-Score" or c.startswith("Pick-adjusted")]
+            for _c in _su_blank:
+                ph.loc[_su_mask, _c] = None
+            _log(debug, f"[{_now_iso()}] INFO 2020 startup picks: relabeled Year='startup' "
+                        f"and blanked O-Score + {len(_su_blank)-1} pick-adjusted cols on {int(_su_mask.sum())} rows")
     except Exception as e:
         _log_exc(debug, "startup_year_relabel", e)
 
