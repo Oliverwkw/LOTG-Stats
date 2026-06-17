@@ -1876,9 +1876,24 @@ def build_all(repo_root: Path) -> None:
             _e2020 = espn_2020.emit_sleeper_2020(espn_2020.load_espn_2020(str(_espn_dir)))
             sc = _Espn2020Client(sc, _e2020)
             leagues = [_e2020["league"]] + leagues
+            # Backfill pid_meta / pid_pos for any 2020 player not in the live Sleeper
+            # /players/nfl feed (without this they resolve to a bare numeric id —
+            # numeric names, no position, broken Max PF / Age). setdefault so the live
+            # Sleeper meta wins for players present there.
+            _meta_added = 0
+            for _sid, _pm in (_e2020.get("player_meta") or {}).items():
+                if _sid not in pid_meta:
+                    pid_meta[_sid] = {"full_name": _pm.get("full_name") or _sid,
+                                      "pos": _pm.get("pos") or "", "team": _norm_team(_pm.get("team")),
+                                      "birth_date": None, "years_exp": None, "draft_year": None,
+                                      "status": None, "injury_status": None,
+                                      "gsis_id": _pm.get("gsis_id") or None}
+                    _meta_added += 1
+                pid_pos.setdefault(_sid, (_pm.get("pos") or "").upper())
             _log(debug, f"[{_now_iso()}] INFO Phase 13: injected ESPN 2020 season "
                         f"(8 teams, {len(_e2020['draft_picks'])} draft picks, "
-                        f"{sum(len(v) for v in _e2020['transactions_by_week'].values())} transactions)")
+                        f"{sum(len(v) for v in _e2020['transactions_by_week'].values())} transactions; "
+                        f"{_meta_added} player-meta backfilled)")
     except Exception as e:
         _log_exc(debug, "espn_2020_inject", e)
 
@@ -4009,9 +4024,12 @@ def build_all(repo_root: Path) -> None:
                         seed_by_rid = {rid: idx + 1 for idx, (_, rid, *_ ) in enumerate(reg)}
                         top4 = set([rid for _, rid, *_ in reg[:4]])
                         bottom4 = set([rid for _, rid, *_ in reg[4:]])
-                        # apply semifinal bonus to higher seeded teams (playoff_start week only)
-                        # — 2020 (ESPN) had NO homefield bonus, so gate to Sleeper era (>=2021).
-                        for rid in (list(top4) if int(season) >= 2021 else []):
+                        # apply semifinal bonus to higher seeded teams (playoff_start week only).
+                        # The +5 homefield bonus existed in 2020 too; ESPN's raw weekly PF does
+                        # NOT bake it in (pointsByScoringPeriod == Σ starters for all 8 teams in
+                        # the 2020 Semifinal), so the build adds it. playoff_start is 15 for 2020
+                        # (Semifinal wk15) and 16 for 2021+, so it always lands on the right week.
+                        for rid in list(top4):
                             opp = opp_rid_map.get((season, playoff_start, rid))
                             if opp is None:
                                 continue
