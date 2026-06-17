@@ -4010,7 +4010,8 @@ def build_all(repo_root: Path) -> None:
                         top4 = set([rid for _, rid, *_ in reg[:4]])
                         bottom4 = set([rid for _, rid, *_ in reg[4:]])
                         # apply semifinal bonus to higher seeded teams (playoff_start week only)
-                        for rid in list(top4):
+                        # — 2020 (ESPN) had NO homefield bonus, so gate to Sleeper era (>=2021).
+                        for rid in (list(top4) if int(season) >= 2021 else []):
                             opp = opp_rid_map.get((season, playoff_start, rid))
                             if opp is None:
                                 continue

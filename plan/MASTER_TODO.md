@@ -246,6 +246,22 @@ The user's 7-step plan (with status):
 - [ ] **6. Off-platform pick-trade reconstruction.** ESPN can't trade picks on-platform, so 2020 1st/2nd-round (and any) pick trades happened off-platform — reconstruct from emails + human memory and hardcode, so trade metrics (KTC won/lost, retro grades, pick-vs-player, Trading skill) are balanced and not missing legs. (On-platform player trades come from the email trade layer, already built; the startup-draft slot-swap email is one pick trade.)
 - [ ] **7. Comprehensive 10-part audit:** the full 9-part battery **plus a 10th part dedicated to ESPN-2020 integration** (2020 reconciles like any other season; no teleports across the 2020→2021 seam; 2020-specific N/A columns correct; standings/playoffs/records right; nothing in 2021+ regressed). Each fix PR also gets a 3-part audit.
 
+### Post-#291 integration audit (CI build run 27660107808) — findings
+2020 **matchups/scores integrated correctly**: player_week (2632 rows), team_week (128 = 8×16), team_year (8), 16 weeks; PF=Σstarters reconciles; Record W=ΣWin? exact. Cross-era ripples confirmed expected (2021 wk1 from-prev now populates; career-baseline `Change from career` & all-time streaks now include 2020; Luck 670-row diff is just the deferred F4 float-noise, max Δ 0.04). Fixes:
+- [x] **Bug A — 2020 transactions (374) + trades (13) missing.** Adapter set `created: None`; the build's date gate dropped them. FIXED: `created` = ESPN proposedDate epoch ms (moves) / email-date epoch (trades).
+- [x] **Bug B — Semifinal +5 homefield applied to 2020.** Gated the bonus to seasons ≥ 2021 (`lotg.py` ~4014); 2020 keeps the Semifinal/Toilet labels but no +5.
+- [ ] **Bug C / FEATURE — 2020 startup draft (152 picks) absent from the picks sheet** because `lotg.py:3495` excludes drafts with >5 rounds (startup drafts). This is the **"O-Score addition for startup picks"** work (below) — also needed so the 71 vets' build-side origin traces to the 2020 startup (step 5 chain completion). Not a one-line fix.
+- [ ] **Confirm Hardship 16-row 2021 change** (max Δ 7.8) is the legit cross-era effect (career/expected baselines now include 2020), not a regression.
+
+### ⭐ O-Score addition for startup picks (do BEFORE the 10-part battery)
+Include the **2020 ESPN startup draft** (and reconsider the 2021 Sleeper startup) in the picks
+sheet — lift/relax the `>5 rounds` exclusion (`lotg.py:3495`) for startup drafts, give startup
+picks an appropriate **O-Score** (startup picks aren't rookie picks; decide the percentile pool
+/ scoring treatment, likely their own universe like pure-drops), tag the Year (e.g. "2020
+(startup)"), and make them serve as the **origin** for the 71 initial-roster vets' asset-history
+chains. Without this, 2020 picks/origins are missing and the 10-part audit's chain + reconciliation
+parts will fail.
+
 ## Phase 14 — In-season weekly digest email
 **Trigger:** Tuesday 10am ET, in-season only (build runs first, then emails). Skip weeks with no completed games since last email.
 
