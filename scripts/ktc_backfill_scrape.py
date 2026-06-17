@@ -45,10 +45,21 @@ OUTDIR = REPO / "data" / "ktc_backfill"  # committed (data/ktc_cache/ is gitigno
 
 
 def _get(url: str) -> str:
-    # urllib can't negotiate TLS with KTC on older LibreSSL builds; curl is reliable.
+    # Prefer `requests`: it streams the FULL response (no 1MB cap seen on some
+    # curl builds / sandboxes) and negotiates modern TLS (older system Python +
+    # LibreSSL urllib cannot reach KTC). Fall back to curl, then urllib.
+    try:
+        import requests  # type: ignore
+        r = requests.get(url, headers={"User-Agent": UA}, timeout=60)
+        r.raise_for_status()
+        return r.text
+    except ImportError:
+        pass
+    except Exception:
+        pass
     try:
         out = subprocess.run(
-            ["curl", "-sS", "-A", UA, "--max-time", "60", url],
+            ["curl", "-sSL", "-A", UA, "--max-time", "60", url],
             capture_output=True, check=True,
         )
         return out.stdout.decode("utf-8", "replace")
