@@ -90,24 +90,35 @@ def _get(url: str) -> str:
             return r.read().decode("utf-8", "replace")
 
 
+def _slugify(name: str) -> str:
+    return re.sub(r"-+", "-", re.sub(r"[^a-z0-9]+", "-", (name or "").lower())).strip("-")
+
+
 def build_crosswalk() -> dict:
-    """sleeper_id -> KTC slug, via KTC rankings (playerID/slug/mflid) + DP mfl<->sleeper."""
+    """sleeper_id -> KTC slug. Primary: KTC rankings playersArray (exact slug,
+    top-~500 active). Fallback: DynastyProcess db_playerids ktc_id -> constructed
+    slug 'name-ktcid' (covers actives below the top-500 and others KTC still hosts)."""
     html = _get(RANK_URL)
     arr = json.loads(re.search(r'var playersArray\s*=\s*(\[\{.*?\}\]);', html, re.S).group(1))
     import csv
     mfl2sleeper = {}
-    with open(_ensure_db_playerids()) as f:
-        for row in csv.DictReader(f):
-            mf = (row.get("mfl_id") or "").split(".")[0]
-            sl = (row.get("sleeper_id") or "").split(".")[0]
-            if mf and sl:
-                mfl2sleeper[mf] = sl
     cross = {}
-    for p in arr:
-        mf = str(p.get("mflid") or "").split(".")[0]
-        sl = mfl2sleeper.get(mf)
+    with open(_ensure_db_playerids()) as f:
+        rows = list(csv.DictReader(f))
+    for row in rows:
+        mf = (row.get("mfl_id") or "").split(".")[0]
+        sl = (row.get("sleeper_id") or "").split(".")[0]
+        if mf and sl:
+            mfl2sleeper[mf] = sl
+    for p in arr:  # exact slug from rankings
+        sl = mfl2sleeper.get(str(p.get("mflid") or "").split(".")[0])
         if sl and p.get("slug"):
             cross[sl] = p["slug"]
+    for row in rows:  # fallback: construct slug from name + ktc_id
+        sl = (row.get("sleeper_id") or "").split(".")[0]
+        kt = (row.get("ktc_id") or "").split(".")[0]
+        if sl and kt.isdigit() and sl not in cross and row.get("name"):
+            cross[sl] = f"{_slugify(row['name'])}-{kt}"
     return cross
 
 
