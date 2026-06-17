@@ -41,7 +41,7 @@ REPO = Path(__file__).resolve().parents[1]
 RANK_URL = "https://keeptradecut.com/dynasty-rankings"
 PLAYER_URL = "https://keeptradecut.com/dynasty-rankings/players/{slug}"
 UA = "Mozilla/5.0 (LOTG-Stats KTC backfill; +https://github.com/Oliverwkw/LOTG-Stats)"
-OUTDIR = REPO / "data" / "ktc_cache" / "backfill"
+OUTDIR = REPO / "data" / "ktc_backfill"  # committed (data/ktc_cache/ is gitignored)
 
 
 def _get(url: str) -> str:
