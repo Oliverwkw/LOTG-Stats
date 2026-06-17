@@ -101,6 +101,22 @@ def load_raw(raw_dir: str = RAW_DIR_DEFAULT) -> Dict[str, Any]:
 # --------------------------------------------------------------------------- #
 # player identity bridge: ESPN playerId -> {gsis_id, sleeper_id, name, position}
 # --------------------------------------------------------------------------- #
+def _clean_id(x: Any) -> Optional[str]:
+    """Sleeper player ids are integer strings ('6007'). The committed
+    player_id_map.csv stores them as float-strings ('6007.0') because the map was
+    serialized from a pandas float column. A '6007.0' key matches NOTHING in the
+    build's pid_meta / players_nfl, so names, positions, ages, Max PF and KTC all
+    silently break for 2020. Normalize to a bare integer string."""
+    if x is None:
+        return None
+    s = str(x).strip()
+    if not s or s.lower() in ("nan", "none"):
+        return None
+    if s.endswith(".0"):
+        s = s[:-2]
+    return s or None
+
+
 def build_player_bridge(raw: Dict[str, Any], dp_path: str = DP_IDS_DEFAULT) -> Dict[int, Dict[str, Any]]:
     """ESPN playerId -> identity. Prefer the committed, pre-resolved
     `data/espn_2020_raw/player_id_map.csv` (so the build is self-contained and does
@@ -112,7 +128,7 @@ def build_player_bridge(raw: Dict[str, Any], dp_path: str = DP_IDS_DEFAULT) -> D
         for r in csv.DictReader(open(baked)):
             pid = int(r["espn_id"])
             bridge[pid] = {"espn_id": pid,
-                           "sleeper_id": r.get("sleeper_id") or None,
+                           "sleeper_id": _clean_id(r.get("sleeper_id")),
                            "gsis_id": r.get("gsis_id") or None,
                            "name": r.get("name") or None,
                            "position": r.get("position") or None,
@@ -141,7 +157,7 @@ def build_player_bridge(raw: Dict[str, Any], dp_path: str = DP_IDS_DEFAULT) -> D
         bridge[pid] = {
             "espn_id": pid,
             "gsis_id": (dp or {}).get("gsis_id") or None,
-            "sleeper_id": (dp or {}).get("sleeper_id") or None,
+            "sleeper_id": _clean_id((dp or {}).get("sleeper_id")),
             "name": (dp or {}).get("name") or pl.get("fullName"),
             "position": (dp or {}).get("position") or POS_NAME.get(pl.get("defaultPositionId")),
             "nfl_team": PRO_TEAM.get(pl.get("proTeamId")) if pl else None,
@@ -252,17 +268,29 @@ def parse_transactions(raw: Dict[str, Any], bridge: Dict[int, Dict[str, Any]]) -
                     "gsis_id": b.get("gsis_id"), "sleeper_id": b.get("sleeper_id"),
                     "position": b.get("position")}
         if ttype in ("FREEAGENT", "WAIVER"):
+            # ONE move per ESPN transaction (not per item). ESPN bundles a pickup and
+            # the player it drops to make room into a single transaction (150 of 211
+            # 2020 FA/waiver moves are such add+drop swaps); emitting each item as its
+            # own add-only / drop-only Sleeper transaction was wrong — it both doubled
+            # the transaction count and made every row read as "just an add" or "just a
+            # drop". Group the items so a swap becomes one tx with both an add and drop,
+            # matching Sleeper's own shape.
+            add_pids = [it.get("playerId") for it in items if it.get("type") == "ADD"]
+            drop_pids = [it.get("playerId") for it in items if it.get("type") == "DROP"]
+            team_id = None
             for it in items:
-                moves.append({
-                    "date": t.get("proposedDate"),
-                    "scoring_period": t.get("scoringPeriodId"),
-                    "kind": ttype,            # no FAAB in 2020 -> bidAmount always 0
-                    "action": it.get("type"),  # ADD / DROP
-                    "team_id": it.get("toTeamId") if it.get("type") == "ADD" else it.get("fromTeamId"),
-                    "manager": TEAM_TO_MANAGER.get(
-                        it.get("toTeamId") if it.get("type") == "ADD" else it.get("fromTeamId")),
-                    **ident(it.get("playerId")),
-                })
+                team_id = it.get("toTeamId") if it.get("type") == "ADD" else it.get("fromTeamId")
+                if team_id is not None:
+                    break
+            moves.append({
+                "date": t.get("proposedDate"),
+                "scoring_period": t.get("scoringPeriodId"),
+                "kind": ttype,            # no FAAB in 2020 -> bidAmount always 0
+                "team_id": team_id,
+                "manager": TEAM_TO_MANAGER.get(team_id),
+                "add_pids": add_pids,
+                "drop_pids": drop_pids,
+            })
         elif ttype == "TRADE_UPHOLD":
             legs = []
             for it in items:
@@ -418,6 +446,19 @@ def parse_email_trades(loaded: Dict[str, Any], downloads: str = "~/Downloads") -
     return sorted(seen.values(), key=lambda t: t["date"] or "")
 
 
+def load_trade_layer(loaded: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """Executed-trade layer, build-time self-contained. Prefers the committed
+    `data/espn_2020_raw/email_trades.json` (the resolved 13-trade layer, baked once
+    from the emails) so CI — which has no access to the raw .eml files in
+    ~/Downloads — gets the full trades. Falls back to re-parsing the emails only for
+    local regeneration when the baked file is absent."""
+    raw_dir = (loaded.get("_raw") or {}).get("_dir", ".")
+    baked = os.path.join(raw_dir, "email_trades.json")
+    if os.path.exists(baked):
+        return json.load(open(baked))
+    return parse_email_trades(loaded)
+
+
 def load_espn_2020(raw_dir: str = RAW_DIR_DEFAULT, dp_path: str = DP_IDS_DEFAULT) -> Dict[str, Any]:
     raw = load_raw(raw_dir)
     bridge = build_player_bridge(raw, dp_path)
@@ -457,8 +498,7 @@ def _roster_positions(raw: Dict[str, Any]) -> List[str]:
 def emit_sleeper_2020(loaded: Dict[str, Any]) -> Dict[str, Any]:
     raw, bridge = loaded["_raw"], loaded["_bridge"]
     def sid(espn_pid):  # sleeper player id (string), the build's player key
-        s = bridge.get(espn_pid, {}).get("sleeper_id")
-        return str(s) if s else None
+        return _clean_id(bridge.get(espn_pid, {}).get("sleeper_id"))
 
     owners = {t["id"]: t.get("primaryOwner") for t in raw["teams"].get("teams", [])}
     league = {
@@ -510,14 +550,14 @@ def emit_sleeper_2020(loaded: Dict[str, Any]) -> Dict[str, Any]:
 
     # transactions per week: adds/drops (public) + executed trades (email layer)
     tx = parse_transactions(raw, bridge)
-    trades = parse_email_trades(loaded)
+    trades = load_trade_layer(loaded)
     tx_by_week: Dict[int, List[Dict[str, Any]]] = defaultdict(list)
     tid = 0
     for m in tx["moves"]:
         wk = m["scoring_period"] or 1
         tid += 1
-        adds = {sid(m["espn_player_id"]): m["team_id"]} if m["action"] == "ADD" else None
-        drops = {sid(m["espn_player_id"]): m["team_id"]} if m["action"] == "DROP" else None
+        adds = {sid(p): m["team_id"] for p in m["add_pids"] if sid(p)} or None
+        drops = {sid(p): m["team_id"] for p in m["drop_pids"] if sid(p)} or None
         tx_by_week[wk].append({
             "transaction_id": f"e{tid}", "type": "waiver" if m["kind"] == "WAIVER" else "free_agent",
             "status": "complete", "roster_ids": [m["team_id"]],
@@ -558,10 +598,23 @@ def emit_sleeper_2020(loaded: Dict[str, Any]) -> Dict[str, Any]:
     draft = {"draft_id": "espn_2020_draft", "season": str(SEASON), "type": "snake",
              "status": "complete", "settings": {"rounds": max(p["round"] for p in loaded["draft"])}}
 
+    # Player metadata keyed by sleeper_id, for the build to backfill its pid_meta /
+    # pid_pos. The build builds those ONLY from the live Sleeper /players/nfl feed, so
+    # any 2020 player who has since left that feed would otherwise resolve to a bare
+    # numeric id (breaking names, positions, Max PF). The bridge has authoritative
+    # name/position/gsis/team for all 250; the build merges this in with setdefault so
+    # live Sleeper data still wins for players present there.
+    player_meta: Dict[str, Dict[str, Any]] = {}
+    for b in bridge.values():
+        s = _clean_id(b.get("sleeper_id"))
+        if s and s not in player_meta:
+            player_meta[s] = {"full_name": b.get("name"), "pos": (b.get("position") or ""),
+                              "team": b.get("nfl_team"), "gsis_id": b.get("gsis_id")}
+
     return {
         "league": league, "users": users, "rosters": rosters,
         "matchups_by_week": matchups_by_week, "transactions_by_week": dict(tx_by_week),
-        "draft": draft, "draft_picks": picks,
+        "draft": draft, "draft_picks": picks, "player_meta": player_meta,
         "winners_bracket": [], "losers_bracket": [],  # derived in the build from standings
     }
 
