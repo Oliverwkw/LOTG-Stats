@@ -308,12 +308,12 @@ def build_index(
         if hist:
             idx.add_player(sid, hist, value_col)
 
-    # Merge the one-time KTC.com / Wayback backfill (data/ktc_cache/backfill/
+    # Merge the one-time KTC.com / Wayback backfill (data/ktc_backfill/
     # <sleeper_id>.json = [{"date","sf_trade_value"}]). dynasty-daddy only goes
     # back to 2021-04-16; the backfill supplies the earlier (2020 + early-2021)
     # superflex values for the players we need, so value_at sees them. Same source
     # (KTC), so it just extends each series earlier; dynasty-daddy wins on overlap.
-    backfill_dir = repo_root / "data" / "ktc_cache" / "backfill"
+    backfill_dir = repo_root / "data" / "ktc_backfill"
     if backfill_dir.exists():
         merged_n = 0
         for sid in wanted_sids:
@@ -420,10 +420,20 @@ def asset_value_at(
     # the backfill scrape decides genuine obscurity.)
     if not pairs:
         return None
-    target_s = target.isoformat()
-    if off_rolls and target_s > pairs[-1][0]:
-        return 0.0
-    v = idx.value_at(sid, target, is_pick=False)
-    if v is not None:
-        return v
-    return None
+    v = idx.value_at(sid, target, is_pick=False)  # latest value on/before target
+    if v is None:
+        return None  # target precedes their first recorded value -> unknown (active pre-tracking)
+    # v carries the last known value forward. If the player is off the current rolls
+    # AND target is LONG after their last recorded value, they've genuinely dropped
+    # off KTC by then -> 0 (don't carry a stale value forward for months). A SHORT
+    # gap (e.g. an end-of-rookie checkpoint two weeks after a sparse Wayback point)
+    # carries the real value forward.
+    last_ds = pairs[-1][0]
+    if off_rolls and target.isoformat() > last_ds:
+        try:
+            ly, lm, ld = (int(x) for x in last_ds.split("-"))
+            if (target - date(ly, lm, ld)).days > 120:
+                return 0.0
+        except Exception:
+            pass
+    return v
