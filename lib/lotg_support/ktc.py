@@ -308,6 +308,35 @@ def build_index(
         if hist:
             idx.add_player(sid, hist, value_col)
 
+    # Merge the one-time KTC.com / Wayback backfill (data/ktc_cache/backfill/
+    # <sleeper_id>.json = [{"date","sf_trade_value"}]). dynasty-daddy only goes
+    # back to 2021-04-16; the backfill supplies the earlier (2020 + early-2021)
+    # superflex values for the players we need, so value_at sees them. Same source
+    # (KTC), so it just extends each series earlier; dynasty-daddy wins on overlap.
+    backfill_dir = repo_root / "data" / "ktc_cache" / "backfill"
+    if backfill_dir.exists():
+        merged_n = 0
+        for sid in wanted_sids:
+            bf = backfill_dir / f"{sid}.json"
+            if not bf.exists():
+                continue
+            try:
+                rows = json.loads(bf.read_text())
+            except Exception:
+                continue
+            pairs = [(r["date"], float(r["sf_trade_value"]))
+                     for r in rows if r.get("date") and r.get("sf_trade_value") is not None]
+            if not pairs:
+                continue
+            existing = idx.player.get(sid, [])
+            seen = {d for d, _ in existing}
+            combined = existing + [(d, v) for d, v in pairs if d not in seen]
+            combined.sort(key=lambda kv: kv[0])
+            idx.player[sid] = combined
+            merged_n += 1
+        if merged_n:
+            _HTTP_ERRORS.append(f"info: merged KTC backfill for {merged_n} players")
+
     # Picks: expand each '?? slot' label to its generic candidates, fetch
     # their histories once.
     wanted_pick_names: set = set()
@@ -383,18 +412,18 @@ def asset_value_at(
     sid = str(sleeper_id)
     pairs = idx.player.get(sid)
     off_rolls = sid not in idx.active_sids
+    # KTC = 0 ONLY when the player has demonstrably dropped off the rolls BY the
+    # target date (off the current rolls AND target is after their last recorded
+    # KTC value). We must NOT zero a date BEFORE their history starts: at a 2020
+    # draft checkpoint a now-retired player was active and valuable — its value is
+    # unknown (-> N/A) until backfilled, not 0. (No history at all -> unknown too;
+    # the backfill scrape decides genuine obscurity.)
     if not pairs:
-        # No KTC history at all. If the player is off the current rolls
-        # (retired / aged out, e.g. Drew Brees) their value is 0, not unknown.
-        return 0.0 if off_rolls else None
+        return None
     target_s = target.isoformat()
-    # Off the rolls AND past their last recorded value -> they've dropped out of
-    # KTC entirely by this date, so they're worth 0.
     if off_rolls and target_s > pairs[-1][0]:
         return 0.0
     v = idx.value_at(sid, target, is_pick=False)
     if v is not None:
         return v
-    # target precedes their first recorded value: 0 if off the rolls, else unknown
-    # (an active player simply predates KTC's history at this checkpoint).
-    return 0.0 if off_rolls else None
+    return None
