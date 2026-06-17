@@ -8493,6 +8493,15 @@ def build_all(repo_root: Path) -> None:
         ]
         try:
             if not ph.empty and {"Year", "Number"}.issubset(set(ph.columns)):
+                # Non-rookie picks = 2021 vet draft (Year "...(vet)") + 2020 startup
+                # (flagged _is_startup; its Year is still 2020 here, relabeled later).
+                # They are kept OUT of the rookie reference pools and rookie diffs,
+                # then scored among THEMSELVES below (8-nearest baseline). This keeps
+                # rookie pick-adjusted values identical to a rookie-only world.
+                _nr_pa = (ph["_is_startup"].fillna(False).astype(bool)
+                          if "_is_startup" in ph.columns else pd.Series(False, index=ph.index))
+                _nr_pa = _nr_pa | ph["Year"].astype(str).str.contains("vet", case=False)
+                _nr_idx = set(ph.index[_nr_pa])
                 _vals_by_slot: Dict[str, Dict[Tuple[int, int], List[float]]] = {
                     _st: defaultdict(list) for _st in _padj_diff_stats
                 }
@@ -8500,7 +8509,7 @@ def build_all(repo_root: Path) -> None:
                 _max_slot = 0
                 _max_round = 0
                 for _pi in ph.index:
-                    if "(vet)" in str(ph.at[_pi, "Year"]).lower():
+                    if _pi in _nr_idx:
                         continue
                     _m = re.match(r"\s*(\d+)\.(\d+)", str(ph.at[_pi, "Number"]))
                     if not _m:
@@ -8581,6 +8590,32 @@ def build_all(repo_root: Path) -> None:
                             _ref = [v for _sl in _ws for v in _vals_by_slot[_st].get(_sl, [])]
                             if _ref:
                                 ph.at[_pi, _col] = round(_my - sum(_ref) / len(_ref), 4)
+
+                # --- Non-rookie (startup + 2021 vet) pick-adjusted diffs ---
+                # Baseline = mean of the stat over the 8 NEAREST non-rookie picks by
+                # overall draft position (across the pooled startup+vet picks; rookie
+                # drafts are never used as the reference, per spec).
+                _nr_pos: List[Tuple[int, Any]] = []
+                for _pi in _nr_idx:
+                    _m = re.match(r"\s*(\d+)\.(\d+)", str(ph.at[_pi, "Number"]))
+                    if _m:
+                        _nr_pos.append(((int(_m.group(1)) - 1) * _rsize + int(_m.group(2)), _pi))
+                for _st in _padj_diff_stats:
+                    _col = f"Pick-adjusted Difference in {_st}"
+                    for _pos0, _pi in _nr_pos:
+                        try:
+                            _my = float(ph.at[_pi, _st])
+                        except Exception:
+                            continue  # this pick's stat is N/A → diff stays N/A
+                        _near = sorted((abs(_p - _pos0), _j) for _p, _j in _nr_pos if _j != _pi)[:8]
+                        _ref = []
+                        for _, _j in _near:
+                            try:
+                                _ref.append(float(ph.at[_j, _st]))
+                            except Exception:
+                                pass
+                        if _ref:
+                            ph.at[_pi, _col] = round(_my - sum(_ref) / len(_ref), 4)
         except Exception as e:
             _log_exc(debug, "picks_pickadj_diff_item1", e)
 
@@ -14823,7 +14858,13 @@ def build_all(repo_root: Path) -> None:
     # ------------------------------------------------------------------
     def _add_oscore(df: pd.DataFrame, stat_cols: List[str], ktc_cols: List[str],
                     exclude_mask: Optional[pd.Series] = None,
-                    droppable: Tuple[str, ...] = ()) -> None:
+                    droppable: Tuple[str, ...] = (),
+                    pool_mask: Optional[pd.Series] = None) -> None:
+        # pool_mask: when given, O-Score is computed using ONLY pool_mask rows
+        # (percentiles ranked within that pool) and written ONLY to those rows —
+        # other rows are left untouched. Used to score the startup+vet picks in a
+        # separate percentile universe from rookie picks. exclude_mask=~pool_mask
+        # keeps the non-pool rows out of the ranking.
         if df is None or df.empty:
             return
         # Most-recent populated KTC value (ktc_cols ordered latest → earliest).
@@ -14855,26 +14896,50 @@ def build_all(repo_root: Path) -> None:
         # pure drop, one-sided untracked trade) → N/A.
         _req = [_i for _i, _sc in enumerate(stat_cols) if _sc not in droppable]
         _req_present = _pcts.iloc[:, _req].notna().all(axis=1)
-        _osc = _pcts.mean(axis=1).where(_req_present)
-        df["O-Score"] = _osc.round(1)
+        _osc = _pcts.mean(axis=1).where(_req_present).round(1)
+        if pool_mask is not None:
+            if "O-Score" not in df.columns:
+                df["O-Score"] = np.nan
+            df.loc[pool_mask, "O-Score"] = _osc.loc[pool_mask]
+        else:
+            df["O-Score"] = _osc
 
+    _pick_oscore_stats = [
+        "Avg points added", "Pick-adjusted Difference in Player addition value",
+        "__MOST_RECENT_KTC__", "Pick-adjusted Difference in Avg career PPG adjusted by position"]
+    # KTC component is the PICK-ADJUSTED KTC difference (most-recent populated), so a
+    # pick's market value is judged vs its draft-slot window, not in absolute terms.
+    _pick_oscore_ktc = [
+        "Pick-adjusted Difference in KTC 4 years after draft day",
+        "Pick-adjusted Difference in KTC 3 years after draft day",
+        "Pick-adjusted Difference in KTC 2 years after draft day",
+        "Pick-adjusted Difference in KTC 1 year after draft day",
+        "Pick-adjusted Difference in KTC at end of rookie year",
+        "Pick-adjusted Difference in KTC on draft day"]
     try:
+        # Non-rookie = 2021 vet draft + 2020 startup. They are scored in their OWN
+        # percentile pool (ranked only against each other), so rookie O-Scores are
+        # computed over rookie picks alone and stay identical to a rookie-only world.
+        _nr_osc = (
+            ((ph["_is_startup"].fillna(False).astype(bool) if "_is_startup" in ph.columns
+              else pd.Series(False, index=ph.index))
+             | ph["Year"].astype(str).str.contains("vet", case=False))
+            if (not ph.empty and "Year" in ph.columns) else None)
+        # Rookie pool.
         _add_oscore(
-            ph,
-            ["Avg points added", "Pick-adjusted Difference in Player addition value", "__MOST_RECENT_KTC__",
-             "Pick-adjusted Difference in Avg career PPG adjusted by position"],
-            # KTC component is the PICK-ADJUSTED KTC difference (most-recent
-            # populated), so a pick's market value is judged vs its draft-slot
-            # window, not in absolute terms (points added stays absolute).
-            ["Pick-adjusted Difference in KTC 4 years after draft day",
-             "Pick-adjusted Difference in KTC 3 years after draft day",
-             "Pick-adjusted Difference in KTC 2 years after draft day",
-             "Pick-adjusted Difference in KTC 1 year after draft day",
-             "Pick-adjusted Difference in KTC at end of rookie year",
-             "Pick-adjusted Difference in KTC on draft day"],
-            exclude_mask=(ph["Year"].astype(str).str.contains("vet") if (not ph.empty and "Year" in ph.columns) else None),
+            ph, _pick_oscore_stats, _pick_oscore_ktc,
+            exclude_mask=_nr_osc,
             droppable=("Pick-adjusted Difference in Player addition value",),
+            pool_mask=(~_nr_osc) if _nr_osc is not None else None,
         )
+        # Startup + 2021 vet pool (same method, ranked only against each other).
+        if _nr_osc is not None and bool(_nr_osc.any()):
+            _add_oscore(
+                ph, _pick_oscore_stats, _pick_oscore_ktc,
+                exclude_mask=~_nr_osc,
+                droppable=("Pick-adjusted Difference in Player addition value",),
+                pool_mask=_nr_osc,
+            )
         _add_oscore(
             tx,
             ["Avg net points", "Player addition value", "__MOST_RECENT_KTC__",
@@ -15000,6 +15065,9 @@ def build_all(repo_root: Path) -> None:
             _tx_wt = pd.Series(1.0, index=tx.index)
             _tx_wt[_tx_pure.reindex(tx.index).fillna(False)] = 1.0 / 3.0
 
+        # Drafting skill is a shrunk mean of pick O-Scores; all picks (rookie,
+        # startup, 2021 vet) now carry an O-Score (startup/vet scored in their own
+        # percentile pool), so all feed the metric.
         _skill_specs = [
             ("Drafting skill", ph, "Final Team", "Year", None),
             ("Trading skill", tr, "Team", "Season", None),
@@ -15102,7 +15170,7 @@ def build_all(repo_root: Path) -> None:
         if isinstance(ph, pd.DataFrame) and not ph.empty and "_is_startup" in ph.columns:
             _su_mask = ph["_is_startup"].fillna(False).astype(bool)
             ph.loc[_su_mask, "Year"] = "startup"
-            _log(debug, f"[{_now_iso()}] INFO 2020 startup picks relabeled Year='startup': {int(_su_mask.sum())} rows")
+            _log(debug, f"[{_now_iso()}] INFO 2020 startup picks: relabeled Year='startup' on {int(_su_mask.sum())} rows")
     except Exception as e:
         _log_exc(debug, "startup_year_relabel", e)
 
