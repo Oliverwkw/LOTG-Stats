@@ -1,0 +1,53 @@
+name: KTC 2020 Backfill (one-time)
+
+# Manually-triggered, one-time scrape of the historical KTC SUPERFLEX values that
+# dynasty-daddy is missing (pre-2021-04-16): active players from KTC.com player
+# pages, retirees from Wayback Machine snapshots of KTC's dynasty-rankings. Runs
+# on GitHub's runners (clean network) so it isn't subject to the 1MB Wayback id_
+# cap seen locally. Commits data/ktc_backfill/ to a branch for review.
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "wayback (retirees, fills 2020 draft-day) or active (current KTC pages) or both"
+        default: "wayback"
+        type: choice
+        options: ["wayback", "active", "both"]
+
+permissions:
+  contents: write
+
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install requests
+        run: pip install requests
+
+      - name: Scrape active players (current KTC pages)
+        if: ${{ inputs.mode == 'active' || inputs.mode == 'both' }}
+        run: python scripts/ktc_backfill_scrape.py --sleep 0.3
+
+      - name: Scrape retirees (Wayback snapshots)
+        if: ${{ inputs.mode == 'wayback' || inputs.mode == 'both' }}
+        run: python scripts/ktc_backfill_scrape.py --wayback --sleep 0.4
+
+      - name: Commit backfill to a branch
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add data/ktc_backfill/
+          if git diff --cached --quiet; then
+            echo "No backfill changes."
+          else
+            git commit -m "KTC backfill: 2020/early-2021 values (workflow run ${{ github.run_number }})"
+            git push origin HEAD:ktc-backfill-data --force
+            echo "Pushed to branch ktc-backfill-data — open a PR to merge."
+          fi
