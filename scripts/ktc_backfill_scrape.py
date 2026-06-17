@@ -138,33 +138,43 @@ def scrape_player_sf(slug: str) -> list:
 
 
 def _parse_players_array(html: str) -> list:
-    """String-aware bracket match to extract `var playersArray = [...]`."""
-    i = html.find("playersArray")
-    if i < 0:
-        return []
-    start = html.find("[", i)
-    depth = instr = esc = 0
-    instr = False
-    for j in range(start, len(html)):
-        c = html[j]
-        if esc:
-            esc = False; continue
-        if c == "\\":
-            esc = True; continue
-        if c == '"':
-            instr = not instr; continue
-        if instr:
-            continue
-        if c == "[":
-            depth += 1
-        elif c == "]":
-            depth -= 1
-            if depth == 0:
-                try:
-                    return json.loads(html[start:j + 1])
-                except Exception:
-                    return []
-    return []
+    """Salvage every complete {"playerName":...} object from the page. Works even
+    when the capture is TRUNCATED at Wayback's 1MB id_ cap (the early-2020 captures
+    embed per-player history -> ~5.7MB array -> only the top players survive); we
+    just keep whatever complete objects fit, plus all of an uncapped capture."""
+    objs = []
+    i = 0
+    while True:
+        k = html.find('{"playerName"', i)
+        if k < 0:
+            break
+        depth = 0
+        instr = esc = False
+        end = -1
+        for j in range(k, len(html)):
+            c = html[j]
+            if esc:
+                esc = False; continue
+            if c == "\\":
+                esc = True; continue
+            if c == '"':
+                instr = not instr; continue
+            if instr:
+                continue
+            if c == "{":
+                depth += 1
+            elif c == "}":
+                depth -= 1
+                if depth == 0:
+                    end = j + 1; break
+        if end < 0:
+            break  # truncated mid-object
+        try:
+            objs.append(json.loads(html[k:end]))
+        except Exception:
+            pass
+        i = end
+    return objs
 
 
 def scrape_wayback_retirees(sleeper_targets: set) -> dict:
@@ -205,7 +215,7 @@ def scrape_wayback_retirees(sleeper_targets: set) -> dict:
             continue
         arr = _parse_players_array(html)
         if not arr:
-            print(f"  wayback {ts}: unparseable (capped/truncated) — skipped")
+            print(f"  wayback {ts}: no players salvaged — skipped")
             continue
         iso = f"{ts[0:4]}-{ts[4:6]}-{ts[6:8]}"
         hit = 0
@@ -213,7 +223,11 @@ def scrape_wayback_retirees(sleeper_targets: set) -> dict:
             nm = re.sub(r"[^a-z]", "", (p.get("playerName") or "").lower())
             ps = (p.get("position") or "").upper()
             sl = name_pos_to_sleeper.get((nm, ps)) or name_pos_to_sleeper.get((nm, ""))
-            if not sl or sl not in sleeper_targets:
+            if not sl:
+                continue
+            # Optional target filter; default None = keep EVERY mapped player so the
+            # build can fill any KTC cell it needs (retirees across all years).
+            if sleeper_targets and sl not in sleeper_targets:
                 continue
             sf = p.get("superflexValues")
             v = sf.get("value") if isinstance(sf, dict) else sf
@@ -221,7 +235,8 @@ def scrape_wayback_retirees(sleeper_targets: set) -> dict:
                 continue
             out.setdefault(sl, {})[iso] = int(v)
             hit += 1
-        print(f"  wayback {ts} ({iso}): {len(arr)} players, {hit} target hits")
+        trunc = " (truncated→top players only)" if len(arr) < 300 else ""
+        print(f"  wayback {ts} ({iso}): {len(arr)} players salvaged, {hit} mapped{trunc}")
         time.sleep(0.5)
     return {sl: [{"date": d, "sf_trade_value": v} for d, v in sorted(dates.items())]
             for sl, dates in out.items()}
@@ -254,16 +269,20 @@ def main():
     OUTDIR.mkdir(parents=True, exist_ok=True)
 
     if args.wayback:
-        targets = set(args.sleeper) if args.sleeper else needed_2020_sleeper_ids()
-        print(f"Wayback retiree backfill for {len(targets)} target players ...")
+        # No target filter: save EVERY KTC-tracked player found in the snapshots,
+        # so the build can fill any missing KTC cell (retirees across all years).
+        targets = set(args.sleeper) if args.sleeper else None
+        print(f"Wayback backfill ({'targeted' if targets else 'all mapped players'}) ...")
         hist_by_sid = scrape_wayback_retirees(targets)
-        FLOOR = "2021-04-16"
+        # Keep ALL dates: retirees aren't in dynasty-daddy at any date, so their
+        # 2021+ snapshot points are needed too (not just pre-2021-04-16). For active
+        # players the build's merge dedups against dynasty-daddy by date.
         wrote = 0
         for sid, rows in hist_by_sid.items():
             out = OUTDIR / f"{sid}.json"
             existing = json.loads(out.read_text()) if out.exists() else []
             seen = {r["date"] for r in existing}
-            merged = existing + [r for r in rows if r["date"] not in seen and r["date"] < FLOOR]
+            merged = existing + [r for r in rows if r["date"] not in seen]
             merged.sort(key=lambda r: r["date"])
             if merged:
                 out.write_text(json.dumps(merged))
