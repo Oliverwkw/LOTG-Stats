@@ -2973,6 +2973,10 @@ def build_all(repo_root: Path) -> None:
     season_team_to_roster: Dict[int, Dict[str, int]] = {}
     season_draft_picks_all: Dict[int, List[Dict[str, Any]]] = {}
     draft_picks_records: List[Dict[str, Any]] = []
+    # 2020 ESPN startup draft (19 rounds): captured at the >5-round exclusion below
+    # and emitted directly into pick_rows (the rookie-draft rebuild is built for
+    # <=4-round rookie/vet drafts and doesn't fit a one-time veteran startup).
+    _startup_draft_picks: List[Dict[str, Any]] = []
 
     # Cross-season state for "from previous week" stats. Hoisted out of the
     # per-season loop so Week 1 turnover & PF-increase reference the last
@@ -3506,8 +3510,12 @@ def build_all(repo_root: Path) -> None:
             is_rookie_draft = draft_type in {"rookie", "dynasty"}
 
             # Cap at 5-round rookie drafts (per league rules). Startup drafts
-            # are excluded — those have many more rounds.
+            # (many more rounds) don't fit the rookie-draft rebuild, so they're
+            # excluded HERE — but the 2020 ESPN startup is captured for a direct
+            # emit pass (it belongs in the picks sheet, tagged Year "startup").
             if max_round > 0 and max_round > 5:
+                if int(season) == 2020 and not _startup_draft_picks:
+                    _startup_draft_picks = [p for p in (picks or []) if isinstance(p, dict)]
                 continue
             if (picks_with_players + picks_with_names) == 0 and not is_rookie_draft:
                 continue
@@ -5818,6 +5826,62 @@ def build_all(repo_root: Path) -> None:
     except Exception as e:
         _log_exc(debug, "pick_history_rebuild", e)
 
+    # ----- 2020 ESPN startup draft (19 rounds) -----
+    # Emitted directly (not through the rookie-draft rebuild, which caps rounds at
+    # 4 and synthesizes future picks / trade chains that don't apply to a one-time
+    # veteran startup). Year is tagged "startup". Picks were not tradeable
+    # on-platform in 2020 — the lone off-platform slot swap is already baked into
+    # who actually drafted each slot — so Original Team == Final Team and no pick
+    # moved. Each row carries _player_id, so every downstream pick stat pass (PPG /
+    # addition value / O-Score / age) computes for it exactly like a real pick;
+    # _pick_draft_year() maps "startup" -> 2020 for those passes. KTC stays N/A
+    # (no pre-Aug-2021 KTC history).
+    try:
+        if _startup_draft_picks:
+            _su_rid_to_team = season_roster_to_team.get(2020, {})
+            # Snake startup: a team's slot is its round-1 draft position. Round 1
+            # picks are in slot order, so overall pick number == slot there.
+            _slot_by_rid: Dict[int, int] = {}
+            for _p in _startup_draft_picks:
+                if _to_int(_p.get("round"), 0) == 1:
+                    _rid1 = _to_int(_p.get("roster_id"), None)
+                    _ov1 = _to_int(_p.get("pick_no"), None)
+                    if _rid1 is not None and _ov1 is not None:
+                        _slot_by_rid[int(_rid1)] = int(_ov1)
+            _n_startup = 0
+            for _p in _startup_draft_picks:
+                _rnd = _to_int(_p.get("round"), None)
+                _rid = _to_int(_p.get("roster_id"), None)
+                _ov = _to_int(_p.get("pick_no"), None)
+                if _rnd is None or _rid is None:
+                    continue
+                _slot = _slot_by_rid.get(int(_rid))
+                if _slot is None and _ov is not None and _slot_by_rid:
+                    _slot = ((int(_ov) - 1) % len(_slot_by_rid)) + 1
+                _md = _p.get("metadata") if isinstance(_p.get("metadata"), dict) else {}
+                _nm = (f"{_md.get('first_name','')} {_md.get('last_name','')}".strip()
+                       or _player_display_name(_p.get("player_id")))
+                _tm = _su_rid_to_team.get(int(_rid), f"Roster {_rid}")
+                pick_rows.append({
+                    # Computed as a normal 2020 draft so every downstream pick pass
+                    # (PPG / addition value / O-Score / age / links / position
+                    # adjustment) fills in for it; the Year display is relabeled to
+                    # "startup" in a final pass (keyed off _is_startup) right before
+                    # the picks sheet is written.
+                    "Year": 2020,
+                    "_is_startup": True,
+                    "Number": _format_pick_number(int(_rnd), _slot),
+                    "Original Team": _tm,
+                    "Final Team": _tm,
+                    "Player Picked": _nm,
+                    "_player_id": (str(_p.get("player_id")) if _valid_pid(_p.get("player_id")) else None),
+                    "Commissioner moved?": False,
+                })
+                _n_startup += 1
+            _log(debug, f"[{_now_iso()}] INFO 2020 startup draft: emitted {_n_startup} picks into pick_history")
+    except Exception as e:
+        _log_exc(debug, "startup_draft_emit", e)
+
     # ----- Phase 10: inject synthetic draft-day picks (2.09 + 5.0X) -----
     # Built from the commissioner-forced adds captured per season. They carry a
     # _player_id, so they flow through every downstream pick stat pass (PPG /
@@ -6650,6 +6714,39 @@ def build_all(repo_root: Path) -> None:
     #     adjusted_diff * (1 + pct_starts) * (1 + pct_starts_inj_adj)
     #       + CUFF_BONUS  (only added when 'Cuff at time of pickup?'=True)
     # --------------------------
+    # Per-SEASON positional baselines for every position-adjusted metric
+    # (transactions, picks, trade valuations). Pooling all seasons into one
+    # baseline let 2020 — a different scoring era (pre-PPR) and roster format —
+    # shift 2021+ position-adjusted values. Computing the baseline WITHIN each
+    # season keeps each season's adjustment self-contained, so adding 2020 (or
+    # any future era) can never perturb another season's numbers. Built once and
+    # shared via _pos_factor(season, pos).
+    _starter_avg_by_season: Dict[int, float] = {}
+    _pos_avg_by_season: Dict[int, Dict[str, float]] = {}
+    try:
+        if not pw.empty and "Starter/Bench" in pw.columns and "Position" in pw.columns:
+            _stp = pw[pw["Starter/Bench"].astype(str).str.lower() == "starter"].copy()
+            _stp["_Y"] = pd.to_numeric(_stp["Year"], errors="coerce")
+            _stp["_P"] = pd.to_numeric(_stp["Points"], errors="coerce")
+            for _yr, _g in _stp.groupby("_Y"):
+                if pd.isna(_yr):
+                    continue
+                _yi = int(_yr)
+                _starter_avg_by_season[_yi] = float(_g["_P"].mean() or 0.0)
+                _pos_avg_by_season[_yi] = {
+                    str(_pp).upper(): float(_gg["_P"].mean() or 0.0)
+                    for _pp, _gg in _g.groupby(_g["Position"].astype(str).str.upper())
+                }
+    except Exception as e:
+        _log_exc(debug, "per_season_pos_baseline", e)
+
+    def _pos_factor(season: Any, pos: Optional[str]) -> float:
+        """league-starter-avg / position-avg, computed within `season` only."""
+        _yi = _to_int(season, None)
+        _la = _starter_avg_by_season.get(_yi, 0.0)
+        _pa = (_pos_avg_by_season.get(_yi) or {}).get((pos or "").upper(), 0.0)
+        return (_la / _pa) if (_pa and _la) else 1.0
+
     try:
         if transactions_rows and not pw.empty:
             from datetime import date as _date_cls
@@ -6697,23 +6794,13 @@ def build_all(repo_root: Path) -> None:
                     pw_by_team_week[(d["Team"], d["Year"], d["Week"])].append(d)
                 pw_by_team_player[(d["Team"], d["Player"])].append(d)
 
-            # All-time starter averages for the position adjustment.
-            starters = pw[pw["Starter/Bench"] == "Starter"]
-            all_starter_avg = float(starters["Points"].mean()) if not starters.empty else 0.0
-            pos_avg: Dict[str, float] = {}
-            if not starters.empty and "Position" in starters.columns:
-                pos_avg = {
-                    str(k).upper(): float(v)
-                    for k, v in starters.groupby("Position")["Points"].mean().to_dict().items()
-                }
-
-            def _pos_adjust(ppg: Optional[float], pos: Optional[str]) -> Optional[float]:
+            # Position adjustment uses the per-SEASON baseline (_pos_factor), so a
+            # pickup is normalized against its own season's positional scoring — not
+            # a cross-era pool that 2020 would skew.
+            def _pos_adjust(ppg: Optional[float], pos: Optional[str], season: Any) -> Optional[float]:
                 if ppg is None:
                     return None
-                p = pos_avg.get((pos or "").upper())
-                if not p or p <= 0 or not all_starter_avg:
-                    return ppg
-                return round(ppg * all_starter_avg / p, 4)
+                return round(ppg * _pos_factor(season, pos), 4)
 
             # Build name -> sleeper_id once so we can hit nfl_log_by_sid
             # (which is keyed by Sleeper id) from a player display name.
@@ -6857,8 +6944,9 @@ def build_all(repo_root: Path) -> None:
                 # 'adjust adjusted averages to match this').
                 added_pos, added_nfl = _player_pos_nfl_team_at(added, pickup_iso_prefix)
                 dropped_pos, dropped_nfl = _player_pos_nfl_team_at(dropped, pickup_iso_prefix)
-                added_adj = _pos_adjust(added_on_team, added_pos)
-                dropped_adj = _pos_adjust(dropped_same_window, dropped_pos)
+                _tx_season = _to_int(str(pickup_iso_prefix)[:4], None)
+                added_adj = _pos_adjust(added_on_team, added_pos, _tx_season)
+                dropped_adj = _pos_adjust(dropped_same_window, dropped_pos, _tx_season)
                 adj_diff = None
                 if added_adj is not None or dropped_adj is not None:
                     adj_diff = round((added_adj or 0.0) - (dropped_adj or 0.0), 4)
@@ -6911,8 +6999,8 @@ def build_all(repo_root: Path) -> None:
                 # mover's position (added player for added, dropped for lost)
                 # via the same league_starter_avg / pos_avg normalizer used by
                 # 'Difference of averages adjusted by position'.
-                _adj_add = _pos_adjust(pts_added, added_pos) if added_pos else pts_added
-                _adj_lost = _pos_adjust(pts_lost, dropped_pos) if dropped_pos else pts_lost
+                _adj_add = _pos_adjust(pts_added, added_pos, _tx_season) if added_pos else pts_added
+                _adj_lost = _pos_adjust(pts_lost, dropped_pos, _tx_season) if dropped_pos else pts_lost
                 _adj_add = pts_added if _adj_add is None else _adj_add
                 _adj_lost = pts_lost if _adj_lost is None else _adj_lost
                 r["Avg points added adjusted by position"] = round(_adj_add / _nwk, 2) if _nwk else 0.0
@@ -7894,17 +7982,9 @@ def build_all(repo_root: Path) -> None:
         except Exception as e:
             _log_exc(debug, "picks_tenure_8b", e)
 
-        # League-wide all-starter avg + per-position avg for position adjustment.
-        try:
-            starters_pw = pw[pw.get("Starter/Bench").astype(str).str.lower() == "starter"] if not pw.empty and "Starter/Bench" in pw.columns else pd.DataFrame()
-            league_starter_avg = float(pd.to_numeric(starters_pw.get("Points"), errors="coerce").mean()) if not starters_pw.empty else 0.0
-            pos_avg_map: Dict[str, float] = {}
-            if not starters_pw.empty and "Position" in starters_pw.columns:
-                for pos_g, gpos in starters_pw.groupby(starters_pw["Position"].astype(str).str.upper()):
-                    pos_avg_map[str(pos_g)] = float(pd.to_numeric(gpos.get("Points"), errors="coerce").mean() or 0.0)
-        except Exception:
-            league_starter_avg = 0.0
-            pos_avg_map = {}
+        # Position adjustment uses the shared per-SEASON baseline (_pos_factor),
+        # so each pick's position normalization is anchored to its own season and
+        # never skewed by 2020's different scoring era.
 
         def _player_games(name: Optional[str]) -> List[Tuple[str, float]]:
             if not name:
@@ -8162,8 +8242,7 @@ def build_all(repo_root: Path) -> None:
                     _nx = _next_out_player(_ft, _sid, _draft_iso)
                     _end_iso = (_nx["date"][:10] if _nx else _today_iso2)
                     _pos = ((pid_meta.get(_sid) or {}).get("pos") or "").upper() or None
-                    _posa = pos_avg_map.get(_pos or "", 0.0)
-                    _fac = (league_starter_avg / _posa) if (_posa and league_starter_avg) else 1.0
+                    _fac = _pos_factor(int(_ym.group(1)), _pos)
                     _all_games = [
                         (_e["_wk_date"], float(_e["points"]))
                         for _e in nfl_log_by_sid.get(_sid, [])
@@ -8659,11 +8738,7 @@ def build_all(repo_root: Path) -> None:
                 if avg_on is not None:
                     recv_on_team_avgs.append(avg_on)
                     pos = _player_pos(name)
-                    pos_a = pos_avg_map.get(pos or "", 0.0)
-                    if pos_a and league_starter_avg:
-                        recv_adj_on_team_avgs.append(avg_on * league_starter_avg / pos_a)
-                    else:
-                        recv_adj_on_team_avgs.append(avg_on)
+                    recv_adj_on_team_avgs.append(avg_on * _pos_factor(row.get("Season"), pos))
                 pre5 = _avg_ppg_pre5(name, trade_prefix)
                 if pre5 is not None:
                     recv_pre5_avgs.append(pre5)
@@ -8697,11 +8772,7 @@ def build_all(repo_root: Path) -> None:
                 if _davg is not None:
                     recv_on_team_avgs.append(_davg)
                     _dpos = _player_pos(_dpl)
-                    _dposa = pos_avg_map.get(_dpos or "", 0.0)
-                    if _dposa and league_starter_avg:
-                        recv_adj_on_team_avgs.append(_davg * league_starter_avg / _dposa)
-                    else:
-                        recv_adj_on_team_avgs.append(_davg)
+                    recv_adj_on_team_avgs.append(_davg * _pos_factor(_dyear, _dpos))
 
             drop_over_avgs: List[float] = []
             drop_adj_avgs: List[float] = []
@@ -8716,11 +8787,7 @@ def build_all(repo_root: Path) -> None:
                     if avg_over is not None:
                         drop_over_avgs.append(avg_over)
                         pos = _player_pos(name)
-                        pos_a = pos_avg_map.get(pos or "", 0.0)
-                        if pos_a and league_starter_avg:
-                            drop_adj_avgs.append(avg_over * league_starter_avg / pos_a)
-                        else:
-                            drop_adj_avgs.append(avg_over)
+                        drop_adj_avgs.append(avg_over * _pos_factor(row.get("Season"), pos))
 
             if recv_on_team_avgs:
                 row["Avg PPG of received players on team"] = round(
@@ -8829,23 +8896,22 @@ def build_all(repo_root: Path) -> None:
                 _dr = _pick_to_drafted.get(_pk)
                 if _dr and _dr[1] == _norm_team_name(team):
                     _recv_assets.append((_dr[0], f"{_dr[2]}-08-28"))
-            # Position-adjustment factor: scale an asset's points by the same
-            # league_starter_avg / pos_avg normalizer used elsewhere (Item 4).
-            def _afac(_n):
-                _pa = pos_avg_map.get(_player_pos(_n) or "", 0.0)
-                return (league_starter_avg / _pa) if (_pa and league_starter_avg) else 1.0
+            # Position-adjustment factor: scale each weekly point by the per-SEASON
+            # normalizer for the YEAR that point was scored (Item 4) — so multi-season
+            # trade-of-trades chains use each game's own-era positional baseline.
+            def _afac(_n, _yr):
+                return _pos_factor(_yr, _player_pos(_n))
             # received: per week, list of (raw, position-adjusted) points
             _recv_week: Dict[Tuple[int, int], List[Tuple[float, float]]] = defaultdict(list)
             for _nm, _wstart in _recv_assets:
-                _f = _afac(_nm)
                 for (_yi, _wi, _pt, _wkd) in _started_idx.get((str(team), _nm), []):
                     if _wkd >= _wstart:
-                        _recv_week[(_yi, _wi)].append((_pt, _pt * _f))
+                        _recv_week[(_yi, _wi)].append((_pt, _pt * _afac(_nm, _yi)))
             # sent: per asset, {(year, week): (raw, position-adjusted)}
             _sent_logs: List[Dict[Tuple[int, int], Tuple[float, float]]] = []
             for _pid in (row.get("_drop_player_ids") or []):
-                _f = _afac(_player_display(_pid))
-                _sent_logs.append({_k2: (_v, _v * _f) for _k2, _v in _nfl_wk_pts(sid=_pid).items()})
+                _nm_s = _player_display(_pid)
+                _sent_logs.append({_k2: (_v, _v * _afac(_nm_s, _k2[0])) for _k2, _v in _nfl_wk_pts(sid=_pid).items()})
             for _m in (row.get("_drop_pick_meta") or []):
                 try:
                     _pk = (int(_m[0]), int(_m[1]), _norm_team_name(_m[2]))
@@ -8853,8 +8919,7 @@ def build_all(repo_root: Path) -> None:
                     continue
                 _dr = _pick_to_drafted.get(_pk)
                 if _dr:
-                    _f = _afac(_dr[0])
-                    _sent_logs.append({_k2: (_v, _v * _f) for _k2, _v in _nfl_wk_pts(name=_dr[0]).items()})
+                    _sent_logs.append({_k2: (_v, _v * _afac(_dr[0], _k2[0])) for _k2, _v in _nfl_wk_pts(name=_dr[0]).items()})
             _tp_added = _tp_lost = _tadj_added = _tadj_lost = 0.0
             _tnwk = 0
             _wins_flipped = 0  # Item 3: net games the trade actually flipped
@@ -15028,6 +15093,18 @@ def build_all(repo_root: Path) -> None:
             ph = ph.rename(columns={"Final Team": "Team"})
     except Exception as e:
         _log_exc(debug, "picks_final_team_rename", e)
+
+    # Relabel the 2020 ESPN startup picks' displayed Year to "startup". They were
+    # computed as a normal 2020 draft so every pick stat filled in, and every pass
+    # that parses Year numerically (PPG / O-Score / age / links / Drafting skill)
+    # has already run by here. _is_startup is internal-only (dropped on write).
+    try:
+        if isinstance(ph, pd.DataFrame) and not ph.empty and "_is_startup" in ph.columns:
+            _su_mask = ph["_is_startup"].fillna(False).astype(bool)
+            ph.loc[_su_mask, "Year"] = "startup"
+            _log(debug, f"[{_now_iso()}] INFO 2020 startup picks relabeled Year='startup': {int(_su_mask.sum())} rows")
+    except Exception as e:
+        _log_exc(debug, "startup_year_relabel", e)
 
     context = {
         "player_week": pw,
