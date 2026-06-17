@@ -1,0 +1,588 @@
+"""
+ESPN 2020 loader (Phase 13).
+
+Parses the one-time ESPN dump in `data/espn_2020_raw/` (leagueId 34086, season
+2020 — the league's first year, before Sleeper) into NORMALIZED per-season
+structures the main build can fold in as the new earliest season.
+
+Design: translate ESPN's shapes into the same vocabulary the Sleeper pipeline
+already speaks (roster_id 1..8 per team, per-week starters/bench/points,
+transactions as add/drop/trade, a draft) so `lotg.py` can consume 2020 like any
+other season. Join ESPN playerId -> our player identity via the DynastyProcess
+`espn_id` column (gsis_id / sleeper_id / name / position).
+
+This module is import-safe and has a `__main__` self-test that validates the parse
+against known facts (8 teams, 152 picks = 19 rounds, 16 weeks, and a known
+email-confirmed trade).
+"""
+
+from __future__ import annotations
+
+import csv
+import glob
+import html
+import json
+import os
+import re
+from collections import Counter, defaultdict
+from typing import Any, Dict, List, Optional
+
+LEAGUE_ID = 34086
+SEASON = 2020
+RAW_DIR_DEFAULT = os.path.join(os.path.dirname(__file__), "..", "data", "espn_2020_raw")
+DP_IDS_DEFAULT = os.path.join(os.path.dirname(__file__), "..",
+                              "exports", "snapshot", "dynastyprocess_playerids.csv")
+
+# Verified teamId -> current manager (see plan/notes/espn_2020_backfill.md).
+# Join on teamId/owner, NEVER team name (names were changed repeatedly mid-2020).
+TEAM_TO_MANAGER = {
+    1: "stevenb123",
+    2: "shmuel256",
+    3: "LWebs53",
+    4: "BROsenzweig",
+    5: "Oliverwkw",
+    6: "JacobRosenzweig",
+    7: "AceMatthew",
+    8: "plehv79",
+}
+
+# ESPN lineupSlotId: starters are everything except bench(20)/IR(21).
+BENCH_SLOTS = {20, 21}
+SLOT_NAME = {
+    0: "QB", 1: "TQB", 2: "RB", 3: "RB/WR", 4: "WR", 5: "WR/TE", 6: "TE",
+    7: "OP", 16: "D/ST", 17: "K", 20: "BE", 21: "IR", 23: "FLEX",
+}
+# ESPN defaultPositionId -> our position label.
+POS_NAME = {1: "QB", 2: "RB", 3: "WR", 4: "TE", 5: "K", 16: "D/ST"}
+# ESPN proTeamId -> NFL abbrev (2020 map; WSH/OAK->LV etc.).
+PRO_TEAM = {
+    0: None, 1: "ATL", 2: "BUF", 3: "CHI", 4: "CIN", 5: "CLE", 6: "DAL", 7: "DEN",
+    8: "DET", 9: "GB", 10: "TEN", 11: "IND", 12: "KC", 13: "LV", 14: "LAR",
+    15: "MIA", 16: "MIN", 17: "NE", 18: "NO", 19: "NYG", 20: "NYJ", 21: "PHI",
+    22: "ARI", 23: "PIT", 24: "LAC", 25: "SF", 26: "SEA", 27: "TB", 28: "WAS",
+    29: "CAR", 30: "JAX", 33: "BAL", 34: "HOU",
+}
+
+
+# --------------------------------------------------------------------------- #
+# raw loading
+# --------------------------------------------------------------------------- #
+def _load(raw_dir: str, name: str) -> Any:
+    with open(os.path.join(raw_dir, name)) as f:
+        return json.load(f)
+
+
+def load_raw(raw_dir: str = RAW_DIR_DEFAULT) -> Dict[str, Any]:
+    """Load the dump's JSON files into a dict of parsed views + per-week files."""
+    raw_dir = os.path.abspath(raw_dir)
+    out: Dict[str, Any] = {"_dir": raw_dir}
+    out["settings"] = _load(raw_dir, "view_mSettings.json").get("settings", {})
+    out["teams"] = _load(raw_dir, "view_mTeam.json")
+    out["draft"] = _load(raw_dir, "view_mDraftDetail.json").get("draftDetail", {})
+    out["matchup"] = _load(raw_dir, "view_mMatchup.json").get("schedule", [])
+    out["transactions"] = _load(raw_dir, "transactions_all.json").get("transactions", [])
+    # Optional/heavy files — not needed once player_id_map.csv is baked (trimmed
+    # out of the committed dump to keep CI small).
+    for opt in ("league_combined.json", "player_universe.json"):
+        try:
+            key = "combined" if "combined" in opt else "player_universe"
+            data = _load(raw_dir, opt)
+            out[key] = data.get("players", data) if key == "player_universe" else data
+        except FileNotFoundError:
+            out[key] = [] if key == "player_universe" else {}
+    weeks = {}
+    for wf in sorted(glob.glob(os.path.join(raw_dir, "week_*.json"))):
+        wk = int(os.path.basename(wf).split("_")[1].split(".")[0])
+        weeks[wk] = json.load(open(wf))
+    out["weeks"] = weeks
+    return out
+
+
+# --------------------------------------------------------------------------- #
+# player identity bridge: ESPN playerId -> {gsis_id, sleeper_id, name, position}
+# --------------------------------------------------------------------------- #
+def build_player_bridge(raw: Dict[str, Any], dp_path: str = DP_IDS_DEFAULT) -> Dict[int, Dict[str, Any]]:
+    """ESPN playerId -> identity. Prefer the committed, pre-resolved
+    `data/espn_2020_raw/player_id_map.csv` (so the build is self-contained and does
+    NOT depend on the DP file being downloaded yet at injection time). If that map is
+    absent (local dev), fall back to DynastyProcess espn_id + the ESPN player objects."""
+    baked = os.path.join(raw.get("_dir", "."), "player_id_map.csv")
+    if os.path.exists(baked):
+        bridge: Dict[int, Dict[str, Any]] = {}
+        for r in csv.DictReader(open(baked)):
+            pid = int(r["espn_id"])
+            bridge[pid] = {"espn_id": pid,
+                           "sleeper_id": r.get("sleeper_id") or None,
+                           "gsis_id": r.get("gsis_id") or None,
+                           "name": r.get("name") or None,
+                           "position": r.get("position") or None,
+                           "nfl_team": r.get("nfl_team") or None}
+        return bridge
+    dp_by_espn: Dict[str, Dict[str, str]] = {}
+    if os.path.exists(dp_path):
+        for r in csv.DictReader(open(dp_path)):
+            eid = (r.get("espn_id") or "").strip()
+            if eid:
+                # DP stores espn_id as float-like "12345.0" sometimes
+                eid = eid.split(".")[0]
+                dp_by_espn[eid] = r
+    # ESPN player objects (from the universe + embedded roster objects) for fallback
+    espn_player: Dict[int, Dict[str, Any]] = {}
+    for p in raw.get("player_universe", []):
+        pl = p.get("player", p)
+        pid = p.get("id") or pl.get("id")
+        if pid is not None:
+            espn_player[int(pid)] = pl
+    bridge: Dict[int, Dict[str, Any]] = {}
+    seen = set(espn_player) | {int(float(k)) for k in dp_by_espn}
+    for pid in seen:
+        dp = dp_by_espn.get(str(pid))
+        pl = espn_player.get(pid, {})
+        bridge[pid] = {
+            "espn_id": pid,
+            "gsis_id": (dp or {}).get("gsis_id") or None,
+            "sleeper_id": (dp or {}).get("sleeper_id") or None,
+            "name": (dp or {}).get("name") or pl.get("fullName"),
+            "position": (dp or {}).get("position") or POS_NAME.get(pl.get("defaultPositionId")),
+            "nfl_team": PRO_TEAM.get(pl.get("proTeamId")) if pl else None,
+        }
+    return bridge
+
+
+# --------------------------------------------------------------------------- #
+# draft
+# --------------------------------------------------------------------------- #
+def parse_draft(raw: Dict[str, Any], bridge: Dict[int, Dict[str, Any]]) -> List[Dict[str, Any]]:
+    picks = []
+    for p in raw["draft"].get("picks", []):
+        pid = p.get("playerId")
+        ident = bridge.get(pid, {})
+        picks.append({
+            "round": p.get("roundId"),
+            "pick_in_round": p.get("roundPickNumber"),
+            "overall": p.get("overallPickNumber"),
+            "team_id": p.get("teamId"),
+            "manager": TEAM_TO_MANAGER.get(p.get("teamId")),
+            "keeper": p.get("keeper", False),
+            "espn_player_id": pid,
+            "player": ident.get("name"),
+            "gsis_id": ident.get("gsis_id"),
+            "sleeper_id": ident.get("sleeper_id"),
+            "position": ident.get("position"),
+        })
+    return picks
+
+
+# --------------------------------------------------------------------------- #
+# weekly lineups + matchups (who started, points, opponent, team PF)
+# --------------------------------------------------------------------------- #
+def _applied_points(player_obj: Dict[str, Any], week: int) -> Optional[float]:
+    """The week's actual fantasy points = the player's real stat line
+    (statSourceId 0) for that scoringPeriod with the single-week split (statSplitTypeId 1)."""
+    best = None
+    for s in player_obj.get("stats", []):
+        if s.get("scoringPeriodId") == week and s.get("statSourceId") == 0:
+            # statSplitTypeId 1 == single scoring period (vs 0 = season-to-date)
+            if s.get("statSplitTypeId") in (1, None):
+                return s.get("appliedTotal")
+            best = s.get("appliedTotal") if best is None else best
+    return best
+
+
+def parse_weeks(raw: Dict[str, Any], bridge: Dict[int, Dict[str, Any]]) -> Dict[int, List[Dict[str, Any]]]:
+    """-> {week: [ per-team dict with team_id, manager, opponent, pf, starters[], bench[] ]}."""
+    out: Dict[int, List[Dict[str, Any]]] = {}
+    for wk, data in raw["weeks"].items():
+        rows = []
+        for m in data.get("schedule", []):
+            if m.get("matchupPeriodId") != wk:
+                continue
+            sides = [("home", "away"), ("away", "home")]
+            for me, opp in sides:
+                s = m.get(me)
+                o = m.get(opp)
+                if not s:
+                    continue
+                pf = (s.get("pointsByScoringPeriod") or {}).get(str(wk))
+                entries = (s.get("rosterForCurrentScoringPeriod") or {}).get("entries", [])
+                starters, bench = [], []
+                for e in entries:
+                    pl = (e.get("playerPoolEntry") or {}).get("player", {})
+                    pid = e.get("playerId") or pl.get("id")
+                    ident = bridge.get(pid, {})
+                    rec = {
+                        "espn_player_id": pid,
+                        "player": ident.get("name") or pl.get("fullName"),
+                        "gsis_id": ident.get("gsis_id"),
+                        "sleeper_id": ident.get("sleeper_id"),
+                        "position": ident.get("position") or POS_NAME.get(pl.get("defaultPositionId")),
+                        "lineup_slot": e.get("lineupSlotId"),
+                        "slot_name": SLOT_NAME.get(e.get("lineupSlotId")),
+                        "points": _applied_points(pl, wk),
+                    }
+                    (bench if e.get("lineupSlotId") in BENCH_SLOTS else starters).append(rec)
+                rows.append({
+                    "week": wk,
+                    "team_id": s.get("teamId"),
+                    "manager": TEAM_TO_MANAGER.get(s.get("teamId")),
+                    "opponent_team_id": (o or {}).get("teamId"),
+                    "opponent_manager": TEAM_TO_MANAGER.get((o or {}).get("teamId")),
+                    "pf": pf,
+                    "starters": starters,
+                    "bench": bench,
+                })
+        out[wk] = rows
+    return out
+
+
+# --------------------------------------------------------------------------- #
+# transactions (adds/drops + executed trades = TRADE_UPHOLD only)
+# --------------------------------------------------------------------------- #
+def parse_transactions(raw: Dict[str, Any], bridge: Dict[int, Dict[str, Any]]) -> Dict[str, List[Dict[str, Any]]]:
+    """-> {'moves': [adds/drops], 'trades': [executed trades]}.
+    Executed trades are TRADE_UPHOLD only (vetoes/declines/proposals excluded, per
+    league rule — accepted-then-vetoed trades did not happen)."""
+    moves, trades = [], []
+    for t in raw["transactions"]:
+        ttype = t.get("type")
+        items = t.get("items", [])
+        def ident(pid):
+            b = bridge.get(pid, {})
+            return {"espn_player_id": pid, "player": b.get("name"),
+                    "gsis_id": b.get("gsis_id"), "sleeper_id": b.get("sleeper_id"),
+                    "position": b.get("position")}
+        if ttype in ("FREEAGENT", "WAIVER"):
+            for it in items:
+                moves.append({
+                    "date": t.get("proposedDate"),
+                    "scoring_period": t.get("scoringPeriodId"),
+                    "kind": ttype,            # no FAAB in 2020 -> bidAmount always 0
+                    "action": it.get("type"),  # ADD / DROP
+                    "team_id": it.get("toTeamId") if it.get("type") == "ADD" else it.get("fromTeamId"),
+                    "manager": TEAM_TO_MANAGER.get(
+                        it.get("toTeamId") if it.get("type") == "ADD" else it.get("fromTeamId")),
+                    **ident(it.get("playerId")),
+                })
+        elif ttype == "TRADE_UPHOLD":
+            legs = []
+            for it in items:
+                legs.append({
+                    "from_team_id": it.get("fromTeamId"),
+                    "from_manager": TEAM_TO_MANAGER.get(it.get("fromTeamId")),
+                    "to_team_id": it.get("toTeamId"),
+                    "to_manager": TEAM_TO_MANAGER.get(it.get("toTeamId")),
+                    **ident(it.get("playerId")),
+                })
+            trades.append({
+                "date": t.get("proposedDate"),
+                "scoring_period": t.get("scoringPeriodId"),
+                "teams": sorted({l["from_manager"] for l in legs if l["from_manager"]}
+                                | {l["to_manager"] for l in legs if l["to_manager"]}),
+                "legs": legs,
+            })
+    return {"moves": moves, "trades": trades}
+
+
+# --------------------------------------------------------------------------- #
+# TRADE LAYER (from the saved ESPN trade emails)
+# ESPN exposes a trade's player legs only on the private TRADE_PROPOSAL (visible
+# to the two teams), so one manager's pull can't see every trade's players. The
+# emails carry the full legs for all leagueId-34086 trades. We resolve each emailed
+# player to the exact ESPN playerId by ROSTER MOVEMENT (the player who actually
+# changed hands that week) — robust to name suffixes (II/Jr/V), name changes
+# (Robby Anderson -> Robbie Chosen), and same-name collisions (two David Johnsons).
+# Executed trades only: the lone VETOED email is dropped ("track upheld").
+# --------------------------------------------------------------------------- #
+_SUFFIX = re.compile(r'\b(?:jr|sr|ii|iii|iv|v)\b\.?', re.I)
+# Players who changed their name after 2020 (emails use the 2020 name; the DP/bridge
+# uses the current name). Map 2020-name -> current-name (normalized).
+_NAME_ALIAS = {
+    "robbyanderson": "robbiechosen",
+}
+
+
+def _nrm(s: str) -> str:
+    k = re.sub(r'[^a-z]', '', _SUFFIX.sub('', (s or '')).lower())
+    return _NAME_ALIAS.get(k, k)
+
+
+def _ownership(weeks: Dict[int, List[Dict[str, Any]]]) -> Dict[int, Dict[int, str]]:
+    """espn_player_id -> {week: manager} across full roster membership."""
+    own: Dict[int, Dict[int, str]] = {}
+    for wk in sorted(weeks):
+        for r in weeks[wk]:
+            for p in r["starters"] + r["bench"]:
+                own.setdefault(p["espn_player_id"], {})[wk] = r["manager"]
+    return own
+
+
+def parse_email_trades(loaded: Dict[str, Any], downloads: str = "~/Downloads") -> List[Dict[str, Any]]:
+    import email as _email
+    import quopri
+    weeks, bridge = loaded["weeks"], loaded["_bridge"]
+    own = _ownership(weeks)
+    name_to_ids: Dict[str, List[int]] = defaultdict(list)
+    for pid, b in bridge.items():
+        if b.get("name"):
+            name_to_ids[_nrm(b["name"])].append(pid)
+
+    def changes_at(pid):
+        """weeks where pid's owner differs from the prior rostered week -> (week, from, to)."""
+        tl = own.get(pid, {})
+        wks = sorted(tl)
+        out = []
+        for i, wk in enumerate(wks):
+            if i == 0:
+                out.append((wk, None, tl[wk]))
+            elif tl[wk] != tl[wks[i - 1]] or wk != wks[i - 1] + 1:
+                out.append((wk, tl[wks[i - 1]], tl[wk]))
+        return out
+
+    trades = []
+    for fn in sorted(glob.glob(os.path.join(os.path.expanduser(downloads), "A Trade*.eml"))):
+        raw = open(fn, "rb").read()
+        msg = _email.message_from_bytes(raw)
+        if "vetoed" in (msg.get("Subject", "")).lower():
+            continue
+        body = raw.split(b"\r\n\r\n", 1)[1]
+        txt = quopri.decodestring(body).decode("utf-8", "replace")
+        if "34086" not in txt:
+            continue
+        dt = _email.utils.parsedate_to_datetime(msg.get("Date"))
+        flat = html.unescape(re.sub(r'<[^>]+>', ' ', re.sub(r'<br\s*/?>', ' | ', txt)))
+        picks = bool(re.search(r'Overall pick number:', flat))
+        # Split into the two SIDES (each "<abbr> (agreed to )?trade(s)" column lists the
+        # players THAT team gave up). Keeping sides separate lets us assign a from/to to a
+        # player who has no prior roster week (added + traded in the same week, e.g. Taysom).
+        side_blobs = re.findall(
+            r"(?:agreed to trade|trades)\s*(.*?)(?=(?:[A-Za-z0-9?\- ]+? (?:agreed to trade|trades))|Reply|$)",
+            flat, re.S)
+        side_names = []
+        for blob in side_blobs:
+            nms = re.findall(r"([A-Z][A-Za-z.'\- ]+?),\s*[A-Za-z]{2,3}\s+(?:QB|RB|WR|TE|K|D/ST)", blob)
+            if nms:
+                side_names.append(nms)
+        all_cand = {pid for side in side_names for nm in side for pid in name_to_ids.get(_nrm(nm), [])}
+        # trade week = the week where the most candidates change hands together
+        wk_votes = Counter()
+        for pid in all_cand:
+            for wk, frm, to in changes_at(pid):
+                if frm is not None:
+                    wk_votes[wk] += 1
+        trade_week = wk_votes.most_common(1)[0][0] if wk_votes else None
+
+        # Per side: the side's FROM manager = the owner the side's moved players left
+        # (the mode), and TO = the other side's FROM. Apply to every player on that side,
+        # so same-week acquire+flip players inherit the side's from/to.
+        def side_from(side):
+            froms = Counter()
+            for nm in side:
+                for pid in name_to_ids.get(_nrm(nm), []):
+                    for wk, frm, to in changes_at(pid):
+                        if wk == trade_week and frm is not None:
+                            froms[frm] += 1
+            return froms.most_common(1)[0][0] if froms else None
+
+        froms = [side_from(s) for s in side_names]
+        legs = []
+        for si, side in enumerate(side_names):
+            frm = froms[si]
+            to = froms[1 - si] if len(froms) == 2 else None
+            for nm in side:
+                ids = name_to_ids.get(_nrm(nm), [])
+                # prefer the id that actually moved this week on the right side; else the
+                # name match (covers same-week acquire+flip with no prior roster week)
+                pid = next((p for p in ids for wk, f, t in changes_at(p)
+                            if wk == trade_week and f == frm), ids[0] if ids else None)
+                if pid is None:
+                    continue
+                legs.append({"espn_player_id": pid,
+                             "player": bridge.get(pid, {}).get("name"),
+                             "gsis_id": bridge.get(pid, {}).get("gsis_id"),
+                             "sleeper_id": bridge.get(pid, {}).get("sleeper_id"),
+                             "from_manager": frm, "to_manager": to})
+        trades.append({
+            "date": dt.isoformat() if dt else None,
+            "trade_week": trade_week,
+            "involves_picks": picks,
+            "teams": sorted({l["from_manager"] for l in legs} | {l["to_manager"] for l in legs}),
+            "legs": legs,
+            "source_email": os.path.basename(fn),
+        })
+    # merge duplicate emails (accepted + later upheld for the same trade) by (week, player-set)
+    seen = {}
+    for t in trades:
+        key = (t["trade_week"], frozenset(l["espn_player_id"] for l in t["legs"]))
+        if key not in seen or len(t["legs"]) > len(seen[key]["legs"]):
+            seen[key] = t
+    return sorted(seen.values(), key=lambda t: t["date"] or "")
+
+
+def load_espn_2020(raw_dir: str = RAW_DIR_DEFAULT, dp_path: str = DP_IDS_DEFAULT) -> Dict[str, Any]:
+    raw = load_raw(raw_dir)
+    bridge = build_player_bridge(raw, dp_path)
+    return {
+        "season": SEASON,
+        "league_id": LEAGUE_ID,
+        "team_to_manager": TEAM_TO_MANAGER,
+        "draft": parse_draft(raw, bridge),
+        "weeks": parse_weeks(raw, bridge),
+        "transactions": parse_transactions(raw, bridge),
+        "_bridge": bridge,
+        "_raw": raw,
+    }
+
+
+# --------------------------------------------------------------------------- #
+# Sleeper-shape adapter: emit 2020 in the exact shapes lotg.py's per-season
+# loop consumes (sc.league / users / rosters / matchups / transactions / drafts /
+# brackets), keyed by sleeper_id, so a guarded wrapper can feed 2020 to the build
+# untouched. roster_id == ESPN teamId (1..8); player ids == sleeper_id strings.
+# --------------------------------------------------------------------------- #
+ESPN_START_SLOT_TO_SLEEPER = {0: "QB", 2: "RB", 4: "WR", 6: "TE", 7: "SUPER_FLEX", 23: "FLEX"}
+SLEEPER_LEAGUE_ID = "espn_2020"
+
+
+def _roster_positions(raw: Dict[str, Any]) -> List[str]:
+    counts = raw["settings"].get("rosterSettings", {}).get("lineupSlotCounts", {})
+    order = [(0, "QB"), (2, "RB"), (4, "WR"), (6, "TE"), (23, "FLEX"), (7, "SUPER_FLEX")]
+    pos = []
+    for slot, name in order:
+        pos += [name] * int(counts.get(str(slot), 0))
+    pos += ["BN"] * int(counts.get("20", 0))
+    pos += ["IR"] * int(counts.get("21", 0))
+    return pos
+
+
+def emit_sleeper_2020(loaded: Dict[str, Any]) -> Dict[str, Any]:
+    raw, bridge = loaded["_raw"], loaded["_bridge"]
+    def sid(espn_pid):  # sleeper player id (string), the build's player key
+        s = bridge.get(espn_pid, {}).get("sleeper_id")
+        return str(s) if s else None
+
+    owners = {t["id"]: t.get("primaryOwner") for t in raw["teams"].get("teams", [])}
+    league = {
+        "league_id": SLEEPER_LEAGUE_ID, "season": str(SEASON), "status": "complete",
+        "previous_league_id": None, "name": raw["settings"].get("name", "The League"),
+        "total_rosters": len(TEAM_TO_MANAGER), "roster_positions": _roster_positions(raw),
+        "settings": {"playoff_week_start": 15, "playoff_teams": 4, "num_teams": 8,
+                     "last_scored_leg": 16, "leg": 16},
+        # 2020 scoring is supplied as actual per-player points on each matchup
+        # (players_points), so the build's re-score path has nothing to recompute.
+        "scoring_settings": {},
+    }
+    users = [{"user_id": owners.get(tid), "display_name": mgr,
+              "metadata": {"team_name": mgr}} for tid, mgr in TEAM_TO_MANAGER.items()]
+
+    # final rosters = last week that actually has lineups (weeks 17-18 are empty:
+    # the 2020 fantasy season ends at week 16)
+    last_wk = max(w for w, rows in loaded["weeks"].items() if rows)
+    rosters = []
+    for r in loaded["weeks"][last_wk]:
+        plist = [sid(p["espn_player_id"]) for p in r["starters"] + r["bench"]]
+        rosters.append({"roster_id": r["team_id"], "owner_id": owners.get(r["team_id"]),
+                        "players": [p for p in plist if p], "draft_season": str(SEASON)})
+
+    # matchups per week (roster_id, points, starters, players, players_points, matchup_id)
+    matchups_by_week: Dict[int, List[Dict[str, Any]]] = {}
+    for wk, rows in loaded["weeks"].items():
+        # pair opponents into matchup_ids
+        mid_by_team, mid = {}, 0
+        for r in rows:
+            if r["team_id"] in mid_by_team:
+                continue
+            mid += 1
+            mid_by_team[r["team_id"]] = mid
+            if r["opponent_team_id"] is not None:
+                mid_by_team[r["opponent_team_id"]] = mid
+        out = []
+        for r in rows:
+            pts = {sid(p["espn_player_id"]): p["points"] for p in r["starters"] + r["bench"] if sid(p["espn_player_id"])}
+            out.append({
+                "roster_id": r["team_id"],
+                "matchup_id": mid_by_team.get(r["team_id"]),
+                "points": r["pf"],
+                "starters": [sid(p["espn_player_id"]) for p in r["starters"] if sid(p["espn_player_id"])],
+                "players": [sid(p["espn_player_id"]) for p in r["starters"] + r["bench"] if sid(p["espn_player_id"])],
+                "players_points": pts,
+            })
+        matchups_by_week[wk] = out
+
+    # transactions per week: adds/drops (public) + executed trades (email layer)
+    tx = parse_transactions(raw, bridge)
+    trades = parse_email_trades(loaded)
+    tx_by_week: Dict[int, List[Dict[str, Any]]] = defaultdict(list)
+    tid = 0
+    for m in tx["moves"]:
+        wk = m["scoring_period"] or 1
+        tid += 1
+        adds = {sid(m["espn_player_id"]): m["team_id"]} if m["action"] == "ADD" else None
+        drops = {sid(m["espn_player_id"]): m["team_id"]} if m["action"] == "DROP" else None
+        tx_by_week[wk].append({
+            "transaction_id": f"e{tid}", "type": "waiver" if m["kind"] == "WAIVER" else "free_agent",
+            "status": "complete", "roster_ids": [m["team_id"]],
+            "adds": adds, "drops": drops, "draft_picks": [], "waiver_budget": [],
+            "settings": None, "created": None, "metadata": None,
+        })
+    team_by_mgr = {v: k for k, v in TEAM_TO_MANAGER.items()}
+    for t in trades:
+        wk = t["trade_week"] or 1
+        tid += 1
+        adds, drops, rids = {}, {}, set()
+        for l in t["legs"]:
+            ps = sid(l["espn_player_id"])
+            if not ps:
+                continue
+            to_rid = team_by_mgr.get(l["to_manager"]); fr_rid = team_by_mgr.get(l["from_manager"])
+            if to_rid: adds[ps] = to_rid; rids.add(to_rid)
+            if fr_rid: drops[ps] = fr_rid; rids.add(fr_rid)
+        tx_by_week[wk].append({
+            "transaction_id": f"et{tid}", "type": "trade", "status": "complete",
+            "roster_ids": sorted(rids), "adds": adds or None, "drops": drops or None,
+            "draft_picks": [], "waiver_budget": [], "settings": None,
+            "created": None, "metadata": None,
+        })
+
+    # draft + picks (Sleeper shape)
+    picks = [{"round": p["round"], "pick_no": p["overall"], "roster_id": p["team_id"],
+              "player_id": sid(p["espn_player_id"]), "is_keeper": p["keeper"],
+              "metadata": {"first_name": (p["player"] or "").split(" ")[0],
+                           "last_name": " ".join((p["player"] or "").split(" ")[1:])}}
+             for p in loaded["draft"]]
+    draft = {"draft_id": "espn_2020_draft", "season": str(SEASON), "type": "snake",
+             "status": "complete", "settings": {"rounds": max(p["round"] for p in loaded["draft"])}}
+
+    return {
+        "league": league, "users": users, "rosters": rosters,
+        "matchups_by_week": matchups_by_week, "transactions_by_week": dict(tx_by_week),
+        "draft": draft, "draft_picks": picks,
+        "winners_bracket": [], "losers_bracket": [],  # derived in the build from standings
+    }
+
+
+# --------------------------------------------------------------------------- #
+# self-test
+# --------------------------------------------------------------------------- #
+if __name__ == "__main__":
+    import sys
+    rd = sys.argv[1] if len(sys.argv) > 1 else RAW_DIR_DEFAULT
+    d = load_espn_2020(rd)
+    dr, wks, tx = d["draft"], d["weeks"], d["transactions"]
+    print(f"draft picks: {len(dr)} (rounds={max(p['round'] for p in dr)})")
+    print(f"  R1.01: {dr[0]['manager']} -> {dr[0]['player']} ({dr[0]['position']})")
+    named = sum(1 for p in dr if p["player"])
+    print(f"  picks with resolved player: {named}/{len(dr)}")
+    print(f"weeks: {sorted(wks)}")
+    wk1 = wks[1]
+    print(f"  week1 teams: {len(wk1)}; sample {wk1[0]['manager']} PF={wk1[0]['pf']} "
+          f"starters={len(wk1[0]['starters'])} bench={len(wk1[0]['bench'])}")
+    miss_pf = [(w, r['manager']) for w in wks for r in wks[w] if r['pf'] is None]
+    print(f"  team-weeks missing PF: {len(miss_pf)}")
+    print(f"moves (add/drop): {len(tx['moves'])}; executed trades (UPHOLD): {len(tx['trades'])}")
+    # validate a known email trade: 2020-09-15 OK<->SHMU (J.Jefferson+D.Parker for M.Brown+D.Mims)
+    for t in tx["trades"]:
+        names = {l["player"] for l in t["legs"]}
+        if any(n and "Jefferson" in n for n in names):
+            print(f"  found JJ trade: teams={t['teams']} players={sorted(n for n in names if n)}")
+    unresolved = sum(1 for w in wks for r in wks[w] for p in r["starters"] + r["bench"] if not p["player"])
+    print(f"unresolved player names across all lineups: {unresolved}")
