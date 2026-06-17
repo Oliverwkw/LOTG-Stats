@@ -42,6 +42,27 @@ RANK_URL = "https://keeptradecut.com/dynasty-rankings"
 PLAYER_URL = "https://keeptradecut.com/dynasty-rankings/players/{slug}"
 UA = "Mozilla/5.0 (LOTG-Stats KTC backfill; +https://github.com/Oliverwkw/LOTG-Stats)"
 OUTDIR = REPO / "data" / "ktc_backfill"  # committed (data/ktc_cache/ is gitignored)
+DB_PLAYERIDS = REPO / "data" / "ktc_cache" / "db_playerids.csv"
+DB_PLAYERIDS_URLS = [
+    "https://raw.githubusercontent.com/dynastyprocess/data/master/files/db_playerids.csv",
+    "https://raw.githubusercontent.com/DynastyProcess/data/master/files/db_playerids.csv",
+]
+
+
+def _ensure_db_playerids():
+    """The crosswalk needs DynastyProcess db_playerids.csv. It lives under the
+    gitignored data/ktc_cache/, so on a clean runner it's absent — download it."""
+    if DB_PLAYERIDS.exists() and DB_PLAYERIDS.stat().st_size > 0:
+        return DB_PLAYERIDS
+    DB_PLAYERIDS.parent.mkdir(parents=True, exist_ok=True)
+    for u in DB_PLAYERIDS_URLS:
+        try:
+            DB_PLAYERIDS.write_text(_get(u))
+            if DB_PLAYERIDS.stat().st_size > 0:
+                return DB_PLAYERIDS
+        except Exception:
+            continue
+    raise RuntimeError("could not fetch db_playerids.csv from DynastyProcess")
 
 
 def _get(url: str) -> str:
@@ -75,7 +96,7 @@ def build_crosswalk() -> dict:
     arr = json.loads(re.search(r'var playersArray\s*=\s*(\[\{.*?\}\]);', html, re.S).group(1))
     import csv
     mfl2sleeper = {}
-    with open(REPO / "data" / "ktc_cache" / "db_playerids.csv") as f:
+    with open(_ensure_db_playerids()) as f:
         for row in csv.DictReader(f):
             mf = (row.get("mfl_id") or "").split(".")[0]
             sl = (row.get("sleeper_id") or "").split(".")[0]
@@ -160,7 +181,7 @@ def scrape_wayback_retirees(sleeper_targets: set) -> dict:
     """
     import csv as _csv
     name_pos_to_sleeper = {}
-    for r in _csv.DictReader(open(REPO / "data" / "ktc_cache" / "db_playerids.csv")):
+    for r in _csv.DictReader(open(_ensure_db_playerids())):
         sl = (r.get("sleeper_id") or "").split(".")[0]
         nm = re.sub(r"[^a-z]", "", (r.get("name") or "").lower())
         ps = (r.get("position") or "").upper()
