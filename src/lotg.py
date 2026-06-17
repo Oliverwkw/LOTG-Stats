@@ -7230,24 +7230,13 @@ def build_all(repo_root: Path) -> None:
             except ValueError:
                 return d.replace(year=d.year + n, day=28)
 
-        # League-format detection so the KTC values we pull match the
-        # user's setup. dynasty-daddy publishes two value series per
-        # asset: trade_value (1QB) and sf_trade_value (superflex). A
-        # superflex league should use sf_trade_value or QBs read way
-        # too low and trade rollups read backwards.
-        ktc_value_col = "trade_value"
-        try:
-            for lg in leagues or []:
-                rp = [str(x).upper() for x in (lg.get("roster_positions") or [])]
-                if any(p in {"SUPER_FLEX", "SUPERFLEX", "SFLEX", "SFLX"} for p in rp):
-                    ktc_value_col = "sf_trade_value"
-                    break
-                if rp.count("QB") >= 2:
-                    ktc_value_col = "sf_trade_value"
-                    break
-        except Exception:
-            pass
-        _log(debug, f"[{_now_iso()}] INFO ktc value column: {ktc_value_col}")
+        # The league is SUPERFLEX in every season (2020 ESPN startup had a
+        # SUPER_FLEX slot; 2021+ Sleeper is superflex), so ALL KTC values use the
+        # superflex series. dynasty-daddy publishes trade_value (1QB) and
+        # sf_trade_value (superflex); we always take superflex — 1QB would read
+        # QBs far too low and flip trade rollups.
+        ktc_value_col = "sf_trade_value"
+        _log(debug, f"[{_now_iso()}] INFO ktc value column: {ktc_value_col} (superflex, always)")
 
         # Collect every sleeper_id and pick label we'll need across both
         # detail tables. dynasty-daddy serves per-player histories one

@@ -14,7 +14,28 @@
 - Category 8 (player_year `Points` N/A, ~214 rows) verified 214/214 legit: every one has
   zero player_week rows that season (rostered but never on a scored roster). **No fix.**
 
-## 1. KTC backfill — one-time KTC.com scrape (the 2020-04 → 2021-04 gap)
+## STATUS (2026-06-17): KTC backfill in progress
+- ALL KTC values switched to **superflex** (`sf_trade_value`), always (league is SF).
+- `scripts/ktc_backfill_scrape.py` built: (a) active players via current KTC pages
+  (full daily SF history back to 2020-04), (b) retirees via Wayback rankings
+  snapshots; crosswalk = KTC rankings playerID/slug + DP db_playerids mfl/ktc ids.
+- Method (per spec): only the (player,date) cells dynasty-daddy is missing
+  (checkpoints < its 2021-04-16 floor). Targets = players in any pre-floor KTC
+  cell across picks+transactions+trades (250).
+- Scraped + committed to `data/ktc_cache/backfill/<sleeper_id>.json` (SF, pre-floor):
+  - 81 active players → full 2020-04..2021-04 daily history (draft-day + end-of-rookie).
+  - 159 retirees → 2021-01-17 Wayback point (covers the end-of-rookie checkpoint).
+- `ktc.py build_index` merges the backfill (pre-floor) under each sleeper_id.
+- KTC=0 logic REFINED: 0 only when a player is off-rolls AND past their last KTC
+  value (demonstrably dropped off by then). A pre-history/active-era date with no
+  data → N/A (NOT 0) — a now-retired player was active+valuable at his 2020 draft.
+- REMAINING: the 2020 Wayback snapshots (2020-09/10, 2021-01-19, 2021-04) hit a
+  1MB cap on Wayback's id_ endpoint in this sandbox → retirees' 2020 *draft-day*
+  value (and ~10 players incl. Drew Brees not in the 2021-01 snapshot) still N/A.
+  Re-run `python scripts/ktc_backfill_scrape.py --wayback` in an unconstrained env
+  to fetch the full 2020 snapshots. Genuinely-obscure players (no KTC ever) → 0.
+
+## 1. (orig) KTC backfill — one-time KTC.com scrape (the 2020-04 → 2021-04 gap)
 1. Build sleeper_id→KTC_id crosswalk for the players we need (2020 startup picks + 2020/
    early-2021 transaction & trade players, ~250-400): parse the KTC dynasty-rankings page
    player array (name, position, KTC id), match by name+position to our bridge/pid_meta.
