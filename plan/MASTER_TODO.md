@@ -231,11 +231,20 @@ list in `plan/AUDIT_PHASE12_FINDINGS.md`. Flow: implement the queue below (with 
 **✅ Phase 12 COMPLETE.** Only intentionally-deferred items remain: F3 → Phase 13; F4/#42 (float-noise) and F7 (NFL sentinel) won't-fix; #26 sparklines + #43 extra test suites scrapped; #41 injury-tracker → Phase 14.
 
 ## Phase 13 — ESPN 2020 backfill
-- [ ] Scope when we get there
-- [ ] **Off-platform pick-trade backfill:** try to manually determine and add all 1st- and 2nd-round pick trades that happened OFF-platform (pre-Sleeper / side deals) so trade metrics (KTC won/lost, retro grades, pick-vs-player outcomes, manager Trading skill) are balanced and not missing legs.
-- [ ] **Trades can no longer be an asset start point:** after this backfill, re-audit the trades-sheet `Link to previous transaction per asset` — a trade must never be an asset's origin (every first-trade `previous`=N/A endpoint must chain back to the earlier draft/acquisition). See the Phase 12 bug #6 note.
-- [ ] **Initial-roster vets' history origin (71 players):** these veterans were placed on 2021 startup rosters but were NOT in the recorded vet draft and never added as FA, so their asset-history hover-comment currently begins mid-stream at their first trade instead of an "originally …" origin line (every other comment starts with the pick/FA origin). They have no startup-draft pick to seed from, and `player_tenures` can't see the initial stint (no `add` event → the pre-trade stint is skipped). Once ESPN 2020 + the off-platform startup data lands we can assign each an "originally on \_\_\_'s 2021 startup roster" origin. Full list saved at `plan/notes/initial_roster_vets_2021.txt`. Detect them the same way: a player_all_time comment whose first line is neither `… — originally …` nor an `added by/dropped by` line.
-- [ ] **3-part audit** (code / results / diff)
+**Goal:** integrate the league's first season (2020, played on ESPN leagueId 34086 before
+Sleeper) into the dataset, filling every column to the max. Source notes + verified
+teamId→manager crosswalk: `plan/notes/espn_2020_backfill.md`. 2020 rules: 8 teams, 16-round
+[actually 19-round] snake superflex startup, 16-week season, playoffs **wks 15–16**, **no
+FAAB**, picks tradeable **off-platform only**, KTC has no pre-Aug-2021 history.
+
+The user's 7-step plan (with status):
+- [x] **1. Scope what ESPN data fills which columns** — done (`espn_2020_backfill.md`).
+- [~] **2. Pull the data once (hardcoded) + load it.** Dump captured (`data/espn_2020_raw/`, leagueId 34086, commissioner cookies); loader + Sleeper-shape adapter built & validated (`src/espn_2020.py`, PR #291). **Remaining: wire it into `lotg.py` as the new earliest season (guarded `_Espn2020Client` wrapper + chain injection), ship the raw dump to CI (commit raw vs trimmed), CI build.**
+- [ ] **3. Columns that must treat ESPN/2020 differently:** `Startup draft players remaining` (now computable — these ARE the 2020 startup players; fixes Phase-12 F3), pick O-Score & KTC-dependent metrics (2020 KTC = N/A), FAAB columns (N/A), "Number of bids" (N/A — competing waiver claims are private per-manager), Semifinal **+5 homefield should NOT apply to 2020**, week-17 (not 18) playoff weeks.
+- [ ] **4. KTC / nflverse / other backfill hole-fix:** re-audit every external source for 2020 coverage holes (KTC pre-2021 = N/A by design; nflverse 2020 weekly stats/injuries/byes/ages present?; DP/Sleeper id mapping for any 2020-only players) and fix any gaps found. Also: cross-era ripples — 2021 wk1 "from previous week"/turnover stops being N/A (2020 now precedes it); 2020 wk1 becomes the new N/A boundary; 3-yr retention / future-pick windows now span 2020→2023.
+- [ ] **5. Confirm initial-roster vets' origin + perfect asset tracing.** The 71 "initial-roster vets" (`plan/notes/initial_roster_vets_2021.txt`) get their true origin from 2020 (startup draft or 2020 acquisition). **Validate with the no-teleport test** (every roster ownership change explained by draft/add/drop/trade — currently 0 teleports in the 2020 loader); extend across the 2020→2021 boundary so no asset "teleports". Trades can no longer be an asset start point (every first-trade `previous`=N/A must chain back to a 2020 draft/acquisition — Phase-12 bug #6 note).
+- [ ] **6. Off-platform pick-trade reconstruction.** ESPN can't trade picks on-platform, so 2020 1st/2nd-round (and any) pick trades happened off-platform — reconstruct from emails + human memory and hardcode, so trade metrics (KTC won/lost, retro grades, pick-vs-player, Trading skill) are balanced and not missing legs. (On-platform player trades come from the email trade layer, already built; the startup-draft slot-swap email is one pick trade.)
+- [ ] **7. Comprehensive 10-part audit:** the full 9-part battery **plus a 10th part dedicated to ESPN-2020 integration** (2020 reconciles like any other season; no teleports across the 2020→2021 seam; 2020-specific N/A columns correct; standings/playoffs/records right; nothing in 2021+ regressed). Each fix PR also gets a 3-part audit.
 
 ## Phase 14 — In-season weekly digest email
 **Trigger:** Tuesday 10am ET, in-season only (build runs first, then emails). Skip weeks with no completed games since last email.
@@ -257,3 +266,10 @@ list in `plan/AUDIT_PHASE12_FINDINGS.md`. Flow: implement the queue below (with 
 **Also schedule a weekly automated audit** (alongside the digest): run the 3-part audit harness against the latest build on a weekly cron, surface any UNEXPECTED diffs / schema breaks / non-2026 build errors (e.g. email or log them), so regressions from data drift or upstream-source changes are caught without a manual pass. Reuse the audit methodology; workflow_dispatch fallback for ad-hoc runs.
 
 - [ ] **3-part audit** (code / results / diff)
+
+## Phase 15 — TBD: OLD LEAGUES
+- [ ] **TBD.** Placeholder for integrating other historical/old leagues' data (e.g. the
+  separate ESPN leagues seen in the 2020 emails — UChicago '24 = leagueId 57687541, UChi
+  Fantasy = 54022297 — and any earlier seasons). Scope, sources, and whether they belong in
+  this dataset at all to be decided later. Reuse the Phase-13 ESPN dump script + loader
+  pattern where applicable.
