@@ -522,8 +522,14 @@ def emit_sleeper_2020(loaded: Dict[str, Any]) -> Dict[str, Any]:
             "transaction_id": f"e{tid}", "type": "waiver" if m["kind"] == "WAIVER" else "free_agent",
             "status": "complete", "roster_ids": [m["team_id"]],
             "adds": adds, "drops": drops, "draft_picks": [], "waiver_budget": [],
-            "settings": None, "created": None, "metadata": None,
+            "settings": None, "created": m["date"], "metadata": None,  # ESPN proposedDate (epoch ms)
         })
+    import datetime as _dt
+    def _iso_to_ms(s):
+        try:
+            return int(_dt.datetime.fromisoformat(s).timestamp() * 1000) if s else None
+        except Exception:
+            return None
     team_by_mgr = {v: k for k, v in TEAM_TO_MANAGER.items()}
     for t in trades:
         wk = t["trade_week"] or 1
@@ -540,7 +546,7 @@ def emit_sleeper_2020(loaded: Dict[str, Any]) -> Dict[str, Any]:
             "transaction_id": f"et{tid}", "type": "trade", "status": "complete",
             "roster_ids": sorted(rids), "adds": adds or None, "drops": drops or None,
             "draft_picks": [], "waiver_budget": [], "settings": None,
-            "created": None, "metadata": None,
+            "created": _iso_to_ms(t["date"]), "metadata": None,
         })
 
     # draft + picks (Sleeper shape)
