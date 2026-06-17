@@ -2973,6 +2973,10 @@ def build_all(repo_root: Path) -> None:
     season_team_to_roster: Dict[int, Dict[str, int]] = {}
     season_draft_picks_all: Dict[int, List[Dict[str, Any]]] = {}
     draft_picks_records: List[Dict[str, Any]] = []
+    # 2020 ESPN startup draft (19 rounds): captured at the >5-round exclusion below
+    # and emitted directly into pick_rows (the rookie-draft rebuild is built for
+    # <=4-round rookie/vet drafts and doesn't fit a one-time veteran startup).
+    _startup_draft_picks: List[Dict[str, Any]] = []
 
     # Cross-season state for "from previous week" stats. Hoisted out of the
     # per-season loop so Week 1 turnover & PF-increase reference the last
@@ -3506,8 +3510,12 @@ def build_all(repo_root: Path) -> None:
             is_rookie_draft = draft_type in {"rookie", "dynasty"}
 
             # Cap at 5-round rookie drafts (per league rules). Startup drafts
-            # are excluded — those have many more rounds.
+            # (many more rounds) don't fit the rookie-draft rebuild, so they're
+            # excluded HERE — but the 2020 ESPN startup is captured for a direct
+            # emit pass (it belongs in the picks sheet, tagged Year "startup").
             if max_round > 0 and max_round > 5:
+                if int(season) == 2020 and not _startup_draft_picks:
+                    _startup_draft_picks = [p for p in (picks or []) if isinstance(p, dict)]
                 continue
             if (picks_with_players + picks_with_names) == 0 and not is_rookie_draft:
                 continue
@@ -5817,6 +5825,62 @@ def build_all(repo_root: Path) -> None:
                     pick_rows.append(_row)
     except Exception as e:
         _log_exc(debug, "pick_history_rebuild", e)
+
+    # ----- 2020 ESPN startup draft (19 rounds) -----
+    # Emitted directly (not through the rookie-draft rebuild, which caps rounds at
+    # 4 and synthesizes future picks / trade chains that don't apply to a one-time
+    # veteran startup). Year is tagged "startup". Picks were not tradeable
+    # on-platform in 2020 — the lone off-platform slot swap is already baked into
+    # who actually drafted each slot — so Original Team == Final Team and no pick
+    # moved. Each row carries _player_id, so every downstream pick stat pass (PPG /
+    # addition value / O-Score / age) computes for it exactly like a real pick;
+    # _pick_draft_year() maps "startup" -> 2020 for those passes. KTC stays N/A
+    # (no pre-Aug-2021 KTC history).
+    try:
+        if _startup_draft_picks:
+            _su_rid_to_team = season_roster_to_team.get(2020, {})
+            # Snake startup: a team's slot is its round-1 draft position. Round 1
+            # picks are in slot order, so overall pick number == slot there.
+            _slot_by_rid: Dict[int, int] = {}
+            for _p in _startup_draft_picks:
+                if _to_int(_p.get("round"), 0) == 1:
+                    _rid1 = _to_int(_p.get("roster_id"), None)
+                    _ov1 = _to_int(_p.get("pick_no"), None)
+                    if _rid1 is not None and _ov1 is not None:
+                        _slot_by_rid[int(_rid1)] = int(_ov1)
+            _n_startup = 0
+            for _p in _startup_draft_picks:
+                _rnd = _to_int(_p.get("round"), None)
+                _rid = _to_int(_p.get("roster_id"), None)
+                _ov = _to_int(_p.get("pick_no"), None)
+                if _rnd is None or _rid is None:
+                    continue
+                _slot = _slot_by_rid.get(int(_rid))
+                if _slot is None and _ov is not None and _slot_by_rid:
+                    _slot = ((int(_ov) - 1) % len(_slot_by_rid)) + 1
+                _md = _p.get("metadata") if isinstance(_p.get("metadata"), dict) else {}
+                _nm = (f"{_md.get('first_name','')} {_md.get('last_name','')}".strip()
+                       or _player_display_name(_p.get("player_id")))
+                _tm = _su_rid_to_team.get(int(_rid), f"Roster {_rid}")
+                pick_rows.append({
+                    # Computed as a normal 2020 draft so every downstream pick pass
+                    # (PPG / addition value / O-Score / age / links / position
+                    # adjustment) fills in for it; the Year display is relabeled to
+                    # "startup" in a final pass (keyed off _is_startup) right before
+                    # the picks sheet is written.
+                    "Year": 2020,
+                    "_is_startup": True,
+                    "Number": _format_pick_number(int(_rnd), _slot),
+                    "Original Team": _tm,
+                    "Final Team": _tm,
+                    "Player Picked": _nm,
+                    "_player_id": (str(_p.get("player_id")) if _valid_pid(_p.get("player_id")) else None),
+                    "Commissioner moved?": False,
+                })
+                _n_startup += 1
+            _log(debug, f"[{_now_iso()}] INFO 2020 startup draft: emitted {_n_startup} picks into pick_history")
+    except Exception as e:
+        _log_exc(debug, "startup_draft_emit", e)
 
     # ----- Phase 10: inject synthetic draft-day picks (2.09 + 5.0X) -----
     # Built from the commissioner-forced adds captured per season. They carry a
@@ -15029,6 +15093,18 @@ def build_all(repo_root: Path) -> None:
             ph = ph.rename(columns={"Final Team": "Team"})
     except Exception as e:
         _log_exc(debug, "picks_final_team_rename", e)
+
+    # Relabel the 2020 ESPN startup picks' displayed Year to "startup". They were
+    # computed as a normal 2020 draft so every pick stat filled in, and every pass
+    # that parses Year numerically (PPG / O-Score / age / links / Drafting skill)
+    # has already run by here. _is_startup is internal-only (dropped on write).
+    try:
+        if isinstance(ph, pd.DataFrame) and not ph.empty and "_is_startup" in ph.columns:
+            _su_mask = ph["_is_startup"].fillna(False).astype(bool)
+            ph.loc[_su_mask, "Year"] = "startup"
+            _log(debug, f"[{_now_iso()}] INFO 2020 startup picks relabeled Year='startup': {int(_su_mask.sum())} rows")
+    except Exception as e:
+        _log_exc(debug, "startup_year_relabel", e)
 
     context = {
         "player_week": pw,
