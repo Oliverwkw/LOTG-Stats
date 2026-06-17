@@ -1,0 +1,106 @@
+[
+  {
+    "status": "complete",
+    "type": "waiver",
+    "metadata": {
+      "notes": "Your waiver claim was processed successfully!"
+    },
+    "created": 1638285253672,
+    "settings": {
+      "seq": 0
+    },
+    "leg": 12,
+    "draft_picks": [],
+    "creator": "651904773355806720",
+    "transaction_id": "771427902406377472",
+    "adds": {
+      "4454": 8
+    },
+    "drops": {
+      "6960": 8
+    },
+    "consenter_ids": [
+      8
+    ],
+    "roster_ids": [
+      8
+    ],
+    "status_updated": 1638345960009,
+    "waiver_budget": []
+  },
+  {
+    "status": "complete",
+    "type": "free_agent",
+    "metadata": null,
+    "created": 1637871854335,
+    "settings": null,
+    "leg": 12,
+    "draft_picks": [],
+    "creator": "603431474020032512",
+    "transaction_id": "769693979913887744",
+    "adds": {
+      "4381": 1
+    },
+    "drops": {
+      "4985": 1
+    },
+    "consenter_ids": [
+      1
+    ],
+    "roster_ids": [
+      1
+    ],
+    "status_updated": 1637871854335,
+    "waiver_budget": []
+  },
+  {
+    "status": "complete",
+    "type": "free_agent",
+    "metadata": null,
+    "created": 1637786750324,
+    "settings": null,
+    "leg": 12,
+    "draft_picks": [],
+    "creator": "673623361460477952",
+    "transaction_id": "769337027819921408",
+    "adds": {
+      "6984": 6
+    },
+    "drops": {
+      "5284": 6
+    },
+    "consenter_ids": [
+      6
+    ],
+    "roster_ids": [
+      6
+    ],
+    "status_updated": 1637786750324,
+    "waiver_budget": []
+  },
+  {
+    "status": "complete",
+    "type": "free_agent",
+    "metadata": null,
+    "created": 1637764859055,
+    "settings": null,
+    "leg": 12,
+    "draft_picks": [],
+    "creator": "676870999764983808",
+    "transaction_id": "769245209182748672",
+    "adds": {
+      "3664": 7
+    },
+    "drops": {
+      "3327": 7
+    },
+    "consenter_ids": [
+      7
+    ],
+    "roster_ids": [
+      7
+    ],
+    "status_updated": 1637764859055,
+    "waiver_budget": []
+  }
+]
