@@ -211,10 +211,25 @@ def derive_player_name_id(full_name: str, position: str) -> Optional[str]:
     return n + pos
 
 
-def pick_label_candidates(asset: str) -> List[str]:
-    """Translate a LOTG pick label to dynasty-daddy full_name candidates,
-    in fallback order: generic round (most specific first) then named
-    quarters."""
+# League size. Our picks (an 8-team draft) map onto KTC's 12-team Early/Mid/Late
+# quarters by OVERALL draft position, so e.g. 2.01 (overall 9) is a "Late 1st",
+# not an "Early 2nd". (KTC convention: Early = picks 1-4, Mid = 5-8, Late = 9-12.)
+_TEAMS = 8
+
+
+def _overall_to_ktc_quarter(overall: int) -> Tuple[int, str]:
+    rnd = (overall - 1) // 12 + 1
+    pos = (overall - 1) % 12 + 1
+    q = "Early" if pos <= 4 else ("Mid" if pos <= 8 else "Late")
+    return rnd, q
+
+
+def pick_label_candidates(asset: str, teams: int = _TEAMS) -> List[str]:
+    """Translate a LOTG pick label ('2027 2.01' / '2027 3.??') to dynasty-daddy
+    pick full_name candidates, mapping by OVERALL draft position onto KTC's 12-team
+    Early/Mid/Late quarters. A specific slot -> the one quarter it lands in; an
+    unknown slot ('??') -> every quarter the round spans (caller averages them, e.g.
+    a 3rd-round pick covers overall 17-24 = Mid 2nd + Late 2nd)."""
     parts = asset.strip().split()
     if len(parts) != 2:
         return []
@@ -227,15 +242,18 @@ def pick_label_candidates(asset: str) -> List[str]:
         rd = int(rd_s)
     except Exception:
         return []
-    ord_s = _ORD.get(rd, f"{rd}th")
-    # Generic round labels first (dynasty-daddy publishes 'YYYY Early Nth',
-    # 'YYYY Mid Nth', 'YYYY Late Nth' for unknown-slot picks). When the
-    # slot is '??', average across Early/Mid/Late at the caller.
-    return [
-        f"{year} Early {ord_s}",
-        f"{year} Mid {ord_s}",
-        f"{year} Late {ord_s}",
-    ]
+    slot_s = slot_s.strip()
+    if slot_s.isdigit():
+        first = last = (rd - 1) * teams + int(slot_s)
+    else:  # unknown slot -> the whole round's overall range
+        first, last = (rd - 1) * teams + 1, rd * teams
+    labels: List[str] = []
+    for ov in range(first, last + 1):
+        kr, q = _overall_to_ktc_quarter(ov)
+        lab = f"{year} {q} {_ORD.get(kr, f'{kr}th')}"
+        if lab not in labels:
+            labels.append(lab)
+    return labels
 
 
 # --------------------------------------------------------------------------
@@ -365,46 +383,17 @@ def asset_value_at(
 ) -> Optional[float]:
     """Resolve a single asset's KTC value at `target`.
 
-    asset_label is set for picks ('2026 1.??' / '2026 1.05'); sleeper_id is
-    set for players. For '??'-slot picks we average across Early/Mid/Late
-    of that round; for specific slots we use the named quarter that most
-    closely matches the slot number.
+    asset_label is set for picks ('2026 1.??' / '2026 2.01'); sleeper_id is set for
+    players. pick_label_candidates maps the slot by OVERALL position onto KTC's
+    quarters: a specific slot -> the one quarter it lands in (2.01 -> Late 1st); an
+    unknown '??' slot -> every quarter the round spans, averaged.
     """
     # Pick path
     if asset_label and len(asset_label) >= 5 and asset_label[:4].isdigit() and asset_label[4] == " ":
         candidates = pick_label_candidates(asset_label)
-        if not candidates:
-            return None
-        is_unknown_slot = "??" in asset_label
-        if is_unknown_slot:
-            # Average across whichever Early/Mid/Late candidates have data
-            vals: List[float] = []
-            for c in candidates:
-                v = idx.value_at(c, target, is_pick=True)
-                if v is not None:
-                    vals.append(v)
-            if not vals:
-                return None
-            return sum(vals) / len(vals)
-        # Specific slot: pick the closest named quarter. dynasty-daddy
-        # uses Early (1-4), Mid (5-8), Late (9-12) approximately. For a
-        # 12-team league this lines up; for other team counts the mapping
-        # degrades. We accept that error in V1.
-        try:
-            slot = int(asset_label.split()[1].split(".")[1])
-        except Exception:
-            return None
-        if slot <= 4:
-            ordered = [candidates[0], candidates[1], candidates[2]]
-        elif slot <= 8:
-            ordered = [candidates[1], candidates[0], candidates[2]]
-        else:
-            ordered = [candidates[2], candidates[1], candidates[0]]
-        for c in ordered:
-            v = idx.value_at(c, target, is_pick=True)
-            if v is not None:
-                return v
-        return None
+        vals = [idx.value_at(c, target, is_pick=True) for c in candidates]
+        vals = [v for v in vals if v is not None]
+        return sum(vals) / len(vals) if vals else None
 
     # Player path
     if not sleeper_id:
