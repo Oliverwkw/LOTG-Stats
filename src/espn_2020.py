@@ -268,11 +268,20 @@ def parse_transactions(raw: Dict[str, Any], bridge: Dict[int, Dict[str, Any]]) -
                     "gsis_id": b.get("gsis_id"), "sleeper_id": b.get("sleeper_id"),
                     "position": b.get("position")}
         if ttype in ("FREEAGENT", "WAIVER"):
+            # Only EXECUTED claims actually moved players. ESPN logs every waiver
+            # claim as its own transaction — including the PENDING duplicates that
+            # were superseded, the FAILED ones (e.g. FAILED_PLAYERALREADYDROPPED),
+            # and CANCELED ones. Each carries an intended drop leg, so without this
+            # filter a player reads as dropped many times but never added (e.g. Jalen
+            # Richard: 1 EXECUTED drop + 2 PENDING + 1 FAILED = 4 phantom drops). Keep
+            # only status == EXECUTED. (31 of 211 FA/waiver records are non-executed.)
+            if t.get("status") != "EXECUTED":
+                continue
             # ONE move per ESPN transaction (not per item). ESPN bundles a pickup and
-            # the player it drops to make room into a single transaction (150 of 211
-            # 2020 FA/waiver moves are such add+drop swaps); emitting each item as its
-            # own add-only / drop-only Sleeper transaction was wrong — it both doubled
-            # the transaction count and made every row read as "just an add" or "just a
+            # the player it drops to make room into a single transaction (most executed
+            # FA/waiver moves are such add+drop swaps); emitting each item as its own
+            # add-only / drop-only Sleeper transaction was wrong — it both doubled the
+            # transaction count and made every row read as "just an add" or "just a
             # drop". Group the items so a swap becomes one tx with both an add and drop,
             # matching Sleeper's own shape.
             add_pids = [it.get("playerId") for it in items if it.get("type") == "ADD"]
