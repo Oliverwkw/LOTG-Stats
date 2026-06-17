@@ -7304,6 +7304,37 @@ def build_all(repo_root: Path) -> None:
         # (the trades enumerate loop), so the picks-KTC pass uses _ktc_idx.
         _ktc_idx = idx
 
+        # --- Future-pick deal-time valuation rule ---
+        # A pick traded BEFORE the start of its determining season (the season whose
+        # final standings set its draft slot = draft_year - 1) had a fundamentally
+        # unknown slot, so it's valued as the AVERAGE of its round's slot range and
+        # locked there. A pick traded DURING/AFTER that season resolves to a specific
+        # slot, so it's valued at the ACTUAL pick it became (once drafted). Slot
+        # resolver built from pick_rows (Year/Number/Original Team/Player Picked).
+        _pick_slot_lookup: Dict[Tuple[int, int, str], str] = {}
+        for _pr in (pick_rows or []):
+            _ym = re.match(r"(\d{4})", str(_pr.get("Year") or ""))
+            _nm = re.match(r"^R?(\d+)(?:\.(\d+))?", str(_pr.get("Number") or ""))
+            if not _ym or not _nm or not _nm.group(2):
+                continue
+            _ply = str(_pr.get("Player Picked") or "").strip().lower()
+            if _ply in ("", "unknown", "nan", "n/a"):
+                continue  # not drafted yet -> slot not final
+            _ot = str(_pr.get("Original Team") or "").strip()
+            if _ot:
+                _pick_slot_lookup.setdefault((int(_ym.group(1)), int(_nm.group(1)), _ot), _nm.group(2))
+
+        def _pick_val_label(meta, trade_dt_) -> str:
+            """Valuation label for a traded pick under the future-pick rule."""
+            try:
+                _y, _rnd, _ot = int(meta[0]), int(meta[1]), str(meta[2])
+            except Exception:
+                return ""
+            if trade_dt_ < date(_y - 1, 9, 1):
+                return f"{_y} {_rnd}.??"          # pre-determining-season -> round avg (locked)
+            _slot = _pick_slot_lookup.get((_y, _rnd, _ot))
+            return f"{_y} {_rnd}.{_slot}" if _slot else f"{_y} {_rnd}.??"
+
         def _side_total(
             target: date,
             player_ids: List[str],
@@ -7445,8 +7476,13 @@ def build_all(repo_root: Path) -> None:
 
             recv_ids = list(row.get("_recv_player_ids") or [])
             drop_ids = list(row.get("_drop_player_ids") or [])
-            recv_picks = list(row.get("_recv_picks") or [])
-            drop_picks = list(row.get("_drop_picks") or [])
+            # Value each traded pick under the future-pick rule (round average if
+            # traded before its determining season, else its actual resolved slot).
+            # _recv_picks/_recv_pick_meta are parallel; meta carries (year,round,orig).
+            recv_picks = [p for p in (_pick_val_label(m, trade_date)
+                                      for m in (row.get("_recv_pick_meta") or [])) if p]
+            drop_picks = [p for p in (_pick_val_label(m, trade_date)
+                                      for m in (row.get("_drop_pick_meta") or [])) if p]
             recv_faab = float(row.get("_recv_faab") or 0.0)
             drop_faab = float(row.get("_drop_faab") or 0.0)
 
