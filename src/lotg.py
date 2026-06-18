@@ -2983,6 +2983,15 @@ def build_all(repo_root: Path) -> None:
     # played week of the prior season (≈ championship week) instead of None.
     prev_starters_by_team_xseason: Dict[str, set] = {}
     prev_roster_by_team_xseason: Dict[str, set] = {}
+    # (season, team) -> player-id set, captured during the weekly loop: the FINAL
+    # week's roster (overwritten each week, so it ends as the season-end holding)
+    # and the FIRST week's roster (kept set). Used after the loop to close the
+    # 2020->2021 ESPN->Sleeper platform-transfer lineage: a player on a team's final
+    # 2020 roster who isn't on its first 2021 roster was released in the migration
+    # with no Sleeper drop transaction, so we synthesize a transfer-day drop (else
+    # the add never closes -> the player "teleports" past the platform boundary).
+    final_wk_roster_st: Dict[Tuple[int, str], set] = {}
+    first_wk_roster_st: Dict[Tuple[int, str], set] = {}
 
     for lg in leagues:
         league_id = str(lg.get("league_id"))
@@ -4340,6 +4349,11 @@ def build_all(repo_root: Path) -> None:
                         inter_r = cur_r.intersection(prev_r)
                         roster_turnover = max(len(cur_r), len(prev_r)) - len(inter_r)
                     prev_roster_by_team[team] = cur_r
+                    # Capture season-boundary rosters for 2020->2021 transfer-drop
+                    # synthesis (final week overwrites; first week set once).
+                    _sk = (int(season), team)
+                    final_wk_roster_st[_sk] = cur_r
+                    first_wk_roster_st.setdefault(_sk, cur_r)
 
                     # Exclude empty/placeholder lineup slots (Sleeper fills an
                     # unset starter slot with "0"); otherwise an empty starter
@@ -5408,6 +5422,39 @@ def build_all(repo_root: Path) -> None:
             _detect_commissioner_moves(int(_cm_season))
         except Exception as e:
             _log_exc(debug, f"detect_commissioner_moves_final_{_cm_season}", e)
+
+    # Phase 13: close the 2020->2021 ESPN->Sleeper platform-transfer lineage.
+    # Players on a team's FINAL 2020 (ESPN) roster who aren't on its FIRST 2021
+    # (Sleeper) roster were released in the migration with no Sleeper drop
+    # transaction — their 2020 add/draft never closes, so they "teleport" past the
+    # platform boundary (e.g. Tyron Johnson, added W16 2020, no drop). Synthesize a
+    # drop dated on the 2021 transfer (draft) day so the add's departure window
+    # closes. Emitted as an orphan-drop event only (bounds 'Date dropped/traded'
+    # via the event log) — NOT a transactions_rows entry, so it doesn't inflate any
+    # team's transaction/FAAB counts; the migration isn't a managerial move.
+    try:
+        _transfer_days = sorted(draft_dates_by_season.get(2021, set()) or set())
+        _transfer_iso = _transfer_days[0].isoformat() if _transfer_days else None
+        if _transfer_iso:
+            _n_transfer_drops = 0
+            for (_s, _tm), _held in final_wk_roster_st.items():
+                if int(_s) != 2020:
+                    continue
+                _kept = first_wk_roster_st.get((2021, _tm), set())
+                for _pid in (_held - _kept):
+                    _nm = (pid_meta.get(str(_pid), {}) or {}).get("full_name")
+                    if not _nm:
+                        continue
+                    orphan_drop_events.append({
+                        "Team": _tm,
+                        "Player Dropped": _nm,
+                        "Date": _transfer_iso,
+                    })
+                    _n_transfer_drops += 1
+            _log(debug, f"[{_now_iso()}] INFO synthesized {_n_transfer_drops} "
+                        f"2020->2021 transfer drops (dated {_transfer_iso})")
+    except Exception as e:
+        _log_exc(debug, "synth_2020_transfer_drops", e)
 
     # Ensure pick ledger includes seasons from 2021 through three years after latest draft.
     latest_draft_season = max(

@@ -267,7 +267,14 @@ def parse_transactions(raw: Dict[str, Any], bridge: Dict[int, Dict[str, Any]]) -
             return {"espn_player_id": pid, "player": b.get("name"),
                     "gsis_id": b.get("gsis_id"), "sleeper_id": b.get("sleeper_id"),
                     "position": b.get("position")}
-        if ttype in ("FREEAGENT", "WAIVER"):
+        if ttype in ("FREEAGENT", "WAIVER", "ROSTER"):
+            # ROSTER = a direct roster move (manual cut / pre-season drop), e.g.
+            # Devine Ozigbo drafted then cut before week 1, or Tyrell Williams cut
+            # mid-season. These carry real ADD/DROP items (plus LINEUP items, which
+            # are bench/start changes, not roster moves) but were previously skipped
+            # entirely — so ~27 genuine 2020 drops were missing, leaving those
+            # players' adds dangling (no drop -> teleport) and pre-week-1 cuts with
+            # no record at all. Treated like a free-agency move downstream.
             # Only EXECUTED claims actually moved players. ESPN logs every waiver
             # claim as its own transaction — including the PENDING duplicates that
             # were superseded, the FAILED ones (e.g. FAILED_PLAYERALREADYDROPPED),
@@ -286,6 +293,10 @@ def parse_transactions(raw: Dict[str, Any], bridge: Dict[int, Dict[str, Any]]) -
             # matching Sleeper's own shape.
             add_pids = [it.get("playerId") for it in items if it.get("type") == "ADD"]
             drop_pids = [it.get("playerId") for it in items if it.get("type") == "DROP"]
+            # Skip lineup-only ROSTER transactions (start/bench changes carry only
+            # LINEUP items, no actual add or drop).
+            if not add_pids and not drop_pids:
+                continue
             team_id = None
             for it in items:
                 team_id = it.get("toTeamId") if it.get("type") == "ADD" else it.get("fromTeamId")
