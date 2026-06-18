@@ -129,6 +129,11 @@ class ValueIndex:
         # is worth 0 — distinct from an active player who simply has no value at a
         # pre-history date. Populated by build_index.
         self.active_sids: set = set()
+        # sleeper_id -> last season the player was on a real NFL roster (nflverse).
+        # Used to CONFIRM retirement at a pre-floor date: a player with no KTC value
+        # at a date whose season is after their last rostered NFL season was out of
+        # the league by then -> 0, not N/A. Populated by build_index.
+        self.last_active_season: Dict[str, int] = {}
 
     @staticmethod
     def _history_to_pairs(history: List[Dict], value_col: str) -> List[Tuple[str, float]]:
@@ -266,6 +271,7 @@ def build_index(
     pick_labels: Iterable[str],
     value_col: str = "trade_value",
     sid_to_meta: Optional[Dict[str, Dict[str, str]]] = None,
+    last_active_season: Optional[Dict[str, int]] = None,
 ) -> ValueIndex:
     """Fetch + cache + index histories for every asset we'll need.
 
@@ -309,6 +315,7 @@ def build_index(
     # Current KTC rolls (active assets in today's directory), so the query can
     # tell "off the rolls -> value 0" from "active but pre-history -> unknown".
     idx.active_sids = {str(p.get("sleeper_id")) for p in directory if p.get("sleeper_id")}
+    idx.last_active_season = {str(k): int(v) for k, v in (last_active_season or {}).items()}
 
     # Players we actually use. Retired and aged-out players aren't in
     # dynasty-daddy's 'today' directory, so we derive the name_id slug
@@ -375,6 +382,12 @@ def build_index(
 # Per-asset query used by the build's KTC pass
 # --------------------------------------------------------------------------
 
+# dynasty-daddy's per-player history floor. From this date on KTC coverage is
+# comprehensive, so a player with NO value at/after it is genuinely unranked
+# (too obscure / out of the league) and worth 0 — not "unknown".
+KTC_FLOOR = date(2021, 4, 16)
+
+
 def asset_value_at(
     asset_label: Optional[str],
     sleeper_id: Optional[str],
@@ -401,17 +414,29 @@ def asset_value_at(
     sid = str(sleeper_id)
     pairs = idx.player.get(sid)
     off_rolls = sid not in idx.active_sids
+    # When there's NO KTC value at the target, return 0 (genuinely valueless)
+    # rather than N/A (unknown) IF we can affirm the player had no legitimate
+    # dynasty value then:
+    #   (1) target is POST-FLOOR — dynasty-daddy is comprehensive from KTC_FLOOR
+    #       on, so absence = genuinely unranked (too obscure / out of the league).
+    #   (2) target's season is AFTER the player's last rostered NFL season — we've
+    #       CONFIRMED they were retired / out of the league by then.
+    # Otherwise (a pre-floor date for someone active/unconfirmed) the value is
+    # truly unknown -> N/A, pending backfill. We must NOT zero a 2020 checkpoint
+    # for a then-active, now-retired player.
+    las = idx.last_active_season.get(sid)
+    confirmed_zero = (target >= KTC_FLOOR) or (las is not None and target.year > las)
+
     # KTC = 0 ONLY when the player has demonstrably dropped off the rolls BY the
     # target date (off the current rolls AND target is after their last recorded
-    # KTC value). We must NOT zero a date BEFORE their history starts: at a 2020
-    # draft checkpoint a now-retired player was active and valuable — its value is
-    # unknown (-> N/A) until backfilled, not 0. (No history at all -> unknown too;
-    # the backfill scrape decides genuine obscurity.)
+    # KTC value), OR when absence is confirmed valueless per the rule above.
     if not pairs:
-        return None
+        return 0.0 if confirmed_zero else None
     v = idx.value_at(sid, target, is_pick=False)  # latest value on/before target
     if v is None:
-        return None  # target precedes their first recorded value -> unknown (active pre-tracking)
+        # target precedes their first recorded value: 0 if confirmed valueless,
+        # else unknown (active pre-tracking) -> N/A.
+        return 0.0 if confirmed_zero else None
     # v carries the last known value forward. If the player is off the current rolls
     # AND target is LONG after their last recorded value, they've genuinely dropped
     # off KTC by then -> 0 (don't carry a stale value forward for months). A SHORT
