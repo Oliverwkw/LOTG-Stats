@@ -311,6 +311,30 @@ def parse_transactions(raw: Dict[str, Any], bridge: Dict[int, Dict[str, Any]]) -
                 "add_pids": add_pids,
                 "drop_pids": drop_pids,
             })
+        elif ttype == "TRADE_ACCEPT":
+            # Accepting a trade can bundle an incidental DROP (a player cut to make
+            # roster room for the incoming players; fromTeam -> team 0/waivers)
+            # alongside the TRADE legs. The legs are recorded via TRADE_UPHOLD; here
+            # we capture only the EXECUTED incidental DROP so the dropped player's
+            # prior add closes — otherwise it dangles and mis-binds to a far-future
+            # departure (e.g. Mike Williams' 2020 add was closing at 2024). TRADE
+            # items are ignored. The dropping team is the DROP item's fromTeamId (the
+            # trade legs involve other teams, so don't infer team from item order).
+            if t.get("status") != "EXECUTED":
+                continue
+            drop_pids = [it.get("playerId") for it in items if it.get("type") == "DROP"]
+            if not drop_pids:
+                continue
+            team_id = next((it.get("fromTeamId") for it in items if it.get("type") == "DROP"), None)
+            moves.append({
+                "date": t.get("proposedDate"),
+                "scoring_period": t.get("scoringPeriodId"),
+                "kind": "TRADE_ACCEPT",
+                "team_id": team_id,
+                "manager": TEAM_TO_MANAGER.get(team_id),
+                "add_pids": [],
+                "drop_pids": drop_pids,
+            })
         elif ttype == "TRADE_UPHOLD":
             legs = []
             for it in items:
