@@ -75,15 +75,18 @@
 - After the scrape, fewer 0s are needed (players KTC tracked in 2020 get real values; only
   the truly-off-rolls get 0).
 
-## 3. Player-ID mapping errors (KEEP — do NOT drop)
-- The committed `data/espn_2020_raw/player_id_map.csv` (espn_id→sleeper_id, 250 rows) may
-  contain wrong sleeper_ids → wrong-player attributions in 2020.
-- Confirmed symptom: DP names ("D.J. Moore") vs live Sleeper names ("DJ Moore") differ
-  across sheets (picks vs player_week) — same player, inconsistent spelling, breaks
-  cross-sheet name joins/links.
-- Steps: (a) audit all 250 mappings — cross-check each mapped sleeper_id's live-Sleeper
-  name+position vs the bridge/ESPN name+position, flag mismatches; (b) reconcile display
-  names to one canonical source (Sleeper/pid_meta); (c) re-run no-teleport + spot-checks.
+## 3. Player-ID mapping errors — RESOLVED (250-row sweep, 2026-06-18)
+- `data/espn_2020_raw/player_id_map.csv` (espn_id→sleeper_id, 250 rows) audited TWO
+  independent ways:
+  - DynastyProcess `db_playerids`: 250/250 espn_id→sleeper_id agree AND name matches.
+  - LIVE Sleeper `/players/nfl` (non-circular): all 250 sleeper_ids resolve; 246 exact
+    name+position, 4 benign name variants of the CORRECT player+position (Will↔William
+    Fuller 3157, Jeff↔Jeffery Wilson 5284, Tyron Johnson↔Billy-Johnson 6063, Nyheim
+    Hines↔Miller-Hines 5347). NO wrong sleeper_ids, no wrong-player attributions.
+- (b) Display names ARE reconciled: 2020 output rows use canonical Sleeper names from
+  pid_meta (player_week + picks both show "William Fuller", "Nyheim Miller-Hines", etc.),
+  consistent across sheets — the map's ESPN-name column never reaches output.
+- Conclusion: no fix needed; the 2020 ID layer is clean.
 
 ## 4. Category 7 residual — 2020 picks' "Avg PPG on team"
 - The picks PPG pass keys off nflverse game logs; for 2020 it (a) misses a few players (5
