@@ -201,11 +201,19 @@ def scrape_wayback_retirees(sleeper_targets: set) -> dict:
     unconstrained environment for full 2020 coverage.
     """
     import csv as _csv
+    # Map capture players to sleeper_id PRIMARILY by KTC's own id (playerID == DP
+    # ktc_id) — stable across name changes (Robby Anderson->Robbie Chosen, Nyheim
+    # Hines->Miller-Hines) and immune to name-join failures. name+position is only a
+    # fallback when a ktc_id mapping is absent.
+    ktcid_to_sleeper = {}
     name_pos_to_sleeper = {}
     for r in _csv.DictReader(open(_ensure_db_playerids())):
         sl = (r.get("sleeper_id") or "").split(".")[0]
+        kt = (r.get("ktc_id") or "").split(".")[0]
         nm = re.sub(r"[^a-z]", "", (r.get("name") or "").lower())
         ps = (r.get("position") or "").upper()
+        if sl and kt.isdigit():
+            ktcid_to_sleeper.setdefault(kt, sl)
         if sl and nm:
             name_pos_to_sleeper[(nm, ps)] = sl
             name_pos_to_sleeper.setdefault((nm, ""), sl)  # position-agnostic fallback
@@ -231,9 +239,11 @@ def scrape_wayback_retirees(sleeper_targets: set) -> dict:
         iso = f"{ts[0:4]}-{ts[4:6]}-{ts[6:8]}"
         hit = 0
         for p in arr:
-            nm = re.sub(r"[^a-z]", "", (p.get("playerName") or "").lower())
-            ps = (p.get("position") or "").upper()
-            sl = name_pos_to_sleeper.get((nm, ps)) or name_pos_to_sleeper.get((nm, ""))
+            sl = ktcid_to_sleeper.get(str(p.get("playerID") or ""))  # stable id first
+            if not sl:
+                nm = re.sub(r"[^a-z]", "", (p.get("playerName") or "").lower())
+                ps = (p.get("position") or "").upper()
+                sl = name_pos_to_sleeper.get((nm, ps)) or name_pos_to_sleeper.get((nm, ""))
             if not sl:
                 continue
             # Optional target filter; default None = keep EVERY mapped player so the
