@@ -30,10 +30,22 @@
   value (demonstrably dropped off by then). A pre-history/active-era date with no
   data → N/A (NOT 0) — a now-retired player was active+valuable at his 2020 draft.
 - REMAINING: the 2020 Wayback snapshots (2020-09/10, 2021-01-19, 2021-04) hit a
-  1MB cap on Wayback's id_ endpoint in this sandbox → retirees' 2020 *draft-day*
-  value (and ~10 players incl. Drew Brees not in the 2021-01 snapshot) still N/A.
-  Re-run `python scripts/ktc_backfill_scrape.py --wayback` in an unconstrained env
-  to fetch the full 2020 snapshots. Genuinely-obscure players (no KTC ever) → 0.
+  1MB cap on Wayback's id_ endpoint (server-side — confirmed on GitHub runners too,
+  not just the sandbox) → retirees' 2020 *draft-day* value (and ~10 players incl.
+  Drew Brees not in the 2021-01 snapshot) still N/A. Genuinely-obscure players → 0.
+- COMMUNITY-SHEET BACKFILL (2026-06-17): a Google Sheet (gid=991742784) carries
+  daily SF values for ~460 currently-rated players back to 2020-04-01 with NO 1MB
+  cap → far broader/cleaner than the Wayback rankings for ACTIVE players.
+  `scripts/ktc_sheet_backfill.py` ingests a CSV export and merges its pre-floor
+  weekly SF series into data/ktc_backfill/<sleeper_id>.json (dedup; scraped/
+  dynasty-daddy dates win). Filled 95 of the ~300 pre-floor player-value residual
+  cells; 503/563 backfill files now have pre-floor data.
+  - The sheet's 36 pick-label columns are 2024-2026 only (no pre-floor values) →
+    no help for the 2020-21 pick gap (which is moot: 2020 had no on-platform pick
+    trades). Retired players (Brees, A.J. Green, Robby Anderson, ...) are NOT
+    columns in the sheet → still depend on the Wayback scrape + off-rolls-0 rule.
+  - Wayback capture→sleeper mapping in ktc_backfill_scrape.py now keys on KTC's
+    own playerID (== DP ktc_id), stable across name changes, name+pos fallback.
 
 ## 1. (orig) KTC backfill — one-time KTC.com scrape (the 2020-04 → 2021-04 gap)
 1. Build sleeper_id→KTC_id crosswalk for the players we need (2020 startup picks + 2020/
