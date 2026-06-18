@@ -8122,6 +8122,36 @@ def build_all(repo_root: Path) -> None:
                 _wkd = (date(_yi, 9, 7) + timedelta(days=7 * (_wi - 1))).isoformat()
                 _pw_rostered_idx[(str(_t), str(_p))].append(_wkd)
 
+        # 2020 was the ESPN season — nflverse's 2020 weekly log is generic PPR and
+        # misses some players, so "Avg PPG on team" mis-scored 2020 weeks. Two
+        # player_week-derived indexes fix that with the LEAGUE's own 2020 points:
+        #   _lg_pts_idx: (team, player, year, week) -> league points. Lets us keep
+        #     nflverse's clean games-PLAYED week set but swap each 2020 week's value
+        #     to what the league actually scored (ESPN-actual, non-PPR).
+        #   _pw_played_idx: (team, player) -> [(year, week, pts, wk_date)] for weeks
+        #     the player PLAYED while rostered here (not a bye, not a scoreless
+        #     injury/suspension DNP). Fallback for players nflverse's 2020 log omits
+        #     entirely — then there's no nflverse week set to value, so we use this.
+        _lg_pts_idx: Dict[Tuple[str, str, int, int], float] = {}
+        _pw_played_idx: Dict[Tuple[str, str], List[Tuple[int, int, float, str]]] = defaultdict(list)
+        _pcols = ["Team", "Player", "Year", "Week", "Points", "Bye?", "Injury?", "Suspension?"]
+        if not pw.empty and set(_pcols).issubset(pw.columns):
+            for _t, _p, _y, _w, _pt, _by, _in, _su in zip(*[pw[c] for c in _pcols]):
+                if pd.isna(_y) or pd.isna(_w):
+                    continue
+                try:
+                    _yi, _wi = int(_y), int(_w)
+                    _ptf = float(_pt or 0.0)
+                except Exception:
+                    continue
+                _lg_pts_idx[(str(_t), str(_p), _yi, _wi)] = _ptf
+                if str(_by) == "True":
+                    continue  # NFL bye / no game that week
+                if _ptf == 0.0 and (str(_in) == "True" or str(_su) == "True"):
+                    continue  # scoreless injury/suspension DNP -> not a game played
+                _wkd = (date(_yi, 9, 7) + timedelta(days=7 * (_wi - 1))).isoformat()
+                _pw_played_idx[(str(_t), str(_p))].append((_yi, _wi, _ptf, _wkd))
+
         # ---- Item 7E indexes (V2 Trade addition value: leverage + cuff) ----
         # (fantasy team, player) -> per-week roster rows with starter + injury
         # flags, so we can compute a received player's % of starts made while
@@ -8291,20 +8321,39 @@ def build_all(repo_root: Path) -> None:
                     _pos = ((pid_meta.get(_sid) or {}).get("pos") or "").upper() or None
                     _fac = _pos_factor(int(_ym.group(1)), _pos)
                     _all_games = [
-                        (_e["_wk_date"], float(_e["points"]))
+                        (_e["_wk_date"], int(_e["year"]), int(_e["week"]), float(_e["points"]))
                         for _e in nfl_log_by_sid.get(_sid, [])
-                        if _e.get("_wk_date")
+                        if _e.get("_wk_date") and _e.get("year") is not None and _e.get("week") is not None
                     ]
-                    # Avg PPG on team: PPG over the games the player played while
-                    # on the drafting team (draft → next exit). N/A ONLY if the
-                    # player was never on the team's roster for an NFL week (cut
-                    # after the draft before week 1); if they were rostered for
-                    # ≥1 NFL week but logged no games (injured all year, etc.)
-                    # it's 0, not N/A.
-                    _on_team = [
-                        _p for _d, _p in _all_games
+                    # Avg PPG on team: PPG over the games the player PLAYED while on
+                    # the drafting team (draft → next exit). Use nflverse's clean
+                    # games-played week set; but 2020 was the ESPN season, where
+                    # nflverse is generic PPR, so swap each 2020 week's value to what
+                    # the LEAGUE actually scored (player_week, ESPN-actual non-PPR).
+                    # 2021+ nflverse is already league-scored -> kept as-is. If a
+                    # player is absent from nflverse's 2020 log entirely (it omits
+                    # some), there's no week set to value, so fall back to that
+                    # player's played weeks straight from player_week. N/A ONLY if
+                    # never rostered an NFL week here (cut before week 1); rostered
+                    # but no games -> 0, not N/A.
+                    _win = [
+                        (_yy, _ww, _pp) for (_d, _yy, _ww, _pp) in _all_games
                         if _d >= _draft_iso and (not _end_iso or _d < _end_iso)
                     ]
+                    _on_team = []
+                    for _yy, _ww, _pp in _win:
+                        if _yy == 2020:
+                            _lg = _lg_pts_idx.get((_ft, _ply, 2020, _ww))
+                            _on_team.append(_lg if _lg is not None else _pp)
+                        else:
+                            _on_team.append(_pp)
+                    # nflverse omits this player's 2020 log -> value their 2020 games
+                    # from player_week directly (issue: 5 startup / 6 vet were N/A).
+                    if not any(_yy == 2020 for _yy, _, _ in _win):
+                        _on_team += [
+                            _p for (_yy, _ww, _p, _d) in _pw_played_idx.get((_ft, _ply), [])
+                            if _yy == 2020 and _d >= _draft_iso and (not _end_iso or _d < _end_iso)
+                        ]
                     _rostered_wk = [
                         _wkd for _wkd in _pw_rostered_idx.get((_ft, _ply), [])
                         if _wkd >= _draft_iso and (not _end_iso or _wkd < _end_iso)
@@ -8333,7 +8382,7 @@ def build_all(repo_root: Path) -> None:
                     # are treated as rookies here: only post-draft games count,
                     # so their pre-draft history is excluded. Stays 0.0 (set
                     # above) when there are no post-draft games.
-                    _career = [_p for _d, _p in _all_games if _d >= _draft_iso]
+                    _career = [_pp for (_d, _yy, _ww, _pp) in _all_games if _d >= _draft_iso]
                     if _career:
                         _cavg = sum(_career) / len(_career)
                         ph.at[_i, "Avg career PPG"] = round(_cavg, 2)
