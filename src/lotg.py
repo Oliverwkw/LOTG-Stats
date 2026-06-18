@@ -7293,12 +7293,28 @@ def build_all(repo_root: Path) -> None:
             }
             for sid in needed_sids
         }
+        # Per-player last NFL-active season (real nflverse roster presence), so the
+        # KTC index can CONFIRM retirement at a pre-floor date: a player with no KTC
+        # value at a date whose season is after their last rostered NFL season was
+        # out of the league by then -> 0, not N/A. (Post-floor absence is zeroed
+        # outright since dynasty-daddy is comprehensive from its floor on.)
+        _gsis_to_sids: Dict[str, List[str]] = {}
+        for _sid, _gs in {**sleeper_to_gsis, **dp_sleeper_to_gsis}.items():
+            if _sid and _gs and str(_gs).lower() != "nan":
+                _gsis_to_sids.setdefault(str(_gs), []).append(str(_sid))
+        _last_active_season: Dict[str, int] = {}
+        for (_gs, _seas) in roster_team_by_season.keys():
+            for _sid in _gsis_to_sids.get(str(_gs), []):
+                if int(_seas) > _last_active_season.get(_sid, 0):
+                    _last_active_season[_sid] = int(_seas)
+
         idx = build_index(
             repo_root,
             needed_sids,
             needed_picks,
             value_col=ktc_value_col,
             sid_to_meta=sid_to_meta,
+            last_active_season=_last_active_season,
         )
         # Capture under a stable name: `idx` is later reused as a loop variable
         # (the trades enumerate loop), so the picks-KTC pass uses _ktc_idx.
