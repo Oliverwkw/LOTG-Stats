@@ -852,8 +852,11 @@ def _col_number_format(col: str) -> Optional[str]:
             or "number of teams" in n):
         return "0"
     # Percent columns that are stored 0-100 (NOT fractions) -> show with a "%"
-    # literal and no x100.
-    if n in ("starter boom %", "starter bust %", "faab premium %"):
+    # literal and no x100. (boom/bust % are computed as *100 in the player sheets;
+    # without this the generic "ends in %" rule below applies Excel's percent format
+    # and multiplies again, so 9.4 rendered as 940.00%.)
+    if n in ("starter boom %", "starter bust %", "faab premium %",
+             "rostered boom %", "rostered bust %"):
         return '0.00"%"'
     # Percent columns stored 0-1 -> Excel percent (x100).
     if (n.endswith("%") or n.startswith("win % vs ") or "win %" in n or n == "efficiency"
