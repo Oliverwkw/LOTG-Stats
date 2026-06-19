@@ -44,7 +44,13 @@ def reconcile(frames) -> list:
 
     def cmp_group(src, key, col, dst, dstkey, tol, name, known=False):
         a = src.groupby(key)[col].apply(lambda s: _num(s).sum())
-        b = dst.set_index(dstkey)[col].pipe(_num)
+        # Sum the destination by key too (don't set_index): the league has
+        # distinct NFL players who share a name (two "Tyler Johnson", two "Justin
+        # Jefferson"), so player_all/team_all can hold multiple rows per name.
+        # Indexing by name would compare a per-name year-sum against ONE of the
+        # colliding rows; summing both sides by name keeps the all-time = Σ-years
+        # invariant well-defined under collisions.
+        b = dst.groupby(dstkey)[col].apply(lambda s: _num(s).sum())
         j = a.align(b, join="inner")
         d = (j[0] - j[1]).abs()
         out.append((name, bool(d.max() <= tol), f"max Δ {d.max():.3f}, {(d > tol).sum()} off", known))

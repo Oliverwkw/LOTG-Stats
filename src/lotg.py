@@ -5423,38 +5423,14 @@ def build_all(repo_root: Path) -> None:
         except Exception as e:
             _log_exc(debug, f"detect_commissioner_moves_final_{_cm_season}", e)
 
-    # Phase 13: close the 2020->2021 ESPN->Sleeper platform-transfer lineage.
-    # Players on a team's FINAL 2020 (ESPN) roster who aren't on its FIRST 2021
-    # (Sleeper) roster were released in the migration with no Sleeper drop
-    # transaction — their 2020 add/draft never closes, so they "teleport" past the
-    # platform boundary (e.g. Tyron Johnson, added W16 2020, no drop). Synthesize a
-    # drop dated on the 2021 transfer (draft) day so the add's departure window
-    # closes. Emitted as an orphan-drop event only (bounds 'Date dropped/traded'
-    # via the event log) — NOT a transactions_rows entry, so it doesn't inflate any
-    # team's transaction/FAAB counts; the migration isn't a managerial move.
-    try:
-        _transfer_days = sorted(draft_dates_by_season.get(2021, set()) or set())
-        _transfer_iso = _transfer_days[0].isoformat() if _transfer_days else None
-        if _transfer_iso:
-            _n_transfer_drops = 0
-            for (_s, _tm), _held in final_wk_roster_st.items():
-                if int(_s) != 2020:
-                    continue
-                _kept = first_wk_roster_st.get((2021, _tm), set())
-                for _pid in (_held - _kept):
-                    _nm = (pid_meta.get(str(_pid), {}) or {}).get("full_name")
-                    if not _nm:
-                        continue
-                    orphan_drop_events.append({
-                        "Team": _tm,
-                        "Player Dropped": _nm,
-                        "Date": _transfer_iso,
-                    })
-                    _n_transfer_drops += 1
-            _log(debug, f"[{_now_iso()}] INFO synthesized {_n_transfer_drops} "
-                        f"2020->2021 transfer drops (dated {_transfer_iso})")
-    except Exception as e:
-        _log_exc(debug, "synth_2020_transfer_drops", e)
+    # Phase 13: the 2020->2021 ESPN->Sleeper platform-transfer lineage (players a
+    # team carried on its final 2020 roster but did NOT keep on its first 2021
+    # roster) is now closed inside the orphaned-holding reconciliation in the
+    # transactions polish pass — gated on the TRANSACTION LOG (is the player still
+    # genuinely held by the team at the 2020 boundary?) rather than the final-week
+    # roster snapshot, which still lists players dropped late in 2020 and so
+    # produced spurious second drops (e.g. Matt Ryan, dropped by shmuel256 on
+    # 2020-12-26 yet re-listed at the boundary).
 
     # Ensure pick ledger includes seasons from 2021 through three years after latest draft.
     latest_draft_season = max(
@@ -6571,9 +6547,28 @@ def build_all(repo_root: Path) -> None:
                 return str(d)
             transactions_rows.sort(key=_date_key)
 
-            # (Source-level dedup of Sleeper transactions now runs in the
-            # per-week fetch loop, so transactions_rows are already deduped
-            # by the time we get here.)
+            # (Source-level dedup of Sleeper transactions runs in the per-week
+            # fetch loop, but the 2020 ESPN roster-diff orphan-drop synthesis can
+            # emit the SAME season-end drop twice — sometimes with differing
+            # internal ids/type — which renders as two identical "dropped by X"
+            # lines with no intervening add, i.e. a phantom MISSING_ARRIVAL
+            # teleport. Dedupe on the RENDERED identity (team, added, dropped,
+            # date) — what the history comment and sheet actually show — so the
+            # second copy is removed regardless of internal-field drift. Two rows
+            # identical on those fields never legitimately co-exist.)
+            _seen_tx: set = set()
+            _deduped_tx: List[Dict[str, Any]] = []
+            for _txr in transactions_rows:
+                _sig = (str(_txr.get("Team")), str(_txr.get("Player Added")),
+                        str(_txr.get("Player Dropped")), str(_txr.get("Date")))
+                if _sig in _seen_tx:
+                    continue
+                _seen_tx.add(_sig)
+                _deduped_tx.append(_txr)
+            if len(_deduped_tx) != len(transactions_rows):
+                _log(debug, f"[{_now_iso()}] INFO deduped {len(transactions_rows) - len(_deduped_tx)} "
+                            f"duplicate transaction rows (same team/added/dropped/date)")
+                transactions_rows[:] = _deduped_tx
 
             # 1) Number of times picked up / dropped by this team (Phase 6C).
             #    Both now INCLUDE trades: a player received in a trade counts as
@@ -6661,6 +6656,252 @@ def build_all(repo_root: Path) -> None:
                     event_log[(str(t_od), str(p_od))].append((str(d_od), "drop"))
             for k in event_log:
                 event_log[k].sort()
+
+            # ---- close orphaned holdings: synthesize the missing departure ----
+            # A player can only be added off waivers/free agency, or drafted,
+            # while NO team holds them. So if team B picks a player up off FA /
+            # waivers (or drafts them) while an EARLIER acquisition by team A is
+            # still open — no recorded drop or trade-away in between — then A
+            # released the player without Sleeper/ESPN recording it (a pre-week
+            # cut, bye-week churn, or the 2020 ESPN gap). Synthesize that drop so
+            # the player's history and 'Date dropped/traded' close instead of the
+            # player teleporting onto B's roster — e.g. Cam Akers (LWebs53 never
+            # recorded dropping him before AceMatthew added him 2024-11-22) or
+            # Joshua Kelley (held by Oliverwkw from the 2020 draft, never
+            # dropped, picked up by plehv79 in 2023). Departures sort ahead of
+            # arrivals at an identical timestamp (a waiver batch / 2-for-2 swap),
+            # so an in-place swap is NOT mistaken for an orphaned holding.
+            _name_to_pid: Dict[str, str] = {}
+            for _sid_m, _meta_m in pid_meta.items():
+                _nm_m = (_meta_m or {}).get("full_name")
+                if _nm_m and str(_nm_m) not in _name_to_pid:
+                    _name_to_pid[str(_nm_m)] = str(_sid_m)
+
+            # typed per-player events keyed by player_id — MATCHING the asset-
+            # history builder, which also keys by pid: (sort_ts, rank, kind, team).
+            # Rank 0 (departures) sorts ahead of rank 1 (arrivals) at an identical
+            # ts. Keying by pid (not the row's name string) is essential: some 2020
+            # ESPN rows carry a Player Added/Dropped string that differs from the
+            # canonical pid_meta name, so a name key would miss them here while the
+            # pid-keyed history still renders them — desyncing the two and spawning
+            # phantom teleports (and a bogus "2021 (vet)" pseudo-player).
+            _holder_events: Dict[str, List[Tuple[str, int, str, str]]] = defaultdict(list)
+            for r in transactions_rows:
+                _tm = r.get("Team"); _d = str(r.get("Date") or "")
+                if not (_tm and _d):
+                    continue
+                _typ = str(r.get("type of transaction (waiver/free agency)") or "").lower()
+                _apid = r.get("_added_pid"); _dpid = r.get("_dropped_pid")
+                if _apid:
+                    _kind = "add_fa" if _typ in ("free_agent", "waiver") else "add_other"
+                    _holder_events[str(_apid)].append((_d, 1, _kind, str(_tm)))
+                if _dpid:
+                    _holder_events[str(_dpid)].append((_d, 0, "depart", str(_tm)))
+            for tr_row in trades_rows:
+                _tm = tr_row.get("Team"); _d = str(tr_row.get("Date") or "")
+                if not (_tm and _d):
+                    continue
+                for _pid_r in (tr_row.get("_recv_player_ids") or []):
+                    if _pid_r:
+                        _holder_events[str(_pid_r)].append((_d, 1, "trade_in", str(_tm)))
+                # players SENT leave this team; resolve sent display-names to pids.
+                for _asset in str(tr_row.get("Assets sent") or "").split(";"):
+                    _asset = _asset.strip()
+                    if (_asset and not re.match(r"^\d{4}\b", _asset)
+                            and not _asset.endswith("FAAB")
+                            and _asset not in ("N/A", "0.0", "None")):
+                        _spid = _name_to_pid.get(_asset)
+                        if _spid:
+                            _holder_events[str(_spid)].append((_d, 0, "depart", str(_tm)))
+            # NB: orphan_drop_events (incl. the 2020->2021 transfer drops) are all
+            # emitted into transactions_rows above, so they're already captured —
+            # scanning them again here would double-count a departure and falsely
+            # leave the player "unheld", spawning a spurious synthesized add.
+            # Draft acquisitions from pick_rows (the pick_history DataFrame `ph`
+            # is not built until later in build_all). A draft is an arrival that
+            # establishes a holding (origin, or a re-draft of a player a team
+            # dropped) — e.g. Joshua Kelley, held by Oliverwkw from the 2020
+            # draft and never dropped before plehv79 picked him up in 2023.
+            for _prow in (pick_rows or []):
+                _ppid = _prow.get("_player_id")
+                if not _ppid:
+                    continue
+                _final = str(_prow.get("Final Team") or _prow.get("Original Team") or "")
+                _ym = re.match(r"\s*(\d{4})", str(_prow.get("Year") or ""))
+                if not _final or not _ym:
+                    continue
+                # Anchor the draft at the START of its season (tz-aware) — before
+                # that season's in-season moves, after the prior season's — to
+                # mirror the asset-history builder's year-aware draft clamp.
+                _holder_events[str(_ppid)].append((f"{_ym.group(1)}-01-01T00:00:00+00:00", 1, "draft", _final))
+
+            def _aware(_x):
+                # parse to a tz-aware (UTC) Timestamp; synthesized dates MUST
+                # match the real rows' tz-awareness or downstream datetime
+                # comparisons raise "can't compare offset-naive and offset-aware".
+                _t = pd.to_datetime(_x, errors="coerce")
+                if _t is None or pd.isna(_t):
+                    return None
+                try:
+                    _t = _t.tz_localize("UTC") if _t.tzinfo is None else _t.tz_convert("UTC")
+                except Exception:
+                    pass
+                return _t
+
+            def _day_before(_ts: str) -> str:
+                _t = _aware(_ts)
+                return (_t - timedelta(days=1)).isoformat() if _t is not None else str(_ts)
+
+            def _pname(pid):
+                return (pid_meta.get(str(pid), {}) or {}).get("full_name")
+
+            def _synth_drop(team, pid, ts):
+                # Close team's open holding right at the event that proves they let
+                # the player go (the pickup elsewhere, or the 2021 transfer). Dating
+                # it AT that timestamp — departures sort ahead of arrivals at an
+                # equal ts — places "dropped by A" immediately before "added by B",
+                # so the rendered history and this reconciliation agree exactly.
+                _key = ("drop", team, str(pid), ts)
+                _nm = _pname(pid)
+                if _key in _synth_seen or not _nm:
+                    return
+                _synth_seen.add(_key)
+                _ad = _aware(ts)
+                _synth_rows.append({"Team": team, "Player Dropped": _nm,
+                                    "_dropped_pid": str(pid),
+                                    "Date": _ad.isoformat() if _ad is not None else str(ts)})
+
+            def _synth_add(team, pid, ts):
+                _key = ("add", team, str(pid), ts)
+                _nm = _pname(pid)
+                if _key in _synth_seen or not _nm:
+                    return
+                _synth_seen.add(_key)
+                _synth_add_rows.append({"Team": team, "Player Added": _nm,
+                                        "_added_pid": str(pid), "Date": _day_before(ts)})
+
+            _synth_seen: set = set()
+            _synth_rows: List[Dict[str, Any]] = []       # missing departures
+            _synth_add_rows: List[Dict[str, Any]] = []   # missing arrivals
+            _holder_2020_end: Dict[str, Optional[str]] = {}  # pid -> holder at the 2020/2021 boundary
+            _has_2021_arrival: Dict[str, bool] = {}  # pid -> re-acquired (add/draft/trade) in 2021+
+            for _pid_h, _evs in _holder_events.items():
+                _holder = None
+                _crossed_2021 = False
+                for _ts, _rank, _kind, _tm in sorted(_evs, key=lambda e: (e[0], e[1])):
+                    if not _crossed_2021 and str(_ts)[:4] >= "2021":
+                        _holder_2020_end[_pid_h] = _holder
+                        _crossed_2021 = True
+                    if str(_ts)[:4] >= "2021" and _kind in ("add_fa", "add_other", "draft", "trade_in"):
+                        _has_2021_arrival[_pid_h] = True
+                    if _kind in ("add_fa", "draft"):
+                        # FA/waiver pickup or draft while another team still holds
+                        # the player => that team's drop went unrecorded.
+                        if _holder is not None and _holder != _tm:
+                            _synth_drop(_holder, _pid_h, _ts)
+                        _holder = _tm
+                    elif _kind == "trade_in":
+                        _holder = _tm
+                    elif _kind == "depart":
+                        # A player can only be dropped/traded away by a team that
+                        # holds them. If nobody holds them, the prior ACQUISITION
+                        # was missing (a kept-roster carryover with no 'add', an add
+                        # the source never logged, or a re-add between two stints) —
+                        # synth the add so the departure has an origin. If a
+                        # DIFFERENT team B holds them, BOTH B's drop and this team's
+                        # acquisition went unrecorded (a player who sat un-transacted
+                        # for a season then surfaced on a new team, e.g. Darrell
+                        # Henderson, Kenyan Drake) — synth both, just before the drop.
+                        if _holder is None:
+                            _synth_add(_tm, _pid_h, _ts)
+                        elif _holder != _tm:
+                            _synth_drop(_holder, _pid_h, _day_before(_ts))
+                            _synth_add(_tm, _pid_h, _ts)
+                        _holder = None
+                if not _crossed_2021:
+                    _holder_2020_end[_pid_h] = _holder
+
+            # 2020->2021 platform transfer: a player a team carried on its final
+            # 2020 roster but did not keep on its first 2021 roster was released at
+            # the migration with no Sleeper drop. Synthesize that drop ONLY when the
+            # transaction log still shows the player held by that team at the end of
+            # the boundary (_holder_2020_end == team) — players already dropped/traded
+            # late in 2020, or re-acquired by another team in 2021 (handled by the
+            # general reconciliation above), are skipped, so no spurious second drop
+            # is created (the bug that mis-dropped Matt Ryan, AJ Dillon, etc.).
+            _transfer_days = sorted(draft_dates_by_season.get(2021, set()) or set())
+            _transfer_iso = (pd.Timestamp(_transfer_days[0], tz="UTC").isoformat()
+                             if _transfer_days else None)
+            if _transfer_iso:
+                for (_s2020, _tm2020), _held2020 in final_wk_roster_st.items():
+                    if int(_s2020) != 2020:
+                        continue
+                    _kept2021 = first_wk_roster_st.get((2021, _tm2020), set())
+                    for _pid2020 in (_held2020 - _kept2021):
+                        # Only if the player is STILL genuinely held by this team
+                        # at the 2020/2021 boundary per the transaction log — not
+                        # if they were dropped/traded late in 2020 (the roster
+                        # snapshot is stale) or re-acquired by another team in 2021
+                        # (handled by the general reconciliation). Using the
+                        # boundary holder — not the final holder — avoids a false
+                        # match when a player is traded back years later (Tony
+                        # Pollard returned to BROsenzweig in 2025). And skip anyone
+                        # RE-ACQUIRED in 2021+ (vet re-draft, add, or trade): the
+                        # general reconciliation already closed that holding at the
+                        # re-acquisition, so a transfer drop would be a redundant
+                        # second departure (e.g. AJ Dillon, re-drafted in 2021 vet).
+                        if (_holder_2020_end.get(str(_pid2020)) == _tm2020
+                                and not _has_2021_arrival.get(str(_pid2020))):
+                            _synth_drop(_tm2020, _pid2020, _transfer_iso)
+
+            # Emit each inferred movement as a real transactions_rows row, so the
+            # player's history comment (built from transactions_rows) and the
+            # transactions sheet agree 1:1 — every movement shown in a comment has
+            # a matching row. Inferred moves carry no FAAB (so no spend metric is
+            # distorted) and a `_synthesized` marker (an internal column, dropped
+            # before write). The event-log entry lets a real add's 'Date dropped/
+            # traded' still close on the inferred departure.
+            def _synth_tx(team, added, added_pid, dropped, dropped_pid, dt):
+                return {
+                    "Team": team, "Player Added": added, "Player Dropped": dropped,
+                    "type of transaction (waiver/free agency)": "free_agent",
+                    "Faab": None, "Total FAAB bid": None,
+                    "FAAB difference over second place": None, "FAAB premium %": None,
+                    "Date": dt, "Season": _to_int(str(dt)[:4], None),
+                    "_added_pid": added_pid, "_dropped_pid": dropped_pid,
+                    "_synthesized": True, "Number of bids": None,
+                    "Link to next transaction": None, "Link to previous transaction": None,
+                    "Average PPG on team": None,
+                    "Average PPG of dropped player over same time": None,
+                    "Difference of averages": None,
+                    "Difference of averages adjusted by position": None,
+                    "Age difference": None, "Player addition value": None,
+                    "Cuff at time of pickup?": None,
+                    "Weeks between pickup and start": None,
+                    "Number of starts before next drop": None,
+                    "% of starts made while rostered": None,
+                    "Injury adjusted % of starts made while rostered": None,
+                    "Date dropped/traded": None, "Tanking": None,
+                    "Number of times picked up by this team": None,
+                }
+            for _sr in _synth_rows:
+                event_log[(_sr["Team"], _sr["Player Dropped"])].append((_sr["Date"], "drop"))
+                orphan_drop_events.append({"Team": _sr["Team"],
+                                           "Player Dropped": _sr["Player Dropped"],
+                                           "Date": _sr["Date"]})
+                transactions_rows.append(_synth_tx(_sr["Team"], None, None,
+                                                   _sr["Player Dropped"], _sr["_dropped_pid"],
+                                                   _sr["Date"]))
+            for _sa in _synth_add_rows:
+                event_log[(_sa["Team"], _sa["Player Added"])].append((_sa["Date"], "add"))
+                transactions_rows.append(_synth_tx(_sa["Team"], _sa["Player Added"],
+                                                   _sa["_added_pid"], None, None, _sa["Date"]))
+            if _synth_rows or _synth_add_rows:
+                for k in event_log:
+                    event_log[k].sort()
+                _log(debug, f"[{_now_iso()}] INFO synthesized {len(_synth_rows)} "
+                            f"missing departures + {len(_synth_add_rows)} missing arrivals "
+                            f"as transactions rows to close orphaned roster lineage")
 
             for r in transactions_rows:
                 team = r.get("Team")
@@ -14784,7 +15025,6 @@ def build_all(repo_root: Path) -> None:
             for _pid in (_tr.get("_recv_player_ids") or []):
                 if _pid:
                     _pl_events[str(_pid)].append((_ts, _deal))
-
         def _draft_anchor(_y) -> str:
             """Date (YYYY-MM-DD) the season's draft actually happened, so the draft
             EVENT sorts after the pick's pre-draft trades and before the drafted
@@ -14889,7 +15129,13 @@ def build_all(repo_root: Path) -> None:
         # Build each pick's lineage BEFORE dropping the Trade N columns it reads.
         _pick_lineage: Dict[int, List[Tuple[str, str]]] = {}
         _pick_ntrades: Dict[int, int] = {}
-        _pid_to_pick_idx: Dict[str, int] = {}
+        # A player can be drafted more than once across the league's history —
+        # a veteran taken in the 2020 ESPN startup, dropped, then RE-drafted in
+        # the 2021 supplemental (vet) draft (e.g. Matt Ryan: 2020 19.01 Oliverwkw
+        # AND 2021 vet 2.05 BROsenzweig). Seed the player's history with EVERY
+        # pick they were drafted at (not just the first), so the earliest draft
+        # anchors the chain and the later re-draft shows as its own event.
+        _pid_to_pick_idxs: Dict[str, List[int]] = defaultdict(list)
         if not ph.empty:
             for _pi in ph.index:
                 _lines, _nt = _pick_hist_lines(_pi)
@@ -14897,18 +15143,79 @@ def build_all(repo_root: Path) -> None:
                 _pick_ntrades[int(_pi)] = _nt
                 _ppid = ph.at[_pi, "_player_id"] if "_player_id" in ph.columns else None
                 if _ppid:
-                    _pid_to_pick_idx.setdefault(str(_ppid), int(_pi))
+                    _pid_to_pick_idxs[str(_ppid)].append(int(_pi))
 
         # Player history = the lineage of the pick they were drafted at (vet
         # included) + every later add / drop / trade, sorted by full timestamp.
+        # Two ordering rules keep the rendered chain causal (a player can't be
+        # added/dropped/traded before being drafted, and can't join a team
+        # before leaving the prior one):
+        #   (a) the draft/origin line is clamped to sort just before the
+        #       player's first real move. A season with several drafts (2021
+        #       rookie + supplemental vet) anchors the draft EVENT at the
+        #       season's LATEST draft date (`_draft_anchor` = max), which can
+        #       fall after an early-season trade of a just-drafted rookie —
+        #       rendering "traded ... then drafted" (e.g. Amari Rodgers, Nico
+        #       Collins, Elijah Moore traded 2021-08-29, drafted 3.05/4.05/2.05).
+        #   (b) at an IDENTICAL Sleeper timestamp (a waiver batch or a 2-for-2
+        #       swap, e.g. the 2021-12-05 15:05:01 Tannehill/Taysom/Abdullah
+        #       moves) departures sort ahead of arrivals, so the history doesn't
+        #       read as a teleport ("added by B" before "dropped by A").
+        def _evt_rank(_text: str) -> int:
+            _t = _text.lower()
+            if "dropped by" in _t:
+                return 0
+            if "traded to" in _t:
+                return 1
+            if "added by" in _t:
+                return 2
+            return 0
+
+        def _assemble_history(_seed, _moves):
+            _move_ts = sorted(str(_ts) for _ts, _ in _moves)
+
+            def _earliest_from(_year):
+                # earliest move dated in _year or later (compare YYYY prefix)
+                for _t in _move_ts:
+                    if _t[:4] >= str(_year):
+                        return _t
+                return None
+
+            _items = []  # (sort_ts, rank, text)
+            for _k, _txt in _seed:
+                _ts = str(_k)
+                _low = _txt.lower()
+                if ("draft" in _low) and ("drafted" in _low):
+                    # Clamp a draft line just ahead of the player's first move
+                    # *in that draft's season or later* — never before an
+                    # earlier-season stint. A season can hold several drafts
+                    # (2021 rookie + supplemental vet), so a rookie's draft EVENT
+                    # is anchored at the season's LATEST draft date, which can
+                    # fall after an early-season trade of that same rookie
+                    # (Amari Rodgers/Nico Collins/Elijah Moore, traded 2021-08-29).
+                    # The year guard keeps a 2021 re-draft from being dragged
+                    # ahead of the player's real 2020 ESPN stint.
+                    _ym = re.match(r"\s*(\d{4})", _txt)
+                    _e = _earliest_from(_ym.group(1)) if _ym else None
+                    if _e and _ts > _e:
+                        _items.append((_e, -1, _txt))
+                        continue
+                _items.append((_ts, -2, _txt))  # headers/origin lead their ts
+            for _ts, _txt in _moves:
+                _items.append((str(_ts), _evt_rank(_txt), _txt))
+            _items.sort(key=lambda x: (x[0], x[1]))
+            return "\n".join(t for _, _, t in _items)
+
         for _pid, _meta in pid_meta.items():
             _name = _cl(_meta.get("full_name"))
             if not _name:
                 continue
-            _seed = _pick_lineage.get(_pid_to_pick_idx.get(str(_pid), -1), [])
-            _all = _seed + _pl_events.get(str(_pid), [])
-            if _all:
-                player_history_text[_name] = "\n".join(_l for _, _l in sorted(_all))
+            _seed = []
+            for _pidx in _pid_to_pick_idxs.get(str(_pid), []):
+                _seed += _pick_lineage.get(_pidx, [])
+            _moves = _pl_events.get(str(_pid), [])
+            if _seed or _moves:
+                player_history_text[_name] = _assemble_history(_seed, _moves)
 
         # Pick comment = the drafted player's FULL history (it shouldn't stop at
         # the draft); an Unknown / not-yet-drafted pick falls back to its lineage.
