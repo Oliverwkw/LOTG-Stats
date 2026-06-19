@@ -12743,13 +12743,22 @@ def build_all(repo_root: Path) -> None:
         try:
             if not ph.empty:
                 phx = ph.copy()
-                # Exclude the 2021 supplemental veteran draft from TEAM draft
-                # stats — Draft Value / # first round picks made / total picks
-                # made should count rookie-draft selections only. The vet picks
-                # remain in pick_history itself (Year tagged "2021 (vet)"); we
-                # just drop them from these rollups.
+                # Exclude the 2021 supplemental veteran draft AND the 2020 ESPN
+                # startup draft from TEAM draft stats — Draft Value / # first round
+                # picks made / total picks made should count ROOKIE-draft selections
+                # only. Both are non-rookie drafts: the vet picks are Year-tagged
+                # "2021 (vet)"; the startup picks carry _is_startup (their Year is
+                # still 2020 here, relabeled to "startup" on write), so the "vet"
+                # string match alone left the 19-round startup inflating 2020 Draft
+                # Value ~4.6x (and making it just track startup draft order). They
+                # remain in pick_history; we only drop them from these rollups.
+                # (O-score / pick-adjusted diffs keep all picks, scoring startup+vet
+                # in their own pool — handled separately, not here.)
+                _su_pa = (phx["_is_startup"].fillna(False).astype(bool)
+                          if "_is_startup" in phx.columns else pd.Series(False, index=phx.index))
                 phx = phx[
                     ~phx["Year"].astype(str).str.contains("vet", case=False, na=False)
+                    & ~_su_pa
                 ].copy()
                 # Resolve picker = Final Team (chain end), falling back to the
                 # last non-empty Trade column, then Original Team.
