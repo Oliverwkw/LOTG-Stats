@@ -8991,6 +8991,16 @@ def build_all(repo_root: Path) -> None:
                           if "_is_startup" in ph.columns else pd.Series(False, index=ph.index))
                 _nr_pa = _nr_pa | ph["Year"].astype(str).str.contains("vet", case=False)
                 _nr_idx = set(ph.index[_nr_pa])
+                # The 2021 supplemental vet draft is treated as a CONTINUATION of
+                # the 2020 startup (its 4 rounds append after startup's 19, i.e.
+                # vet 1.01 -> startup-equivalent round 20), so the two share one
+                # pick-adjustment universe — NOT a separate pool. But the nearest-
+                # neighbour window must not bridge the startup-end / vet-1.01 SEAM:
+                # the last startup pick and vet 1.01 are different drafts and aren't
+                # compared to each other. _is_vet marks which side of that seam a
+                # non-rookie pick sits on; the window is clamped at the seam below.
+                _is_vet_pa = ph["Year"].astype(str).str.contains("vet", case=False)
+                _vet_of: Dict[Any, bool] = {_pi: bool(_is_vet_pa.get(_pi, False)) for _pi in _nr_idx}
                 _vals_by_slot: Dict[str, Dict[Tuple[int, int], List[float]]] = {
                     _st: defaultdict(list) for _st in _padj_diff_stats
                 }
@@ -9080,15 +9090,27 @@ def build_all(repo_root: Path) -> None:
                             if _ref:
                                 ph.at[_pi, _col] = round(_my - sum(_ref) / len(_ref), 4)
 
-                # --- Non-rookie (startup + 2021 vet) pick-adjusted diffs ---
+                # --- Non-rookie pick-adjusted diffs (startup + vet, one sequence) ---
                 # Baseline = mean of the stat over the 8 NEAREST non-rookie picks by
-                # overall draft position (across the pooled startup+vet picks; rookie
-                # drafts are never used as the reference, per spec).
+                # overall draft position. The vet draft is positioned as a CONTINU-
+                # ATION of the startup (vet overall pos = startup's last pos + the
+                # vet's own pos), and the window is clamped at the startup/vet SEAM
+                # so the last startup pick and vet 1.01 never enter each other's
+                # window. Rookie drafts are never used as the reference, per spec.
+                _su_max_pos = 0
+                for _pi in _nr_idx:
+                    if not _vet_of.get(_pi):
+                        _m = re.match(r"\s*(\d+)\.(\d+)", str(ph.at[_pi, "Number"]))
+                        if _m:
+                            _su_max_pos = max(_su_max_pos, (int(_m.group(1)) - 1) * _rsize + int(_m.group(2)))
                 _nr_pos: List[Tuple[int, Any]] = []
                 for _pi in _nr_idx:
                     _m = re.match(r"\s*(\d+)\.(\d+)", str(ph.at[_pi, "Number"]))
                     if _m:
-                        _nr_pos.append(((int(_m.group(1)) - 1) * _rsize + int(_m.group(2)), _pi))
+                        _p = (int(_m.group(1)) - 1) * _rsize + int(_m.group(2))
+                        if _vet_of.get(_pi):
+                            _p += _su_max_pos  # vet continues after the startup
+                        _nr_pos.append((_p, _pi))
                 for _st in _padj_diff_stats:
                     _col = f"Pick-adjusted Difference in {_st}"
                     for _pos0, _pi in _nr_pos:
@@ -9096,7 +9118,11 @@ def build_all(repo_root: Path) -> None:
                             _my = float(ph.at[_pi, _st])
                         except Exception:
                             continue  # this pick's stat is N/A → diff stays N/A
-                        _near = sorted((abs(_p - _pos0), _j) for _p, _j in _nr_pos if _j != _pi)[:8]
+                        # Clamp the window at the startup/vet seam: only pick
+                        # neighbours on the SAME side (both startup, or both vet).
+                        _vet_here = _vet_of.get(_pi)
+                        _near = sorted((abs(_p - _pos0), _j) for _p, _j in _nr_pos
+                                       if _j != _pi and _vet_of.get(_j) == _vet_here)[:8]
                         _ref = []
                         for _, _j in _near:
                             try:
