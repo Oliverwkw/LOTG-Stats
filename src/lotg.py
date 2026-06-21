@@ -387,6 +387,12 @@ def _first_col(df: pd.DataFrame, candidates: List[str]) -> Optional[str]:
             return c
     return None
 
+# Internal sentinel "round" for the 2.09 toilet-reward pick. It is a SEPARATE
+# asset from a team's real 2nd-rounder (its own pick-ledger key, so it can be
+# traded independently), but renders as "2.09" everywhere and is treated as a
+# 2.08 only in slot-based comparisons (which key off the "2.09" display string).
+_R209 = 209
+
 def _epoch_ms_to_dt(ms: Any) -> Optional[datetime]:
     try:
         ms_i = int(ms)
@@ -2870,6 +2876,12 @@ def build_all(repo_root: Path) -> None:
     def _format_pick_number_for_season(season: int, round_num: Optional[int], pick_no: Optional[int]) -> Optional[str]:
         if round_num is None:
             return None
+        # 209 is the internal sentinel round for the 2.09 toilet-reward pick — a
+        # DISTINCT asset from the real 2nd-rounder (so it has its own ledger key
+        # and can be traded), but it displays as "2.09" everywhere and counts as a
+        # 2.08 only in the slot-based calcs (which key off this "2.09" string).
+        if int(round_num) == _R209:
+            return "2.09"
         team_count = len(roster_ids_by_season.get(season, [])) or None
         if pick_no is None or team_count is None:
             return f"{int(round_num)}.??"
@@ -3036,6 +3048,49 @@ def build_all(repo_root: Path) -> None:
     # the add never closes -> the player "teleports" past the platform boundary).
     final_wk_roster_st: Dict[Tuple[int, str], set] = {}
     first_wk_roster_st: Dict[Tuple[int, str], set] = {}
+
+    # ------------------------------------------------------------------
+    # Commissioner-moved pick trades (manual overlay). Off-platform pick
+    # movements that were really part of an EXISTING recorded trade but that
+    # the platform never attached to it: 2020 ESPN trade emails carried only
+    # player legs, and Sleeper drops picks more than ~3 years out. Each row
+    # injects a synthetic draft_pick leg into the matching source transaction
+    # (matched by its exact `created` timestamp, UTC) so the pick flows into
+    # that trade's Assets received/sent, the pick-ownership ledger, the lineage
+    # comment, chain and trade counts natively — no special-casing downstream.
+    # See data/commissioner_pick_trades.csv.
+    _commish_overlay_by_ts: Dict[str, List[Dict[str, Any]]] = defaultdict(list)
+    _commish_overlay_rows: List[Dict[str, Any]] = []
+    try:
+        _cpt_path = repo_root / "data" / "commissioner_pick_trades.csv"
+        if _cpt_path.exists():
+            import csv as _csv_mod
+            with _cpt_path.open(newline="", encoding="utf-8") as _fh:
+                for _raw in _csv_mod.reader(_fh):
+                    if not _raw or not (_raw[0] or "").strip() or _raw[0].lstrip().startswith("#"):
+                        continue
+                    if _raw[0].strip() == "pick_year":
+                        continue  # header
+                    if len(_raw) < 6:
+                        continue
+                    _orow = {
+                        "pick_year": _to_int(_raw[0], None),
+                        "round": _to_int(_raw[1], None),
+                        "orig_owner": _raw[2].strip(),
+                        "from_owner": _raw[3].strip(),
+                        "to_owner": _raw[4].strip(),
+                        "ts": _raw[5].strip(),
+                        "deal": _raw[6].strip() if len(_raw) > 6 else "",
+                        "matched": False,
+                    }
+                    if _orow["pick_year"] is None or _orow["round"] is None or not _orow["ts"]:
+                        continue
+                    _commish_overlay_rows.append(_orow)
+                    _commish_overlay_by_ts[_orow["ts"]].append(_orow)
+            _log(debug, f"[{_now_iso()}] INFO commissioner pick-trade overlay: "
+                        f"{len(_commish_overlay_rows)} pick-hops loaded")
+    except Exception as e:
+        _log_exc(debug, "commish_pick_overlay_load", e)
 
     for lg in leagues:
         league_id = str(lg.get("league_id"))
@@ -3926,6 +3981,78 @@ def build_all(repo_root: Path) -> None:
                                     f"Carter/Stevenson player swap into the pick trade")
             except Exception as e:
                 _log_exc(debug, "merge_2021_phantom_trade", e)
+
+        # ------------- Commissioner-moved pick trades (manual overlay) -------------
+        # Inject the off-platform pick legs into the EXISTING trade each one was
+        # part of, matched by the transaction's exact created timestamp (UTC).
+        # The picks then ride the normal trade path below (ledger update, asset
+        # rendering, lineage). Owners resolve via this season's roster map;
+        # roster_ids are the stable Sleeper ids in every season (2020 included,
+        # via espn_2020.ESPN_TO_SLEEPER_RID), so a future pick keeps one identity
+        # across hops in different seasons.
+        if _commish_overlay_by_ts:
+            try:
+                _t2r = season_team_to_roster.get(int(season), {}) or {}
+                for _wk_txs in tx_by_week.values():
+                    for _t in _wk_txs:
+                        if _t.get("type") != "trade":
+                            continue
+                        _cdt = _epoch_ms_to_dt(_t.get("created"))
+                        if _cdt is None:
+                            continue
+                        _hits = _commish_overlay_by_ts.get(_cdt.strftime("%Y-%m-%d %H:%M:%S"))
+                        if not _hits:
+                            continue
+                        _dps = _t.get("draft_picks")
+                        if not isinstance(_dps, list):
+                            _dps = []
+                            _t["draft_picks"] = _dps
+                        _rset = {_to_int(r, None) for r in (_t.get("roster_ids") or [])}
+                        for _o in _hits:
+                            _orig = _t2r.get(_norm_team_name(_o["orig_owner"]))
+                            _frm = _t2r.get(_norm_team_name(_o["from_owner"]))
+                            _to = _t2r.get(_norm_team_name(_o["to_owner"]))
+                            if _orig is None or _frm is None or _to is None:
+                                _log(debug, f"[{_now_iso()}] WARN commish pick-trade unresolved owner: "
+                                            f"{_o['deal']} {_o['pick_year']} R{_o['round']} @ {_o['ts']}")
+                                continue
+                            if _frm not in _rset or _to not in _rset:
+                                _log(debug, f"[{_now_iso()}] WARN commish pick-trade {_o['from_owner']}->"
+                                            f"{_o['to_owner']} not both in trade @ {_o['ts']} ({_o['deal']})")
+                                continue
+                            # Seed this pick's ledger base if missing. _ensure_pick_bases
+                            # can't run yet for a pick whose draft year is processed in a
+                            # LATER season iteration (and the 2020 startup draft is excluded
+                            # from draft_rounds_by_season), so the trade loop below would
+                            # otherwise fail _select_pick_key and drop the event — leaving
+                            # the pick flagged "Commissioner moved?" despite now having a
+                            # real trade. Seed the exact (year, round, original-owner) key.
+                            _pk = (int(_o["pick_year"]), int(_o["round"]), int(_orig))
+                            if _pk not in pick_current_owner:
+                                pick_current_owner[_pk] = int(_orig)
+                                pick_trade_events.setdefault(_pk, [])
+                                pick_holdings[_pk].append(int(_orig))
+                            _dup = any(
+                                isinstance(_e, dict)
+                                and _to_int(_e.get("season"), None) == int(_o["pick_year"])
+                                and _to_int(_e.get("round"), None) == int(_o["round"])
+                                and _to_int(_e.get("owner_id"), None) == int(_to)
+                                and _to_int(_e.get("roster_id"), None) == int(_orig)
+                                for _e in _dps
+                            )
+                            _o["matched"] = True
+                            if _dup:
+                                continue
+                            _dps.append({
+                                "season": int(_o["pick_year"]),
+                                "round": int(_o["round"]),
+                                "owner_id": int(_to),
+                                "previous_owner_id": int(_frm),
+                                "roster_id": int(_orig),
+                                "_commish_overlay": True,
+                            })
+            except Exception as e:
+                _log_exc(debug, f"commish_pick_inject_{season}", e)
 
         # ------------- Commissioner "wash" detection (Phase 6B) -------------
         # A single-day commissioner action that ends with the roster exactly
@@ -5454,6 +5581,21 @@ def build_all(repo_root: Path) -> None:
                 except Exception as e:
                     _log_exc(debug, f"transactions_trades_rows_{season}_wk{wk}", e)
 
+    # Commissioner pick-trade overlay: warn on any row that never matched a
+    # transaction (a stale timestamp or a trade dropped upstream) so the ledger
+    # stays honest rather than silently skipping picks.
+    _cpt_unmatched = [_o for _o in _commish_overlay_rows if not _o.get("matched")]
+    if _cpt_unmatched:
+        for _o in _cpt_unmatched:
+            _log(debug, f"[{_now_iso()}] WARN commish pick-trade UNMATCHED: "
+                        f"{_o['pick_year']} R{_o['round']} {_o['from_owner']}->{_o['to_owner']} "
+                        f"@ {_o['ts']} ({_o['deal']})")
+        _log(debug, f"[{_now_iso()}] WARN commissioner pick-trade overlay: "
+                    f"{len(_cpt_unmatched)}/{len(_commish_overlay_rows)} pick-hops unmatched")
+    elif _commish_overlay_rows:
+        _log(debug, f"[{_now_iso()}] INFO commissioner pick-trade overlay: "
+                    f"all {len(_commish_overlay_rows)} pick-hops injected")
+
     # Authoritative commissioner-move detection — RERUN now that every
     # trade transaction across all seasons has been folded into
     # pick_trade_events. The per-season calls above ran before each
@@ -5965,37 +6107,77 @@ def build_all(repo_root: Path) -> None:
     try:
         def _pid_name(_pid: Any) -> str:
             return pid_meta.get(str(_pid), {}).get("full_name") or str(_pid)
-        for _sea, _adds in sorted(draft_day_commish_adds.items()):
-            if int(_sea) < 2024 or not _adds:
-                continue
-            _rid2tm = season_roster_to_team.get(int(_sea), {})
-            # 2.09 (toilet-bracket reward)
-            _ts0, _rid0, _pid0, _txid0 = _adds[0]
-            _final0 = _rid2tm.get(_rid0, f"Roster {_rid0}")
+
+        def _chain_final_rid(_sea: int, _rnd: int, _orig_rid: int) -> int:
+            """Current owner roster of pick (sea, rnd, orig) by walking its ledger
+            events chronologically; the original owner if it never moved."""
+            _final = int(_orig_rid)
+            for _ev in sorted(
+                pick_trade_events.get((int(_sea), int(_rnd), int(_orig_rid))) or [],
+                key=lambda e: (e[0] is None, e[0] or datetime.min.replace(tzinfo=timezone.utc)),
+            ):
+                try:
+                    _final = int(_ev[2])
+                except Exception:
+                    pass
+            return _final
+
+        # The 2.09 toilet reward EXISTS as soon as the prior season's toilet
+        # (losers-bracket) winner is decided — i.e. post-season, not at the next
+        # draft. So a 2.09 whose draft hasn't happened yet is still a real,
+        # tradeable FUTURE pick (owned by the toilet winner, or whoever it has
+        # since been traded to). Emit a 2.09 for every season S >= 2024 whose
+        # S-1 toilet winner is known. If S's draft has happened, the draft-day
+        # commissioner-forced add fixes the drafting team + player; otherwise it
+        # is an undrafted future pick whose owner comes from its trade chain.
+        _209_seasons = sorted(
+            {int(_ps) + 1 for _ps, _tw in toilet_winner_by_season.items()
+             if _tw is not None and int(_ps) + 1 >= 2024}
+            | {int(s) for s in draft_day_commish_adds if int(s) >= 2024}
+        )
+        for _sea in _209_seasons:
             _tw_rid = toilet_winner_by_season.get(int(_sea) - 1)
-            _orig0 = _rid2tm.get(_tw_rid, _final0) if _tw_rid is not None else _final0
+            if _tw_rid is None:
+                continue
+            _rid2tm = (season_roster_to_team.get(int(_sea))
+                       or season_roster_to_team.get(int(_sea) - 1) or {})
+            _orig0 = _rid2tm.get(int(_tw_rid), f"Roster {_tw_rid}")
+            _adds = draft_day_commish_adds.get(int(_sea)) or []
+            if _adds:
+                # Drafted: the first draft-day commissioner-forced add IS the 2.09;
+                # it fixes the drafting (final) team and the drafted player.
+                _ts0, _rid0, _pid0, _txid0 = _adds[0]
+                _final0 = _rid2tm.get(int(_rid0), f"Roster {_rid0}")
+                _player0, _pid_str = _pid_name(_pid0), str(_pid0)
+            else:
+                # Not yet drafted: a FUTURE pick. Owner = end of its _R209 trade
+                # chain (else the toilet winner). No drafted player yet.
+                _final0 = _rid2tm.get(_chain_final_rid(int(_sea), _R209, int(_tw_rid)), _orig0)
+                _player0, _pid_str = "", ""
             _row209: Dict[str, Any] = {
                 "Year": int(_sea),
                 "Number": "2.09",
                 "Original Team": _orig0,
                 "Final Team": _final0,
-                "Player Picked": _pid_name(_pid0),
-                "_player_id": str(_pid0),                "Commissioner moved?": False,
+                "Player Picked": _player0,
+                "_player_id": _pid_str,
+                "Commissioner moved?": False,
             }
             if _orig0 != _final0:
                 _row209["Trade 1"] = _final0
             pick_rows.append(_row209)
-            # 5.0X (FAAB draft-day buys) — only from 2025; chronological order.
-            if int(_sea) >= 2025:
+            # 5.0X (FAAB draft-day buys, 2025+) only exist once the draft happens.
+            if int(_sea) >= 2025 and _adds:
                 for _j, (_tsj, _ridj, _pidj, _txidj) in enumerate(_adds[1:], start=1):
-                    _tmj = _rid2tm.get(_ridj, f"Roster {_ridj}")
+                    _tmj = _rid2tm.get(int(_ridj), f"Roster {_ridj}")
                     pick_rows.append({
                         "Year": int(_sea),
                         "Number": f"5.{_j:02d}",
                         "Original Team": _tmj,
                         "Final Team": _tmj,
                         "Player Picked": _pid_name(_pidj),
-                        "_player_id": str(_pidj),                        "Commissioner moved?": False,
+                        "_player_id": str(_pidj),
+                        "Commissioner moved?": False,
                     })
     except Exception as e:
         _log_exc(debug, "synthetic_draft_day_picks", e)
@@ -8135,6 +8317,14 @@ def build_all(repo_root: Path) -> None:
             for i, r in ph.iterrows():
                 yr = _to_int(r.get("Year"), None)
                 num = str(r.get("Number") or "")
+                # Synthetic off-platform picks (2.09 toilet reward, 5.0X FAAB buys)
+                # are hand-built rows that keep their own Original/Final Team. They
+                # parse as round 2 / 5, so the generic chain lookup below would
+                # wrongly graft the REAL 2nd-/5th-round pick's chain onto them. The
+                # 2.09's own trades live under the _R209 ledger key and are rendered
+                # straight from there in _pick_hist_lines, so skip these here.
+                if num.strip() == "2.09" or num.strip().startswith("5."):
+                    continue
                 # Accept both legacy 'R1.5' format and current '1.05'.
                 m = re.match(r"^R?(\d+)(?:\.|$)", num)
                 if yr is None or not m:
@@ -15259,18 +15449,36 @@ def build_all(repo_root: Path) -> None:
                 # at the start of the year so it sorts ahead of every later trade.
                 return [("0000-00-00 00:00:00", f"{_yr} {_num} — originally {_orig}'s pick"),
                         (f"{_yr}-01-01 00:00:00", f"{_yr} startup (vet) draft: {_final} {_drafted_txt}")], 0
-            if _is_209 or _is_5xx:
-                # 2.09 toilet reward / 5.xx FAAB buy: an off-platform AWARD, not a
-                # trade. The 2.09 originates with the prior toilet-bracket winner
-                # and is then commissioner-assigned to the team that drafts; the
-                # 5.xx is bought by and stays with one team. Either way the award
-                # itself does NOT count toward Number of trades.
-                _hdr = f"{_yr} {_num} — originally {_orig}'s pick" + (" (toilet-bowl reward)" if _is_209 else "")
+            if _is_5xx:
+                # 5.xx FAAB buy: an off-platform AWARD bought by and kept with one
+                # team. Not a trade -> contributes 0 to Number of trades.
+                _hdr = f"{_yr} {_num} — originally {_orig}'s pick"
                 _lines = [("0000-00-00 00:00:00", _hdr)]
                 if _final and _final != _orig and _present(_final):
                     _lines.append((_move_key, f"{_yr}: Commissioner moved to {_final}"))
                 _lines.append((_draft_key, f"{_yr} draft: {_final} {_drafted_txt}"))
                 return _lines, 0
+            if _is_209:
+                # 2.09 toilet reward: ORIGINATES with the prior-season toilet
+                # (losers-bracket) winner as an award, but is then a DISTINCT
+                # tradeable asset (its own _R209 ledger key, separate from the real
+                # 2nd). Render its real trades from _ph_hops under that key; the
+                # award itself counts 0, but each onward trade counts like any pick.
+                _hdr = f"{_yr} {_num} — originally {_orig}'s pick (toilet-bowl reward)"
+                _lines = [("0000-00-00 00:00:00", _hdr)]
+                _anchor_d = _draft_anchor(_yr)
+                _same_day = 0
+                _ntr209 = 0
+                for _ts, _recv, _line in sorted(_ph_hops.get((_yr, _R209, _orig), [])):
+                    _k = _ts
+                    if _drafted and str(_ts)[:10] == _anchor_d:
+                        _same_day += 1
+                        _k = f"{_anchor_d} 11:{_same_day:02d}:00"
+                    _lines.append((_k, _line))
+                    _ntr209 += 1
+                if _drafted:
+                    _lines.append((_draft_key, f"{_yr} Draft: {_final} {_drafted_txt}"))
+                return _lines, _ntr209
             _lines: List[Tuple[str, str]] = [("0000-00-00 00:00:00", f"{_yr} {_num} — originally {_orig}'s pick")]
             _nm = re.match(r"\s*(\d+)\.", _num)
             _covered: set = set()
@@ -15314,6 +15522,12 @@ def build_all(repo_root: Path) -> None:
         # Dynamic — a drafted pick keeps its real slot.
         if not ph.empty and "Player Picked" in ph.columns:
             for _pi in ph.index:
+                _num_cur = _cl(ph.at[_pi, "Number"])
+                # The 2.09 toilet reward and 5.0X FAAB buys have a FIXED slot even
+                # before they're drafted (an undrafted future 2.09 still IS the
+                # "2.09"), so keep their number instead of blanking it to "R.??".
+                if _num_cur == "2.09" or _num_cur.startswith("5."):
+                    continue
                 if _cl(ph.at[_pi, "Player Picked"]).lower() in ("", "unknown", "n/a", "nan", "none"):
                     _mr = re.match(r"\s*(\d+)", str(ph.at[_pi, "Number"]))
                     if _mr:

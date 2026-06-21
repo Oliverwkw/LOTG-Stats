@@ -46,6 +46,27 @@ TEAM_TO_MANAGER = {
     8: "plehv79",
 }
 
+# Sleeper assigns each manager a stable roster_id (1..8) reused across every
+# 2021+ season; ESPN used its own teamId 1..8 for the same managers in 2020 (a
+# DIFFERENT ordering — e.g. LWebs53 is ESPN teamId 3 but Sleeper roster 6). Emit
+# 2020 roster_ids in the SLEEPER space so an asset (a draft pick or player) that
+# moves across the 2020<->2021 boundary keeps ONE consistent roster identity:
+# the pick-ownership ledger keys on roster_id, so a 2021+ pick traded in a 2020
+# deal must resolve to the same roster integer in both seasons. Display is
+# unaffected — every sheet resolves roster_id -> manager via the per-season map.
+SLEEPER_ROSTER_ID_BY_MANAGER = {
+    "stevenb123": 1, "JacobRosenzweig": 2, "AceMatthew": 3, "BROsenzweig": 4,
+    "plehv79": 5, "LWebs53": 6, "Oliverwkw": 7, "shmuel256": 8,
+}
+# ESPN teamId -> Sleeper roster_id, for the managers above.
+ESPN_TO_SLEEPER_RID = {tid: SLEEPER_ROSTER_ID_BY_MANAGER[mgr]
+                       for tid, mgr in TEAM_TO_MANAGER.items()}
+
+
+def _rid(espn_team_id):
+    """Map an ESPN teamId to the manager's stable Sleeper roster_id."""
+    return ESPN_TO_SLEEPER_RID.get(espn_team_id, espn_team_id)
+
 # ESPN lineupSlotId: starters are everything except bench(20)/IR(21).
 BENCH_SLOTS = {20, 21}
 SLOT_NAME = {
@@ -522,7 +543,8 @@ def load_espn_2020(raw_dir: str = RAW_DIR_DEFAULT, dp_path: str = DP_IDS_DEFAULT
 # Sleeper-shape adapter: emit 2020 in the exact shapes lotg.py's per-season
 # loop consumes (sc.league / users / rosters / matchups / transactions / drafts /
 # brackets), keyed by sleeper_id, so a guarded wrapper can feed 2020 to the build
-# untouched. roster_id == ESPN teamId (1..8); player ids == sleeper_id strings.
+# untouched. Emitted roster_id is the manager's stable SLEEPER roster_id (see
+# ESPN_TO_SLEEPER_RID); player ids == sleeper_id strings.
 # --------------------------------------------------------------------------- #
 ESPN_START_SLOT_TO_SLEEPER = {0: "QB", 2: "RB", 4: "WR", 6: "TE", 7: "SUPER_FLEX", 23: "FLEX"}
 SLEEPER_LEAGUE_ID = "espn_2020"
@@ -564,7 +586,7 @@ def emit_sleeper_2020(loaded: Dict[str, Any]) -> Dict[str, Any]:
     rosters = []
     for r in loaded["weeks"][last_wk]:
         plist = [sid(p["espn_player_id"]) for p in r["starters"] + r["bench"]]
-        rosters.append({"roster_id": r["team_id"], "owner_id": owners.get(r["team_id"]),
+        rosters.append({"roster_id": _rid(r["team_id"]), "owner_id": owners.get(r["team_id"]),
                         "players": [p for p in plist if p], "draft_season": str(SEASON)})
 
     # matchups per week (roster_id, points, starters, players, players_points, matchup_id)
@@ -583,7 +605,7 @@ def emit_sleeper_2020(loaded: Dict[str, Any]) -> Dict[str, Any]:
         for r in rows:
             pts = {sid(p["espn_player_id"]): p["points"] for p in r["starters"] + r["bench"] if sid(p["espn_player_id"])}
             out.append({
-                "roster_id": r["team_id"],
+                "roster_id": _rid(r["team_id"]),
                 "matchup_id": mid_by_team.get(r["team_id"]),
                 "points": r["pf"],
                 "starters": [sid(p["espn_player_id"]) for p in r["starters"] if sid(p["espn_player_id"])],
@@ -600,11 +622,11 @@ def emit_sleeper_2020(loaded: Dict[str, Any]) -> Dict[str, Any]:
     for m in tx["moves"]:
         wk = m["scoring_period"] or 1
         tid += 1
-        adds = {sid(p): m["team_id"] for p in m["add_pids"] if sid(p)} or None
-        drops = {sid(p): m["team_id"] for p in m["drop_pids"] if sid(p)} or None
+        adds = {sid(p): _rid(m["team_id"]) for p in m["add_pids"] if sid(p)} or None
+        drops = {sid(p): _rid(m["team_id"]) for p in m["drop_pids"] if sid(p)} or None
         tx_by_week[wk].append({
             "transaction_id": f"e{tid}", "type": "waiver" if m["kind"] == "WAIVER" else "free_agent",
-            "status": "complete", "roster_ids": [m["team_id"]],
+            "status": "complete", "roster_ids": [_rid(m["team_id"])],
             "adds": adds, "drops": drops, "draft_picks": [], "waiver_budget": [],
             "settings": None, "created": m["date"], "metadata": None,  # ESPN proposedDate (epoch ms)
         })
@@ -614,7 +636,7 @@ def emit_sleeper_2020(loaded: Dict[str, Any]) -> Dict[str, Any]:
             return int(_dt.datetime.fromisoformat(s).timestamp() * 1000) if s else None
         except Exception:
             return None
-    team_by_mgr = {v: k for k, v in TEAM_TO_MANAGER.items()}
+    team_by_mgr = {mgr: _rid(tid) for tid, mgr in TEAM_TO_MANAGER.items()}
     for t in trades:
         wk = t["trade_week"] or 1
         tid += 1
@@ -634,7 +656,7 @@ def emit_sleeper_2020(loaded: Dict[str, Any]) -> Dict[str, Any]:
         })
 
     # draft + picks (Sleeper shape)
-    picks = [{"round": p["round"], "pick_no": p["overall"], "roster_id": p["team_id"],
+    picks = [{"round": p["round"], "pick_no": p["overall"], "roster_id": _rid(p["team_id"]),
               "player_id": sid(p["espn_player_id"]), "is_keeper": p["keeper"],
               "metadata": {"first_name": (p["player"] or "").split(" ")[0],
                            "last_name": " ".join((p["player"] or "").split(" ")[1:])}}
