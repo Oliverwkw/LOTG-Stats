@@ -1,0 +1,65 @@
+# Commissioner-moved pick trades (manual overlay).
+#
+# Off-platform draft-pick movements that really happened as PART of an existing,
+# already-recorded trade, but that the platform never attached to that trade:
+#   - 2020 ESPN trades: the trade emails listed only the player legs, so the
+#     picks that changed hands in the same deal were lost.
+#   - 2021+ Sleeper trades: picks more than ~3 years out are beyond Sleeper's
+#     tracking window, so a future pick bundled into a recorded player trade was
+#     dropped from that transaction's draft_picks.
+#
+# Each row = ONE pick changing hands in ONE existing trade (a pick that moved
+# through several trades has one row per hop). The build (src/lotg.py) injects a
+# synthetic draft_pick leg into the matching source transaction — identified by
+# its exact created timestamp (UTC) — so the pick shows up in that trade's
+# Assets received/sent and flows into the pick lineage, chain and trade counts
+# exactly like a natively-recorded pick. Source: league-commissioner ledger
+# (Google Sheet 16WDkZ6hjwFss75qR7spHY-iu9xOS565GR0NgA7VobZs).
+#
+# trade_created_utc must equal the target transaction's `created` time, UTC,
+# formatted "YYYY-MM-DD HH:MM:SS". Owners are Sleeper display handles.
+# orig_owner = the pick's original (draft-slot) owner; from/to = this hop.
+pick_year,round,orig_owner,from_owner,to_owner,trade_created_utc,deal,notes
+# --- 2020 ESPN trades (picks missing from the email-parsed legs) ---
+2021,3,AceMatthew,AceMatthew,shmuel256,2020-10-29 17:09:26,ARob-DeVante Parker trade,
+2021,4,shmuel256,shmuel256,AceMatthew,2020-10-29 17:09:26,ARob-DeVante Parker trade,
+2021,1,plehv79,plehv79,shmuel256,2020-12-01 16:47:53,Edwards-Helaire trade,1.05 to Sam for CEH
+2021,2,stevenb123,stevenb123,LWebs53,2020-12-16 16:43:22,Hockenson-Drake trade,
+2021,1,LWebs53,LWebs53,AceMatthew,2020-11-29 23:57:04,Cook trade,
+2021,2,LWebs53,LWebs53,AceMatthew,2020-11-29 23:57:04,Cook trade,
+2021,4,LWebs53,LWebs53,AceMatthew,2020-11-29 23:57:04,Cook trade,
+2022,1,LWebs53,LWebs53,AceMatthew,2020-11-29 23:57:04,Cook trade,
+2022,3,LWebs53,LWebs53,AceMatthew,2020-11-29 23:57:04,Cook trade,
+2023,1,LWebs53,LWebs53,AceMatthew,2020-11-29 23:57:04,Cook trade,
+2024,1,LWebs53,LWebs53,AceMatthew,2020-11-29 23:57:04,Cook trade,
+2024,3,LWebs53,LWebs53,AceMatthew,2020-11-29 23:57:04,Cook trade,
+2025,1,LWebs53,LWebs53,AceMatthew,2020-11-29 23:57:04,Cook trade,
+2025,3,LWebs53,LWebs53,AceMatthew,2020-11-29 23:57:04,Cook trade,
+# --- 2021+ Sleeper trades (future picks beyond the tracking window) ---
+2027,2,AceMatthew,AceMatthew,LWebs53,2024-05-13 19:02:44,Tyreek-JJ trade,
+2028,2,AceMatthew,AceMatthew,LWebs53,2024-05-13 19:02:44,Tyreek-JJ trade,
+2028,1,AceMatthew,AceMatthew,plehv79,2025-06-18 13:59:02,Bijan trade,
+2028,2,stevenb123,stevenb123,Oliverwkw,2023-10-31 20:21:48,Burks trade,Steve 2028 2nd hop 1 of 4
+2028,2,stevenb123,Oliverwkw,shmuel256,2023-11-01 19:01:46,Doubs trade,Steve 2028 2nd hop 2 of 4
+2028,2,stevenb123,shmuel256,stevenb123,2024-07-13 22:23:03,2024 2.07 trade,Steve 2028 2nd hop 3 of 4
+2028,2,stevenb123,stevenb123,LWebs53,2024-09-28 20:54:18,Jonathan Taylor trade,Steve 2028 2nd hop 4 of 4
+2028,3,plehv79,plehv79,stevenb123,2024-12-09 00:11:48,DeAndre Hopkins trade,
+2028,3,LWebs53,LWebs53,stevenb123,2024-10-09 21:11:30,Najee trade,
+2028,3,Oliverwkw,Oliverwkw,stevenb123,2023-10-31 20:21:48,Burks trade,
+2028,4,LWebs53,LWebs53,BROsenzweig,2024-10-03 19:52:47,Darnold trade,Luke 2028 4th hop 1 of 2
+2028,4,LWebs53,BROsenzweig,Oliverwkw,2025-03-16 01:57:37,Adonai Mitchell trade,Luke 2028 4th hop 2 of 2
+# 2024 3rd-round swap bundled into the recorded Mostert<->2022 3.08+2024 4.01 deal.
+# Each team's own 2024 3rd was also swapped (Steve's 3.01 Bo Nix -> Luke;
+# Luke's 3.08 Jermaine Burton -> Steve) but only the headline assets were logged;
+# this completes both picks' chains to their eventual owner (Oliverwkw, 2024-05-03).
+2024,3,stevenb123,stevenb123,LWebs53,2022-03-09 21:05:26,Mostert / 2024 3rd swap,Bo Nix (3.01)
+2024,3,LWebs53,LWebs53,stevenb123,2022-03-09 21:05:26,Mostert / 2024 3rd swap,Jermaine Burton (3.08)
+# --- 2.09 toilet-reward picks (round=209 sentinel: a DISTINCT pick from the real
+# 2nd-rounder; rendered "2.09", counted as a 2.08 only in slot-based calcs). The
+# award originates with the prior-season toilet (losers-bracket) winner, who then
+# traded it. 2026's 2.09 isn't a pick yet (2026 draft hasn't happened).
+2024,209,JacobRosenzweig,JacobRosenzweig,AceMatthew,2024-07-13 22:26:58,2.09 for a 2026 2nd,2024 toilet reward
+2025,209,Oliverwkw,Oliverwkw,shmuel256,2025-03-02 15:34:00,Deebo Samuel trade,2025 toilet reward hop 1 of 3
+2025,209,Oliverwkw,shmuel256,plehv79,2025-04-14 21:19:57,Davante Adams trade,2025 toilet reward hop 2 of 3
+2025,209,Oliverwkw,plehv79,AceMatthew,2025-07-20 22:16:32,Ray Davis trade,2025 toilet reward hop 3 of 3
+2026,209,Oliverwkw,Oliverwkw,LWebs53,2026-05-03 16:13:10,with 2.8 in trade up,2026 toilet reward (future pick; 2026 draft not yet held)
