@@ -6829,6 +6829,7 @@ def build_all(repo_root: Path) -> None:
             _synth_add_rows: List[Dict[str, Any]] = []   # missing arrivals
             _holder_2020_end: Dict[str, Optional[str]] = {}  # pid -> holder at the 2020/2021 boundary
             _has_2021_arrival: Dict[str, bool] = {}  # pid -> re-acquired (add/draft/trade) in 2021+
+            _final_holder: Dict[str, Optional[str]] = {}  # pid -> team still holding at end of the event log
             for _pid_h, _evs in _holder_events.items():
                 _holder = None
                 _crossed_2021 = False
@@ -6864,6 +6865,7 @@ def build_all(repo_root: Path) -> None:
                         _holder = None
                 if not _crossed_2021:
                     _holder_2020_end[_pid_h] = _holder
+                _final_holder[_pid_h] = _holder
 
             # 2020->2021 platform transfer: a player a team carried on its final
             # 2020 roster but did not keep on its first 2021 roster was released at
@@ -6897,6 +6899,65 @@ def build_all(repo_root: Path) -> None:
                         if (_holder_2020_end.get(str(_pid2020)) == _tm2020
                                 and not _has_2021_arrival.get(str(_pid2020))):
                             _synth_drop(_tm2020, _pid2020, _transfer_iso)
+
+            # ---- terminal orphaned holdings (roster-diff) ----
+            # A player still 'held' per the transaction log (no recorded drop /
+            # trade-away) who was NEVER re-acquired elsewhere is invisible to the
+            # arrival-anchored reconciliation above (it closes a holding only when
+            # some later team picks the player up). Detect the departure straight
+            # from the roster snapshots instead: the player is on the team for a
+            # scored week, but the team kept playing LATER THAT SAME SEASON without
+            # them — a within-season gap that proves an unrecorded cut. Synthesize
+            # the drop at the player's last rostered week. Catches dead-end cuts
+            # like DeAndre Washington (LWebs53, only W14 2020) and Johnny Wilson
+            # (LWebs53, only W4 2024). Guards: WITHIN-season (not cross-season) so
+            # IR stashes / offseason holds aren't mistaken for departures; SKIP the
+            # latest season (live drops are all recorded there, and an end-of-year
+            # IR slot can be absent from the snapshot); require _final_holder == team
+            # so a holding the reconciliation already closed isn't dropped twice.
+            try:
+                if not pw.empty and {"Team", "Player ID", "Year", "Week"}.issubset(pw.columns):
+                    _pid_last_on_team: Dict[Tuple[str, str], Tuple[int, int]] = {}
+                    _team_year_maxwk: Dict[Tuple[str, int], int] = {}
+                    _latest_year: Optional[int] = None
+                    for _t, _pid, _y, _w in zip(pw["Team"], pw["Player ID"], pw["Year"], pw["Week"]):
+                        if _pid is None or (isinstance(_pid, float) and pd.isna(_pid)):
+                            continue
+                        try:
+                            _yi = int(_y); _wi = int(_w)
+                        except Exception:
+                            continue
+                        _latest_year = _yi if _latest_year is None else max(_latest_year, _yi)
+                        _k = (str(_t), str(_pid))
+                        if _k not in _pid_last_on_team or (_yi, _wi) > _pid_last_on_team[_k]:
+                            _pid_last_on_team[_k] = (_yi, _wi)
+                        _tk = (str(_t), _yi)
+                        if _wi > _team_year_maxwk.get(_tk, 0):
+                            _team_year_maxwk[_tk] = _wi
+                    _n_terminal = 0
+                    for _pid_t, _team_t in _final_holder.items():
+                        if not _team_t:
+                            continue
+                        _last = _pid_last_on_team.get((str(_team_t), str(_pid_t)))
+                        if not _last:
+                            continue  # never on a scored roster here -> leave open
+                        _ly, _lw = _last
+                        if _latest_year is not None and _ly >= _latest_year:
+                            continue  # current season -> real drops recorded; skip
+                        if _team_year_maxwk.get((str(_team_t), _ly), 0) > _lw:
+                            # Date the drop at the START of the FOLLOWING week (the
+                            # first week they're absent): always after the add (even
+                            # a mid-week pickup in their last rostered week) and
+                            # before the next scored week, so the add's departure
+                            # closes and the drop isn't itself orphaned.
+                            _dd = date(_ly, 9, 7) + timedelta(days=7 * _lw)
+                            _synth_drop(_team_t, _pid_t, pd.Timestamp(_dd, tz="UTC").isoformat())
+                            _n_terminal += 1
+                    if _n_terminal:
+                        _log(debug, f"[{_now_iso()}] INFO synthesized {_n_terminal} terminal "
+                                    f"roster-diff departures (dead-end cuts, never re-acquired)")
+            except Exception as e:
+                _log_exc(debug, "terminal_orphan_drop_synth", e)
 
             # Emit each inferred movement as a real transactions_rows row, so the
             # player's history comment (built from transactions_rows) and the
