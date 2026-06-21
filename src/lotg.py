@@ -16031,6 +16031,32 @@ def build_all(repo_root: Path) -> None:
     except Exception as e:
         _log_exc(debug, "startup_year_relabel", e)
 
+    # Final pass (placed last, after every numeric fill): 'Startup draft players
+    # remaining' must read N/A — not 0 — for any (team, year) / (league, year) with
+    # NO played weeks yet, e.g. an in-progress or upcoming season before its week 1.
+    # Recomputed from player_week so the value is N/A now and AUTO-POPULATES a real
+    # count the moment that season's week 1 is played (a played week appears in pw).
+    # team_week / team_all_time / league_week already key off played weeks only.
+    try:
+        _COL_SR = "Startup draft players remaining"
+        _sr_s, _sr_r, _sr_wk, _sr_lt = _startup_remaining_maps(pick_rows, pw)
+        if isinstance(team_year, pd.DataFrame) and _COL_SR in team_year.columns and {"Team", "Year"}.issubset(team_year.columns):
+            team_year[_COL_SR] = [
+                (_startup_remaining_count(_sr_s, _sr_r, _t, _y, max(_sr_wk[(str(_t), int(_y))]))
+                 if (pd.notna(_y) and (str(_t), int(_y)) in _sr_wk) else None)
+                for _t, _y in zip(team_year["Team"], team_year["Year"])
+            ]
+            if isinstance(league_year, pd.DataFrame) and _COL_SR in league_year.columns and "Year" in league_year.columns:
+                _suy_fin = (team_year.assign(_v=pd.to_numeric(team_year.get(_COL_SR), errors="coerce"))
+                            .groupby("Year")["_v"].sum(min_count=1))
+                league_year[_COL_SR] = [
+                    (float(_suy_fin.get(int(_y))) if (pd.notna(_y) and int(_y) in _suy_fin.index
+                                                      and pd.notna(_suy_fin.get(int(_y)))) else None)
+                    for _y in league_year["Year"]
+                ]
+    except Exception as e:
+        _log_exc(debug, "startup_remaining_final_na", e)
+
     context = {
         "player_week": pw,
         "player_year": player_year,
