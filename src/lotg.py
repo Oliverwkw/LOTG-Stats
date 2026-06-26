@@ -5432,8 +5432,20 @@ def build_all(repo_root: Path) -> None:
                         row_faab_pct_2nd = None
                         if ttype == "waiver" and int(season) != 2020:
                             key = (int(season), int(wk), str(pid))
+                            # This row is a tracked 2022+ waiver claim, so a
+                            # recorded total of $0 (an uncontested $0 claim, or
+                            # multiple all-$0 bids) is REAL data — "the league
+                            # burned $0 of FAAB on this player" — not "missing".
+                            # Don't collapse a genuine 0.0 to N/A; only treat a
+                            # key that's truly absent from the tally as unknown.
                             row_num_bids = bids_per_player_week.get(key, 0) or None
-                            row_total_faab = total_bids_amount_per_player_week.get(key, 0.0) or None
+                            if row_num_bids is not None:
+                                # A recorded bid count exists, so the total bid
+                                # amount is known — a 0.0 sum (all bids were $0)
+                                # is real, not missing.
+                                row_total_faab = total_bids_amount_per_player_week.get(key, 0.0)
+                            else:
+                                row_total_faab = total_bids_amount_per_player_week.get(key, 0.0) or None
                             # Compute the runner-up from the pre-filter
                             # tally. Two important details:
                             # 1) The winner is the team owning THIS row
@@ -7212,6 +7224,46 @@ def build_all(repo_root: Path) -> None:
                 _log(debug, f"[{_now_iso()}] INFO synthesized {len(_synth_rows)} "
                             f"missing departures + {len(_synth_add_rows)} missing arrivals "
                             f"as transactions rows to close orphaned roster lineage")
+                # The pickup/drop running-count pass above ran BEFORE these
+                # synthesized rows existed, so they'd otherwise render N/A for
+                # 'Number of times picked up/dropped by this team' even though
+                # the count is pure lineage data we now hold. Re-tally over the
+                # full (now-complete) transactions_rows + trades so synthesized
+                # drop/add rows get the same running counts as real rows — a
+                # reader sees two identical drop-only rows with consistent
+                # counts, not one numbered and one blank.
+                acq_events2: List[Tuple[str, str, str, Any]] = []
+                drop_events2: List[Tuple[str, str, str, Any]] = []
+                for r in transactions_rows:
+                    team = r.get("Team")
+                    if not team:
+                        continue
+                    d = str(r.get("Date") or "")
+                    add = r.get("Player Added")
+                    if add and str(add) != "N/A":
+                        acq_events2.append((d, str(team), str(add), r))
+                    dropped = r.get("Player Dropped")
+                    if dropped and str(dropped) != "N/A":
+                        drop_events2.append((d, str(team), str(dropped), r))
+                for tr_row in trades_rows:
+                    team = tr_row.get("Team")
+                    if not team:
+                        continue
+                    d = str(tr_row.get("Date") or "")
+                    for asset in _split_assets(tr_row.get("Assets received")):
+                        acq_events2.append((d, str(team), asset, None))
+                    for asset in _split_assets(tr_row.get("Assets sent")):
+                        drop_events2.append((d, str(team), asset, None))
+                pickup_count = defaultdict(int)
+                for d, team, player, row in sorted(acq_events2, key=lambda e: e[0]):
+                    pickup_count[(team, player)] += 1
+                    if row is not None:
+                        row["Number of times picked up by this team"] = pickup_count[(team, player)]
+                drop_count = defaultdict(int)
+                for d, team, player, row in sorted(drop_events2, key=lambda e: e[0]):
+                    drop_count[(team, player)] += 1
+                    if row is not None:
+                        row["Number of times dropped by this team"] = drop_count[(team, player)]
 
             for r in transactions_rows:
                 team = r.get("Team")
@@ -7662,8 +7714,15 @@ def build_all(repo_root: Path) -> None:
                     return None
                 added_age = _age_for(added)
                 dropped_age = _age_for(dropped)
-                if added_age is not None or dropped_age is not None:
-                    r["Age difference"] = round((added_age or 0.0) - (dropped_age or 0.0), 2)
+                # "Age difference" = added_age − dropped_age is only meaningful
+                # when the row actually swapped one player for another. On a
+                # pure add (no dropped player) or a pure drop (no added player)
+                # there is no opposing age to compare against, so the value
+                # stays N/A (via _preserve_na) instead of being computed
+                # against a phantom age-0 player — which would otherwise
+                # fabricate a ±(present player's age) "difference".
+                if added_age is not None and dropped_age is not None:
+                    r["Age difference"] = round(added_age - dropped_age, 2)
 
                 # --- Tanking-delta inputs (Phase 6E) ---
                 # Marginal change this transaction makes to the team's roster
