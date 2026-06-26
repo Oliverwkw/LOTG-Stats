@@ -1277,6 +1277,18 @@ def _preserve_na(col: str) -> bool:
         return True
     if col_l == "total faab bid":
         return True
+    # Amount of FAAB spent (team_week/team_year/league_week/league_year):
+    # blank means the season had no FAAB system at all (pre-2022) — N/A,
+    # not 'spent zero'. The build already computes None for those seasons;
+    # this just stops the export pipeline from re-zeroing it.
+    if col_l == "amount of faab spent":
+        return True
+    # Number of bids (transactions.csv): blank means competing-waiver-claim
+    # data wasn't recoverable (2020 ESPN season — see
+    # plan/notes/espn_2020_backfill.md) or the row wasn't a waiver claim.
+    # Distinct from 'won uncontested'.
+    if col_l == "number of bids":
+        return True
     # Faab-vs-second-place: blank means the row isn't a waiver, or the
     # waiver was uncontested (no runner-up). Either case is distinct
     # from 'won by zero' so don't collapse to 0.0.
@@ -4690,7 +4702,10 @@ def build_all(repo_root: Path) -> None:
                         "Number of TE rostered": te_r,
                         "Number of transactions": int(tx_count.get(team, 0)),
                         "Number of trades": int(trade_count.get(team, 0)),
-                        "Amount of FAAB spent": round(float(faab_spent.get(team, 0.0)), 2),
+                        "Amount of FAAB spent": (
+                            round(float(faab_spent.get(team, 0.0)), 2)
+                            if int(season) >= 2022 else None
+                        ),
                         "Most number of players started from same NFL team": most_start_same,
                         "Most number of players started from same NFL team (team)": most_start_team,
                         "Most number of players rostered from same NFL team": most_roster_same,
@@ -5407,7 +5422,7 @@ def build_all(repo_root: Path) -> None:
                         row_total_faab = None
                         row_faab_diff_2nd = None
                         row_faab_pct_2nd = None
-                        if ttype == "waiver":
+                        if ttype == "waiver" and int(season) != 2020:
                             key = (int(season), int(wk), str(pid))
                             row_num_bids = bids_per_player_week.get(key, 0) or None
                             row_total_faab = total_bids_amount_per_player_week.get(key, 0.0) or None
@@ -7781,6 +7796,7 @@ def build_all(repo_root: Path) -> None:
     #
     # Per transaction row: KTC of added, dropped, and net at deal time.
     # --------------------------
+    _ktc_idx = None
     try:
         from lotg_support.ktc import build_index, asset_value_at
         today = datetime.utcnow().date()
@@ -12070,10 +12086,22 @@ def build_all(repo_root: Path) -> None:
         # 9 in player_all_time. Pad here with skeleton rows.
         try:
             existing = set()
+            # (name, year) pairs already represented by a REAL pw-derived row.
+            # A different Sleeper ID can map to the same display name in the
+            # same year (e.g. two players named the same, or a name/ID merge
+            # quirk) — guard against padding in a duplicate-looking row for a
+            # name+year that already has a real row under another ID.
+            existing_names: Set[Tuple[str, int]] = set()
             if not player_year.empty and "Player ID" in player_year.columns and "Year" in player_year.columns:
                 for pid_val, yr_val in player_year[["Player ID", "Year"]].itertuples(index=False, name=None):
                     try:
                         existing.add((str(pid_val), int(yr_val)))
+                    except Exception:
+                        continue
+            if not player_year.empty and "Player" in player_year.columns and "Year" in player_year.columns:
+                for name_val, yr_val in player_year[["Player", "Year"]].itertuples(index=False, name=None):
+                    try:
+                        existing_names.add((str(name_val), int(yr_val)))
                     except Exception:
                         continue
 
@@ -12237,6 +12265,12 @@ def build_all(repo_root: Path) -> None:
                     # to 0). Compute the player's age as of mid-season of that
                     # year from birth_date (same source the weekly path uses).
                     _pad_age = _calc_age(meta.get("birth_date"), date(int(yr), 11, 1))
+                    # Skip this pad row if a REAL pw-derived row already
+                    # exists for the same (name, year) under a different
+                    # Player ID — that real row is the authoritative one;
+                    # padding here would surface a phantom duplicate name.
+                    if (str(name), int(yr)) in existing_names:
+                        continue
                     pad_rows.append({
                         "Player": name,
                         "Player ID": str(sid),
@@ -13163,7 +13197,10 @@ def build_all(repo_root: Path) -> None:
                 # aggregation step carried them across.
                 "Number of transactions": int(pd.to_numeric(g.get("Number of transactions"), errors="coerce").fillna(0.0).sum()),
                 "Number of trades": int(pd.to_numeric(g.get("Number of trades"), errors="coerce").fillna(0.0).sum()),
-                "Amount of FAAB spent": round(float(pd.to_numeric(g.get("Amount of FAAB spent"), errors="coerce").fillna(0.0).sum()), 2),
+                "Amount of FAAB spent": (
+                    round(float(pd.to_numeric(g.get("Amount of FAAB spent"), errors="coerce").fillna(0.0).sum()), 2)
+                    if int(yr) >= 2022 else None
+                ),
                 # Highest combined matchup score (own PF + opponent PF) the
                 # team participated in during the season. team_week already
                 # computes Combined matchup score per game.
@@ -14575,7 +14612,10 @@ def build_all(repo_root: Path) -> None:
                 "Number of trades": int(len(_trade_dates_by_yw.get((int(yr), int(wk)), set()))),
                 "Highest starter score": _star_hi_yw.get((int(yr), int(wk))),
                 "Lowest starter score": _star_lo_yw.get((int(yr), int(wk))),
-                "Amount of FAAB spent": float(pd.to_numeric(g.get("Amount of FAAB spent"), errors="coerce").fillna(0.0).sum()),
+                "Amount of FAAB spent": (
+                    float(pd.to_numeric(g.get("Amount of FAAB spent"), errors="coerce").fillna(0.0).sum())
+                    if int(yr) >= 2022 else None
+                ),
             })
         league_week = pd.DataFrame(rows)
 
@@ -14623,7 +14663,13 @@ def build_all(repo_root: Path) -> None:
                 }
             )
             league_week = league_week.merge(agg_lw, how="left", on=["Year","Week"])
-            league_week["Amount of FAAB spent"] = pd.to_numeric(league_week.get("Amount of FAAB spent"), errors="coerce").fillna(0.0)
+            league_week["Amount of FAAB spent"] = league_week.apply(
+                lambda r: (
+                    float(pd.to_numeric(r.get("Amount of FAAB spent"), errors="coerce") or 0.0)
+                    if int(r.get("Year")) >= 2022 else None
+                ),
+                axis=1,
+            )
             # League range = highest − lowest starter (item-5 disambiguation;
             # the agg gave the max single-team spread).
             if {"Highest starter score", "Lowest starter score"} <= set(league_week.columns):
@@ -14694,7 +14740,10 @@ def build_all(repo_root: Path) -> None:
                     for _pos in ["QB", "WR", "RB", "TE"]
                     for _kind in ["started", "rostered"]
                 },
-                "Amount of FAAB spent": float(pd.to_numeric(g.get("Amount of FAAB spent"), errors="coerce").fillna(0.0).sum()),
+                "Amount of FAAB spent": (
+                    float(pd.to_numeric(g.get("Amount of FAAB spent"), errors="coerce").fillna(0.0).sum())
+                    if int(yr) >= 2022 else None
+                ),
             })
         league_year = pd.DataFrame(rows)
 
@@ -14732,7 +14781,13 @@ def build_all(repo_root: Path) -> None:
                 }
             )
             league_year = league_year.merge(agg_ly, how="left", on=["Year"])
-            league_year["Amount of FAAB spent"] = pd.to_numeric(league_year.get("Amount of FAAB spent"), errors="coerce").fillna(0.0)
+            league_year["Amount of FAAB spent"] = league_year.apply(
+                lambda r: (
+                    float(pd.to_numeric(r.get("Amount of FAAB spent"), errors="coerce") or 0.0)
+                    if int(r.get("Year")) >= 2022 else None
+                ),
+                axis=1,
+            )
             # Startup players remaining (league, per year) = season-END total =
             # sum across teams of each team's last-week count (the agg above would
             # sum over all team-weeks and over-count).
