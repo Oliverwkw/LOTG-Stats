@@ -1204,6 +1204,14 @@ def _preserve_na(col: str) -> bool:
         return True
     if col_l.startswith("net ktc value"):
         return True
+    # KTC-over-time checkpoint columns on picks.csv. Blank means an unmade
+    # pick, an untracked player, a future checkpoint, or the KTC index
+    # itself failed to build (dynasty-daddy unreachable) — distinct from
+    # 'KTC is actually zero'.
+    if col_l == "ktc on draft day" or col_l == "ktc at end of rookie year":
+        return True
+    if re.match(r"^ktc \d+ years? after draft day$", col_l):
+        return True
     # Dropped avg/total points: N/A when the row dropped nobody; an explicit
     # 0 is real (the dropped player never played another NFL game).
     if col_l in {"dropped avg points", "dropped total points"}:
@@ -9017,10 +9025,11 @@ def build_all(repo_root: Path) -> None:
         ]
         try:
             from lotg_support.ktc import asset_value_at as _ktc_value_at
-            if not ph.empty and {"Year", "Player Picked"}.issubset(set(ph.columns)) and _ktc_idx is not None:
+            if not ph.empty and {"Year", "Player Picked"}.issubset(set(ph.columns)):
                 for _c in _pick_ktc_cols:
                     ph[_c] = "N/A"
                     ph[_c] = ph[_c].astype(object)
+            if not ph.empty and {"Year", "Player Picked"}.issubset(set(ph.columns)) and _ktc_idx is not None:
                 _ktc_today = datetime.utcnow().date()
                 for _i, _pr in ph.iterrows():
                     _ply = str(_pr.get("Player Picked") or "").strip()
@@ -15295,7 +15304,15 @@ def build_all(repo_root: Path) -> None:
                         pick_home_phref[_pk] = _phref  # pick's home row (Bug #6)
                     _pl = str(ph.at[_pi, "Player Picked"]).strip()
                     if _real_player(_pl):
-                        _edates = [e[0] for e in chains.get(_pl, []) if pd.notna(e[0])]
+                        # Only anchor against events ON OR AFTER this pick's own
+                        # draft date. A vet pick's player can have an unrelated,
+                        # earlier transaction history (e.g. a prior waiver stint
+                        # with a different team before being drafted here) — using
+                        # the player's GLOBAL earliest event would anchor the
+                        # chain-start before that stale history instead of right
+                        # after the real draft, mis-threading "next"/"previous"
+                        # across the two unrelated spans (run-2 audit Part 8).
+                        _edates = [e[0] for e in chains.get(_pl, []) if pd.notna(e[0]) and e[0] >= _fallback]
                         _start = (min(_edates) - pd.Timedelta(days=1)) if _edates else _fallback
                         chains[_pl].append((_start, _phref))  # player chain start
                 _ksort = lambda e: (e[0] if pd.notna(e[0]) else _nat)

@@ -636,9 +636,33 @@ def emit_sleeper_2020(loaded: Dict[str, Any]) -> Dict[str, Any]:
             return int(_dt.datetime.fromisoformat(s).timestamp() * 1000) if s else None
         except Exception:
             return None
+    # Bucket each trade into a WEEKLY scoring period using the same
+    # calendar-anchored rule lotg.py's `_trade_wk()` applies to every other
+    # season (kickoff Sept 7, offseason trades within 7 days roll into wk 1,
+    # deeper-offseason trades get 0). Previously this used the email-parser's
+    # roster-vote `trade_week` heuristic instead, which can land on a
+    # different week than the calendar rule — making team_week's per-week
+    # trade bucket (sourced from this dict) disagree with league_week's
+    # independently-recomputed `Number of trades` (sourced from each trade's
+    # `Date` via the calendar rule). Using the same rule here keeps both
+    # sheets in agreement for 2020 (run-2 audit Part 1).
+    def _calendar_trade_wk(dt_str):
+        if not dt_str:
+            return 1
+        try:
+            d = _dt.datetime.fromisoformat(str(dt_str).replace("Z", "+00:00")).date()
+            ss = _dt.date(SEASON, 9, 7)
+            if d < ss:
+                return 1 if (ss - d).days <= 7 else 0
+            return max(1, min(17, (d - ss).days // 7 + 1))
+        except Exception:
+            return 1
     team_by_mgr = {mgr: _rid(tid) for tid, mgr in TEAM_TO_MANAGER.items()}
     for t in trades:
-        wk = t["trade_week"] or 1
+        # _calendar_trade_wk never returns None (falls back to 1 for a
+        # missing date); a real 0 (deep-offseason, no weekly bucket) must
+        # stay 0, not get coerced to 1, to match league_week's bucketing.
+        wk = _calendar_trade_wk(t["date"])
         tid += 1
         adds, drops, rids = {}, {}, set()
         for l in t["legs"]:
