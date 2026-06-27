@@ -2349,8 +2349,17 @@ def build_all(repo_root: Path) -> None:
                         if _def and hc.comment is None:
                             _hc_cm = _HdrComment(_def, "LOTG Formulas")
                             _hc_cm.width = 460
-                            _hc_nl = _def.count("\n") + 1 + len(_def) // 70
-                            _hc_cm.height = min(520, max(80, 16 * _hc_nl))
+                            # Phase 13: size the box for the WRAPPED visual line
+                            # count (per line, like the history comments), not a
+                            # crude len//70. At 460px the box fits ~62 chars/row;
+                            # the old estimate plus a 520px cap clipped the longest
+                            # column definitions (e.g. 2k-char picks/trades/
+                            # transactions tooltips needed ~600px). Sum each
+                            # explicit line's wrapped rows and raise the cap.
+                            _hc_cpr = 62
+                            _hc_nl = sum(max(1, -(-len(_ln) // _hc_cpr))
+                                         for _ln in _def.split("\n"))
+                            _hc_cm.height = min(900, max(80, 16 * _hc_nl + 12))
                             hc.comment = _hc_cm
                         # Wrap every data cell (#7) + conservative number format.
                         nf = _col_number_format(hc.value) if hc.value else None
@@ -2606,11 +2615,25 @@ def build_all(repo_root: Path) -> None:
                     ws.auto_filter.ref = f"A1:{get_column_letter(ws.max_column)}{max(1, ws.max_row)}"
 
                 try:
+                    # Phase 13: scan the FULL column (every data row), not just the
+                    # first 200. Sheets like team_week/player_week/transactions/picks/
+                    # trades have far more rows; a long single-token value (team/player
+                    # name) past row 200 was being under-counted, so the column came out
+                    # too narrow and Excel wrapped it mid-token (wrap_text=True on all
+                    # cells). iter_rows(values_only=True) iterates row-major in C, which
+                    # is fast even for player_week's 10k+ rows x dozens of columns.
+                    _maxlen = [len(str(ws.cell(row=1, column=j).value or ""))
+                               for j in range(1, ws.max_column + 1)]
+                    for _row in ws.iter_rows(min_row=2, max_col=ws.max_column,
+                                             values_only=True):
+                        for _i, _v in enumerate(_row):
+                            if _v is not None:
+                                _l = len(str(_v))
+                                if _l > _maxlen[_i]:
+                                    _maxlen[_i] = _l
                     for j in range(1, ws.max_column + 1):
-                        vals = [str(ws.cell(row=1, column=j).value or "")]
-                        for r in range(2, min(ws.max_row, 201) + 1):
-                            vals.append(str(ws.cell(row=r, column=j).value or ""))
-                        ws.column_dimensions[get_column_letter(j)].width = min(40, max(10, max(len(v) for v in vals) + 2))
+                        ws.column_dimensions[get_column_letter(j)].width = \
+                            min(40, max(10, _maxlen[j - 1] + 2))
                 except Exception:
                     pass
 
