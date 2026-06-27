@@ -4111,6 +4111,7 @@ def build_all(repo_root: Path) -> None:
             _pd_net: Dict[Tuple[str, str], Dict[int, int]] = defaultdict(lambda: defaultdict(int))
             _pd_commish: Dict[Tuple[str, str], bool] = defaultdict(bool)
             _tx_pdays: Dict[str, set] = {}
+            _tx_is_trade: Dict[str, bool] = {}
             for _wk_txs in tx_by_week.values():
                 for _t in _wk_txs:
                     _dt = _epoch_ms_to_dt(_t.get("created"))
@@ -4119,6 +4120,7 @@ def build_all(repo_root: Path) -> None:
                     _day = _dt.date().isoformat()
                     _is_comm = (str(_t.get("type") or "") == "commissioner")
                     _txid = str(_t.get("transaction_id") or id(_t))
+                    _tx_is_trade[_txid] = (str(_t.get("type") or "") == "trade")
                     _adds = _t.get("adds") if isinstance(_t.get("adds"), dict) else {}
                     _drops = _t.get("drops") if isinstance(_t.get("drops"), dict) else {}
                     _pset = set()
@@ -4144,6 +4146,17 @@ def build_all(repo_root: Path) -> None:
                 if _pd_commish.get(_k) and all(_v == 0 for _v in _nets.values())
             }
             for _txid, _pset in _tx_pdays.items():
+                # A real trade is a genuine manager-initiated event, never a
+                # commissioner no-op correction — even if a same-(UTC-)day
+                # commissioner action later reverses it (making the player-day
+                # net zero), the trade still happened and must stay in
+                # trades.csv / the trade counts. Only the reversing
+                # commissioner (and any add/drop) legs are the no-ops to drop.
+                # Without this guard, the wash sweep silently deleted real
+                # trades whose moved players were reverted by a commissioner
+                # the same UTC day (Round 5 Parts A/B finding).
+                if _tx_is_trade.get(_txid):
+                    continue
                 if _pset and all(_k in _wash_pdays for _k in _pset):
                     wash_tx_ids.add(_txid)
             if wash_tx_ids:
