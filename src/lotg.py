@@ -15359,27 +15359,52 @@ def build_all(repo_root: Path) -> None:
                 return _nxt, _prv
 
             # Pick chains: follow a draft pick to the next / previous TRADE that
-            # moved it, keyed by its canonical identity (year, round, original
-            # owner) — NOT the display label, whose projected slot can drift for
-            # an un-drafted future pick. Built from the RECEIVED side only so the
-            # two mirror rows of a single trade event don't link to each other.
-            # Deliberately does NOT bridge a pick to the player drafted with it.
-            pick_chains: Dict[Tuple[int, int, str], List[Tuple[Any, str]]] = defaultdict(list)
-            # Bug #6: a pick's HOME row on the picks sheet, by canonical key. Used
-            # as the fallback link when a pick has no earlier trade (its first
-            # trade's "previous") so the cell links to the pick's origin instead
-            # of dead "N/A". Populated in the draft-row bridging loop below.
-            pick_home_phref: Dict[Tuple[int, int, str], str] = {}
+            # moved it, keyed by its FULL numbered identity (year, round,
+            # number-within-round, original owner). Round-4 audit (Part G):
+            # the older (year, round, orig) key was NOT unique when one team held
+            # several same-round picks originally its own (e.g. BROsenzweig's
+            # 2025 5.02/5.03/5.06) — all of their PH# draft terminals and trades
+            # then collided into one bucket, so a pick linked to a SIBLING pick's
+            # draft row or trade instead of its own. The pick NUMBER disambiguates
+            # them (number 0 = an un-drafted future pick whose slot isn't set yet;
+            # such picks have no draft row, so they never collide). Built from the
+            # RECEIVED side only so the two mirror rows of a single trade event
+            # don't link to each other. Does NOT bridge a pick to its drafted
+            # player.
+            pick_chains: Dict[Tuple[int, int, int, str], List[Tuple[Any, str]]] = defaultdict(list)
+            # Bug #6: a pick's HOME row on the picks sheet, by numbered identity.
+            # Used as the fallback link when a pick has no earlier/later trade so
+            # the cell links to the pick's origin instead of dead "N/A".
+            # Populated in the draft-row bridging loop below.
+            pick_home_phref: Dict[Tuple[int, int, int, str], str] = {}
+            # Part G root fix: key the pick chain by the FULL numbered identity
+            # (year, round, number, orig) so same-round sibling picks held by one
+            # owner never share a bucket (and thus never link to each other).
+            # The trade asset LABEL carries the pick number once the slot is set
+            # (e.g. "2024 2.02(X. Worthy)"); the parallel "Assets received" list
+            # is consumed in lockstep with _recv_pick_meta (one meta entry per
+            # pick asset, in order). Future picks whose slot isn't set yet have no
+            # number in the label and no draft row, so they key with number 0 and
+            # cannot collide with a drafted pick anyway.
             if "_recv_pick_meta" in tr.columns:
                 for _j in tr.index:
                     _ref = f"T#{int(_j) + 1}"; _d = tr.at[_j, "Date"]
                     _pm = tr.at[_j, "_recv_pick_meta"]
-                    for _m in (_pm if isinstance(_pm, list) else []):
+                    _pm = _pm if isinstance(_pm, list) else []
+                    # pull the pick-asset labels in order to recover each number
+                    _labels = [a.strip() for a in str(tr.at[_j, "Assets received"] or "").split(";")
+                               if re.match(r"^\d{4}\b", a.strip())]
+                    for _mi, _m in enumerate(_pm):
                         try:
-                            _key = (int(_m[0]), int(_m[1]), str(_m[2]))
+                            _yr0 = int(_m[0]); _rd0 = int(_m[1]); _or0 = str(_m[2])
                         except Exception:
                             continue
-                        pick_chains[_key].append((_d, _ref))
+                        _num0 = 0
+                        if _mi < len(_labels):
+                            _lm0 = re.match(r"\s*\d{4}\s+\d+\.(\d+)", _labels[_mi])
+                            if _lm0:
+                                _num0 = int(_lm0.group(1))
+                        pick_chains[(_yr0, _rd0, _num0, _or0)].append((_d, _ref))
                 for _k in pick_chains:
                     pick_chains[_k].sort(key=lambda e: (e[0] if pd.notna(e[0]) else _nat))
 
@@ -15397,10 +15422,21 @@ def build_all(repo_root: Path) -> None:
                 for _pi in ph.index:
                     _phref = f"PH#{int(_pi) + 1}"
                     _ym = re.match(r"\s*(\d{4})", str(ph.at[_pi, "Year"]))
-                    _nm = re.match(r"\s*(\d+)\.", str(ph.at[_pi, "Number"]))
+                    _nm = re.match(r"\s*(\d+)\.(\d+)", str(ph.at[_pi, "Number"]))
                     if not _ym or not _nm:
                         continue
                     _yr = int(_ym.group(1)); _rd = int(_nm.group(1))
+                    _picknum = int(_nm.group(2))
+                    # The 2.09 toilet-reward pick is a DISTINCT asset whose own
+                    # trades are keyed by the _R209 sentinel round in
+                    # _recv_pick_meta (not the literal round 2 it displays as).
+                    # Key its draft terminal under the same sentinel so PH# and
+                    # its trade chain (e.g. 2024 2.09 <- T#28) actually link;
+                    # otherwise the draft row (round 2) and the trade (round 209)
+                    # land in separate buckets and the pick's "previous
+                    # transaction" silently drops its real trade.
+                    if str(ph.at[_pi, "Number"]).strip() == "2.09":
+                        _rd = _R209
                     _orig = str(ph.at[_pi, "Original Team"]).strip()
                     # Anchor each PH# RELATIVE to the chain it joins, not a fixed
                     # calendar date (which mis-orders the 2021 startup/vet draft
@@ -15411,9 +15447,9 @@ def build_all(repo_root: Path) -> None:
                     # (no other event references it then anyway). The date is
                     # only used for sort order — the "PH#N" ref is identical.
                     _fallback = pd.Timestamp(year=_yr, month=8, day=28, tz="UTC")
-                    _pk = (_yr, _rd, _orig)
-                    # The 2021 startup/vet draft shares its (year, round, orig)
-                    # canonical key with the 2021 ROOKIE draft, so adding a vet
+                    _pk = (_yr, _rd, _picknum, _orig)
+                    # The 2021 startup/vet draft shares its (year, round, number,
+                    # orig) identity with the 2021 ROOKIE draft, so adding a vet
                     # PH# terminal here would pollute the rookie pick's chain
                     # (its "previous" would land on the vet draft row). Vet picks
                     # were never traded — they have no pick chain — so skip the
@@ -15445,12 +15481,27 @@ def build_all(repo_root: Path) -> None:
                     chains[_p].sort(key=_ksort)
 
             def _pick_neighbors(key, this_ref):
+                # Round-4 audit (Part G): the canonical pick key
+                # (year, round, original-owner) is NOT unique when one team
+                # holds several picks in the same round originally its own
+                # (e.g. BROsenzweig's 2025 5.02 / 5.03 / 5.06). Each pick's PH#
+                # draft terminal lands in this one shared bucket, so a raw
+                # adjacent-index lookup links a pick to a SIBLING pick's PH#
+                # rather than to the trade that actually moved it — a bogus
+                # "previous/next transaction" pointing at an unrelated pick.
+                # A pick chain's only real neighbours are the TRADES that moved
+                # it; the legitimate PH# is the chain's own terminal (this_ref).
+                # So skip every OTHER PH# entry and resolve to the nearest real
+                # trade in each direction (None when there is none).
                 ch = pick_chains.get(key, [])
-                for _k in range(len(ch)):
-                    if ch[_k][1] == this_ref:
-                        return (ch[_k + 1][1] if _k + 1 < len(ch) else None,
-                                ch[_k - 1][1] if _k > 0 else None)
-                return None, None
+                _pos = next((_k for _k in range(len(ch)) if ch[_k][1] == this_ref), None)
+                if _pos is None:
+                    return None, None
+                _nxt = next((ch[_k][1] for _k in range(_pos + 1, len(ch))
+                             if not str(ch[_k][1]).startswith("PH#")), None)
+                _prv = next((ch[_k][1] for _k in range(_pos - 1, -1, -1)
+                             if not str(ch[_k][1]).startswith("PH#")), None)
+                return _nxt, _prv
 
             a_next, a_prev, d_next, d_prev = [], [], [], []
             for _i in tx.index:
@@ -15495,7 +15546,17 @@ def build_all(repo_root: Path) -> None:
                             _key = None
                             if _pi < len(_pm):
                                 try:
-                                    _key = (int(_pm[_pi][0]), int(_pm[_pi][1]), str(_pm[_pi][2]))
+                                    # Part G: full numbered identity. The asset
+                                    # LABEL carries the pick number once the slot
+                                    # is set ("2024 2.02(X. Worthy)"); use it so a
+                                    # trade of one same-round sibling resolves to
+                                    # its OWN chain, not another sibling's. Number
+                                    # 0 = un-drafted future pick (slot not set),
+                                    # matching the chain-build side.
+                                    _lm = re.match(r"\s*\d{4}\s+\d+\.(\d+)", _a)
+                                    _num = int(_lm.group(1)) if _lm else 0
+                                    _key = (int(_pm[_pi][0]), int(_pm[_pi][1]),
+                                            _num, str(_pm[_pi][2]))
                                 except Exception:
                                     _key = None
                             _pi += 1
@@ -15529,10 +15590,14 @@ def build_all(repo_root: Path) -> None:
                     _phref = f"PH#{int(_pi) + 1}"
                     _pl = str(ph.at[_pi, "Player Picked"]).strip()
                     _ym = re.match(r"\s*(\d{4})", str(ph.at[_pi, "Year"]))
-                    _nm = re.match(r"\s*(\d+)\.", str(ph.at[_pi, "Number"]))
+                    _nm = re.match(r"\s*(\d+)\.(\d+)", str(ph.at[_pi, "Number"]))
                     _nx = _pv = None
                     if _ym and _nm:
-                        _pk = (int(_ym.group(1)), int(_nm.group(1)),
+                        # 2.09 toilet pick is keyed under the _R209 sentinel round
+                        # (its trades live there); match that so its draft row
+                        # links to its real trade chain, not a dead "N/A".
+                        _rd_k = _R209 if str(ph.at[_pi, "Number"]).strip() == "2.09" else int(_nm.group(1))
+                        _pk = (int(_ym.group(1)), _rd_k, int(_nm.group(2)),
                                str(ph.at[_pi, "Original Team"]).strip())
                         # previous = the pick's last trade before the draft
                         _, _pv = _pick_neighbors(_pk, _phref)
