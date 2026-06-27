@@ -7218,6 +7218,48 @@ def build_all(repo_root: Path) -> None:
                 event_log[(_sa["Team"], _sa["Player Added"])].append((_sa["Date"], "add"))
                 transactions_rows.append(_synth_tx(_sa["Team"], _sa["Player Added"],
                                                    _sa["_added_pid"], None, None, _sa["Date"]))
+
+            # Round-4 Part A/B fix: rebuild the player transaction / drop
+            # counters straight from the FINAL transactions_rows so they match
+            # the rendered transactions.csv 1:1 by construction. The scattered
+            # per-event increments (weekly loop, orphan-drop, trade and manual
+            # passes) undercounted every SYNTHESIZED lineage-closing row — the
+            # 2020->2021 platform-transfer releases, terminal dead-end cuts and
+            # synthesized arrivals — because those rows are appended here, AFTER
+            # the increments fire. They also double-counted a handful of 2020
+            # ESPN orphan drops whose row was later removed by the
+            # team/added/dropped/date dedup pass (the counter increment stayed,
+            # the row didn't). Both failure modes desync player_year /
+            # player_all_time 'Number of drops' / 'Number of transactions' from
+            # the transactions sheet. Recomputing from the rows is the single
+            # source of truth: 'Number of transactions' = adds + drops involving
+            # the player; 'Number of drops' = drop cells only (trades are a
+            # separate 'Number of trades' column, computed from trades_rows).
+            try:
+                player_tx_year.clear(); player_tx_all.clear()
+                player_drop_year.clear(); player_drop_all.clear()
+                for _txr in transactions_rows:
+                    try:
+                        _tx_season = int(_txr.get("Season")) if _txr.get("Season") is not None else None
+                    except Exception:
+                        _tx_season = None
+                    _apid = _txr.get("_added_pid")
+                    _dpid = _txr.get("_dropped_pid")
+                    if _apid:
+                        _apid = str(_apid)
+                        player_tx_all[_apid] += 1
+                        if _tx_season is not None:
+                            player_tx_year[(_apid, _tx_season)] += 1
+                    if _dpid:
+                        _dpid = str(_dpid)
+                        player_tx_all[_dpid] += 1
+                        player_drop_all[_dpid] += 1
+                        if _tx_season is not None:
+                            player_tx_year[(_dpid, _tx_season)] += 1
+                            player_drop_year[(_dpid, _tx_season)] += 1
+            except Exception as e:
+                _log_exc(debug, "player_tx_counter_rebuild", e)
+
             if _synth_rows or _synth_add_rows:
                 for k in event_log:
                     event_log[k].sort()
@@ -12651,6 +12693,28 @@ def build_all(repo_root: Path) -> None:
             missing_pa = [s for s in tx_sids if s not in existing_pa]
             # Phase 3A.2: drop pads for players truly never rostered.
             missing_pa = [s for s in missing_pa if tenure_teams_all.get(str(s))]
+            # Round-4 Part B fix: only pad player_all_time for a pid that ALSO
+            # earned a player_year row. The player_year pad uses a strict
+            # per-YEAR tenure test (`_has_tenure_in_year`) while this all-time
+            # pad's `tenure_teams_all` test is any-year, so a Sleeper full_name
+            # collision can mint a phantom pid that has only a SYNTHESIZED add
+            # (no real roster tenure in any season): it slips past the all-time
+            # guard but is correctly rejected by player_year — leaving a
+            # player_all_time row with no player_year backing (pa != Σpy, the
+            # invariant Part B checks). Concrete cases: a phantom "Justin
+            # Jefferson"/"DJ Moore"/"Tyler Johnson" pid distinct from the real
+            # player's pid, whose pad even pulled the REAL player's trade count
+            # by name. Requiring a player_year row keeps every legitimate
+            # tx-only pad (those DO get a player_year skeleton) while dropping
+            # the collision phantoms.
+            try:
+                _py_pids = (set(player_year["Player ID"].astype(str))
+                            if (not player_year.empty and "Player ID" in player_year.columns)
+                            else set())
+                if _py_pids:
+                    missing_pa = [s for s in missing_pa if str(s) in _py_pids]
+            except Exception as e:
+                _log_exc(debug, "player_all_pad_py_guard", e)
             if missing_pa:
                 pad_rows = []
                 for sid in missing_pa:
