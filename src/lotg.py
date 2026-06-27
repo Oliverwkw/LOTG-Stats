@@ -6222,9 +6222,13 @@ def build_all(repo_root: Path) -> None:
                 _player0, _pid_str = _pid_name(_pid0), str(_pid0)
             else:
                 # Not yet drafted: a FUTURE pick. Owner = end of its _R209 trade
-                # chain (else the toilet winner). No drafted player yet.
+                # chain (else the toilet winner). No drafted player yet — use the
+                # same "Unknown" placeholder every other unmade future pick uses
+                # (see the synthesized future-pick path above), so an undrafted
+                # 2.09 doesn't render its Player Picked as "N/A" while the 96
+                # ordinary future picks render "Unknown" for the same condition.
                 _final0 = _rid2tm.get(_chain_final_rid(int(_sea), _R209, int(_tw_rid)), _orig0)
-                _player0, _pid_str = "", ""
+                _player0, _pid_str = "Unknown", ""
             _row209: Dict[str, Any] = {
                 "Year": int(_sea),
                 "Number": "2.09",
