@@ -12969,9 +12969,10 @@ def build_all(repo_root: Path) -> None:
     # 3-year roster retention rate (improvement #16): of a team's WEEK-1 roster in
     # year Y, the fraction still on that team's WEEK-1 roster in year Y+3. Rate
     # (not count) because roster sizes have grown over the years. N/A when the
-    # Y+3 week-1 roster doesn't exist yet (so currently only 2021->2024 and
-    # 2022->2025 are measurable). Keyed by (team, Y) for team_year; team_all_time
-    # averages a team's measurable rates.
+    # Y+3 week-1 roster doesn't exist yet — measurable only for source years Y
+    # whose Y+3 season has been played (currently 2020->2023, 2021->2024 and
+    # 2022->2025; Y of 2023 or later is still pending its Y+3 season). Keyed by
+    # (team, Y) for team_year; team_all_time averages a team's measurable rates.
     retention_3yr_by_ty: Dict[Tuple[str, int], float] = {}
     try:
         if not pw.empty and {"Player ID", "Year", "Week", "Team"}.issubset(pw.columns):
