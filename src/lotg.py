@@ -7086,6 +7086,14 @@ def build_all(repo_root: Path) -> None:
             _synth_add_rows: List[Dict[str, Any]] = []   # missing arrivals
             _holder_2020_end: Dict[str, Optional[str]] = {}  # pid -> holder at the 2020/2021 boundary
             _has_2021_arrival: Dict[str, bool] = {}  # pid -> re-acquired (add/draft/trade) in 2021+
+            # pid -> team of the FIRST 2021+ re-acquisition. Used at the 2020->2021
+            # transfer-drop step below to tell a boundary holding the general
+            # reconciliation already closed (re-acquired by a DIFFERENT team) from
+            # one it did not (re-acquired by the SAME boundary-holder team after a
+            # true roster gap — which still needs the transfer drop, else the 2020
+            # add teleports across the empty seasons; Round 5 Parts I/J finding:
+            # Mitchell Trubisky).
+            _arrival_2021_team: Dict[str, Optional[str]] = {}
             _final_holder: Dict[str, Optional[str]] = {}  # pid -> team still holding at end of the event log
             for _pid_h, _evs in _holder_events.items():
                 _holder = None
@@ -7096,6 +7104,8 @@ def build_all(repo_root: Path) -> None:
                         _crossed_2021 = True
                     if str(_ts)[:4] >= "2021" and _kind in ("add_fa", "add_other", "draft", "trade_in"):
                         _has_2021_arrival[_pid_h] = True
+                        if _pid_h not in _arrival_2021_team:
+                            _arrival_2021_team[_pid_h] = _tm
                     if _kind in ("add_fa", "draft"):
                         # FA/waiver pickup or draft while another team still holds
                         # the player => that team's drop went unrecorded.
@@ -7135,6 +7145,27 @@ def build_all(repo_root: Path) -> None:
             _transfer_days = sorted(draft_dates_by_season.get(2021, set()) or set())
             _transfer_iso = (pd.Timestamp(_transfer_days[0], tz="UTC").isoformat()
                              if _transfer_days else None)
+            # Set of player-ids that appear on ANY scored 2021 roster (any team, any
+            # week). A 2020-roster holding whose player surfaces ANYWHERE in 2021 is
+            # NOT a release-into-the-void: either the player was kept by this team
+            # (a carryover — Alexander Mattison, on LWebs53 all 2021) or moved to a
+            # different team at the transfer (a roster-snapshot-only arrival the
+            # general reconciliation already closes at the player's next recorded
+            # event — Kenyan Drake → JacobRosenzweig). Only a player absent from the
+            # ENTIRE 2021 season is a true platform-seam release.
+            _pids_in_2021: set = set()
+            try:
+                if not pw.empty and {"Player ID", "Year"}.issubset(pw.columns):
+                    for _pid, _y in zip(pw["Player ID"], pw["Year"]):
+                        if _pid is None or (isinstance(_pid, float) and pd.isna(_pid)):
+                            continue
+                        try:
+                            if int(_y) == 2021:
+                                _pids_in_2021.add(str(_pid))
+                        except Exception:
+                            continue
+            except Exception as e:
+                _log_exc(debug, "pids_in_2021_presence", e)
             if _transfer_iso:
                 for (_s2020, _tm2020), _held2020 in final_wk_roster_st.items():
                     if int(_s2020) != 2020:
@@ -7148,14 +7179,29 @@ def build_all(repo_root: Path) -> None:
                         # (handled by the general reconciliation). Using the
                         # boundary holder — not the final holder — avoids a false
                         # match when a player is traded back years later (Tony
-                        # Pollard returned to BROsenzweig in 2025). And skip anyone
-                        # RE-ACQUIRED in 2021+ (vet re-draft, add, or trade): the
-                        # general reconciliation already closed that holding at the
-                        # re-acquisition, so a transfer drop would be a redundant
-                        # second departure (e.g. AJ Dillon, re-drafted in 2021 vet).
-                        if (_holder_2020_end.get(str(_pid2020)) == _tm2020
-                                and not _has_2021_arrival.get(str(_pid2020))):
-                            _synth_drop(_tm2020, _pid2020, _transfer_iso)
+                        # Pollard returned to BROsenzweig in 2025).
+                        if _holder_2020_end.get(str(_pid2020)) != _tm2020:
+                            continue
+                        # Skip anyone RE-ACQUIRED in 2021+ by a recorded event (vet
+                        # re-draft, add, or trade): the general reconciliation
+                        # already closed that holding at the re-acquisition, so a
+                        # transfer drop would be a redundant second departure (e.g.
+                        # AJ Dillon, re-drafted in 2021 vet). EXCEPTION: a player
+                        # absent from the entire 2021 season whose only 2021+ event
+                        # is a re-acquisition by the SAME boundary team is a fresh
+                        # later stint after a true gap — the 2020 holding was never
+                        # closed, so the transfer drop must still fire or the 2020
+                        # add teleports across the empty seasons to that later re-add
+                        # (Round 5 Parts I/J finding: Mitchell Trubisky, on LWebs53's
+                        # final 2020 roster, absent all 2021/22, re-added 2023).
+                        if _has_2021_arrival.get(str(_pid2020)):
+                            _arr_team = _arrival_2021_team.get(str(_pid2020))
+                            _same_team_after_gap = (
+                                _arr_team == _tm2020
+                                and str(_pid2020) not in _pids_in_2021)
+                            if not _same_team_after_gap:
+                                continue
+                        _synth_drop(_tm2020, _pid2020, _transfer_iso)
 
             # ---- terminal orphaned holdings (roster-diff) ----
             # A player still 'held' per the transaction log (no recorded drop /
