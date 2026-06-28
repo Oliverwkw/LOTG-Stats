@@ -15792,10 +15792,13 @@ def build_all(repo_root: Path) -> None:
             _is_209 = _num == "2.09"
             _is_5xx = bool(re.match(r"\s*5\.", _num))
             if "(vet)" in _yr_disp.lower():
-                # The startup (vet) draft is the league's first event — anchor it
-                # at the start of the year so it sorts ahead of every later trade.
+                # The 2021 supplemental veteran draft (distinct from the 2020 ESPN
+                # startup draft) — anchor it at the start of its year so it sorts
+                # ahead of every later trade. (Label it "supplemental veteran
+                # draft", NOT "startup": the inaugural startup was the 2020 ESPN
+                # draft; conflating the two is the recurring 2020-vs-2021 seam bug.)
                 return [("0000-00-00 00:00:00", f"{_yr} {_num} — originally {_orig}'s pick"),
-                        (f"{_yr}-01-01 00:00:00", f"{_yr} startup (vet) draft: {_final} {_drafted_txt}")], 0
+                        (f"{_yr}-01-01 00:00:00", f"{_yr} supplemental veteran draft: {_final} {_drafted_txt}")], 0
             if _is_5xx:
                 # 5.xx FAAB buy: an off-platform AWARD bought by and kept with one
                 # team. Not a trade -> contributes 0 to Number of trades.
