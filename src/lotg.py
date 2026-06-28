@@ -12813,6 +12813,18 @@ def build_all(repo_root: Path) -> None:
                     )
                     last_event = tenure_last_event_all.get(str(sid))
                     last_team_pad = last_event[1] if last_event else top_team_pad
+                    # A tx-only pad player has no player_week presence, hence 0
+                    # started weeks — so taxi eligibility reduces to the
+                    # first-year-in-league gate. Without this these rows bypass
+                    # _is_taxi_eligible (computed earlier on `pa`, before this
+                    # concat) and silently default to False/NaN, wrongly excluding
+                    # first-year never-started players who were only ever added &
+                    # dropped between weekly snapshots (e.g. a rookie picked up
+                    # and cut in the same week of their debut season).
+                    _pad_taxi = bool(
+                        current_season is not None
+                        and first_year_by_pid.get(str(sid)) == current_season
+                    )
                     pad_rows.append({
                         "Player": name,
                         "Player ID": str(sid),
@@ -12822,6 +12834,7 @@ def build_all(repo_root: Path) -> None:
                         "Number of transactions": int(player_tx_all.get(str(sid), 0)),
                         "Number of drops": int(player_drop_all.get(str(sid), 0)),
                         "Number of trades": int(player_trade_all.get(str(name), 0)),
+                        "Taxi-eligible": _pad_taxi,
                     })
                 if pad_rows:
                     player_all = pd.concat([player_all, pd.DataFrame(pad_rows)], ignore_index=True)
@@ -13302,15 +13315,24 @@ def build_all(repo_root: Path) -> None:
                     fin_map[str(g3.iloc[0]["Team"])] = "3rd"
                     fin_map[str(g3.iloc[1]["Team"])] = "4th"
 
-                # Non-playoff finishes (5th-8th) are based on regular-season record cutoff,
-                # with PF as the tiebreaker. (Pre-2025: through 17 games; 2025+: through 15 games.)
-                cutoff = 17 if season < 2025 else 15
+                # Non-playoff finishes (5th-8th) are ranked by REGULAR-SEASON
+                # record (PF tiebreaker) — the same window used by
+                # standings_by_season / last_place_by_season, so the Result
+                # column's "8th" agrees with the "last place" the rest of the
+                # export (Record vs last place, Number of last place finishes,
+                # the all-time last-place class) keys off. The regular season is
+                # every week BEFORE playoff_start (14 for 2020, 15 for 2021+);
+                # playoff/toilet bracket games are excluded (a team winning the
+                # toilet bowl no longer outranks a team with a better regular
+                # record). Previously this used a hard-coded cutoff of 17 games
+                # for pre-2025 seasons, which pulled the toilet bracket into the
+                # ranking and disagreed with last_place_by_season for 2021/22/23.
                 try:
                     all_teams = [str(t) for t in tw[tw["Year"] == season]["Team"].dropna().unique().tolist()]
                     playoff_teams = set([t for t, r in fin_map.items() if r in ("Champion", "2nd", "3rd", "4th")])
                     non_playoff = [t for t in all_teams if t not in playoff_teams]
                     if non_playoff and (not games_df.empty):
-                        reg = games_df[(games_df["Year"] == season) & (games_df["Week"] <= cutoff)].copy()
+                        reg = games_df[(games_df["Year"] == season) & (games_df["Week"] < playoff_start)].copy()
                         reg["PF"] = pd.to_numeric(reg.get("PF", 0.0), errors="coerce").fillna(0.0)
                         reg["Win?"] = pd.to_numeric(reg.get("Win?", 0.0), errors="coerce").fillna(0.0)
                         sub = reg[reg["Team"].astype(str).isin(non_playoff)]
