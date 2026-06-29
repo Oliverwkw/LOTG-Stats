@@ -1254,6 +1254,13 @@ def _preserve_na(col: str) -> bool:
     # exist yet (recent classes) — distinct from a real 0% retention.
     if col_l == "3-year roster retention rate":
         return True
+    # Offseason turnover / trades (team_year / league_year): N/A for the
+    # earliest tracked season, which has no prior offseason in the dataset
+    # (no prior-season championship roster to diff against, and no
+    # offseason-before-the-first-season to count). Distinct from a real 0
+    # (a later season where the team genuinely made no offseason moves).
+    if col_l in {"offseason starter turnover", "offseason roster turnover", "offseason trades"}:
+        return True
     # Player consistency + PAR: N/A for players who never started (volatility
     # also N/A with < 2 starts). Boom/Bust % keep a real 0 for players who did
     # start but never boomed/busted.
@@ -14008,6 +14015,21 @@ def build_all(repo_root: Path) -> None:
 
         team_year = team_year.sort_values(["Team", "Year"]).reset_index(drop=True)
         team_year["Change in win % from previous season"] = team_year.groupby("Team")["Win %"].diff()
+        # Earliest tracked season has no prior offseason in the dataset, so its
+        # offseason turnover / trades are N/A (no prior-season championship
+        # roster to diff against, no offseason-before-the-first-season to
+        # count) — not 0. Done before the all-time rollup so the NaN is
+        # excluded from team_all_time's per-season mean/sum.
+        try:
+            _ty_years = pd.to_numeric(team_year["Year"], errors="coerce")
+            _earliest_ty = _ty_years.min()
+            if pd.notna(_earliest_ty):
+                _first_mask = _ty_years == _earliest_ty
+                for _oc in ("Offseason starter turnover", "Offseason roster turnover", "Offseason trades"):
+                    if _oc in team_year.columns:
+                        team_year.loc[_first_mask, _oc] = np.nan
+        except Exception as e:
+            _log_exc(debug, "team_year_earliest_offseason_na", e)
         team_year_win_variance = {}
         for team, val in team_year.groupby("Team")["Win Variance"].mean().items():
             team_year_win_variance[str(team)] = float(val) if pd.notna(val) else None
@@ -15121,6 +15143,15 @@ def build_all(repo_root: Path) -> None:
                      if (pd.notna(y) and int(y) in _star_hi_y and int(y) in _star_lo_y) else None)
                     for y in _yrs
                 ]
+                # Earliest tracked season has no prior offseason → N/A, not 0
+                # (mirrors team_year; the sum of an all-NaN team_year column
+                # would otherwise collapse back to 0 in the league rollup).
+                _ly_first = _yrs.min()
+                if pd.notna(_ly_first):
+                    _ly_mask = _yrs == _ly_first
+                    for _oc in ("Offseason starter turnover", "Offseason roster turnover", "Offseason trades"):
+                        if _oc in league_year.columns:
+                            league_year.loc[_ly_mask, _oc] = np.nan
         except Exception as e:
             _log_exc(debug, "league_year_unique_extras", e)
 
