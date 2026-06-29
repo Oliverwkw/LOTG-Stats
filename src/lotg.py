@@ -7453,13 +7453,22 @@ def build_all(repo_root: Path) -> None:
                     # ends at that drop. So bound the search at the NEXT
                     # departure for the same (team, player) after add_date.
                     drop_after = r.get("Date dropped/traded") or ""
+                    # wk_date is a DATE-only string ("YYYY-MM-DD"); add_date /
+                    # drop_after are full datetime strings ("YYYY-MM-DD HH:MM:SS").
+                    # Compare against the date portion only — otherwise the
+                    # date-only string sorts BEFORE a same-calendar-day datetime
+                    # (it's a prefix), which wrongly skips a player_week row that
+                    # falls in the pickup week (and can drop the start week, then
+                    # mis-report N/A or undercount the bench weeks).
+                    add_day = add_date[:10]
+                    drop_day = drop_after[:10]
                     weeks_before_start = 0
                     found_start = False
                     for yr, wk, started, wk_date in rows:
-                        if wk_date and wk_date < add_date:
+                        if wk_date and wk_date < add_day:
                             continue
                         # Stop counting once the player was let go again.
-                        if drop_after and wk_date and wk_date >= drop_after:
+                        if drop_day and wk_date and wk_date >= drop_day:
                             break
                         if started:
                             found_start = True
