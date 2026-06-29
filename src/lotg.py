@@ -15314,7 +15314,21 @@ def build_all(repo_root: Path) -> None:
             # for link-prev/next or year-tanking joins, and would otherwise
             # land in transactions.csv with Date='N/A'.
             tx = tx[tx["Date"].notna()].reset_index(drop=True)
-            tx = tx.sort_values(["Team","Date"]).reset_index(drop=True)
+            # Determinism: many rows share an identical (Team, Date) — most
+            # notably the season-end orphan-drop synthesis, which stamps a whole
+            # per-team batch with one "YYYY-08-23 20:00:00" instant. pandas
+            # sort_values defaults to quicksort (UNSTABLE), so those tied rows
+            # land in a run-dependent order; because the transactions / picks
+            # link columns reference rows by 1-based position ("#N"), that
+            # silently renumbered the refs build-to-build (observed non-
+            # determinism). Break the tie on the rendered row identity
+            # (Player Added, Player Dropped) — unique within a (Team, Date)
+            # group, the same identity the upstream dedup treats as unique — so
+            # the final order, and thus every "#N" ref, is fully deterministic.
+            tx = tx.sort_values(
+                ["Team", "Date", "Player Added", "Player Dropped"],
+                kind="stable", na_position="first",
+            ).reset_index(drop=True)
             # link columns as row numbers (1-indexed within each team).
             # 'Link to previous' on row 1 is NaN, otherwise points at row N-1.
             # 'Link to next' on the last row of each team is NaN, otherwise
@@ -15372,7 +15386,14 @@ def build_all(repo_root: Path) -> None:
             tr["Date"] = pd.to_datetime(tr["Date"], errors="coerce", utc=True, format="ISO8601")
             # Same guard as transactions: drop rows we can't anchor in time.
             tr = tr[tr["Date"].notna()].reset_index(drop=True)
-            tr = tr.sort_values(["Team","Date"]).reset_index(drop=True)
+            # Determinism (same rationale as transactions above): a stable sort
+            # with a full identity tiebreaker so tied (Team, Date) trade rows —
+            # and the per-asset "T#N" refs that point at them — never reshuffle
+            # between builds.
+            _tr_tie = [c for c in ("Assets received", "Assets sent") if c in tr.columns]
+            tr = tr.sort_values(
+                ["Team", "Date"] + _tr_tie, kind="stable", na_position="first",
+            ).reset_index(drop=True)
             # Per-asset link columns ("Link to next/previous transaction per
             # asset") are filled later in the player-chain block (Phase 7B),
             # which reuses the same cross-tx/trade chains as the transaction
