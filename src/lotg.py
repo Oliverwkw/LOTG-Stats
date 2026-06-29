@@ -8002,7 +8002,7 @@ def build_all(repo_root: Path) -> None:
     # --------------------------
     _ktc_idx = None
     try:
-        from lotg_support.ktc import build_index, asset_value_at
+        from lotg_support.ktc import build_index, asset_value_at, KTC_FLOOR
         today = datetime.utcnow().date()
 
         # Monday after a season's championship game. Sleeper playoffs end at
@@ -8305,10 +8305,16 @@ def build_all(repo_root: Path) -> None:
 
                 # 'Pick value received' = sum of received-side pick
                 # values at deal time. Player side intentionally excluded.
+                # For pre-KTC-history trades (2020, before dynasty-daddy's
+                # 2021-04-16 floor) the deal-date pick value is unknowable, so
+                # approximate with the value at the KTC floor (≈ 2021 pick
+                # values) — good enough for this one stat. The deal-time KTC
+                # *difference* deliberately stays N/A (not approximated).
+                _pv_date = max(trade_date, KTC_FLOOR)
                 pick_recv_total = 0.0
                 pick_recv_hits = 0
                 for plabel in recv_picks:
-                    v = asset_value_at(str(plabel), None, trade_date, idx)
+                    v = asset_value_at(str(plabel), None, _pv_date, idx)
                     if v is not None:
                         pick_recv_total += v
                         pick_recv_hits += 1
@@ -9644,7 +9650,7 @@ def build_all(repo_root: Path) -> None:
             # capital (matches _future_cap_held / _future_picks_owned); a
             # current-season rookie pick (year == season) is not "future".
             _tr_season = _to_int(row.get("Season"), None)
-            def _fcap_of(meta_list, _s=_tr_season) -> float:
+            def _fcap_of(meta_list, _s=_tr_season, _cap3=True) -> float:
                 if _s is None:
                     return 0.0
                 tot = 0.0
@@ -9653,11 +9659,26 @@ def build_all(repo_root: Path) -> None:
                         yr_i = int(pmeta[0]); rnd_i = int(pmeta[1])
                     except Exception:
                         continue
-                    if _s < yr_i <= _s + 3:
+                    # Future picks only (a current-season rookie pick is
+                    # captured by adj_diff, not here). _cap3 keeps the rolling
+                    # 3-season horizon for the Tanking delta (matches the
+                    # team-week 'Future draft capital' snapshot); the
+                    # trade-value path passes _cap3=False to value the whole
+                    # haul, however far out.
+                    if (_s < yr_i <= _s + 3) if _cap3 else (yr_i > _s):
                         tot += _FUTURE_PICK_WEIGHTS.get(rnd_i, 0.0)
                 return tot
             row["_tank_fcap_delta"] = round(
                 _fcap_of(row.get("_recv_pick_meta")) - _fcap_of(row.get("_drop_pick_meta")), 4
+            )
+            # Trade-value path (Trade addition value below): value EVERY future
+            # pick in the deal, with NO 3-year cap, so a multi-year haul of
+            # firsts (e.g. the 5-first Dalvin Cook trade, whose 2024/2025 picks
+            # fall outside the 3-year window) isn't silently dropped. The
+            # Tanking delta above intentionally keeps the 3-year horizon.
+            row["_tank_fcap_delta_full"] = round(
+                _fcap_of(row.get("_recv_pick_meta"), _cap3=False)
+                - _fcap_of(row.get("_drop_pick_meta"), _cap3=False), 4
             )
 
             # ----- (c) Forward-looking tenure window + PPG averages -----
@@ -9788,13 +9809,14 @@ def build_all(repo_root: Path) -> None:
             # injury/bye-free weeks. Players drafted from received picks feed
             # adj_diff (above) but not the leverage term.
             #
-            # Pick value: future picks (next 3 seasons) are valued with the
-            # tanking round weights and added in via _TRADE_PICK_COEFF so
-            # pick-heavy hauls register. Current-season picks that get drafted
+            # Pick value: ALL future picks in the deal (no 3-year cap — see
+            # _tank_fcap_delta_full) are valued with the tanking round weights
+            # and added in via _TRADE_PICK_COEFF so multi-year pick-heavy hauls
+            # register in full. Current-season picks that get drafted
             # are already captured by adj_diff (7D), so only future capital is
             # added here -> no double count. This term applies even when
             # adj_diff is None (a pick-only haul is no longer flat 0).
-            _pick_val = _TRADE_PICK_COEFF * float(row.get("_tank_fcap_delta") or 0.0)
+            _pick_val = _TRADE_PICK_COEFF * float(row.get("_tank_fcap_delta_full") or 0.0)
             if adj_diff is not None:
                 _pct_list: List[float] = []
                 _pinj_list: List[float] = []
