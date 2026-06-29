@@ -1,0 +1,39 @@
+{
+  "league_id": "espn_2020",
+  "season": "2020",
+  "status": "complete",
+  "previous_league_id": null,
+  "name": "The League",
+  "total_rosters": 8,
+  "roster_positions": [
+    "QB",
+    "RB",
+    "RB",
+    "WR",
+    "WR",
+    "WR",
+    "TE",
+    "FLEX",
+    "SUPER_FLEX",
+    "BN",
+    "BN",
+    "BN",
+    "BN",
+    "BN",
+    "BN",
+    "BN",
+    "BN",
+    "BN",
+    "BN",
+    "IR",
+    "IR"
+  ],
+  "settings": {
+    "playoff_week_start": 15,
+    "playoff_teams": 4,
+    "num_teams": 8,
+    "last_scored_leg": 16,
+    "leg": 16
+  },
+  "scoring_settings": {}
+}

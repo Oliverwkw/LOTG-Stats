@@ -13315,24 +13315,22 @@ def build_all(repo_root: Path) -> None:
                     fin_map[str(g3.iloc[0]["Team"])] = "3rd"
                     fin_map[str(g3.iloc[1]["Team"])] = "4th"
 
-                # Non-playoff finishes (5th-8th) are ranked by REGULAR-SEASON
-                # record (PF tiebreaker) — the same window used by
-                # standings_by_season / last_place_by_season, so the Result
-                # column's "8th" agrees with the "last place" the rest of the
-                # export (Record vs last place, Number of last place finishes,
-                # the all-time last-place class) keys off. The regular season is
-                # every week BEFORE playoff_start (14 for 2020, 15 for 2021+);
-                # playoff/toilet bracket games are excluded (a team winning the
-                # toilet bowl no longer outranks a team with a better regular
-                # record). Previously this used a hard-coded cutoff of 17 games
-                # for pre-2025 seasons, which pulled the toilet bracket into the
-                # ranking and disagreed with last_place_by_season for 2021/22/23.
+                # Non-playoff finishes (5th-8th) are based on regular-season record cutoff,
+                # with PF as the tiebreaker. (Pre-2025: through 17 games, which folds in the
+                # toilet-bowl bracket weeks — by league design, toilet-bowl results counted
+                # toward final standings for the 2020-2024 seasons. 2025+: through 15 games,
+                # the true regular season, once the league stopped using the toilet bracket
+                # for standings purposes.) This intentionally can disagree with
+                # last_place_by_season (which is always regular-season-only, a separate
+                # all-time "worst regular-season record" stat) for 2021-2023, where the
+                # toilet-bowl loser is NOT the same team as the regular-season's worst record.
+                cutoff = 17 if season < 2025 else 15
                 try:
                     all_teams = [str(t) for t in tw[tw["Year"] == season]["Team"].dropna().unique().tolist()]
                     playoff_teams = set([t for t, r in fin_map.items() if r in ("Champion", "2nd", "3rd", "4th")])
                     non_playoff = [t for t in all_teams if t not in playoff_teams]
                     if non_playoff and (not games_df.empty):
-                        reg = games_df[(games_df["Year"] == season) & (games_df["Week"] < playoff_start)].copy()
+                        reg = games_df[(games_df["Year"] == season) & (games_df["Week"] <= cutoff)].copy()
                         reg["PF"] = pd.to_numeric(reg.get("PF", 0.0), errors="coerce").fillna(0.0)
                         reg["Win?"] = pd.to_numeric(reg.get("Win?", 0.0), errors="coerce").fillna(0.0)
                         sub = reg[reg["Team"].astype(str).isin(non_playoff)]
