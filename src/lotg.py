@@ -1204,6 +1204,14 @@ def _preserve_na(col: str) -> bool:
         return True
     if col_l.startswith("net ktc value"):
         return True
+    # KTC-over-time checkpoint columns on picks.csv. Blank means an unmade
+    # pick, an untracked player, a future checkpoint, or the KTC index
+    # itself failed to build (dynasty-daddy unreachable) — distinct from
+    # 'KTC is actually zero'.
+    if col_l == "ktc on draft day" or col_l == "ktc at end of rookie year":
+        return True
+    if re.match(r"^ktc \d+ years? after draft day$", col_l):
+        return True
     # Dropped avg/total points: N/A when the row dropped nobody; an explicit
     # 0 is real (the dropped player never played another NFL game).
     if col_l in {"dropped avg points", "dropped total points"}:
@@ -1276,6 +1284,18 @@ def _preserve_na(col: str) -> bool:
     if col_l == "faab":
         return True
     if col_l == "total faab bid":
+        return True
+    # Amount of FAAB spent (team_week/team_year/league_week/league_year):
+    # blank means the season had no FAAB system at all (pre-2022) — N/A,
+    # not 'spent zero'. The build already computes None for those seasons;
+    # this just stops the export pipeline from re-zeroing it.
+    if col_l == "amount of faab spent":
+        return True
+    # Number of bids (transactions.csv): blank means competing-waiver-claim
+    # data wasn't recoverable (2020 ESPN season — see
+    # plan/notes/espn_2020_backfill.md) or the row wasn't a waiver claim.
+    # Distinct from 'won uncontested'.
+    if col_l == "number of bids":
         return True
     # Faab-vs-second-place: blank means the row isn't a waiver, or the
     # waiver was uncontested (no runner-up). Either case is distinct
@@ -2329,8 +2349,17 @@ def build_all(repo_root: Path) -> None:
                         if _def and hc.comment is None:
                             _hc_cm = _HdrComment(_def, "LOTG Formulas")
                             _hc_cm.width = 460
-                            _hc_nl = _def.count("\n") + 1 + len(_def) // 70
-                            _hc_cm.height = min(520, max(80, 16 * _hc_nl))
+                            # Phase 13: size the box for the WRAPPED visual line
+                            # count (per line, like the history comments), not a
+                            # crude len//70. At 460px the box fits ~62 chars/row;
+                            # the old estimate plus a 520px cap clipped the longest
+                            # column definitions (e.g. 2k-char picks/trades/
+                            # transactions tooltips needed ~600px). Sum each
+                            # explicit line's wrapped rows and raise the cap.
+                            _hc_cpr = 62
+                            _hc_nl = sum(max(1, -(-len(_ln) // _hc_cpr))
+                                         for _ln in _def.split("\n"))
+                            _hc_cm.height = min(900, max(80, 16 * _hc_nl + 12))
                             hc.comment = _hc_cm
                         # Wrap every data cell (#7) + conservative number format.
                         nf = _col_number_format(hc.value) if hc.value else None
@@ -2586,11 +2615,25 @@ def build_all(repo_root: Path) -> None:
                     ws.auto_filter.ref = f"A1:{get_column_letter(ws.max_column)}{max(1, ws.max_row)}"
 
                 try:
+                    # Phase 13: scan the FULL column (every data row), not just the
+                    # first 200. Sheets like team_week/player_week/transactions/picks/
+                    # trades have far more rows; a long single-token value (team/player
+                    # name) past row 200 was being under-counted, so the column came out
+                    # too narrow and Excel wrapped it mid-token (wrap_text=True on all
+                    # cells). iter_rows(values_only=True) iterates row-major in C, which
+                    # is fast even for player_week's 10k+ rows x dozens of columns.
+                    _maxlen = [len(str(ws.cell(row=1, column=j).value or ""))
+                               for j in range(1, ws.max_column + 1)]
+                    for _row in ws.iter_rows(min_row=2, max_col=ws.max_column,
+                                             values_only=True):
+                        for _i, _v in enumerate(_row):
+                            if _v is not None:
+                                _l = len(str(_v))
+                                if _l > _maxlen[_i]:
+                                    _maxlen[_i] = _l
                     for j in range(1, ws.max_column + 1):
-                        vals = [str(ws.cell(row=1, column=j).value or "")]
-                        for r in range(2, min(ws.max_row, 201) + 1):
-                            vals.append(str(ws.cell(row=r, column=j).value or ""))
-                        ws.column_dimensions[get_column_letter(j)].width = min(40, max(10, max(len(v) for v in vals) + 2))
+                        ws.column_dimensions[get_column_letter(j)].width = \
+                            min(40, max(10, _maxlen[j - 1] + 2))
                 except Exception:
                     pass
 
@@ -4068,6 +4111,7 @@ def build_all(repo_root: Path) -> None:
             _pd_net: Dict[Tuple[str, str], Dict[int, int]] = defaultdict(lambda: defaultdict(int))
             _pd_commish: Dict[Tuple[str, str], bool] = defaultdict(bool)
             _tx_pdays: Dict[str, set] = {}
+            _tx_is_trade: Dict[str, bool] = {}
             for _wk_txs in tx_by_week.values():
                 for _t in _wk_txs:
                     _dt = _epoch_ms_to_dt(_t.get("created"))
@@ -4076,6 +4120,7 @@ def build_all(repo_root: Path) -> None:
                     _day = _dt.date().isoformat()
                     _is_comm = (str(_t.get("type") or "") == "commissioner")
                     _txid = str(_t.get("transaction_id") or id(_t))
+                    _tx_is_trade[_txid] = (str(_t.get("type") or "") == "trade")
                     _adds = _t.get("adds") if isinstance(_t.get("adds"), dict) else {}
                     _drops = _t.get("drops") if isinstance(_t.get("drops"), dict) else {}
                     _pset = set()
@@ -4101,6 +4146,17 @@ def build_all(repo_root: Path) -> None:
                 if _pd_commish.get(_k) and all(_v == 0 for _v in _nets.values())
             }
             for _txid, _pset in _tx_pdays.items():
+                # A real trade is a genuine manager-initiated event, never a
+                # commissioner no-op correction — even if a same-(UTC-)day
+                # commissioner action later reverses it (making the player-day
+                # net zero), the trade still happened and must stay in
+                # trades.csv / the trade counts. Only the reversing
+                # commissioner (and any add/drop) legs are the no-ops to drop.
+                # Without this guard, the wash sweep silently deleted real
+                # trades whose moved players were reverted by a commissioner
+                # the same UTC day (Round 5 Parts A/B finding).
+                if _tx_is_trade.get(_txid):
+                    continue
                 if _pset and all(_k in _wash_pdays for _k in _pset):
                     wash_tx_ids.add(_txid)
             if wash_tx_ids:
@@ -4690,7 +4746,10 @@ def build_all(repo_root: Path) -> None:
                         "Number of TE rostered": te_r,
                         "Number of transactions": int(tx_count.get(team, 0)),
                         "Number of trades": int(trade_count.get(team, 0)),
-                        "Amount of FAAB spent": round(float(faab_spent.get(team, 0.0)), 2),
+                        "Amount of FAAB spent": (
+                            round(float(faab_spent.get(team, 0.0)), 2)
+                            if int(season) >= 2022 else None
+                        ),
                         "Most number of players started from same NFL team": most_start_same,
                         "Most number of players started from same NFL team (team)": most_start_team,
                         "Most number of players rostered from same NFL team": most_roster_same,
@@ -5407,10 +5466,22 @@ def build_all(repo_root: Path) -> None:
                         row_total_faab = None
                         row_faab_diff_2nd = None
                         row_faab_pct_2nd = None
-                        if ttype == "waiver":
+                        if ttype == "waiver" and int(season) != 2020:
                             key = (int(season), int(wk), str(pid))
+                            # This row is a tracked 2022+ waiver claim, so a
+                            # recorded total of $0 (an uncontested $0 claim, or
+                            # multiple all-$0 bids) is REAL data — "the league
+                            # burned $0 of FAAB on this player" — not "missing".
+                            # Don't collapse a genuine 0.0 to N/A; only treat a
+                            # key that's truly absent from the tally as unknown.
                             row_num_bids = bids_per_player_week.get(key, 0) or None
-                            row_total_faab = total_bids_amount_per_player_week.get(key, 0.0) or None
+                            if row_num_bids is not None:
+                                # A recorded bid count exists, so the total bid
+                                # amount is known — a 0.0 sum (all bids were $0)
+                                # is real, not missing.
+                                row_total_faab = total_bids_amount_per_player_week.get(key, 0.0)
+                            else:
+                                row_total_faab = total_bids_amount_per_player_week.get(key, 0.0) or None
                             # Compute the runner-up from the pre-filter
                             # tally. Two important details:
                             # 1) The winner is the team owning THIS row
@@ -6151,9 +6222,13 @@ def build_all(repo_root: Path) -> None:
                 _player0, _pid_str = _pid_name(_pid0), str(_pid0)
             else:
                 # Not yet drafted: a FUTURE pick. Owner = end of its _R209 trade
-                # chain (else the toilet winner). No drafted player yet.
+                # chain (else the toilet winner). No drafted player yet — use the
+                # same "Unknown" placeholder every other unmade future pick uses
+                # (see the synthesized future-pick path above), so an undrafted
+                # 2.09 doesn't render its Player Picked as "N/A" while the 96
+                # ordinary future picks render "Unknown" for the same condition.
                 _final0 = _rid2tm.get(_chain_final_rid(int(_sea), _R209, int(_tw_rid)), _orig0)
-                _player0, _pid_str = "", ""
+                _player0, _pid_str = "Unknown", ""
             _row209: Dict[str, Any] = {
                 "Year": int(_sea),
                 "Number": "2.09",
@@ -7011,6 +7086,14 @@ def build_all(repo_root: Path) -> None:
             _synth_add_rows: List[Dict[str, Any]] = []   # missing arrivals
             _holder_2020_end: Dict[str, Optional[str]] = {}  # pid -> holder at the 2020/2021 boundary
             _has_2021_arrival: Dict[str, bool] = {}  # pid -> re-acquired (add/draft/trade) in 2021+
+            # pid -> team of the FIRST 2021+ re-acquisition. Used at the 2020->2021
+            # transfer-drop step below to tell a boundary holding the general
+            # reconciliation already closed (re-acquired by a DIFFERENT team) from
+            # one it did not (re-acquired by the SAME boundary-holder team after a
+            # true roster gap — which still needs the transfer drop, else the 2020
+            # add teleports across the empty seasons; Round 5 Parts I/J finding:
+            # Mitchell Trubisky).
+            _arrival_2021_team: Dict[str, Optional[str]] = {}
             _final_holder: Dict[str, Optional[str]] = {}  # pid -> team still holding at end of the event log
             for _pid_h, _evs in _holder_events.items():
                 _holder = None
@@ -7021,6 +7104,8 @@ def build_all(repo_root: Path) -> None:
                         _crossed_2021 = True
                     if str(_ts)[:4] >= "2021" and _kind in ("add_fa", "add_other", "draft", "trade_in"):
                         _has_2021_arrival[_pid_h] = True
+                        if _pid_h not in _arrival_2021_team:
+                            _arrival_2021_team[_pid_h] = _tm
                     if _kind in ("add_fa", "draft"):
                         # FA/waiver pickup or draft while another team still holds
                         # the player => that team's drop went unrecorded.
@@ -7060,6 +7145,27 @@ def build_all(repo_root: Path) -> None:
             _transfer_days = sorted(draft_dates_by_season.get(2021, set()) or set())
             _transfer_iso = (pd.Timestamp(_transfer_days[0], tz="UTC").isoformat()
                              if _transfer_days else None)
+            # Set of player-ids that appear on ANY scored 2021 roster (any team, any
+            # week). A 2020-roster holding whose player surfaces ANYWHERE in 2021 is
+            # NOT a release-into-the-void: either the player was kept by this team
+            # (a carryover — Alexander Mattison, on LWebs53 all 2021) or moved to a
+            # different team at the transfer (a roster-snapshot-only arrival the
+            # general reconciliation already closes at the player's next recorded
+            # event — Kenyan Drake → JacobRosenzweig). Only a player absent from the
+            # ENTIRE 2021 season is a true platform-seam release.
+            _pids_in_2021: set = set()
+            try:
+                if not pw.empty and {"Player ID", "Year"}.issubset(pw.columns):
+                    for _pid, _y in zip(pw["Player ID"], pw["Year"]):
+                        if _pid is None or (isinstance(_pid, float) and pd.isna(_pid)):
+                            continue
+                        try:
+                            if int(_y) == 2021:
+                                _pids_in_2021.add(str(_pid))
+                        except Exception:
+                            continue
+            except Exception as e:
+                _log_exc(debug, "pids_in_2021_presence", e)
             if _transfer_iso:
                 for (_s2020, _tm2020), _held2020 in final_wk_roster_st.items():
                     if int(_s2020) != 2020:
@@ -7073,14 +7179,29 @@ def build_all(repo_root: Path) -> None:
                         # (handled by the general reconciliation). Using the
                         # boundary holder — not the final holder — avoids a false
                         # match when a player is traded back years later (Tony
-                        # Pollard returned to BROsenzweig in 2025). And skip anyone
-                        # RE-ACQUIRED in 2021+ (vet re-draft, add, or trade): the
-                        # general reconciliation already closed that holding at the
-                        # re-acquisition, so a transfer drop would be a redundant
-                        # second departure (e.g. AJ Dillon, re-drafted in 2021 vet).
-                        if (_holder_2020_end.get(str(_pid2020)) == _tm2020
-                                and not _has_2021_arrival.get(str(_pid2020))):
-                            _synth_drop(_tm2020, _pid2020, _transfer_iso)
+                        # Pollard returned to BROsenzweig in 2025).
+                        if _holder_2020_end.get(str(_pid2020)) != _tm2020:
+                            continue
+                        # Skip anyone RE-ACQUIRED in 2021+ by a recorded event (vet
+                        # re-draft, add, or trade): the general reconciliation
+                        # already closed that holding at the re-acquisition, so a
+                        # transfer drop would be a redundant second departure (e.g.
+                        # AJ Dillon, re-drafted in 2021 vet). EXCEPTION: a player
+                        # absent from the entire 2021 season whose only 2021+ event
+                        # is a re-acquisition by the SAME boundary team is a fresh
+                        # later stint after a true gap — the 2020 holding was never
+                        # closed, so the transfer drop must still fire or the 2020
+                        # add teleports across the empty seasons to that later re-add
+                        # (Round 5 Parts I/J finding: Mitchell Trubisky, on LWebs53's
+                        # final 2020 roster, absent all 2021/22, re-added 2023).
+                        if _has_2021_arrival.get(str(_pid2020)):
+                            _arr_team = _arrival_2021_team.get(str(_pid2020))
+                            _same_team_after_gap = (
+                                _arr_team == _tm2020
+                                and str(_pid2020) not in _pids_in_2021)
+                            if not _same_team_after_gap:
+                                continue
+                        _synth_drop(_tm2020, _pid2020, _transfer_iso)
 
             # ---- terminal orphaned holdings (roster-diff) ----
             # A player still 'held' per the transaction log (no recorded drop /
@@ -7183,12 +7304,94 @@ def build_all(repo_root: Path) -> None:
                 event_log[(_sa["Team"], _sa["Player Added"])].append((_sa["Date"], "add"))
                 transactions_rows.append(_synth_tx(_sa["Team"], _sa["Player Added"],
                                                    _sa["_added_pid"], None, None, _sa["Date"]))
+
+            # Round-4 Part A/B fix: rebuild the player transaction / drop
+            # counters straight from the FINAL transactions_rows so they match
+            # the rendered transactions.csv 1:1 by construction. The scattered
+            # per-event increments (weekly loop, orphan-drop, trade and manual
+            # passes) undercounted every SYNTHESIZED lineage-closing row — the
+            # 2020->2021 platform-transfer releases, terminal dead-end cuts and
+            # synthesized arrivals — because those rows are appended here, AFTER
+            # the increments fire. They also double-counted a handful of 2020
+            # ESPN orphan drops whose row was later removed by the
+            # team/added/dropped/date dedup pass (the counter increment stayed,
+            # the row didn't). Both failure modes desync player_year /
+            # player_all_time 'Number of drops' / 'Number of transactions' from
+            # the transactions sheet. Recomputing from the rows is the single
+            # source of truth: 'Number of transactions' = adds + drops involving
+            # the player; 'Number of drops' = drop cells only (trades are a
+            # separate 'Number of trades' column, computed from trades_rows).
+            try:
+                player_tx_year.clear(); player_tx_all.clear()
+                player_drop_year.clear(); player_drop_all.clear()
+                for _txr in transactions_rows:
+                    try:
+                        _tx_season = int(_txr.get("Season")) if _txr.get("Season") is not None else None
+                    except Exception:
+                        _tx_season = None
+                    _apid = _txr.get("_added_pid")
+                    _dpid = _txr.get("_dropped_pid")
+                    if _apid:
+                        _apid = str(_apid)
+                        player_tx_all[_apid] += 1
+                        if _tx_season is not None:
+                            player_tx_year[(_apid, _tx_season)] += 1
+                    if _dpid:
+                        _dpid = str(_dpid)
+                        player_tx_all[_dpid] += 1
+                        player_drop_all[_dpid] += 1
+                        if _tx_season is not None:
+                            player_tx_year[(_dpid, _tx_season)] += 1
+                            player_drop_year[(_dpid, _tx_season)] += 1
+            except Exception as e:
+                _log_exc(debug, "player_tx_counter_rebuild", e)
+
             if _synth_rows or _synth_add_rows:
                 for k in event_log:
                     event_log[k].sort()
                 _log(debug, f"[{_now_iso()}] INFO synthesized {len(_synth_rows)} "
                             f"missing departures + {len(_synth_add_rows)} missing arrivals "
                             f"as transactions rows to close orphaned roster lineage")
+                # The pickup/drop running-count pass above ran BEFORE these
+                # synthesized rows existed, so they'd otherwise render N/A for
+                # 'Number of times picked up/dropped by this team' even though
+                # the count is pure lineage data we now hold. Re-tally over the
+                # full (now-complete) transactions_rows + trades so synthesized
+                # drop/add rows get the same running counts as real rows — a
+                # reader sees two identical drop-only rows with consistent
+                # counts, not one numbered and one blank.
+                acq_events2: List[Tuple[str, str, str, Any]] = []
+                drop_events2: List[Tuple[str, str, str, Any]] = []
+                for r in transactions_rows:
+                    team = r.get("Team")
+                    if not team:
+                        continue
+                    d = str(r.get("Date") or "")
+                    add = r.get("Player Added")
+                    if add and str(add) != "N/A":
+                        acq_events2.append((d, str(team), str(add), r))
+                    dropped = r.get("Player Dropped")
+                    if dropped and str(dropped) != "N/A":
+                        drop_events2.append((d, str(team), str(dropped), r))
+                for tr_row in trades_rows:
+                    team = tr_row.get("Team")
+                    if not team:
+                        continue
+                    d = str(tr_row.get("Date") or "")
+                    for asset in _split_assets(tr_row.get("Assets received")):
+                        acq_events2.append((d, str(team), asset, None))
+                    for asset in _split_assets(tr_row.get("Assets sent")):
+                        drop_events2.append((d, str(team), asset, None))
+                pickup_count = defaultdict(int)
+                for d, team, player, row in sorted(acq_events2, key=lambda e: e[0]):
+                    pickup_count[(team, player)] += 1
+                    if row is not None:
+                        row["Number of times picked up by this team"] = pickup_count[(team, player)]
+                drop_count = defaultdict(int)
+                for d, team, player, row in sorted(drop_events2, key=lambda e: e[0]):
+                    drop_count[(team, player)] += 1
+                    if row is not None:
+                        row["Number of times dropped by this team"] = drop_count[(team, player)]
 
             for r in transactions_rows:
                 team = r.get("Team")
@@ -7250,13 +7453,22 @@ def build_all(repo_root: Path) -> None:
                     # ends at that drop. So bound the search at the NEXT
                     # departure for the same (team, player) after add_date.
                     drop_after = r.get("Date dropped/traded") or ""
+                    # wk_date is a DATE-only string ("YYYY-MM-DD"); add_date /
+                    # drop_after are full datetime strings ("YYYY-MM-DD HH:MM:SS").
+                    # Compare against the date portion only — otherwise the
+                    # date-only string sorts BEFORE a same-calendar-day datetime
+                    # (it's a prefix), which wrongly skips a player_week row that
+                    # falls in the pickup week (and can drop the start week, then
+                    # mis-report N/A or undercount the bench weeks).
+                    add_day = add_date[:10]
+                    drop_day = drop_after[:10]
                     weeks_before_start = 0
                     found_start = False
                     for yr, wk, started, wk_date in rows:
-                        if wk_date and wk_date < add_date:
+                        if wk_date and wk_date < add_day:
                             continue
                         # Stop counting once the player was let go again.
-                        if drop_after and wk_date and wk_date >= drop_after:
+                        if drop_day and wk_date and wk_date >= drop_day:
                             break
                         if started:
                             found_start = True
@@ -7639,8 +7851,15 @@ def build_all(repo_root: Path) -> None:
                     return None
                 added_age = _age_for(added)
                 dropped_age = _age_for(dropped)
-                if added_age is not None or dropped_age is not None:
-                    r["Age difference"] = round((added_age or 0.0) - (dropped_age or 0.0), 2)
+                # "Age difference" = added_age − dropped_age is only meaningful
+                # when the row actually swapped one player for another. On a
+                # pure add (no dropped player) or a pure drop (no added player)
+                # there is no opposing age to compare against, so the value
+                # stays N/A (via _preserve_na) instead of being computed
+                # against a phantom age-0 player — which would otherwise
+                # fabricate a ±(present player's age) "difference".
+                if added_age is not None and dropped_age is not None:
+                    r["Age difference"] = round(added_age - dropped_age, 2)
 
                 # --- Tanking-delta inputs (Phase 6E) ---
                 # Marginal change this transaction makes to the team's roster
@@ -7781,6 +8000,7 @@ def build_all(repo_root: Path) -> None:
     #
     # Per transaction row: KTC of added, dropped, and net at deal time.
     # --------------------------
+    _ktc_idx = None
     try:
         from lotg_support.ktc import build_index, asset_value_at
         today = datetime.utcnow().date()
@@ -9001,10 +9221,11 @@ def build_all(repo_root: Path) -> None:
         ]
         try:
             from lotg_support.ktc import asset_value_at as _ktc_value_at
-            if not ph.empty and {"Year", "Player Picked"}.issubset(set(ph.columns)) and _ktc_idx is not None:
+            if not ph.empty and {"Year", "Player Picked"}.issubset(set(ph.columns)):
                 for _c in _pick_ktc_cols:
                     ph[_c] = "N/A"
                     ph[_c] = ph[_c].astype(object)
+            if not ph.empty and {"Year", "Player Picked"}.issubset(set(ph.columns)) and _ktc_idx is not None:
                 _ktc_today = datetime.utcnow().date()
                 for _i, _pr in ph.iterrows():
                     _ply = str(_pr.get("Player Picked") or "").strip()
@@ -12070,10 +12291,22 @@ def build_all(repo_root: Path) -> None:
         # 9 in player_all_time. Pad here with skeleton rows.
         try:
             existing = set()
+            # (name, year) pairs already represented by a REAL pw-derived row.
+            # A different Sleeper ID can map to the same display name in the
+            # same year (e.g. two players named the same, or a name/ID merge
+            # quirk) — guard against padding in a duplicate-looking row for a
+            # name+year that already has a real row under another ID.
+            existing_names: Set[Tuple[str, int]] = set()
             if not player_year.empty and "Player ID" in player_year.columns and "Year" in player_year.columns:
                 for pid_val, yr_val in player_year[["Player ID", "Year"]].itertuples(index=False, name=None):
                     try:
                         existing.add((str(pid_val), int(yr_val)))
+                    except Exception:
+                        continue
+            if not player_year.empty and "Player" in player_year.columns and "Year" in player_year.columns:
+                for name_val, yr_val in player_year[["Player", "Year"]].itertuples(index=False, name=None):
+                    try:
+                        existing_names.add((str(name_val), int(yr_val)))
                     except Exception:
                         continue
 
@@ -12237,6 +12470,12 @@ def build_all(repo_root: Path) -> None:
                     # to 0). Compute the player's age as of mid-season of that
                     # year from birth_date (same source the weekly path uses).
                     _pad_age = _calc_age(meta.get("birth_date"), date(int(yr), 11, 1))
+                    # Skip this pad row if a REAL pw-derived row already
+                    # exists for the same (name, year) under a different
+                    # Player ID — that real row is the authoritative one;
+                    # padding here would surface a phantom duplicate name.
+                    if (str(name), int(yr)) in existing_names:
+                        continue
                     pad_rows.append({
                         "Player": name,
                         "Player ID": str(sid),
@@ -12549,6 +12788,28 @@ def build_all(repo_root: Path) -> None:
             missing_pa = [s for s in tx_sids if s not in existing_pa]
             # Phase 3A.2: drop pads for players truly never rostered.
             missing_pa = [s for s in missing_pa if tenure_teams_all.get(str(s))]
+            # Round-4 Part B fix: only pad player_all_time for a pid that ALSO
+            # earned a player_year row. The player_year pad uses a strict
+            # per-YEAR tenure test (`_has_tenure_in_year`) while this all-time
+            # pad's `tenure_teams_all` test is any-year, so a Sleeper full_name
+            # collision can mint a phantom pid that has only a SYNTHESIZED add
+            # (no real roster tenure in any season): it slips past the all-time
+            # guard but is correctly rejected by player_year — leaving a
+            # player_all_time row with no player_year backing (pa != Σpy, the
+            # invariant Part B checks). Concrete cases: a phantom "Justin
+            # Jefferson"/"DJ Moore"/"Tyler Johnson" pid distinct from the real
+            # player's pid, whose pad even pulled the REAL player's trade count
+            # by name. Requiring a player_year row keeps every legitimate
+            # tx-only pad (those DO get a player_year skeleton) while dropping
+            # the collision phantoms.
+            try:
+                _py_pids = (set(player_year["Player ID"].astype(str))
+                            if (not player_year.empty and "Player ID" in player_year.columns)
+                            else set())
+                if _py_pids:
+                    missing_pa = [s for s in missing_pa if str(s) in _py_pids]
+            except Exception as e:
+                _log_exc(debug, "player_all_pad_py_guard", e)
             if missing_pa:
                 pad_rows = []
                 for sid in missing_pa:
@@ -12561,6 +12822,18 @@ def build_all(repo_root: Path) -> None:
                     )
                     last_event = tenure_last_event_all.get(str(sid))
                     last_team_pad = last_event[1] if last_event else top_team_pad
+                    # A tx-only pad player has no player_week presence, hence 0
+                    # started weeks — so taxi eligibility reduces to the
+                    # first-year-in-league gate. Without this these rows bypass
+                    # _is_taxi_eligible (computed earlier on `pa`, before this
+                    # concat) and silently default to False/NaN, wrongly excluding
+                    # first-year never-started players who were only ever added &
+                    # dropped between weekly snapshots (e.g. a rookie picked up
+                    # and cut in the same week of their debut season).
+                    _pad_taxi = bool(
+                        current_season is not None
+                        and first_year_by_pid.get(str(sid)) == current_season
+                    )
                     pad_rows.append({
                         "Player": name,
                         "Player ID": str(sid),
@@ -12570,6 +12843,7 @@ def build_all(repo_root: Path) -> None:
                         "Number of transactions": int(player_tx_all.get(str(sid), 0)),
                         "Number of drops": int(player_drop_all.get(str(sid), 0)),
                         "Number of trades": int(player_trade_all.get(str(name), 0)),
+                        "Taxi-eligible": _pad_taxi,
                     })
                 if pad_rows:
                     player_all = pd.concat([player_all, pd.DataFrame(pad_rows)], ignore_index=True)
@@ -12717,9 +12991,10 @@ def build_all(repo_root: Path) -> None:
     # 3-year roster retention rate (improvement #16): of a team's WEEK-1 roster in
     # year Y, the fraction still on that team's WEEK-1 roster in year Y+3. Rate
     # (not count) because roster sizes have grown over the years. N/A when the
-    # Y+3 week-1 roster doesn't exist yet (so currently only 2021->2024 and
-    # 2022->2025 are measurable). Keyed by (team, Y) for team_year; team_all_time
-    # averages a team's measurable rates.
+    # Y+3 week-1 roster doesn't exist yet — measurable only for source years Y
+    # whose Y+3 season has been played (currently 2020->2023, 2021->2024 and
+    # 2022->2025; Y of 2023 or later is still pending its Y+3 season). Keyed by
+    # (team, Y) for team_year; team_all_time averages a team's measurable rates.
     retention_3yr_by_ty: Dict[Tuple[str, int], float] = {}
     try:
         if not pw.empty and {"Player ID", "Year", "Week", "Team"}.issubset(pw.columns):
@@ -13050,7 +13325,16 @@ def build_all(repo_root: Path) -> None:
                     fin_map[str(g3.iloc[1]["Team"])] = "4th"
 
                 # Non-playoff finishes (5th-8th) are based on regular-season record cutoff,
-                # with PF as the tiebreaker. (Pre-2025: through 17 games; 2025+: through 15 games.)
+                # with PF as the tiebreaker. (Pre-2025: a Week<=17 cutoff, which folds in the
+                # toilet-bowl bracket weeks through each season's final game — Week 16 in the
+                # 16-week 2020 ESPN season, Week 17 in the 17-week 2021-2024 seasons — by
+                # league design, toilet-bowl results counted toward final standings for the
+                # 2020-2024 seasons. 2025+: through 15 games,
+                # the true regular season, once the league stopped using the toilet bracket
+                # for standings purposes.) This intentionally can disagree with
+                # last_place_by_season (which is always regular-season-only, a separate
+                # all-time "worst regular-season record" stat) for 2021-2023, where the
+                # toilet-bowl loser is NOT the same team as the regular-season's worst record.
                 cutoff = 17 if season < 2025 else 15
                 try:
                     all_teams = [str(t) for t in tw[tw["Year"] == season]["Team"].dropna().unique().tolist()]
@@ -13163,7 +13447,10 @@ def build_all(repo_root: Path) -> None:
                 # aggregation step carried them across.
                 "Number of transactions": int(pd.to_numeric(g.get("Number of transactions"), errors="coerce").fillna(0.0).sum()),
                 "Number of trades": int(pd.to_numeric(g.get("Number of trades"), errors="coerce").fillna(0.0).sum()),
-                "Amount of FAAB spent": round(float(pd.to_numeric(g.get("Amount of FAAB spent"), errors="coerce").fillna(0.0).sum()), 2),
+                "Amount of FAAB spent": (
+                    round(float(pd.to_numeric(g.get("Amount of FAAB spent"), errors="coerce").fillna(0.0).sum()), 2)
+                    if int(yr) >= 2022 else None
+                ),
                 # Highest combined matchup score (own PF + opponent PF) the
                 # team participated in during the season. team_week already
                 # computes Combined matchup score per game.
@@ -14575,7 +14862,10 @@ def build_all(repo_root: Path) -> None:
                 "Number of trades": int(len(_trade_dates_by_yw.get((int(yr), int(wk)), set()))),
                 "Highest starter score": _star_hi_yw.get((int(yr), int(wk))),
                 "Lowest starter score": _star_lo_yw.get((int(yr), int(wk))),
-                "Amount of FAAB spent": float(pd.to_numeric(g.get("Amount of FAAB spent"), errors="coerce").fillna(0.0).sum()),
+                "Amount of FAAB spent": (
+                    float(pd.to_numeric(g.get("Amount of FAAB spent"), errors="coerce").fillna(0.0).sum())
+                    if int(yr) >= 2022 else None
+                ),
             })
         league_week = pd.DataFrame(rows)
 
@@ -14623,7 +14913,13 @@ def build_all(repo_root: Path) -> None:
                 }
             )
             league_week = league_week.merge(agg_lw, how="left", on=["Year","Week"])
-            league_week["Amount of FAAB spent"] = pd.to_numeric(league_week.get("Amount of FAAB spent"), errors="coerce").fillna(0.0)
+            league_week["Amount of FAAB spent"] = league_week.apply(
+                lambda r: (
+                    float(pd.to_numeric(r.get("Amount of FAAB spent"), errors="coerce") or 0.0)
+                    if int(r.get("Year")) >= 2022 else None
+                ),
+                axis=1,
+            )
             # League range = highest − lowest starter (item-5 disambiguation;
             # the agg gave the max single-team spread).
             if {"Highest starter score", "Lowest starter score"} <= set(league_week.columns):
@@ -14694,7 +14990,10 @@ def build_all(repo_root: Path) -> None:
                     for _pos in ["QB", "WR", "RB", "TE"]
                     for _kind in ["started", "rostered"]
                 },
-                "Amount of FAAB spent": float(pd.to_numeric(g.get("Amount of FAAB spent"), errors="coerce").fillna(0.0).sum()),
+                "Amount of FAAB spent": (
+                    float(pd.to_numeric(g.get("Amount of FAAB spent"), errors="coerce").fillna(0.0).sum())
+                    if int(yr) >= 2022 else None
+                ),
             })
         league_year = pd.DataFrame(rows)
 
@@ -14732,7 +15031,13 @@ def build_all(repo_root: Path) -> None:
                 }
             )
             league_year = league_year.merge(agg_ly, how="left", on=["Year"])
-            league_year["Amount of FAAB spent"] = pd.to_numeric(league_year.get("Amount of FAAB spent"), errors="coerce").fillna(0.0)
+            league_year["Amount of FAAB spent"] = league_year.apply(
+                lambda r: (
+                    float(pd.to_numeric(r.get("Amount of FAAB spent"), errors="coerce") or 0.0)
+                    if int(r.get("Year")) >= 2022 else None
+                ),
+                axis=1,
+            )
             # Startup players remaining (league, per year) = season-END total =
             # sum across teams of each team's last-week count (the agg above would
             # sum over all team-weeks and over-count).
@@ -15009,7 +15314,21 @@ def build_all(repo_root: Path) -> None:
             # for link-prev/next or year-tanking joins, and would otherwise
             # land in transactions.csv with Date='N/A'.
             tx = tx[tx["Date"].notna()].reset_index(drop=True)
-            tx = tx.sort_values(["Team","Date"]).reset_index(drop=True)
+            # Determinism: many rows share an identical (Team, Date) — most
+            # notably the season-end orphan-drop synthesis, which stamps a whole
+            # per-team batch with one "YYYY-08-23 20:00:00" instant. pandas
+            # sort_values defaults to quicksort (UNSTABLE), so those tied rows
+            # land in a run-dependent order; because the transactions / picks
+            # link columns reference rows by 1-based position ("#N"), that
+            # silently renumbered the refs build-to-build (observed non-
+            # determinism). Break the tie on the rendered row identity
+            # (Player Added, Player Dropped) — unique within a (Team, Date)
+            # group, the same identity the upstream dedup treats as unique — so
+            # the final order, and thus every "#N" ref, is fully deterministic.
+            tx = tx.sort_values(
+                ["Team", "Date", "Player Added", "Player Dropped"],
+                kind="stable", na_position="first",
+            ).reset_index(drop=True)
             # link columns as row numbers (1-indexed within each team).
             # 'Link to previous' on row 1 is NaN, otherwise points at row N-1.
             # 'Link to next' on the last row of each team is NaN, otherwise
@@ -15067,7 +15386,14 @@ def build_all(repo_root: Path) -> None:
             tr["Date"] = pd.to_datetime(tr["Date"], errors="coerce", utc=True, format="ISO8601")
             # Same guard as transactions: drop rows we can't anchor in time.
             tr = tr[tr["Date"].notna()].reset_index(drop=True)
-            tr = tr.sort_values(["Team","Date"]).reset_index(drop=True)
+            # Determinism (same rationale as transactions above): a stable sort
+            # with a full identity tiebreaker so tied (Team, Date) trade rows —
+            # and the per-asset "T#N" refs that point at them — never reshuffle
+            # between builds.
+            _tr_tie = [c for c in ("Assets received", "Assets sent") if c in tr.columns]
+            tr = tr.sort_values(
+                ["Team", "Date"] + _tr_tie, kind="stable", na_position="first",
+            ).reset_index(drop=True)
             # Per-asset link columns ("Link to next/previous transaction per
             # asset") are filled later in the player-chain block (Phase 7B),
             # which reuses the same cross-tx/trade chains as the transaction
@@ -15172,27 +15498,52 @@ def build_all(repo_root: Path) -> None:
                 return _nxt, _prv
 
             # Pick chains: follow a draft pick to the next / previous TRADE that
-            # moved it, keyed by its canonical identity (year, round, original
-            # owner) — NOT the display label, whose projected slot can drift for
-            # an un-drafted future pick. Built from the RECEIVED side only so the
-            # two mirror rows of a single trade event don't link to each other.
-            # Deliberately does NOT bridge a pick to the player drafted with it.
-            pick_chains: Dict[Tuple[int, int, str], List[Tuple[Any, str]]] = defaultdict(list)
-            # Bug #6: a pick's HOME row on the picks sheet, by canonical key. Used
-            # as the fallback link when a pick has no earlier trade (its first
-            # trade's "previous") so the cell links to the pick's origin instead
-            # of dead "N/A". Populated in the draft-row bridging loop below.
-            pick_home_phref: Dict[Tuple[int, int, str], str] = {}
+            # moved it, keyed by its FULL numbered identity (year, round,
+            # number-within-round, original owner). Round-4 audit (Part G):
+            # the older (year, round, orig) key was NOT unique when one team held
+            # several same-round picks originally its own (e.g. BROsenzweig's
+            # 2025 5.02/5.03/5.06) — all of their PH# draft terminals and trades
+            # then collided into one bucket, so a pick linked to a SIBLING pick's
+            # draft row or trade instead of its own. The pick NUMBER disambiguates
+            # them (number 0 = an un-drafted future pick whose slot isn't set yet;
+            # such picks have no draft row, so they never collide). Built from the
+            # RECEIVED side only so the two mirror rows of a single trade event
+            # don't link to each other. Does NOT bridge a pick to its drafted
+            # player.
+            pick_chains: Dict[Tuple[int, int, int, str], List[Tuple[Any, str]]] = defaultdict(list)
+            # Bug #6: a pick's HOME row on the picks sheet, by numbered identity.
+            # Used as the fallback link when a pick has no earlier/later trade so
+            # the cell links to the pick's origin instead of dead "N/A".
+            # Populated in the draft-row bridging loop below.
+            pick_home_phref: Dict[Tuple[int, int, int, str], str] = {}
+            # Part G root fix: key the pick chain by the FULL numbered identity
+            # (year, round, number, orig) so same-round sibling picks held by one
+            # owner never share a bucket (and thus never link to each other).
+            # The trade asset LABEL carries the pick number once the slot is set
+            # (e.g. "2024 2.02(X. Worthy)"); the parallel "Assets received" list
+            # is consumed in lockstep with _recv_pick_meta (one meta entry per
+            # pick asset, in order). Future picks whose slot isn't set yet have no
+            # number in the label and no draft row, so they key with number 0 and
+            # cannot collide with a drafted pick anyway.
             if "_recv_pick_meta" in tr.columns:
                 for _j in tr.index:
                     _ref = f"T#{int(_j) + 1}"; _d = tr.at[_j, "Date"]
                     _pm = tr.at[_j, "_recv_pick_meta"]
-                    for _m in (_pm if isinstance(_pm, list) else []):
+                    _pm = _pm if isinstance(_pm, list) else []
+                    # pull the pick-asset labels in order to recover each number
+                    _labels = [a.strip() for a in str(tr.at[_j, "Assets received"] or "").split(";")
+                               if re.match(r"^\d{4}\b", a.strip())]
+                    for _mi, _m in enumerate(_pm):
                         try:
-                            _key = (int(_m[0]), int(_m[1]), str(_m[2]))
+                            _yr0 = int(_m[0]); _rd0 = int(_m[1]); _or0 = str(_m[2])
                         except Exception:
                             continue
-                        pick_chains[_key].append((_d, _ref))
+                        _num0 = 0
+                        if _mi < len(_labels):
+                            _lm0 = re.match(r"\s*\d{4}\s+\d+\.(\d+)", _labels[_mi])
+                            if _lm0:
+                                _num0 = int(_lm0.group(1))
+                        pick_chains[(_yr0, _rd0, _num0, _or0)].append((_d, _ref))
                 for _k in pick_chains:
                     pick_chains[_k].sort(key=lambda e: (e[0] if pd.notna(e[0]) else _nat))
 
@@ -15210,10 +15561,21 @@ def build_all(repo_root: Path) -> None:
                 for _pi in ph.index:
                     _phref = f"PH#{int(_pi) + 1}"
                     _ym = re.match(r"\s*(\d{4})", str(ph.at[_pi, "Year"]))
-                    _nm = re.match(r"\s*(\d+)\.", str(ph.at[_pi, "Number"]))
+                    _nm = re.match(r"\s*(\d+)\.(\d+)", str(ph.at[_pi, "Number"]))
                     if not _ym or not _nm:
                         continue
                     _yr = int(_ym.group(1)); _rd = int(_nm.group(1))
+                    _picknum = int(_nm.group(2))
+                    # The 2.09 toilet-reward pick is a DISTINCT asset whose own
+                    # trades are keyed by the _R209 sentinel round in
+                    # _recv_pick_meta (not the literal round 2 it displays as).
+                    # Key its draft terminal under the same sentinel so PH# and
+                    # its trade chain (e.g. 2024 2.09 <- T#28) actually link;
+                    # otherwise the draft row (round 2) and the trade (round 209)
+                    # land in separate buckets and the pick's "previous
+                    # transaction" silently drops its real trade.
+                    if str(ph.at[_pi, "Number"]).strip() == "2.09":
+                        _rd = _R209
                     _orig = str(ph.at[_pi, "Original Team"]).strip()
                     # Anchor each PH# RELATIVE to the chain it joins, not a fixed
                     # calendar date (which mis-orders the 2021 startup/vet draft
@@ -15224,9 +15586,9 @@ def build_all(repo_root: Path) -> None:
                     # (no other event references it then anyway). The date is
                     # only used for sort order — the "PH#N" ref is identical.
                     _fallback = pd.Timestamp(year=_yr, month=8, day=28, tz="UTC")
-                    _pk = (_yr, _rd, _orig)
-                    # The 2021 startup/vet draft shares its (year, round, orig)
-                    # canonical key with the 2021 ROOKIE draft, so adding a vet
+                    _pk = (_yr, _rd, _picknum, _orig)
+                    # The 2021 startup/vet draft shares its (year, round, number,
+                    # orig) identity with the 2021 ROOKIE draft, so adding a vet
                     # PH# terminal here would pollute the rookie pick's chain
                     # (its "previous" would land on the vet draft row). Vet picks
                     # were never traded — they have no pick chain — so skip the
@@ -15240,7 +15602,15 @@ def build_all(repo_root: Path) -> None:
                         pick_home_phref[_pk] = _phref  # pick's home row (Bug #6)
                     _pl = str(ph.at[_pi, "Player Picked"]).strip()
                     if _real_player(_pl):
-                        _edates = [e[0] for e in chains.get(_pl, []) if pd.notna(e[0])]
+                        # Only anchor against events ON OR AFTER this pick's own
+                        # draft date. A vet pick's player can have an unrelated,
+                        # earlier transaction history (e.g. a prior waiver stint
+                        # with a different team before being drafted here) — using
+                        # the player's GLOBAL earliest event would anchor the
+                        # chain-start before that stale history instead of right
+                        # after the real draft, mis-threading "next"/"previous"
+                        # across the two unrelated spans (run-2 audit Part 8).
+                        _edates = [e[0] for e in chains.get(_pl, []) if pd.notna(e[0]) and e[0] >= _fallback]
                         _start = (min(_edates) - pd.Timedelta(days=1)) if _edates else _fallback
                         chains[_pl].append((_start, _phref))  # player chain start
                 _ksort = lambda e: (e[0] if pd.notna(e[0]) else _nat)
@@ -15250,12 +15620,27 @@ def build_all(repo_root: Path) -> None:
                     chains[_p].sort(key=_ksort)
 
             def _pick_neighbors(key, this_ref):
+                # Round-4 audit (Part G): the canonical pick key
+                # (year, round, original-owner) is NOT unique when one team
+                # holds several picks in the same round originally its own
+                # (e.g. BROsenzweig's 2025 5.02 / 5.03 / 5.06). Each pick's PH#
+                # draft terminal lands in this one shared bucket, so a raw
+                # adjacent-index lookup links a pick to a SIBLING pick's PH#
+                # rather than to the trade that actually moved it — a bogus
+                # "previous/next transaction" pointing at an unrelated pick.
+                # A pick chain's only real neighbours are the TRADES that moved
+                # it; the legitimate PH# is the chain's own terminal (this_ref).
+                # So skip every OTHER PH# entry and resolve to the nearest real
+                # trade in each direction (None when there is none).
                 ch = pick_chains.get(key, [])
-                for _k in range(len(ch)):
-                    if ch[_k][1] == this_ref:
-                        return (ch[_k + 1][1] if _k + 1 < len(ch) else None,
-                                ch[_k - 1][1] if _k > 0 else None)
-                return None, None
+                _pos = next((_k for _k in range(len(ch)) if ch[_k][1] == this_ref), None)
+                if _pos is None:
+                    return None, None
+                _nxt = next((ch[_k][1] for _k in range(_pos + 1, len(ch))
+                             if not str(ch[_k][1]).startswith("PH#")), None)
+                _prv = next((ch[_k][1] for _k in range(_pos - 1, -1, -1)
+                             if not str(ch[_k][1]).startswith("PH#")), None)
+                return _nxt, _prv
 
             a_next, a_prev, d_next, d_prev = [], [], [], []
             for _i in tx.index:
@@ -15300,7 +15685,17 @@ def build_all(repo_root: Path) -> None:
                             _key = None
                             if _pi < len(_pm):
                                 try:
-                                    _key = (int(_pm[_pi][0]), int(_pm[_pi][1]), str(_pm[_pi][2]))
+                                    # Part G: full numbered identity. The asset
+                                    # LABEL carries the pick number once the slot
+                                    # is set ("2024 2.02(X. Worthy)"); use it so a
+                                    # trade of one same-round sibling resolves to
+                                    # its OWN chain, not another sibling's. Number
+                                    # 0 = un-drafted future pick (slot not set),
+                                    # matching the chain-build side.
+                                    _lm = re.match(r"\s*\d{4}\s+\d+\.(\d+)", _a)
+                                    _num = int(_lm.group(1)) if _lm else 0
+                                    _key = (int(_pm[_pi][0]), int(_pm[_pi][1]),
+                                            _num, str(_pm[_pi][2]))
                                 except Exception:
                                     _key = None
                             _pi += 1
@@ -15334,10 +15729,14 @@ def build_all(repo_root: Path) -> None:
                     _phref = f"PH#{int(_pi) + 1}"
                     _pl = str(ph.at[_pi, "Player Picked"]).strip()
                     _ym = re.match(r"\s*(\d{4})", str(ph.at[_pi, "Year"]))
-                    _nm = re.match(r"\s*(\d+)\.", str(ph.at[_pi, "Number"]))
+                    _nm = re.match(r"\s*(\d+)\.(\d+)", str(ph.at[_pi, "Number"]))
                     _nx = _pv = None
                     if _ym and _nm:
-                        _pk = (int(_ym.group(1)), int(_nm.group(1)),
+                        # 2.09 toilet pick is keyed under the _R209 sentinel round
+                        # (its trades live there); match that so its draft row
+                        # links to its real trade chain, not a dead "N/A".
+                        _rd_k = _R209 if str(ph.at[_pi, "Number"]).strip() == "2.09" else int(_nm.group(1))
+                        _pk = (int(_ym.group(1)), _rd_k, int(_nm.group(2)),
                                str(ph.at[_pi, "Original Team"]).strip())
                         # previous = the pick's last trade before the draft
                         _, _pv = _pick_neighbors(_pk, _phref)
@@ -15445,10 +15844,13 @@ def build_all(repo_root: Path) -> None:
             _is_209 = _num == "2.09"
             _is_5xx = bool(re.match(r"\s*5\.", _num))
             if "(vet)" in _yr_disp.lower():
-                # The startup (vet) draft is the league's first event — anchor it
-                # at the start of the year so it sorts ahead of every later trade.
+                # The 2021 supplemental veteran draft (distinct from the 2020 ESPN
+                # startup draft) — anchor it at the start of its year so it sorts
+                # ahead of every later trade. (Label it "supplemental veteran
+                # draft", NOT "startup": the inaugural startup was the 2020 ESPN
+                # draft; conflating the two is the recurring 2020-vs-2021 seam bug.)
                 return [("0000-00-00 00:00:00", f"{_yr} {_num} — originally {_orig}'s pick"),
-                        (f"{_yr}-01-01 00:00:00", f"{_yr} startup (vet) draft: {_final} {_drafted_txt}")], 0
+                        (f"{_yr}-01-01 00:00:00", f"{_yr} supplemental veteran draft: {_final} {_drafted_txt}")], 0
             if _is_5xx:
                 # 5.xx FAAB buy: an off-platform AWARD bought by and kept with one
                 # team. Not a trade -> contributes 0 to Number of trades.

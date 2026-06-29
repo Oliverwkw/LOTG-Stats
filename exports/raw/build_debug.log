@@ -1,2 +1,447 @@
 {"ts": 1766538336.470831, "level": "INFO", "msg": "Starting build_all", "fields": {"league_id": "1192931349575991296", "min_season": 2019, "max_season": 2025, "season_type": "regular"}}
 {"ts": 1766538478.0924826, "level": "INFO", "msg": "Starting build_all", "fields": {"league_id": "1192931349575991296", "min_season": 2019, "max_season": 2025, "season_type": "regular"}}
+
+[2026-06-29T00:17:17.777541+00:00] ===== Build start =====
+formulas coverage: all non-obvious columns documented
+injury tracker rows loaded: 0
+[2026-06-29T00:17:20.089019+00:00] INFO gsis_correction sid=5133 name='Tyler Conklin' sleeper_gsis=00-0034439 -> 00-0034270
+[2026-06-29T00:17:20.105360+00:00] INFO gsis_correction sid=5094 name='Ryan Izzo' sleeper_gsis=00-0034270 -> 00-0034439
+[2026-06-29T00:17:20.465306+00:00] INFO Phase 13: injected ESPN 2020 season (8 teams, 152 draft picks, 222 transactions; 0 player-meta backfilled)
+[2026-06-29T00:17:22.343682+00:00] INFO commissioner pick-trade overlay: 33 pick-hops loaded
+INFO league scoring settings changed in 2021: {'rec': (None, 1.0), 'rec_yd': (None, 0.1), 'rush_yd': (None, 0.1), 'fgm_0_19': (None, 3.0), 'pass_int': (None, -2.0), 'fgm_30_39': (None, 3.0), 'pass_2pt': (None, 2.0), 'fgmiss': (None, -1.0), 'rec_td': (None, 6.0), 'sack': (None, 1.0), 'fum_lost': (None, -1.0), 'int': (None, 2.0), 'pass_yd': (None, 0.04), 'fgm_20_29': (None, 3.0), 'st_td': (None, 0.0), 'pass_td': (None, 4.0), 'xpmiss': (None, -1.0), 'safe': (None, 2.0), 'fgm_50p': (None, 5.0), 'fum_rec': (None, 2.0), 'xpm': (None, 1.0), 'fum_rec_td': (None, 6.0), 'fgm_40_49': (None, 4.0), 'rush_td': (None, 6.0), 'ff': (None, 1.0), 'rec_2pt': (None, 2.0), 'def_td': (None, 6.0), 'fum': (None, -1.0), 'rush_2pt': (None, 2.0)}
+[2026-06-29T00:17:30.163342+00:00] INFO merged the 2021 phantom Carter/Stevenson player swap into the pick trade
+INFO league scoring settings changed in 2022: {'fum_ret_yd': (None, 0.1), 'st_td': (0.0, 6.0)}
+[2026-06-29T00:17:33.254181+00:00] INFO commissioner-wash 2022: excluded 11 no-op txns
+[2026-06-29T00:17:36.220606+00:00] INFO commissioner-wash 2023: excluded 1 no-op txns
+[2026-06-29T00:17:39.368412+00:00] INFO commissioner-wash 2024: excluded 3 no-op txns
+[2026-06-29T00:17:39.368665+00:00] INFO draft-day synthetic picks 2024: 1 commish-add(s) -> picks, removed from transactions
+[2026-06-29T00:17:46.625689+00:00] INFO draft-day synthetic picks 2025: 8 commish-add(s) -> picks, removed from transactions
+[2026-06-29T00:17:47.028642+00:00] WARN commish pick-trade UNMATCHED: 2026 R209 Oliverwkw->LWebs53 @ 2026-05-03 16:13:10 (with 2.8 in trade up)
+[2026-06-29T00:17:47.028913+00:00] WARN commissioner pick-trade overlay: 1/33 pick-hops unmatched
+[2026-06-29T00:17:47.049034+00:00] INFO 2020 startup draft: emitted 152 picks into pick_history
+[2026-06-29T00:17:47.683405+00:00] INFO merged 1 manual transaction(s) from data/manual_transactions.csv
+[2026-06-29T00:17:47.777115+00:00] INFO synthesized 2 terminal roster-diff departures (dead-end cuts, never re-acquired)
+[2026-06-29T00:17:47.779826+00:00] INFO synthesized 63 missing departures + 26 missing arrivals as transactions rows to close orphaned roster lineage
+[2026-06-29T00:17:51.943809+00:00] INFO ktc value column: sf_trade_value (superflex, always)
+[2026-06-29T00:17:52.294932+00:00] ERROR at ktc_value_diff: URLError: <urlopen error Tunnel connection failed: 403 Forbidden>
+Traceback (most recent call last):
+  File "/usr/lib/python3.11/urllib/request.py", line 1348, in do_open
+    h.request(req.get_method(), req.selector, req.data, headers,
+  File "/usr/lib/python3.11/http/client.py", line 1323, in request
+    self._send_request(method, url, body, headers, encode_chunked)
+  File "/usr/lib/python3.11/http/client.py", line 1369, in _send_request
+    self.endheaders(body, encode_chunked=encode_chunked)
+  File "/usr/lib/python3.11/http/client.py", line 1318, in endheaders
+    self._send_output(message_body, encode_chunked=encode_chunked)
+  File "/usr/lib/python3.11/http/client.py", line 1078, in _send_output
+    self.send(msg)
+  File "/usr/lib/python3.11/http/client.py", line 1016, in send
+    self.connect()
+  File "/usr/lib/python3.11/http/client.py", line 1488, in connect
+    super().connect()
+  File "/usr/lib/python3.11/http/client.py", line 992, in connect
+    self._tunnel()
+  File "/usr/lib/python3.11/http/client.py", line 963, in _tunnel
+    raise OSError(f"Tunnel connection failed: {code} {message.strip()}")
+OSError: Tunnel connection failed: 403 Forbidden
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/home/user/LOTG-Stats/src/lotg.py", line 8097, in build_all
+    idx = build_index(
+          ^^^^^^^^^^^^
+  File "/home/user/LOTG-Stats/lib/lotg_support/ktc.py", line 281, in build_index
+    directory = load_directory(repo_root)
+                ^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/user/LOTG-Stats/lib/lotg_support/ktc.py", line 86, in load_directory
+    data = _http_get_json(f"{DD_BASE}/player/all/today")
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/user/LOTG-Stats/lib/lotg_support/ktc.py", line 56, in _http_get_json
+    with urllib.request.urlopen(req, timeout=30) as resp:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.11/urllib/request.py", line 216, in urlopen
+    return opener.open(url, data, timeout)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.11/urllib/request.py", line 519, in open
+    response = self._open(req, data)
+               ^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.11/urllib/request.py", line 536, in _open
+    result = self._call_chain(self.handle_open, protocol, protocol +
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.11/urllib/request.py", line 496, in _call_chain
+    result = func(*args)
+             ^^^^^^^^^^^
+  File "/usr/lib/python3.11/urllib/request.py", line 1391, in https_open
+    return self.do_open(http.client.HTTPSConnection, req,
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.11/urllib/request.py", line 1351, in do_open
+    raise URLError(err)
+urllib.error.URLError: <urlopen error Tunnel connection failed: 403 Forbidden>
+
+[2026-06-29T00:17:52.307807+00:00] WARN ktc fetch: https://dynasty-daddy.com/api/v1/player/all/today: URLError: <urlopen error Tunnel connection failed: 403 Forbidden>
+[2026-06-29T00:18:21.367268+00:00] INFO seeded 188 player_year rows for tx-only player×year combos
+[2026-06-29T00:18:21.543032+00:00] INFO seeded 32 player_all_time rows for tx-only players
+[2026-06-29T00:18:29.449074+00:00] INFO built asset history: 450 picks, 649 players
+[2026-06-29T00:18:29.667544+00:00] INFO pure-drop O-Score: 439 drop-only txns detected (cols: _added_pid=True, Player Added=True)
+[2026-06-29T00:18:29.671770+00:00] INFO pure-drop O-Score: scored 439 drop-only transactions (ceiling 50)
+[2026-06-29T00:18:29.793016+00:00] INFO 2020 startup picks: relabeled Year='startup' on 152 rows
+[2026-06-29T00:19:46.776741+00:00] INFO bolded comment verbs in cell history popups
+[2026-06-29T00:19:47.278418+00:00] ===== Build end =====
+[2026-06-29T00:19:49.507697+00:00] INFO data-quality sanity: 0 ERROR, 0 WARN across 0 findings
+
+[2026-06-29T00:41:25.886467+00:00] ===== Build start =====
+formulas coverage: all non-obvious columns documented
+injury tracker rows loaded: 0
+[2026-06-29T00:41:27.471121+00:00] INFO gsis_correction sid=5133 name='Tyler Conklin' sleeper_gsis=00-0034439 -> 00-0034270
+[2026-06-29T00:41:27.486599+00:00] INFO gsis_correction sid=5094 name='Ryan Izzo' sleeper_gsis=00-0034270 -> 00-0034439
+[2026-06-29T00:41:27.696482+00:00] INFO Phase 13: injected ESPN 2020 season (8 teams, 152 draft picks, 222 transactions; 0 player-meta backfilled)
+[2026-06-29T00:41:28.074167+00:00] INFO commissioner pick-trade overlay: 33 pick-hops loaded
+INFO league scoring settings changed in 2021: {'fgm_0_19': (None, 3.0), 'fgm_20_29': (None, 3.0), 'int': (None, 2.0), 'pass_int': (None, -2.0), 'pass_2pt': (None, 2.0), 'fgm_30_39': (None, 3.0), 'safe': (None, 2.0), 'rec': (None, 1.0), 'fum_rec': (None, 2.0), 'sack': (None, 1.0), 'def_td': (None, 6.0), 'fum_rec_td': (None, 6.0), 'fgmiss': (None, -1.0), 'xpm': (None, 1.0), 'xpmiss': (None, -1.0), 'rush_2pt': (None, 2.0), 'st_td': (None, 0.0), 'rec_2pt': (None, 2.0), 'fum_lost': (None, -1.0), 'rec_td': (None, 6.0), 'pass_yd': (None, 0.04), 'fgm_50p': (None, 5.0), 'pass_td': (None, 4.0), 'rush_yd': (None, 0.1), 'rec_yd': (None, 0.1), 'ff': (None, 1.0), 'fum': (None, -1.0), 'rush_td': (None, 6.0), 'fgm_40_49': (None, 4.0)}
+[2026-06-29T00:41:33.293630+00:00] INFO merged the 2021 phantom Carter/Stevenson player swap into the pick trade
+INFO league scoring settings changed in 2022: {'fum_ret_yd': (None, 0.1), 'st_td': (0.0, 6.0)}
+[2026-06-29T00:41:36.276245+00:00] INFO commissioner-wash 2022: excluded 11 no-op txns
+[2026-06-29T00:41:39.103259+00:00] INFO commissioner-wash 2023: excluded 1 no-op txns
+[2026-06-29T00:41:42.277121+00:00] INFO commissioner-wash 2024: excluded 3 no-op txns
+[2026-06-29T00:41:42.277402+00:00] INFO draft-day synthetic picks 2024: 1 commish-add(s) -> picks, removed from transactions
+[2026-06-29T00:41:48.864080+00:00] INFO draft-day synthetic picks 2025: 8 commish-add(s) -> picks, removed from transactions
+[2026-06-29T00:41:49.275169+00:00] WARN commish pick-trade UNMATCHED: 2026 R209 Oliverwkw->LWebs53 @ 2026-05-03 16:13:10 (with 2.8 in trade up)
+[2026-06-29T00:41:49.275505+00:00] WARN commissioner pick-trade overlay: 1/33 pick-hops unmatched
+[2026-06-29T00:41:49.295433+00:00] INFO 2020 startup draft: emitted 152 picks into pick_history
+[2026-06-29T00:41:49.911484+00:00] INFO merged 1 manual transaction(s) from data/manual_transactions.csv
+[2026-06-29T00:41:50.004065+00:00] INFO synthesized 2 terminal roster-diff departures (dead-end cuts, never re-acquired)
+[2026-06-29T00:41:50.006961+00:00] INFO synthesized 63 missing departures + 26 missing arrivals as transactions rows to close orphaned roster lineage
+[2026-06-29T00:41:54.170975+00:00] INFO ktc value column: sf_trade_value (superflex, always)
+[2026-06-29T00:41:54.512445+00:00] ERROR at ktc_value_diff: URLError: <urlopen error Tunnel connection failed: 403 Forbidden>
+Traceback (most recent call last):
+  File "/usr/lib/python3.11/urllib/request.py", line 1348, in do_open
+    h.request(req.get_method(), req.selector, req.data, headers,
+  File "/usr/lib/python3.11/http/client.py", line 1323, in request
+    self._send_request(method, url, body, headers, encode_chunked)
+  File "/usr/lib/python3.11/http/client.py", line 1369, in _send_request
+    self.endheaders(body, encode_chunked=encode_chunked)
+  File "/usr/lib/python3.11/http/client.py", line 1318, in endheaders
+    self._send_output(message_body, encode_chunked=encode_chunked)
+  File "/usr/lib/python3.11/http/client.py", line 1078, in _send_output
+    self.send(msg)
+  File "/usr/lib/python3.11/http/client.py", line 1016, in send
+    self.connect()
+  File "/usr/lib/python3.11/http/client.py", line 1488, in connect
+    super().connect()
+  File "/usr/lib/python3.11/http/client.py", line 992, in connect
+    self._tunnel()
+  File "/usr/lib/python3.11/http/client.py", line 963, in _tunnel
+    raise OSError(f"Tunnel connection failed: {code} {message.strip()}")
+OSError: Tunnel connection failed: 403 Forbidden
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/home/user/LOTG-Stats/.claude/worktrees/agent-abc394d1c19c48f11/src/lotg.py", line 8097, in build_all
+    idx = build_index(
+          ^^^^^^^^^^^^
+  File "/home/user/LOTG-Stats/.claude/worktrees/agent-abc394d1c19c48f11/lib/lotg_support/ktc.py", line 281, in build_index
+    directory = load_directory(repo_root)
+                ^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/user/LOTG-Stats/.claude/worktrees/agent-abc394d1c19c48f11/lib/lotg_support/ktc.py", line 86, in load_directory
+    data = _http_get_json(f"{DD_BASE}/player/all/today")
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/user/LOTG-Stats/.claude/worktrees/agent-abc394d1c19c48f11/lib/lotg_support/ktc.py", line 56, in _http_get_json
+    with urllib.request.urlopen(req, timeout=30) as resp:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.11/urllib/request.py", line 216, in urlopen
+    return opener.open(url, data, timeout)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.11/urllib/request.py", line 519, in open
+    response = self._open(req, data)
+               ^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.11/urllib/request.py", line 536, in _open
+    result = self._call_chain(self.handle_open, protocol, protocol +
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.11/urllib/request.py", line 496, in _call_chain
+    result = func(*args)
+             ^^^^^^^^^^^
+  File "/usr/lib/python3.11/urllib/request.py", line 1391, in https_open
+    return self.do_open(http.client.HTTPSConnection, req,
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.11/urllib/request.py", line 1351, in do_open
+    raise URLError(err)
+urllib.error.URLError: <urlopen error Tunnel connection failed: 403 Forbidden>
+
+[2026-06-29T00:41:54.524430+00:00] WARN ktc fetch: https://dynasty-daddy.com/api/v1/player/all/today: URLError: <urlopen error Tunnel connection failed: 403 Forbidden>
+[2026-06-29T00:42:23.718790+00:00] INFO seeded 188 player_year rows for tx-only player×year combos
+[2026-06-29T00:42:23.869997+00:00] INFO seeded 32 player_all_time rows for tx-only players
+[2026-06-29T00:42:31.503597+00:00] INFO built asset history: 450 picks, 649 players
+[2026-06-29T00:42:31.682818+00:00] INFO pure-drop O-Score: 439 drop-only txns detected (cols: _added_pid=True, Player Added=True)
+[2026-06-29T00:42:31.687157+00:00] INFO pure-drop O-Score: scored 439 drop-only transactions (ceiling 50)
+[2026-06-29T00:42:31.813106+00:00] INFO 2020 startup picks: relabeled Year='startup' on 152 rows
+[2026-06-29T00:43:44.705662+00:00] INFO bolded comment verbs in cell history popups
+[2026-06-29T00:43:45.219337+00:00] ===== Build end =====
+[2026-06-29T00:43:47.241762+00:00] INFO data-quality sanity: 0 ERROR, 0 WARN across 0 findings
+
+[2026-06-29T00:50:34.449229+00:00] ===== Build start =====
+formulas coverage: all non-obvious columns documented
+injury tracker rows loaded: 0
+[2026-06-29T00:50:36.106723+00:00] INFO gsis_correction sid=5133 name='Tyler Conklin' sleeper_gsis=00-0034439 -> 00-0034270
+[2026-06-29T00:50:36.122283+00:00] INFO gsis_correction sid=5094 name='Ryan Izzo' sleeper_gsis=00-0034270 -> 00-0034439
+[2026-06-29T00:50:36.329034+00:00] INFO Phase 13: injected ESPN 2020 season (8 teams, 152 draft picks, 222 transactions; 0 player-meta backfilled)
+[2026-06-29T00:50:36.701706+00:00] INFO commissioner pick-trade overlay: 33 pick-hops loaded
+INFO league scoring settings changed in 2021: {'fum_rec': (None, 2.0), 'pass_2pt': (None, 2.0), 'fgm_40_49': (None, 4.0), 'pass_td': (None, 4.0), 'safe': (None, 2.0), 'rush_td': (None, 6.0), 'ff': (None, 1.0), 'rec_yd': (None, 0.1), 'fgm_0_19': (None, 3.0), 'pass_int': (None, -2.0), 'fum': (None, -1.0), 'rec_td': (None, 6.0), 'rec_2pt': (None, 2.0), 'rec': (None, 1.0), 'fgm_30_39': (None, 3.0), 'sack': (None, 1.0), 'fum_rec_td': (None, 6.0), 'xpm': (None, 1.0), 'fum_lost': (None, -1.0), 'int': (None, 2.0), 'pass_yd': (None, 0.04), 'rush_yd': (None, 0.1), 'fgmiss': (None, -1.0), 'fgm_50p': (None, 5.0), 'st_td': (None, 0.0), 'xpmiss': (None, -1.0), 'fgm_20_29': (None, 3.0), 'def_td': (None, 6.0), 'rush_2pt': (None, 2.0)}
+[2026-06-29T00:50:42.007313+00:00] INFO merged the 2021 phantom Carter/Stevenson player swap into the pick trade
+INFO league scoring settings changed in 2022: {'fum_ret_yd': (None, 0.1), 'st_td': (0.0, 6.0)}
+[2026-06-29T00:50:44.987984+00:00] INFO commissioner-wash 2022: excluded 11 no-op txns
+[2026-06-29T00:50:47.827145+00:00] INFO commissioner-wash 2023: excluded 1 no-op txns
+[2026-06-29T00:50:51.079772+00:00] INFO commissioner-wash 2024: excluded 3 no-op txns
+[2026-06-29T00:50:51.080104+00:00] INFO draft-day synthetic picks 2024: 1 commish-add(s) -> picks, removed from transactions
+[2026-06-29T00:50:57.870203+00:00] INFO draft-day synthetic picks 2025: 8 commish-add(s) -> picks, removed from transactions
+[2026-06-29T00:50:58.283649+00:00] WARN commish pick-trade UNMATCHED: 2026 R209 Oliverwkw->LWebs53 @ 2026-05-03 16:13:10 (with 2.8 in trade up)
+[2026-06-29T00:50:58.283986+00:00] WARN commissioner pick-trade overlay: 1/33 pick-hops unmatched
+[2026-06-29T00:50:58.303507+00:00] INFO 2020 startup draft: emitted 152 picks into pick_history
+[2026-06-29T00:50:58.922195+00:00] INFO merged 1 manual transaction(s) from data/manual_transactions.csv
+[2026-06-29T00:50:59.014579+00:00] INFO synthesized 2 terminal roster-diff departures (dead-end cuts, never re-acquired)
+[2026-06-29T00:50:59.017569+00:00] INFO synthesized 63 missing departures + 26 missing arrivals as transactions rows to close orphaned roster lineage
+[2026-06-29T00:51:03.266368+00:00] INFO ktc value column: sf_trade_value (superflex, always)
+[2026-06-29T00:51:03.614590+00:00] ERROR at ktc_value_diff: URLError: <urlopen error Tunnel connection failed: 403 Forbidden>
+Traceback (most recent call last):
+  File "/usr/lib/python3.11/urllib/request.py", line 1348, in do_open
+    h.request(req.get_method(), req.selector, req.data, headers,
+  File "/usr/lib/python3.11/http/client.py", line 1323, in request
+    self._send_request(method, url, body, headers, encode_chunked)
+  File "/usr/lib/python3.11/http/client.py", line 1369, in _send_request
+    self.endheaders(body, encode_chunked=encode_chunked)
+  File "/usr/lib/python3.11/http/client.py", line 1318, in endheaders
+    self._send_output(message_body, encode_chunked=encode_chunked)
+  File "/usr/lib/python3.11/http/client.py", line 1078, in _send_output
+    self.send(msg)
+  File "/usr/lib/python3.11/http/client.py", line 1016, in send
+    self.connect()
+  File "/usr/lib/python3.11/http/client.py", line 1488, in connect
+    super().connect()
+  File "/usr/lib/python3.11/http/client.py", line 992, in connect
+    self._tunnel()
+  File "/usr/lib/python3.11/http/client.py", line 963, in _tunnel
+    raise OSError(f"Tunnel connection failed: {code} {message.strip()}")
+OSError: Tunnel connection failed: 403 Forbidden
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/home/user/LOTG-Stats/.claude/worktrees/agent-abc394d1c19c48f11/src/lotg.py", line 8097, in build_all
+    idx = build_index(
+          ^^^^^^^^^^^^
+  File "/home/user/LOTG-Stats/.claude/worktrees/agent-abc394d1c19c48f11/lib/lotg_support/ktc.py", line 281, in build_index
+    directory = load_directory(repo_root)
+                ^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/user/LOTG-Stats/.claude/worktrees/agent-abc394d1c19c48f11/lib/lotg_support/ktc.py", line 86, in load_directory
+    data = _http_get_json(f"{DD_BASE}/player/all/today")
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/user/LOTG-Stats/.claude/worktrees/agent-abc394d1c19c48f11/lib/lotg_support/ktc.py", line 56, in _http_get_json
+    with urllib.request.urlopen(req, timeout=30) as resp:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.11/urllib/request.py", line 216, in urlopen
+    return opener.open(url, data, timeout)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.11/urllib/request.py", line 519, in open
+    response = self._open(req, data)
+               ^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.11/urllib/request.py", line 536, in _open
+    result = self._call_chain(self.handle_open, protocol, protocol +
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.11/urllib/request.py", line 496, in _call_chain
+    result = func(*args)
+             ^^^^^^^^^^^
+  File "/usr/lib/python3.11/urllib/request.py", line 1391, in https_open
+    return self.do_open(http.client.HTTPSConnection, req,
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.11/urllib/request.py", line 1351, in do_open
+    raise URLError(err)
+urllib.error.URLError: <urlopen error Tunnel connection failed: 403 Forbidden>
+
+[2026-06-29T00:51:03.626306+00:00] WARN ktc fetch: https://dynasty-daddy.com/api/v1/player/all/today: URLError: <urlopen error Tunnel connection failed: 403 Forbidden>
+[2026-06-29T00:51:32.783440+00:00] INFO seeded 188 player_year rows for tx-only player×year combos
+[2026-06-29T00:51:32.949753+00:00] INFO seeded 32 player_all_time rows for tx-only players
+[2026-06-29T00:51:40.685240+00:00] INFO built asset history: 450 picks, 649 players
+[2026-06-29T00:51:40.865280+00:00] INFO pure-drop O-Score: 439 drop-only txns detected (cols: _added_pid=True, Player Added=True)
+[2026-06-29T00:51:40.870226+00:00] INFO pure-drop O-Score: scored 439 drop-only transactions (ceiling 50)
+[2026-06-29T00:51:41.001491+00:00] INFO 2020 startup picks: relabeled Year='startup' on 152 rows
+[2026-06-29T00:52:53.627877+00:00] INFO bolded comment verbs in cell history popups
+[2026-06-29T00:52:54.139341+00:00] ===== Build end =====
+[2026-06-29T00:52:56.129437+00:00] INFO data-quality sanity: 0 ERROR, 0 WARN across 0 findings
+
+[2026-06-29T01:11:59.628668+00:00] ===== Build start =====
+formulas coverage: all non-obvious columns documented
+injury tracker rows loaded: 0
+[2026-06-29T01:12:01.245620+00:00] INFO gsis_correction sid=5133 name='Tyler Conklin' sleeper_gsis=00-0034439 -> 00-0034270
+[2026-06-29T01:12:01.261727+00:00] INFO gsis_correction sid=5094 name='Ryan Izzo' sleeper_gsis=00-0034270 -> 00-0034439
+[2026-06-29T01:12:01.502089+00:00] INFO Phase 13: injected ESPN 2020 season (8 teams, 152 draft picks, 222 transactions; 0 player-meta backfilled)
+[2026-06-29T01:12:01.880194+00:00] INFO commissioner pick-trade overlay: 33 pick-hops loaded
+INFO league scoring settings changed in 2021: {'rush_2pt': (None, 2.0), 'fum_lost': (None, -1.0), 'rush_yd': (None, 0.1), 'rec_2pt': (None, 2.0), 'fgm_20_29': (None, 3.0), 'pass_yd': (None, 0.04), 'rec_yd': (None, 0.1), 'xpmiss': (None, -1.0), 'safe': (None, 2.0), 'st_td': (None, 0.0), 'fum': (None, -1.0), 'fum_rec_td': (None, 6.0), 'def_td': (None, 6.0), 'rec_td': (None, 6.0), 'fgm_50p': (None, 5.0), 'fgm_30_39': (None, 3.0), 'fgmiss': (None, -1.0), 'xpm': (None, 1.0), 'int': (None, 2.0), 'sack': (None, 1.0), 'ff': (None, 1.0), 'rec': (None, 1.0), 'pass_int': (None, -2.0), 'pass_td': (None, 4.0), 'fgm_0_19': (None, 3.0), 'fgm_40_49': (None, 4.0), 'rush_td': (None, 6.0), 'pass_2pt': (None, 2.0), 'fum_rec': (None, 2.0)}
+[2026-06-29T01:12:07.210844+00:00] INFO merged the 2021 phantom Carter/Stevenson player swap into the pick trade
+INFO league scoring settings changed in 2022: {'st_td': (0.0, 6.0), 'fum_ret_yd': (None, 0.1)}
+[2026-06-29T01:12:10.204644+00:00] INFO commissioner-wash 2022: excluded 11 no-op txns
+[2026-06-29T01:12:13.113754+00:00] INFO commissioner-wash 2023: excluded 1 no-op txns
+[2026-06-29T01:12:16.316995+00:00] INFO commissioner-wash 2024: excluded 3 no-op txns
+[2026-06-29T01:12:16.317345+00:00] INFO draft-day synthetic picks 2024: 1 commish-add(s) -> picks, removed from transactions
+[2026-06-29T01:12:22.999232+00:00] INFO draft-day synthetic picks 2025: 8 commish-add(s) -> picks, removed from transactions
+[2026-06-29T01:12:23.412682+00:00] WARN commish pick-trade UNMATCHED: 2026 R209 Oliverwkw->LWebs53 @ 2026-05-03 16:13:10 (with 2.8 in trade up)
+[2026-06-29T01:12:23.413026+00:00] WARN commissioner pick-trade overlay: 1/33 pick-hops unmatched
+[2026-06-29T01:12:23.433097+00:00] INFO 2020 startup draft: emitted 152 picks into pick_history
+[2026-06-29T01:12:24.041135+00:00] INFO merged 1 manual transaction(s) from data/manual_transactions.csv
+[2026-06-29T01:12:24.135335+00:00] INFO synthesized 2 terminal roster-diff departures (dead-end cuts, never re-acquired)
+[2026-06-29T01:12:24.138258+00:00] INFO synthesized 63 missing departures + 26 missing arrivals as transactions rows to close orphaned roster lineage
+[2026-06-29T01:12:28.371825+00:00] INFO ktc value column: sf_trade_value (superflex, always)
+[2026-06-29T01:12:28.695878+00:00] ERROR at ktc_value_diff: URLError: <urlopen error Tunnel connection failed: 403 Forbidden>
+Traceback (most recent call last):
+  File "/usr/lib/python3.11/urllib/request.py", line 1348, in do_open
+    h.request(req.get_method(), req.selector, req.data, headers,
+  File "/usr/lib/python3.11/http/client.py", line 1323, in request
+    self._send_request(method, url, body, headers, encode_chunked)
+  File "/usr/lib/python3.11/http/client.py", line 1369, in _send_request
+    self.endheaders(body, encode_chunked=encode_chunked)
+  File "/usr/lib/python3.11/http/client.py", line 1318, in endheaders
+    self._send_output(message_body, encode_chunked=encode_chunked)
+  File "/usr/lib/python3.11/http/client.py", line 1078, in _send_output
+    self.send(msg)
+  File "/usr/lib/python3.11/http/client.py", line 1016, in send
+    self.connect()
+  File "/usr/lib/python3.11/http/client.py", line 1488, in connect
+    super().connect()
+  File "/usr/lib/python3.11/http/client.py", line 992, in connect
+    self._tunnel()
+  File "/usr/lib/python3.11/http/client.py", line 963, in _tunnel
+    raise OSError(f"Tunnel connection failed: {code} {message.strip()}")
+OSError: Tunnel connection failed: 403 Forbidden
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/home/user/LOTG-Stats/.claude/worktrees/agent-a5affc4476e5a00b9/src/lotg.py", line 8097, in build_all
+    idx = build_index(
+          ^^^^^^^^^^^^
+  File "/home/user/LOTG-Stats/.claude/worktrees/agent-a5affc4476e5a00b9/lib/lotg_support/ktc.py", line 281, in build_index
+    directory = load_directory(repo_root)
+                ^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/user/LOTG-Stats/.claude/worktrees/agent-a5affc4476e5a00b9/lib/lotg_support/ktc.py", line 86, in load_directory
+    data = _http_get_json(f"{DD_BASE}/player/all/today")
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/user/LOTG-Stats/.claude/worktrees/agent-a5affc4476e5a00b9/lib/lotg_support/ktc.py", line 56, in _http_get_json
+    with urllib.request.urlopen(req, timeout=30) as resp:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.11/urllib/request.py", line 216, in urlopen
+    return opener.open(url, data, timeout)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.11/urllib/request.py", line 519, in open
+    response = self._open(req, data)
+               ^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.11/urllib/request.py", line 536, in _open
+    result = self._call_chain(self.handle_open, protocol, protocol +
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.11/urllib/request.py", line 496, in _call_chain
+    result = func(*args)
+             ^^^^^^^^^^^
+  File "/usr/lib/python3.11/urllib/request.py", line 1391, in https_open
+    return self.do_open(http.client.HTTPSConnection, req,
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.11/urllib/request.py", line 1351, in do_open
+    raise URLError(err)
+urllib.error.URLError: <urlopen error Tunnel connection failed: 403 Forbidden>
+
+[2026-06-29T01:12:28.708640+00:00] WARN ktc fetch: https://dynasty-daddy.com/api/v1/player/all/today: URLError: <urlopen error Tunnel connection failed: 403 Forbidden>
+[2026-06-29T01:12:57.601065+00:00] INFO seeded 188 player_year rows for tx-only player×year combos
+[2026-06-29T01:12:57.751065+00:00] INFO seeded 32 player_all_time rows for tx-only players
+[2026-06-29T01:13:05.050624+00:00] INFO built asset history: 450 picks, 649 players
+[2026-06-29T01:13:05.224918+00:00] INFO pure-drop O-Score: 439 drop-only txns detected (cols: _added_pid=True, Player Added=True)
+[2026-06-29T01:13:05.229182+00:00] INFO pure-drop O-Score: scored 439 drop-only transactions (ceiling 50)
+[2026-06-29T01:13:05.349788+00:00] INFO 2020 startup picks: relabeled Year='startup' on 152 rows
+[2026-06-29T01:14:18.006724+00:00] INFO bolded comment verbs in cell history popups
+[2026-06-29T01:14:18.510125+00:00] ===== Build end =====
+[2026-06-29T01:14:20.481479+00:00] INFO data-quality sanity: 0 ERROR, 0 WARN across 0 findings
+
+[2026-06-29T01:21:24.878644+00:00] ===== Build start =====
+formulas coverage: all non-obvious columns documented
+injury tracker rows loaded: 0
+[2026-06-29T01:21:26.509355+00:00] INFO gsis_correction sid=5133 name='Tyler Conklin' sleeper_gsis=00-0034439 -> 00-0034270
+[2026-06-29T01:21:26.524337+00:00] INFO gsis_correction sid=5094 name='Ryan Izzo' sleeper_gsis=00-0034270 -> 00-0034439
+[2026-06-29T01:21:26.731994+00:00] INFO Phase 13: injected ESPN 2020 season (8 teams, 152 draft picks, 222 transactions; 0 player-meta backfilled)
+[2026-06-29T01:21:27.103736+00:00] INFO commissioner pick-trade overlay: 33 pick-hops loaded
+INFO league scoring settings changed in 2021: {'ff': (None, 1.0), 'fgmiss': (None, -1.0), 'rec_2pt': (None, 2.0), 'sack': (None, 1.0), 'rush_yd': (None, 0.1), 'def_td': (None, 6.0), 'fum_lost': (None, -1.0), 'fum_rec_td': (None, 6.0), 'rec_td': (None, 6.0), 'pass_2pt': (None, 2.0), 'fgm_30_39': (None, 3.0), 'int': (None, 2.0), 'fum_rec': (None, 2.0), 'safe': (None, 2.0), 'fgm_0_19': (None, 3.0), 'rec_yd': (None, 0.1), 'rush_2pt': (None, 2.0), 'rush_td': (None, 6.0), 'xpmiss': (None, -1.0), 'xpm': (None, 1.0), 'fgm_40_49': (None, 4.0), 'fgm_50p': (None, 5.0), 'fgm_20_29': (None, 3.0), 'st_td': (None, 0.0), 'fum': (None, -1.0), 'pass_yd': (None, 0.04), 'rec': (None, 1.0), 'pass_td': (None, 4.0), 'pass_int': (None, -2.0)}
+[2026-06-29T01:21:32.466510+00:00] INFO merged the 2021 phantom Carter/Stevenson player swap into the pick trade
+INFO league scoring settings changed in 2022: {'st_td': (0.0, 6.0), 'fum_ret_yd': (None, 0.1)}
+[2026-06-29T01:21:35.390582+00:00] INFO commissioner-wash 2022: excluded 11 no-op txns
+[2026-06-29T01:21:38.367539+00:00] INFO commissioner-wash 2023: excluded 1 no-op txns
+[2026-06-29T01:21:41.496564+00:00] INFO commissioner-wash 2024: excluded 3 no-op txns
+[2026-06-29T01:21:41.496875+00:00] INFO draft-day synthetic picks 2024: 1 commish-add(s) -> picks, removed from transactions
+[2026-06-29T01:21:47.919700+00:00] INFO draft-day synthetic picks 2025: 8 commish-add(s) -> picks, removed from transactions
+[2026-06-29T01:21:48.319499+00:00] WARN commish pick-trade UNMATCHED: 2026 R209 Oliverwkw->LWebs53 @ 2026-05-03 16:13:10 (with 2.8 in trade up)
+[2026-06-29T01:21:48.319877+00:00] WARN commissioner pick-trade overlay: 1/33 pick-hops unmatched
+[2026-06-29T01:21:48.339993+00:00] INFO 2020 startup draft: emitted 152 picks into pick_history
+[2026-06-29T01:21:48.945589+00:00] INFO merged 1 manual transaction(s) from data/manual_transactions.csv
+[2026-06-29T01:21:49.150342+00:00] INFO synthesized 2 terminal roster-diff departures (dead-end cuts, never re-acquired)
+[2026-06-29T01:21:49.153306+00:00] INFO synthesized 63 missing departures + 26 missing arrivals as transactions rows to close orphaned roster lineage
+[2026-06-29T01:21:53.289885+00:00] INFO ktc value column: sf_trade_value (superflex, always)
+[2026-06-29T01:21:54.268948+00:00] ERROR at ktc_value_diff: URLError: <urlopen error Tunnel connection failed: 403 Forbidden>
+Traceback (most recent call last):
+  File "/usr/lib/python3.11/urllib/request.py", line 1348, in do_open
+    h.request(req.get_method(), req.selector, req.data, headers,
+  File "/usr/lib/python3.11/http/client.py", line 1323, in request
+    self._send_request(method, url, body, headers, encode_chunked)
+  File "/usr/lib/python3.11/http/client.py", line 1369, in _send_request
+    self.endheaders(body, encode_chunked=encode_chunked)
+  File "/usr/lib/python3.11/http/client.py", line 1318, in endheaders
+    self._send_output(message_body, encode_chunked=encode_chunked)
+  File "/usr/lib/python3.11/http/client.py", line 1078, in _send_output
+    self.send(msg)
+  File "/usr/lib/python3.11/http/client.py", line 1016, in send
+    self.connect()
+  File "/usr/lib/python3.11/http/client.py", line 1488, in connect
+    super().connect()
+  File "/usr/lib/python3.11/http/client.py", line 992, in connect
+    self._tunnel()
+  File "/usr/lib/python3.11/http/client.py", line 963, in _tunnel
+    raise OSError(f"Tunnel connection failed: {code} {message.strip()}")
+OSError: Tunnel connection failed: 403 Forbidden
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/home/user/LOTG-Stats/.claude/worktrees/agent-a5affc4476e5a00b9/src/lotg.py", line 8097, in build_all
+    idx = build_index(
+          ^^^^^^^^^^^^
+  File "/home/user/LOTG-Stats/.claude/worktrees/agent-a5affc4476e5a00b9/lib/lotg_support/ktc.py", line 281, in build_index
+    directory = load_directory(repo_root)
+                ^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/user/LOTG-Stats/.claude/worktrees/agent-a5affc4476e5a00b9/lib/lotg_support/ktc.py", line 86, in load_directory
+    data = _http_get_json(f"{DD_BASE}/player/all/today")
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/user/LOTG-Stats/.claude/worktrees/agent-a5affc4476e5a00b9/lib/lotg_support/ktc.py", line 56, in _http_get_json
+    with urllib.request.urlopen(req, timeout=30) as resp:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.11/urllib/request.py", line 216, in urlopen
+    return opener.open(url, data, timeout)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.11/urllib/request.py", line 519, in open
+    response = self._open(req, data)
+               ^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.11/urllib/request.py", line 536, in _open
+    result = self._call_chain(self.handle_open, protocol, protocol +
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.11/urllib/request.py", line 496, in _call_chain
+    result = func(*args)
+             ^^^^^^^^^^^
+  File "/usr/lib/python3.11/urllib/request.py", line 1391, in https_open
+    return self.do_open(http.client.HTTPSConnection, req,
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.11/urllib/request.py", line 1351, in do_open
+    raise URLError(err)
+urllib.error.URLError: <urlopen error Tunnel connection failed: 403 Forbidden>
+
+[2026-06-29T01:21:54.280791+00:00] WARN ktc fetch: https://dynasty-daddy.com/api/v1/player/all/today: URLError: <urlopen error Tunnel connection failed: 403 Forbidden>
+[2026-06-29T01:22:23.389497+00:00] INFO seeded 188 player_year rows for tx-only player×year combos
+[2026-06-29T01:22:23.539884+00:00] INFO seeded 32 player_all_time rows for tx-only players
+[2026-06-29T01:22:31.030852+00:00] INFO built asset history: 450 picks, 649 players
+[2026-06-29T01:22:31.210598+00:00] INFO pure-drop O-Score: 439 drop-only txns detected (cols: _added_pid=True, Player Added=True)
+[2026-06-29T01:22:31.214875+00:00] INFO pure-drop O-Score: scored 439 drop-only transactions (ceiling 50)
+[2026-06-29T01:22:31.339013+00:00] INFO 2020 startup picks: relabeled Year='startup' on 152 rows
+[2026-06-29T01:23:45.321979+00:00] INFO bolded comment verbs in cell history popups
+[2026-06-29T01:23:45.831329+00:00] ===== Build end =====
+[2026-06-29T01:23:47.857109+00:00] INFO data-quality sanity: 0 ERROR, 0 WARN across 0 findings
