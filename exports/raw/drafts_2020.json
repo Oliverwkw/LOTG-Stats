@@ -1,0 +1,11 @@
+[
+  {
+    "draft_id": "espn_2020_draft",
+    "season": "2020",
+    "type": "snake",
+    "status": "complete",
+    "settings": {
+      "rounds": 19
+    }
+  }
+]

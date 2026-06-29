@@ -30,7 +30,10 @@ REPO = Path(__file__).resolve().parent.parent
 _RE_ADD = re.compile(r"^(\d{4}-\d{2}-\d{2}): added by (\S+) \((?:free agent|waiver \$\d+)")
 _RE_TRADE = re.compile(r"^(\d{4}-\d{2}-\d{2}): traded to (\S+) \(.*\)$")
 _RE_DROP = re.compile(r"^(\d{4}-\d{2}-\d{2}): (?:dropped|released) by (\S+)")
-_RE_DRAFT = re.compile(r"^(\d{4}) (?:startup \(vet\) )?(?:[Dd]raft|startup \(vet\) draft): (\S+) ")
+# Draft-arrival line. Matches the plain "YYYY Draft:"/"YYYY draft:" form and any
+# draft-descriptor prefix before "draft:" — e.g. "YYYY supplemental veteran draft:"
+# (the 2021 vet draft) and the legacy "YYYY startup (vet) draft:" wording.
+_RE_DRAFT = re.compile(r"^(\d{4}) (?:[\w() ]+ )?[Dd]raft: (\S+) ")
 _RE_HDR = re.compile(r"^(\d{4}).* — originally (\S+)'s pick")
 _RE_CMOVE = re.compile(r"^(\d{4}): Commissioner moved to (\S+)$")
 _RE_PICKHOP = re.compile(r"^(\d{4}-\d{2}-\d{2}): pick traded to ")
