@@ -13316,9 +13316,11 @@ def build_all(repo_root: Path) -> None:
                     fin_map[str(g3.iloc[1]["Team"])] = "4th"
 
                 # Non-playoff finishes (5th-8th) are based on regular-season record cutoff,
-                # with PF as the tiebreaker. (Pre-2025: through 17 games, which folds in the
-                # toilet-bowl bracket weeks — by league design, toilet-bowl results counted
-                # toward final standings for the 2020-2024 seasons. 2025+: through 15 games,
+                # with PF as the tiebreaker. (Pre-2025: a Week<=17 cutoff, which folds in the
+                # toilet-bowl bracket weeks through each season's final game — Week 16 in the
+                # 16-week 2020 ESPN season, Week 17 in the 17-week 2021-2024 seasons — by
+                # league design, toilet-bowl results counted toward final standings for the
+                # 2020-2024 seasons. 2025+: through 15 games,
                 # the true regular season, once the league stopped using the toilet bracket
                 # for standings purposes.) This intentionally can disagree with
                 # last_place_by_season (which is always regular-season-only, a separate
