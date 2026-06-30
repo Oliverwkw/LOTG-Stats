@@ -1422,7 +1422,22 @@ def _fill_missing_values(df: pd.DataFrame, cols: List[str]) -> pd.DataFrame:
         if _preserve_na(col):
             # First-occurrence values stay as NaN and render as 'N/A' in CSV.
             num = pd.to_numeric(df[col], errors="coerce")
-            df[col] = num.astype(object).where(num.notna(), "N/A")
+            if str(col).strip().lower() in {
+                "offseason starter turnover", "offseason roster turnover", "offseason trades"
+            }:
+                # Integer COUNTS that carry N/A for the earliest season (which
+                # makes the column float dtype). Render whole numbers as ints so
+                # they match their inseason siblings ('8', not '8.0'). This grain
+                # (team_year / league_year) has N/A, so the later output-rounding
+                # pass skips it and this rendering is final; at the all-time grain
+                # these are N/A-free per-season MEANS, so that pass overwrites
+                # them as floats — exactly what we want.
+                df[col] = num.map(
+                    lambda v: "N/A" if pd.isna(v)
+                    else (int(v) if float(v).is_integer() else round(float(v), 4))
+                )
+            else:
+                df[col] = num.astype(object).where(num.notna(), "N/A")
         else:
             # Guard: if any non-empty value parses as non-numeric (e.g.
             # pick_history's "2021 (vet)" Year tag), skip coercion to
