@@ -63,3 +63,15 @@ pick_year,round,orig_owner,from_owner,to_owner,trade_created_utc,deal,notes
 2025,209,Oliverwkw,shmuel256,plehv79,2025-04-14 21:19:57,Davante Adams trade,2025 toilet reward hop 2 of 3
 2025,209,Oliverwkw,plehv79,AceMatthew,2025-07-20 22:16:32,Ray Davis trade,2025 toilet reward hop 3 of 3
 2026,209,Oliverwkw,Oliverwkw,LWebs53,2026-05-03 16:13:10,with 2.8 in trade up,2026 toilet reward (future pick; 2026 draft not yet held)
+# --- 2029 / 2030 far-future picks bundled into recorded 2025+ trades ---
+2029,2,stevenb123,stevenb123,AceMatthew,2025-07-20 21:55:01,2025 Matthew 2nd trade,Steve 2029 2nd
+2029,3,Oliverwkw,Oliverwkw,stevenb123,2025-03-16 20:12:09,Sinnott/Dowdle trade,
+2029,4,plehv79,plehv79,stevenb123,2025-07-30 15:38:33,Egbuka/Fannin trade,Peter 2029 4th hop 1 of 2
+2029,4,plehv79,stevenb123,shmuel256,2025-11-01 22:37:42,Kamara trade (most recent),Peter 2029 4th hop 2 of 2
+2029,4,LWebs53,LWebs53,stevenb123,2025-07-30 15:38:33,Egbuka/Fannin trade,
+2030,1,LWebs53,LWebs53,BROsenzweig,2025-08-04 17:56:03,Kupp trade,
+2030,1,BROsenzweig,BROsenzweig,LWebs53,2025-08-04 17:56:03,Kupp trade,
+2029,3,LWebs53,LWebs53,BROsenzweig,2025-08-04 17:56:03,Kupp trade,
+# NOTE (left out per ledger): a 2029 4th ("Steve/Luke" -> Sam in the most-recent
+# Kamara trade, "gets highest") is intentionally omitted pending clarification of
+# which original owner's 4th it is.
