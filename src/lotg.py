@@ -2821,10 +2821,12 @@ def build_all(repo_root: Path) -> None:
             if int(snap_owner) not in chain_owners:
                 commissioner_pick_moves[key] = int(snap_owner)
 
-    def _future_picks_owned(team_name: str, season_now: int, at_date: date) -> List[Tuple[int, int]]:
-        """(pick_year, round) for every FUTURE pick (next 3 seasons) owned
-        by this team at `at_date`. Single ownership source shared by
-        'Team age including picks' and 'Future draft capital'.
+    def _future_picks_owned(team_name: str, season_now: int, at_date: date, horizon: int = 3) -> List[Tuple[int, int]]:
+        """(pick_year, round) for every FUTURE pick (next `horizon` seasons)
+        owned by this team at `at_date`. Single ownership source shared by
+        'Team age including picks' (3-year horizon — picks too far out have
+        too uncertain an age) and 'Future draft capital' / Tanking (5-year
+        horizon, _FCAP_HORIZON — captures long-dated pick hauls).
 
         Walks pick_trade_events per (pick_year, round, original_owner)
         to find the owner at the query date. A pick with no trade events
@@ -2847,7 +2849,7 @@ def build_all(repo_root: Path) -> None:
         rosters_in_season = season_roster_to_team.get(int(season_now), {}) or {}
         rounds_in_draft = draft_rounds_by_season.get(int(season_now), 4) or 4
         owned: List[Tuple[int, int]] = []
-        for offset in range(1, 4):  # 3-year horizon
+        for offset in range(1, int(horizon) + 1):  # horizon-year window
             ps = int(season_now) + offset
             for rnd_e in range(1, int(rounds_in_draft) + 1):
                 for orig_rid in rosters_in_season.keys():
@@ -2874,9 +2876,11 @@ def build_all(repo_root: Path) -> None:
 
     def _picks_held_by_team_at(team_name: str, season_now: int, at_date: date) -> List[float]:
         """Pick ages (via _pick_expected_age) for all FUTURE picks owned by
-        this team at `at_date`. Thin wrapper over _future_picks_owned."""
+        this team at `at_date`. Thin wrapper over _future_picks_owned —
+        intentionally keeps the default 3-year horizon (age-related stats are
+        NOT extended to the 5-year capital horizon, per spec)."""
         ages: List[float] = []
-        for (ps, _rnd) in _future_picks_owned(team_name, season_now, at_date):
+        for (ps, _rnd) in _future_picks_owned(team_name, season_now, at_date):  # 3-yr (age)
             pa = _pick_expected_age(ps, at_date)
             if pa is not None:
                 ages.append(pa)
@@ -2885,16 +2889,20 @@ def build_all(repo_root: Path) -> None:
     # Round weights for future draft capital (provided by user). Picks in
     # rounds beyond this map (e.g. a 5th rookie round) contribute 0.
     _FUTURE_PICK_WEIGHTS = {1: 0.25, 2: 0.09, 3: 0.03, 4: 0.01}
+    # Future draft capital / Tanking future-cap horizon (years out a held or
+    # traded pick still counts toward capital). Age-related pick horizons stay
+    # at 3 (see _picks_held_by_team_at).
+    _FCAP_HORIZON = 5
 
     def _future_cap_held(team_name: str, season_now: int, at_date: date) -> float:
         """Weighted future draft capital actually held by the team at
         `at_date` — own retained picks + acquired − traded away. Returns
-        0.0 only when the team holds no picks across the next 3 seasons,
-        per spec. Replaces _future_cap_from_traded, which undercounted by
-        omitting un-traded own picks."""
+        0.0 only when the team holds no picks across the next _FCAP_HORIZON
+        seasons, per spec. Replaces _future_cap_from_traded, which
+        undercounted by omitting un-traded own picks."""
         return round(
             sum(_FUTURE_PICK_WEIGHTS.get(rnd, 0.0)
-                for (_ps, rnd) in _future_picks_owned(team_name, season_now, at_date)),
+                for (_ps, rnd) in _future_picks_owned(team_name, season_now, at_date, horizon=_FCAP_HORIZON)),
             4,
         )
 
@@ -5689,7 +5697,10 @@ def build_all(repo_root: Path) -> None:
     # produced spurious second drops (e.g. Matt Ryan, dropped by shmuel256 on
     # 2020-12-26 yet re-listed at the boundary).
 
-    # Ensure pick ledger includes seasons from 2021 through three years after latest draft.
+    # Ensure pick ledger includes seasons from 2021 through five years after
+    # latest draft — matches the 5-year Future-draft-capital horizon
+    # (_FCAP_HORIZON), so every pick that counts toward a team's future
+    # capital also exists as an (unmade) row on the picks sheet.
     latest_draft_season = max(
         [r.get("draft_season") for r in draft_picks_records if r.get("draft_season") is not None],
         default=None,
@@ -5697,7 +5708,7 @@ def build_all(repo_root: Path) -> None:
     latest_league_season = max(roster_ids_by_season.keys(), default=None)
     base_season = latest_draft_season or latest_league_season
     if base_season is not None:
-        max_future_season = int(base_season) + 3
+        max_future_season = int(base_season) + _FCAP_HORIZON
         seed_source = max(draft_rounds_by_season.keys(), default=int(base_season))
         for yr in range(2021, max_future_season + 1):
             _ensure_pick_bases(int(yr), int(seed_source))
@@ -5804,7 +5815,22 @@ def build_all(repo_root: Path) -> None:
 
         # Future-year frames: every roster owns one pick per round per
         # upcoming year, default slot assignment 1..N = roster_ids in
-        # canonical sort order. Stops at base_season + 3.
+        # canonical sort order. Stops at base_season + _FCAP_HORIZON (5).
+        #
+        # Sleeper only publishes ~3 years of future picks, so the trailing
+        # years (4–5 out) are SYNTHESIZED here. Two invariants make this safe:
+        #   • Auto-roll: the loop starts at _latest_real_year + 1, so once a
+        #     real Sleeper draft exists for a year it is no longer synthesized —
+        #     Sleeper's version supersedes the synthetic frame automatically.
+        #   • Trade preservation: synthetic picks are keyed by the SAME
+        #     canonical (year, round, original-owner) as Sleeper would assign
+        #     (default_slot_map = roster_ids in sorted order), and the chain
+        #     reconstruction (step 2) reads pick_trade_events /
+        #     commissioner_pick_moves independently of the frame. So a trade
+        #     recorded against a synthetic far-future pick keeps its key when
+        #     the year rolls into Sleeper's window — it is NOT dropped.
+        #     (_ensure_pick_bases also guards `if key in pick_current_owner:
+        #     continue`, so it never resets an existing pick's trade events.)
         # NB: scan season_roster_to_team (only processed seasons) for
         # the fallback year — roster_ids_by_season also contains
         # synthetic future-season entries created by _ensure_pick_bases,
@@ -5823,7 +5849,7 @@ def build_all(repo_root: Path) -> None:
                 (_f["year"] for _f in draft_frames if not _f["is_vet"]),
                 default=int(latest_draft_season) if latest_draft_season is not None else int(base_season),
             )
-            _max_fy = int(base_season) + 3
+            _max_fy = int(base_season) + _FCAP_HORIZON
             for _yr in range(int(_latest_real_year) + 1, int(_max_fy) + 1):
                 draft_frames.append({
                     "year": int(_yr),
@@ -9650,7 +9676,7 @@ def build_all(repo_root: Path) -> None:
             # capital (matches _future_cap_held / _future_picks_owned); a
             # current-season rookie pick (year == season) is not "future".
             _tr_season = _to_int(row.get("Season"), None)
-            def _fcap_of(meta_list, _s=_tr_season, _cap3=True) -> float:
+            def _fcap_of(meta_list, _s=_tr_season, _capped=True) -> float:
                 if _s is None:
                     return 0.0
                 tot = 0.0
@@ -9660,12 +9686,12 @@ def build_all(repo_root: Path) -> None:
                     except Exception:
                         continue
                     # Future picks only (a current-season rookie pick is
-                    # captured by adj_diff, not here). _cap3 keeps the rolling
-                    # 3-season horizon for the Tanking delta (matches the
-                    # team-week 'Future draft capital' snapshot); the
-                    # trade-value path passes _cap3=False to value the whole
+                    # captured by adj_diff, not here). _capped keeps the rolling
+                    # _FCAP_HORIZON-season window for the Tanking delta (matches
+                    # the team-week 'Future draft capital' snapshot); the
+                    # trade-value path passes _capped=False to value the whole
                     # haul, however far out.
-                    if (_s < yr_i <= _s + 3) if _cap3 else (yr_i > _s):
+                    if (_s < yr_i <= _s + _FCAP_HORIZON) if _capped else (yr_i > _s):
                         tot += _FUTURE_PICK_WEIGHTS.get(rnd_i, 0.0)
                 return tot
             row["_tank_fcap_delta"] = round(
@@ -9677,8 +9703,8 @@ def build_all(repo_root: Path) -> None:
             # fall outside the 3-year window) isn't silently dropped. The
             # Tanking delta above intentionally keeps the 3-year horizon.
             row["_tank_fcap_delta_full"] = round(
-                _fcap_of(row.get("_recv_pick_meta"), _cap3=False)
-                - _fcap_of(row.get("_drop_pick_meta"), _cap3=False), 4
+                _fcap_of(row.get("_recv_pick_meta"), _capped=False)
+                - _fcap_of(row.get("_drop_pick_meta"), _capped=False), 4
             )
 
             # ----- (c) Forward-looking tenure window + PPG averages -----
