@@ -12500,6 +12500,27 @@ def build_all(repo_root: Path) -> None:
                     pad_df = pd.DataFrame(pad_rows)
                     player_year = pd.concat([player_year, pad_df], ignore_index=True)
                     _log(debug, f"[{_now_iso()}] INFO seeded {len(pad_rows)} player_year rows for tx-only player×year combos")
+                    # Mirror the player_all_time pad fix: these rows were appended
+                    # after the NFLverse full-season columns were computed on the
+                    # pw-derived rows, so fill them now from the same per-season
+                    # aggregates (keyed by Player ID + Year). Otherwise a rostered-
+                    # but-never-in-a-lineup player reports Points/Avg (full season)
+                    # = 0 for that year despite really playing in the NFL.
+                    _pad_keys = {(str(r["Player ID"]), int(r["Year"])) for r in pad_rows}
+                    _pm = player_year.apply(
+                        lambda r: (str(r.get("Player ID")), int(r.get("Year"))) in _pad_keys
+                        if pd.notna(r.get("Year")) else False,
+                        axis=1,
+                    )
+                    def _fs_pts(r):
+                        return round(float(nfl_full_season_points.get((str(r.get("Player ID")), int(r.get("Year"))), 0.0)), 2)
+                    def _fs_avg(r):
+                        _k = (str(r.get("Player ID")), int(r.get("Year")))
+                        return round(nfl_full_season_points.get(_k, 0.0) / nfl_full_season_games.get(_k, 1), 4) \
+                            if nfl_full_season_games.get(_k, 0) else None
+                    if _pm.any():
+                        player_year.loc[_pm, "Points (full season)"] = player_year.loc[_pm].apply(_fs_pts, axis=1)
+                        player_year.loc[_pm, "Avg points (full season)"] = player_year.loc[_pm].apply(_fs_avg, axis=1)
         except Exception as e:
             _log_exc(debug, "player_year_tx_only_pad", e)
 
@@ -12848,6 +12869,24 @@ def build_all(repo_root: Path) -> None:
                 if pad_rows:
                     player_all = pd.concat([player_all, pd.DataFrame(pad_rows)], ignore_index=True)
                     _log(debug, f"[{_now_iso()}] INFO seeded {len(pad_rows)} player_all_time rows for tx-only players")
+                    # These pad rows were appended AFTER the NFLverse career
+                    # columns were computed on the pw-derived rows, so fill them
+                    # now from the same career aggregates (keyed by Player ID).
+                    # Otherwise a player who was rostered but never appeared in a
+                    # weekly lineup — added and cut between snapshots, e.g. Adam
+                    # Trautman 2021 — reports Points/Avg (full career) = 0 despite
+                    # a real NFL career.
+                    _pad_ids = {str(r["Player ID"]) for r in pad_rows}
+                    _pm = player_all["Player ID"].astype(str).isin(_pad_ids)
+                    _psid = player_all.loc[_pm, "Player ID"].astype(str)
+                    player_all.loc[_pm, "Points (full career)"] = _psid.map(
+                        lambda s: round(float(nfl_career_total_points.get(s, 0.0)), 2)
+                    )
+                    player_all.loc[_pm, "Avg points (full career)"] = _psid.map(
+                        lambda s: round(
+                            nfl_career_total_points.get(s, 0.0) / nfl_career_total_games.get(s, 1), 4
+                        ) if nfl_career_total_games.get(s, 0) else None
+                    )
         except Exception as e:
             _log_exc(debug, "player_all_tx_only_pad", e)
 
