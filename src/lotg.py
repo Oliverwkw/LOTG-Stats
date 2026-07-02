@@ -12521,6 +12521,25 @@ def build_all(repo_root: Path) -> None:
                     if _pm.any():
                         player_year.loc[_pm, "Points (full season)"] = player_year.loc[_pm].apply(_fs_pts, axis=1)
                         player_year.loc[_pm, "Avg points (full season)"] = player_year.loc[_pm].apply(_fs_avg, axis=1)
+                        # The four "Change in ..." columns were computed (above)
+                        # BEFORE these pad rows existed, so they were left N/A on
+                        # every pad row — and a real row whose immediately-prior
+                        # season is now a pad row is stale. Both are roster-
+                        # independent (full-season / career NFLverse points), so
+                        # recompute all four over the full frame now that pad rows
+                        # carry full-season points. Re-sort by (Player ID, Year)
+                        # first so the season-over-season diff pairs each row with
+                        # its true predecessor; the export re-sorts by (Player,
+                        # Year) at the end regardless.
+                        player_year = player_year.sort_values(["Player ID", "Year"]).reset_index(drop=True)
+                        player_year["Change in points from previous season"] = (
+                            player_year.groupby("Player ID")["Points (full season)"].diff()
+                        )
+                        player_year["Change in avg points from previous season"] = (
+                            player_year.groupby("Player ID")["Avg points (full season)"].diff()
+                        )
+                        player_year["Change in points from career"] = player_year.apply(_change_pts_career, axis=1)
+                        player_year["Change in avg points from career"] = player_year.apply(_change_avg_career, axis=1)
         except Exception as e:
             _log_exc(debug, "player_year_tx_only_pad", e)
 
