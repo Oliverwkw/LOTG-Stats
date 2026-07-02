@@ -5338,6 +5338,17 @@ def build_all(repo_root: Path) -> None:
                             _r: [f"${_a} FAAB"] for _r, _a in _faab_by_snd.items()
                         }
 
+                        # Trade-wide asset count (players + picks, EXCLUDING
+                        # FAAB), shared by every row of this deal. Each asset
+                        # is received by exactly one roster, so summing the
+                        # received side across all rosters counts every asset
+                        # that changed hands once — for a 3-team trade this is
+                        # the WHOLE pot, not just the current row's team.
+                        _total_assets_in_trade = sum(
+                            len(recv_players.get(_rid, [])) + len(recv_picks.get(_rid, []))
+                            for _rid in roster_ids_int
+                        )
+
                         # Build row per roster in roster_ids_int
                         for rid in roster_ids_int:
                             tm = roster_to_team.get(rid, f"Roster {rid}")
@@ -5370,6 +5381,17 @@ def build_all(repo_root: Path) -> None:
                                 "Number of teams involved": len({x for x in others if x}) + 1,
                                 "Assets received": "; ".join(received) if received else None,
                                 "Assets sent": "; ".join(dropped) if dropped else None,
+                                # Count of assets on each side, EXCLUDING FAAB
+                                # (money, not an asset) — everything else
+                                # (players + draft picks) counts. FAAB entries
+                                # render as "$N FAAB", so filter by suffix.
+                                "Number of assets received": sum(
+                                    1 for _a in received if not str(_a).endswith("FAAB")),
+                                "Number of assets traded away": sum(
+                                    1 for _a in dropped if not str(_a).endswith("FAAB")),
+                                # Whole-trade total (all teams), so a 3-team
+                                # deal reads the same on every row.
+                                "Total number of assets in trade": _total_assets_in_trade,
                                 "Date": created_dt.isoformat() if created_dt else (str(created_date) if created_date else None),
                                 "Season": int(season),
                                 # Internal-only sleeper ID lists used by the
