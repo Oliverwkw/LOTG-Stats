@@ -6330,21 +6330,14 @@ def build_all(repo_root: Path) -> None:
         pw.drop(columns=["_team_canon"], inplace=True, errors="ignore")
 
     # Phase 3A item 5: Number of trades per player-week.
-    # Each trades_row has a Date and an "Assets received" string listing
-    # the players (and pick labels — skip those) the row's Team gained
-    # in the trade. Counting once per received player per trade matches
-    # the player_trade_year aggregation downstream.
+    # Each trades_row carries `_recv_player_ids` — the Sleeper pids of the
+    # players (picks and FAAB excluded) the row's Team gained in the trade.
+    # Counting once per received player per trade, keyed by pid, matches the
+    # player_trade_year aggregation downstream. Keying by pid (not by parsing
+    # the "Assets received" name string) avoids name-match fragility — renames,
+    # Jr./Sr. suffixes, and two players sharing a name.
     player_trade_week: Dict[Tuple[str, int, int], int] = defaultdict(int)
     try:
-        # Build a name -> sid resolver. Prefer the longest match (some
-        # pid_meta entries share the same full_name; we just need any
-        # one valid sid since trade counts aren't per-sleeper-id).
-        _name_to_sid_for_trades: Dict[str, str] = {}
-        for _sid, _meta in pid_meta.items():
-            _fn = (_meta or {}).get("full_name")
-            if _fn:
-                _name_to_sid_for_trades.setdefault(str(_fn), str(_sid))
-
         def _trade_week_for_date(_dt_str: Optional[str], _season: int) -> int:
             # Returns the in-season week a trade falls in, or 0 for a deep-
             # offseason trade that should NOT roll into any weekly bucket
@@ -6376,20 +6369,11 @@ def build_all(repo_root: Path) -> None:
             except Exception:
                 continue
             _wk_i = _trade_week_for_date(_date_s, _yr_i)
-            _recv = _tr_row.get("Assets received")
-            if not _recv or str(_recv) == "0.0":
-                continue
-            for _asset in str(_recv).split(";"):
-                _asset = _asset.strip()
-                if not _asset:
+            for _pid in (_tr_row.get("_recv_player_ids") or []):
+                _pid_s = str(_pid).strip()
+                if not _pid_s:
                     continue
-                # Skip pick labels ('2025 1.05(B. Robinson)' etc).
-                if re.match(r"^\d{4}\b", _asset):
-                    continue
-                _sid = _name_to_sid_for_trades.get(_asset)
-                if not _sid:
-                    continue
-                player_trade_week[(str(_sid), _yr_i, _wk_i)] += 1
+                player_trade_week[(_pid_s, _yr_i, _wk_i)] += 1
     except Exception as e:
         _log_exc(debug, "player_trade_week_build", e)
 
@@ -12220,6 +12204,10 @@ def build_all(repo_root: Path) -> None:
         # misspelled in the schema and we preserve it). To avoid double
         # counting we only read the 'received' side: every traded player
         # appears in exactly one team's received cell per trade.
+        # Keyed by Sleeper pid (from `_recv_player_ids`, which already excludes
+        # picks and FAAB), NOT by parsing the "Assets received" name string. The
+        # old name-keying silently lost or conflated counts on renames, Jr./Sr.
+        # suffixes, and two players sharing a name; pid-keying is exact.
         player_trade_year: Dict[Tuple[str, int], int] = defaultdict(int)
         player_trade_all: Dict[str, int] = defaultdict(int)
         try:
@@ -12240,26 +12228,18 @@ def build_all(repo_root: Path) -> None:
                     yr = int(yr_val)
                 except Exception:
                     continue
-                recv = tr_row.get("Assets received")
-                if not recv or str(recv) == "0.0":
-                    continue
-                for asset in str(recv).split(";"):
-                    asset = asset.strip()
-                    if not asset:
+                for pid in (tr_row.get("_recv_player_ids") or []):
+                    pid_s = str(pid).strip()
+                    if not pid_s:
                         continue
-                    # Skip pick labels (start with a 4-digit year, e.g.
-                    # '2025 1.??' or '2026 R2'). Player names never start
-                    # with a 4-digit number.
-                    if re.match(r"^\d{4}\b", asset):
-                        continue
-                    player_trade_year[(asset, yr)] += 1
-                    player_trade_all[asset] += 1
+                    player_trade_year[(pid_s, yr)] += 1
+                    player_trade_all[pid_s] += 1
         except Exception as e:
             _log_exc(debug, "player_trade_count", e)
 
         py["Number of trades"] = [
-            int(player_trade_year.get((str(player_name), int(year) if pd.notna(year) else 0), 0))
-            for player_name, year in py[["Player", "Year"]].itertuples(index=False, name=None)
+            int(player_trade_year.get((str(pid), int(year) if pd.notna(year) else 0), 0))
+            for pid, year in py[["Player ID", "Year"]].itertuples(index=False, name=None)
         ]
 
         py = py.rename(
@@ -12492,9 +12472,7 @@ def build_all(repo_root: Path) -> None:
                         # rows would have gotten from the same dicts.
                         "Number of transactions": int(player_tx_year.get((str(sid), int(yr)), 0)),
                         "Number of drops": int(player_drop_year.get((str(sid), int(yr)), 0)),
-                        # player_trade_year is name-keyed (see comment
-                        # on the main-path Number of trades fill).
-                        "Number of trades": int(player_trade_year.get((str(name), int(yr)), 0)),
+                        "Number of trades": int(player_trade_year.get((str(sid), int(yr)), 0)),
                     })
                 if pad_rows:
                     pad_df = pd.DataFrame(pad_rows)
@@ -12793,9 +12771,9 @@ def build_all(repo_root: Path) -> None:
             int(player_drop_all.get(str(player_id), 0))
             for player_id in pa["Player ID"].tolist()
         ]
-        # Career trade count, keyed by Player name (matches trades.csv assets).
+        # Career trade count, keyed by Sleeper pid.
         pa["Number of trades"] = [
-            int(player_trade_all.get(str(name), 0)) for name in pa["Player"].tolist()
+            int(player_trade_all.get(str(pid), 0)) for pid in pa["Player ID"].tolist()
         ]
 
         player_all = pa
@@ -12882,7 +12860,7 @@ def build_all(repo_root: Path) -> None:
                         "Number of teams": len(tenure_team_secs),
                         "Number of transactions": int(player_tx_all.get(str(sid), 0)),
                         "Number of drops": int(player_drop_all.get(str(sid), 0)),
-                        "Number of trades": int(player_trade_all.get(str(name), 0)),
+                        "Number of trades": int(player_trade_all.get(str(sid), 0)),
                         "Taxi-eligible": _pad_taxi,
                     })
                 if pad_rows:
