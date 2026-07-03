@@ -4589,6 +4589,12 @@ def build_all(repo_root: Path) -> None:
                         if win is not None:
                             luck_raw = (win - expected)
 
+                    # Weekly turnover is ONE-directional: max()-minus-overlap =
+                    # the number of slots that changed, so each swap counts once
+                    # and the ceiling is ~ the larger roster/lineup size. This is
+                    # deliberately different from the season-level Inseason/
+                    # Offseason turnover metrics, which use a bidirectional
+                    # symmetric_difference (leavers + joiners, each swap = 2).
                     prev = prev_starters_by_team.get(team)
                     cur_s = set([pid for pid in starters if _valid_pid(pid)])
                     if prev is None:
@@ -13930,7 +13936,15 @@ def build_all(repo_root: Path) -> None:
                     first_w, champ_w = weeks[0], weeks[-1]
                     mask = (team_year["Team"] == team) & (team_year["Year"] == year)
 
-                    # In-season: Wk1 vs championship (final) week, unique changed.
+                    # In-season: Wk1 vs championship (final) week.
+                    # NOTE: symmetric_difference is BIDIRECTIONAL — it counts
+                    # players who left PLUS players who arrived, so each swap
+                    # contributes 2. The roster variant spans the FULL roster
+                    # (starters + bench, via _set_for(..., False)), so the
+                    # ceiling is ~ (Wk1 size + champ size), NOT the roster size:
+                    # a deep-bench team's near-total churn can exceed 40. The
+                    # weekly "… turnover from previous week" columns use a
+                    # different, one-directional max()-minus-overlap count.
                     s_first = _set_for(team, year, first_w, True)
                     r_first = _set_for(team, year, first_w, False)
                     s_champ = _set_for(team, year, champ_w, True)
@@ -13939,6 +13953,9 @@ def build_all(repo_root: Path) -> None:
                     team_year.loc[mask, "Inseason roster turnover"] = len(r_first.symmetric_difference(r_champ))
 
                     # Offseason: prior season's championship week vs this Wk1.
+                    # Same bidirectional symmetric_difference semantics as the
+                    # in-season metrics above (leavers + joiners, full roster) —
+                    # ceiling ~ (prior champ size + this Wk1 size), can exceed 40.
                     prev_year = int(year) - 1
                     if ((pw_t["Team"] == team) & (pw_t["Year"] == prev_year)).any():
                         gprev = pw_t[(pw_t["Team"] == team) & (pw_t["Year"] == prev_year)]
