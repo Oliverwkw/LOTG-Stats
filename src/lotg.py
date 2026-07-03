@@ -8848,7 +8848,35 @@ def build_all(repo_root: Path) -> None:
         # 3) Per-row trades polish.
         # Reuse the nflverse log + name lookup from the transactions
         # polish block. They were function-locals there; rebuild here.
+        #
+        # Collision-safe resolution: the names fed to these helpers all come from
+        # league pids (via _player_display), so a display name that belongs to a
+        # player THIS league rostered/traded/drafted must resolve back to THAT
+        # player's pid — not an arbitrary pid_meta first-insert that happens to
+        # share the name (the Jr./Sr. + shared-name collisions that otherwise
+        # send a lookup to a phantom/obscure player). Seed the map from league-
+        # referenced pids first, then fall back to the rest of pid_meta.
+        _league_pids: List[str] = []
+        try:
+            for _lr in transactions_rows:
+                for _lk in ("_added_pid", "_dropped_pid"):
+                    if _lr.get(_lk):
+                        _league_pids.append(str(_lr.get(_lk)))
+            for _lr in trades_rows:
+                for _lk in ("_recv_player_ids", "_drop_player_ids"):
+                    _league_pids.extend(str(_x) for _x in (_lr.get(_lk) or []))
+            for _lr in (pick_rows or []):
+                if _lr.get("_player_id"):
+                    _league_pids.append(str(_lr.get("_player_id")))
+            if not pw.empty and "Player ID" in pw.columns:
+                _league_pids.extend(pw["Player ID"].astype(str).tolist())
+        except Exception as e:
+            _log_exc(debug, "name_to_sid_local2_league_pids", e)
         name_to_sid_local2: Dict[str, str] = {}
+        for _lp in _league_pids:
+            _lfn = (pid_meta.get(_lp) or {}).get("full_name")
+            if _lfn:
+                name_to_sid_local2.setdefault(str(_lfn), str(_lp))
         for sid, meta in pid_meta.items():
             fn = (meta or {}).get("full_name")
             if fn:
@@ -8878,7 +8906,9 @@ def build_all(repo_root: Path) -> None:
                     _tenure = 0
                     _ft = str(_pr.get("Final Team") or "").strip()
                     _ym = re.match(r"\s*(\d{4})", str(_pr.get("Year") or ""))
-                    _sid = name_to_sid_local2.get(_ply)
+                    # Prefer the pick's own drafted-player pid; the name lookup is
+                    # only a fallback for rows without one.
+                    _sid = _pr.get("_player_id") or name_to_sid_local2.get(_ply)
                     if _ft and _ym and _sid:
                         _draft_iso = f"{int(_ym.group(1))}-08-28"
                         _nx = _next_out_player(_ft, _sid, _draft_iso)
