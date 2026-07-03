@@ -7032,12 +7032,6 @@ def build_all(repo_root: Path) -> None:
             # dropped, picked up by plehv79 in 2023). Departures sort ahead of
             # arrivals at an identical timestamp (a waiver batch / 2-for-2 swap),
             # so an in-place swap is NOT mistaken for an orphaned holding.
-            _name_to_pid: Dict[str, str] = {}
-            for _sid_m, _meta_m in pid_meta.items():
-                _nm_m = (_meta_m or {}).get("full_name")
-                if _nm_m and str(_nm_m) not in _name_to_pid:
-                    _name_to_pid[str(_nm_m)] = str(_sid_m)
-
             # typed per-player events keyed by player_id — MATCHING the asset-
             # history builder, which also keys by pid: (sort_ts, rank, kind, team).
             # Rank 0 (departures) sorts ahead of rank 1 (arrivals) at an identical
@@ -7065,15 +7059,12 @@ def build_all(repo_root: Path) -> None:
                 for _pid_r in (tr_row.get("_recv_player_ids") or []):
                     if _pid_r:
                         _holder_events[str(_pid_r)].append((_d, 1, "trade_in", str(_tm)))
-                # players SENT leave this team; resolve sent display-names to pids.
-                for _asset in str(tr_row.get("Assets sent") or "").split(";"):
-                    _asset = _asset.strip()
-                    if (_asset and not re.match(r"^\d{4}\b", _asset)
-                            and not _asset.endswith("FAAB")
-                            and _asset not in ("N/A", "0.0", "None")):
-                        _spid = _name_to_pid.get(_asset)
-                        if _spid:
-                            _holder_events[str(_spid)].append((_d, 0, "depart", str(_tm)))
+                # players SENT leave this team — use the trade row's own pid list
+                # (_drop_player_ids) rather than parsing "Assets sent" name strings,
+                # so renames / suffixes / shared names can't silently drop a departure.
+                for _spid in (tr_row.get("_drop_player_ids") or []):
+                    if _spid:
+                        _holder_events[str(_spid)].append((_d, 0, "depart", str(_tm)))
             # NB: orphan_drop_events (incl. the 2020->2021 transfer drops) are all
             # emitted into transactions_rows above, so they're already captured —
             # scanning them again here would double-count a departure and falsely
@@ -7663,33 +7654,36 @@ def build_all(repo_root: Path) -> None:
                 if fn:
                     name_to_sid_local.setdefault(str(fn), str(sid))
 
-            def _player_games(player_name: Optional[str]) -> List[Dict[str, Any]]:
+            def _player_games(player_name: Optional[str], pid: Optional[str] = None) -> List[Dict[str, Any]]:
                 """Return the player's NFL game log: list of dicts with
                 _wk_date and Points. Prefer nflverse (covers all NFL
                 weeks regardless of fantasy roster status); fall back
                 to pw (filtering out bye / injury / suspension rows
-                since those aren't 'played' for our purposes)."""
-                if not player_name:
-                    return []
-                sid = name_to_sid_local.get(player_name)
+                since those aren't 'played' for our purposes).
+
+                Resolve the Sleeper id from `pid` when the caller has one
+                (transactions carry _added_pid / _dropped_pid) — robust to
+                renames, Jr./Sr. suffixes, and shared names — and only fall
+                back to a name lookup when no pid is available."""
+                sid = str(pid) if pid else (name_to_sid_local.get(player_name) if player_name else None)
                 games: List[Dict[str, Any]] = []
                 if sid:
                     for entry in nfl_log_by_sid.get(sid, []):
                         if entry["_wk_date"]:
                             games.append({"_wk_date": entry["_wk_date"], "Points": entry["points"]})
-                if not games:
+                if not games and player_name:
                     for r in pw_by_player.get(player_name, []):
                         if r["_wk_date"] and not r["Bye?"] and not r["Injury?"] and not r.get("Suspension?"):
                             games.append({"_wk_date": r["_wk_date"], "Points": r["Points"]})
                 return games
 
-            def _avg_ppg_last5_before(player_name: Optional[str], pickup_date_iso: str) -> Optional[float]:
+            def _avg_ppg_last5_before(player_name: Optional[str], pickup_date_iso: str, pid: Optional[str] = None) -> Optional[float]:
                 """Mean fantasy points over the 5 most-recent played
                 games BEFORE the pickup date. If fewer than 5 games
                 exist on record, averages whatever's available (e.g.,
                 2 games -> mean of 2). Used for cuff detection and the
                 'PPG of 5 games before pickup' column."""
-                games = _player_games(player_name)
+                games = _player_games(player_name, pid)
                 played = [g for g in games if g["_wk_date"] < pickup_date_iso]
                 if not played:
                     return None
@@ -7701,13 +7695,14 @@ def build_all(repo_root: Path) -> None:
                 player_name: Optional[str],
                 start_iso: str,
                 end_iso: Optional[str],
+                pid: Optional[str] = None,
             ) -> Optional[float]:
                 """Mean fantasy points across NFL games in [start, end).
                 end_iso=None means 'no upper bound' — counts through
                 end of dataset. Used for the forward-looking 'Average
                 PPG on team' and 'over same time' columns: the window
                 is the time the added player was on the picking team."""
-                games = _player_games(player_name)
+                games = _player_games(player_name, pid)
                 in_window: List[float] = []
                 for g in games:
                     if not g["_wk_date"]:
@@ -7765,20 +7760,20 @@ def build_all(repo_root: Path) -> None:
                 # team, and what was the dropped player doing in NFL
                 # over the same window?
                 added_on_team = (
-                    _avg_ppg_in_window(added, pickup_iso_prefix, drop_after_prefix)
+                    _avg_ppg_in_window(added, pickup_iso_prefix, drop_after_prefix, r.get("_added_pid"))
                     if added else None
                 )
                 dropped_same_window = (
-                    _avg_ppg_in_window(dropped, pickup_iso_prefix, drop_after_prefix)
+                    _avg_ppg_in_window(dropped, pickup_iso_prefix, drop_after_prefix, r.get("_dropped_pid"))
                     if dropped else None
                 )
                 # Pre-pickup snapshot: trailing 5-game average. Useful
                 # for evaluating the pickup decision (what did the
                 # market know about this guy at the time).
-                added_pre5 = _avg_ppg_last5_before(added, pickup_iso_prefix) if added else None
+                added_pre5 = _avg_ppg_last5_before(added, pickup_iso_prefix, r.get("_added_pid")) if added else None
                 # Pre-pickup average for the dropped player too (used
                 # in the cuff comparison; still computed once).
-                dropped_pre5 = _avg_ppg_last5_before(dropped, pickup_iso_prefix) if dropped else None
+                dropped_pre5 = _avg_ppg_last5_before(dropped, pickup_iso_prefix, r.get("_dropped_pid")) if dropped else None
 
                 if added_on_team is not None:
                     r["Average PPG on team"] = added_on_team
@@ -7868,7 +7863,7 @@ def build_all(repo_root: Path) -> None:
                 # who never played again scores a real 0 (the perfect drop).
                 if _is_name(dropped):
                     _post = sorted(
-                        (g for g in _player_games(dropped)
+                        (g for g in _player_games(dropped, r.get("_dropped_pid"))
                          if g["_wk_date"] and g["_wk_date"] >= pickup_iso_prefix),
                         key=lambda g: g["_wk_date"],
                     )[:17]
@@ -8853,7 +8848,35 @@ def build_all(repo_root: Path) -> None:
         # 3) Per-row trades polish.
         # Reuse the nflverse log + name lookup from the transactions
         # polish block. They were function-locals there; rebuild here.
+        #
+        # Collision-safe resolution: the names fed to these helpers all come from
+        # league pids (via _player_display), so a display name that belongs to a
+        # player THIS league rostered/traded/drafted must resolve back to THAT
+        # player's pid — not an arbitrary pid_meta first-insert that happens to
+        # share the name (the Jr./Sr. + shared-name collisions that otherwise
+        # send a lookup to a phantom/obscure player). Seed the map from league-
+        # referenced pids first, then fall back to the rest of pid_meta.
+        _league_pids: List[str] = []
+        try:
+            for _lr in transactions_rows:
+                for _lk in ("_added_pid", "_dropped_pid"):
+                    if _lr.get(_lk):
+                        _league_pids.append(str(_lr.get(_lk)))
+            for _lr in trades_rows:
+                for _lk in ("_recv_player_ids", "_drop_player_ids"):
+                    _league_pids.extend(str(_x) for _x in (_lr.get(_lk) or []))
+            for _lr in (pick_rows or []):
+                if _lr.get("_player_id"):
+                    _league_pids.append(str(_lr.get("_player_id")))
+            if not pw.empty and "Player ID" in pw.columns:
+                _league_pids.extend(pw["Player ID"].astype(str).tolist())
+        except Exception as e:
+            _log_exc(debug, "name_to_sid_local2_league_pids", e)
         name_to_sid_local2: Dict[str, str] = {}
+        for _lp in _league_pids:
+            _lfn = (pid_meta.get(_lp) or {}).get("full_name")
+            if _lfn:
+                name_to_sid_local2.setdefault(str(_lfn), str(_lp))
         for sid, meta in pid_meta.items():
             fn = (meta or {}).get("full_name")
             if fn:
@@ -8883,7 +8906,9 @@ def build_all(repo_root: Path) -> None:
                     _tenure = 0
                     _ft = str(_pr.get("Final Team") or "").strip()
                     _ym = re.match(r"\s*(\d{4})", str(_pr.get("Year") or ""))
-                    _sid = name_to_sid_local2.get(_ply)
+                    # Prefer the pick's own drafted-player pid; the name lookup is
+                    # only a fallback for rows without one.
+                    _sid = _pr.get("_player_id") or name_to_sid_local2.get(_ply)
                     if _ft and _ym and _sid:
                         _draft_iso = f"{int(_ym.group(1))}-08-28"
                         _nx = _next_out_player(_ft, _sid, _draft_iso)
@@ -16627,6 +16652,54 @@ def build_all(repo_root: Path) -> None:
                 ]
     except Exception as e:
         _log_exc(debug, "startup_remaining_final_na", e)
+
+    # Cross-source audit snapshot (consumed by tests/test_cross_source_and_pad.py).
+    # The CSV exports drop the internal "Player ID", so the pid-exact invariants
+    # that guard player attribution — full-career/season points, change-from-
+    # career, trade counts, name-collision phantoms — cannot be checked from the
+    # exports alone. Persist a compact, pid-keyed snapshot (rostered pids only)
+    # pairing each derived column with the NFLverse aggregate it must agree with.
+    try:
+        import json as _snj
+        _snap_dir = repo_root / "exports" / "raw"
+        _snap_dir.mkdir(parents=True, exist_ok=True)
+        def _n(v):
+            try:
+                f = float(v)
+                return None if (f != f) else round(f, 4)
+            except Exception:
+                return None
+        _ros = set()
+        if not player_all.empty and "Player ID" in player_all.columns:
+            _ros |= {str(p) for p in player_all["Player ID"].astype(str)}
+        if not player_year.empty and "Player ID" in player_year.columns:
+            _ros |= {str(p) for p in player_year["Player ID"].astype(str)}
+        _pa_rows = [
+            [str(r.get("Player ID")), r.get("Player"), _n(r.get("Points (full career)")),
+             _n(r.get("Avg points (full career)")), _n(r.get("Number of trades"))]
+            for _, r in player_all.iterrows()
+        ] if not player_all.empty else []
+        _py_rows = [
+            [str(r.get("Player ID")), str(r.get("Year")), _n(r.get("Points (full season)")),
+             _n(r.get("Avg points (full season)")), _n(r.get("Change in points from career")),
+             _n(r.get("Change in avg points from career")), _n(r.get("Number of trades"))]
+            for _, r in player_year.iterrows()
+        ] if not player_year.empty else []
+        _snap = {
+            "player_all": _pa_rows,
+            "player_year": _py_rows,
+            "career_pts": {str(k): round(v, 2) for k, v in nfl_career_total_points.items() if str(k) in _ros},
+            "career_g": {str(k): v for k, v in nfl_career_total_games.items() if str(k) in _ros},
+            "season_pts": {f"{k[0]}|{k[1]}": round(v, 2) for k, v in nfl_full_season_points.items() if str(k[0]) in _ros},
+            "career_pts_before": {f"{k[0]}|{k[1]}": v for k, v in nfl_career_points_before.items() if str(k[0]) in _ros},
+            "trades_recv": [[str(_t.get("Season")), [str(x) for x in (_t.get("_recv_player_ids") or [])]] for _t in trades_rows],
+            "tx": [[_t.get("Player Added"), (str(_t.get("_added_pid")) if _t.get("_added_pid") else None),
+                    _t.get("Player Dropped"), (str(_t.get("_dropped_pid")) if _t.get("_dropped_pid") else None)]
+                   for _t in transactions_rows],
+        }
+        (_snap_dir / "audit_snapshot.json").write_text(_snj.dumps(_snap))
+    except Exception as e:
+        _log_exc(debug, "audit_snapshot", e)
 
     context = {
         "player_week": pw,
