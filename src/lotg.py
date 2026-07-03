@@ -16623,6 +16623,54 @@ def build_all(repo_root: Path) -> None:
     except Exception as e:
         _log_exc(debug, "startup_remaining_final_na", e)
 
+    # Cross-source audit snapshot (consumed by tests/test_cross_source_and_pad.py).
+    # The CSV exports drop the internal "Player ID", so the pid-exact invariants
+    # that guard player attribution — full-career/season points, change-from-
+    # career, trade counts, name-collision phantoms — cannot be checked from the
+    # exports alone. Persist a compact, pid-keyed snapshot (rostered pids only)
+    # pairing each derived column with the NFLverse aggregate it must agree with.
+    try:
+        import json as _snj
+        _snap_dir = repo_root / "exports" / "raw"
+        _snap_dir.mkdir(parents=True, exist_ok=True)
+        def _n(v):
+            try:
+                f = float(v)
+                return None if (f != f) else round(f, 4)
+            except Exception:
+                return None
+        _ros = set()
+        if not player_all.empty and "Player ID" in player_all.columns:
+            _ros |= {str(p) for p in player_all["Player ID"].astype(str)}
+        if not player_year.empty and "Player ID" in player_year.columns:
+            _ros |= {str(p) for p in player_year["Player ID"].astype(str)}
+        _pa_rows = [
+            [str(r.get("Player ID")), r.get("Player"), _n(r.get("Points (full career)")),
+             _n(r.get("Avg points (full career)")), _n(r.get("Number of trades"))]
+            for _, r in player_all.iterrows()
+        ] if not player_all.empty else []
+        _py_rows = [
+            [str(r.get("Player ID")), str(r.get("Year")), _n(r.get("Points (full season)")),
+             _n(r.get("Avg points (full season)")), _n(r.get("Change in points from career")),
+             _n(r.get("Change in avg points from career")), _n(r.get("Number of trades"))]
+            for _, r in player_year.iterrows()
+        ] if not player_year.empty else []
+        _snap = {
+            "player_all": _pa_rows,
+            "player_year": _py_rows,
+            "career_pts": {str(k): round(v, 2) for k, v in nfl_career_total_points.items() if str(k) in _ros},
+            "career_g": {str(k): v for k, v in nfl_career_total_games.items() if str(k) in _ros},
+            "season_pts": {f"{k[0]}|{k[1]}": round(v, 2) for k, v in nfl_full_season_points.items() if str(k[0]) in _ros},
+            "career_pts_before": {f"{k[0]}|{k[1]}": v for k, v in nfl_career_points_before.items() if str(k[0]) in _ros},
+            "trades_recv": [[str(_t.get("Season")), [str(x) for x in (_t.get("_recv_player_ids") or [])]] for _t in trades_rows],
+            "tx": [[_t.get("Player Added"), (str(_t.get("_added_pid")) if _t.get("_added_pid") else None),
+                    _t.get("Player Dropped"), (str(_t.get("_dropped_pid")) if _t.get("_dropped_pid") else None)]
+                   for _t in transactions_rows],
+        }
+        (_snap_dir / "audit_snapshot.json").write_text(_snj.dumps(_snap))
+    except Exception as e:
+        _log_exc(debug, "audit_snapshot", e)
+
     context = {
         "player_week": pw,
         "player_year": player_year,
