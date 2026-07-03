@@ -1452,6 +1452,64 @@ def _fill_missing_values(df: pd.DataFrame, cols: List[str]) -> pd.DataFrame:
     return df
 
 
+# Columns on a year-grain sheet that stay meaningful for a season that has NOT
+# started yet — pure offseason facts (transactions / trades / picks / FAAB /
+# draft & skill grades / player identity & age). EVERYTHING ELSE on such a row
+# is a game-derived statistic (points, ages, roster composition, times-as-X-of-
+# week, change-vs-previous-period, ...) that is 0 — or derived from a 0 — only
+# because no games have been played, and must render N/A instead. Keyed by the
+# lowercased plan key.
+_PRE_SEASON_KEEP_COLUMNS: Dict[str, set] = {
+    "team-year": {
+        "team", "year",
+        "number of transactions",
+        "offseason trades", "inseason trades", "total trades",
+        "amount of faab spent",
+        "draft value",
+        "number of first round picks made", "total number of picks made",
+        "future draft capital",
+        "drafting skill", "trading skill", "transaction skill",
+    },
+    "player-year": {
+        "player", "year", "top team", "last team", "rookie?", "age",
+        "number of teams", "number of transactions",
+        "number of drops", "number of trades",
+    },
+}
+
+
+def _blank_pre_season_year_stats(df: pd.DataFrame, plan_key: str,
+                                 started_seasons: Optional[set]) -> pd.DataFrame:
+    """Render game-derived stats as N/A (not 0) for a not-yet-started season.
+
+    A season with no played weeks still produces year-grain rows (players get
+    rostered / traded / drafted in the offseason), but every game-derived cell
+    on them is 0 or derived-from-0 and reads as a real value — e.g. a team's
+    "Player average age" of 0.0, or a player's "Change in points from previous
+    season" computed off a phantom 0-point season. Overwrite those with "N/A",
+    keeping only the genuine offseason facts (see _PRE_SEASON_KEEP_COLUMNS).
+
+    Detection is dynamic: `started_seasons` is the set of seasons that produced
+    at least one played (week-grain) row, so this self-corrects every year with
+    no per-season hardcoding. Runs last (post rounding/format) so the surviving
+    columns keep their already-finalized rendering."""
+    if started_seasons is None or df is None or df.empty:
+        return df
+    keep = _PRE_SEASON_KEEP_COLUMNS.get(str(plan_key or "").strip().lower())
+    if not keep or "Year" not in df.columns:
+        return df
+    yr = pd.to_numeric(df["Year"], errors="coerce")
+    mask = yr.notna() & ~yr.astype("Int64").isin(started_seasons)
+    if not mask.any():
+        return df
+    for col in df.columns:
+        if str(col).strip().lower() in keep:
+            continue
+        df[col] = df[col].astype(object)
+        df.loc[mask, col] = "N/A"
+    return df
+
+
 def _default_player_week_benchmark_cases() -> pd.DataFrame:
     """Fallback benchmark cases for player_week validation."""
     rows = [
@@ -2003,6 +2061,22 @@ def build_all(repo_root: Path) -> None:
     def write_outputs(tables: List[Tuple[str, pd.DataFrame, str]]) -> None:
         out_dir = repo_root / "exports"
         out_dir.mkdir(exist_ok=True)
+        # Seasons that have actually kicked off = those with at least one played
+        # (week-grain) row. Year-grain rows for any OTHER season are pure
+        # offseason placeholders whose game-derived stats must read N/A, not 0
+        # (see _blank_pre_season_year_stats). Guarded because the early
+        # fallback call happens before pw/tw are built.
+        try:
+            started_seasons: Optional[set] = set()
+            for _wk_frame in (pw, tw):
+                if isinstance(_wk_frame, pd.DataFrame) and not _wk_frame.empty and "Year" in _wk_frame.columns:
+                    started_seasons |= set(
+                        pd.to_numeric(_wk_frame["Year"], errors="coerce").dropna().astype(int).tolist()
+                    )
+            if not started_seasons:
+                started_seasons = None
+        except Exception:
+            started_seasons = None
         for fname, frame, plan_key in tables:
             cols = catalog.get(plan_key, [])
             if plan_key in {"team-year", "team-all-time"}:
@@ -2057,6 +2131,13 @@ def build_all(repo_root: Path) -> None:
                 require_columns(out, cols, fname.replace(".csv", ""))
             except Exception as e:
                 _log_exc(debug, f"require_columns_{fname}", e)
+            # Final step: N/A out game-derived stats for not-yet-started seasons
+            # (after all rounding/int rendering so surviving cells keep their
+            # finalized form).
+            try:
+                out = _blank_pre_season_year_stats(out, plan_key, started_seasons)
+            except Exception as e:
+                _log_exc(debug, f"blank_pre_season_{fname}", e)
             out.to_csv(out_dir / fname, index=False)
 
         try:
