@@ -14,10 +14,10 @@ jobs:
 
     steps:
       - name: Checkout repo
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Setup Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: "3.11"
 
@@ -41,7 +41,7 @@ jobs:
         # Manual escape hatch: run with force_refresh_cache=true to skip the
         # restore and rebuild from the committed .cache baseline.
         if: ${{ github.event.inputs.force_refresh_cache != 'true' }}
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@v6
         with:
           path: .cache
           key: nflverse-cache-${{ hashFiles('lib/lotg_support/external.py') }}-${{ github.run_number }}
@@ -61,7 +61,7 @@ jobs:
         # pre-change histories), and force_refresh_cache=true skips the
         # restore for a from-scratch rebuild.
         if: ${{ github.event.inputs.force_refresh_cache != 'true' }}
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@v6
         with:
           path: data/ktc_cache
           key: ktc-cache-${{ hashFiles('lib/lotg_support/ktc.py') }}-${{ github.run_number }}
@@ -99,14 +99,14 @@ jobs:
       # matching the post-run save the old combined actions/cache did.
       - name: Save NFLverse / DynastyProcess cache
         if: always()
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@v6
         with:
           path: .cache
           key: nflverse-cache-${{ hashFiles('lib/lotg_support/external.py') }}-${{ github.run_number }}
 
       - name: Save KTC cache
         if: always()
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@v6
         with:
           path: data/ktc_cache
           key: ktc-cache-${{ hashFiles('lib/lotg_support/ktc.py') }}-${{ github.run_number }}
@@ -139,7 +139,7 @@ jobs:
 
       - name: Upload outputs and logs
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: LOTG_outputs
           path: |
