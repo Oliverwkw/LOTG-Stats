@@ -7298,6 +7298,27 @@ def build_all(repo_root: Path) -> None:
                         _ly, _lw = _last
                         if _latest_year is not None and _ly >= _latest_year:
                             continue  # current season -> real drops recorded; skip
+                        # Skip when a REAL departure (trade/drop) from this team is
+                        # already recorded at/after the last scored week: the stint
+                        # was closed by a real move, not an unrecorded dead-end cut.
+                        # `_final_holder == _team_t` can point at a LATER re-
+                        # acquisition (the player is the current holder again),
+                        # while `_last` is a PRIOR stint that ended in a trade —
+                        # e.g. Isiah Pacheco (drafted by stevenb123, traded to
+                        # LWebs53 mid-2023, re-acquired by stevenb123 in the 2026
+                        # offseason, which has no scored weeks yet, so `_last`
+                        # stays 2023). Without this guard we synth a phantom 2023
+                        # cut for a player who was traded, not cut.
+                        _lastwk_start = date(_ly, 9, 7) + timedelta(days=7 * (_lw - 1))
+                        _real_departure = False
+                        for _he in _holder_events.get(str(_pid_t), []):
+                            if _he[2] == "depart" and _he[3] == _team_t:
+                                _hedt = _aware(_he[0])
+                                if _hedt is not None and _hedt.date() >= _lastwk_start:
+                                    _real_departure = True
+                                    break
+                        if _real_departure:
+                            continue
                         if _team_year_maxwk.get((str(_team_t), _ly), 0) > _lw:
                             # Date the drop at the START of the FOLLOWING week (the
                             # first week they're absent): always after the add (even
