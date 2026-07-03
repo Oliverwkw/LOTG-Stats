@@ -2,6 +2,11 @@ name: Build LOTG Stats
 
 on:
   workflow_dispatch:
+    inputs:
+      force_refresh_cache:
+        description: "Ignore the accumulated Actions cache and rebuild from the committed .cache baseline + fresh downloads"
+        type: boolean
+        default: false
 
 jobs:
   build:
@@ -24,15 +29,24 @@ jobs:
         # the file exists, so this restore turns the cost of those
         # ~10 fetches into zero once the cache is warm — and acts as
         # a fallback if NFLverse / DynastyProcess are ever unreachable.
-        # Bust on external.py changes (URL or filename updates) and
-        # rotate weekly so seasons-in-progress get fresh weeks.
-        uses: actions/cache@v4
+        #
+        # Keying: run_number makes every run save a fresh entry; the single
+        # hash-scoped restore-key rolls the newest entry forward, but ONLY
+        # while external.py is unchanged. Editing external.py (a URL/filename
+        # fix) changes the hash, so no restore-key matches -> genuine cache
+        # miss -> full re-download under the new key. There is deliberately
+        # NO bare `nflverse-cache-` fallback: it matched across hashes and
+        # silently resurrected the very files an external.py fix meant to
+        # evict (the stale-cache trap behind the 401/403 audit-diff noise).
+        # Manual escape hatch: run with force_refresh_cache=true to skip the
+        # restore and rebuild from the committed .cache baseline.
+        if: ${{ github.event.inputs.force_refresh_cache != 'true' }}
+        uses: actions/cache/restore@v4
         with:
           path: .cache
           key: nflverse-cache-${{ hashFiles('lib/lotg_support/external.py') }}-${{ github.run_number }}
           restore-keys: |
             nflverse-cache-${{ hashFiles('lib/lotg_support/external.py') }}-
-            nflverse-cache-
 
       - name: Restore KTC cache
         # data/ktc_cache/ holds dynasty-daddy's per-player history files
@@ -41,17 +55,18 @@ jobs:
         # directory.json refresh logic inside lotg_support/ktc.py still
         # forces today's snapshot every 6 hours, so cache restore here
         # is safe even when KTC values change.
-        uses: actions/cache@v4
+        #
+        # Same keying rationale as the NFLverse cache above: changing ktc.py
+        # busts cleanly (no bare `ktc-cache-` fallback that would resurrect
+        # pre-change histories), and force_refresh_cache=true skips the
+        # restore for a from-scratch rebuild.
+        if: ${{ github.event.inputs.force_refresh_cache != 'true' }}
+        uses: actions/cache/restore@v4
         with:
           path: data/ktc_cache
-          # Bust the cache when ktc.py changes so behavior-sensitive
-          # updates (new slug rules, value column choice, etc.) take
-          # effect immediately. Otherwise rotate weekly so we don't
-          # carry stale histories forever.
           key: ktc-cache-${{ hashFiles('lib/lotg_support/ktc.py') }}-${{ github.run_number }}
           restore-keys: |
             ktc-cache-${{ hashFiles('lib/lotg_support/ktc.py') }}-
-            ktc-cache-
 
       - name: Install dependencies (including LOTG package)
         run: |
@@ -76,6 +91,25 @@ jobs:
           mkdir -p exports/raw
           set -o pipefail
           python -m lotg 2>&1 | tee exports/raw/runner.log
+
+      # Split save steps (paired with actions/cache/restore above): the restore
+      # can be skipped via force_refresh_cache, but the freshly built caches are
+      # always persisted for the next run. The per-run key never collides, and
+      # always() saves even if the build failed so partial progress is kept —
+      # matching the post-run save the old combined actions/cache did.
+      - name: Save NFLverse / DynastyProcess cache
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: .cache
+          key: nflverse-cache-${{ hashFiles('lib/lotg_support/external.py') }}-${{ github.run_number }}
+
+      - name: Save KTC cache
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: data/ktc_cache
+          key: ktc-cache-${{ hashFiles('lib/lotg_support/ktc.py') }}-${{ github.run_number }}
 
       - name: Run test suite against the build
         # Phase 12 #49: run the committed guards (cross-sheet reconciliation,
