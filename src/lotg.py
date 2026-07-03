@@ -10292,7 +10292,13 @@ def build_all(repo_root: Path) -> None:
                             continue
                     _mu, _sd = _tpi_stats[_col]
                     _score += _w * ((_fv - _mu) / _sd)
-                _r["Trade impact score"] = round(1500.0 * _score, 1)
+                # Scale the z-composite into a WIN-IMPACT band — small numbers
+                # that read as an added win total (roughly -4 .. +16 across the
+                # league, most trades within ±2) rather than a KTC-like magnitude.
+                # Pure linear rescale of the old ×1500 band, so every row's sign
+                # and the full ranking (and thus the O-Score percentile that
+                # consumes this) are unchanged.
+                _r["Trade impact score"] = round(0.6 * _score, 1)
                 for _k in ("_tpi_wins", "_tpi_down", "_tpi_winimpact"):
                     _r.pop(_k, None)
         except Exception as e:
