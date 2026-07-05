@@ -794,6 +794,15 @@ def _col_topic(col: str) -> str:
         return "Change"
     if "streak" in n:
         return "Streaks"
+    # Positional scoring tiers band with the other scoring-value stats, next to
+    # boom/bust: the weekly "Positional scoring percentile", the player tier
+    # shares ("… upper/lower quartile %", "… middle 50% %") and the team
+    # "% of starters <tier>" columns. (The boom/bust members already resolve to
+    # Value via the keyword bucket below; this catches the quartile/middle ones
+    # and the percentile so the whole family is one colour.)
+    if (n == "positional scoring percentile" or "quartile" in n or "middle 50%" in n
+            or n.startswith("% of starters ")):
+        return "Value"
     if n in ("injury?", "suspension?", "bye?", "loss from hardship?"):
         return "Hardship & Luck"
     if n == "win?":
