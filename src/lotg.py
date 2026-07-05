@@ -15778,6 +15778,45 @@ def build_all(repo_root: Path) -> None:
         except Exception as e:
             _log_exc(debug, "league_all_fill_extra", e)
 
+    # Positional-tier shares for league sheets: % of ALL the league's ACTIVE
+    # starters (every team's started, played weeks) in each of the 5 positional
+    # scoring tiers — that week (league_week), pooled over the season
+    # (league_year), or pooled all-time (league_all_time). Same per-week starter
+    # tiers as the player/team sheets (_srt_tier on pw; non-null only for active
+    # started weeks). Bye / injury / suspension starts are excluded.
+    try:
+        if "_srt_tier" in pw.columns:
+            _lp = pw[pw["_srt_tier"].notna()].dropna(subset=["Year"]).copy()
+            _ltcols = [f"% of starters {_lab.lower()}" for _lab in _TIER_LABELS]
+
+            def _league_tier_shares(_keys):
+                if _lp.empty or not set(_keys).issubset(_lp.columns):
+                    return pd.DataFrame()
+                _cnt = _lp.groupby(_keys)["_srt_tier"].size()
+                _d = {}
+                for _lab in _TIER_LABELS:
+                    _n = (_lp[_lp["_srt_tier"] == _lab].groupby(_keys)["_srt_tier"].size()
+                          .reindex(_cnt.index).fillna(0))
+                    _d[f"% of starters {_lab.lower()}"] = (_n / _cnt * 100).round(1)
+                return pd.DataFrame(_d).reset_index()
+
+            _lw_sh = _league_tier_shares(["Year", "Week"])
+            _ly_sh = _league_tier_shares(["Year"])
+            if not _lw_sh.empty and isinstance(league_week, pd.DataFrame) and not league_week.empty:
+                league_week = league_week.drop(columns=[c for c in _ltcols if c in league_week.columns], errors="ignore")
+                league_week = league_week.merge(_lw_sh, on=["Year", "Week"], how="left")
+            if not _ly_sh.empty and isinstance(league_year, pd.DataFrame) and not league_year.empty:
+                league_year = league_year.drop(columns=[c for c in _ltcols if c in league_year.columns], errors="ignore")
+                league_year = league_year.merge(_ly_sh, on=["Year"], how="left")
+            # league_all_time: single pooled row over every active starter.
+            if isinstance(league_all, pd.DataFrame) and not league_all.empty and not _lp.empty:
+                _tot = len(_lp)
+                for _lab in _TIER_LABELS:
+                    _c = f"% of starters {_lab.lower()}"
+                    league_all[_c] = round((_lp["_srt_tier"] == _lab).sum() / _tot * 100, 1) if _tot else None
+    except Exception as e:
+        _log_exc(debug, "league_tier_shares", e)
+
 
     # --------------------------
     # Write outputs (schema contract)
