@@ -81,13 +81,19 @@ def audit(exports: Path) -> list:
         if abs((ptss or 0.0) - want) > 0.02:
             add("season_pts_ne_aggregate", f"pid={pid} {yr} export={ptss} agg={want}")
 
-    # 3 — change-from-career must be populated whenever a prior NFL career exists
+    # 3 — change-from-career must be populated whenever a prior NFL career exists.
+    #     EXCEPTION for the per-game AVG change: a season with < 2 NFL games is
+    #     intentionally N/A — too small a sample to compare a per-game average to
+    #     a whole-career average (see 'Change in avg points from career'). The
+    #     season TOTAL change (chgp) is not gated this way.
     for pid, yr, ptss, avgs, chgp, chga, ntr in py:
         if cpb.get(f"{pid}|{yr}", 0.0) > 0.0 and ptss is not None:
             if chgp is None:
                 add("change_pts_from_career_blank", f"pid={pid} {yr} prior={cpb.get(f'{pid}|{yr}')}")
             if chga is None:
-                add("change_avg_from_career_blank", f"pid={pid} {yr} prior={cpb.get(f'{pid}|{yr}')}")
+                _games = round(ptss / avgs) if (avgs not in (None, 0) and float(avgs) > 0) else 0
+                if _games >= 2:
+                    add("change_avg_from_career_blank", f"pid={pid} {yr} prior={cpb.get(f'{pid}|{yr}')}")
 
     # 4 — trade counts must equal count of pid in the trade ledger's received lists
     recv_all = Counter(); recv_yr = Counter()

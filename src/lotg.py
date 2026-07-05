@@ -861,8 +861,11 @@ def _col_number_format(col: str) -> Optional[str]:
     # literal and no x100. (boom/bust % are computed as *100 in the player sheets;
     # without this the generic "ends in %" rule below applies Excel's percent format
     # and multiplies again, so 9.4 rendered as 940.00%.)
-    if n in ("starter boom %", "starter bust %", "faab premium %",
-             "rostered boom %", "rostered bust %"):
+    _tier_words = ("boom", "bust", "lower quartile", "middle 50%", "upper quartile")
+    if (n in ("faab premium %",)
+            or (n.endswith(" %") and (n.startswith("starter ") or n.startswith("rostered "))
+                and any(_w in n for _w in _tier_words))
+            or n.startswith("% of starters ")):
         return '0.00"%"'
     # Percent columns stored 0-1 -> Excel percent (x100).
     if (n.endswith("%") or n.startswith("win % vs ") or "win %" in n or n == "efficiency"
@@ -1133,6 +1136,81 @@ def _terminalize_streaks(df: pd.DataFrame, group_cols: List[str],
     return df
 
 
+# Positional scoring tiers: a player-week's score is placed against the ALL-TIME
+# pooled distribution of ACTIVE starter scores for that player's position, then
+# bucketed into 5 tiers by percentile. Boom = top 10% (>= p90), Bust = bottom
+# 10% (<= p10); the quartile bounds (p25 / p75) split the rest into a lower
+# quartile (p10-p25), the middle 50% (p25-p75), and an upper quartile (p75-p90).
+_TIER_LABELS = ("Bust", "Lower quartile", "Middle 50%", "Upper quartile", "Boom")
+
+
+def _positional_tier_bars(pw: pd.DataFrame):
+    """All-time pooled (p10, p25, p75, p90) of ACTIVE starter scores per position,
+    plus the per-position sorted score array (for percentile placement). The
+    reference set is every started week that was actually played (bye / injury /
+    suspension weeks excluded — a 0 there isn't a real starter score)."""
+    bars: Dict[str, Tuple[float, float, float, float]] = {}
+    sorted_scores: Dict[str, "np.ndarray"] = {}
+    if pw is None or pw.empty or "Starter/Bench" not in pw.columns or "Position" not in pw.columns:
+        return bars, sorted_scores
+    d = pw[pw["Starter/Bench"].astype(str).str.lower() == "starter"]
+    for _c in ("Injury?", "Suspension?", "Bye?"):
+        if _c in d.columns:
+            d = d[~d[_c].fillna(False).astype(bool)]
+    _p = pd.to_numeric(d["Points"], errors="coerce")
+    _pos = d["Position"].astype(str).str.upper()
+    d = pd.DataFrame({"_p": _p, "_pos": _pos}).dropna(subset=["_p"])
+    for _po, _g in d.groupby("_pos"):
+        arr = np.sort(_g["_p"].to_numpy())
+        if len(arr) == 0:
+            continue
+        sorted_scores[_po] = arr
+        bars[_po] = (float(np.quantile(arr, 0.10)), float(np.quantile(arr, 0.25)),
+                     float(np.quantile(arr, 0.75)), float(np.quantile(arr, 0.90)))
+    return bars, sorted_scores
+
+
+def _tier_of(pts, bars) -> Optional[str]:
+    """Bucket a score into one of _TIER_LABELS using a position's (p10,p25,p75,p90).
+    Boom = >= p90, Bust = <= p10; boundaries are deterministic and exclusive."""
+    if bars is None or pts is None:
+        return None
+    try:
+        p = float(pts)
+    except (TypeError, ValueError):
+        return None
+    if p != p:  # NaN
+        return None
+    t10, t25, t75, t90 = bars
+    if p <= t10:
+        return "Bust"
+    if p <= t25:
+        return "Lower quartile"
+    if p < t75:
+        return "Middle 50%"
+    if p < t90:
+        return "Upper quartile"
+    return "Boom"
+
+
+def _positional_percentile(pts, pos, sorted_scores) -> Optional[float]:
+    """Percentile placement (0-100, 1 dp) of a score within its position's
+    all-time active-starter distribution. N/A when the position has no reference
+    scores or the score is missing."""
+    if pos is None:
+        return None
+    arr = sorted_scores.get(str(pos).upper())
+    if arr is None or len(arr) == 0 or pts is None:
+        return None
+    try:
+        p = float(pts)
+    except (TypeError, ValueError):
+        return None
+    if p != p:
+        return None
+    return round(float(np.searchsorted(arr, p, side="right")) / len(arr) * 100.0, 1)
+
+
 def _encode_player_streaks(df: pd.DataFrame, group_col: str, order_cols: List[str],
                            played, specs: Dict[str, Any]) -> pd.DataFrame:
     """Compute terminal-encoded PLAYER streaks that SKIP non-played weeks.
@@ -1265,11 +1343,21 @@ def _preserve_na(col: str) -> bool:
     # also N/A with < 2 starts). Boom/Bust % keep a real 0 for players who did
     # start but never boomed/busted.
     if col_l in {"starter scoring volatility", "starter scoring floor", "starter scoring ceiling",
-                 "starter boom %", "starter bust %", "starter par", "starter par per game",
+                 "starter par", "starter par per game",
                  "consistency percentile", "floor percentile", "ceiling percentile",
                  "rostered scoring volatility", "rostered scoring floor", "rostered scoring ceiling",
-                 "rostered boom %", "rostered bust %",
                  "rostered consistency percentile", "rostered floor percentile", "rostered ceiling percentile"}:
+        return True
+    # Positional scoring tiers: the per-week percentile is N/A on non-played
+    # weeks; the season/all-time tier SHARES (Starter/Rostered <tier> %) are N/A
+    # for a player with no active started / played weeks, and the team "% of
+    # starters <tier>" is N/A for a team-week/period with no active starters —
+    # all distinct from a real 0.0 (played, but 0% landed in that tier).
+    _tier_w = ("boom", "bust", "lower quartile", "middle 50%", "upper quartile")
+    if (col_l == "positional scoring percentile"
+            or (col_l.endswith(" %") and (col_l.startswith("starter ") or col_l.startswith("rostered "))
+                and any(_w in col_l for _w in _tier_w))
+            or col_l.startswith("% of starters ")):
         return True
     # % of points (highest/lowest team): a player's period-total starter
     # contribution to a team's scoring. N/A when he never started over the
@@ -10675,6 +10763,58 @@ def build_all(repo_root: Path) -> None:
         except Exception as e:
             _log_exc(debug, "player_streaks", e)
 
+        # Positional scoring percentile + tier streaks. Each played week's score
+        # is placed against the all-time pooled distribution of ACTIVE starter
+        # scores for that player's position; the percentile is emitted directly
+        # and also bucketed into the 5 tiers (Bust / Lower quartile / Middle 50% /
+        # Upper quartile / Boom). Boom = top 10%, Bust = bottom 10%. Streaks come
+        # in two flavours: ROSTERED (over every played week, started or benched)
+        # and STARTER (over started weeks only). Bye / injury / suspension weeks
+        # are N/A for the percentile AND are skipped by the streaks (the run
+        # bridges across them), matching the other player_week streak columns.
+        try:
+            pw = pw.sort_values([_grp_key, "Year", "Week"]).reset_index(drop=True)
+            _tier_bars, _tier_sorted = _positional_tier_bars(pw)
+            _pos_u = pw["Position"].astype(str).str.upper().to_numpy() if "Position" in pw.columns else np.array([""] * len(pw))
+            _pts_num = pd.to_numeric(pw["Points"], errors="coerce").to_numpy()
+            _active = ~(
+                pw.get("Injury?", pd.Series(False, index=pw.index)).fillna(False).astype(bool)
+                | pw.get("Suspension?", pd.Series(False, index=pw.index)).fillna(False).astype(bool)
+                | pw.get("Bye?", pd.Series(False, index=pw.index)).fillna(False).astype(bool)
+            ).to_numpy()
+            _is_starter = (pw["Starter/Bench"].astype(str).str.lower() == "starter").to_numpy()
+            pw["Positional scoring percentile"] = [
+                _positional_percentile(v, p, _tier_sorted) if a else None
+                for v, p, a in zip(_pts_num, _pos_u, _active)
+            ]
+            _row_tier = [
+                _tier_of(v, _tier_bars.get(p)) if a else None
+                for v, p, a in zip(_pts_num, _pos_u, _active)
+            ]
+            pw["_ros_tier"] = _row_tier
+            pw["_srt_tier"] = [t if s else None for t, s in zip(_row_tier, _is_starter)]
+            # ROSTERED tier streaks: played = active weeks (started or benched).
+            _ros_specs = {
+                f"Rostered {lab.lower()} streak": (pw["_ros_tier"] == lab).to_numpy()
+                for lab in _TIER_LABELS
+            }
+            pw = _encode_player_streaks(pw, _grp_key, ["Year", "Week"], _active, _ros_specs)
+            # STARTER tier streaks: played = started AND active weeks; benched
+            # weeks bridge (are skipped) like bye weeks do.
+            _active2 = ~(
+                pw.get("Injury?", pd.Series(False, index=pw.index)).fillna(False).astype(bool)
+                | pw.get("Suspension?", pd.Series(False, index=pw.index)).fillna(False).astype(bool)
+                | pw.get("Bye?", pd.Series(False, index=pw.index)).fillna(False).astype(bool)
+            ).to_numpy()
+            _srt_played = _active2 & (pw["Starter/Bench"].astype(str).str.lower() == "starter").to_numpy()
+            _srt_specs = {
+                f"Starter {lab.lower()} streak": (pw["_srt_tier"] == lab).to_numpy()
+                for lab in _TIER_LABELS
+            }
+            pw = _encode_player_streaks(pw, _grp_key, ["Year", "Week"], _srt_played, _srt_specs)
+        except Exception as e:
+            _log_exc(debug, "player_tier_streaks", e)
+
         # Hardship engine (Phase 2 rebuild + Phase 2A refinement +
         # NFLverse-seeded baseline fix).
         #
@@ -13165,54 +13305,15 @@ def build_all(repo_root: Path) -> None:
         # game its mean. All N/A for players who never started (volatility also
         # N/A with < 2 starts).
         #
-        # Boom / Bust bars are POSITION-SCALED (per user), not a flat >=20 / <=5:
-        # each position's bar is scaled to its own scoring level so the stat is
-        # comparable across positions (a TE 5.2 is a bust; a WR needs 18 to boom).
-        # Anchored so a WR booms at 17 and a TE busts at 7, with every other
-        # position scaled from its per-season starter PPG average — the same
-        # _pos_avg_by_season baseline the other position-adjusted metrics use:
-        #   boom_bar(season, pos) = 17 * pos_avg / WR_avg   (within that season)
-        #   bust_bar(season, pos) =  7 * pos_avg / TE_avg
-        # Falls back to the flat 20 / 5 bars when a season lacks WR/TE starters.
-        _BOOM_ANCHOR, _BOOM_ANCHOR_POS = 17.0, "WR"
-        _BUST_ANCHOR, _BUST_ANCHOR_POS = 7.0, "TE"
-        _bb_map: Dict[Tuple[int, str], Tuple[float, float]] = {}
-        for _bb_yr, _bb_pa in _pos_avg_by_season.items():
-            _bb_wr = _bb_pa.get(_BOOM_ANCHOR_POS)
-            _bb_te = _bb_pa.get(_BUST_ANCHOR_POS)
-            for _bb_p, _bb_pv in _bb_pa.items():
-                _bb_map[(int(_bb_yr), str(_bb_p).upper())] = (
-                    (_BOOM_ANCHOR * _bb_pv / _bb_wr) if (_bb_pv and _bb_wr) else 20.0,
-                    (_BUST_ANCHOR * _bb_pv / _bb_te) if (_bb_pv and _bb_te) else 5.0,
-                )
-
-        def _flag_boom_bust(_df):
-            """Add per-row _boom / _bust bool columns using position-scaled bars."""
-            if _df.empty:
-                _df["_boom"] = pd.Series([], dtype=bool)
-                _df["_bust"] = pd.Series([], dtype=bool)
-                return _df
-            _yy = pd.to_numeric(_df["Year"], errors="coerce")
-            _pu = (_df["Position"].astype(str).str.upper()
-                   if "Position" in _df.columns else pd.Series("", index=_df.index))
-            _pts = pd.to_numeric(_df["Points"], errors="coerce")
-            _bars = [
-                _bb_map.get((int(_y), _p), (20.0, 5.0)) if pd.notna(_y) else (20.0, 5.0)
-                for _y, _p in zip(_yy.to_numpy(), _pu.to_numpy())
-            ]
-            _boombar = pd.Series([b for b, _ in _bars], index=_df.index)
-            _bustbar = pd.Series([s for _, s in _bars], index=_df.index)
-            _df["_boom"] = (_pts >= _boombar).to_numpy()
-            _df["_bust"] = (_pts <= _bustbar).to_numpy()
-            return _df
-
+        # Boom / Bust % (and the 3 middle tiers) are computed separately below
+        # from the per-week positional tiers (_srt_tier / _ros_tier), so this
+        # block only carries volatility / floor / ceiling / PAR.
         try:
             _newc = ["Starter scoring volatility", "Starter scoring floor", "Starter scoring ceiling",
-                     "Starter boom %", "Starter bust %", "Starter PAR", "Starter PAR per game"]
+                     "Starter PAR", "Starter PAR per game"]
             _st = pw_work[pw_work.get("Starter?") == 1].copy()
             _st["Points"] = pd.to_numeric(_st["Points"], errors="coerce")
             _st = _st.dropna(subset=["Points"])
-            _st = _flag_boom_bust(_st)
             if {"Player ID", "Year", "Week", "Position"}.issubset(_st.columns) and not _st.empty:
                 def _repl(_s):
                     _s = _s.sort_values()
@@ -13230,8 +13331,6 @@ def build_all(repo_root: Path) -> None:
                         "Starter scoring volatility": _g.std().round(2),
                         "Starter scoring floor": _g.min().round(2),
                         "Starter scoring ceiling": _g.max().round(2),
-                        "Starter boom %": (_st[_st["_boom"]].groupby(_keys)["Points"].count().reindex(_cnt.index).fillna(0) / _cnt * 100).round(1),
-                        "Starter bust %": (_st[_st["_bust"]].groupby(_keys)["Points"].count().reindex(_cnt.index).fillna(0) / _cnt * 100).round(1),
                         "Starter PAR": _src_par.groupby(_keys)["_par"].sum().round(2),
                         "Starter PAR per game": _src_par.groupby(_keys)["_par"].mean().round(2),
                     })
@@ -13289,24 +13388,20 @@ def build_all(repo_root: Path) -> None:
                 _ro["Points"] = pd.to_numeric(_ro["Points"], errors="coerce")
                 _played = ~(_flag(_ro, "Bye?") | _flag(_ro, "Injury?") | _flag(_ro, "Suspension?"))
                 _ro = _ro[_played].dropna(subset=["Points"])
-                _ro = _flag_boom_bust(_ro)
                 if {"Player ID", "Year"}.issubset(_ro.columns) and not _ro.empty:
                     def _ragg(_keys):
                         _g = _ro.groupby(_keys)["Points"]
-                        _cnt = _g.count()
                         return pd.DataFrame({
                             "Rostered scoring volatility": _g.std().round(2),
                             "Rostered scoring floor": _g.min().round(2),
                             "Rostered scoring ceiling": _g.max().round(2),
-                            "Rostered boom %": (_ro[_ro["_boom"]].groupby(_keys)["Points"].count().reindex(_cnt.index).fillna(0) / _cnt * 100).round(1),
-                            "Rostered bust %": (_ro[_ro["_bust"]].groupby(_keys)["Points"].count().reindex(_cnt.index).fillna(0) / _cnt * 100).round(1),
                         })
                     _rdy = _ragg(["Player ID", "Year"])
                     _rda = _ragg(["Player ID"])
                     _rydict = {(str(k[0]), int(k[1])): r for k, r in _rdy.iterrows()}
                     _radict = {str(k): r for k, r in _rda.iterrows()}
                     _rcols = ["Rostered scoring volatility", "Rostered scoring floor",
-                              "Rostered scoring ceiling", "Rostered boom %", "Rostered bust %"]
+                              "Rostered scoring ceiling"]
                     for _c in _rcols:
                         if not player_year.empty and {"Player ID", "Year"}.issubset(player_year.columns):
                             _yy = pd.to_numeric(player_year["Year"], errors="coerce")
@@ -13336,6 +13431,45 @@ def build_all(repo_root: Path) -> None:
                         _frame.drop(columns=["_pos"], inplace=True)
         except Exception as e:
             _log_exc(debug, "player_consistency_par", e)
+
+        # Positional-tier shares: % of a player's ACTIVE started weeks (Starter …)
+        # and ACTIVE played-while-rostered weeks (Rostered …) in each of the 5
+        # positional scoring tiers. Boom = top 10% of the position's all-time
+        # starter scores, Bust = bottom 10%; the middle three tiers split the rest
+        # by the position's quartiles (p25 / p75). The 5 shares in each context
+        # sum to ~100%. N/A for a player with no active started / played weeks.
+        try:
+            def _tier_share_df(_tcol, _prefix, _keys):
+                if _tcol not in pw_work.columns or not set(_keys).issubset(pw_work.columns):
+                    return pd.DataFrame()
+                _sub = pw_work[pw_work[_tcol].notna()]
+                if _sub.empty:
+                    return pd.DataFrame()
+                _cnt = _sub.groupby(_keys)[_tcol].size()
+                _d = {}
+                for _lab in _TIER_LABELS:
+                    _n = (_sub[_sub[_tcol] == _lab].groupby(_keys)[_tcol].size()
+                          .reindex(_cnt.index).fillna(0))
+                    _d[f"{_prefix} {_lab.lower()} %"] = (_n / _cnt * 100).round(1)
+                return pd.DataFrame(_d)
+
+            for _tcol, _prefix in (("_srt_tier", "Starter"), ("_ros_tier", "Rostered")):
+                _yd = _tier_share_df(_tcol, _prefix, ["Player ID", "Year"])
+                _ad = _tier_share_df(_tcol, _prefix, ["Player ID"])
+                _ydict = {(str(k[0]), int(k[1])): r for k, r in _yd.iterrows()} if not _yd.empty else {}
+                _adict = {str(k): r for k, r in _ad.iterrows()} if not _ad.empty else {}
+                _cols = [f"{_prefix} {_lab.lower()} %" for _lab in _TIER_LABELS]
+                for _c in _cols:
+                    if not player_year.empty and {"Player ID", "Year"}.issubset(player_year.columns):
+                        _yy = pd.to_numeric(player_year["Year"], errors="coerce")
+                        player_year[_c] = [
+                            (_ydict[(str(p), int(y))][_c] if (pd.notna(y) and (str(p), int(y)) in _ydict) else None)
+                            for p, y in zip(player_year["Player ID"], _yy)
+                        ]
+                    if not player_all.empty and "Player ID" in player_all.columns:
+                        player_all[_c] = [(_adict[str(p)][_c] if str(p) in _adict else None) for p in player_all["Player ID"]]
+        except Exception as e:
+            _log_exc(debug, "player_tier_shares", e)
 
     # 3-year roster retention rate (improvement #16): of a team's WEEK-1 roster in
     # year Y, the fraction still on that team's WEEK-1 roster in year Y+3. Rate
@@ -15040,6 +15174,43 @@ def build_all(repo_root: Path) -> None:
             team_all["Startup draft players remaining"] = _vals
     except Exception as e:
         _log_exc(debug, "team_all_startup_remaining", e)
+
+    # Positional-tier shares for team sheets: % of a team's ACTIVE starters
+    # (team_week = that week; team_year = pooled over the season; team_all_time =
+    # pooled all-time) whose score fell in each of the 5 positional scoring tiers.
+    # Uses the same per-week starter tiers as the player sheets (_srt_tier on pw:
+    # non-null only for active started weeks). Bye / injury / suspension starts
+    # are excluded (no real score).
+    try:
+        if "_srt_tier" in pw.columns:
+            _tp = pw[pw["_srt_tier"].notna()].dropna(subset=["Team", "Year"]).copy()
+            _tcols = [f"% of starters {_lab.lower()}" for _lab in _TIER_LABELS]
+
+            def _team_tier_shares(_keys):
+                if _tp.empty or not set(_keys).issubset(_tp.columns):
+                    return pd.DataFrame()
+                _cnt = _tp.groupby(_keys)["_srt_tier"].size()
+                _d = {}
+                for _lab in _TIER_LABELS:
+                    _n = (_tp[_tp["_srt_tier"] == _lab].groupby(_keys)["_srt_tier"].size()
+                          .reindex(_cnt.index).fillna(0))
+                    _d[f"% of starters {_lab.lower()}"] = (_n / _cnt * 100).round(1)
+                return pd.DataFrame(_d).reset_index()
+
+            _tw_sh = _team_tier_shares(["Team", "Year", "Week"])
+            _ty_sh = _team_tier_shares(["Team", "Year"])
+            _ta_sh = _team_tier_shares(["Team"])
+            if not _tw_sh.empty and isinstance(tw, pd.DataFrame) and not tw.empty:
+                tw = tw.drop(columns=[c for c in _tcols if c in tw.columns], errors="ignore")
+                tw = tw.merge(_tw_sh, on=["Team", "Year", "Week"], how="left")
+            if not _ty_sh.empty and isinstance(team_year, pd.DataFrame) and not team_year.empty:
+                team_year = team_year.drop(columns=[c for c in _tcols if c in team_year.columns], errors="ignore")
+                team_year = team_year.merge(_ty_sh, on=["Team", "Year"], how="left")
+            if not _ta_sh.empty and isinstance(team_all, pd.DataFrame) and not team_all.empty:
+                team_all = team_all.drop(columns=[c for c in _tcols if c in team_all.columns], errors="ignore")
+                team_all = team_all.merge(_ta_sh, on=["Team"], how="left")
+    except Exception as e:
+        _log_exc(debug, "team_tier_shares", e)
 
     # League rollups
     # League-wide unique extras (Phase 5B item 2): rookies and NFL-team counts
