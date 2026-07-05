@@ -9,9 +9,26 @@
 
 **3-part audit (MANDATORY after every PR):**
 
+> **Build source (MANDATORY — do NOT get this wrong):** the audit ALWAYS uses the
+> real **GitHub Actions build artifacts** — the `LOTG_outputs` artifact from the
+> post-merge build run vs. the artifact from the specified baseline run (e.g.
+> "diff against 412" = CI run #412's artifact). **NEVER run `scripts/offline_build.py`
+> as the audit source of truth.** The offline build targets a different config
+> (2025 league, `min_season 2019`/`max_season 2025`, KTC unreachable → N/A) and
+> different data than the live CI build, so its CSVs do not match the shipped
+> outputs and cannot validate them. `offline_build.py` is only a local dev
+> smoke-test that the code executes — it is not an audit input.
+>
+> If the CI artifacts can't be downloaded in-session (e.g. raw GitHub artifact
+> API returns "GitHub access is not enabled for this session — an org admin must
+> connect the Claude GitHub App", and the GitHub MCP exposes no artifact-download
+> tool), **report the blocker and request the artifacts** (or ask an admin to
+> connect the app / have the workflow commit exports) — do NOT substitute a local
+> offline build.
+
 1. **Code-based audit** — build runs cleanly, expected columns exist, schema matches, no errors in build_debug.log.
 2. **Results-based audit** — for each change in the PR spec, derive **≥5 concrete verification cases** that the spec was actually implemented correctly. e.g. spec says "Last team uses fantasy year, in-season only" → find a player whose 2024 offseason trade should NOT override their 2023 Last team, and verify the cell holds the season-ending team. Cases must come from the change spec — not from comparing to the prior build.
-3. **Diff-based audit** — diff sweep against previous build's CSVs (sorted by canonical keys) to confirm nothing *else* changed. Flag any non-intended sheet/column diff as UNEXPECTED.
+3. **Diff-based audit** — diff sweep of the post-merge CI build's CSVs against the baseline CI run's CSVs (sorted by canonical keys) to confirm nothing *else* changed. Flag any non-intended sheet/column diff as UNEXPECTED.
 
 When the results-based audit surfaces a bug, log it but continue to the diff sweep — fix all bugs together in a follow-up PR rather than serially.
 
