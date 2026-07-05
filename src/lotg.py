@@ -13158,17 +13158,61 @@ def build_all(repo_root: Path) -> None:
         # ----- PR C: player consistency + PAR (player_year + player_all_time) -----
         # Over STARTED weeks only. Volatility = std of started-week points; floor /
         # ceiling = min / max started-week points ever; Boom % / Bust % = share of
-        # starts >= 20 / <= 5. PAR = points above positional replacement, where the
-        # replacement for (year, week, position) = mean of the BOTTOM THIRD of that
-        # week's started scores at the position (the "last startable" tier); PAR is
-        # the season/all-time total, PAR per game its mean. All N/A for players who
-        # never started (volatility also N/A with < 2 starts).
+        # starts over/under position-scaled bars (see below). PAR = points above
+        # positional replacement, where the replacement for (year, week, position)
+        # = mean of the BOTTOM THIRD of that week's started scores at the position
+        # (the "last startable" tier); PAR is the season/all-time total, PAR per
+        # game its mean. All N/A for players who never started (volatility also
+        # N/A with < 2 starts).
+        #
+        # Boom / Bust bars are POSITION-SCALED (per user), not a flat >=20 / <=5:
+        # each position's bar is scaled to its own scoring level so the stat is
+        # comparable across positions (a TE 5.2 is a bust; a WR needs 18 to boom).
+        # Anchored so a WR booms at 17 and a TE busts at 7, with every other
+        # position scaled from its per-season starter PPG average — the same
+        # _pos_avg_by_season baseline the other position-adjusted metrics use:
+        #   boom_bar(season, pos) = 17 * pos_avg / WR_avg   (within that season)
+        #   bust_bar(season, pos) =  7 * pos_avg / TE_avg
+        # Falls back to the flat 20 / 5 bars when a season lacks WR/TE starters.
+        _BOOM_ANCHOR, _BOOM_ANCHOR_POS = 17.0, "WR"
+        _BUST_ANCHOR, _BUST_ANCHOR_POS = 7.0, "TE"
+        _bb_map: Dict[Tuple[int, str], Tuple[float, float]] = {}
+        for _bb_yr, _bb_pa in _pos_avg_by_season.items():
+            _bb_wr = _bb_pa.get(_BOOM_ANCHOR_POS)
+            _bb_te = _bb_pa.get(_BUST_ANCHOR_POS)
+            for _bb_p, _bb_pv in _bb_pa.items():
+                _bb_map[(int(_bb_yr), str(_bb_p).upper())] = (
+                    (_BOOM_ANCHOR * _bb_pv / _bb_wr) if (_bb_pv and _bb_wr) else 20.0,
+                    (_BUST_ANCHOR * _bb_pv / _bb_te) if (_bb_pv and _bb_te) else 5.0,
+                )
+
+        def _flag_boom_bust(_df):
+            """Add per-row _boom / _bust bool columns using position-scaled bars."""
+            if _df.empty:
+                _df["_boom"] = pd.Series([], dtype=bool)
+                _df["_bust"] = pd.Series([], dtype=bool)
+                return _df
+            _yy = pd.to_numeric(_df["Year"], errors="coerce")
+            _pu = (_df["Position"].astype(str).str.upper()
+                   if "Position" in _df.columns else pd.Series("", index=_df.index))
+            _pts = pd.to_numeric(_df["Points"], errors="coerce")
+            _bars = [
+                _bb_map.get((int(_y), _p), (20.0, 5.0)) if pd.notna(_y) else (20.0, 5.0)
+                for _y, _p in zip(_yy.to_numpy(), _pu.to_numpy())
+            ]
+            _boombar = pd.Series([b for b, _ in _bars], index=_df.index)
+            _bustbar = pd.Series([s for _, s in _bars], index=_df.index)
+            _df["_boom"] = (_pts >= _boombar).to_numpy()
+            _df["_bust"] = (_pts <= _bustbar).to_numpy()
+            return _df
+
         try:
             _newc = ["Starter scoring volatility", "Starter scoring floor", "Starter scoring ceiling",
                      "Starter boom %", "Starter bust %", "Starter PAR", "Starter PAR per game"]
             _st = pw_work[pw_work.get("Starter?") == 1].copy()
             _st["Points"] = pd.to_numeric(_st["Points"], errors="coerce")
             _st = _st.dropna(subset=["Points"])
+            _st = _flag_boom_bust(_st)
             if {"Player ID", "Year", "Week", "Position"}.issubset(_st.columns) and not _st.empty:
                 def _repl(_s):
                     _s = _s.sort_values()
@@ -13186,8 +13230,8 @@ def build_all(repo_root: Path) -> None:
                         "Starter scoring volatility": _g.std().round(2),
                         "Starter scoring floor": _g.min().round(2),
                         "Starter scoring ceiling": _g.max().round(2),
-                        "Starter boom %": (_st[_st["Points"] >= 20].groupby(_keys)["Points"].count().reindex(_cnt.index).fillna(0) / _cnt * 100).round(1),
-                        "Starter bust %": (_st[_st["Points"] <= 5].groupby(_keys)["Points"].count().reindex(_cnt.index).fillna(0) / _cnt * 100).round(1),
+                        "Starter boom %": (_st[_st["_boom"]].groupby(_keys)["Points"].count().reindex(_cnt.index).fillna(0) / _cnt * 100).round(1),
+                        "Starter bust %": (_st[_st["_bust"]].groupby(_keys)["Points"].count().reindex(_cnt.index).fillna(0) / _cnt * 100).round(1),
                         "Starter PAR": _src_par.groupby(_keys)["_par"].sum().round(2),
                         "Starter PAR per game": _src_par.groupby(_keys)["_par"].mean().round(2),
                     })
@@ -13245,6 +13289,7 @@ def build_all(repo_root: Path) -> None:
                 _ro["Points"] = pd.to_numeric(_ro["Points"], errors="coerce")
                 _played = ~(_flag(_ro, "Bye?") | _flag(_ro, "Injury?") | _flag(_ro, "Suspension?"))
                 _ro = _ro[_played].dropna(subset=["Points"])
+                _ro = _flag_boom_bust(_ro)
                 if {"Player ID", "Year"}.issubset(_ro.columns) and not _ro.empty:
                     def _ragg(_keys):
                         _g = _ro.groupby(_keys)["Points"]
@@ -13253,8 +13298,8 @@ def build_all(repo_root: Path) -> None:
                             "Rostered scoring volatility": _g.std().round(2),
                             "Rostered scoring floor": _g.min().round(2),
                             "Rostered scoring ceiling": _g.max().round(2),
-                            "Rostered boom %": (_ro[_ro["Points"] >= 20].groupby(_keys)["Points"].count().reindex(_cnt.index).fillna(0) / _cnt * 100).round(1),
-                            "Rostered bust %": (_ro[_ro["Points"] <= 5].groupby(_keys)["Points"].count().reindex(_cnt.index).fillna(0) / _cnt * 100).round(1),
+                            "Rostered boom %": (_ro[_ro["_boom"]].groupby(_keys)["Points"].count().reindex(_cnt.index).fillna(0) / _cnt * 100).round(1),
+                            "Rostered bust %": (_ro[_ro["_bust"]].groupby(_keys)["Points"].count().reindex(_cnt.index).fillna(0) / _cnt * 100).round(1),
                         })
                     _rdy = _ragg(["Player ID", "Year"])
                     _rda = _ragg(["Player ID"])
