@@ -1271,6 +1271,13 @@ def _preserve_na(col: str) -> bool:
                  "rostered boom %", "rostered bust %",
                  "rostered consistency percentile", "rostered floor percentile", "rostered ceiling percentile"}:
         return True
+    # % of points (highest/lowest team): a player's period-total starter
+    # contribution to a team's scoring. N/A when he never started over the
+    # period (no team to take a share of) — distinct from a real 0.0 (started
+    # but scored 0). The companion "Team for ..." text cell is already blank
+    # for these; without this the numeric share re-zeroes to 0.0.
+    if col_l in {"% of points (highest team)", "% of points (lowest team)"}:
+        return True
     # Phase 12 fix #3: role-split scoring averages are N/A (not 0) when the
     # player never started / never benched / never played that period.
     if col_l in {"ppg starter", "ppg bench", "adjusted ppg starter", "adjusted ppg bench",
@@ -10432,12 +10439,22 @@ def build_all(repo_root: Path) -> None:
 
         active = ~pw[["Injury?", "Suspension?", "Bye?"]].fillna(False).any(axis=1)
 
+        # All four weekly-difference columns below are only meaningful on a week
+        # the player actually PLAYED. A bye / injury / suspension week reads
+        # Points = 0 purely because he didn't play, so emitting "0 − prior" there
+        # produces a phantom drop (e.g. a multi-week injury shows the SAME big
+        # negative change every week). Those non-played weeks are N/A: they don't
+        # feed the running baseline (already active-only below) AND they don't
+        # carry a change of their own. The next played week still bridges across
+        # them via last_active_pts / the active-only window.
+
         # Change from previous active week (bench weeks count if active)
         last_active_pts: Dict[str, float] = {}
         out_prev = []
         for i, row in pw.iterrows():
             k = row["Player"]
-            out_prev.append((float(row["Points"]) - last_active_pts[k]) if k in last_active_pts else None)
+            out_prev.append((float(row["Points"]) - last_active_pts[k])
+                            if (bool(active.iloc[i]) and k in last_active_pts) else None)
             if bool(active.iloc[i]):
                 last_active_pts[k] = float(row["Points"])
         pw["Change from previous week"] = out_prev
@@ -10448,7 +10465,8 @@ def build_all(repo_root: Path) -> None:
         for i, row in pw.iterrows():
             k = row["Player"]
             q = windows[k]
-            out_prev5.append((float(row["Points"]) - (sum(q) / 5)) if len(q) == 5 else None)
+            out_prev5.append((float(row["Points"]) - (sum(q) / 5))
+                             if (bool(active.iloc[i]) and len(q) == 5) else None)
             if bool(active.iloc[i]):
                 q.append(float(row["Points"]))
         pw["Change from previous 5 weeks avg"] = out_prev5
@@ -10459,16 +10477,19 @@ def build_all(repo_root: Path) -> None:
         out_cavg = []
         for i, row in pw.iterrows():
             k = row["Player"]
-            out_cavg.append((float(row["Points"]) - (sums[k] / counts[k])) if counts[k] > 0 else None)
+            out_cavg.append((float(row["Points"]) - (sums[k] / counts[k]))
+                            if (bool(active.iloc[i]) and counts[k] > 0) else None)
             if bool(active.iloc[i]):
                 sums[k] += float(row["Points"])
                 counts[k] += 1
         pw["Change from career average to that point"] = out_cavg
 
-        # Overall career avg (active weeks only)
+        # Overall career avg (active weeks only); N/A on non-played weeks.
         try:
             full_avg = pw.loc[active].groupby("Player")["Points"].mean()
-            pw["Change from overall career average"] = pw["Points"] - pw["Player"].map(full_avg)
+            pw["Change from overall career average"] = (
+                (pw["Points"] - pw["Player"].map(full_avg)).where(active)
+            )
         except Exception as e:
             _log_exc(repo_root / "exports/raw/build_debug.log", "overall_career_avg", e)
             pw["Change from overall career average"] = None
@@ -12390,11 +12411,27 @@ def build_all(repo_root: Path) -> None:
                 return None
         py["Change in points from career"] = py.apply(_change_pts_career, axis=1)
 
+        # "Change in avg points from career" (per user): ALL NFLverse data —
+        # this season's full-NFL-season per-game average minus the player's
+        # prior-career per-game average. Both sides span every ACTIVE week of the
+        # player's real NFL season / career, not just weeks he was rostered here;
+        # bye / injury / suspension weeks are naturally excluded (a week he didn't
+        # play has no NFLverse game record, so it's out of both numerator and
+        # denominator). Guard: a season with only a single game is too small a
+        # sample for the per-game comparison — one big game would read as a huge
+        # jump over the career average — so require at least 2 NFL games in the
+        # season; below that it is N/A. (The season TOTAL "Change in points from
+        # career" stays full-season and is NOT guarded: a short season
+        # legitimately produced fewer total points.)
+        _MIN_SEASON_GAMES_FOR_CAREER_AVG_DIFF = 2
+
         def _change_avg_career(r):
             pid_s = str(r.get("Player ID"))
             try:
                 yr_i = int(r.get("Year"))
             except Exception:
+                return None
+            if nfl_full_season_games.get((pid_s, yr_i), 0) < _MIN_SEASON_GAMES_FOR_CAREER_AVG_DIFF:
                 return None
             pre_pts = nfl_career_points_before.get((pid_s, yr_i))
             pre_g = nfl_career_games_before.get((pid_s, yr_i), 0)
