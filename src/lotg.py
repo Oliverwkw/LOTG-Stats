@@ -853,6 +853,24 @@ def _col_topic(col: str) -> str:
     return "Identity"
 
 
+# Per-(player, team) tenure metrics are TERMINAL-ENCODED like the streak
+# columns (a value on the tenure's last week, "In Progress" before). They need
+# the same xlsx re-typing so the numbers sort above the "In Progress" text.
+_TERMINAL_TEAM_TENURE_BASES = (
+    "total weeks as team starter", "weeks rostered by this team",
+    "% of starts on team", "% of team points on team",
+    "total points as team starter", "ppg as team starter",
+    "total times highest starter on team", "total times lowest starter on team",
+)
+
+
+def _is_terminal_team_col(col: str) -> bool:
+    n = re.sub(r"\s+", " ", str(col).strip().lower())
+    if n.endswith(" this season"):
+        n = n[: -len(" this season")]
+    return n in _TERMINAL_TEAM_TENURE_BASES
+
+
 def _col_number_format(col: str) -> Optional[str]:
     """Excel number format for a column (Phase 11E): uniform 2 decimals, NO
     thousands commas, on all value/stat/percent columns. Counts, streaks and
@@ -865,7 +883,10 @@ def _col_number_format(col: str) -> Optional[str]:
     if (n.startswith("number of ") or n.startswith("times ") or n.startswith("times as ")
             or n.startswith("most number of ") or n.startswith("weeks ")
             or n.endswith("streak") or n == "championships" or n == "upst"
-            or "number of teams" in n):
+            or "number of teams" in n
+            or n.startswith("total weeks as team starter")
+            or n.startswith("total times highest starter on team")
+            or n.startswith("total times lowest starter on team")):
         return "0"
     # Percent columns that are stored 0-100 (NOT fractions) -> show with a "%"
     # literal and no x100. (boom/bust % are computed as *100 in the player sheets;
@@ -879,7 +900,8 @@ def _col_number_format(col: str) -> Optional[str]:
         return '0.00"%"'
     # Percent columns stored 0-1 -> Excel percent (x100).
     if (n.endswith("%") or n.startswith("win % vs ") or "win %" in n or n == "efficiency"
-            or "% of points" in n or "% of starts" in n or "all-play win" in n
+            or "% of points" in n or "% of team points" in n or "% of starts" in n
+            or "all-play win" in n
             or n in ("highest win % vs a team", "lowest win % vs a team")):
         return "0.00%"
     # Everything else numeric (PPG, points, PF, PAR, KTC, addition value, Luck,
@@ -2352,7 +2374,8 @@ def build_all(repo_root: Path) -> None:
                 # dataset-wide empty convention — no literal "N/A").
                 for _scol in d.columns:
                     _cl = str(_scol)
-                    if not (_cl.endswith(" streak") or _cl == "Win streak vs this opponent"):
+                    if not (_cl.endswith(" streak") or _cl == "Win streak vs this opponent"
+                            or _is_terminal_team_col(_cl)):
                         continue
                     def _streak_cell(v: Any) -> Any:
                         s = str(v).strip()
@@ -10765,6 +10788,77 @@ def build_all(repo_root: Path) -> None:
                 )
 
         pw[award_cols] = pw[award_cols].fillna(0)
+
+        # ------------------------------------------------------------------
+        # Per-(player, team) tenure metrics — TERMINAL-ENCODED so each tenure's
+        # total shows exactly once, on the player's most-recent week for that
+        # team; every earlier week on that team reads "In Progress". A
+        # descending sort then surfaces the best per-team tenures, letting ONE
+        # player rank once PER TEAM — something player_all_time (one row per
+        # player) cannot express. Each metric has a lifetime (per team) and a
+        # season (per team, per year) variant. Undefined tenures (e.g. PPG when
+        # the player never started for the team) read blank, not "In Progress".
+        # ------------------------------------------------------------------
+        try:
+            _pts = pd.to_numeric(pw["Points"], errors="coerce").fillna(0.0)
+            _isS = (pw["Starter/Bench"].astype(str) == "Starter").astype(float)
+            _tmp = pd.DataFrame({
+                "Team": pw["Team"].astype(str),
+                "Player": pw["Player"].astype(str),
+                "_Y": pd.to_numeric(pw["Year"], errors="coerce"),
+                "_W": pd.to_numeric(pw["Week"], errors="coerce"),
+                "_isS": _isS,
+                "_spts": _pts * _isS,
+                "_hi": pd.to_numeric(pw.get("Highest starter on team?"), errors="coerce").fillna(0.0),
+                "_lo": pd.to_numeric(pw.get("Lowest starter on team?"), errors="coerce").fillna(0.0),
+                "_one": 1.0,
+            }, index=pw.index)
+            _order = _tmp.sort_values(["_Y", "_W"])
+            _last_by_level = {
+                "L": _order.index[~_order.duplicated(["Team", "Player"], keep="last").to_numpy()],
+                "S": _order.index[~_order.duplicated(["Team", "Player", "_Y"], keep="last").to_numpy()],
+            }
+
+            def _fmt_val(v, kind):
+                if v is None or (isinstance(v, float) and pd.isna(v)):
+                    return None
+                if kind == "int":
+                    return int(round(float(v)))
+                if kind == "pct":
+                    return round(float(v), 4)   # 0-1 fraction (rendered as %)
+                return round(float(v), 2)        # points / PPG
+
+            _terminal_team_cols = []
+            for _lvl in ("L", "S"):
+                _sfx = "" if _lvl == "L" else " this season"
+                _gc = ["Team", "Player"] if _lvl == "L" else ["Team", "Player", "_Y"]
+                _g = _tmp.groupby(_gc)
+                _starts = _g["_isS"].transform("sum")
+                _rostered = _g["_one"].transform("sum")
+                _spts = _g["_spts"].transform("sum")
+                _teamden = (_tmp.groupby("Team")["_spts"].transform("sum") if _lvl == "L"
+                            else _tmp.groupby(["Team", "_Y"])["_spts"].transform("sum"))
+                _specs = [
+                    (f"Total weeks as team starter{_sfx}", _starts, "int"),
+                    (f"Weeks rostered by this team{_sfx}", _rostered, "int"),
+                    (f"% of starts on team{_sfx}", _starts / _rostered.replace(0, np.nan), "pct"),
+                    (f"% of team points on team{_sfx}", _spts / _teamden.replace(0, np.nan), "pct"),
+                    (f"Total points as team starter{_sfx}", _spts, "pts"),
+                    (f"PPG as team starter{_sfx}", _spts / _starts.replace(0, np.nan), "pts"),
+                    (f"Total times highest starter on team{_sfx}", _g["_hi"].transform("sum"), "int"),
+                    (f"Total times lowest starter on team{_sfx}", _g["_lo"].transform("sum"), "int"),
+                ]
+                _last_idx = _last_by_level[_lvl]
+                for _cn, _series, _kind in _specs:
+                    # per-group-constant value; undefined groups -> fully blank,
+                    # defined groups -> "In Progress" except the tenure's last week.
+                    _out = pd.Series("In Progress", index=pw.index, dtype=object)
+                    _out[_series.isna().to_numpy()] = None
+                    _out.loc[_last_idx] = [_fmt_val(x, _kind) for x in _series.loc[_last_idx]]
+                    pw[_cn] = _out
+                    _terminal_team_cols.append(_cn)
+        except Exception as e:
+            _log_exc(debug, "per_team_tenure_metrics", e)
 
         # Player streaks (award + point-threshold). ALL-TIME (continuous across
         # seasons) and terminal-encoded so each run lists once. Per user, these
