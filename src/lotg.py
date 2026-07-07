@@ -857,7 +857,8 @@ def _col_topic(col: str) -> str:
 # columns (a value on the tenure's last week, "In Progress" before). They need
 # the same xlsx re-typing so the numbers sort above the "In Progress" text.
 _TERMINAL_TEAM_TENURE_BASES = (
-    "total weeks as team starter", "weeks rostered by this team",
+    "total weeks as team starter", "total weeks on bench",
+    "weeks rostered by this team",
     "% of starts on team", "% of team points on team",
     "total points as team starter", "ppg as team starter",
     "total times highest starter on team", "total times lowest starter on team",
@@ -885,6 +886,7 @@ def _col_number_format(col: str) -> Optional[str]:
             or n.endswith("streak") or n == "championships" or n == "upst"
             or "number of teams" in n
             or n.startswith("total weeks as team starter")
+            or n.startswith("total weeks on bench")
             or n.startswith("total times highest starter on team")
             or n.startswith("total times lowest starter on team")):
         return "0"
@@ -900,7 +902,8 @@ def _col_number_format(col: str) -> Optional[str]:
         return '0.00"%"'
     # Percent columns stored 0-1 -> Excel percent (x100).
     if (n.endswith("%") or n.startswith("win % vs ") or "win %" in n or n == "efficiency"
-            or "% of points" in n or "% of team points" in n or "% of starts" in n
+            or "% of points" in n or "% of team points" in n or "% of league points" in n
+            or "% of starts" in n
             or "all-play win" in n
             or n in ("highest win % vs a team", "lowest win % vs a team")):
         return "0.00%"
@@ -10790,14 +10793,10 @@ def build_all(repo_root: Path) -> None:
         pw[award_cols] = pw[award_cols].fillna(0)
 
         # ------------------------------------------------------------------
-        # Per-(player, team) tenure metrics — TERMINAL-ENCODED so each tenure's
-        # total shows exactly once, on the player's most-recent week for that
-        # team; every earlier week on that team reads "In Progress". A
-        # descending sort then surfaces the best per-team tenures, letting ONE
-        # player rank once PER TEAM — something player_all_time (one row per
-        # player) cannot express. Each metric has a lifetime (per team) and a
-        # season (per team, per year) variant. Undefined tenures (e.g. PPG when
-        # the player never started for the team) read blank, not "In Progress".
+        # Per-(player, team) tenure metrics, TERMINAL-ENCODED: the total shows
+        # on the player's last week for that team, "In Progress" before, so a
+        # sort ranks each player-team tenure once. Lifetime + per-season
+        # variants; undefined tenures (e.g. PPG with no starts) read blank.
         # ------------------------------------------------------------------
         try:
             _pts = pd.to_numeric(pw["Points"], errors="coerce").fillna(0.0)
@@ -10840,6 +10839,7 @@ def build_all(repo_root: Path) -> None:
                             else _tmp.groupby(["Team", "_Y"])["_spts"].transform("sum"))
                 _specs = [
                     (f"Total weeks as team starter{_sfx}", _starts, "int"),
+                    (f"Total weeks on bench{_sfx}", _rostered - _starts, "int"),
                     (f"Weeks rostered by this team{_sfx}", _rostered, "int"),
                     (f"% of starts on team{_sfx}", _starts / _rostered.replace(0, np.nan), "pct"),
                     (f"% of team points on team{_sfx}", _spts / _teamden.replace(0, np.nan), "pct"),
@@ -12486,6 +12486,17 @@ def build_all(repo_root: Path) -> None:
             if r["Weeks_as_bench"] else None,
             axis=1,
         )
+        # Non-team tenure aggregates (season). %s are of the FULL LEAGUE's
+        # starter scoring; rostered weeks = started + benched.
+        _league_spts_yr = pw_work.groupby("Year")["_starter_points"].sum()
+        _ros_y = py_base["Weeks_as_starter"] + py_base["Weeks_as_bench"]
+        py_base["Weeks on bench"] = py_base["Weeks_as_bench"]
+        py_base["Weeks rostered"] = _ros_y
+        py_base["% of starts"] = (py_base["Weeks_as_starter"] / _ros_y.replace(0, np.nan)).round(4)
+        py_base["Total points as starter"] = py_base["Starter_points_sum"].round(2)
+        py_base["% of league points"] = (
+            py_base["Starter_points_sum"] / py_base["Year"].map(_league_spts_yr).replace(0, np.nan)
+        ).round(4)
         # Adjusted variants (Phase 1C): bye/injury/suspension excluded.
         py_base["Adjusted Avg points"] = py_base.apply(
             lambda r: round(r["Played_points"] / r["Played_weeks"], 4)
@@ -13096,6 +13107,15 @@ def build_all(repo_root: Path) -> None:
             lambda r: round(r["Starter_points_sum"] / r["Weeks_as_starter"], 4)
             if r["Weeks_as_starter"] else None,
             axis=1,
+        )
+        _league_spts_all = float(pw_work["_starter_points"].sum())
+        _ros_a = pa["Weeks_as_starter"] + pa["Weeks_as_bench"]
+        pa["Weeks on bench"] = pa["Weeks_as_bench"]
+        pa["Weeks rostered"] = _ros_a
+        pa["% of starts"] = (pa["Weeks_as_starter"] / _ros_a.replace(0, np.nan)).round(4)
+        pa["Total points as starter"] = pa["Starter_points_sum"].round(2)
+        pa["% of league points"] = (
+            (pa["Starter_points_sum"] / _league_spts_all).round(4) if _league_spts_all else None
         )
         pa["PPG bench"] = pa.apply(
             lambda r: round(r["Bench_points_sum"] / r["Weeks_as_bench"], 4)
