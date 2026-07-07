@@ -2243,6 +2243,24 @@ def build_all(repo_root: Path) -> None:
                 out = _blank_pre_season_year_stats(out, plan_key, started_seasons)
             except Exception as e:
                 _log_exc(debug, f"blank_pre_season_{fname}", e)
+            # Standardize the "not applicable" sentinel dataset-wide: emit an
+            # empty cell (blank) rather than a mix of literal "N/A" and blank.
+            # Whole-cell "N/A" sentinels become blank; the two ';'-joined
+            # per-asset link columns additionally get their INNER "N/A" tokens
+            # blanked (list positions preserved via the "; " join) so no
+            # literal "N/A" survives anywhere in the export.
+            try:
+                for _lc in ("Link to next transaction per asset",
+                            "Link to previous transaction per asset"):
+                    if _lc in out.columns:
+                        out[_lc] = out[_lc].map(
+                            lambda v: "; ".join(
+                                "" if t.strip() == "N/A" else t
+                                for t in str(v).split("; "))
+                            if (isinstance(v, str) and "N/A" in v) else v)
+                out = out.replace("N/A", "")
+            except Exception as e:
+                _log_exc(debug, f"blank_na_sentinel_{fname}", e)
             out.to_csv(out_dir / fname, index=False)
 
         try:
@@ -2326,23 +2344,23 @@ def build_all(repo_root: Path) -> None:
 
                 # Terminal-encoded streak columns hold a mix of integers (a
                 # run's length on its final week), the text "In Progress", and
-                # 0 / "N/A". read_csv types the whole column as text, so the
+                # 0 / blank. read_csv types the whole column as text, so the
                 # xlsx would store the lengths as strings and they wouldn't sort
                 # numerically (breaking the top-N longest-streak use case).
-                # Re-type each cell: numbers -> int, keep "In Progress"/"N/A".
+                # Re-type each cell: numbers -> int, keep "In Progress", and
+                # render skipped/not-applicable weeks as a blank cell (the
+                # dataset-wide empty convention — no literal "N/A").
                 for _scol in d.columns:
                     _cl = str(_scol)
                     if not (_cl.endswith(" streak") or _cl == "Win streak vs this opponent"):
                         continue
                     def _streak_cell(v: Any) -> Any:
                         s = str(v).strip()
-                        if s in ("In Progress", "N/A"):
+                        if s == "In Progress":
                             return s
-                        # Blank/NaN only arises for season-grain streaks in a
-                        # not-yet-played season (read_csv turns the CSV's "N/A"
-                        # into NaN); surface it as "N/A" to match the sheet.
-                        if s in ("", "nan", "None"):
-                            return "N/A"
+                        # Blank / NaN / any stray "N/A" -> empty cell.
+                        if s in ("", "nan", "None", "N/A"):
+                            return None
                         try:
                             f = float(s)
                             return int(f) if f == int(f) else f
