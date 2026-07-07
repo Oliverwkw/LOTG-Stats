@@ -50,7 +50,7 @@
       "teams": 8
     },
     "sport": "nfl",
-    "start_time": null,
+    "start_time": 1783886400000,
     "status": "pre_draft",
     "type": "linear",
     "slot_to_roster_id": {
