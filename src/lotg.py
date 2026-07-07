@@ -11810,7 +11810,7 @@ def build_all(repo_root: Path) -> None:
             # of the prior season (≈ championship week).
             prev_pf = None
             _aw = {_sc: 0 for _fc, _sc in _team_award_streaks}  # all-time award counters
-            _bot = _pf150 = _lead = _quiet = 0  # all-time dedicated counters
+            _bot = _pf150 = _quiet = 0  # all-time dedicated counters
             _rival: Dict[str, int] = {}  # opponent -> consecutive H2H wins
             for idx, row in g.sort_values(["Year", "Week"]).iterrows():
                 if current_year != row["Year"]:
@@ -11855,16 +11855,9 @@ def build_all(repo_root: Path) -> None:
                 _pf150 = (_pf150 + 1) if (pd.notna(_pf) and float(_pf) >= 150) else 0
                 tw.loc[idx, "150+ PF streak"] = _pf150
 
-                # Standings leader: defined only on regular-season weeks; on
-                # playoff weeks hold the value steady rather than break it.
-                _yk = pd.to_numeric(pd.Series([row.get("Year")]), errors="coerce").iloc[0]
-                _wk = pd.to_numeric(pd.Series([row.get("Week")]), errors="coerce").iloc[0]
-                _ps = playoff_start_by_season.get(int(_yk)) if pd.notna(_yk) else None
-                _is_reg = (_ps is None) or (pd.notna(_wk) and _wk < _ps)
-                if _is_reg:
-                    _is_lead = pd.notna(_yk) and pd.notna(_wk) and (int(_yk), int(_wk), str(team)) in _leader_set
-                    _lead = (_lead + 1) if _is_lead else 0
-                tw.loc[idx, "Standings leader streak"] = _lead
+                # (Standings leader streak is computed separately below — it
+                # SKIPS playoff weeks rather than holding a value through them,
+                # so the terminal encoding lists each run exactly once.)
 
                 _ntx = pd.to_numeric(pd.Series([row.get("Number of transactions")]), errors="coerce").iloc[0]
                 _ntr = pd.to_numeric(pd.Series([row.get("Number of trades")]), errors="coerce").iloc[0]
@@ -11892,11 +11885,38 @@ def build_all(repo_root: Path) -> None:
         # Win/Loss streaks are intentionally left as running counts.
         try:
             _non_rival = [_sc for _fc, _sc in _team_award_streaks] + \
-                         ["Bottom half streak", "150+ PF streak", "Standings leader streak", "Quiet streak"]
+                         ["Bottom half streak", "150+ PF streak", "Quiet streak"]
             tw = _terminalize_streaks(tw, ["Team"], ["Year", "Week"], _non_rival)
             tw = _terminalize_streaks(tw, ["Team", "Opponent"], ["Year", "Week"], ["Win streak vs this opponent"])
         except Exception as e:
             _log_exc(debug, "team_week_terminalize", e)
+
+        # Standings leader streak: consecutive weeks this team sat at #1 in the
+        # regular-season standings. Leadership is only defined on regular-season
+        # weeks, so playoff weeks are SKIPPED (they bridge a run rather than
+        # break it) and read 'N/A' — exactly the player-streak "skip a bye"
+        # model. Holding a flat value through the playoffs instead (the old
+        # behaviour) made the terminal encoder emit the run's length on every
+        # held week, duplicating each streak. All-time: bridges the offseason
+        # like the other team streaks.
+        try:
+            tw = tw.sort_values(["Team", "Year", "Week"]).reset_index(drop=True)
+            _yv = pd.to_numeric(tw["Year"], errors="coerce")
+            _wv = pd.to_numeric(tw["Week"], errors="coerce")
+            _reg_mask: List[bool] = []
+            _lead_q: List[bool] = []
+            for _y, _w, _tm in zip(_yv, _wv, tw["Team"].astype(str)):
+                _ps = playoff_start_by_season.get(int(_y)) if pd.notna(_y) else None
+                _is_reg = (_ps is None) or (pd.notna(_w) and _w < _ps)
+                _reg_mask.append(bool(_is_reg))
+                _lead_q.append(bool(_is_reg and pd.notna(_y) and pd.notna(_w)
+                                    and (int(_y), int(_w), _tm) in _leader_set))
+            tw = _encode_player_streaks(
+                tw, "Team", ["Year", "Week"],
+                np.asarray(_reg_mask, dtype=bool),
+                {"Standings leader streak": np.asarray(_lead_q, dtype=bool)})
+        except Exception as e:
+            _log_exc(debug, "standings_leader_streak", e)
 
     # --------------------------
     # Distinct trade events split into Offseason / Inseason / Total (user
