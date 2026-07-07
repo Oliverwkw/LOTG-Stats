@@ -2243,6 +2243,24 @@ def build_all(repo_root: Path) -> None:
                 out = _blank_pre_season_year_stats(out, plan_key, started_seasons)
             except Exception as e:
                 _log_exc(debug, f"blank_pre_season_{fname}", e)
+            # Standardize the "not applicable" sentinel dataset-wide: emit an
+            # empty cell (blank) rather than a mix of literal "N/A" and blank.
+            # Whole-cell "N/A" sentinels become blank; the two ';'-joined
+            # per-asset link columns additionally get their INNER "N/A" tokens
+            # blanked (list positions preserved via the "; " join) so no
+            # literal "N/A" survives anywhere in the export.
+            try:
+                for _lc in ("Link to next transaction per asset",
+                            "Link to previous transaction per asset"):
+                    if _lc in out.columns:
+                        out[_lc] = out[_lc].map(
+                            lambda v: "; ".join(
+                                "" if t.strip() == "N/A" else t
+                                for t in str(v).split("; "))
+                            if (isinstance(v, str) and "N/A" in v) else v)
+                out = out.replace("N/A", "")
+            except Exception as e:
+                _log_exc(debug, f"blank_na_sentinel_{fname}", e)
             out.to_csv(out_dir / fname, index=False)
 
         try:
@@ -2326,23 +2344,23 @@ def build_all(repo_root: Path) -> None:
 
                 # Terminal-encoded streak columns hold a mix of integers (a
                 # run's length on its final week), the text "In Progress", and
-                # 0 / "N/A". read_csv types the whole column as text, so the
+                # 0 / blank. read_csv types the whole column as text, so the
                 # xlsx would store the lengths as strings and they wouldn't sort
                 # numerically (breaking the top-N longest-streak use case).
-                # Re-type each cell: numbers -> int, keep "In Progress"/"N/A".
+                # Re-type each cell: numbers -> int, keep "In Progress", and
+                # render skipped/not-applicable weeks as a blank cell (the
+                # dataset-wide empty convention — no literal "N/A").
                 for _scol in d.columns:
                     _cl = str(_scol)
                     if not (_cl.endswith(" streak") or _cl == "Win streak vs this opponent"):
                         continue
                     def _streak_cell(v: Any) -> Any:
                         s = str(v).strip()
-                        if s in ("In Progress", "N/A"):
+                        if s == "In Progress":
                             return s
-                        # Blank/NaN only arises for season-grain streaks in a
-                        # not-yet-played season (read_csv turns the CSV's "N/A"
-                        # into NaN); surface it as "N/A" to match the sheet.
-                        if s in ("", "nan", "None"):
-                            return "N/A"
+                        # Blank / NaN / any stray "N/A" -> empty cell.
+                        if s in ("", "nan", "None", "N/A"):
+                            return None
                         try:
                             f = float(s)
                             return int(f) if f == int(f) else f
@@ -11810,7 +11828,7 @@ def build_all(repo_root: Path) -> None:
             # of the prior season (≈ championship week).
             prev_pf = None
             _aw = {_sc: 0 for _fc, _sc in _team_award_streaks}  # all-time award counters
-            _bot = _pf150 = _lead = _quiet = 0  # all-time dedicated counters
+            _bot = _pf150 = _quiet = 0  # all-time dedicated counters
             _rival: Dict[str, int] = {}  # opponent -> consecutive H2H wins
             for idx, row in g.sort_values(["Year", "Week"]).iterrows():
                 if current_year != row["Year"]:
@@ -11855,16 +11873,9 @@ def build_all(repo_root: Path) -> None:
                 _pf150 = (_pf150 + 1) if (pd.notna(_pf) and float(_pf) >= 150) else 0
                 tw.loc[idx, "150+ PF streak"] = _pf150
 
-                # Standings leader: defined only on regular-season weeks; on
-                # playoff weeks hold the value steady rather than break it.
-                _yk = pd.to_numeric(pd.Series([row.get("Year")]), errors="coerce").iloc[0]
-                _wk = pd.to_numeric(pd.Series([row.get("Week")]), errors="coerce").iloc[0]
-                _ps = playoff_start_by_season.get(int(_yk)) if pd.notna(_yk) else None
-                _is_reg = (_ps is None) or (pd.notna(_wk) and _wk < _ps)
-                if _is_reg:
-                    _is_lead = pd.notna(_yk) and pd.notna(_wk) and (int(_yk), int(_wk), str(team)) in _leader_set
-                    _lead = (_lead + 1) if _is_lead else 0
-                tw.loc[idx, "Standings leader streak"] = _lead
+                # (Standings leader streak is computed separately below — it
+                # SKIPS playoff weeks rather than holding a value through them,
+                # so the terminal encoding lists each run exactly once.)
 
                 _ntx = pd.to_numeric(pd.Series([row.get("Number of transactions")]), errors="coerce").iloc[0]
                 _ntr = pd.to_numeric(pd.Series([row.get("Number of trades")]), errors="coerce").iloc[0]
@@ -11892,11 +11903,38 @@ def build_all(repo_root: Path) -> None:
         # Win/Loss streaks are intentionally left as running counts.
         try:
             _non_rival = [_sc for _fc, _sc in _team_award_streaks] + \
-                         ["Bottom half streak", "150+ PF streak", "Standings leader streak", "Quiet streak"]
+                         ["Bottom half streak", "150+ PF streak", "Quiet streak"]
             tw = _terminalize_streaks(tw, ["Team"], ["Year", "Week"], _non_rival)
             tw = _terminalize_streaks(tw, ["Team", "Opponent"], ["Year", "Week"], ["Win streak vs this opponent"])
         except Exception as e:
             _log_exc(debug, "team_week_terminalize", e)
+
+        # Standings leader streak: consecutive weeks this team sat at #1 in the
+        # regular-season standings. Leadership is only defined on regular-season
+        # weeks, so playoff weeks are SKIPPED (they bridge a run rather than
+        # break it) and read 'N/A' — exactly the player-streak "skip a bye"
+        # model. Holding a flat value through the playoffs instead (the old
+        # behaviour) made the terminal encoder emit the run's length on every
+        # held week, duplicating each streak. All-time: bridges the offseason
+        # like the other team streaks.
+        try:
+            tw = tw.sort_values(["Team", "Year", "Week"]).reset_index(drop=True)
+            _yv = pd.to_numeric(tw["Year"], errors="coerce")
+            _wv = pd.to_numeric(tw["Week"], errors="coerce")
+            _reg_mask: List[bool] = []
+            _lead_q: List[bool] = []
+            for _y, _w, _tm in zip(_yv, _wv, tw["Team"].astype(str)):
+                _ps = playoff_start_by_season.get(int(_y)) if pd.notna(_y) else None
+                _is_reg = (_ps is None) or (pd.notna(_w) and _w < _ps)
+                _reg_mask.append(bool(_is_reg))
+                _lead_q.append(bool(_is_reg and pd.notna(_y) and pd.notna(_w)
+                                    and (int(_y), int(_w), _tm) in _leader_set))
+            tw = _encode_player_streaks(
+                tw, "Team", ["Year", "Week"],
+                np.asarray(_reg_mask, dtype=bool),
+                {"Standings leader streak": np.asarray(_lead_q, dtype=bool)})
+        except Exception as e:
+            _log_exc(debug, "standings_leader_streak", e)
 
     # --------------------------
     # Distinct trade events split into Offseason / Inseason / Total (user
