@@ -1,12 +1,28 @@
 name: Build LOTG Stats
 
 on:
+  schedule:
+    # Weekly Tuesday 12:00 UTC (~07:00 ET) bootstrap run so the git-tracked
+    # exports/ never drifts more than ~a week stale. Phase 14 will own the
+    # canonical weekly pipeline run; the refresh step below fires on ANY
+    # schedule/dispatch of this workflow, so once that run exists it drives the
+    # same commit-back with no further change here.
+    - cron: "0 12 * * 2"
   workflow_dispatch:
     inputs:
       force_refresh_cache:
         description: "Ignore the accumulated Actions cache and rebuild from the committed .cache baseline + fresh downloads"
         type: boolean
         default: false
+
+# Needed for the "Refresh committed exports" step to push back to main.
+permissions:
+  contents: write
+
+# Never let two builds race to commit exports/ back.
+concurrency:
+  group: build-lotg-exports
+  cancel-in-progress: false
 
 jobs:
   build:
@@ -126,6 +142,47 @@ jobs:
           set -o pipefail
           pip install --no-cache-dir pytest 2>&1 | tail -n 2
           python -m pytest tests/ -v 2>&1 | tee exports/raw/pytest.log
+
+      - name: Refresh committed exports when the tracked snapshot is week-stale
+        # The build above rewrote ALL of exports/ (the snapshot replay cache +
+        # CSVs + xlsx/zip + raw dumps) from freshly-fetched live data, but CI
+        # normally discards it — so the git-tracked exports/snapshot/ that
+        # offline / build-only runs replay drifts stale (it was 3+ weeks old).
+        # On a scheduled/dispatch run of main, if the COMMITTED snapshot is >= 6
+        # days old, commit the whole refreshed tree back.
+        #
+        # Staleness is read from #344's exports/snapshot/_snapshot_meta.json
+        # captured_at, taken from the committed blob (git show HEAD:) — NOT from
+        # git log (a shallow CI checkout can't date history) and NOT from all of
+        # exports/ (a CSV-only "cloud build" refresh would mask a stale
+        # snapshot). No committed stamp yet (first run) => treated as stale. 6d
+        # (not 7) so the weekly cadence trips reliably despite timing jitter,
+        # while an ad-hoc same-week dispatch won't re-commit. main only;
+        # [skip ci] and no push trigger keep it loop-proof.
+        if: ${{ github.ref == 'refs/heads/main' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') }}
+        run: |
+          set -euo pipefail
+          committed_at="$(git show HEAD:exports/snapshot/_snapshot_meta.json 2>/dev/null \
+            | python3 -c 'import sys,json; print(json.load(sys.stdin).get("captured_at",""))' 2>/dev/null || true)"
+          if [ -n "${committed_at}" ]; then
+            age_days="$(python3 -c "import datetime as d; c=d.datetime.fromisoformat('${committed_at}'); c=c if c.tzinfo else c.replace(tzinfo=d.timezone.utc); print(int((d.datetime.now(d.timezone.utc)-c).total_seconds()//86400))" 2>/dev/null || echo 999)"
+          else
+            age_days=999   # no committed capture stamp yet -> treat as stale
+          fi
+          if [ "${age_days}" -lt 6 ]; then
+            echo "Committed snapshot is ${age_days}d old (<6d); leaving exports/ as-is."
+            exit 0
+          fi
+          echo "Committed snapshot is ${age_days}d old (>=6d); committing refreshed exports/."
+          git config user.name "lotg-exports-bot"
+          git config user.email "noreply@anthropic.com"
+          git add exports
+          if git diff --cached --quiet; then
+            echo "exports/ unchanged after rebuild; nothing to commit."
+            exit 0
+          fi
+          git commit -m "Auto-refresh week-stale committed exports (run ${{ github.run_number }}) [skip ci]"
+          git push
 
       - name: Dump debug logs on failure
         if: failure()
