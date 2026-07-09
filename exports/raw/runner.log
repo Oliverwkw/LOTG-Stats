@@ -1,0 +1,13 @@
+INFO player_week: shape=(21376, 48)
+INFO player_week: missing={'Points': 0, 'Injury?': 0, 'Suspension?': 0, 'Bye?': 0}
+INFO team_week: rows=808 zero_max_pf=0
+INFO team_week: shape=(808, 88)
+INFO team_week: missing={'PF': 0, 'Max PF': 0, 'Efficiency': 0}
+/home/runner/work/LOTG-Stats/LOTG-Stats/src/lotg.py:1265: Pandas4Warning: In a future version, the keys of `groups` will be a tuple with a single element, e.g. (Player ID,) , instead of a scalar, e.g. Player ID, when grouping by a list with a single element. Use ``df.groupby(by='a').groups`` instead of ``df.groupby(by=['a']).groups`` to avoid this warning
+  groups = df.groupby([group_col], sort=False).groups
+/home/runner/work/LOTG-Stats/LOTG-Stats/src/lotg.py:1265: Pandas4Warning: In a future version, the keys of `groups` will be a tuple with a single element, e.g. (Player ID,) , instead of a scalar, e.g. Player ID, when grouping by a list with a single element. Use ``df.groupby(by='a').groups`` instead of ``df.groupby(by=['a']).groups`` to avoid this warning
+  groups = df.groupby([group_col], sort=False).groups
+/home/runner/work/LOTG-Stats/LOTG-Stats/src/lotg.py:1265: Pandas4Warning: In a future version, the keys of `groups` will be a tuple with a single element, e.g. (Player ID,) , instead of a scalar, e.g. Player ID, when grouping by a list with a single element. Use ``df.groupby(by='a').groups`` instead of ``df.groupby(by=['a']).groups`` to avoid this warning
+  groups = df.groupby([group_col], sort=False).groups
+/home/runner/work/LOTG-Stats/LOTG-Stats/src/lotg.py:1265: Pandas4Warning: In a future version, the keys of `groups` will be a tuple with a single element, e.g. (Team,) , instead of a scalar, e.g. Team, when grouping by a list with a single element. Use ``df.groupby(by='a').groups`` instead of ``df.groupby(by=['a']).groups`` to avoid this warning
+  groups = df.groupby([group_col], sort=False).groups
