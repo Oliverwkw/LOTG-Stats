@@ -17311,8 +17311,28 @@ def main() -> None:
         if mode not in {"snapshot", "build", "both"}:
             mode = "both"
 
-        if mode in {"snapshot", "both"}:
-            from lotg_support.snapshot import snapshot_all
+        from lotg_support.snapshot import snapshot_all, snapshot_is_stale, snapshot_age_days
+
+        want_snapshot = mode in {"snapshot", "both"}
+
+        # Auto-refresh guard: never build off a stale snapshot. A build-only run
+        # that finds the committed snapshot missing or older than the max age
+        # (default 7 days) refreshes it first. Set LOTG_SNAPSHOT_MAX_AGE_DAYS<=0 to
+        # disable — the offline replay harness does this so it keeps its committed
+        # snapshot as-is.
+        if not want_snapshot:
+            try:
+                max_age_days = float(os.environ.get("LOTG_SNAPSHOT_MAX_AGE_DAYS", "7"))
+            except ValueError:
+                max_age_days = 7.0
+            if max_age_days > 0 and snapshot_is_stale(repo_root, max_age_days):
+                age = snapshot_age_days(repo_root)
+                age_str = "missing/undated" if age is None else f"{age:.1f}d old"
+                print(f"[lotg] snapshot is {age_str} (limit {max_age_days:g}d); "
+                      "auto-refreshing before build")
+                want_snapshot = True
+
+        if want_snapshot:
             try:
                 snapshot_all(repo_root, league_id=league_id, min_season=min_season, max_season=max_season)
             except Exception as e:
