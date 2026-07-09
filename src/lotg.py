@@ -17311,9 +17311,12 @@ def main() -> None:
         if mode not in {"snapshot", "build", "both"}:
             mode = "both"
 
-        from lotg_support.snapshot import snapshot_all, snapshot_is_stale, snapshot_age_days
+        from lotg_support.snapshot import (
+            snapshot_all, snapshot_is_stale, snapshot_age_days, snapshot_captured_at,
+        )
 
         want_snapshot = mode in {"snapshot", "both"}
+        auto_refreshed = False
 
         # Auto-refresh guard: never build off a stale snapshot. A build-only run
         # that finds the committed snapshot missing or older than the max age
@@ -17331,6 +17334,7 @@ def main() -> None:
                 print(f"[lotg] snapshot is {age_str} (limit {max_age_days:g}d); "
                       "auto-refreshing before build")
                 want_snapshot = True
+                auto_refreshed = True
 
         if want_snapshot:
             try:
@@ -17338,6 +17342,24 @@ def main() -> None:
             except Exception as e:
                 _fatal_log(repo_root, "snapshot_all", e)
                 raise
+
+        # Freshness observability: record the snapshot's capture stamp + the
+        # refresh decision into build_debug.log. exports/snapshot/ (and its
+        # _snapshot_meta.json) isn't part of the uploaded CI artifact and the
+        # auto-refresh notice only reaches stdout, so without this a freshness
+        # audit can't tell from the artifact when the snapshot was captured or
+        # whether the guard fired. Read AFTER the snapshot step so captured_at
+        # reflects a just-refreshed snapshot.
+        try:
+            _fresh_dbg = repo_root / "exports" / "raw" / "build_debug.log"
+            _cap = snapshot_captured_at(repo_root)
+            _age = snapshot_age_days(repo_root)
+            _log(_fresh_dbg, f"[{_now_iso()}] INFO snapshot: mode={mode} "
+                             f"captured_at={_cap.isoformat() if _cap else 'unknown'} "
+                             f"age={'unknown' if _age is None else f'{_age:.2f}d'} "
+                             f"auto_refreshed={auto_refreshed}")
+        except Exception as e:
+            _log_exc(repo_root / "exports" / "raw" / "build_debug.log", "snapshot_freshness_log", e)
 
         if mode in {"build", "both"}:
             try:
