@@ -17311,13 +17311,55 @@ def main() -> None:
         if mode not in {"snapshot", "build", "both"}:
             mode = "both"
 
-        if mode in {"snapshot", "both"}:
-            from lotg_support.snapshot import snapshot_all
+        from lotg_support.snapshot import (
+            snapshot_all, snapshot_is_stale, snapshot_age_days, snapshot_captured_at,
+        )
+
+        want_snapshot = mode in {"snapshot", "both"}
+        auto_refreshed = False
+
+        # Auto-refresh guard: never build off a stale snapshot. A build-only run
+        # that finds the committed snapshot missing or older than the max age
+        # (default 7 days) refreshes it first. Set LOTG_SNAPSHOT_MAX_AGE_DAYS<=0 to
+        # disable — the offline replay harness does this so it keeps its committed
+        # snapshot as-is.
+        if not want_snapshot:
+            try:
+                max_age_days = float(os.environ.get("LOTG_SNAPSHOT_MAX_AGE_DAYS", "7"))
+            except ValueError:
+                max_age_days = 7.0
+            if max_age_days > 0 and snapshot_is_stale(repo_root, max_age_days):
+                age = snapshot_age_days(repo_root)
+                age_str = "missing/undated" if age is None else f"{age:.1f}d old"
+                print(f"[lotg] snapshot is {age_str} (limit {max_age_days:g}d); "
+                      "auto-refreshing before build")
+                want_snapshot = True
+                auto_refreshed = True
+
+        if want_snapshot:
             try:
                 snapshot_all(repo_root, league_id=league_id, min_season=min_season, max_season=max_season)
             except Exception as e:
                 _fatal_log(repo_root, "snapshot_all", e)
                 raise
+
+        # Freshness observability: record the snapshot's capture stamp + the
+        # refresh decision into build_debug.log. exports/snapshot/ (and its
+        # _snapshot_meta.json) isn't part of the uploaded CI artifact and the
+        # auto-refresh notice only reaches stdout, so without this a freshness
+        # audit can't tell from the artifact when the snapshot was captured or
+        # whether the guard fired. Read AFTER the snapshot step so captured_at
+        # reflects a just-refreshed snapshot.
+        try:
+            _fresh_dbg = repo_root / "exports" / "raw" / "build_debug.log"
+            _cap = snapshot_captured_at(repo_root)
+            _age = snapshot_age_days(repo_root)
+            _log(_fresh_dbg, f"[{_now_iso()}] INFO snapshot: mode={mode} "
+                             f"captured_at={_cap.isoformat() if _cap else 'unknown'} "
+                             f"age={'unknown' if _age is None else f'{_age:.2f}d'} "
+                             f"auto_refreshed={auto_refreshed}")
+        except Exception as e:
+            _log_exc(repo_root / "exports" / "raw" / "build_debug.log", "snapshot_freshness_log", e)
 
         if mode in {"build", "both"}:
             try:

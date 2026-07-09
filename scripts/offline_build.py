@@ -77,6 +77,9 @@ yaml.safe_load = _patched_safe_load
 
 if __name__ == "__main__":
     os.environ["LOTG_MODE"] = "build"
+    # Replay the committed snapshot as-is; never let the staleness guard try to
+    # refresh it over the (unavailable) network.
+    os.environ["LOTG_SNAPSHOT_MAX_AGE_DAYS"] = "0"
     try:
         lotg.main()
     finally:

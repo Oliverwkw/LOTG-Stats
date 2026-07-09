@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 import json
@@ -11,6 +12,37 @@ from .sleeper import SleeperClient
 from .external import ExternalConfig, load_dynastyprocess_playerids, load_nflverse_injuries
 
 SLEEPER_BASE = "https://api.sleeper.app/v1"
+
+# Records when snapshot_all last captured live data, so a build can tell whether
+# the committed snapshot is fresh enough to build on (see snapshot_age_days).
+SNAPSHOT_META_NAME = "_snapshot_meta.json"
+
+
+def snapshot_captured_at(repo_root: Path) -> Optional[datetime]:
+    """UTC time the committed snapshot was last captured, or None if unknown."""
+    meta = repo_root / "exports" / "snapshot" / SNAPSHOT_META_NAME
+    try:
+        stamp = json.loads(meta.read_text()).get("captured_at")
+        dt = datetime.fromisoformat(stamp)
+        return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+    except Exception:
+        return None
+
+
+def snapshot_age_days(repo_root: Path, now: Optional[datetime] = None) -> Optional[float]:
+    """Age of the committed snapshot in days, or None if it has no capture stamp."""
+    captured = snapshot_captured_at(repo_root)
+    if captured is None:
+        return None
+    now = now or datetime.now(timezone.utc)
+    return (now - captured).total_seconds() / 86400.0
+
+
+def snapshot_is_stale(repo_root: Path, max_age_days: float,
+                      now: Optional[datetime] = None) -> bool:
+    """True if the snapshot is missing/undated or older than max_age_days."""
+    age = snapshot_age_days(repo_root, now=now)
+    return age is None or age > max_age_days
 
 
 def _safe_write_json(path: Path, obj: Any) -> None:
@@ -156,5 +188,11 @@ def snapshot_all(
             _safe_write_json(wk_dir / "stats_nfl.json", stats)
 
             week += 1
+
+    # Stamp the capture time last, so a partially-written snapshot isn't dated fresh.
+    _safe_write_json(
+        snapshot_dir / SNAPSHOT_META_NAME,
+        {"captured_at": datetime.now(timezone.utc).isoformat(), "league_id": str(league_id)},
+    )
 
     return snapshot_dir
