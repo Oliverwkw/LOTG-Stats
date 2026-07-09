@@ -11373,6 +11373,19 @@ def build_all(repo_root: Path) -> None:
         pw2["Starter?"] = (pw2["Starter/Bench"] == "Starter").astype(int)
         pw2["Number_of_players_injured_or_suspended"] = pw2["_missed_injury"] + pw2["_missed_susp"]
 
+        # Donuts count ONLY players who actually played and scored exactly 0 —
+        # a bye / injury / suspension zero is an absence, not a donut. The
+        # team_week loop's raw ppts==0 count can't see these per-player flags
+        # (they're resolved only when player_week is built, later in the same
+        # iteration), so it over-counts. Recompute the donut columns here — the
+        # same place the injury/bye tallies are derived from player_week — and
+        # overwrite the loop's provisional values below.
+        pw2["_played_donut"] = (
+            (pw2["Points"] == 0)
+            & (~pw2["Bye?"]) & (~pw2["Injury?"]) & (~pw2["Suspension?"])
+        ).astype(int)
+        pw2["_played_starter_donut"] = (pw2["_played_donut"] & (pw2["Starter?"] == 1)).astype(int)
+
         agg = pw2.groupby(["Team", "Year", "Week"], as_index=False).agg(
             Hardship_Points_Lost=("_points_lost_inj_susp", "sum"),
             Starter_Adj_Hardship=("_starter_adj_points_lost", "sum"),
@@ -11380,6 +11393,8 @@ def build_all(repo_root: Path) -> None:
             Number_of_suspensions=("_missed_susp", "sum"),
             Number_of_starter_injuries=("_missed_injury_starter", "sum"),
             Number_of_starter_suspensions=("_missed_susp_starter", "sum"),
+            Number_of_donuts=("_played_donut", "sum"),
+            Number_of_starter_donuts=("_played_starter_donut", "sum"),
             Number_of_players_on_bye=("_on_bye", "sum"),
             Number_of_players_injured_or_suspended=("Number_of_players_injured_or_suspended", "sum"),
             Starter_Count=("Starter?", "sum"),
@@ -11394,6 +11409,8 @@ def build_all(repo_root: Path) -> None:
             "Number_of_suspensions",
             "Number_of_players_injured_or_suspended",
             "Number_of_players_on_bye",
+            "Number_of_donuts",
+            "Number_of_starter_donuts",
             "Starter_Count",
         ]:
             safe_to_numeric(tw, _c, default=0.0)
@@ -11428,6 +11445,12 @@ def build_all(repo_root: Path) -> None:
         tw["Number of starter injuries"] = tw["Number_of_starter_injuries"].round(0).astype(int)
         tw["Number of starter suspensions"] = tw["Number_of_starter_suspensions"].round(0).astype(int)
         tw["Number of players on bye"] = tw["Number_of_players_on_bye"].round(0).astype(int)
+        # Overwrite the team_week loop's provisional donut counts (raw ppts==0,
+        # which swept in bye/injury/suspension zeros) with the played-only
+        # recompute. All donut rollups (team_year / all_time / league_*) sum
+        # these team_week source columns, so the correction propagates upward.
+        tw["Number of donuts"] = tw["Number_of_donuts"].round(0).astype(int)
+        tw["Number of starter donuts"] = tw["Number_of_starter_donuts"].round(0).astype(int)
 
         tw.drop(columns=[
             "Hardship_Points_Lost",
@@ -11436,6 +11459,8 @@ def build_all(repo_root: Path) -> None:
             "Number_of_suspensions",
             "Number_of_players_injured_or_suspended",
             "Number_of_players_on_bye",
+            "Number_of_donuts",
+            "Number_of_starter_donuts",
             "Starter_Count",
         ], inplace=True, errors="ignore")
 
