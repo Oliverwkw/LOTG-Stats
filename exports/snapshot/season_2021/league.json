@@ -119,9 +119,6 @@
   "last_read_id": null,
   "league_id": "645741669039284224",
   "previous_league_id": "0",
-  "bracket_id": 828020354386649089,
-  "bracket_overrides_id": null,
-  "group_id": null,
   "roster_positions": [
     "QB",
     "RB",
@@ -147,6 +144,9 @@
     "BN",
     "BN"
   ],
+  "bracket_id": 828020354386649089,
+  "bracket_overrides_id": null,
+  "group_id": null,
   "loser_bracket_id": 828020354399232000,
   "loser_bracket_overrides_id": null,
   "total_rosters": 8

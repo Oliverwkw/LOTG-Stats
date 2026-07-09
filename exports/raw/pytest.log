@@ -1,0 +1,34 @@
+============================= test session starts ==============================
+platform linux -- Python 3.11.15, pytest-9.1.1, pluggy-1.6.0 -- /opt/hostedtoolcache/Python/3.11.15/x64/bin/python
+cachedir: .pytest_cache
+rootdir: /home/runner/work/LOTG-Stats/LOTG-Stats
+configfile: pyproject.toml
+collecting ... collected 25 items
+
+tests/test_cache_completeness.py::test_committed_nflverse_cache_is_complete PASSED [  4%]
+tests/test_cache_completeness.py::test_committed_nflverse_cache_files_nonempty PASSED [  8%]
+tests/test_cross_sheet_reconciliation.py::test_cross_sheet_reconciliation PASSED [ 12%]
+tests/test_cross_source_and_pad.py::test_cross_source_and_pad PASSED     [ 16%]
+tests/test_formulas_coverage.py::test_every_nonobvious_column_is_documented PASSED [ 20%]
+tests/test_in_season_freshness.py::test_kickoff_thursday_2026 PASSED     [ 24%]
+tests/test_in_season_freshness.py::test_week1_cutoff_is_tuesday_0800_utc PASSED [ 28%]
+tests/test_in_season_freshness.py::test_week_in_progress_not_complete PASSED [ 32%]
+tests/test_in_season_freshness.py::test_week_complete_after_cutoff PASSED [ 36%]
+tests/test_in_season_freshness.py::test_completed_seasons_always_complete PASSED [ 40%]
+tests/test_in_season_freshness.py::test_season_complete_gate PASSED      [ 44%]
+tests/test_in_season_freshness.py::test_capture_state_and_count PASSED   [ 48%]
+tests/test_in_season_freshness.py::test_capture_bye_and_traded_team PASSED [ 52%]
+tests/test_in_season_freshness.py::test_merge_dedup_on_rerun PASSED      [ 56%]
+tests/test_in_season_freshness.py::test_overlay_resolution PASSED        [ 60%]
+tests/test_pick_chain_links.py::test_pick_chain_link_integrity PASSED    [ 64%]
+tests/test_player_history_continuity.py::test_no_player_history_continuity_breaks PASSED [ 68%]
+tests/test_pre_season_blanking.py::test_blanks_not_started_game_stats PASSED [ 72%]
+tests/test_pre_season_blanking.py::test_completed_season_untouched PASSED [ 76%]
+tests/test_pre_season_blanking.py::test_player_year_keep_set PASSED      [ 80%]
+tests/test_pre_season_blanking.py::test_noop_when_season_started_or_unknown PASSED [ 84%]
+tests/test_sanity_ranges.py::test_sanity_ranges PASSED                   [ 88%]
+tests/test_snapshot_freshness.py::test_missing_or_undated_snapshot_is_stale PASSED [ 92%]
+tests/test_snapshot_freshness.py::test_fresh_snapshot_is_not_stale PASSED [ 96%]
+tests/test_snapshot_freshness.py::test_old_snapshot_trips_threshold PASSED [100%]
+
+======================== 25 passed in 65.28s (0:01:05) =========================
