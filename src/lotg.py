@@ -1301,6 +1301,12 @@ def _preserve_na(col: str) -> bool:
     col_l = str(col or "").strip().lower()
     if col_l.startswith("change from ") or col_l.startswith("change in "):
         return True
+    # Draft-origin shares (team/league sheets): "% of 3rd year+ players drafted"
+    # is N/A when the roster held no 3rd-year+ players (empty denominator), and
+    # "% of players drafted" is N/A for an offseason-placeholder row with no
+    # rostered players — both distinct from a real 0%.
+    if col_l in {"% of players drafted", "% of 3rd year+ players drafted"}:
+        return True
     # KTC value differences: 'at deal time' / 'at end of season' / '1 year
     # later' / '2 years later'. A blank here means the reference date is
     # in the future, or at least one side of the trade had no resolvable
@@ -15968,6 +15974,110 @@ def build_all(repo_root: Path) -> None:
                     league_all[_c] = round((_lp["_srt_tier"] == _lab).sum() / _tot * 100, 1) if _tot else None
     except Exception as e:
         _log_exc(debug, "league_tier_shares", e)
+
+    # --------------------------
+    # % of (3rd year+) rostered players a team drafted itself
+    # --------------------------
+    # "% of players drafted"       = of the players a team rosters, the share it
+    #                                also DRAFTED (startup / rookie / vet draft,
+    #                                matched by team handle).
+    # "% of 3rd year+ players drafted" = the same share restricted to players in
+    #                                their 3rd NFL season or later.
+    # Grain: team_week = that week's roster; team_year = the season-END snapshot
+    # (last scored week — wk16 for 2020, wk17 otherwise); team_all_time = every
+    # distinct player the team ever rostered (a player counts as 3rd-year+ if it
+    # was rostered in any season where it had reached its 3rd year). The league
+    # sheets pool every team's numerators/denominators (so a player who played
+    # for two teams counts once per team in the all-time pool).
+    try:
+        if not pw.empty and {"Team", "Year", "Week", "Player ID"}.issubset(pw.columns):
+            # Drafter(s) of each player, by normalized team handle. Startup picks
+            # weren't tradeable (ESPN), so the drafter is the pick's Original
+            # Team; for later drafts it's the Final Team that made the selection.
+            _draft_team_by_pid: Dict[str, set] = defaultdict(set)
+            for _pr in (pick_rows or []):
+                _dpid = _pr.get("_player_id")
+                if not _dpid:
+                    continue
+                if _pr.get("_is_startup"):
+                    _dt = _pr.get("Original Team") or _pr.get("Final Team")
+                else:
+                    _dt = _pr.get("Final Team") or _pr.get("Original Team")
+                if _dt:
+                    _draft_team_by_pid[str(_dpid)].add(_norm_team_name(str(_dt)))
+
+            _dp = pw[pw["Player ID"].notna()].dropna(subset=["Team", "Year", "Week"]).copy()
+            _dp["Player ID"] = _dp["Player ID"].astype(str)
+            _dp["_yr"] = pd.to_numeric(_dp["Year"], errors="coerce")
+            _dp["_wk"] = pd.to_numeric(_dp["Week"], errors="coerce")
+            _dp["_tn"] = _dp["Team"].map(_norm_team_name)
+            _rs = pd.to_numeric(_dp["Player ID"].map(lambda p: rookie_season_by_pid.get(str(p))), errors="coerce")
+            _dp["_third"] = _rs.notna() & ((_dp["_yr"] - _rs) >= 2)
+            _dp["_drafted"] = [
+                _tn in _draft_team_by_pid.get(_pid, ())
+                for _tn, _pid in zip(_dp["_tn"], _dp["Player ID"])
+            ]
+
+            _C_ALL = "% of players drafted"
+            _C_3Y = "% of 3rd year+ players drafted"
+
+            def _draft_counts(_df, _keys):
+                """Distinct-player denom/num for all + 3rd-year+, per group key."""
+                if _df.empty or not set(_keys).issubset(_df.columns):
+                    return pd.DataFrame()
+                _den = _df.groupby(_keys)["Player ID"].nunique().rename("_den")
+                _num = _df[_df["_drafted"]].groupby(_keys)["Player ID"].nunique().rename("_num")
+                _den3 = _df[_df["_third"]].groupby(_keys)["Player ID"].nunique().rename("_den3")
+                _num3 = _df[_df["_third"] & _df["_drafted"]].groupby(_keys)["Player ID"].nunique().rename("_num3")
+                return pd.concat([_den, _num, _den3, _num3], axis=1).fillna(0).reset_index()
+
+            def _with_pcts(_c):
+                """Attach the two % columns to a counts frame `_c` (in place)."""
+                if _c.empty or "_den" not in _c.columns:
+                    return _c
+                _den = _c["_den"].astype(float)
+                _den3 = _c["_den3"].astype(float)
+                _c[_C_ALL] = (_c["_num"].astype(float) / _den * 100).round(1).where(_den > 0)
+                _c[_C_3Y] = (_c["_num3"].astype(float) / _den3 * 100).round(1).where(_den3 > 0)
+                return _c
+
+            def _pool(_counts, _keys):
+                """Pool per-team counts across teams into a league frame."""
+                if _counts.empty:
+                    return pd.DataFrame()
+                _num_cols = ["_den", "_num", "_den3", "_num3"]
+                if _keys:
+                    _agg = _counts.groupby(_keys)[_num_cols].sum().reset_index()
+                else:
+                    _agg = pd.DataFrame([_counts[_num_cols].sum()])
+                return _with_pcts(_agg)
+
+            def _apply(_frame, _counts, _keys):
+                if _counts.empty or not isinstance(_frame, pd.DataFrame) or _frame.empty:
+                    return _frame
+                _frame = _frame.drop(columns=[_C_ALL, _C_3Y], errors="ignore")
+                return _frame.merge(_counts[_keys + [_C_ALL, _C_3Y]], on=_keys, how="left")
+
+            # Per-team counts at each grain.
+            _c_tw = _with_pcts(_draft_counts(_dp, ["Team", "Year", "Week"]))
+            _snap = _dp[_dp["_wk"] == _dp.groupby(["Team", "Year"])["_wk"].transform("max")]
+            _c_ty = _with_pcts(_draft_counts(_snap, ["Team", "Year"]))
+            _c_ta = _with_pcts(_draft_counts(_dp, ["Team"]))
+
+            # Team sheets.
+            tw = _apply(tw, _c_tw, ["Team", "Year", "Week"])
+            team_year = _apply(team_year, _c_ty, ["Team", "Year"])
+            team_all = _apply(team_all, _c_ta, ["Team"])
+
+            # League sheets (pooled across teams).
+            league_week = _apply(league_week, _pool(_c_tw, ["Year", "Week"]), ["Year", "Week"])
+            league_year = _apply(league_year, _pool(_c_ty, ["Year"]), ["Year"])
+            _la = _pool(_c_ta, [])
+            if not _la.empty and isinstance(league_all, pd.DataFrame) and not league_all.empty:
+                league_all[_C_ALL] = _la[_C_ALL].iloc[0]
+                league_all[_C_3Y] = _la[_C_3Y].iloc[0]
+    except Exception as e:
+        _log_exc(debug, "draft_pct_columns", e)
 
 
     # --------------------------
