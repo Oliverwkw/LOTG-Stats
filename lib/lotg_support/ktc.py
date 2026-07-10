@@ -248,6 +248,14 @@ def pick_label_candidates(asset: str, teams: int = _TEAMS) -> List[str]:
     except Exception:
         return []
     slot_s = slot_s.strip()
+    # The 2.09 toilet-reward pick is valued as its 2.08 equivalent everywhere
+    # (per league convention — see the picks sheet). It reaches this function
+    # two ways: the sentinel round 209 (emitted by the trade valuation labeler)
+    # and the literal "2.09" display slot. The latter is overall pick 17 in an
+    # 8-team draft, which would otherwise misprice as a Mid 2nd rather than the
+    # intended Early 2nd, so normalise BOTH forms to round 2, slot 8 here.
+    if rd == 209 or (rd == 2 and slot_s in ("09", "9")):
+        rd, slot_s = 2, "08"
     if slot_s.isdigit():
         first = last = (rd - 1) * teams + int(slot_s)
     else:  # unknown slot -> the whole round's overall range
