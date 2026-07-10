@@ -10001,6 +10001,11 @@ def build_all(repo_root: Path) -> None:
                         yr_i = int(pmeta[0]); rnd_i = int(pmeta[1])
                     except Exception:
                         continue
+                    # The 2.09 toilet pick (sentinel round _R209) is a real,
+                    # tradeable asset; weight it as its 2.08 equivalent (round 2)
+                    # so it counts toward the future-capital trade signals.
+                    if rnd_i == _R209:
+                        rnd_i = 2
                     # Future picks only (a current-season rookie pick is
                     # captured by adj_diff, not here). _capped keeps the rolling
                     # _FCAP_HORIZON-season window for the Tanking delta (matches
