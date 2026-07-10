@@ -16019,7 +16019,10 @@ def build_all(repo_root: Path) -> None:
     # --------------------------
     # "% of players drafted"       = of the players a team rosters, the share it
     #                                also DRAFTED (startup / rookie / vet draft,
-    #                                matched by team handle).
+    #                                matched by team handle) AND still holds on the
+    #                                player's INITIAL stint with that team. A pick
+    #                                that was cut/traded away and later re-acquired
+    #                                no longer counts on the return stint.
     # "% of 3rd year+ players drafted" = the same share restricted to players in
     #                                their 3rd NFL season or later.
     # Grain: team_week = that week's roster; team_year = the season-END snapshot
@@ -16052,9 +16055,39 @@ def build_all(repo_root: Path) -> None:
             _dp["_tn"] = _dp["Team"].map(_norm_team_name)
             _rs = pd.to_numeric(_dp["Player ID"].map(lambda p: rookie_season_by_pid.get(str(p))), errors="coerce")
             _dp["_third"] = _rs.notna() & ((_dp["_yr"] - _rs) >= 2)
+
+            # Initial-stint restriction: a pick only credits the drafting team
+            # while the player is on their FIRST continuous stint there. If the
+            # team drafts a player, then cuts/trades them away and later re-adds
+            # them, the return stint does NOT count as "drafted by" — only the
+            # tenure that began at the draft does.
+            #
+            # A stint is a maximal run of consecutive roster weeks (in league-wide
+            # chronological order) on the same team handle. pw is a per-week
+            # roster snapshot (every rostered player, starter or bench, has a row
+            # each week they're held — including bye/injury weeks), so a gap of
+            # more than one ordinal week between a (player, team)'s rows means the
+            # player left that roster and came back: a new stint. Weeks the player
+            # holds across the offseason are consecutive ordinals (no gap), so a
+            # draft-and-hold tenure stays a single first stint.
+            _wk_ord = (
+                _dp[["_yr", "_wk"]]
+                .drop_duplicates()
+                .sort_values(["_yr", "_wk"])
+                .reset_index(drop=True)
+            )
+            _wk_ord["_ord"] = range(len(_wk_ord))
+            _dp = _dp.merge(_wk_ord, on=["_yr", "_wk"], how="left")
+            _dp = _dp.sort_values(["Player ID", "_tn", "_ord"], kind="mergesort")
+            _prev_ord = _dp.groupby(["Player ID", "_tn"])["_ord"].shift(1)
+            _is_break = _prev_ord.isna() | ((_dp["_ord"] - _prev_ord) > 1)
+            _dp["_first_stint"] = (
+                _is_break.groupby([_dp["Player ID"], _dp["_tn"]]).cumsum() == 1
+            )
+
             _dp["_drafted"] = [
-                _tn in _draft_team_by_pid.get(_pid, ())
-                for _tn, _pid in zip(_dp["_tn"], _dp["Player ID"])
+                (_tn in _draft_team_by_pid.get(_pid, ())) and bool(_fs)
+                for _tn, _pid, _fs in zip(_dp["_tn"], _dp["Player ID"], _dp["_first_stint"])
             ]
 
             _C_ALL = "% of players drafted"
