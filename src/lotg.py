@@ -11378,18 +11378,27 @@ def build_all(repo_root: Path) -> None:
         pw2["Starter?"] = (pw2["Starter/Bench"] == "Starter").astype(int)
         pw2["Number_of_players_injured_or_suspended"] = pw2["_missed_injury"] + pw2["_missed_susp"]
 
-        # Donuts (points == 0) and "under 10" (points < 10) count ONLY players
-        # who actually played — a bye / injury / suspension zero is an absence,
-        # not a real low score. The team_week loop's raw ppts counts can't see
-        # these per-player flags (they're resolved only when player_week is
-        # built, later in the same iteration), so they over-count. Recompute
-        # here — the same place the injury/bye tallies are derived from
-        # player_week — and overwrite the loop's provisional values below.
+        # Donut (points == 0) and "under 10" (points < 10) counts treat a
+        # STARTER's zero differently from a BENCH player's zero:
+        #   - A starter's 0 ALWAYS counts — you fielded them, you ate the zero,
+        #     whether they were benched in the NFL, hurt mid-game, or just bad.
+        #     (This also preserves the invariant that the starter-only count can
+        #     never exceed the rostered count.)
+        #   - A bench player's 0 counts ONLY if they actually played. A benched
+        #     bye / injury / suspension week is an absence, not a donut — it just
+        #     measures how many bench players were off that week.
+        # So we drop a zero only when the player was ABSENT and on the BENCH. The
+        # team_week loop's raw ppts counts can't see the per-player flags (they're
+        # resolved only when player_week is built, later in the same iteration),
+        # so recompute here — the same place the injury/bye tallies are derived
+        # from player_week — and overwrite the loop's provisional values below.
         _played = (~pw2["Bye?"]) & (~pw2["Injury?"]) & (~pw2["Suspension?"])
-        pw2["_played_donut"] = ((pw2["Points"] == 0) & _played).astype(int)
-        pw2["_played_starter_donut"] = (pw2["_played_donut"] & (pw2["Starter?"] == 1)).astype(int)
-        pw2["_played_under10"] = ((pw2["Points"] < 10) & _played).astype(int)
-        pw2["_played_starter_under10"] = (pw2["_played_under10"] & (pw2["Starter?"] == 1)).astype(int)
+        _is_starter = pw2["Starter?"] == 1
+        _counts = _is_starter | _played   # exclude only absent BENCH players
+        pw2["_donut"] = ((pw2["Points"] == 0) & _counts).astype(int)
+        pw2["_starter_donut"] = ((pw2["Points"] == 0) & _is_starter).astype(int)
+        pw2["_under10"] = ((pw2["Points"] < 10) & _counts).astype(int)
+        pw2["_starter_under10"] = ((pw2["Points"] < 10) & _is_starter).astype(int)
 
         agg = pw2.groupby(["Team", "Year", "Week"], as_index=False).agg(
             Hardship_Points_Lost=("_points_lost_inj_susp", "sum"),
@@ -11398,10 +11407,10 @@ def build_all(repo_root: Path) -> None:
             Number_of_suspensions=("_missed_susp", "sum"),
             Number_of_starter_injuries=("_missed_injury_starter", "sum"),
             Number_of_starter_suspensions=("_missed_susp_starter", "sum"),
-            Number_of_donuts=("_played_donut", "sum"),
-            Number_of_starter_donuts=("_played_starter_donut", "sum"),
-            Number_of_players_under10=("_played_under10", "sum"),
-            Number_of_starters_under10=("_played_starter_under10", "sum"),
+            Number_of_donuts=("_donut", "sum"),
+            Number_of_starter_donuts=("_starter_donut", "sum"),
+            Number_of_players_under10=("_under10", "sum"),
+            Number_of_starters_under10=("_starter_under10", "sum"),
             Number_of_players_on_bye=("_on_bye", "sum"),
             Number_of_players_injured_or_suspended=("Number_of_players_injured_or_suspended", "sum"),
             Starter_Count=("Starter?", "sum"),
