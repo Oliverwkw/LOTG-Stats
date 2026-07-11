@@ -75,3 +75,8 @@ pick_year,round,orig_owner,from_owner,to_owner,trade_created_utc,deal,notes
 # NOTE (left out per ledger): a 2029 4th ("Steve/Luke" -> Sam in the most-recent
 # Kamara trade, "gets highest") is intentionally omitted pending clarification of
 # which original owner's 4th it is.
+# --- Off-platform picks in the league's first FIVE-team trade (2026-07-10) ---
+# The 2026 2.09 (Oliver -> Luke in the 2.8 trade-up) moved on to Sam here, and
+# Luke's 2029 3rd (traded to Ben in the Kupp deal) came back to Luke here.
+2026,209,Oliverwkw,LWebs53,shmuel256,2026-07-10 21:22:18,To Sam (5-team trade),2026 2.09 hop 2
+2029,3,LWebs53,BROsenzweig,LWebs53,2026-07-10 21:22:18,To Luke (5-team trade),2029 3rd away-and-back

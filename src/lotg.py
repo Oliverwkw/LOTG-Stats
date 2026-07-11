@@ -989,6 +989,31 @@ def _append_team_vs_columns(frame: pd.DataFrame, cols: List[str], plan_key: str 
     return cols[:anchor + 1] + per + cols[anchor + 1:]
 
 
+def _append_traded_with_columns(frame: pd.DataFrame, cols: List[str]) -> List[str]:
+    """A multi-team trade lists one counterparty per 'Team's traded with N'
+    column. Only 'Team's traded with 1' (present on nearly every trade) stays in
+    the pinned identifying block; every ADDITIONAL counterparty ('...2', 3, 4 and
+    beyond for a five-plus-team trade) is moved to the END of the sheet, outside
+    the freeze pin, extended to however many the data actually populates. The
+    plan always defines through 2, so 2 is the floor even absent a 3-team trade."""
+    if frame.empty:
+        return cols
+    max_n = 2
+    for c in frame.columns:
+        m = re.fullmatch(r"Team's traded with (\d+)", str(c))
+        if not m:
+            continue
+        try:
+            has_val = frame[c].astype(str).str.strip().replace({"nan": ""}).ne("").any()
+        except Exception:
+            has_val = True
+        if has_val:
+            max_n = max(max_n, int(m.group(1)))
+    extras = [f"Team's traded with {n}" for n in range(2, max_n + 1)]
+    base = [c for c in cols if c not in extras]
+    return base + extras
+
+
 def _column_kind(col: str) -> str:
     """Infer expected output type for a plan column: text | boolean | numeric."""
     col_l = str(col or "").strip().lower()
@@ -2217,6 +2242,8 @@ def build_all(repo_root: Path) -> None:
             cols = catalog.get(plan_key, [])
             if plan_key in {"team-year", "team-all-time"}:
                 cols = _append_team_vs_columns(frame, cols, plan_key)
+            if plan_key == "trades":
+                cols = _append_traded_with_columns(frame, cols)
             frame = _safe_df(frame)
             out = _ensure_plan_columns(frame, cols)
             out = _fill_empty_columns(out, cols)
@@ -2560,8 +2587,10 @@ def build_all(repo_root: Path) -> None:
                             if first:
                                 _set_ref_link(cell, first)
                 # Phase 11C-2: freeze through the pinned columns (team_week also
-                # pins Opponent -> 5 cols).
-                _pin_n = 5 if sheet_name == "team_week" else 4
+                # pins Opponent -> 5 cols). trades pins just its first 3 (Team,
+                # Team's traded with 1, Assets received) — the extra counterparty
+                # columns for multi-team trades live at the far right, outside it.
+                _pin_n = 5 if sheet_name == "team_week" else (3 if sheet_name == "trades" else 4)
                 ws.freeze_panes = f"{get_column_letter(_pin_n + 1)}2"
 
                 # Family tab color.
