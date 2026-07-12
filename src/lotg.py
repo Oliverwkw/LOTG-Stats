@@ -17533,7 +17533,27 @@ def main() -> None:
 
         from lotg_support.snapshot import (
             snapshot_all, snapshot_is_stale, snapshot_age_days, snapshot_captured_at,
+            refresh_current_season,
         )
+
+        # Always refresh the LIVE current-season roster on every run. It's the one
+        # thing that changes constantly (trades/adds), and the age-gated full
+        # snapshot below only re-pulls it on its multi-day cadence — so without this
+        # a same-day rebuild after a trade would still read a stale roster. Cheap: a
+        # handful of current-league calls that bypass the on-disk cache. Safe: a
+        # failed/empty fetch leaves the committed snapshot untouched. The offline
+        # replay harness opts out via LOTG_SNAPSHOT_MAX_AGE_DAYS<=0.
+        try:
+            _live_gate = float(os.environ.get("LOTG_SNAPSHOT_MAX_AGE_DAYS", "7"))
+        except ValueError:
+            _live_gate = 7.0
+        if _live_gate > 0:
+            try:
+                if refresh_current_season(repo_root, league_id):
+                    print("[lotg] refreshed live current-season roster snapshot")
+            except Exception as e:
+                _log_exc(repo_root / "exports" / "raw" / "build_debug.log",
+                         "refresh_current_season", e)
 
         want_snapshot = mode in {"snapshot", "both"}
         auto_refreshed = False
