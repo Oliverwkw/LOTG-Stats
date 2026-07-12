@@ -143,22 +143,27 @@ jobs:
           pip install --no-cache-dir pytest 2>&1 | tail -n 2
           python -m pytest tests/ -v 2>&1 | tee exports/raw/pytest.log
 
-      - name: Refresh committed exports when the tracked snapshot is week-stale
+      - name: Commit refreshed exports on roster change (or weekly cadence)
         # The build above rewrote ALL of exports/ (the snapshot replay cache +
         # CSVs + xlsx/zip + raw dumps) from freshly-fetched live data, but CI
-        # normally discards it — so the git-tracked exports/snapshot/ that
-        # offline / build-only runs replay drifts stale (it was 3+ weeks old).
-        # On a scheduled/dispatch run of main, if the COMMITTED snapshot is >= 6
-        # days old, commit the whole refreshed tree back.
+        # normally discards it — so the git-tracked exports/ drifts stale.
+        #
+        # Two triggers to commit the refreshed tree back:
+        #   1. LIVE ROSTER/PICKS CHANGED — a trade or add must land immediately,
+        #      not wait for the weekly cadence. This is the whole point: a
+        #      same-week rebuild after a trade used to fetch the new roster but
+        #      refuse to push it, so the committed roster stayed stale for days.
+        #   2. WEEKLY CADENCE — the committed snapshot is >= 6 days old. Refreshes
+        #      the replay cache / derived stats even when no roster move happened.
+        # Routine derived-stat churn (< 6d old, no roster change) is left as-is so
+        # every dispatch doesn't push noise.
         #
         # Staleness is read from #344's exports/snapshot/_snapshot_meta.json
         # captured_at, taken from the committed blob (git show HEAD:) — NOT from
-        # git log (a shallow CI checkout can't date history) and NOT from all of
-        # exports/ (a CSV-only "cloud build" refresh would mask a stale
-        # snapshot). No committed stamp yet (first run) => treated as stale. 6d
-        # (not 7) so the weekly cadence trips reliably despite timing jitter,
-        # while an ad-hoc same-week dispatch won't re-commit. main only;
-        # [skip ci] and no push trigger keep it loop-proof.
+        # git log (a shallow CI checkout can't date history). No committed stamp
+        # yet (first run) => treated as stale. 6d (not 7) so the weekly cadence
+        # trips reliably despite timing jitter. main only; [skip ci] and no push
+        # trigger keep it loop-proof.
         if: ${{ github.ref == 'refs/heads/main' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') }}
         run: |
           set -euo pipefail
@@ -169,11 +174,7 @@ jobs:
           else
             age_days=999   # no committed capture stamp yet -> treat as stale
           fi
-          if [ "${age_days}" -lt 6 ]; then
-            echo "Committed snapshot is ${age_days}d old (<6d); leaving exports/ as-is."
-            exit 0
-          fi
-          echo "Committed snapshot is ${age_days}d old (>=6d); committing refreshed exports/."
+
           git config user.name "lotg-exports-bot"
           git config user.email "noreply@anthropic.com"
           git add exports
@@ -181,7 +182,20 @@ jobs:
             echo "exports/ unchanged after rebuild; nothing to commit."
             exit 0
           fi
-          git commit -m "Auto-refresh week-stale committed exports (run ${{ github.run_number }}) [skip ci]"
+
+          # Did the live current-season roster or traded picks change?
+          if git diff --cached --name-only \
+               | grep -qE '^exports/(raw/(rosters|traded_picks)_[0-9]+\.json|snapshot/season_[0-9]+/(rosters|traded_picks)\.json)$'; then
+            reason="live roster/picks changed"
+          elif [ "${age_days}" -ge 6 ]; then
+            reason="weekly cadence (${age_days}d stale)"
+          else
+            echo "Only non-roster churn and committed snapshot is ${age_days}d old (<6d); leaving exports/ as-is."
+            git reset -q
+            exit 0
+          fi
+          echo "Committing refreshed exports/ — ${reason}."
+          git commit -m "Auto-refresh committed exports: ${reason} (run ${{ github.run_number }}) [skip ci]"
           git push
 
       - name: Dump debug logs on failure
