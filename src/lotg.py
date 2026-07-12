@@ -3043,6 +3043,11 @@ def build_all(repo_root: Path) -> None:
     #   rest are 5.0X picks (20-FAAB draft-day buys). toilet_winner_by_season holds
     #   each season's losers-bracket champion (p=1 winner) = next year's 2.09 owner.
     draft_dates_by_season: Dict[int, Set] = {}
+    # Like draft_dates_by_season but ONLY the rookie/vet drafts (<=5 rounds), i.e.
+    # excluding the one-time >5-round startup. Used to anchor platform-seam synth
+    # moves at "day before the rookie draft" rather than the earliest draft of the
+    # year (which, in 2021, is the 15-round startup).
+    rookie_draft_dates_by_season: Dict[int, Set] = {}
     draft_day_commish_adds: Dict[int, List[Tuple[int, int, str, str]]] = {}
     toilet_winner_by_season: Dict[int, Optional[int]] = {}
 
@@ -3869,12 +3874,18 @@ def build_all(repo_root: Path) -> None:
         # matching commissioner-forced adds (the 2.09 / 5.0X synthetic picks).
         try:
             _dd: Set = set()
+            _rdd: Set = set()   # rookie/vet drafts only (<=5 rounds)
             for _dr in drafts or []:
+                _rounds = _to_int(((_dr.get("settings") or {}).get("rounds")), None)
+                _is_rookie_draft = _rounds is not None and _rounds <= 5
                 for _k in ("last_picked", "start_time"):
                     _x = _epoch_ms_to_dt(_dr.get(_k))
                     if _x is not None:
                         _dd.add(_x.date())
+                        if _is_rookie_draft:
+                            _rdd.add(_x.date())
             draft_dates_by_season[int(season)] = _dd
+            rookie_draft_dates_by_season[int(season)] = _rdd
         except Exception as e:
             _log_exc(debug, f"draft_dates_{season}", e)
         # Losers-bracket champion (p=1 winner) = the toilet-bracket winner, who
@@ -7459,9 +7470,20 @@ def build_all(repo_root: Path) -> None:
             # late in 2020, or re-acquired by another team in 2021 (handled by the
             # general reconciliation above), are skipped, so no spurious second drop
             # is created (the bug that mis-dropped Matt Ryan, AJ Dillon, etc.).
-            _transfer_days = sorted(draft_dates_by_season.get(2021, set()) or set())
-            _transfer_iso = (pd.Timestamp(_transfer_days[0], tz="UTC").isoformat()
-                             if _transfer_days else None)
+            # Anchor the platform-seam synth moves at the DAY BEFORE the 2021 rookie
+            # draft, so a carryover's synthetic drop/add sits just ahead of the
+            # draft rather than on the (earlier) 15-round startup date. rookie_draft_
+            # dates excludes that >5-round startup; fall back to all 2021 draft days
+            # only if it's empty.
+            _rookie_days = sorted(rookie_draft_dates_by_season.get(2021, set())
+                                  or draft_dates_by_season.get(2021, set()) or set())
+            _rookie_draft_iso_2021 = (pd.Timestamp(_rookie_days[0], tz="UTC").isoformat()
+                                      if _rookie_days else None)
+            # Drops are dated AT the ts they're given; date them the day before the
+            # rookie draft. (Adds pass the draft day to _synth_add, which itself
+            # subtracts a day, so a drop/add pair lands on the same boundary date.)
+            _transfer_iso = (_day_before(_rookie_draft_iso_2021)
+                             if _rookie_draft_iso_2021 else None)
             # Set of player-ids that appear on ANY scored 2021 roster (any team, any
             # week). A 2020-roster holding whose player surfaces ANYWHERE in 2021 is
             # NOT a release-into-the-void: either the player was kept by this team
@@ -7599,6 +7621,65 @@ def build_all(repo_root: Path) -> None:
                                     f"roster-diff departures (dead-end cuts, never re-acquired)")
             except Exception as e:
                 _log_exc(debug, "terminal_orphan_drop_synth", e)
+
+            # ---- terminal orphaned ARRIVALS (roster-diff) — mirror of the
+            # departures above ----
+            # A player PRESENT on a team's scored roster whom the transaction log
+            # never shows arriving on that team (no add / draft / trade-in for it) is
+            # a snapshot-only arrival: a roster carryover with no recorded pickup. The
+            # arrival-anchored reconciliation can't help — it only fires on a recorded
+            # event — so a stevenb123-drop / Jacob-add pair never closes and the
+            # player teleports (Daniel Jones: FA at the end of 2020, on
+            # JacobRosenzweig's first 2021 roster with no add). Synthesize the add so
+            # the arrival has an origin. Guards mirror the drop side: skip the latest
+            # season (real adds are recorded there), and only fire when the team is
+            # NOWHERE in the player's recorded events — so a genuine pickup, or a
+            # carryover the reconciliation/transfer logic already closed, is never
+            # double-added. Dated the day before that year's rookie draft (via
+            # _synth_add's day-before), so a carryover sits just ahead of the draft.
+            try:
+                if not pw.empty and {"Team", "Player ID", "Year", "Week"}.issubset(pw.columns):
+                    _evt_teams: Dict[str, set] = {
+                        str(_pid_e): {str(_tm) for (_ts_e, _rk_e, _kind_e, _tm) in _evs_e if _tm}
+                        for _pid_e, _evs_e in _holder_events.items()
+                    }
+                    _pid_first_on_team: Dict[Tuple[str, str], Tuple[int, int]] = {}
+                    _latest_year_a: Optional[int] = None
+                    for _t, _pid, _y, _w in zip(pw["Team"], pw["Player ID"], pw["Year"], pw["Week"]):
+                        if _pid is None or (isinstance(_pid, float) and pd.isna(_pid)):
+                            continue
+                        try:
+                            _yi = int(_y); _wi = int(_w)
+                        except Exception:
+                            continue
+                        _latest_year_a = _yi if _latest_year_a is None else max(_latest_year_a, _yi)
+                        _k = (str(_t), str(_pid))
+                        if _k not in _pid_first_on_team or (_yi, _wi) < _pid_first_on_team[_k]:
+                            _pid_first_on_team[_k] = (_yi, _wi)
+                    _n_arr = 0
+                    for (_team_a, _pid_a), (_fy, _fw) in _pid_first_on_team.items():
+                        if not _team_a:
+                            continue
+                        if _latest_year_a is not None and _fy >= _latest_year_a:
+                            continue  # current season -> real adds recorded
+                        if _team_a in _evt_teams.get(str(_pid_a), set()):
+                            continue  # the log already touches this team for the player
+                        # Anchor ts passed to _synth_add (which subtracts a day):
+                        # that year's rookie-draft day if known, else the first
+                        # scored week's start (+1 so the add lands on week start).
+                        _rk_days = sorted(rookie_draft_dates_by_season.get(_fy, set()) or set())
+                        if _rk_days:
+                            _anchor_ts = pd.Timestamp(_rk_days[0], tz="UTC").isoformat()
+                        else:
+                            _fw_start = date(_fy, 9, 7) + timedelta(days=7 * (_fw - 1) + 1)
+                            _anchor_ts = pd.Timestamp(_fw_start, tz="UTC").isoformat()
+                        _synth_add(_team_a, _pid_a, _anchor_ts)
+                        _n_arr += 1
+                    if _n_arr:
+                        _log(debug, f"[{_now_iso()}] INFO synthesized {_n_arr} terminal "
+                                    f"roster-diff arrivals (snapshot-only pickups, no recorded add)")
+            except Exception as e:
+                _log_exc(debug, "terminal_orphan_add_synth", e)
 
             # Emit each inferred movement as a real transactions_rows row, so the
             # player's history comment (built from transactions_rows) and the
