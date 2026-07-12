@@ -7,7 +7,7 @@ Collecting wheel
 Collecting packaging>=24.0 (from wheel)
   Downloading packaging-26.2-py3-none-any.whl.metadata (3.5 kB)
 Downloading setuptools-83.0.0-py3-none-any.whl (1.0 MB)
-   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 1.0/1.0 MB 90.1 MB/s  0:00:00
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 1.0/1.0 MB 47.4 MB/s  0:00:00
 Downloading wheel-0.47.0-py3-none-any.whl (32 kB)
 Downloading packaging-26.2-py3-none-any.whl (100 kB)
 Installing collected packages: setuptools, packaging, wheel
@@ -56,25 +56,25 @@ Collecting typing-extensions>=4.12 (from ortools>=9.10.4067->-r requirements.txt
 Collecting immutabledict>=3.0.0 (from ortools>=9.10.4067->-r requirements.txt (line 7))
   Downloading immutabledict-4.3.1-py3-none-any.whl.metadata (3.5 kB)
 Downloading pandas-3.0.3-cp311-cp311-manylinux_2_24_x86_64.manylinux_2_28_x86_64.whl (11.3 MB)
-   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 11.3/11.3 MB 469.6 MB/s  0:00:00
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 11.3/11.3 MB 464.7 MB/s  0:00:00
 Downloading requests-2.34.2-py3-none-any.whl (73 kB)
 Downloading charset_normalizer-3.4.9-cp311-cp311-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl (221 kB)
 Downloading idna-3.18-py3-none-any.whl (65 kB)
 Downloading urllib3-2.7.0-py3-none-any.whl (131 kB)
 Downloading pyyaml-6.0.3-cp311-cp311-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl (806 kB)
-   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 806.6/806.6 kB 758.9 MB/s  0:00:00
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 806.6/806.6 kB 821.3 MB/s  0:00:00
 Downloading python_dateutil-2.9.0.post0-py2.py3-none-any.whl (229 kB)
 Downloading openpyxl-3.1.5-py2.py3-none-any.whl (250 kB)
 Downloading tqdm-4.68.4-py3-none-any.whl (676 kB)
-   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 676.6/676.6 kB 837.4 MB/s  0:00:00
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 676.6/676.6 kB 829.5 MB/s  0:00:00
 Downloading ortools-9.15.6755-cp311-cp311-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl (29.8 MB)
-   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 29.8/29.8 MB 184.6 MB/s  0:00:00
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 29.8/29.8 MB 204.1 MB/s  0:00:00
 Downloading protobuf-6.33.6-cp39-abi3-manylinux2014_x86_64.whl (323 kB)
 Downloading absl_py-2.5.0-py3-none-any.whl (137 kB)
 Downloading certifi-2026.6.17-py3-none-any.whl (133 kB)
 Downloading immutabledict-4.3.1-py3-none-any.whl (5.0 kB)
 Downloading numpy-2.4.6-cp311-cp311-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl (16.9 MB)
-   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 16.9/16.9 MB 524.4 MB/s  0:00:00
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 16.9/16.9 MB 604.7 MB/s  0:00:00
 Downloading six-1.17.0-py2.py3-none-any.whl (11 kB)
 Downloading typing_extensions-4.16.0-py3-none-any.whl (45 kB)
 Downloading et_xmlfile-2.0.0-py3-none-any.whl (18 kB)
@@ -89,8 +89,8 @@ Obtaining file:///home/runner/work/LOTG-Stats/LOTG-Stats
 Building wheels for collected packages: lotg
   Building editable for lotg (pyproject.toml): started
   Building editable for lotg (pyproject.toml): finished with status 'done'
-  Created wheel for lotg: filename=lotg-2.0.0-0.editable-py3-none-any.whl size=1214 sha256=13f175a62b6f58a57a4b6cf76b15c880db533e3a21222b7d9901ca1dede55d19
-  Stored in directory: /tmp/pip-ephem-wheel-cache-dmv9aidg/wheels/ef/ed/13/44e256507283aec69b5fcc835b473d152e1110cbdef8472794
+  Created wheel for lotg: filename=lotg-2.0.0-0.editable-py3-none-any.whl size=1214 sha256=f4606df9cb6ce93aa619b4afaab5f79c94b111243350bda19eb544c51b0e9401
+  Stored in directory: /tmp/pip-ephem-wheel-cache-zhh9oace/wheels/ef/ed/13/44e256507283aec69b5fcc835b473d152e1110cbdef8472794
 Successfully built lotg
 Installing collected packages: lotg
 Successfully installed lotg-2.0.0

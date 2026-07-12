@@ -39,4 +39,4 @@ tests/test_snapshot_freshness.py::test_old_snapshot_trips_threshold PASSED [ 93%
 tests/test_snapshot_freshness.py::test_refresh_writes_live_rosters PASSED [ 96%]
 tests/test_snapshot_freshness.py::test_refresh_does_not_clobber_on_empty_fetch PASSED [100%]
 
-======================== 33 passed in 64.44s (0:01:04) =========================
+======================== 33 passed in 64.58s (0:01:04) =========================
