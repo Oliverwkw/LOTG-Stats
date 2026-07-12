@@ -58,6 +58,11 @@
   },
   "avatar": "13890d64889cd90b8c7121fc1101220d",
   "company_id": null,
+  "sport": "nfl",
+  "season_type": "regular",
+  "season": "2021",
+  "last_message_id": "847249262570995712",
+  "shard": 859,
   "scoring_settings": {
     "sack": 1.0,
     "fgm_40_49": 4.0,
@@ -102,11 +107,6 @@
     "pts_allow_7_13": 4.0,
     "st_ff": 0.0
   },
-  "season": "2021",
-  "season_type": "regular",
-  "sport": "nfl",
-  "shard": 859,
-  "last_message_id": "847249262570995712",
   "last_author_avatar": null,
   "last_author_display_name": "sys",
   "last_author_id": "166666666666666666",
