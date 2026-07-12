@@ -124,6 +124,7 @@ from lotg_support.external import (
 )
 from lotg_support.lineup import compute_optimal_lineup
 from lotg_support.plan import load_plan_catalog, require_columns
+from lotg_support.history import reconcile_top_team, reconcile_last_team
 
 import league_all_time
 import league_week
@@ -13258,21 +13259,46 @@ def build_all(repo_root: Path) -> None:
         pa = pa.merge(top_team_all[["Player ID", "Top team"]], on="Player ID", how="left")
         pa = pa.merge(last_team_all, on="Player ID", how="left")
 
-        # Phase 3A.3: replace pw-derived Top team / Last team with
-        # tenure-based values (time rostered + last tenure end) for
-        # every row. pw-based remains as the fallback when no tenure
-        # exists for the player.
+        # Phase 3A.3: reconcile pw-derived Top team / Last team with the
+        # transaction-tenure signal. Tenure alone captures sub-week sessions that
+        # never produce a player_week row, but it MISSES teleport memberships (a
+        # roster carryover with no transaction) — so blindly overriding with
+        # tenure clobbered the correct pw value for such players (Daniel Jones:
+        # JacobRosenzweig 2021-2025 via a teleport read as shmuel256/stevenb123,
+        # his only 2020 tenures). reconcile_* combine both signals so neither
+        # source's blind spot wins. See lotg_support.history.
         try:
+            _pw_weeks_by_team_all: Dict[str, Dict[str, int]] = defaultdict(dict)
+            for (_pid_v, _tm_v), _n in pw_work.groupby(["Player ID", "Team"]).size().items():
+                _pw_weeks_by_team_all[str(_pid_v)][str(_tm_v)] = int(_n)
+            _pw_last_fy_all: Dict[str, int] = {
+                str(_pid_v): int(_yr_v)
+                for _pid_v, _yr_v in pw_work.groupby("Player ID")["Year"].max().items()
+                if pd.notna(_yr_v)
+            }
+            _tenure_last_fy_all: Dict[str, int] = {
+                _pid: _fy_for_date(_evt[0]) for _pid, _evt in tenure_last_event_all.items()
+            }
+
             pa["Top team"] = pa.apply(
-                lambda r: tenure_top_team_all.get(str(r.get("Player ID")), r.get("Top team")),
+                lambda r: reconcile_top_team(
+                    r.get("Top team"),
+                    tenure_inseason_time_team_all.get(str(r.get("Player ID"))),
+                    _pw_weeks_by_team_all.get(str(r.get("Player ID"))),
+                ),
                 axis=1,
             )
             pa["Last team"] = pa.apply(
-                lambda r: tenure_last_team_all.get(str(r.get("Player ID")), r.get("Last team")),
+                lambda r: reconcile_last_team(
+                    r.get("Last team"),
+                    _pw_last_fy_all.get(str(r.get("Player ID"))),
+                    _tenure_last_fy_all.get(str(r.get("Player ID"))),
+                    tenure_last_team_all.get(str(r.get("Player ID"))),
+                ),
                 axis=1,
             )
         except Exception as e:
-            _log_exc(debug, "player_all_top_last_team_tenure_override", e)
+            _log_exc(debug, "player_all_top_last_team_reconcile", e)
 
         # Phase 3A.2: augment Number of teams with tenure-based teams
         # (partial-week sessions invisible to pw-derived nunique).
