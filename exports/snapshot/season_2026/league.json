@@ -1,6 +1,6 @@
 {
   "name": "Life of the Grind",
-  "status": "pre_draft",
+  "status": "in_season",
   "metadata": {
     "auto_continue": "on",
     "keeper_deadline": "0"
@@ -55,11 +55,10 @@
     "leg": 1,
     "reserve_slots": 3,
     "reserve_allow_cov": 1,
-    "daily_waivers_last_ran": 11
+    "daily_waivers_last_ran": 12
   },
   "avatar": "bacf626c72ab39f35077ce4a4f99a149",
   "company_id": null,
-  "last_message_id": "1382040695564406784",
   "shard": 213,
   "season": "2026",
   "season_type": "regular",
@@ -110,15 +109,16 @@
     "pts_allow_7_13": 4.0,
     "st_ff": 0.0
   },
-  "last_author_avatar": "f0edbf4278f53f9425db175073df6584",
-  "draft_id": "1312101511668449280",
-  "last_author_display_name": "JacobRosenzweig",
-  "last_author_id": "676958464056066048",
-  "last_author_is_bot": false,
+  "last_message_id": "1382170598012112896",
+  "last_author_avatar": null,
+  "last_author_display_name": "sys",
+  "last_author_id": "166666666666666666",
+  "last_author_is_bot": true,
   "last_message_attachment": null,
   "last_message_text_map": null,
-  "last_message_time": 1783866688198,
+  "last_message_time": 1783897659355,
   "last_pinned_message_id": "1377154772225773568",
+  "draft_id": "1312101511668449280",
   "last_read_id": null,
   "league_id": "1312101511651655680",
   "previous_league_id": "1192931349575991296",
@@ -150,9 +150,9 @@
     "BN",
     "BN"
   ],
-  "group_id": null,
   "bracket_id": null,
   "bracket_overrides_id": null,
+  "group_id": null,
   "loser_bracket_id": null,
   "loser_bracket_overrides_id": null,
   "total_rosters": 8

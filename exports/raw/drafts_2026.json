@@ -15,9 +15,9 @@
       "676958464056066048": 4,
       "736278591884656640": 6
     },
-    "last_message_id": "1312101511668449280",
-    "last_message_time": 1767191887351,
-    "last_picked": null,
+    "last_message_id": "1382169736778903552",
+    "last_message_time": 1783897454021,
+    "last_picked": 1783897453527,
     "league_id": "1312101511651655680",
     "metadata": {
       "description": "",
@@ -50,8 +50,8 @@
       "teams": 8
     },
     "sport": "nfl",
-    "start_time": 1783886400000,
-    "status": "pre_draft",
+    "start_time": 1783895006136,
+    "status": "complete",
     "type": "linear",
     "slot_to_roster_id": {
       "1": 5,

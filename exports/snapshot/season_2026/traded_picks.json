@@ -199,8 +199,8 @@
     "round": 4,
     "season": "2026",
     "roster_id": 4,
-    "owner_id": 6,
-    "previous_owner_id": 1
+    "owner_id": 1,
+    "previous_owner_id": 6
   },
   {
     "round": 1,
