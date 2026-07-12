@@ -19,9 +19,30 @@ sys.path.insert(0, str(_ROOT / "lib"))
 
 from lotg_support.snapshot import (  # noqa: E402
     SNAPSHOT_META_NAME,
+    refresh_current_season,
     snapshot_age_days,
     snapshot_is_stale,
 )
+
+
+class _FakeClient:
+    """Minimal SleeperClient stand-in for refresh_current_season (no network)."""
+
+    def __init__(self, rosters, season="2026"):
+        self._rosters = rosters
+        self._season = season
+
+    def league(self, _lid=None):
+        return {"season": self._season, "name": "T"} if self._season else {}
+
+    def rosters(self, _lid=None):
+        return self._rosters
+
+    def users(self, _lid=None):
+        return [{"user_id": "u1", "display_name": "You"}]
+
+    def traded_picks(self, _lid=None):
+        return [{"season": "2027", "round": 1, "roster_id": 7, "owner_id": 7}]
 
 
 def _write_stamp(repo_root: Path, captured_at) -> None:
@@ -60,12 +81,38 @@ def test_old_snapshot_trips_threshold(tmp_path):
     assert snapshot_is_stale(tmp_path, max_age_days=7, now=now)
 
 
+def test_refresh_writes_live_rosters(tmp_path):
+    rosters = [{"roster_id": 7, "owner_id": "u1", "players": ["1", "2", "3"]}]
+    assert refresh_current_season(tmp_path, "L", client=_FakeClient(rosters)) is True
+    season_dir = tmp_path / "exports" / "snapshot" / "season_2026"
+    written = json.loads((season_dir / "rosters.json").read_text())
+    assert written == rosters
+    assert (season_dir / "users.json").exists()
+    assert (season_dir / "traded_picks.json").exists()
+
+
+def test_refresh_does_not_clobber_on_empty_fetch(tmp_path):
+    # Seed a good committed roster, then simulate a failed/empty live fetch.
+    season_dir = tmp_path / "exports" / "snapshot" / "season_2026"
+    season_dir.mkdir(parents=True)
+    good = [{"roster_id": 7, "players": ["keep"]}]
+    (season_dir / "rosters.json").write_text(json.dumps(good))
+    # Empty rosters (no network) -> returns False and leaves the good file intact.
+    assert refresh_current_season(tmp_path, "L", client=_FakeClient([])) is False
+    assert json.loads((season_dir / "rosters.json").read_text()) == good
+    # Missing league metadata is likewise treated as a failed fetch.
+    assert refresh_current_season(tmp_path, "L", client=_FakeClient(good, season="")) is False
+    assert json.loads((season_dir / "rosters.json").read_text()) == good
+
+
 if __name__ == "__main__":
     import tempfile
 
     for fn in (test_missing_or_undated_snapshot_is_stale,
                test_fresh_snapshot_is_not_stale,
-               test_old_snapshot_trips_threshold):
+               test_old_snapshot_trips_threshold,
+               test_refresh_writes_live_rosters,
+               test_refresh_does_not_clobber_on_empty_fetch):
         with tempfile.TemporaryDirectory() as d:
             fn(Path(d))
         print(f"ok: {fn.__name__}")

@@ -71,6 +71,60 @@ def _download_stats_week(cfg: HttpConfig, season: int, week: int) -> List[Dict[s
         return []
 
 
+def refresh_current_season(
+    repo_root: Path,
+    league_id: str,
+    http_cfg: Optional[HttpConfig] = None,
+    client: Optional[Any] = None,
+) -> bool:
+    """Re-fetch ONLY the live current league (league/users/rosters/traded_picks/drafts)
+    and overwrite that season's snapshot files.
+
+    This is the cheap, always-on complement to the age-gated full ``snapshot_all``:
+    the current roster is the one thing that changes constantly (trades/adds), so we
+    refresh it every run instead of waiting for the staleness window. A dedicated
+    ``SleeperClient`` with no ``cache_dir`` is used, so the request bypasses the
+    on-disk cache and always hits the live API.
+
+    Safe by construction: if the live fetch comes back empty (e.g. no network), the
+    existing committed snapshot is left untouched rather than clobbered with blanks.
+    Returns True only when fresh rosters were written. ``client`` is injectable for
+    tests.
+    """
+    sc = client or SleeperClient(
+        str(league_id),
+        http_cfg or HttpConfig(timeout_seconds=30, max_retries=6, backoff_base_seconds=0.7),
+    )
+    try:
+        lg = sc.league(str(league_id))
+        rosters = sc.rosters(str(league_id))
+    except Exception:
+        return False
+    if not isinstance(lg, dict) or not lg.get("season") or not rosters:
+        # Missing league metadata or an empty roster list ⇒ treat as a failed fetch
+        # and keep the last-good committed snapshot.
+        return False
+
+    season = int(lg["season"])
+    season_dir = repo_root / "exports" / "snapshot" / f"season_{season}"
+    _safe_write_json(season_dir / "league.json", lg)
+    _safe_write_json(season_dir / "rosters.json", rosters)
+    try:
+        _safe_write_json(season_dir / "users.json", sc.users(str(league_id)) or [])
+    except Exception:
+        pass
+    for name, getter in (("traded_picks", sc.traded_picks), ("drafts", getattr(sc, "drafts", None))):
+        if getter is None:
+            continue
+        try:
+            data = getter(str(league_id))
+            if data:
+                _safe_write_json(season_dir / f"{name}.json", data)
+        except Exception:
+            pass
+    return True
+
+
 def snapshot_all(
     repo_root: Path,
     league_id: str,
