@@ -285,24 +285,27 @@ startup-N/A, **#319** the 12-round audit-fix batch). All 7 steps done; the post-
 audit (`plan/AUDIT_PHASE13_RUN397_vs_395.md`) found 0 regressions. **Clear to start Phase 14.**
 
 ## Phase 14 — In-season weekly digest email
-**Trigger:** Tuesday 10am ET, in-season only (build runs first, then emails). Skip weeks with no completed games since last email.
+**Trigger:** Tuesday 14:00 UTC (~10am ET) build+digest+**email**; plus a Thursday 16:00 UTC pregame build with **no email**. In-season only; snapshot rotates only on the Tuesday send run so emails diff week-to-week. (Wired into `build.yml`.)
 
-**Delivery / recipients:** TBD (user will specify before phase starts).
+**Delivery / recipients:** `config/digest.yaml` — `okeimweiss@gmail.com` (extensible). SMTP via `SMTP_USERNAME`/`SMTP_PASSWORD` repo secrets (still TO ADD); send is a safe no-op until they exist.
 
-**What to surface:**
-- All-time top/bottom 5 rank changes (players): "Kyler Murray's −0.4 points passes JJ McCarthy for 4th lowest all-time."
-- All-time team rank changes: "BROsenzweig passes Shmuel256 in Max PF for 3rd place all-time."
-- Projected end-of-season ranks (linear extrapolation from current pace): "Oliverwkw is on pace for 4th-highest yearly hardship."
+**What to surface** (OVER-INCLUSIVE — every numeric column auto-discovered, not a headline subset; full phrasing in `plan/phase14_phrasing.csv`):
+- All-time top/bottom-5 crossings (players + teams): "Kyler Murray passes JJ McCarthy for 4th-lowest Points all-time (−0.4)."
+- Yearly on-pace (players + teams + league), **from week 3 only**, ranked vs completed seasons: "Oliverwkw is on pace for 4th-highest Hardship this season." Cumulative stats scale by weeks; rate/level stats carry as-is.
+- **Only changes** are reported — on-pace standings are diffed week-over-week too, so a still-3rd team is silent (keeps the over-inclusive digest to ~dozens of lines).
 
 **Implementation outline** (progress; full design in `plan/PHASE14_DIGEST_PLAN.md`):
 - [x] Capture prior-week ranks snapshot (commit to repo or store as workflow artifact) — `lib/lotg_support/digest.py` `build_snapshot()` + `data/digest/ranks_snapshot.json`, rotated by the CLI.
 - [x] Diff vs current week's ranks; produce a narrative list of crossings — `diff_snapshots()` (top/bottom-N crossing detection, both leaderboard ends, new-entity guard).
-- [x] On-pace projections — `project_end_of_season()` (linear pace extrapolation, ranked vs completed seasons; horizon learned from history).
-- [x] HTML email template with sections: All-time leaderboard moves (players/teams) / On-pace projections — `render_digest_html()`.
-- [x] In-season gate: skip if offseason (no completed weeks) — `is_in_season()`; CLI skips + leaves snapshot unrotated.
+- [x] On-pace projections — `project_on_pace()` + `diff_pace()` (linear pace extrapolation, ranked vs completed seasons; horizon learned from history; week-3 gate; only reports rank CHANGES).
+- [x] Over-inclusive ALL-stats auto-discovery (`discover_numeric_columns`) — every numeric column, not a headline subset.
+- [x] Phrasing catalog CSV (`plan/phase14_phrasing.csv`, 431 stats) — `--phrasing-csv`.
+- [x] HTML email template with sections: All-time moves (players/teams) / On pace (players/teams/league) — `render_digest_html()`.
+- [x] In-season gate: skip if offseason — `is_in_season()`; CLI skips + leaves snapshot unrotated.
 - [x] CLI + tests — `scripts/build_digest.py`, `tests/test_digest.py`.
-- [ ] Delivery (recipients + provider) — **TBD, user to specify.** Send step reads the rendered HTML; no engine change.
-- [ ] Cron-scheduled workflow (`weekly_digest.yml`) with workflow_dispatch fallback; commits the rotated snapshot back like `build.yml`.
+- [x] Delivery — `config/digest.yaml` recipients + `scripts/send_digest.py` (SMTP via env secrets; safe no-op until `SMTP_USERNAME`/`SMTP_PASSWORD` are added).
+- [x] Scheduled runs — folded into `build.yml`: Tuesday send + Thursday pregame no-email, `workflow_dispatch` `send_email` toggle, snapshot rotated only on the send run.
+- [ ] Add `SMTP_USERNAME`/`SMTP_PASSWORD` repo secrets to turn on real sending.
 
 **Also schedule a weekly automated audit** (alongside the digest): run the 3-part audit harness against the latest build on a weekly cron, surface any UNEXPECTED diffs / schema breaks / non-2026 build errors (e.g. email or log them), so regressions from data drift or upstream-source changes are caught without a manual pass. Reuse the audit methodology; workflow_dispatch fallback for ad-hoc runs. *(Next sub-PR — not in this one.)*
 

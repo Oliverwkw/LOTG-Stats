@@ -1,0 +1,20 @@
+# Phase 14 weekly-digest delivery config.
+#
+# Recipients + non-secret sender settings. SMTP credentials are NOT stored here;
+# they come from workflow secrets via env vars (see scripts/send_digest.py):
+#   SMTP_USERNAME  — the sending account (also the From address)
+#   SMTP_PASSWORD  — that account's password / app password
+#   SMTP_HOST / SMTP_PORT — optional overrides of the values below.
+#
+# The digest send is a no-op (logged, exit 0) whenever SMTP creds are absent, so
+# the pipeline is safe to run before delivery is configured.
+
+recipients:
+  - okeimweiss@gmail.com
+
+from_name: "LOTG Stats"
+
+# Defaults suit a Gmail sending account with an app password + 2FA. Override via
+# SMTP_HOST / SMTP_PORT env if you send through another provider.
+smtp_host: smtp.gmail.com
+smtp_port: 587

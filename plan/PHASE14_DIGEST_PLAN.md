@@ -1,74 +1,87 @@
 # Phase 14 — In-season weekly digest email
 
-Status of this sub-PR: **engine + CLI + tests landed.** Delivery (recipients /
-provider) and the cron workflow are the next sub-PRs — see "Remaining" below.
+Status: **engine + delivery + scheduling landed.** SMTP secrets are the only
+thing left before real emails go out. Weekly automated audit is the next sub-PR.
 
-## What shipped in this sub-PR
+## Behaviour
 
-The delivery-independent **data core** of the Tuesday digest, so it can be
-built and verified offline before any email plumbing exists.
+Two scheduled runs on `build.yml` (Phase 14 owns the canonical weekly pipeline):
 
-- `lib/lotg_support/digest.py` — pure logic:
-  - **Rankings.** Curated headline all-time stats for players (`PLAYER_STATS`)
-    and teams (`TEAM_STATS`), each declaring which end(s) of the leaderboard to
-    watch (`high` / `low`) and its human label. Adding a row is the only change
-    needed to extend coverage.
-  - **Snapshot.** `build_snapshot()` reads the built CSVs, computes ordered
-    rankings (rank = list position), and stamps meta (`season`,
-    `weeks_completed`, `captured_at`).
-  - **Diff -> narratives.** `diff_snapshots(prev, curr)` detects leaderboard
-    *crossings* within the top/bottom-N window of each stat and renders them as
-    sentences ("BROsenzweig (305) overtakes shmuel256 for 3rd-highest all-time
-    Max PF"). Only entities present in *both* snapshots that actually flipped
-    order are reported — new entities never generate a false "pass".
-  - **On-pace projections.** `project_end_of_season()` linearly extrapolates a
-    team's in-progress cumulative pace (scaled by weeks completed vs the
-    full-season horizon learned from completed seasons) and ranks the
-    projection against every completed season ("Oliverwkw is on pace for
-    4th-highest yearly hardship").
-  - **Render.** `render_digest_html()` assembles the three sections into an
-    inline-styled HTML body.
-- `scripts/build_digest.py` — CLI: reads `exports/` + the prior snapshot,
-  writes `exports/raw/weekly_digest.html` and rotates
-  `data/digest/ranks_snapshot.json`. Honors the **in-season gate** (skips in the
-  offseason so the first in-season run has a clean baseline); `--force` builds
-  anyway.
-- `tests/test_digest.py` — ranking order, high/low crossing detection, stable
-  board = no crossings, new-entity guard, in-season gate, projection ranking,
-  HTML render, plus a real-exports smoke test (SKIP-safe with no build).
+- **Tuesday 14:00 UTC (~10am ET)** — build → digest → **email** → rotate the
+  ranks snapshot. This is also the weekly exports refresh.
+- **Thursday 16:00 UTC (~12pm ET)** — pregame build (fresh rosters/stats before
+  TNF). Builds the digest preview but **no email** and **no snapshot rotation**.
+
+Both self-gate to in-season (nothing emails in the offseason). `workflow_dispatch`
+has a `send_email` toggle for a manual send.
+
+The digest is **over-inclusive**: it auto-discovers *every* numeric column across
+the ranked sheets — no hand-curated "headline" list — and reports two kinds of
+change:
+
+1. **All-time crossings** (`player_all_time`, `team_all_time`). For every numeric
+   column, watch the top/bottom `WINDOW` (=5) of the leaderboard and report when
+   an entity crosses another there, by diffing this week's snapshot vs last
+   week's. *"Kyler Murray passes JJ McCarthy for 4th-lowest Points all-time (-0.4)."*
+2. **Yearly on-pace** (`player_year`, `team_year`, `league_year`). For every
+   numeric column, project the in-progress season to a full-season pace and rank
+   it against every completed season. Cumulative stats scale by weeks played;
+   rate/level stats carry as-is. *"Oliverwkw is on pace for 4th-highest Hardship
+   this season (128)."* **Withheld until week 3** (too little signal earlier).
+
+**Only changes are reported.** All-time crossings are inherently sparse (all-time
+values barely move week to week). On-pace standings ARE also diffed week over
+week — a team that's still "on pace for 3rd" is silent; only entrants and rank
+moves print. That's what keeps an over-inclusive digest readable: a realistic
+week is ~a few dozen lines, not the ~900 standings tracked. The first week that
+carries on-pace data baselines silently.
+
+## Files
+
+- `lib/lotg_support/digest.py` — pure engine: `discover_numeric_columns`,
+  `rank_column`, `build_snapshot`, `diff_snapshots` (crossings),
+  `project_on_pace` + `pace_rank_map` + `diff_pace` (on-pace changes),
+  `phrasing_catalog`, `render_digest_html`. No network / email.
+- `scripts/build_digest.py` — CLI: reads `exports/` + prior snapshot, writes
+  `exports/raw/weekly_digest.html`, rotates `data/digest/ranks_snapshot.json`;
+  in-season gate; `--force`; `--phrasing-csv PATH`.
+- `scripts/send_digest.py` — SMTP send from `config/digest.yaml` recipients +
+  `SMTP_USERNAME`/`SMTP_PASSWORD` env. Safe no-op when HTML is missing, the
+  digest is empty (`--skip-empty`), or creds are absent.
+- `config/digest.yaml` — recipients (`okeimweiss@gmail.com`, extensible) +
+  non-secret sender settings.
+- `plan/phase14_phrasing.csv` — the "how every stat is phrased if it changes"
+  catalog (431 stats: sheet, scope, scale, rise/fall phrasing). Regenerate with
+  `build_digest.py --phrasing-csv`.
+- `tests/test_digest.py` — discovery, both-end crossings, small-board window cap,
+  week-3 gate, projection ranking (cumulative vs rate), pace-diff, phrasing,
+  render, real-exports smoke.
 
 ## Design notes
 
-- **In-season gate = `weeks_completed >= 1`.** `weeks_completed` counts distinct
-  `team_week` weeks for the current season. The build only writes a `team_week`
-  row once a week is final (Phase 5E freshness gate), so this is a faithful
-  "games played" signal. 2026 currently has placeholder `team_year` rows but
-  zero `team_week` rows -> correctly reads offseason and skips.
-- **Snapshot rotation.** The digest diffs *this* week against *last* week, so
-  the snapshot must persist between runs. It lives at
-  `data/digest/ranks_snapshot.json` and the CLI rewrites it only on a real
-  in-season build (offseason leaves it untouched).
-- **Crossing semantics.** For the `high` end, an entity is reported when its
-  rank improved and it now sits directly ahead of an entity that used to be
-  ahead of it. For the `low` end, the mirror (an entity that fell past a
-  neighbour toward the bottom). One sentence per mover per end.
-- **Projection horizon** is the max week seen in a completed prior season
-  (data-driven, not a hardcoded 14/17), so it adapts to schedule changes and
-  the 2020 ESPN 16-week season.
+- **In-season gate = `weeks_completed >= 1`**, counted from distinct `team_week`
+  weeks (the build only writes a `team_week` row once a week is final).
+- **Window cap** = `min(WINDOW, n//2)` so the top/bottom ends never overlap on
+  the 8-team league (a mid-table swap would otherwise report at both ends).
+- **Snapshot rotation** commits `data/digest/ranks_snapshot.json` only on the
+  Tuesday send run, so consecutive emails diff exactly one week apart. Thursday
+  rebuilds it locally but never commits it.
+- **Rate vs cumulative** classification (`is_rate_stat`) drives projection
+  scaling and is surfaced per-column in the phrasing CSV so edge calls (e.g.
+  "Tanking") can be reviewed and corrected.
+
+## Setup required before emails send
+
+- Add repo secrets `SMTP_USERNAME` + `SMTP_PASSWORD` (a Gmail account + app
+  password, or another SMTP provider — override host/port via `SMTP_HOST`/`PORT`
+  env or `config/digest.yaml`). Until then the send step logs a skip and the
+  pipeline stays green.
 
 ## Remaining (next sub-PRs)
 
-- [ ] **Delivery.** Recipients + provider are TBD (user to specify). A thin send
-      step reads `exports/raw/weekly_digest.html` and mails it — no engine
-      change. Needs: recipient list, SMTP/provider secret.
-- [ ] **Cron workflow** (`weekly_digest.yml`): Tuesday ~10am ET, in-season only,
-      `workflow_dispatch` fallback. Runs *after* the build, builds the digest,
-      commits the rotated snapshot back (like `build.yml`'s exports commit), and
-      sends. Skip weeks with no newly-completed games since the last snapshot.
-- [ ] **Weekly automated audit** (separate workflow): run the 3-part audit
-      harness against the latest build on a weekly cron; surface UNEXPECTED
-      diffs / schema breaks / non-2026 build errors (email or log).
-- [ ] **Injury-tracker coverage report** (Phase 12 #41, deferred here) — needs
-      2026 in-season data.
-- [ ] **3-part audit** (code / results / diff) once delivery + cron are wired
-      and a real in-season build exists.
+- [ ] **Weekly automated 3-part audit** workflow (surface UNEXPECTED diffs /
+      schema breaks / non-2026 build errors on a weekly cron).
+- [ ] **Injury-tracker coverage report** (Phase 12 #41) — needs 2026 in-season data.
+- [ ] Review `plan/phase14_phrasing.csv` and prune / reword any stats whose
+      change-phrasing isn't wanted (e.g. adjust the rate/cumulative call).
+- [ ] **3-part audit** once a real in-season build + email round-trip exists.
