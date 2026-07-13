@@ -11512,6 +11512,51 @@ def build_all(repo_root: Path) -> None:
         except Exception as e:
             _log_exc(debug, "bye_gain_lineup", e)
 
+        # Two-sided hardship "gain" per team-week — the injury/suspension analog of
+        # _bye_gain_by_tw, for the SYMMETRIC "no-injury world" result flags (both
+        # teams healed). Same delta method: optimal(actual starters + injured/
+        # suspended would-be-starters at their starter-adjusted hardship value) −
+        # optimal(actual starters). Distinct from the one-sided "Loss from
+        # hardship?" (which heals only one team vs the opponent's raw PF).
+        _hardship_gain_by_tw: Dict[Tuple[str, str, str], float] = {}
+        try:
+            _needh = {"Team", "Year", "Week", "Position", "Points", "Injury?",
+                      "Suspension?", "Starter/Bench", "Player ID", "_starter_adj_points_lost"}
+            if _needh.issubset(pw.columns):
+                _pwh = pw[list(_needh)].copy()
+                _pwh["_pt"] = pd.to_numeric(_pwh["Points"], errors="coerce").fillna(0.0)
+                _pwh["_sa"] = pd.to_numeric(_pwh["_starter_adj_points_lost"], errors="coerce")
+                _pwh["_st"] = _pwh["Starter/Bench"].astype(str).str.strip().str.lower().eq("starter")
+                _pwh["_hurt"] = (
+                    (_pwh["Injury?"].astype(str).str.strip().str.lower().isin(["true", "1"])
+                     | _pwh["Suspension?"].astype(str).str.strip().str.lower().isin(["true", "1"]))
+                    & (_pwh["_pt"] == 0.0) & _pwh["_sa"].notna() & (_pwh["_sa"] > 0)
+                )
+                _pwh = _pwh[_pwh["_st"] | _pwh["_hurt"]]
+                for (_tm, _yr, _wk), _g in _pwh.groupby(["Team", "Year", "Week"]):
+                    _full, _base, _pp = {}, {}, {}
+                    for _pid, _pos, _st, _pt, _sa in zip(
+                        _g["Player ID"].astype(str), _g["Position"].astype(str),
+                        _g["_st"], _g["_pt"], _g["_sa"]):
+                        if not _pid or _pid in ("None", "nan"):
+                            continue
+                        _pp[_pid] = _pos
+                        _full[_pid] = float(_pt) if _st else float(_sa)
+                        if _st:
+                            _base[_pid] = float(_pt)
+                    if not _base:
+                        continue
+                    _yri = int(_yr) if str(_yr).strip().isdigit() else _yr
+                    try:
+                        _fo = compute_optimal_lineup(_full, _pp, _yri)
+                        _bo = compute_optimal_lineup(_base, {p: _pp[p] for p in _base}, _yri)
+                    except Exception:
+                        _fo = _bo = None
+                    if _fo is not None and _bo is not None:
+                        _hardship_gain_by_tw[(str(_tm), str(_yr), str(_wk))] = max(0.0, float(_fo) - float(_bo))
+        except Exception as e:
+            _log_exc(debug, "hardship_gain_lineup", e)
+
         # --------------------------
         # Activated Cuff detection
         # --------------------------
@@ -11761,6 +11806,34 @@ def build_all(repo_root: Path) -> None:
             )
             tw["Loss from bye?"] = (
                 (~_won) & _pa.notna() & _pf.notna() & ((_pf + _gain) > (_pa + _gain_opp))
+            )
+            # Win from bye? — the mirror of "Loss from bye?": a WIN that would have
+            # flipped to a LOSS once BOTH teams' on-bye would-be-starters are
+            # restored (this team's PF + its bye gain falls short of the opponent's
+            # PF + the opponent's bye gain). A win gifted by the opponent sitting
+            # more bye-week value than this team.
+            tw["Win from bye?"] = (
+                _won & _pa.notna() & _pf.notna() & ((_pf + _gain) < (_pa + _gain_opp))
+            )
+            # Two-sided hardship result flips — the SYMMETRIC "no-injury world"
+            # analog of the bye flags (both teams healed of injuries/suspensions).
+            # Same delta-on-actual-PF construction as the bye flips, using the
+            # hardship gain. Distinct from the one-sided "Loss from hardship?" above.
+            _hg = pd.Series(
+                [_hardship_gain_by_tw.get((str(t), str(y), str(w)), 0.0)
+                 for t, y, w in zip(tw.get("Team"), tw.get("Year"), tw.get("Week"))],
+                index=tw.index, dtype="float64",
+            )
+            _hg_opp = pd.Series(
+                [_hardship_gain_by_tw.get((str(o), str(y), str(w)), 0.0)
+                 for o, y, w in zip(tw.get("Opponent"), tw.get("Year"), tw.get("Week"))],
+                index=tw.index, dtype="float64",
+            )
+            tw["Loss from hardship (2-sided)?"] = (
+                (~_won) & _pa.notna() & _pf.notna() & ((_pf + _hg) > (_pa + _hg_opp))
+            )
+            tw["Win from hardship (2-sided)?"] = (
+                _won & _pa.notna() & _pf.notna() & ((_pf + _hg) < (_pa + _hg_opp))
             )
         except Exception as e:
             _log_exc(debug, "loss_from_hardship_flag", e)
@@ -17656,15 +17729,22 @@ def build_all(repo_root: Path) -> None:
         _at_w, _at_g = defaultdict(float), defaultdict(float)   # team all-time
         _lh_y, _lh_t = defaultdict(int), defaultdict(int)       # losses-from-hardship
         _lb_y, _lb_t = defaultdict(int), defaultdict(int)       # losses-from-byes
+        _wb_y, _wb_t = defaultdict(int), defaultdict(int)       # wins-from-byes
+        _l2h_y, _l2h_t = defaultdict(int), defaultdict(int)     # losses-from-hardship (2-sided)
+        _w2h_y, _w2h_t = defaultdict(int), defaultdict(int)     # wins-from-hardship (2-sided)
         if not tw.empty and {"Team", "Year", "Week", "PF"}.issubset(tw.columns):
             _t = tw.copy()
             _t["_pf"] = pd.to_numeric(_t["PF"], errors="coerce")
             _t["_yr"] = pd.to_numeric(_t["Year"], errors="coerce")
             _t = _t.dropna(subset=["_pf", "_yr"])
-            _lhflag = (_t["Loss from hardship?"].astype(str).str.lower().isin(["true", "1", "yes"])
-                       if "Loss from hardship?" in _t.columns else pd.Series(False, index=_t.index))
-            _lbflag = (_t["Loss from bye?"].astype(str).str.lower().isin(["true", "1", "yes"])
-                       if "Loss from bye?" in _t.columns else pd.Series(False, index=_t.index))
+            def _flagcol(_name):
+                return (_t[_name].astype(str).str.lower().isin(["true", "1", "yes"])
+                        if _name in _t.columns else pd.Series(False, index=_t.index))
+            _lhflag = _flagcol("Loss from hardship?")
+            _lbflag = _flagcol("Loss from bye?")
+            _wbflag = _flagcol("Win from bye?")
+            _l2hflag = _flagcol("Loss from hardship (2-sided)?")
+            _w2hflag = _flagcol("Win from hardship (2-sided)?")
             for (_yr, _wk), _grp in _t.groupby(["_yr", "Week"]):
                 _pfs = _grp["_pf"].tolist()
                 _n = len(_grp)
@@ -17677,6 +17757,12 @@ def build_all(repo_root: Path) -> None:
                         _lh_y[(_tm, _y)] += 1; _lh_t[_tm] += 1
                     if bool(_lbflag.loc[_i2]):
                         _lb_y[(_tm, _y)] += 1; _lb_t[_tm] += 1
+                    if bool(_wbflag.loc[_i2]):
+                        _wb_y[(_tm, _y)] += 1; _wb_t[_tm] += 1
+                    if bool(_l2hflag.loc[_i2]):
+                        _l2h_y[(_tm, _y)] += 1; _l2h_t[_tm] += 1
+                    if bool(_w2hflag.loc[_i2]):
+                        _w2h_y[(_tm, _y)] += 1; _w2h_t[_tm] += 1
         def _ap_diff(_ap_list, _winpct_series):
             _wp = pd.to_numeric(_winpct_series, errors="coerce")
             return [(round(a - w, 4) if (a is not None and pd.notna(w)) else None)
@@ -17696,6 +17782,18 @@ def build_all(repo_root: Path) -> None:
                 [(int(_lb_y.get((str(t), int(y)), 0))
                   if pd.notna(y) and _ay_g.get((str(t), int(y)), 0) > 0 else None)
                  for t, y in zip(team_year["Team"], _yrs)], dtype="Int64")
+            team_year["Wins from byes"] = pd.array(
+                [(int(_wb_y.get((str(t), int(y)), 0))
+                  if pd.notna(y) and _ay_g.get((str(t), int(y)), 0) > 0 else None)
+                 for t, y in zip(team_year["Team"], _yrs)], dtype="Int64")
+            team_year["Losses from hardship (2-sided)"] = pd.array(
+                [(int(_l2h_y.get((str(t), int(y)), 0))
+                  if pd.notna(y) and _ay_g.get((str(t), int(y)), 0) > 0 else None)
+                 for t, y in zip(team_year["Team"], _yrs)], dtype="Int64")
+            team_year["Wins from hardship (2-sided)"] = pd.array(
+                [(int(_w2h_y.get((str(t), int(y)), 0))
+                  if pd.notna(y) and _ay_g.get((str(t), int(y)), 0) > 0 else None)
+                 for t, y in zip(team_year["Team"], _yrs)], dtype="Int64")
         if not team_all.empty and "Team" in team_all.columns:
             _apa = [(round(_at_w[str(t)] / _at_g[str(t)], 4) if _at_g.get(str(t), 0) > 0 else None)
                     for t in team_all["Team"]]
@@ -17706,6 +17804,15 @@ def build_all(repo_root: Path) -> None:
                  for t in team_all["Team"]], dtype="Int64")
             team_all["Losses from byes"] = pd.array(
                 [(int(_lb_t.get(str(t), 0)) if _at_g.get(str(t), 0) > 0 else None)
+                 for t in team_all["Team"]], dtype="Int64")
+            team_all["Wins from byes"] = pd.array(
+                [(int(_wb_t.get(str(t), 0)) if _at_g.get(str(t), 0) > 0 else None)
+                 for t in team_all["Team"]], dtype="Int64")
+            team_all["Losses from hardship (2-sided)"] = pd.array(
+                [(int(_l2h_t.get(str(t), 0)) if _at_g.get(str(t), 0) > 0 else None)
+                 for t in team_all["Team"]], dtype="Int64")
+            team_all["Wins from hardship (2-sided)"] = pd.array(
+                [(int(_w2h_t.get(str(t), 0)) if _at_g.get(str(t), 0) > 0 else None)
                  for t in team_all["Team"]], dtype="Int64")
     except Exception as e:
         _log_exc(debug, "allplay_losses_hardship", e)
