@@ -294,14 +294,17 @@ audit (`plan/AUDIT_PHASE13_RUN397_vs_395.md`) found 0 regressions. **Clear to st
 - All-time team rank changes: "BROsenzweig passes Shmuel256 in Max PF for 3rd place all-time."
 - Projected end-of-season ranks (linear extrapolation from current pace): "Oliverwkw is on pace for 4th-highest yearly hardship."
 
-**Implementation outline:**
-- Capture prior-week ranks snapshot (commit to repo or store as workflow artifact).
-- Diff vs current week's ranks; produce a narrative list of crossings.
-- HTML email template with sections: All-time leaderboard moves / Team all-time moves / On-pace projections.
-- Cron-scheduled workflow with workflow_dispatch fallback for manual reruns.
-- In-season gate: skip if current week is offseason (e.g. before Sleeper's week 1 or after week 17).
+**Implementation outline** (progress; full design in `plan/PHASE14_DIGEST_PLAN.md`):
+- [x] Capture prior-week ranks snapshot (commit to repo or store as workflow artifact) — `lib/lotg_support/digest.py` `build_snapshot()` + `data/digest/ranks_snapshot.json`, rotated by the CLI.
+- [x] Diff vs current week's ranks; produce a narrative list of crossings — `diff_snapshots()` (top/bottom-N crossing detection, both leaderboard ends, new-entity guard).
+- [x] On-pace projections — `project_end_of_season()` (linear pace extrapolation, ranked vs completed seasons; horizon learned from history).
+- [x] HTML email template with sections: All-time leaderboard moves (players/teams) / On-pace projections — `render_digest_html()`.
+- [x] In-season gate: skip if offseason (no completed weeks) — `is_in_season()`; CLI skips + leaves snapshot unrotated.
+- [x] CLI + tests — `scripts/build_digest.py`, `tests/test_digest.py`.
+- [ ] Delivery (recipients + provider) — **TBD, user to specify.** Send step reads the rendered HTML; no engine change.
+- [ ] Cron-scheduled workflow (`weekly_digest.yml`) with workflow_dispatch fallback; commits the rotated snapshot back like `build.yml`.
 
-**Also schedule a weekly automated audit** (alongside the digest): run the 3-part audit harness against the latest build on a weekly cron, surface any UNEXPECTED diffs / schema breaks / non-2026 build errors (e.g. email or log them), so regressions from data drift or upstream-source changes are caught without a manual pass. Reuse the audit methodology; workflow_dispatch fallback for ad-hoc runs.
+**Also schedule a weekly automated audit** (alongside the digest): run the 3-part audit harness against the latest build on a weekly cron, surface any UNEXPECTED diffs / schema breaks / non-2026 build errors (e.g. email or log them), so regressions from data drift or upstream-source changes are caught without a manual pass. Reuse the audit methodology; workflow_dispatch fallback for ad-hoc runs. *(Next sub-PR — not in this one.)*
 
 - [ ] **3-part audit** (code / results / diff)
 
