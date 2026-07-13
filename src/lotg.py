@@ -3870,6 +3870,21 @@ def build_all(repo_root: Path) -> None:
         except Exception as e:
             drafts = []
             _log_exc(debug, f"drafts_{season}", e)
+        # The LIVE league's draft(s) stay mutable until the draft completes, so
+        # their /draft/{id} and /draft/{id}/picks endpoints must bypass the
+        # on-disk cache — a draft first fetched while pre_draft caches an empty
+        # picks list (and a null slot_to_roster_id) that would otherwise be
+        # reused forever, leaving the 2026 rookie draft reading Unknown / 1.??.
+        # Register before the hydration + picks fetches below. Only the current
+        # league (config league_id); past-season drafts are immutable.
+        if str(league_id) == str(run_cfg.league_id):
+            for _d in drafts or []:
+                _cd_did = str(_d.get("draft_id") or "")
+                if _cd_did:
+                    try:
+                        getattr(sc, "_real", sc).no_cache_draft_ids.add(_cd_did)
+                    except Exception:
+                        pass
         # Capture actual draft day(s) — when picks were really made — for
         # matching commissioner-forced adds (the 2.09 / 5.0X synthetic picks).
         try:
