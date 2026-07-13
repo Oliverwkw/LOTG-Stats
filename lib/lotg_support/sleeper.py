@@ -4,7 +4,7 @@ import hashlib
 import json
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Set
 
 from .utils import HttpConfig, BuildLogger, fetch_json
 
@@ -26,6 +26,14 @@ class SleeperClient:
     # plus /players/nfl (mutable as NFL rosters churn). Populated from
     # `league_id` on first use.
     _no_cache_markers: List[str] = field(default_factory=list)
+    # Draft ids whose endpoints must bypass the cache — the CURRENT league's
+    # draft(s), which are mutable until the draft completes. A pre_draft fetch of
+    # /draft/{id}/picks returns an empty list; without this it gets cached and
+    # reused forever, so a draft that fills in later never shows its picks (the
+    # 2026 rookie draft read Unknown / 1.?? for exactly this reason). The build
+    # registers the live league's draft ids once it has them; past-season drafts
+    # are immutable and stay cached.
+    no_cache_draft_ids: Set[str] = field(default_factory=set)
 
     def _url(self, path: str) -> str:
         if path.startswith("http"):
@@ -43,7 +51,14 @@ class SleeperClient:
                 f"/league/{self.league_id}",
                 "/players/nfl",
             ]
-        return not any(m in url for m in self._no_cache_markers)
+        if any(m in url for m in self._no_cache_markers):
+            return False
+        # The live league's draft endpoints (registered post-init) stay mutable
+        # until the draft completes — never serve them from a pre_draft cache.
+        if self.no_cache_draft_ids and "/draft/" in url:
+            if any(f"/draft/{_d}" in url for _d in self.no_cache_draft_ids):
+                return False
+        return True
 
     def _cache_path(self, url: str) -> Path:
         # sha1 is plenty for path-shortening (not a security boundary).
