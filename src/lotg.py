@@ -1837,14 +1837,62 @@ def _known_player_column_errors(repo_root: Path, player_week_df: pd.DataFrame) -
 # Matchup naming for playoffs/toilet
 # --------------------------
 
-def _matchup_stage(week: int, playoff_start: Optional[int]) -> Optional[str]:
+# First season of the two-week final rule. From 2026 the fantasy playoffs open
+# with a one-week Semifinal (playoff_start, week 15 — as in 2020) and close with
+# a TWO-week Final: weeks 16 & 17 are a single combined round for the
+# championship AND every other bracket (3rd place, toilet), with the winner of
+# each matchup decided by combined points-for across both weeks. Earlier seasons
+# keep their one-week final (2020 also starts week 15 but its final is week 16
+# only), so every two-week-final behavior is gated on season >= this constant.
+FIRST_TWO_WEEK_FINAL_SEASON = 2026
+
+
+def _finals_weeks(playoff_start: Optional[int], season: Optional[int]) -> List[int]:
+    """Week number(s) that make up the final round.
+
+    One week (playoff_start + 1) before 2026; two weeks (playoff_start + 1 and
+    playoff_start + 2) from 2026 on, when the final spans weeks 16 & 17.
+    """
+    if not playoff_start:
+        return []
+    if season is not None and int(season) >= FIRST_TWO_WEEK_FINAL_SEASON:
+        return [playoff_start + 1, playoff_start + 2]
+    return [playoff_start + 1]
+
+
+def _is_second_finals_week(year: Any, week: Any,
+                           playoff_start_by_season: Dict[int, Optional[int]]) -> bool:
+    """True for the SECOND leg (week 17) of a 2026+ two-week final.
+
+    That leg carries the SAME combined-PF result as week 16, so the team_week
+    sheet shows the win in both weeks — but every *additive* win stat (record,
+    win %, win/loss streaks, head-to-head runs) must count the two-week final
+    once. Callers skip this week when aggregating wins; per-week stats (PF, PA,
+    margin, superlatives) are untouched.
+    """
+    try:
+        y = int(year)
+    except Exception:
+        return False
+    ps = playoff_start_by_season.get(y)
+    if not ps or y < FIRST_TWO_WEEK_FINAL_SEASON:
+        return False
+    fw = _finals_weeks(ps, y)
+    try:
+        return len(fw) >= 2 and int(week) == fw[-1]
+    except Exception:
+        return False
+
+
+def _matchup_stage(week: int, playoff_start: Optional[int],
+                   season: Optional[int] = None) -> Optional[str]:
     if not playoff_start:
         return None
     if week < playoff_start:
         return None
     if week == playoff_start:
         return "SEMIS"
-    if week == playoff_start + 1:
+    if week in _finals_weeks(playoff_start, season):
         return "FINALS"
     return None
 
@@ -4540,7 +4588,7 @@ def build_all(repo_root: Path) -> None:
             except Exception:
                 pass
 
-            stage = _matchup_stage(wk, playoff_start)
+            stage = _matchup_stage(wk, playoff_start, season)
 
             for mid, g in mdf.groupby("matchup_id"):
                 rids = [int(x) for x in g["roster_id"].dropna().astype(int).tolist()]
@@ -4619,9 +4667,14 @@ def build_all(repo_root: Path) -> None:
                             stage_label_map[(season, playoff_start, rid)] = "Semifinal"
                         for rid in bottom4:
                             stage_label_map[(season, playoff_start, rid)] = "Toilet Semis"
-                        # next week labels depend on semis results
-                        finals_week = playoff_start + 1
-                        if week_allowed(finals_week) and finals_week in matchups_by_week:
+                        # Finals-week labels depend on the SEMIFINAL results
+                        # (winner -> Final / Toilet Final, loser -> 3rd Place /
+                        # Toilet Trash). From 2026 the final is a TWO-week round,
+                        # so the SAME bracket label is stamped on BOTH finals
+                        # weeks (16 & 17); pre-2026 there is a single finals week.
+                        for finals_week in _finals_weeks(playoff_start, season):
+                            if not (week_allowed(finals_week) and finals_week in matchups_by_week):
+                                continue
                             # Determine winners/losers within those brackets
                             for rid in top4:
                                 opp = opp_rid_map.get((season, playoff_start, rid))
@@ -4650,6 +4703,40 @@ def build_all(repo_root: Path) -> None:
                 except Exception as e:
                     _log_exc(debug, f"playoff_labeling_{season}_wk{wk}", e)
 
+        # 2026+ two-week final: the winner of EACH weeks-16&17 matchup (the
+        # championship AND every other bracket) is decided by COMBINED points-for
+        # across both finals weeks. Compute it once here — opp_rid_map and
+        # team_pf_by_week are fully populated by the labeling loop above — and
+        # stamp the same result onto BOTH weeks' Win? in the team_week build
+        # below. games_df de-dups this to a single game so records count it once.
+        finals_combined_win: Dict[Tuple[int, int], float] = {}
+        try:
+            _fweeks = [w for w in _finals_weeks(playoff_start, season)
+                       if week_allowed(w) and w in matchups_by_week]
+            if int(season) >= FIRST_TWO_WEEK_FINAL_SEASON and len(_fweeks) >= 2:
+                _seen: Set[int] = set()
+                for (_s, _w, _rid), _opp in opp_rid_map.items():
+                    if _s != season or _w != _fweeks[0] or _opp is None:
+                        continue
+                    if _rid in _seen:
+                        continue
+                    _seen.add(_rid)
+                    _seen.add(_opp)
+                    _tr = roster_to_team.get(_rid)
+                    _to = roster_to_team.get(_opp)
+                    _pf_r = sum(float(team_pf_by_week.get(w, {}).get(_tr, 0.0)) for w in _fweeks)
+                    _pf_o = sum(float(team_pf_by_week.get(w, {}).get(_to, 0.0)) for w in _fweeks)
+                    if _pf_r > _pf_o:
+                        _wr, _wo = 1.0, 0.0
+                    elif _pf_r < _pf_o:
+                        _wr, _wo = 0.0, 1.0
+                    else:
+                        _wr = _wo = 0.5
+                    finals_combined_win[(season, _rid)] = _wr
+                    finals_combined_win[(season, _opp)] = _wo
+        except Exception as e:
+            _log_exc(debug, f"finals_combined_win_{season}", e)
+
         # ------------- Weekly loop to build team_week & player_week -------------
         # Inherit cross-season state: Week 1 of THIS season compares against
         # the last played week of the prior season (≈ championship week).
@@ -4664,7 +4751,7 @@ def build_all(repo_root: Path) -> None:
         awards_weekly = defaultdict(list)  # (season,wk) -> list of (pid, team, pts, started, pos)
 
         for wk, mu in matchups_by_week.items():
-            stage = _matchup_stage(wk, playoff_start)
+            stage = _matchup_stage(wk, playoff_start, season)
             # tx summaries
             faab_spent: Dict[str, float] = defaultdict(float)
             trade_count: Dict[str, int] = defaultdict(int)
@@ -4833,6 +4920,15 @@ def build_all(repo_root: Path) -> None:
                     win = None
                     if margin is not None:
                         win = 1 if margin > 0 else 0 if margin < 0 else 0.5
+                    # 2026+ two-week final: weeks 16 & 17 are one combined round,
+                    # so the Win? shown for BOTH weeks is the combined-PF result
+                    # (a team can trail in one week yet win the two-week final).
+                    # Per-week PF / PA / Margin stay as-is — only Win? is
+                    # overridden; games_df counts the pair once (see below).
+                    if wk in _finals_weeks(playoff_start, season):
+                        _cw = finals_combined_win.get((season, rid))
+                        if _cw is not None:
+                            win = _cw
 
                     starters = [str(x) for x in (m.get("starters") or []) if x]
                     players = [str(x) for x in (m.get("players") or []) if x]
@@ -12110,7 +12206,14 @@ def build_all(repo_root: Path) -> None:
                     win_streak_season = 0
                     loss_streak_season = 0
                 result = row.get("Win?")
-                if result == 1:
+                # 2026+ two-week final: week 17 repeats week 16's result, so it
+                # must NOT advance the streak again — hold the counters and write
+                # the same value (the two-week final is one win/loss). Per-week
+                # award / PF streaks below still process normally.
+                _dup_final = _is_second_finals_week(row["Year"], row["Week"], playoff_start_by_season)
+                if _dup_final:
+                    pass
+                elif result == 1:
                     win_streak_season += 1
                     loss_streak_season = 0
                     win_streak += 1
@@ -12157,11 +12260,15 @@ def build_all(repo_root: Path) -> None:
                 _quiet = (_quiet + 1) if (_played and _moves == 0) else 0
                 tw.loc[idx, "Quiet streak"] = _quiet
 
-                # Rivalry: consecutive H2H wins vs this week's opponent.
+                # Rivalry: consecutive H2H wins vs this week's opponent. The
+                # second leg of a 2026+ two-week final is the same game vs the
+                # same opponent, so it does not advance the H2H run.
                 _opp = row.get("Opponent")
                 _opp = str(_opp).strip() if (_opp is not None and pd.notna(_opp)) else ""
                 if _opp:
-                    if result == 1:
+                    if _dup_final:
+                        pass
+                    elif result == 1:
                         _rival[_opp] = _rival.get(_opp, 0) + 1
                     elif result in (0, 0.5):
                         _rival[_opp] = 0
@@ -13874,6 +13981,12 @@ def build_all(repo_root: Path) -> None:
         # compute per game outcomes using raw opponent team when available.
         game_rows = []
         for (yr, wk), g in tw.groupby(["Year", "Week"]):
+            # 2026+ two-week final: weeks 16 & 17 are ONE game with the same
+            # combined-PF result marked in both. Records / win % / bracket
+            # records read from games_df, so drop the second leg here to count
+            # the two-week final once (team_week still shows the win in both).
+            if _is_second_finals_week(yr, wk, playoff_start_by_season):
+                continue
             g2 = g.copy()
             g2["PF"] = pd.to_numeric(g2["PF"], errors="coerce").fillna(0.0)
             g2["Points against"] = pd.to_numeric(g2["Points against"], errors="coerce").fillna(0.0)
