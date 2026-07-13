@@ -11270,6 +11270,12 @@ def build_all(repo_root: Path) -> None:
         exp_points: List[Optional[float]] = [None] * len(pw)
         points_lost: List[float] = [0.0] * len(pw)
         starter_adj_lost: List[float] = [0.0] * len(pw)
+        # Bye analog of the hardship point-loss: same rolling-baseline expected
+        # value and starter weighting, but attributed to a player who scored 0
+        # because his NFL team was on bye (instead of injury/suspension). Feeds
+        # the "Loss from bye?" counterfactual, mirroring "Loss from hardship?".
+        points_lost_bye: List[float] = [0.0] * len(pw)
+        starter_adj_lost_bye: List[float] = [0.0] * len(pw)
         # 1 when, at this row, the player counts as a "starter" under the
         # SAME heuristic Starter-adjusted Hardship uses (starter_pct > 0 over
         # the SA baseline window). Used for "Weeks of starter injuries/
@@ -11388,6 +11394,14 @@ def build_all(repo_root: Path) -> None:
                 exp_clamped = max(0.0, float(expected))
                 points_lost[i] = exp_clamped
                 starter_adj_lost[i] = exp_clamped * eff_starter_pct
+            # Bye analog: player scored 0 because his NFL team was on bye. Bye
+            # wins over Injury?/Suspension? (see Bye? definition), so a bye week
+            # is attributed here, never to hardship.
+            missed_bye = (pts == 0.0) and bye
+            if missed_bye and expected is not None:
+                exp_clamped_bye = max(0.0, float(expected))
+                points_lost_bye[i] = exp_clamped_bye
+                starter_adj_lost_bye[i] = exp_clamped_bye * eff_starter_pct
             # Advance active-week history when LOTG status is active. We
             # skip the nflverse dedup here because the current pw row is
             # the authoritative entry for this (year, week).
@@ -11401,6 +11415,8 @@ def build_all(repo_root: Path) -> None:
         pw["_points_lost_inj_susp"] = points_lost
         pw["_starter_adj_points_lost"] = starter_adj_lost
         pw["_was_recent_starter_injsusp"] = was_recent_starter
+        pw["_points_lost_bye"] = points_lost_bye
+        pw["_starter_adj_points_lost_bye"] = starter_adj_lost_bye
 
         # Healthy-lineup score per team-week for the "Loss from hardship?" flag.
         # Pool = the team's ACTUAL STARTERS (at their real points) + the hurt
@@ -11445,6 +11461,56 @@ def build_all(repo_root: Path) -> None:
                         _healthy_opt_by_tw[(str(_tm), str(_yr), str(_wk))] = float(_ho)
         except Exception as e:
             _log_exc(debug, "healthy_optimal_lineup", e)
+
+        # Bye "gain" per team-week for the "Loss from bye?" flag: the marginal
+        # points a team's best valid lineup would pick up if its would-be-starters
+        # who sat on BYE were available (each at their starter-adjusted bye value),
+        # i.e. optimal(actual starters + on-bye subs) − optimal(actual starters).
+        #
+        # Deliberately a DELTA rather than an absolute score: the flag adds this
+        # gain to the ACTUAL PF (below), so any gap between a team's reconstructed
+        # lineup and its real PF (chiefly the league's home-field-advantage bonus,
+        # which lives in PF but not in summed player points) cancels out — both
+        # optimals share it. A team-week with no on-bye would-be-starters yields a
+        # gain of exactly 0, so it can never manufacture a flip. Same subbed-in
+        # pool as the hardship counterfactual.
+        _bye_gain_by_tw: Dict[Tuple[str, str, str], float] = {}
+        try:
+            _needb = {"Team", "Year", "Week", "Position", "Points", "Bye?",
+                      "Starter/Bench", "Player ID", "_starter_adj_points_lost_bye"}
+            if _needb.issubset(pw.columns):
+                _pwb = pw[list(_needb)].copy()
+                _pwb["_pt"] = pd.to_numeric(_pwb["Points"], errors="coerce").fillna(0.0)
+                _pwb["_sa"] = pd.to_numeric(_pwb["_starter_adj_points_lost_bye"], errors="coerce")
+                _pwb["_st"] = _pwb["Starter/Bench"].astype(str).str.strip().str.lower().eq("starter")
+                _pwb["_onbye"] = (
+                    _pwb["Bye?"].astype(str).str.strip().str.lower().isin(["true", "1"])
+                    & (_pwb["_pt"] == 0.0) & _pwb["_sa"].notna() & (_pwb["_sa"] > 0)
+                )
+                _pwb = _pwb[_pwb["_st"] | _pwb["_onbye"]]
+                for (_tm, _yr, _wk), _g in _pwb.groupby(["Team", "Year", "Week"]):
+                    _full, _base, _pp = {}, {}, {}
+                    for _pid, _pos, _st, _pt, _sa in zip(
+                        _g["Player ID"].astype(str), _g["Position"].astype(str),
+                        _g["_st"], _g["_pt"], _g["_sa"]):
+                        if not _pid or _pid in ("None", "nan"):
+                            continue
+                        _pp[_pid] = _pos
+                        _full[_pid] = float(_pt) if _st else float(_sa)
+                        if _st:  # base pool = actual starters only (no bye subs)
+                            _base[_pid] = float(_pt)
+                    if not _base:
+                        continue
+                    _yri = int(_yr) if str(_yr).strip().isdigit() else _yr
+                    try:
+                        _fo = compute_optimal_lineup(_full, _pp, _yri)
+                        _bo = compute_optimal_lineup(_base, {p: _pp[p] for p in _base}, _yri)
+                    except Exception:
+                        _fo = _bo = None
+                    if _fo is not None and _bo is not None:
+                        _bye_gain_by_tw[(str(_tm), str(_yr), str(_wk))] = max(0.0, float(_fo) - float(_bo))
+        except Exception as e:
+            _log_exc(debug, "bye_gain_lineup", e)
 
         # --------------------------
         # Activated Cuff detection
@@ -11671,6 +11737,31 @@ def build_all(repo_root: Path) -> None:
                 index=tw.index, dtype="float64",
             )
             tw["Loss from hardship?"] = (~_won) & _pa.notna() & _ho.notna() & (_ho > _pa)
+            # Loss from bye? — the bye analog of the hardship counterfactual, but
+            # SYMMETRIC across the matchup. A bye is a shared schedule artifact, not
+            # one team's private misfortune, so "what if there were no byes" must
+            # give BOTH sides their on-bye would-be-starters back — not just this
+            # team. Each side's bye GAIN (the marginal lineup points from restoring
+            # its on-bye subs) is added to its ACTUAL score, then compared: flag a
+            # loss that flips once both teams are made whole. Using actual PF/PA as
+            # the base (plus a delta) keeps a PF-vs-summed-points gap on either side
+            # (e.g. the home-field-advantage bonus baked into PF) from manufacturing
+            # a phantom flip; a bye-free week has 0 gain on both sides and so
+            # reduces to PF vs PA (never flags).
+            _pf = pd.to_numeric(tw.get("PF"), errors="coerce")
+            _gain = pd.Series(
+                [_bye_gain_by_tw.get((str(t), str(y), str(w)), 0.0)
+                 for t, y, w in zip(tw.get("Team"), tw.get("Year"), tw.get("Week"))],
+                index=tw.index, dtype="float64",
+            )
+            _gain_opp = pd.Series(
+                [_bye_gain_by_tw.get((str(o), str(y), str(w)), 0.0)
+                 for o, y, w in zip(tw.get("Opponent"), tw.get("Year"), tw.get("Week"))],
+                index=tw.index, dtype="float64",
+            )
+            tw["Loss from bye?"] = (
+                (~_won) & _pa.notna() & _pf.notna() & ((_pf + _gain) > (_pa + _gain_opp))
+            )
         except Exception as e:
             _log_exc(debug, "loss_from_hardship_flag", e)
         # (Previously had a defensive SA ≤ H clamp here for a
@@ -17564,6 +17655,7 @@ def build_all(repo_root: Path) -> None:
         _ay_w, _ay_g = defaultdict(float), defaultdict(float)   # (team, year)
         _at_w, _at_g = defaultdict(float), defaultdict(float)   # team all-time
         _lh_y, _lh_t = defaultdict(int), defaultdict(int)       # losses-from-hardship
+        _lb_y, _lb_t = defaultdict(int), defaultdict(int)       # losses-from-byes
         if not tw.empty and {"Team", "Year", "Week", "PF"}.issubset(tw.columns):
             _t = tw.copy()
             _t["_pf"] = pd.to_numeric(_t["PF"], errors="coerce")
@@ -17571,6 +17663,8 @@ def build_all(repo_root: Path) -> None:
             _t = _t.dropna(subset=["_pf", "_yr"])
             _lhflag = (_t["Loss from hardship?"].astype(str).str.lower().isin(["true", "1", "yes"])
                        if "Loss from hardship?" in _t.columns else pd.Series(False, index=_t.index))
+            _lbflag = (_t["Loss from bye?"].astype(str).str.lower().isin(["true", "1", "yes"])
+                       if "Loss from bye?" in _t.columns else pd.Series(False, index=_t.index))
             for (_yr, _wk), _grp in _t.groupby(["_yr", "Week"]):
                 _pfs = _grp["_pf"].tolist()
                 _n = len(_grp)
@@ -17581,6 +17675,8 @@ def build_all(repo_root: Path) -> None:
                     _at_w[_tm] += _w; _at_g[_tm] += float(_n - 1)
                     if bool(_lhflag.loc[_i2]):
                         _lh_y[(_tm, _y)] += 1; _lh_t[_tm] += 1
+                    if bool(_lbflag.loc[_i2]):
+                        _lb_y[(_tm, _y)] += 1; _lb_t[_tm] += 1
         def _ap_diff(_ap_list, _winpct_series):
             _wp = pd.to_numeric(_winpct_series, errors="coerce")
             return [(round(a - w, 4) if (a is not None and pd.notna(w)) else None)
@@ -17596,6 +17692,10 @@ def build_all(repo_root: Path) -> None:
                 [(int(_lh_y.get((str(t), int(y)), 0))
                   if pd.notna(y) and _ay_g.get((str(t), int(y)), 0) > 0 else None)
                  for t, y in zip(team_year["Team"], _yrs)], dtype="Int64")
+            team_year["Losses from byes"] = pd.array(
+                [(int(_lb_y.get((str(t), int(y)), 0))
+                  if pd.notna(y) and _ay_g.get((str(t), int(y)), 0) > 0 else None)
+                 for t, y in zip(team_year["Team"], _yrs)], dtype="Int64")
         if not team_all.empty and "Team" in team_all.columns:
             _apa = [(round(_at_w[str(t)] / _at_g[str(t)], 4) if _at_g.get(str(t), 0) > 0 else None)
                     for t in team_all["Team"]]
@@ -17603,6 +17703,9 @@ def build_all(repo_root: Path) -> None:
             team_all["All-play win % minus Win %"] = _ap_diff(_apa, team_all.get("All time win %"))
             team_all["Losses from hardship"] = pd.array(
                 [(int(_lh_t.get(str(t), 0)) if _at_g.get(str(t), 0) > 0 else None)
+                 for t in team_all["Team"]], dtype="Int64")
+            team_all["Losses from byes"] = pd.array(
+                [(int(_lb_t.get(str(t), 0)) if _at_g.get(str(t), 0) > 0 else None)
                  for t in team_all["Team"]], dtype="Int64")
     except Exception as e:
         _log_exc(debug, "allplay_losses_hardship", e)
