@@ -248,14 +248,14 @@ jobs:
 
       - name: Send weekly digest email (Tuesday send run only)
         # Mails exports/raw/weekly_digest.html to config/digest.yaml recipients.
-        # No-ops (logged, non-failing) when the digest was skipped (offseason),
-        # has no changes (--skip-empty), or SMTP secrets are absent — so this is
-        # safe before delivery is configured. Add SMTP_USERNAME / SMTP_PASSWORD
-        # repo secrets (a Gmail account + app password) to enable sending.
+        # Credentials are AES-encrypted in config/digest_credentials.enc and
+        # decrypted at send time with the DIGEST_KEY secret. No-ops (logged,
+        # non-failing) when the digest was skipped (offseason), has no changes
+        # (--skip-empty), or DIGEST_KEY is absent — so this is safe before the
+        # secret is added. (SMTP_USERNAME/SMTP_PASSWORD still override if set.)
         if: ${{ github.ref == 'refs/heads/main' && (github.event.schedule == '0 14 * * 2' || (github.event_name == 'workflow_dispatch' && github.event.inputs.send_email == 'true')) }}
         env:
-          SMTP_USERNAME: ${{ secrets.SMTP_USERNAME }}
-          SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
+          DIGEST_KEY: ${{ secrets.DIGEST_KEY }}
         run: python scripts/send_digest.py --skip-empty
 
       - name: Dump debug logs on failure

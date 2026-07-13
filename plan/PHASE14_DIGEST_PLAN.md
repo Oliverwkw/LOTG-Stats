@@ -78,12 +78,23 @@ carries on-pace data baselines silently.
   scaling and is surfaced per-column in the phrasing CSV so edge calls (e.g.
   "Tanking") can be reviewed and corrected.
 
-## Setup required before emails send
+## Delivery credentials (encrypted in the repo)
 
-- Add repo secrets `SMTP_USERNAME` + `SMTP_PASSWORD` (a Gmail account + app
-  password, or another SMTP provider — override host/port via `SMTP_HOST`/`PORT`
-  env or `config/digest.yaml`). Until then the send step logs a skip and the
-  pipeline stays green.
+The sending account (`lotgstats@gmail.com`) + password are AES-256 encrypted into
+`config/digest_credentials.enc`. The decryption key is the single **`DIGEST_KEY`**
+GitHub Actions secret — never committed. `scripts/send_digest.py` decrypts the
+blob at send time (via `openssl`); `SMTP_USERNAME`/`SMTP_PASSWORD` env vars
+override it if ever needed. Re-encrypt with `scripts/encrypt_digest_credentials.py`.
+
+### Setup required before emails send
+1. Add the repo secret **`DIGEST_KEY`** (value provided out-of-band).
+2. **Swap in a Gmail App Password.** Gmail rejects plain-password SMTP; the
+   account needs 2FA + a 16-char app password
+   (https://myaccount.google.com/apppasswords). Then re-encrypt:
+   `DIGEST_KEY=<key> python scripts/encrypt_digest_credentials.py --username lotgstats@gmail.com --password '<app password>'`
+   and commit the updated `config/digest_credentials.enc`.
+
+Until `DIGEST_KEY` exists the send step logs a skip and the pipeline stays green.
 
 ## Remaining (next sub-PRs)
 

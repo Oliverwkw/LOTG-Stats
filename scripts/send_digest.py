@@ -1,16 +1,22 @@
 """Phase 14 — send the rendered weekly digest by email.
 
 Reads the digest HTML (`scripts/build_digest.py` output) and `config/digest.yaml`
-and mails it to the configured recipients over SMTP. Credentials come from env
-(workflow secrets), never from the repo:
+and mails it to the configured recipients over SMTP.
 
-  SMTP_USERNAME   sending account, also the From address (required to send)
-  SMTP_PASSWORD   app password / account password        (required to send)
+Credentials never sit in the repo in the clear. The sending account + password
+are AES-256 encrypted into `config/digest_credentials.enc`; the decryption key
+is the single `DIGEST_KEY` workflow secret. At send time this script decrypts
+the blob (via the `openssl` CLI, no extra Python dependency). As an alternative,
+`SMTP_USERNAME` / `SMTP_PASSWORD` env vars override the encrypted file.
+
+  DIGEST_KEY      hex key that decrypts config/digest_credentials.enc
+  SMTP_USERNAME   (optional override) sending account + From address
+  SMTP_PASSWORD   (optional override) that account's app password
   SMTP_HOST/PORT  optional overrides of config values
 
 This is intentionally a **safe no-op** when it can't send: missing HTML (the
 digest was skipped in the offseason), an empty digest with `--skip-empty`, or
-absent SMTP creds all log a reason and exit 0, so the pipeline never fails just
+absent credentials all log a reason and exit 0, so the pipeline never fails just
 because delivery isn't wired yet.
 
 Usage:
@@ -24,6 +30,7 @@ import json
 import os
 import smtplib
 import ssl
+import subprocess
 import sys
 from email.message import EmailMessage
 from email.utils import formataddr
@@ -32,6 +39,52 @@ from pathlib import Path
 import yaml
 
 _ROOT = Path(__file__).resolve().parent.parent
+_CREDS_ENC = _ROOT / "config" / "digest_credentials.enc"
+
+
+def _decrypt_credentials(enc_path: Path, key: str):
+    """Decrypt the AES-256 credentials blob with DIGEST_KEY via openssl.
+
+    Mirrors the encryption:
+      openssl enc -aes-256-cbc -pbkdf2 -iter 200000 -salt -base64 -A
+    Returns {"username","password"} or None if anything goes wrong.
+    """
+    try:
+        blob = enc_path.read_text().strip()
+    except OSError:
+        return None
+    try:
+        proc = subprocess.run(
+            ["openssl", "enc", "-d", "-aes-256-cbc", "-pbkdf2", "-iter", "200000",
+             "-base64", "-A", "-pass", "env:DIGEST_KEY"],
+            input=blob, capture_output=True, text=True,
+            env={**os.environ, "DIGEST_KEY": key}, check=False,
+        )
+    except (OSError, ValueError):
+        return None
+    if proc.returncode != 0:
+        return None
+    try:
+        creds = json.loads(proc.stdout)
+    except ValueError:
+        return None
+    if creds.get("username") and creds.get("password"):
+        return creds
+    return None
+
+
+def _resolve_credentials():
+    """(username, password) from env override or the encrypted file, else None."""
+    user = os.environ.get("SMTP_USERNAME")
+    password = os.environ.get("SMTP_PASSWORD")
+    if user and password:
+        return user, password
+    key = os.environ.get("DIGEST_KEY")
+    if key and _CREDS_ENC.exists():
+        creds = _decrypt_credentials(_CREDS_ENC, key)
+        if creds:
+            return creds["username"], creds["password"]
+    return None
 
 # Present in the rendered HTML only when there were no crossings/projections.
 _EMPTY_MARKER = "No leaderboard changes this week."
@@ -73,10 +126,10 @@ def main(argv=None) -> int:
     if not recipients:
         return _bail(f"no recipients configured in {args.config}.")
 
-    user = os.environ.get("SMTP_USERNAME")
-    password = os.environ.get("SMTP_PASSWORD")
-    if not user or not password:
-        return _bail("SMTP_USERNAME / SMTP_PASSWORD not set — skipping send.")
+    creds = _resolve_credentials()
+    if not creds:
+        return _bail("no credentials (set DIGEST_KEY, or SMTP_USERNAME/SMTP_PASSWORD) — skipping send.")
+    user, password = creds
 
     host = os.environ.get("SMTP_HOST", cfg.get("smtp_host", "smtp.gmail.com"))
     port = int(os.environ.get("SMTP_PORT", cfg.get("smtp_port", 587)))
