@@ -16,18 +16,26 @@ Both self-gate to in-season (nothing emails in the offseason). `workflow_dispatc
 has a `send_email` toggle for a manual send.
 
 The digest is **over-inclusive**: it auto-discovers *every* numeric column across
-the ranked sheets — no hand-curated "headline" list — and reports two kinds of
-change:
+the ranked sheets — no hand-curated "headline" list. Per-section rules
+(`CROSSING_CONFIG`, `PROJECTION_WINDOW`):
 
-1. **All-time crossings** (`player_all_time`, `team_all_time`). For every numeric
-   column, watch the top/bottom `WINDOW` (=5) of the leaderboard and report when
-   an entity crosses another there, by diffing this week's snapshot vs last
-   week's. *"Kyler Murray passes JJ McCarthy for 4th-lowest Points all-time (-0.4)."*
-2. **Yearly on-pace** (`player_year`, `team_year`, `league_year`). For every
-   numeric column, project the in-progress season to a full-season pace and rank
-   it against every completed season. Cumulative stats scale by weeks played;
-   rate/level stats carry as-is. *"Oliverwkw is on pace for 4th-highest Hardship
-   this season (128)."* **Withheld until week 3** (too little signal earlier).
+1. **All-time crossings**, diffing this week's snapshot vs last week's:
+   - **players** (`player_all_time`): top AND bottom 5. *"Kyler Murray passes JJ
+     McCarthy for 4th-lowest Points all-time (-0.4)."*
+   - **teams** (`team_all_time`): **any movement among the 8** (full board),
+     reported once from the riser's side. *"BROsenzweig passes shmuel256 for
+     3rd-highest Max PF all-time."*
+   - **league** (`league_all_time`): single row → no leaderboard; instead a
+     **milestone** when a major total (`MAJOR_LEAGUE_STATS`) crosses a round
+     number. *"League Total trades passes 200 (now 204)."*
+2. **Yearly on-pace** (`player_year`, `team_year`, `league_year`): project the
+   in-progress season to full-season pace, ranked vs completed seasons.
+   Cumulative stats scale by weeks played; rate/level stats carry as-is.
+   **Withheld until week 3.** Windows: players/teams top & bottom 5;
+   **league_year `floor(#seasons/3)` capped at 5**. **Weekly-counting stats** —
+   awards (`Times ...`) and result-flips (`Wins/Losses from hardship|byes`),
+   which can't exceed one per week — get **no on-pace line**; their movement
+   shows only through the all-time crossings.
 
 **Only changes are reported.** All-time crossings are inherently sparse (all-time
 values barely move week to week). On-pace standings ARE also diffed week over

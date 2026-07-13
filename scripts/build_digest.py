@@ -53,7 +53,7 @@ def main(argv=None) -> int:
     exports = Path(args.exports)
     frames = {n: _read(exports, n) for n in (
         "player_all_time", "team_all_time", "player_year", "team_year",
-        "league_year", "team_week",
+        "league_year", "league_all_time", "team_week",
     )}
     required = ("player_all_time", "team_all_time", "team_year")
     if any(frames[n].empty for n in required):
@@ -65,6 +65,7 @@ def main(argv=None) -> int:
         rows = D.phrasing_catalog(
             frames["player_all_time"], frames["team_all_time"],
             frames["player_year"], frames["team_year"], frames["league_year"],
+            frames["league_all_time"],
         )
         D.write_phrasing_csv(Path(args.phrasing_csv), rows)
         print(f"[digest] phrasing catalog ({len(rows)} stats) -> {args.phrasing_csv}")
@@ -76,6 +77,7 @@ def main(argv=None) -> int:
     current = D.build_snapshot(
         frames["player_all_time"], frames["team_all_time"],
         frames["team_year"], frames["team_week"],
+        league_all_time=frames["league_all_time"],
         captured_at=datetime.now(timezone.utc),
     )
     meta = current["meta"]
@@ -94,9 +96,11 @@ def main(argv=None) -> int:
     prior = D.load_snapshot(snap_path)
     if prior is None:
         print("[digest] no prior snapshot — baselining this week (no diff yet).")
-        crossings, proj_changes = [], []
+        crossings, proj_changes, milestones = [], [], []
     else:
         crossings = D.diff_snapshots(prior, current)
+        milestones = D.milestone_crossings(
+            prior.get("league_milestones", {}), current["league_milestones"])
         prior_pace = prior.get("pace")
         if prior_pace is None:
             # First week the season carries on-pace data — baseline it silently
@@ -106,11 +110,12 @@ def main(argv=None) -> int:
         else:
             proj_changes = D.diff_pace(prior_pace, projections)
 
-    html = D.render_digest_html(crossings, proj_changes, meta)
+    html = D.render_digest_html(crossings, proj_changes, meta, milestones)
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(html)
-    print(f"[digest] {len(crossings)} crossing(s), {len(proj_changes)} on-pace "
-          f"change(s) [{len(projections)} standings tracked] -> {out_path}")
+    print(f"[digest] {len(crossings)} crossing(s), {len(milestones)} milestone(s), "
+          f"{len(proj_changes)} on-pace change(s) [{len(projections)} standings tracked] "
+          f"-> {out_path}")
 
     D.save_snapshot(snap_path, current)
     print(f"[digest] snapshot saved -> {snap_path}")

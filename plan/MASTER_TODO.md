@@ -289,10 +289,13 @@ audit (`plan/AUDIT_PHASE13_RUN397_vs_395.md`) found 0 regressions. **Clear to st
 
 **Delivery / recipients:** `config/digest.yaml` — `okeimweiss@gmail.com` (extensible). SMTP via `SMTP_USERNAME`/`SMTP_PASSWORD` repo secrets (still TO ADD); send is a safe no-op until they exist.
 
-**What to surface** (OVER-INCLUSIVE — every numeric column auto-discovered, not a headline subset; full phrasing in `plan/phase14_phrasing.csv`):
-- All-time top/bottom-5 crossings (players + teams): "Kyler Murray passes JJ McCarthy for 4th-lowest Points all-time (−0.4)."
-- Yearly on-pace (players + teams + league), **from week 3 only**, ranked vs completed seasons: "Oliverwkw is on pace for 4th-highest Hardship this season." Cumulative stats scale by weeks; rate/level stats carry as-is.
-- **Only changes** are reported — on-pace standings are diffed week-over-week too, so a still-3rd team is silent (keeps the over-inclusive digest to ~dozens of lines).
+**What to surface** (OVER-INCLUSIVE — every numeric column auto-discovered, not a headline subset; full phrasing in `plan/phase14_phrasing.csv`). Per-section rules:
+- **player_all_time**: top/bottom-5 crossings. "Kyler Murray passes JJ McCarthy for 4th-lowest Points all-time (−0.4)."
+- **team_all_time**: ANY movement among the 8 (full board, riser side, one line). "BROsenzweig passes shmuel256 for 3rd-highest Max PF all-time."
+- **league_all_time**: milestones only (round-number crossings of major totals) — no leaderboard. "League Total trades passes 200."
+- **Yearly on-pace** (player_year/team_year top-bottom 5; league_year floor(#seasons/3)≤5), **from week 3 only**: "Oliverwkw is on pace for 4th-highest Hardship this season." Cumulative scale by weeks; rate/level as-is.
+- **Weekly-counting stats** (awards `Times…`, `Wins/Losses from hardship|byes` — ≤1/week) get NO on-pace; surfaced only via all-time crossings. The new #359 bye/2-sided-hardship stats fall here.
+- **Only changes** are reported — on-pace standings diffed week-over-week too, so a still-3rd team is silent (keeps the digest to ~dozens of lines).
 
 **Implementation outline** (progress; full design in `plan/PHASE14_DIGEST_PLAN.md`):
 - [x] Capture prior-week ranks snapshot (commit to repo or store as workflow artifact) — `lib/lotg_support/digest.py` `build_snapshot()` + `data/digest/ranks_snapshot.json`, rotated by the CLI.

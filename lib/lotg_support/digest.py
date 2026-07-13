@@ -41,12 +41,35 @@ import pandas as pd
 # ---------------------------------------------------------------------------
 # Tunables
 # ---------------------------------------------------------------------------
-# Top/bottom N of a leaderboard that counts as a notable "move". The spec's
-# examples top out at 4th/3rd, so 5 is the natural default; bump to widen.
+# Default top/bottom N of a leaderboard that counts as a notable "move".
 WINDOW = 5
 
 # Yearly ("on pace") items are withheld until this many weeks are complete.
 MIN_YEARLY_WEEK = 3
+
+# Per-section rules for ALL-TIME crossings (diff of this week's ranking vs last):
+#   * players: huge board -> watch the top AND bottom 5, cap at half the board.
+#   * teams: only 8 of them, so report ANY movement among the 8. High end only
+#     (every rank change has a riser; reporting the riser once avoids the
+#     double "riser Nth-highest + faller Mth-lowest" for a single swap), full
+#     board (window=None), no half cap.
+# league_all_time is a single row (no ranking) -> handled by milestones instead.
+CROSSING_CONFIG = {
+    "players": {"ends": ("high", "low"), "window": WINDOW, "cap_half": True},
+    "teams":   {"ends": ("high",),       "window": None,   "cap_half": False},
+}
+
+# Per-section window for YEARLY on-pace projections. players/teams fixed at 5;
+# league_year uses floor(#seasons / 3) capped at 5 (few seasons -> tiny window).
+PROJECTION_WINDOW = {"players": WINDOW, "teams": WINDOW}
+LEAGUE_WINDOW_CAP = 5
+
+# league_all_time "major" cumulative totals that earn a milestone note when they
+# cross a round number. (No leaderboard for a single-row sheet.)
+MAJOR_LEAGUE_STATS = (
+    "PF", "Number of transactions", "Total trades",
+    "Number of donuts", "Amount of FAAB spent",
+)
 
 # Sentinels the build writes for "no value" — treated as missing for ranking.
 _MISSING = {"N/A", "In Progress", "", "None", "nan", "NaN"}
@@ -109,6 +132,17 @@ def is_rate_stat(column: str) -> bool:
     """True if a yearly stat is a rate/level (projected as-is, not scaled)."""
     c = column.lower()
     return any(m in c for m in _RATE_MARKERS)
+
+
+def is_weekly_counting_stat(column: str) -> bool:
+    """True for stats that tally a per-week boolean outcome (max one per week) —
+    the weekly awards (`Times ...`) and the result-flip counterfactuals
+    (`Wins/Losses from hardship`, `Wins/Losses from byes`). These do NOT get an
+    on-pace projection (you can't be "on pace for 8.5 awards"); movement on them
+    is surfaced only through their all-time crossings (players top/bottom 5,
+    teams any-of-8)."""
+    c = column.lower()
+    return c.startswith("times ") or "wins from" in c or "losses from" in c
 
 
 # ---------------------------------------------------------------------------
@@ -188,6 +222,7 @@ def build_snapshot(
     team_all_time: pd.DataFrame,
     team_year: pd.DataFrame,
     team_week: pd.DataFrame,
+    league_all_time: Optional[pd.DataFrame] = None,
     captured_at: Optional[datetime] = None,
 ) -> dict:
     captured_at = captured_at or datetime.now(timezone.utc)
@@ -203,6 +238,8 @@ def build_snapshot(
         },
         "players": _rankings_for(player_all_time, "Player", p_cols),
         "teams": _rankings_for(team_all_time, "Team", t_cols),
+        "league_milestones": league_milestone_values(
+            league_all_time if league_all_time is not None else pd.DataFrame()),
     }
 
 
@@ -236,19 +273,23 @@ def _rank_map(entries: Sequence[dict]) -> Dict[str, int]:
 
 def _column_crossings(section: str, column: str,
                       prev: Sequence[dict], curr: Sequence[dict],
-                      window: int) -> List[Crossing]:
-    """Both-end crossings within the top/bottom `window` of one column.
+                      ends: Sequence[str], window: Optional[int],
+                      cap_half: bool) -> List[Crossing]:
+    """Crossings within the watched end(s) of one column.
 
-    The effective window is capped at half the board so the top and bottom ends
-    never overlap — otherwise on a small board (the 8-team league) a mid-table
-    swap would be reported at BOTH ends (riser "Nth-highest" AND faller
-    "Mth-lowest"), which is noise. On large boards (players) the cap never binds.
+    `window=None` watches the whole board (used for the 8-team league, "any
+    movement in the 8"). When `cap_half` is set the window is capped at half the
+    board so the top and bottom ends never overlap — otherwise a mid-table swap
+    on a small board would be reported at BOTH ends (riser "Nth-highest" AND
+    faller "Mth-lowest"). On the huge player board the cap never binds.
     """
     out: List[Crossing] = []
     prev_rank = _rank_map(prev)
     n = len(curr)
-    window = min(window, max(1, n // 2))
-    for end in ("high", "low"):
+    window = n if window is None else window
+    if cap_half:
+        window = min(window, max(1, n // 2))
+    for end in ends:
         slots = range(0, min(window, n)) if end == "high" \
             else range(max(0, n - window), n)
         for idx in slots:
@@ -276,19 +317,21 @@ def _column_crossings(section: str, column: str,
     return out
 
 
-def diff_snapshots(prev: dict, curr: dict, window: int = WINDOW) -> List[Crossing]:
-    """All all-time leaderboard crossings between two snapshots."""
+def diff_snapshots(prev: dict, curr: dict) -> List[Crossing]:
+    """All all-time leaderboard crossings between two snapshots, per the
+    per-section rules in CROSSING_CONFIG (players top/bottom 5; teams any-of-8)."""
     crossings: List[Crossing] = []
-    for section in ("players", "teams"):
+    for section, cfg in CROSSING_CONFIG.items():
         prev_sec = prev.get(section, {})
         curr_sec = curr.get(section, {})
         for column, curr_list in curr_sec.items():
             prev_list = prev_sec.get(column)
             if not prev_list:
                 continue
-            crossings.extend(
-                _column_crossings(section, column, prev_list, curr_list, window)
-            )
+            crossings.extend(_column_crossings(
+                section, column, prev_list, curr_list,
+                cfg["ends"], cfg["window"], cfg["cap_half"],
+            ))
     return crossings
 
 
@@ -343,6 +386,8 @@ def _project_frame(
 
     projections: List[Projection] = []
     for col in cols:
+        if is_weekly_counting_stat(col):
+            continue  # awards / result-flip tallies -> no on-pace (see all-time)
         hist_vals = [v for v in (_to_float(x) for x in hist[col]) if v is not None]
         if len(hist_vals) < window:      # need a meaningful pool to rank against
             continue
@@ -366,18 +411,27 @@ def _project_frame(
     return projections
 
 
+def _league_window(league_year: pd.DataFrame) -> int:
+    """league_year on-pace window = floor(#seasons / 3), capped at 5. With few
+    seasons on record the league board is tiny, so the window shrinks with it."""
+    if league_year.empty or "Year" not in league_year.columns:
+        return 0
+    n_seasons = pd.to_numeric(league_year["Year"], errors="coerce").dropna().nunique()
+    return min(LEAGUE_WINDOW_CAP, n_seasons // 3)
+
+
 def project_on_pace(
     player_year: pd.DataFrame,
     team_year: pd.DataFrame,
     league_year: pd.DataFrame,
     team_week: pd.DataFrame,
-    window: int = WINDOW,
     min_week: int = MIN_YEARLY_WEEK,
 ) -> List[Projection]:
-    """On-pace projections across player / team / league yearly sheets.
-
-    Empty before `min_week` completed weeks (the yearly-withhold rule) or in the
-    offseason / before a completed prior season exists.
+    """On-pace projections across player / team / league yearly sheets, per the
+    per-section windows (players/teams top/bottom 5; league floor(#seasons/3)≤5).
+    Weekly-counting stats (awards, result-flips) are excluded. Empty before
+    `min_week` completed weeks, in the offseason, or before a completed prior
+    season exists.
     """
     season = current_season(team_year)
     if season is None:
@@ -389,10 +443,13 @@ def project_on_pace(
     scale = horizon / played
 
     out: List[Projection] = []
-    out += _project_frame("players", player_year, "Player", season, scale, window)
-    out += _project_frame("teams", team_year, "Team", season, scale, window)
-    if not league_year.empty and "Year" in league_year.columns:
-        out += _project_frame("league", league_year, "Year", season, scale, window)
+    out += _project_frame("players", player_year, "Player", season, scale,
+                          PROJECTION_WINDOW["players"])
+    out += _project_frame("teams", team_year, "Team", season, scale,
+                          PROJECTION_WINDOW["teams"])
+    lw = _league_window(league_year)
+    if lw >= 1 and not league_year.empty and "Year" in league_year.columns:
+        out += _project_frame("league", league_year, "Year", season, scale, lw)
     return out
 
 
@@ -418,6 +475,59 @@ def diff_pace(prior_pace: dict, projections: Sequence[Projection]) -> List[Proje
 
 
 # ---------------------------------------------------------------------------
+# League all-time milestones (single-row sheet -> no leaderboard)
+# ---------------------------------------------------------------------------
+@dataclass
+class Milestone:
+    stat: str
+    value: float
+    milestone: float
+
+    def sentence(self) -> str:
+        return (f"League {self.stat} passes {_fmt(self.milestone)} "
+                f"(now {_fmt(self.value)}).")
+
+
+def league_milestone_values(league_all_time: pd.DataFrame) -> Dict[str, float]:
+    """Current value of each major league_all_time total (single-row sheet)."""
+    out: Dict[str, float] = {}
+    if league_all_time is None or league_all_time.empty:
+        return out
+    row = league_all_time.iloc[0]
+    for stat in MAJOR_LEAGUE_STATS:
+        if stat in league_all_time.columns:
+            v = _to_float(row[stat])
+            if v is not None:
+                out[stat] = v
+    return out
+
+
+def _round_step(v: float) -> Optional[float]:
+    """Round-number granularity for milestones: the value's order of magnitude
+    (e.g. 49,000 -> 10,000, so milestones fall on 40k / 50k / 60k)."""
+    if v <= 0:
+        return None
+    return float(10 ** int(math.floor(math.log10(v))))
+
+
+def milestone_crossings(prev_vals: Dict[str, float],
+                        curr_vals: Dict[str, float]) -> List[Milestone]:
+    """Major league totals that crossed a round number since last week."""
+    out: List[Milestone] = []
+    for stat, cur in curr_vals.items():
+        prev = prev_vals.get(stat)
+        if prev is None or cur is None or cur <= prev:
+            continue
+        step = _round_step(cur)
+        if not step:
+            continue
+        crossed = math.floor(cur / step) * step   # largest round number <= cur
+        if crossed > prev and crossed > 0:
+            out.append(Milestone(stat, cur, crossed))
+    return out
+
+
+# ---------------------------------------------------------------------------
 # Phrasing catalog (the reviewable "how every stat is phrased" CSV)
 # ---------------------------------------------------------------------------
 def phrasing_catalog(
@@ -426,38 +536,51 @@ def phrasing_catalog(
     player_year: pd.DataFrame,
     team_year: pd.DataFrame,
     league_year: pd.DataFrame,
+    league_all_time: Optional[pd.DataFrame] = None,
 ) -> List[dict]:
     """One row per (sheet, stat) describing exactly how a change is phrased."""
     rows: List[dict] = []
 
-    def _crossing_rows(sheet, df, entity_col, who):
+    def _add(sheet, stat, scope, scale, rise, fall):
+        rows.append({"sheet": sheet, "stat": stat, "scope": scope, "scale": scale,
+                     "phrase_when_rises": rise, "phrase_when_falls": fall})
+
+    def _crossing_rows(sheet, df, entity_col, who, scope):
         for col in discover_numeric_columns(df, entity_col):
-            rows.append({
-                "sheet": sheet,
-                "stat": col,
-                "scope": "all-time change",
-                "scale": "n/a",
-                "phrase_when_rises": f"{who} passes <other> for <N>th-highest {col} all-time (<value>).",
-                "phrase_when_falls": f"{who} passes <other> for <N>th-lowest {col} all-time (<value>).",
-            })
+            _add(sheet, col, scope, "n/a",
+                 f"{who} passes <other> for <N>th-highest {col} all-time (<value>).",
+                 f"{who} passes <other> for <N>th-lowest {col} all-time (<value>).")
 
-    def _pace_rows(sheet, df, entity_col, who):
+    def _pace_rows(sheet, df, entity_col, who, window_note):
         for col in discover_numeric_columns(df, entity_col, extra_skip=("Year",)):
+            if is_weekly_counting_stat(col):
+                # No on-pace for weekly-counting stats — surfaced via all-time
+                # crossings only.
+                _add(sheet, col, "weekly-counting (no on-pace; see all-time)", "n/a",
+                     "(no on-pace line; reported via the all-time crossing)", "")
+                continue
             scale = "as-is (rate/level)" if is_rate_stat(col) else "scaled by weeks played"
-            rows.append({
-                "sheet": sheet,
-                "stat": col,
-                "scope": f"yearly on-pace (from week {MIN_YEARLY_WEEK})",
-                "scale": scale,
-                "phrase_when_rises": f"{who} is on pace for <N>th-highest {col} this season (<value>).",
-                "phrase_when_falls": f"{who} is on pace for <N>th-lowest {col} this season (<value>).",
-            })
+            _add(sheet, col, f"yearly on-pace (from week {MIN_YEARLY_WEEK}; {window_note})", scale,
+                 f"{who} is on pace for <N>th-highest {col} this season (<value>).",
+                 f"{who} is on pace for <N>th-lowest {col} this season (<value>).")
 
-    _crossing_rows("player_all_time", player_all_time, "Player", "<player>")
-    _crossing_rows("team_all_time", team_all_time, "Team", "<team>")
-    _pace_rows("player_year", player_year, "Player", "<player>")
-    _pace_rows("team_year", team_year, "Team", "<team>")
-    _pace_rows("league_year", league_year, "Year", "The league")
+    # player_all_time: top/bottom 5. team_all_time: any movement among the 8.
+    _crossing_rows("player_all_time", player_all_time, "Player", "<player>",
+                   "all-time change (top/bottom 5)")
+    _crossing_rows("team_all_time", team_all_time, "Team", "<team>",
+                   "all-time change (any movement among the 8)")
+
+    _pace_rows("player_year", player_year, "Player", "<player>", "top/bottom 5")
+    _pace_rows("team_year", team_year, "Team", "<team>", "top/bottom 5")
+    _pace_rows("league_year", league_year, "Year", "The league",
+               "top/bottom floor(#seasons/3), capped at 5")
+
+    # league_all_time: milestones only (single-row sheet, no leaderboard).
+    if league_all_time is not None and not league_all_time.empty:
+        for col in MAJOR_LEAGUE_STATS:
+            if col in league_all_time.columns:
+                _add("league_all_time", col, "milestone (round-number crossing)", "n/a",
+                     f"League {col} passes <round number> (now <value>).", "")
     return rows
 
 
@@ -492,9 +615,11 @@ def render_digest_html(
     crossings: Sequence[Crossing],
     projections: Sequence[Projection],
     meta: dict,
+    milestones: Sequence[Milestone] = (),
 ) -> str:
     player_moves = [c.sentence() for c in crossings if c.section == "players"]
     team_moves = [c.sentence() for c in crossings if c.section == "teams"]
+    milestone_lines = [m.sentence() for m in milestones]
 
     season = meta.get("season")
     week = meta.get("weeks_completed")
@@ -506,19 +631,20 @@ def render_digest_html(
         f'color:#0b2545;margin:0 0 4px;">{header}</h1>',
         _section_html("All-time leaderboard moves — players", player_moves),
         _section_html("All-time leaderboard moves — teams", team_moves),
+        _section_html("League milestones", milestone_lines),
         _section_html("On pace this season — players", _proj_lines(projections, "players")),
         _section_html("On pace this season — teams", _proj_lines(projections, "teams")),
         _section_html("On pace this season — league", _proj_lines(projections, "league")),
     ]
-    if not any([player_moves, team_moves, projections]):
+    if not any([player_moves, team_moves, milestone_lines, projections]):
         body.append('  <p style="font:15px system-ui,sans-serif;color:#666;">'
                      'No leaderboard changes this week.</p>')
     body.append("</div>")
     return "\n".join(b for b in body if b)
 
 
-def digest_is_empty(crossings: Sequence[Crossing], projections: Sequence[Projection]) -> bool:
-    return not crossings and not projections
+def digest_is_empty(crossings, projections, milestones=()) -> bool:
+    return not crossings and not projections and not milestones
 
 
 # ---------------------------------------------------------------------------
