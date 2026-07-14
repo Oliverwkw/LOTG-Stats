@@ -394,6 +394,20 @@ def _first_col(df: pd.DataFrame, candidates: List[str]) -> Optional[str]:
 # 2.08 only in slot-based comparisons (which key off the "2.09" display string).
 _R209 = 209
 
+# Internal sentinel rounds for the 5.0X FAAB-buy picks: slot 5.0N -> round
+# _R5XX_BASE + N (5.01 -> 501, 5.02 -> 502, ...). Real drafts are 4 rounds, so
+# these never collide with a real pick; they render "5.0N" and (like the 2.09)
+# count as a 4.08 only in slot-based calcs.
+_R5XX_BASE = 500
+
+def _r5xx_to_slot(round_num: int) -> Optional[int]:
+    """Slot N for a 5.0X sentinel round (501->1, ...), else None."""
+    try:
+        r = int(round_num)
+    except Exception:
+        return None
+    return r - _R5XX_BASE if _R5XX_BASE < r <= _R5XX_BASE + 8 else None
+
 def _epoch_ms_to_dt(ms: Any) -> Optional[datetime]:
     try:
         ms_i = int(ms)
@@ -3274,6 +3288,9 @@ def build_all(repo_root: Path) -> None:
         # 2.08 only in the slot-based calcs (which key off this "2.09" string).
         if int(round_num) == _R209:
             return "2.09"
+        _s5 = _r5xx_to_slot(round_num)
+        if _s5 is not None:
+            return f"5.{_s5:02d}"
         team_count = len(roster_ids_by_season.get(season, [])) or None
         if pick_no is None or team_count is None:
             return f"{int(round_num)}.??"
@@ -6706,18 +6723,33 @@ def build_all(repo_root: Path) -> None:
                 _row209["Trade 1"] = _final0
             pick_rows.append(_row209)
             # 5.0X (FAAB draft-day buys, 2025+) only exist once the draft happens.
+            # A buy can be TRADED before it's used (the buyer isn't always the
+            # drafter): slot 5.0N's trades live under sentinel round _R5XX_BASE+N,
+            # so derive the original owner (buyer) from that chain when present;
+            # the final owner is the drafter either way (the chain ends there).
             if int(_sea) >= 2025 and _adds:
                 for _j, (_tsj, _ridj, _pidj, _txidj) in enumerate(_adds[1:], start=1):
-                    _tmj = _rid2tm.get(int(_ridj), f"Roster {_ridj}")
-                    pick_rows.append({
+                    _drafter5 = _rid2tm.get(int(_ridj), f"Roster {_ridj}")
+                    _rnd5 = _R5XX_BASE + int(_j)
+                    _orig5_rid = next((int(_k[2]) for _k, _ev in pick_trade_events.items()
+                                       if _k[0] == int(_sea) and _k[1] == _rnd5 and _ev), None)
+                    if _orig5_rid is not None:
+                        _orig5 = _rid2tm.get(_orig5_rid, _drafter5)
+                        _final5 = _rid2tm.get(_chain_final_rid(int(_sea), _rnd5, _orig5_rid), _drafter5)
+                    else:
+                        _orig5 = _final5 = _drafter5
+                    _row5: Dict[str, Any] = {
                         "Year": int(_sea),
                         "Number": f"5.{_j:02d}",
-                        "Original Team": _tmj,
-                        "Final Team": _tmj,
+                        "Original Team": _orig5,
+                        "Final Team": _final5,
                         "Player Picked": _pid_name(_pidj),
                         "_player_id": str(_pidj),
                         "Commissioner moved?": False,
-                    })
+                    }
+                    if _orig5 != _final5:
+                        _row5["Trade 1"] = _final5
+                    pick_rows.append(_row5)
     except Exception as e:
         _log_exc(debug, "synthetic_draft_day_picks", e)
 
@@ -10225,9 +10257,12 @@ def build_all(repo_root: Path) -> None:
                         continue
                     # The 2.09 toilet pick (sentinel round _R209) is a real,
                     # tradeable asset; weight it as its 2.08 equivalent (round 2)
-                    # so it counts toward the future-capital trade signals.
+                    # so it counts toward the future-capital trade signals. The
+                    # 5.0X FAAB buys (sentinel 5NN) weight as their 4.08 equivalent.
                     if rnd_i == _R209:
                         rnd_i = 2
+                    elif _r5xx_to_slot(rnd_i) is not None:
+                        rnd_i = 4
                     # Future picks only (a current-season rookie pick is
                     # captured by adj_diff, not here). _capped keeps the rolling
                     # _FCAP_HORIZON-season window for the Tanking delta (matches
@@ -16948,9 +16983,14 @@ def build_all(repo_root: Path) -> None:
                     # its trade chain (e.g. 2024 2.09 <- T#28) actually link;
                     # otherwise the draft row (round 2) and the trade (round 209)
                     # land in separate buckets and the pick's "previous
-                    # transaction" silently drops its real trade.
-                    if str(ph.at[_pi, "Number"]).strip() == "2.09":
+                    # transaction" silently drops its real trade. The 5.0X FAAB
+                    # buys work the same way under their 5NN sentinel round.
+                    _num_s = str(ph.at[_pi, "Number"]).strip()
+                    _m5s = re.match(r"5\.0?(\d+)", _num_s)
+                    if _num_s == "2.09":
                         _rd = _R209
+                    elif _m5s:
+                        _rd = _R5XX_BASE + int(_m5s.group(1))
                     _orig = str(ph.at[_pi, "Original Team"]).strip()
                     # Anchor each PH# RELATIVE to the chain it joins, not a fixed
                     # calendar date (which mis-orders the 2021 startup/vet draft
@@ -17107,10 +17147,14 @@ def build_all(repo_root: Path) -> None:
                     _nm = re.match(r"\s*(\d+)\.(\d+)", str(ph.at[_pi, "Number"]))
                     _nx = _pv = None
                     if _ym and _nm:
-                        # 2.09 toilet pick is keyed under the _R209 sentinel round
-                        # (its trades live there); match that so its draft row
-                        # links to its real trade chain, not a dead "N/A".
-                        _rd_k = _R209 if str(ph.at[_pi, "Number"]).strip() == "2.09" else int(_nm.group(1))
+                        # 2.09 toilet pick / 5.0X FAAB buys are keyed under their
+                        # sentinel rounds (their trades live there); match that so
+                        # the draft row links to its real trade chain, not "N/A".
+                        _num_k = str(ph.at[_pi, "Number"]).strip()
+                        _m5k = re.match(r"5\.0?(\d+)", _num_k)
+                        _rd_k = (_R209 if _num_k == "2.09"
+                                 else (_R5XX_BASE + int(_m5k.group(1))) if _m5k
+                                 else int(_nm.group(1)))
                         _pk = (int(_ym.group(1)), _rd_k, int(_nm.group(2)),
                                str(ph.at[_pi, "Original Team"]).strip())
                         # previous = the pick's last trade before the draft
@@ -17227,14 +17271,27 @@ def build_all(repo_root: Path) -> None:
                 return [("0000-00-00 00:00:00", f"{_yr} {_num} — originally {_orig}'s pick"),
                         (f"{_yr}-01-01 00:00:00", f"{_yr} supplemental veteran draft: {_final} {_drafted_txt}")], 0
             if _is_5xx:
-                # 5.xx FAAB buy: an off-platform AWARD bought by and kept with one
-                # team. Not a trade -> contributes 0 to Number of trades.
-                _hdr = f"{_yr} {_num} — originally {_orig}'s pick"
+                # 5.0X: a 20-FAAB draft-day buy that ORIGINATES with the buyer, but
+                # is then a DISTINCT tradeable asset (its own sentinel-round ledger
+                # key, _R5XX_BASE+slot). Render its real trades from _ph_hops under
+                # that key; the buy itself counts 0, each onward trade counts.
+                _m5 = re.match(r"\s*5\.0?(\d+)", _num)
+                _rnd5 = (_R5XX_BASE + int(_m5.group(1))) if _m5 else None
+                _hdr = f"{_yr} {_num} — originally {_orig}'s pick (20-FAAB draft-day buy)"
                 _lines = [("0000-00-00 00:00:00", _hdr)]
-                if _final and _final != _orig and _present(_final):
-                    _lines.append((_move_key, f"{_yr}: Commissioner moved to {_final}"))
-                _lines.append((_draft_key, f"{_yr} draft: {_final} {_drafted_txt}"))
-                return _lines, 0
+                _anchor_d = _draft_anchor(_yr)
+                _same_day = 0
+                _ntr5 = 0
+                for _ts, _recv, _line in sorted(_ph_hops.get((_yr, _rnd5, _orig), []) if _rnd5 else []):
+                    _k = _ts
+                    if _drafted and str(_ts)[:10] == _anchor_d:
+                        _same_day += 1
+                        _k = f"{_anchor_d} 11:{_same_day:02d}:00"
+                    _lines.append((_k, _line))
+                    _ntr5 += 1
+                if _drafted:
+                    _lines.append((_draft_key, f"{_yr} Draft: {_final} {_drafted_txt}"))
+                return _lines, _ntr5
             if _is_209:
                 # 2.09 toilet reward: ORIGINATES with the prior-season toilet
                 # (losers-bracket) winner as an award, but is then a DISTINCT
