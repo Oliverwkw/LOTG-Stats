@@ -11,18 +11,18 @@
       "waiver_bid": 1
     },
     "leg": 13,
-    "draft_picks": [],
     "creator": "736278591884656640",
+    "draft_picks": [],
     "transaction_id": "1037930761350955008",
     "adds": {
       "3225": 4
     },
-    "drops": {
-      "5257": 4
-    },
     "consenter_ids": [
       4
     ],
+    "drops": {
+      "5257": 4
+    },
     "roster_ids": [
       4
     ],
@@ -41,18 +41,18 @@
       "waiver_bid": 2
     },
     "leg": 13,
-    "draft_picks": [],
     "creator": "736278591884656640",
+    "draft_picks": [],
     "transaction_id": "1037925022830157824",
     "adds": {
       "2251": 4
     },
-    "drops": {
-      "8157": 4
-    },
     "consenter_ids": [
       4
     ],
+    "drops": {
+      "8157": 4
+    },
     "roster_ids": [
       4
     ],
@@ -69,6 +69,7 @@
     "created": 1701820003989,
     "settings": null,
     "leg": 13,
+    "creator": "676870999764983808",
     "draft_picks": [
       {
         "round": 3,
@@ -95,18 +96,17 @@
         "previous_owner_id": 7
       }
     ],
-    "creator": "676870999764983808",
     "transaction_id": "1037911959800348672",
     "adds": {
       "1426": 7
-    },
-    "drops": {
-      "1426": 4
     },
     "consenter_ids": [
       4,
       7
     ],
+    "drops": {
+      "1426": 4
+    },
     "roster_ids": [
       4,
       7
@@ -132,18 +132,18 @@
       "waiver_bid": 7
     },
     "leg": 13,
-    "draft_picks": [],
     "creator": "620863288632233984",
+    "draft_picks": [],
     "transaction_id": "1037866636931489792",
     "adds": {
       "9487": 3
     },
-    "drops": {
-      "5374": 3
-    },
     "consenter_ids": [
       3
     ],
+    "drops": {
+      "5374": 3
+    },
     "roster_ids": [
       3
     ],
@@ -162,18 +162,18 @@
       "waiver_bid": 9
     },
     "leg": 13,
-    "draft_picks": [],
     "creator": "603431474020032512",
+    "draft_picks": [],
     "transaction_id": "1037863546501132288",
     "adds": {
       "7567": 1
     },
-    "drops": {
-      "10862": 1
-    },
     "consenter_ids": [
       1
     ],
+    "drops": {
+      "10862": 1
+    },
     "roster_ids": [
       1
     ],
@@ -187,16 +187,16 @@
     "created": 1701781470481,
     "settings": null,
     "leg": 13,
-    "draft_picks": [],
     "creator": "603426191780679680",
+    "draft_picks": [],
     "transaction_id": "1037750338553466880",
     "adds": null,
-    "drops": {
-      "2251": 5
-    },
     "consenter_ids": [
       5
     ],
+    "drops": {
+      "2251": 5
+    },
     "roster_ids": [
       5
     ],
@@ -210,16 +210,16 @@
     "created": 1701755929246,
     "settings": null,
     "leg": 13,
-    "draft_picks": [],
     "creator": "651904773355806720",
+    "draft_picks": [],
     "transaction_id": "1037643210849488896",
     "adds": null,
-    "drops": {
-      "7002": 8
-    },
     "consenter_ids": [
       8
     ],
+    "drops": {
+      "7002": 8
+    },
     "roster_ids": [
       8
     ],
@@ -238,16 +238,16 @@
       "waiver_bid": 30
     },
     "leg": 13,
-    "draft_picks": [],
     "creator": "676870999764983808",
+    "draft_picks": [],
     "transaction_id": "1037634310323126272",
     "adds": {
       "9487": 7
     },
-    "drops": null,
     "consenter_ids": [
       7
     ],
+    "drops": null,
     "roster_ids": [
       7
     ],
@@ -261,18 +261,18 @@
     "created": 1701643634898,
     "settings": null,
     "leg": 13,
-    "draft_picks": [],
     "creator": "603431474020032512",
+    "draft_picks": [],
     "transaction_id": "1037172214216495104",
     "adds": {
       "8168": 1
     },
-    "drops": {
-      "1339": 1
-    },
     "consenter_ids": [
       1
     ],
+    "drops": {
+      "1339": 1
+    },
     "roster_ids": [
       1
     ],
@@ -286,16 +286,16 @@
     "created": 1701561713806,
     "settings": null,
     "leg": 13,
-    "draft_picks": [],
     "creator": "736278591884656640",
+    "draft_picks": [],
     "transaction_id": "1036828612252487680",
     "adds": {
       "8157": 4
     },
-    "drops": null,
     "consenter_ids": [
       4
     ],
+    "drops": null,
     "roster_ids": [
       4
     ],
@@ -309,18 +309,18 @@
     "created": 1701470694993,
     "settings": null,
     "leg": 13,
-    "draft_picks": [],
     "creator": "736278591884656640",
+    "draft_picks": [],
     "transaction_id": "1036446851681046528",
     "adds": {
       "9486": 4
     },
-    "drops": {
-      "7567": 4
-    },
     "consenter_ids": [
       4
     ],
+    "drops": {
+      "7567": 4
+    },
     "roster_ids": [
       4
     ],
@@ -334,18 +334,18 @@
     "created": 1701469577446,
     "settings": null,
     "leg": 13,
-    "draft_picks": [],
     "creator": "673623361460477952",
+    "draft_picks": [],
     "transaction_id": "1036442164349194240",
     "adds": {
       "9227": 6
     },
-    "drops": {
-      "9486": 6
-    },
     "consenter_ids": [
       6
     ],
+    "drops": {
+      "9486": 6
+    },
     "roster_ids": [
       6
     ],
@@ -359,18 +359,18 @@
     "created": 1701469515065,
     "settings": null,
     "leg": 13,
-    "draft_picks": [],
     "creator": "673623361460477952",
+    "draft_picks": [],
     "transaction_id": "1036441902704316416",
     "adds": {
       "9486": 6
     },
-    "drops": {
-      "4144": 6
-    },
     "consenter_ids": [
       6
     ],
+    "drops": {
+      "4144": 6
+    },
     "roster_ids": [
       6
     ],
@@ -384,16 +384,16 @@
     "created": 1701469434513,
     "settings": null,
     "leg": 13,
-    "draft_picks": [],
     "creator": "651904773355806720",
+    "draft_picks": [],
     "transaction_id": "1036441564844740608",
     "adds": {
       "7002": 8
     },
-    "drops": null,
     "consenter_ids": [
       8
     ],
+    "drops": null,
     "roster_ids": [
       8
     ],
@@ -410,6 +410,7 @@
     "created": 1701466662594,
     "settings": null,
     "leg": 13,
+    "creator": "736278591884656640",
     "draft_picks": [
       {
         "round": 3,
@@ -420,20 +421,19 @@
         "previous_owner_id": 5
       }
     ],
-    "creator": "736278591884656640",
     "transaction_id": "1036429938573844480",
     "adds": {
       "10232": 4,
       "2251": 5
     },
-    "drops": {
-      "10232": 5,
-      "2251": 4
-    },
     "consenter_ids": [
       4,
       5
     ],
+    "drops": {
+      "10232": 5,
+      "2251": 4
+    },
     "roster_ids": [
       4,
       5
@@ -448,18 +448,18 @@
     "created": 1701466627606,
     "settings": null,
     "leg": 13,
-    "draft_picks": [],
     "creator": "603431474020032512",
+    "draft_picks": [],
     "transaction_id": "1036429791823482880",
     "adds": {
       "1339": 1
     },
-    "drops": {
-      "10863": 1
-    },
     "consenter_ids": [
       1
     ],
+    "drops": {
+      "10863": 1
+    },
     "roster_ids": [
       1
     ],
@@ -473,16 +473,16 @@
     "created": 1701458646954,
     "settings": null,
     "leg": 13,
-    "draft_picks": [],
     "creator": "651904773355806720",
+    "draft_picks": [],
     "transaction_id": "1036396318542880768",
     "adds": null,
-    "drops": {
-      "7527": 8
-    },
     "consenter_ids": [
       8
     ],
+    "drops": {
+      "7527": 8
+    },
     "roster_ids": [
       8
     ],
@@ -496,16 +496,16 @@
     "created": 1701366877469,
     "settings": null,
     "leg": 13,
-    "draft_picks": [],
     "creator": "736278591884656640",
+    "draft_picks": [],
     "transaction_id": "1036011409424863232",
     "adds": null,
-    "drops": {
-      "1339": 4
-    },
     "consenter_ids": [
       4
     ],
+    "drops": {
+      "1339": 4
+    },
     "roster_ids": [
       4
     ],
@@ -519,16 +519,16 @@
     "created": 1701297294603,
     "settings": null,
     "leg": 13,
-    "draft_picks": [],
     "creator": "736278591884656640",
+    "draft_picks": [],
     "transaction_id": "1035719557731667968",
     "adds": {
       "5257": 4
     },
-    "drops": null,
     "consenter_ids": [
       4
     ],
+    "drops": null,
     "roster_ids": [
       4
     ],
@@ -542,18 +542,18 @@
     "created": 1701290474452,
     "settings": null,
     "leg": 13,
-    "draft_picks": [],
     "creator": "673623361460477952",
+    "draft_picks": [],
     "transaction_id": "1035690951945052160",
     "adds": {
       "19": 6
     },
-    "drops": {
-      "3225": 6
-    },
     "consenter_ids": [
       6
     ],
+    "drops": {
+      "3225": 6
+    },
     "roster_ids": [
       6
     ],
@@ -567,16 +567,16 @@
     "created": 1701290425732,
     "settings": null,
     "leg": 13,
-    "draft_picks": [],
     "creator": "736278591884656640",
+    "draft_picks": [],
     "transaction_id": "1035690747598561280",
     "adds": null,
-    "drops": {
-      "4149": 4
-    },
     "consenter_ids": [
       4
     ],
+    "drops": {
+      "4149": 4
+    },
     "roster_ids": [
       4
     ],
@@ -590,18 +590,18 @@
     "created": 1701269230602,
     "settings": null,
     "leg": 13,
-    "draft_picks": [],
     "creator": "673623361460477952",
+    "draft_picks": [],
     "transaction_id": "1035601848780021760",
     "adds": {
       "4082": 6
     },
-    "drops": {
-      "8168": 6
-    },
     "consenter_ids": [
       6
     ],
+    "drops": {
+      "8168": 6
+    },
     "roster_ids": [
       6
     ],

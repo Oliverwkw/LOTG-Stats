@@ -58,11 +58,7 @@
   },
   "avatar": "13890d64889cd90b8c7121fc1101220d",
   "company_id": null,
-  "sport": "nfl",
-  "season_type": "regular",
-  "season": "2021",
   "last_message_id": "847249262570995712",
-  "shard": 859,
   "scoring_settings": {
     "sack": 1.0,
     "fgm_40_49": 4.0,
@@ -107,6 +103,10 @@
     "pts_allow_7_13": 4.0,
     "st_ff": 0.0
   },
+  "season": "2021",
+  "season_type": "regular",
+  "shard": 859,
+  "sport": "nfl",
   "last_author_avatar": null,
   "last_author_display_name": "sys",
   "last_author_id": "166666666666666666",
@@ -119,6 +119,7 @@
   "last_read_id": null,
   "league_id": "645741669039284224",
   "previous_league_id": "0",
+  "group_id": null,
   "roster_positions": [
     "QB",
     "RB",
@@ -146,7 +147,6 @@
   ],
   "bracket_id": 828020354386649089,
   "bracket_overrides_id": null,
-  "group_id": null,
   "loser_bracket_id": 828020354399232000,
   "loser_bracket_overrides_id": null,
   "total_rosters": 8
