@@ -12685,35 +12685,70 @@ def build_all(repo_root: Path) -> None:
     # never used here. Per user mandate: "we should never being using
     # calendar year for anything - always fantasy year".
     #
-    # Fantasy year FY for a date d:
-    #   d.month >= 9  ->  FY = d.year
-    #   else          ->  FY = d.year - 1
+    # Phase 13 fix — the FULL-FY window (used for "Number of teams") is
+    # anchored to the fantasy CHAMPIONSHIP, not a fixed Sept 1. A dynasty
+    # offseason happens AFTER a season's championship, so those moves belong
+    # to the season they are building toward (the NEXT one), not the season
+    # that just ended. Anchoring to Sept 1 mis-filed every post-championship
+    # offseason move under the prior fantasy year (e.g. Davante Adams' spring
+    # 2025 trades were counted under his 2024 row, showing "4 teams" despite
+    # one team all of 2024 with zero 2024 moves).
     #
-    # Two windows per FY:
-    #   In-season   = [Sept 1 FY, Feb 1 FY+1]
-    #   Full FY     = [Sept 1 FY, Sept 1 FY+1]   (in-season + offseason)
+    # Fantasy year FY spans, per the user directive, "day after (FY-1)'s
+    # championship  ->  last day of FY's championship":
+    #   Full FY  = [champ_monday(FY-1), champ_monday(FY))
+    # where champ_monday(Y) is the Monday after season Y's fantasy
+    # championship game (same anchor as the trades/KTC "end of season"
+    # ladder, Phase 6F). The IN-SEASON window is unchanged (a real season
+    # still runs Sept -> championship); it is used only for Top/Last team.
+    #
+    #   In-season = [Sept 1 FY, Feb 1 FY+1]
     #
     # Three FY-keyed aggregates per tenure:
     #   tenure_time_team_fy[(pid, FY)]           Full-FY seconds per team
     #                                            (used for Number of teams
     #                                            per FY — partial-week
-    #                                            offseason stints count)
+    #                                            offseason stints count,
+    #                                            filed to the upcoming FY)
     #   tenure_inseason_time_team_fy[(pid, FY)]  In-season seconds per team
     #                                            (used for Top team per FY)
     #   tenure_last_event_fy[(pid, FY)]          Latest tenure end that
     #                                            falls inside that FY's
-    #                                            full window (used for
+    #                                            in-season window (used for
     #                                            Last team per FY — Jan
     #                                            championship rolls back
     #                                            to the season's FY)
     # All-time variants collapse the FY axis.
+
+    # Monday after season Y's fantasy championship game. Mirrors the canonical
+    # _championship_monday used by the trades/KTC "end of season" anchor:
+    # NFL week 1's Sunday is 6 days after the first Monday of September; the
+    # championship Sunday is 16 weeks later; the snapshot Monday is the day
+    # after. e.g. 2021 -> Jan 3 2022, 2023 -> Jan 1 2024, 2024 -> Dec 30 2024.
+    def _championship_monday(_yr: int) -> date:
+        _sept1 = date(int(_yr), 9, 1)
+        _first_monday = _sept1 + timedelta(days=(7 - _sept1.weekday()) % 7)
+        _week1_sunday = _first_monday + timedelta(days=6)
+        return _week1_sunday + timedelta(weeks=16) + timedelta(days=1)
+
     def _fy_for_date(_d: datetime) -> int:
-        return _d.year if _d.month >= 9 else _d.year - 1
+        # FY Y spans [champ_monday(Y-1), champ_monday(Y)). A date on/after
+        # this calendar year's championship Monday is next FY's offseason;
+        # a date before last year's championship Monday belongs to FY-1.
+        _dd = _d.date() if isinstance(_d, datetime) else _d
+        _y = _dd.year
+        if _dd >= _championship_monday(_y):
+            return _y + 1
+        if _dd < _championship_monday(_y - 1):
+            return _y - 1
+        return _y
 
     def _fy_window(_fy: int, _tz_for_window) -> Tuple[datetime, datetime]:
+        _s = _championship_monday(_fy - 1)
+        _e = _championship_monday(_fy)
         return (
-            datetime(_fy, 9, 1, tzinfo=_tz_for_window),
-            datetime(_fy + 1, 9, 1, tzinfo=_tz_for_window),
+            datetime(_s.year, _s.month, _s.day, tzinfo=_tz_for_window),
+            datetime(_e.year, _e.month, _e.day, tzinfo=_tz_for_window),
         )
 
     def _fy_inseason_window(_fy: int, _tz_for_window) -> Tuple[datetime, datetime]:

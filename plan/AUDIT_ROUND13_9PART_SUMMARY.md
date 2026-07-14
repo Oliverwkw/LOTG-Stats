@@ -26,22 +26,30 @@ reconcile to Δ=0. 2020 reconciles identically to every other season.
 
 ## Over-inclusive items surfaced (no confirmed defects)
 
-### Worth a decision — corroborated by two agents
+### Worth a decision — corroborated by two agents → **FIXED**
 
 **`player_year` "Number of teams" offseason-bleed** (Agent 2 finding 4-J1,
-independently corroborated by Agent 3 Part 7). The tenure fiscal-year window is
+independently corroborated by Agent 3 Part 7). The tenure fiscal-year window was
 Sep→Sep (`src/lotg.py:12713`), so the *following* dynasty offseason's roster churn
-is filed under the *prior* season's `player_year` row. **108 rows across 2020-2024**
-show `Number of teams` greater than the player's actual weekly team count while
+was filed under the *prior* season's `player_year` row. **108 rows across 2020-2024**
+showed `Number of teams` greater than the player's actual weekly team count while
 carrying 0 in-year trades and 0 transactions. Flagship: **Davante Adams 2024 = 4
 teams** despite being on one team all 17 weeks with zero 2024 moves — those moves
-are his *2025*-dated trades. Per-season distribution: 2020:9 / 2021:18 / 2022:23 /
-2023:31 / 2024:27 / 2025:0 (2025 is un-inflated only because its next offseason
-isn't loaded — a boundary asymmetry). This is internally inconsistent with
-`Number of trades` and with `trades.csv` season attribution. Pre-existing
-(Phase-3A.2), affects all seasons uniformly — **not** a 2020 regression. Both
-agents classify it NEEDS-HUMAN-JUDGMENT (leaning defect); the fix is a definitional
-window choice, so it is surfaced rather than auto-applied.
+were his *2025*-dated trades. Per-season distribution: 2020:9 / 2021:18 / 2022:23 /
+2023:31 / 2024:27 / 2025:0.
+
+**Fix applied (per user directive "day after championship to last day of
+championship"):** the full-FY tenure window is now championship-anchored —
+`Full FY = [champ_monday(FY-1), champ_monday(FY))` — using the same
+`_championship_monday` anchor as the trades/KTC "end of season" ladder. Offseason
+moves (which occur *after* a championship) are now attributed to the season they
+build toward (the upcoming one) rather than the season that just ended. The
+in-season window (Top/Last team) is unchanged.
+
+**Post-fix verification:** Davante Adams 2024 → **1 team** (his 3 moves now sit
+under 2025, matching his 2025 `Number of trades = 3`); the over-count population
+(teams > 1 with 0 trades & 0 tx) dropped **108 → 0**; 0 rows where
+`Number of teams > trades + tx + 1`; `pytest tests/` 46 passed.
 
 ### Minor / awareness
 
