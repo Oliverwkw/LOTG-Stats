@@ -1452,6 +1452,11 @@ def _preserve_na(col: str) -> bool:
     if col_l in {"ppg starter", "ppg bench", "adjusted ppg starter", "adjusted ppg bench",
                  "adjusted avg points", "ppg starter vs bench diff"}:
         return True
+    # Player win % as starter / while rostered (player_year / player_all_time):
+    # N/A when the player has no qualifying (scored) started / rostered weeks in
+    # the period — distinct from a real 0% win rate.
+    if col_l in {"win % as starter", "win % while rostered"}:
+        return True
     # Length of tenure on team: a blank means there is NO player whose tenure
     # to measure — a transactions pure drop (no added player) or an unmade pick
     # (no player drafted yet). Render those as N/A. A genuine 0-day tenure
@@ -2338,9 +2343,9 @@ def build_all(repo_root: Path) -> None:
                                 # (audit run-2 F7: dtype luck made e.g. Most-QBs
                                 # render 1 while Most-TE rendered 1.0).
                                 _cl0 = str(c).strip().lower()
-                                if (any(_cl0.startswith(p) for p in (
+                                if ((any(_cl0.startswith(p) for p in (
                                         "number of", "most number of", "times ",
-                                        "weeks ", "total number"))
+                                        "weeks ", "total number")) or _cl0 == "stacks")
                                         and rounded.dropna().mod(1).eq(0).all()):
                                     rounded = rounded.astype("Int64")
                                 if _preserve_na(c):
@@ -5117,6 +5122,29 @@ def build_all(repo_root: Path) -> None:
                                     teams.append(_t)
                         return max(Counter(teams).values()) if teams else None
 
+                    def _count_stacks(pids) -> int:
+                        # A "stack" = a started QB paired with a started
+                        # position player (RB/WR/TE) from the SAME NFL team.
+                        # Each such pair counts 1, so a QB started alongside a
+                        # WR and a TE from his NFL team is 2 stacks. Resolved via
+                        # the same deterministic NFL-team helper as the other
+                        # same-team columns; the "NFL" free-agent sentinel is
+                        # excluded so two unrostered players can't falsely stack.
+                        qb_teams: List[str] = []
+                        skill_by_team: Counter = Counter()
+                        for pid in pids:
+                            _t = _nfl_team_for_pid_week(pid)
+                            if not _t or _t == "NFL":
+                                continue
+                            _p = (pid_pos.get(pid) or "").upper()
+                            if _p == "QB":
+                                qb_teams.append(_t)
+                            elif _p in ("RB", "WR", "TE"):
+                                skill_by_team[_t] += 1
+                        return int(sum(skill_by_team.get(t, 0) for t in qb_teams))
+
+                    stacks = _count_stacks(starters)
+
                     # Opponent label per playoffs spec
                     opp_label = opp_team
                     label = stage_label_map.get((season, wk, rid))
@@ -5205,6 +5233,7 @@ def build_all(repo_root: Path) -> None:
                         "Most number of TE rostered from same NFL team": max_same_team_by_pos(players, "TE"),
                         "Number of NFL teams among starting players": len(set(start_nfl_teams)) if start_nfl_teams else None,
                         "Number of NFL teams among rostered players": len(set(roster_nfl_teams)) if roster_nfl_teams else None,
+                        "Stacks": stacks,
                         "Number of rookies started": rook_s,
                         "Number of rookies rostered": rook_r,
                         "Player average age": avg_age,
@@ -12920,6 +12949,36 @@ def build_all(repo_root: Path) -> None:
         pw_work["Missed_suspension"] = (pw_work["Suspension?"].fillna(False) & (pw_work["Points"] == 0)).astype(int)
         pw_work["Starter?"] = (pw_work["Starter/Bench"] == "Starter").astype(int)
 
+        # Win % as starter / Win % while rostered (player_year & player_all_time).
+        # Join every player-week to that fantasy team's weekly result (team_week
+        # Win?: 1 win / 0 loss / 0.5 tie) and take the win % over the weeks the
+        # player STARTED, and over ALL weeks the player was ROSTERED (a
+        # player_week row = one rostered week, starter or bench). A tie counts as
+        # half a win, matching the team win % convention used elsewhere. N/A when
+        # a player has no qualifying (scored) weeks in the period.
+        _win_lookup: Dict[Tuple[str, int, int], float] = {}
+        try:
+            if not tw.empty and "Win?" in tw.columns:
+                _twn = tw[["Team", "Year", "Week", "Win?"]].copy()
+                _twn["_w"] = pd.to_numeric(_twn["Win?"], errors="coerce")
+                for _tm, _yr, _wk, _wv in _twn[["Team", "Year", "Week", "_w"]].itertuples(index=False, name=None):
+                    if pd.notna(_wv) and pd.notna(_yr) and pd.notna(_wk):
+                        _win_lookup[(str(_tm), int(_yr), int(_wk))] = float(_wv)
+        except Exception as e:
+            _log_exc(debug, "player_win_pct_lookup", e)
+        pw_work["_team_win"] = [
+            (_win_lookup.get((str(_t), int(_y), int(_w)))
+             if (pd.notna(_y) and pd.notna(_w)) else None)
+            for _t, _y, _w in pw_work[["Team", "Year", "Week"]].itertuples(index=False, name=None)
+        ]
+        _win_num = pd.to_numeric(pw_work["_team_win"], errors="coerce")
+        # Rostered = every scored player-week; Started = scored + Starter? == 1.
+        pw_work["_ros_game"] = _win_num.notna().astype(int)
+        pw_work["_ros_winval"] = _win_num.fillna(0.0)
+        _is_start = (pw_work["Starter?"] == 1) & _win_num.notna()
+        pw_work["_st_game"] = _is_start.astype(int)
+        pw_work["_st_winval"] = _win_num.where(_is_start, other=0.0)
+
         award_cols = [
             "Player of the week?",
             "QB of the week?",
@@ -12993,6 +13052,10 @@ def build_all(repo_root: Path) -> None:
             Played_starter_weeks=("_played_starter_weeks", "sum"),
             Played_bench_points=("_played_bench_points", "sum"),
             Played_bench_weeks=("_played_bench_weeks", "sum"),
+            St_win_sum=("_st_winval", "sum"),
+            St_games=("_st_game", "sum"),
+            Ros_win_sum=("_ros_winval", "sum"),
+            Ros_games=("_ros_game", "sum"),
             **{c: (c, "sum") for c in award_cols},
         )
 
@@ -13014,6 +13077,18 @@ def build_all(repo_root: Path) -> None:
         py_base["Weeks on bench"] = py_base["Weeks_as_bench"]
         py_base["Weeks rostered"] = _ros_y
         py_base["% of starts"] = (py_base["Weeks_as_starter"] / _ros_y.replace(0, np.nan)).round(4)
+        # Win % of the fantasy teams over the player's started / rostered weeks.
+        # NaN (no qualifying weeks) renders as N/A via _preserve_na at output.
+        py_base["Win % as starter"] = (
+            py_base["St_win_sum"] / py_base["St_games"].replace(0, np.nan)
+        ).round(4)
+        py_base["Win % while rostered"] = (
+            py_base["Ros_win_sum"] / py_base["Ros_games"].replace(0, np.nan)
+        ).round(4)
+        py_base = py_base.drop(
+            columns=["St_win_sum", "St_games", "Ros_win_sum", "Ros_games"],
+            errors="ignore",
+        )
         py_base["Total points as starter"] = py_base["Starter_points_sum"].round(2)
         py_base["% of league points"] = (
             py_base["Starter_points_sum"] / py_base["Year"].map(_league_spts_yr).replace(0, np.nan)
@@ -13620,6 +13695,10 @@ def build_all(repo_root: Path) -> None:
             Played_starter_weeks=("_played_starter_weeks", "sum"),
             Played_bench_points=("_played_bench_points", "sum"),
             Played_bench_weeks=("_played_bench_weeks", "sum"),
+            St_win_sum=("_st_winval", "sum"),
+            St_games=("_st_game", "sum"),
+            Ros_win_sum=("_ros_winval", "sum"),
+            Ros_games=("_ros_game", "sum"),
             **{c: (c, "sum") for c in award_cols},
         )
         # Same formula as player_year: derive PPG starter / bench / diff
@@ -13634,6 +13713,14 @@ def build_all(repo_root: Path) -> None:
         pa["Weeks on bench"] = pa["Weeks_as_bench"]
         pa["Weeks rostered"] = _ros_a
         pa["% of starts"] = (pa["Weeks_as_starter"] / _ros_a.replace(0, np.nan)).round(4)
+        # Win % of the fantasy teams over the player's started / rostered weeks
+        # (all-time). NaN (no qualifying weeks) renders as N/A at output.
+        pa["Win % as starter"] = (
+            pa["St_win_sum"] / pa["St_games"].replace(0, np.nan)
+        ).round(4)
+        pa["Win % while rostered"] = (
+            pa["Ros_win_sum"] / pa["Ros_games"].replace(0, np.nan)
+        ).round(4)
         pa["Total points as starter"] = pa["Starter_points_sum"].round(2)
         pa["% of league points"] = (
             (pa["Starter_points_sum"] / _league_spts_all).round(4) if _league_spts_all else None
@@ -13679,6 +13766,7 @@ def build_all(repo_root: Path) -> None:
             "Played_points", "Played_weeks",
             "Played_starter_points", "Played_starter_weeks",
             "Played_bench_points", "Played_bench_weeks",
+            "St_win_sum", "St_games", "Ros_win_sum", "Ros_games",
         ], errors="ignore")
 
         top_team_all = (
@@ -14652,6 +14740,9 @@ def build_all(repo_root: Path) -> None:
                 # team participated in during the season. team_week already
                 # computes Combined matchup score per game.
                 "Combined matchup score": float(pd.to_numeric(g.get("Combined matchup score"), errors="coerce").fillna(0.0).max()),
+                # Season total of the weekly QB×position-player same-NFL-team
+                # starting pairs (counting stat — sum across the season's weeks).
+                "Stacks": int(pd.to_numeric(g.get("Stacks"), errors="coerce").fillna(0.0).sum()),
             }
             # NOTE: Unique-player Number of {QB,WR,RB,TE} {started,rostered}
             # columns are added later (line ~7977 "team_unique_player_counts"
@@ -15367,6 +15458,9 @@ def build_all(repo_root: Path) -> None:
                 # with no clear interpretation.
                 "Tanking": float(pd.to_numeric(g.get("Tanking"), errors="coerce").dropna().mean() or 0.0),
                 "Avg yearly luck": round(avg_yearly_luck, 4),
+                # All-time total of the weekly QB×position-player same-NFL-team
+                # starting pairs (counting stat — sum across every week).
+                "Stacks": int(pd.to_numeric(g.get("Stacks"), errors="coerce").fillna(0.0).sum()),
             }
             # NOTE: Unique-player position counts for team_all are added
             # later (line ~7977 "team_unique_player_counts") via direct
@@ -16108,6 +16202,9 @@ def build_all(repo_root: Path) -> None:
                 "Tanking": float(pd.to_numeric(g.get("Tanking"), errors="coerce").dropna().mean() or 0.0),
                 "Luck": float(pd.to_numeric(g.get("Luck"), errors="coerce").fillna(0.0).sum()),
                 "Increase in points from previous week": _sum_or_na(g.get("Increase in points from previous week")),
+                # League-wide total of the weekly QB×position-player same-NFL-team
+                # starting pairs (sum across every team that week).
+                "Stacks": int(pd.to_numeric(g.get("Stacks"), errors="coerce").fillna(0.0).sum()),
                 "Number of QB started": int(pd.to_numeric(g.get("Number of QB started"), errors="coerce").fillna(0.0).sum()),
                 "Number of WR started": int(pd.to_numeric(g.get("Number of WR started"), errors="coerce").fillna(0.0).sum()),
                 "Number of RB started": int(pd.to_numeric(g.get("Number of RB started"), errors="coerce").fillna(0.0).sum()),
@@ -16243,6 +16340,9 @@ def build_all(repo_root: Path) -> None:
                 "Tanking": float(pd.to_numeric(g.get("Tanking"), errors="coerce").dropna().mean() or 0.0),
                 "Luck": float(pd.to_numeric(g.get("Luck"), errors="coerce").fillna(0.0).sum()),
                 "Increase in points from previous week": float(pd.to_numeric(g.get("Increase in points from previous week"), errors="coerce").fillna(0.0).sum()),
+                # League-wide season total of the weekly QB×position-player
+                # same-NFL-team starting pairs (sum across every team-week).
+                "Stacks": int(pd.to_numeric(g.get("Stacks"), errors="coerce").fillna(0.0).sum()),
                 # Unique-player position counts (Phase 1B, item 5): distinct
                 # league-wide players started / rostered this year.
                 **{
@@ -16410,6 +16510,9 @@ def build_all(repo_root: Path) -> None:
             # League-all-time Tanking = mean across all weeks.
             "Tanking": float(pd.to_numeric(g_week.get("Tanking"), errors="coerce").dropna().mean() or 0.0),
             "Luck": float(pd.to_numeric(g_week.get("Luck"), errors="coerce").fillna(0.0).sum()),
+            # League-wide all-time total of the weekly QB×position-player
+            # same-NFL-team starting pairs (sum across every team-week).
+            "Stacks": int(pd.to_numeric(g_week.get("Stacks"), errors="coerce").fillna(0.0).sum()),
             # Unique-player position counts (Phase 1B, item 5): distinct
             # players started / rostered league-wide across all years.
             **{
