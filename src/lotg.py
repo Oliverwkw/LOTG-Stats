@@ -2345,7 +2345,8 @@ def build_all(repo_root: Path) -> None:
                                 _cl0 = str(c).strip().lower()
                                 if ((any(_cl0.startswith(p) for p in (
                                         "number of", "most number of", "times ",
-                                        "weeks ", "total number")) or _cl0 == "stacks")
+                                        "weeks ", "total number")) or _cl0 == "stacks"
+                                        or _cl0.startswith("championships "))
                                         and rounded.dropna().mod(1).eq(0).all()):
                                     rounded = rounded.astype("Int64")
                                 if _preserve_na(c):
@@ -12979,6 +12980,52 @@ def build_all(repo_root: Path) -> None:
         pw_work["_st_game"] = _is_start.astype(int)
         pw_work["_st_winval"] = _win_num.where(_is_start, other=0.0)
 
+        # League-championship membership (player_year booleans + player_all_time
+        # counts). The season champion is the team that won that year's 'Final'
+        # (Win? == 1, PF as tiebreak). For each player-season, flag whether the
+        # player was: on the champion's roster at any point ('rostered by'),
+        # started by the champion in any week ('started by'), or started in the
+        # championship game itself ('started in'). Only completed seasons have a
+        # Final, so an in-progress season contributes no championship.
+        champ_team_by_year: Dict[int, str] = {}
+        try:
+            if not tw.empty and "Week Name" in tw.columns:
+                _fin = tw[tw["Week Name"].astype(str) == "Final"].copy()
+                if not _fin.empty:
+                    _fin["_w"] = pd.to_numeric(_fin["Win?"], errors="coerce")
+                    _fin["_pf"] = pd.to_numeric(_fin["PF"], errors="coerce")
+                    for _yv, _g in _fin.groupby("Year"):
+                        _gg = _g.sort_values(["_w", "_pf"], ascending=False)
+                        if len(_gg) and pd.notna(_yv):
+                            champ_team_by_year[int(_yv)] = str(_gg.iloc[0]["Team"])
+        except Exception as e:
+            _log_exc(debug, "champ_team_by_year", e)
+        _cteam = pw_work["Year"].map(
+            lambda y: champ_team_by_year.get(int(y)) if pd.notna(y) else None
+        )
+        _on_champ = _cteam.notna() & (pw_work["Team"].astype(str) == _cteam.astype(str))
+        _wk_name = (
+            pw_work["Week Name"].astype(str)
+            if "Week Name" in pw_work.columns else pd.Series("", index=pw_work.index)
+        )
+        pw_work["_champ_ros"] = _on_champ.astype(int)
+        pw_work["_champ_start"] = (_on_champ & (pw_work["Starter?"] == 1)).astype(int)
+        pw_work["_champ_final"] = (
+            _on_champ & (pw_work["Starter?"] == 1) & (_wk_name == "Final")
+        ).astype(int)
+        # Per (player, season): did any of these occur (0/1)? All-time counts sum
+        # these across seasons -> number of DISTINCT title seasons, not weeks.
+        _champ_py = (
+            pw_work.groupby(["Player ID", "Year"])[["_champ_ros", "_champ_start", "_champ_final"]]
+            .max().reset_index()
+        )
+        _champ_ros_year = {(str(p), int(y)): int(v) for p, y, v in _champ_py[["Player ID", "Year", "_champ_ros"]].itertuples(index=False, name=None) if pd.notna(y)}
+        _champ_start_year = {(str(p), int(y)): int(v) for p, y, v in _champ_py[["Player ID", "Year", "_champ_start"]].itertuples(index=False, name=None) if pd.notna(y)}
+        _champ_final_year = {(str(p), int(y)): int(v) for p, y, v in _champ_py[["Player ID", "Year", "_champ_final"]].itertuples(index=False, name=None) if pd.notna(y)}
+        _champ_ros_all = _champ_py.groupby("Player ID")["_champ_ros"].sum().astype(int).to_dict()
+        _champ_start_all = _champ_py.groupby("Player ID")["_champ_start"].sum().astype(int).to_dict()
+        _champ_final_all = _champ_py.groupby("Player ID")["_champ_final"].sum().astype(int).to_dict()
+
         award_cols = [
             "Player of the week?",
             "QB of the week?",
@@ -13678,6 +13725,18 @@ def build_all(repo_root: Path) -> None:
         except Exception as e:
             _log_exc(debug, "player_year_tx_only_pad", e)
 
+        # Championship-membership booleans (see champ_team_by_year above). Set
+        # after padding so tx-only rows (never rostered) resolve to False.
+        try:
+            def _cky(p, y):
+                return (str(p), int(y)) if pd.notna(y) else None
+            _pk = list(player_year[["Player ID", "Year"]].itertuples(index=False, name=None))
+            player_year["Rostered by champion?"] = [bool(_champ_ros_year.get(_cky(p, y), 0)) for p, y in _pk]
+            player_year["Started by champion?"] = [bool(_champ_start_year.get(_cky(p, y), 0)) for p, y in _pk]
+            player_year["Started in championship game?"] = [bool(_champ_final_year.get(_cky(p, y), 0)) for p, y in _pk]
+        except Exception as e:
+            _log_exc(debug, "player_year_champ_flags", e)
+
         pa = pw_work.groupby(["Player ID"], as_index=False).agg(
             Player=("Player", "first"),
             Points=("Points", "sum"),
@@ -14090,6 +14149,17 @@ def build_all(repo_root: Path) -> None:
                     )
         except Exception as e:
             _log_exc(debug, "player_all_tx_only_pad", e)
+
+        # Championship-membership counts (distinct title seasons; see
+        # champ_team_by_year above). Set after padding so every row is covered.
+        try:
+            if not player_all.empty and "Player ID" in player_all.columns:
+                _pid_all = player_all["Player ID"].astype(str)
+                player_all["Championships rostered by"] = [int(_champ_ros_all.get(p, 0)) for p in _pid_all]
+                player_all["Championships started by"] = [int(_champ_start_all.get(p, 0)) for p in _pid_all]
+                player_all["Championships started in"] = [int(_champ_final_all.get(p, 0)) for p in _pid_all]
+        except Exception as e:
+            _log_exc(debug, "player_all_champ_counts", e)
 
         # ----- PR C: player consistency + PAR (player_year + player_all_time) -----
         # Over STARTED weeks only. Volatility = std of started-week points; floor /
