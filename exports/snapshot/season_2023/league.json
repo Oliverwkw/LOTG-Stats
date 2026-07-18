@@ -65,6 +65,10 @@
     "daily_waivers_last_ran": 5
   },
   "avatar": "13890d64889cd90b8c7121fc1101220d",
+  "shard": 325,
+  "season": "2023",
+  "season_type": "regular",
+  "sport": "nfl",
   "company_id": null,
   "scoring_settings": {
     "sack": 1.0,
@@ -112,10 +116,6 @@
     "pts_allow_7_13": 4.0,
     "st_ff": 0.0
   },
-  "season": "2023",
-  "season_type": "regular",
-  "shard": 325,
-  "sport": "nfl",
   "last_message_id": "1048351948921049088",
   "draft_id": "918536682830471169",
   "last_author_avatar": "29a08337cb941dc70ad07b77babab54b",
@@ -132,8 +132,6 @@
   "bracket_id": 1046233134410371072,
   "bracket_overrides_id": null,
   "group_id": null,
-  "loser_bracket_id": 1046233134414565376,
-  "loser_bracket_overrides_id": null,
   "roster_positions": [
     "QB",
     "RB",
@@ -159,5 +157,7 @@
     "BN",
     "BN"
   ],
+  "loser_bracket_id": 1046233134414565376,
+  "loser_bracket_overrides_id": null,
   "total_rosters": 8
 }
