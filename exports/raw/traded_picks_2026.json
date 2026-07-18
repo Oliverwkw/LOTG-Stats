@@ -416,8 +416,8 @@
     "round": 3,
     "season": "2029",
     "roster_id": 7,
-    "owner_id": 1,
-    "previous_owner_id": 7
+    "owner_id": 7,
+    "previous_owner_id": 1
   },
   {
     "round": 1,
