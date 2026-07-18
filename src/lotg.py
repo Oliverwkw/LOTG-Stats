@@ -12955,8 +12955,10 @@ def build_all(repo_root: Path) -> None:
         # Win?: 1 win / 0 loss / 0.5 tie) and take the win % over the weeks the
         # player STARTED, and over ALL weeks the player was ROSTERED (a
         # player_week row = one rostered week, starter or bench). A tie counts as
-        # half a win, matching the team win % convention used elsewhere. N/A when
-        # a player has no qualifying (scored) weeks in the period.
+        # half a win, matching the team win % convention used elsewhere. Requires
+        # at least _MIN_WINPCT_WEEKS qualifying (scored) weeks in the period; below
+        # that the value is N/A rather than a noisy small-sample rate.
+        _MIN_WINPCT_WEEKS = 5
         _win_lookup: Dict[Tuple[str, int, int], float] = {}
         try:
             if not tw.empty and "Win?" in tw.columns:
@@ -13125,12 +13127,16 @@ def build_all(repo_root: Path) -> None:
         py_base["Weeks rostered"] = _ros_y
         py_base["% of starts"] = (py_base["Weeks_as_starter"] / _ros_y.replace(0, np.nan)).round(4)
         # Win % of the fantasy teams over the player's started / rostered weeks.
-        # NaN (no qualifying weeks) renders as N/A via _preserve_na at output.
+        # Requires a minimum of _MIN_WINPCT_WEEKS qualifying (scored) weeks so a
+        # tiny sample (e.g. a 2-week hot stretch) doesn't post a 100% rate; below
+        # the threshold the value is N/A (rendered via _preserve_na at output).
         py_base["Win % as starter"] = (
-            py_base["St_win_sum"] / py_base["St_games"].replace(0, np.nan)
+            py_base["St_win_sum"]
+            / py_base["St_games"].where(py_base["St_games"] >= _MIN_WINPCT_WEEKS)
         ).round(4)
         py_base["Win % while rostered"] = (
-            py_base["Ros_win_sum"] / py_base["Ros_games"].replace(0, np.nan)
+            py_base["Ros_win_sum"]
+            / py_base["Ros_games"].where(py_base["Ros_games"] >= _MIN_WINPCT_WEEKS)
         ).round(4)
         py_base = py_base.drop(
             columns=["St_win_sum", "St_games", "Ros_win_sum", "Ros_games"],
@@ -13773,12 +13779,14 @@ def build_all(repo_root: Path) -> None:
         pa["Weeks rostered"] = _ros_a
         pa["% of starts"] = (pa["Weeks_as_starter"] / _ros_a.replace(0, np.nan)).round(4)
         # Win % of the fantasy teams over the player's started / rostered weeks
-        # (all-time). NaN (no qualifying weeks) renders as N/A at output.
+        # (all-time). Requires >= _MIN_WINPCT_WEEKS qualifying weeks, else N/A.
         pa["Win % as starter"] = (
-            pa["St_win_sum"] / pa["St_games"].replace(0, np.nan)
+            pa["St_win_sum"]
+            / pa["St_games"].where(pa["St_games"] >= _MIN_WINPCT_WEEKS)
         ).round(4)
         pa["Win % while rostered"] = (
-            pa["Ros_win_sum"] / pa["Ros_games"].replace(0, np.nan)
+            pa["Ros_win_sum"]
+            / pa["Ros_games"].where(pa["Ros_games"] >= _MIN_WINPCT_WEEKS)
         ).round(4)
         pa["Total points as starter"] = pa["Starter_points_sum"].round(2)
         pa["% of league points"] = (
