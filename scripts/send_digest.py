@@ -113,22 +113,13 @@ def main(argv=None) -> int:
         print(f"[send] {msg}")
         return 1 if args.require else 0
 
-    # --test: send a small confirmation email regardless of season / content, to
-    # verify SMTP auth + delivery end-to-end. Everything else is skipped.
-    if args.test:
-        subject = "LOTG digest — test email ✅"
-        html = ('<div style="font:15px/1.5 system-ui,sans-serif;">'
-                '<h2>LOTG digest delivery is working.</h2>'
-                '<p>This is a test message. If you can read this, the Tuesday '
-                'in-season digest will reach you.</p></div>')
-    else:
-        html_path = Path(args.html)
-        if not html_path.exists():
-            return _bail(f"no digest HTML at {html_path} (offseason / not built) — nothing to send.")
-        html = html_path.read_text()
-        if args.skip_empty and _EMPTY_MARKER in html:
-            return _bail("digest has no changes this week — skipping send.")
-        subject = _subject(Path(args.snapshot))
+    html_path = Path(args.html)
+    if not html_path.exists():
+        return _bail(f"no digest HTML at {html_path} (offseason / not built) — nothing to send.")
+    html = html_path.read_text()
+    if args.skip_empty and _EMPTY_MARKER in html:
+        return _bail("digest has no changes this week — skipping send.")
+    subject = _subject(Path(args.snapshot))
 
     cfg = yaml.safe_load(Path(args.config).read_text()) or {}
     recipients = [r for r in (cfg.get("recipients") or []) if r]
