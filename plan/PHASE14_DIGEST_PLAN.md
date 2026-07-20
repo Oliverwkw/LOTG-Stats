@@ -46,6 +46,21 @@ the ranked sheets — no hand-curated "headline" list. Per-section rules
 All yearly ranking (on-pace and records) is against completed single seasons
 **across every year**, not just the current one.
 
+4. **Single-week records (this week)** — the **weekly sheets** (`player_week`,
+   `team_week`, `league_week`) are pulled in directly: the just-completed week's
+   values are ranked against **every week ever recorded**, and the top/bottom 5
+   (both ends — some stats go negative) are surfaced. *"shmuel256's PF this week
+   (201.4) is the 2nd-highest single week ever."* Values shared by more than 5
+   week-rows (the 0-piles on percentile/streak columns, routinely-tied maxes) are
+   skipped so it stays to a handful of genuine extremes.
+
+### Test email
+`.github/workflows/digest_test_email.yml` is a one-click button: **Actions →
+"Send test digest email" → Run workflow** sends a small confirmation email to the
+recipients (needs `DIGEST_KEY`; fails loudly if it's missing). `send_digest.py
+--test` does the same locally. The button only appears in the Actions UI once the
+workflow is on the default branch (i.e. after this PR merges).
+
 **Only changes are reported.** All-time crossings are inherently sparse (all-time
 values barely move week to week). On-pace standings ARE also diffed week over
 week — a team that's still "on pace for 3rd" is silent; only entrants and rank

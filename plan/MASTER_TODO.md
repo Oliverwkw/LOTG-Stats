@@ -296,7 +296,9 @@ audit (`plan/AUDIT_PHASE13_RUN397_vs_395.md`) found 0 regressions. **Clear to st
 - **Yearly on-pace** (player_year/team_year top-bottom 5; league_year floor(#seasons/3)≤5), **from week 3 only**: "Oliverwkw is on pace for 4th-highest Hardship this season." Cumulative scale by weeks; rate/level as-is.
 - **Weekly-counting stats** (awards `Times…`, `Wins/Losses from hardship|byes` — ≤1/week) get NO on-pace; instead a **new single-season record** alert (actual value beats the best in ANY prior season): "AceMatthew sets a new single-season record for Times One-man army? (11) — most in any season." Plus all-time crossings. **Boolean season flags** (0/1, e.g. #363 `Rostered by champion?`) get neither on-pace nor record — only all-time count crossings.
 - All yearly ranking (on-pace + records) is vs completed single seasons across ALL years, not just the current one.
+- **Single-week records** (weekly sheets player_week/team_week/league_week): the just-completed week's values ranked vs EVERY week ever, top/bottom 5 both ends. "shmuel256's PF this week (201) is the 2nd-highest single week ever." Values shared by >5 week-rows (0-piles, tied maxes) skipped. This is how the weekly sheets are directly involved.
 - **Only changes** are reported — on-pace standings + records diffed week-over-week, so a still-3rd team / standing record is silent (keeps the digest to ~dozens of lines).
+- **Test email button**: `.github/workflows/digest_test_email.yml` (Actions → "Send test digest email" → Run workflow) + `send_digest.py --test`. Appears in the Actions UI once merged to main.
 
 **Implementation outline** (progress; full design in `plan/PHASE14_DIGEST_PLAN.md`):
 - [x] Capture prior-week ranks snapshot (commit to repo or store as workflow artifact) — `lib/lotg_support/digest.py` `build_snapshot()` + `data/digest/ranks_snapshot.json`, rotated by the CLI.

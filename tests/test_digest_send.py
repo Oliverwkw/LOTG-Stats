@@ -72,10 +72,20 @@ def check_resolve_none_without_creds():
     return _ok("no creds -> None", S._resolve_credentials() is None)
 
 
+def check_test_flag_no_html_needed():
+    # --test must NOT require the digest HTML and must not crash; with no creds
+    # it bails cleanly (exit 0). Point --html at a nonexistent path to prove
+    # --test ignores it.
+    for k in ("SMTP_USERNAME", "SMTP_PASSWORD", "DIGEST_KEY"):
+        os.environ.pop(k, None)
+    rc = S.main(["--test", "--html", "/definitely/not/here.html"])
+    return _ok("--test returns 0 (bails on missing creds, ignores HTML)", rc == 0, f"rc={rc}")
+
+
 def run_all() -> bool:
     all_ok = True
     for t in (check_decrypt_roundtrip, check_resolve_prefers_env_override,
-              check_resolve_none_without_creds):
+              check_resolve_none_without_creds, check_test_flag_no_html_needed):
         print(f"\n{t.__name__}:")
         all_ok &= bool(t())
     print("\n" + ("ALL PASS" if all_ok else "SOME FAILED"))

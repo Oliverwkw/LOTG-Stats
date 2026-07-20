@@ -571,6 +571,97 @@ def diff_records(prior_map: dict, records: Sequence[YearlyRecord]) -> List[Yearl
 
 
 # ---------------------------------------------------------------------------
+# Weekly single-week highlights (the WEEKLY sheets: player/team/league_week)
+# ---------------------------------------------------------------------------
+# Rank the just-completed week's single-week values against EVERY week ever, and
+# surface the ones landing in the top/bottom `WINDOW` — "best/worst single week
+# of all time" alerts. This is how the weekly sheets get directly involved in the
+# digest (they otherwise only feed the year/all-time rollups). Booleans (per-week
+# award flags) are skipped — their tallies show via the year/all-time paths.
+from collections import Counter as _Counter
+
+# A single-week value shared by more than this many week-rows is too common to be
+# a "record" (e.g. the pile of 0s on percentile / streak columns, or a routinely
+# tied max), so it's skipped on BOTH ends. Genuine extremes are near-unique.
+_MAX_HIGHLIGHT_TIES = 5
+
+
+@dataclass
+class WeeklyHighlight:
+    section: str        # "players" | "teams" | "league"
+    entity: str
+    column: str
+    end: str            # "high" | "low"
+    rank: int           # among every DISTINCT single-week value on record
+    value: float
+
+    def sentence(self) -> str:
+        who = "The league" if self.section == "league" else self.entity
+        end_word = "highest" if self.end == "high" else "lowest"
+        return (f"{who}'s {self.column} this week ({_fmt(self.value)}) is the "
+                f"{_ordinal(self.rank)}-{end_word} single week ever.")
+
+
+def latest_completed_week(team_week: pd.DataFrame, season: int) -> Optional[int]:
+    if team_week.empty or "Year" not in team_week.columns or "Week" not in team_week.columns:
+        return None
+    sub = team_week[pd.to_numeric(team_week["Year"], errors="coerce") == season]
+    weeks = pd.to_numeric(sub["Week"], errors="coerce").dropna()
+    return int(weeks.max()) if len(weeks) else None
+
+
+def _highlights_for_frame(section: str, wk_df: pd.DataFrame, entity_col: str,
+                          season: int, week: int, window: int) -> List[WeeklyHighlight]:
+    if wk_df.empty or "Year" not in wk_df.columns or "Week" not in wk_df.columns:
+        return []
+    year = pd.to_numeric(wk_df["Year"], errors="coerce")
+    wknum = pd.to_numeric(wk_df["Week"], errors="coerce")
+    this_week = wk_df[(year == season) & (wknum == week)]
+    if this_week.empty:
+        return []
+    has_entity = entity_col in wk_df.columns
+    out: List[WeeklyHighlight] = []
+    for col in discover_numeric_columns(wk_df, entity_col):
+        all_vals = [v for v in (_to_float(x) for x in wk_df[col]) if v is not None]
+        if len(all_vals) < window or _is_boolean(all_vals):
+            continue
+        # Both ends (some stats go negative, so "lowest ever" is meaningful).
+        # Rank by DISTINCT value so ties share a rank; skip values shared by more
+        # than _MAX_HIGHLIGHT_TIES week-rows (the 0-piles) on either end.
+        counts = _Counter(all_vals)
+        high_rank = {v: i + 1 for i, v in enumerate(sorted(counts, reverse=True))}
+        low_rank = {v: i + 1 for i, v in enumerate(sorted(counts))}
+        for _, r in this_week.iterrows():
+            v = _to_float(r[col])
+            if v is None or counts[v] > _MAX_HIGHLIGHT_TIES:
+                continue
+            entity = str(r[entity_col]) if has_entity else "The league"
+            if high_rank[v] <= window:
+                out.append(WeeklyHighlight(section, entity, col, "high", high_rank[v], v))
+            elif low_rank[v] <= window:
+                out.append(WeeklyHighlight(section, entity, col, "low", low_rank[v], v))
+    return out
+
+
+def weekly_highlights(player_week: pd.DataFrame, team_week: pd.DataFrame,
+                      league_week: pd.DataFrame, team_year: pd.DataFrame,
+                      window: int = WINDOW) -> List[WeeklyHighlight]:
+    """Top/bottom-`window` single-week performances in the just-completed week,
+    ranked against every week on record. Empty in the offseason."""
+    season = current_season(team_year)
+    if season is None:
+        return []
+    week = latest_completed_week(team_week, season)
+    if not week:
+        return []
+    out: List[WeeklyHighlight] = []
+    out += _highlights_for_frame("players", player_week, "Player", season, week, window)
+    out += _highlights_for_frame("teams", team_week, "Team", season, week, window)
+    out += _highlights_for_frame("league", league_week, "Year", season, week, window)
+    return out
+
+
+# ---------------------------------------------------------------------------
 # League all-time milestones (single-row sheet -> no leaderboard)
 # ---------------------------------------------------------------------------
 @dataclass
@@ -633,6 +724,9 @@ def phrasing_catalog(
     team_year: pd.DataFrame,
     league_year: pd.DataFrame,
     league_all_time: Optional[pd.DataFrame] = None,
+    player_week: Optional[pd.DataFrame] = None,
+    team_week: Optional[pd.DataFrame] = None,
+    league_week: Optional[pd.DataFrame] = None,
 ) -> List[dict]:
     """One row per (sheet, stat) describing exactly how a change is phrased."""
     rows: List[dict] = []
@@ -640,6 +734,17 @@ def phrasing_catalog(
     def _add(sheet, stat, scope, scale, rise, fall):
         rows.append({"sheet": sheet, "stat": stat, "scope": scope, "scale": scale,
                      "phrase_when_rises": rise, "phrase_when_falls": fall})
+
+    def _weekly_rows(sheet, df, entity_col, who):
+        if df is None or df.empty:
+            return
+        for col in discover_numeric_columns(df, entity_col):
+            vals = [v for v in (_to_float(x) for x in df[col]) if v is not None]
+            if _is_boolean(vals):
+                continue  # per-week flags -> tallies show via year/all-time
+            _add(sheet, col, "single-week record (top/bottom 5 of all weeks ever)", "n/a",
+                 f"{who}'s {col} this week (<value>) is the <N>th-highest single week ever.",
+                 f"{who}'s {col} this week (<value>) is the <N>th-lowest single week ever.")
 
     def _crossing_rows(sheet, df, entity_col, who, scope):
         for col in discover_numeric_columns(df, entity_col):
@@ -676,6 +781,11 @@ def phrasing_catalog(
     _pace_rows("team_year", team_year, "Team", "<team>", "top/bottom 5")
     _pace_rows("league_year", league_year, "Year", "The league",
                "top/bottom floor(#seasons/3), capped at 5")
+
+    # Weekly sheets: single-week records ranked across every week ever.
+    _weekly_rows("player_week", player_week, "Player", "<player>")
+    _weekly_rows("team_week", team_week, "Team", "<team>")
+    _weekly_rows("league_week", league_week, "Year", "The league")
 
     # league_all_time: milestones only (single-row sheet, no leaderboard).
     if league_all_time is not None and not league_all_time.empty:
@@ -719,11 +829,13 @@ def render_digest_html(
     meta: dict,
     milestones: Sequence[Milestone] = (),
     records: Sequence[YearlyRecord] = (),
+    highlights: Sequence[WeeklyHighlight] = (),
 ) -> str:
     player_moves = [c.sentence() for c in crossings if c.section == "players"]
     team_moves = [c.sentence() for c in crossings if c.section == "teams"]
     milestone_lines = [m.sentence() for m in milestones]
     record_lines = [r.sentence() for r in records]
+    hl_lines = [h.sentence() for h in highlights]
 
     season = meta.get("season")
     week = meta.get("weeks_completed")
@@ -733,6 +845,7 @@ def render_digest_html(
         '<div style="max-width:680px;margin:0 auto;padding:16px;">',
         f'  <h1 style="font:700 22px/1.3 system-ui,sans-serif;'
         f'color:#0b2545;margin:0 0 4px;">{header}</h1>',
+        _section_html("Single-week records (this week)", hl_lines),
         _section_html("All-time leaderboard moves — players", player_moves),
         _section_html("All-time leaderboard moves — teams", team_moves),
         _section_html("New single-season records", record_lines),
@@ -741,15 +854,15 @@ def render_digest_html(
         _section_html("On pace this season — teams", _proj_lines(projections, "teams")),
         _section_html("On pace this season — league", _proj_lines(projections, "league")),
     ]
-    if not any([player_moves, team_moves, record_lines, milestone_lines, projections]):
+    if not any([hl_lines, player_moves, team_moves, record_lines, milestone_lines, projections]):
         body.append('  <p style="font:15px system-ui,sans-serif;color:#666;">'
                      'No leaderboard changes this week.</p>')
     body.append("</div>")
     return "\n".join(b for b in body if b)
 
 
-def digest_is_empty(crossings, projections, milestones=(), records=()) -> bool:
-    return not crossings and not projections and not milestones and not records
+def digest_is_empty(crossings, projections, milestones=(), records=(), highlights=()) -> bool:
+    return not any([crossings, projections, milestones, records, highlights])
 
 
 # ---------------------------------------------------------------------------

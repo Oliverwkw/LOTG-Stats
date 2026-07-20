@@ -107,19 +107,31 @@ def main(argv=None) -> int:
                     help="don't send when the digest has no changes")
     ap.add_argument("--require", action="store_true",
                     help="exit non-zero instead of skipping when send is impossible")
+    ap.add_argument("--test", action="store_true",
+                    help="send a small confirmation email (ignores season/content) "
+                         "to verify delivery end-to-end")
     args = ap.parse_args(argv)
 
     def _bail(msg: str) -> int:
         print(f"[send] {msg}")
         return 1 if args.require else 0
 
-    html_path = Path(args.html)
-    if not html_path.exists():
-        return _bail(f"no digest HTML at {html_path} (offseason / not built) — nothing to send.")
-    html = html_path.read_text()
-    if args.skip_empty and _EMPTY_MARKER in html:
-        return _bail("digest has no changes this week — skipping send.")
-    subject = _subject(Path(args.snapshot))
+    if args.test:
+        # Verify SMTP auth + delivery regardless of season or digest content.
+        subject = "LOTG digest — test email ✅"
+        html = ('<div style="font:15px/1.5 system-ui,sans-serif;max-width:560px;">'
+                '<h2 style="color:#0b2545;">Digest delivery is working. 🎉</h2>'
+                '<p>This is a test message from the LOTG weekly digest. If you can '
+                'read this, the real digest will reach you on Tuesday mornings '
+                'during the season.</p></div>')
+    else:
+        html_path = Path(args.html)
+        if not html_path.exists():
+            return _bail(f"no digest HTML at {html_path} (offseason / not built) — nothing to send.")
+        html = html_path.read_text()
+        if args.skip_empty and _EMPTY_MARKER in html:
+            return _bail("digest has no changes this week — skipping send.")
+        subject = _subject(Path(args.snapshot))
 
     cfg = yaml.safe_load(Path(args.config).read_text()) or {}
     recipients = [r for r in (cfg.get("recipients") or []) if r]

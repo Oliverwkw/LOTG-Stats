@@ -182,6 +182,40 @@ def check_yearly_records_for_weekly_stats():
     return ok
 
 
+def check_weekly_highlights():
+    tw = pd.DataFrame({
+        "Team": ["A", "B", "A", "B", "A", "B"],
+        "Year": [2025, 2025, 2025, 2025, 2026, 2026],
+        "Week": [1, 1, 2, 2, 1, 1],
+        "PF": [100, 110, 120, 90, 200, 95.0],      # A 2026-wk1 = 200 = best ever
+        "Highest score?": [0, 1, 1, 0, 1, 0],       # boolean -> skipped
+    })
+    ty = pd.DataFrame({"Team": ["A", "B"], "Year": [2026, 2026]})
+    pw = pd.DataFrame({"Player": [], "Year": [], "Week": []})
+    lw = pd.DataFrame({"Year": [], "Week": []})
+    hl = D.weekly_highlights(pw, tw, lw, ty, window=2)
+    got = [(h.entity, h.column, h.end, h.rank) for h in hl]
+    ok = _ok("A's 200 is 1st-highest single week ever", ("A", "PF", "high", 1) in got, f"got {got}")
+    ok &= _ok("B's 95 is 2nd-lowest single week ever (both ends work)", ("B", "PF", "low", 2) in got)
+    ok &= _ok("boolean weekly flag skipped", not any(h.column == "Highest score?" for h in hl))
+    ok &= _ok("sentence reads as single-week record",
+              any("single week ever" in h.sentence() for h in hl))
+    # Tie cap: a value shared by >5 week-rows is skipped on either end.
+    tw2 = pd.DataFrame({
+        "Team": list("ABCDEF"), "Year": [2025] * 5 + [2026],
+        "Week": [1] * 6, "Ct": [3.0] * 6,   # 6 rows tied at 3 -> too common
+    })
+    ty2 = pd.DataFrame({"Team": ["F"], "Year": [2026]})
+    ok &= _ok("value shared by >5 week-rows is skipped",
+              D.weekly_highlights(pd.DataFrame({"Player": [], "Year": [], "Week": []}),
+                                  tw2, pd.DataFrame({"Year": [], "Week": []}), ty2) == [])
+    # Offseason (current season has no team_week rows) -> nothing.
+    ty0 = pd.DataFrame({"Team": ["A"], "Year": [2027]})
+    ok &= _ok("no highlights when current season has no weeks",
+              D.weekly_highlights(pw, tw, lw, ty0) == [])
+    return ok
+
+
 def check_league_window():
     def ly(n):
         return pd.DataFrame({"Year": list(range(2020, 2020 + n))})
@@ -293,6 +327,7 @@ def run_all() -> bool:
         check_projection_gate_scale_and_weekly_exclusion,
         check_boolean_flags_excluded_from_pace,
         check_yearly_records_for_weekly_stats,
+        check_weekly_highlights,
         check_league_window,
         check_league_milestones,
         check_pace_diff_reports_only_changes,
