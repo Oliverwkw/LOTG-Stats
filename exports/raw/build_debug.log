@@ -984,3 +984,444 @@ requests.exceptions.HTTPError: 404 Client Error: Not Found for url: https://raw.
 [2026-07-13T19:32:05.903551+00:00] INFO bolded comment verbs in cell history popups
 [2026-07-13T19:32:06.415606+00:00] ===== Build end =====
 [2026-07-13T19:32:08.757955+00:00] INFO data-quality sanity: 0 ERROR, 0 WARN across 0 findings
+[2026-07-14T00:18:05.954746+00:00] INFO snapshot: mode=both captured_at=2026-07-14T00:18:05.943422+00:00 age=0.00d auto_refreshed=False
+
+[2026-07-14T00:18:05.955179+00:00] ===== Build start =====
+formulas coverage: all non-obvious columns documented
+injury tracker rows loaded: 0
+[2026-07-14T00:18:07.835338+00:00] INFO gsis_correction sid=5133 name='Tyler Conklin' sleeper_gsis=00-0034439 -> 00-0034270
+[2026-07-14T00:18:07.851176+00:00] INFO gsis_correction sid=5094 name='Ryan Izzo' sleeper_gsis=00-0034270 -> 00-0034439
+[2026-07-14T00:18:08.098514+00:00] INFO Phase 13: injected ESPN 2020 season (8 teams, 152 draft picks, 222 transactions; 0 player-meta backfilled)
+[2026-07-14T00:18:08.381374+00:00] INFO commissioner pick-trade overlay: 45 pick-hops loaded
+INFO league scoring settings changed in 2021: {'rush_yd': (None, 0.1), 'fgm_50p': (None, 5.0), 'st_td': (None, 0.0), 'rush_td': (None, 6.0), 'fgm_0_19': (None, 3.0), 'def_td': (None, 6.0), 'fum': (None, -1.0), 'xpmiss': (None, -1.0), 'pass_td': (None, 4.0), 'fgm_30_39': (None, 3.0), 'sack': (None, 1.0), 'rush_2pt': (None, 2.0), 'rec_td': (None, 6.0), 'rec': (None, 1.0), 'fum_lost': (None, -1.0), 'pass_2pt': (None, 2.0), 'fgm_20_29': (None, 3.0), 'fgmiss': (None, -1.0), 'fgm_40_49': (None, 4.0), 'rec_2pt': (None, 2.0), 'rec_yd': (None, 0.1), 'xpm': (None, 1.0), 'ff': (None, 1.0), 'pass_yd': (None, 0.04), 'fum_rec': (None, 2.0), 'int': (None, 2.0), 'safe': (None, 2.0), 'pass_int': (None, -2.0), 'fum_rec_td': (None, 6.0)}
+[2026-07-14T00:18:14.274528+00:00] INFO merged the 2021 phantom Carter/Stevenson player swap into the pick trade
+INFO league scoring settings changed in 2022: {'st_td': (0.0, 6.0), 'fum_ret_yd': (None, 0.1)}
+[2026-07-14T00:18:17.530588+00:00] INFO commissioner-wash 2022: excluded 11 no-op txns
+[2026-07-14T00:18:20.758091+00:00] INFO commissioner-wash 2023: excluded 1 no-op txns
+[2026-07-14T00:18:24.096155+00:00] INFO commissioner-wash 2024: excluded 3 no-op txns
+[2026-07-14T00:18:24.096532+00:00] INFO draft-day synthetic picks 2024: 1 commish-add(s) -> picks, removed from transactions
+[2026-07-14T00:18:27.513450+00:00] INFO draft-day synthetic picks 2025: 8 commish-add(s) -> picks, removed from transactions
+[2026-07-14T00:18:29.087422+00:00] ERROR at load_nflverse_stats_player_week_2026: HTTPError: 404 Client Error: Not Found for url: https://raw.githubusercontent.com/nflverse/nflverse-data/master/data/player_stats/stats_player_week_2026.csv.gz
+Traceback (most recent call last):
+  File "/home/runner/work/LOTG-Stats/LOTG-Stats/src/lotg.py", line 3549, in build_all
+    spw = _safe_df(load_nflverse_stats_player_week(
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/runner/work/LOTG-Stats/LOTG-Stats/lib/lotg_support/external.py", line 139, in load_nflverse_stats_player_week
+    _download_best_effort(urls, path, cfg.timeout_seconds)
+  File "/home/runner/work/LOTG-Stats/LOTG-Stats/lib/lotg_support/external.py", line 48, in _download_best_effort
+    raise last_err
+  File "/home/runner/work/LOTG-Stats/LOTG-Stats/lib/lotg_support/external.py", line 42, in _download_best_effort
+    _download(url, out, timeout)
+  File "/home/runner/work/LOTG-Stats/LOTG-Stats/lib/lotg_support/external.py", line 34, in _download
+    raise last_err
+  File "/home/runner/work/LOTG-Stats/LOTG-Stats/lib/lotg_support/external.py", line 26, in _download
+    r.raise_for_status()
+  File "/opt/hostedtoolcache/Python/3.11.15/x64/lib/python3.11/site-packages/requests/models.py", line 1167, in raise_for_status
+    raise HTTPError(http_error_msg, response=self)
+requests.exceptions.HTTPError: 404 Client Error: Not Found for url: https://raw.githubusercontent.com/nflverse/nflverse-data/master/data/player_stats/stats_player_week_2026.csv.gz
+
+[2026-07-14T00:18:30.181692+00:00] ERROR at load_nflverse_injuries_2026: HTTPError: 404 Client Error: Not Found for url: https://raw.githubusercontent.com/nflverse/nflverse-data/master/data/injuries/injuries_2026.csv
+Traceback (most recent call last):
+  File "/home/runner/work/LOTG-Stats/LOTG-Stats/src/lotg.py", line 3675, in build_all
+    injuries = _safe_df(load_nflverse_injuries(
+                        ^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/runner/work/LOTG-Stats/LOTG-Stats/lib/lotg_support/external.py", line 94, in load_nflverse_injuries
+    _download_best_effort(urls, path, cfg.timeout_seconds)
+  File "/home/runner/work/LOTG-Stats/LOTG-Stats/lib/lotg_support/external.py", line 48, in _download_best_effort
+    raise last_err
+  File "/home/runner/work/LOTG-Stats/LOTG-Stats/lib/lotg_support/external.py", line 42, in _download_best_effort
+    _download(url, out, timeout)
+  File "/home/runner/work/LOTG-Stats/LOTG-Stats/lib/lotg_support/external.py", line 34, in _download
+    raise last_err
+  File "/home/runner/work/LOTG-Stats/LOTG-Stats/lib/lotg_support/external.py", line 26, in _download
+    r.raise_for_status()
+  File "/opt/hostedtoolcache/Python/3.11.15/x64/lib/python3.11/site-packages/requests/models.py", line 1167, in raise_for_status
+    raise HTTPError(http_error_msg, response=self)
+requests.exceptions.HTTPError: 404 Client Error: Not Found for url: https://raw.githubusercontent.com/nflverse/nflverse-data/master/data/injuries/injuries_2026.csv
+
+[2026-07-14T00:18:31.831012+00:00] INFO season 2026: preseason — scanning offseason transactions only
+[2026-07-14T00:18:31.912430+00:00] INFO commissioner-wash 2026: excluded 6 no-op txns
+[2026-07-14T00:18:31.912774+00:00] INFO draft-day synthetic picks 2026: 3 commish-add(s) -> picks, removed from transactions
+[2026-07-14T00:18:31.931249+00:00] INFO commissioner pick-trade overlay: all 45 pick-hops injected
+[2026-07-14T00:18:31.950911+00:00] INFO 2020 startup draft: emitted 152 picks into pick_history
+[2026-07-14T00:18:32.510613+00:00] INFO merged 1 manual transaction(s) from data/manual_transactions.csv
+[2026-07-14T00:18:32.615064+00:00] INFO synthesized 2 terminal roster-diff departures (dead-end cuts, never re-acquired)
+[2026-07-14T00:18:32.645156+00:00] INFO synthesized 1 terminal roster-diff arrivals (snapshot-only pickups, no recorded add)
+[2026-07-14T00:18:32.647534+00:00] INFO synthesized 65 missing departures + 23 missing arrivals as transactions rows to close orphaned roster lineage
+[2026-07-14T00:18:37.184957+00:00] INFO ktc value column: sf_trade_value (superflex, always)
+[2026-07-14T00:25:30.150475+00:00] INFO KTC per $1 FAAB = 100 (fixed; data-derived median 296.3 from 70 FAAB-for-asset trades)
+[2026-07-14T00:25:30.519432+00:00] WARN ktc fetch: info: merged KTC backfill for 369 players
+[2026-07-14T00:25:31.897399+00:00] INFO KTC win-impact lookups: 44/1218 empty (3.6%)
+[2026-07-14T00:26:00.578472+00:00] INFO seeded 245 player_year rows for tx-only player×year combos
+[2026-07-14T00:26:00.786407+00:00] INFO seeded 34 player_all_time rows for tx-only players
+[2026-07-14T00:26:02.023178+00:00] INFO seeded 8 team_year placeholder rows for in-progress season(s) [2026]
+[2026-07-14T00:26:09.535505+00:00] INFO built asset history: 548 picks, 684 players
+[2026-07-14T00:26:09.711878+00:00] INFO pure-drop O-Score: 460 drop-only txns detected (cols: _added_pid=True, Player Added=True)
+[2026-07-14T00:26:09.716377+00:00] INFO pure-drop O-Score: scored 460 drop-only transactions (ceiling 50)
+[2026-07-14T00:26:09.883676+00:00] INFO 2020 startup picks: relabeled Year='startup' on 152 rows
+[2026-07-14T00:28:01.441554+00:00] INFO bolded comment verbs in cell history popups
+[2026-07-14T00:28:01.988336+00:00] ===== Build end =====
+[2026-07-14T00:28:04.392254+00:00] INFO data-quality sanity: 0 ERROR, 0 WARN across 0 findings
+[2026-07-14T12:36:09.870882+00:00] INFO snapshot: mode=build captured_at=2026-07-14T00:18:05.943422+00:00 age=0.51d auto_refreshed=False
+
+[2026-07-14T12:36:09.871389+00:00] ===== Build start =====
+formulas coverage: all non-obvious columns documented
+injury tracker rows loaded: 0
+[2026-07-14T12:36:12.208882+00:00] INFO gsis_correction sid=5133 name='Tyler Conklin' sleeper_gsis=00-0034439 -> 00-0034270
+[2026-07-14T12:36:12.228320+00:00] INFO gsis_correction sid=5094 name='Ryan Izzo' sleeper_gsis=00-0034270 -> 00-0034439
+[2026-07-14T12:36:12.568295+00:00] INFO Phase 13: injected ESPN 2020 season (8 teams, 152 draft picks, 222 transactions; 0 player-meta backfilled)
+[2026-07-14T12:36:13.322998+00:00] INFO commissioner pick-trade overlay: 45 pick-hops loaded
+INFO league scoring settings changed in 2021: {'fgm_50p': (None, 5.0), 'rush_td': (None, 6.0), 'fgm_20_29': (None, 3.0), 'ff': (None, 1.0), 'fgm_40_49': (None, 4.0), 'rec_2pt': (None, 2.0), 'fgmiss': (None, -1.0), 'rush_yd': (None, 0.1), 'rec_td': (None, 6.0), 'fum_lost': (None, -1.0), 'fgm_30_39': (None, 3.0), 'fum_rec': (None, 2.0), 'fum_rec_td': (None, 6.0), 'rec_yd': (None, 0.1), 'safe': (None, 2.0), 'rush_2pt': (None, 2.0), 'pass_yd': (None, 0.04), 'xpmiss': (None, -1.0), 'fum': (None, -1.0), 'int': (None, 2.0), 'pass_td': (None, 4.0), 'sack': (None, 1.0), 'st_td': (None, 0.0), 'fgm_0_19': (None, 3.0), 'xpm': (None, 1.0), 'pass_int': (None, -2.0), 'pass_2pt': (None, 2.0), 'rec': (None, 1.0), 'def_td': (None, 6.0)}
+[2026-07-14T12:36:18.581560+00:00] INFO merged the 2021 phantom Carter/Stevenson player swap into the pick trade
+INFO league scoring settings changed in 2022: {'st_td': (0.0, 6.0), 'fum_ret_yd': (None, 0.1)}
+[2026-07-14T12:36:21.612513+00:00] INFO commissioner-wash 2022: excluded 11 no-op txns
+[2026-07-14T12:36:24.304214+00:00] INFO commissioner-wash 2023: excluded 1 no-op txns
+[2026-07-14T12:36:27.188317+00:00] INFO commissioner-wash 2024: excluded 3 no-op txns
+[2026-07-14T12:36:27.188803+00:00] INFO draft-day synthetic picks 2024: 1 commish-add(s) -> picks, removed from transactions
+[2026-07-14T12:36:37.518199+00:00] INFO draft-day synthetic picks 2025: 8 commish-add(s) -> picks, removed from transactions
+[2026-07-14T12:36:37.895544+00:00] WARN commish pick-trade UNMATCHED: 2026 R209 Oliverwkw->LWebs53 @ 2026-05-03 16:13:10 (with 2.8 in trade up)
+[2026-07-14T12:36:37.896099+00:00] WARN commish pick-trade UNMATCHED: 2026 R209 LWebs53->shmuel256 @ 2026-07-10 21:22:18 (To Sam (5-team trade))
+[2026-07-14T12:36:37.896669+00:00] WARN commish pick-trade UNMATCHED: 2029 R3 BROsenzweig->LWebs53 @ 2026-07-10 21:22:18 (To Luke (5-team trade))
+[2026-07-14T12:36:37.896960+00:00] WARN commish pick-trade UNMATCHED: 2030 R4 LWebs53->stevenb123 @ 2026-07-12 22:57:58 (2026 4.06 trade)
+[2026-07-14T12:36:37.897209+00:00] WARN commish pick-trade UNMATCHED: 2026 R501 stevenb123->LWebs53 @ 2026-07-12 22:57:58 (2026 4.06 trade (5.01))
+[2026-07-14T12:36:37.897423+00:00] WARN commish pick-trade UNMATCHED: 2026 R502 BROsenzweig->plehv79 @ 2026-07-12 23:07:03 (For 20 FAAB (5.02))
+[2026-07-14T12:36:37.897857+00:00] WARN commissioner pick-trade overlay: 6/45 pick-hops unmatched
+[2026-07-14T12:36:37.911804+00:00] INFO 2020 startup draft: emitted 152 picks into pick_history
+[2026-07-14T12:36:38.504631+00:00] INFO merged 1 manual transaction(s) from data/manual_transactions.csv
+[2026-07-14T12:36:38.586256+00:00] INFO synthesized 2 terminal roster-diff departures (dead-end cuts, never re-acquired)
+[2026-07-14T12:36:38.609390+00:00] INFO synthesized 1 terminal roster-diff arrivals (snapshot-only pickups, no recorded add)
+[2026-07-14T12:36:38.612400+00:00] INFO synthesized 63 missing departures + 22 missing arrivals as transactions rows to close orphaned roster lineage
+[2026-07-14T12:36:43.115292+00:00] INFO ktc value column: sf_trade_value (superflex, always)
+[2026-07-14T12:36:43.526487+00:00] ERROR at ktc_value_diff: URLError: <urlopen error Tunnel connection failed: 403 Forbidden>
+Traceback (most recent call last):
+  File "/usr/lib/python3.11/urllib/request.py", line 1348, in do_open
+    h.request(req.get_method(), req.selector, req.data, headers,
+  File "/usr/lib/python3.11/http/client.py", line 1323, in request
+    self._send_request(method, url, body, headers, encode_chunked)
+  File "/usr/lib/python3.11/http/client.py", line 1369, in _send_request
+    self.endheaders(body, encode_chunked=encode_chunked)
+  File "/usr/lib/python3.11/http/client.py", line 1318, in endheaders
+    self._send_output(message_body, encode_chunked=encode_chunked)
+  File "/usr/lib/python3.11/http/client.py", line 1078, in _send_output
+    self.send(msg)
+  File "/usr/lib/python3.11/http/client.py", line 1016, in send
+    self.connect()
+  File "/usr/lib/python3.11/http/client.py", line 1488, in connect
+    super().connect()
+  File "/usr/lib/python3.11/http/client.py", line 992, in connect
+    self._tunnel()
+  File "/usr/lib/python3.11/http/client.py", line 963, in _tunnel
+    raise OSError(f"Tunnel connection failed: {code} {message.strip()}")
+OSError: Tunnel connection failed: 403 Forbidden
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/home/user/LOTG-Stats/src/lotg.py", line 8672, in build_all
+    idx = build_index(
+          ^^^^^^^^^^^^
+  File "/home/user/LOTG-Stats/lib/lotg_support/ktc.py", line 289, in build_index
+    directory = load_directory(repo_root)
+                ^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/user/LOTG-Stats/lib/lotg_support/ktc.py", line 86, in load_directory
+    data = _http_get_json(f"{DD_BASE}/player/all/today")
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/user/LOTG-Stats/lib/lotg_support/ktc.py", line 56, in _http_get_json
+    with urllib.request.urlopen(req, timeout=30) as resp:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.11/urllib/request.py", line 216, in urlopen
+    return opener.open(url, data, timeout)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.11/urllib/request.py", line 519, in open
+    response = self._open(req, data)
+               ^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.11/urllib/request.py", line 536, in _open
+    result = self._call_chain(self.handle_open, protocol, protocol +
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.11/urllib/request.py", line 496, in _call_chain
+    result = func(*args)
+             ^^^^^^^^^^^
+  File "/usr/lib/python3.11/urllib/request.py", line 1391, in https_open
+    return self.do_open(http.client.HTTPSConnection, req,
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.11/urllib/request.py", line 1351, in do_open
+    raise URLError(err)
+urllib.error.URLError: <urlopen error Tunnel connection failed: 403 Forbidden>
+
+[2026-07-14T12:36:43.538808+00:00] WARN ktc fetch: https://dynasty-daddy.com/api/v1/player/all/today: URLError: <urlopen error Tunnel connection failed: 403 Forbidden>
+[2026-07-14T12:37:11.888458+00:00] INFO seeded 188 player_year rows for tx-only player×year combos
+[2026-07-14T12:37:12.144673+00:00] INFO seeded 32 player_all_time rows for tx-only players
+[2026-07-14T12:37:20.306955+00:00] INFO built asset history: 514 picks, 649 players
+[2026-07-14T12:37:20.594194+00:00] INFO pure-drop O-Score: 439 drop-only txns detected (cols: _added_pid=True, Player Added=True)
+[2026-07-14T12:37:20.598491+00:00] INFO pure-drop O-Score: scored 439 drop-only transactions (ceiling 50)
+[2026-07-14T12:37:20.730328+00:00] INFO 2020 startup picks: relabeled Year='startup' on 152 rows
+[2026-07-14T12:38:15.237253+00:00] INFO snapshot: mode=build captured_at=2026-07-14T00:18:05.943422+00:00 age=0.51d auto_refreshed=False
+
+[2026-07-14T12:38:15.237834+00:00] ===== Build start =====
+formulas coverage: all non-obvious columns documented
+injury tracker rows loaded: 0
+[2026-07-14T12:38:16.777265+00:00] INFO gsis_correction sid=5133 name='Tyler Conklin' sleeper_gsis=00-0034439 -> 00-0034270
+[2026-07-14T12:38:16.791663+00:00] INFO gsis_correction sid=5094 name='Ryan Izzo' sleeper_gsis=00-0034270 -> 00-0034439
+[2026-07-14T12:38:16.991317+00:00] INFO Phase 13: injected ESPN 2020 season (8 teams, 152 draft picks, 222 transactions; 0 player-meta backfilled)
+[2026-07-14T12:38:17.374188+00:00] INFO commissioner pick-trade overlay: 45 pick-hops loaded
+INFO league scoring settings changed in 2021: {'fgm_50p': (None, 5.0), 'xpm': (None, 1.0), 'fgm_0_19': (None, 3.0), 'fum_rec_td': (None, 6.0), 'rec_yd': (None, 0.1), 'pass_td': (None, 4.0), 'pass_2pt': (None, 2.0), 'sack': (None, 1.0), 'pass_yd': (None, 0.04), 'fgm_40_49': (None, 4.0), 'fum': (None, -1.0), 'fgm_20_29': (None, 3.0), 'int': (None, 2.0), 'rush_td': (None, 6.0), 'def_td': (None, 6.0), 'rush_2pt': (None, 2.0), 'fgm_30_39': (None, 3.0), 'rec': (None, 1.0), 'fgmiss': (None, -1.0), 'rec_td': (None, 6.0), 'rec_2pt': (None, 2.0), 'ff': (None, 1.0), 'pass_int': (None, -2.0), 'xpmiss': (None, -1.0), 'rush_yd': (None, 0.1), 'st_td': (None, 0.0), 'fum_lost': (None, -1.0), 'safe': (None, 2.0), 'fum_rec': (None, 2.0)}
+[2026-07-14T12:38:22.133426+00:00] INFO merged the 2021 phantom Carter/Stevenson player swap into the pick trade
+INFO league scoring settings changed in 2022: {'st_td': (0.0, 6.0), 'fum_ret_yd': (None, 0.1)}
+[2026-07-14T12:38:24.712954+00:00] INFO commissioner-wash 2022: excluded 11 no-op txns
+[2026-07-14T12:38:27.483375+00:00] INFO commissioner-wash 2023: excluded 1 no-op txns
+[2026-07-14T12:38:30.330668+00:00] INFO commissioner-wash 2024: excluded 3 no-op txns
+[2026-07-14T12:38:30.331239+00:00] INFO draft-day synthetic picks 2024: 1 commish-add(s) -> picks, removed from transactions
+[2026-07-14T12:38:42.588261+00:00] INFO draft-day synthetic picks 2025: 8 commish-add(s) -> picks, removed from transactions
+[2026-07-14T12:38:42.948910+00:00] WARN commish pick-trade UNMATCHED: 2026 R209 Oliverwkw->LWebs53 @ 2026-05-03 16:13:10 (with 2.8 in trade up)
+[2026-07-14T12:38:42.949489+00:00] WARN commish pick-trade UNMATCHED: 2026 R209 LWebs53->shmuel256 @ 2026-07-10 21:22:18 (To Sam (5-team trade))
+[2026-07-14T12:38:42.949900+00:00] WARN commish pick-trade UNMATCHED: 2029 R3 BROsenzweig->LWebs53 @ 2026-07-10 21:22:18 (To Luke (5-team trade))
+[2026-07-14T12:38:42.950233+00:00] WARN commish pick-trade UNMATCHED: 2030 R4 LWebs53->stevenb123 @ 2026-07-12 22:57:58 (2026 4.06 trade)
+[2026-07-14T12:38:42.950561+00:00] WARN commish pick-trade UNMATCHED: 2026 R501 stevenb123->LWebs53 @ 2026-07-12 22:57:58 (2026 4.06 trade (5.01))
+[2026-07-14T12:38:42.950933+00:00] WARN commish pick-trade UNMATCHED: 2026 R502 BROsenzweig->plehv79 @ 2026-07-12 23:07:03 (For 20 FAAB (5.02))
+[2026-07-14T12:38:42.951341+00:00] WARN commissioner pick-trade overlay: 6/45 pick-hops unmatched
+[2026-07-14T12:38:42.966394+00:00] INFO 2020 startup draft: emitted 152 picks into pick_history
+[2026-07-14T12:38:43.577938+00:00] INFO merged 1 manual transaction(s) from data/manual_transactions.csv
+[2026-07-14T12:38:43.756934+00:00] INFO synthesized 2 terminal roster-diff departures (dead-end cuts, never re-acquired)
+[2026-07-14T12:38:43.778967+00:00] INFO synthesized 1 terminal roster-diff arrivals (snapshot-only pickups, no recorded add)
+[2026-07-14T12:38:43.782116+00:00] INFO synthesized 63 missing departures + 22 missing arrivals as transactions rows to close orphaned roster lineage
+[2026-07-14T12:38:48.198230+00:00] INFO ktc value column: sf_trade_value (superflex, always)
+[2026-07-14T12:38:48.667010+00:00] ERROR at ktc_value_diff: URLError: <urlopen error Tunnel connection failed: 403 Forbidden>
+Traceback (most recent call last):
+  File "/usr/lib/python3.11/urllib/request.py", line 1348, in do_open
+    h.request(req.get_method(), req.selector, req.data, headers,
+  File "/usr/lib/python3.11/http/client.py", line 1323, in request
+    self._send_request(method, url, body, headers, encode_chunked)
+  File "/usr/lib/python3.11/http/client.py", line 1369, in _send_request
+    self.endheaders(body, encode_chunked=encode_chunked)
+  File "/usr/lib/python3.11/http/client.py", line 1318, in endheaders
+    self._send_output(message_body, encode_chunked=encode_chunked)
+  File "/usr/lib/python3.11/http/client.py", line 1078, in _send_output
+    self.send(msg)
+  File "/usr/lib/python3.11/http/client.py", line 1016, in send
+    self.connect()
+  File "/usr/lib/python3.11/http/client.py", line 1488, in connect
+    super().connect()
+  File "/usr/lib/python3.11/http/client.py", line 992, in connect
+    self._tunnel()
+  File "/usr/lib/python3.11/http/client.py", line 963, in _tunnel
+    raise OSError(f"Tunnel connection failed: {code} {message.strip()}")
+OSError: Tunnel connection failed: 403 Forbidden
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/home/user/LOTG-Stats/src/lotg.py", line 8672, in build_all
+    idx = build_index(
+          ^^^^^^^^^^^^
+  File "/home/user/LOTG-Stats/lib/lotg_support/ktc.py", line 289, in build_index
+    directory = load_directory(repo_root)
+                ^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/user/LOTG-Stats/lib/lotg_support/ktc.py", line 86, in load_directory
+    data = _http_get_json(f"{DD_BASE}/player/all/today")
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/user/LOTG-Stats/lib/lotg_support/ktc.py", line 56, in _http_get_json
+    with urllib.request.urlopen(req, timeout=30) as resp:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.11/urllib/request.py", line 216, in urlopen
+    return opener.open(url, data, timeout)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.11/urllib/request.py", line 519, in open
+    response = self._open(req, data)
+               ^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.11/urllib/request.py", line 536, in _open
+    result = self._call_chain(self.handle_open, protocol, protocol +
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.11/urllib/request.py", line 496, in _call_chain
+    result = func(*args)
+             ^^^^^^^^^^^
+  File "/usr/lib/python3.11/urllib/request.py", line 1391, in https_open
+    return self.do_open(http.client.HTTPSConnection, req,
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.11/urllib/request.py", line 1351, in do_open
+    raise URLError(err)
+urllib.error.URLError: <urlopen error Tunnel connection failed: 403 Forbidden>
+
+[2026-07-14T12:38:48.678695+00:00] WARN ktc fetch: https://dynasty-daddy.com/api/v1/player/all/today: URLError: <urlopen error Tunnel connection failed: 403 Forbidden>
+[2026-07-14T12:39:15.917741+00:00] INFO seeded 188 player_year rows for tx-only player×year combos
+[2026-07-14T12:39:16.135168+00:00] INFO seeded 32 player_all_time rows for tx-only players
+[2026-07-14T12:39:23.911802+00:00] INFO built asset history: 514 picks, 649 players
+[2026-07-14T12:39:24.099315+00:00] INFO pure-drop O-Score: 439 drop-only txns detected (cols: _added_pid=True, Player Added=True)
+[2026-07-14T12:39:24.103329+00:00] INFO pure-drop O-Score: scored 439 drop-only transactions (ceiling 50)
+[2026-07-14T12:39:24.232408+00:00] INFO 2020 startup picks: relabeled Year='startup' on 152 rows
+[2026-07-14T12:40:57.646201+00:00] INFO bolded comment verbs in cell history popups
+[2026-07-14T12:40:58.176184+00:00] ===== Build end =====
+[2026-07-14T12:41:00.224809+00:00] INFO data-quality sanity: 0 ERROR, 0 WARN across 0 findings
+[2026-07-14T18:35:04.419253+00:00] INFO snapshot: mode=build captured_at=2026-07-14T00:18:05.943422+00:00 age=0.76d auto_refreshed=False
+
+[2026-07-14T18:35:04.420469+00:00] ===== Build start =====
+formulas coverage: all non-obvious columns documented
+injury tracker rows loaded: 0
+[2026-07-14T18:35:07.168656+00:00] INFO gsis_correction sid=5133 name='Tyler Conklin' sleeper_gsis=00-0034439 -> 00-0034270
+[2026-07-14T18:35:07.187934+00:00] INFO gsis_correction sid=5094 name='Ryan Izzo' sleeper_gsis=00-0034270 -> 00-0034439
+[2026-07-14T18:35:08.268636+00:00] INFO Phase 13: injected ESPN 2020 season (8 teams, 152 draft picks, 222 transactions; 0 player-meta backfilled)
+[2026-07-14T18:35:09.055977+00:00] INFO commissioner pick-trade overlay: 45 pick-hops loaded
+INFO league scoring settings changed in 2021: {'fum_rec': (None, 2.0), 'fgmiss': (None, -1.0), 'pass_2pt': (None, 2.0), 'rec_yd': (None, 0.1), 'fum_rec_td': (None, 6.0), 'fgm_0_19': (None, 3.0), 'rush_2pt': (None, 2.0), 'fgm_40_49': (None, 4.0), 'fgm_20_29': (None, 3.0), 'rec': (None, 1.0), 'fum': (None, -1.0), 'rec_td': (None, 6.0), 'pass_td': (None, 4.0), 'fgm_50p': (None, 5.0), 'safe': (None, 2.0), 'def_td': (None, 6.0), 'xpm': (None, 1.0), 'sack': (None, 1.0), 'fum_lost': (None, -1.0), 'st_td': (None, 0.0), 'rush_yd': (None, 0.1), 'xpmiss': (None, -1.0), 'ff': (None, 1.0), 'int': (None, 2.0), 'pass_yd': (None, 0.04), 'pass_int': (None, -2.0), 'fgm_30_39': (None, 3.0), 'rec_2pt': (None, 2.0), 'rush_td': (None, 6.0)}
+[2026-07-14T18:35:15.694288+00:00] INFO merged the 2021 phantom Carter/Stevenson player swap into the pick trade
+INFO league scoring settings changed in 2022: {'fum_ret_yd': (None, 0.1), 'st_td': (0.0, 6.0)}
+[2026-07-14T18:35:19.363284+00:00] INFO commissioner-wash 2022: excluded 11 no-op txns
+[2026-07-14T18:35:22.871169+00:00] INFO commissioner-wash 2023: excluded 1 no-op txns
+[2026-07-14T18:35:26.632315+00:00] INFO commissioner-wash 2024: excluded 3 no-op txns
+[2026-07-14T18:35:26.633084+00:00] INFO draft-day synthetic picks 2024: 1 commish-add(s) -> picks, removed from transactions
+[2026-07-14T18:35:36.610590+00:00] INFO draft-day synthetic picks 2025: 8 commish-add(s) -> picks, removed from transactions
+[2026-07-14T18:35:37.062842+00:00] WARN commish pick-trade UNMATCHED: 2026 R209 Oliverwkw->LWebs53 @ 2026-05-03 16:13:10 (with 2.8 in trade up)
+[2026-07-14T18:35:37.063569+00:00] WARN commish pick-trade UNMATCHED: 2026 R209 LWebs53->shmuel256 @ 2026-07-10 21:22:18 (To Sam (5-team trade))
+[2026-07-14T18:35:37.064109+00:00] WARN commish pick-trade UNMATCHED: 2029 R3 BROsenzweig->LWebs53 @ 2026-07-10 21:22:18 (To Luke (5-team trade))
+[2026-07-14T18:35:37.064500+00:00] WARN commish pick-trade UNMATCHED: 2030 R4 LWebs53->stevenb123 @ 2026-07-12 22:57:58 (2026 4.06 trade)
+[2026-07-14T18:35:37.064827+00:00] WARN commish pick-trade UNMATCHED: 2026 R501 stevenb123->LWebs53 @ 2026-07-12 22:57:58 (2026 4.06 trade (5.01))
+[2026-07-14T18:35:37.065156+00:00] WARN commish pick-trade UNMATCHED: 2026 R502 BROsenzweig->plehv79 @ 2026-07-12 23:07:03 (For 20 FAAB (5.02))
+[2026-07-14T18:35:37.065564+00:00] WARN commissioner pick-trade overlay: 6/45 pick-hops unmatched
+[2026-07-14T18:35:37.086369+00:00] INFO 2020 startup draft: emitted 152 picks into pick_history
+[2026-07-14T18:35:37.902246+00:00] INFO merged 1 manual transaction(s) from data/manual_transactions.csv
+[2026-07-14T18:35:38.012122+00:00] INFO synthesized 2 terminal roster-diff departures (dead-end cuts, never re-acquired)
+[2026-07-14T18:35:38.046133+00:00] INFO synthesized 1 terminal roster-diff arrivals (snapshot-only pickups, no recorded add)
+[2026-07-14T18:35:38.050218+00:00] INFO synthesized 63 missing departures + 22 missing arrivals as transactions rows to close orphaned roster lineage
+[2026-07-14T18:35:45.073902+00:00] INFO ktc value column: sf_trade_value (superflex, always)
+[2026-07-14T18:35:45.979400+00:00] ERROR at ktc_value_diff: URLError: <urlopen error Tunnel connection failed: 403 Forbidden>
+Traceback (most recent call last):
+  File "/usr/lib/python3.11/urllib/request.py", line 1348, in do_open
+    h.request(req.get_method(), req.selector, req.data, headers,
+  File "/usr/lib/python3.11/http/client.py", line 1323, in request
+    self._send_request(method, url, body, headers, encode_chunked)
+  File "/usr/lib/python3.11/http/client.py", line 1369, in _send_request
+    self.endheaders(body, encode_chunked=encode_chunked)
+  File "/usr/lib/python3.11/http/client.py", line 1318, in endheaders
+    self._send_output(message_body, encode_chunked=encode_chunked)
+  File "/usr/lib/python3.11/http/client.py", line 1078, in _send_output
+    self.send(msg)
+  File "/usr/lib/python3.11/http/client.py", line 1016, in send
+    self.connect()
+  File "/usr/lib/python3.11/http/client.py", line 1488, in connect
+    super().connect()
+  File "/usr/lib/python3.11/http/client.py", line 992, in connect
+    self._tunnel()
+  File "/usr/lib/python3.11/http/client.py", line 963, in _tunnel
+    raise OSError(f"Tunnel connection failed: {code} {message.strip()}")
+OSError: Tunnel connection failed: 403 Forbidden
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/home/user/LOTG-Stats/src/lotg.py", line 8672, in build_all
+    idx = build_index(
+          ^^^^^^^^^^^^
+  File "/home/user/LOTG-Stats/lib/lotg_support/ktc.py", line 289, in build_index
+    directory = load_directory(repo_root)
+                ^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/user/LOTG-Stats/lib/lotg_support/ktc.py", line 86, in load_directory
+    data = _http_get_json(f"{DD_BASE}/player/all/today")
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/user/LOTG-Stats/lib/lotg_support/ktc.py", line 56, in _http_get_json
+    with urllib.request.urlopen(req, timeout=30) as resp:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.11/urllib/request.py", line 216, in urlopen
+    return opener.open(url, data, timeout)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.11/urllib/request.py", line 519, in open
+    response = self._open(req, data)
+               ^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.11/urllib/request.py", line 536, in _open
+    result = self._call_chain(self.handle_open, protocol, protocol +
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.11/urllib/request.py", line 496, in _call_chain
+    result = func(*args)
+             ^^^^^^^^^^^
+  File "/usr/lib/python3.11/urllib/request.py", line 1391, in https_open
+    return self.do_open(http.client.HTTPSConnection, req,
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.11/urllib/request.py", line 1351, in do_open
+    raise URLError(err)
+urllib.error.URLError: <urlopen error Tunnel connection failed: 403 Forbidden>
+
+[2026-07-14T18:35:45.992923+00:00] WARN ktc fetch: https://dynasty-daddy.com/api/v1/player/all/today: URLError: <urlopen error Tunnel connection failed: 403 Forbidden>
+[2026-07-14T18:36:20.240269+00:00] INFO seeded 188 player_year rows for tx-only player×year combos
+[2026-07-14T18:36:20.506185+00:00] INFO seeded 32 player_all_time rows for tx-only players
+[2026-07-14T18:36:29.986285+00:00] INFO built asset history: 514 picks, 649 players
+[2026-07-14T18:36:30.209896+00:00] INFO pure-drop O-Score: 439 drop-only txns detected (cols: _added_pid=True, Player Added=True)
+[2026-07-14T18:36:30.215412+00:00] INFO pure-drop O-Score: scored 439 drop-only transactions (ceiling 50)
+[2026-07-14T18:36:30.375959+00:00] INFO 2020 startup picks: relabeled Year='startup' on 152 rows
+[2026-07-14T18:38:26.744607+00:00] INFO bolded comment verbs in cell history popups
+[2026-07-14T18:38:27.400919+00:00] ===== Build end =====
+[2026-07-14T18:38:30.122431+00:00] INFO data-quality sanity: 0 ERROR, 0 WARN across 0 findings
+[2026-07-18T15:32:42.885053+00:00] INFO snapshot: mode=both captured_at=2026-07-18T15:32:42.875425+00:00 age=0.00d auto_refreshed=False
+
+[2026-07-18T15:32:42.885528+00:00] ===== Build start =====
+formulas coverage: all non-obvious columns documented
+injury tracker rows loaded: 0
+[2026-07-18T15:32:44.756684+00:00] INFO gsis_correction sid=5133 name='Tyler Conklin' sleeper_gsis=00-0034439 -> 00-0034270
+[2026-07-18T15:32:44.771620+00:00] INFO gsis_correction sid=5094 name='Ryan Izzo' sleeper_gsis=00-0034270 -> 00-0034439
+[2026-07-18T15:32:45.006922+00:00] INFO Phase 13: injected ESPN 2020 season (8 teams, 152 draft picks, 222 transactions; 0 player-meta backfilled)
+[2026-07-18T15:32:45.291527+00:00] INFO commissioner pick-trade overlay: 45 pick-hops loaded
+INFO league scoring settings changed in 2021: {'sack': (None, 1.0), 'fgm_20_29': (None, 3.0), 'rush_2pt': (None, 2.0), 'pass_2pt': (None, 2.0), 'xpmiss': (None, -1.0), 'rec_yd': (None, 0.1), 'pass_td': (None, 4.0), 'ff': (None, 1.0), 'rec': (None, 1.0), 'rush_td': (None, 6.0), 'pass_int': (None, -2.0), 'fum': (None, -1.0), 'rush_yd': (None, 0.1), 'st_td': (None, 0.0), 'fgm_30_39': (None, 3.0), 'fum_rec': (None, 2.0), 'fgm_0_19': (None, 3.0), 'fgm_40_49': (None, 4.0), 'pass_yd': (None, 0.04), 'rec_td': (None, 6.0), 'fgmiss': (None, -1.0), 'xpm': (None, 1.0), 'fum_lost': (None, -1.0), 'int': (None, 2.0), 'fum_rec_td': (None, 6.0), 'def_td': (None, 6.0), 'rec_2pt': (None, 2.0), 'fgm_50p': (None, 5.0), 'safe': (None, 2.0)}
+[2026-07-18T15:32:51.269864+00:00] INFO merged the 2021 phantom Carter/Stevenson player swap into the pick trade
+INFO league scoring settings changed in 2022: {'fum_ret_yd': (None, 0.1), 'st_td': (0.0, 6.0)}
+[2026-07-18T15:32:54.597285+00:00] INFO commissioner-wash 2022: excluded 11 no-op txns
+[2026-07-18T15:32:57.857414+00:00] INFO commissioner-wash 2023: excluded 1 no-op txns
+[2026-07-18T15:33:01.251676+00:00] INFO commissioner-wash 2024: excluded 3 no-op txns
+[2026-07-18T15:33:01.252121+00:00] INFO draft-day synthetic picks 2024: 1 commish-add(s) -> picks, removed from transactions
+[2026-07-18T15:33:04.706647+00:00] INFO draft-day synthetic picks 2025: 8 commish-add(s) -> picks, removed from transactions
+[2026-07-18T15:33:06.978580+00:00] ERROR at load_nflverse_stats_player_week_2026: HTTPError: 404 Client Error: Not Found for url: https://raw.githubusercontent.com/nflverse/nflverse-data/master/data/player_stats/stats_player_week_2026.csv.gz
+Traceback (most recent call last):
+  File "/home/runner/work/LOTG-Stats/LOTG-Stats/src/lotg.py", line 3554, in build_all
+    spw = _safe_df(load_nflverse_stats_player_week(
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/runner/work/LOTG-Stats/LOTG-Stats/lib/lotg_support/external.py", line 139, in load_nflverse_stats_player_week
+    _download_best_effort(urls, path, cfg.timeout_seconds)
+  File "/home/runner/work/LOTG-Stats/LOTG-Stats/lib/lotg_support/external.py", line 48, in _download_best_effort
+    raise last_err
+  File "/home/runner/work/LOTG-Stats/LOTG-Stats/lib/lotg_support/external.py", line 42, in _download_best_effort
+    _download(url, out, timeout)
+  File "/home/runner/work/LOTG-Stats/LOTG-Stats/lib/lotg_support/external.py", line 34, in _download
+    raise last_err
+  File "/home/runner/work/LOTG-Stats/LOTG-Stats/lib/lotg_support/external.py", line 26, in _download
+    r.raise_for_status()
+  File "/opt/hostedtoolcache/Python/3.11.15/x64/lib/python3.11/site-packages/requests/models.py", line 1167, in raise_for_status
+    raise HTTPError(http_error_msg, response=self)
+requests.exceptions.HTTPError: 404 Client Error: Not Found for url: https://raw.githubusercontent.com/nflverse/nflverse-data/master/data/player_stats/stats_player_week_2026.csv.gz
+
+[2026-07-18T15:33:08.238809+00:00] ERROR at load_nflverse_injuries_2026: HTTPError: 404 Client Error: Not Found for url: https://raw.githubusercontent.com/nflverse/nflverse-data/master/data/injuries/injuries_2026.csv
+Traceback (most recent call last):
+  File "/home/runner/work/LOTG-Stats/LOTG-Stats/src/lotg.py", line 3680, in build_all
+    injuries = _safe_df(load_nflverse_injuries(
+                        ^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/runner/work/LOTG-Stats/LOTG-Stats/lib/lotg_support/external.py", line 94, in load_nflverse_injuries
+    _download_best_effort(urls, path, cfg.timeout_seconds)
+  File "/home/runner/work/LOTG-Stats/LOTG-Stats/lib/lotg_support/external.py", line 48, in _download_best_effort
+    raise last_err
+  File "/home/runner/work/LOTG-Stats/LOTG-Stats/lib/lotg_support/external.py", line 42, in _download_best_effort
+    _download(url, out, timeout)
+  File "/home/runner/work/LOTG-Stats/LOTG-Stats/lib/lotg_support/external.py", line 34, in _download
+    raise last_err
+  File "/home/runner/work/LOTG-Stats/LOTG-Stats/lib/lotg_support/external.py", line 26, in _download
+    r.raise_for_status()
+  File "/opt/hostedtoolcache/Python/3.11.15/x64/lib/python3.11/site-packages/requests/models.py", line 1167, in raise_for_status
+    raise HTTPError(http_error_msg, response=self)
+requests.exceptions.HTTPError: 404 Client Error: Not Found for url: https://raw.githubusercontent.com/nflverse/nflverse-data/master/data/injuries/injuries_2026.csv
+
+[2026-07-18T15:33:10.814139+00:00] INFO season 2026: preseason — scanning offseason transactions only
+[2026-07-18T15:33:10.883748+00:00] INFO commissioner-wash 2026: excluded 6 no-op txns
+[2026-07-18T15:33:10.884173+00:00] INFO draft-day synthetic picks 2026: 3 commish-add(s) -> picks, removed from transactions
+[2026-07-18T15:33:10.902994+00:00] INFO commissioner pick-trade overlay: all 45 pick-hops injected
+[2026-07-18T15:33:10.922603+00:00] INFO 2020 startup draft: emitted 152 picks into pick_history
+[2026-07-18T15:33:11.501252+00:00] INFO merged 1 manual transaction(s) from data/manual_transactions.csv
+[2026-07-18T15:33:11.609557+00:00] INFO synthesized 2 terminal roster-diff departures (dead-end cuts, never re-acquired)
+[2026-07-18T15:33:11.641143+00:00] INFO synthesized 1 terminal roster-diff arrivals (snapshot-only pickups, no recorded add)
+[2026-07-18T15:33:11.643810+00:00] INFO synthesized 65 missing departures + 23 missing arrivals as transactions rows to close orphaned roster lineage
+[2026-07-18T15:33:16.345699+00:00] INFO ktc value column: sf_trade_value (superflex, always)
+[2026-07-18T15:33:22.237918+00:00] INFO KTC per $1 FAAB = 100 (fixed; data-derived median 296.3 from 70 FAAB-for-asset trades)
+[2026-07-18T15:33:22.620205+00:00] WARN ktc fetch: info: merged KTC backfill for 369 players
+[2026-07-18T15:33:24.064112+00:00] INFO KTC win-impact lookups: 46/1225 empty (3.8%)
+[2026-07-18T15:33:53.764312+00:00] INFO seeded 248 player_year rows for tx-only player×year combos
+[2026-07-18T15:33:53.998429+00:00] INFO seeded 34 player_all_time rows for tx-only players
+[2026-07-18T15:33:55.301141+00:00] INFO seeded 8 team_year placeholder rows for in-progress season(s) [2026]
+[2026-07-18T15:34:03.062157+00:00] INFO built asset history: 548 picks, 684 players
+[2026-07-18T15:34:03.243607+00:00] INFO pure-drop O-Score: 461 drop-only txns detected (cols: _added_pid=True, Player Added=True)
+[2026-07-18T15:34:03.248229+00:00] INFO pure-drop O-Score: scored 461 drop-only transactions (ceiling 50)
+[2026-07-18T15:34:03.421783+00:00] INFO 2020 startup picks: relabeled Year='startup' on 152 rows
+[2026-07-18T15:35:58.513103+00:00] INFO bolded comment verbs in cell history popups
+[2026-07-18T15:35:59.074112+00:00] ===== Build end =====
+[2026-07-18T15:36:01.536244+00:00] INFO data-quality sanity: 0 ERROR, 0 WARN across 0 findings

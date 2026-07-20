@@ -394,6 +394,20 @@ def _first_col(df: pd.DataFrame, candidates: List[str]) -> Optional[str]:
 # 2.08 only in slot-based comparisons (which key off the "2.09" display string).
 _R209 = 209
 
+# Internal sentinel rounds for the 5.0X FAAB-buy picks: slot 5.0N -> round
+# _R5XX_BASE + N (5.01 -> 501, 5.02 -> 502, ...). Real drafts are 4 rounds, so
+# these never collide with a real pick; they render "5.0N" and (like the 2.09)
+# count as a 4.08 only in slot-based calcs.
+_R5XX_BASE = 500
+
+def _r5xx_to_slot(round_num: int) -> Optional[int]:
+    """Slot N for a 5.0X sentinel round (501->1, ...), else None."""
+    try:
+        r = int(round_num)
+    except Exception:
+        return None
+    return r - _R5XX_BASE if _R5XX_BASE < r <= _R5XX_BASE + 8 else None
+
 def _epoch_ms_to_dt(ms: Any) -> Optional[datetime]:
     try:
         ms_i = int(ms)
@@ -1438,6 +1452,11 @@ def _preserve_na(col: str) -> bool:
     if col_l in {"ppg starter", "ppg bench", "adjusted ppg starter", "adjusted ppg bench",
                  "adjusted avg points", "ppg starter vs bench diff"}:
         return True
+    # Player win % as starter / while rostered (player_year / player_all_time):
+    # N/A when the player has no qualifying (scored) started / rostered weeks in
+    # the period — distinct from a real 0% win rate.
+    if col_l in {"win % as starter", "win % while rostered"}:
+        return True
     # Length of tenure on team: a blank means there is NO player whose tenure
     # to measure — a transactions pure drop (no added player) or an unmade pick
     # (no player drafted yet). Render those as N/A. A genuine 0-day tenure
@@ -2324,9 +2343,10 @@ def build_all(repo_root: Path) -> None:
                                 # (audit run-2 F7: dtype luck made e.g. Most-QBs
                                 # render 1 while Most-TE rendered 1.0).
                                 _cl0 = str(c).strip().lower()
-                                if (any(_cl0.startswith(p) for p in (
+                                if ((any(_cl0.startswith(p) for p in (
                                         "number of", "most number of", "times ",
-                                        "weeks ", "total number"))
+                                        "weeks ", "total number")) or _cl0 == "stacks"
+                                        or _cl0.startswith("championships "))
                                         and rounded.dropna().mod(1).eq(0).all()):
                                     rounded = rounded.astype("Int64")
                                 if _preserve_na(c):
@@ -3274,6 +3294,9 @@ def build_all(repo_root: Path) -> None:
         # 2.08 only in the slot-based calcs (which key off this "2.09" string).
         if int(round_num) == _R209:
             return "2.09"
+        _s5 = _r5xx_to_slot(round_num)
+        if _s5 is not None:
+            return f"5.{_s5:02d}"
         team_count = len(roster_ids_by_season.get(season, [])) or None
         if pick_no is None or team_count is None:
             return f"{int(round_num)}.??"
@@ -5100,6 +5123,29 @@ def build_all(repo_root: Path) -> None:
                                     teams.append(_t)
                         return max(Counter(teams).values()) if teams else None
 
+                    def _count_stacks(pids) -> int:
+                        # A "stack" = a started QB paired with a started
+                        # position player (RB/WR/TE) from the SAME NFL team.
+                        # Each such pair counts 1, so a QB started alongside a
+                        # WR and a TE from his NFL team is 2 stacks. Resolved via
+                        # the same deterministic NFL-team helper as the other
+                        # same-team columns; the "NFL" free-agent sentinel is
+                        # excluded so two unrostered players can't falsely stack.
+                        qb_teams: List[str] = []
+                        skill_by_team: Counter = Counter()
+                        for pid in pids:
+                            _t = _nfl_team_for_pid_week(pid)
+                            if not _t or _t == "NFL":
+                                continue
+                            _p = (pid_pos.get(pid) or "").upper()
+                            if _p == "QB":
+                                qb_teams.append(_t)
+                            elif _p in ("RB", "WR", "TE"):
+                                skill_by_team[_t] += 1
+                        return int(sum(skill_by_team.get(t, 0) for t in qb_teams))
+
+                    stacks = _count_stacks(starters)
+
                     # Opponent label per playoffs spec
                     opp_label = opp_team
                     label = stage_label_map.get((season, wk, rid))
@@ -5188,6 +5234,7 @@ def build_all(repo_root: Path) -> None:
                         "Most number of TE rostered from same NFL team": max_same_team_by_pos(players, "TE"),
                         "Number of NFL teams among starting players": len(set(start_nfl_teams)) if start_nfl_teams else None,
                         "Number of NFL teams among rostered players": len(set(roster_nfl_teams)) if roster_nfl_teams else None,
+                        "Stacks": stacks,
                         "Number of rookies started": rook_s,
                         "Number of rookies rostered": rook_r,
                         "Player average age": avg_age,
@@ -6706,18 +6753,33 @@ def build_all(repo_root: Path) -> None:
                 _row209["Trade 1"] = _final0
             pick_rows.append(_row209)
             # 5.0X (FAAB draft-day buys, 2025+) only exist once the draft happens.
+            # A buy can be TRADED before it's used (the buyer isn't always the
+            # drafter): slot 5.0N's trades live under sentinel round _R5XX_BASE+N,
+            # so derive the original owner (buyer) from that chain when present;
+            # the final owner is the drafter either way (the chain ends there).
             if int(_sea) >= 2025 and _adds:
                 for _j, (_tsj, _ridj, _pidj, _txidj) in enumerate(_adds[1:], start=1):
-                    _tmj = _rid2tm.get(int(_ridj), f"Roster {_ridj}")
-                    pick_rows.append({
+                    _drafter5 = _rid2tm.get(int(_ridj), f"Roster {_ridj}")
+                    _rnd5 = _R5XX_BASE + int(_j)
+                    _orig5_rid = next((int(_k[2]) for _k, _ev in pick_trade_events.items()
+                                       if _k[0] == int(_sea) and _k[1] == _rnd5 and _ev), None)
+                    if _orig5_rid is not None:
+                        _orig5 = _rid2tm.get(_orig5_rid, _drafter5)
+                        _final5 = _rid2tm.get(_chain_final_rid(int(_sea), _rnd5, _orig5_rid), _drafter5)
+                    else:
+                        _orig5 = _final5 = _drafter5
+                    _row5: Dict[str, Any] = {
                         "Year": int(_sea),
                         "Number": f"5.{_j:02d}",
-                        "Original Team": _tmj,
-                        "Final Team": _tmj,
+                        "Original Team": _orig5,
+                        "Final Team": _final5,
                         "Player Picked": _pid_name(_pidj),
                         "_player_id": str(_pidj),
                         "Commissioner moved?": False,
-                    })
+                    }
+                    if _orig5 != _final5:
+                        _row5["Trade 1"] = _final5
+                    pick_rows.append(_row5)
     except Exception as e:
         _log_exc(debug, "synthetic_draft_day_picks", e)
 
@@ -10225,9 +10287,12 @@ def build_all(repo_root: Path) -> None:
                         continue
                     # The 2.09 toilet pick (sentinel round _R209) is a real,
                     # tradeable asset; weight it as its 2.08 equivalent (round 2)
-                    # so it counts toward the future-capital trade signals.
+                    # so it counts toward the future-capital trade signals. The
+                    # 5.0X FAAB buys (sentinel 5NN) weight as their 4.08 equivalent.
                     if rnd_i == _R209:
                         rnd_i = 2
+                    elif _r5xx_to_slot(rnd_i) is not None:
+                        rnd_i = 4
                     # Future picks only (a current-season rookie pick is
                     # captured by adj_diff, not here). _capped keeps the rolling
                     # _FCAP_HORIZON-season window for the Tanking delta (matches
@@ -12650,35 +12715,70 @@ def build_all(repo_root: Path) -> None:
     # never used here. Per user mandate: "we should never being using
     # calendar year for anything - always fantasy year".
     #
-    # Fantasy year FY for a date d:
-    #   d.month >= 9  ->  FY = d.year
-    #   else          ->  FY = d.year - 1
+    # Phase 13 fix — the FULL-FY window (used for "Number of teams") is
+    # anchored to the fantasy CHAMPIONSHIP, not a fixed Sept 1. A dynasty
+    # offseason happens AFTER a season's championship, so those moves belong
+    # to the season they are building toward (the NEXT one), not the season
+    # that just ended. Anchoring to Sept 1 mis-filed every post-championship
+    # offseason move under the prior fantasy year (e.g. Davante Adams' spring
+    # 2025 trades were counted under his 2024 row, showing "4 teams" despite
+    # one team all of 2024 with zero 2024 moves).
     #
-    # Two windows per FY:
-    #   In-season   = [Sept 1 FY, Feb 1 FY+1]
-    #   Full FY     = [Sept 1 FY, Sept 1 FY+1]   (in-season + offseason)
+    # Fantasy year FY spans, per the user directive, "day after (FY-1)'s
+    # championship  ->  last day of FY's championship":
+    #   Full FY  = [champ_monday(FY-1), champ_monday(FY))
+    # where champ_monday(Y) is the Monday after season Y's fantasy
+    # championship game (same anchor as the trades/KTC "end of season"
+    # ladder, Phase 6F). The IN-SEASON window is unchanged (a real season
+    # still runs Sept -> championship); it is used only for Top/Last team.
+    #
+    #   In-season = [Sept 1 FY, Feb 1 FY+1]
     #
     # Three FY-keyed aggregates per tenure:
     #   tenure_time_team_fy[(pid, FY)]           Full-FY seconds per team
     #                                            (used for Number of teams
     #                                            per FY — partial-week
-    #                                            offseason stints count)
+    #                                            offseason stints count,
+    #                                            filed to the upcoming FY)
     #   tenure_inseason_time_team_fy[(pid, FY)]  In-season seconds per team
     #                                            (used for Top team per FY)
     #   tenure_last_event_fy[(pid, FY)]          Latest tenure end that
     #                                            falls inside that FY's
-    #                                            full window (used for
+    #                                            in-season window (used for
     #                                            Last team per FY — Jan
     #                                            championship rolls back
     #                                            to the season's FY)
     # All-time variants collapse the FY axis.
+
+    # Monday after season Y's fantasy championship game. Mirrors the canonical
+    # _championship_monday used by the trades/KTC "end of season" anchor:
+    # NFL week 1's Sunday is 6 days after the first Monday of September; the
+    # championship Sunday is 16 weeks later; the snapshot Monday is the day
+    # after. e.g. 2021 -> Jan 3 2022, 2023 -> Jan 1 2024, 2024 -> Dec 30 2024.
+    def _championship_monday(_yr: int) -> date:
+        _sept1 = date(int(_yr), 9, 1)
+        _first_monday = _sept1 + timedelta(days=(7 - _sept1.weekday()) % 7)
+        _week1_sunday = _first_monday + timedelta(days=6)
+        return _week1_sunday + timedelta(weeks=16) + timedelta(days=1)
+
     def _fy_for_date(_d: datetime) -> int:
-        return _d.year if _d.month >= 9 else _d.year - 1
+        # FY Y spans [champ_monday(Y-1), champ_monday(Y)). A date on/after
+        # this calendar year's championship Monday is next FY's offseason;
+        # a date before last year's championship Monday belongs to FY-1.
+        _dd = _d.date() if isinstance(_d, datetime) else _d
+        _y = _dd.year
+        if _dd >= _championship_monday(_y):
+            return _y + 1
+        if _dd < _championship_monday(_y - 1):
+            return _y - 1
+        return _y
 
     def _fy_window(_fy: int, _tz_for_window) -> Tuple[datetime, datetime]:
+        _s = _championship_monday(_fy - 1)
+        _e = _championship_monday(_fy)
         return (
-            datetime(_fy, 9, 1, tzinfo=_tz_for_window),
-            datetime(_fy + 1, 9, 1, tzinfo=_tz_for_window),
+            datetime(_s.year, _s.month, _s.day, tzinfo=_tz_for_window),
+            datetime(_e.year, _e.month, _e.day, tzinfo=_tz_for_window),
         )
 
     def _fy_inseason_window(_fy: int, _tz_for_window) -> Tuple[datetime, datetime]:
@@ -12850,6 +12950,84 @@ def build_all(repo_root: Path) -> None:
         pw_work["Missed_suspension"] = (pw_work["Suspension?"].fillna(False) & (pw_work["Points"] == 0)).astype(int)
         pw_work["Starter?"] = (pw_work["Starter/Bench"] == "Starter").astype(int)
 
+        # Win % as starter / Win % while rostered (player_year & player_all_time).
+        # Join every player-week to that fantasy team's weekly result (team_week
+        # Win?: 1 win / 0 loss / 0.5 tie) and take the win % over the weeks the
+        # player STARTED, and over ALL weeks the player was ROSTERED (a
+        # player_week row = one rostered week, starter or bench). A tie counts as
+        # half a win, matching the team win % convention used elsewhere. Requires
+        # at least _MIN_WINPCT_WEEKS qualifying (scored) weeks in the period; below
+        # that the value is N/A rather than a noisy small-sample rate.
+        _MIN_WINPCT_WEEKS = 5
+        _win_lookup: Dict[Tuple[str, int, int], float] = {}
+        try:
+            if not tw.empty and "Win?" in tw.columns:
+                _twn = tw[["Team", "Year", "Week", "Win?"]].copy()
+                _twn["_w"] = pd.to_numeric(_twn["Win?"], errors="coerce")
+                for _tm, _yr, _wk, _wv in _twn[["Team", "Year", "Week", "_w"]].itertuples(index=False, name=None):
+                    if pd.notna(_wv) and pd.notna(_yr) and pd.notna(_wk):
+                        _win_lookup[(str(_tm), int(_yr), int(_wk))] = float(_wv)
+        except Exception as e:
+            _log_exc(debug, "player_win_pct_lookup", e)
+        pw_work["_team_win"] = [
+            (_win_lookup.get((str(_t), int(_y), int(_w)))
+             if (pd.notna(_y) and pd.notna(_w)) else None)
+            for _t, _y, _w in pw_work[["Team", "Year", "Week"]].itertuples(index=False, name=None)
+        ]
+        _win_num = pd.to_numeric(pw_work["_team_win"], errors="coerce")
+        # Rostered = every scored player-week; Started = scored + Starter? == 1.
+        pw_work["_ros_game"] = _win_num.notna().astype(int)
+        pw_work["_ros_winval"] = _win_num.fillna(0.0)
+        _is_start = (pw_work["Starter?"] == 1) & _win_num.notna()
+        pw_work["_st_game"] = _is_start.astype(int)
+        pw_work["_st_winval"] = _win_num.where(_is_start, other=0.0)
+
+        # League-championship membership (player_year booleans + player_all_time
+        # counts). The season champion is the team that won that year's 'Final'
+        # (Win? == 1, PF as tiebreak). For each player-season, flag whether the
+        # player was: on the champion's roster at any point ('rostered by'),
+        # started by the champion in any week ('started by'), or started in the
+        # championship game itself ('started in'). Only completed seasons have a
+        # Final, so an in-progress season contributes no championship.
+        champ_team_by_year: Dict[int, str] = {}
+        try:
+            if not tw.empty and "Week Name" in tw.columns:
+                _fin = tw[tw["Week Name"].astype(str) == "Final"].copy()
+                if not _fin.empty:
+                    _fin["_w"] = pd.to_numeric(_fin["Win?"], errors="coerce")
+                    _fin["_pf"] = pd.to_numeric(_fin["PF"], errors="coerce")
+                    for _yv, _g in _fin.groupby("Year"):
+                        _gg = _g.sort_values(["_w", "_pf"], ascending=False)
+                        if len(_gg) and pd.notna(_yv):
+                            champ_team_by_year[int(_yv)] = str(_gg.iloc[0]["Team"])
+        except Exception as e:
+            _log_exc(debug, "champ_team_by_year", e)
+        _cteam = pw_work["Year"].map(
+            lambda y: champ_team_by_year.get(int(y)) if pd.notna(y) else None
+        )
+        _on_champ = _cteam.notna() & (pw_work["Team"].astype(str) == _cteam.astype(str))
+        _wk_name = (
+            pw_work["Week Name"].astype(str)
+            if "Week Name" in pw_work.columns else pd.Series("", index=pw_work.index)
+        )
+        pw_work["_champ_ros"] = _on_champ.astype(int)
+        pw_work["_champ_start"] = (_on_champ & (pw_work["Starter?"] == 1)).astype(int)
+        pw_work["_champ_final"] = (
+            _on_champ & (pw_work["Starter?"] == 1) & (_wk_name == "Final")
+        ).astype(int)
+        # Per (player, season): did any of these occur (0/1)? All-time counts sum
+        # these across seasons -> number of DISTINCT title seasons, not weeks.
+        _champ_py = (
+            pw_work.groupby(["Player ID", "Year"])[["_champ_ros", "_champ_start", "_champ_final"]]
+            .max().reset_index()
+        )
+        _champ_ros_year = {(str(p), int(y)): int(v) for p, y, v in _champ_py[["Player ID", "Year", "_champ_ros"]].itertuples(index=False, name=None) if pd.notna(y)}
+        _champ_start_year = {(str(p), int(y)): int(v) for p, y, v in _champ_py[["Player ID", "Year", "_champ_start"]].itertuples(index=False, name=None) if pd.notna(y)}
+        _champ_final_year = {(str(p), int(y)): int(v) for p, y, v in _champ_py[["Player ID", "Year", "_champ_final"]].itertuples(index=False, name=None) if pd.notna(y)}
+        _champ_ros_all = _champ_py.groupby("Player ID")["_champ_ros"].sum().astype(int).to_dict()
+        _champ_start_all = _champ_py.groupby("Player ID")["_champ_start"].sum().astype(int).to_dict()
+        _champ_final_all = _champ_py.groupby("Player ID")["_champ_final"].sum().astype(int).to_dict()
+
         award_cols = [
             "Player of the week?",
             "QB of the week?",
@@ -12923,6 +13101,10 @@ def build_all(repo_root: Path) -> None:
             Played_starter_weeks=("_played_starter_weeks", "sum"),
             Played_bench_points=("_played_bench_points", "sum"),
             Played_bench_weeks=("_played_bench_weeks", "sum"),
+            St_win_sum=("_st_winval", "sum"),
+            St_games=("_st_game", "sum"),
+            Ros_win_sum=("_ros_winval", "sum"),
+            Ros_games=("_ros_game", "sum"),
             **{c: (c, "sum") for c in award_cols},
         )
 
@@ -12944,6 +13126,22 @@ def build_all(repo_root: Path) -> None:
         py_base["Weeks on bench"] = py_base["Weeks_as_bench"]
         py_base["Weeks rostered"] = _ros_y
         py_base["% of starts"] = (py_base["Weeks_as_starter"] / _ros_y.replace(0, np.nan)).round(4)
+        # Win % of the fantasy teams over the player's started / rostered weeks.
+        # Requires a minimum of _MIN_WINPCT_WEEKS qualifying (scored) weeks so a
+        # tiny sample (e.g. a 2-week hot stretch) doesn't post a 100% rate; below
+        # the threshold the value is N/A (rendered via _preserve_na at output).
+        py_base["Win % as starter"] = (
+            py_base["St_win_sum"]
+            / py_base["St_games"].where(py_base["St_games"] >= _MIN_WINPCT_WEEKS)
+        ).round(4)
+        py_base["Win % while rostered"] = (
+            py_base["Ros_win_sum"]
+            / py_base["Ros_games"].where(py_base["Ros_games"] >= _MIN_WINPCT_WEEKS)
+        ).round(4)
+        py_base = py_base.drop(
+            columns=["St_win_sum", "St_games", "Ros_win_sum", "Ros_games"],
+            errors="ignore",
+        )
         py_base["Total points as starter"] = py_base["Starter_points_sum"].round(2)
         py_base["% of league points"] = (
             py_base["Starter_points_sum"] / py_base["Year"].map(_league_spts_yr).replace(0, np.nan)
@@ -13533,6 +13731,18 @@ def build_all(repo_root: Path) -> None:
         except Exception as e:
             _log_exc(debug, "player_year_tx_only_pad", e)
 
+        # Championship-membership booleans (see champ_team_by_year above). Set
+        # after padding so tx-only rows (never rostered) resolve to False.
+        try:
+            def _cky(p, y):
+                return (str(p), int(y)) if pd.notna(y) else None
+            _pk = list(player_year[["Player ID", "Year"]].itertuples(index=False, name=None))
+            player_year["Rostered by champion?"] = [bool(_champ_ros_year.get(_cky(p, y), 0)) for p, y in _pk]
+            player_year["Started by champion?"] = [bool(_champ_start_year.get(_cky(p, y), 0)) for p, y in _pk]
+            player_year["Started in championship game?"] = [bool(_champ_final_year.get(_cky(p, y), 0)) for p, y in _pk]
+        except Exception as e:
+            _log_exc(debug, "player_year_champ_flags", e)
+
         pa = pw_work.groupby(["Player ID"], as_index=False).agg(
             Player=("Player", "first"),
             Points=("Points", "sum"),
@@ -13550,6 +13760,10 @@ def build_all(repo_root: Path) -> None:
             Played_starter_weeks=("_played_starter_weeks", "sum"),
             Played_bench_points=("_played_bench_points", "sum"),
             Played_bench_weeks=("_played_bench_weeks", "sum"),
+            St_win_sum=("_st_winval", "sum"),
+            St_games=("_st_game", "sum"),
+            Ros_win_sum=("_ros_winval", "sum"),
+            Ros_games=("_ros_game", "sum"),
             **{c: (c, "sum") for c in award_cols},
         )
         # Same formula as player_year: derive PPG starter / bench / diff
@@ -13564,6 +13778,16 @@ def build_all(repo_root: Path) -> None:
         pa["Weeks on bench"] = pa["Weeks_as_bench"]
         pa["Weeks rostered"] = _ros_a
         pa["% of starts"] = (pa["Weeks_as_starter"] / _ros_a.replace(0, np.nan)).round(4)
+        # Win % of the fantasy teams over the player's started / rostered weeks
+        # (all-time). Requires >= _MIN_WINPCT_WEEKS qualifying weeks, else N/A.
+        pa["Win % as starter"] = (
+            pa["St_win_sum"]
+            / pa["St_games"].where(pa["St_games"] >= _MIN_WINPCT_WEEKS)
+        ).round(4)
+        pa["Win % while rostered"] = (
+            pa["Ros_win_sum"]
+            / pa["Ros_games"].where(pa["Ros_games"] >= _MIN_WINPCT_WEEKS)
+        ).round(4)
         pa["Total points as starter"] = pa["Starter_points_sum"].round(2)
         pa["% of league points"] = (
             (pa["Starter_points_sum"] / _league_spts_all).round(4) if _league_spts_all else None
@@ -13609,6 +13833,7 @@ def build_all(repo_root: Path) -> None:
             "Played_points", "Played_weeks",
             "Played_starter_points", "Played_starter_weeks",
             "Played_bench_points", "Played_bench_weeks",
+            "St_win_sum", "St_games", "Ros_win_sum", "Ros_games",
         ], errors="ignore")
 
         top_team_all = (
@@ -13932,6 +14157,17 @@ def build_all(repo_root: Path) -> None:
                     )
         except Exception as e:
             _log_exc(debug, "player_all_tx_only_pad", e)
+
+        # Championship-membership counts (distinct title seasons; see
+        # champ_team_by_year above). Set after padding so every row is covered.
+        try:
+            if not player_all.empty and "Player ID" in player_all.columns:
+                _pid_all = player_all["Player ID"].astype(str)
+                player_all["Championships rostered by"] = [int(_champ_ros_all.get(p, 0)) for p in _pid_all]
+                player_all["Championships started by"] = [int(_champ_start_all.get(p, 0)) for p in _pid_all]
+                player_all["Championships started in"] = [int(_champ_final_all.get(p, 0)) for p in _pid_all]
+        except Exception as e:
+            _log_exc(debug, "player_all_champ_counts", e)
 
         # ----- PR C: player consistency + PAR (player_year + player_all_time) -----
         # Over STARTED weeks only. Volatility = std of started-week points; floor /
@@ -14582,6 +14818,9 @@ def build_all(repo_root: Path) -> None:
                 # team participated in during the season. team_week already
                 # computes Combined matchup score per game.
                 "Combined matchup score": float(pd.to_numeric(g.get("Combined matchup score"), errors="coerce").fillna(0.0).max()),
+                # Season total of the weekly QB×position-player same-NFL-team
+                # starting pairs (counting stat — sum across the season's weeks).
+                "Stacks": int(pd.to_numeric(g.get("Stacks"), errors="coerce").fillna(0.0).sum()),
             }
             # NOTE: Unique-player Number of {QB,WR,RB,TE} {started,rostered}
             # columns are added later (line ~7977 "team_unique_player_counts"
@@ -15297,6 +15536,9 @@ def build_all(repo_root: Path) -> None:
                 # with no clear interpretation.
                 "Tanking": float(pd.to_numeric(g.get("Tanking"), errors="coerce").dropna().mean() or 0.0),
                 "Avg yearly luck": round(avg_yearly_luck, 4),
+                # All-time total of the weekly QB×position-player same-NFL-team
+                # starting pairs (counting stat — sum across every week).
+                "Stacks": int(pd.to_numeric(g.get("Stacks"), errors="coerce").fillna(0.0).sum()),
             }
             # NOTE: Unique-player position counts for team_all are added
             # later (line ~7977 "team_unique_player_counts") via direct
@@ -16038,6 +16280,9 @@ def build_all(repo_root: Path) -> None:
                 "Tanking": float(pd.to_numeric(g.get("Tanking"), errors="coerce").dropna().mean() or 0.0),
                 "Luck": float(pd.to_numeric(g.get("Luck"), errors="coerce").fillna(0.0).sum()),
                 "Increase in points from previous week": _sum_or_na(g.get("Increase in points from previous week")),
+                # League-wide total of the weekly QB×position-player same-NFL-team
+                # starting pairs (sum across every team that week).
+                "Stacks": int(pd.to_numeric(g.get("Stacks"), errors="coerce").fillna(0.0).sum()),
                 "Number of QB started": int(pd.to_numeric(g.get("Number of QB started"), errors="coerce").fillna(0.0).sum()),
                 "Number of WR started": int(pd.to_numeric(g.get("Number of WR started"), errors="coerce").fillna(0.0).sum()),
                 "Number of RB started": int(pd.to_numeric(g.get("Number of RB started"), errors="coerce").fillna(0.0).sum()),
@@ -16173,6 +16418,9 @@ def build_all(repo_root: Path) -> None:
                 "Tanking": float(pd.to_numeric(g.get("Tanking"), errors="coerce").dropna().mean() or 0.0),
                 "Luck": float(pd.to_numeric(g.get("Luck"), errors="coerce").fillna(0.0).sum()),
                 "Increase in points from previous week": float(pd.to_numeric(g.get("Increase in points from previous week"), errors="coerce").fillna(0.0).sum()),
+                # League-wide season total of the weekly QB×position-player
+                # same-NFL-team starting pairs (sum across every team-week).
+                "Stacks": int(pd.to_numeric(g.get("Stacks"), errors="coerce").fillna(0.0).sum()),
                 # Unique-player position counts (Phase 1B, item 5): distinct
                 # league-wide players started / rostered this year.
                 **{
@@ -16340,6 +16588,9 @@ def build_all(repo_root: Path) -> None:
             # League-all-time Tanking = mean across all weeks.
             "Tanking": float(pd.to_numeric(g_week.get("Tanking"), errors="coerce").dropna().mean() or 0.0),
             "Luck": float(pd.to_numeric(g_week.get("Luck"), errors="coerce").fillna(0.0).sum()),
+            # League-wide all-time total of the weekly QB×position-player
+            # same-NFL-team starting pairs (sum across every team-week).
+            "Stacks": int(pd.to_numeric(g_week.get("Stacks"), errors="coerce").fillna(0.0).sum()),
             # Unique-player position counts (Phase 1B, item 5): distinct
             # players started / rostered league-wide across all years.
             **{
@@ -16948,9 +17199,14 @@ def build_all(repo_root: Path) -> None:
                     # its trade chain (e.g. 2024 2.09 <- T#28) actually link;
                     # otherwise the draft row (round 2) and the trade (round 209)
                     # land in separate buckets and the pick's "previous
-                    # transaction" silently drops its real trade.
-                    if str(ph.at[_pi, "Number"]).strip() == "2.09":
+                    # transaction" silently drops its real trade. The 5.0X FAAB
+                    # buys work the same way under their 5NN sentinel round.
+                    _num_s = str(ph.at[_pi, "Number"]).strip()
+                    _m5s = re.match(r"5\.0?(\d+)", _num_s)
+                    if _num_s == "2.09":
                         _rd = _R209
+                    elif _m5s:
+                        _rd = _R5XX_BASE + int(_m5s.group(1))
                     _orig = str(ph.at[_pi, "Original Team"]).strip()
                     # Anchor each PH# RELATIVE to the chain it joins, not a fixed
                     # calendar date (which mis-orders the 2021 startup/vet draft
@@ -17107,10 +17363,14 @@ def build_all(repo_root: Path) -> None:
                     _nm = re.match(r"\s*(\d+)\.(\d+)", str(ph.at[_pi, "Number"]))
                     _nx = _pv = None
                     if _ym and _nm:
-                        # 2.09 toilet pick is keyed under the _R209 sentinel round
-                        # (its trades live there); match that so its draft row
-                        # links to its real trade chain, not a dead "N/A".
-                        _rd_k = _R209 if str(ph.at[_pi, "Number"]).strip() == "2.09" else int(_nm.group(1))
+                        # 2.09 toilet pick / 5.0X FAAB buys are keyed under their
+                        # sentinel rounds (their trades live there); match that so
+                        # the draft row links to its real trade chain, not "N/A".
+                        _num_k = str(ph.at[_pi, "Number"]).strip()
+                        _m5k = re.match(r"5\.0?(\d+)", _num_k)
+                        _rd_k = (_R209 if _num_k == "2.09"
+                                 else (_R5XX_BASE + int(_m5k.group(1))) if _m5k
+                                 else int(_nm.group(1)))
                         _pk = (int(_ym.group(1)), _rd_k, int(_nm.group(2)),
                                str(ph.at[_pi, "Original Team"]).strip())
                         # previous = the pick's last trade before the draft
@@ -17227,14 +17487,27 @@ def build_all(repo_root: Path) -> None:
                 return [("0000-00-00 00:00:00", f"{_yr} {_num} — originally {_orig}'s pick"),
                         (f"{_yr}-01-01 00:00:00", f"{_yr} supplemental veteran draft: {_final} {_drafted_txt}")], 0
             if _is_5xx:
-                # 5.xx FAAB buy: an off-platform AWARD bought by and kept with one
-                # team. Not a trade -> contributes 0 to Number of trades.
-                _hdr = f"{_yr} {_num} — originally {_orig}'s pick"
+                # 5.0X: a 20-FAAB draft-day buy that ORIGINATES with the buyer, but
+                # is then a DISTINCT tradeable asset (its own sentinel-round ledger
+                # key, _R5XX_BASE+slot). Render its real trades from _ph_hops under
+                # that key; the buy itself counts 0, each onward trade counts.
+                _m5 = re.match(r"\s*5\.0?(\d+)", _num)
+                _rnd5 = (_R5XX_BASE + int(_m5.group(1))) if _m5 else None
+                _hdr = f"{_yr} {_num} — originally {_orig}'s pick (20-FAAB draft-day buy)"
                 _lines = [("0000-00-00 00:00:00", _hdr)]
-                if _final and _final != _orig and _present(_final):
-                    _lines.append((_move_key, f"{_yr}: Commissioner moved to {_final}"))
-                _lines.append((_draft_key, f"{_yr} draft: {_final} {_drafted_txt}"))
-                return _lines, 0
+                _anchor_d = _draft_anchor(_yr)
+                _same_day = 0
+                _ntr5 = 0
+                for _ts, _recv, _line in sorted(_ph_hops.get((_yr, _rnd5, _orig), []) if _rnd5 else []):
+                    _k = _ts
+                    if _drafted and str(_ts)[:10] == _anchor_d:
+                        _same_day += 1
+                        _k = f"{_anchor_d} 11:{_same_day:02d}:00"
+                    _lines.append((_k, _line))
+                    _ntr5 += 1
+                if _drafted:
+                    _lines.append((_draft_key, f"{_yr} Draft: {_final} {_drafted_txt}"))
+                return _lines, _ntr5
             if _is_209:
                 # 2.09 toilet reward: ORIGINATES with the prior-season toilet
                 # (losers-bracket) winner as an award, but is then a DISTINCT
