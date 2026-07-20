@@ -92,11 +92,16 @@ def main(argv=None) -> int:
         frames["league_year"], frames["team_week"],
     )
     current["pace"] = D.pace_rank_map(projections)
+    records = D.yearly_records(
+        frames["player_year"], frames["team_year"],
+        frames["league_year"], frames["team_week"],
+    )
+    current["yearly_records"] = D.record_value_map(records)
 
     prior = D.load_snapshot(snap_path)
     if prior is None:
         print("[digest] no prior snapshot — baselining this week (no diff yet).")
-        crossings, proj_changes, milestones = [], [], []
+        crossings, proj_changes, milestones, record_changes = [], [], [], []
     else:
         crossings = D.diff_snapshots(prior, current)
         milestones = D.milestone_crossings(
@@ -109,13 +114,19 @@ def main(argv=None) -> int:
             proj_changes = []
         else:
             proj_changes = D.diff_pace(prior_pace, projections)
+        prior_records = prior.get("yearly_records")
+        if prior_records is None:
+            print("[digest] baselining yearly records this week (no diff yet).")
+            record_changes = []
+        else:
+            record_changes = D.diff_records(prior_records, records)
 
-    html = D.render_digest_html(crossings, proj_changes, meta, milestones)
+    html = D.render_digest_html(crossings, proj_changes, meta, milestones, record_changes)
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(html)
-    print(f"[digest] {len(crossings)} crossing(s), {len(milestones)} milestone(s), "
-          f"{len(proj_changes)} on-pace change(s) [{len(projections)} standings tracked] "
-          f"-> {out_path}")
+    print(f"[digest] {len(crossings)} crossing(s), {len(record_changes)} record(s), "
+          f"{len(milestones)} milestone(s), {len(proj_changes)} on-pace change(s) "
+          f"[{len(projections)} standings tracked] -> {out_path}")
 
     D.save_snapshot(snap_path, current)
     print(f"[digest] snapshot saved -> {snap_path}")

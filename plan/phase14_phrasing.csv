@@ -194,19 +194,19 @@ player_year,Points (full season),yearly on-pace (from week 3; top/bottom 5),scal
 player_year,Avg points,yearly on-pace (from week 3; top/bottom 5),as-is (rate/level),<player> is on pace for <N>th-highest Avg points this season (<value>).,<player> is on pace for <N>th-lowest Avg points this season (<value>).
 player_year,Avg points (full season),yearly on-pace (from week 3; top/bottom 5),as-is (rate/level),<player> is on pace for <N>th-highest Avg points (full season) this season (<value>).,<player> is on pace for <N>th-lowest Avg points (full season) this season (<value>).
 player_year,Adjusted Avg points,yearly on-pace (from week 3; top/bottom 5),as-is (rate/level),<player> is on pace for <N>th-highest Adjusted Avg points this season (<value>).,<player> is on pace for <N>th-lowest Adjusted Avg points this season (<value>).
-player_year,Times as Player of the week?,weekly-counting (no on-pace; see all-time),n/a,(no on-pace line; reported via the all-time crossing),
-player_year,Times as QB of the week?,weekly-counting (no on-pace; see all-time),n/a,(no on-pace line; reported via the all-time crossing),
-player_year,Times as RB of the week?,weekly-counting (no on-pace; see all-time),n/a,(no on-pace line; reported via the all-time crossing),
-player_year,Times as WR of the week?,weekly-counting (no on-pace; see all-time),n/a,(no on-pace line; reported via the all-time crossing),
-player_year,Times as TE of the week?,weekly-counting (no on-pace; see all-time),n/a,(no on-pace line; reported via the all-time crossing),
-player_year,Times as Benchwarmer of the week?,weekly-counting (no on-pace; see all-time),n/a,(no on-pace line; reported via the all-time crossing),
-player_year,Times as Bench QB of the week?,weekly-counting (no on-pace; see all-time),n/a,(no on-pace line; reported via the all-time crossing),
-player_year,Times as Bench RB of the week?,weekly-counting (no on-pace; see all-time),n/a,(no on-pace line; reported via the all-time crossing),
-player_year,Times as Bench WR of the week?,weekly-counting (no on-pace; see all-time),n/a,(no on-pace line; reported via the all-time crossing),
-player_year,Times as Bench TE of the week?,weekly-counting (no on-pace; see all-time),n/a,(no on-pace line; reported via the all-time crossing),
-player_year,Times as Highest starter on team?,weekly-counting (no on-pace; see all-time),n/a,(no on-pace line; reported via the all-time crossing),
-player_year,Times as Lowest starter on team?,weekly-counting (no on-pace; see all-time),n/a,(no on-pace line; reported via the all-time crossing),
-player_year,Times as Captain?,weekly-counting (no on-pace; see all-time),n/a,(no on-pace line; reported via the all-time crossing),
+player_year,Times as Player of the week?,"yearly record (new single-season high, any year)",n/a,<player> sets a new single-season record for Times as Player of the week? (<value>) — most in any season.,
+player_year,Times as QB of the week?,"yearly record (new single-season high, any year)",n/a,<player> sets a new single-season record for Times as QB of the week? (<value>) — most in any season.,
+player_year,Times as RB of the week?,"yearly record (new single-season high, any year)",n/a,<player> sets a new single-season record for Times as RB of the week? (<value>) — most in any season.,
+player_year,Times as WR of the week?,"yearly record (new single-season high, any year)",n/a,<player> sets a new single-season record for Times as WR of the week? (<value>) — most in any season.,
+player_year,Times as TE of the week?,"yearly record (new single-season high, any year)",n/a,<player> sets a new single-season record for Times as TE of the week? (<value>) — most in any season.,
+player_year,Times as Benchwarmer of the week?,"yearly record (new single-season high, any year)",n/a,<player> sets a new single-season record for Times as Benchwarmer of the week? (<value>) — most in any season.,
+player_year,Times as Bench QB of the week?,"yearly record (new single-season high, any year)",n/a,<player> sets a new single-season record for Times as Bench QB of the week? (<value>) — most in any season.,
+player_year,Times as Bench RB of the week?,"yearly record (new single-season high, any year)",n/a,<player> sets a new single-season record for Times as Bench RB of the week? (<value>) — most in any season.,
+player_year,Times as Bench WR of the week?,"yearly record (new single-season high, any year)",n/a,<player> sets a new single-season record for Times as Bench WR of the week? (<value>) — most in any season.,
+player_year,Times as Bench TE of the week?,"yearly record (new single-season high, any year)",n/a,<player> sets a new single-season record for Times as Bench TE of the week? (<value>) — most in any season.,
+player_year,Times as Highest starter on team?,"yearly record (new single-season high, any year)",n/a,<player> sets a new single-season record for Times as Highest starter on team? (<value>) — most in any season.,
+player_year,Times as Lowest starter on team?,"yearly record (new single-season high, any year)",n/a,<player> sets a new single-season record for Times as Lowest starter on team? (<value>) — most in any season.,
+player_year,Times as Captain?,"yearly record (new single-season high, any year)",n/a,<player> sets a new single-season record for Times as Captain? (<value>) — most in any season.,
 player_year,Number of teams,yearly on-pace (from week 3; top/bottom 5),scaled by weeks played,<player> is on pace for <N>th-highest Number of teams this season (<value>).,<player> is on pace for <N>th-lowest Number of teams this season (<value>).
 player_year,Number of transactions,yearly on-pace (from week 3; top/bottom 5),scaled by weeks played,<player> is on pace for <N>th-highest Number of transactions this season (<value>).,<player> is on pace for <N>th-lowest Number of transactions this season (<value>).
 player_year,Number of drops,yearly on-pace (from week 3; top/bottom 5),scaled by weeks played,<player> is on pace for <N>th-highest Number of drops this season (<value>).,<player> is on pace for <N>th-lowest Number of drops this season (<value>).
@@ -284,18 +284,18 @@ team_year,Efficiency,yearly on-pace (from week 3; top/bottom 5),as-is (rate/leve
 team_year,Drafting skill,yearly on-pace (from week 3; top/bottom 5),as-is (rate/level),<team> is on pace for <N>th-highest Drafting skill this season (<value>).,<team> is on pace for <N>th-lowest Drafting skill this season (<value>).
 team_year,Trading skill,yearly on-pace (from week 3; top/bottom 5),as-is (rate/level),<team> is on pace for <N>th-highest Trading skill this season (<value>).,<team> is on pace for <N>th-lowest Trading skill this season (<value>).
 team_year,Transaction skill,yearly on-pace (from week 3; top/bottom 5),as-is (rate/level),<team> is on pace for <N>th-highest Transaction skill this season (<value>).,<team> is on pace for <N>th-lowest Transaction skill this season (<value>).
-team_year,Times Brosenzweig,weekly-counting (no on-pace; see all-time),n/a,(no on-pace line; reported via the all-time crossing),
-team_year,Times Sisenzweig,weekly-counting (no on-pace; see all-time),n/a,(no on-pace line; reported via the all-time crossing),
-team_year,Times Highest score?,weekly-counting (no on-pace; see all-time),n/a,(no on-pace line; reported via the all-time crossing),
-team_year,Times Lowest score?,weekly-counting (no on-pace; see all-time),n/a,(no on-pace line; reported via the all-time crossing),
-team_year,Times Narrowest victory?,weekly-counting (no on-pace; see all-time),n/a,(no on-pace line; reported via the all-time crossing),
-team_year,Times Largest blowout?,weekly-counting (no on-pace; see all-time),n/a,(no on-pace line; reported via the all-time crossing),
-team_year,Times Most efficient?,weekly-counting (no on-pace; see all-time),n/a,(no on-pace line; reported via the all-time crossing),
-team_year,Times Least efficient?,weekly-counting (no on-pace; see all-time),n/a,(no on-pace line; reported via the all-time crossing),
-team_year,Times Top half of league?,weekly-counting (no on-pace; see all-time),n/a,(no on-pace line; reported via the all-time crossing),
-team_year,Times One-man army?,weekly-counting (no on-pace; see all-time),n/a,(no on-pace line; reported via the all-time crossing),
-team_year,Times Most bench points?,weekly-counting (no on-pace; see all-time),n/a,(no on-pace line; reported via the all-time crossing),
-team_year,Times Most injured?,weekly-counting (no on-pace; see all-time),n/a,(no on-pace line; reported via the all-time crossing),
+team_year,Times Brosenzweig,"yearly record (new single-season high, any year)",n/a,<team> sets a new single-season record for Times Brosenzweig (<value>) — most in any season.,
+team_year,Times Sisenzweig,"yearly record (new single-season high, any year)",n/a,<team> sets a new single-season record for Times Sisenzweig (<value>) — most in any season.,
+team_year,Times Highest score?,"yearly record (new single-season high, any year)",n/a,<team> sets a new single-season record for Times Highest score? (<value>) — most in any season.,
+team_year,Times Lowest score?,"yearly record (new single-season high, any year)",n/a,<team> sets a new single-season record for Times Lowest score? (<value>) — most in any season.,
+team_year,Times Narrowest victory?,"yearly record (new single-season high, any year)",n/a,<team> sets a new single-season record for Times Narrowest victory? (<value>) — most in any season.,
+team_year,Times Largest blowout?,"yearly record (new single-season high, any year)",n/a,<team> sets a new single-season record for Times Largest blowout? (<value>) — most in any season.,
+team_year,Times Most efficient?,"yearly record (new single-season high, any year)",n/a,<team> sets a new single-season record for Times Most efficient? (<value>) — most in any season.,
+team_year,Times Least efficient?,"yearly record (new single-season high, any year)",n/a,<team> sets a new single-season record for Times Least efficient? (<value>) — most in any season.,
+team_year,Times Top half of league?,"yearly record (new single-season high, any year)",n/a,<team> sets a new single-season record for Times Top half of league? (<value>) — most in any season.,
+team_year,Times One-man army?,"yearly record (new single-season high, any year)",n/a,<team> sets a new single-season record for Times One-man army? (<value>) — most in any season.,
+team_year,Times Most bench points?,"yearly record (new single-season high, any year)",n/a,<team> sets a new single-season record for Times Most bench points? (<value>) — most in any season.,
+team_year,Times Most injured?,"yearly record (new single-season high, any year)",n/a,<team> sets a new single-season record for Times Most injured? (<value>) — most in any season.,
 team_year,Playoff appearance streak,yearly on-pace (from week 3; top/bottom 5),as-is (rate/level),<team> is on pace for <N>th-highest Playoff appearance streak this season (<value>).,<team> is on pace for <N>th-lowest Playoff appearance streak this season (<value>).
 team_year,Winning season streak,yearly on-pace (from week 3; top/bottom 5),as-is (rate/level),<team> is on pace for <N>th-highest Winning season streak this season (<value>).,<team> is on pace for <N>th-lowest Winning season streak this season (<value>).
 team_year,Average weekly starter turnover,yearly on-pace (from week 3; top/bottom 5),as-is (rate/level),<team> is on pace for <N>th-highest Average weekly starter turnover this season (<value>).,<team> is on pace for <N>th-lowest Average weekly starter turnover this season (<value>).
@@ -349,11 +349,11 @@ team_year,Number of cuffs rostered,yearly on-pace (from week 3; top/bottom 5),sc
 team_year,Number of cuffs started,yearly on-pace (from week 3; top/bottom 5),scaled by weeks played,<team> is on pace for <N>th-highest Number of cuffs started this season (<value>).,<team> is on pace for <N>th-lowest Number of cuffs started this season (<value>).
 team_year,Startup draft players remaining,yearly on-pace (from week 3; top/bottom 5),as-is (rate/level),<team> is on pace for <N>th-highest Startup draft players remaining this season (<value>).,<team> is on pace for <N>th-lowest Startup draft players remaining this season (<value>).
 team_year,Tanking,yearly on-pace (from week 3; top/bottom 5),scaled by weeks played,<team> is on pace for <N>th-highest Tanking this season (<value>).,<team> is on pace for <N>th-lowest Tanking this season (<value>).
-team_year,Losses from hardship,weekly-counting (no on-pace; see all-time),n/a,(no on-pace line; reported via the all-time crossing),
-team_year,Losses from byes,weekly-counting (no on-pace; see all-time),n/a,(no on-pace line; reported via the all-time crossing),
-team_year,Wins from byes,weekly-counting (no on-pace; see all-time),n/a,(no on-pace line; reported via the all-time crossing),
-team_year,Losses from hardship (2-sided),weekly-counting (no on-pace; see all-time),n/a,(no on-pace line; reported via the all-time crossing),
-team_year,Wins from hardship (2-sided),weekly-counting (no on-pace; see all-time),n/a,(no on-pace line; reported via the all-time crossing),
+team_year,Losses from hardship,"yearly record (new single-season high, any year)",n/a,<team> sets a new single-season record for Losses from hardship (<value>) — most in any season.,
+team_year,Losses from byes,"yearly record (new single-season high, any year)",n/a,<team> sets a new single-season record for Losses from byes (<value>) — most in any season.,
+team_year,Wins from byes,"yearly record (new single-season high, any year)",n/a,<team> sets a new single-season record for Wins from byes (<value>) — most in any season.,
+team_year,Losses from hardship (2-sided),"yearly record (new single-season high, any year)",n/a,<team> sets a new single-season record for Losses from hardship (2-sided) (<value>) — most in any season.,
+team_year,Wins from hardship (2-sided),"yearly record (new single-season high, any year)",n/a,<team> sets a new single-season record for Wins from hardship (2-sided) (<value>) — most in any season.,
 team_year,Weeks of injuries,yearly on-pace (from week 3; top/bottom 5),scaled by weeks played,<team> is on pace for <N>th-highest Weeks of injuries this season (<value>).,<team> is on pace for <N>th-lowest Weeks of injuries this season (<value>).
 team_year,Weeks suspensions,yearly on-pace (from week 3; top/bottom 5),scaled by weeks played,<team> is on pace for <N>th-highest Weeks suspensions this season (<value>).,<team> is on pace for <N>th-lowest Weeks suspensions this season (<value>).
 team_year,Weeks of starter injuries,yearly on-pace (from week 3; top/bottom 5),scaled by weeks played,<team> is on pace for <N>th-highest Weeks of starter injuries this season (<value>).,<team> is on pace for <N>th-lowest Weeks of starter injuries this season (<value>).

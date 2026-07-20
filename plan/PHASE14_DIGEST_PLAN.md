@@ -32,10 +32,19 @@ the ranked sheets — no hand-curated "headline" list. Per-section rules
    in-progress season to full-season pace, ranked vs completed seasons.
    Cumulative stats scale by weeks played; rate/level stats carry as-is.
    **Withheld until week 3.** Windows: players/teams top & bottom 5;
-   **league_year `floor(#seasons/3)` capped at 5**. **Weekly-counting stats** —
-   awards (`Times ...`) and result-flips (`Wins/Losses from hardship|byes`),
-   which can't exceed one per week — get **no on-pace line**; their movement
-   shows only through the all-time crossings.
+   **league_year `floor(#seasons/3)` capped at 5**.
+3. **New single-season records** — the **weekly-counting stats** (awards
+   `Times ...`, result-flips `Wins/Losses from hardship|byes`) can't be
+   projected "on pace" (max one per week), so instead the digest alerts when the
+   season's **actual** value sets a new all-time single-season record — the most
+   that stat has been in **any** season (`yearly_records`, diffed so it re-fires
+   only when the record is beaten/extended). *"AceMatthew sets a new single-season
+   record for Times One-man army? (11) — most in any season."* **Boolean season
+   flags** (0/1, e.g. #363's `Rostered by champion?`) get neither on-pace nor a
+   record — they surface only via their all-time count crossings.
+
+All yearly ranking (on-pace and records) is against completed single seasons
+**across every year**, not just the current one.
 
 **Only changes are reported.** All-time crossings are inherently sparse (all-time
 values barely move week to week). On-pace standings ARE also diffed week over

@@ -485,6 +485,92 @@ def diff_pace(prior_pace: dict, projections: Sequence[Projection]) -> List[Proje
 
 
 # ---------------------------------------------------------------------------
+# Yearly records (for the weekly-counting stats that DON'T get on-pace)
+# ---------------------------------------------------------------------------
+# Weekly-counting stats (awards, result-flips) can't be projected "on pace", so
+# instead we alert when the current season's ACTUAL value sets a new all-time
+# single-season record — the most that stat has ever been in ANY season. Booleans
+# are excluded (a 0/1 "record" is meaningless — those surface via all-time counts).
+@dataclass
+class YearlyRecord:
+    section: str        # "players" | "teams" | "league"
+    entity: str
+    column: str
+    value: float
+
+    def sentence(self) -> str:
+        who = "The league" if self.section == "league" else self.entity
+        return (f"{who} sets a new single-season record for {self.column} "
+                f"({_fmt(self.value)}) — most in any season.")
+
+
+def _records_for_frame(section: str, year_df: pd.DataFrame,
+                       entity_col: str, season: int) -> List[YearlyRecord]:
+    if year_df.empty or "Year" not in year_df.columns:
+        return []
+    year_num = pd.to_numeric(year_df["Year"], errors="coerce")
+    curr = year_df[year_num == season]
+    hist = year_df[year_num < season]
+    out: List[YearlyRecord] = []
+    for col in discover_numeric_columns(year_df, entity_col, extra_skip=("Year",)):
+        if not is_weekly_counting_stat(col):
+            continue  # records here are only for the not-on-pace weekly stats
+        hist_vals = [v for v in (_to_float(x) for x in hist[col]) if v is not None]
+        if not hist_vals:
+            continue  # need completed seasons to define a record to beat
+        pairs = [(str(r[entity_col]) if entity_col in year_df.columns else str(season),
+                  _to_float(r[col])) for _, r in curr.iterrows()]
+        pairs = [(e, v) for e, v in pairs if v is not None]
+        if not pairs:
+            continue
+        if _is_boolean(hist_vals + [v for _, v in pairs]):
+            continue
+        hist_max = max(hist_vals)
+        curr_max = max(v for _, v in pairs)
+        if curr_max <= hist_max:
+            continue  # no new record this season
+        for e, v in pairs:
+            if abs(v - curr_max) < 1e-9:
+                out.append(YearlyRecord(section, e, col, curr_max))
+    return out
+
+
+def yearly_records(player_year: pd.DataFrame, team_year: pd.DataFrame,
+                   league_year: pd.DataFrame, team_week: pd.DataFrame,
+                   min_week: int = MIN_YEARLY_WEEK) -> List[YearlyRecord]:
+    """New all-time single-season records set this season by weekly-counting
+    stats. Withheld until `min_week` completed weeks (yearly-withhold rule)."""
+    season = current_season(team_year)
+    if season is None or weeks_completed(team_week, season) < min_week:
+        return []
+    out: List[YearlyRecord] = []
+    out += _records_for_frame("players", player_year, "Player", season)
+    out += _records_for_frame("teams", team_year, "Team", season)
+    if not league_year.empty and "Year" in league_year.columns:
+        out += _records_for_frame("league", league_year, "Year", season)
+    return out
+
+
+def record_value_map(records: Sequence[YearlyRecord]) -> dict:
+    """{section: {stat: record_value}} snapshot so next week only re-reports a
+    record when it's been beaten/extended, not every week it stands."""
+    out: Dict[str, Dict[str, float]] = {}
+    for r in records:
+        out.setdefault(r.section, {})[r.column] = r.value
+    return out
+
+
+def diff_records(prior_map: dict, records: Sequence[YearlyRecord]) -> List[YearlyRecord]:
+    """Records that are newly set or have grown past last week's record value."""
+    changed: List[YearlyRecord] = []
+    for r in records:
+        prev = prior_map.get(r.section, {}).get(r.column)
+        if prev is None or r.value > prev + 1e-9:
+            changed.append(r)
+    return changed
+
+
+# ---------------------------------------------------------------------------
 # League all-time milestones (single-row sheet -> no leaderboard)
 # ---------------------------------------------------------------------------
 @dataclass
@@ -563,13 +649,14 @@ def phrasing_catalog(
 
     def _pace_rows(sheet, df, entity_col, who, window_note):
         for col in discover_numeric_columns(df, entity_col, extra_skip=("Year",)):
-            if is_weekly_counting_stat(col):
-                # No on-pace for weekly-counting stats — surfaced via all-time
-                # crossings only.
-                _add(sheet, col, "weekly-counting (no on-pace; see all-time)", "n/a",
-                     "(no on-pace line; reported via the all-time crossing)", "")
-                continue
             vals = [v for v in (_to_float(x) for x in df[col]) if v is not None]
+            if is_weekly_counting_stat(col) and not _is_boolean(vals):
+                # No on-pace; instead a NEW single-season record alert (actual
+                # value beats the best in any prior season). Also all-time crossing.
+                _add(sheet, col, "yearly record (new single-season high, any year)", "n/a",
+                     f"{who} sets a new single-season record for {col} (<value>) — most in any season.",
+                     "")
+                continue
             if _is_boolean(vals):
                 _add(sheet, col, "season 0/1 flag (no on-pace; see all-time count)", "n/a",
                      "(no on-pace line; reported via the all-time count crossing)", "")
@@ -631,10 +718,12 @@ def render_digest_html(
     projections: Sequence[Projection],
     meta: dict,
     milestones: Sequence[Milestone] = (),
+    records: Sequence[YearlyRecord] = (),
 ) -> str:
     player_moves = [c.sentence() for c in crossings if c.section == "players"]
     team_moves = [c.sentence() for c in crossings if c.section == "teams"]
     milestone_lines = [m.sentence() for m in milestones]
+    record_lines = [r.sentence() for r in records]
 
     season = meta.get("season")
     week = meta.get("weeks_completed")
@@ -646,20 +735,21 @@ def render_digest_html(
         f'color:#0b2545;margin:0 0 4px;">{header}</h1>',
         _section_html("All-time leaderboard moves — players", player_moves),
         _section_html("All-time leaderboard moves — teams", team_moves),
+        _section_html("New single-season records", record_lines),
         _section_html("League milestones", milestone_lines),
         _section_html("On pace this season — players", _proj_lines(projections, "players")),
         _section_html("On pace this season — teams", _proj_lines(projections, "teams")),
         _section_html("On pace this season — league", _proj_lines(projections, "league")),
     ]
-    if not any([player_moves, team_moves, milestone_lines, projections]):
+    if not any([player_moves, team_moves, record_lines, milestone_lines, projections]):
         body.append('  <p style="font:15px system-ui,sans-serif;color:#666;">'
                      'No leaderboard changes this week.</p>')
     body.append("</div>")
     return "\n".join(b for b in body if b)
 
 
-def digest_is_empty(crossings, projections, milestones=()) -> bool:
-    return not crossings and not projections and not milestones
+def digest_is_empty(crossings, projections, milestones=(), records=()) -> bool:
+    return not crossings and not projections and not milestones and not records
 
 
 # ---------------------------------------------------------------------------

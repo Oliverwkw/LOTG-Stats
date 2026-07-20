@@ -151,6 +151,37 @@ def check_boolean_flags_excluded_from_pace():
     return ok
 
 
+def check_yearly_records_for_weekly_stats():
+    # 3 completed seasons + in-progress 2026 at week 5. "Times One-man army?"
+    # (weekly-counting) hits 6 this season, beating the prior best of 5 -> record.
+    seasons = [2023, 2024, 2025, 2026]
+    ty = pd.DataFrame({
+        "Team": ["A", "A", "A", "A"], "Year": seasons,
+        "Times One-man army?": [3, 5, 4, 6],   # 6 > prior max 5 -> record
+        "Hardship": [40, 50, 45, 30.0],        # on-pace stat, not a record here
+        "Rostered by champion?": [0, 1, 0, 0],  # boolean -> never a record
+    })
+    py = pd.DataFrame({"Player": [], "Year": []})
+    ly = pd.DataFrame({"Year": []})
+    tw = pd.DataFrame({"Year": [2023] * 14 + [2024] * 14 + [2025] * 14 + [2026] * 5,
+                       "Week": list(range(1, 15)) * 3 + list(range(1, 6))})
+    recs = D.yearly_records(py, ty, ly, tw)
+    cols = {(r.entity, r.column, r.value) for r in recs}
+    ok = _ok("weekly-counting record detected", ("A", "Times One-man army?", 6.0) in cols, f"got {cols}")
+    ok &= _ok("boolean flag never a record", not any(r.column == "Rostered by champion?" for r in recs))
+    ok &= _ok("on-pace stat not a record here", not any(r.column == "Hardship" for r in recs))
+    # No record before week 3.
+    tw2 = pd.DataFrame({"Year": [2023] * 14 + [2026] * 2, "Week": list(range(1, 15)) + [1, 2]})
+    ok &= _ok("no records before week 3", D.yearly_records(py, ty, ly, tw2) == [])
+    # Diff: unchanged record suppressed, grown/new record reported.
+    prior = D.record_value_map([D.YearlyRecord("teams", "A", "Times One-man army?", 6.0)])
+    ok &= _ok("unchanged record suppressed", D.diff_records(prior, recs) == [])
+    grown = [D.YearlyRecord("teams", "A", "Times One-man army?", 7.0)]
+    ok &= _ok("extended record reported", len(D.diff_records(prior, grown)) == 1)
+    ok &= _ok("new record (no prior) reported", len(D.diff_records({}, recs)) == 1)
+    return ok
+
+
 def check_league_window():
     def ly(n):
         return pd.DataFrame({"Year": list(range(2020, 2020 + n))})
@@ -211,8 +242,8 @@ def check_phrasing_catalog():
     scopes = {r["scope"] for r in rows}
     ok = _ok("has team any-of-8 scope", any("any movement among the 8" in s for s in scopes))
     ok &= _ok("has league milestone scope", any("milestone" in s for s in scopes))
-    ok &= _ok("weekly-counting yearly stat marked no-on-pace",
-              any(r["stat"] == "Times One-man army?" and "weekly-counting" in r["scope"]
+    ok &= _ok("weekly-counting yearly stat marked as record alert",
+              any(r["stat"] == "Times One-man army?" and "record" in r["scope"]
                   and r["sheet"] == "team_year" for r in rows))
     return ok
 
@@ -221,10 +252,12 @@ def check_render_html_smoke():
     c = D.Crossing("teams", "Max PF", "high", 3, "BRO", "shmuel", 305.0)
     p = D.Projection("teams", "A", "Hardship", "high", 1, 3, 110.0)
     m = D.Milestone("PF", 51000.0, 50000.0)
-    html = D.render_digest_html([c], [p], {"season": 2026, "weeks_completed": 7}, [m])
-    ok = _ok("html has crossing + projection + milestone + week",
+    rec = D.YearlyRecord("teams", "BRO", "Times One-man army?", 9.0)
+    html = D.render_digest_html([c], [p], {"season": 2026, "weeks_completed": 7}, [m], [rec])
+    ok = _ok("html has crossing + projection + milestone + record + week",
              "passes" in html and "on pace" in html and "League milestones" in html
-             and "passes 50,000" in html and "week 7" in html)
+             and "passes 50,000" in html and "New single-season records" in html
+             and "sets a new single-season record" in html and "week 7" in html)
     ok &= _ok("empty digest fallback",
               "No leaderboard changes" in D.render_digest_html([], [], {"season": 2026, "weeks_completed": 7}, []))
     return ok
@@ -259,6 +292,7 @@ def run_all() -> bool:
         check_in_season_gate,
         check_projection_gate_scale_and_weekly_exclusion,
         check_boolean_flags_excluded_from_pace,
+        check_yearly_records_for_weekly_stats,
         check_league_window,
         check_league_milestones,
         check_pace_diff_reports_only_changes,
