@@ -129,6 +129,28 @@ def check_projection_gate_scale_and_weekly_exclusion():
     return ok
 
 
+def check_boolean_flags_excluded_from_pace():
+    # Per-season 0/1 flag (e.g. #363 "Rostered by champion?") must not project.
+    seasons = [2020, 2021, 2022, 2023, 2024, 2025, 2026]
+    py = pd.DataFrame({
+        "Player": ["A"] * 7, "Year": seasons,
+        "Points": [100, 200, 150, 180, 190, 210, 90.0],   # normal -> projects
+        "Rostered by champion?": [0, 1, 0, 0, 1, 0, 0],    # boolean -> excluded
+    })
+    empty = pd.DataFrame({"Team": [], "Year": []})
+    ly = pd.DataFrame({"Year": []})
+    yrs = [y for y in seasons[:-1] for _ in range(14)] + [2026] * 7
+    wk = [w for _ in seasons[:-1] for w in range(1, 15)] + list(range(1, 8))
+    tw = pd.DataFrame({"Year": yrs, "Week": wk})
+    ty = pd.DataFrame({"Team": ["A"], "Year": [2026]})
+    proj = D.project_on_pace(py, ty, ly, tw)
+    cols = {p.column for p in proj}
+    ok = _ok("boolean season flag excluded from on-pace", "Rostered by champion?" not in cols)
+    ok &= _ok("normal player stat still projects", "Points" in cols, f"got {sorted(cols)}")
+    ok &= _ok("_is_boolean detects 0/1 only", D._is_boolean([0.0, 1.0, 0.0]) and not D._is_boolean([0.0, 2.0]))
+    return ok
+
+
 def check_league_window():
     def ly(n):
         return pd.DataFrame({"Year": list(range(2020, 2020 + n))})
@@ -236,6 +258,7 @@ def run_all() -> bool:
         check_new_entity_no_false_pass,
         check_in_season_gate,
         check_projection_gate_scale_and_weekly_exclusion,
+        check_boolean_flags_excluded_from_pace,
         check_league_window,
         check_league_milestones,
         check_pace_diff_reports_only_changes,

@@ -355,6 +355,12 @@ class Projection:
                 f"{self.column} this season ({_fmt(self.projected)}).")
 
 
+def _is_boolean(values: Sequence[float]) -> bool:
+    """True if every value is 0 or 1 — a per-season flag that can't be projected
+    'on pace' (e.g. #363's 'Rostered by champion?')."""
+    return bool(values) and all(v in (0.0, 1.0) for v in values)
+
+
 def _season_horizon(week_frame: pd.DataFrame, current: int) -> Optional[int]:
     """Full-season week count = max week seen in a completed prior season."""
     if week_frame.empty or "Year" not in week_frame.columns or "Week" not in week_frame.columns:
@@ -391,6 +397,10 @@ def _project_frame(
         hist_vals = [v for v in (_to_float(x) for x in hist[col]) if v is not None]
         if len(hist_vals) < window:      # need a meaningful pool to rank against
             continue
+        curr_vals = [v for v in (_to_float(x) for x in curr[col]) if v is not None]
+        if _is_boolean(hist_vals + curr_vals):
+            continue  # per-season 0/1 flags (e.g. "Rostered by champion?") don't
+            #           project — surfaced via their all-time count crossings.
         rate = is_rate_stat(col)
         for _, r in curr.iterrows():
             cur = _to_float(r[col])
@@ -558,6 +568,11 @@ def phrasing_catalog(
                 # crossings only.
                 _add(sheet, col, "weekly-counting (no on-pace; see all-time)", "n/a",
                      "(no on-pace line; reported via the all-time crossing)", "")
+                continue
+            vals = [v for v in (_to_float(x) for x in df[col]) if v is not None]
+            if _is_boolean(vals):
+                _add(sheet, col, "season 0/1 flag (no on-pace; see all-time count)", "n/a",
+                     "(no on-pace line; reported via the all-time count crossing)", "")
                 continue
             scale = "as-is (rate/level)" if is_rate_stat(col) else "scaled by weeks played"
             _add(sheet, col, f"yearly on-pace (from week {MIN_YEARLY_WEEK}; {window_note})", scale,
