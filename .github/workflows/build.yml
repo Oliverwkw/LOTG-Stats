@@ -2,16 +2,25 @@ name: Build LOTG Stats
 
 on:
   schedule:
-    # Weekly Tuesday 12:00 UTC (~07:00 ET) bootstrap run so the git-tracked
-    # exports/ never drifts more than ~a week stale. Phase 14 will own the
-    # canonical weekly pipeline run; the refresh step below fires on ANY
-    # schedule/dispatch of this workflow, so once that run exists it drives the
-    # same commit-back with no further change here.
-    - cron: "0 12 * * 2"
+    # Phase 14 owns the canonical weekly pipeline run. Two cadences:
+    #   * Tuesday 14:00 UTC (~10:00 ET) — the weekly build + digest EMAIL. Also
+    #     the weekly exports refresh (replaces the old 12:00 bootstrap).
+    #   * Thursday 16:00 UTC (~12:00 ET) — a pregame refresh (fresh rosters /
+    #     stats before TNF). Builds the digest preview but does NOT email and
+    #     does NOT rotate the digest baseline snapshot.
+    # The digest EMAIL + snapshot rotation are gated to the Tuesday cron only,
+    # so consecutive emails diff cleanly week-to-week. build_digest self-gates
+    # to in-season, so both crons are harmless in the offseason.
+    - cron: "0 14 * * 2"
+    - cron: "0 16 * * 4"
   workflow_dispatch:
     inputs:
       force_refresh_cache:
         description: "Ignore the accumulated Actions cache and rebuild from the committed .cache baseline + fresh downloads"
+        type: boolean
+        default: false
+      send_email:
+        description: "Send the weekly digest email (and rotate its snapshot) on this manual run"
         type: boolean
         default: false
 
@@ -143,6 +152,22 @@ jobs:
           pip install --no-cache-dir pytest 2>&1 | tail -n 2
           python -m pytest tests/ -v 2>&1 | tee exports/raw/pytest.log
 
+      - name: Build weekly digest
+        # Phase 14: render the digest from the freshly built exports. Self-gates
+        # to in-season (skips + leaves the snapshot unrotated in the offseason).
+        # Writes exports/raw/weekly_digest.html and updates the local snapshot;
+        # the snapshot is only COMMITTED on the Tuesday send run (below), so the
+        # week-over-week baseline rotates exactly once per week at email time.
+        continue-on-error: true
+        env:
+          PYTHONPATH: src:lib
+        run: |
+          set -o pipefail
+          python scripts/build_digest.py \
+            --exports exports \
+            --snapshot data/digest/ranks_snapshot.json \
+            --out exports/raw/weekly_digest.html 2>&1 | tee exports/raw/digest.log
+
       - name: Commit refreshed exports on roster change (or weekly cadence)
         # The build above rewrote ALL of exports/ (the snapshot replay cache +
         # CSVs + xlsx/zip + raw dumps) from freshly-fetched live data, but CI
@@ -197,6 +222,41 @@ jobs:
           echo "Committing refreshed exports/ — ${reason}."
           git commit -m "Auto-refresh committed exports: ${reason} (run ${{ github.run_number }}) [skip ci]"
           git push
+
+      - name: Rotate digest snapshot (Tuesday send run only)
+        # Commit the rotated ranks snapshot ONLY on the send run, so next week's
+        # email diffs against exactly one week ago. The Thursday pregame run
+        # rebuilds the snapshot locally but never commits it, leaving the
+        # baseline untouched. Separate from the exports commit above (which never
+        # touches data/digest) — one clean weekly rotation.
+        if: ${{ github.ref == 'refs/heads/main' && (github.event.schedule == '0 14 * * 2' || (github.event_name == 'workflow_dispatch' && github.event.inputs.send_email == 'true')) }}
+        run: |
+          set -euo pipefail
+          if [ ! -f data/digest/ranks_snapshot.json ]; then
+            echo "No digest snapshot (offseason / digest skipped); nothing to rotate."
+            exit 0
+          fi
+          git config user.name "lotg-digest-bot"
+          git config user.email "noreply@anthropic.com"
+          git add data/digest/ranks_snapshot.json
+          if git diff --cached --quiet; then
+            echo "Digest snapshot unchanged; nothing to commit."
+          else
+            git commit -m "Weekly digest snapshot rotation (run ${{ github.run_number }}) [skip ci]"
+            git push
+          fi
+
+      - name: Send weekly digest email (Tuesday send run only)
+        # Mails exports/raw/weekly_digest.html to config/digest.yaml recipients.
+        # Credentials are AES-encrypted in config/digest_credentials.enc and
+        # decrypted at send time with the DIGEST_KEY secret. No-ops (logged,
+        # non-failing) when the digest was skipped (offseason), has no changes
+        # (--skip-empty), or DIGEST_KEY is absent — so this is safe before the
+        # secret is added. (SMTP_USERNAME/SMTP_PASSWORD still override if set.)
+        if: ${{ github.ref == 'refs/heads/main' && (github.event.schedule == '0 14 * * 2' || (github.event_name == 'workflow_dispatch' && github.event.inputs.send_email == 'true')) }}
+        env:
+          DIGEST_KEY: ${{ secrets.DIGEST_KEY }}
+        run: python scripts/send_digest.py --skip-empty
 
       - name: Dump debug logs on failure
         if: failure()
