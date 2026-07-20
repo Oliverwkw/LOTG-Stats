@@ -216,6 +216,48 @@ def check_weekly_highlights():
     return ok
 
 
+def check_final_rankings():
+    py = pd.DataFrame({
+        "Player": ["A", "B", "A", "B", "A", "B"],
+        "Year": [2023, 2023, 2024, 2024, 2025, 2025],
+        "Points": [100, 90, 110, 80, 200, 70.0],          # A-2025=200 best, B-2025=70 worst
+        "Times as Captain?": [1, 2, 1, 1, 3, 1],           # weekly-counting -> excluded
+    })
+    ty = pd.DataFrame({"Team": [], "Year": []})
+    ly = pd.DataFrame({"Year": []})
+    fr = D.final_rankings(py, ty, ly, 2025, window=3)
+    got = {(p.entity, p.column, p.end, p.rank) for p in fr}
+    ok = _ok("A's 200 = 1st-highest Points of any season", ("A", "Points", "high", 1) in got, f"got {got}")
+    ok &= _ok("B's 70 = 1st-lowest of any season", ("B", "Points", "low", 1) in got)
+    ok &= _ok("phrasing says 'finished' + 'of any season'",
+              any("finished" in p.sentence() and "of any season" in p.sentence() for p in fr))
+    ok &= _ok("weekly-counting excluded from final rankings",
+              not any(p.column == "Times as Captain?" for p in fr))
+    return ok
+
+
+def check_event_highlights():
+    picks = pd.DataFrame({
+        "Year": [2024, 2024, 2025, 2025],
+        "Number": ["1.01", "1.02", "1.03", "1.04"],
+        "Player Picked": ["P1", "P2", "P3", "P4"],
+        "O-Score": [50, 60, 90, 10.0],   # P3 best ever, P4 worst ever
+    })
+    ev = D.event_highlights(picks, "picks", "Year", 2025, window=3)
+    got = [(e.label, e.column, e.end, e.rank) for e in ev]
+    ok = _ok("best 2025 pick flagged 1st-highest",
+             ("2025 pick 1.03 (P3)", "O-Score", "high", 1) in got, f"got {got}")
+    ok &= _ok("worst 2025 pick flagged 1st-lowest",
+              ("2025 pick 1.04 (P4)", "O-Score", "low", 1) in got)
+    ok &= _ok("sentence names the sheet", any("of any pick ever" in e.sentence() for e in ev))
+    # diff: an already-reported event is suppressed; a new one fires.
+    prior = D.event_key_map([e for e in ev if e.end == "high"])
+    changed = D.diff_events(prior, ev)
+    ok &= _ok("prior event suppressed, new kept",
+              all(e.end != "high" for e in changed) and any(e.end == "low" for e in changed))
+    return ok
+
+
 def check_replica_and_weekly_filters():
     tw = pd.DataFrame({
         "Team": ["A"] * 3 + ["B"] * 3 + ["A"] * 3 + ["B"] * 3,
@@ -359,6 +401,8 @@ def run_all() -> bool:
         check_boolean_flags_excluded_from_pace,
         check_yearly_records_for_weekly_stats,
         check_weekly_highlights,
+        check_final_rankings,
+        check_event_highlights,
         check_replica_and_weekly_filters,
         check_league_window,
         check_league_milestones,

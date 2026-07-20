@@ -347,12 +347,17 @@ class Projection:
     rank: int
     total: int
     projected: float
+    final: bool = False  # season complete -> "finished Nth" instead of "on pace"
 
     def sentence(self) -> str:
         end_word = "highest" if self.end == "high" else "lowest"
         who = "The league" if self.section == "league" else self.entity
+        val = _fmt(self.projected)
+        if self.final:
+            return (f"{who} finished with the {_ordinal(self.rank)}-{end_word} "
+                    f"{self.column} of any season ({val}).")
         return (f"{who} is on pace for {_ordinal(self.rank)}-{end_word} "
-                f"{self.column} this season ({_fmt(self.projected)}).")
+                f"{self.column} this season ({val}).")
 
 
 def _is_boolean(values: Sequence[float]) -> bool:
@@ -460,6 +465,64 @@ def project_on_pace(
     lw = _league_window(league_year)
     if lw >= 1 and not league_year.empty and "Year" in league_year.columns:
         out += _project_frame("league", league_year, "Year", season, scale, lw)
+    return out
+
+
+def _final_frame(section: str, year_df: pd.DataFrame, entity_col: str,
+                 season: int, window: int) -> List[Projection]:
+    """A completed season's ACTUAL yearly values, ranked against EVERY season on
+    record (including this one). The on-pace stats, resolved to final results —
+    "finished Nth-highest of any season" (no projection)."""
+    if year_df.empty or "Year" not in year_df.columns:
+        return []
+    cols = discover_numeric_columns(year_df, entity_col, extra_skip=("Year",))
+    year_num = pd.to_numeric(year_df["Year"], errors="coerce")
+    curr = year_df[year_num == season]
+    out: List[Projection] = []
+    for col in cols:
+        if is_weekly_counting_stat(col):
+            continue  # handled by yearly_records
+        all_vals = [v for v in (_to_float(x) for x in year_df[col]) if v is not None]
+        if len(all_vals) < window or _is_boolean(all_vals):
+            continue
+        # Rank by DISTINCT value (ties share a rank); skip values shared by more
+        # than _MAX_HIGHLIGHT_TIES seasons — same guard as weekly highlights, so a
+        # common extreme (the 0-piles) isn't reported as a "record" for everyone.
+        counts = _Counter(all_vals)
+        high_rank = {v: i + 1 for i, v in enumerate(sorted(counts, reverse=True))}
+        low_rank = {v: i + 1 for i, v in enumerate(sorted(counts))}
+        total = len(all_vals)
+        for _, r in curr.iterrows():
+            v = _to_float(r[col])
+            if v is None or counts[v] > _MAX_HIGHLIGHT_TIES:
+                continue
+            entity = str(r[entity_col]) if entity_col in year_df.columns else str(season)
+            if high_rank[v] <= window:
+                out.append(Projection(section, entity, col, "high", high_rank[v], total, v, final=True))
+            elif low_rank[v] <= window:
+                out.append(Projection(section, entity, col, "low", low_rank[v], total, v, final=True))
+    return out
+
+
+# A season wrap can't diff (it's a one-time email), so its final rankings use a
+# tighter window than the live diffed on-pace section — only the genuinely
+# top/bottom placements all-time, to stay a "wrap" not a full dump.
+WRAP_WINDOW = 3
+
+
+def final_rankings(player_year: pd.DataFrame, team_year: pd.DataFrame,
+                   league_year: pd.DataFrame, season: int,
+                   window: int = WRAP_WINDOW, small_window: int = 1) -> List[Projection]:
+    """Season-long final results for a COMPLETED season — each on-pace yearly
+    stat's actual value ranked among all seasons ever. The player pool is large
+    (top/bottom `window`); the team & league pools are tiny (only 8/season and one
+    row/season), so any window covers most of them — there we report only outright
+    all-time single-season records (`small_window`=1: the best/worst ever)."""
+    out: List[Projection] = []
+    out += _final_frame("players", player_year, "Player", season, window)
+    out += _final_frame("teams", team_year, "Team", season, small_window)
+    if small_window >= 1:
+        out += _final_frame("league", league_year, "Year", season, small_window)
     return out
 
 
@@ -730,6 +793,98 @@ def weekly_highlights(player_week: pd.DataFrame, team_week: pd.DataFrame,
 
 
 # ---------------------------------------------------------------------------
+# Event highlights (picks / trades / transactions — event-log sheets)
+# ---------------------------------------------------------------------------
+# These sheets are per-event, not per-entity leaderboards. So we rank each
+# event's value against EVERY event of that kind ever, and surface the top/bottom
+# extremes among a target set of events (a season's, for the wrap; a week's, for
+# the live digest). "The best pick of 2025 (O-Score) — 2nd-highest ever."
+@dataclass
+class EventHighlight:
+    sheet: str          # "picks" | "trades" | "transactions"
+    label: str          # human name of the event (e.g. "2025 pick 1.01 (…)")
+    column: str
+    end: str            # "high" | "low"
+    rank: int
+    value: float
+
+    def sentence(self) -> str:
+        end_word = "highest" if self.end == "high" else "lowest"
+        return (f"{self.label}: {self.column} of {_fmt(self.value)} — "
+                f"{_ordinal(self.rank)}-{end_word} of any {self.sheet[:-1]} ever.")
+
+
+def _event_label(sheet: str, row) -> str:
+    def g(c):
+        v = row.get(c) if hasattr(row, "get") else None
+        return "" if v is None or (isinstance(v, float) and math.isnan(v)) else str(v)
+    if sheet == "picks":
+        return f"{g('Year')} pick {g('Number')} ({g('Player Picked')})".strip()
+    if sheet == "trades":
+        return f"{g('Team')}'s {g('Date')} trade".strip()
+    if sheet == "transactions":
+        who = g("Player Added") or g("Player Dropped")
+        return f"{g('Team')}'s move for {who}".strip()
+    return sheet
+
+
+def event_highlights(df: pd.DataFrame, sheet: str, season_col: str,
+                     target_season: int, window: int = WINDOW,
+                     max_ties: int = _MAX_HIGHLIGHT_TIES) -> List[EventHighlight]:
+    """Top/bottom-`window` events (by each numeric column) among `target_season`'s
+    events, ranked against every event of that kind ever. Values shared by more
+    than `max_ties` events are skipped (common values aren't records)."""
+    if df is None or df.empty or season_col not in df.columns:
+        return []
+    season_num = pd.to_numeric(df[season_col], errors="coerce")
+    target = df[season_num == target_season]
+    if target.empty:
+        return []
+    out: List[EventHighlight] = []
+    for col in discover_numeric_columns(df, season_col):
+        all_vals = [v for v in (_to_float(x) for x in df[col]) if v is not None]
+        if len(all_vals) < window or _is_boolean(all_vals):
+            continue
+        counts = _Counter(all_vals)
+        high_rank = {v: i + 1 for i, v in enumerate(sorted(counts, reverse=True))}
+        low_rank = {v: i + 1 for i, v in enumerate(sorted(counts))}
+        for _, r in target.iterrows():
+            v = _to_float(r[col])
+            if v is None or counts[v] > max_ties:
+                continue
+            if high_rank[v] <= window:
+                out.append(EventHighlight(sheet, _event_label(sheet, r), col, "high", high_rank[v], v))
+            elif low_rank[v] <= window:
+                out.append(EventHighlight(sheet, _event_label(sheet, r), col, "low", low_rank[v], v))
+    return out
+
+
+def season_event_highlights(frames: dict, season: int,
+                            window: int = WINDOW) -> List[EventHighlight]:
+    """Event highlights across picks / trades / transactions for one season."""
+    out: List[EventHighlight] = []
+    out += event_highlights(frames.get("picks", pd.DataFrame()), "picks", "Year", season, window)
+    out += event_highlights(frames.get("trades", pd.DataFrame()), "trades", "Season", season, window)
+    out += event_highlights(frames.get("transactions", pd.DataFrame()), "transactions", "Season", season, window)
+    return out
+
+
+def _event_key(e: EventHighlight) -> str:
+    return f"{e.sheet}|{e.label}|{e.column}|{e.end}:{e.rank}"
+
+
+def event_key_map(events: Sequence[EventHighlight]) -> list:
+    """Sorted event-highlight keys for the snapshot, so the live digest only
+    re-reports a notable pick/trade/transaction when it's newly notable."""
+    return sorted(_event_key(e) for e in events)
+
+
+def diff_events(prior_keys, events: Sequence[EventHighlight]) -> List[EventHighlight]:
+    prior = set(prior_keys or [])
+    return [e for e in events if _event_key(e) not in prior]
+
+
+# ---------------------------------------------------------------------------
 # League all-time milestones (single-row sheet -> no leaderboard)
 # ---------------------------------------------------------------------------
 @dataclass
@@ -795,6 +950,9 @@ def phrasing_catalog(
     player_week: Optional[pd.DataFrame] = None,
     team_week: Optional[pd.DataFrame] = None,
     league_week: Optional[pd.DataFrame] = None,
+    picks: Optional[pd.DataFrame] = None,
+    trades: Optional[pd.DataFrame] = None,
+    transactions: Optional[pd.DataFrame] = None,
 ) -> List[dict]:
     """One row per (sheet, stat) describing exactly how a change is phrased."""
     rows: List[dict] = []
@@ -802,6 +960,18 @@ def phrasing_catalog(
     def _add(sheet, stat, scope, scale, rise, fall):
         rows.append({"sheet": sheet, "stat": stat, "scope": scope, "scale": scale,
                      "phrase_when_rises": rise, "phrase_when_falls": fall})
+
+    def _event_rows(sheet, df, season_col):
+        if df is None or df.empty:
+            return
+        singular = sheet[:-1]
+        for col in discover_numeric_columns(df, season_col):
+            vals = [v for v in (_to_float(x) for x in df[col]) if v is not None]
+            if _is_boolean(vals):
+                continue
+            _add(sheet, col, "event highlight (top/bottom 5 of all such events ever)", "n/a",
+                 f"<event>: {col} of <value> — <N>th-highest of any {singular} ever.",
+                 f"<event>: {col} of <value> — <N>th-lowest of any {singular} ever.")
 
     def _weekly_rows(sheet, df, entity_col, who):
         if df is None or df.empty:
@@ -861,6 +1031,11 @@ def phrasing_catalog(
     _weekly_rows("team_week", team_week, "Team", "<team>")
     _weekly_rows("league_week", league_week, "Year", "The league")
 
+    # Event-log sheets: picks / trades / transactions ranked across all events.
+    _event_rows("picks", picks, "Year")
+    _event_rows("trades", trades, "Season")
+    _event_rows("transactions", transactions, "Season")
+
     # league_all_time: milestones only (single-row sheet, no leaderboard).
     if league_all_time is not None and not league_all_time.empty:
         for col in MAJOR_LEAGUE_STATS:
@@ -906,17 +1081,25 @@ def render_digest_html(
     highlights: Sequence[WeeklyHighlight] = (),
     header: Optional[str] = None,
     intro: str = "",
+    events: Sequence[EventHighlight] = (),
 ) -> str:
     player_moves = [c.sentence() for c in crossings if c.section == "players"]
     team_moves = [c.sentence() for c in crossings if c.section == "teams"]
     milestone_lines = [m.sentence() for m in milestones]
     record_lines = [r.sentence() for r in records]
     hl_lines = [h.sentence() for h in highlights]
+    ev_lines = {s: [e.sentence() for e in events if e.sheet == s]
+                for s in ("picks", "trades", "transactions")}
 
     season = meta.get("season")
     week = meta.get("weeks_completed")
     if header is None:
         header = f"LOTG weekly digest — {season} season, through week {week}"
+
+    # In-season shows projections as "on pace"; a completed-season wrap resolves
+    # them to final results ("finished Nth"), so the heading changes to match.
+    yr_final = any(getattr(p, "final", False) for p in projections)
+    yr_title = "Season-long results" if yr_final else "On pace this season"
 
     body = [
         '<div style="max-width:680px;margin:0 auto;padding:16px;">',
@@ -929,19 +1112,24 @@ def render_digest_html(
         _section_html("All-time leaderboard moves — teams", team_moves),
         _section_html("New single-season records", record_lines),
         _section_html("League milestones", milestone_lines),
-        _section_html("On pace this season — players", _proj_lines(projections, "players")),
-        _section_html("On pace this season — teams", _proj_lines(projections, "teams")),
-        _section_html("On pace this season — league", _proj_lines(projections, "league")),
+        _section_html(f"{yr_title} — players", _proj_lines(projections, "players")),
+        _section_html(f"{yr_title} — teams", _proj_lines(projections, "teams")),
+        _section_html(f"{yr_title} — league", _proj_lines(projections, "league")),
+        _section_html("Notable draft picks", ev_lines["picks"]),
+        _section_html("Notable trades", ev_lines["trades"]),
+        _section_html("Notable transactions", ev_lines["transactions"]),
     ]
-    if not any([hl_lines, player_moves, team_moves, record_lines, milestone_lines, projections]):
+    if not any([hl_lines, player_moves, team_moves, record_lines, milestone_lines,
+                projections, events]):
         body.append('  <p style="font:15px system-ui,sans-serif;color:#666;">'
                      'No leaderboard changes this week.</p>')
     body.append("</div>")
     return "\n".join(b for b in body if b)
 
 
-def digest_is_empty(crossings, projections, milestones=(), records=(), highlights=()) -> bool:
-    return not any([crossings, projections, milestones, records, highlights])
+def digest_is_empty(crossings, projections, milestones=(), records=(),
+                    highlights=(), events=()) -> bool:
+    return not any([crossings, projections, milestones, records, highlights, events])
 
 
 def _champion_of(team_year: pd.DataFrame, season: int) -> Optional[str]:
@@ -955,9 +1143,13 @@ def _champion_of(team_year: pd.DataFrame, season: int) -> Optional[str]:
 def build_replica_html(frames: dict, season: Optional[int] = None,
                        week: Optional[int] = None) -> str:
     """Render the 'most recent digest' for a completed season — the offseason
-    stand-in for the post-championship email. Uses the sections that don't need a
-    week-over-week diff: the champion, the season's new single-season records, and
-    the biggest single weeks. Returns "" if there's no completed week on record.
+    stand-in for the post-championship email. Uses every section that doesn't need
+    a week-over-week diff: the champion, the season-long final results (on-pace
+    stats resolved to "finished Nth of any season"), new single-season records,
+    the biggest single weeks, and the season's notable picks / trades /
+    transactions. (All-time *movement* needs weekly snapshots we only start
+    collecting live, so it appears in real in-season emails, not this seed.)
+    Returns "" if there's no completed week on record.
     """
     tw = frames.get("team_week", pd.DataFrame())
     if season is None or week is None:
@@ -966,19 +1158,21 @@ def build_replica_html(frames: dict, season: Optional[int] = None,
             return ""
         season, week = sw
 
-    records = yearly_records(frames.get("player_year", pd.DataFrame()),
-                             frames.get("team_year", pd.DataFrame()),
-                             frames.get("league_year", pd.DataFrame()), tw, season=season)
+    py = frames.get("player_year", pd.DataFrame())
+    ty = frames.get("team_year", pd.DataFrame())
+    ly = frames.get("league_year", pd.DataFrame())
+    final = final_rankings(py, ty, ly, season)
+    records = yearly_records(py, ty, ly, tw, season=season)
     highlights = weekly_highlights(frames.get("player_week", pd.DataFrame()), tw,
-                                   frames.get("league_week", pd.DataFrame()),
-                                   frames.get("team_year", pd.DataFrame()),
+                                   frames.get("league_week", pd.DataFrame()), ty,
                                    season=season, week=week)
-    champ = _champion_of(frames.get("team_year", pd.DataFrame()), season)
+    events = season_event_highlights(frames, season, window=WRAP_WINDOW)
+    champ = _champion_of(ty, season)
     intro = f"🏆 {champ} won the {season} championship." if champ else ""
     header = f"LOTG season wrap — {season} championship (week {week})"
-    return render_digest_html([], [], {"season": season, "weeks_completed": week},
+    return render_digest_html([], final, {"season": season, "weeks_completed": week},
                               records=records, highlights=highlights,
-                              header=header, intro=intro)
+                              events=events, header=header, intro=intro)
 
 
 # ---------------------------------------------------------------------------
