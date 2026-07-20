@@ -73,6 +73,16 @@ def _decrypt_credentials(enc_path: Path, key: str):
     return None
 
 
+def _recipients_for(cfg: dict, test: bool):
+    """Test emails go to `test_recipients` (falling back to `recipients`); the
+    real digest goes to `recipients` (the whole league)."""
+    if test:
+        lst = cfg.get("test_recipients") or cfg.get("recipients") or []
+    else:
+        lst = cfg.get("recipients") or []
+    return [r for r in lst if r]
+
+
 def _resolve_credentials():
     """(username, password) from env override or the encrypted file, else None."""
     user = os.environ.get("SMTP_USERNAME")
@@ -108,22 +118,32 @@ def main(argv=None) -> int:
     ap.add_argument("--require", action="store_true",
                     help="exit non-zero instead of skipping when send is impossible")
     ap.add_argument("--test", action="store_true",
-                    help="send a small confirmation email (ignores season/content) "
-                         "to verify delivery end-to-end")
+                    help="send a confirmation email (delivery banner + a replay of "
+                         "the most recent real digest) to the test recipients")
+    ap.add_argument("--last-digest", default=str(_ROOT / "data" / "digest" / "last_digest.html"),
+                    help="the most recent real digest, replayed inside a test email")
     args = ap.parse_args(argv)
 
     def _bail(msg: str) -> int:
         print(f"[send] {msg}")
         return 1 if args.require else 0
 
+    cfg = yaml.safe_load(Path(args.config).read_text()) or {}
+
     if args.test:
-        # Verify SMTP auth + delivery regardless of season or digest content.
+        # Delivery banner + a replay of what the most recent real (in-season or
+        # post-championship) digest would have said, so a test is representative.
+        banner = ('<div style="font:15px/1.5 system-ui,sans-serif;max-width:680px;'
+                  'margin:0 auto 8px;padding:16px;background:#eef6ff;border-radius:8px;">'
+                  '<h2 style="color:#0b2545;margin:0 0 4px;">Digest delivery is working. 🎉</h2>'
+                  '<p style="margin:0;">This is a test. Below is a replay of the most '
+                  'recent digest (in the offseason, the post-championship wrap-up).</p></div>')
+        last = Path(args.last_digest)
+        replay = last.read_text() if last.exists() else (
+            '<p style="font:15px system-ui,sans-serif;color:#666;max-width:680px;'
+            'margin:0 auto;padding:0 16px;">(No recent digest on record yet.)</p>')
         subject = "LOTG digest — test email ✅"
-        html = ('<div style="font:15px/1.5 system-ui,sans-serif;max-width:560px;">'
-                '<h2 style="color:#0b2545;">Digest delivery is working. 🎉</h2>'
-                '<p>This is a test message from the LOTG weekly digest. If you can '
-                'read this, the real digest will reach you on Tuesday mornings '
-                'during the season.</p></div>')
+        html = banner + replay
     else:
         html_path = Path(args.html)
         if not html_path.exists():
@@ -133,8 +153,7 @@ def main(argv=None) -> int:
             return _bail("digest has no changes this week — skipping send.")
         subject = _subject(Path(args.snapshot))
 
-    cfg = yaml.safe_load(Path(args.config).read_text()) or {}
-    recipients = [r for r in (cfg.get("recipients") or []) if r]
+    recipients = _recipients_for(cfg, args.test)
     if not recipients:
         return _bail(f"no recipients configured in {args.config}.")
 

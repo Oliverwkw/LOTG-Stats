@@ -537,12 +537,15 @@ def _records_for_frame(section: str, year_df: pd.DataFrame,
 
 def yearly_records(player_year: pd.DataFrame, team_year: pd.DataFrame,
                    league_year: pd.DataFrame, team_week: pd.DataFrame,
-                   min_week: int = MIN_YEARLY_WEEK) -> List[YearlyRecord]:
-    """New all-time single-season records set this season by weekly-counting
-    stats. Withheld until `min_week` completed weeks (yearly-withhold rule)."""
-    season = current_season(team_year)
-    if season is None or weeks_completed(team_week, season) < min_week:
-        return []
+                   min_week: int = MIN_YEARLY_WEEK,
+                   season: Optional[int] = None) -> List[YearlyRecord]:
+    """New all-time single-season records set by weekly-counting stats. Defaults
+    to the current season (withheld until `min_week` completed weeks); pass an
+    explicit `season` (e.g. a finished season) to skip the week gate."""
+    if season is None:
+        season = current_season(team_year)
+        if season is None or weeks_completed(team_week, season) < min_week:
+            return []
     out: List[YearlyRecord] = []
     out += _records_for_frame("players", player_year, "Player", season)
     out += _records_for_frame("teams", team_year, "Team", season)
@@ -585,6 +588,14 @@ from collections import Counter as _Counter
 # tied max), so it's skipped on BOTH ends. Genuine extremes are near-unique.
 _MAX_HIGHLIGHT_TIES = 5
 
+# Weekly columns that are cumulative/tenure/streak counters, not that week's
+# performance — they trivially peak at season end, so a "single-week record" on
+# them is meaningless. Excluded from weekly highlights.
+_WEEKLY_SKIP_MARKERS = (
+    "streak", "consecutive", "weeks on team", "this season", "to date",
+    "number of weeks", "weeks rostered", "weeks as", "weeks on bench",
+)
+
 
 @dataclass
 class WeeklyHighlight:
@@ -610,6 +621,44 @@ def latest_completed_week(team_week: pd.DataFrame, season: int) -> Optional[int]
     return int(weeks.max()) if len(weeks) else None
 
 
+def latest_completed_season_week(team_week: pd.DataFrame) -> Optional[tuple]:
+    """The most recent completed (season, week) across ALL seasons — i.e. the
+    last week that has games on record (the championship week of the latest
+    finished season in the offseason). Drives the 'most recent digest' replica."""
+    if team_week.empty or "Year" not in team_week.columns:
+        return None
+    years = pd.to_numeric(team_week["Year"], errors="coerce").dropna()
+    if not len(years):
+        return None
+    season = int(years.max())
+    week = latest_completed_week(team_week, season)
+    return (season, week) if week else None
+
+
+def _cumulative_columns(wk_df: pd.DataFrame, entity_col: str,
+                        cols: Sequence[str]) -> set:
+    """Columns whose values only ever rise across a season (per entity) — i.e.
+    to-date cumulative totals (e.g. 'Total points as team starter'), not that
+    week's value. Detected structurally so it catches them regardless of name.
+    Reset-based streaks aren't monotonic, so those are handled by name markers."""
+    if "Week" not in wk_df.columns:
+        return set()
+    key = [entity_col, "Year"] if entity_col in wk_df.columns else ["Year"]
+    out = set()
+    for col in cols:
+        mono = tot = 0
+        for _, g in wk_df.groupby(key, sort=False):
+            vals = [v for v in (_to_float(x) for x in g.sort_values("Week")[col]) if v is not None]
+            if len(vals) < 3:
+                continue
+            tot += 1
+            if all(vals[i + 1] >= vals[i] - 1e-9 for i in range(len(vals) - 1)):
+                mono += 1
+        if tot >= 3 and mono / tot >= 0.9:
+            out.add(col)
+    return out
+
+
 def _highlights_for_frame(section: str, wk_df: pd.DataFrame, entity_col: str,
                           season: int, week: int, window: int) -> List[WeeklyHighlight]:
     if wk_df.empty or "Year" not in wk_df.columns or "Week" not in wk_df.columns:
@@ -620,8 +669,22 @@ def _highlights_for_frame(section: str, wk_df: pd.DataFrame, entity_col: str,
     if this_week.empty:
         return []
     has_entity = entity_col in wk_df.columns
+
+    def _mostly_pending(col: str) -> bool:
+        # Season-summary columns (e.g. "Total points as team starter") read
+        # "In Progress" every week until the finale, so they only carry a value
+        # at the last week -> they'd masquerade as a single-week record there.
+        s = wk_df[col].astype(str).str.strip()
+        return len(s) > 0 and (s == "In Progress").mean() > 0.4
+
+    candidates = [c for c in discover_numeric_columns(wk_df, entity_col)
+                  if not any(m in c.lower() for m in _WEEKLY_SKIP_MARKERS)
+                  and not _mostly_pending(c)]
+    cumulative = _cumulative_columns(wk_df, entity_col, candidates)
     out: List[WeeklyHighlight] = []
-    for col in discover_numeric_columns(wk_df, entity_col):
+    for col in candidates:
+        if col in cumulative:
+            continue  # to-date cumulative total, not a single-week value
         all_vals = [v for v in (_to_float(x) for x in wk_df[col]) if v is not None]
         if len(all_vals) < window or _is_boolean(all_vals):
             continue
@@ -645,13 +708,18 @@ def _highlights_for_frame(section: str, wk_df: pd.DataFrame, entity_col: str,
 
 def weekly_highlights(player_week: pd.DataFrame, team_week: pd.DataFrame,
                       league_week: pd.DataFrame, team_year: pd.DataFrame,
-                      window: int = WINDOW) -> List[WeeklyHighlight]:
-    """Top/bottom-`window` single-week performances in the just-completed week,
-    ranked against every week on record. Empty in the offseason."""
-    season = current_season(team_year)
+                      window: int = WINDOW,
+                      season: Optional[int] = None,
+                      week: Optional[int] = None) -> List[WeeklyHighlight]:
+    """Top/bottom-`window` single-week performances in a completed week, ranked
+    against every week on record. Defaults to the current season's latest week
+    (empty in the offseason); pass explicit season/week for a past week."""
+    if season is None:
+        season = current_season(team_year)
     if season is None:
         return []
-    week = latest_completed_week(team_week, season)
+    if week is None:
+        week = latest_completed_week(team_week, season)
     if not week:
         return []
     out: List[WeeklyHighlight] = []
@@ -739,6 +807,12 @@ def phrasing_catalog(
         if df is None or df.empty:
             return
         for col in discover_numeric_columns(df, entity_col):
+            cl = col.lower()
+            if any(m in cl for m in _WEEKLY_SKIP_MARKERS):
+                continue  # cumulative/tenure/streak counter
+            s = df[col].astype(str).str.strip()
+            if len(s) and (s == "In Progress").mean() > 0.4:
+                continue  # season-summary column (In Progress until finale)
             vals = [v for v in (_to_float(x) for x in df[col]) if v is not None]
             if _is_boolean(vals):
                 continue  # per-week flags -> tallies show via year/all-time
@@ -830,6 +904,8 @@ def render_digest_html(
     milestones: Sequence[Milestone] = (),
     records: Sequence[YearlyRecord] = (),
     highlights: Sequence[WeeklyHighlight] = (),
+    header: Optional[str] = None,
+    intro: str = "",
 ) -> str:
     player_moves = [c.sentence() for c in crossings if c.section == "players"]
     team_moves = [c.sentence() for c in crossings if c.section == "teams"]
@@ -839,12 +915,15 @@ def render_digest_html(
 
     season = meta.get("season")
     week = meta.get("weeks_completed")
-    header = f"LOTG weekly digest — {season} season, through week {week}"
+    if header is None:
+        header = f"LOTG weekly digest — {season} season, through week {week}"
 
     body = [
         '<div style="max-width:680px;margin:0 auto;padding:16px;">',
         f'  <h1 style="font:700 22px/1.3 system-ui,sans-serif;'
         f'color:#0b2545;margin:0 0 4px;">{header}</h1>',
+        (f'  <p style="font:16px/1.4 system-ui,sans-serif;color:#0b2545;'
+         f'margin:0 0 8px;">{intro}</p>' if intro else ""),
         _section_html("Single-week records (this week)", hl_lines),
         _section_html("All-time leaderboard moves — players", player_moves),
         _section_html("All-time leaderboard moves — teams", team_moves),
@@ -863,6 +942,43 @@ def render_digest_html(
 
 def digest_is_empty(crossings, projections, milestones=(), records=(), highlights=()) -> bool:
     return not any([crossings, projections, milestones, records, highlights])
+
+
+def _champion_of(team_year: pd.DataFrame, season: int) -> Optional[str]:
+    if team_year.empty or "Result" not in team_year.columns:
+        return None
+    yr = pd.to_numeric(team_year["Year"], errors="coerce")
+    sub = team_year[(yr == season) & team_year["Result"].astype(str).str.contains("hampion", na=False)]
+    return str(sub.iloc[0]["Team"]) if len(sub) else None
+
+
+def build_replica_html(frames: dict, season: Optional[int] = None,
+                       week: Optional[int] = None) -> str:
+    """Render the 'most recent digest' for a completed season — the offseason
+    stand-in for the post-championship email. Uses the sections that don't need a
+    week-over-week diff: the champion, the season's new single-season records, and
+    the biggest single weeks. Returns "" if there's no completed week on record.
+    """
+    tw = frames.get("team_week", pd.DataFrame())
+    if season is None or week is None:
+        sw = latest_completed_season_week(tw)
+        if sw is None:
+            return ""
+        season, week = sw
+
+    records = yearly_records(frames.get("player_year", pd.DataFrame()),
+                             frames.get("team_year", pd.DataFrame()),
+                             frames.get("league_year", pd.DataFrame()), tw, season=season)
+    highlights = weekly_highlights(frames.get("player_week", pd.DataFrame()), tw,
+                                   frames.get("league_week", pd.DataFrame()),
+                                   frames.get("team_year", pd.DataFrame()),
+                                   season=season, week=week)
+    champ = _champion_of(frames.get("team_year", pd.DataFrame()), season)
+    intro = f"🏆 {champ} won the {season} championship." if champ else ""
+    header = f"LOTG season wrap — {season} championship (week {week})"
+    return render_digest_html([], [], {"season": season, "weeks_completed": week},
+                              records=records, highlights=highlights,
+                              header=header, intro=intro)
 
 
 # ---------------------------------------------------------------------------

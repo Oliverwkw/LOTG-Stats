@@ -82,10 +82,20 @@ def check_test_flag_no_html_needed():
     return _ok("--test returns 0 (bails on missing creds, ignores HTML)", rc == 0, f"rc={rc}")
 
 
+def check_recipient_split():
+    cfg = {"recipients": ["a@x.com", "b@x.com", "c@x.com"], "test_recipients": ["a@x.com"]}
+    ok = _ok("real digest -> all recipients", S._recipients_for(cfg, test=False) == cfg["recipients"])
+    ok &= _ok("test email -> test recipients only", S._recipients_for(cfg, test=True) == ["a@x.com"])
+    # No test_recipients configured -> test falls back to the full list.
+    ok &= _ok("test falls back to recipients", S._recipients_for({"recipients": ["a@x.com"]}, test=True) == ["a@x.com"])
+    return ok
+
+
 def run_all() -> bool:
     all_ok = True
     for t in (check_decrypt_roundtrip, check_resolve_prefers_env_override,
-              check_resolve_none_without_creds, check_test_flag_no_html_needed):
+              check_resolve_none_without_creds, check_test_flag_no_html_needed,
+              check_recipient_split):
         print(f"\n{t.__name__}:")
         all_ok &= bool(t())
     print("\n" + ("ALL PASS" if all_ok else "SOME FAILED"))

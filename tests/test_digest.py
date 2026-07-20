@@ -216,6 +216,37 @@ def check_weekly_highlights():
     return ok
 
 
+def check_replica_and_weekly_filters():
+    tw = pd.DataFrame({
+        "Team": ["A"] * 3 + ["B"] * 3 + ["A"] * 3 + ["B"] * 3,
+        "Year": [2024] * 6 + [2025] * 6,
+        "Week": [1, 2, 3] * 4,
+        "PF": [100, 50, 200, 90, 80, 70, 60, 300, 40, 55, 65, 75.0],       # single-week
+        "Tenure": [1, 2, 3, 1, 2, 3, 4, 5, 6, 4, 5, 6.0],                   # cumulative
+        "SeasonTot": ["In Progress", "In Progress", 500, "In Progress", "In Progress", 400,
+                      "In Progress", "In Progress", 600, "In Progress", "In Progress", 450],
+    })
+    ty = pd.DataFrame({"Team": ["A", "B"], "Year": [2025, 2025], "Result": ["Champion", "2nd"]})
+    empty_pw = pd.DataFrame({"Player": [], "Year": [], "Week": []})
+    empty_lw = pd.DataFrame({"Year": [], "Week": []})
+
+    ok = _ok("latest completed (season, week)", D.latest_completed_season_week(tw) == (2025, 3))
+    ok &= _ok("champion resolved", D._champion_of(ty, 2025) == "A")
+    hl = D.weekly_highlights(empty_pw, tw, empty_lw, ty)
+    cols = {h.column for h in hl}
+    ok &= _ok("single-week PF kept", "PF" in cols, f"got {cols}")
+    ok &= _ok("cumulative (monotonic) column dropped", "Tenure" not in cols)
+    ok &= _ok("season-summary (In Progress) column dropped", "SeasonTot" not in cols)
+
+    frames = {"team_week": tw, "team_year": ty, "player_year": pd.DataFrame({"Player": [], "Year": []}),
+              "league_year": pd.DataFrame({"Year": []}), "player_week": empty_pw, "league_week": empty_lw}
+    html = D.build_replica_html(frames)
+    ok &= _ok("replica names the champion", "A won the 2025 championship" in html)
+    ok &= _ok("replica has a single-week record", "single week ever" in html)
+    ok &= _ok("replica header is a season wrap", "season wrap" in html)
+    return ok
+
+
 def check_league_window():
     def ly(n):
         return pd.DataFrame({"Year": list(range(2020, 2020 + n))})
@@ -328,6 +359,7 @@ def run_all() -> bool:
         check_boolean_flags_excluded_from_pace,
         check_yearly_records_for_weekly_stats,
         check_weekly_highlights,
+        check_replica_and_weekly_filters,
         check_league_window,
         check_league_milestones,
         check_pace_diff_reports_only_changes,

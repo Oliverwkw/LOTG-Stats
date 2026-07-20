@@ -48,6 +48,9 @@ def main(argv=None) -> int:
                     help="build even in the offseason (no completed weeks)")
     ap.add_argument("--phrasing-csv", default=None,
                     help="write the stat-phrasing catalog CSV and exit")
+    ap.add_argument("--replica", default=None,
+                    help="write the 'most recent digest' replica (latest completed "
+                         "season's post-championship wrap) to this path and exit")
     args = ap.parse_args(argv)
 
     exports = Path(args.exports)
@@ -70,6 +73,17 @@ def main(argv=None) -> int:
         )
         D.write_phrasing_csv(Path(args.phrasing_csv), rows)
         print(f"[digest] phrasing catalog ({len(rows)} stats) -> {args.phrasing_csv}")
+        return 0
+
+    # Replica: the most-recent-digest stand-in (offseason = post-championship).
+    if args.replica:
+        html = D.build_replica_html(frames)
+        if not html:
+            print("[digest] no completed week on record — no replica written.")
+            return 0
+        Path(args.replica).parent.mkdir(parents=True, exist_ok=True)
+        Path(args.replica).write_text(html)
+        print(f"[digest] replica digest -> {args.replica}")
         return 0
 
     snap_path = Path(args.snapshot)
