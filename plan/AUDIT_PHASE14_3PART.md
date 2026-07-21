@@ -254,3 +254,81 @@ them from HEAD does not erase them from git history.) The stale
 Full suite green after the changes: **51 passed**, with new cases covering the
 volatile-column exemption, the `Most number of …` classification, and the
 recipient env override (including that a blank env var can't blackhole a send).
+
+---
+
+## Post-merge audit — build run 447 (cold cache), 2026-07-21
+
+First live exercise of the Phase-14 pipeline: `Build LOTG Stats` #447 dispatched
+with **`force_refresh_cache` ticked**, i.e. a full cold rebuild. Not the
+Wednesday workflow itself (still unfired), but the same cache-regenerated
+condition, so its uploaded artifact serves as the proxy. Audited by diffing that
+artifact against the exports committed at `main`.
+
+### The pipeline behaved
+
+Every Phase-14 step ran correctly. Injury coverage reported the tracker empty;
+the digest hit the offseason gate (`season=2026 weeks_completed=0`) and skipped
+without rotating; **`send_email` was ticked yet no email reached the league** —
+the offseason gate meant no HTML existed and the send no-op'd, exactly as
+designed. F3's reordering is live (send, then rotate).
+
+### The open KTC question is answered: KTC reproduces
+
+Across a full cold rebuild only **16 rows** moved on KTC columns, all in rolling
+windows:
+
+| column | rows | trade dates |
+|---|---|---|
+| `KTC value difference 1 year later` | 12 | 2025-07-14 / 16 / 20 |
+| `KTC value difference 2 years later` | 4 | 2024-07-14 / 18 |
+
+— precisely one and two years before the run date. Every *fixed* KTC window
+(deal time, end of season) reproduced byte-for-byte. So the F1 decision to keep
+KTC under the immutability check was right; only the rolling variants needed
+exempting. `"year later" / "years later" / "year after" / "years after"` added
+to `_VOLATILE_SUBSTRINGS` (53 columns now exempt, up from 37).
+
+### Finding — the pinned schema baseline was stale, and it was failing CI
+
+`data/audit/schema_baseline.json` had been pinned from a committed export
+snapshot predating #363, so every *correct* build flagged "player_all_time /
+player_year: columns reordered" plus 3 new columns each. That also failed
+`tests/test_audit_weekly.py::test_audit_weekly` in CI (run 447: 1 failed, 50
+passed) via `check_real_exports_smoke`, which asserted the audit come back
+schema-clean. Re-pinned from the run-447 build.
+
+Re-pinning alone would have flipped the failure the other way — the *committed*
+exports lack those 6 columns, so the smoke test would fail against them instead.
+The real defect was the assertion itself: `exports/` is a committed replay cache
+refreshed on a cadence, so it legitimately lags main's code between refreshes,
+and a PR adding a column must not turn the suite red. `check_real_exports_smoke`
+now *reports* schema drift and asserts only on build-log cleanliness. The teeth
+stay where they belong — the weekly workflow runs `audit_schema` against a fresh
+build, where a missing column really is a break (verified: 0 flags on the run-447
+build, so that assertion still bites).
+
+### Finding — committed exports were stale against main's own code
+
+The last refresh (run 442, 07-18) landed *before* #363 and #364 the same day, so
+`exports/` was shipping 6 columns that no longer exist in a real build and **761
+win% cells the code no longer produces** (454 `Win % as starter` + 307 `Win %
+while rostered`). Attribution is airtight: 454/454 and 307/307 of those changes
+are committed-value → blank in the rebuild, exactly #364's "≥5 qualifying weeks"
+gate. `A.J. Green 2021` shipped `1.0`; a real build says N/A.
+
+Run 447 rebuilt the correct values and **discarded them** — "Only non-roster
+churn and committed snapshot is 2d old (<6d); leaving exports/ as-is."
+
+Fixed at the source: a run with `force_refresh_cache` ticked now **always**
+commits. It is the only run that rebuilds every derived value from freshly
+fetched sources, so its output is the most correct data the pipeline can
+produce; discarding it as "non-roster churn" is precisely how the drift
+happened.
+
+### Residual
+
+After all three fixes, the same cold-rebuild-vs-committed audit drops from 4
+confirmed to 2 — and both remaining flags are **true positives that clear
+themselves**: the 694 stale `player_year` rows (fixed by the next refreshing
+build) and the pytest-log flag recording the now-fixed baseline failure.

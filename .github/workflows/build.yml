@@ -222,8 +222,18 @@ jobs:
             exit 0
           fi
 
+          # A cache-regenerating run (force_refresh_cache box ticked) ALWAYS
+          # commits. It is the only run that rebuilds every derived value from
+          # freshly fetched sources, so its output is the most correct data we
+          # can produce — discarding it as "non-roster churn" is exactly how the
+          # committed exports went stale against main's own code (run 447 threw
+          # away 761 corrected win% cells and 6 whole columns from #363/#364,
+          # because the snapshot happened to be 2d old). See
+          # plan/AUDIT_PHASE14_3PART.md.
+          if [ "${{ github.event.inputs.force_refresh_cache }}" = "true" ]; then
+            reason="cache regeneration (full refresh)"
           # Did the live current-season roster or traded picks change?
-          if git diff --cached --name-only \
+          elif git diff --cached --name-only \
                | grep -qE '^exports/(raw/(rosters|traded_picks)_[0-9]+\.json|snapshot/season_[0-9]+/(rosters|traded_picks)\.json)$'; then
             reason="live roster/picks changed"
           elif [ "${age_days}" -ge 6 ]; then
