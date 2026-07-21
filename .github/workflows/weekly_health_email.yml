@@ -1,9 +1,9 @@
 name: Weekly dataset-health email
 
 # Phase 14 — the SECOND weekly email: a private dataset-health check mailed to the
-# maintainer (config/digest.yaml `audit_recipients`, = okeimweiss only). It runs a
-# day after the Tuesday build has committed refreshed exports/ (and after the
-# nflverse weekly feed has settled) and alerts on two things:
+# maintainer (config/digest.yaml `audit_recipients` / DIGEST_AUDIT_RECIPIENTS, =
+# okeimweiss only). It runs a day after the Tuesday build has committed refreshed
+# exports/ (and after the nflverse weekly feed has settled) and alerts on:
 #   * DATASET BREAKAGES — the 3-part weekly audit (scripts/audit_weekly.py):
 #       a completed-season row that changed, a sheet that lost/renamed a pinned
 #       column, or a real (non-transient, non-current-season) build error.
@@ -12,6 +12,28 @@ name: Weekly dataset-health email
 # It's a weekly heartbeat (sends even on a clean week), so a silent inbox means
 # the check didn't run. Needs the DIGEST_KEY secret (same one the digest uses);
 # a safe no-op (logged, green) when it's absent.
+#
+# FULL REBUILD WITH CACHE REGENERATION. This workflow does not audit the
+# committed CSVs against an older committed version — it runs a complete build
+# FROM SCRATCH and audits that against what is committed. Deliberately:
+#
+#   * No `actions/cache/restore` step, which is exactly what the build's
+#     `force_refresh_cache: true` box does: the NFLverse / DynastyProcess and KTC
+#     caches are NOT restored, so every external source is re-fetched on top of
+#     the committed .cache baseline. That is the only way to catch upstream data
+#     that changed underneath us, a source that has started 403ing, or a value
+#     that simply does not reproduce — none of which a cache-warm build can see.
+#   * The baseline is the exports/ committed at HEAD, snapshotted BEFORE the
+#     build overwrites the working tree. So Part 1 answers a sharper question
+#     than it used to: "does a from-scratch rebuild still reproduce the data we
+#     are shipping?" A completed-season row that differs is a reproducibility
+#     failure.
+#   * The freshly built caches are NOT saved and nothing is pushed
+#     (`permissions: contents: read`) — this run observes, it never becomes the
+#     source of truth. The Tuesday build owns exports/ and the caches.
+#
+# Cost: a cold-cache build re-fetches ~1k KTC player histories, so expect this to
+# run well over the cache-warm build's time. It is weekly; that is the trade.
 on:
   schedule:
     - cron: "0 15 * * 3"   # Wednesday 15:00 UTC (~11:00 ET), after Tue build + nflverse
@@ -23,37 +45,71 @@ permissions:
 jobs:
   health-email:
     runs-on: ubuntu-latest
+    timeout-minutes: 180
     steps:
-      - name: Checkout repo (full history for the diff baseline)
+      - name: Checkout repo
         uses: actions/checkout@v7
-        with:
-          fetch-depth: 0
 
       - name: Setup Python
         uses: actions/setup-python@v6
         with:
           python-version: "3.11"
 
-      - name: Install minimal deps
-        run: pip install --no-cache-dir pandas pyyaml
-
-      - name: Materialise the previous committed exports (breakage-diff baseline)
-        # For each season-scoped sheet, extract the version from the commit BEFORE
-        # the one that most recently changed it — i.e. the previous weekly refresh.
-        # Diffing HEAD's committed CSVs against that shows exactly what the latest
-        # build altered; a changed completed-season row is a breakage.
+      - name: Snapshot the committed exports (reproducibility baseline)
+        # Must happen BEFORE the build below rewrites exports/ in place. These
+        # are the CSVs the repo is currently shipping; the fresh build is diffed
+        # against them.
         run: |
           set -euo pipefail
           BASE="$RUNNER_TEMP/baseline_exports"
           mkdir -p "$BASE"
-          for f in player_year team_year league_year player_week team_week league_week picks trades transactions; do
-            prev="$(git log --format=%H -- "exports/$f.csv" | sed -n '2p')"
-            if [ -n "$prev" ]; then
-              git show "$prev:exports/$f.csv" > "$BASE/$f.csv" 2>/dev/null || true
-            fi
-          done
+          cp exports/*.csv "$BASE"/
           echo "BASELINE_DIR=$BASE" >> "$GITHUB_ENV"
-          echo "Materialised baseline into $BASE"
+          echo "Snapshotted $(ls "$BASE" | wc -l) committed CSVs into $BASE"
+
+      - name: Install dependencies (including LOTG package)
+        run: |
+          mkdir -p exports/raw
+          set -o pipefail
+          python -m pip install --upgrade pip setuptools wheel 2>&1 | tee exports/raw/pip_install.log
+          pip cache purge 2>&1 | tee -a exports/raw/pip_install.log || true
+          pip install --no-cache-dir -r requirements.txt 2>&1 | tee -a exports/raw/pip_install.log
+          pip install --no-cache-dir --no-build-isolation -e . 2>&1 | tee -a exports/raw/pip_install.log
+
+      - name: Run LOTG build (cold cache — full regeneration)
+        # No cache restore above, so this re-downloads NFLverse / DynastyProcess /
+        # KTC from scratch on top of the committed .cache baseline. GITHUB_TOKEN
+        # raises the API rate limit from 60/hour to 5000/hour — ktc.py hits the
+        # commits API once per unique trade date, and without auth a cold build
+        # runs out of quota partway through and silently leaves later trades N/A
+        # (which would then read as a fake "breakage" in the diff below).
+        env:
+          PYTHONPATH: src
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          mkdir -p exports/raw
+          set -o pipefail
+          python -m lotg 2>&1 | tee exports/raw/runner.log
+
+      - name: Run test suite against the fresh build
+        # Part 3 of the audit reads exports/raw/pytest.log, so it must reflect
+        # THIS build, not the committed one. Non-blocking: a failing guard is
+        # something the email should report, not something that should stop it
+        # being sent.
+        continue-on-error: true
+        env:
+          PYTHONPATH: src:lib
+          LOTG_EXPORTS: exports
+        run: |
+          set -o pipefail
+          pip install --no-cache-dir pytest 2>&1 | tail -n 2
+          python -m pytest tests/ -v 2>&1 | tee exports/raw/pytest.log
+
+      - name: Injury-tracker coverage report
+        continue-on-error: true
+        env:
+          PYTHONPATH: src:lib
+        run: python scripts/injury_coverage.py --exports exports
 
       - name: Send the weekly dataset-health email
         env:
@@ -63,4 +119,21 @@ jobs:
         run: |
           python scripts/send_audit_email.py \
             --exports exports \
-            --baseline "$BASELINE_DIR"
+            --baseline "$BASELINE_DIR" \
+            --out "$RUNNER_TEMP/health_email.html"
+
+      - name: Upload the fresh build + email for diagnosis
+        # A flagged week needs the artifacts that produced the flag — the
+        # rebuilt CSVs, the build/pytest logs, and the email as sent.
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: weekly-health-${{ github.run_number }}
+          path: |
+            exports/*.csv
+            exports/raw/build_debug.log
+            exports/raw/runner.log
+            exports/raw/pytest.log
+            ${{ runner.temp }}/health_email.html
+          retention-days: 14
+          if-no-files-found: warn

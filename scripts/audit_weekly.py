@@ -5,12 +5,15 @@ the full manual audit (see plan/MASTER_TODO.md), this runs unattended on a cron
 and only has to *surface* three failure modes so the owner gets a red run + the
 default GitHub "scheduled workflow failed" email:
 
-  PART 1 — UNEXPECTED DIFFS.  Historical (completed-season) data is immutable:
-    once a season is over its player_week / team_year / trades / … rows must
-    never change on a later build. We diff the current committed exports against
-    the previous committed version (the workflow materialises it from git) and
-    flag any add / remove / change to a *past-season* row. Current-season rows
-    legitimately churn week to week, so they're summarised, not flagged.
+  PART 1 — UNEXPECTED DIFFS (reproducibility).  Historical (completed-season)
+    data should be reproducible: once a season is over, rebuilding must yield
+    the same player_week / team_year / trades / … rows. The weekly workflow
+    rebuilds FROM SCRATCH with the caches regenerated and passes the exports
+    committed at HEAD as `--baseline`, so this part answers "does a cold rebuild
+    still reproduce what we ship?". Any add / remove / change to a *past-season*
+    row is flagged. Current-season rows legitimately churn, so they're exempt —
+    as are the build-volatile columns below, which move on every rebuild by
+    design and would otherwise bury the signal (~2k rows/week).
 
   PART 2 — SCHEMA BREAKS.  Every sheet's columns are pinned in a committed
     baseline (data/audit/schema_baseline.json). A missing / renamed / reordered

@@ -195,6 +195,38 @@ confirms a *real* past-season stat change is still flagged.
 > earlier 401/403 stale-cache episodes). They are therefore left under the
 > check. A run whose baseline spans a feature PR or a cache bust will still
 > report them; that is correct behaviour, not noise.
+>
+> **This is now load-bearing**, because the Wednesday workflow was subsequently
+> changed to rebuild cold with the caches regenerated (below). If KTC columns
+> light up *every* week against a from-scratch rebuild, that is either a real
+> reproducibility problem in the KTC layer or a signal to move them into
+> `_VOLATILE_EXACT` — the first live Wednesday run decides which. Unknown until
+> then: it cannot be tested offline.
+
+### Follow-on: the Wednesday audit now runs a full cold-cache rebuild
+
+`weekly_health_email.yml` previously audited the *committed* CSVs against an
+older committed version — so it could only ever see what the Tuesday build had
+already written, with warm caches. It now:
+
+- snapshots the exports committed at HEAD as the baseline **before** building,
+- runs a complete `python -m lotg` build with **no `actions/cache/restore`** —
+  the same condition as ticking `force_refresh_cache` on the main build, so
+  NFLverse / DynastyProcess / KTC are all re-fetched on top of the committed
+  `.cache` baseline,
+- runs pytest against that fresh build (Part 3 reads the fresh `pytest.log`),
+- diffs fresh-vs-committed, and uploads the rebuilt CSVs + logs + the email as
+  an artifact for any week that flags.
+
+Part 1's question sharpens accordingly, from "did the last build change history?"
+to **"does a from-scratch rebuild still reproduce the data we ship?"** — which is
+the only form of the check that can catch an upstream source that changed
+underneath us, started refusing requests, or stopped reproducing.
+
+The run observes only: caches are not saved and `permissions: contents: read`
+means nothing is pushed. The Tuesday build remains the sole owner of `exports/`
+and of the cache keys. Cost is a cold-cache build (~1k KTC player histories
+re-fetched) once a week; `timeout-minutes: 180`.
 
 **F2** — `"most number of"` added to `_RATE_MARKERS` in `digest.py`, so the
 `Most number of {players,QBs,RBs,WRs,TE} {rostered,started} from same NFL team`
