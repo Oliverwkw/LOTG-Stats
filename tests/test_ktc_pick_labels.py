@@ -168,9 +168,53 @@ def test_no_stray_aug28_draft_anchors():
     )
 
 
+# --------------------------------------------------------------------------
+# Worth-zero must stay distinct from could-not-value.
+# --------------------------------------------------------------------------
+
+def test_zero_and_none_are_distinct_outcomes():
+    """A retired player resolves to 0.0; an unknown one resolves to None.
+
+    The trade KTC columns lean on this: a side whose assets are all 0 is
+    genuinely worthless (computable), a side nothing resolved on is unknown
+    (N/A). If asset_value_at ever collapsed the two, that distinction dies.
+    """
+    idx = ValueIndex()
+    idx.add_player("known", [{"date": "2021-06-01", "trade_value": 900}], "trade_value")
+    # On the rolls today, so a post-floor absence is not zeroed by the off-rolls rule.
+    idx.active_sids = {"known", "ranked_but_late"}
+    # A player KTC never ranked, queried after the floor -> confirmed worthless.
+    assert asset_value_at(None, "never_ranked", date(2024, 1, 1), idx) == 0.0
+    # A real value resolves as itself.
+    assert asset_value_at(None, "known", date(2024, 1, 1), idx) == 900.0
+    # An unknown asset with no id at all -> None, not 0.
+    assert asset_value_at(None, None, date(2024, 1, 1), idx) is None
+
+
+def test_side_values_does_not_drop_zeros():
+    """`_side_values` must not filter on `v > 0`.
+
+    It used to, which made a side of all-worthless assets look identical to a
+    side nothing could be priced on — so `_diff_at` blanked the row. A trade of
+    Kerryon Johnson (0 by 2022) for Alexander Mattison (2546) read N/A rather
+    than +2546. 20 cells across 8 mirrored trade rows were lost to it.
+
+    Source-level because `_side_values` is a closure inside build_all.
+    """
+    src = (_ROOT / "src" / "lotg.py").read_text()
+    start = src.index("def _side_values(")
+    body = src[start:start + 2000]
+    assert "and v > 0" not in body, (
+        "_side_values is dropping zero-valued assets again — that conflates "
+        "'worth nothing' with 'could not be valued' and blanks real trades"
+    )
+
+
 if __name__ == "__main__":
     for fn in (
         test_no_stray_aug28_draft_anchors,
+        test_zero_and_none_are_distinct_outcomes,
+        test_side_values_does_not_drop_zeros,
         test_clean_slot_labels,
         test_parenthetical_rider_matches_clean_form,
         test_bare_round_equals_unknown_slot,
