@@ -237,14 +237,34 @@ jobs:
           git commit -m "Auto-refresh committed exports: ${reason} (run ${{ github.run_number }}) [skip ci]"
           git push
 
+      - name: Send weekly digest email (Tuesday send run only)
+        # Mails exports/raw/weekly_digest.html to config/digest.yaml recipients.
+        # Credentials are AES-encrypted in config/digest_credentials.enc and
+        # decrypted at send time with the DIGEST_KEY secret. No-ops (logged,
+        # non-failing) when the digest was skipped (offseason), has no changes
+        # (--skip-empty), or DIGEST_KEY is absent — so this is safe before the
+        # secret is added. (SMTP_USERNAME/SMTP_PASSWORD still override if set.)
+        #
+        # Runs BEFORE the snapshot rotation below on purpose: rotating first
+        # would advance the week-over-week baseline even when the send blew up,
+        # silently dropping that week's crossings from every future digest. An
+        # SMTP failure here fails the job, so the rotation step is skipped and
+        # the baseline survives for a re-run. (Audit finding F3.)
+        if: ${{ github.ref == 'refs/heads/main' && (github.event.schedule == '0 14 * * 2' || (github.event_name == 'workflow_dispatch' && github.event.inputs.send_email == 'true')) }}
+        env:
+          DIGEST_KEY: ${{ secrets.DIGEST_KEY }}
+          DIGEST_RECIPIENTS: ${{ secrets.DIGEST_RECIPIENTS }}
+        run: python scripts/send_digest.py --skip-empty
+
       - name: Rotate digest snapshot (Tuesday send run only)
-        # Commit the rotated ranks snapshot ONLY on the send run, so next week's
-        # email diffs against exactly one week ago. The Thursday pregame run
-        # rebuilds the snapshot locally but never commits it, leaving the
-        # baseline untouched. Separate from the exports commit above (which never
-        # touches data/digest) — one clean weekly rotation. Also persists the
-        # just-sent digest as data/digest/last_digest.html so the test-email
-        # button always replays the most recent real digest.
+        # Commit the rotated ranks snapshot ONLY on the send run, and only once
+        # the send above actually succeeded, so next week's email diffs against
+        # exactly one week ago. The Thursday pregame run rebuilds the snapshot
+        # locally but never commits it, leaving the baseline untouched. Separate
+        # from the exports commit above (which never touches data/digest) — one
+        # clean weekly rotation. Also persists the just-sent digest as
+        # data/digest/last_digest.html so the test-email button always replays
+        # the most recent real digest.
         if: ${{ github.ref == 'refs/heads/main' && (github.event.schedule == '0 14 * * 2' || (github.event_name == 'workflow_dispatch' && github.event.inputs.send_email == 'true')) }}
         run: |
           set -euo pipefail
@@ -266,18 +286,6 @@ jobs:
             git commit -m "Weekly digest snapshot rotation (run ${{ github.run_number }}) [skip ci]"
             git push
           fi
-
-      - name: Send weekly digest email (Tuesday send run only)
-        # Mails exports/raw/weekly_digest.html to config/digest.yaml recipients.
-        # Credentials are AES-encrypted in config/digest_credentials.enc and
-        # decrypted at send time with the DIGEST_KEY secret. No-ops (logged,
-        # non-failing) when the digest was skipped (offseason), has no changes
-        # (--skip-empty), or DIGEST_KEY is absent — so this is safe before the
-        # secret is added. (SMTP_USERNAME/SMTP_PASSWORD still override if set.)
-        if: ${{ github.ref == 'refs/heads/main' && (github.event.schedule == '0 14 * * 2' || (github.event_name == 'workflow_dispatch' && github.event.inputs.send_email == 'true')) }}
-        env:
-          DIGEST_KEY: ${{ secrets.DIGEST_KEY }}
-        run: python scripts/send_digest.py --skip-empty
 
       - name: Dump debug logs on failure
         if: failure()

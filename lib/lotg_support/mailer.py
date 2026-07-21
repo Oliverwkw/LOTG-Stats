@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import smtplib
 import ssl
 import subprocess
@@ -61,6 +62,26 @@ def resolve_credentials(enc_path: Path) -> Optional[Tuple[str, str]]:
         creds = decrypt_credentials(enc_path, key)
         if creds:
             return creds["username"], creds["password"]
+    return None
+
+
+def recipients_from_env(*env_names: str) -> Optional[list]:
+    """Recipient list from the first non-empty env var among `env_names`, or None.
+
+    Lets the address lists live in repo *secrets* instead of the committed
+    config/digest.yaml — this repo is public, so the YAML publishes every
+    league member's email address (audit finding F4). Set DIGEST_RECIPIENTS
+    (comma/space/semicolon separated) and the YAML `recipients:` becomes an
+    unused fallback that can then be blanked. Absent env => YAML as before, so
+    nothing breaks until the secret exists.
+    """
+    for name in env_names:
+        raw = os.environ.get(name)
+        if not raw:
+            continue
+        out = [r.strip() for r in re.split(r"[,;\s]+", raw) if r.strip()]
+        if out:
+            return out
     return None
 
 

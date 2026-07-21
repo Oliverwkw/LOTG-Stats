@@ -46,6 +46,11 @@ _CREDS_ENC = _ROOT / "config" / "digest_credentials.enc"
 
 
 def _audit_recipients(cfg: dict):
+    """Maintainer-only recipients; a DIGEST_AUDIT_RECIPIENTS env var (repo
+    secret) overrides the committed YAML — see mailer.recipients_from_env."""
+    env = mailer.recipients_from_env("DIGEST_AUDIT_RECIPIENTS", "DIGEST_TEST_RECIPIENTS")
+    if env is not None:
+        return env
     lst = cfg.get("audit_recipients") or cfg.get("test_recipients") or cfg.get("recipients") or []
     return [r for r in lst if r]
 

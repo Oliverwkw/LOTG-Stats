@@ -91,11 +91,42 @@ def check_recipient_split():
     return ok
 
 
+def check_recipients_env_override():
+    """Audit finding F4: repo secrets can supply the address lists so they need
+    not sit in the public repo's config/digest.yaml."""
+    cfg = {"recipients": ["yaml@x.com"], "test_recipients": ["yamltest@x.com"]}
+    saved = {k: os.environ.get(k) for k in
+             ("DIGEST_RECIPIENTS", "DIGEST_TEST_RECIPIENTS")}
+    try:
+        os.environ["DIGEST_RECIPIENTS"] = "a@x.com, b@x.com"
+        ok = _ok("DIGEST_RECIPIENTS overrides the YAML league list",
+                 S._recipients_for(cfg, test=False) == ["a@x.com", "b@x.com"])
+        ok &= _ok("test email does NOT inherit the league override when its own is unset",
+                  S._recipients_for(cfg, test=True) == ["a@x.com", "b@x.com"])
+        os.environ["DIGEST_TEST_RECIPIENTS"] = "t@x.com"
+        ok &= _ok("DIGEST_TEST_RECIPIENTS wins for the test email",
+                  S._recipients_for(cfg, test=True) == ["t@x.com"])
+        ok &= _ok("league list unaffected by the test override",
+                  S._recipients_for(cfg, test=False) == ["a@x.com", "b@x.com"])
+        del os.environ["DIGEST_RECIPIENTS"], os.environ["DIGEST_TEST_RECIPIENTS"]
+        ok &= _ok("falls back to the YAML when no env is set",
+                  S._recipients_for(cfg, test=False) == ["yaml@x.com"])
+        os.environ["DIGEST_RECIPIENTS"] = "   "
+        ok &= _ok("a blank env var does not blackhole the send",
+                  S._recipients_for(cfg, test=False) == ["yaml@x.com"])
+        return ok
+    finally:
+        for k, v in saved.items():
+            os.environ.pop(k, None)
+            if v is not None:
+                os.environ[k] = v
+
+
 def run_all() -> bool:
     all_ok = True
     for t in (check_decrypt_roundtrip, check_resolve_prefers_env_override,
               check_resolve_none_without_creds, check_test_flag_no_html_needed,
-              check_recipient_split):
+              check_recipient_split, check_recipients_env_override):
         print(f"\n{t.__name__}:")
         all_ok &= bool(t())
     print("\n" + ("ALL PASS" if all_ok else "SOME FAILED"))

@@ -138,6 +138,46 @@ def check_real_exports_smoke(tmp):
     return ok
 
 
+def check_volatile_columns_exempt(tmp):
+    """Audit finding F1: link-index references, O-Score and league-baseline
+    columns drift on EVERY rebuild, so a change there must not read as a
+    historical-immutability break — while a real stat change still does."""
+    ok = _ok("link/O-Score/skill/Luck columns classified volatile",
+             all(A.is_volatile_column(c) for c in (
+                 "Link to previous transaction", "Link to next transaction per asset",
+                 "Link to previous transaction (dropped player)", "O-Score",
+                 "Trading skill", "Luck", "Hardship", "Length of tenure on team")))
+    ok &= _ok("real stats are NOT classified volatile",
+              not any(A.is_volatile_column(c) for c in (
+                  "PF", "Points against", "Win %", "Number of transactions", "Margin")))
+
+    base_dir, cur_dir = tmp / "vbase", tmp / "vcur"
+    base = pd.DataFrame({
+        "Team": ["A", "A"], "Year": ["2024", "2025"],
+        "PF": ["100", "110"], "O-Score": ["0.5", "0.6"],
+        "Link to previous transaction": ["#12", "#40"],
+    })
+    _write(base_dir, "team_year", base)
+    cur = base.copy()
+    cur.loc[0, "O-Score"] = "0.9"                        # volatile → exempt
+    cur.loc[0, "Link to previous transaction"] = "#13"   # volatile → exempt
+    _write(cur_dir, "team_year", cur)
+    rep = A.Report()
+    A.audit_diffs({n: A._read(cur_dir, n) for n in A.SHEETS},
+                  {n: A._read(base_dir, n) for n in A.SHEETS}, 2026, rep)
+    ok &= _ok("volatile-only drift on a past row is not flagged",
+              rep.confirmed == 0, f"confirmed={rep.confirmed}")
+
+    cur.loc[0, "PF"] = "999"                             # real stat → must flag
+    _write(cur_dir, "team_year", cur)
+    rep2 = A.Report()
+    A.audit_diffs({n: A._read(cur_dir, n) for n in A.SHEETS},
+                  {n: A._read(base_dir, n) for n in A.SHEETS}, 2026, rep2)
+    ok &= _ok("a real past-season stat change is still flagged",
+              rep2.confirmed == 1, f"confirmed={rep2.confirmed}")
+    return ok
+
+
 def run_all() -> bool:
     import tempfile
     all_ok = True
@@ -145,6 +185,7 @@ def run_all() -> bool:
         check_current_season_ignores_future_picks,
         check_diff_flags_past_change_exempts_current,
         check_diff_clean_when_identical,
+        check_volatile_columns_exempt,
         lambda t: check_schema_break_detection(t, None),
         check_build_log_scan,
         check_build_log_sanity_errors,

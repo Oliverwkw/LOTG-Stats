@@ -45,11 +45,17 @@ _decrypt_credentials = mailer.decrypt_credentials
 
 def _recipients_for(cfg: dict, test: bool):
     """Test emails go to `test_recipients` (falling back to `recipients`); the
-    real digest goes to `recipients` (the whole league)."""
+    real digest goes to `recipients` (the whole league).
+
+    A DIGEST_TEST_RECIPIENTS / DIGEST_RECIPIENTS env var (repo secret) overrides
+    the committed YAML, so the addresses need not sit in this public repo."""
     if test:
-        lst = cfg.get("test_recipients") or cfg.get("recipients") or []
+        env = mailer.recipients_from_env("DIGEST_TEST_RECIPIENTS", "DIGEST_RECIPIENTS")
+        lst = env if env is not None else (
+            cfg.get("test_recipients") or cfg.get("recipients") or [])
     else:
-        lst = cfg.get("recipients") or []
+        env = mailer.recipients_from_env("DIGEST_RECIPIENTS")
+        lst = env if env is not None else (cfg.get("recipients") or [])
     return [r for r in lst if r]
 
 
