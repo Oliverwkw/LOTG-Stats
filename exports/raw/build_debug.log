@@ -1659,3 +1659,81 @@ requests.exceptions.HTTPError: 404 Client Error: Not Found for url: https://raw.
 [2026-07-21T16:50:29.779980+00:00] INFO bolded comment verbs in cell history popups
 [2026-07-21T16:50:30.381303+00:00] ===== Build end =====
 [2026-07-21T16:50:32.714813+00:00] INFO data-quality sanity: 0 ERROR, 0 WARN across 0 findings
+[2026-07-21T19:13:56.290410+00:00] INFO snapshot: mode=both captured_at=2026-07-21T19:13:56.280838+00:00 age=0.00d auto_refreshed=False
+
+[2026-07-21T19:13:56.290953+00:00] ===== Build start =====
+formulas coverage: all non-obvious columns documented
+injury tracker rows loaded: 0
+[2026-07-21T19:13:58.120032+00:00] INFO gsis_correction sid=5133 name='Tyler Conklin' sleeper_gsis=00-0034439 -> 00-0034270
+[2026-07-21T19:13:58.134020+00:00] INFO gsis_correction sid=5094 name='Ryan Izzo' sleeper_gsis=00-0034270 -> 00-0034439
+[2026-07-21T19:13:58.365965+00:00] INFO Phase 13: injected ESPN 2020 season (8 teams, 152 draft picks, 222 transactions; 0 player-meta backfilled)
+[2026-07-21T19:13:58.651731+00:00] INFO commissioner pick-trade overlay: 45 pick-hops loaded
+INFO league scoring settings changed in 2021: {'fgm_40_49': (None, 4.0), 'xpmiss': (None, -1.0), 'pass_2pt': (None, 2.0), 'pass_int': (None, -2.0), 'rush_2pt': (None, 2.0), 'rec': (None, 1.0), 'fgm_0_19': (None, 3.0), 'pass_yd': (None, 0.04), 'rec_yd': (None, 0.1), 'sack': (None, 1.0), 'rec_2pt': (None, 2.0), 'fgm_30_39': (None, 3.0), 'fgm_50p': (None, 5.0), 'def_td': (None, 6.0), 'fgm_20_29': (None, 3.0), 'fgmiss': (None, -1.0), 'fum_lost': (None, -1.0), 'xpm': (None, 1.0), 'pass_td': (None, 4.0), 'st_td': (None, 0.0), 'rec_td': (None, 6.0), 'safe': (None, 2.0), 'rush_td': (None, 6.0), 'ff': (None, 1.0), 'fum_rec_td': (None, 6.0), 'fum_rec': (None, 2.0), 'rush_yd': (None, 0.1), 'fum': (None, -1.0), 'int': (None, 2.0)}
+[2026-07-21T19:14:04.567577+00:00] INFO merged the 2021 phantom Carter/Stevenson player swap into the pick trade
+INFO league scoring settings changed in 2022: {'st_td': (0.0, 6.0), 'fum_ret_yd': (None, 0.1)}
+[2026-07-21T19:14:07.850281+00:00] INFO commissioner-wash 2022: excluded 11 no-op txns
+[2026-07-21T19:14:11.049737+00:00] INFO commissioner-wash 2023: excluded 1 no-op txns
+[2026-07-21T19:14:14.346126+00:00] INFO commissioner-wash 2024: excluded 3 no-op txns
+[2026-07-21T19:14:14.346619+00:00] INFO draft-day synthetic picks 2024: 1 commish-add(s) -> picks, removed from transactions
+[2026-07-21T19:14:17.758466+00:00] INFO draft-day synthetic picks 2025: 8 commish-add(s) -> picks, removed from transactions
+[2026-07-21T19:14:20.167182+00:00] ERROR at load_nflverse_stats_player_week_2026: HTTPError: 404 Client Error: Not Found for url: https://raw.githubusercontent.com/nflverse/nflverse-data/master/data/player_stats/stats_player_week_2026.csv.gz
+Traceback (most recent call last):
+  File "/home/runner/work/LOTG-Stats/LOTG-Stats/src/lotg.py", line 3555, in build_all
+    spw = _safe_df(load_nflverse_stats_player_week(
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/runner/work/LOTG-Stats/LOTG-Stats/lib/lotg_support/external.py", line 139, in load_nflverse_stats_player_week
+    _download_best_effort(urls, path, cfg.timeout_seconds)
+  File "/home/runner/work/LOTG-Stats/LOTG-Stats/lib/lotg_support/external.py", line 48, in _download_best_effort
+    raise last_err
+  File "/home/runner/work/LOTG-Stats/LOTG-Stats/lib/lotg_support/external.py", line 42, in _download_best_effort
+    _download(url, out, timeout)
+  File "/home/runner/work/LOTG-Stats/LOTG-Stats/lib/lotg_support/external.py", line 34, in _download
+    raise last_err
+  File "/home/runner/work/LOTG-Stats/LOTG-Stats/lib/lotg_support/external.py", line 26, in _download
+    r.raise_for_status()
+  File "/opt/hostedtoolcache/Python/3.11.15/x64/lib/python3.11/site-packages/requests/models.py", line 1167, in raise_for_status
+    raise HTTPError(http_error_msg, response=self)
+requests.exceptions.HTTPError: 404 Client Error: Not Found for url: https://raw.githubusercontent.com/nflverse/nflverse-data/master/data/player_stats/stats_player_week_2026.csv.gz
+
+[2026-07-21T19:14:21.489311+00:00] ERROR at load_nflverse_injuries_2026: HTTPError: 404 Client Error: Not Found for url: https://raw.githubusercontent.com/nflverse/nflverse-data/master/data/injuries/injuries_2026.csv
+Traceback (most recent call last):
+  File "/home/runner/work/LOTG-Stats/LOTG-Stats/src/lotg.py", line 3681, in build_all
+    injuries = _safe_df(load_nflverse_injuries(
+                        ^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/runner/work/LOTG-Stats/LOTG-Stats/lib/lotg_support/external.py", line 94, in load_nflverse_injuries
+    _download_best_effort(urls, path, cfg.timeout_seconds)
+  File "/home/runner/work/LOTG-Stats/LOTG-Stats/lib/lotg_support/external.py", line 48, in _download_best_effort
+    raise last_err
+  File "/home/runner/work/LOTG-Stats/LOTG-Stats/lib/lotg_support/external.py", line 42, in _download_best_effort
+    _download(url, out, timeout)
+  File "/home/runner/work/LOTG-Stats/LOTG-Stats/lib/lotg_support/external.py", line 34, in _download
+    raise last_err
+  File "/home/runner/work/LOTG-Stats/LOTG-Stats/lib/lotg_support/external.py", line 26, in _download
+    r.raise_for_status()
+  File "/opt/hostedtoolcache/Python/3.11.15/x64/lib/python3.11/site-packages/requests/models.py", line 1167, in raise_for_status
+    raise HTTPError(http_error_msg, response=self)
+requests.exceptions.HTTPError: 404 Client Error: Not Found for url: https://raw.githubusercontent.com/nflverse/nflverse-data/master/data/injuries/injuries_2026.csv
+
+[2026-07-21T19:14:24.101200+00:00] INFO season 2026: preseason — scanning offseason transactions only
+[2026-07-21T19:14:24.175537+00:00] INFO commissioner-wash 2026: excluded 6 no-op txns
+[2026-07-21T19:14:24.176071+00:00] INFO draft-day synthetic picks 2026: 3 commish-add(s) -> picks, removed from transactions
+[2026-07-21T19:14:24.194466+00:00] INFO commissioner pick-trade overlay: all 45 pick-hops injected
+[2026-07-21T19:14:24.214148+00:00] INFO 2020 startup draft: emitted 152 picks into pick_history
+[2026-07-21T19:14:24.801393+00:00] INFO merged 1 manual transaction(s) from data/manual_transactions.csv
+[2026-07-21T19:14:24.909912+00:00] INFO synthesized 2 terminal roster-diff departures (dead-end cuts, never re-acquired)
+[2026-07-21T19:14:24.941910+00:00] INFO synthesized 1 terminal roster-diff arrivals (snapshot-only pickups, no recorded add)
+[2026-07-21T19:14:24.945168+00:00] INFO synthesized 65 missing departures + 23 missing arrivals as transactions rows to close orphaned roster lineage
+[2026-07-21T19:14:29.604320+00:00] INFO ktc value column: sf_trade_value (superflex, always)
+[2026-07-21T19:28:36.862520+00:00] INFO KTC per $1 FAAB = 100 (fixed; data-derived median 224.4 from 66 FAAB-for-asset trades)
+[2026-07-21T19:28:37.274035+00:00] WARN ktc fetch: info: merged KTC backfill for 373 players
+[2026-07-21T19:28:38.812139+00:00] INFO KTC win-impact lookups: 1/1225 empty (0.1%)
+[2026-07-21T19:29:07.724687+00:00] INFO seeded 248 player_year rows for tx-only player×year combos
+[2026-07-21T19:29:07.955127+00:00] INFO seeded 34 player_all_time rows for tx-only players
+[2026-07-21T19:29:09.353751+00:00] INFO seeded 8 team_year placeholder rows for in-progress season(s) [2026]
+[2026-07-21T19:29:16.741828+00:00] INFO built asset history: 548 picks, 684 players
+[2026-07-21T19:29:16.918247+00:00] INFO pure-drop O-Score: 461 drop-only txns detected (cols: _added_pid=True, Player Added=True)
+[2026-07-21T19:29:16.922749+00:00] INFO pure-drop O-Score: scored 461 drop-only transactions (ceiling 50)
+[2026-07-21T19:29:17.088886+00:00] INFO 2020 startup picks: relabeled Year='startup' on 152 rows
+[2026-07-21T19:31:11.051262+00:00] INFO bolded comment verbs in cell history popups
+[2026-07-21T19:31:11.605371+00:00] ===== Build end =====
+[2026-07-21T19:31:14.045357+00:00] INFO data-quality sanity: 0 ERROR, 0 WARN across 0 findings
