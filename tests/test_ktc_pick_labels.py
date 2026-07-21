@@ -17,6 +17,7 @@ Run: python tests/test_ktc_pick_labels.py
 """
 from __future__ import annotations
 
+import re
 import sys
 from datetime import date
 from pathlib import Path
@@ -132,8 +133,44 @@ def test_never_substitutes_an_already_drafted_class():
     assert asset_value_at("2025 3.??", None, date(2026, 7, 21), idx) is None
 
 
+# --------------------------------------------------------------------------
+# The draft anchor must come from _draft_anchor everywhere, not a hardcode.
+# --------------------------------------------------------------------------
+
+def test_no_stray_aug28_draft_anchors():
+    """Only the _draft_anchor fallback may hardcode Aug 28.
+
+    The anchor was originally written as a literal `date(_yr, 8, 28)` in five
+    separate places (tenure, post-draft PPG, age when drafted, the KTC
+    checkpoints, the tz-aware tenure event). When it became dynamic, a
+    search-and-replace caught the ones assigning `_draft_iso` and MISSED the
+    rest — so `Age when drafted` silently kept computing at Aug 28 while every
+    neighbouring stat moved. Nothing failed; the column just stayed wrong.
+
+    Any new hardcode is almost certainly the same mistake, so pin the count.
+    """
+    src = (_ROOT / "src" / "lotg.py").read_text().splitlines()
+    hits = [
+        (i + 1, ln.strip())
+        for i, ln in enumerate(src)
+        if re.search(r"\b8,\s*28\b", ln) or "-08-28" in ln
+    ]
+    # Exactly one survivor: the fallback inside _draft_anchor, for a season with
+    # no draft on record.
+    assert len(hits) == 1, (
+        "unexpected hardcoded Aug-28 draft anchor(s) — use _draft_anchor/"
+        f"_draft_anchor_iso instead:\n" + "\n".join(f"  lotg.py:{n}: {t}" for n, t in hits)
+    )
+    line_no, text = hits[0]
+    assert "_days[0] if _days else" in text, (
+        f"the one permitted Aug-28 literal should be the _draft_anchor fallback, "
+        f"got lotg.py:{line_no}: {text}"
+    )
+
+
 if __name__ == "__main__":
     for fn in (
+        test_no_stray_aug28_draft_anchors,
         test_clean_slot_labels,
         test_parenthetical_rider_matches_clean_form,
         test_bare_round_equals_unknown_slot,
