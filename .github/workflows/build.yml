@@ -255,7 +255,45 @@ jobs:
           fi
           echo "Committing refreshed exports/ — ${reason}."
           git commit -m "Auto-refresh committed exports: ${reason} (run ${{ github.run_number }}) [skip ci]"
-          git push
+
+          # Push, tolerating a main that moved while we were building.
+          #
+          # The build takes ~25 minutes. Anything merged to main in that window
+          # (a PR, another build's export commit) leaves our checkout behind and
+          # a bare `git push` is rejected non-fast-forward. That is not a
+          # cosmetic failure: `set -e` aborts the job at this step, which SKIPS
+          # the weekly digest send below — run 29845119372 (Tue 2026-07-21) lost
+          # that week's email to a PR merging mid-build.
+          #
+          # Reconciliation is deliberately not `pull --rebase`: exports/ is a
+          # 500k-line generated tree and rebasing it invites textual conflicts
+          # with another run's export commit. Instead take origin/main wholesale
+          # (so any source change merged mid-build is preserved) and lay OUR
+          # freshly-built exports/ back on top. The build only ever writes
+          # exports/, so ours-wins there is correct by construction.
+          push_ok=""
+          for attempt in 1 2 3; do
+            if git push; then push_ok=1; break; fi
+            echo "push rejected (attempt ${attempt}/3) — reconciling with origin/main."
+            staging="$(mktemp -d)"
+            cp -a exports "${staging}/exports"
+            git fetch origin main
+            git reset -q --hard origin/main
+            rm -rf exports
+            cp -a "${staging}/exports" exports
+            rm -rf "${staging}"
+            git add exports
+            if git diff --cached --quiet; then
+              echo "exports/ identical to the new origin/main; nothing left to push."
+              push_ok=1
+              break
+            fi
+            git commit -m "Auto-refresh committed exports: ${reason} (run ${{ github.run_number }}) [skip ci]"
+          done
+          if [ -z "${push_ok}" ]; then
+            echo "::error::could not push refreshed exports after 3 attempts"
+            exit 1
+          fi
 
       - name: Send weekly digest email (Tuesday send run only)
         # Mails exports/raw/weekly_digest.html to config/digest.yaml recipients.
