@@ -112,7 +112,6 @@
     "st_ff": 0.0
   },
   "last_message_id": "1192931316498804736",
-  "draft_id": "1048362220767301633",
   "last_author_avatar": "5380fd4a6e4f3624b30b2297b7e77410",
   "last_author_display_name": "AceMatthew",
   "last_author_id": "620863288632233984",
@@ -122,10 +121,9 @@
   "last_message_time": 1738779498746,
   "last_pinned_message_id": "1134547500859265024",
   "last_read_id": null,
+  "draft_id": "1048362220767301633",
   "league_id": "1048362220767301632",
   "previous_league_id": "918536682830471168",
-  "bracket_id": 1175028015319519232,
-  "bracket_overrides_id": null,
   "roster_positions": [
     "QB",
     "RB",
@@ -154,6 +152,8 @@
     "BN",
     "BN"
   ],
+  "bracket_id": 1175028015319519232,
+  "bracket_overrides_id": null,
   "group_id": null,
   "loser_bracket_id": 1175028015323713536,
   "loser_bracket_overrides_id": null,
