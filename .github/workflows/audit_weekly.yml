@@ -1,0 +1,62 @@
+name: Weekly audit
+
+# Phase 14 — unattended weekly sanity sweep over the committed build outputs.
+# NOT a build gate: the build workflow already runs the test suite. This runs on
+# its own cron, a day after the Tuesday build has committed refreshed exports/
+# (and after the nflverse weekly feed has settled), and only has to *surface*
+# three failure modes so a red run + GitHub's "scheduled workflow failed" email
+# reach the owner:
+#   1. UNEXPECTED DIFFS — a completed-season row changed vs the previous build.
+#   2. SCHEMA BREAKS    — a sheet lost / renamed a pinned column.
+#   3. BUILD ERRORS     — non-transient, non-current-season errors in the log.
+# See scripts/audit_weekly.py for the full rationale.
+on:
+  schedule:
+    - cron: "0 15 * * 3"   # Wednesday 15:00 UTC (~11:00 ET), after Tue build + nflverse
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo (full history for the diff baseline)
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Setup Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+
+      - name: Install minimal deps
+        run: pip install --no-cache-dir pandas
+
+      - name: Materialise the previous committed exports (Part 1 baseline)
+        # For each season-scoped sheet, extract the version from the commit BEFORE
+        # the one that most recently changed it — i.e. the previous weekly refresh.
+        # Diffing HEAD's committed CSVs against that shows exactly what the latest
+        # build altered; a changed completed-season row is the red flag.
+        run: |
+          set -euo pipefail
+          BASE="$RUNNER_TEMP/baseline_exports"
+          mkdir -p "$BASE"
+          for f in player_year team_year league_year player_week team_week league_week picks trades transactions; do
+            prev="$(git log --format=%H -- "exports/$f.csv" | sed -n '2p')"
+            if [ -n "$prev" ]; then
+              git show "$prev:exports/$f.csv" > "$BASE/$f.csv" 2>/dev/null || true
+            fi
+          done
+          echo "BASELINE_DIR=$BASE" >> "$GITHUB_ENV"
+          echo "Materialised baseline into $BASE"
+
+      - name: Run the weekly audit
+        env:
+          PYTHONPATH: src:lib
+        run: |
+          python scripts/audit_weekly.py \
+            --current exports \
+            --baseline "$BASELINE_DIR"

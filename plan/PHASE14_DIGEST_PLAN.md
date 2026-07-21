@@ -187,10 +187,34 @@ override it if ever needed. Re-encrypt with `scripts/encrypt_digest_credentials.
 
 Until `DIGEST_KEY` exists the send step logs a skip and the pipeline stays green.
 
+## Weekly automated audit
+
+`scripts/audit_weekly.py` + `.github/workflows/audit_weekly.yml` — an unattended
+Wednesday-15:00-UTC sweep over the **committed** build outputs (a day after the
+Tuesday build commits refreshed `exports/`, after nflverse settles). It is NOT a
+build gate (the build job already runs the test suite); it only has to *surface*
+three failure modes so a red run + GitHub's "scheduled workflow failed" email
+reach the owner. Exit 1 on any confirmed problem; report to stdout + the Actions
+step summary. The three parts:
+
+1. **Unexpected diffs** — completed-season immutability. The workflow materialises
+   the *previous* committed version of each season-scoped sheet from git (the
+   commit before the last one that changed it) and the script diffs full past-
+   season rows (season `< current`); any add / remove / change to a completed
+   season is flagged. Current-season rows churn in-season and are exempt. The
+   in-progress season is read from the played-stat sheets (team_year/week,
+   player_year/week) so future draft years in `picks` don't misread it.
+2. **Schema breaks** — every sheet's columns are pinned in
+   `data/audit/schema_baseline.json`; a missing / renamed / reordered column
+   fails, a new column is noted. Re-pin intentionally with `--update-schema`.
+3. **Build errors** — scans the last `===== Build start =====` segment of
+   `exports/raw/build_debug.log` plus `pytest.log`; transient network blips
+   (403/404/Tunnel/URLError/timeouts) and current-season preseason noise are
+   ignored, real ERROR lines / tracebacks / test failures / a non-zero
+   data-quality sanity count are flagged.
+
 ## Remaining (next sub-PRs)
 
-- [ ] **Weekly automated 3-part audit** workflow (surface UNEXPECTED diffs /
-      schema breaks / non-2026 build errors on a weekly cron).
 - [ ] **Injury-tracker coverage report** (Phase 12 #41) — needs 2026 in-season data.
 - [ ] Review `plan/phase14_phrasing.csv` and prune / reword any stats whose
       change-phrasing isn't wanted (e.g. adjust the rate/cumulative call).
