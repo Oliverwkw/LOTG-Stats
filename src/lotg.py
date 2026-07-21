@@ -10019,7 +10019,7 @@ def build_all(repo_root: Path) -> None:
                         try:
                             _born = dateparser.parse(str(_bd)).date()
                             ph.at[_i, "Age when drafted"] = round(
-                                (date(_yr, 8, 28) - _born).days / 365.25, 2)
+                                (_draft_anchor(_yr) - _born).days / 365.25, 2)
                         except Exception:
                             pass
                     # Post-draft tenure window + per-week roster/start stats.
@@ -10447,7 +10447,7 @@ def build_all(repo_root: Path) -> None:
                 _dpl, _dfinal, _dyear = _drafted
                 if _dfinal != _norm_team_name(team):
                     continue  # pick was flipped before the draft
-                _dstart = f"{_dyear}-08-28"
+                _dstart = _draft_anchor_iso(int(_dyear))
                 _dsid = name_to_sid_local2.get(_dpl)
                 _dend = None
                 if _dsid:
@@ -10581,7 +10581,7 @@ def build_all(repo_root: Path) -> None:
                     continue
                 _dr = _pick_to_drafted.get(_pk)
                 if _dr and _dr[1] == _norm_team_name(team):
-                    _recv_assets.append((_dr[0], f"{_dr[2]}-08-28"))
+                    _recv_assets.append((_dr[0], _draft_anchor_iso(int(_dr[2]))))
             # Position-adjustment factor: scale each weekly point by the per-SEASON
             # normalizer for the YEAR that point was scored (Item 4) — so multi-season
             # trade-of-trades chains use each game's own-era positional baseline.
@@ -12731,7 +12731,8 @@ def build_all(repo_root: Path) -> None:
                     continue
                 # tz-AWARE anchor (other tenure events are offset-aware; a bare
                 # date string parses naive and breaks the start/end comparison).
-                _anchor = datetime(int(_ym.group(1)), 8, 28, tzinfo=timezone.utc).isoformat()
+                _ad = _draft_anchor(int(_ym.group(1)))
+                _anchor = datetime(_ad.year, _ad.month, _ad.day, tzinfo=timezone.utc).isoformat()
                 events.append((str(_pid), _anchor, _tm, "add"))
 
         by_pid: Dict[str, List[Tuple[str, str, str]]] = defaultdict(list)
