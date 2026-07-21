@@ -77,6 +77,46 @@ ID_COLS = {
 
 _MAX_REPORT = 25  # cap per-sheet diff lines so the report stays readable
 
+# Columns whose COMPLETED-SEASON values legitimately move on every rebuild, so
+# comparing them would flag thousands of rows every week and drown the real
+# signal. Measured against a pure rebuild-to-rebuild export pair (runs 435->436,
+# no code change in between): 1,956 past-season rows churn, essentially all of it
+# from the columns below. See plan/AUDIT_PHASE14_3PART.md finding F1.
+#
+#   * "Link to ..."  — row-INDEX references into the transactions sheet. Every
+#     new current-season event shifts the indices, rewriting every historical
+#     row's pointer. Dominates the churn (842 + 795 + 563 + 550 rows on
+#     transactions alone).
+#   * O-Score / skill / Luck / Hardship — percentiles and league-wide baselines
+#     computed over a universe that includes the in-progress season.
+#   * Forward-looking or wall-clock values — a past row's "Date dropped/traded"
+#     fills in when the asset finally moves; tenure counts real elapsed time;
+#     future draft capital re-values as upcoming picks trade.
+#
+# Everything else stays under the immutability check, which is where a genuine
+# historical regression would show up.
+_VOLATILE_SUBSTRINGS = (
+    "link to",
+    "o-score",
+    "skill",                # Drafting / Trading / Transaction skill
+    "length of tenure",
+    "trade impact score",
+    "date dropped/traded",
+)
+_VOLATILE_EXACT = {
+    "Luck", "Hardship", "Starter-adjusted Hardship", "Number of teams",
+    "Tanking", "Future draft capital", "Startup draft players remaining",
+}
+
+
+def is_volatile_column(column: str) -> bool:
+    """True if a completed-season value in this column is expected to drift
+    between builds (so it must not count as a historical-immutability break)."""
+    if column in _VOLATILE_EXACT:
+        return True
+    c = column.lower()
+    return any(s in c for s in _VOLATILE_SUBSTRINGS)
+
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -203,11 +243,20 @@ def audit_diffs(cur: Dict[str, pd.DataFrame], base: Dict[str, pd.DataFrame],
              f"(rows for {current_season} are exempt; earlier seasons must be frozen).")
 
     any_change = False
+    skipped_total = 0
     for name, season_col in SEASON_COL.items():
         c, b = cur.get(name), base.get(name)
         if c is None or b is None or c.empty or b.empty:
             continue
         shared = [col for col in b.columns if col in c.columns]
+        # Drop the columns that legitimately drift between builds (link-index
+        # references, percentiles, league-baseline stats) — comparing them would
+        # flag ~2k historical rows every week. The season column is kept so the
+        # row still identifies itself.
+        volatile = [col for col in shared
+                    if col != season_col and is_volatile_column(col)]
+        skipped_total += len(volatile)
+        shared = [col for col in shared if col not in volatile]
         if not shared:
             continue
         cp = _past_rows(c, season_col, current_season)[shared]
@@ -238,6 +287,11 @@ def audit_diffs(cur: Dict[str, pd.DataFrame], base: Dict[str, pd.DataFrame],
         for tup in list(added.index)[:max(0, _MAX_REPORT - shown)]:
             row = pd.Series(dict(zip(shared, tup)))
             rep.raw(f"    - added:   {_row_key(row, idcols)}")
+    if skipped_total:
+        rep.note(f"{skipped_total} build-volatile column(s) across the sheets are "
+                 "exempt from this check (link-index references, O-Score / skill / "
+                 "Luck / Hardship baselines, tenure & forward-looking values) — "
+                 "they legitimately move on every rebuild.")
     if not any_change:
         rep.ok("No completed-season row changed since the previous build.")
 

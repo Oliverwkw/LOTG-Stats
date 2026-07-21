@@ -2,9 +2,10 @@ name: Send test digest email
 
 # Phase 14: a one-click "test email" button. Go to the repo's Actions tab, pick
 # "Send test digest email" on the left, and click "Run workflow". It sends a
-# small confirmation email to the config/digest.yaml recipients to prove SMTP
-# delivery works — no full build, no season gate. Fails loudly (red X) if the
-# DIGEST_KEY secret is missing so you get clear feedback.
+# confirmation email (delivery banner + a replay of the most recent real digest)
+# to the config/digest.yaml `test_recipients` ONLY — never the whole league — to
+# prove SMTP delivery works. No full build, no season gate. Fails loudly (red X)
+# if the DIGEST_KEY secret is missing so you get clear feedback.
 #
 # NOTE: this button only appears in the Actions UI once this workflow file is on
 # the default branch (main). Merge the PR first, then it shows up.
@@ -29,4 +30,5 @@ jobs:
       - name: Send test email
         env:
           DIGEST_KEY: ${{ secrets.DIGEST_KEY }}
+          DIGEST_TEST_RECIPIENTS: ${{ secrets.DIGEST_TEST_RECIPIENTS }}
         run: python scripts/send_digest.py --test --require

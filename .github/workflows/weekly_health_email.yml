@@ -59,6 +59,7 @@ jobs:
         env:
           PYTHONPATH: src:lib
           DIGEST_KEY: ${{ secrets.DIGEST_KEY }}
+          DIGEST_AUDIT_RECIPIENTS: ${{ secrets.DIGEST_AUDIT_RECIPIENTS }}
         run: |
           python scripts/send_audit_email.py \
             --exports exports \

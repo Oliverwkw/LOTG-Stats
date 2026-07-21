@@ -330,6 +330,15 @@ def check_rate_and_weekly_classification():
                    "Losses from hardship (2-sided)", "Losses from byes"]))
     ok &= _ok("normal counts not weekly-counting",
               not any(D.is_weekly_counting_stat(c) for c in ["Number of donuts", "Points", "Total trades"]))
+    # Audit finding F2: "Most number of X from same NFL team" is a season MAX
+    # capped by roster size, not a running total. Scaling it by weeks-remaining
+    # produced impossible values (6 -> 12.8 at week 8, vs an all-time high of 7)
+    # that always ranked 1st, so it must be carried as-is.
+    ok &= _ok("'Most number of ... from same NFL team' treated as a level, not cumulative",
+              all(D.is_rate_stat(c) for c in
+                  ["Most number of players rostered from same NFL team",
+                   "Most number of QBs started from same NFL team",
+                   "Most number of WR rostered from same NFL team"]))
     return ok
 
 

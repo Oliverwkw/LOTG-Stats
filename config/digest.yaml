@@ -16,6 +16,17 @@
 #
 # `recipients`      — the real in-season Tuesday digest goes to the whole league.
 # `test_recipients` — the "Send test digest email" button goes here only.
+#
+# ⚠️ THIS REPO IS PUBLIC, so the addresses below are published and scrapeable.
+# To keep them out of the repo, set these repo *secrets* — each one overrides the
+# matching list here (comma-separated), after which the YAML list can be emptied:
+#
+#   DIGEST_RECIPIENTS        -> overrides `recipients`
+#   DIGEST_TEST_RECIPIENTS   -> overrides `test_recipients`
+#   DIGEST_AUDIT_RECIPIENTS  -> overrides `audit_recipients`
+#
+# All three workflows already pass them through. Note that removing the
+# addresses from this file does NOT erase them from git history.
 recipients:
   - okeimweiss@gmail.com
   - skeimweiss@gmail.com
