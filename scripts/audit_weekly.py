@@ -111,31 +111,68 @@ def _current_season(cur: Dict[str, pd.DataFrame]) -> Optional[int]:
 
 
 class Report:
-    """Collects findings; a CONFIRMED finding fails the run."""
+    """Collects findings as structured (kind, text, section) entries; a CONFIRMED
+    (`flag`) finding fails the run. Renders to Markdown, and `grouped_flags()`
+    pulls just the confirmed problems (with their detail lines + section) for the
+    weekly health email."""
 
     def __init__(self) -> None:
-        self.lines: List[str] = []
+        self.entries: List[tuple] = []   # (kind, text) with kind in head/ok/note/flag/raw
         self.confirmed = 0
+        self._section = ""
 
     def head(self, text: str) -> None:
-        self.lines.append(f"\n## {text}\n")
+        self._section = text
+        self.entries.append(("head", text))
 
     def ok(self, text: str) -> None:
-        self.lines.append(f"- ✅ {text}")
+        self.entries.append(("ok", text))
 
     def note(self, text: str) -> None:
-        self.lines.append(f"- ℹ️ {text}")
+        self.entries.append(("note", text))
 
     def flag(self, text: str) -> None:
         self.confirmed += 1
-        self.lines.append(f"- ❌ {text}")
+        self.entries.append(("flag", text, self._section))
 
     def raw(self, text: str) -> None:
-        self.lines.append(text)
+        self.entries.append(("raw", text))
 
     def render(self) -> str:
         status = "❌ PROBLEMS FOUND" if self.confirmed else "✅ CLEAN"
-        return f"# Weekly audit — {status} ({self.confirmed} confirmed)\n" + "\n".join(self.lines)
+        marks = {"head": lambda t: f"\n## {t}\n", "ok": lambda t: f"- ✅ {t}",
+                 "note": lambda t: f"- ℹ️ {t}", "flag": lambda t: f"- ❌ {t}",
+                 "raw": lambda t: t}
+        body = "\n".join(marks[e[0]](e[1]) for e in self.entries)
+        return f"# Weekly audit — {status} ({self.confirmed} confirmed)\n" + body
+
+    def grouped_flags(self) -> List[dict]:
+        """[{section, text, details:[...]}] for each confirmed problem — the
+        detail lines are the `raw` entries that immediately follow the flag."""
+        out: List[dict] = []
+        for i, e in enumerate(self.entries):
+            if e[0] != "flag":
+                continue
+            details = []
+            for nxt in self.entries[i + 1:]:
+                if nxt[0] != "raw":
+                    break
+                details.append(nxt[1].strip())
+            out.append({"section": e[2] if len(e) > 2 else "", "text": e[1], "details": details})
+        return out
+
+
+def run_audit(current_dir: Path, baseline_dir: Optional[Path]) -> Report:
+    """Run all three audit parts against a build directory (+ optional git
+    baseline for Part 1) and return the populated Report."""
+    cur = {n: _read(current_dir, n) for n in SHEETS}
+    base = {n: _read(baseline_dir, n) for n in SHEETS} if baseline_dir else {}
+    season = _current_season(cur)
+    rep = Report()
+    audit_diffs(cur, base, season, rep)
+    audit_schema(cur, rep)
+    audit_build_log(current_dir / "raw", season, rep)
+    return rep
 
 
 # ---------------------------------------------------------------------------
@@ -341,16 +378,7 @@ def main(argv=None) -> int:
         print(f"[audit] schema baseline pinned -> {_SCHEMA_BASELINE}")
         return 0
 
-    base = {}
-    if args.baseline:
-        base_dir = Path(args.baseline)
-        base = {n: _read(base_dir, n) for n in SHEETS}
-
-    season = _current_season(cur)
-    rep = Report()
-    audit_diffs(cur, base, season, rep)
-    audit_schema(cur, rep)
-    audit_build_log(current_dir / "raw", season, rep)
+    rep = run_audit(current_dir, Path(args.baseline) if args.baseline else None)
 
     out = rep.render()
     print(out)

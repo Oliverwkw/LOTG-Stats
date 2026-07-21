@@ -187,15 +187,21 @@ override it if ever needed. Re-encrypt with `scripts/encrypt_digest_credentials.
 
 Until `DIGEST_KEY` exists the send step logs a skip and the pipeline stays green.
 
-## Weekly automated audit
+## Second weekly email — dataset-health check (breakages + missed injuries)
 
-`scripts/audit_weekly.py` + `.github/workflows/audit_weekly.yml` — an unattended
-Wednesday-15:00-UTC sweep over the **committed** build outputs (a day after the
-Tuesday build commits refreshed `exports/`, after nflverse settles). It is NOT a
-build gate (the build job already runs the test suite); it only has to *surface*
-three failure modes so a red run + GitHub's "scheduled workflow failed" email
-reach the owner. Exit 1 on any confirmed problem; report to stdout + the Actions
-step summary. The three parts:
+Besides the league-wide Tuesday digest, a **second weekly email** goes **only to
+the maintainer** (`config/digest.yaml` `audit_recipients` = okeimweiss) alerting
+on two things: **dataset breakages** and **missed injuries**. Rendered + sent by
+`scripts/send_audit_email.py`, scheduled by
+`.github/workflows/weekly_health_email.yml` (Wednesday 15:00 UTC, a day after the
+Tuesday build commits refreshed `exports/`, after nflverse settles). It's a
+**weekly heartbeat** — it sends even on a clean week (a short "✅ all clear"), so
+a silent inbox means the check didn't run, not that nothing's wrong. Uses the
+same `DIGEST_KEY`-encrypted credentials as the digest (safe no-op when absent).
+
+**Dataset breakages** come from the 3-part audit engine (`scripts/audit_weekly.py`,
+also runnable standalone — it prints a Markdown report and exits non-zero on any
+confirmed problem):
 
 1. **Unexpected diffs** — completed-season immutability. The workflow materialises
    the *previous* committed version of each season-scoped sheet from git (the
@@ -213,20 +219,19 @@ step summary. The three parts:
    ignored, real ERROR lines / tracebacks / test failures / a non-zero
    data-quality sanity count are flagged.
 
-## Injury-tracker coverage report
-
-`scripts/injury_coverage.py` — reports how well the in-house weekly Sleeper
-injury tracker (`data/injury_tracker.csv`, the build's primary injury/suspension
-source) is covering the played weeks. Three sections: **capture health** (per
-captured week, the injury / suspension / bye / healthy breakdown of snapshotted
-players), **week gaps** (in-season weeks that were played per `team_week` but
-have no tracker capture — meaning the Monday capture job missed them and the
-build silently fell back to the lagging nflverse feed), and a **build
+**Missed injuries** come from `scripts/injury_coverage.py`, which reports how well
+the in-house weekly Sleeper injury tracker (`data/injury_tracker.csv`, the build's
+primary injury/suspension source) covers the played weeks. Three sections:
+**capture health** (per captured week, the injury / suspension / bye / healthy
+breakdown of snapshotted players), **week gaps** (in-season weeks that were played
+per `team_week` but have no tracker capture — the Monday capture job missed them
+and the build silently fell back to the lagging nflverse feed), and a **build
 cross-check** (per week, how many `player_week` rows the build flagged
-Injury?/Suspension?/Bye?). Wired into `build.yml` as a non-gating step that
-writes `exports/raw/injury_coverage.md` (committed with the build, downloadable).
-The tracker starts empty (first capture 2026 week 1), so the report cleanly says
-"no captures yet" until the season begins and becomes populated from there.
+Injury?/Suspension?/Bye?). The **week gaps** are the "missed injuries" surfaced in
+the health email; the full report is also written to `exports/raw/injury_coverage.md`
+by a non-gating `build.yml` step (committed with the build, downloadable). The
+tracker starts empty (first capture 2026 week 1), so it cleanly reads "no captures
+yet" until the season begins and becomes populated from there.
 
 ## Remaining (next sub-PRs)
 
