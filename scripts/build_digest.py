@@ -120,11 +120,20 @@ def main(argv=None) -> int:
     )
     events = D.season_event_highlights(frames, meta["season"]) if meta["season"] else []
     current["event_keys"] = D.event_key_map(events)
+    # Two-sided (zero-centered) extremes: matchup margins this week + trade
+    # differentials this season, ranked by |value| with both sides named.
+    week_no = D.latest_completed_week(frames["team_week"], meta["season"]) if meta["season"] else None
+    paired = []
+    if meta["season"] and week_no:
+        paired += D.matchup_highlights(frames["team_week"], meta["season"], week_no)
+        paired += D.season_paired_highlights(frames, meta["season"])
+    current["paired_keys"] = D.paired_key_map(paired)
 
     prior = D.load_snapshot(snap_path)
     if prior is None:
         print("[digest] no prior snapshot — baselining this week (no diff yet).")
         crossings, proj_changes, milestones, record_changes, event_changes = [], [], [], [], []
+        paired_changes = []
     else:
         crossings = D.diff_snapshots(prior, current)
         milestones = D.milestone_crossings(
@@ -149,13 +158,21 @@ def main(argv=None) -> int:
             event_changes = []
         else:
             event_changes = D.diff_events(prior_events, events)
+        prior_paired = prior.get("paired_keys")
+        if prior_paired is None:
+            print("[digest] baselining two-sided extremes this week (no diff yet).")
+            paired_changes = []
+        else:
+            paired_changes = D.diff_paired(prior_paired, paired)
 
     html = D.render_digest_html(crossings, proj_changes, meta, milestones,
-                                record_changes, highlights, events=event_changes)
+                                record_changes, highlights, events=event_changes,
+                                paired=paired_changes)
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(html)
     print(f"[digest] {len(highlights)} single-week highlight(s), {len(crossings)} crossing(s), "
           f"{len(record_changes)} record(s), {len(event_changes)} event(s), "
+          f"{len(paired_changes)} two-sided extreme(s), "
           f"{len(milestones)} milestone(s), {len(proj_changes)} on-pace change(s) -> {out_path}")
 
     D.save_snapshot(snap_path, current)

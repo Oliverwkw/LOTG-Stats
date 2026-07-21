@@ -22,9 +22,17 @@ email to diff against, and derived all-time/year rollups can't be reconstructed
 for a single past week from final exports. During the season the test button
 replays the last real weekly email, which is complete.
 
-Remaining: **zero-centered stats** (margin, KTC/age differentials) should rank by
-absolute value and name both sides ("the matchup between X and Y had the 3rd-
-smallest margin ever") — not yet implemented.
+**Zero-centered / two-sided stats** (a matchup's margin is +M / −M; a trade's
+KTC or age differential is +X / −X) are detected from the data — a column whose
+paired rows hold mirror values — and handled specially: ranked by **absolute
+value** (biggest blowout / closest game; most lopsided / most even trade) with
+**both sides named in one row** ("the matchup between X and Y had the 3rd-
+smallest margin of all time"). These are pulled out of the ordinary single-week
+and event highlights so a two-sided stat never double-reports its mirror rows.
+The seven such columns today: team_week `Margin` + `Difference in pregame avg max
+PF from opponent`, and trades `Asset difference in average age` + the four `KTC
+value difference …` columns. Like everything else they're diffed week over week
+(`paired_keys` in the snapshot), so only newly-notable pairs fire.
 
 ## Behaviour
 
@@ -141,7 +149,8 @@ carries on-pace data baselines silently.
 - `config/digest.yaml` — recipients (`okeimweiss@gmail.com`, extensible) +
   non-secret sender settings.
 - `plan/phase14_phrasing.csv` — the "how every stat is phrased if it changes"
-  catalog (431 stats: sheet, scope, scale, rise/fall phrasing). Regenerate with
+  catalog (779 stats: sheet, scope, scale, rise/fall phrasing, incl. two-sided
+  extremes). Regenerate with
   `build_digest.py --phrasing-csv`.
 - `tests/test_digest.py` — discovery, both-end crossings, small-board window cap,
   week-3 gate, projection ranking (cumulative vs rate), pace-diff, phrasing,

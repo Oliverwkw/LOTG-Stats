@@ -235,6 +235,40 @@ def check_event_highlights():
     return ok
 
 
+def check_paired_two_sided():
+    # A matchup's margin is +M / -M for the two teams: one two-sided stat, not
+    # two records. two_sided_columns detects it from the mirror rows; paired
+    # highlights rank by |value| and name both sides in one row.
+    tw = pd.DataFrame({
+        "Team":     ["A", "B", "C", "D", "E", "F", "G", "H", "A", "C"],
+        "Opponent": ["B", "A", "D", "C", "F", "E", "H", "G", "C", "A"],
+        "Year":     [2025] * 8 + [2024, 2024],
+        "Week":     [1, 1, 1, 1, 2, 2, 2, 2, 1, 1],
+        # Margin mirrors within each matchup; PF does NOT (not two-sided).
+        "Margin":   [30, -30, 5, -5, 50, -50, 2, -2, 10, -10],
+        "PF":       [120, 90, 100, 95, 140, 90, 101, 99, 110, 100],
+    })
+    cols = D.two_sided_columns(tw, "Team", "Opponent", ["Year", "Week"])
+    ok = _ok("margin detected two-sided", "Margin" in cols, f"got {cols}")
+    ok &= _ok("PF not detected two-sided", "PF" not in cols, f"got {cols}")
+    # This week (2025 w2) has the biggest blowout (|50|) and the closest game (|2|).
+    mh = D.matchup_highlights(tw, 2025, 2, window=3)
+    got = [(p.a, p.b, p.end, p.rank) for p in mh]
+    ok &= _ok("blowout E/F flagged largest",
+              ("E", "F", "high", 1) in got or ("F", "E", "high", 1) in got, f"got {got}")
+    ok &= _ok("nailbiter G/H flagged smallest",
+              ("G", "H", "low", 1) in got or ("H", "G", "low", 1) in got, f"got {got}")
+    ok &= _ok("one row per matchup (deduped)", len(mh) == len({tuple(sorted([p.a, p.b])) + (p.column, p.end) for p in mh}))
+    ok &= _ok("sentence names both sides",
+              any("between" in p.sentence() and "margin" in p.sentence().lower() for p in mh))
+    # diff: an already-reported pair is suppressed; a new one fires.
+    prior = D.paired_key_map([p for p in mh if p.end == "high"])
+    changed = D.diff_paired(prior, mh)
+    ok &= _ok("prior paired suppressed, new kept",
+              all(p.end != "high" for p in changed) and any(p.end == "low" for p in changed))
+    return ok
+
+
 def check_replica_minimal():
     # The offseason seed is intentionally minimal: champion + a note, no
     # reconstructed change sections (those need a prior email's snapshot).
@@ -364,6 +398,7 @@ def run_all() -> bool:
         check_weekly_highlights,
 
         check_event_highlights,
+        check_paired_two_sided,
         check_replica_minimal,
         check_league_window,
         check_league_milestones,
