@@ -32,6 +32,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import urllib.request
 from datetime import date, datetime, timedelta
 from pathlib import Path
@@ -234,14 +235,26 @@ def pick_label_candidates(asset: str, teams: int = _TEAMS) -> List[str]:
     pick full_name candidates, mapping by OVERALL draft position onto KTC's 12-team
     Early/Mid/Late quarters. A specific slot -> the one quarter it lands in; an
     unknown slot ('??') -> every quarter the round spans (caller averages them, e.g.
-    a 3rd-round pick covers overall 17-24 = Mid 2nd + Late 2nd)."""
-    parts = asset.strip().split()
-    if len(parts) != 2:
+    a 3rd-round pick covers overall 17-24 = Mid 2nd + Late 2nd).
+
+    Defensive on the input shape: display labels carry a parenthetical rider
+    naming the player or original owner ('2026 3.05(T. Hurst)', '2027 4(LWebs53)')
+    and a round can arrive bare, with no slot at all ('2027 4'). The live build
+    normalises labels before calling here (see `_pick_val_label`), but callers
+    that pass a display string straight through used to silently get [] — an
+    unvalued asset that reads as N/A rather than an error. Strip the rider and
+    treat a bare round as an unknown slot spanning the whole round."""
+    # Drop any '(...)' rider and anything after it, then keep the leading
+    # '<year> <round>[.<slot>]' tokens.
+    cleaned = re.sub(r"\(.*", " ", str(asset)).strip()
+    parts = cleaned.split()
+    if len(parts) < 2:
         return []
-    year_s, rest = parts
-    if "." not in rest:
-        return []
-    rd_s, slot_s = rest.split(".", 1)
+    year_s, rest = parts[0], parts[1]
+    if "." in rest:
+        rd_s, slot_s = rest.split(".", 1)
+    else:
+        rd_s, slot_s = rest, "??"   # bare round -> unknown slot (whole-round avg)
     try:
         year = int(year_s)
         rd = int(rd_s)
@@ -390,10 +403,59 @@ def build_index(
 # Per-asset query used by the build's KTC pass
 # --------------------------------------------------------------------------
 
-# dynasty-daddy's per-player history floor. From this date on KTC coverage is
-# comprehensive, so a player with NO value at/after it is genuinely unranked
-# (too obscure / out of the league) and worth 0 — not "unknown".
-KTC_FLOOR = date(2021, 4, 16)
+# Earliest date any KTC value exists. From this date on, a player with NO value
+# is genuinely unranked (too obscure / out of the league) and worth 0 — not
+# "unknown".
+#
+# This is 2020-04-01, NOT dynasty-daddy's 2021-04-16. dynasty-daddy is only a
+# mirror and its per-player series starts a year late; keeptradecut.com itself
+# serves daily history from 2020-04-01, for retired players too. Treating the
+# mirror's start as the floor blanked everything before it — the whole 2020
+# season, including the startup draft. `scripts/ktc_direct_backfill.py` pulls
+# the real pre-mirror values from KTC directly into data/ktc_backfill/, so the
+# index has genuine data below the old floor.
+#
+# Caveat: KTC ranked ~500 players in 2020 vs ~1000 today, so a 2020 absence is
+# weaker evidence of worthlessness than a 2024 one. The backfill script covers
+# every player who actually appears in a pre-2021 row, so in practice absence
+# here means KTC never ranked them at all — which is the 0 case, not the
+# unknown case.
+KTC_FLOOR = date(2020, 4, 1)
+
+
+def _furthest_listed_pick_value(
+    asset_label: str,
+    target: date,
+    idx: ValueIndex,
+    max_step_back: int = 8,
+) -> Optional[float]:
+    """Value a pick whose own draft class KTC doesn't list yet.
+
+    Substitutes the FURTHEST-out class that is actually quoted at `target`,
+    keeping the round/quarter. E.g. a 2031 3rd valued in 2026, when KTC's most
+    distant listed class is 2029, is priced as a 2029 3rd. Returns None if no
+    year in range has a quote (nothing to anchor to).
+    """
+    m = re.match(r"\s*(\d{4})\s+(.*)$", str(asset_label))
+    if not m:
+        return None
+    try:
+        want_year = int(m.group(1))
+    except Exception:
+        return None
+    rest = m.group(2)
+    # Step DOWN from the requested year: the first year with a live quote is by
+    # construction the furthest-out class KTC prices at this date.
+    for step in range(1, max_step_back + 1):
+        yr = want_year - step
+        if yr < target.year:
+            break          # never substitute a class already drafted
+        cands = pick_label_candidates(f"{yr} {rest}")
+        vals = [idx.value_at(c, target, is_pick=True) for c in cands]
+        vals = [v for v in vals if v is not None]
+        if vals:
+            return sum(vals) / len(vals)
+    return None
 
 
 def asset_value_at(
@@ -414,7 +476,17 @@ def asset_value_at(
         candidates = pick_label_candidates(asset_label)
         vals = [idx.value_at(c, target, is_pick=True) for c in candidates]
         vals = [v for v in vals if v is not None]
-        return sum(vals) / len(vals) if vals else None
+        if vals:
+            return sum(vals) / len(vals)
+        # KTC only lists a draft class from roughly three years out (2026 picks
+        # first appear 2023-09-08, 2027 from 2024-08-31, 2028 from 2025-08-15).
+        # A pick further out than that has no quote of its own yet, but it is not
+        # valueless — the league trades it, and its worth tracks the most distant
+        # class KTC *does* price. Walk the year back toward `target` and use the
+        # furthest-out class that has a quote, holding the same round/quarter.
+        # Once the pick's own year starts being listed, the exact match above
+        # wins and this fallback stops firing.
+        return _furthest_listed_pick_value(asset_label, target, idx)
 
     # Player path
     if not sleeper_id:
