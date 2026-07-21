@@ -8771,15 +8771,26 @@ def build_all(repo_root: Path) -> None:
             faab: float = 0.0,
         ) -> List[float]:
             """Per-asset KTC values on one side (for the package-tax diff). FAAB
-            dollars are valued at the league-wide avg KTC-per-$ (Fix 3)."""
+            dollars are valued at the league-wide avg KTC-per-$ (Fix 3).
+
+            A KTC value of 0 is KEPT. It means the asset is genuinely worthless
+            at this date (retired, off KTC's rolls) — which is knowledge, not
+            absence of it. Dropping zeros made a side whose assets had all gone
+            to 0 indistinguishable from a side nothing could be priced on, so
+            `_diff_at` called it unknown and blanked the row: a trade of Kerryon
+            Johnson (0 by 2022) for Alexander Mattison (2546) read N/A instead
+            of +2546. Only an UNRESOLVED asset (None) means unknown now.
+
+            Keeping zeros is inert for the depth tax — they sort last and every
+            0 * factor**i is still 0 — so no existing value moves."""
             out: List[float] = []
             for sid in player_ids:
                 v = asset_value_at(None, str(sid), target, idx)
-                if v is not None and v > 0:
+                if v is not None:
                     out.append(float(v))
             for plabel in pick_labels:
                 v = asset_value_at(str(plabel), None, target, idx)
-                if v is not None and v > 0:
+                if v is not None:
                     out.append(float(v))
             if faab and faab > 0 and _ktc_per_faab > 0:
                 out.append(float(faab) * _ktc_per_faab)
