@@ -91,6 +91,12 @@ _RATE_MARKERS = (
     "age", "variance", "differential", "boom", "bust", "quartile",
     "middle 50", "range", "diff", "streak", "remaining", "rate",
     "highest starter", "lowest starter", "playoff tiebreaker",
+    # "Most number of {players,QBs,RBs,WRs,TE} {rostered,started} from same NFL
+    # team" is a season MAX, not a running total — it's capped by roster size, so
+    # scaling it by weeks-remaining produces impossible values that always rank
+    # 1st (6 -> 12.8 at week 8, vs an all-time high of 7). See F2 in
+    # plan/AUDIT_PHASE14_3PART.md.
+    "most number of",
 )
 
 
