@@ -129,25 +129,24 @@ def check_projection_gate_scale_and_weekly_exclusion():
     return ok
 
 
-def check_boolean_flags_excluded_from_pace():
-    # Per-season 0/1 flag (e.g. #363 "Rostered by champion?") must not project.
-    seasons = [2020, 2021, 2022, 2023, 2024, 2025, 2026]
+def check_tie_skip_in_pace():
+    # The ONLY exclusion is the >5-tied rule: a value shared by >5 entity-seasons
+    # is skipped (that's how 0/1 flags and flat stats fall out). Everything else
+    # is included.
+    seasons = list(range(2019, 2027))  # 8 seasons
     py = pd.DataFrame({
-        "Player": ["A"] * 7, "Year": seasons,
-        "Points": [100, 200, 150, 180, 190, 210, 90.0],   # normal -> projects
-        "Rostered by champion?": [0, 1, 0, 0, 1, 0, 0],    # boolean -> excluded
+        "Player": ["A"] * 8, "Year": seasons,
+        "Win %": [0.5] * 8,                                   # rate, all tied (8>5) -> skipped
+        "Points": [100, 110, 120, 130, 140, 150, 160, 80.0],  # distinct -> included
     })
-    empty = pd.DataFrame({"Team": [], "Year": []})
     ly = pd.DataFrame({"Year": []})
     yrs = [y for y in seasons[:-1] for _ in range(14)] + [2026] * 7
     wk = [w for _ in seasons[:-1] for w in range(1, 15)] + list(range(1, 8))
     tw = pd.DataFrame({"Year": yrs, "Week": wk})
     ty = pd.DataFrame({"Team": ["A"], "Year": [2026]})
-    proj = D.project_on_pace(py, ty, ly, tw)
-    cols = {p.column for p in proj}
-    ok = _ok("boolean season flag excluded from on-pace", "Rostered by champion?" not in cols)
-    ok &= _ok("normal player stat still projects", "Points" in cols, f"got {sorted(cols)}")
-    ok &= _ok("_is_boolean detects 0/1 only", D._is_boolean([0.0, 1.0, 0.0]) and not D._is_boolean([0.0, 2.0]))
+    cols = {p.column for p in D.project_on_pace(py, ty, ly, tw)}
+    ok = _ok(">5-tied value (Win% all 0.5) skipped", "Win %" not in cols, f"got {sorted(cols)}")
+    ok &= _ok("distinct stat still projects", "Points" in cols)
     return ok
 
 
@@ -188,7 +187,6 @@ def check_weekly_highlights():
         "Year": [2025, 2025, 2025, 2025, 2026, 2026],
         "Week": [1, 1, 2, 2, 1, 1],
         "PF": [100, 110, 120, 90, 200, 95.0],      # A 2026-wk1 = 200 = best ever
-        "Highest score?": [0, 1, 1, 0, 1, 0],       # boolean -> skipped
     })
     ty = pd.DataFrame({"Team": ["A", "B"], "Year": [2026, 2026]})
     pw = pd.DataFrame({"Player": [], "Year": [], "Week": []})
@@ -197,7 +195,6 @@ def check_weekly_highlights():
     got = [(h.entity, h.column, h.end, h.rank) for h in hl]
     ok = _ok("A's 200 is 1st-highest single week ever", ("A", "PF", "high", 1) in got, f"got {got}")
     ok &= _ok("B's 95 is 2nd-lowest single week ever (both ends work)", ("B", "PF", "low", 2) in got)
-    ok &= _ok("boolean weekly flag skipped", not any(h.column == "Highest score?" for h in hl))
     ok &= _ok("sentence reads as single-week record",
               any("single week ever" in h.sentence() for h in hl))
     # Tie cap: a value shared by >5 week-rows is skipped on either end.
@@ -213,26 +210,6 @@ def check_weekly_highlights():
     ty0 = pd.DataFrame({"Team": ["A"], "Year": [2027]})
     ok &= _ok("no highlights when current season has no weeks",
               D.weekly_highlights(pw, tw, lw, ty0) == [])
-    return ok
-
-
-def check_final_rankings():
-    py = pd.DataFrame({
-        "Player": ["A", "B", "A", "B", "A", "B"],
-        "Year": [2023, 2023, 2024, 2024, 2025, 2025],
-        "Points": [100, 90, 110, 80, 200, 70.0],          # A-2025=200 best, B-2025=70 worst
-        "Times as Captain?": [1, 2, 1, 1, 3, 1],           # weekly-counting -> excluded
-    })
-    ty = pd.DataFrame({"Team": [], "Year": []})
-    ly = pd.DataFrame({"Year": []})
-    fr = D.final_rankings(py, ty, ly, 2025, window=3)
-    got = {(p.entity, p.column, p.end, p.rank) for p in fr}
-    ok = _ok("A's 200 = 1st-highest Points of any season", ("A", "Points", "high", 1) in got, f"got {got}")
-    ok &= _ok("B's 70 = 1st-lowest of any season", ("B", "Points", "low", 1) in got)
-    ok &= _ok("phrasing says 'finished' + 'of any season'",
-              any("finished" in p.sentence() and "of any season" in p.sentence() for p in fr))
-    ok &= _ok("weekly-counting excluded from final rankings",
-              not any(p.column == "Times as Captain?" for p in fr))
     return ok
 
 
@@ -258,34 +235,18 @@ def check_event_highlights():
     return ok
 
 
-def check_replica_and_weekly_filters():
-    tw = pd.DataFrame({
-        "Team": ["A"] * 3 + ["B"] * 3 + ["A"] * 3 + ["B"] * 3,
-        "Year": [2024] * 6 + [2025] * 6,
-        "Week": [1, 2, 3] * 4,
-        "PF": [100, 50, 200, 90, 80, 70, 60, 300, 40, 55, 65, 75.0],       # single-week
-        "Tenure": [1, 2, 3, 1, 2, 3, 4, 5, 6, 4, 5, 6.0],                   # cumulative
-        "SeasonTot": ["In Progress", "In Progress", 500, "In Progress", "In Progress", 400,
-                      "In Progress", "In Progress", 600, "In Progress", "In Progress", 450],
-    })
+def check_replica_minimal():
+    # The offseason seed is intentionally minimal: champion + a note, no
+    # reconstructed change sections (those need a prior email's snapshot).
+    tw = pd.DataFrame({"Team": ["A", "B"] * 3, "Year": [2025] * 6, "Week": [1, 1, 2, 2, 3, 3]})
     ty = pd.DataFrame({"Team": ["A", "B"], "Year": [2025, 2025], "Result": ["Champion", "2nd"]})
-    empty_pw = pd.DataFrame({"Player": [], "Year": [], "Week": []})
-    empty_lw = pd.DataFrame({"Year": [], "Week": []})
-
+    frames = {"team_week": tw, "team_year": ty}
+    html = D.build_replica_html(frames)
     ok = _ok("latest completed (season, week)", D.latest_completed_season_week(tw) == (2025, 3))
     ok &= _ok("champion resolved", D._champion_of(ty, 2025) == "A")
-    hl = D.weekly_highlights(empty_pw, tw, empty_lw, ty)
-    cols = {h.column for h in hl}
-    ok &= _ok("single-week PF kept", "PF" in cols, f"got {cols}")
-    ok &= _ok("cumulative (monotonic) column dropped", "Tenure" not in cols)
-    ok &= _ok("season-summary (In Progress) column dropped", "SeasonTot" not in cols)
-
-    frames = {"team_week": tw, "team_year": ty, "player_year": pd.DataFrame({"Player": [], "Year": []}),
-              "league_year": pd.DataFrame({"Year": []}), "player_week": empty_pw, "league_week": empty_lw}
-    html = D.build_replica_html(frames)
     ok &= _ok("replica names the champion", "A won the 2025 championship" in html)
-    ok &= _ok("replica has a single-week record", "single week ever" in html)
-    ok &= _ok("replica header is a season wrap", "season wrap" in html)
+    ok &= _ok("replica is minimal (no change sections)",
+              "single week ever" not in html and "on pace" not in html and "all-time" not in html.lower())
     return ok
 
 
@@ -398,12 +359,12 @@ def run_all() -> bool:
         check_new_entity_no_false_pass,
         check_in_season_gate,
         check_projection_gate_scale_and_weekly_exclusion,
-        check_boolean_flags_excluded_from_pace,
+        check_tie_skip_in_pace,
         check_yearly_records_for_weekly_stats,
         check_weekly_highlights,
-        check_final_rankings,
+
         check_event_highlights,
-        check_replica_and_weekly_filters,
+        check_replica_minimal,
         check_league_window,
         check_league_milestones,
         check_pace_diff_reports_only_changes,

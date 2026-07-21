@@ -1,7 +1,30 @@
 # Phase 14 — In-season weekly digest email
 
-Status: **engine + delivery + scheduling landed.** SMTP secrets are the only
-thing left before real emails go out. Weekly automated audit is the next sub-PR.
+Status: **engine + delivery + scheduling landed;** delivery verified end-to-end.
+
+## The model (what a weekly email reports)
+
+For **every** numeric stat across all sheets (~779), the email reports any change
+to that stat's **top-5 or bottom-5** since the previous email. The live in-season
+run does this by snapshotting every ranking each week and diffing the next week —
+no reconstruction. Sheet-specific valuation ("constraints"): all-time sheets rank
+entities by the actual value; year sheets rank the in-progress season by its
+**on-pace** projection (cumulative × weeks; rate as-is); week sheets rank each
+single week; event sheets (picks/trades/transactions) rank each event, and only
+fire when that column's standing changed that week. **The only universal
+exclusions are (a) a value shared by more than 5 entities at the extreme — the
+`>5-tied` rule, which is how 0/1 flags and flat/cumulative columns fall out — and
+(b) single-row `league_all_time` (no ranking → round-number milestones instead).**
+Items are **grouped by entity** ("plehv79 set these single-season records: …").
+
+**Offseason test email is minimal** (champion + a note) — there's no previous
+email to diff against, and derived all-time/year rollups can't be reconstructed
+for a single past week from final exports. During the season the test button
+replays the last real weekly email, which is complete.
+
+Remaining: **zero-centered stats** (margin, KTC/age differentials) should rank by
+absolute value and name both sides ("the matchup between X and Y had the 3rd-
+smallest margin ever") — not yet implemented.
 
 ## Behaviour
 
