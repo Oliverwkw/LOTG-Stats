@@ -269,6 +269,16 @@ def pick_label_candidates(asset: str, teams: int = _TEAMS) -> List[str]:
     # intended Early 2nd, so normalise BOTH forms to round 2, slot 8 here.
     if rd == 209 or (rd == 2 and slot_s in ("09", "9")):
         rd, slot_s = 2, "08"
+    # The 5.0X FAAB-buy picks are valued as a 4.08 everywhere, the same way the
+    # 2.09 is valued as a 2.08 (see the (_R, _S) mapping on the picks sheet).
+    # Real drafts are 4 rounds, so a round 5 is always one of these synthetic
+    # draft-day buys and KTC has no listing for it at all — without the mapping
+    # it resolved to a Late 3rd that does not exist and the asset went unvalued.
+    # Reaches here the same two ways as the 2.09: the sentinel rounds 501-508
+    # (5.01 -> 501, emitted by the trade valuation labeler) and the literal
+    # "5.0N" display slot.
+    if rd == 5 or 500 < rd <= 508:
+        rd, slot_s = 4, "08"
     if slot_s.isdigit():
         first = last = (rd - 1) * teams + int(slot_s)
     else:  # unknown slot -> the whole round's overall range
@@ -389,6 +399,24 @@ def build_index(
     for label in pick_labels:
         for cand in pick_label_candidates(str(label)):
             wanted_pick_names.add(cand)
+        # Also pull the NEARER draft classes for the same round. A pick further
+        # out than KTC lists is priced off the furthest class KTC does quote
+        # (see _furthest_listed_pick_value), and that lookup can only see what
+        # is in this index. Fetching solely the requested year made the answer
+        # depend on which OTHER trades happened to reference a nearer class —
+        # a 2030 4th resolved to a 2028 value or a 2026 one depending on the
+        # rest of the league's trade history. Fetch the whole ladder so the
+        # substitute is a property of the pick, not of unrelated rows.
+        _m = re.match(r"\s*(\d{4})\s+(.*)$", str(label))
+        if _m:
+            try:
+                _y0 = int(_m.group(1))
+            except Exception:
+                _y0 = None
+            if _y0:
+                for _back in range(1, 9):
+                    for cand in pick_label_candidates(f"{_y0 - _back} {_m.group(2)}"):
+                        wanted_pick_names.add(cand)
     for fn in sorted(wanted_pick_names):
         # Use directory mapping if present, else derive the name_id.
         nm = pick_name_to_name_id.get(fn) or _pick_full_name_to_id(fn)
@@ -448,8 +476,13 @@ def _furthest_listed_pick_value(
     # construction the furthest-out class KTC prices at this date.
     for step in range(1, max_step_back + 1):
         yr = want_year - step
-        if yr < target.year:
-            break          # never substitute a class already drafted
+        # Substitute only a class that is still FUTURE at `target`. The
+        # target-year class is excluded on purpose: once its draft runs, those
+        # picks are consumed and their quote stops describing an unexercised
+        # future pick — pricing a 2030 4th off a 2026 4th on 2026 draft day is
+        # not a stale answer, it is a different asset.
+        if yr <= target.year:
+            break
         cands = pick_label_candidates(f"{yr} {rest}")
         vals = [idx.value_at(c, target, is_pick=True) for c in cands]
         vals = [v for v in vals if v is not None]
