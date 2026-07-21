@@ -29,6 +29,11 @@ recipients:
 test_recipients:
   - okeimweiss@gmail.com
 
+# `audit_recipients` — the SECOND weekly email: a private dataset-health check
+# (breakages + missed injuries) to the maintainer only. See send_audit_email.py.
+audit_recipients:
+  - okeimweiss@gmail.com
+
 from_name: "LOTG Stats"
 
 # Defaults suit a Gmail sending account with an app password + 2FA. Override via

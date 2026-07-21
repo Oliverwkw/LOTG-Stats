@@ -1,0 +1,65 @@
+name: Weekly dataset-health email
+
+# Phase 14 — the SECOND weekly email: a private dataset-health check mailed to the
+# maintainer (config/digest.yaml `audit_recipients`, = okeimweiss only). It runs a
+# day after the Tuesday build has committed refreshed exports/ (and after the
+# nflverse weekly feed has settled) and alerts on two things:
+#   * DATASET BREAKAGES — the 3-part weekly audit (scripts/audit_weekly.py):
+#       a completed-season row that changed, a sheet that lost/renamed a pinned
+#       column, or a real (non-transient, non-current-season) build error.
+#   * MISSED INJURIES — played in-season weeks with no capture in the Sleeper
+#       injury tracker (scripts/injury_coverage.py).
+# It's a weekly heartbeat (sends even on a clean week), so a silent inbox means
+# the check didn't run. Needs the DIGEST_KEY secret (same one the digest uses);
+# a safe no-op (logged, green) when it's absent.
+on:
+  schedule:
+    - cron: "0 15 * * 3"   # Wednesday 15:00 UTC (~11:00 ET), after Tue build + nflverse
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  health-email:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo (full history for the diff baseline)
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Setup Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+
+      - name: Install minimal deps
+        run: pip install --no-cache-dir pandas pyyaml
+
+      - name: Materialise the previous committed exports (breakage-diff baseline)
+        # For each season-scoped sheet, extract the version from the commit BEFORE
+        # the one that most recently changed it — i.e. the previous weekly refresh.
+        # Diffing HEAD's committed CSVs against that shows exactly what the latest
+        # build altered; a changed completed-season row is a breakage.
+        run: |
+          set -euo pipefail
+          BASE="$RUNNER_TEMP/baseline_exports"
+          mkdir -p "$BASE"
+          for f in player_year team_year league_year player_week team_week league_week picks trades transactions; do
+            prev="$(git log --format=%H -- "exports/$f.csv" | sed -n '2p')"
+            if [ -n "$prev" ]; then
+              git show "$prev:exports/$f.csv" > "$BASE/$f.csv" 2>/dev/null || true
+            fi
+          done
+          echo "BASELINE_DIR=$BASE" >> "$GITHUB_ENV"
+          echo "Materialised baseline into $BASE"
+
+      - name: Send the weekly dataset-health email
+        env:
+          PYTHONPATH: src:lib
+          DIGEST_KEY: ${{ secrets.DIGEST_KEY }}
+        run: |
+          python scripts/send_audit_email.py \
+            --exports exports \
+            --baseline "$BASELINE_DIR"

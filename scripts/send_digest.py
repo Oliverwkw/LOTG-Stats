@@ -27,50 +27,20 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
-import smtplib
-import ssl
-import subprocess
 import sys
-from email.message import EmailMessage
-from email.utils import formataddr
 from pathlib import Path
 
 import yaml
 
 _ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(_ROOT / "lib"))
+
+from lotg_support import mailer  # noqa: E402
+
 _CREDS_ENC = _ROOT / "config" / "digest_credentials.enc"
 
-
-def _decrypt_credentials(enc_path: Path, key: str):
-    """Decrypt the AES-256 credentials blob with DIGEST_KEY via openssl.
-
-    Mirrors the encryption:
-      openssl enc -aes-256-cbc -pbkdf2 -iter 200000 -salt -base64 -A
-    Returns {"username","password"} or None if anything goes wrong.
-    """
-    try:
-        blob = enc_path.read_text().strip()
-    except OSError:
-        return None
-    try:
-        proc = subprocess.run(
-            ["openssl", "enc", "-d", "-aes-256-cbc", "-pbkdf2", "-iter", "200000",
-             "-base64", "-A", "-pass", "env:DIGEST_KEY"],
-            input=blob, capture_output=True, text=True,
-            env={**os.environ, "DIGEST_KEY": key}, check=False,
-        )
-    except (OSError, ValueError):
-        return None
-    if proc.returncode != 0:
-        return None
-    try:
-        creds = json.loads(proc.stdout)
-    except ValueError:
-        return None
-    if creds.get("username") and creds.get("password"):
-        return creds
-    return None
+# Re-exported so callers / tests keep the historical names.
+_decrypt_credentials = mailer.decrypt_credentials
 
 
 def _recipients_for(cfg: dict, test: bool):
@@ -85,16 +55,7 @@ def _recipients_for(cfg: dict, test: bool):
 
 def _resolve_credentials():
     """(username, password) from env override or the encrypted file, else None."""
-    user = os.environ.get("SMTP_USERNAME")
-    password = os.environ.get("SMTP_PASSWORD")
-    if user and password:
-        return user, password
-    key = os.environ.get("DIGEST_KEY")
-    if key and _CREDS_ENC.exists():
-        creds = _decrypt_credentials(_CREDS_ENC, key)
-        if creds:
-            return creds["username"], creds["password"]
-    return None
+    return mailer.resolve_credentials(_CREDS_ENC)
 
 # Present in the rendered HTML only when there were no crossings/projections.
 _EMPTY_MARKER = "No leaderboard changes this week."
@@ -160,24 +121,9 @@ def main(argv=None) -> int:
     creds = _resolve_credentials()
     if not creds:
         return _bail("no credentials (set DIGEST_KEY, or SMTP_USERNAME/SMTP_PASSWORD) — skipping send.")
-    user, password = creds
 
-    host = os.environ.get("SMTP_HOST", cfg.get("smtp_host", "smtp.gmail.com"))
-    port = int(os.environ.get("SMTP_PORT", cfg.get("smtp_port", 587)))
-
-    msg = EmailMessage()
-    msg["Subject"] = subject
-    msg["From"] = formataddr((cfg.get("from_name", "LOTG Stats"), user))
-    msg["To"] = ", ".join(recipients)
-    msg.set_content("This email is best viewed as HTML.")
-    msg.add_alternative(html, subtype="html")
-
-    print(f"[send] sending digest to {len(recipients)} recipient(s) via {host}:{port}")
-    ctx = ssl.create_default_context()
-    with smtplib.SMTP(host, port) as smtp:
-        smtp.starttls(context=ctx)
-        smtp.login(user, password)
-        smtp.send_message(msg)
+    print(f"[send] sending digest to {len(recipients)} recipient(s).")
+    mailer.send_html(cfg, recipients, subject, html, creds[0], creds[1])
     print("[send] sent.")
     return 0
 

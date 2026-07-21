@@ -152,6 +152,20 @@ jobs:
           pip install --no-cache-dir pytest 2>&1 | tail -n 2
           python -m pytest tests/ -v 2>&1 | tee exports/raw/pytest.log
 
+      - name: Injury-tracker coverage report
+        # Phase 12 #41 / Phase 14: report how well the in-house Sleeper injury
+        # tracker (data/injury_tracker.csv) covers the played weeks — capture
+        # health, played-but-uncaptured week gaps, and a player_week cross-check.
+        # Writes exports/raw/injury_coverage.md (committed with the build, so it's
+        # downloadable). Never fails the build — it's a report. Empty in the
+        # offseason (first capture is 2026 week 1).
+        continue-on-error: true
+        env:
+          PYTHONPATH: src:lib
+        run: |
+          set -o pipefail
+          python scripts/injury_coverage.py --exports exports 2>&1 | tee -a exports/raw/runner.log
+
       - name: Build weekly digest
         # Phase 14: render the digest from the freshly built exports. Self-gates
         # to in-season (skips + leaves the snapshot unrotated in the offseason).
