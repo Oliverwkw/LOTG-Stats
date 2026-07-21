@@ -213,9 +213,23 @@ step summary. The three parts:
    ignored, real ERROR lines / tracebacks / test failures / a non-zero
    data-quality sanity count are flagged.
 
+## Injury-tracker coverage report
+
+`scripts/injury_coverage.py` — reports how well the in-house weekly Sleeper
+injury tracker (`data/injury_tracker.csv`, the build's primary injury/suspension
+source) is covering the played weeks. Three sections: **capture health** (per
+captured week, the injury / suspension / bye / healthy breakdown of snapshotted
+players), **week gaps** (in-season weeks that were played per `team_week` but
+have no tracker capture — meaning the Monday capture job missed them and the
+build silently fell back to the lagging nflverse feed), and a **build
+cross-check** (per week, how many `player_week` rows the build flagged
+Injury?/Suspension?/Bye?). Wired into `build.yml` as a non-gating step that
+writes `exports/raw/injury_coverage.md` (committed with the build, downloadable).
+The tracker starts empty (first capture 2026 week 1), so the report cleanly says
+"no captures yet" until the season begins and becomes populated from there.
+
 ## Remaining (next sub-PRs)
 
-- [ ] **Injury-tracker coverage report** (Phase 12 #41) — needs 2026 in-season data.
 - [ ] Review `plan/phase14_phrasing.csv` and prune / reword any stats whose
       change-phrasing isn't wanted (e.g. adjust the rate/cumulative call).
 - [ ] **3-part audit** once a real in-season build + email round-trip exists.
