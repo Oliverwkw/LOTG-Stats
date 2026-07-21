@@ -187,11 +187,54 @@ override it if ever needed. Re-encrypt with `scripts/encrypt_digest_credentials.
 
 Until `DIGEST_KEY` exists the send step logs a skip and the pipeline stays green.
 
+## Second weekly email — dataset-health check (breakages + missed injuries)
+
+Besides the league-wide Tuesday digest, a **second weekly email** goes **only to
+the maintainer** (`config/digest.yaml` `audit_recipients` = okeimweiss) alerting
+on two things: **dataset breakages** and **missed injuries**. Rendered + sent by
+`scripts/send_audit_email.py`, scheduled by
+`.github/workflows/weekly_health_email.yml` (Wednesday 15:00 UTC, a day after the
+Tuesday build commits refreshed `exports/`, after nflverse settles). It's a
+**weekly heartbeat** — it sends even on a clean week (a short "✅ all clear"), so
+a silent inbox means the check didn't run, not that nothing's wrong. Uses the
+same `DIGEST_KEY`-encrypted credentials as the digest (safe no-op when absent).
+
+**Dataset breakages** come from the 3-part audit engine (`scripts/audit_weekly.py`,
+also runnable standalone — it prints a Markdown report and exits non-zero on any
+confirmed problem):
+
+1. **Unexpected diffs** — completed-season immutability. The workflow materialises
+   the *previous* committed version of each season-scoped sheet from git (the
+   commit before the last one that changed it) and the script diffs full past-
+   season rows (season `< current`); any add / remove / change to a completed
+   season is flagged. Current-season rows churn in-season and are exempt. The
+   in-progress season is read from the played-stat sheets (team_year/week,
+   player_year/week) so future draft years in `picks` don't misread it.
+2. **Schema breaks** — every sheet's columns are pinned in
+   `data/audit/schema_baseline.json`; a missing / renamed / reordered column
+   fails, a new column is noted. Re-pin intentionally with `--update-schema`.
+3. **Build errors** — scans the last `===== Build start =====` segment of
+   `exports/raw/build_debug.log` plus `pytest.log`; transient network blips
+   (403/404/Tunnel/URLError/timeouts) and current-season preseason noise are
+   ignored, real ERROR lines / tracebacks / test failures / a non-zero
+   data-quality sanity count are flagged.
+
+**Missed injuries** come from `scripts/injury_coverage.py`, which reports how well
+the in-house weekly Sleeper injury tracker (`data/injury_tracker.csv`, the build's
+primary injury/suspension source) covers the played weeks. Three sections:
+**capture health** (per captured week, the injury / suspension / bye / healthy
+breakdown of snapshotted players), **week gaps** (in-season weeks that were played
+per `team_week` but have no tracker capture — the Monday capture job missed them
+and the build silently fell back to the lagging nflverse feed), and a **build
+cross-check** (per week, how many `player_week` rows the build flagged
+Injury?/Suspension?/Bye?). The **week gaps** are the "missed injuries" surfaced in
+the health email; the full report is also written to `exports/raw/injury_coverage.md`
+by a non-gating `build.yml` step (committed with the build, downloadable). The
+tracker starts empty (first capture 2026 week 1), so it cleanly reads "no captures
+yet" until the season begins and becomes populated from there.
+
 ## Remaining (next sub-PRs)
 
-- [ ] **Weekly automated 3-part audit** workflow (surface UNEXPECTED diffs /
-      schema breaks / non-2026 build errors on a weekly cron).
-- [ ] **Injury-tracker coverage report** (Phase 12 #41) — needs 2026 in-season data.
 - [ ] Review `plan/phase14_phrasing.csv` and prune / reword any stats whose
       change-phrasing isn't wanted (e.g. adjust the rate/cumulative call).
 - [ ] **3-part audit** once a real in-season build + email round-trip exists.
