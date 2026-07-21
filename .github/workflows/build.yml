@@ -228,7 +228,9 @@ jobs:
         # email diffs against exactly one week ago. The Thursday pregame run
         # rebuilds the snapshot locally but never commits it, leaving the
         # baseline untouched. Separate from the exports commit above (which never
-        # touches data/digest) — one clean weekly rotation.
+        # touches data/digest) — one clean weekly rotation. Also persists the
+        # just-sent digest as data/digest/last_digest.html so the test-email
+        # button always replays the most recent real digest.
         if: ${{ github.ref == 'refs/heads/main' && (github.event.schedule == '0 14 * * 2' || (github.event_name == 'workflow_dispatch' && github.event.inputs.send_email == 'true')) }}
         run: |
           set -euo pipefail
@@ -236,9 +238,14 @@ jobs:
             echo "No digest snapshot (offseason / digest skipped); nothing to rotate."
             exit 0
           fi
+          # Save the just-sent digest as the 'most recent' replay, but only when
+          # it actually had content (an empty 'no changes' digest isn't sent).
+          if [ -f exports/raw/weekly_digest.html ] && ! grep -q "No leaderboard changes this week." exports/raw/weekly_digest.html; then
+            cp exports/raw/weekly_digest.html data/digest/last_digest.html
+          fi
           git config user.name "lotg-digest-bot"
           git config user.email "noreply@anthropic.com"
-          git add data/digest/ranks_snapshot.json
+          git add data/digest/ranks_snapshot.json data/digest/last_digest.html
           if git diff --cached --quiet; then
             echo "Digest snapshot unchanged; nothing to commit."
           else

@@ -260,6 +260,14 @@ class Crossing:
     passed: str
     value: float
 
+    def group(self) -> str:
+        return self.mover
+
+    def detail(self) -> str:
+        end_word = "highest" if self.end == "high" else "lowest"
+        return (f"passes {self.passed} for {_ordinal(self.rank)}-{end_word} "
+                f"{self.column} ({_fmt(self.value)})")
+
     def sentence(self) -> str:
         end_word = "highest" if self.end == "high" else "lowest"
         return (f"{self.mover} passes {self.passed} for "
@@ -347,12 +355,23 @@ class Projection:
     rank: int
     total: int
     projected: float
+    final: bool = False  # season complete -> "finished Nth" instead of "on pace"
+
+    def group(self) -> str:
+        return "The league" if self.section == "league" else self.entity
+
+    def detail(self) -> str:
+        end_word = "highest" if self.end == "high" else "lowest"
+        return f"{_ordinal(self.rank)}-{end_word} {self.column} ({_fmt(self.projected)})"
 
     def sentence(self) -> str:
         end_word = "highest" if self.end == "high" else "lowest"
-        who = "The league" if self.section == "league" else self.entity
-        return (f"{who} is on pace for {_ordinal(self.rank)}-{end_word} "
-                f"{self.column} this season ({_fmt(self.projected)}).")
+        val = _fmt(self.projected)
+        if self.final:
+            return (f"{self.group()} finished with the {_ordinal(self.rank)}-{end_word} "
+                    f"{self.column} of any season ({val}).")
+        return (f"{self.group()} is on pace for {_ordinal(self.rank)}-{end_word} "
+                f"{self.column} this season ({val}).")
 
 
 def _is_boolean(values: Sequence[float]) -> bool:
@@ -393,31 +412,38 @@ def _project_frame(
     projections: List[Projection] = []
     for col in cols:
         if is_weekly_counting_stat(col):
-            continue  # awards / result-flip tallies -> no on-pace (see all-time)
+            continue  # awards / result-flip tallies -> actual-value records path
         hist_vals = [v for v in (_to_float(x) for x in hist[col]) if v is not None]
         if len(hist_vals) < window:      # need a meaningful pool to rank against
             continue
-        curr_vals = [v for v in (_to_float(x) for x in curr[col]) if v is not None]
-        if _is_boolean(hist_vals + curr_vals):
-            continue  # per-season 0/1 flags (e.g. "Rostered by champion?") don't
-            #           project — surfaced via their all-time count crossings.
         rate = is_rate_stat(col)
+        # Project each current entity, then rank ALL entity-seasons (history +
+        # this season's projections) together, by DISTINCT value, skipping any
+        # value shared by more than _MAX_HIGHLIGHT_TIES (the only exclusion — this
+        # is how 0/1 flags and heavily-tied stats fall out).
+        proj_by_entity = []
         for _, r in curr.iterrows():
             cur = _to_float(r[col])
             if cur is None:
                 continue
-            projected = cur if rate else cur * scale
-            pool = sorted(hist_vals + [projected], reverse=True)
-            total = len(pool)
-            rank = next(i + 1 for i, v in enumerate(pool) if abs(v - projected) < 1e-9)
-            if rank <= window:
-                end, disp = "high", rank
-            elif rank > total - window:
-                end, disp = "low", total - rank + 1
-            else:
-                continue
             entity = str(r[entity_col]) if entity_col in year_df.columns else str(season)
-            projections.append(Projection(section, entity, col, end, disp, total, projected))
+            proj_by_entity.append((entity, cur if rate else cur * scale))
+        if not proj_by_entity:
+            continue
+        pool = hist_vals + [p for _, p in proj_by_entity]
+        counts = _Counter(pool)
+        high_rank = {v: i + 1 for i, v in enumerate(sorted(counts, reverse=True))}
+        low_rank = {v: i + 1 for i, v in enumerate(sorted(counts))}
+        total = len(pool)
+        for entity, projected in proj_by_entity:
+            if counts[projected] > _MAX_HIGHLIGHT_TIES:
+                continue
+            if high_rank[projected] <= window:
+                projections.append(Projection(section, entity, col, "high",
+                                              high_rank[projected], total, projected))
+            elif low_rank[projected] <= window:
+                projections.append(Projection(section, entity, col, "low",
+                                              low_rank[projected], total, projected))
     return projections
 
 
@@ -498,9 +524,14 @@ class YearlyRecord:
     column: str
     value: float
 
+    def group(self) -> str:
+        return "The league" if self.section == "league" else self.entity
+
+    def detail(self) -> str:
+        return f"{self.column} ({_fmt(self.value)})"
+
     def sentence(self) -> str:
-        who = "The league" if self.section == "league" else self.entity
-        return (f"{who} sets a new single-season record for {self.column} "
+        return (f"{self.group()} sets a new single-season record for {self.column} "
                 f"({_fmt(self.value)}) — most in any season.")
 
 
@@ -523,26 +554,29 @@ def _records_for_frame(section: str, year_df: pd.DataFrame,
         pairs = [(e, v) for e, v in pairs if v is not None]
         if not pairs:
             continue
-        if _is_boolean(hist_vals + [v for _, v in pairs]):
-            continue
         hist_max = max(hist_vals)
         curr_max = max(v for _, v in pairs)
         if curr_max <= hist_max:
             continue  # no new record this season
-        for e, v in pairs:
-            if abs(v - curr_max) < 1e-9:
-                out.append(YearlyRecord(section, e, col, curr_max))
+        holders = [e for e, v in pairs if abs(v - curr_max) < 1e-9]
+        if len(holders) > _MAX_HIGHLIGHT_TIES:
+            continue  # >5 tied for the "record" -> not notable (the >5-tied rule)
+        for e in holders:
+            out.append(YearlyRecord(section, e, col, curr_max))
     return out
 
 
 def yearly_records(player_year: pd.DataFrame, team_year: pd.DataFrame,
                    league_year: pd.DataFrame, team_week: pd.DataFrame,
-                   min_week: int = MIN_YEARLY_WEEK) -> List[YearlyRecord]:
-    """New all-time single-season records set this season by weekly-counting
-    stats. Withheld until `min_week` completed weeks (yearly-withhold rule)."""
-    season = current_season(team_year)
-    if season is None or weeks_completed(team_week, season) < min_week:
-        return []
+                   min_week: int = MIN_YEARLY_WEEK,
+                   season: Optional[int] = None) -> List[YearlyRecord]:
+    """New all-time single-season records set by weekly-counting stats. Defaults
+    to the current season (withheld until `min_week` completed weeks); pass an
+    explicit `season` (e.g. a finished season) to skip the week gate."""
+    if season is None:
+        season = current_season(team_year)
+        if season is None or weeks_completed(team_week, season) < min_week:
+            return []
     out: List[YearlyRecord] = []
     out += _records_for_frame("players", player_year, "Player", season)
     out += _records_for_frame("teams", team_year, "Team", season)
@@ -595,10 +629,16 @@ class WeeklyHighlight:
     rank: int           # among every DISTINCT single-week value on record
     value: float
 
-    def sentence(self) -> str:
-        who = "The league" if self.section == "league" else self.entity
+    def group(self) -> str:
+        return "The league" if self.section == "league" else self.entity
+
+    def detail(self) -> str:
         end_word = "highest" if self.end == "high" else "lowest"
-        return (f"{who}'s {self.column} this week ({_fmt(self.value)}) is the "
+        return f"{self.column} ({_fmt(self.value)}) — {_ordinal(self.rank)}-{end_word} single week ever"
+
+    def sentence(self) -> str:
+        end_word = "highest" if self.end == "high" else "lowest"
+        return (f"{self.group()}'s {self.column} this week ({_fmt(self.value)}) is the "
                 f"{_ordinal(self.rank)}-{end_word} single week ever.")
 
 
@@ -610,8 +650,23 @@ def latest_completed_week(team_week: pd.DataFrame, season: int) -> Optional[int]
     return int(weeks.max()) if len(weeks) else None
 
 
+def latest_completed_season_week(team_week: pd.DataFrame) -> Optional[tuple]:
+    """The most recent completed (season, week) across ALL seasons — i.e. the
+    last week that has games on record (the championship week of the latest
+    finished season in the offseason). Drives the 'most recent digest' replica."""
+    if team_week.empty or "Year" not in team_week.columns:
+        return None
+    years = pd.to_numeric(team_week["Year"], errors="coerce").dropna()
+    if not len(years):
+        return None
+    season = int(years.max())
+    week = latest_completed_week(team_week, season)
+    return (season, week) if week else None
+
+
 def _highlights_for_frame(section: str, wk_df: pd.DataFrame, entity_col: str,
-                          season: int, week: int, window: int) -> List[WeeklyHighlight]:
+                          season: int, week: int, window: int,
+                          skip: Sequence[str] = ()) -> List[WeeklyHighlight]:
     if wk_df.empty or "Year" not in wk_df.columns or "Week" not in wk_df.columns:
         return []
     year = pd.to_numeric(wk_df["Year"], errors="coerce")
@@ -620,14 +675,18 @@ def _highlights_for_frame(section: str, wk_df: pd.DataFrame, entity_col: str,
     if this_week.empty:
         return []
     has_entity = entity_col in wk_df.columns
+
     out: List[WeeklyHighlight] = []
     for col in discover_numeric_columns(wk_df, entity_col):
+        if col in skip:
+            continue  # two-sided (margin, PF gap) — handled by matchup_highlights
         all_vals = [v for v in (_to_float(x) for x in wk_df[col]) if v is not None]
-        if len(all_vals) < window or _is_boolean(all_vals):
+        if len(all_vals) < window:
             continue
         # Both ends (some stats go negative, so "lowest ever" is meaningful).
-        # Rank by DISTINCT value so ties share a rank; skip values shared by more
-        # than _MAX_HIGHLIGHT_TIES week-rows (the 0-piles) on either end.
+        # Rank by DISTINCT value so ties share a rank; the ONLY exclusion is a
+        # value shared by more than _MAX_HIGHLIGHT_TIES rows (that's how booleans
+        # and heavily-tied cumulative extremes fall out — per the >5-tied rule).
         counts = _Counter(all_vals)
         high_rank = {v: i + 1 for i, v in enumerate(sorted(counts, reverse=True))}
         low_rank = {v: i + 1 for i, v in enumerate(sorted(counts))}
@@ -645,20 +704,288 @@ def _highlights_for_frame(section: str, wk_df: pd.DataFrame, entity_col: str,
 
 def weekly_highlights(player_week: pd.DataFrame, team_week: pd.DataFrame,
                       league_week: pd.DataFrame, team_year: pd.DataFrame,
-                      window: int = WINDOW) -> List[WeeklyHighlight]:
-    """Top/bottom-`window` single-week performances in the just-completed week,
-    ranked against every week on record. Empty in the offseason."""
-    season = current_season(team_year)
+                      window: int = WINDOW,
+                      season: Optional[int] = None,
+                      week: Optional[int] = None) -> List[WeeklyHighlight]:
+    """Top/bottom-`window` single-week performances in a completed week, ranked
+    against every week on record. Defaults to the current season's latest week
+    (empty in the offseason); pass explicit season/week for a past week."""
+    if season is None:
+        season = current_season(team_year)
     if season is None:
         return []
-    week = latest_completed_week(team_week, season)
+    if week is None:
+        week = latest_completed_week(team_week, season)
     if not week:
         return []
+    team_skip = two_sided_columns(team_week, "Team", "Opponent", ["Year", "Week"]) \
+        if not team_week.empty and "Opponent" in team_week.columns else []
     out: List[WeeklyHighlight] = []
     out += _highlights_for_frame("players", player_week, "Player", season, week, window)
-    out += _highlights_for_frame("teams", team_week, "Team", season, week, window)
+    out += _highlights_for_frame("teams", team_week, "Team", season, week, window, skip=team_skip)
     out += _highlights_for_frame("league", league_week, "Year", season, week, window)
     return out
+
+
+# ---------------------------------------------------------------------------
+# Event highlights (picks / trades / transactions — event-log sheets)
+# ---------------------------------------------------------------------------
+# These sheets are per-event, not per-entity leaderboards. So we rank each
+# event's value against EVERY event of that kind ever, and surface the top/bottom
+# extremes among a target set of events (a season's, for the wrap; a week's, for
+# the live digest). "The best pick of 2025 (O-Score) — 2nd-highest ever."
+@dataclass
+class EventHighlight:
+    sheet: str          # "picks" | "trades" | "transactions"
+    label: str          # human name of the event (e.g. "2025 pick 1.01 (…)")
+    column: str
+    end: str            # "high" | "low"
+    rank: int
+    value: float
+
+    def group(self) -> str:
+        return self.label
+
+    def detail(self) -> str:
+        end_word = "highest" if self.end == "high" else "lowest"
+        return (f"{self.column} of {_fmt(self.value)} — "
+                f"{_ordinal(self.rank)}-{end_word} of any {self.sheet[:-1]} ever")
+
+    def sentence(self) -> str:
+        end_word = "highest" if self.end == "high" else "lowest"
+        return (f"{self.label}: {self.column} of {_fmt(self.value)} — "
+                f"{_ordinal(self.rank)}-{end_word} of any {self.sheet[:-1]} ever.")
+
+
+def _event_label(sheet: str, row) -> str:
+    def g(c):
+        v = row.get(c) if hasattr(row, "get") else None
+        return "" if v is None or (isinstance(v, float) and math.isnan(v)) else str(v)
+    if sheet == "picks":
+        return f"{g('Year')} pick {g('Number')} ({g('Player Picked')})".strip()
+    if sheet == "trades":
+        return f"{g('Team')}'s {g('Date')} trade".strip()
+    if sheet == "transactions":
+        who = g("Player Added") or g("Player Dropped")
+        return f"{g('Team')}'s move for {who}".strip()
+    return sheet
+
+
+def event_highlights(df: pd.DataFrame, sheet: str, season_col: str,
+                     target_season: int, window: int = WINDOW,
+                     max_ties: int = _MAX_HIGHLIGHT_TIES,
+                     skip: Sequence[str] = ()) -> List[EventHighlight]:
+    """Top/bottom-`window` events (by each numeric column) among `target_season`'s
+    events, ranked against every event of that kind ever. Values shared by more
+    than `max_ties` events are skipped (common values aren't records). Columns in
+    `skip` (two-sided differentials) are handled by paired_highlights instead."""
+    if df is None or df.empty or season_col not in df.columns:
+        return []
+    season_num = pd.to_numeric(df[season_col], errors="coerce")
+    target = df[season_num == target_season]
+    if target.empty:
+        return []
+    out: List[EventHighlight] = []
+    for col in discover_numeric_columns(df, season_col):
+        if col in skip:
+            continue
+        all_vals = [v for v in (_to_float(x) for x in df[col]) if v is not None]
+        if len(all_vals) < window:
+            continue
+        counts = _Counter(all_vals)
+        high_rank = {v: i + 1 for i, v in enumerate(sorted(counts, reverse=True))}
+        low_rank = {v: i + 1 for i, v in enumerate(sorted(counts))}
+        for _, r in target.iterrows():
+            v = _to_float(r[col])
+            if v is None or counts[v] > max_ties:
+                continue
+            if high_rank[v] <= window:
+                out.append(EventHighlight(sheet, _event_label(sheet, r), col, "high", high_rank[v], v))
+            elif low_rank[v] <= window:
+                out.append(EventHighlight(sheet, _event_label(sheet, r), col, "low", low_rank[v], v))
+    return out
+
+
+_TRADE_OPP = "Team's traded with 1"
+_TRADE_IDS = ("Date", "Season")
+
+
+def season_event_highlights(frames: dict, season: int,
+                            window: int = WINDOW) -> List[EventHighlight]:
+    """Event highlights across picks / trades / transactions for one season.
+    Two-sided trade differentials (KTC/age) are excluded here — they're paired
+    up separately by `season_paired_highlights`."""
+    trades = frames.get("trades", pd.DataFrame())
+    trade_skip = two_sided_columns(trades, "Team", _TRADE_OPP, _TRADE_IDS)
+    out: List[EventHighlight] = []
+    out += event_highlights(frames.get("picks", pd.DataFrame()), "picks", "Year", season, window)
+    out += event_highlights(trades, "trades", "Season", season, window, skip=trade_skip)
+    out += event_highlights(frames.get("transactions", pd.DataFrame()), "transactions", "Season", season, window)
+    return out
+
+
+def matchup_highlights(team_week: pd.DataFrame, season: int, week: int,
+                       window: int = WINDOW) -> List[PairedHighlight]:
+    """Two-sided matchup extremes for one completed week (margin, pregame-max-PF
+    gap): each game ranked by |value| against every game ever, both teams named."""
+    if team_week is None or team_week.empty or "Opponent" not in team_week.columns:
+        return []
+    cols = two_sided_columns(team_week, "Team", "Opponent", ["Year", "Week"])
+    if not cols:
+        return []
+    year = pd.to_numeric(team_week["Year"], errors="coerce")
+    wknum = pd.to_numeric(team_week["Week"], errors="coerce")
+    mask = (year == season) & (wknum == week)
+    return paired_highlights(team_week, "Team", "Opponent", ["Year", "Week"],
+                             "matchup", mask, cols, window=window)
+
+
+def season_paired_highlights(frames: dict, season: int,
+                             window: int = WINDOW) -> List[PairedHighlight]:
+    """Two-sided trade extremes for one season (KTC / age differentials), each
+    trade ranked by |value| against every trade ever, both teams named."""
+    trades = frames.get("trades", pd.DataFrame())
+    cols = two_sided_columns(trades, "Team", _TRADE_OPP, _TRADE_IDS)
+    if not cols or trades.empty or "Season" not in trades.columns:
+        return []
+    mask = pd.to_numeric(trades["Season"], errors="coerce") == season
+    return paired_highlights(trades, "Team", _TRADE_OPP, list(_TRADE_IDS),
+                             "trade", mask, cols, window=window)
+
+
+# ---------------------------------------------------------------------------
+# Zero-centered / two-sided stats (margins, KTC & age differentials)
+# ---------------------------------------------------------------------------
+# A two-sided stat is the SAME event seen from both sides: a matchup's margin is
+# +M for the winner and -M for the loser; a trade's net KTC is +X / -X. Ranking
+# the raw value would report the two mirror rows as separate "records", so instead
+# we rank by ABSOLUTE value (biggest blowout / closest game; most lopsided /
+# most even trade) and name BOTH sides in one row.
+@dataclass
+class PairedHighlight:
+    scope: str          # "matchup" | "trade" | "transaction"
+    a: str
+    b: str
+    column: str
+    end: str            # "high" = largest |value|, "low" = smallest |value|
+    rank: int
+    magnitude: float
+
+    def group(self) -> str:
+        return f"The {self.scope} between {self.a} and {self.b}"
+
+    def detail(self) -> str:
+        end_word = "largest" if self.end == "high" else "smallest"
+        return f"{_ordinal(self.rank)}-{end_word} {self.column} ever ({_fmt(self.magnitude)})"
+
+    def sentence(self) -> str:
+        end_word = "largest" if self.end == "high" else "smallest"
+        return (f"The {self.scope} between {self.a} and {self.b} had the "
+                f"{_ordinal(self.rank)}-{end_word} {self.column} of all time "
+                f"({_fmt(self.magnitude)}).")
+
+
+def two_sided_columns(df: pd.DataFrame, entity_col: str, opp_col: str,
+                      id_cols: Sequence[str]) -> List[str]:
+    """Numeric columns that are genuinely two-sided: for most events the pair's
+    two rows hold mirror values (a ≈ -b). Detected from the data, no name list."""
+    if df is None or df.empty or opp_col not in df.columns:
+        return []
+    out: List[str] = []
+    for col in discover_numeric_columns(df, entity_col):
+        groups: Dict[tuple, list] = {}
+        for _, r in df.iterrows():
+            v = _to_float(r[col])
+            if v is None:
+                continue
+            a, b = str(r[entity_col]), str(r.get(opp_col) or "")
+            if not b:
+                continue
+            key = tuple(str(r.get(c, "")) for c in id_cols) + tuple(sorted([a, b]))
+            groups.setdefault(key, []).append(v)
+        mirror = tot = 0
+        for vs in groups.values():
+            if len(vs) != 2:
+                continue
+            mag = max(abs(vs[0]), abs(vs[1]))
+            if mag <= 1e-6:
+                continue  # a 0/0 pair is trivially "mirrored"; not a real two-sided stat
+            tot += 1
+            if abs(vs[0] + vs[1]) <= 1e-6 + 0.01 * mag:
+                mirror += 1
+        if tot >= 3 and mirror / tot >= 0.8:
+            out.append(col)
+    return out
+
+
+def paired_highlights(df: pd.DataFrame, entity_col: str, opp_col: str,
+                      id_cols: Sequence[str], scope: str, target_mask,
+                      cols: Sequence[str], window: int = WINDOW,
+                      max_ties: int = _MAX_HIGHLIGHT_TIES) -> List[PairedHighlight]:
+    """For each two-sided `col`, rank events by |value| (deduping the two mirror
+    rows into one pair) and surface the top/bottom `window` among the target
+    events (this week's matchups / this season's trades)."""
+    if df is None or df.empty or opp_col not in df.columns:
+        return []
+    tgt = target_mask.reindex(df.index, fill_value=False) if hasattr(target_mask, "reindex") else target_mask
+    out: List[PairedHighlight] = []
+    for col in cols:
+        seen = set()
+        rows = []  # (a, b, |value|, in_target)
+        for i, r in df.iterrows():
+            v = _to_float(r[col])
+            if v is None:
+                continue
+            a, b = str(r[entity_col]), str(r.get(opp_col) or "")
+            if not b:
+                continue
+            key = tuple(str(r.get(c, "")) for c in id_cols) + tuple(sorted([a, b]))
+            if key in seen:
+                continue
+            seen.add(key)
+            rows.append((a, b, abs(v), bool(tgt.loc[i]) if hasattr(tgt, "loc") else bool(tgt[i])))
+        if len(rows) < window:
+            continue
+        counts = _Counter(av for _, _, av, _ in rows)
+        high_rank = {v: i + 1 for i, v in enumerate(sorted(counts, reverse=True))}
+        low_rank = {v: i + 1 for i, v in enumerate(sorted(counts))}
+        for a, b, av, in_tgt in rows:
+            if not in_tgt or counts[av] > max_ties:
+                continue
+            if high_rank[av] <= window:
+                out.append(PairedHighlight(scope, a, b, col, "high", high_rank[av], av))
+            elif low_rank[av] <= window:
+                out.append(PairedHighlight(scope, a, b, col, "low", low_rank[av], av))
+    return out
+
+
+def _paired_key(p: PairedHighlight) -> str:
+    ab = "|".join(sorted([p.a, p.b]))
+    return f"{p.scope}|{ab}|{p.column}|{p.end}:{p.rank}"
+
+
+def paired_key_map(pairs: Sequence[PairedHighlight]) -> list:
+    return sorted(_paired_key(p) for p in pairs)
+
+
+def diff_paired(prior_keys, pairs: Sequence[PairedHighlight]) -> List[PairedHighlight]:
+    prior = set(prior_keys or [])
+    return [p for p in pairs if _paired_key(p) not in prior]
+
+
+def _event_key(e: EventHighlight) -> str:
+    return f"{e.sheet}|{e.label}|{e.column}|{e.end}:{e.rank}"
+
+
+def event_key_map(events: Sequence[EventHighlight]) -> list:
+    """Sorted event-highlight keys for the snapshot, so the live digest only
+    re-reports a notable pick/trade/transaction when it's newly notable."""
+    return sorted(_event_key(e) for e in events)
+
+
+def diff_events(prior_keys, events: Sequence[EventHighlight]) -> List[EventHighlight]:
+    prior = set(prior_keys or [])
+    return [e for e in events if _event_key(e) not in prior]
 
 
 # ---------------------------------------------------------------------------
@@ -727,6 +1054,9 @@ def phrasing_catalog(
     player_week: Optional[pd.DataFrame] = None,
     team_week: Optional[pd.DataFrame] = None,
     league_week: Optional[pd.DataFrame] = None,
+    picks: Optional[pd.DataFrame] = None,
+    trades: Optional[pd.DataFrame] = None,
+    transactions: Optional[pd.DataFrame] = None,
 ) -> List[dict]:
     """One row per (sheet, stat) describing exactly how a change is phrased."""
     rows: List[dict] = []
@@ -735,13 +1065,33 @@ def phrasing_catalog(
         rows.append({"sheet": sheet, "stat": stat, "scope": scope, "scale": scale,
                      "phrase_when_rises": rise, "phrase_when_falls": fall})
 
-    def _weekly_rows(sheet, df, entity_col, who):
+    def _paired_add(sheet, col, scope_noun):
+        # Two-sided (zero-centered) stat: ranked by |value|, both sides in one row.
+        _add(sheet, col, "two-sided extreme (top/bottom 5 by |value|, both sides named)", "n/a",
+             f"The {scope_noun} between <A> and <B> had the <N>th-largest {col} of all time (<value>).",
+             f"The {scope_noun} between <A> and <B> had the <N>th-smallest {col} of all time (<value>).")
+
+    def _event_rows(sheet, df, season_col, opp_col=None, id_cols=(), scope_noun=""):
         if df is None or df.empty:
             return
+        singular = sheet[:-1]
+        two_sided = set(two_sided_columns(df, "Team", opp_col, id_cols)) if opp_col else set()
+        for col in discover_numeric_columns(df, season_col):
+            if col in two_sided:
+                _paired_add(sheet, col, scope_noun)
+                continue
+            _add(sheet, col, "event highlight (top/bottom 5 of all such events ever)", "n/a",
+                 f"<event>: {col} of <value> — <N>th-highest of any {singular} ever.",
+                 f"<event>: {col} of <value> — <N>th-lowest of any {singular} ever.")
+
+    def _weekly_rows(sheet, df, entity_col, who, opp_col=None, id_cols=(), scope_noun=""):
+        if df is None or df.empty:
+            return
+        two_sided = set(two_sided_columns(df, entity_col, opp_col, id_cols)) if opp_col else set()
         for col in discover_numeric_columns(df, entity_col):
-            vals = [v for v in (_to_float(x) for x in df[col]) if v is not None]
-            if _is_boolean(vals):
-                continue  # per-week flags -> tallies show via year/all-time
+            if col in two_sided:
+                _paired_add(sheet, col, scope_noun)
+                continue
             _add(sheet, col, "single-week record (top/bottom 5 of all weeks ever)", "n/a",
                  f"{who}'s {col} this week (<value>) is the <N>th-highest single week ever.",
                  f"{who}'s {col} this week (<value>) is the <N>th-lowest single week ever.")
@@ -754,17 +1104,13 @@ def phrasing_catalog(
 
     def _pace_rows(sheet, df, entity_col, who, window_note):
         for col in discover_numeric_columns(df, entity_col, extra_skip=("Year",)):
-            vals = [v for v in (_to_float(x) for x in df[col]) if v is not None]
-            if is_weekly_counting_stat(col) and not _is_boolean(vals):
-                # No on-pace; instead a NEW single-season record alert (actual
-                # value beats the best in any prior season). Also all-time crossing.
+            if is_weekly_counting_stat(col):
+                # Weekly-counting (awards, result-flips) can't be projected, so
+                # they alert when the season's actual value sets a new all-time
+                # single-season record instead.
                 _add(sheet, col, "yearly record (new single-season high, any year)", "n/a",
                      f"{who} sets a new single-season record for {col} (<value>) — most in any season.",
                      "")
-                continue
-            if _is_boolean(vals):
-                _add(sheet, col, "season 0/1 flag (no on-pace; see all-time count)", "n/a",
-                     "(no on-pace line; reported via the all-time count crossing)", "")
                 continue
             scale = "as-is (rate/level)" if is_rate_stat(col) else "scaled by weeks played"
             _add(sheet, col, f"yearly on-pace (from week {MIN_YEARLY_WEEK}; {window_note})", scale,
@@ -782,10 +1128,19 @@ def phrasing_catalog(
     _pace_rows("league_year", league_year, "Year", "The league",
                "top/bottom floor(#seasons/3), capped at 5")
 
-    # Weekly sheets: single-week records ranked across every week ever.
+    # Weekly sheets: single-week records ranked across every week ever. team_week
+    # carries two-sided matchup stats (margin, PF gap) — those phrase as pairs.
     _weekly_rows("player_week", player_week, "Player", "<player>")
-    _weekly_rows("team_week", team_week, "Team", "<team>")
+    _weekly_rows("team_week", team_week, "Team", "<team>",
+                 opp_col="Opponent", id_cols=("Year", "Week"), scope_noun="matchup")
     _weekly_rows("league_week", league_week, "Year", "The league")
+
+    # Event-log sheets: picks / trades / transactions ranked across all events.
+    # trades carry two-sided differentials (KTC / age) — those phrase as pairs.
+    _event_rows("picks", picks, "Year")
+    _event_rows("trades", trades, "Season",
+                opp_col=_TRADE_OPP, id_cols=_TRADE_IDS, scope_noun="trade")
+    _event_rows("transactions", transactions, "Season")
 
     # league_all_time: milestones only (single-row sheet, no leaderboard).
     if league_all_time is not None and not league_all_time.empty:
@@ -819,6 +1174,28 @@ def _section_html(title: str, lines: Sequence[str]) -> str:
     )
 
 
+def _grouped_section_html(title: str, items: Sequence, verb: str) -> str:
+    """Group items by their .group() so one entity's many items read as
+    "<entity> <verb>:" + an indented sub-list, instead of an endless flat list.
+    A group with a single item stays inline (its full .sentence())."""
+    if not items:
+        return ""
+    groups: "Dict[str, list]" = {}
+    for it in items:
+        groups.setdefault(it.group(), []).append(it)
+    lines = []
+    for g, its in groups.items():
+        if len(its) == 1:
+            lines.append(its[0].sentence())
+        else:
+            sub = "".join(
+                f'<li style="margin:0;">{i.detail()}</li>' for i in its)
+            lines.append(
+                f'{g} {verb}:'
+                f'<ul style="margin:2px 0 6px;padding-left:20px;color:#555;">{sub}</ul>')
+    return _section_html(title, lines)
+
+
 def _proj_lines(projections: Sequence[Projection], section: str) -> List[str]:
     return [p.sentence() for p in projections if p.section == section]
 
@@ -830,39 +1207,103 @@ def render_digest_html(
     milestones: Sequence[Milestone] = (),
     records: Sequence[YearlyRecord] = (),
     highlights: Sequence[WeeklyHighlight] = (),
+    header: Optional[str] = None,
+    intro: str = "",
+    events: Sequence[EventHighlight] = (),
+    paired: Sequence["PairedHighlight"] = (),
 ) -> str:
-    player_moves = [c.sentence() for c in crossings if c.section == "players"]
-    team_moves = [c.sentence() for c in crossings if c.section == "teams"]
-    milestone_lines = [m.sentence() for m in milestones]
-    record_lines = [r.sentence() for r in records]
-    hl_lines = [h.sentence() for h in highlights]
+    def sect(sec):
+        return [x for x in projections if x.section == sec]
 
     season = meta.get("season")
     week = meta.get("weeks_completed")
-    header = f"LOTG weekly digest — {season} season, through week {week}"
+    if header is None:
+        header = f"LOTG weekly digest — {season} season, through week {week}"
+
+    # In-season shows projections as "on pace"; a completed-season wrap resolves
+    # them to final results ("finished Nth"), so the heading changes to match.
+    yr_final = any(getattr(p, "final", False) for p in projections)
+    yr_title = "Season-long results" if yr_final else "On pace this season"
+    pace_verb = "finished with the" if yr_final else "on pace for"
 
     body = [
         '<div style="max-width:680px;margin:0 auto;padding:16px;">',
         f'  <h1 style="font:700 22px/1.3 system-ui,sans-serif;'
         f'color:#0b2545;margin:0 0 4px;">{header}</h1>',
-        _section_html("Single-week records (this week)", hl_lines),
-        _section_html("All-time leaderboard moves — players", player_moves),
-        _section_html("All-time leaderboard moves — teams", team_moves),
-        _section_html("New single-season records", record_lines),
-        _section_html("League milestones", milestone_lines),
-        _section_html("On pace this season — players", _proj_lines(projections, "players")),
-        _section_html("On pace this season — teams", _proj_lines(projections, "teams")),
-        _section_html("On pace this season — league", _proj_lines(projections, "league")),
+        (f'  <p style="font:16px/1.4 system-ui,sans-serif;color:#0b2545;'
+         f'margin:0 0 8px;">{intro}</p>' if intro else ""),
+        _grouped_section_html("Single-week records (this week)", list(highlights),
+                              "had these single-week records"),
+        _grouped_section_html("Matchup extremes",
+                              [p for p in paired if p.scope == "matchup"], "was notable"),
+        _grouped_section_html("All-time leaderboard moves — players",
+                              [c for c in crossings if c.section == "players"], "made these all-time moves"),
+        _grouped_section_html("All-time leaderboard moves — teams",
+                              [c for c in crossings if c.section == "teams"], "made these all-time moves"),
+        _grouped_section_html("New single-season records", list(records),
+                              "set these single-season records"),
+        _section_html("League milestones", [m.sentence() for m in milestones]),
+        _grouped_section_html(f"{yr_title} — players", sect("players"), pace_verb),
+        _grouped_section_html(f"{yr_title} — teams", sect("teams"), pace_verb),
+        _grouped_section_html(f"{yr_title} — league", sect("league"), pace_verb),
+        _grouped_section_html("Notable draft picks",
+                              [e for e in events if e.sheet == "picks"], "was notable"),
+        _grouped_section_html("Notable trades",
+                              [e for e in events if e.sheet == "trades"], "was notable"),
+        _grouped_section_html("Two-sided trade extremes",
+                              [p for p in paired if p.scope == "trade"], "was notable"),
+        _grouped_section_html("Notable transactions",
+                              [e for e in events if e.sheet == "transactions"], "was notable"),
     ]
-    if not any([hl_lines, player_moves, team_moves, record_lines, milestone_lines, projections]):
+    if not any([highlights, crossings, records, milestones, projections, events, paired]):
         body.append('  <p style="font:15px system-ui,sans-serif;color:#666;">'
                      'No leaderboard changes this week.</p>')
     body.append("</div>")
     return "\n".join(b for b in body if b)
 
 
-def digest_is_empty(crossings, projections, milestones=(), records=(), highlights=()) -> bool:
-    return not any([crossings, projections, milestones, records, highlights])
+def digest_is_empty(crossings, projections, milestones=(), records=(),
+                    highlights=(), events=(), paired=()) -> bool:
+    return not any([crossings, projections, milestones, records, highlights, events, paired])
+
+
+def _champion_of(team_year: pd.DataFrame, season: int) -> Optional[str]:
+    if team_year.empty or "Result" not in team_year.columns:
+        return None
+    yr = pd.to_numeric(team_year["Year"], errors="coerce")
+    sub = team_year[(yr == season) & team_year["Result"].astype(str).str.contains("hampion", na=False)]
+    return str(sub.iloc[0]["Team"]) if len(sub) else None
+
+
+def build_replica_html(frames: dict, season: Optional[int] = None,
+                       week: Optional[int] = None) -> str:
+    """The offseason seed for the test email — deliberately MINIMAL.
+
+    A real digest reports "changes to the top/bottom-5 of every stat since the
+    previous email", which needs a previous email's snapshot. In the offseason
+    there is none, and the derived all-time / year rollups can't be reconstructed
+    for a single past week from the final exports. So rather than fake it, the
+    offseason test email is a short confirmation (champion of the last season).
+    During the season, the test button replays the last REAL weekly email instead,
+    which is complete. Returns "" if no completed season is on record."""
+    tw = frames.get("team_week", pd.DataFrame())
+    if season is None or week is None:
+        sw = latest_completed_season_week(tw)
+        if sw is None:
+            return ""
+        season, week = sw
+    champ = _champion_of(frames.get("team_year", pd.DataFrame()), season)
+    intro = (f"🏆 {champ} won the {season} championship." if champ
+             else f"The {season} season is complete.")
+    note = ("This is the offseason, so there are no week-over-week changes to "
+            "report yet. During the season, each Tuesday email lists every change "
+            "to the top/bottom 5 of every stat since the previous week.")
+    return (f'<div style="max-width:680px;margin:0 auto;padding:16px;'
+            f'font:15px/1.5 system-ui,sans-serif;color:#333;">'
+            f'<h1 style="font:700 22px/1.3 system-ui,sans-serif;color:#0b2545;'
+            f'margin:0 0 8px;">LOTG digest — {season} season wrap</h1>'
+            f'<p style="color:#0b2545;font-size:16px;margin:0 0 8px;">{intro}</p>'
+            f'<p style="color:#666;margin:0;">{note}</p></div>')
 
 
 # ---------------------------------------------------------------------------

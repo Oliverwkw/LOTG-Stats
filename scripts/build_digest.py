@@ -48,12 +48,16 @@ def main(argv=None) -> int:
                     help="build even in the offseason (no completed weeks)")
     ap.add_argument("--phrasing-csv", default=None,
                     help="write the stat-phrasing catalog CSV and exit")
+    ap.add_argument("--replica", default=None,
+                    help="write the 'most recent digest' replica (latest completed "
+                         "season's post-championship wrap) to this path and exit")
     args = ap.parse_args(argv)
 
     exports = Path(args.exports)
     frames = {n: _read(exports, n) for n in (
         "player_all_time", "team_all_time", "player_year", "team_year",
         "league_year", "league_all_time", "team_week", "player_week", "league_week",
+        "picks", "trades", "transactions",
     )}
     required = ("player_all_time", "team_all_time", "team_year")
     if any(frames[n].empty for n in required):
@@ -67,9 +71,21 @@ def main(argv=None) -> int:
             frames["player_year"], frames["team_year"], frames["league_year"],
             frames["league_all_time"],
             frames["player_week"], frames["team_week"], frames["league_week"],
+            frames["picks"], frames["trades"], frames["transactions"],
         )
         D.write_phrasing_csv(Path(args.phrasing_csv), rows)
         print(f"[digest] phrasing catalog ({len(rows)} stats) -> {args.phrasing_csv}")
+        return 0
+
+    # Replica: the most-recent-digest stand-in (offseason = post-championship).
+    if args.replica:
+        html = D.build_replica_html(frames)
+        if not html:
+            print("[digest] no completed week on record — no replica written.")
+            return 0
+        Path(args.replica).parent.mkdir(parents=True, exist_ok=True)
+        Path(args.replica).write_text(html)
+        print(f"[digest] replica digest -> {args.replica}")
         return 0
 
     snap_path = Path(args.snapshot)
@@ -102,11 +118,22 @@ def main(argv=None) -> int:
         frames["player_week"], frames["team_week"],
         frames["league_week"], frames["team_year"],
     )
+    events = D.season_event_highlights(frames, meta["season"]) if meta["season"] else []
+    current["event_keys"] = D.event_key_map(events)
+    # Two-sided (zero-centered) extremes: matchup margins this week + trade
+    # differentials this season, ranked by |value| with both sides named.
+    week_no = D.latest_completed_week(frames["team_week"], meta["season"]) if meta["season"] else None
+    paired = []
+    if meta["season"] and week_no:
+        paired += D.matchup_highlights(frames["team_week"], meta["season"], week_no)
+        paired += D.season_paired_highlights(frames, meta["season"])
+    current["paired_keys"] = D.paired_key_map(paired)
 
     prior = D.load_snapshot(snap_path)
     if prior is None:
         print("[digest] no prior snapshot — baselining this week (no diff yet).")
-        crossings, proj_changes, milestones, record_changes = [], [], [], []
+        crossings, proj_changes, milestones, record_changes, event_changes = [], [], [], [], []
+        paired_changes = []
     else:
         crossings = D.diff_snapshots(prior, current)
         milestones = D.milestone_crossings(
@@ -125,14 +152,28 @@ def main(argv=None) -> int:
             record_changes = []
         else:
             record_changes = D.diff_records(prior_records, records)
+        prior_events = prior.get("event_keys")
+        if prior_events is None:
+            print("[digest] baselining event highlights this week (no diff yet).")
+            event_changes = []
+        else:
+            event_changes = D.diff_events(prior_events, events)
+        prior_paired = prior.get("paired_keys")
+        if prior_paired is None:
+            print("[digest] baselining two-sided extremes this week (no diff yet).")
+            paired_changes = []
+        else:
+            paired_changes = D.diff_paired(prior_paired, paired)
 
     html = D.render_digest_html(crossings, proj_changes, meta, milestones,
-                                record_changes, highlights)
+                                record_changes, highlights, events=event_changes,
+                                paired=paired_changes)
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(html)
     print(f"[digest] {len(highlights)} single-week highlight(s), {len(crossings)} crossing(s), "
-          f"{len(record_changes)} record(s), {len(milestones)} milestone(s), "
-          f"{len(proj_changes)} on-pace change(s) [{len(projections)} standings] -> {out_path}")
+          f"{len(record_changes)} record(s), {len(event_changes)} event(s), "
+          f"{len(paired_changes)} two-sided extreme(s), "
+          f"{len(milestones)} milestone(s), {len(proj_changes)} on-pace change(s) -> {out_path}")
 
     D.save_snapshot(snap_path, current)
     print(f"[digest] snapshot saved -> {snap_path}")

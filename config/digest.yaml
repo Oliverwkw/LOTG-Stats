@@ -13,7 +13,20 @@
 # so the pipeline is safe to run before DIGEST_KEY is added.
 
 # From address is the decrypted sending account (lotgstats@gmail.com).
+#
+# `recipients`      — the real in-season Tuesday digest goes to the whole league.
+# `test_recipients` — the "Send test digest email" button goes here only.
 recipients:
+  - okeimweiss@gmail.com
+  - skeimweiss@gmail.com
+  - Benjamin.Rosenzweig@aol.com
+  - jacob.rosenzweig@aol.com
+  - plehv@outlook.com
+  - lukejoshweber@gmail.com
+  - steven.borodkin17@gmail.com
+  - matthewtaub7@gmail.com
+
+test_recipients:
   - okeimweiss@gmail.com
 
 from_name: "LOTG Stats"
