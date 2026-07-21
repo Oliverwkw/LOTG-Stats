@@ -6401,7 +6401,7 @@
       "genius_id": "1399247",
       "rookie_year": "2023"
     },
-    "news_updated": 1783000828919,
+    "news_updated": 1784645105511,
     "number": 9,
     "oddsjam_id": "86B6983F9C7F",
     "opta_id": null,
@@ -12932,8 +12932,8 @@
     "birth_state": null,
     "college": "Lane",
     "competitions": [],
-    "depth_chart_order": 4,
-    "depth_chart_position": "RDE",
+    "depth_chart_order": null,
+    "depth_chart_position": "DL",
     "espn_id": null,
     "fantasy_data_id": 24516,
     "fantasy_positions": [
@@ -29911,7 +29911,7 @@
       "genius_id": "941060",
       "rookie_year": "2016"
     },
-    "news_updated": 1782961225040,
+    "news_updated": 1784642405230,
     "number": 4,
     "oddsjam_id": "4E18B0FEC4C5",
     "opta_id": null,
@@ -37598,8 +37598,8 @@
     "birth_state": null,
     "college": "Northwestern",
     "competitions": [],
-    "depth_chart_order": 5,
-    "depth_chart_position": "LOLB",
+    "depth_chart_order": null,
+    "depth_chart_position": "LB",
     "espn_id": null,
     "fantasy_data_id": 28069,
     "fantasy_positions": [
@@ -46569,8 +46569,8 @@
     "birth_state": null,
     "college": "SMU",
     "competitions": [],
-    "depth_chart_order": 3,
-    "depth_chart_position": "LOLB",
+    "depth_chart_order": null,
+    "depth_chart_position": "DL",
     "espn_id": null,
     "fantasy_data_id": 26673,
     "fantasy_positions": [
@@ -70099,7 +70099,7 @@
     "full_name": "Isaiah Iton",
     "gsis_id": null,
     "hashtag": "#isaiahiton-NFL-NE-68",
-    "height": "74",
+    "height": "75",
     "high_school": "Pearland (TX)",
     "injury_body_part": null,
     "injury_notes": null,
@@ -70136,7 +70136,7 @@
     "team": "NE",
     "team_abbr": null,
     "team_changed_at": null,
-    "weight": "277",
+    "weight": "300",
     "yahoo_id": null,
     "years_exp": 2
   },
@@ -83469,7 +83469,7 @@
       "genius_id": "1014921",
       "rookie_year": "2020"
     },
-    "news_updated": 1783001129117,
+    "news_updated": 1784646005438,
     "number": 1,
     "oddsjam_id": "E3F53FF48C95",
     "opta_id": null,
@@ -97650,7 +97650,7 @@
     "college": "Stanford",
     "competitions": [],
     "depth_chart_order": 2,
-    "depth_chart_position": "SWR",
+    "depth_chart_position": "RWR",
     "espn_id": null,
     "fantasy_data_id": 24173,
     "fantasy_positions": [
@@ -121901,7 +121901,7 @@
     "college": "Tennessee-Martin",
     "competitions": [],
     "depth_chart_order": 8,
-    "depth_chart_position": "RWR",
+    "depth_chart_position": "SWR",
     "espn_id": null,
     "fantasy_data_id": 24494,
     "fantasy_positions": [
@@ -126693,7 +126693,7 @@
     "college": "Louisiana Tech",
     "competitions": [],
     "depth_chart_order": null,
-    "depth_chart_position": "SWR",
+    "depth_chart_position": "RWR",
     "espn_id": null,
     "fantasy_data_id": 26657,
     "fantasy_positions": [
@@ -127905,7 +127905,7 @@
     "college": "Florida",
     "competitions": [],
     "depth_chart_order": 6,
-    "depth_chart_position": "LWR",
+    "depth_chart_position": "RWR",
     "espn_id": 3043116,
     "fantasy_data_id": 18047,
     "fantasy_positions": [
@@ -137473,8 +137473,8 @@
     "birth_state": null,
     "college": "South Alabama",
     "competitions": [],
-    "depth_chart_order": 4,
-    "depth_chart_position": "LOLB",
+    "depth_chart_order": null,
+    "depth_chart_position": "LB",
     "espn_id": null,
     "fantasy_data_id": 25853,
     "fantasy_positions": [
@@ -137735,7 +137735,7 @@
       "genius_id": "1398964",
       "rookie_year": "2023"
     },
-    "news_updated": 1782963625353,
+    "news_updated": 1784644805427,
     "number": 87,
     "oddsjam_id": "7E1BB2772255",
     "opta_id": null,
@@ -146260,8 +146260,8 @@
     "birth_state": null,
     "college": "Mississippi State",
     "competitions": [],
-    "depth_chart_order": 2,
-    "depth_chart_position": "RCB",
+    "depth_chart_order": null,
+    "depth_chart_position": "DB",
     "espn_id": null,
     "fantasy_data_id": 25151,
     "fantasy_positions": [
@@ -152912,7 +152912,7 @@
     "college": "Michigan State",
     "competitions": [],
     "depth_chart_order": null,
-    "depth_chart_position": "RWR",
+    "depth_chart_position": "SWR",
     "espn_id": null,
     "fantasy_data_id": 25985,
     "fantasy_positions": [
@@ -155363,7 +155363,7 @@
     "college": "South Carolina",
     "competitions": [],
     "depth_chart_order": null,
-    "depth_chart_position": "LWR",
+    "depth_chart_position": "SWR",
     "espn_id": null,
     "fantasy_data_id": 26683,
     "fantasy_positions": [
@@ -205669,8 +205669,8 @@
     "birth_state": null,
     "college": "Michigan",
     "competitions": [],
-    "depth_chart_order": 4,
-    "depth_chart_position": "LILB",
+    "depth_chart_order": null,
+    "depth_chart_position": "LB",
     "espn_id": null,
     "fantasy_data_id": 22905,
     "fantasy_positions": [
@@ -213652,7 +213652,7 @@
       "injury_override_regular_2025_4": "Out",
       "rookie_year": "2014"
     },
-    "news_updated": 1782913520975,
+    "news_updated": 1784641505029,
     "number": 5,
     "oddsjam_id": "4CE26B1D3BB5",
     "opta_id": null,
@@ -255996,7 +255996,7 @@
     "college": "Rutgers",
     "competitions": [],
     "depth_chart_order": null,
-    "depth_chart_position": "RWR",
+    "depth_chart_position": "SWR",
     "espn_id": null,
     "fantasy_data_id": 25447,
     "fantasy_positions": [
@@ -257957,8 +257957,8 @@
     "birth_state": null,
     "college": "California",
     "competitions": [],
-    "depth_chart_order": 4,
-    "depth_chart_position": "FS",
+    "depth_chart_order": null,
+    "depth_chart_position": "DB",
     "espn_id": null,
     "fantasy_data_id": 25166,
     "fantasy_positions": [
@@ -271863,7 +271863,7 @@
       "genius_id": "1399027",
       "rookie_year": "2023"
     },
-    "news_updated": 1782835256709,
+    "news_updated": 1784640605379,
     "number": 1,
     "oddsjam_id": "5B9229CE1E0B",
     "opta_id": null,
@@ -296264,8 +296264,8 @@
     "birth_state": null,
     "college": "Illinois State",
     "competitions": [],
-    "depth_chart_order": 4,
-    "depth_chart_position": "ROLB",
+    "depth_chart_order": null,
+    "depth_chart_position": "LB",
     "espn_id": null,
     "fantasy_data_id": 26553,
     "fantasy_positions": [
@@ -327521,8 +327521,8 @@
     "birth_state": null,
     "college": "Stanford",
     "competitions": [],
-    "depth_chart_order": 3,
-    "depth_chart_position": "SS",
+    "depth_chart_order": null,
+    "depth_chart_position": "DB",
     "espn_id": null,
     "fantasy_data_id": 24500,
     "fantasy_positions": [
@@ -331107,8 +331107,8 @@
     "birth_state": null,
     "college": "Baylor",
     "competitions": [],
-    "depth_chart_order": 4,
-    "depth_chart_position": "LDE",
+    "depth_chart_order": null,
+    "depth_chart_position": "DL",
     "espn_id": null,
     "fantasy_data_id": 22718,
     "fantasy_positions": [
@@ -368119,7 +368119,7 @@
       "rookie_year": "2025",
       "source_id": "3e3ccfa6-6ba3-46dc-9037-4f4a5e57a653"
     },
-    "news_updated": 1782835256707,
+    "news_updated": 1784640005416,
     "number": 18,
     "oddsjam_id": "28E51B711FEA06A0",
     "opta_id": null,
@@ -406720,7 +406720,7 @@
     "college": "Ole Miss",
     "competitions": [],
     "depth_chart_order": 7,
-    "depth_chart_position": "RWR",
+    "depth_chart_position": "SWR",
     "espn_id": null,
     "fantasy_data_id": 26103,
     "fantasy_positions": [
@@ -417144,8 +417144,8 @@
     "birth_state": null,
     "college": "Southern Arkansas",
     "competitions": [],
-    "depth_chart_order": 3,
-    "depth_chart_position": "LCB",
+    "depth_chart_order": null,
+    "depth_chart_position": "DB",
     "espn_id": null,
     "fantasy_data_id": 26296,
     "fantasy_positions": [
@@ -431466,7 +431466,7 @@
       "genius_id": "1463731",
       "rookie_year": "2024"
     },
-    "news_updated": 1783623012612,
+    "news_updated": 1784646605524,
     "number": 32,
     "oddsjam_id": "BB0614A43AA9",
     "opta_id": null,
@@ -440720,8 +440720,8 @@
     "birth_state": null,
     "college": "North Carolina",
     "competitions": [],
-    "depth_chart_order": null,
-    "depth_chart_position": "LB",
+    "depth_chart_order": 2,
+    "depth_chart_position": "ROLB",
     "espn_id": null,
     "fantasy_data_id": 24000,
     "fantasy_positions": [
@@ -444879,8 +444879,8 @@
     "birth_state": null,
     "college": "Louisville",
     "competitions": [],
-    "depth_chart_order": 2,
-    "depth_chart_position": "ROLB",
+    "depth_chart_order": null,
+    "depth_chart_position": "LB",
     "espn_id": null,
     "fantasy_data_id": 28429,
     "fantasy_positions": [
@@ -449717,7 +449717,7 @@
       "genius_id": "1463652",
       "rookie_year": "2024"
     },
-    "news_updated": 1783950921374,
+    "news_updated": 1784644205799,
     "number": 10,
     "oddsjam_id": "AC5A5CA4A398",
     "opta_id": null,
@@ -458276,8 +458276,8 @@
     "birth_state": null,
     "college": "Illinois",
     "competitions": [],
-    "depth_chart_order": 4,
-    "depth_chart_position": "RDT",
+    "depth_chart_order": null,
+    "depth_chart_position": "DL",
     "espn_id": null,
     "fantasy_data_id": 28200,
     "fantasy_positions": [
@@ -467726,7 +467726,7 @@
       "genius_id": "1016052",
       "rookie_year": "2019"
     },
-    "news_updated": 1783453831822,
+    "news_updated": 1784644205307,
     "number": 32,
     "oddsjam_id": "A2114935F695",
     "opta_id": null,
@@ -492139,7 +492139,7 @@
     "college": "Eastern Washington",
     "competitions": [],
     "depth_chart_order": 3,
-    "depth_chart_position": "RWR",
+    "depth_chart_position": "SWR",
     "espn_id": 3045523,
     "fantasy_data_id": 19318,
     "fantasy_positions": [
@@ -515829,7 +515829,7 @@
       "genius_id": "1015283",
       "rookie_year": "2022"
     },
-    "news_updated": 1782998428759,
+    "news_updated": 1784643605268,
     "number": 2,
     "oddsjam_id": "BB802A531515",
     "opta_id": null,
@@ -556064,8 +556064,8 @@
     "birth_state": null,
     "college": "Florida",
     "competitions": [],
-    "depth_chart_order": 4,
-    "depth_chart_position": "RILB",
+    "depth_chart_order": null,
+    "depth_chart_position": "LB",
     "espn_id": null,
     "fantasy_data_id": 26350,
     "fantasy_positions": [
@@ -565457,7 +565457,7 @@
     "college": "Tennessee",
     "competitions": [],
     "depth_chart_order": 2,
-    "depth_chart_position": "LCB",
+    "depth_chart_position": "RCB",
     "espn_id": null,
     "fantasy_data_id": 26918,
     "fantasy_positions": [
@@ -589489,8 +589489,8 @@
     "birth_state": null,
     "college": "Indiana",
     "competitions": [],
-    "depth_chart_order": 5,
-    "depth_chart_position": "LDE",
+    "depth_chart_order": null,
+    "depth_chart_position": "DL",
     "espn_id": null,
     "fantasy_data_id": 28135,
     "fantasy_positions": [
@@ -602010,8 +602010,8 @@
     "birth_state": null,
     "college": "Nevada",
     "competitions": [],
-    "depth_chart_order": 4,
-    "depth_chart_position": "LILB",
+    "depth_chart_order": null,
+    "depth_chart_position": "LB",
     "espn_id": null,
     "fantasy_data_id": 25622,
     "fantasy_positions": [
@@ -609845,8 +609845,8 @@
     "birth_state": null,
     "college": "Appalachian State",
     "competitions": [],
-    "depth_chart_order": 4,
-    "depth_chart_position": "LCB",
+    "depth_chart_order": null,
+    "depth_chart_position": "DB",
     "espn_id": null,
     "fantasy_data_id": 22923,
     "fantasy_positions": [
@@ -636564,8 +636564,8 @@
     "birth_state": null,
     "college": "Oklahoma",
     "competitions": [],
-    "depth_chart_order": 5,
-    "depth_chart_position": "ROLB",
+    "depth_chart_order": null,
+    "depth_chart_position": "LB",
     "espn_id": null,
     "fantasy_data_id": 28071,
     "fantasy_positions": [
@@ -646789,8 +646789,8 @@
     "birth_state": null,
     "college": "Tennessee",
     "competitions": [],
-    "depth_chart_order": 4,
-    "depth_chart_position": "LDT",
+    "depth_chart_order": null,
+    "depth_chart_position": "DL",
     "espn_id": null,
     "fantasy_data_id": 27012,
     "fantasy_positions": [
@@ -649000,8 +649000,8 @@
     "birth_state": null,
     "college": "Arkansas",
     "competitions": [],
-    "depth_chart_order": 4,
-    "depth_chart_position": "RCB",
+    "depth_chart_order": null,
+    "depth_chart_position": "DB",
     "espn_id": null,
     "fantasy_data_id": 26595,
     "fantasy_positions": [
@@ -652463,8 +652463,8 @@
     "birth_state": null,
     "college": "California",
     "competitions": [],
-    "depth_chart_order": null,
-    "depth_chart_position": "DB",
+    "depth_chart_order": 2,
+    "depth_chart_position": "LCB",
     "espn_id": null,
     "fantasy_data_id": 27000,
     "fantasy_positions": [
@@ -659577,8 +659577,8 @@
     "birth_state": null,
     "college": "Ohio State",
     "competitions": [],
-    "depth_chart_order": 3,
-    "depth_chart_position": "SS",
+    "depth_chart_order": null,
+    "depth_chart_position": "DB",
     "espn_id": null,
     "fantasy_data_id": 24751,
     "fantasy_positions": [
@@ -684200,7 +684200,7 @@
     "college": "NC State",
     "competitions": [],
     "depth_chart_order": null,
-    "depth_chart_position": "LWR",
+    "depth_chart_position": "SWR",
     "espn_id": null,
     "fantasy_data_id": 28280,
     "fantasy_positions": [
