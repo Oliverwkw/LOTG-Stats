@@ -98,6 +98,14 @@ _MAX_REPORT = 25  # cap per-sheet diff lines so the report stays readable
 #
 # Everything else stays under the immutability check, which is where a genuine
 # historical regression would show up.
+#   * "... N year(s) later / after ..." — ROLLING WINDOWS whose endpoint is the
+#     present day, so they keep moving until the anniversary passes. Confirmed
+#     empirically against the run-447 cold rebuild (2026-07-21): the only KTC
+#     columns that moved were `KTC value difference 1 year later` (12 rows, all
+#     trades dated 2025-07-14/16/20) and `2 years later` (4 rows, 2024-07-14/18)
+#     — i.e. exactly the trades hitting their anniversary that week. Every fixed
+#     KTC window (deal time, end of season) reproduced byte-for-byte, which is
+#     why KTC is otherwise deliberately LEFT under this check.
 _VOLATILE_SUBSTRINGS = (
     "link to",
     "o-score",
@@ -105,6 +113,8 @@ _VOLATILE_SUBSTRINGS = (
     "length of tenure",
     "trade impact score",
     "date dropped/traded",
+    "year later", "years later",    # rolling: KTC value difference N year(s) later
+    "year after", "years after",    # rolling: KTC N year(s) after draft day
 )
 _VOLATILE_EXACT = {
     "Luck", "Hardship", "Starter-adjusted Hardship", "Number of teams",
