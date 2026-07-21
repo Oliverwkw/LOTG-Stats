@@ -230,8 +230,18 @@ jobs:
           # away 761 corrected win% cells and 6 whole columns from #363/#364,
           # because the snapshot happened to be 2d old). See
           # plan/AUDIT_PHASE14_3PART.md.
+          #
+          # The TUESDAY CRON always commits too. It is the canonical weekly run —
+          # the one the digest email is built from, and the baseline Wednesday's
+          # read-only cold-rebuild audit diffs against — so its output must be
+          # what the repo ships. The 6-day cadence rule alone did NOT guarantee
+          # that: in-season the Thursday pregame run commits on any roster move,
+          # and Thu 16:00 UTC -> Tue 14:00 UTC is only 4 days, so the cadence
+          # test failed and a quiet waiver week left Tuesday's build uncommitted.
           if [ "${{ github.event.inputs.force_refresh_cache }}" = "true" ]; then
             reason="cache regeneration (full refresh)"
+          elif [ "${{ github.event.schedule }}" = "0 14 * * 2" ]; then
+            reason="Tuesday weekly run"
           # Did the live current-season roster or traded picks change?
           elif git diff --cached --name-only \
                | grep -qE '^exports/(raw/(rosters|traded_picks)_[0-9]+\.json|snapshot/season_[0-9]+/(rosters|traded_picks)\.json)$'; then

@@ -326,6 +326,18 @@ fetched sources, so its output is the most correct data the pipeline can
 produce; discarding it as "non-roster churn" is precisely how the drift
 happened.
 
+**Follow-on: the Tuesday cron always commits too.** Reviewing the division of
+labour — Tuesday owns `exports/`, Wednesday's cold rebuild only observes — showed
+the premise didn't actually hold. The 6-day cadence rule was the only thing
+making the Tuesday run commit, and in-season it doesn't fire: the Thursday
+pregame run commits on any roster move, and **Thu 16:00 UTC → Tue 14:00 UTC is
+just 4 days**, so on a quiet waiver week Tuesday's build was silently discarded.
+That is the run the digest email is built from and the baseline Wednesday diffs
+against, so its output has to be what the repo ships. It now commits
+unconditionally. Verified across all four trigger shapes (box ticked / Tuesday
+cron / Thursday cron / plain dispatch), the two no-commit cases being exactly
+the ones that should leave `exports/` alone.
+
 ### Residual
 
 After all three fixes, the same cold-rebuild-vs-committed audit drops from 4
