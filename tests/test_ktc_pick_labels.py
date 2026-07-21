@@ -133,6 +133,49 @@ def test_never_substitutes_an_already_drafted_class():
     assert asset_value_at("2025 3.??", None, date(2026, 7, 21), idx) is None
 
 
+def test_never_substitutes_the_target_year_class():
+    """The substitute must be a class still in the FUTURE at `target`.
+
+    Once a year's draft runs, those picks are consumed and their quote stops
+    describing an unexercised future pick. Pricing a 2030 4th off a 2026 4th on
+    2026 draft day is not a stale answer, it is a different asset.
+    """
+    idx = ValueIndex()
+    # Only the target-year class is quoted; nothing future is.
+    idx.add_pick("2026 Early 3rd", [{"date": "2026-01-01", "trade_value": 2100}], "trade_value")
+    idx.add_pick("2026 Mid 3rd", [{"date": "2026-01-01", "trade_value": 2100}], "trade_value")
+    assert asset_value_at("2030 4", None, date(2026, 7, 12), idx) is None
+
+
+# --------------------------------------------------------------------------
+# The synthetic 5.0X FAAB-buy picks are valued as a 4.08.
+# --------------------------------------------------------------------------
+
+def test_5xx_picks_value_as_a_408():
+    """League convention: a 5.0X FAAB draft-day buy counts as a 4.08.
+
+    Real drafts are 4 rounds, so a round 5 is always one of these synthetic
+    picks and KTC has no listing for it. Without the mapping it resolved to a
+    Late 3rd that does not exist and the asset went unvalued, blanking both
+    2026-07-12 draft-day trades. Mirrors the 2.09 -> 2.08 convention, and must
+    hold for every form the label arrives in.
+    """
+    ref = plc("2026 4.08")
+    assert ref, "the 4.08 reference itself must resolve"
+    for form in ("2026 5.01", "2026 5.02", "2026 5.08", "2026 5.??", "2026 5",
+                 "2026 501.1", "2026 502.2", "2026 5.02(J. Doe)"):
+        assert plc(form) == ref, form
+
+
+def test_5xx_mapping_leaves_real_rounds_alone():
+    # Rounds 1-4 are real; none of them may be rewritten to a 4.08.
+    assert plc("2026 4.06") == ["2026 Mid 3rd"]
+    assert plc("2026 3.05") == ["2026 Late 2nd"]
+    assert plc("2026 1.01") == ["2026 Early 1st"]
+    # And a 2.09 still goes to its own 2.08, not the 4.08.
+    assert plc("2026 2.09") == ["2026 Early 2nd"]
+
+
 # --------------------------------------------------------------------------
 # The draft anchor must come from _draft_anchor everywhere, not a hardcode.
 # --------------------------------------------------------------------------
@@ -227,6 +270,9 @@ if __name__ == "__main__":
         test_clamp_follows_the_listing_horizon,
         test_no_listing_at_all_stays_none,
         test_never_substitutes_an_already_drafted_class,
+        test_never_substitutes_the_target_year_class,
+        test_5xx_picks_value_as_a_408,
+        test_5xx_mapping_leaves_real_rounds_alone,
     ):
         fn()
         print(f"ok: {fn.__name__}")
