@@ -8581,7 +8581,10 @@ def build_all(repo_root: Path) -> None:
     # KTC value pass — single pass that powers all KTC columns on both
     # trades.csv and transactions.csv. Data source: dynasty-daddy.com's
     # public API, which scrapes KeepTradeCut daily and exposes per-player
-    # daily history back to April 2021. We use trade_value (1QB format).
+    # daily history back to April 2021, PLUS data/ktc_backfill/ for everything
+    # earlier — dynasty-daddy is only a mirror, and keeptradecut.com itself goes
+    # back to 2020-04-01 (see scripts/ktc_direct_backfill.py). We use the
+    # superflex series (see ktc_value_col below), not 1QB.
     #
     # Reference points per trade (4):
     #   - deal time:       the trade date itself
@@ -8841,8 +8844,13 @@ def build_all(repo_root: Path) -> None:
             """Depth-tax-adjusted KTC margin (received − sent), in KTC value
             units. Positive ⇒ received side got more value. Best asset per side
             counts in full; each lesser asset is discounted, so a scrubs-for-stud
-            package is penalised while a balanced even-count swap stays ≈ naive."""
-            if not (recv_vals and sent_vals):
+            package is penalised while a balanced even-count swap stays ≈ naive.
+
+            An empty side contributes 0 (a one-way move — pure FAAB, or a gift
+            whose other half lives on the counterparty row). Callers are
+            responsible for distinguishing "empty" from "unvalued"; both sides
+            empty is meaningless and stays None."""
+            if not (recv_vals or sent_vals):
                 return None
             return round(_depth_adjusted_value(recv_vals) - _depth_adjusted_value(sent_vals), 1)
 
@@ -8859,10 +8867,25 @@ def build_all(repo_root: Path) -> None:
                 return None
             recv_vals = _side_values(target, recv_ids, recv_picks, recv_faab)
             sent_vals = _side_values(target, drop_ids, drop_picks, drop_faab)
-            if not (recv_vals and sent_vals):
-                return None
+            # An EMPTY side is not the same as an UNVALUED one. A side that
+            # carried no assets at all (a pure FAAB gift, or a one-way move where
+            # the counterparty row holds the other half) is genuinely worth 0 and
+            # the difference is computable. A side that DID carry assets but
+            # resolved none of them is unknown -> N/A, as before. Conflating the
+            # two blanked every FAAB-only and one-sided trade.
+            def _n_assets(_ids, _picks, _faab) -> int:
+                return len(_ids or []) + len(_picks or []) + (1 if (_faab or 0) > 0 else 0)
+
+            recv_n = _n_assets(recv_ids, recv_picks, recv_faab)
+            sent_n = _n_assets(drop_ids, drop_picks, drop_faab)
+            if recv_n == 0 and sent_n == 0:
+                return None                      # nothing on either side
+            if (recv_n and not recv_vals) or (sent_n and not sent_vals):
+                return None                      # had assets, couldn't value them
             # Package-tax-adjusted difference (Item 2), replacing the old naive
-            # Σreceived − Σsent so uneven multi-asset trades value correctly.
+            # Σreceived − Σsent so uneven multi-asset trades value correctly. With
+            # one side empty this degrades to +/- the other side's total, which is
+            # the right answer for a one-way move.
             return _ktc_adjusted_diff(recv_vals, sent_vals)
 
         # --- Trades pass ---
@@ -9423,6 +9446,40 @@ def build_all(repo_root: Path) -> None:
             if fn:
                 name_to_sid_local2.setdefault(str(fn), str(sid))
 
+        # --- Draft-day anchor per season (replaces a hardcoded Aug 28) ---
+        # Every picks-sheet stat that measures "from the draft onward" — tenure,
+        # post-draft PPG, age when drafted, the KTC checkpoints — anchors on the
+        # day the draft actually happened. That day moves a LOT year to year:
+        #   2020-09-10 (ESPN startup)  2021-08-29  2022-08-27
+        #   2023-06-12                 2024-07-13  2025-07-20  2026-07-12
+        # so the old fixed Aug-28 anchor was off by up to 2.5 months (2023), which
+        # both mispriced the KTC checkpoints and pushed the startup anchor EARLIER
+        # than KTC's first quotes for those veterans (making them unfillable).
+        # Prefer the rookie/vet drafts (<=5 rounds); fall back to any draft that
+        # season (2020's ESPN startup is 19 rounds); fall back last to Aug 28 for
+        # a season with no draft on record (future pick years), which preserves
+        # the previous behavior exactly where we have no better answer.
+        _draft_anchor_cache: Dict[int, date] = {}
+
+        def _draft_anchor(year: int) -> date:
+            """The real draft date for `year`, or the legacy Aug-28 guess."""
+            _y = int(year)
+            if _y in _draft_anchor_cache:
+                return _draft_anchor_cache[_y]
+            _days = sorted(
+                (rookie_draft_dates_by_season.get(_y) or set())
+                or (draft_dates_by_season.get(_y) or set())
+            )
+            # Multiple same-season drafts (2021 ran a rookie AND a vet draft on
+            # the same day) collapse to the earliest — the day the class entered
+            # the league.
+            _anchor = _days[0] if _days else date(_y, 8, 28)
+            _draft_anchor_cache[_y] = _anchor
+            return _anchor
+
+        def _draft_anchor_iso(year: int) -> str:
+            return _draft_anchor(year).isoformat()
+
         # --- Phase 8B: "Length of tenure on team" on picks ---
         # How long the DRAFTED player stayed on the team that drafted it (Final
         # Team): days from the draft (≈ late August of the pick year, mirroring
@@ -9451,7 +9508,7 @@ def build_all(repo_root: Path) -> None:
                     # only a fallback for rows without one.
                     _sid = _pr.get("_player_id") or name_to_sid_local2.get(_ply)
                     if _ft and _ym and _sid:
-                        _draft_iso = f"{int(_ym.group(1))}-08-28"
+                        _draft_iso = _draft_anchor_iso(int(_ym.group(1)))
                         _nx = _next_out_player(_ft, _sid, _draft_iso)
                         _end_iso = (_nx["date"][:10] if _nx else _today_iso)
                         try:
@@ -9750,7 +9807,7 @@ def build_all(repo_root: Path) -> None:
                     if not (_ft and _ym and _sid):
                         continue  # PPG stays N/A (no data), points stay 0
                     _sid = str(_sid)
-                    _draft_iso = f"{int(_ym.group(1))}-08-28"
+                    _draft_iso = _draft_anchor_iso(int(_ym.group(1)))
                     _nx = _next_out_player(_ft, _sid, _draft_iso)
                     _end_iso = (_nx["date"][:10] if _nx else _today_iso2)
                     _pos = ((pid_meta.get(_sid) or {}).get("pos") or "").upper() or None
@@ -9837,8 +9894,9 @@ def build_all(repo_root: Path) -> None:
             _log_exc(debug, "picks_ppg_8c", e)
 
         # --- Phase 8D: KTC-over-time columns on picks ---
-        # The drafted player's KeepTradeCut value (1QB trade_value) at five
-        # checkpoints relative to the draft (anchor ≈ Aug 28 of the pick year):
+        # The drafted player's KeepTradeCut value (superflex sf_trade_value) at five
+        # checkpoints relative to the draft (anchor = the season's REAL draft
+        # day via _draft_anchor, which swings from mid-June to mid-September):
         #   KTC on draft day            the draft anchor itself
         #   KTC at end of rookie year   ≈ Feb 1 of the year AFTER the draft
         #   KTC 1 / 2 / 3 / 4 years after draft day
@@ -9869,13 +9927,24 @@ def build_all(repo_root: Path) -> None:
                         continue
                     _sid = str(_sid)
                     _yr = int(_ym.group(1))
+                    # Anchor on the real draft day, and measure the "N years
+                    # after" checkpoints from THAT day (not from Aug 28 of a
+                    # later year) so the horizon is a true calendar year.
+                    _anchor = _draft_anchor(_yr)
+
+                    def _plus_years(_d: date, _n: int) -> date:
+                        try:
+                            return _d.replace(year=_d.year + _n)
+                        except ValueError:      # Feb 29 -> Feb 28
+                            return _d.replace(year=_d.year + _n, day=28)
+
                     _checkpoints = [
-                        ("KTC on draft day", date(_yr, 8, 28)),
+                        ("KTC on draft day", _anchor),
                         ("KTC at end of rookie year", date(_yr + 1, 2, 1)),
-                        ("KTC 1 year after draft day", date(_yr + 1, 8, 28)),
-                        ("KTC 2 years after draft day", date(_yr + 2, 8, 28)),
-                        ("KTC 3 years after draft day", date(_yr + 3, 8, 28)),
-                        ("KTC 4 years after draft day", date(_yr + 4, 8, 28)),
+                        ("KTC 1 year after draft day", _plus_years(_anchor, 1)),
+                        ("KTC 2 years after draft day", _plus_years(_anchor, 2)),
+                        ("KTC 3 years after draft day", _plus_years(_anchor, 3)),
+                        ("KTC 4 years after draft day", _plus_years(_anchor, 4)),
                     ]
                     for _col, _tgt in _checkpoints:
                         # A checkpoint still in the FUTURE has no KTC yet — leave
@@ -9941,7 +10010,7 @@ def build_all(repo_root: Path) -> None:
                         continue
                     _sid = str(_sid)
                     _yr = int(_ym.group(1))
-                    _draft_iso = f"{_yr}-08-28"
+                    _draft_iso = _draft_anchor_iso(_yr)
                     # Number of starts is a count → made picks get 0+ (not N/A).
                     ph.at[_i, "Number of starts before next transaction"] = 0
                     # Age when drafted (years at the draft anchor).

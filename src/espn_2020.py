@@ -685,8 +685,19 @@ def emit_sleeper_2020(loaded: Dict[str, Any]) -> Dict[str, Any]:
               "metadata": {"first_name": (p["player"] or "").split(" ")[0],
                            "last_name": " ".join((p["player"] or "").split(" ")[1:])}}
              for p in loaded["draft"]]
+    # Carry the REAL startup-draft date through in Sleeper's shape (epoch ms).
+    # ESPN records it two ways; `completeDate` is when the last pick landed,
+    # `draftSettings.date` when it was scheduled. The build's KTC checkpoints
+    # anchor on the actual draft day, so a missing date here silently falls back
+    # to a guessed anchor and misprices every startup pick.
+    _espn_draft = (loaded.get("_raw") or {}).get("draft") or {}
+    _espn_settings = ((loaded.get("_raw") or {}).get("settings") or {}).get("draftSettings") or {}
+    _draft_ms = _espn_draft.get("completeDate") or _espn_settings.get("date")
     draft = {"draft_id": "espn_2020_draft", "season": str(SEASON), "type": "snake",
              "status": "complete", "settings": {"rounds": max(p["round"] for p in loaded["draft"])}}
+    if _draft_ms:
+        draft["start_time"] = _draft_ms
+        draft["last_picked"] = _draft_ms
 
     # Player metadata keyed by sleeper_id, for the build to backfill its pid_meta /
     # pid_pos. The build builds those ONLY from the live Sleeper /players/nfl feed, so
