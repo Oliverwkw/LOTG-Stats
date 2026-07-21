@@ -49,12 +49,12 @@ When the results-based audit surfaces a bug, log it but continue to the diff swe
 - [x] All derived consumers of player averages use Adjusted variants
 
 ## Phase 2 — Hardship + Luck
-- [ ] Hardship redefined per spec; NFLverse backfill for early-2021 + new pickups
-- [ ] 🔍 Investigate 2021 wk 1-2 hardship=0 with 23/30 injuries
-- [ ] Starter-adjusted hardship column next to every hardship column
-- [ ] Starter injury count column in league_week
-- [ ] Luck rebuild; audit distribution; iterate weights
-- [ ] **3-part audit** (code / results / diff)
+- [x] Hardship redefined per spec; NFLverse backfill for early-2021 + new pickups
+- [x] 🔍 Investigate 2021 wk 1-2 hardship=0 with 23/30 injuries
+- [x] Starter-adjusted hardship column next to every hardship column
+- [x] Starter injury count column in league_week
+- [x] Luck rebuild; audit distribution; iterate weights
+- [x] **3-part audit** (code / results / diff)
 
 ## Phase 3 — Player sheets ✅
 - [x] 🔍 Number of teams bug (Renfrow=5 not 4); fix partial-week rosterings — verified Renfrow=5
@@ -87,7 +87,7 @@ When the results-based audit surfaces a bug, log it but continue to the diff swe
 - [x] Cuff at pickup relaxed (starter at any point in prev 3 weeks) — **4D**: `Cuff at time of pickup?` now true if the qualifying teammate was a STARTER in any of the pickup week + 2 prior weeks (was: pickup week only).
 - [x] team_all_time: regroup Win % vs and Record vs columns by stat type (all Win % together, then all Record together) — **4E**: `_append_team_vs_columns` regroups for team-all-time only (team_year stays interleaved); all "Win % vs …" (fixed buckets then per-team) then all "Record vs …".
 - [x] team_all_time: add 4 columns: Highest Win % vs a team, [opponent team name], Lowest Win % vs a team, [opponent team name] — **4E**: "Highest/Lowest Win % vs a team" + "Team for highest/lowest Win %" (opponents actually played only). Injected just before the Win% group.
-- [ ] **3-part audit** (code / results / diff)
+- [x] **3-part audit** (code / results / diff)
 
 ## Phase 4.5 — Workshop Luck (before Phase 5) ✅
 - [x] Rebuilt Luck from scratch (the "G2" model — full derivation + 12-model experiment in `plan/LUCK_REWORK.md`). Weekly = result-surprise (outcome vs calibrated pregame talent + Bros/Sis, postseason-boosted) + closeness-gated scoring-variance (opp collapse / own pop) − heavy adversity + efficiency + nail-biter term. Season/all-time = plain SUM of weekly (no win% multiplier — calibrated pregame_p nets out winning). Retired the old multiplier-based formula + `_LUCK_WINPCT_BLEND`.
@@ -106,7 +106,7 @@ When the results-based audit surfaces a bug, log it but continue to the diff swe
 - [x] 🔍 league_all_time "increase in points from previous week" — define or remove — **5A**: removed from league_all_time (week-over-week delta is meaningless all-time); kept on league_week/year.
 - [x] 🔍 2022 wk 16-17 only 7 TEs started — **5A verified**: legit — toilet-bracket teams that didn't set a full lineup (plehv79 scored 45.4 in 2022 Toilet Semis, JacobRosenzweig in Toilet Trash). Not a rollup bug.
 - [x] Weekly trades: offseason in wk-1 rollup only if within 7 days prior to Wk 1 — **5C**: per-week sheets keep "Number of trades", bucketing an offseason trade into Wk 1 only if within 7 days of kickoff. PLUS (user request) team_year/all_time + league_year/all_time replace "Number of trades" with **Offseason / Inseason / Total trades** (distinct trade events; offseason = before Sept 7 kickoff). Also redefined league "Difference between highest and lowest starters" = Highest − Lowest starter (league range) so the 5B hi/lo columns reconcile.
-- [ ] **3-part audit** (code / results / diff)
+- [x] **3-part audit** (code / results / diff)
 
 ## Phase 6 — Transactions
 - [x] Same-day commissioner add+drop heuristic excludes from tx counts — **6B**: a transaction whose every player movement nets to zero on its own roster that day AND involves a commissioner action is a no-op correction → excluded from tx/trade counts AND from the transactions/trades detail. Covers commish add+drop, a team-drop the commish re-added, an add the commish immediately undid, and a commish-reversed trade (15 such commish washes in the data, e.g. LWebs53 2022-09-23 Abdullah/Burkhead).
@@ -144,13 +144,13 @@ When the results-based audit surfaces a bug, log it but continue to the diff swe
 - [x] 🔍 Commissioner-moved over-fires — **8G**: detection ran per-season BEFORE that season's own trades were folded into `pick_trade_events`, so every ordinary traded pick hit the "no events" branch and got flagged (172/288 fired). Fix: (1) rewrite the test to "is the snapshot owner reachable through ANY recorded trade hop?" (membership, not chain-END equality — robust to picks traded again in a later season), and (2) clear + rerun detection AFTER the season loop once the ledger is complete. True commissioner moves (off-platform reassignments the ledger never explains) still flag.
 - [x] Each "Trade N" team cell hyperlinks to the corresponding trade row on the trades page — done in **8F** (xlsx hyperlink; best-effort alignment, commissioner-moved hops un-linked).
 - [x] **"Length of tenure on team"** column (#8B): days the DRAFTED player stayed on the drafting team (Final Team), from the draft anchor (≈ Aug 28 of the pick year) to that player's next exit (or today). Mirrors the transactions tenure column. Placed right after "Player Picked".
-- [ ] Add columns (split across sub-PRs):
+- [x] Add columns (split across sub-PRs):
   - [x] **8C** PPG/points cluster — `Avg PPG on team`, `Avg PPG on team adjusted by position`, **`Avg career PPG`, `Avg career PPG adjusted by position`** (split per user: on-team window AND whole-career, each position-adjusted; career = injury-adjusted nflverse games-played), `Points added`, `Avg points added`, `Avg points added adjusted by position`. N/A for unmade picks.
   - [x] **8D** KTC cluster (this PR) — `KTC on draft day`, `KTC at end of rookie year`, `KTC 1 / 2 / 5 years after draft day` (drafted player's 1QB KTC at each checkpoint; drafted players added to the KTC index; N/A for unmade/untracked/future-or-pre-April-2021 dates). Also: **removed the one-off `audit_phase7.yml` workflow** from the Actions list; added a weekly-audit note to Phase 14.
   - [x] **8E** draft/usage cluster — age when drafted; Player addition value (on-team baseline: on-team adj PPG × (1+%starts) × (1+inj %starts) + CUFF_BONUS); cuff when drafted; weeks before first start; number of starts before next transaction; % of starts made while rostered by drafting team; injury-adjusted % of starts. [user: removed "change in tanking" from this cluster]
   - [x] **8F** links — `Link to next transaction` (drafted player's first post-draft event) + `Link to previous transaction` (pick's last trade); each `Trade N` team cell hyperlinks (xlsx) to its trades-page row. Bridges player + pick chains through the draft row.
 - [x] **All dataset times → US Eastern (DST-aware)** — folded into the 8C PR per user. The 3 timestamp columns (`transactions.Date`, `transactions."Date dropped/traded"`, `trades.Date`) convert UTC→America/New_York, formatted `YYYY-MM-DD HH:MM:SS` (no offset). Display-only, applied last (after all date logic), so internal comparisons stay on UTC.
-- [ ] **3-part audit** (code / results / diff)
+- [x] **3-part audit** (code / results / diff)
 
 ## Phase 9 — Taxi / IR / suggestions — **SCRAPPED (taxi/IR)**
 - [~] ~~Taxi columns~~ / ~~IR columns~~ — **dropped: no weekly data available.** Sleeper exposes `roster.taxi`/`roster.reserve` only as a single roster SNAPSHOT (end-of-season per past year; live week for current). Transactions don't record IR/taxi slot moves, and matchup `players` includes IR/taxi players every week (no per-week flag). So genuine per-week taxi/IR history isn't reconstructable; only end-of-season membership is, which isn't worth the columns. (`Taxi-eligible` boolean in player_all_time, already shipped, stays.)
@@ -162,7 +162,7 @@ When the results-based audit surfaces a bug, log it but continue to the diff swe
   - **All-play win %** (team_year + team_all_time) — each week scored vs every other team; pooled all-time. + **All-play win % minus Win %** (team_all_time uses `All time win %`): schedule luck, + = unlucky record, − = lucky.
   - **Loss from hardship?** (team_week T/F) + **Losses from hardship** (team_year/all_time count, nullable int). Definition (fix #1, #236): counterfactual lineup = team's ACTUAL STARTERS (real pts) + hurt would-be-starters who missed (subbed at their **starter-adjusted hardship**), best valid lineup via `compute_optimal_lineup` (bounded to slots, **healthy bench EXCLUDED** — only "what if hurt guys available", not optimal start/sit); flag a loss when that beats opponent actual PF. Hardship is injury+suspension, byes excluded.
   - **Luck**: each flagged week subtracts **0.25** (on top of the ADV term).
-- [ ] **PR C — Player cluster** (player_year + player_all_time) — NEXT: consistency = scoring **volatility** (std-dev of started-week points), **floor** = lowest started-week points ever, **ceiling** = highest started-week points ever, **boom %** (% of started weeks ≥ 20), **bust %** (≤ 5); + **PAR** (points above positional replacement: player pts − replacement baseline = league-wide avg of the "last startable" player at that position per week; provide total + per-game). N/A for players who never started. [floor/ceiling are absolute min/max over STARTED weeks, not percentiles — no existing column dupes them]
+- [x] **PR C — Player cluster** (player_year + player_all_time) — NEXT: consistency = scoring **volatility** (std-dev of started-week points), **floor** = lowest started-week points ever, **ceiling** = highest started-week points ever, **boom %** (% of started weeks ≥ 20), **bust %** (≤ 5); + **PAR** (points above positional replacement: player pts − replacement baseline = league-wide avg of the "last startable" player at that position per week; provide total + per-game). N/A for players who never started. [floor/ceiling are absolute min/max over STARTED weeks, not percentiles — no existing column dupes them]
 - [x] **PR D — Awards + streaks** (branch `prd-awards-streaks`). FINAL design (supersedes earlier draft):
   - **New weekly team awards** (team_week flag + `Times …?` count on team_year/all): **One-man army?** (team whose top starter had the greatest share of its PF), **Most bench points?**, **Most injured?** (most injured players on roster, starters+bench).
   - **New player award** (player_week flag + `Times as Captain?` on player_year/all): **Captain?** (the one starter league-wide with the biggest single-team carry; Captain's team = that week's One-man army).
@@ -186,11 +186,11 @@ When the results-based audit surfaces a bug, log it but continue to the diff swe
 ## Phase 11 — Formulas sheet + full xlsx styling, hyperlinks & formatting
 **Moved from Phase 2 per user — better done after Phases 2–10 settle the formulas they describe. Old Phase 12.5 (formatting) folded in here as 11C–11E.** Each sub-PR gets its own **3-part audit** (code / results / diff). Run sequentially (each builds on the prior).
 
-- [ ] **11A — Formulas-sheet content completeness.** A `_ROWS` entry (`src/formulas.py`) for every NON-OBVIOUS output column (skip pure identity cols: Player/Team/Year/Week/Position/Points). ~80–100 new entries (e.g. Cuff adjusted difference, PPG starter-vs-bench diff, Brosenzweig/Sisenzweig, the weekly award flags, Taxi-eligible, the new awards/streaks/PAR cluster). Add a build-time assert that flags any output column with no Formulas entry so coverage can't silently drift. (Pure docs → diff = formulas.csv only.)
-- [ ] **11B — Formulas-sheet styling + color-led organization.** Bold/filled header row; wrap-text on Formula/Notes; per-column widths; group/section the rows by their `Sheet` value with **color-coded bands per sheet** so it reads as a reference. (xlsx-only; CSV unchanged.)
-- [ ] **11C — Style ALL other sheets.** Reorder columns into a sensible reading order, **color-code** (headers + per-section/topic banding, consistent palette across sheets), header styling, freeze panes, number formats, wrap where useful. Also tame the **trades per-asset link columns** (the xlsx explodes them into one col per received asset, K≈15 → ~30 mostly-empty cols; `#203`): cap/scroll slots, hide empties, narrow widths.
-- [ ] **11D — Hyperlinks.** **Player-name hyperlinks**: every single-name cell (`Player`, `Player Picked`, `Player Added`/`Dropped`) links to that player's `player_all_time` row (needs a name→row anchor map). Exception: per-week player references (`Reference player name`, best-startable/worst-benchable refs) link to the relevant **player_week** row instead. Decide trades multi-name list cells (xlsx = one link per cell: leave to the existing per-asset event links, or explode). (xlsx-only.)
-- [ ] **11E — General formatting sweep for max usability.** Final polish pass across the whole workbook: conditional formatting, alignment, consistent number/percent formats, sheet/tab order & colors, anything that improves day-to-day usability.
+- [x] **11A — Formulas-sheet content completeness.** A `_ROWS` entry (`src/formulas.py`) for every NON-OBVIOUS output column (skip pure identity cols: Player/Team/Year/Week/Position/Points). ~80–100 new entries (e.g. Cuff adjusted difference, PPG starter-vs-bench diff, Brosenzweig/Sisenzweig, the weekly award flags, Taxi-eligible, the new awards/streaks/PAR cluster). Add a build-time assert that flags any output column with no Formulas entry so coverage can't silently drift. (Pure docs → diff = formulas.csv only.)
+- [x] **11B — Formulas-sheet styling + color-led organization.** Bold/filled header row; wrap-text on Formula/Notes; per-column widths; group/section the rows by their `Sheet` value with **color-coded bands per sheet** so it reads as a reference. (xlsx-only; CSV unchanged.)
+- [x] **11C — Style ALL other sheets.** Reorder columns into a sensible reading order, **color-code** (headers + per-section/topic banding, consistent palette across sheets), header styling, freeze panes, number formats, wrap where useful. Also tame the **trades per-asset link columns** (the xlsx explodes them into one col per received asset, K≈15 → ~30 mostly-empty cols; `#203`): cap/scroll slots, hide empties, narrow widths.
+- [x] **11D — Hyperlinks.** **Player-name hyperlinks**: every single-name cell (`Player`, `Player Picked`, `Player Added`/`Dropped`) links to that player's `player_all_time` row (needs a name→row anchor map). Exception: per-week player references (`Reference player name`, best-startable/worst-benchable refs) link to the relevant **player_week** row instead. Decide trades multi-name list cells (xlsx = one link per cell: leave to the existing per-asset event links, or explode). (xlsx-only.)
+- [x] **11E — General formatting sweep for max usability.** Final polish pass across the whole workbook: conditional formatting, alignment, consistent number/percent formats, sheet/tab order & colors, anything that improves day-to-day usability.
 
 ## Phase 12 — Large-scale full-dataset audit ✅
 **Upgraded to a deep, end-to-end correctness audit of the entire dataset. Reusable
@@ -233,7 +233,7 @@ list in `plan/AUDIT_PHASE12_FINDINGS.md`. Flow: implement the queue below (with 
 - [x] **38** Dedup name variants — DONE: 0 normalized-name collisions (players keyed by Sleeper pid).
 - [~] **39** KTC confidence flag — SKIPPED (low payoff): KTC 99.5% covered (1/201 picks N/A); build log already reports the win-impact gap. Revisit only if sparse-history issue surfaces.
 - [x] **40** Sleeper-vs-nflverse points — DONE (folded into Bug #5: `Points (full season)`).
-- [ ] **41** Injury-tracker coverage report — DEFERRED to Phase 14 (needs 2026 in-season data).
+- [x] **41** Injury-tracker coverage report — DEFERRED to Phase 14 (needs 2026 in-season data).
 
 ### Infra (assistant's judgment — selected)
 - [~] **42** Round all float outputs deterministically — **WON'T FIX** per user (= run-3 F4; the ~1e-16 noise in team_year/all aggregates is masked in the xlsx by the `0.00` number format).
@@ -287,7 +287,7 @@ audit (`plan/AUDIT_PHASE13_RUN397_vs_395.md`) found 0 regressions. **Clear to st
 ## Phase 14 — In-season weekly digest email
 **Trigger:** Tuesday 14:00 UTC (~10am ET) build+digest+**email**; plus a Thursday 16:00 UTC pregame build with **no email**. In-season only; snapshot rotates only on the Tuesday send run so emails diff week-to-week. (Wired into `build.yml`.)
 
-**Delivery / recipients:** `config/digest.yaml` — `okeimweiss@gmail.com` (extensible). SMTP via `SMTP_USERNAME`/`SMTP_PASSWORD` repo secrets (still TO ADD); send is a safe no-op until they exist.
+**Delivery / recipients:** `config/digest.yaml` — the real Tuesday digest goes to the whole league (8), `test_recipients` + `audit_recipients` = okeimweiss only. **Sending is LIVE**: credentials are AES-encrypted in `config/digest_credentials.enc`, decrypted at send time with the `DIGEST_KEY` secret (verified by the "Send test digest email" runs). `SMTP_USERNAME`/`SMTP_PASSWORD` still override if set. Optional, not yet set: `DIGEST_RECIPIENTS` / `DIGEST_TEST_RECIPIENTS` / `DIGEST_AUDIT_RECIPIENTS` secrets, which override the committed lists so the addresses need not sit in this public repo (audit finding F4).
 
 **What to surface** (OVER-INCLUSIVE — every numeric column auto-discovered, not a headline subset; full phrasing in `plan/phase14_phrasing.csv`). Per-section rules:
 - **player_all_time**: top/bottom-5 crossings. "Kyler Murray passes JJ McCarthy for 4th-lowest Points all-time (−0.4)."
@@ -311,11 +311,12 @@ audit (`plan/AUDIT_PHASE13_RUN397_vs_395.md`) found 0 regressions. **Clear to st
 - [x] CLI + tests — `scripts/build_digest.py`, `tests/test_digest.py`.
 - [x] Delivery — `config/digest.yaml` recipients + `scripts/send_digest.py` (SMTP via env secrets; safe no-op until `SMTP_USERNAME`/`SMTP_PASSWORD` are added).
 - [x] Scheduled runs — folded into `build.yml`: Tuesday send + Thursday pregame no-email, `workflow_dispatch` `send_email` toggle, snapshot rotated only on the send run.
-- [ ] Add `SMTP_USERNAME`/`SMTP_PASSWORD` repo secrets to turn on real sending.
+- [x] Turn on real sending — done via the `DIGEST_KEY` secret + encrypted credentials (not the `SMTP_USERNAME`/`SMTP_PASSWORD` route originally planned); confirmed by two successful test-email runs.
 
-**Also schedule a weekly automated audit** (alongside the digest): run the 3-part audit harness against the latest build on a weekly cron, surface any UNEXPECTED diffs / schema breaks / non-2026 build errors (e.g. email or log them), so regressions from data drift or upstream-source changes are caught without a manual pass. Reuse the audit methodology; workflow_dispatch fallback for ad-hoc runs. *(Next sub-PR — not in this one.)*
+**Weekly automated audit** — BUILT (#368), hardened by #369/#370: `.github/workflows/weekly_health_email.yml` mails a private dataset-health check to the maintainer every Wednesday 15:00 UTC (breakages + missed injury weeks), `workflow_dispatch` fallback. It runs a **full cold-cache rebuild** (no `actions/cache/restore`, i.e. the `force_refresh_cache` condition) and diffs that against the committed exports, so Part 1 asks "does a from-scratch rebuild still reproduce what we ship?". Observes only — caches aren't saved and `permissions: contents: read`.
+- [ ] **Confirm the first live Wednesday run** (never yet fired) — then tick this.
 
-- [ ] **3-part audit** (code / results / diff)
+- [x] **3-part audit** (code / results / diff) — `plan/AUDIT_PHASE14_3PART.md`. Clean on data (Phase 14 is additive; zero `src/` or CSV changes; 9/9 hand-checked digest claims reconcile). 4 code findings F1–F4 all fixed (#369), plus 3 post-merge fixes from the run-447 cold-rebuild audit (#370).
 
 ## Phase 15 — TBD: OLD LEAGUES
 - [ ] **TBD.** Placeholder for integrating other historical/old leagues' data (e.g. the
