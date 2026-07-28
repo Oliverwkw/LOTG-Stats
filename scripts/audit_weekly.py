@@ -47,6 +47,7 @@ from typing import Dict, List, Optional
 import pandas as pd
 
 _ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(_ROOT / "lib"))   # so the shared classifier imports standalone
 _SCHEMA_BASELINE = _ROOT / "data" / "audit" / "schema_baseline.json"
 
 # All exported sheets (CSV basenames).
@@ -80,55 +81,14 @@ ID_COLS = {
 
 _MAX_REPORT = 25  # cap per-sheet diff lines so the report stays readable
 
-# Columns whose COMPLETED-SEASON values legitimately move on every rebuild, so
-# comparing them would flag thousands of rows every week and drown the real
-# signal. Measured against a pure rebuild-to-rebuild export pair (runs 435->436,
-# no code change in between): 1,956 past-season rows churn, essentially all of it
-# from the columns below. See plan/AUDIT_PHASE14_3PART.md finding F1.
-#
-#   * "Link to ..."  — row-INDEX references into the transactions sheet. Every
-#     new current-season event shifts the indices, rewriting every historical
-#     row's pointer. Dominates the churn (842 + 795 + 563 + 550 rows on
-#     transactions alone).
-#   * O-Score / skill / Luck / Hardship — percentiles and league-wide baselines
-#     computed over a universe that includes the in-progress season.
-#   * Forward-looking or wall-clock values — a past row's "Date dropped/traded"
-#     fills in when the asset finally moves; tenure counts real elapsed time;
-#     future draft capital re-values as upcoming picks trade.
-#
-# Everything else stays under the immutability check, which is where a genuine
-# historical regression would show up.
-#   * "... N year(s) later / after ..." — ROLLING WINDOWS whose endpoint is the
-#     present day, so they keep moving until the anniversary passes. Confirmed
-#     empirically against the run-447 cold rebuild (2026-07-21): the only KTC
-#     columns that moved were `KTC value difference 1 year later` (12 rows, all
-#     trades dated 2025-07-14/16/20) and `2 years later` (4 rows, 2024-07-14/18)
-#     — i.e. exactly the trades hitting their anniversary that week. Every fixed
-#     KTC window (deal time, end of season) reproduced byte-for-byte, which is
-#     why KTC is otherwise deliberately LEFT under this check.
-_VOLATILE_SUBSTRINGS = (
-    "link to",
-    "o-score",
-    "skill",                # Drafting / Trading / Transaction skill
-    "length of tenure",
-    "trade impact score",
-    "date dropped/traded",
-    "year later", "years later",    # rolling: KTC value difference N year(s) later
-    "year after", "years after",    # rolling: KTC N year(s) after draft day
+# Columns whose COMPLETED-SEASON values legitimately move on every rebuild (link
+# indexes, league-relative percentiles, present-day rolling windows), so a change
+# there must not read as a historical-immutability break. The classifier is
+# shared with the digest (which uses it to avoid emailing a fake all-time move) —
+# see lib/lotg_support/volatile_columns.py for the full rationale and F1 basis.
+from lotg_support.volatile_columns import (  # noqa: E402
+    is_volatile_column, _VOLATILE_SUBSTRINGS, _VOLATILE_EXACT,
 )
-_VOLATILE_EXACT = {
-    "Luck", "Hardship", "Starter-adjusted Hardship", "Number of teams",
-    "Tanking", "Future draft capital", "Startup draft players remaining",
-}
-
-
-def is_volatile_column(column: str) -> bool:
-    """True if a completed-season value in this column is expected to drift
-    between builds (so it must not count as a historical-immutability break)."""
-    if column in _VOLATILE_EXACT:
-        return True
-    c = column.lower()
-    return any(s in c for s in _VOLATILE_SUBSTRINGS)
 
 
 # ---------------------------------------------------------------------------

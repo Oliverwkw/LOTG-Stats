@@ -65,6 +65,34 @@ def check_low_end_crossing():
     return _ok("low-end crossing (F to 1st-lowest, passing E)", ("F", "E", 1, "low") in got, f"got {got}")
 
 
+def check_volatile_columns_excluded_from_crossings():
+    # Build-volatile / recompute-sensitive columns (league-relative percentiles
+    # like Luck, `... skill`, O-Score) must NOT generate all-time crossings — they
+    # drift a hair whenever a historical input is revised and would email a phantom
+    # move. A normal column that reorders still fires.
+    names = [f"T{i}" for i in range(8)]
+    def teams(swap):
+        rows = []
+        for i, n in enumerate(names):
+            pf, luck = 100 - i, 50 - i
+            if swap and n in ("T2", "T3"):        # swap ranks 3/4 on BOTH columns
+                pf = {"T2": 96, "T3": 98}[n]
+                luck = {"T2": 46, "T3": 48}[n]
+            rows.append({"Team": n, "Max PF": pf, "Luck": luck})
+        return pd.DataFrame(rows)
+    ty = pd.DataFrame({"Team": names, "Year": [2025] * 8})
+    tw = pd.DataFrame({"Team": ["T0"], "Year": [2025], "Week": [1]})
+    prev = D.build_snapshot(pd.DataFrame({"Player": []}), teams(False), ty, tw)
+    curr = D.build_snapshot(pd.DataFrame({"Player": []}), teams(True), ty, tw)
+    ok = _ok("Luck excluded from the team snapshot", "Luck" not in curr["teams"], list(curr["teams"]))
+    ok &= _ok("Max PF kept in the team snapshot", "Max PF" in curr["teams"])
+    cx = D.diff_snapshots(prev, curr)
+    cols = {c.column for c in cx}
+    ok &= _ok("normal column reorder fires a crossing", "Max PF" in cols, f"got {cols}")
+    ok &= _ok("volatile column reorder fires nothing", "Luck" not in cols, f"got {cols}")
+    return ok
+
+
 def check_team_any_of_8_reported_once():
     # 8-team board; swap ranks 3 and 4. Team config = high-only, full board.
     names = [f"T{i}" for i in range(8)]
@@ -398,6 +426,7 @@ def run_all() -> bool:
         check_ranking_order_and_missing,
         check_player_high_low_crossings,
         check_low_end_crossing,
+        check_volatile_columns_excluded_from_crossings,
         check_team_any_of_8_reported_once,
         check_new_entity_no_false_pass,
         check_in_season_gate,

@@ -76,6 +76,16 @@ the ranked sheets — no hand-curated "headline" list. Per-section rules
    - **league** (`league_all_time`): single row → no leaderboard; instead a
      **milestone** when a major total (`MAJOR_LEAGUE_STATS`) crosses a round
      number. *"League Total trades passes 200 (now 204)."*
+   - **Build-volatile columns are excluded** (`lib/lotg_support/volatile_columns.py`,
+     the same classifier the weekly audit uses). League-relative percentiles
+     (`Luck` / `Avg yearly luck`, `... skill`, `O-Score`, `Hardship`), rolling
+     KTC windows (`... N years later`), and link-index columns drift a hair
+     whenever any historical input is revised (or the code recomputes them), which
+     would flip a rank-boundary tie and email a *phantom* all-time move — worst in
+     the offseason, when no game has been played. Filtering them means an all-time
+     crossing only fires on a real, reproducible value change. (A normal same-day
+     rebuild moved exactly one all-time column, `Trading skill` — now filtered —
+     so a quiet offseason week produces zero phantom crossings.)
 2. **Yearly on-pace** (`player_year`, `team_year`, `league_year`): project the
    in-progress season to full-season pace, ranked vs completed seasons.
    Cumulative stats scale by weeks played; rate/level stats carry as-is.
