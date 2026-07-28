@@ -37,6 +37,8 @@ import math
 
 import pandas as pd
 
+from lotg_support.volatile_columns import is_volatile_column
+
 
 # ---------------------------------------------------------------------------
 # Tunables
@@ -234,8 +236,16 @@ def build_snapshot(
     captured_at = captured_at or datetime.now(timezone.utc)
     season = current_season(team_year)
     weeks = weeks_completed(team_week, season) if season is not None else 0
-    p_cols = discover_numeric_columns(player_all_time, "Player")
-    t_cols = discover_numeric_columns(team_all_time, "Team")
+    # Skip build-volatile / recompute-sensitive columns (league-relative
+    # percentiles like Luck, `... skill`, O-Score, rolling KTC windows): a
+    # completed-season all-time value in these drifts a hair whenever any
+    # historical input is revised, which would flip a rank-boundary tie and
+    # email the league a phantom "leaderboard move" — especially in the offseason
+    # when no game has been played. Same classifier the weekly audit uses.
+    p_cols = [c for c in discover_numeric_columns(player_all_time, "Player")
+              if not is_volatile_column(c)]
+    t_cols = [c for c in discover_numeric_columns(team_all_time, "Team")
+              if not is_volatile_column(c)]
     return {
         "meta": {
             "captured_at": captured_at.isoformat(),
