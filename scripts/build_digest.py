@@ -1,17 +1,21 @@
-"""Phase 14 CLI — build the in-season weekly digest from the latest build.
+"""Phase 14 CLI — build the weekly digest from the latest build.
 
 Reads the built `exports/` CSVs and the prior ranks snapshot, computes this
 week's rankings, diffs them for all-time leaderboard crossings, projects the
 in-progress season's on-pace ranks (from week 3), and writes:
 
-  * `data/digest/ranks_snapshot.json`  — this week's all-time rankings (committed
-    so next week diffs against it).
+  * `data/digest/ranks_snapshot.json`  — this week's rankings (committed so next
+    week diffs against it).
   * `exports/raw/weekly_digest.html`   — the rendered digest body.
 
-In-season gate: with no completed weeks (offseason) the digest is skipped and
-the snapshot is NOT rotated, so the first in-season run keeps a real baseline.
-`--force` builds regardless. `--phrasing-csv PATH` writes the "how every stat is
-phrased" catalog and exits.
+Runs YEAR-ROUND: the identical diff pipeline in-season and off. Offseason weeks
+still move the all-time leaderboards (KTC / age drift) and add picks / trades /
+transactions, so the snapshot rotates and diffs every week; the in-season-only
+pieces (on-pace, records, single-week highlights) self-gate to empty when there
+is no in-progress week. A digest with no movement is suppressed at SEND time
+(`send_digest.py --skip-empty`), so a quiet week sends no email — the same rule
+in-season and off. `--phrasing-csv PATH` writes the "how every stat is phrased"
+catalog and exits.
 
 Delivery is separate — see `scripts/send_digest.py`. This CLI only renders.
 
@@ -45,7 +49,8 @@ def main(argv=None) -> int:
     ap.add_argument("--out", default=None,
                     help="digest HTML (default: <exports>/raw/weekly_digest.html)")
     ap.add_argument("--force", action="store_true",
-                    help="build even in the offseason (no completed weeks)")
+                    help="(retained for compatibility; the digest now builds "
+                         "year-round, so this is a no-op)")
     ap.add_argument("--phrasing-csv", default=None,
                     help="write the stat-phrasing catalog CSV and exit")
     ap.add_argument("--replica", default=None,
@@ -100,9 +105,14 @@ def main(argv=None) -> int:
     meta = current["meta"]
     print(f"[digest] season={meta['season']} weeks_completed={meta['weeks_completed']}")
 
-    if not D.is_in_season(current) and not args.force:
-        print("[digest] offseason — skipping digest, snapshot left unrotated.")
-        return 0
+    # The digest runs YEAR-ROUND — the exact same diff pipeline in-season and off.
+    # Offseason weeks legitimately still move the all-time leaderboards (KTC / age
+    # drift) and add picks / trades / transactions, so the snapshot rotates and
+    # diffs every week regardless of season. The in-season-only pieces (on-pace,
+    # single-season records, single-week highlights) self-gate to empty when there
+    # is no in-progress week, so the offseason digest is just the subset that has
+    # movement. An empty digest (no movement) is suppressed at send time
+    # (`send_digest.py --skip-empty`), so a quiet week sends no email.
 
     projections = D.project_on_pace(
         frames["player_year"], frames["team_year"],

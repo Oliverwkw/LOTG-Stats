@@ -5,9 +5,15 @@ Status: **engine + delivery + scheduling landed;** delivery verified end-to-end.
 ## The model (what a weekly email reports)
 
 For **every** numeric stat across all sheets (~779), the email reports any change
-to that stat's **top-5 or bottom-5** since the previous email. The live in-season
-run does this by snapshotting every ranking each week and diffing the next week —
-no reconstruction. Sheet-specific valuation ("constraints"): all-time sheets rank
+to that stat's **top-5 or bottom-5** since the previous email — an *order* change
+in the leaderboard, not a value change that leaves the ranking as it was (a player
+who ages a little but stays 2nd-oldest triggers nothing). The run does this
+**year-round** by snapshotting every ranking each week and diffing the next —
+no reconstruction — and **only sends when something moved** (a quiet week,
+in-season or off, sends no email). In the offseason the moving pieces are all-time
+leaderboard drift (KTC / age) and new picks / trades / transactions; the
+in-season-only pieces (on-pace, records, single-week) are simply empty then.
+Sheet-specific valuation ("constraints"): all-time sheets rank
 entities by the actual value; year sheets rank the in-progress season by its
 **on-pace** projection (cumulative × weeks; rate as-is); week sheets rank each
 single week; event sheets (picks/trades/transactions) rank each event, and only
@@ -17,10 +23,12 @@ exclusions are (a) a value shared by more than 5 entities at the extreme — the
 (b) single-row `league_all_time` (no ranking → round-number milestones instead).**
 Items are **grouped by entity** ("plehv79 set these single-season records: …").
 
-**Offseason test email is minimal** (champion + a note) — there's no previous
-email to diff against, and derived all-time/year rollups can't be reconstructed
-for a single past week from final exports. During the season the test button
-replays the last real weekly email, which is complete.
+**The real digest now runs in the offseason too** (see "Behaviour"): the same
+snapshot-diff, sending only when an all-time ranking drifts or a new
+pick/trade/transaction lands. The **test-email button** still replays the last
+real digest (`data/digest/last_digest.html`); its offseason *seed*
+(`build_replica_html`, champion + note) stays minimal only until the first real
+offseason digest overwrites it.
 
 **Zero-centered / two-sided stats** (a matchup's margin is +M / −M; a trade's
 KTC or age differential is +X / −X) are detected from the data — a column whose
@@ -43,8 +51,17 @@ Two scheduled runs on `build.yml` (Phase 14 owns the canonical weekly pipeline):
 - **Thursday 16:00 UTC (~12pm ET)** — pregame build (fresh rosters/stats before
   TNF). Builds the digest preview but **no email** and **no snapshot rotation**.
 
-Both self-gate to in-season (nothing emails in the offseason). `workflow_dispatch`
-has a `send_email` toggle for a manual send.
+`workflow_dispatch` has a `send_email` toggle for a manual send.
+
+**The digest runs year-round — the identical diff pipeline in-season and off.**
+Offseason weeks still move the all-time leaderboards (KTC / age drift) and add
+picks / trades / transactions, so the snapshot rotates and diffs every Tuesday
+regardless of season; the in-season-only pieces (on-pace, records, single-week
+highlights) self-gate to empty when there's no in-progress week. **A digest with
+no movement is suppressed at send time (`send_digest.py --skip-empty`), so a
+quiet week — in-season or off — sends no email.** The committed
+`data/digest/ranks_snapshot.json` baseline is seeded so the first live diff is
+against the prior week, not silent.
 
 The digest is **over-inclusive**: it auto-discovers *every* numeric column across
 the ranked sheets — no hand-curated "headline" list. Per-section rules

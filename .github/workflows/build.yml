@@ -9,8 +9,10 @@ on:
     #     stats before TNF). Builds the digest preview but does NOT email and
     #     does NOT rotate the digest baseline snapshot.
     # The digest EMAIL + snapshot rotation are gated to the Tuesday cron only,
-    # so consecutive emails diff cleanly week-to-week. build_digest self-gates
-    # to in-season, so both crons are harmless in the offseason.
+    # so consecutive emails diff cleanly week-to-week. build_digest now runs
+    # year-round (offseason leaderboards still drift + gain picks/trades/txns);
+    # a week with no movement renders an empty digest that --skip-empty drops,
+    # so a quiet offseason week still sends no email.
     - cron: "0 14 * * 2"
     - cron: "0 16 * * 4"
   workflow_dispatch:
@@ -167,10 +169,11 @@ jobs:
           python scripts/injury_coverage.py --exports exports 2>&1 | tee -a exports/raw/runner.log
 
       - name: Build weekly digest
-        # Phase 14: render the digest from the freshly built exports. Self-gates
-        # to in-season (skips + leaves the snapshot unrotated in the offseason).
-        # Writes exports/raw/weekly_digest.html and updates the local snapshot;
-        # the snapshot is only COMMITTED on the Tuesday send run (below), so the
+        # Phase 14: render the digest from the freshly built exports. Runs
+        # year-round (in-season and off); a no-movement week renders an empty
+        # digest that the send step drops via --skip-empty. Writes
+        # exports/raw/weekly_digest.html and updates the local snapshot; the
+        # snapshot is only COMMITTED on the Tuesday send run (below), so the
         # week-over-week baseline rotates exactly once per week at email time.
         continue-on-error: true
         env:
@@ -299,9 +302,9 @@ jobs:
         # Mails exports/raw/weekly_digest.html to config/digest.yaml recipients.
         # Credentials are AES-encrypted in config/digest_credentials.enc and
         # decrypted at send time with the DIGEST_KEY secret. No-ops (logged,
-        # non-failing) when the digest was skipped (offseason), has no changes
-        # (--skip-empty), or DIGEST_KEY is absent — so this is safe before the
-        # secret is added. (SMTP_USERNAME/SMTP_PASSWORD still override if set.)
+        # non-failing) when the digest has no movement this week (--skip-empty —
+        # the usual offseason case) or DIGEST_KEY is absent — so this is safe
+        # before the secret is added. (SMTP_USERNAME/SMTP_PASSWORD still override.)
         #
         # Runs BEFORE the snapshot rotation below on purpose: rotating first
         # would advance the week-over-week baseline even when the send blew up,
