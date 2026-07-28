@@ -69,10 +69,10 @@
   },
   "avatar": "bacf626c72ab39f35077ce4a4f99a149",
   "company_id": null,
-  "shard": 926,
-  "season": "2025",
-  "season_type": "regular",
   "sport": "nfl",
+  "season_type": "regular",
+  "season": "2025",
+  "shard": 926,
   "last_message_id": "1312101554618109952",
   "scoring_settings": {
     "sack": 1.0,
