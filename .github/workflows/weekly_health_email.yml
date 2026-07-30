@@ -17,12 +17,22 @@ name: Weekly dataset-health email
 # committed CSVs against an older committed version — it runs a complete build
 # FROM SCRATCH and audits that against what is committed. Deliberately:
 #
-#   * No `actions/cache/restore` step, which is exactly what the build's
-#     `force_refresh_cache: true` box does: the NFLverse / DynastyProcess and KTC
-#     caches are NOT restored, so every external source is re-fetched on top of
-#     the committed .cache baseline. That is the only way to catch upstream data
-#     that changed underneath us, a source that has started 403ing, or a value
-#     that simply does not reproduce — none of which a cache-warm build can see.
+#   * No `actions/cache/restore` step, so the Actions NFLverse / KTC caches are
+#     not layered over the checkout. On its own that is NOT enough to re-fetch
+#     anything: `.cache` is committed to the repo, and the loaders only download
+#     when a file is missing/empty or `force_refresh` is set — which the build
+#     sets for the in-progress season only. Skipping the restore therefore used
+#     to leave this job reading the COMMITTED cache for every completed season
+#     while the Tuesday build read the (newer, restore-key-rolled) Actions cache
+#     — two different upstream vintages, whose differences Part 1 then reported
+#     as historical-immutability breakages that no code change could fix.
+#     LOTG_REFRESH_EXTERNAL=1 below closes that gap: every season re-downloads,
+#     so the diff really is "committed exports vs a rebuild from live upstream".
+#     That is the only way to catch upstream data that changed underneath us, a
+#     source that has started 403ing, or a value that simply does not reproduce —
+#     none of which a cache-warm build can see. Each loader still falls back to
+#     the committed copy if its download fails, so a flaky source degrades to
+#     today's behaviour instead of failing the run.
 #   * The baseline is the exports/ committed at HEAD, snapshotted BEFORE the
 #     build overwrites the working tree. So Part 1 answers a sharper question
 #     than it used to: "does a from-scratch rebuild still reproduce the data we
@@ -86,6 +96,11 @@ jobs:
         env:
           PYTHONPATH: src
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Re-download NFLverse for EVERY season, not just the in-progress one.
+          # Without this the completed seasons come straight off the committed
+          # .cache and Part 1 compares two cache vintages instead of comparing
+          # our build against live upstream data. See the header note above.
+          LOTG_REFRESH_EXTERNAL: "1"
         run: |
           mkdir -p exports/raw
           set -o pipefail
