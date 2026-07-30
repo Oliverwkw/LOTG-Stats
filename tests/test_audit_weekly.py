@@ -24,7 +24,10 @@ import audit_weekly as A  # noqa: E402
 
 
 def _ok(name, cond, detail=""):
-    print(f"  [{'PASS' if cond else 'FAIL'}] {name}" + (f" — {detail}" if detail else ""))
+    # Detail only on failure — the diff checks below pass the whole rendered
+    # report as their detail, which is what you want to read when one breaks
+    # and pure noise when they all pass.
+    print(f"  [{'PASS' if cond else 'FAIL'}] {name}" + ("" if cond or not detail else f" — {detail}"))
     return bool(cond)
 
 
@@ -72,6 +75,80 @@ def check_diff_clean_when_identical(tmp):
     A.audit_diffs({n: A._read(d1, n) for n in A.SHEETS},
                   {n: A._read(d2, n) for n in A.SHEETS}, 2026, rep)
     return _ok("identical exports → no diff flag", rep.confirmed == 0)
+
+
+def check_modified_row_names_the_column(tmp):
+    """A modified historical row must be reported as ONE change naming the
+    column and its old → new value — not as an unexplained removed+added pair
+    with identical identifying keys, which is what the health email used to say
+    (and which told the maintainer nothing about what actually moved)."""
+    base_dir, cur_dir = tmp / "mbase", tmp / "mcur"
+    base = pd.DataFrame({
+        "Player": ["Jaylin Noel"] * 3,
+        "Year": ["2025"] * 3, "Week": ["1", "2", "3"],
+        "Points": ["1.7", "0.0", "1.4"], "Injury?": ["False"] * 3,
+    })
+    _write(base_dir, "player_week", base)
+    cur = base.copy()
+    cur["Injury?"] = ["True", "True", "True"]      # one column, three rows
+    _write(cur_dir, "player_week", cur)
+    rep = A.Report()
+    A.audit_diffs({n: A._read(cur_dir, n) for n in A.SHEETS},
+                  {n: A._read(base_dir, n) for n in A.SHEETS}, 2026, rep)
+    text = rep.render()
+    ok = _ok("one flag for the sheet", rep.confirmed == 1, f"confirmed={rep.confirmed}")
+    ok &= _ok("counted as changed, not added/removed",
+              "3 changed past-season row(s)" in text, text)
+    ok &= _ok("no bogus added/removed halves",
+              "added" not in text and "removed" not in text, text)
+    ok &= _ok("rolls the moving column up", "columns that moved: Injury? (3)" in text, text)
+    ok &= _ok("shows old → new per row",
+              "Player=Jaylin Noel | Year=2025 | Week=1 — Injury?: False → True" in text, text)
+    ok &= _ok("untouched columns are not reported", "Points" not in text, text)
+    return ok
+
+
+def check_genuine_add_and_remove_still_separate(tmp):
+    """A row that really appeared / disappeared has no counterpart to pair with,
+    so it must still be reported as an add / a remove."""
+    base_dir, cur_dir = tmp / "abase", tmp / "acur"
+    _write(base_dir, "team_year", pd.DataFrame(
+        {"Team": ["A", "B"], "Year": ["2024", "2024"], "PF": ["100", "200"]}))
+    _write(cur_dir, "team_year", pd.DataFrame(
+        {"Team": ["A", "C"], "Year": ["2024", "2024"], "PF": ["100", "300"]}))
+    rep = A.Report()
+    A.audit_diffs({n: A._read(cur_dir, n) for n in A.SHEETS},
+                  {n: A._read(base_dir, n) for n in A.SHEETS}, 2026, rep)
+    text = rep.render()
+    ok = _ok("counted as 1 added / 1 removed",
+             "1 added, 1 removed past-season row(s)" in text, text)
+    ok &= _ok("names the added row", "added:   Team=C | Year=2024" in text, text)
+    ok &= _ok("names the removed row", "removed: Team=B | Year=2024" in text, text)
+    ok &= _ok("no phantom 'changed'", "changed" not in text, text)
+    return ok
+
+
+def check_detail_budget_covers_every_class(tmp):
+    """The line budget is shared across changed / added / removed, so a long run
+    of one kind can't crowd the others out of the report entirely (it used to:
+    25 removals left zero room for the adds, and the email then cut that to 15)."""
+    base_dir, cur_dir = tmp / "bbase", tmp / "bcur"
+    n = 40
+    base = pd.DataFrame({"Team": [f"T{i}" for i in range(n)],
+                         "Year": ["2024"] * n, "PF": [str(i) for i in range(n)]})
+    _write(base_dir, "team_year", base)
+    cur = base.copy()
+    cur["PF"] = [str(i + 1) for i in range(n)]              # 40 changed rows
+    cur.loc[len(cur)] = {"Team": "NEW", "Year": "2024", "PF": "1"}   # + 1 added
+    _write(cur_dir, "team_year", cur)
+    rep = A.Report()
+    A.audit_diffs({n2: A._read(cur_dir, n2) for n2 in A.SHEETS},
+                  {n2: A._read(base_dir, n2) for n2 in A.SHEETS}, 2026, rep)
+    text = rep.render()
+    ok = _ok("both classes counted", "40 changed, 1 added past-season row(s)" in text, text)
+    ok &= _ok("the lone added row still shown", "added:   Team=NEW | Year=2024" in text, text)
+    ok &= _ok("truncation is stated, not silent", "… and " in text, text)
+    return ok
 
 
 def check_schema_break_detection(tmp, monkeypatch_baseline):
@@ -199,6 +276,9 @@ def run_all() -> bool:
         check_current_season_ignores_future_picks,
         check_diff_flags_past_change_exempts_current,
         check_diff_clean_when_identical,
+        check_modified_row_names_the_column,
+        check_genuine_add_and_remove_still_separate,
+        check_detail_budget_covers_every_class,
         check_volatile_columns_exempt,
         lambda t: check_schema_break_detection(t, None),
         check_build_log_scan,
