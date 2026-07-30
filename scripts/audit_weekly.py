@@ -21,6 +21,20 @@ default GitHub "scheduled workflow failed" email:
     which is what identifies the cause. Only rows with no counterpart on the
     other side are reported as a bare add / remove.
 
+    Rows that moved because NFLVERSE revised the data underneath them are NOT
+    flagged: upstream back-correcting a completed season is their data moving,
+    not our build failing to reproduce it. They're counted and their columns
+    reported under the NFLverse section instead — see below.
+
+  NFLVERSE UPSTREAM DRIFT. The audit build re-downloads every season
+    (LOTG_REFRESH_EXTERNAL=1), so diffing the committed NFLverse cache against
+    the freshly fetched one says exactly what upstream changed. That's an
+    informational "NFLverse made N changes" line, and it supplies the
+    (player, season, week) coordinates Part 1 uses to attribute its own diffs.
+    It becomes a CONFIRMED problem only when the drift is structural (rows,
+    columns or files appearing / vanishing) or has moved more of our exports
+    than lotg_support.nflverse_drift.MAX_ATTRIBUTED_ROWS.
+
   PART 2 — SCHEMA BREAKS.  Every sheet's columns are pinned in a committed
     baseline (data/audit/schema_baseline.json). A missing / renamed / reordered
     column is a break; a brand-new column is noted (regenerate the baseline with
@@ -49,7 +63,7 @@ import re
 import sys
 from collections import Counter, defaultdict
 from pathlib import Path
-from typing import Dict, List, Optional, Sequence, Tuple
+from typing import Dict, List, Optional, Sequence, Set, Tuple
 
 import pandas as pd
 
@@ -98,6 +112,98 @@ _MAX_SUMMARY_COLS = 8  # cap the per-sheet "columns that moved" roll-up
 from lotg_support.volatile_columns import (  # noqa: E402
     is_volatile_column, _VOLATILE_SUBSTRINGS, _VOLATILE_EXACT,
 )
+from lotg_support.nflverse_drift import Drift, diff_nflverse_cache  # noqa: E402
+
+
+# ---------------------------------------------------------------------------
+# NFLverse attribution
+# ---------------------------------------------------------------------------
+class NflverseAttribution:
+    """Which of our rows a given NFLverse revision can account for.
+
+    NFLverse back-corrects completed seasons, so a past-season row of ours that
+    moves *because upstream moved* is not a reproducibility failure and must not
+    read as a dataset breakage. `Drift` gives us the (player, season, week)
+    coordinates it revised; this maps those onto each sheet's identifying key.
+
+    Downstream sheets (team / league / trades) carry no player, so they're
+    reached through the current player_week roster: a team-week is attributed
+    when a revised player was on that roster that week, and so on up. That is
+    deliberately permissive — it can absorb a genuine regression that happens to
+    land on the same row in a week when upstream also moved. The audit keeps the
+    count and the moved columns visible in the report for exactly that reason:
+    attributed rows are reported, just not flagged.
+
+    Only CHANGED rows are attributable. Roster membership comes from Sleeper, so
+    an NFLverse revision can never add or remove one of our rows; those stay
+    flagged.
+    """
+
+    def __init__(self, drift: Drift, cur: Dict[str, pd.DataFrame]) -> None:
+        self.active = bool(drift and drift.player_seasons)
+        self.player_weeks = set(drift.player_weeks) if drift else set()
+        self.player_seasons = set(drift.player_seasons) if drift else set()
+        self.team_weeks: Set[tuple] = set()
+        self.team_years: Set[tuple] = set()
+        self.league_weeks: Set[tuple] = set()
+        self.league_years: Set[str] = set()
+        self.names_by_year: Dict[str, Set[str]] = defaultdict(set)
+        # String-normalised copies: our exports are read as str, NFLverse as int.
+        self._pw_keys: Set[tuple] = {(p, str(y), str(w)) for p, y, w in self.player_weeks}
+        self._py_keys: Set[tuple] = {(p, str(y)) for p, y in self.player_seasons}
+        if not self.active:
+            return
+        for nm, yr in self.player_seasons:
+            self.names_by_year[str(yr)].add(nm)
+        self._index_rosters(cur.get("player_week"))
+
+    def _index_rosters(self, pw: Optional[pd.DataFrame]) -> None:
+        if pw is None or pw.empty:
+            return
+        if not {"Player", "Team", "Year", "Week"}.issubset(pw.columns):
+            return
+        for r in pw[["Player", "Team", "Year", "Week"]].itertuples(index=False):
+            p, t, y, w = str(r.Player), str(r.Team), str(r.Year), str(r.Week)
+            if (p, y, w) in self._pw_keys:
+                self.team_weeks.add((t, y, w))
+                self.league_weeks.add((y, w))
+            if (p, y) in self._py_keys:
+                self.team_years.add((t, y))
+                self.league_years.add(y)
+
+    def _mentions(self, text: str, year: str) -> bool:
+        names = self.names_by_year.get(str(year))
+        if not names or not text:
+            return False
+        return any(nm in text for nm in names)
+
+    def covers(self, sheet: str, idcols: List[str], key: tuple,
+               row: Dict[str, str]) -> bool:
+        if not self.active:
+            return False
+        kv = dict(zip(idcols, key))
+        yr = str(kv.get("Year") or row.get("Year") or row.get("Season") or "")
+        if sheet == "player_week":
+            return (kv.get("Player"), yr, str(kv.get("Week"))) in self._pw_keys
+        if sheet == "player_year":
+            return (kv.get("Player"), yr) in self._py_keys
+        if sheet == "team_week":
+            return (str(kv.get("Team")), yr, str(kv.get("Week"))) in self.team_weeks
+        if sheet == "team_year":
+            return (str(kv.get("Team")), yr) in self.team_years
+        if sheet == "league_week":
+            return (yr, str(kv.get("Week"))) in self.league_weeks
+        if sheet == "league_year":
+            return yr in self.league_years
+        if sheet == "picks":
+            return self._mentions(str(kv.get("Player Picked") or ""), yr)
+        if sheet == "transactions":
+            return self._mentions(
+                f"{kv.get('Player Added') or ''};{kv.get('Player Dropped') or ''}", yr)
+        if sheet == "trades":
+            return self._mentions(
+                f"{row.get('Assets received') or ''};{row.get('Assets sent') or ''}", yr)
+        return False
 
 
 # ---------------------------------------------------------------------------
@@ -142,6 +248,12 @@ class Report:
         self.entries: List[tuple] = []   # (kind, text) with kind in head/ok/note/flag/raw
         self.confirmed = 0
         self._section = ""
+        # Populated by run_audit so the email can render the NFLverse section
+        # without re-diffing the caches.
+        self.drift: Optional[Drift] = None
+        self.nflverse_attributed = 0
+        self.attributed_sheets: Dict[str, int] = {}
+        self.attributed_columns: List[Tuple[str, int]] = []
 
     def head(self, text: str) -> None:
         self._section = text
@@ -184,17 +296,47 @@ class Report:
         return out
 
 
-def run_audit(current_dir: Path, baseline_dir: Optional[Path]) -> Report:
+def run_audit(current_dir: Path, baseline_dir: Optional[Path],
+              nflverse_before: Optional[Path] = None,
+              nflverse_after: Optional[Path] = None) -> Report:
     """Run all three audit parts against a build directory (+ optional git
-    baseline for Part 1) and return the populated Report."""
+    baseline for Part 1, + optional NFLverse cache snapshots) and return the
+    populated Report."""
     cur = {n: _read(current_dir, n) for n in SHEETS}
     base = {n: _read(baseline_dir, n) for n in SHEETS} if baseline_dir else {}
     season = _current_season(cur)
     rep = Report()
-    audit_diffs(cur, base, season, rep)
+    drift = diff_nflverse_cache(nflverse_before, nflverse_after)
+    attrib = NflverseAttribution(drift, cur)
+    attributed = audit_diffs(cur, base, season, rep, attrib)
+    rep.drift, rep.nflverse_attributed = drift, attributed
+    audit_nflverse(drift, attributed, rep)
     audit_schema(cur, rep)
     audit_build_log(current_dir / "raw", season, rep)
     return rep
+
+
+# ---------------------------------------------------------------------------
+# NFLverse upstream drift (informational unless significant)
+# ---------------------------------------------------------------------------
+def audit_nflverse(drift: Drift, attributed_rows: int, rep: Report) -> None:
+    """Say what NFLverse changed. Upstream back-correcting a completed season is
+    their data moving, not our build failing to reproduce it, so this is a note
+    — until it is structural (rows / columns / files appearing or vanishing) or
+    it has moved more of our exports than the threshold, at which point it is a
+    flag and someone should look."""
+    rep.head("NFLverse upstream drift")
+    reason = drift.is_significant(attributed_rows) if drift.compared else None
+    line = drift.summary()
+    if attributed_rows:
+        line += (f" That accounts for {attributed_rows} changed past-season row(s) "
+                 "in our exports, which Part 1 therefore did not flag.")
+    if reason:
+        rep.flag(f"{line} Significant: {reason}.")
+    else:
+        rep.note(line)
+    for d in drift.detail_lines():
+        rep.raw(f"    - {d}")
 
 
 # ---------------------------------------------------------------------------
@@ -232,7 +374,8 @@ def classify_diff(shared: List[str], idcols: List[str],
     identifying columns: keys present on both sides are modifications (returned
     with their per-column old → new deltas), leftovers are genuine adds/removes.
 
-    Returns ([(key, [(col, old, new), …]), …], [added key], [removed key]).
+    Returns ([(key, [(col, old, new), …], new_row_tuple), …],
+             [added key], [removed key]).
     """
     pos = {c: i for i, c in enumerate(shared)}
     kpos = [pos[c] for c in idcols if c in pos]
@@ -259,27 +402,33 @@ def classify_diff(shared: List[str], idcols: List[str],
         for i in range(paired):
             deltas = [(shared[j], r[i][j], a[i][j])
                       for j in range(len(shared)) if r[i][j] != a[i][j]]
-            changed.append((k, deltas))
+            changed.append((k, deltas, a[i]))
         added.extend([k] * (len(a) - paired))
         removed.extend([k] * (len(r) - paired))
     return changed, added, removed
 
 
 def audit_diffs(cur: Dict[str, pd.DataFrame], base: Dict[str, pd.DataFrame],
-                current_season: Optional[int], rep: Report) -> None:
+                current_season: Optional[int], rep: Report,
+                attrib: Optional[NflverseAttribution] = None) -> int:
+    """Report past-season rows that moved. Returns the number of rows withheld
+    from the flags because an NFLverse revision accounts for them."""
     rep.head("Part 1 — unexpected diffs (completed-season immutability)")
     if not base or all(df.empty for df in base.values()):
         rep.note("No baseline exports supplied — skipping the historical diff "
                  "(first run, or the workflow couldn't materialise a prior version).")
-        return
+        return 0
     if current_season is None:
         rep.note("No season detected in the current exports — skipping diff.")
-        return
+        return 0
     rep.note(f"In-progress season = **{current_season}** "
              f"(rows for {current_season} are exempt; earlier seasons must be frozen).")
 
     any_change = False
+    flagged_any = False
     skipped_total = 0
+    attributed: Dict[str, int] = {}
+    attributed_cols: Counter = Counter()
     for name, season_col in SEASON_COL.items():
         c, b = cur.get(name), base.get(name)
         if c is None or b is None or c.empty or b.empty:
@@ -312,8 +461,28 @@ def audit_diffs(cur: Dict[str, pd.DataFrame], base: Dict[str, pd.DataFrame],
         idcols = [c2 for c2 in ID_COLS.get(name, []) if c2 in shared]
         changed, added, removed = classify_diff(shared, idcols, removed_tups, added_tups)
 
+        # Peel off the rows an NFLverse revision accounts for. Upstream
+        # back-correcting a completed season is not our build failing to
+        # reproduce, so those rows are counted and their moved columns reported
+        # under the NFLverse section — but they don't fail the run.
+        if attrib is not None and attrib.active:
+            kept, taken = [], []
+            for item in changed:
+                k, deltas, row_tup = item
+                row = dict(zip(shared, row_tup))
+                (taken if attrib.covers(name, idcols, k, row) else kept).append(item)
+            if taken:
+                attributed[name] = attributed.get(name, 0) + len(taken)
+                for _, deltas, _ in taken:
+                    for col, _o, _n in deltas:
+                        attributed_cols[col] += 1
+            changed = kept
+        if not changed and not added and not removed:
+            continue
+
         counts = [(len(changed), "changed"), (len(added), "added"), (len(removed), "removed")]
         parts = ", ".join(f"{n} {label}" for n, label in counts if n)
+        flagged_any = True
         rep.flag(f"**{name}**: {parts} past-season row(s) — "
                  "historical data is not supposed to change.")
 
@@ -321,7 +490,7 @@ def audit_diffs(cur: Dict[str, pd.DataFrame], base: Dict[str, pd.DataFrame],
         # is a single cause (a revised upstream feed, a formula change), not N
         # mysteries. It's what tells the maintainer whether to fix the build or
         # to classify the column as build-volatile.
-        moved = Counter(col for _, deltas in changed for col, _, _ in deltas)
+        moved = Counter(col for _, deltas, _ in changed for col, _, _ in deltas)
         if moved:
             top = ", ".join(f"{c} ({n})" for c, n in moved.most_common(_MAX_SUMMARY_COLS))
             extra = f" … +{len(moved) - _MAX_SUMMARY_COLS} more column(s)" \
@@ -341,7 +510,7 @@ def audit_diffs(cur: Dict[str, pd.DataFrame], base: Dict[str, pd.DataFrame],
                 rep.raw(f"    - … and {len(items) - per_class} more")
 
         def _changed_line(item) -> str:
-            k, deltas = item
+            k, deltas, _row = item
             shown_cols = "; ".join(f"{c}: {_fmt(o)} → {_fmt(n)}"
                                    for c, o, n in deltas[:_MAX_DELTA_COLS])
             if len(deltas) > _MAX_DELTA_COLS:
@@ -356,8 +525,20 @@ def audit_diffs(cur: Dict[str, pd.DataFrame], base: Dict[str, pd.DataFrame],
                  "exempt from this check (link-index references, O-Score / skill / "
                  "Luck / Hardship baselines, tenure & forward-looking values) — "
                  "they legitimately move on every rebuild.")
+    total_attributed = sum(attributed.values())
+    rep.attributed_sheets = dict(sorted(attributed.items(), key=lambda kv: -kv[1]))
+    rep.attributed_columns = attributed_cols.most_common(_MAX_SUMMARY_COLS)
+    if total_attributed:
+        sheets = ", ".join(f"{k} ({v})" for k, v in rep.attributed_sheets.items())
+        cols = ", ".join(f"{c} ({n})" for c, n in attributed_cols.most_common(6))
+        rep.note(f"{total_attributed} past-season row(s) moved because NFLverse "
+                 f"revised the data underneath them — not flagged. {sheets}."
+                 + (f" Columns: {cols}." if cols else ""))
     if not any_change:
         rep.ok("No completed-season row changed since the previous build.")
+    elif not flagged_any:
+        rep.ok("No completed-season row changed beyond what NFLverse revised upstream.")
+    return total_attributed
 
 
 # ---------------------------------------------------------------------------
@@ -486,6 +667,10 @@ def main(argv=None) -> int:
                     help="directory of the previous committed CSVs (for Part 1)")
     ap.add_argument("--update-schema", action="store_true",
                     help="re-pin data/audit/schema_baseline.json from --current and exit")
+    ap.add_argument("--nflverse-before", default=None,
+                    help="directory of the NFLverse cache CSVs as committed (pre-build)")
+    ap.add_argument("--nflverse-after", default=str(_ROOT / ".cache"),
+                    help="directory of the NFLverse cache CSVs after the build re-fetched them")
     args = ap.parse_args(argv)
 
     current_dir = Path(args.current)
@@ -496,7 +681,12 @@ def main(argv=None) -> int:
         print(f"[audit] schema baseline pinned -> {_SCHEMA_BASELINE}")
         return 0
 
-    rep = run_audit(current_dir, Path(args.baseline) if args.baseline else None)
+    rep = run_audit(
+        current_dir,
+        Path(args.baseline) if args.baseline else None,
+        Path(args.nflverse_before) if args.nflverse_before else None,
+        Path(args.nflverse_after) if args.nflverse_after else None,
+    )
 
     out = rep.render()
     print(out)

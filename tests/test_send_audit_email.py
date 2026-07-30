@@ -76,6 +76,36 @@ def check_issues_email():
     return ok
 
 
+def check_nflverse_section():
+    """"NFLverse made N changes" is its own informational section — upstream
+    back-correcting a completed season is not a dataset breakage."""
+    sys.path.insert(0, str(_ROOT / "lib"))
+    from lotg_support import nflverse_drift as N
+
+    drift = N.Drift(compared=True)
+    drift.files.append(N.FileDrift(
+        name="nflverse_stats_player_week_2025.csv", changed_cells=2306,
+        changed_rows=1850, top_columns=[("position", 1169), ("fumble_recovery_yards_own", 296)]))
+    _, html, issues = E.render_email(flags=[], gaps={}, captures_present=True,
+                                     drift=drift, attributed=32)
+    ok = _ok("section is rendered", "NFLverse changes" in html)
+    ok &= _ok("says how many changes",
+              "NFLverse made 2306 value(s) across 1850 row(s)" in html, html[:400])
+    ok &= _ok("names the columns upstream touched", "position (1169)" in html)
+    ok &= _ok("says how much of ours it explains",
+              "accounts for 32 changed past-season row(s)" in html)
+    ok &= _ok("drift alone is NOT an issue week", issues is False)
+
+    _, clean, _ = E.render_email(flags=[], gaps={}, captures_present=True,
+                                 drift=N.Drift(compared=True), attributed=0)
+    ok &= _ok("a quiet upstream week reads clean", "made no changes" in clean)
+
+    _, none_html, _ = E.render_email(flags=[], gaps={}, captures_present=True)
+    ok &= _ok("no snapshot -> says it wasn't measured",
+              "not measured" in none_html, none_html[:400])
+    return ok
+
+
 def check_empty_tracker_note():
     _, html, _ = E.render_email(flags=[], gaps={}, captures_present=False)
     return _ok("offseason tracker note shown", "no captures yet" in html)
@@ -92,7 +122,7 @@ def check_skip_clean_no_creds_is_noop():
 def run_all() -> bool:
     all_ok = True
     for t in (check_recipients, check_clean_email, check_issues_email,
-              check_detail_lines_not_silently_cut,
+              check_detail_lines_not_silently_cut, check_nflverse_section,
               check_empty_tracker_note, check_skip_clean_no_creds_is_noop):
         print(f"\n{t.__name__}:")
         all_ok &= bool(t())

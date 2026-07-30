@@ -76,6 +76,15 @@ jobs:
           cp exports/*.csv "$BASE"/
           echo "BASELINE_DIR=$BASE" >> "$GITHUB_ENV"
           echo "Snapshotted $(ls "$BASE" | wc -l) committed CSVs into $BASE"
+          # Same idea for the NFLverse cache: these are the upstream files the
+          # committed exports were built from. The build below re-downloads them
+          # (LOTG_REFRESH_EXTERNAL=1), so diffing this snapshot against .cache
+          # afterwards is exactly "what did NFLverse change since we shipped?".
+          NV="$RUNNER_TEMP/baseline_nflverse"
+          mkdir -p "$NV"
+          cp .cache/nflverse_*.csv "$NV"/ 2>/dev/null || true
+          echo "NFLVERSE_BEFORE=$NV" >> "$GITHUB_ENV"
+          echo "Snapshotted $(ls "$NV" | wc -l) NFLverse cache files into $NV"
 
       - name: Install dependencies (including LOTG package)
         run: |
@@ -135,6 +144,8 @@ jobs:
           python scripts/send_audit_email.py \
             --exports exports \
             --baseline "$BASELINE_DIR" \
+            --nflverse-before "$NFLVERSE_BEFORE" \
+            --nflverse-after .cache \
             --out "$RUNNER_TEMP/health_email.html"
 
       - name: Upload the fresh build + email for diagnosis

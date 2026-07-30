@@ -8,6 +8,11 @@ alerts on two things:
     a completed-season row that changed (historical data must be frozen), a sheet
     that lost / renamed a pinned column, or a real (non-transient, non-current-
     season) build error / failing test.
+  * NFLVERSE CHANGES — what upstream revised since the committed exports were
+    built. NFLverse back-corrects completed seasons, so rows of ours that moved
+    for that reason are NOT breakages; they're reported here as "NFLverse made N
+    changes" and only escalate to a breakage when the drift is structural or has
+    moved an unreasonable share of our exports.
   * MISSED INJURIES — played in-season weeks that have NO capture in the in-house
     Sleeper injury tracker (scripts/injury_coverage.py), so the build fell back to
     the lagging nflverse feed for them.
@@ -94,6 +99,36 @@ def _breakage_html(flags) -> str:
             + "".join(items) + "</ul>")
 
 
+def _nflverse_html(drift, attributed: int, sheets=None, columns=None) -> str:
+    """The 'NFLverse made N changes' line. Upstream back-corrects completed
+    seasons; that is their data moving, not our build breaking, so it gets its
+    own informational section instead of being counted as a breakage. The rows
+    of ours it accounts for are itemised here — withheld from the breakage list,
+    not hidden."""
+    if drift is None or not getattr(drift, "compared", False):
+        return ('<p style="color:#666;margin:0;">No NFLverse snapshot to compare '
+                'against this run, so upstream drift was not measured.</p>')
+    summary = _esc(drift.summary())
+    if not drift.any_change:
+        return f'<p style="color:#137333;margin:0;">✅ {summary}</p>'
+    tail = ""
+    if attributed:
+        tail = (f' It accounts for {attributed} changed past-season row(s) in our '
+                'exports, which are therefore not flagged as breakages.')
+    lines = list(drift.detail_lines())
+    if sheets:
+        lines.append("our rows it explains: "
+                     + ", ".join(f"{k} ({v})" for k, v in sheets.items()))
+    if columns:
+        lines.append("columns that moved in them: "
+                     + ", ".join(f"{c} ({n})" for c, n in columns))
+    sub = ""
+    if lines:
+        lis = "".join(f'<li style="margin:0;">{_esc(l)}</li>' for l in lines)
+        sub = f'<ul style="margin:6px 0 0;padding-left:18px;color:#555;">{lis}</ul>'
+    return (f'<p style="margin:0;color:#5a4a00;">ℹ️ {summary}{tail}</p>{sub}')
+
+
 def _injury_html(gaps: dict, captures_present: bool) -> str:
     if not captures_present:
         return ('<p style="color:#666;margin:0;">The Sleeper injury tracker has no '
@@ -112,7 +147,8 @@ def _injury_html(gaps: dict, captures_present: bool) -> str:
             + "".join(items) + "</ul>")
 
 
-def render_email(flags, gaps: dict, captures_present: bool):
+def render_email(flags, gaps: dict, captures_present: bool, drift=None,
+                 attributed: int = 0, attributed_sheets=None, attributed_columns=None):
     """Return (subject, html, has_issues)."""
     n_break = len(flags)
     n_gap = sum(len(v) for v in gaps.values())
@@ -137,10 +173,13 @@ def render_email(flags, gaps: dict, captures_present: bool):
   </div>
   <h2 style="font:600 17px/1.3 system-ui,sans-serif;color:#1a2b3c;margin:18px 0 6px;">Dataset breakages</h2>
   {_breakage_html(flags)}
+  <h2 style="font:600 17px/1.3 system-ui,sans-serif;color:#1a2b3c;margin:22px 0 6px;">NFLverse changes</h2>
+  {_nflverse_html(drift, attributed, attributed_sheets, attributed_columns)}
   <h2 style="font:600 17px/1.3 system-ui,sans-serif;color:#1a2b3c;margin:22px 0 6px;">Missed injuries</h2>
   {_injury_html(gaps, captures_present)}
   <p style="color:#999;font-size:12px;margin-top:22px;">Automated weekly dataset-health check
-  (audit: completed-season immutability, schema, build errors; injuries: tracker week gaps).</p>
+  (audit: completed-season immutability, schema, build errors; NFLverse: upstream revisions since
+  the committed exports were built; injuries: tracker week gaps).</p>
 </div>"""
     return subject, html, has_issues
 
@@ -157,6 +196,10 @@ def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description="Send the weekly dataset-health email.")
     ap.add_argument("--exports", default=str(_ROOT / "exports"))
     ap.add_argument("--baseline", default=None, help="previous committed exports (Part 1 diff)")
+    ap.add_argument("--nflverse-before", default=None,
+                    help="NFLverse cache CSVs as committed, snapshotted before the build")
+    ap.add_argument("--nflverse-after", default=str(_ROOT / ".cache"),
+                    help="NFLverse cache CSVs after the build re-fetched them")
     ap.add_argument("--config", default=str(_ROOT / "config" / "digest.yaml"))
     ap.add_argument("--root", default=str(_ROOT), help="repo root (holds data/injury_tracker.csv)")
     ap.add_argument("--out", default=None, help="also write the email HTML to this path")
@@ -172,14 +215,21 @@ def main(argv=None) -> int:
 
     exports = Path(args.exports)
     # Part 1-3 audit.
-    rep = A.run_audit(exports, Path(args.baseline) if args.baseline else None)
+    rep = A.run_audit(
+        exports,
+        Path(args.baseline) if args.baseline else None,
+        Path(args.nflverse_before) if args.nflverse_before else None,
+        Path(args.nflverse_after) if args.nflverse_after else None,
+    )
     flags = rep.grouped_flags()
     # Injury coverage.
     captures = C.load_captures(Path(args.root))
     summary = C.capture_summary(captures)
     gaps = C.week_gaps(summary, C.played_weeks(_read_csv(exports, "team_week")))
 
-    subject, html, has_issues = render_email(flags, gaps, bool(captures))
+    subject, html, has_issues = render_email(
+        flags, gaps, bool(captures), rep.drift, rep.nflverse_attributed,
+        rep.attributed_sheets, rep.attributed_columns)
     print(f"[audit-email] {subject}")
     if args.out:
         Path(args.out).parent.mkdir(parents=True, exist_ok=True)
