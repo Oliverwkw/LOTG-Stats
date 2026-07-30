@@ -44,6 +44,12 @@ from lotg_support import mailer   # noqa: E402
 
 _CREDS_ENC = _ROOT / "config" / "digest_credentials.enc"
 
+# Detail lines rendered under one finding. Sized to hold everything the audit
+# itself is willing to emit (its own per-finding budget, plus the roll-up and
+# "… and N more" lines it adds), so the email never truncates a finding that
+# the audit had already trimmed to fit.
+_MAX_DETAIL_LINES = A._MAX_REPORT + 6
+
 
 def _audit_recipients(cfg: dict):
     """Maintainer-only recipients; a DIGEST_AUDIT_RECIPIENTS env var (repo
@@ -72,7 +78,16 @@ def _breakage_html(flags) -> str:
         sec = f" <span style=\"color:#888;\">({_esc(f['section'].split('—')[0].strip())})</span>" if f.get("section") else ""
         sub = ""
         if f["details"]:
-            lis = "".join(f'<li style="margin:0;">{_esc(d)}</li>' for d in f["details"][:15])
+            # The audit already budgets its detail lines per finding (and says
+            # so when it truncates). Re-cutting them here at a smaller, blind
+            # limit used to drop whole classes of line — a sheet with 17 changed
+            # rows showed 15 of them and none of the follow-on detail.
+            shown = [d[2:] if d.startswith("- ") else d       # the <li> is the bullet
+                     for d in f["details"][:_MAX_DETAIL_LINES]]
+            dropped = len(f["details"]) - len(shown)
+            if dropped > 0:
+                shown.append(f"… and {dropped} more line(s)")
+            lis = "".join(f'<li style="margin:0;">{_esc(d)}</li>' for d in shown)
             sub = f'<ul style="margin:2px 0 6px;padding-left:18px;color:#555;">{lis}</ul>'
         items.append(f'<li style="margin:4px 0;">{_esc(f["text"])}{sec}{sub}</li>')
     return ('<ul style="margin:0;padding-left:20px;color:#8a1c1c;">'

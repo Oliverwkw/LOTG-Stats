@@ -15,6 +15,12 @@ default GitHub "scheduled workflow failed" email:
     as are the build-volatile columns below, which move on every rebuild by
     design and would otherwise bury the signal (~2k rows/week).
 
+    A row that was EDITED (the overwhelmingly common case) is reported as one
+    `changed` entry naming the columns that moved and their old → new values,
+    plus a per-sheet roll-up of which columns moved across how many rows —
+    which is what identifies the cause. Only rows with no counterpart on the
+    other side are reported as a bare add / remove.
+
   PART 2 — SCHEMA BREAKS.  Every sheet's columns are pinned in a committed
     baseline (data/audit/schema_baseline.json). A missing / renamed / reordered
     column is a break; a brand-new column is noted (regenerate the baseline with
@@ -41,8 +47,9 @@ import json
 import os
 import re
 import sys
+from collections import Counter, defaultdict
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Sequence, Tuple
 
 import pandas as pd
 
@@ -79,7 +86,9 @@ ID_COLS = {
     "transactions": ["Team", "Player Added", "Player Dropped", "Date"],
 }
 
-_MAX_REPORT = 25  # cap per-sheet diff lines so the report stays readable
+_MAX_REPORT = 25       # cap per-sheet diff lines so the report stays readable
+_MAX_DELTA_COLS = 4    # cap the "col: old → new" pairs shown for one changed row
+_MAX_SUMMARY_COLS = 8  # cap the per-sheet "columns that moved" roll-up
 
 # Columns whose COMPLETED-SEASON values legitimately move on every rebuild (link
 # indexes, league-relative percentiles, present-day rolling windows), so a change
@@ -202,6 +211,60 @@ def _row_key(row: pd.Series, cols: List[str]) -> str:
     return " | ".join(f"{c}={row.get(c, '')}" for c in cols if c in row.index)
 
 
+def _key_text(idcols: Sequence[str], key: tuple) -> str:
+    return " | ".join(f"{c}={v}" for c, v in zip(idcols, key)) or "(row)"
+
+
+def _fmt(v: str) -> str:
+    """Blanks are the most common half of a drift pair; make them visible."""
+    return "∅" if v == "" else str(v)
+
+
+def classify_diff(shared: List[str], idcols: List[str],
+                  base_rows: List[tuple], cur_rows: List[tuple]) -> Tuple[list, list, list]:
+    """Split a past-season multiset diff into (changed, added, removed).
+
+    A full-row multiset diff cannot tell a MODIFIED row from a delete+insert:
+    every edited row shows up once on each side. In practice essentially every
+    real finding is a modification, so reporting the two halves separately
+    produced the useless "N added / N removed, same identifying keys" email that
+    never said WHAT moved. So we re-pair the two sides on the sheet's
+    identifying columns: keys present on both sides are modifications (returned
+    with their per-column old → new deltas), leftovers are genuine adds/removes.
+
+    Returns ([(key, [(col, old, new), …]), …], [added key], [removed key]).
+    """
+    pos = {c: i for i, c in enumerate(shared)}
+    kpos = [pos[c] for c in idcols if c in pos]
+    if not kpos:
+        # No identifying columns to pair on — fall back to reporting both sides.
+        return [], [() for _ in cur_rows], [() for _ in base_rows]
+
+    def key(t: tuple) -> tuple:
+        return tuple(t[i] for i in kpos)
+
+    by_added: Dict[tuple, List[tuple]] = defaultdict(list)
+    by_removed: Dict[tuple, List[tuple]] = defaultdict(list)
+    for t in cur_rows:
+        by_added[key(t)].append(t)
+    for t in base_rows:
+        by_removed[key(t)].append(t)
+
+    changed: List[tuple] = []
+    added: List[tuple] = []
+    removed: List[tuple] = []
+    for k in sorted(set(by_added) | set(by_removed)):
+        a, r = by_added.get(k, []), by_removed.get(k, [])
+        paired = min(len(a), len(r))
+        for i in range(paired):
+            deltas = [(shared[j], r[i][j], a[i][j])
+                      for j in range(len(shared)) if r[i][j] != a[i][j]]
+            changed.append((k, deltas))
+        added.extend([k] * (len(a) - paired))
+        removed.extend([k] * (len(r) - paired))
+    return changed, added, removed
+
+
 def audit_diffs(cur: Dict[str, pd.DataFrame], base: Dict[str, pd.DataFrame],
                 current_season: Optional[int], rep: Report) -> None:
     rep.head("Part 1 — unexpected diffs (completed-season immutability)")
@@ -236,30 +299,58 @@ def audit_diffs(cur: Dict[str, pd.DataFrame], base: Dict[str, pd.DataFrame],
         bp = _past_rows(b, season_col, current_season)[shared]
         if cp.empty and bp.empty:
             continue
-        # Full-row multiset diff: a changed historical row shows up as one
-        # removed (old) + one added (new) tuple. No canonical key needed.
-        cur_rows = pd.Series([tuple(r) for r in cp.itertuples(index=False, name=None)])
-        base_rows = pd.Series([tuple(r) for r in bp.itertuples(index=False, name=None)])
-        cur_counts = cur_rows.value_counts()
-        base_counts = base_rows.value_counts()
-        removed = base_counts.subtract(cur_counts, fill_value=0)
-        removed = removed[removed > 0]
-        added = cur_counts.subtract(base_counts, fill_value=0)
-        added = added[added > 0]
-        if removed.empty and added.empty:
+        # Full-row multiset diff, then re-paired on the identifying columns so a
+        # MODIFIED row is reported as one change (with the columns that moved)
+        # rather than as an unexplained removed+added pair.
+        cur_counts = Counter(cp.itertuples(index=False, name=None))
+        base_counts = Counter(bp.itertuples(index=False, name=None))
+        added_tups = list((cur_counts - base_counts).elements())
+        removed_tups = list((base_counts - cur_counts).elements())
+        if not added_tups and not removed_tups:
             continue
         any_change = True
         idcols = [c2 for c2 in ID_COLS.get(name, []) if c2 in shared]
-        rep.flag(f"**{name}**: {int(added.sum())} added / {int(removed.sum())} removed "
-                 f"past-season row(s) — historical data is not supposed to change.")
-        shown = 0
-        for tup in list(removed.index)[:_MAX_REPORT]:
-            row = pd.Series(dict(zip(shared, tup)))
-            rep.raw(f"    - removed: {_row_key(row, idcols)}")
-            shown += 1
-        for tup in list(added.index)[:max(0, _MAX_REPORT - shown)]:
-            row = pd.Series(dict(zip(shared, tup)))
-            rep.raw(f"    - added:   {_row_key(row, idcols)}")
+        changed, added, removed = classify_diff(shared, idcols, removed_tups, added_tups)
+
+        counts = [(len(changed), "changed"), (len(added), "added"), (len(removed), "removed")]
+        parts = ", ".join(f"{n} {label}" for n, label in counts if n)
+        rep.flag(f"**{name}**: {parts} past-season row(s) — "
+                 "historical data is not supposed to change.")
+
+        # The roll-up is the actionable line: one column moving across many rows
+        # is a single cause (a revised upstream feed, a formula change), not N
+        # mysteries. It's what tells the maintainer whether to fix the build or
+        # to classify the column as build-volatile.
+        moved = Counter(col for _, deltas in changed for col, _, _ in deltas)
+        if moved:
+            top = ", ".join(f"{c} ({n})" for c, n in moved.most_common(_MAX_SUMMARY_COLS))
+            extra = f" … +{len(moved) - _MAX_SUMMARY_COLS} more column(s)" \
+                if len(moved) > _MAX_SUMMARY_COLS else ""
+            rep.raw(f"    - columns that moved: {top}{extra}")
+
+        # Share the line budget across the classes present, so a long list of
+        # one kind can't silently swallow the others (it used to: 25 removals
+        # left zero room for the adds, and the email then cut that to 15).
+        present = [n for n, _ in counts if n]
+        per_class = max(3, _MAX_REPORT // max(1, len(present)))
+
+        def _emit(items, render) -> None:
+            for it in items[:per_class]:
+                rep.raw(render(it))
+            if len(items) > per_class:
+                rep.raw(f"    - … and {len(items) - per_class} more")
+
+        def _changed_line(item) -> str:
+            k, deltas = item
+            shown_cols = "; ".join(f"{c}: {_fmt(o)} → {_fmt(n)}"
+                                   for c, o, n in deltas[:_MAX_DELTA_COLS])
+            if len(deltas) > _MAX_DELTA_COLS:
+                shown_cols += f"; (+{len(deltas) - _MAX_DELTA_COLS} more column(s))"
+            return f"    - changed: {_key_text(idcols, k)} — {shown_cols}"
+
+        _emit(changed, _changed_line)
+        _emit(added, lambda k: f"    - added:   {_key_text(idcols, k)}")
+        _emit(removed, lambda k: f"    - removed: {_key_text(idcols, k)}")
     if skipped_total:
         rep.note(f"{skipped_total} build-volatile column(s) across the sheets are "
                  "exempt from this check (link-index references, O-Score / skill / "
