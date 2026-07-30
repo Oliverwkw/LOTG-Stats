@@ -361,6 +361,30 @@ def _league_score(stats: Dict[str, Any], scoring: Dict[str, Any], position: Opti
     return round(pts, 2)
 
 
+def live_status_applies(season: Any, current_season: Any) -> bool:
+    """May Sleeper's LIVE /players/nfl status decide this season's injury flags?
+
+    That feed carries the player's status TODAY and has no per-week history, so
+    it is a fair proxy for "this week" in the in-progress season and nothing
+    else. Applied to a COMPLETED season it makes history a function of the
+    calendar day the build ran: one training-camp PUP or in-season IR
+    designation retroactively stamps Injury? on every zero-point, non-bye week
+    in that player's whole LOTG history, and un-stamps it when the designation
+    clears. See the call site in the player_week loop for the cascade that
+    caused (the whole 2026-07-29 health-audit email).
+
+    Completed seasons keep the per-week authoritative sources: nflverse
+    injuries keyed by (gsis, season, week), the nflverse played-set check, and
+    the in-house weekly injury tracker.
+    """
+    if current_season is None:
+        return True          # can't tell which season is live — keep old behaviour
+    try:
+        return int(season) >= int(current_season)
+    except (TypeError, ValueError):
+        return True
+
+
 def _valid_pid(pid: Any) -> bool:
     """Return True if pid is a real Sleeper player id (not placeholders like '0')."""
     if pid is None:
@@ -5428,9 +5452,24 @@ def build_all(repo_root: Path) -> None:
                                 inj = True
                                 susp = False
 
-                        # Fallback injury/suspension inference (Sleeper metadata is not historical but fixes obvious cases):
-                        # If the player scored 0, was not on bye, and Sleeper marks them OUT/IR/SUSP, treat as missed.
-                        if (pts or 0.0) == 0.0 and bye is False:
+                        # Fallback injury/suspension inference from Sleeper's
+                        # /players/nfl metadata: if the player scored 0, was not
+                        # on bye, and Sleeper marks them OUT / IR / SUSP, treat
+                        # the week as missed.
+                        #
+                        # IN-PROGRESS SEASON ONLY — see live_status_applies().
+                        # Running it for every season made COMPLETED seasons a
+                        # function of the calendar day the build happened to run
+                        # on. That is what the 2026-07-29 health audit was
+                        # reporting: a single flip (Jaylin Noel, injury_status
+                        # None -> Out, one of a batch of late-July training-camp
+                        # PUP designations) moved his 17 player_week rows and his
+                        # player_year row, tipped a league-relative percentile on
+                        # an unrelated player, and cascaded into plehv79's
+                        # team_year, six team_week rows, four league_week rows,
+                        # league_year and a 2025 trade — every sheet in that email.
+                        if ((pts or 0.0) == 0.0 and bye is False
+                                and live_status_applies(season, _current_lotg_season)):
                             meta_p = pid_meta.get(str(pid), {}) if isinstance(pid_meta, dict) else {}
                             st = str(meta_p.get("status") or "").lower()
                             inj_st = str(meta_p.get("injury_status") or meta_p.get("injuryStatus") or "").lower()
