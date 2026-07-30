@@ -361,6 +361,30 @@ def _league_score(stats: Dict[str, Any], scoring: Dict[str, Any], position: Opti
     return round(pts, 2)
 
 
+def live_status_applies(season: Any, current_season: Any) -> bool:
+    """May Sleeper's LIVE /players/nfl status decide this season's injury flags?
+
+    That feed carries the player's status TODAY and has no per-week history, so
+    it is a fair proxy for "this week" in the in-progress season and nothing
+    else. Applied to a COMPLETED season it makes history a function of the
+    calendar day the build ran: one training-camp PUP or in-season IR
+    designation retroactively stamps Injury? on every zero-point, non-bye week
+    in that player's whole LOTG history, and un-stamps it when the designation
+    clears. See the call site in the player_week loop for the cascade that
+    caused (the whole 2026-07-29 health-audit email).
+
+    Completed seasons keep the per-week authoritative sources: nflverse
+    injuries keyed by (gsis, season, week), the nflverse played-set check, and
+    the in-house weekly injury tracker.
+    """
+    if current_season is None:
+        return True          # can't tell which season is live — keep old behaviour
+    try:
+        return int(season) >= int(current_season)
+    except (TypeError, ValueError):
+        return True
+
+
 def _valid_pid(pid: Any) -> bool:
     """Return True if pid is a real Sleeper player id (not placeholders like '0')."""
     if pid is None:
@@ -3392,13 +3416,32 @@ def build_all(repo_root: Path) -> None:
     # doesn't pin in-progress data. Historical seasons are immutable, so
     # they read straight from cache.
     _current_lotg_season = max(_lotg_seasons_for_backfill) if _lotg_seasons_for_backfill else None
+    # LOTG_REFRESH_EXTERNAL=1 forces that re-download for EVERY season, not just
+    # the in-progress one. "Historical seasons are immutable" is true of our
+    # build but not of nflverse, which back-corrects completed seasons (a 2025
+    # own-fumble recovery yard revised in July 2026 moved a player's full-season
+    # points by 0.1). The weekly health audit needs to rebuild from LIVE upstream
+    # data to mean anything: it diffs a fresh build against the committed exports
+    # to answer "does this still reproduce?", and reading both sides out of the
+    # same frozen .cache makes that question unanswerable — while reading them
+    # out of two DIFFERENT cache vintages (Actions cache for the Tuesday build,
+    # committed .cache for the audit build) reports the vintage skew as a
+    # historical-immutability breakage. Off by default: the Tuesday build wants
+    # the cheap cached read. See .github/workflows/weekly_health_email.yml.
+    _refresh_all_external = str(
+        os.environ.get("LOTG_REFRESH_EXTERNAL", "")).strip().lower() in ("1", "true", "yes")
+
+    def _force_refresh_season(season: Optional[int]) -> bool:
+        return _refresh_all_external or (season == _current_lotg_season)
+
     _nflverse_backfill_yrs = (
         list(range(_earliest_lotg - 2, _earliest_lotg))
         if _earliest_lotg is not None else []
     )
     for _bk_yr in _nflverse_backfill_yrs:
         try:
-            _bk_spw = _safe_df(load_nflverse_stats_player_week(ext, _bk_yr))
+            _bk_spw = _safe_df(load_nflverse_stats_player_week(
+                ext, _bk_yr, force_refresh=_force_refresh_season(_bk_yr)))
             if _bk_spw.empty or "player_id" not in _bk_spw.columns or "week" not in _bk_spw.columns:
                 continue
             _bk_spw["week"] = pd.to_numeric(_bk_spw["week"], errors="coerce").astype("Int64")
@@ -3554,7 +3597,7 @@ def build_all(repo_root: Path) -> None:
         try:
             spw = _safe_df(load_nflverse_stats_player_week(
                 ext, season,
-                force_refresh=(season == _current_lotg_season),
+                force_refresh=_force_refresh_season(season),
             ))
             if (not spw.empty) and ("player_id" in spw.columns) and ("week" in spw.columns):
                 spw["week"] = pd.to_numeric(spw["week"], errors="coerce").astype("Int64")
@@ -3656,7 +3699,7 @@ def build_all(repo_root: Path) -> None:
         # keep their real team instead of the 'NFL' sentinel.
         try:
             wr = _safe_df(load_nflverse_weekly_rosters(
-                ext, season, force_refresh=(season == _current_lotg_season),
+                ext, season, force_refresh=_force_refresh_season(season),
             ))
             if not wr.empty and "gsis_id" in wr.columns and "team" in wr.columns and "week" in wr.columns:
                 wr = wr[["gsis_id", "week", "team"]].dropna()
@@ -3680,7 +3723,7 @@ def build_all(repo_root: Path) -> None:
         try:
             injuries = _safe_df(load_nflverse_injuries(
                 ext, season,
-                force_refresh=(season == _current_lotg_season),
+                force_refresh=_force_refresh_season(season),
             ))
         except Exception as e:
             injuries = pd.DataFrame()
@@ -5409,9 +5452,24 @@ def build_all(repo_root: Path) -> None:
                                 inj = True
                                 susp = False
 
-                        # Fallback injury/suspension inference (Sleeper metadata is not historical but fixes obvious cases):
-                        # If the player scored 0, was not on bye, and Sleeper marks them OUT/IR/SUSP, treat as missed.
-                        if (pts or 0.0) == 0.0 and bye is False:
+                        # Fallback injury/suspension inference from Sleeper's
+                        # /players/nfl metadata: if the player scored 0, was not
+                        # on bye, and Sleeper marks them OUT / IR / SUSP, treat
+                        # the week as missed.
+                        #
+                        # IN-PROGRESS SEASON ONLY — see live_status_applies().
+                        # Running it for every season made COMPLETED seasons a
+                        # function of the calendar day the build happened to run
+                        # on. That is what the 2026-07-29 health audit was
+                        # reporting: a single flip (Jaylin Noel, injury_status
+                        # None -> Out, one of a batch of late-July training-camp
+                        # PUP designations) moved his 17 player_week rows and his
+                        # player_year row, tipped a league-relative percentile on
+                        # an unrelated player, and cascaded into plehv79's
+                        # team_year, six team_week rows, four league_week rows,
+                        # league_year and a 2025 trade — every sheet in that email.
+                        if ((pts or 0.0) == 0.0 and bye is False
+                                and live_status_applies(season, _current_lotg_season)):
                             meta_p = pid_meta.get(str(pid), {}) if isinstance(pid_meta, dict) else {}
                             st = str(meta_p.get("status") or "").lower()
                             inj_st = str(meta_p.get("injury_status") or meta_p.get("injuryStatus") or "").lower()
