@@ -402,6 +402,39 @@ def check_render_html_smoke():
     return ok
 
 
+def check_digest_title():
+    """In-season names the week (and never says "through"); the offseason names
+    the build date instead of the meaningless "week 0"."""
+    in_season = {"season": 2026, "weeks_completed": 7,
+                 "captured_at": "2026-11-03T14:05:00+00:00"}
+    off = {"season": 2026, "weeks_completed": 0,
+           "captured_at": "2026-08-04T16:16:14.518605+00:00"}
+
+    t = D.digest_title(in_season)
+    ok = _ok("in-season title names the week", t == "LOTG weekly digest — 2026 season, week 7", f"got {t}")
+    ok &= _ok("in-season title drops 'through'", "through" not in t, f"got {t}")
+
+    t = D.digest_title(off)
+    ok &= _ok("offseason title names the date",
+              t == "LOTG weekly digest — 2026 season, August 4, 2026", f"got {t}")
+    ok &= _ok("offseason title never says week 0", "week 0" not in t.lower(), f"got {t}")
+
+    # No/bad capture time -> degrade to the season alone, never to "week 0".
+    t = D.digest_title({"season": 2026, "weeks_completed": 0})
+    ok &= _ok("missing capture time -> season only", t == "LOTG weekly digest — 2026 season", f"got {t}")
+    t = D.digest_title({"season": 2026, "weeks_completed": 0, "captured_at": "not a date"})
+    ok &= _ok("unparseable capture time -> season only", t == "LOTG weekly digest — 2026 season", f"got {t}")
+
+    # The rendered header uses the same title (unless one is passed explicitly).
+    html = D.render_digest_html([], [], off)
+    ok &= _ok("offseason header carries the date", "2026 season, August 4, 2026" in html)
+    ok &= _ok("in-season header carries the week",
+              "2026 season, week 7" in D.render_digest_html([], [], in_season))
+    ok &= _ok("explicit header still wins",
+              "Custom" in D.render_digest_html([], [], off, header="Custom"))
+    return ok
+
+
 def check_real_exports_smoke():
     exports = Path(os.environ.get("LOTG_EXPORTS", _ROOT / "exports"))
     need = ["player_all_time", "team_all_time", "team_year", "team_week", "league_all_time"]
@@ -444,6 +477,7 @@ def run_all() -> bool:
         check_rate_and_weekly_classification,
         check_phrasing_catalog,
         check_render_html_smoke,
+        check_digest_title,
         check_real_exports_smoke,
     ]
     all_ok = True
