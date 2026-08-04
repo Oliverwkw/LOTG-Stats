@@ -851,13 +851,13 @@
     "waiver_budget": [
       {
         "amount": 1,
-        "receiver": 1,
-        "sender": 4
+        "sender": 4,
+        "receiver": 1
       },
       {
         "amount": 16,
-        "receiver": 1,
-        "sender": 4
+        "sender": 4,
+        "receiver": 1
       }
     ]
   },
@@ -2940,8 +2940,8 @@
     "waiver_budget": [
       {
         "amount": 25,
-        "receiver": 1,
-        "sender": 4
+        "sender": 4,
+        "receiver": 1
       }
     ]
   },
@@ -3011,8 +3011,8 @@
     "waiver_budget": [
       {
         "amount": 15,
-        "receiver": 1,
-        "sender": 2
+        "sender": 2,
+        "receiver": 1
       }
     ]
   },
@@ -3044,8 +3044,8 @@
     "waiver_budget": [
       {
         "amount": 7,
-        "receiver": 1,
-        "sender": 5
+        "sender": 5,
+        "receiver": 1
       }
     ]
   },
@@ -3096,8 +3096,8 @@
     "waiver_budget": [
       {
         "amount": 10,
-        "receiver": 1,
-        "sender": 7
+        "sender": 7,
+        "receiver": 1
       }
     ]
   },
@@ -3167,8 +3167,8 @@
     "waiver_budget": [
       {
         "amount": 10,
-        "receiver": 7,
-        "sender": 5
+        "sender": 5,
+        "receiver": 7
       }
     ]
   },
@@ -3327,8 +3327,8 @@
     "waiver_budget": [
       {
         "amount": 3,
-        "receiver": 1,
-        "sender": 4
+        "sender": 4,
+        "receiver": 1
       }
     ]
   },
@@ -3450,8 +3450,8 @@
     "waiver_budget": [
       {
         "amount": 15,
-        "receiver": 6,
-        "sender": 8
+        "sender": 8,
+        "receiver": 6
       }
     ]
   },
@@ -3488,8 +3488,8 @@
     "waiver_budget": [
       {
         "amount": 28,
-        "receiver": 1,
-        "sender": 7
+        "sender": 7,
+        "receiver": 1
       }
     ]
   },
@@ -3521,8 +3521,8 @@
     "waiver_budget": [
       {
         "amount": 4,
-        "receiver": 1,
-        "sender": 4
+        "sender": 4,
+        "receiver": 1
       }
     ]
   },
@@ -3720,8 +3720,8 @@
     "waiver_budget": [
       {
         "amount": 10,
-        "receiver": 6,
-        "sender": 5
+        "sender": 5,
+        "receiver": 6
       }
     ]
   },
@@ -4285,8 +4285,8 @@
     "waiver_budget": [
       {
         "amount": 2,
-        "receiver": 4,
-        "sender": 1
+        "sender": 1,
+        "receiver": 4
       }
     ]
   },
@@ -4332,13 +4332,13 @@
     "waiver_budget": [
       {
         "amount": 1,
-        "receiver": 1,
-        "sender": 3
+        "sender": 3,
+        "receiver": 1
       },
       {
         "amount": 4,
-        "receiver": 1,
-        "sender": 3
+        "sender": 3,
+        "receiver": 1
       }
     ]
   },
@@ -4369,8 +4369,8 @@
     "waiver_budget": [
       {
         "amount": 2,
-        "receiver": 3,
-        "sender": 4
+        "sender": 4,
+        "receiver": 3
       }
     ]
   },
@@ -4416,8 +4416,8 @@
     "waiver_budget": [
       {
         "amount": 14,
-        "receiver": 3,
-        "sender": 4
+        "sender": 4,
+        "receiver": 3
       }
     ]
   },
@@ -4477,8 +4477,8 @@
     "waiver_budget": [
       {
         "amount": 15,
-        "receiver": 4,
-        "sender": 6
+        "sender": 6,
+        "receiver": 4
       }
     ]
   },
@@ -4955,8 +4955,8 @@
     "waiver_budget": [
       {
         "amount": 10,
-        "receiver": 6,
-        "sender": 1
+        "sender": 1,
+        "receiver": 6
       }
     ]
   },
@@ -5298,8 +5298,8 @@
     "waiver_budget": [
       {
         "amount": 10,
-        "receiver": 7,
-        "sender": 8
+        "sender": 8,
+        "receiver": 7
       }
     ]
   },
