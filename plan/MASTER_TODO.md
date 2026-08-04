@@ -285,7 +285,9 @@ startup-N/A, **#319** the 12-round audit-fix batch). All 7 steps done; the post-
 audit (`plan/AUDIT_PHASE13_RUN397_vs_395.md`) found 0 regressions. **Clear to start Phase 14.**
 
 ## Phase 14 — In-season weekly digest email
-**Trigger:** Tuesday 14:00 UTC (~10am ET) build+digest+**email**; plus a Thursday 16:00 UTC pregame build with **no email**. In-season only; snapshot rotates only on the Tuesday send run so emails diff week-to-week. (Wired into `build.yml`.)
+**Trigger:** Tuesday 14:00 UTC (~10am ET) build+digest+**email**; plus a Thursday 16:00 UTC pregame build with **no email**. Runs year-round since #379 (a week with no movement renders empty and `--skip-empty` drops it); snapshot rotates only on the Tuesday send run so emails diff week-to-week. (Wired into `build.yml`.)
+
+**Title / subject wording:** one helper, `digest.digest_title(meta)`, produces both the email subject and the `<h1>` inside it, so they can't drift. In-season it reads `LOTG weekly digest — 2026 season, week 7` (no "through" — the digest reports the week's *changes*, not a cumulative total). In the offseason there is no week to name, so it gives the build date instead: `LOTG weekly digest — 2026 season, August 4, 2026`.
 
 **Delivery / recipients:** `config/digest.yaml` — the real Tuesday digest goes to the whole league (8), `test_recipients` + `audit_recipients` = okeimweiss only. **Sending is LIVE**: credentials are AES-encrypted in `config/digest_credentials.enc`, decrypted at send time with the `DIGEST_KEY` secret (verified by the "Send test digest email" runs). `SMTP_USERNAME`/`SMTP_PASSWORD` still override if set. Optional, not yet set: `DIGEST_RECIPIENTS` / `DIGEST_TEST_RECIPIENTS` / `DIGEST_AUDIT_RECIPIENTS` secrets, which override the committed lists so the addresses need not sit in this public repo (audit finding F4).
 
@@ -307,7 +309,7 @@ audit (`plan/AUDIT_PHASE13_RUN397_vs_395.md`) found 0 regressions. **Clear to st
 - [x] Over-inclusive ALL-stats auto-discovery (`discover_numeric_columns`) — every numeric column, not a headline subset.
 - [x] Phrasing catalog CSV (`plan/phase14_phrasing.csv`, 431 stats) — `--phrasing-csv`.
 - [x] HTML email template with sections: All-time moves (players/teams) / On pace (players/teams/league) — `render_digest_html()`.
-- [x] In-season gate: skip if offseason — `is_in_season()`; CLI skips + leaves snapshot unrotated.
+- [x] In-season gate — superseded by #379: the digest builds year-round and the in-season-only pieces (on-pace, single-season records, single-week highlights) self-gate to empty. `is_in_season()` remains as the season/offseason predicate.
 - [x] CLI + tests — `scripts/build_digest.py`, `tests/test_digest.py`.
 - [x] Delivery — `config/digest.yaml` recipients + `scripts/send_digest.py` (SMTP via env secrets; safe no-op until `SMTP_USERNAME`/`SMTP_PASSWORD` are added).
 - [x] Scheduled runs — folded into `build.yml`: Tuesday send + Thursday pregame no-email, `workflow_dispatch` `send_email` toggle, snapshot rotated only on the send run.
@@ -315,6 +317,11 @@ audit (`plan/AUDIT_PHASE13_RUN397_vs_395.md`) found 0 regressions. **Clear to st
 
 **Weekly automated audit** — BUILT (#368), hardened by #369/#370: `.github/workflows/weekly_health_email.yml` mails a private dataset-health check to the maintainer every Wednesday 15:00 UTC (breakages + missed injury weeks), `workflow_dispatch` fallback. It runs a **full cold-cache rebuild** (no `actions/cache/restore`, i.e. the `force_refresh_cache` condition) and diffs that against the committed exports, so Part 1 asks "does a from-scratch rebuild still reproduce what we ship?". Observes only — caches aren't saved and `permissions: contents: read`.
 - [ ] **Confirm the first live Wednesday run** (never yet fired) — then tick this.
+
+**Run 456 (2026-08-04) offseason email — investigated, no code fix needed.** The first year-round offseason digest reported two team crossings that no offseason event could have caused (`Number of donuts`, `Weeks of injuries` — both frozen historical facts). They are the one-off tail of the #381 live-status fix, not a digest bug:
+- The baseline it diffed against was captured 2026-07-28 off run 454's exports — the last build *before* #381. In that build Sleeper's live `injury_status` (a batch of late-July training-camp PUP/Out designations) was still stamping `Injury?` on completed-season zero-point weeks, which inflated `Weeks of injuries` and suppressed `Number of donuts` across the league.
+- #381 froze completed seasons against live status; run 455 (07-30) rebuilt with correct values, and run 456 diffed correct-vs-contaminated. The *reversion* is what surfaced as "Oliverwkw passes AceMatthew for 5th-highest Number of donuts" (59/59 tie → 64/62) and "stevenb123 passes BROsenzweig for 6th-highest Weeks of injuries" (468/469 → 465/464).
+- Confirmation that it can't recur: runs 455 and 456 are identical on both columns, while every pre-#381 run differed by the day it ran (448–452 on 07-21 vs 454 on 07-28). The volatile-column exclusion (#380) is not the right lever here — these columns *should* move when a real donut/injury happens.
 
 - [x] **3-part audit** (code / results / diff) — `plan/AUDIT_PHASE14_3PART.md`. Clean on data (Phase 14 is additive; zero `src/` or CSV changes; 9/9 hand-checked digest claims reconcile). 4 code findings F1–F4 all fixed (#369), plus 3 post-merge fixes from the run-447 cold-rebuild audit (#370).
 
