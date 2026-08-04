@@ -1216,6 +1216,32 @@ def _proj_lines(projections: Sequence[Projection], section: str) -> List[str]:
     return [p.sentence() for p in projections if p.section == section]
 
 
+def _meta_date(meta: dict) -> Optional[str]:
+    """The snapshot's capture date as "August 4, 2026", or None if unparseable."""
+    try:
+        dt = datetime.fromisoformat(str(meta.get("captured_at") or ""))
+    except ValueError:
+        return None
+    return f"{dt:%B} {dt.day}, {dt.year}"
+
+
+def digest_title(meta: dict) -> str:
+    """The digest's one-line title — the email subject AND the HTML header, so
+    the two always agree.
+
+    In-season it names the week ("2026 season, week 7"). In the offseason there
+    is no week to name — "week 0" was both meaningless and misleading — so it
+    names the date the digest was built instead ("2026 season, August 4, 2026").
+    """
+    season = meta.get("season")
+    week = int(meta.get("weeks_completed") or 0)
+    if week >= 1:
+        return f"LOTG weekly digest — {season} season, week {week}"
+    date = _meta_date(meta)
+    return (f"LOTG weekly digest — {season} season, {date}" if date
+            else f"LOTG weekly digest — {season} season")
+
+
 def render_digest_html(
     crossings: Sequence[Crossing],
     projections: Sequence[Projection],
@@ -1231,10 +1257,8 @@ def render_digest_html(
     def sect(sec):
         return [x for x in projections if x.section == sec]
 
-    season = meta.get("season")
-    week = meta.get("weeks_completed")
     if header is None:
-        header = f"LOTG weekly digest — {season} season, through week {week}"
+        header = digest_title(meta)
 
     # In-season shows projections as "on pace"; a completed-season wrap resolves
     # them to final results ("finished Nth"), so the heading changes to match.

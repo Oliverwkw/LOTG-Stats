@@ -122,11 +122,39 @@ def check_recipients_env_override():
                 os.environ[k] = v
 
 
+def check_subject_matches_the_digest_title():
+    """The subject comes from the same `digest_title` the HTML header uses, so
+    the two can't drift — including the offseason form (a date, not week 0)."""
+    with tempfile.TemporaryDirectory() as d:
+        snap = Path(d) / "ranks_snapshot.json"
+
+        snap.write_text(json.dumps({"meta": {
+            "season": 2026, "weeks_completed": 7,
+            "captured_at": "2026-11-03T14:05:00+00:00"}}))
+        got = S._subject(snap)
+        ok = _ok("in-season subject names the week",
+                 got == "LOTG weekly digest — 2026 season, week 7", f"got {got}")
+        ok &= _ok("in-season subject says no 'through'", "through" not in got, f"got {got}")
+
+        snap.write_text(json.dumps({"meta": {
+            "season": 2026, "weeks_completed": 0,
+            "captured_at": "2026-08-04T16:16:14.518605+00:00"}}))
+        got = S._subject(snap)
+        ok &= _ok("offseason subject names the date",
+                  got == "LOTG weekly digest — 2026 season, August 4, 2026", f"got {got}")
+        ok &= _ok("offseason subject never says week 0", "week 0" not in got.lower(), f"got {got}")
+
+        ok &= _ok("unreadable snapshot -> plain subject",
+                  S._subject(Path(d) / "nope.json") == "LOTG weekly digest")
+    return ok
+
+
 def run_all() -> bool:
     all_ok = True
     for t in (check_decrypt_roundtrip, check_resolve_prefers_env_override,
               check_resolve_none_without_creds, check_test_flag_no_html_needed,
-              check_recipient_split, check_recipients_env_override):
+              check_recipient_split, check_recipients_env_override,
+              check_subject_matches_the_digest_title):
         print(f"\n{t.__name__}:")
         all_ok &= bool(t())
     print("\n" + ("ALL PASS" if all_ok else "SOME FAILED"))

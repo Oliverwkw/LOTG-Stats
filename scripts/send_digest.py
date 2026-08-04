@@ -35,7 +35,7 @@ import yaml
 _ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(_ROOT / "lib"))
 
-from lotg_support import mailer  # noqa: E402
+from lotg_support import digest, mailer  # noqa: E402
 
 _CREDS_ENC = _ROOT / "config" / "digest_credentials.enc"
 
@@ -68,9 +68,12 @@ _EMPTY_MARKER = "No leaderboard changes this week."
 
 
 def _subject(snapshot_path: Path) -> str:
+    """Subject = the digest's own title (`digest.digest_title`), so the subject
+    line and the header inside the email always read the same — including the
+    offseason form, which names the build date instead of a meaningless week 0."""
     try:
         meta = json.loads(snapshot_path.read_text()).get("meta", {})
-        return f"LOTG weekly digest — {meta.get('season')} season, week {meta.get('weeks_completed')}"
+        return digest.digest_title(meta)
     except Exception:
         return "LOTG weekly digest"
 
