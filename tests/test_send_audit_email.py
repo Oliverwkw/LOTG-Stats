@@ -91,10 +91,22 @@ def check_nflverse_section():
     ok = _ok("section is rendered", "NFLverse changes" in html)
     ok &= _ok("says how many changes",
               "NFLverse made 2306 value(s) across 1850 row(s)" in html, html[:400])
-    ok &= _ok("names the columns upstream touched", "position (1169)" in html)
     ok &= _ok("says how much of ours it explains",
               "accounts for 32 changed past-season row(s)" in html)
     ok &= _ok("drift alone is NOT an issue week", issues is False)
+
+    # A week whose entire story is "upstream revised data and our exports
+    # followed" IS that one line. The per-file breakdown is a diagnostic to read
+    # a breakage against; on a clean week it buried the signal under a page of
+    # upstream trivia, which is what made the 2026-08-05 email unreadable.
+    ok &= _ok("a clean week collapses to the summary line",
+              "position (1169)" not in html, html[:600])
+    flags = [{"section": "Part 1", "text": "player_year: 1 changed", "details": []}]
+    _, busy, _ = E.render_email(flags=flags, gaps={}, captures_present=True,
+                                drift=drift, attributed=32,
+                                attributed_sheets={"player_year": 32})
+    ok &= _ok("a flagged week keeps the breakdown to read it against",
+              "position (1169)" in busy and "our rows it explains" in busy, busy[:900])
 
     _, clean, _ = E.render_email(flags=[], gaps={}, captures_present=True,
                                  drift=N.Drift(compared=True), attributed=0)
