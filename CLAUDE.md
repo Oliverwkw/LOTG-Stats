@@ -21,11 +21,14 @@ follow the phase workflow and the mandatory 3-part audit in
 X", "would Y still have won without that trade"). These are read-only: they must
 not change `exports/`, `data/`, the workflows, or any build output.
 
-**Start an inquiry at `plan/INQUIRY_PLAYBOOK.md`.** It documents the two tools
-that exist for exactly this — `scripts/inquire.py` for finding/filtering/ranking
-across the twelve export sheets and the raw snapshot, and `scripts/whatif.py`
-for counterfactual seasons — and it lists the data traps that have cost time
-before (the +5 semifinal bonus baked into `PF`, 2020 having no snapshot, the
+**Start an inquiry at `plan/INQUIRY_PLAYBOOK.md`.** It documents the tools that
+exist for exactly this — `scripts/inquire.py` for finding/filtering/ranking
+across the twelve export sheets and the raw snapshot (including over-inclusive
+sweeps that rank on every column rather than a curated few), `lotg_support.analysis`
+for the joins a judgement question needs (position attached to any sheet, roster
+depth, lineup composition, cohort tests, positional scarcity, spend vs return),
+and `scripts/whatif.py` for counterfactual seasons — and it lists the data traps
+that have cost time before (the +5 semifinal bonus baked into `PF`, 2020 having no snapshot, the
 lineup template and playoff calendar changing between seasons, position drift in
 Sleeper's current-only player dictionary). Do not hand-roll a loader over
 `exports/` or `exports/snapshot/` before reading it.

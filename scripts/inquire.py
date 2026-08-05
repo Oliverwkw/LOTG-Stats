@@ -18,6 +18,12 @@ rediscovering the same handful of traps. All of that is one command here.
     python scripts/inquire.py rows team_week --where Year=2025 --where 'Margin<1' \
         --select Team,Week,Opponent,Margin
 
+    # judgement questions: position groups, lineup composition, scarcity, spend
+    python scripts/inquire.py group WR --season 2025
+    python scripts/inquire.py stacks --compare 'Max PF' --condition 'stack_WR>=2'
+    python scripts/inquire.py scarcity --season 2025
+    python scripts/inquire.py spend --team Oliverwkw
+
     # over-inclusive: rank on EVERY column, don't curate which stats to check
     python scripts/inquire.py sweep team_year --where Team=shmuel256 --where Year=2025 \
         --within Year=2025 --window 2
@@ -49,6 +55,8 @@ sys.path.insert(0, str(_ROOT / "lib"))
 import pandas as pd  # noqa: E402
 
 from lotg_support import inquiry as Q  # noqa: E402
+
+_POSITIONS = ("QB", "RB", "WR", "TE")
 
 
 # ---------------------------------------------------------------------------
@@ -148,6 +156,62 @@ def cmd_extremes(args) -> None:
     hits = Q.extremes(args.sheet, *args.within, n=args.top,
                       include_volatile=not args.no_volatile)
     _emit_hits(hits, args.csv, f"both ends of every rankable {args.sheet} column:")
+
+
+def cmd_group(args) -> None:
+    from lotg_support import analysis as A
+
+    df = A.position_group(args.position, season=args.season, team=args.team,
+                          min_share=args.min_share)
+    cols = ["Team", "Year", "players", "starter_weeks", "points", "ppg", "contributors",
+            "effective_players", "top1_share", "top3_share", "best_player", "share_of_team"]
+    _emit(df[[c for c in cols if c in df.columns]], args.csv, args.limit)
+    if not args.csv and not df.empty:
+        print("effective_players = 1/Σ(share²): 1.0 means one player did everything.")
+
+
+def cmd_stacks(args) -> None:
+    from lotg_support import analysis as A
+
+    df = A.lineup_stacks(season=args.season)
+    if args.compare:
+        print(A.compare(df, args.condition, args.compare, by="Year",
+                        permutations=args.permutations).describe())
+        return
+    _emit(df, args.csv, args.limit or 20)
+
+
+def cmd_compare(args) -> None:
+    from lotg_support import analysis as A
+
+    frame = A.lineup_stacks(season=args.season) if args.sheet == "stacks" \
+        else Q.rows(args.sheet, *args.where)
+    print(A.compare(frame, args.condition, args.metric, by=args.by,
+                    permutations=args.permutations).describe())
+
+
+def cmd_scarcity(args) -> None:
+    from lotg_support import analysis as A
+
+    seasons = [args.season] if args.season else Q.export_seasons()
+    for year in seasons:
+        rows = A.scarcity(year, demand_multiple=args.demand_multiple)
+        if not rows:
+            continue
+        print(f"\n{year}  (replacement rank = starters actually fielded per week"
+              f"{f' x {args.demand_multiple}' if args.demand_multiple != 1.0 else ''})")
+        for s in rows:
+            print(f"  {s.describe()}")
+
+
+def cmd_spend(args) -> None:
+    from lotg_support import analysis as A
+
+    df = A.spend_by_position(team=args.team, season=args.season)
+    _emit(df, args.csv, args.limit)
+    if not args.csv:
+        print("\nTrades are NOT priced here (trades.csv stores assets as text) — "
+              "say so in any write-up that uses this table.")
 
 
 def cmd_player(args) -> None:
@@ -317,6 +381,50 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--no-volatile", action="store_true")
     p.add_argument("--csv", action="store_true")
     p.set_defaults(func=cmd_extremes)
+
+    p = sub.add_parser("group", help="a position group per team-season, with depth measures")
+    p.add_argument("position", nargs="?", default="WR", choices=list(_POSITIONS))
+    p.add_argument("--season", type=int)
+    p.add_argument("--team")
+    p.add_argument("--min-share", type=float, default=0.05,
+                   help="share of group points that counts as a contributor (default 0.05)")
+    p.add_argument("-n", "--limit", type=int, default=0)
+    p.add_argument("--csv", action="store_true")
+    p.set_defaults(func=cmd_group)
+
+    p = sub.add_parser("stacks", help="lineup composition by NFL team, with PF / Max PF joined")
+    p.add_argument("--season", type=int)
+    p.add_argument("--compare", metavar="METRIC",
+                   help="compare this metric across the condition instead of listing rows")
+    p.add_argument("--condition", default="stack_WR>=2",
+                   help="cohort split for --compare (default stack_WR>=2)")
+    p.add_argument("--permutations", type=int, default=2000)
+    p.add_argument("-n", "--limit", type=int, default=0)
+    p.add_argument("--csv", action="store_true")
+    p.set_defaults(func=cmd_stacks)
+
+    p = sub.add_parser("compare", help="split any sheet on a condition and compare a metric")
+    p.add_argument("sheet", help="an export sheet, or 'stacks' for the lineup-composition frame")
+    p.add_argument("condition", help="e.g. 'stack_WR>=2' or 'Rookie?=true'")
+    p.add_argument("metric", help="numeric column to compare")
+    p.add_argument("--where", action="append", default=[], metavar="EXPR")
+    p.add_argument("--season", type=int, help="only with sheet=stacks")
+    p.add_argument("--by", default="Year", help="breakdown column (default Year; '' to skip)")
+    p.add_argument("--permutations", type=int, default=2000)
+    p.set_defaults(func=cmd_compare)
+
+    p = sub.add_parser("scarcity", help="surplus of the best player over replacement, by position")
+    p.add_argument("--season", type=int)
+    p.add_argument("--demand-multiple", type=float, default=1.0,
+                   help="scale replacement rank (1.0 = exactly what the league starts)")
+    p.set_defaults(func=cmd_scarcity)
+
+    p = sub.add_parser("spend", help="draft capital + FAAB per position, against points returned")
+    p.add_argument("--team")
+    p.add_argument("--season", type=int)
+    p.add_argument("-n", "--limit", type=int, default=0)
+    p.add_argument("--csv", action="store_true")
+    p.set_defaults(func=cmd_spend)
 
     p = sub.add_parser("player", help="everything the exports know about a player")
     p.add_argument("name")

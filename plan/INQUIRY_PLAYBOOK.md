@@ -10,15 +10,16 @@ not alter `exports/`, `data/`, the workflows, or anything `python -m lotg`
 produces. A written-up inquiry lands as a note in `plan/notes/` (plus, if it
 needed one, a script in `scripts/`), never as a change to a build output.
 
-## The two tools
+## The tools
 
 | Tool | For |
 |---|---|
 | `scripts/inquire.py` (`lotg_support.inquiry`) | finding, filtering and ranking anything in the twelve export sheets, and reading the raw Sleeper snapshot |
 | `scripts/whatif.py` (`lotg_support.replay`) | counterfactual seasons: rewind a trade or move a player, replay every week, re-seed, re-run the bracket |
+| `lotg_support.analysis` (via `inquire.py group/stacks/compare/scarcity/spend`) | the joins and comparisons a judgement question needs: position attached to any sheet, roster-group depth, lineup composition, cohort tests, positional scarcity, spend vs return |
 
-Both are additive and read-only. Neither is imported by the build or run by any
-workflow.
+All three are additive and read-only. None is imported by the build or run by
+any workflow.
 
 ## Start here, not with a script
 
@@ -91,6 +92,67 @@ Q.week(2025, 6)[8].starters          # snapshot lineup, slot order
 Q.trades(player="Justin Herbert")
 ```
 
+## Judgement questions
+
+"Who had the best WR corps", "does stacking cost me ceiling", "are QBs
+overvalued" all need joins and comparisons that no single sheet holds.
+`lotg_support.analysis` supplies them.
+
+**Position, attached to anything.** `picks` and `transactions` carry no position
+column, which stalls any spend-by-position question on line one.
+`with_position(df, "Player Picked", "Year")` joins it from the build's own
+`player_week` (per season, so no dictionary drift), falling back to Sleeper's
+dictionary for players who were drafted or added but never fielded. Rows naming
+no player — an unexercised future pick is written `Unknown`, a drop-only
+transaction has a blank `Player Added` — are excluded and *counted*, never
+silently dropped; `placement_report()` gives the tally.
+
+**Depth, not a total.** A single sum flatters the team that had one great
+receiver.
+
+```bash
+python scripts/inquire.py group WR --season 2025
+```
+
+Alongside `points` you get `effective_players` (1/Σ(share²) — 1.0 means one
+player did everything, 4.0 means four equal contributors), `top1/top3_share`,
+`contributors`, `ppg` and `share_of_team`. Drop `--season` to rank every
+team-season at once, which is what an all-time question wants.
+
+**Lineup composition and stacking.**
+
+```bash
+python scripts/inquire.py stacks --compare 'Max PF' --condition 'stack_WR>=2'
+```
+
+`lineup_stacks()` gives one row per fielded lineup with `max_same_nfl_team`, a
+`stack_<POS>` count per position, and the team-week's PF / Max PF / Efficiency
+already joined, so a ceiling question is a group-by.
+
+**Cohort comparison.** `compare(frame, condition, metric)` reports *both*
+cohorts — n, mean, median, sd — plus the difference, Cohen's d, a deterministic
+permutation p-value, and a **per-season breakdown**. Read the breakdown before
+the pooled number: a gap that exists in one season and reverses in another is a
+different claim from one that holds every year, and the pooled mean cannot tell
+you which you have.
+
+**Scarcity and spend.**
+
+```bash
+python scripts/inquire.py scarcity --season 2025      # best vs replacement, per position
+python scripts/inquire.py spend --team Oliverwkw      # draft capital + FAAB vs points back
+```
+
+Replacement rank comes from `observed_demand()` — how many of that position the
+league *actually starts* per week — not from a rule of thumb, because the flex
+and superflex slots mean you cannot read demand off the lineup template.
+`--demand-multiple` tests a stricter replacement level.
+
+`spend_by_position()` prices two channels, draft (pick slot + KTC on draft day)
+and FAAB, against the starter points that came back. **Trades are not priced**
+— `trades` stores its assets as free text — and any write-up using that table
+has to say so.
+
 ## Counterfactuals
 
 ```bash
@@ -131,6 +193,11 @@ Three guards, also run by `whatif.py` before it answers, and by
 2. the ceiling routine reproduces `team_week.Max PF` exactly;
 3. **a replay with no moves reproduces the built `PF`, bracket and champion** —
    currently exact for 2021-2025.
+
+The analysis layer has its own two, in `tests/test_analysis.py`: the starter
+points it rebuilds from `player_week` must equal `team_week.PF` (allowing the
++5), and its `max_same_nfl_team` must equal the build's own "Most number of
+players started from same NFL team" column for every lineup.
 
 A counterfactual whose baseline cannot reproduce reality is not evidence. If a
 guard fails, fix that before quoting any number.
