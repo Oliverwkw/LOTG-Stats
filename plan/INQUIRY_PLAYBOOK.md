@@ -46,6 +46,37 @@ python scripts/inquire.py roster 2025 6 --team shmuel256 --bench
 Filters are `Column<op>value`, repeatable, ANDed: `=`, `!=`, `>`, `>=`, `<`,
 `<=`, and `~` for a case-insensitive regex. Add `--csv` for parseable output.
 
+## Sweeps — the over-inclusive shape
+
+When the question is "what is notable about X" rather than "what is X's Y",
+don't pick the stats to check. Sweep every column and let the data decide, the
+same way the weekly digest does:
+
+```bash
+# every column where shmuel256's 2025 lands in the top/bottom 2 of that season
+python scripts/inquire.py sweep team_year --where Team=shmuel256 --where Year=2025 \
+    --within Year=2025 --window 2
+
+# a player against his own season's field
+python scripts/inquire.py sweep player_year --where 'Player~^Josh Allen$' \
+    --where Year=2025 --within Year=2025
+
+# both ends of every rankable column at once — "what stood out at all?"
+python scripts/inquire.py extremes league_year
+python scripts/inquire.py extremes team_year --within Year=2025 --top 2
+```
+
+`--where` picks the row being asked about; `--within` narrows the board it is
+ranked against (leave it off to rank against all seasons). Columns come from the
+digest's own discovery, so an inquiry and the weekly email always consider the
+same set of stats, and there is no curated list to fall out of date.
+
+**Build-volatile columns are kept and flagged, not dropped.** Anything in the
+`Luck` / `skill` / rolling-window family legitimately moves between builds
+(`lotg_support.volatile_columns`); the sweep marks it `[build-volatile]` so it
+gets classified in the write-up rather than quietly filtered. `--no-volatile`
+drops them when you specifically want build-stable facts only.
+
 In Python, the same thing:
 
 ```python
@@ -54,6 +85,8 @@ from lotg_support import inquiry as Q
 
 Q.rows("player_week", "Year=2025", "Points>40")
 Q.top("team_all_time", "Championships")
+Q.sweep("team_year", "Team=shmuel256", "Year=2025", within=["Year=2025"])
+Q.extremes("league_year")
 Q.week(2025, 6)[8].starters          # snapshot lineup, slot order
 Q.trades(player="Justin Herbert")
 ```

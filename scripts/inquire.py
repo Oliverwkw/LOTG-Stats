@@ -18,6 +18,11 @@ rediscovering the same handful of traps. All of that is one command here.
     python scripts/inquire.py rows team_week --where Year=2025 --where 'Margin<1' \
         --select Team,Week,Opponent,Margin
 
+    # over-inclusive: rank on EVERY column, don't curate which stats to check
+    python scripts/inquire.py sweep team_year --where Team=shmuel256 --where Year=2025 \
+        --within Year=2025 --window 2
+    python scripts/inquire.py extremes league_year
+
     # one entity, everything about it
     python scripts/inquire.py player 'Lamar Jackson'
     python scripts/inquire.py team shmuel256
@@ -113,6 +118,36 @@ def cmd_top(args) -> None:
                ascending=args.asc,
                columns=[c.strip() for c in args.select.split(",")] if args.select else None)
     _emit(df, args.csv)
+
+
+def _emit_hits(hits, as_csv: bool, title: str) -> None:
+    if as_csv:
+        print("label,column,value,rank,end,out_of,volatile")
+        for h in hits:
+            print(f"\"{h.label}\",\"{h.column}\",{h.value},{h.rank},{h.end},{h.out_of},{h.volatile}")
+        return
+    print(title)
+    if not hits:
+        print("  (nothing within the window)")
+        return
+    for h in hits:
+        print(f"  {h.describe()}")
+    flagged = sum(1 for h in hits if h.volatile)
+    print(f"\n{len(hits)} item(s)"
+          + (f"; {flagged} on build-volatile columns — classify, don't drop" if flagged else ""))
+
+
+def cmd_sweep(args) -> None:
+    hits = Q.sweep(args.sheet, *args.where, window=args.window, within=args.within,
+                   include_volatile=not args.no_volatile)
+    _emit_hits(hits, args.csv,
+               f"every {args.sheet} column where this lands in the top/bottom {args.window}:")
+
+
+def cmd_extremes(args) -> None:
+    hits = Q.extremes(args.sheet, *args.within, n=args.top,
+                      include_volatile=not args.no_volatile)
+    _emit_hits(hits, args.csv, f"both ends of every rankable {args.sheet} column:")
 
 
 def cmd_player(args) -> None:
@@ -262,6 +297,27 @@ def build_parser() -> argparse.ArgumentParser:
     table_args(p)
     p.set_defaults(func=cmd_top)
 
+    p = sub.add_parser("sweep", help="rank a row on EVERY column of a sheet, not a curated few")
+    p.add_argument("sheet")
+    p.add_argument("--where", action="append", default=[], metavar="EXPR",
+                   help="picks the row(s) being asked about (repeatable)")
+    p.add_argument("--within", action="append", default=[], metavar="EXPR",
+                   help="narrows the board it is ranked against, e.g. Year=2025")
+    p.add_argument("--window", type=int, default=5, help="report top/bottom N (default 5)")
+    p.add_argument("--no-volatile", action="store_true",
+                   help="drop build-volatile columns (default: keep and flag them)")
+    p.add_argument("--csv", action="store_true")
+    p.set_defaults(func=cmd_sweep)
+
+    p = sub.add_parser("extremes", help="both ends of every rankable column of a sheet")
+    p.add_argument("sheet")
+    p.add_argument("--within", action="append", default=[], metavar="EXPR",
+                   help="restrict the board, e.g. Year=2025")
+    p.add_argument("--top", type=int, default=1, help="how many from each end (default 1)")
+    p.add_argument("--no-volatile", action="store_true")
+    p.add_argument("--csv", action="store_true")
+    p.set_defaults(func=cmd_extremes)
+
     p = sub.add_parser("player", help="everything the exports know about a player")
     p.add_argument("name")
     p.add_argument("--csv", action="store_true")
@@ -303,6 +359,12 @@ def main(argv=None) -> int:
     except (KeyError, LookupError, ValueError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
+    except BrokenPipeError:
+        # `... | head` closed the pipe. Not an error; keep the shell quiet.
+        try:
+            sys.stdout.close()
+        finally:
+            return 0
     return 0
 
 

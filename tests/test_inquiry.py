@@ -249,6 +249,73 @@ def test_unavailable_flags_come_from_the_build():
     assert any((lamar, wk) in out for wk in (5, 6, 7, 8))
 
 
+def test_rankable_columns_are_discovered_not_curated():
+    if not _HAVE_EXPORTS:
+        return _skip("no exports")
+    cols = Q.rankable_columns("team_year")
+    assert len(cols) > 100, "discovery should find the whole board, not a shortlist"
+    # Keys and label columns must not rank; real stats must.
+    assert "Team" not in cols and "Year" not in cols and "Result" not in cols
+    assert "Points" in cols and "Win Variance" in cols
+    # "Record" is a string like "34-20" and drops out on its own.
+    assert "Record" not in cols
+
+
+def test_sweep_reports_every_end_and_flags_volatile():
+    if not _HAVE_EXPORTS:
+        return _skip("no exports")
+    hits = Q.sweep("team_year", "Team=shmuel256", "Year=2025",
+                   within=["Year=2025"], window=1)
+    assert hits, "the 2025 champion should top something"
+    # within= narrows the board to 2025's eight teams. A board can be smaller
+    # still when a column is blank for some of them (e.g. "Win % vs <self>"),
+    # since only rows with a numeric value rank.
+    assert all(h.out_of <= 8 for h in hits), "within= must narrow the board to 2025"
+    assert sum(1 for h in hits if h.out_of == 8) > len(hits) / 2
+    assert all(min(h.rank_high, h.rank_low) <= 1 for h in hits)
+    assert {h.end for h in hits} <= {"high", "low"}
+    by_col = {h.column: h for h in hits}
+    assert by_col["Points"].end == "high"
+    assert "1st-highest Points" in by_col["Points"].describe()
+
+    # Volatile columns are kept and flagged by default, dropped only on request.
+    wide = Q.sweep("team_all_time", "Team=shmuel256", window=3)
+    assert any(h.volatile for h in wide), "expected a build-volatile column in range"
+    lean = Q.sweep("team_all_time", "Team=shmuel256", window=3, include_volatile=False)
+    assert not any(h.volatile for h in lean)
+    assert len(lean) < len(wide)
+
+
+def test_sweep_window_bounds_what_is_reported():
+    if not _HAVE_EXPORTS:
+        return _skip("no exports")
+    tight = Q.sweep("player_year", "Player~^Josh Allen$", "Year=2025",
+                    within=["Year=2025"], window=1)
+    wide = Q.sweep("player_year", "Player~^Josh Allen$", "Year=2025",
+                   within=["Year=2025"], window=10)
+    assert len(wide) > len(tight)
+    assert all(min(h.rank_high, h.rank_low) <= 1 for h in tight)
+    assert all(h.label.startswith("Josh Allen") for h in wide)
+    # A row that matches nothing yields nothing rather than raising.
+    assert Q.sweep("player_year", "Player~^no such player$") == []
+
+
+def test_extremes_covers_both_ends_of_each_column():
+    if not _HAVE_EXPORTS:
+        return _skip("no exports")
+    hits = Q.extremes("league_year", n=1)
+    cols = {h.column for h in hits}
+    assert len(cols) > 40
+    for col in list(cols)[:10]:
+        ends = {h.end for h in hits if h.column == col}
+        assert ends == {"high", "low"}, (col, ends)
+    ranked = [h for h in hits if h.column == "PF"]
+    high = next(h for h in ranked if h.end == "high")
+    low = next(h for h in ranked if h.end == "low")
+    assert high.value > low.value
+    assert high.rank_high == 1 and low.rank_low == 1
+
+
 def test_reads_are_pure():
     if not _HAVE_EXPORTS:
         return _skip("no exports")
@@ -277,6 +344,10 @@ TESTS = [
     test_semifinal_bonus_explains_every_pf_mismatch,
     test_trades_resolve_both_sides,
     test_unavailable_flags_come_from_the_build,
+    test_rankable_columns_are_discovered_not_curated,
+    test_sweep_reports_every_end_and_flags_volatile,
+    test_sweep_window_bounds_what_is_reported,
+    test_extremes_covers_both_ends_of_each_column,
     test_reads_are_pure,
 ]
 

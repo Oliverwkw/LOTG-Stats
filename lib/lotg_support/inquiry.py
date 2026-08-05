@@ -373,6 +373,155 @@ def top(sheet: str, column: str, *filters: str, n: int = 10,
 
 
 # ---------------------------------------------------------------------------
+# Over-inclusive sweeps: rank on EVERY column, not a curated few
+# ---------------------------------------------------------------------------
+# The house rule for the audits and the weekly digest is to auto-discover every
+# numeric column and report movement on all of them, rather than hand-pick the
+# "interesting" stats — a curated list is exactly how a real finding gets
+# filtered out before anyone sees it. These helpers apply the same rule to an
+# ad-hoc question: point them at a row (or a filtered subset) and they report
+# every column where it lands near either end of the board.
+@dataclass(frozen=True)
+class RankHit:
+    """One row's standing on one column."""
+    sheet: str
+    label: str
+    column: str
+    value: float
+    rank_high: int          # 1 = highest value on the board
+    rank_low: int           # 1 = lowest
+    out_of: int
+    end: str                # "high" | "low" | "both" (a board of one)
+    volatile: bool = False  # build-volatile column — flagged, never dropped
+
+    @property
+    def rank(self) -> int:
+        return self.rank_high if self.end != "low" else self.rank_low
+
+    def describe(self) -> str:
+        mark = "  [build-volatile]" if self.volatile else ""
+        side = "highest" if self.end != "low" else "lowest"
+        return (f"{self.label}: {_ordinal(self.rank)}-{side} {self.column} "
+                f"({_fmt_value(self.value)} of {self.out_of}){mark}")
+
+
+def _ordinal(n: int) -> str:
+    suffix = "th" if 10 <= (n % 100) <= 20 else {1: "st", 2: "nd", 3: "rd"}.get(n % 10, "th")
+    return f"{n}{suffix}"
+
+
+def _fmt_value(v: float) -> str:
+    return f"{int(round(v)):,}" if abs(v - round(v)) < 1e-9 else f"{v:,.2f}"
+
+
+def rankable_columns(sheet: str) -> List[str]:
+    """Every column of a sheet that ranks — discovered, not curated.
+
+    Delegates to the digest's own discovery so an inquiry and the weekly email
+    consider exactly the same set of stats. Record strings ("34-20"), result
+    labels ("Champion") and name columns fail numeric parsing and drop out on
+    their own, with no exclusion list to maintain.
+    """
+    from lotg_support.digest import discover_numeric_columns
+
+    name = sheet_name(sheet)
+    df = load_sheet(name)
+    return discover_numeric_columns(df, ENTITY_COL.get(name, ""))
+
+
+def row_label(sheet: str, row: pd.Series) -> str:
+    """Human-readable identity for a row ('Josh Allen 2025', 'shmuel256 Week 6 2025')."""
+    name = sheet_name(sheet)
+    parts = [str(row[c]) for c in (ENTITY_COL.get(name), "Team", "Year", "Week Name")
+             if c and c in row.index and str(row[c]).strip()]
+    return " ".join(dict.fromkeys(parts)) or f"row {row.name}"
+
+
+def sweep(sheet: str, *filters: str, window: int = 5, within: Sequence[str] = (),
+          columns: Optional[Sequence[str]] = None,
+          include_volatile: bool = True) -> List[RankHit]:
+    """Every column where the filtered row(s) land within `window` of either end.
+
+    `filters` pick the row(s) you are asking about; `within` narrows the board
+    they are ranked against (e.g. rank a 2025 row against 2025 only). Returns
+    hits sorted best-first, and *flags* build-volatile columns rather than
+    hiding them — classify them in the write-up, per the over-inclusive rule.
+
+        sweep("player_year", "Player~^Josh Allen$", "Year=2025")
+        sweep("team_year", "Team=shmuel256", "Year=2025", within=["Year=2025"])
+    """
+    name = sheet_name(sheet)
+    board = filter_rows(load_sheet(name), *within)
+    subject = filter_rows(board if within else load_sheet(name), *filters)
+    if subject.empty:
+        return []
+    cols = list(columns) if columns else rankable_columns(name)
+    hits: List[RankHit] = []
+    for col in cols:
+        if col not in board.columns:
+            continue
+        volatile = _is_volatile(col)
+        if volatile and not include_volatile:
+            continue
+        values = numeric(board, col).dropna()
+        if len(values) < 2:
+            continue
+        ordered = values.sort_values(ascending=False)
+        rank_of = {idx: i + 1 for i, idx in enumerate(ordered.index)}
+        total = len(ordered)
+        for idx in subject.index:
+            if idx not in rank_of:
+                continue
+            high = rank_of[idx]
+            low = total - high + 1
+            if min(high, low) > window:
+                continue
+            hits.append(RankHit(
+                sheet=name, label=row_label(name, board.loc[idx]), column=col,
+                value=float(values.loc[idx]), rank_high=high, rank_low=low,
+                out_of=total, end="high" if high <= low else "low", volatile=volatile))
+    hits.sort(key=lambda h: (h.rank, h.column))
+    return hits
+
+
+def extremes(sheet: str, *within: str, n: int = 1,
+             columns: Optional[Sequence[str]] = None,
+             include_volatile: bool = True) -> List[RankHit]:
+    """Both ends of EVERY rankable column — "what stands out here at all?".
+
+        extremes("team_year", "Year=2025")     # every 2025 team record, high and low
+    """
+    name = sheet_name(sheet)
+    board = filter_rows(load_sheet(name), *within)
+    cols = list(columns) if columns else rankable_columns(name)
+    hits: List[RankHit] = []
+    for col in cols:
+        if col not in board.columns:
+            continue
+        volatile = _is_volatile(col)
+        if volatile and not include_volatile:
+            continue
+        values = numeric(board, col).dropna()
+        if len(values) < 2:
+            continue
+        ordered = values.sort_values(ascending=False)
+        total = len(ordered)
+        for pos, idx in enumerate(list(ordered.index[:n]) + list(ordered.index[-n:])):
+            high = list(ordered.index).index(idx) + 1
+            hits.append(RankHit(
+                sheet=name, label=row_label(name, board.loc[idx]), column=col,
+                value=float(values.loc[idx]), rank_high=high, rank_low=total - high + 1,
+                out_of=total, end="high" if pos < n else "low", volatile=volatile))
+    return hits
+
+
+def _is_volatile(column: str) -> bool:
+    from lotg_support.volatile_columns import is_volatile_column
+
+    return bool(is_volatile_column(column))
+
+
+# ---------------------------------------------------------------------------
 # Layer 2: season metadata (playoff shape + starting-lineup template)
 # ---------------------------------------------------------------------------
 # The league's home-field rule: the higher seed in each semifinal gets +5 points,
