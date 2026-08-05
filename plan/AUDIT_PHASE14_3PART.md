@@ -344,3 +344,82 @@ After all three fixes, the same cold-rebuild-vs-committed audit drops from 4
 confirmed to 2 — and both remaining flags are **true positives that clear
 themselves**: the 694 stale `player_year` rows (fixed by the next refreshing
 build) and the pytest-log flag recording the now-fixed baseline failure.
+
+---
+
+## Round: the 2026-08-05 health email — 2015 "breakages", one real cause
+
+The email flagged 2015 changed past-season rows across five sheets and
+attributed only 939 to NFLverse, so a week whose whole story was an upstream
+release read as five dataset breakages. Every group was traced; none was our
+build failing to reproduce history.
+
+### Why attribution missed them
+
+Attribution matched a revision to the exact `(player, season, week)` it landed
+on. Our derived columns don't read the game log that way — they reach it through
+three wider spans, and each span was a whole class of false flag.
+
+**1. League pools (1596 + ~200 rows).** `Positional scoring percentile` places a
+score inside the pooled distribution of *every active starter score ever
+recorded* at that position, so the pool has no season at all. Measured on the
+committed exports: flipping **one** TE week to WR moves **1770 of the 21376**
+percentile values — which is the shape of 1596 rows each moving by exactly 0.1,
+in a week when NFLverse relabelled `position` on 1000+ rows per season. The same
+relabel moves 40 `Starter PAR` values (replacement level is the bottom third of
+that year/week/position's started scores) and shifts 2 of the 24 `(season,
+position)` adjustment factors, which is every `… adjusted by position` value and
+the addition-value columns built on them, on picks / trades / transactions.
+
+**2. Career and forward windows (~150 rows).** `Change in points from career`
+reads every season *before* the row's, so a 2022 correction moves the 2023 row —
+Bailey Zappe's 2023 moved because his 2022 did. `Change in … from previous
+season` is the same one season back, and the on-team / post-drop PPG windows run
+*forward* to the present day. All of it was outside the row's own season.
+
+**3. Name spelling (~6% of the league).** NFLverse ships the full legal name;
+Sleeper (and so our exports) does not. `Calvin Austin III` / `Calvin Austin`,
+`Deebo Samuel Sr.` / `Deebo Samuel`, `Audric Estimé` / `Audric Estime` — **36 of
+the 617 players** in `player_week` matched nothing upstream, so their revisions
+could never be attributed. Folding suffixes, accents, punctuation and initials
+takes that to 12, of which 4 never recorded an NFL snap. **Residual: ~6 players**
+whose Sleeper spelling is a genuine alias (`Kenny` for `Kenneth Gainwell`,
+`Zonovan` for `Bam Knight`) — they can still produce an occasional flagged row,
+and the report names them, so an alias case is recognisable on sight.
+
+### The two findings that were NOT NFLverse
+
+**Trade chain of custody.** Three rows from 2024-25 moved on columns like
+`Return from trades of trades…of trades. Keep going until present day` and
+`Assets retained now`. Cause: a **new trade** (Tee Higgins + a 2028 4th) landed
+between Tuesday's commit and Wednesday's rebuild. These columns answer "where
+did these assets end up *today*" — any later trade rewrites them on every deal
+the assets descend from. They are build-volatile by construction, not a
+completed season coming unfrozen; matched exactly so the deal's own contents
+(`Assets received` / `sent`) and its counts stay frozen.
+
+**"Significant: NFLverse added / withdrew 17 rows — games appearing or
+disappearing."** The 17 rows were in `nflverse_weekly_rosters_2026.csv` — the
+*in-progress* season's weekly roster file, which gains rows every time somebody
+is signed. Escalation now ignores row churn in the current season and keeps it
+for completed ones, where a row really does mean a game moved.
+
+### The volume threshold was measuring the wrong thing
+
+`MAX_ATTRIBUTED_ROWS` flagged any week where more than 500 of our rows were
+attributed upstream. Once attribution correctly covers pooled recomputes that
+ceiling is unreachable — one relabelled position sweeps ~1770 rows on its own —
+so every large-but-fully-explained release would flag. It now asks whether
+attribution **out-reaches the revision behind it**: pool-swept rows are counted
+apart and excluded, and the alarm fires only when our directly-attributed rows
+exceed the rows upstream actually revised. A week like this one (12382 revised
+rows upstream, ~450 direct attributions) is a single informational line; the
+email's per-file breakdown only prints when something is flagged to read it
+against.
+
+### Result
+
+Replaying the email's own counts (1596 percentile + 36 PAR + 41 career + 99
+pick-adjusted + 184 position-adjusted + 3 chain) against drift of the reported
+size: **2015 flagged rows → 0**, with 1919 rows attributed (449 direct, 1470
+swept along by the re-seated pools) and the NFLverse section back to one line.

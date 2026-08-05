@@ -2,8 +2,9 @@
 
 A "volatile" column is one whose value legitimately moves between two builds even
 for a COMPLETED season — because it is a league-relative percentile, a
-present-day rolling window, or a row-index reference — rather than a fixed
-historical fact. Two Phase-14 consumers need the same list:
+present-day rolling window, a chain of custody answered as of today, or a
+row-index reference — rather than a fixed historical fact. Two Phase-14 consumers
+need the same list:
 
   * `scripts/audit_weekly.py` — so recompute drift on a past-season row isn't
     mis-read as a historical-immutability break.
@@ -36,6 +37,17 @@ _VOLATILE_SUBSTRINGS = (
 _VOLATILE_EXACT = {
     "Luck", "Hardship", "Starter-adjusted Hardship", "Number of teams",
     "Tanking", "Future draft capital", "Startup draft players remaining",
+    # Trade chain-of-custody: "where did the assets from this deal end up",
+    # answered as of TODAY. Any new trade rewrites them on every historical deal
+    # the assets descend from — which is the column set doing exactly what it
+    # says, not a completed season coming unfrozen. One 2026-08 trade of Tee
+    # Higgins rewrote three trade rows from 2024-25 in the 2026-08-05 audit.
+    # Matched exactly, not by substring: the sibling counts ("Number of assets
+    # traded away") and the deal's own contents ("Assets received" / "sent") are
+    # fixed historical facts and must stay under the immutability check.
+    "Assets retained now", "Assets traded away", "Assets dropped to FA",
+    "Return from trades", "Additional assets traded away in those deals",
+    "Return from trades of trades...of trades. Keep going until present day",
 }
 
 

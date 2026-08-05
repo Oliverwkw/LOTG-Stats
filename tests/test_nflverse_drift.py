@@ -112,16 +112,28 @@ def check_structural_drift_is_significant(tmp):
 
 
 def check_volume_threshold_is_significant(tmp):
+    """The volume check asks whether attribution out-reaches the revision behind
+    it, not whether upstream had a busy week. A fixed ceiling on our attributed
+    rows made every large-but-fully-explained release an alarm — which is the
+    2026-08-05 email's whole complaint."""
     before = _write_cache(tmp / "vb", _BASE_STATS)
     after_rows = [r[:] for r in _BASE_STATS]
     after_rows[0][4] = 23
     after = _write_cache(tmp / "va", after_rows)
-    d = N.diff_nflverse_cache(before, after)
-    ok = _ok("under the threshold stays informational",
+    d = N.diff_nflverse_cache(before, after)     # 1 revised row upstream
+    ok = _ok("a handful of attributed rows is routine",
              d.is_significant(N.MAX_ATTRIBUTED_ROWS) is None)
-    ok &= _ok("over the threshold is flagged",
-              "threshold" in (d.is_significant(N.MAX_ATTRIBUTED_ROWS + 1) or ""),
+    ok &= _ok("attribution out-reaching the revision is flagged",
+              "reaching further" in (d.is_significant(N.MAX_ATTRIBUTED_ROWS + 1) or ""),
               str(d.is_significant(N.MAX_ATTRIBUTED_ROWS + 1)))
+
+    # A big upstream release that our exports merely follow stays informational,
+    # however many of our rows moved with it.
+    big = N.Drift(compared=True)
+    big.files.append(N.FileDrift(name="nflverse_stats_player_week_2025.csv",
+                                 changed_cells=18678, changed_rows=12382))
+    ok &= _ok("a large release our rows only follow is not escalated",
+              big.is_significant(2954) is None, str(big.is_significant(2954)))
     return ok
 
 
@@ -258,6 +270,197 @@ def check_significant_drift_flags_in_the_report(tmp):
     return ok
 
 
+# --- the channels a revision reaches our exports through -------------------
+# The 2026-08-05 email reported 2015 past-season rows as breakages on a week
+# whose only cause was upstream drift, because attribution could only match a
+# revision to the exact (player, season, week) it landed on. These cover the
+# three wider spans, and the line each one must not cross.
+def check_name_suffixes_do_not_break_attribution(tmp):
+    """NFLverse ships "Calvin Austin III"; Sleeper (our exports) says "Calvin
+    Austin". Matching those with == excluded ~6% of the league from
+    attribution, so their upstream revisions read as our build breaking."""
+    ok = _ok("suffixes fold away",
+             N.normalize_name("Calvin Austin III") == N.normalize_name("Calvin Austin"))
+    ok &= _ok("so do accents",
+              N.normalize_name("Audric Estimé") == N.normalize_name("Audric Estime"))
+    ok &= _ok("and initials, via the space-free variant",
+              bool(N.name_variants("P.J. Walker") & N.name_variants("PJ Walker")))
+    ok &= _ok("distinct players stay distinct",
+              N.normalize_name("Josh Allen") != N.normalize_name("Keenan Allen"))
+
+    base_py = pd.DataFrame({"Player": ["Calvin Austin", "Deebo Samuel"],
+                            "Year": ["2023", "2023"],
+                            "Points (full season)": ["60.60", "185.30"]})
+    cur_py = base_py.copy()
+    cur_py.loc[0, "Points (full season)"] = "60.40"
+    cur_py.loc[1, "Points (full season)"] = "185.20"
+    pw = pd.DataFrame({"Player": ["Calvin Austin"], "Team": ["T"],
+                       "Year": ["2023"], "Week": ["1"]})
+    drift = N.Drift(compared=True)
+    drift.player_seasons |= {("Calvin Austin III", 2023), ("Deebo Samuel Sr.", 2023)}
+    rep, attributed = _audit(tmp / "s", cur_py, pw, base_py, pw, drift)
+    ok &= _ok("both suffixed players are attributed", attributed == 2,
+              f"attributed={attributed}\n{rep.render()}")
+    ok &= _ok("so nothing is flagged", rep.confirmed == 0, rep.render())
+    return ok
+
+
+def check_alltime_pool_columns_follow_a_position_relabel(tmp):
+    """"Positional scoring percentile" places a score in the pooled distribution
+    of EVERY active starter score ever recorded at that position, so one
+    relabelled position re-seats the whole file — including seasons and players
+    upstream never touched. 1596 such rows were flagged as breakages."""
+    base_pw = pd.DataFrame({
+        "Player": ["Cooper Kupp", "Derrick Henry"], "Team": ["T", "T"],
+        "Year": ["2020", "2021"], "Week": ["5", "9"],
+        "Positional scoring percentile": ["80.5", "46.7"]})
+    cur_pw = base_pw.copy()
+    cur_pw["Positional scoring percentile"] = ["80.4", "46.6"]
+    py = pd.DataFrame({"Player": ["Cooper Kupp"], "Year": ["2020"], "Points": ["1"]})
+
+    drift = N.Drift(compared=True)
+    drift.pools_disturbed = True        # a position label moved upstream
+    rep, attributed = _audit(tmp / "p", py, cur_pw, py, base_pw, drift)
+    ok = _ok("the pool move explains both rows", attributed == 2,
+             f"attributed={attributed}\n{rep.render()}")
+    ok &= _ok("nothing is flagged", rep.confirmed == 0, rep.render())
+
+    # ... but only that column. An ordinary stat moving on the same row is not
+    # something a repooling can account for.
+    cur2 = base_pw.copy()
+    cur2["Positional scoring percentile"] = ["80.4", "46.6"]
+    cur2["Points"] = ["9.9", "9.9"]
+    base2 = base_pw.copy()
+    base2["Points"] = ["1.0", "1.0"]
+    rep2, attributed2 = _audit(tmp / "p2", py, cur2, py, base2, drift)
+    ok &= _ok("an unexplained column keeps the row flagged", rep2.confirmed == 1,
+              rep2.render())
+    ok &= _ok("and nothing is withheld", attributed2 == 0, f"attributed={attributed2}")
+    return ok
+
+
+def check_season_pool_columns_are_scoped_to_their_season(tmp):
+    """The positional adjustment factor and the PAR replacement level are built
+    WITHIN a season, so a 2023 revision excuses a 2023 row and no other."""
+    base_pk = pd.DataFrame({
+        "Year": ["2023", "2021"], "Number": ["1.01", "1.01"],
+        "Player Picked": ["Bijan Robinson", "Kyle Pitts"],
+        "Avg career PPG adjusted by position": ["13.42", "9.10"]})
+    cur_pk = base_pk.copy()
+    cur_pk["Avg career PPG adjusted by position"] = ["13.41", "9.09"]
+    pw = pd.DataFrame({"Player": ["X"], "Team": ["T"], "Year": ["2023"], "Week": ["1"]})
+
+    drift = N.Drift(compared=True)
+    drift.pools_disturbed = True
+    drift.pool_seasons.add(2023)
+
+    cur_d, base_d = tmp / "sc", tmp / "sb"
+    for d, pk in ((cur_d, cur_pk), (base_d, base_pk)):
+        d.mkdir(parents=True, exist_ok=True)
+        pk.to_csv(d / "picks.csv", index=False)
+        pw.to_csv(d / "player_week.csv", index=False)
+    cur = {n: A._read(cur_d, n) for n in A.SHEETS}
+    base = {n: A._read(base_d, n) for n in A.SHEETS}
+    rep = A.Report()
+    attributed = A.audit_diffs(cur, base, 2026, rep, A.NflverseAttribution(drift, cur))
+    text = rep.render()
+    ok = _ok("the revised season's pick is withheld", "Bijan Robinson" not in text, text)
+    ok &= _ok("an untouched season's is still flagged", "Kyle Pitts" in text, text)
+    ok &= _ok("one row attributed", attributed == 1, f"attributed={attributed}")
+    return ok
+
+
+def check_career_columns_follow_an_earlier_seasons_revision(tmp):
+    """"Change in points from career" reads every season BEFORE the row's, so a
+    2022 correction moves the 2023 row. Season-pinned attribution missed all of
+    them and reported the carry-over as historical data coming unfrozen."""
+    base_py = pd.DataFrame({
+        "Player": ["Bailey Zappe", "Jake Browning"], "Year": ["2023", "2024"],
+        "Change in points from career": ["29.34", "-141.74"]})
+    cur_py = base_py.copy()
+    cur_py["Change in points from career"] = ["30.14", "-141.64"]
+    pw = pd.DataFrame({"Player": ["Bailey Zappe"], "Team": ["T"],
+                       "Year": ["2022"], "Week": ["1"]})
+
+    drift = N.Drift(compared=True)          # both revised in an EARLIER season
+    drift.player_seasons |= {("Bailey Zappe", 2022), ("Jake Browning", 2023)}
+    rep, attributed = _audit(tmp / "c", cur_py, pw, base_py, pw, drift)
+    ok = _ok("the carry-over is attributed", attributed == 2,
+             f"attributed={attributed}\n{rep.render()}")
+    ok &= _ok("nothing flagged", rep.confirmed == 0, rep.render())
+
+    # A player upstream never touched at all is still a breakage.
+    base2 = pd.DataFrame({"Player": ["Derrick Henry"], "Year": ["2023"],
+                          "Change in points from career": ["10.0"]})
+    cur2 = base2.copy()
+    cur2.loc[0, "Change in points from career"] = "99.0"
+    rep2, attributed2 = _audit(tmp / "c2", cur2, pw, base2, pw, drift)
+    ok &= _ok("an untouched player is still flagged", rep2.confirmed == 1, rep2.render())
+    ok &= _ok("and not attributed", attributed2 == 0, f"attributed={attributed2}")
+    return ok
+
+
+def check_current_season_roster_churn_is_not_significant(tmp):
+    """The in-progress season's weekly roster file gains rows every time somebody
+    is signed. That is not "games appearing or disappearing" — escalating it is
+    how a quiet August week led with a red flag."""
+    d = N.Drift(compared=True)
+    d.files.append(N.FileDrift(name="nflverse_weekly_rosters_2026.csv",
+                               changed_cells=4416, changed_rows=699, added_rows=17))
+    ok = _ok("routine in-progress-season roster churn is not escalated",
+             d.is_significant(0, current_season=2026) is None,
+             str(d.is_significant(0, current_season=2026)))
+    ok &= _ok("a COMPLETED season gaining rows still is",
+              "added / withdrew" in (d.is_significant(0, current_season=2027) or ""),
+              str(d.is_significant(0, current_season=2027)))
+    ok &= _ok("and with no season known, the old behaviour holds",
+              "added / withdrew" in (d.is_significant(0) or ""), str(d.is_significant(0)))
+    ok &= _ok("the file's season is read off its name",
+              d.files[0].season == 2026, str(d.files[0].season))
+    return ok
+
+
+def check_pool_columns_track_the_builds_scoring_inputs(_tmp):
+    """POOL_COLUMNS decides whether a revision counts as re-seating the league
+    pools, so it has to stay in step with the columns the build actually turns
+    into points (`lotg._LEAGUE_SCORE_MAP` / `_LEAGUE_SCORE_BONUS`)."""
+    import ast
+    src = ast.parse((_ROOT / "src" / "lotg.py").read_text())
+    scoring = set()
+    for node in ast.walk(src):
+        if not isinstance(node, ast.Assign):
+            continue
+        names = {t.id for t in node.targets if isinstance(t, ast.Name)}
+        if "_LEAGUE_SCORE_MAP" in names:
+            for v in ast.literal_eval(node.value).values():
+                scoring.update(v)
+        elif "_LEAGUE_SCORE_BONUS" in names:
+            for _k, col, _thr in ast.literal_eval(node.value):
+                scoring.add(col)
+    missing = sorted(scoring - N.POOL_COLUMNS)
+    ok = _ok("every scoring input is pool-relevant", not missing, f"missing={missing}")
+    ok &= _ok("so is the position label", {"position", "position_group"} <= N.POOL_COLUMNS)
+    return ok
+
+
+def check_trade_chain_columns_are_build_volatile(_tmp):
+    """Chain-of-custody columns answer "where did these assets end up" as of
+    TODAY, so any new trade rewrites them on every deal the assets descend from.
+    One 2026-08 trade rewrote three 2024-25 trade rows. Their fixed-fact
+    siblings must stay under the immutability check."""
+    from lotg_support.volatile_columns import is_volatile_column as vol
+    volatile = ["Assets retained now", "Assets traded away", "Assets dropped to FA",
+                "Return from trades", "Additional assets traded away in those deals",
+                "Return from trades of trades...of trades. Keep going until present day"]
+    frozen = ["Assets received", "Assets sent", "Number of assets traded away",
+              "Number of assets received", "Total number of assets in trade"]
+    ok = _ok("chain-of-custody columns are volatile",
+             all(vol(c) for c in volatile), str([c for c in volatile if not vol(c)]))
+    ok &= _ok("the deal's own contents and counts are not",
+              not any(vol(c) for c in frozen), str([c for c in frozen if vol(c)]))
+    return ok
+
+
 def run_all() -> bool:
     all_ok = True
     tests = [
@@ -270,6 +473,13 @@ def run_all() -> bool:
         check_no_drift_means_everything_still_flags,
         check_downstream_rows_follow_the_player,
         check_added_removed_rows_are_never_attributed,
+        check_name_suffixes_do_not_break_attribution,
+        check_alltime_pool_columns_follow_a_position_relabel,
+        check_season_pool_columns_are_scoped_to_their_season,
+        check_career_columns_follow_an_earlier_seasons_revision,
+        check_current_season_roster_churn_is_not_significant,
+        check_pool_columns_track_the_builds_scoring_inputs,
+        check_trade_chain_columns_are_build_volatile,
         lambda _t: check_significant_drift_flags_in_the_report(_t),
     ]
     with tempfile.TemporaryDirectory() as d:

@@ -24,7 +24,12 @@ default GitHub "scheduled workflow failed" email:
     Rows that moved because NFLVERSE revised the data underneath them are NOT
     flagged: upstream back-correcting a completed season is their data moving,
     not our build failing to reproduce it. They're counted and their columns
-    reported under the NFLverse section instead — see below.
+    reported under the NFLverse section instead — see below. "Underneath them"
+    is wider than the row itself: a revision reaches our exports through three
+    spans (the all-time percentile pool, a season's own positional baselines,
+    and one player's whole game log), so a row is excused when every column that
+    moved in it rides a span the week's drift disturbed. See the channel tables
+    below `NflverseAttribution` for why each family of columns belongs where.
 
   NFLVERSE UPSTREAM DRIFT. The audit build re-downloads every season
     (LOTG_REFRESH_EXTERNAL=1), so diffing the committed NFLverse cache against
@@ -112,12 +117,67 @@ _MAX_SUMMARY_COLS = 8  # cap the per-sheet "columns that moved" roll-up
 from lotg_support.volatile_columns import (  # noqa: E402
     is_volatile_column, _VOLATILE_SUBSTRINGS, _VOLATILE_EXACT,
 )
-from lotg_support.nflverse_drift import Drift, diff_nflverse_cache  # noqa: E402
+from lotg_support.nflverse_drift import (  # noqa: E402
+    Drift, diff_nflverse_cache, name_variants, normalize_name,
+)
 
 
 # ---------------------------------------------------------------------------
 # NFLverse attribution
 # ---------------------------------------------------------------------------
+# An upstream revision does not only move the row it lands on. Our derived
+# columns read the NFLverse game log through three different spans, and a
+# coordinate-exact (player, season, week) match — all the audit had — can only
+# see the first. Each span below is the channel one family of columns travels,
+# and a row is excused only when EVERY column that moved in it has a channel the
+# week's drift can actually account for.
+
+# ALL-TIME POOL. "Positional scoring percentile" places a score inside the
+# pooled distribution of every active starter score ever recorded at that
+# position (src/lotg.py `_positional_tier_bars`), so the pool has no season: one
+# relabelled position anywhere re-seats every percentile in the file. Measured
+# on the committed exports, flipping a single TE week to WR moves 1770 of the
+# 21376 percentile values — which is the shape of the 1596 one-row-per-0.1
+# percentile "breakages" this reporting was rebuilt for.
+_POOL_ALLTIME_COLUMNS = ("positional scoring percentile",)
+
+# WITHIN-SEASON POOL. The rest of the league-relative family is computed inside
+# a single season, so it is only excused by a revision in that same season:
+#   * Starter PAR — replacement level is the bottom third of that (year, week,
+#     position)'s started scores, so it moves for the whole cohort.
+#   * "… adjusted by position" and the values built on top of it (player /
+#     trade addition value, the pick-adjusted differences) — scaled by
+#     `_pos_factor(season, pos)` = that season's league starter average over its
+#     positional average.
+_POOL_SEASON_COLUMNS = ("starter par", "adjusted by position",
+                        "player addition value", "trade addition value")
+
+# PLAYER GAME LOG, ANY SEASON. These read a span of one named player's log that
+# reaches outside the row's own season — backwards ("… from career", "… from
+# previous season", career PPG) or forwards to the present day (the on-team and
+# post-drop PPG windows, which run until the player leaves). A 2022 correction
+# therefore moves a 2023 row, and pinning attribution to the row's season left
+# every one of those looking like our build failing to reproduce.
+_PLAYER_LOG_COLUMNS = (
+    "points (full season)", "from career", "from previous season", "ppg",
+    "difference of averages", "points added", "points lost", "net points",
+    "dropped avg points", "dropped total points",
+)
+
+# Where each sheet names the players a row is about, for the game-log channel.
+# team_* / league_* are absent on purpose: they name no player, so they stay on
+# the roster-reachability path below.
+PLAYER_NAME_COLS = {
+    "player_week": ["Player"], "player_year": ["Player"],
+    "picks": ["Player Picked"],
+    "transactions": ["Player Added", "Player Dropped"],
+    "trades": ["Assets received", "Assets sent"],
+}
+
+
+def _matches(column: str, needles) -> bool:
+    c = str(column).lower()
+    return any(n in c for n in needles)
 class NflverseAttribution:
     """Which of our rows a given NFLverse revision can account for.
 
@@ -134,27 +194,46 @@ class NflverseAttribution:
     count and the moved columns visible in the report for exactly that reason:
     attributed rows are reported, just not flagged.
 
+    Player names are compared FOLDED (nflverse_drift.normalize_name), because
+    the two sides spell them differently: upstream ships "Calvin Austin III" and
+    "Deebo Samuel Sr." where our Sleeper-sourced exports say "Calvin Austin" and
+    "Deebo Samuel". Exact string matching silently excluded 31 of the 308 players
+    in the 2025 exports from attribution, so their upstream revisions were
+    reported as our build failing to reproduce history.
+
     Only CHANGED rows are attributable. Roster membership comes from Sleeper, so
     an NFLverse revision can never add or remove one of our rows; those stay
     flagged.
     """
 
     def __init__(self, drift: Drift, cur: Dict[str, pd.DataFrame]) -> None:
-        self.active = bool(drift and drift.player_seasons)
         self.player_weeks = set(drift.player_weeks) if drift else set()
         self.player_seasons = set(drift.player_seasons) if drift else set()
+        self.players: Set[str] = set()
+        for p in (drift.players if drift else ()):
+            self.players |= name_variants(p)
+        self.pools_disturbed = bool(drift and drift.pools_disturbed)
+        self.pool_seasons: Set[str] = {str(y) for y in (drift.pool_seasons if drift else ())}
+        self.active = bool(self.player_seasons or self.players or self.pools_disturbed)
         self.team_weeks: Set[tuple] = set()
         self.team_years: Set[tuple] = set()
         self.league_weeks: Set[tuple] = set()
         self.league_years: Set[str] = set()
         self.names_by_year: Dict[str, Set[str]] = defaultdict(set)
-        # String-normalised copies: our exports are read as str, NFLverse as int.
-        self._pw_keys: Set[tuple] = {(p, str(y), str(w)) for p, y, w in self.player_weeks}
-        self._py_keys: Set[tuple] = {(p, str(y)) for p, y in self.player_seasons}
+        # Folded + string-normalised copies: our exports are read as str,
+        # NFLverse as int, and the two spell suffixed names differently.
+        self._pw_keys: Set[tuple] = {(normalize_name(p), str(y), str(w))
+                                     for p, y, w in self.player_weeks}
+        self._py_keys: Set[tuple] = {(normalize_name(p), str(y))
+                                     for p, y in self.player_seasons}
+        # A player named in the drift's coordinates is a revised player too —
+        # older Drift objects (and the tests) only populate the coordinate sets.
+        for p, _ in self._py_keys:
+            self.players |= name_variants(p)
         if not self.active:
             return
         for nm, yr in self.player_seasons:
-            self.names_by_year[str(yr)].add(nm)
+            self.names_by_year[str(yr)].add(normalize_name(nm))
         self._index_rosters(cur.get("player_week"))
 
     def _index_rosters(self, pw: Optional[pd.DataFrame]) -> None:
@@ -163,7 +242,7 @@ class NflverseAttribution:
         if not {"Player", "Team", "Year", "Week"}.issubset(pw.columns):
             return
         for r in pw[["Player", "Team", "Year", "Week"]].itertuples(index=False):
-            p, t, y, w = str(r.Player), str(r.Team), str(r.Year), str(r.Week)
+            p, t, y, w = normalize_name(r.Player), str(r.Team), str(r.Year), str(r.Week)
             if (p, y, w) in self._pw_keys:
                 self.team_weeks.add((t, y, w))
                 self.league_weeks.add((y, w))
@@ -171,11 +250,29 @@ class NflverseAttribution:
                 self.team_years.add((t, y))
                 self.league_years.add(y)
 
+    @staticmethod
+    def _names_in(text: str) -> Set[str]:
+        """The player names inside a cell. Asset lists are ';'-separated and mix
+        players with picks ("2028 4(LWebs53)"); folding leaves the picks harmless."""
+        out: Set[str] = set()
+        for part in str(text or "").split(";"):
+            out |= name_variants(part)
+        return out
+
     def _mentions(self, text: str, year: str) -> bool:
         names = self.names_by_year.get(str(year))
         if not names or not text:
             return False
-        return any(nm in text for nm in names)
+        return any(nm in normalize_name(text) for nm in names)
+
+    def _row_players(self, sheet: str, kv: Dict[str, str],
+                     row: Dict[str, str]) -> Set[str]:
+        out: Set[str] = set()
+        for col in PLAYER_NAME_COLS.get(sheet, []):
+            val = kv.get(col, row.get(col))
+            if val:
+                out |= self._names_in(val)
+        return out
 
     def covers(self, sheet: str, idcols: List[str], key: tuple,
                row: Dict[str, str]) -> bool:
@@ -184,9 +281,9 @@ class NflverseAttribution:
         kv = dict(zip(idcols, key))
         yr = str(kv.get("Year") or row.get("Year") or row.get("Season") or "")
         if sheet == "player_week":
-            return (kv.get("Player"), yr, str(kv.get("Week"))) in self._pw_keys
+            return (normalize_name(kv.get("Player")), yr, str(kv.get("Week"))) in self._pw_keys
         if sheet == "player_year":
-            return (kv.get("Player"), yr) in self._py_keys
+            return (normalize_name(kv.get("Player")), yr) in self._py_keys
         if sheet == "team_week":
             return (str(kv.get("Team")), yr, str(kv.get("Week"))) in self.team_weeks
         if sheet == "team_year":
@@ -204,6 +301,45 @@ class NflverseAttribution:
             return self._mentions(
                 f"{row.get('Assets received') or ''};{row.get('Assets sent') or ''}", yr)
         return False
+
+    def covers_columns(self, sheet: str, idcols: List[str], key: tuple,
+                       row: Dict[str, str], moved: Sequence[str]) -> Optional[str]:
+        """Can upstream account for EVERY column that moved in this row?
+
+        The coordinate match above answers "did upstream revise this exact row";
+        this answers the harder half — "did upstream revise something this row's
+        value is computed FROM". A row is only excused when every moved column
+        rides a channel the week's drift actually disturbed, so one unexplained
+        column still fails the whole row.
+
+        Returns the channel it came through — "pool" when the row moved purely
+        because a league baseline was re-seated, "direct" when a named player's
+        own log moved — or None when upstream cannot account for it. The two are
+        counted apart because they mean different things: a direct attribution
+        is one upstream revision landing on one row of ours, while a pool
+        attribution is fan-out (one relabelled position moves ~1770 percentile
+        values), so only the direct count says anything about VOLUME.
+        """
+        if not self.active or not moved:
+            return None
+        kv = dict(zip(idcols, key))
+        yr = str(kv.get("Year") or row.get("Year") or row.get("Season") or "")
+        pool_season = yr in self.pool_seasons
+        players = None      # resolved lazily; the name columns are the expensive bit
+        pool_only = True
+        for col in moved:
+            if self.pools_disturbed and _matches(col, _POOL_ALLTIME_COLUMNS):
+                continue
+            if pool_season and _matches(col, _POOL_SEASON_COLUMNS):
+                continue
+            if _matches(col, _PLAYER_LOG_COLUMNS):
+                if players is None:
+                    players = self._row_players(sheet, kv, row)
+                if any(p in self.players for p in players):
+                    pool_only = False
+                    continue
+            return None
+        return "pool" if pool_only else "direct"
 
 
 # ---------------------------------------------------------------------------
@@ -252,6 +388,12 @@ class Report:
         # without re-diffing the caches.
         self.drift: Optional[Drift] = None
         self.nflverse_attributed = 0
+        # Split of the above: rows a revision landed on directly, vs rows swept
+        # along when a league-relative baseline was re-seated. Only the direct
+        # count is a measure of how much upstream actually moved — see
+        # NflverseAttribution.covers_columns.
+        self.attributed_direct = 0
+        self.attributed_pool = 0
         self.attributed_sheets: Dict[str, int] = {}
         self.attributed_columns: List[Tuple[str, int]] = []
 
@@ -310,7 +452,11 @@ def run_audit(current_dir: Path, baseline_dir: Optional[Path],
     attrib = NflverseAttribution(drift, cur)
     attributed = audit_diffs(cur, base, season, rep, attrib)
     rep.drift, rep.nflverse_attributed = drift, attributed
-    audit_nflverse(drift, attributed, rep)
+    # The volume threshold is judged on the DIRECT attributions only: pooled
+    # fan-out scales with how league-relative our stats are, not with how much
+    # upstream changed, so counting it would put every position relabel over the
+    # line no matter how small the revision behind it.
+    audit_nflverse(drift, rep.attributed_direct, rep, season, attributed)
     audit_schema(cur, rep)
     audit_build_log(current_dir / "raw", season, rep)
     return rep
@@ -319,17 +465,20 @@ def run_audit(current_dir: Path, baseline_dir: Optional[Path],
 # ---------------------------------------------------------------------------
 # NFLverse upstream drift (informational unless significant)
 # ---------------------------------------------------------------------------
-def audit_nflverse(drift: Drift, attributed_rows: int, rep: Report) -> None:
+def audit_nflverse(drift: Drift, attributed_rows: int, rep: Report,
+                   current_season: Optional[int] = None,
+                   reported_rows: Optional[int] = None) -> None:
     """Say what NFLverse changed. Upstream back-correcting a completed season is
     their data moving, not our build failing to reproduce it, so this is a note
     — until it is structural (rows / columns / files appearing or vanishing) or
     it has moved more of our exports than the threshold, at which point it is a
     flag and someone should look."""
     rep.head("NFLverse upstream drift")
-    reason = drift.is_significant(attributed_rows) if drift.compared else None
+    reason = drift.is_significant(attributed_rows, current_season) if drift.compared else None
     line = drift.summary()
-    if attributed_rows:
-        line += (f" That accounts for {attributed_rows} changed past-season row(s) "
+    shown = attributed_rows if reported_rows is None else reported_rows
+    if shown:
+        line += (f" That accounts for {shown} changed past-season row(s) "
                  "in our exports, which Part 1 therefore did not flag.")
     if reason:
         rep.flag(f"{line} Significant: {reason}.")
@@ -427,6 +576,7 @@ def audit_diffs(cur: Dict[str, pd.DataFrame], base: Dict[str, pd.DataFrame],
     any_change = False
     flagged_any = False
     skipped_total = 0
+    pool_swept = 0
     attributed: Dict[str, int] = {}
     attributed_cols: Counter = Counter()
     for name, season_col in SEASON_COL.items():
@@ -470,7 +620,17 @@ def audit_diffs(cur: Dict[str, pd.DataFrame], base: Dict[str, pd.DataFrame],
             for item in changed:
                 k, deltas, row_tup = item
                 row = dict(zip(shared, row_tup))
-                (taken if attrib.covers(name, idcols, k, row) else kept).append(item)
+                cols = [c for c, _o, _n in deltas]
+                if attrib.covers(name, idcols, k, row):
+                    channel = "direct"
+                else:
+                    channel = attrib.covers_columns(name, idcols, k, row, cols)
+                if channel is None:
+                    kept.append(item)
+                    continue
+                taken.append(item)
+                if channel == "pool":
+                    pool_swept += 1
             if taken:
                 attributed[name] = attributed.get(name, 0) + len(taken)
                 for _, deltas, _ in taken:
@@ -528,12 +688,16 @@ def audit_diffs(cur: Dict[str, pd.DataFrame], base: Dict[str, pd.DataFrame],
     total_attributed = sum(attributed.values())
     rep.attributed_sheets = dict(sorted(attributed.items(), key=lambda kv: -kv[1]))
     rep.attributed_columns = attributed_cols.most_common(_MAX_SUMMARY_COLS)
+    rep.attributed_pool = pool_swept
+    rep.attributed_direct = total_attributed - pool_swept
     if total_attributed:
         sheets = ", ".join(f"{k} ({v})" for k, v in rep.attributed_sheets.items())
         cols = ", ".join(f"{c} ({n})" for c, n in attributed_cols.most_common(6))
+        swept = (f" {pool_swept} of them are league-relative values swept along by a "
+                 "re-seated positional baseline." if pool_swept else "")
         rep.note(f"{total_attributed} past-season row(s) moved because NFLverse "
                  f"revised the data underneath them — not flagged. {sheets}."
-                 + (f" Columns: {cols}." if cols else ""))
+                 + (f" Columns: {cols}." if cols else "") + swept)
     if not any_change:
         rep.ok("No completed-season row changed since the previous build.")
     elif not flagged_any:
