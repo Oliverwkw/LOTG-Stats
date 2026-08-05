@@ -99,12 +99,19 @@ def _breakage_html(flags) -> str:
             + "".join(items) + "</ul>")
 
 
-def _nflverse_html(drift, attributed: int, sheets=None, columns=None) -> str:
+def _nflverse_html(drift, attributed: int, sheets=None, columns=None,
+                   breakages: int = 0) -> str:
     """The 'NFLverse made N changes' line. Upstream back-corrects completed
     seasons; that is their data moving, not our build breaking, so it gets its
-    own informational section instead of being counted as a breakage. The rows
-    of ours it accounts for are itemised here — withheld from the breakage list,
-    not hidden."""
+    own informational section instead of being counted as a breakage.
+
+    How much detail rides along depends on whether anything actually needs a
+    look. A week whose whole story is "upstream revised some data and our
+    exports followed" IS the summary line — the per-file breakdown and the
+    itemised list of our rows are diagnostics for reading a breakage against,
+    and printing them on a clean week buried the signal in a page of noise. So
+    they appear only when the audit flagged something.
+    """
     if drift is None or not getattr(drift, "compared", False):
         return ('<p style="color:#666;margin:0;">No NFLverse snapshot to compare '
                 'against this run, so upstream drift was not measured.</p>')
@@ -115,13 +122,15 @@ def _nflverse_html(drift, attributed: int, sheets=None, columns=None) -> str:
     if attributed:
         tail = (f' It accounts for {attributed} changed past-season row(s) in our '
                 'exports, which are therefore not flagged as breakages.')
-    lines = list(drift.detail_lines())
-    if sheets:
-        lines.append("our rows it explains: "
-                     + ", ".join(f"{k} ({v})" for k, v in sheets.items()))
-    if columns:
-        lines.append("columns that moved in them: "
-                     + ", ".join(f"{c} ({n})" for c, n in columns))
+    lines = []
+    if breakages:
+        lines = list(drift.detail_lines())
+        if sheets:
+            lines.append("our rows it explains: "
+                         + ", ".join(f"{k} ({v})" for k, v in sheets.items()))
+        if columns:
+            lines.append("columns that moved in them: "
+                         + ", ".join(f"{c} ({n})" for c, n in columns))
     sub = ""
     if lines:
         lis = "".join(f'<li style="margin:0;">{_esc(l)}</li>' for l in lines)
@@ -174,7 +183,7 @@ def render_email(flags, gaps: dict, captures_present: bool, drift=None,
   <h2 style="font:600 17px/1.3 system-ui,sans-serif;color:#1a2b3c;margin:18px 0 6px;">Dataset breakages</h2>
   {_breakage_html(flags)}
   <h2 style="font:600 17px/1.3 system-ui,sans-serif;color:#1a2b3c;margin:22px 0 6px;">NFLverse changes</h2>
-  {_nflverse_html(drift, attributed, attributed_sheets, attributed_columns)}
+  {_nflverse_html(drift, attributed, attributed_sheets, attributed_columns, n_break)}
   <h2 style="font:600 17px/1.3 system-ui,sans-serif;color:#1a2b3c;margin:22px 0 6px;">Missed injuries</h2>
   {_injury_html(gaps, captures_present)}
   <p style="color:#999;font-size:12px;margin-top:22px;">Automated weekly dataset-health check
