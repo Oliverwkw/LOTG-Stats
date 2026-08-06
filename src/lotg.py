@@ -809,6 +809,12 @@ def _col_topic(col: str) -> str:
         return "Change"
     if "streak" in n:
         return "Streaks"
+    # The team positional scoring split ("Points from QBs" and its "% of points
+    # from QBs" companion) is a breakdown of PF, so band the whole block with
+    # Scoring — otherwise the share half falls into Value on the generic
+    # "% of points" keyword and the eight columns come out two colours.
+    if n.startswith("points from ") or n.startswith("% of points from "):
+        return "Scoring"
     # Positional scoring tiers + scoring percentiles band with the other
     # scoring-value stats, next to boom/bust: the weekly "Positional scoring
     # percentile", the started/rostered Consistency / Floor / Ceiling percentiles,
@@ -1440,6 +1446,12 @@ def _preserve_na(col: str) -> bool:
                 and any(_w in col_l for _w in _tier_w))
             or col_l.startswith("% of starters ")):
         return True
+    # Positional share of a team's starter scoring (team_week / team_year /
+    # team_all_time): N/A when the period's starters scored nothing at all —
+    # there's no total to take a share of. Distinct from a real 0% (the team
+    # started that position and it produced nothing).
+    if col_l.startswith("% of points from "):
+        return True
     # % of points (highest/lowest team): a player's period-total starter
     # contribution to a team's scoring. N/A when he never started over the
     # period (no team to take a share of) — distinct from a real 0.0 (started
@@ -1631,6 +1643,32 @@ def _fill_missing_values(df: pd.DataFrame, cols: List[str]) -> pd.DataFrame:
             df[col] = coerced.fillna(default)
 
     return df
+
+
+# The team positional starter-scoring split, as (points column, share column)
+# pairs. Built per week in the team_week loop and rolled up to team_year /
+# team_all_time by _pos_points_rollup.
+_POS_POINT_COLUMNS = (
+    ("Points from QBs", "% of points from QBs"),
+    ("Points from WRs", "% of points from WRs"),
+    ("Points from TEs", "% of points from TEs"),
+    ("Points from RBs", "% of points from RBs"),
+)
+
+
+def _pos_points_rollup(g: pd.DataFrame) -> Dict[str, Any]:
+    """Roll the team_week positional starter-scoring split up to a season or a
+    career: points SUM over the period's weeks, and each share re-divided by the
+    period's TOTAL starter points. Deliberately not a mean of the weekly shares,
+    which would weight a 60-point week the same as a 160-point one. The share is
+    N/A when the period scored nothing at all (no pie to slice)."""
+    total = float(pd.to_numeric(g.get("_StarterPointsTotal"), errors="coerce").fillna(0.0).sum())
+    out: Dict[str, Any] = {}
+    for pts_col, pct_col in _POS_POINT_COLUMNS:
+        v = float(pd.to_numeric(g.get(pts_col), errors="coerce").fillna(0.0).sum())
+        out[pts_col] = round(v, 2)
+        out[pct_col] = round(v / total, 4) if total else None
+    return out
 
 
 # Columns on a year-grain sheet that stay meaningful for a season that has NOT
@@ -5059,6 +5097,31 @@ def build_all(repo_root: Path) -> None:
                     qb_s, rb_s, wr_s, te_s = count_pos(starters, "QB"), count_pos(starters, "RB"), count_pos(starters, "WR"), count_pos(starters, "TE")
                     qb_r, rb_r, wr_r, te_r = count_pos(players, "QB"), count_pos(players, "RB"), count_pos(players, "WR"), count_pos(players, "TE")
 
+                    # Where the week's points came from: the STARTER scoring split
+                    # by position. The denominator is the team's own starter total
+                    # — not PF, which additionally carries the league's +5
+                    # semifinal home-field bonus (no player's points, so no
+                    # position can own it) — which keeps the four shares summing
+                    # to exactly 1. Empty/placeholder lineup slots are excluded
+                    # exactly as they are for the donut / threshold counts above.
+                    def points_pos(pids, pos):
+                        return float(sum(
+                            ppts.get(pid, 0.0) for pid in pids
+                            if _valid_pid(pid) and (pid_pos.get(pid) or "").upper() == pos
+                        ))
+
+                    qb_pts, rb_pts, wr_pts, te_pts = (
+                        points_pos(starters, "QB"), points_pos(starters, "RB"),
+                        points_pos(starters, "WR"), points_pos(starters, "TE"),
+                    )
+                    starter_pts_total = float(sum(starter_points))
+
+                    def _pos_share(v: float) -> Optional[float]:
+                        # No points at all -> N/A, not 0%: there is no pie to take
+                        # a slice of. A real 0 (started the position, it scored
+                        # nothing) still reads 0.
+                        return round(v / starter_pts_total, 4) if starter_pts_total else None
+
                     rook_s = len({pid for pid in starters if is_rookie_pid(pid, season)})
                     rook_r = len({pid for pid in players if is_rookie_pid(pid, season)})
 
@@ -5214,6 +5277,19 @@ def build_all(repo_root: Path) -> None:
                         "Number of WR rostered": wr_r,
                         "Number of RB rostered": rb_r,
                         "Number of TE rostered": te_r,
+                        "Points from QBs": round(qb_pts, 2),
+                        "Points from WRs": round(wr_pts, 2),
+                        "Points from TEs": round(te_pts, 2),
+                        "Points from RBs": round(rb_pts, 2),
+                        "% of points from QBs": _pos_share(qb_pts),
+                        "% of points from WRs": _pos_share(wr_pts),
+                        "% of points from TEs": _pos_share(te_pts),
+                        "% of points from RBs": _pos_share(rb_pts),
+                        # Internal-only (filtered from CSV by the plan catalog):
+                        # the denominator behind the four shares = this week's
+                        # starter point total. team_year / team_all_time sum it so
+                        # their shares divide by the same base the weekly ones did.
+                        "_StarterPointsTotal": round(starter_pts_total, 2),
                         "Number of transactions": int(tx_count.get(team, 0)),
                         "Number of trades": int(trade_count.get(team, 0)),
                         "Amount of FAAB spent": (
@@ -14902,6 +14978,9 @@ def build_all(repo_root: Path) -> None:
                 # Season total of the weekly QB×position-player same-NFL-team
                 # starting pairs (counting stat — sum across the season's weeks).
                 "Stacks": int(pd.to_numeric(g.get("Stacks"), errors="coerce").fillna(0.0).sum()),
+                # Where the season's points came from: positional starter totals
+                # + their shares of the season's whole starter output.
+                **_pos_points_rollup(g),
             }
             # NOTE: Unique-player Number of {QB,WR,RB,TE} {started,rostered}
             # columns are added later (line ~7977 "team_unique_player_counts"
@@ -15620,6 +15699,9 @@ def build_all(repo_root: Path) -> None:
                 # All-time total of the weekly QB×position-player same-NFL-team
                 # starting pairs (counting stat — sum across every week).
                 "Stacks": int(pd.to_numeric(g.get("Stacks"), errors="coerce").fillna(0.0).sum()),
+                # Where the career's points came from: positional starter totals
+                # + their shares of every week's starter output combined.
+                **_pos_points_rollup(g),
             }
             # NOTE: Unique-player position counts for team_all are added
             # later (line ~7977 "team_unique_player_counts") via direct
