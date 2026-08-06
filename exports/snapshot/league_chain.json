@@ -108,6 +108,7 @@
       "st_ff": 0.0
     },
     "last_message_id": "847249262570995712",
+    "draft_id": "737729161065562112",
     "last_author_avatar": null,
     "last_author_display_name": "sys",
     "last_author_id": "166666666666666666",
@@ -115,7 +116,6 @@
     "last_message_attachment": null,
     "last_message_text_map": null,
     "last_message_time": 1656362474629,
-    "draft_id": "737729161065562112",
     "last_pinned_message_id": "764570999458033664",
     "last_read_id": null,
     "league_id": "645741669039284224",
@@ -145,9 +145,9 @@
       "BN",
       "BN"
     ],
+    "group_id": null,
     "bracket_id": 828020354386649089,
     "bracket_overrides_id": null,
-    "group_id": null,
     "loser_bracket_id": 828020354399232000,
     "loser_bracket_overrides_id": null,
     "total_rosters": 8
@@ -269,17 +269,14 @@
     "last_author_display_name": "Oliverwkw",
     "last_author_id": "676870999764983808",
     "last_author_is_bot": false,
-    "draft_id": "784486800210202625",
     "last_message_attachment": null,
     "last_message_text_map": null,
     "last_message_time": 1673329062975,
     "last_pinned_message_id": "917101874095058944",
     "last_read_id": null,
+    "draft_id": "784486800210202625",
     "league_id": "784486800210202624",
     "previous_league_id": "645741669039284224",
-    "bracket_id": 911173607596515328,
-    "bracket_overrides_id": null,
-    "group_id": null,
     "roster_positions": [
       "QB",
       "RB",
@@ -305,6 +302,9 @@
       "BN",
       "BN"
     ],
+    "bracket_id": 911173607596515328,
+    "bracket_overrides_id": null,
+    "group_id": null,
     "loser_bracket_id": 911173607600709633,
     "loser_bracket_overrides_id": null,
     "total_rosters": 8
@@ -428,6 +428,7 @@
       "st_ff": 0.0
     },
     "last_message_id": "1048351948921049088",
+    "draft_id": "918536682830471169",
     "last_author_avatar": "29a08337cb941dc70ad07b77babab54b",
     "last_author_display_name": "LWebs53",
     "last_author_id": "673623361460477952",
@@ -437,7 +438,6 @@
     "last_message_time": 1704309091362,
     "last_pinned_message_id": "1040152304777355264",
     "last_read_id": null,
-    "draft_id": "918536682830471169",
     "league_id": "918536682830471168",
     "previous_league_id": "784486800210202624",
     "roster_positions": [
@@ -465,9 +465,9 @@
       "BN",
       "BN"
     ],
+    "group_id": null,
     "bracket_id": 1046233134410371072,
     "bracket_overrides_id": null,
-    "group_id": null,
     "loser_bracket_id": 1046233134414565376,
     "loser_bracket_overrides_id": null,
     "total_rosters": 8
@@ -591,18 +591,13 @@
     "last_author_id": "620863288632233984",
     "last_author_is_bot": false,
     "last_message_attachment": null,
-    "draft_id": "1048362220767301633",
     "last_message_text_map": null,
     "last_message_time": 1738779498746,
     "last_pinned_message_id": "1134547500859265024",
     "last_read_id": null,
+    "draft_id": "1048362220767301633",
     "league_id": "1048362220767301632",
     "previous_league_id": "918536682830471168",
-    "bracket_id": 1175028015319519232,
-    "bracket_overrides_id": null,
-    "group_id": null,
-    "loser_bracket_id": 1175028015323713536,
-    "loser_bracket_overrides_id": null,
     "roster_positions": [
       "QB",
       "RB",
@@ -631,6 +626,11 @@
       "BN",
       "BN"
     ],
+    "bracket_id": 1175028015319519232,
+    "bracket_overrides_id": null,
+    "group_id": null,
+    "loser_bracket_id": 1175028015323713536,
+    "loser_bracket_overrides_id": null,
     "total_rosters": 8
   },
   {
@@ -704,10 +704,6 @@
     },
     "avatar": "bacf626c72ab39f35077ce4a4f99a149",
     "company_id": null,
-    "shard": 926,
-    "season": "2025",
-    "season_type": "regular",
-    "sport": "nfl",
     "scoring_settings": {
       "sack": 1.0,
       "fgm_40_49": 4.0,
@@ -754,6 +750,10 @@
       "pts_allow_7_13": 4.0,
       "st_ff": 0.0
     },
+    "season": "2025",
+    "season_type": "regular",
+    "shard": 926,
+    "sport": "nfl",
     "last_message_id": "1312101554618109952",
     "draft_id": "1192931349575991297",
     "last_author_avatar": "7ee196d29d33b131f9a27e07191766bd",
@@ -767,11 +767,6 @@
     "last_read_id": null,
     "league_id": "1192931349575991296",
     "previous_league_id": "1048362220767301632",
-    "bracket_id": 1306906995424522240,
-    "bracket_overrides_id": null,
-    "group_id": null,
-    "loser_bracket_id": 1306906995428716544,
-    "loser_bracket_overrides_id": null,
     "roster_positions": [
       "QB",
       "RB",
@@ -800,6 +795,11 @@
       "BN",
       "BN"
     ],
+    "bracket_id": 1306906995424522240,
+    "bracket_overrides_id": null,
+    "group_id": null,
+    "loser_bracket_id": 1306906995428716544,
+    "loser_bracket_overrides_id": null,
     "total_rosters": 8
   },
   {
@@ -859,7 +859,7 @@
       "leg": 1,
       "reserve_slots": 3,
       "reserve_allow_cov": 1,
-      "daily_waivers_last_ran": 3
+      "daily_waivers_last_ran": 5
     },
     "avatar": "bacf626c72ab39f35077ce4a4f99a149",
     "company_id": null,
@@ -913,22 +913,19 @@
       "pts_allow_7_13": 4.0,
       "st_ff": 0.0
     },
-    "last_message_id": "1390400412447694848",
+    "last_message_id": "1390807428462809088",
+    "draft_id": "1312101511668449280",
     "last_author_avatar": "b319fdf8b7b5b0359d3c78622ba4d70c",
     "last_author_display_name": "BROsenzweig",
     "last_author_id": "736278591884656640",
     "last_author_is_bot": false,
     "last_message_attachment": null,
     "last_message_text_map": null,
-    "last_message_time": 1785859800020,
+    "last_message_time": 1785956840200,
     "last_pinned_message_id": "1377154772225773568",
-    "draft_id": "1312101511668449280",
     "last_read_id": null,
     "league_id": "1312101511651655680",
     "previous_league_id": "1192931349575991296",
-    "bracket_id": null,
-    "bracket_overrides_id": null,
-    "group_id": null,
     "roster_positions": [
       "QB",
       "RB",
@@ -957,6 +954,9 @@
       "BN",
       "BN"
     ],
+    "bracket_id": null,
+    "bracket_overrides_id": null,
+    "group_id": null,
     "loser_bracket_id": null,
     "loser_bracket_overrides_id": null,
     "total_rosters": 8
