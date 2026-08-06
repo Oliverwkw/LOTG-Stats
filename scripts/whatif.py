@@ -10,6 +10,13 @@ writes nothing. Nothing in the build imports it and no workflow runs it.
     # bracket the lineup assumption with all three models
     python scripts/whatif.py --season 2025 --undo-trade-player 'Justin Herbert' --model all
 
+    # several trades rewound together — a teardown is not one trade, and undoing
+    # them one at a time understates the combined effect
+    python scripts/whatif.py --season 2024 --model all \
+        --undo-trade-id 1090497154780581888 --undo-trade-id 1092268177528127488 \
+        --undo-trade-id 1095772841745821696 --undo-trade-id 1117973026936573952 \
+        --undo-trade-id 1152469543118536704
+
     # an arbitrary move: this player on that roster instead, from week 9 on
     python scripts/whatif.py --season 2024 --move '4881:5->8@9'
 
@@ -56,11 +63,14 @@ def build_parser() -> argparse.ArgumentParser:
     ap = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--season", type=int, required=True)
-    ap.add_argument("--undo-trade-player", metavar="NAME",
-                    help="rewind the completed trade that involved this player")
+    ap.add_argument("--undo-trade-player", action="append", default=[], metavar="NAME",
+                    help="rewind the completed trade that involved this player (repeatable: "
+                         "several are rewound together, which is what a teardown needs)")
     ap.add_argument("--undo-trade-date", metavar="YYYY-MM-DD",
-                    help="narrow the trade to rewind (use when a player has several)")
-    ap.add_argument("--undo-trade-id", metavar="TXN_ID", help="narrow by transaction id")
+                    help="narrow a single --undo-trade-player (use when a player has several); "
+                         "to rewind several trades at once name them by --undo-trade-id")
+    ap.add_argument("--undo-trade-id", action="append", default=[], metavar="TXN_ID",
+                    help="rewind the trade with this transaction id (repeatable)")
     ap.add_argument("--move", action="append", default=[], metavar="SPEC",
                     help="explicit move '<player>:<from>-><to>[@week]' (repeatable)")
     ap.add_argument("--from-week", type=int, default=1,
@@ -91,12 +101,18 @@ def main(argv=None) -> int:
         print(f"guards OK for {args.season}: real lineups legal, Max PF reproduced, "
               "no-move replay matches the built PF / bracket / champion.\n")
 
+    if args.undo_trade_date and len(args.undo_trade_player) > 1:
+        raise SystemExit("--undo-trade-date narrows one --undo-trade-player; with several "
+                         "players, name the trades by --undo-trade-id instead")
+
     try:
-        if args.undo_trade_player or args.undo_trade_id:
-            scenario = R.undo_trade(args.season, player=args.undo_trade_player,
-                                    date=args.undo_trade_date,
-                                    transaction_id=args.undo_trade_id,
-                                    from_week=args.from_week)
+        if args.undo_trade_date:
+            scenario = R.undo_trade(args.season, player=args.undo_trade_player[0],
+                                    date=args.undo_trade_date, from_week=args.from_week)
+        elif args.undo_trade_player or args.undo_trade_id:
+            scenario = R.undo_trades(args.season, players=args.undo_trade_player,
+                                     transaction_ids=args.undo_trade_id,
+                                     from_week=args.from_week)
         else:
             scenario = R.Scenario(season=args.season, moves=(), label="custom moves")
         extra = tuple(parse_move(spec, args.season) for spec in args.move)
