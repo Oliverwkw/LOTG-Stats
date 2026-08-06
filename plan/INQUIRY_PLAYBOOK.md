@@ -17,6 +17,7 @@ needed one, a script in `scripts/`), never as a change to a build output.
 | `scripts/inquire.py` (`lotg_support.inquiry`) | finding, filtering and ranking anything in the twelve export sheets, and reading the raw Sleeper snapshot |
 | `scripts/whatif.py` (`lotg_support.replay`) | counterfactual seasons: rewind a trade — or a whole sequence of them — or move a player, replay every week, re-seed, re-run the bracket |
 | `lotg_support.analysis` (via `inquire.py group/stacks/compare/compare-all/correlate/stretch/timeline/scarcity/spend`) | the joins and comparisons a judgement question needs: position attached to any sheet, roster-group depth, lineup composition, cohort tests with FDR control, arbitrary time windows, entity timelines, positional scarcity, spend vs return |
+| `scripts/contract_study.py` (`lotg_support.contracts`) | the *real world* side: what an NFL contract predicts about fantasy production — signings ranked inside their position's market, matched against comparable players who did not get paid |
 
 All three are additive and read-only. None is imported by the build or run by
 any workflow.
@@ -192,6 +193,28 @@ and FAAB, against the starter points that came back. **Trades are not priced**
 — `trades` stores its assets as free text — and any write-up using that table
 has to say so.
 
+**What the NFL paid him.** Nothing in `exports/` knows about real-world money,
+so a "does getting paid mean anything" question starts in
+`lotg_support.contracts`, which joins Over The Cap's contract history (via
+nflverse) to a player-season fantasy panel scored with this league's settings.
+
+```bash
+python scripts/contract_study.py study                 # big signings vs matched non-signers
+python scripts/contract_study.py raw                   # signers vs themselves (the misleading one)
+python scripts/contract_study.py decompose             # was it games or points per game?
+python scripts/contract_study.py signings --year 2025
+python scripts/contract_study.py validate
+```
+
+The load-bearing idea is the control group: a big contract follows a career
+year, so signers decline afterwards at every position and the raw before/after
+measures regression to the mean, not the contract. `study()` matches each signer
+to same-position, same-season players with the same prior-season output (and
+age) who were not paid, and reports the paired gap with a BH q-value over the
+whole family. Every choice — what counts as big, how close a control must be,
+whether one-year deals count — is a parameter, and
+`plan/notes/CONTRACT_VALUE_BY_POSITION.md` runs the sensitivity table.
+
 ## Counterfactuals
 
 ```bash
@@ -289,6 +312,16 @@ list is here so an answer written by hand does not walk into them.
   with the candidates rather than guessing.
 - **Seeding is wins + 0.5·ties, then regular-season PF** — the build's rule, and
   playoff PF does not count toward it.
+- **nflverse's `historical_contracts` csv is a stale artifact.** The `.csv` /
+  `.csv.gz` assets on that release stop at 2022 and carry no `gsis_id`; only the
+  `.parquet` is maintained (and reading it needs `pyarrow`). `load_contracts()`
+  refuses a file whose newest signing predates `MIN_EXPECTED_YEAR` rather than
+  quietly answering a question about 2011-2022.
+- **A player's own before/after around a big contract is regression to the
+  mean.** Points fall at every position after a top-five deal, because the deal
+  followed a career year. Any "did X change after Y" question about a player
+  selected *on* his prior performance needs the matched-control shape in
+  `contracts.study()`, not a paired before/after.
 - **`picks` cannot price a pick that was traded, and `Points added` is
   cumulative.** Every return column on `picks` stops at the pick's *next
   transaction*, so a pick flipped before its player suited up scores 0 no matter
