@@ -123,10 +123,35 @@ the counterfactual actually runs on.
 
   Take Nix out and the entire 15-pick haul returned 150.9 points. Five of the
   nine picks you actually used returned nothing at all.
+
+  **`Points added` is cumulative, so rank on the rate columns, not this one.**
+  It accrues over a player's whole tenure and stops at his next transaction, so
+  it flatters whoever has been on the roster longest. The pick-adjusted rate is
+  what compares two picks fairly, and it reorders them:
+
+  | Pick | Player | /start | pos-adj | vs slot | Tenure |
+  |---|---|---|---|---|---|
+  | 2024 3.01 | Bo Nix | 18.42 | 15.28 | **+10.02** | 754d |
+  | 2025 1.05 | TreVeyon Henderson | 14.90 | 14.36 | **+5.16** | 382d |
+  | 2025 2.02 | Colston Loveland | 9.50 | 11.70 | +2.96 | 177d |
+  | 2024 2.02 | Xavier Worthy | 10.86 | 11.46 | +2.72 | 703d |
+  | 2025 1.07 | Matthew Golden | 8.30 | 9.01 | +1.21 | 382d |
+  | 2024 2.03 | J.J. McCarthy | 10.71 | 8.88 | −0.80 | 754d |
+  | 2025 1.02 | Travis Hunter | 7.97 | 8.64 | −2.94 | 382d |
+
+  On cumulative points Worthy (184.7) looks like the second-best asset of the
+  rebuild; on rate he is fourth, and Henderson is second in half the tenure.
 - **The single clearest loss.** The 2024 1.07 in that haul became **Brock
   Bowers**. Six weeks later (2024-06-29) you flipped it, with 2026 2.05, 2026
   4.07 and 2025 4.06, for **Jordan Addison**. Bowers: 247.7 then 176.2. Addison:
   211.5 then 133.3, and off your starting lineup by 2026.
+- **The second-clearest.** Kittle (231.9 points in 2024) bought the 2024 2.03,
+  which became J.J. McCarthy — 3 starts, −0.80 vs slot.
+- **What is *not* on this list.** Two conversions that the pick sheet scores as
+  failures were wins once the asset is followed (see the caveat below):
+  Judkins → Zay Flowers, and Loveland → Fannin + McMillan. There is no general
+  "sold every maturing asset early" pattern; the damage is concentrated in the
+  two conversions above.
 - **It cost two seasons, not one.** 2025 was also 5-12 (8th).
 - **The buyer cashed it.** McCaffrey scored **402.9 in 2025 — the highest of any
   player in the league** — for shmuel256, who won the title.
@@ -165,6 +190,17 @@ Bo Nix is carrying almost all of it, and the counterfactual answer to "could I
 have competed" is 8-7 and out on a tiebreak, which is the treadmill the teardown
 existed to escape.
 
+The mistakes are **narrower than the pick sheet first suggests**, though. Once
+converted picks are priced by following the asset rather than by their `picks`
+row, the losses reduce to two conversions — 1.07/Bowers → Addison, and
+Kittle → the 2.03/McCarthy — plus ordinary draft variance on Golden and Hunter
+(and Hunter is the *tank's* own pick, not the teardown's, which is the sharper
+indictment of the second 5-12 season). Judkins → Flowers and
+Loveland → Fannin + McMillan both went the other way. So the execution was
+closer to average than the raw returns imply, and the case against the teardown
+rests on its **structure** — fifteen tickets instead of two or three assets —
+rather than on a pattern of bad follow-up trades.
+
 ---
 
 ## Caveats, over-inclusively
@@ -180,6 +216,15 @@ Classified by-design / needs-human-judgment / defect.
 - **[by-design] Second-order behaviour is held constant.** FAAB, waivers and
   in-season trades run exactly as they really did; a contending 2024 team would
   have spent differently. Draft picks are not re-drafted.
+- **[defect in the reading, not the data] `picks` cannot price a pick that was
+  traded**, and using it to judge a trade gets the answer backwards. Every
+  return column stops at the pick's *next transaction*, so a pick flipped before
+  its player suited up scores 0 points added no matter what came back. 2025 1.08
+  (Judkins) reads 0.0 / −8.08 vs slot, which looks like the worst pick of the
+  rebuild; follow the asset instead and it is a win — Judkins (159.7 starter
+  points elsewhere) plus Deebo Samuel (49.9 *as a starter*, 5 starts) became
+  **Zay Flowers, 213.5 points on 16 starts**, still rostered in 2026. Judge a
+  converted pick with `timeline` and `player_year`, never with `picks` alone.
 - **[by-design] Trades are not priced.** `trades` stores its assets as free text,
   so `spend_by_position()` cannot value the deal itself. Pick-level KTC from
   `picks` is the closest available and is what is quoted.

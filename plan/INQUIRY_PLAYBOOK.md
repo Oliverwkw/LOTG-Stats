@@ -289,6 +289,15 @@ list is here so an answer written by hand does not walk into them.
   with the candidates rather than guessing.
 - **Seeding is wins + 0.5·ties, then regular-season PF** — the build's rule, and
   playoff PF does not count toward it.
+- **`picks` cannot price a pick that was traded, and `Points added` is
+  cumulative.** Every return column on `picks` stops at the pick's *next
+  transaction*, so a pick flipped before its player suited up scores 0 no matter
+  what came back — 2025 1.08 (Judkins) reads as the worst pick of a rebuild that
+  actually turned it into Zay Flowers. Follow the asset with `timeline` /
+  `player_year` before calling a converted pick a loss. And rank picks against
+  each other on the **rate** columns (`Avg points added adjusted by position` and
+  its pick-adjusted difference), never on `Points added`, which rewards whoever
+  has been rostered longest. (`WHATIF_TEARDOWN_2024.md`.)
 - **The `strict` lineup model is degenerate for a player-for-picks trade.** It
   only lets an arrival occupy the slot the departing player vacated, so when a
   team sold stars for draft picks there is no vacated slot and the returning
