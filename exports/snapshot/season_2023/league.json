@@ -117,6 +117,7 @@
     "st_ff": 0.0
   },
   "last_message_id": "1048351948921049088",
+  "draft_id": "918536682830471169",
   "last_author_avatar": "29a08337cb941dc70ad07b77babab54b",
   "last_author_display_name": "LWebs53",
   "last_author_id": "673623361460477952",
@@ -126,7 +127,6 @@
   "last_message_time": 1704309091362,
   "last_pinned_message_id": "1040152304777355264",
   "last_read_id": null,
-  "draft_id": "918536682830471169",
   "league_id": "918536682830471168",
   "previous_league_id": "784486800210202624",
   "roster_positions": [
@@ -154,9 +154,9 @@
     "BN",
     "BN"
   ],
+  "group_id": null,
   "bracket_id": 1046233134410371072,
   "bracket_overrides_id": null,
-  "group_id": null,
   "loser_bracket_id": 1046233134414565376,
   "loser_bracket_overrides_id": null,
   "total_rosters": 8
