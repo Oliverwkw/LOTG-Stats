@@ -16,7 +16,7 @@ needed one, a script in `scripts/`), never as a change to a build output.
 |---|---|
 | `scripts/inquire.py` (`lotg_support.inquiry`) | finding, filtering and ranking anything in the twelve export sheets, and reading the raw Sleeper snapshot |
 | `scripts/whatif.py` (`lotg_support.replay`) | counterfactual seasons: rewind a trade or move a player, replay every week, re-seed, re-run the bracket |
-| `lotg_support.analysis` (via `inquire.py group/stacks/compare/scarcity/spend`) | the joins and comparisons a judgement question needs: position attached to any sheet, roster-group depth, lineup composition, cohort tests, positional scarcity, spend vs return |
+| `lotg_support.analysis` (via `inquire.py group/stacks/compare/compare-all/correlate/stretch/timeline/scarcity/spend`) | the joins and comparisons a judgement question needs: position attached to any sheet, roster-group depth, lineup composition, cohort tests with FDR control, arbitrary time windows, entity timelines, positional scarcity, spend vs return |
 
 All three are additive and read-only. None is imported by the build or run by
 any workflow.
@@ -128,6 +128,45 @@ python scripts/inquire.py stacks --compare 'Max PF' --condition 'stack_WR>=2'
 `lineup_stacks()` gives one row per fielded lineup with `max_same_nfl_team`, a
 `stack_<POS>` count per position, and the team-week's PF / Max PF / Efficiency
 already joined, so a ceiling question is a group-by.
+
+**Every column at once.** The over-inclusive form of a cohort question: don't
+pick the metric you expect to move, test the condition against everything.
+
+```bash
+python scripts/inquire.py compare-all stacks --condition 'stack_WR>=2'
+python scripts/inquire.py correlate team_year --target 'Win %'
+```
+
+`compare_all()` runs the cohort test on every numeric column ranked by effect
+size; `correlate_all()` correlates every column against one target. Both report
+a **Benjamini-Hochberg q-value across the whole family**, because a hundred
+tests at p<0.05 produce about five hits from noise alone — never quote a sweep's
+p-value on its own. Columns that are definitionally part of the condition or
+target will top the list (`starter_points` "predicts" `PF` at r=1.00); recognise
+those rather than reporting them.
+
+**A different window.** "All time" is rarely one window — three dominant seasons
+and one monster year are different claims.
+
+```bash
+# best 3-season WR corps, by total points
+python scripts/inquire.py stretch group --metric points --length 3 --order Year
+# best 5-week scoring run by any team, ever
+python scripts/inquire.py stretch team_week --metric PF --length 5
+```
+
+`best_stretch()` takes any long frame and finds each entity's best contiguous
+run. Contiguity is by row order *within the entity*, so a missing week makes its
+neighbours adjacent — the `span` column shows the real endpoints, so a run that
+jumped a gap is visible rather than hidden.
+
+**The story of one entity.** `timeline()` merges draft picks, adds/drops and
+trades — three sheets, three date columns — into one chronological log:
+
+```bash
+python scripts/inquire.py timeline --player 'Justin Herbert'
+python scripts/inquire.py timeline --team shmuel256 --season 2025
+```
 
 **Cohort comparison.** `compare(frame, condition, metric)` reports *both*
 cohorts — n, mean, median, sd — plus the difference, Cohen's d, a deterministic
@@ -249,6 +288,66 @@ practice, for an inquiry:
   player who was on nobody's roster in some week, hence scored 0);
 - name what was held constant (FAAB, draft picks, second-order behaviour) and
   say why it cannot change the answer — or that it could.
+
+## When the helper you need does not exist — add it
+
+This toolkit is meant to grow. If a question needs a primitive that is not here,
+**write the primitive, not a throwaway script**: the next inquiry of that shape
+should start where this one finished. Ship it as its own PR, separate from the
+answer.
+
+The rule that makes this safe is that an inquiry **changes no outcome**. Adding
+a helper must not alter a single byte of what the build produces or what any
+workflow does. Concretely:
+
+1. **Additive only.** New files under `lib/lotg_support/`, `scripts/`, `tests/`,
+   `plan/notes/`. Do not edit `src/`, `config/`, `.github/workflows/`,
+   `exports/`, or `data/`. Editing an existing `lib/lotg_support/` module is
+   fine *only* if the build does not import it — `inquiry`, `analysis` and
+   `replay` are inquiry-only; `digest`, `lineup`, `ktc`, `sleeper`, `snapshot`,
+   `utils` and the rest are build code, so read from them, never change them.
+2. **Nothing the build runs may import your module.** Check before you finish:
+   `grep -rn "your_module" src/ .github/workflows/` must come back empty.
+3. **Reuse the build's own logic rather than reimplementing it.** The ceiling
+   model calls `lineup.compute_optimal_lineup`; the sweeps call the digest's
+   `discover_numeric_columns`. A second implementation of a build rule is a
+   second answer to the same question, and they will drift.
+4. **Tie the new primitive to a number the build already computed**, wherever
+   one exists, as a `check_*` function plus a test. Precedents:
+   `check_identity` (a no-move replay must reproduce the built `PF`, bracket and
+   champion), `check_max_pf`, `check_starter_points_reconcile`,
+   `check_stack_counts_match_build`. If no independent number exists, say so in
+   the docstring and pin the behaviour with a synthetic fixture instead.
+5. **Tests follow the house style**: plain `test_*` functions that run under
+   `pytest tests/` and directly as `python tests/test_x.py`; data-dependent ones
+   skip cleanly when `exports/` is absent and assert only against
+   `Q.completed_seasons()` — never an in-progress season, whose snapshot weeks
+   the build has not exported yet.
+6. **Name the assumptions.** Anything debatable (replacement level, what counts
+   as a contributor, a lineup model) is a documented parameter with a default,
+   not a constant inside a loop — so the next question can vary it and report
+   the sensitivity.
+7. **Stay over-inclusive.** A new helper should flag and classify borderline
+   items, not filter them: keep build-volatile columns and mark them, count the
+   rows you could not place, return `warnings` for anything the caller should
+   know. If it runs many tests at once, report the family size and an FDR
+   q-value — never a bare p-value from a sweep.
+8. **Document it**: add a row to the tool table above, a worked command in the
+   relevant section, and — if you hit a new one — an entry in the trap list.
+
+Before opening the PR:
+
+```bash
+git status --porcelain          # only new files; no tracked build file modified
+git diff --stat main            # expect no changes to src/, workflows/, exports/, data/
+python -m pytest tests/ -q      # the whole suite, not just yours
+python scripts/inquire.py validate
+```
+
+Open it as a **draft PR** whose description states plainly what the helper does,
+which guard backs it, and that nothing shipped changes. Keep the answer note and
+the tooling separable: a reviewer should be able to take the primitive without
+taking the conclusion.
 
 ## Writing it up
 

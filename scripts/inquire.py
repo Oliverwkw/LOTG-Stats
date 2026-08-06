@@ -190,6 +190,70 @@ def cmd_compare(args) -> None:
                     permutations=args.permutations).describe())
 
 
+_SWEEP_CAVEAT = (
+    "\nRead `q` (Benjamini-Hochberg false-discovery rate) before believing a row: "
+    "with {tests} tests,\nabout {expected:.1f} would clear p<0.05 by chance alone. "
+    "Columns that are definitionally part of\nthe condition or target will top the "
+    "list — recognise those, don't report them as findings."
+)
+
+
+def _frame_for(args):
+    from lotg_support import analysis as A
+
+    if args.sheet == "stacks":
+        return A.lineup_stacks(season=getattr(args, "season", None))
+    if args.sheet == "group":
+        return A.position_group(getattr(args, "position", "WR"),
+                                season=getattr(args, "season", None))
+    return Q.rows(args.sheet, *getattr(args, "where", []))
+
+
+def cmd_compare_all(args) -> None:
+    from lotg_support import analysis as A
+
+    df = A.compare_all(_frame_for(args), args.condition, permutations=args.permutations,
+                       min_n=args.min_n)
+    _emit(df, args.csv, args.limit)
+    if not args.csv and not df.empty:
+        print(_SWEEP_CAVEAT.format(tests=int(df["tests"].iloc[0]),
+                                   expected=int(df["tests"].iloc[0]) * 0.05))
+
+
+def cmd_correlate(args) -> None:
+    from lotg_support import analysis as A
+
+    df = A.correlate_all(_frame_for(args), args.target, method=args.method,
+                         min_n=args.min_n)
+    _emit(df, args.csv, args.limit)
+    if not args.csv and not df.empty:
+        print(_SWEEP_CAVEAT.format(tests=int(df["tests"].iloc[0]),
+                                   expected=int(df["tests"].iloc[0]) * 0.05))
+        print("Correlation is not causation, and these columns are not independent "
+              "of each other.")
+
+
+def cmd_stretch(args) -> None:
+    from lotg_support import analysis as A
+
+    frame = _frame_for(args)
+    order = [c for c in args.order.split(",") if c.strip()]
+    df = A.best_stretch(frame, args.metric, args.length,
+                        entity_columns=[c for c in args.entity.split(",") if c.strip()],
+                        order_columns=order, n=args.limit or 10)
+    _emit(df, args.csv)
+    if not args.csv and not df.empty:
+        print("Contiguity is by row order within the entity — check `span` for a run "
+              "that jumped a gap.")
+
+
+def cmd_timeline(args) -> None:
+    from lotg_support import analysis as A
+
+    df = A.timeline(player=args.player, team=args.team, season=args.season)
+    _emit(df.drop(columns=["undated"], errors="ignore"), args.csv, args.limit)
+
+
 def cmd_scarcity(args) -> None:
     from lotg_support import analysis as A
 
@@ -412,6 +476,48 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--by", default="Year", help="breakdown column (default Year; '' to skip)")
     p.add_argument("--permutations", type=int, default=2000)
     p.set_defaults(func=cmd_compare)
+
+    def frame_args(p):
+        p.add_argument("sheet", help="an export sheet, 'stacks' (lineup composition) "
+                                     "or 'group' (a position group per team-season)")
+        p.add_argument("--where", action="append", default=[], metavar="EXPR")
+        p.add_argument("--season", type=int, help="for sheet=stacks/group")
+        p.add_argument("--position", default="WR", help="for sheet=group")
+        p.add_argument("-n", "--limit", type=int, default=0)
+        p.add_argument("--csv", action="store_true")
+
+    p = sub.add_parser("compare-all",
+                       help="cohort test on EVERY numeric column, with FDR control")
+    frame_args(p)
+    p.add_argument("--condition", required=True, help="e.g. 'stack_WR>=2'")
+    p.add_argument("--permutations", type=int, default=500)
+    p.add_argument("--min-n", type=int, default=5, help="skip columns with a tiny cohort")
+    p.set_defaults(func=cmd_compare_all)
+
+    p = sub.add_parser("correlate",
+                       help="correlate EVERY numeric column against one target, with FDR control")
+    frame_args(p)
+    p.add_argument("--target", required=True, help="the column everything is correlated against")
+    p.add_argument("--method", default="pearson", choices=["pearson", "spearman", "kendall"])
+    p.add_argument("--min-n", type=int, default=10)
+    p.set_defaults(func=cmd_correlate)
+
+    p = sub.add_parser("stretch", help="best contiguous run of N rows per entity")
+    frame_args(p)
+    p.add_argument("--metric", required=True, help="column to total over the window")
+    p.add_argument("--length", type=int, default=3, help="rows per window (default 3)")
+    p.add_argument("--entity", default="Team", help="comma-separated entity key (default Team)")
+    p.add_argument("--order", default="Year,Week",
+                   help="comma-separated ordering columns; absent ones are ignored")
+    p.set_defaults(func=cmd_stretch)
+
+    p = sub.add_parser("timeline", help="every recorded event for a player or team, in order")
+    p.add_argument("--player")
+    p.add_argument("--team")
+    p.add_argument("--season", type=int)
+    p.add_argument("-n", "--limit", type=int, default=0)
+    p.add_argument("--csv", action="store_true")
+    p.set_defaults(func=cmd_timeline)
 
     p = sub.add_parser("scarcity", help="surplus of the best player over replacement, by position")
     p.add_argument("--season", type=int)

@@ -339,19 +339,53 @@ def _cohens_d(a: Sequence[float], b: Sequence[float]) -> float:
 
 def _permutation_p(a: Sequence[float], b: Sequence[float], permutations: int,
                    seed: int) -> float:
-    """Two-sided permutation test on the difference of means. Deterministic."""
+    """Two-sided permutation test on the difference of means. Deterministic.
+
+    Vectorised, because the over-inclusive sweeps run one of these per column
+    and a Python-level shuffle loop would make them unusable.
+    """
     if not len(a) or not len(b):
         return float("nan")
-    observed = abs(sum(a) / len(a) - sum(b) / len(b))
-    pool = list(a) + list(b)
-    rng = random.Random(seed)
-    hits = 0
-    for _ in range(permutations):
-        rng.shuffle(pool)
-        left, right = pool[:len(a)], pool[len(a):]
-        if abs(sum(left) / len(left) - sum(right) / len(right)) >= observed - 1e-12:
-            hits += 1
+    import numpy as np
+
+    pool = np.asarray(list(a) + list(b), dtype=float)
+    n_a, total = len(a), len(pool)
+    observed = abs(pool[:n_a].mean() - pool[n_a:].mean())
+    rng = np.random.default_rng(seed)
+    # argsort of uniform noise == an independent shuffle per row.
+    picks = np.argsort(rng.random((permutations, total)), axis=1)[:, :n_a]
+    sums_a = pool[picks].sum(axis=1)
+    means_a = sums_a / n_a
+    means_b = (pool.sum() - sums_a) / (total - n_a)
+    hits = int((np.abs(means_a - means_b) >= observed - 1e-12).sum())
     return (hits + 1) / (permutations + 1)
+
+
+def fdr_q_values(p_values: Sequence[float]) -> List[float]:
+    """Benjamini-Hochberg q-values for a family of tests.
+
+    An over-inclusive sweep runs a hundred tests at once, so five of them will
+    clear p<0.05 by chance alone. Reporting a raw p-value from a sweep without
+    saying how many tests produced it overstates the finding; the q-value is the
+    expected false-discovery rate if you treat everything at or below it as
+    real. Report both, and never quote a sweep's p-value on its own.
+    """
+    m = len(p_values)
+    if not m:
+        return []
+    order = sorted(range(m), key=lambda i: (math.inf if p_values[i] != p_values[i]
+                                            else p_values[i]))
+    out = [1.0] * m
+    running = 1.0
+    for rank, idx in enumerate(reversed(order), start=1):
+        position = m - rank + 1
+        p = p_values[idx]
+        if p != p:  # NaN
+            out[idx] = float("nan")
+            continue
+        running = min(running, p * m / position)
+        out[idx] = round(min(1.0, running), 5)
+    return out
 
 
 def compare(df: pd.DataFrame, condition: str, metric: str,
@@ -407,6 +441,244 @@ def compare(df: pd.DataFrame, condition: str, metric: str,
         permutations=permutations,
         by_group=tuple(groups),
     )
+
+
+# ---------------------------------------------------------------------------
+# Over-inclusive comparison: test EVERY column, then control for having done so
+# ---------------------------------------------------------------------------
+def numeric_columns(frame: pd.DataFrame, exclude: Sequence[str] = (),
+                    min_values: int = 2) -> List[str]:
+    """Every column of an arbitrary frame that can be compared as a number."""
+    skip = set(exclude) | {"Team", "Year", "Week", "Week Name", "Player", "Position"}
+    out = []
+    for col in frame.columns:
+        if col in skip:
+            continue
+        values = pd.to_numeric(frame[col], errors="coerce")
+        if values.notna().sum() >= min_values and values.nunique() > 1:
+            out.append(col)
+    return out
+
+
+def compare_all(frame: pd.DataFrame, condition: str, by: Optional[str] = "Year",
+                columns: Optional[Sequence[str]] = None, permutations: int = 500,
+                seed: int = 0, min_n: int = 5) -> pd.DataFrame:
+    """Run `compare()` on EVERY numeric column, ranked by effect size.
+
+    The over-inclusive form of a cohort question: instead of picking the metric
+    you expect the condition to move ("does stacking cost me Max PF?"), test the
+    condition against everything and let the data say what it moves.
+
+    Returns one row per column with both cohorts' n and mean, the difference,
+    Cohen's d, the permutation p — and a **BH q-value across the whole family**,
+    because a hundred tests at p<0.05 yield about five hits from noise alone.
+    Sort order is |d| descending; read `q` before believing any single row.
+    """
+    pred = Q.parse_predicate(condition)
+    if pred.column not in frame.columns:
+        raise KeyError(f"no column {pred.column!r} in this frame")
+    cols = list(columns) if columns else numeric_columns(frame, exclude=[pred.column])
+    rows: List[dict] = []
+    for col in cols:
+        result = compare(frame, condition, col, by=None, permutations=permutations, seed=seed)
+        if min(result.n_with, result.n_without) < min_n:
+            continue
+        rows.append({
+            "column": col, "n_with": result.n_with, "n_without": result.n_without,
+            "mean_with": result.mean_with, "mean_without": result.mean_without,
+            "difference": result.difference, "effect_size": result.effect_size,
+            "p": result.p_value,
+        })
+    df = pd.DataFrame(rows)
+    if df.empty:
+        return df
+    df["q"] = fdr_q_values(list(df["p"]))
+    df["tests"] = len(df)
+    return (df.reindex(df["effect_size"].abs().sort_values(ascending=False).index)
+            .reset_index(drop=True))
+
+
+def correlate_all(frame: pd.DataFrame, target: str,
+                  columns: Optional[Sequence[str]] = None,
+                  method: str = "pearson", min_n: int = 10) -> pd.DataFrame:
+    """Correlation of EVERY numeric column against one target, ranked by |r|.
+
+    "What goes with winning?" answered without choosing the candidates first.
+    `p` comes from the Fisher z-transform (a normal approximation, fine at these
+    sample sizes and dependency-free), and `q` is the BH false-discovery rate
+    across the family — the same multiple-testing discipline as `compare_all`.
+
+    Correlation is not causation and these columns are not independent of each
+    other; treat the ranking as a place to look, not as a result.
+    """
+    from statistics import NormalDist
+
+    if target not in frame.columns:
+        raise KeyError(f"no column {target!r} in this frame")
+    y = pd.to_numeric(frame[target], errors="coerce")
+    cols = [c for c in (columns or numeric_columns(frame)) if c != target]
+    rows: List[dict] = []
+    for col in cols:
+        x = pd.to_numeric(frame[col], errors="coerce")
+        pair = pd.DataFrame({"x": x, "y": y}).dropna()
+        if len(pair) < min_n or pair["x"].nunique() < 2 or pair["y"].nunique() < 2:
+            continue
+        r = float(pair["x"].corr(pair["y"], method=method))
+        if r != r:
+            continue
+        n = len(pair)
+        if n > 3 and abs(r) < 1.0:
+            z = math.atanh(r) * math.sqrt(n - 3)
+            p = 2 * (1 - NormalDist().cdf(abs(z)))
+        else:
+            p = float("nan")
+        rows.append({"column": col, "n": n, "r": round(r, 4), "p": round(p, 5)})
+    df = pd.DataFrame(rows)
+    if df.empty:
+        return df
+    df["q"] = fdr_q_values(list(df["p"]))
+    df["tests"] = len(df)
+    return (df.reindex(df["r"].abs().sort_values(ascending=False).index)
+            .reset_index(drop=True))
+
+
+# ---------------------------------------------------------------------------
+# Timelines: the same question over a different window
+# ---------------------------------------------------------------------------
+def _label(value: object) -> str:
+    """Render an order key without float noise: 2025.0 -> '2025'."""
+    number = Q.to_number(value)
+    if number is not None and abs(number - round(number)) < 1e-9:
+        return str(int(round(number)))
+    return str(value)
+
+
+def best_stretch(frame: pd.DataFrame, value_column: str, length: int,
+                 entity_columns: Sequence[str] = ("Team",),
+                 order_columns: Sequence[str] = ("Year", "Week"),
+                 n: int = 10, aggregate: str = "sum") -> pd.DataFrame:
+    """Best contiguous run of `length` rows per entity, ranked.
+
+    "All time" is rarely one window: a corps that dominated three seasons and a
+    single monster year are different claims, and a season-level total answers
+    neither. Give this any long frame — team-weeks, a `position_group()` table,
+    a player's seasons — and it finds the best run of `length` consecutive rows
+    for each entity.
+
+    Contiguity is by row order *within the entity* after sorting on
+    `order_columns`, not by calendar: if an entity is missing a week, its
+    neighbours become adjacent. `span` reports the real endpoints, so a run that
+    silently jumped a gap is visible in the output rather than hidden in it.
+    """
+    entity_columns, order_columns = list(entity_columns), list(order_columns)
+    order_columns = [c for c in order_columns if c in frame.columns]
+    work = frame.copy()
+    work["_value"] = pd.to_numeric(work[value_column], errors="coerce")
+    work = work.dropna(subset=["_value"]).sort_values(entity_columns + order_columns)
+
+    rows: List[dict] = []
+    for key, grp in work.groupby(entity_columns, sort=False):
+        values = grp["_value"].to_numpy()
+        if len(values) < length:
+            continue
+        labels = [" ".join(_label(v) for v in tup)
+                  for tup in grp[order_columns].itertuples(index=False)] \
+            if order_columns else [str(i) for i in range(len(values))]
+        for start in range(len(values) - length + 1):
+            window = values[start:start + length]
+            total = float(window.sum())
+            rows.append({
+                **dict(zip(entity_columns, key if isinstance(key, tuple) else (key,))),
+                "start": labels[start], "end": labels[start + length - 1],
+                "span": f"{labels[start]} -> {labels[start + length - 1]}",
+                "length": length,
+                "total": round(total, 2),
+                "mean": round(total / length, 2),
+                "min": round(float(window.min()), 2),
+                "max": round(float(window.max()), 2),
+            })
+    df = pd.DataFrame(rows)
+    if df.empty:
+        return df
+    metric = "total" if aggregate == "sum" else "mean"
+    # One row per entity: its own best window, then rank entities against each other.
+    best = (df.sort_values(metric, ascending=False)
+            .groupby(entity_columns, sort=False).head(1)
+            .sort_values(metric, ascending=False))
+    return best.head(n).reset_index(drop=True)
+
+
+def timeline(player: Optional[str] = None, team: Optional[str] = None,
+             season: Optional[int] = None) -> pd.DataFrame:
+    """Every recorded event for a player or a team, in date order.
+
+    Draft picks, adds, drops and trades arrive from three different sheets with
+    three different date columns, so "tell me the story of X" otherwise means
+    three lookups and a manual merge. Rows are `date, season, event, team,
+    detail` — undated rows keep their season and sort to the front of it, and
+    are marked, rather than being dropped for lacking a date.
+    """
+    events: List[dict] = []
+    canonical = Q.canonical_team(team) if team else None
+
+    def matches_team(value: object) -> bool:
+        return canonical is None or str(value).strip().lower() == canonical.lower()
+
+    def matches_player(value: object) -> bool:
+        return player is None or str(value).strip().lower() == str(player).strip().lower()
+
+    picks = Q.load_sheet("picks")
+    for _, r in picks.iterrows():
+        if not (matches_player(r["Player Picked"]) and matches_team(r["Team"])):
+            continue
+        year = Q.to_number(r["Year"])
+        if season and year != season:
+            continue
+        events.append({"date": "", "season": int(year) if year else None,
+                       "event": "drafted", "team": str(r["Team"]),
+                       "detail": f"pick {r['Number']}: {r['Player Picked']}"
+                                 + (f" (from {r['Original Team']})"
+                                    if str(r.get("Original Team", "")).strip()
+                                    and r.get("Original Team") != r["Team"] else "")})
+
+    txns = Q.load_sheet("transactions")
+    for _, r in txns.iterrows():
+        year = Q.to_number(r["Season"])
+        if season and year != season:
+            continue
+        if matches_team(r["Team"]) and (matches_player(r["Player Added"])
+                                        or matches_player(r["Player Dropped"])):
+            bits = []
+            if str(r["Player Added"]).strip():
+                bits.append(f"+{r['Player Added']}")
+            if str(r["Player Dropped"]).strip():
+                bits.append(f"-{r['Player Dropped']}")
+            faab = Q.to_number(r["Faab"])
+            if faab:
+                bits.append(f"${faab:g} FAAB")
+            events.append({"date": str(r["Date"]), "season": int(year) if year else None,
+                           "event": str(r["type of transaction (waiver/free agency)"]) or "add/drop",
+                           "team": str(r["Team"]), "detail": " ".join(bits)})
+
+    trades = Q.load_sheet("trades")
+    for _, r in trades.iterrows():
+        year = Q.to_number(r["Season"])
+        if season and year != season:
+            continue
+        received, sent = str(r["Assets received"]), str(r["Assets sent"])
+        touches_player = player is None or any(
+            str(player).strip().lower() in text.lower() for text in (received, sent))
+        if matches_team(r["Team"]) and touches_player:
+            events.append({"date": str(r["Date"]), "season": int(year) if year else None,
+                           "event": "trade", "team": str(r["Team"]),
+                           "detail": f"got {received} | sent {sent}"})
+
+    df = pd.DataFrame(events)
+    if df.empty:
+        return df
+    df["undated"] = [not str(d).strip() for d in df["date"]]
+    return (df.sort_values(["season", "undated", "date"], ascending=[True, False, True])
+            .reset_index(drop=True))
 
 
 # ---------------------------------------------------------------------------

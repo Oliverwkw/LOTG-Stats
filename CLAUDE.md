@@ -38,6 +38,11 @@ Sleeper's current-only player dictionary). Do not hand-roll a loader over
 - Answers and analyses are written up as notes in `plan/notes/`. Reusable logic
   goes in `lib/lotg_support/` with a test in `tests/`; a script in `scripts/` is
   a thin CLI over it.
+- **If an inquiry needs a helper that does not exist yet, add it** — as its own
+  PR, additive only, changing no build output. `plan/INQUIRY_PLAYBOOK.md` has
+  the rules and the pre-PR checklist ("When the helper you need does not
+  exist"). Do not solve it in a throwaway script that the next session cannot
+  find.
 - **Report over-inclusively**: flag every borderline item and classify it
   (by-design / needs-human-judgment / defect) rather than filtering quietly.
   This is the standing rule for the audits, the weekly digest and inquiries

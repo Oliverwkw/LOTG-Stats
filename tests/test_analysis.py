@@ -216,6 +216,104 @@ def test_spend_by_position_covers_every_team_and_flags_its_gap():
     assert "Trades are not priced here" in A.spend_by_position.__doc__
 
 
+def test_fdr_q_values_control_the_family():
+    # Textbook BH: q_i = min over j>=i of p_j*m/j, and q is monotone in rank.
+    q = A.fdr_q_values([0.001, 0.008, 0.039, 0.041, 0.9])
+    assert q[0] == round(0.001 * 5 / 1, 5)
+    assert q == sorted(q), "q must not decrease as p increases"
+    assert all(qi >= pi for qi, pi in zip(q, [0.001, 0.008, 0.039, 0.041, 0.9]))
+    assert max(q) <= 1.0
+    # A lone significant p among many nulls must be penalised for the family.
+    # BH is step-down, so q is capped by the largest p's own q (0.9 here) — the
+    # point is that p=0.04 becomes q=0.9, not that it stays "significant".
+    lonely = A.fdr_q_values([0.04] + [0.9] * 99)
+    assert lonely[0] >= 0.9, "one p=0.04 out of 100 tests is not a finding"
+    assert A.fdr_q_values([]) == []
+
+
+def test_compare_all_tests_every_column_and_reports_the_family():
+    if not _HAVE_EXPORTS:
+        return _skip("no exports")
+    frame = A.lineup_stacks(season=2025)
+    df = A.compare_all(frame, "stack_WR>=2", permutations=200)
+    assert len(df) > 3
+    assert set(["column", "n_with", "n_without", "difference", "effect_size", "p", "q",
+                "tests"]) <= set(df.columns)
+    # The condition's own column must not be tested against itself.
+    assert "stack_WR" not in set(df["column"])
+    # Ranked by |effect size|, and every row knows how big the family was.
+    sizes = [abs(v) for v in df["effect_size"]]
+    assert sizes == sorted(sizes, reverse=True)
+    assert set(df["tests"]) == {len(df)}
+    assert all(q >= p - 1e-9 for p, q in zip(df["p"], df["q"]))
+
+
+def test_correlate_all_ranks_by_strength_and_is_symmetric():
+    if not _HAVE_EXPORTS:
+        return _skip("no exports")
+    frame = A.lineup_stacks(season=2025)
+    df = A.correlate_all(frame, "PF")
+    assert "PF" not in set(df["column"]), "a column must not correlate with itself"
+    strengths = [abs(v) for v in df["r"]]
+    assert strengths == sorted(strengths, reverse=True)
+    assert all(-1.0 <= v <= 1.0 for v in df["r"])
+    # starter_points IS PF outside the semifinal week, so it must be at the top —
+    # a mechanical relationship, which is exactly what the caveat warns about.
+    assert df.iloc[0]["column"] == "starter_points" and df.iloc[0]["r"] > 0.99
+    assert all(q >= p - 1e-9 for p, q in zip(df["p"], df["q"]))
+
+
+def test_best_stretch_finds_contiguous_runs():
+    frame = pd.DataFrame({
+        "Team": ["a"] * 5 + ["b"] * 5,
+        "Year": [2021, 2022, 2023, 2024, 2025] * 2,
+        "points": [10, 100, 100, 10, 10, 50, 50, 50, 1, 1],
+    })
+    out = A.best_stretch(frame, "points", 3, entity_columns=["Team"],
+                         order_columns=["Year"], n=10)
+    assert list(out["Team"]) == ["a", "b"], "one row per entity, best first"
+    best_a = out[out["Team"] == "a"].iloc[0]
+    assert best_a["total"] == 210 and best_a["span"] == "2021 -> 2023"
+    assert best_a["min"] == 10 and best_a["max"] == 100
+    best_b = out[out["Team"] == "b"].iloc[0]
+    assert best_b["total"] == 150 and best_b["span"] == "2021 -> 2023"
+    # An entity with fewer rows than the window simply does not appear.
+    short = A.best_stretch(frame, "points", 6, entity_columns=["Team"],
+                           order_columns=["Year"])
+    assert short.empty
+
+
+def test_best_stretch_labels_are_clean_and_span_shows_gaps():
+    if not _HAVE_EXPORTS:
+        return _skip("no exports")
+    groups = A.position_group("WR")
+    out = A.best_stretch(groups, "points", 3, entity_columns=["Team"],
+                         order_columns=["Year"], n=5)
+    assert not out.empty
+    # Years must render as 2021, never 2021.0 — the span is quoted in write-ups.
+    assert all("." not in row.span for row in out.itertuples()), list(out["span"])
+    assert all(row.total >= row.mean for row in out.itertuples())
+
+
+def test_timeline_merges_three_sheets_in_date_order():
+    if not _HAVE_EXPORTS:
+        return _skip("no exports")
+    df = A.timeline(player="Justin Herbert")
+    assert not df.empty
+    assert {"date", "season", "event", "team", "detail"} <= set(df.columns)
+    assert "trade" in set(df["event"])
+    # Chronological within season, and the 2025 deal is present with both sides.
+    assert list(df["season"]) == sorted(df["season"])
+    deals = df[(df["event"] == "trade") & (df["season"] == 2025)]
+    assert len(deals) == 2, "a two-sided trade appears once per team"
+    assert any("Lamar Jackson" in d for d in deals["detail"])
+
+    scoped = A.timeline(team="shmuel256", season=2025)
+    assert not scoped.empty
+    assert set(scoped["season"]) == {2025}
+    assert set(scoped["team"]) == {"shmuel256"}
+
+
 def test_reads_are_pure():
     if not _HAVE_EXPORTS:
         return _skip("no exports")
@@ -241,6 +339,12 @@ TESTS = [
     test_replacement_level_comes_from_what_the_league_starts,
     test_value_curve_ranks_within_position,
     test_spend_by_position_covers_every_team_and_flags_its_gap,
+    test_fdr_q_values_control_the_family,
+    test_compare_all_tests_every_column_and_reports_the_family,
+    test_correlate_all_ranks_by_strength_and_is_symmetric,
+    test_best_stretch_finds_contiguous_runs,
+    test_best_stretch_labels_are_clean_and_span_shows_gaps,
+    test_timeline_merges_three_sheets_in_date_order,
     test_reads_are_pure,
 ]
 
