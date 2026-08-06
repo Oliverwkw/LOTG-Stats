@@ -15,7 +15,7 @@ needed one, a script in `scripts/`), never as a change to a build output.
 | Tool | For |
 |---|---|
 | `scripts/inquire.py` (`lotg_support.inquiry`) | finding, filtering and ranking anything in the twelve export sheets, and reading the raw Sleeper snapshot |
-| `scripts/whatif.py` (`lotg_support.replay`) | counterfactual seasons: rewind a trade or move a player, replay every week, re-seed, re-run the bracket |
+| `scripts/whatif.py` (`lotg_support.replay`) | counterfactual seasons: rewind a trade — or a whole sequence of them — or move a player, replay every week, re-seed, re-run the bracket |
 | `lotg_support.analysis` (via `inquire.py group/stacks/compare/compare-all/correlate/stretch/timeline/scarcity/spend`) | the joins and comparisons a judgement question needs: position attached to any sheet, roster-group depth, lineup composition, cohort tests with FDR control, arbitrary time windows, entity timelines, positional scarcity, spend vs return |
 
 All three are additive and read-only. None is imported by the build or run by
@@ -200,7 +200,19 @@ python scripts/whatif.py --season 2025 --undo-trade-player 'Justin Herbert' --mo
 
 # arbitrary: this player on that roster instead, from week 9
 python scripts/whatif.py --season 2024 --move '4881:5->8@9'
+
+# a teardown is not one trade — rewind the whole sequence at once
+python scripts/whatif.py --season 2024 --model all \
+    --undo-trade-id 1092268177528127488 --undo-trade-id 1095772841745821696
 ```
+
+`--undo-trade-player` and `--undo-trade-id` are repeatable, and
+`replay.undo_trades` / `replay.compose` merge the undos **per player**, not by
+concatenation: someone traded A→B and later B→C becomes a single C→A move, and
+endpoints that do not chain raise rather than get picked between. Undoing a fire
+sale one trade at a time understates it — each undo alone leaves the rest of the
+roster gutted. (`WHATIF_TEARDOWN_2024.md` is the worked example: the headline
+trade alone is worth 2 wins, all five together are worth 5.)
 
 The lineup model is the load-bearing assumption in any counterfactual, so there
 are three, and `--model all` runs each:
@@ -231,7 +243,10 @@ Three guards, also run by `whatif.py` before it answers, and by
    template;
 2. the ceiling routine reproduces `team_week.Max PF` exactly;
 3. **a replay with no moves reproduces the built `PF`, bracket and champion** —
-   currently exact for 2021-2025.
+   currently exact for 2021-2025;
+4. composing trade rewinds agrees with the single-trade path it generalises —
+   one trade composed equals `undo_trade` of it, and an undo composed with its
+   mirror cancels to no moves at all.
 
 The analysis layer has its own two, in `tests/test_analysis.py`: the starter
 points it rebuilds from `player_week` must equal `team_week.PF` (allowing the
@@ -274,6 +289,11 @@ list is here so an answer written by hand does not walk into them.
   with the candidates rather than guessing.
 - **Seeding is wins + 0.5·ties, then regular-season PF** — the build's rule, and
   playoff PF does not count toward it.
+- **The `strict` lineup model is degenerate for a player-for-picks trade.** It
+  only lets an arrival occupy the slot the departing player vacated, so when a
+  team sold stars for draft picks there is no vacated slot and the returning
+  stars simply sit — the counterfactual PF can even fall. Report it, but read the
+  spread from `anchored` and `ceiling`. (`WHATIF_TEARDOWN_2024.md`.)
 
 ## Over-inclusive reporting
 
