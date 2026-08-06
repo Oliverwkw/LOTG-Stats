@@ -78,6 +78,42 @@ def reconcile(frames) -> list:
     d = (_num(m["Times Highest score?"]) - _num(m["Highest score?"])).abs()
     out.append(("Times Highest score? = Σ weekly", bool(d.max() <= 0.5), f"max Δ {d.max():.0f}", False))
 
+    # Positional starter-scoring split. Every startable slot in this league is a
+    # QB/WR/RB/TE, so the four "Points from <pos>" columns must reconstruct PF
+    # exactly, and the four shares must sum to 1 on every scoring row. Rolls up
+    # week -> year -> all-time like any other counting stat. Guarded on presence
+    # so the check skips against a build predating the columns.
+    _pos_pts = ["Points from QBs", "Points from WRs", "Points from TEs", "Points from RBs"]
+    _pos_pct = ["% of points from QBs", "% of points from WRs", "% of points from TEs",
+                "% of points from RBs"]
+    if all(c in tw.columns for c in _pos_pts + _pos_pct):
+        # The one legitimate gap is the league's +5 semifinal home-field bonus,
+        # which lives in PF but belongs to no player, so it can't be attributed
+        # to a position. It goes only to the higher seed, so a semifinal row is
+        # allowed a gap of 0 OR 5; every other row must match PF to the cent.
+        split = sum(_num(tw[c]).fillna(0) for c in _pos_pts)
+        gap = (_num(tw["PF"]).fillna(0) - split).abs()
+        is_semi = tw["Week Name"].astype(str).str.strip().eq("Semifinal")
+        d = gap.where(~is_semi, pd.concat([gap, (gap - 5.0).abs()], axis=1).min(axis=1))
+        out.append(("team_week Σ positional starter points = PF (± semifinal bonus)",
+                    bool(d.max() <= 0.05), f"max Δ {d.max():.3f}", False))
+
+        # Shares sum to 1 wherever the week actually scored (a 0-point lineup
+        # renders all four as N/A, which drops out of _num).
+        shares = sum(_num(tw[c]) for c in _pos_pct)
+        shares = shares.dropna()
+        d = (shares - 1.0).abs()
+        out.append(("team_week positional shares sum to 1",
+                    bool(shares.empty or d.max() <= 0.001), f"max Δ {d.max():.4f}", False))
+
+        for col in _pos_pts:
+            g = tw.groupby(["Team", "Year"])[col].apply(lambda s: _num(s).sum()).reset_index()
+            m = ty.merge(g, on=["Team", "Year"], suffixes=("_y", "_w"))
+            d = (_num(m[f"{col}_y"]) - _num(m[f"{col}_w"])).abs()
+            out.append((f"team_year {col} = Σ team_week", bool(d.max() <= 0.05),
+                        f"max Δ {d.max():.3f}", False))
+            cmp_group(ty, "Team", col, ta, "Team", 0.05, f"team_all {col} = Σ team_year")
+
     # player_all #tx = Σ player_year. Phase 12 finding #1 (now FIXED): player_year
     # is padded with a row for every (player, season) that has real transaction
     # activity but no weekly appearance — offseason-only moves (bucketed under the
