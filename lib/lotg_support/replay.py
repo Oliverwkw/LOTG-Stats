@@ -98,13 +98,9 @@ class Scenario:
         return _dc_replace(self, model=model)
 
 
-def undo_trade(season: int, player: Optional[str] = None, date: Optional[str] = None,
-               transaction_id: Optional[str] = None, from_week: int = 1) -> Scenario:
-    """A scenario that rewinds one real trade — every player back where he was.
-
-    Identifies the trade by player, date or transaction id; raises if that
-    matches zero or several trades rather than picking one.
-    """
+def _resolve_trade(season: int, player: Optional[str] = None, date: Optional[str] = None,
+                   transaction_id: Optional[str] = None) -> "Q.Trade":
+    """The one completed trade a selector names, or a LookupError naming the candidates."""
     found = Q.trades(season=season, player=player, date=date)
     if transaction_id:
         found = [t for t in found if t.transaction_id == str(transaction_id)]
@@ -114,7 +110,11 @@ def undo_trade(season: int, player: Optional[str] = None, date: Optional[str] = 
     if len(found) > 1:
         raise LookupError("several trades match; narrow with --date or --transaction-id:\n  "
                           + "\n  ".join(t.describe() for t in found))
-    trade = found[0]
+    return found[0]
+
+
+def _trade_moves(trade: "Q.Trade", from_week: int = 1) -> Tuple[Move, ...]:
+    """Every player in `trade` sent back to whoever gave him up."""
     moves = []
     for rid, gained in trade.received.items():
         others = [r for r in trade.roster_ids if r != rid]
@@ -126,7 +126,115 @@ def undo_trade(season: int, player: Optional[str] = None, date: Optional[str] = 
                                   "build the Move list explicitly")
             moves.append(Move(player_id=pid, from_roster=rid, to_roster=others[0],
                               from_week=from_week))
-    return Scenario(season=season, moves=tuple(moves), label=f"undo trade {trade.describe()}")
+    return tuple(moves)
+
+
+def undo_trade(season: int, player: Optional[str] = None, date: Optional[str] = None,
+               transaction_id: Optional[str] = None, from_week: int = 1) -> Scenario:
+    """A scenario that rewinds one real trade — every player back where he was.
+
+    Identifies the trade by player, date or transaction id; raises if that
+    matches zero or several trades rather than picking one.
+    """
+    trade = _resolve_trade(season, player=player, date=date, transaction_id=transaction_id)
+    return Scenario(season=season, moves=_trade_moves(trade, from_week),
+                    label=f"undo trade {trade.describe()}")
+
+
+def compose(season: int, scenarios: Sequence[Scenario], label: str = "") -> Scenario:
+    """One scenario that applies several scenarios' moves together.
+
+    A teardown, a fire sale or a deadline pivot is several trades, and the
+    question asked of it ("could I have competed that year?") is only answerable
+    with all of them rewound at once — undoing them one at a time understates the
+    combined effect, because each undo alone leaves the rest of the roster gutted.
+
+    Moves are merged per player rather than concatenated, because two undos can
+    touch the same player: he was traded from A to B and later from B to C, so
+    rewinding both must produce a single C -> A move, not two contradictory ones.
+    Endpoints that do not chain (two undos claiming to move the same player out
+    of different rosters) are a real ambiguity, not something to average, so they
+    raise rather than pick one. The composed `from_week` is the earliest of the
+    moves collapsed, i.e. the counterfactual starts as soon as the first of them
+    would have.
+    """
+    if any(s.season != season for s in scenarios):
+        raise LookupError(f"cannot compose scenarios from different seasons into {season}")
+
+    ordered: List[str] = []
+    chains: Dict[str, List[Move]] = {}
+    for scenario in scenarios:
+        for move in scenario.moves:
+            if move.player_id not in chains:
+                chains[move.player_id] = []
+                ordered.append(move.player_id)
+            chains[move.player_id].append(move)
+
+    merged: List[Move] = []
+    for pid in ordered:
+        links = chains[pid]
+        if len(links) == 1:
+            merged.append(links[0])
+            continue
+        # Walk the links into a single from -> to, in whichever order they chain.
+        remaining = list(links)
+        head = remaining.pop(0)
+        start, end = head.from_roster, head.to_roster
+        week = head.from_week
+        progress = True
+        while remaining and progress:
+            progress = False
+            for link in list(remaining):
+                if link.to_roster == start:
+                    start = link.from_roster
+                elif link.from_roster == end:
+                    end = link.to_roster
+                else:
+                    continue
+                week = min(week, link.from_week)
+                remaining.remove(link)
+                progress = True
+        if remaining:
+            name = Q.players().name(pid)
+            raise LookupError(
+                f"{name} is moved by several undos whose endpoints do not chain "
+                f"({'; '.join(m.describe(season) for m in links)}); "
+                "build the Move list explicitly")
+        if start == end:
+            continue          # the undos cancel: he ends up where he really was
+        merged.append(Move(player_id=pid, from_roster=start, to_roster=end, from_week=week))
+
+    if not label:
+        label = "; ".join(s.label for s in scenarios if s.label) or "custom moves"
+    return Scenario(season=season, moves=tuple(merged), label=label)
+
+
+def undo_trades(season: int, players: Sequence[str] = (), dates: Sequence[str] = (),
+                transaction_ids: Sequence[str] = (), from_week: int = 1) -> Scenario:
+    """Rewind several real trades at once — see `compose` for how they merge.
+
+    Each selector names one trade the same way `undo_trade` does. Trades are
+    rewound in the order the league made them, so a player traded twice chains
+    back to his original roster.
+    """
+    trades = [_resolve_trade(season, player=p) for p in players]
+    trades += [_resolve_trade(season, date=d) for d in dates]
+    trades += [_resolve_trade(season, transaction_id=t) for t in transaction_ids]
+    if not trades:
+        raise LookupError("undo_trades needs at least one player, date or transaction id")
+
+    unique: Dict[str, "Q.Trade"] = {}
+    for trade in trades:
+        unique[trade.transaction_id] = trade       # the same trade named twice is one undo
+    chronological = sorted(unique.values(), key=lambda t: (t.date, t.transaction_id))
+
+    parts = [Scenario(season=season, moves=_trade_moves(t, from_week),
+                      label=f"undo trade {t.describe()}") for t in chronological]
+    if len(parts) == 1:
+        return parts[0]
+    label = "undo " + str(len(parts)) + " trades: " + ", ".join(
+        f"[{t.date}]" for t in chronological)
+    return compose(season, parts, label=label)
 
 
 # ---------------------------------------------------------------------------
@@ -529,9 +637,53 @@ def check_identity(season: int) -> List[str]:
     return problems
 
 
+def three_way_trades(season: int) -> List["Q.Trade"]:
+    """Trades neither `undo_trade` nor `compose` can rewind — more than two sides.
+
+    Undoing one needs explicit routing (which side gave up whom is not recoverable
+    from the received-by-roster mapping alone), so both paths refuse rather than
+    guess. Report the count in any write-up that sweeps a season's trades.
+    """
+    return [t for t in Q.trades(season=season) if len(t.roster_ids) != 2]
+
+
+def check_compose(season: int) -> List[str]:
+    """Composition must agree with the single-trade path it generalises.
+
+    There is no build number for "several trades rewound at once" — the build
+    never asks the question — so this pins the new path against the one that is
+    already guarded instead: composing one trade must equal `undo_trade` of it,
+    and composing a trade with its own mirror image must cancel to no moves at
+    all, which `check_identity` has already shown reproduces the real season.
+
+    Three-way trades are skipped, because `undo_trade` cannot express one either
+    — a pre-existing limit of the single-trade path, not something composition
+    introduced. `three_way_trades()` counts them so a write-up can say so.
+    """
+    problems: List[str] = []
+    for trade in Q.trades(season=season)[:12]:
+        if len(trade.roster_ids) != 2:
+            continue
+        one = undo_trade(season, transaction_id=trade.transaction_id)
+        both = undo_trades(season, transaction_ids=[trade.transaction_id,
+                                                    trade.transaction_id])
+        if set(both.moves) != set(one.moves):
+            problems.append(f"{season} trade {trade.transaction_id}: composing it with itself "
+                            f"gave {len(both.moves)} move(s), undo_trade gave {len(one.moves)}")
+        mirror = Scenario(season=season, moves=tuple(
+            Move(player_id=m.player_id, from_roster=m.to_roster,
+                 to_roster=m.from_roster, from_week=m.from_week) for m in one.moves))
+        cancelled = compose(season, [one, mirror])
+        if cancelled.moves:
+            problems.append(f"{season} trade {trade.transaction_id}: undo composed with its "
+                            f"mirror left {len(cancelled.moves)} move(s), expected none")
+    return problems
+
+
 def validate(season: int) -> List[str]:
     """Run every guard for one season; empty list means the replay is trustworthy."""
-    return check_lineup_template(season) + check_max_pf(season) + check_identity(season)
+    return (check_lineup_template(season) + check_max_pf(season)
+            + check_identity(season) + check_compose(season))
 
 
 # ---------------------------------------------------------------------------
