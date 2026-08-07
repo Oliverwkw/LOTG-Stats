@@ -345,6 +345,7 @@ python scripts/forecast.py --season 2026 --detail   # injuries, depth, age, rook
 python scripts/forecast.py --season 2026 --model all --seeds
 python scripts/forecast.py --season 2026 --sensitivity
 python scripts/forecast.py --calibration            # what the projection is worth
+python scripts/forecast.py --backtest              # has it ever been right?
 ```
 
 Five layers, each fitted from this league's own history and separately
@@ -360,6 +361,17 @@ completed season, which is where the simulation's spread comes from.
 Three strength models, `--model all` runs each: `roster`, `history` and
 `uniform`. **Quote the distance from `uniform`** — that is what says whether the
 projection is telling you anything.
+
+**Score the probabilities, not just the projection.** `--backtest` rewinds every
+completed season to its preseason, forecasts it strictly out of sample
+(calibration, rookie price and age curve refitted leaving that season out) and
+scores it against what happened: champion log-loss 1.85 against 2.08 for
+guessing, playoff Brier 0.152 against 0.250, seed rank correlation 0.62 against
+−0.04, the favourite winning 3 of 5. `check_beats_uniform` makes that a guard.
+Two further habits it enforces: `as_of_week` lets you ask what the model would
+have said in week 8, and the **confidence ratio** — realised score over the score
+the forecast expects of itself — tests whether it was over-confident without
+needing any baseline (a uniform forecast scores exactly 1.00).
 
 **Two rules this tool exists to enforce.**
 
@@ -544,6 +556,15 @@ list is here so an answer written by hand does not walk into them.
   spread from `anchored` and `ceiling`. (`WHATIF_TEARDOWN_2024.md`.)
 
 ### Forecasting traps
+
+- **A good projection is not a good forecast.** `calibrate` measures how well
+  the projection predicts a team's mean weekly points; it says nothing about
+  whether a 30% favourite wins three times in ten. Those are different claims
+  and need different evidence — `backtest` supplies the second.
+- **Don't re-tune a knob on five seasons.** Scaling the team-strength sd from
+  0.6x to 2x moves backtest log-loss by about 6%, monotonically, with no
+  interior optimum. A monotone "improvement" with no minimum is over-fitting to
+  four champions, not a discovered parameter. Report the insensitivity instead.
 
 - **A roster's player list is not its startable players.** A week's `players`
   includes the **taxi squad** and anyone on **reserve/IR**, neither of which can

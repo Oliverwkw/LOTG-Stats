@@ -109,6 +109,7 @@ __all__ = [
     "availability_rates", "startable_pool", "fielded_distribution",
     "ResearchNote", "research_overrides", "research_path", "check_research_file",
     "roster_projection", "calibrate", "forecast",
+    "Backtest", "BacktestRow", "backtest", "render_backtest", "check_beats_uniform",
     "check_bracket_pipeline", "check_completed_season_certainty",
     "check_schedule_is_balanced", "validate", "render",
 ]
@@ -988,6 +989,7 @@ class Forecast:
     sims: int
     seed: int
     played_weeks: Tuple[int, ...]
+    as_of_week: Optional[int]
     odds: List[TeamOdds]
     rookie_price: Optional[RookiePrice] = None
     age_curve: Optional[AgeCurve] = None
@@ -1051,7 +1053,7 @@ def _history_slope() -> Tuple[float, float]:
 def forecast(year: int, sims: int = 20000, model: RateModel = RateModel(),
              availability: AvailabilityModel = AvailabilityModel(),
              calibration: Optional[Calibration] = None, seed: int = 20260807,
-             strength_model: str = "roster") -> Forecast:
+             strength_model: str = "roster", as_of_week: Optional[int] = None) -> Forecast:
     """Monte-Carlo the rest of `year` and return each team's championship odds.
 
     strength_model:
@@ -1060,6 +1062,12 @@ def forecast(year: int, sims: int = 20000, model: RateModel = RateModel(),
                  would say knowing only last year's table;
       uniform  — every team identical. The no-information floor, 1/n each, which
                  the other two have to beat to be worth anything.
+
+    `as_of_week` rewinds the clock: only weeks up to and including it count as
+    known, and everything after is simulated. 0 is a pure preseason forecast.
+    This is what makes a *finished* season answerable as though it had not
+    happened yet, which is the only honest way to ask whether these
+    probabilities have ever been any good — see `backtest`.
     """
     meta = Q.season_meta(year)
     teams = Q.teams(year)
@@ -1090,7 +1098,8 @@ def forecast(year: int, sims: int = 20000, model: RateModel = RateModel(),
         raise ValueError(f"unknown strength_model {strength_model!r}; "
                          "pick roster, history or uniform")
 
-    observed = {w: s for w, s in _observed_scores(year).items() if w <= meta.last_week}
+    cutoff = meta.last_week if as_of_week is None else int(as_of_week)
+    observed = {w: s for w, s in _observed_scores(year).items() if w <= min(cutoff, meta.last_week)}
     strength = _posterior(prior, sd_true, calib.sd_week, observed, meta.regular_season_weeks)
     mean = {r: calib.league_mean + strength[r] for r in rids}
     sched = schedule(year, mean)
@@ -1101,6 +1110,10 @@ def forecast(year: int, sims: int = 20000, model: RateModel = RateModel(),
     sim_weeks = [w for w in range(1, meta.last_week + 1) if w not in observed]
     if not sim_weeks:
         warnings.append(f"{year} is fully played — the forecast is a lookup, not a projection")
+    if as_of_week is not None and Q.played_weeks(year) and cutoff < meta.last_week:
+        warnings.append(
+            f"{year} rewound to as-of week {cutoff}: weeks {cutoff + 1}+ are simulated even "
+            "though they were actually played")
 
     rng = np.random.default_rng(seed)
     n_teams = len(rids)
@@ -1171,11 +1184,225 @@ def forecast(year: int, sims: int = 20000, model: RateModel = RateModel(),
     ]
     return Forecast(year=year, model_name=strength_model, rate_model=model,
                     availability_model=availability, calibration=calib, sims=sims, seed=seed,
-                    played_weeks=tuple(sorted(observed)), odds=odds,
+                    played_weeks=tuple(sorted(observed)), as_of_week=as_of_week, odds=odds,
                     rookie_price=rookie_price(None, model),
                     age_curve=age_curve(None, model) if model.age_adjust else None,
                     rookie_class=rookie_class_strength(year), schedule=sched,
                     warnings=sorted(set(warnings)))
+
+
+# ---------------------------------------------------------------------------
+# Did any of this ever work? Backtesting the probabilities, not the projection
+# ---------------------------------------------------------------------------
+@dataclass(frozen=True)
+class BacktestRow:
+    """One (season, as-of week) forecast, scored against what actually happened."""
+    season: int
+    as_of_week: int
+    model: str
+    champion: str
+    champion_p: float                  # probability the forecast gave the real champion
+    champion_rank: int                 # 1 = the forecast's favourite actually won
+    champion_logloss: float
+    champion_brier: float              # over all n teams, one-hot on the real champion
+    self_logloss: float                # the log-loss the forecast expects of ITSELF
+    self_playoff_brier: float          # ditto for playoff berths
+    playoff_brier: float
+    playoff_hits: int                  # of the real playoff field, how many were forecast top-4
+    wins_mae: float
+    wins_corr: float
+    seed_rho: float
+    rows: Tuple[Tuple[str, float, float, float, int], ...] = ()
+    # (team, p_champion, p_playoff, expected_wins, actual_wins)
+
+
+@dataclass
+class Backtest:
+    """Every scored forecast, plus the summary that says whether it beat guessing."""
+    rows: List[BacktestRow]
+    n_teams: int
+
+    def by_model(self, model: str) -> List[BacktestRow]:
+        return [r for r in self.rows if r.model == model]
+
+    def summary(self, model: str = "roster") -> Dict[str, float]:
+        rows = self.by_model(model)
+        if not rows:
+            return {}
+        uniform_ll = math.log(self.n_teams)
+        return {
+            "n": float(len(rows)),
+            "champion_logloss": float(np.mean([r.champion_logloss for r in rows])),
+            "champion_logloss_uniform": uniform_ll,
+            "champion_brier": float(np.mean([r.champion_brier for r in rows])),
+            "champion_brier_uniform": float((1 - 1 / self.n_teams) ** 2
+                                            + (self.n_teams - 1) * (1 / self.n_teams) ** 2),
+            "champion_p": float(np.mean([r.champion_p for r in rows])),
+            "champion_rank": float(np.mean([r.champion_rank for r in rows])),
+            "favourite_won": float(np.mean([r.champion_rank == 1 for r in rows])),
+            # realised / self-expected: >1 means the forecast was more confident
+            # than it turned out to deserve, <1 means it hedged more than it
+            # needed to. This is the only direct test of *confidence* as opposed
+            # to ranking, and it needs no baseline to compare against.
+            "confidence_ratio_champion": float(np.mean([r.champion_logloss for r in rows])
+                                               / max(np.mean([r.self_logloss for r in rows]), 1e-9)),
+            "confidence_ratio_playoff": float(np.mean([r.playoff_brier for r in rows])
+                                              / max(np.mean([r.self_playoff_brier for r in rows]), 1e-9)),
+            "playoff_brier": float(np.mean([r.playoff_brier for r in rows])),
+            "playoff_brier_uniform": 0.25,
+            "playoff_hits": float(np.mean([r.playoff_hits for r in rows])),
+            "wins_mae": float(np.mean([r.wins_mae for r in rows])),
+            "wins_corr": float(np.mean([r.wins_corr for r in rows])),
+            "seed_rho": float(np.mean([r.seed_rho for r in rows])),
+        }
+
+    def calibration(self, model: str = "roster", as_of_week: Optional[int] = None,
+                    bins: Sequence[float] = (0.0, 0.1, 0.25, 0.5, 0.75, 0.9, 1.0)
+                    ) -> pd.DataFrame:
+        """Predicted playoff probability against the rate teams actually made it.
+
+        The single most important table here, because it tests *confidence* and
+        not just ranking: a forecast that says 75% should be right about three
+        times in four. Championship probabilities are too rare to bin over five
+        seasons; playoff berths give eight observations a season.
+
+        A model that is over-confident shows up as observed rates pulled toward
+        the middle — bins near 0 coming in above their prediction and bins near
+        1 below.
+        """
+        rows = [r for r in self.by_model(model)
+                if as_of_week is None or r.as_of_week == as_of_week]
+        pairs = [(p_playoff, made) for r in rows for (_, _, p_playoff, _, made) in r.rows]
+        if not pairs:
+            return pd.DataFrame(columns=["bucket", "n", "predicted", "observed"])
+        frame = pd.DataFrame(pairs, columns=["p", "made"])
+        frame["bucket"] = pd.cut(frame.p, list(bins), include_lowest=True)
+        out = frame.groupby("bucket", observed=True).agg(
+            n=("made", "size"), predicted=("p", "mean"), observed=("made", "mean"))
+        return out.reset_index()
+
+
+def _actual_outcome(season: int) -> Tuple[str, List[str], Dict[str, int], Dict[str, int]]:
+    """(champion, playoff field, wins by team, seed by team) as the build recorded them."""
+    meta = Q.season_meta(season)
+    teams = Q.teams(season)
+    scores = _observed_scores(season)
+    pairs = {w: Q.pairings(season, w) for w in range(1, meta.regular_season_weeks + 1)}
+    table = R._standings(scores, pairs, teams, meta)
+    bracket = R._bracket(scores, table, teams, meta)
+    wins = {s.team: s.wins for s in table}
+    seeds = {s.team: i + 1 for i, s in enumerate(table)}
+    field = [s.team for s in table[:meta.playoff_teams]]
+    return bracket.champion, field, wins, seeds
+
+
+def backtest(seasons: Optional[Sequence[int]] = None, as_of_weeks: Sequence[int] = (0,),
+             sims: int = 4000, model: RateModel = RateModel(),
+             availability: AvailabilityModel = AvailabilityModel(),
+             models: Sequence[str] = ("roster", "history", "uniform"),
+             seed: int = 20260807) -> Backtest:
+    """Rewind each completed season and score the forecast against what happened.
+
+    This is the only test of the *probabilities*. `calibrate` measures how well
+    the projection predicts a team's mean weekly points; it says nothing about
+    whether a 30% favourite wins three times in ten. Everything here is
+    strictly out of sample:
+
+      * the calibration is refitted **leaving the season out**;
+      * the rookie price and age curve are refitted leaving it out;
+      * availability runs in backtest mode — no designations, no research file,
+        no free-agent check, because all three are facts about today.
+
+    `as_of_weeks` is where the clock is rewound to. 0 is a preseason forecast;
+    higher numbers ask the fairer question of whether the model *updates* well
+    once results start arriving.
+    """
+    seasons = tuple(seasons if seasons is not None
+                    else [y for y in Q.completed_seasons() if y - 1 in Q.export_seasons()])
+    back_avail = _backtest_availability(availability)
+    rows: List[BacktestRow] = []
+    n_teams = 0
+    for season in seasons:
+        champion, field, wins, seeds = _actual_outcome(season)
+        if not champion:
+            continue
+        others = [y for y in seasons if y != season]
+        calib = calibrate(others or seasons, model=model, availability=availability)
+        teams = list(Q.teams(season).values())
+        n_teams = len(teams)
+        for week in as_of_weeks:
+            for name in models:
+                fc = forecast(season, sims=sims, model=model, availability=back_avail,
+                              calibration=calib, seed=seed, strength_model=name,
+                              as_of_week=week)
+                by_team = {o.team: o for o in fc.odds}
+                p_champ = {t: by_team[t].champion / 100.0 for t in by_team}
+                p_play = {t: by_team[t].playoffs / 100.0 for t in by_team}
+                p_true = max(p_champ.get(champion, 0.0), 1e-6)
+                order = sorted(p_champ, key=lambda t: -p_champ[t])
+                brier_c = sum((p_champ[t] - (1.0 if t == champion else 0.0)) ** 2 for t in p_champ)
+                brier_p = float(np.mean([(p_play[t] - (1.0 if t in field else 0.0)) ** 2
+                                         for t in p_play]))
+                forecast_field = {t for t in sorted(p_play, key=lambda t: -p_play[t])[:len(field)]}
+                ew = np.array([by_team[t].expected_wins for t in teams])
+                aw = np.array([float(wins.get(t, 0)) for t in teams])
+                rank = lambda a: np.argsort(np.argsort(a))  # noqa: E731
+                fs = np.array([-p_play[t] for t in teams])
+                asd = np.array([float(seeds.get(t, 0)) for t in teams])
+                total = sum(p_champ.values()) or 1.0
+                self_ll = -sum((v / total) * math.log(max(v / total, 1e-12))
+                               for v in p_champ.values())
+                self_pb = float(np.mean([v * (1 - v) for v in p_play.values()]))
+                rows.append(BacktestRow(
+                    season=season, as_of_week=week, model=name, champion=champion,
+                    champion_p=p_true, champion_rank=order.index(champion) + 1,
+                    champion_logloss=-math.log(p_true), champion_brier=brier_c,
+                    self_logloss=self_ll, self_playoff_brier=self_pb,
+                    playoff_brier=brier_p, playoff_hits=len(forecast_field & set(field)),
+                    wins_mae=float(np.mean(np.abs(ew - aw))),
+                    wins_corr=float(np.corrcoef(ew, aw)[0, 1]) if aw.std() else float("nan"),
+                    seed_rho=float(np.corrcoef(rank(fs), rank(asd))[0, 1]),
+                    rows=tuple((t, p_champ[t], p_play[t], by_team[t].expected_wins,
+                                1 if t in field else 0) for t in teams)))
+    return Backtest(rows=rows, n_teams=n_teams or 8)
+
+
+def render_backtest(bt: Backtest) -> str:
+    lines = ["Backtest — every completed season rewound and scored against what happened",
+             "  strictly out of sample: calibration, rookie price and age curve all refitted",
+             "  leaving the season out; no designations, no research, no free-agent check",
+             ""]
+    weeks = sorted({r.as_of_week for r in bt.rows})
+    lines.append(f"{'model':<10}{'as of':>7}{'champ logloss':>15}{'champ Brier':>13}"
+                 f"{'P(real champ)':>15}{'fav won':>9}{'playoff Brier':>15}"
+                 f"{'E[W] MAE':>10}{'seed rho':>10}{'conf ratio':>12}")
+    for name in ("roster", "history", "uniform"):
+        for week in weeks:
+            sub = Backtest([r for r in bt.rows if r.model == name and r.as_of_week == week],
+                           bt.n_teams)
+            s = sub.summary(name)
+            if not s:
+                continue
+            lines.append(f"{name:<10}{week:>7}{s['champion_logloss']:>15.3f}"
+                         f"{s['champion_brier']:>13.3f}{s['champion_p']:>15.1%}"
+                         f"{s['favourite_won']:>9.0%}{s['playoff_brier']:>15.3f}"
+                         f"{s['wins_mae']:>10.2f}{s['seed_rho']:>10.2f}"
+                         f"{s['confidence_ratio_champion']:>12.2f}")
+    base = bt.summary("roster")
+    if base:
+        lines += ["",
+                  f"  guessing at random scores {base['champion_logloss_uniform']:.3f} log-loss, "
+                  f"{base['champion_brier_uniform']:.3f} champion Brier, 0.250 playoff Brier.",
+                  "  Lower is better on all three. 'conf ratio' is realised log-loss over the",
+                  "  log-loss the forecast expects of itself: >1 over-confident, <1 hedged."]
+    lines += ["", "season by season (roster model, preseason):",
+              f"{'season':<9}{'real champion':<18}{'forecast':>9}{'rank':>6}{'playoff hits':>14}"]
+    for r in sorted(bt.by_model("roster"), key=lambda r: (r.as_of_week, r.season)):
+        if r.as_of_week != min(weeks):
+            continue
+        lines.append(f"{r.season:<9}{r.champion:<18}{r.champion_p:>8.1%}{r.champion_rank:>6}"
+                     f"{r.playoff_hits:>10}/4")
+    return "\n".join(lines)
 
 
 # ---------------------------------------------------------------------------
@@ -1301,6 +1528,39 @@ def check_research_file(year: int) -> List[str]:
         if not 0.0 < note.rate_multiplier <= 2.0:
             problems.append(f"{year} research: {name} rate_multiplier "
                             f"{note.rate_multiplier} is implausible")
+    return problems
+
+
+def check_beats_uniform(sims: int = 3000, seed: int = 20260807) -> List[str]:
+    """The forecast's *probabilities* must beat guessing on seasons that happened.
+
+    Every other guard here checks machinery. This one checks the answer: rewind
+    each completed season to its preseason, forecast it out of sample, and score
+    the result against what the build says actually happened. If a roster
+    projection cannot beat 1/n on five seasons of champions and forty of playoff
+    berths, its odds are decoration.
+
+    Deliberately loose thresholds — five champions cannot resolve much, and the
+    point is to catch a regression that breaks the model, not to police a decimal.
+    """
+    bt = backtest(as_of_weeks=(0,), sims=sims, models=("roster", "uniform"), seed=seed)
+    roster, uniform = bt.summary("roster"), bt.summary("uniform")
+    if not roster:
+        return ["backtest produced no scored seasons"]
+    problems = []
+    if roster["champion_logloss"] >= uniform["champion_logloss"]:
+        problems.append(
+            f"champion log-loss {roster['champion_logloss']:.3f} does not beat guessing "
+            f"({uniform['champion_logloss']:.3f})")
+    if roster["playoff_brier"] >= uniform["playoff_brier"]:
+        problems.append(
+            f"playoff Brier {roster['playoff_brier']:.3f} does not beat guessing "
+            f"({uniform['playoff_brier']:.3f})")
+    if roster["wins_mae"] >= uniform["wins_mae"]:
+        problems.append(f"expected-wins MAE {roster['wins_mae']:.2f} does not beat guessing "
+                        f"({uniform['wins_mae']:.2f})")
+    if roster["seed_rho"] < 0.3:
+        problems.append(f"seed rank correlation {roster['seed_rho']:.2f} is too weak to quote")
     return problems
 
 
