@@ -202,7 +202,7 @@ nflverse) to a player-season fantasy panel scored with this league's settings.
 python scripts/contract_study.py study                 # big signings vs matched non-signers
 python scripts/contract_study.py raw                   # signers vs themselves (the misleading one)
 python scripts/contract_study.py decompose             # was it games or points per game?
-python scripts/contract_study.py value                 # fantasy points per $1M, and what breaks it
+python scripts/contract_study.py value                 # weekly points per 1% of cap, and what a cap slice buys
 python scripts/contract_study.py signings --year 2025
 python scripts/contract_study.py validate
 ```
@@ -329,7 +329,21 @@ list is here so an answer written by hand does not walk into them.
   0.34-0.44 when both its inputs persist at 0.64-0.83. Rank on it within a
   position and season or not at all — `contract_study.py value` prints all four
   diagnostics, and `rank_persistence()` is the general test to run before
-  trusting any derived ratio.
+  trusting any derived ratio. The weekly variant (`ppg_per_cap_pct`) needs a
+  games floor on top: a one-game cameo on a minimum salary is the largest number
+  in the dataset. What the ratio *is* good for is `cost_curve()` — what the next
+  percent of cap buys, which falls steeply at every position.
+- **`cap_percent` is rounded to three decimals.** Fine on a star's deal, worth up
+  to 40% on a minimum one, which is exactly where a per-share metric is already
+  weakest. `league_cap_by_season()` recovers the cap from the expensive
+  contracts so the share can be taken from `cap_number` directly. It reads 1-6%
+  above the *published* cap because Over The Cap normalises against each team's
+  adjusted (carryover-inclusive) cap — a season-constant offset, so within-season
+  rankings are unaffected.
+- **nflverse gives return specialists an offensive position.** Matthew Slater has
+  six seasons in the panel as a WR with a real cap hit and 0.00 fantasy points.
+  They sit at the bottom of any value leaderboard without being fantasy players
+  at all; nothing filters them today.
 - **A player's own before/after around a big contract is regression to the
   mean.** Points fall at every position after a top-five deal, because the deal
   followed a career year. Any "did X change after Y" question about a player

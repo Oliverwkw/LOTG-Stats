@@ -232,10 +232,18 @@ Median points per $1M of cap hit, and the same with inflation removed:
 
 | position | n | FPTS per $1M | FPTS per 1% of cap | mean/median |
 |---|---|---|---|---|
-| QB | 1,066 | 15.4 | 27.5 | 2.59 |
-| RB | 1,967 | 50.1 | 90.5 | 1.65 |
-| TE | 1,742 | 22.7 | 42.2 | 1.94 |
-| WR | 2,991 | 37.1 | 68.5 | 1.80 |
+| QB | 1,066 | 15.4 | 27.6 | 2.59 |
+| RB | 1,967 | 50.1 | 90.0 | 1.65 |
+| TE | 1,742 | 22.7 | 41.0 | 1.94 |
+| WR | 2,991 | 37.1 | 68.6 | 1.80 |
+
+(Cap share comes from `league_cap_by_season()`, not the `cap_percent` column:
+that column is rounded to three decimals, which is worth under 1% on a star's
+deal and up to 40% on a minimum one. Recovering the cap from the expensive
+contracts and dividing `cap_number` by it removes the rounding. It moves the
+ranking barely at all — ρ = 0.996-0.998 against the rounded version — but the
+median per-row error is 3% and the 95th percentile is ~20%, all of it
+concentrated in the cheap contracts.)
 
 **Four things break it**, in descending order of severity:
 
@@ -286,7 +294,145 @@ question the ratio is trying to ask but holds prior production constant instead
 of dividing by money.
 
 ```bash
-python scripts/contract_study.py value      # all four diagnostics above
+python scripts/contract_study.py value --season-totals   # all four diagnostics above
+```
+
+## Weekly points per 1% of cap, by position, veterans only
+
+The season version above charges a player for games he missed. The weekly one
+takes availability out of the numerator and prices him for the weeks he was
+actually on the field. Rookie contracts are excluded throughout — on a
+per-dollar metric they are not a priced decision, and they otherwise own the
+top of every table.
+
+**Veteran contracts, ≥8 games, ≥1% of the cap** (the usable cohort — see the
+filters below):
+
+| position | n | median | p25 | p75 | median PPG | median cap share | median cap hit |
+|---|---|---|---|---|---|---|---|
+| QB | 290 | **1.77** | 1.36 | 2.86 | 15.9 | 9.6% | $16.3M |
+| RB | 279 | **4.18** | 2.91 | 6.64 | 11.8 | 2.4% | $4.4M |
+| WR | 609 | **2.85** | 1.88 | 4.20 | 11.0 | 3.4% | $6.1M |
+| TE | 397 | **2.44** | 1.63 | 3.55 | 6.9 | 2.6% | $4.7M |
+
+Read it as "one percent of a team's cap, spent on this position, returns this
+many fantasy points per game". A running back returns roughly **2.4× a
+quarterback** per unit of cap, a receiver 1.6×, a tight end 1.4×. As in the
+season version, that is a fact about the NFL's pay scale — quarterbacks are paid
+for winning games, not for PPR points — not a fantasy edge you can act on.
+
+Dropping the filters raises every number, because the cheap end of the veteran
+market is full of small denominators:
+
+| cohort | QB | RB | WR | TE |
+|---|---|---|---|---|
+| all veteran seasons | 1.90 (n=624) | 5.27 (n=643) | 3.55 (n=1097) | 2.71 (n=699) |
+| ≥8 games | 1.82 (n=309) | 5.36 (n=475) | 3.43 (n=869) | 2.77 (n=515) |
+| ≥1% of cap | 1.73 (n=445) | 4.02 (n=317) | 2.75 (n=670) | 2.39 (n=450) |
+| **both** | **1.77 (n=290)** | **4.18 (n=279)** | **2.85 (n=609)** | **2.44 (n=397)** |
+
+The games floor matters more for the weekly metric than for the season one:
+without it the leaderboard is Erik Swoope 2018 (4.96 PPG over 7 games on a
+$0.01M cap hit — 1,193 points per cap percent) and Tony Jones 2024 (one game).
+A weekly rate over one game divided by a minimum salary is an enormous number
+built out of nothing.
+
+### By season — this version is era-stable
+
+| season | QB | RB | TE | WR |
+|---|---|---|---|---|
+| 2011 | 2.09 | 4.64 | 2.48 | 3.54 |
+| 2012 | 1.80 | 3.12 | 2.30 | 2.72 |
+| 2013 | 1.83 | 3.26 | 2.41 | 2.89 |
+| 2014 | 1.56 | 3.43 | 2.19 | 3.04 |
+| 2015 | 1.60 | 4.49 | 2.36 | 2.64 |
+| 2016 | 1.46 | 4.52 | 2.82 | 2.68 |
+| 2017 | 1.61 | 3.47 | 2.19 | 2.66 |
+| 2018 | 1.54 | 4.10 | 2.26 | 2.74 |
+| 2019 | 1.73 | 4.61 | 2.18 | 2.90 |
+| 2020 | 1.77 | 4.06 | 1.99 | 3.23 |
+| 2021 | 2.01 | 5.89 | 2.61 | 2.49 |
+| 2022 | 1.81 | 4.85 | 2.66 | 3.08 |
+| 2023 | 2.07 | 4.20 | 2.53 | 2.56 |
+| 2024 | 2.02 | 6.87 | 2.92 | 3.57 |
+| 2025 | 1.68 | 4.16 | 2.23 | 2.89 |
+
+First five seasons vs last five: QB 1.92 → 1.78, RB 5.19 → 3.79, WR 2.92 → 2.97,
+TE 2.59 → 2.35. No trend worth naming — normalising by cap share does its job,
+and single-year endpoints (2011 vs 2025) swing 10-20% on noise, so quote the
+five-year blocks rather than the endpoints. RB is the noisiest series, ranging
+3.12 to 6.87.
+
+### The one thing this metric is genuinely good for
+
+Not ranking players — ranking *the next dollar*. Grouping the same cohort by how
+expensive the player already is:
+
+**Weekly points per 1% of cap, by price band:**
+
+| price band | QB | RB | WR | TE |
+|---|---|---|---|---|
+| 1-2% of cap | 8.70 | 6.91 | 4.53 | 2.92 |
+| 2-4% | 4.40 | 3.93 | 3.64 | 2.49 |
+| 4-8% | 2.47 | 2.67 | 2.21 | 1.95 |
+| 8%+ | 1.47 | 1.52 | 1.60 | 0.89 |
+
+**...and the undivided numerator, median PPG in each band:**
+
+| price band | QB | RB | WR | TE |
+|---|---|---|---|---|
+| 1-2% of cap | 12.7 | 9.8 | 6.4 | 4.1 |
+| 2-4% | 13.4 | 11.4 | 10.7 | 7.2 |
+| 4-8% | 14.9 | 14.6 | 12.2 | 10.1 |
+| 8%+ | 17.0 | 16.0 | 15.4 | 7.8 |
+
+That is the sharpest result in this note. Going from the 1-2% band to the 8%+
+band costs **six times the cap** and buys **1.3× the weekly points at QB, 1.6× at
+RB, 2.4× at WR, 1.9× at TE** — and at TE the top band is *worse* than the 4-8%
+one (n=1, so ignore the number, but the 4-8% band already flattens). Every
+position shows the same steep diminishing return, which is the real-world
+counterpart of the note's main finding: the money buys availability and job
+security, not points per game.
+
+Band sizes are very uneven and worth stating: QB 8%+ has n=177 while RB has 7 and
+TE has 1 — the top of the cap is where quarterbacks live and nobody else does.
+The RB and TE rows in that band are anecdotes.
+
+### Still not persistent
+
+With the filters on, year-over-year rank correlation within position-season:
+
+| metric | QB | RB | WR | TE |
+|---|---|---|---|---|
+| PPG | 0.43 | 0.59 | 0.66 | 0.72 |
+| **weekly per 1% of cap** | **0.37** | **0.23** | **0.13** | **0.27** |
+| season per 1% of cap | 0.33 | 0.12 | 0.27 | 0.13 |
+
+Taking availability out of the numerator did not rescue the metric — at WR it is
+*worse* (0.13). The ratio is dominated by year-to-year movement in the
+denominator (a cap hit that jumps when a signing bonus is restructured), which
+has nothing to do with the player.
+
+### The tails, and one artifact to know about
+
+Best veteran seasons: Christian McCaffrey 2023 (24.4 PPG on a 1.5% cap hit —
+the trade left San Francisco paying almost none of it), Ryan Tannehill 2019
+(16.1), Saquon Barkley 2024 (15.2), Javonte Williams 2025 (14.5), Case Keenum
+2017 (14.1). Every one is a cheap veteran who took over a starting job, which is
+the pattern the metric reliably finds.
+
+Worst: **Matthew Slater, six separate seasons at exactly 0.00** — a special-teams
+captain listed at WR, with a real multi-million cap hit and no offensive
+production at all. Devin Hester 2013, Andre Roberts 2017 and Eric Weems 2013 are
+the same thing. `needs-human-judgment`: nflverse gives return specialists an
+offensive position, so they enter the panel as fantasy-position players who were
+never fantasy assets. They do not distort the medians (they are a handful of rows
+at the bottom), but any leaderboard off this metric should exclude them, and no
+filter in the module currently does.
+
+```bash
+python scripts/contract_study.py value                         # the tables above
+python scripts/contract_study.py value --min-cap-share 0 --value-min-games 1
 ```
 
 ## Method

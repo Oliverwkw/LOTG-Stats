@@ -261,6 +261,58 @@ def test_rank_persistence_separates_a_stable_metric_from_a_shuffled_one():
           f"{shuffled:+.2f}")
 
 
+def test_cost_curve_applies_the_games_floor_and_the_price_bands():
+    """A one-game cameo on a minimum deal is the metric's favourite player."""
+    frame = pd.DataFrame([
+        # cameo: huge weekly rate, one game, cheap — must be excluded by the floor
+        {"player_id": "WR9", "season": 2020, "position": "WR", "games": 1,
+         "ppg": 20.0, "cap_number": 0.5, "cap_share_pct": 1.2,
+         "ppg_per_cap_pct": 16.7, "rookie_deal": False},
+        {"player_id": "WR1", "season": 2020, "position": "WR", "games": 16,
+         "ppg": 12.0, "cap_number": 4.0, "cap_share_pct": 2.5,
+         "ppg_per_cap_pct": 4.8, "rookie_deal": False},
+        {"player_id": "WR2", "season": 2020, "position": "WR", "games": 16,
+         "ppg": 15.0, "cap_number": 20.0, "cap_share_pct": 10.0,
+         "ppg_per_cap_pct": 1.5, "rookie_deal": False},
+        # rookie deal: excluded by default, it is not a priced decision
+        {"player_id": "WR3", "season": 2020, "position": "WR", "games": 16,
+         "ppg": 14.0, "cap_number": 1.5, "cap_share_pct": 1.1,
+         "ppg_per_cap_pct": 12.7, "rookie_deal": True},
+    ])
+    curve = C.cost_curve(frame, min_games=8)
+    assert set(curve["tier"]) == {"2-4%", "8%+"}, curve["tier"].tolist()
+    assert curve["n"].sum() == 2, curve
+    print("  the cameo and the rookie-deal season are both out; two price bands left")
+
+
+def test_weekly_value_is_the_season_value_divided_by_games():
+    if not (_HAVE_EXPORTS and C.have_contracts()):
+        return _skip("needs the cached nflverse contracts file")
+    values = C.value_panel()
+    sub = values[values["ppg_per_cap_pct"].notna() & (values["games"] > 0)]
+    implied = sub["ppg_per_cap_pct"] * sub["games"]
+    assert ((implied - sub["points_per_cap_pct"]).abs() < 1e-6).all()
+    print(f"  weekly x games == season for all {len(sub):,} priced player-seasons")
+
+
+def test_derived_league_cap_tracks_the_published_cap():
+    """The cap recovered from the contracts has to be the real one, near enough.
+
+    Over The Cap normalises against each team's *adjusted* cap, so the recovered
+    number runs a few percent high; the guard is that it tracks, not that it
+    matches. A units or rounding regression would blow this out immediately.
+    """
+    if not C.have_contracts():
+        return _skip("needs the cached nflverse contracts file")
+    published = {2011: 120.375, 2015: 143.28, 2019: 188.2, 2022: 208.2, 2024: 255.4}
+    derived = C.league_cap_by_season()
+    for season, want in published.items():
+        got = float(derived.loc[season])
+        assert abs(got / want - 1) < 0.07, f"{season}: derived {got:.1f} vs {want}"
+    print("  recovered caps track the published ones within 7% for "
+          f"{sorted(published)}")
+
+
 def test_the_cost_guards_pass_on_real_data():
     if not (_HAVE_EXPORTS and C.have_contracts()):
         return _skip("needs the cached nflverse contracts file")

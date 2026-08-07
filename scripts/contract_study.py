@@ -12,8 +12,9 @@ thing it writes is the nflverse download cache under `.cache/`.
     # the misleading version everyone quotes: signers against themselves
     python scripts/contract_study.py raw
 
-    # fantasy points per $1M of real-world cost, and the three things that break it
+    # weekly fantasy points per 1% of cap, by position, and what a cap slice buys
     python scripts/contract_study.py value
+    python scripts/contract_study.py value --season-totals --min-cap-share 0
 
     # is it rate or role? does a bigger deal say more? does it hold every year?
     python scripts/contract_study.py decompose
@@ -103,45 +104,68 @@ def cmd_years(args) -> None:
 
 
 def cmd_value(args) -> None:
-    """FPTS per $1M, with the three things that break it."""
+    """FPTS per unit of real-world cost, season and weekly, with what breaks it."""
     values = C.value_panel(first_year=args.first_year, last_year=args.last_year,
                            scoring=args.scoring)
     priced = values[values["points_per_million"].notna()]
+    vets = priced[~priced["rookie_deal"].fillna(False)]
     print(f"{len(priced):,} player-seasons with both fantasy points and a cap hit "
-          f"({values['cap_number'].notna().mean():.1%} of the panel)\n")
+          f"({values['cap_number'].notna().mean():.1%} of the panel); "
+          f"{len(vets):,} of them on veteran contracts\n")
 
-    print("per position — the headline metric, and the same thing with cap "
-          "inflation removed:")
-    print(priced.groupby("position").agg(
-        n=("points_per_million", "size"),
-        per_million=("points_per_million", "median"),
-        per_cap_pct=("points_per_cap_pct", "median"),
-        mean_over_median=("points_per_million", lambda s: s.mean() / s.median()),
-    ).round(2).to_string())
-    print("  (mean/median far from 1 is the right tail: a minimum-salary player "
-          "with one good year)\n")
+    qualified = vets[(vets["games"] >= args.value_min_games)
+                     & (vets["cap_share_pct"] >= args.min_cap_share)]
+    print(f"WEEKLY points per 1% of cap — veteran contracts, "
+          f">= {args.value_min_games} games, >= {args.min_cap_share:g}% of the cap:")
+    print(qualified.groupby("position").agg(
+        n=("ppg_per_cap_pct", "size"),
+        median=("ppg_per_cap_pct", "median"),
+        p25=("ppg_per_cap_pct", lambda s: s.quantile(0.25)),
+        p75=("ppg_per_cap_pct", lambda s: s.quantile(0.75)),
+        median_ppg=("ppg", "median"),
+        median_cap_share=("cap_share_pct", "median"),
+        median_cap_hit=("cap_number", "median")).round(2).to_string())
+    print("\n  by season:")
+    print(qualified.pivot_table(index="season", columns="position",
+                                values="ppg_per_cap_pct",
+                                aggfunc="median").round(2).to_string())
 
-    print("1. raw dollars are not comparable across seasons — median by season:")
-    drift = priced.groupby("season").agg(per_million=("points_per_million", "median"),
-                                         per_cap_pct=("points_per_cap_pct", "median"))
-    print(drift.round(1).to_string())
-    first, last = drift.iloc[0], drift.iloc[-1]
-    print(f"  over the window: per $1M {last.per_million / first.per_million - 1:+.0%}, "
-          f"per 1% of cap {last.per_cap_pct / first.per_cap_pct - 1:+.0%}\n")
+    print("\nwhat the NEXT percent of cap buys — the same cohort by price band:")
+    curve = C.cost_curve(values, min_games=args.value_min_games)
+    print(curve.pivot(index="tier", columns="position", values="value").to_string())
+    print("\n  median ppg in each band (the numerator, undivided):")
+    print(curve.pivot(index="tier", columns="position", values="ppg").to_string())
+    print("\n  n:")
+    print(curve.pivot(index="tier", columns="position", values="n").to_string())
 
-    print("2. it is mostly a rookie-contract detector — median by contract type:")
-    print(priced.groupby(["position", "rookie_deal"]).agg(
-        n=("points_per_million", "size"),
-        per_million=("points_per_million", "median"),
-        median_points=("points", "median"),
-        median_cap_hit=("cap_number", "median")).round(1).to_string())
-    print()
+    if args.season_totals:
+        print("\n" + "=" * 70)
+        print("season totals per 1% of cap (availability back in the numerator):")
+        print(vets.groupby("position").agg(
+            n=("points_per_cap_pct", "size"),
+            median=("points_per_cap_pct", "median"),
+            median_per_million=("points_per_million", "median"),
+            mean_over_median=("points_per_million",
+                              lambda s: s.mean() / s.median())).round(2).to_string())
+        print("\n1. raw dollars are not comparable across seasons — median by season:")
+        drift = priced.groupby("season").agg(
+            per_million=("points_per_million", "median"),
+            per_cap_pct=("points_per_cap_pct", "median"))
+        print(drift.round(1).to_string())
+        first, last = drift.iloc[0], drift.iloc[-1]
+        print(f"  over the window: per $1M {last.per_million / first.per_million - 1:+.0%}, "
+              f"per 1% of cap {last.per_cap_pct / first.per_cap_pct - 1:+.0%}")
+        print("\n2. it is mostly a rookie-contract detector — median by contract type:")
+        print(priced.groupby(["position", "rookie_deal"]).agg(
+            n=("points_per_million", "size"),
+            per_million=("points_per_million", "median"),
+            median_points=("points", "median"),
+            median_cap_hit=("cap_number", "median")).round(1).to_string())
 
-    print("3. the ratio is noisier than either of its parts — year-over-year "
+    print("\n3. the ratio is noisier than either of its parts — year-over-year "
           "rank correlation:")
-    persistence = pd.concat([C.rank_persistence(values, m) for m in
-                             ("points_per_million", "points_per_cap_pct",
-                              "points", "cap_number")])
+    persistence = pd.concat([C.rank_persistence(qualified, m) for m in
+                             ("ppg_per_cap_pct", "points_per_cap_pct", "ppg", "points")])
     print(persistence.pivot(index="metric", columns="position",
                             values="rank_corr").to_string())
 
@@ -194,6 +218,12 @@ def main(argv=None) -> None:
     parser.add_argument("--position", default=None)
     parser.add_argument("--year", type=int, default=None)
     parser.add_argument("--all-outcomes", action="store_true")
+    parser.add_argument("--value-min-games", type=int, default=8,
+                        help="value: minimum games for a weekly rate to mean anything")
+    parser.add_argument("--min-cap-share", type=float, default=1.0,
+                        help="value: minimum share of the cap, in percent")
+    parser.add_argument("--season-totals", action="store_true",
+                        help="value: also print the season-total metric and its failure modes")
     parser.add_argument("--seed", type=int, default=0)
     sub = parser.add_subparsers(dest="command", required=True)
     for name, fn in (("study", cmd_study), ("raw", cmd_raw),

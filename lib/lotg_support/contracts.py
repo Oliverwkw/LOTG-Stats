@@ -336,6 +336,30 @@ def cost_panel(first_year: int = FIRST_SIGNING_YEAR - 1,
     return _cost_panel_cached(first_year, last_year, str(Q.repo_root())).copy()
 
 
+def league_cap_by_season(cost: Optional[pd.DataFrame] = None) -> pd.Series:
+    """The salary cap each season, recovered from the contracts themselves.
+
+    `cap_percent` is rounded to three decimals, which is worth under 1% on a
+    star's deal and up to 40% on a minimum one — so a per-cap-share metric built
+    from it is noisiest exactly where the denominator is smallest. Recovering
+    the cap from the expensive contracts and dividing `cap_number` by it gives a
+    share with no rounding in it at all.
+
+    This lands 1-6% above the *published* cap, because Over The Cap works in
+    each team's adjusted cap (carryover included) rather than the league base
+    number. That offset is constant within a season, so it cannot move a
+    within-season ranking; it only shifts the level, which is why cross-season
+    level comparisons on this metric want the same caveat as everything else
+    here. `tests/test_contracts.py` pins the derivation against the published
+    caps.
+    """
+    cost = cost_panel() if cost is None else cost
+    cap = pd.to_numeric(cost["cap_number"], errors="coerce")
+    pct = pd.to_numeric(cost["cap_percent"], errors="coerce")
+    keep = (cap > 0) & (pct >= 0.05)
+    return (cap[keep] / pct[keep]).groupby(cost.loc[keep, "season"]).median()
+
+
 def value_panel(first_year: int = FIRST_SIGNING_YEAR, last_year: Optional[int] = None,
                 scoring: str = "lotg", panel: Optional[pd.DataFrame] = None
                 ) -> pd.DataFrame:
@@ -350,7 +374,13 @@ def value_panel(first_year: int = FIRST_SIGNING_YEAR, last_year: Optional[int] =
         dollar at the end of the window as at the start.
       * `points_per_cap_pct` — season points per 1% of that year's cap. The same
         metric with the inflation taken out; flat across the window, so this is
-        the one to rank on.
+        the one to rank on. The share comes from `league_cap_by_season()` rather
+        than the rounded `cap_percent` column.
+      * `ppg_per_cap_pct` — the **weekly** version: points per game per 1% of
+        cap. Availability leaves the numerator, so this prices the player when
+        he is on the field rather than what the roster spot returned over a
+        season. Use it with a games floor: a one-game cameo on a minimum deal
+        otherwise tops every leaderboard.
       * `points_per_million_cash` — per $1M actually paid that season.
 
     `rookie_deal` flags the seasons a player was still on his draft-slotted
@@ -372,12 +402,50 @@ def value_panel(first_year: int = FIRST_SIGNING_YEAR, last_year: Optional[int] =
                             errors="coerce")
     merged["rookie_deal"] = (merged["season"] - drafted) <= 3
     cap = pd.to_numeric(merged["cap_number"], errors="coerce")
-    pct = pd.to_numeric(merged["cap_percent"], errors="coerce")
     cash = pd.to_numeric(merged["cash_paid"], errors="coerce")
+    league = league_cap_by_season(cost)
+    merged["cap_share_pct"] = 100 * cap / merged["season"].map(league)
+    share = merged["cap_share_pct"].where(merged["cap_share_pct"] > 0)
     merged["points_per_million"] = merged["points"] / cap.where(cap > 0)
-    merged["points_per_cap_pct"] = merged["points"] / (100 * pct.where(pct > 0))
+    merged["points_per_cap_pct"] = merged["points"] / share
+    merged["ppg_per_cap_pct"] = merged["ppg"] / share
     merged["points_per_million_cash"] = merged["points"] / cash.where(cash > 0)
     return merged
+
+
+# Price tiers for the cost curve, as a share of the cap. The top band is where
+# the QB market lives and almost nothing else does.
+CAP_SHARE_TIERS: Tuple[float, ...] = (1.0, 2.0, 4.0, 8.0, 100.0)
+
+
+def cost_curve(values: pd.DataFrame, metric: str = "ppg_per_cap_pct",
+               tiers: Sequence[float] = CAP_SHARE_TIERS,
+               min_games: int = 8, veterans_only: bool = True) -> pd.DataFrame:
+    """What a slice of cap buys, by how expensive the player already is.
+
+    The per-dollar metrics are near-useless as a cross-position ranking but they
+    do answer one thing cleanly: whether the *next* percent of cap spent on a
+    position returns as much as the last one. Grouping by price band and reading
+    the metric alongside the raw rate shows the diminishing return directly —
+    the band's points per cap share against the points it actually produced.
+
+    `min_games` matters more here than anywhere else: a weekly rate over one
+    game on a minimum contract is an enormous ratio built from nothing.
+    """
+    frame = values.copy()
+    if veterans_only:
+        frame = frame[~frame["rookie_deal"].fillna(False)]
+    frame = frame[(frame["games"] >= min_games) & frame[metric].notna()
+                  & (frame["cap_share_pct"] >= tiers[0])]
+    labels = [f"{a:g}-{b:g}%" if b < tiers[-1] else f"{a:g}%+"
+              for a, b in zip(tiers, tiers[1:])]
+    frame["tier"] = pd.cut(frame["cap_share_pct"], list(tiers), labels=labels)
+    out = (frame.groupby(["position", "tier"], observed=True)
+           .agg(n=(metric, "size"), value=(metric, "median"),
+                ppg=("ppg", "median"), cap_share=("cap_share_pct", "median"),
+                cap_hit=("cap_number", "median"))
+           .round(2).reset_index())
+    return out
 
 
 def rank_persistence(frame: pd.DataFrame, metric: str, by: Sequence[str] = ("season", "position"),
