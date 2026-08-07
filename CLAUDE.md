@@ -27,6 +27,12 @@ helper in `lib/`, the tests and the PR are a *second phase* that starts only
 when the asker says they want it. Do not open a PR for a question. (`pip install
 pandas` is the one setup step; skip `requirements.txt`, it pulls ortools.)
 
+**The 3 minutes is a target; accuracy is the constraint.** They rarely conflict
+— the playbook's accuracy floor (read the trap list, reconcile against a build
+number where one exists, state what is unverified, keep the caveats) costs
+seconds, because what's expensive is *proving* an answer to the next reader, not
+getting it right. Where they do conflict, take the extra minute and say why.
+
 **Start an inquiry at `plan/INQUIRY_PLAYBOOK.md`.** It documents the tools that
 exist for exactly this — `scripts/inquire.py` for finding/filtering/ranking
 across the twelve export sheets and the raw snapshot (including over-inclusive

@@ -23,9 +23,7 @@ the PR — is **phase two, and it starts only when they say yes.**
 1. **Find the number and report it.** One command if a sheet has it, a scratch
    script if not. A throwaway script is *fine here* — the rule against them
    (below) governs what gets committed, not how you get the first answer.
-2. **Spot-check it, cheaply.** If the build already computes the thing, or
-   something adjacent, reproduce a handful of its rows and say you did. Seconds,
-   not a sweep. A fast wrong answer is worthless.
+2. **Clear the accuracy floor** (next section). Non-negotiable, and it is fast.
 3. **Report the answer with its caveats inline**, in chat. Which snapshot/date it
    is as of, what was excluded, anything borderline (the over-inclusive rule at
    the bottom applies to a two-line answer exactly as it does to a note).
@@ -35,6 +33,40 @@ the PR — is **phase two, and it starts only when they say yes.**
 What phase one does **not** include, no matter how obviously useful it looks:
 writing to `plan/notes/`, adding anything to `lib/`, adding tests, running the
 full suite (~2.5 minutes on its own), committing, or opening a PR.
+
+### The accuracy floor — what speed never buys
+
+**The 3 minutes is a target. Accuracy is the constraint.** They almost never
+conflict: the checks below cost seconds, because the expensive parts of an
+inquiry (the primitive, the test suite, the note, the PR) are the parts that
+*prove* an answer to the next reader, not the parts that make it right. When
+they do conflict, the budget yields — take the extra minute and say why. Nothing
+here is ever traded away for speed:
+
+- **Read the trap list before you trust a number.** It is at the bottom of this
+  file, it is short, and every entry on it is there because it silently produced
+  a wrong answer at least once. `PF` is not Sleeper's raw points; positions
+  drift; 2020 has no snapshot; `"0"` is a legal empty slot; offseason trades sit
+  in `week_01`; `Points added` is cumulative. Skimming it is ~30 seconds and it
+  is the single highest-value thing in phase one.
+- **Reconcile against a build number whenever one exists.** If the build
+  computes the thing, or something adjacent, reproduce a handful of its rows
+  before quoting yours. Three weeks is enough for a spot-check; the full sweep
+  is phase two. This is what separates "I computed something" from "I computed
+  *the same thing the league's tables report*".
+- **When nothing can verify it, say so in the answer.** An unverifiable number
+  is reportable — quietly presenting one as though it were checked is not. Name
+  which parts are backed by a build figure and which are not.
+- **Never round off a caveat to make the answer land cleanly.** The
+  over-inclusive rule is not a phase-two luxury: as-of date, what was excluded,
+  and any borderline item that could move the ranking go in the first reply.
+- **If the fast path and a slower reading disagree, report the disagreement**
+  rather than picking the one you got first.
+
+A fast wrong answer is worse than no answer, because it gets acted on. If the
+question cannot be answered accurately in three minutes, the honest phase-one
+reply is the partial answer, what is still unverified, and how long the rest
+will take.
 
 ### Phase two: only after they say yes
 
@@ -58,9 +90,14 @@ python scratch.py                                      # roster json x birth dat
 
 The scratch script did both jobs at once: averaged today's rosters, *and*
 recomputed the build's own column for three past weeks to prove the arithmetic
-matched (24/24 exact). Answer plus evidence, well inside the budget. The
-primitive, the 680-week guard, the tests and the note all came later — and only
-because the asker was asked first.
+matched (24/24 exact). That is the accuracy floor cleared inside the budget —
+the reconciliation was two extra lines in a script that had already loaded the
+data. The primitive, the 680-week guard, the tests and the note all came later,
+and only because the asker was asked first.
+
+Note what the floor caught even on the fast path: rosters here run 29-36
+players, so the average depends on whether taxi and IR count — worth a line in
+the answer, not a silent choice.
 
 ### Two things that cost minutes if you rediscover them
 
