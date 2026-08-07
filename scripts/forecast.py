@@ -17,6 +17,10 @@ writes nothing. Nothing in the build imports it and no workflow runs it.
 
     # what the projection is actually worth, season by season
     python scripts/forecast.py --calibration
+
+    # has it ever been right? rewind every finished season and score it
+    python scripts/forecast.py --backtest
+    python scripts/forecast.py --backtest --as-of-weeks 0,4,8,12
     python scripts/forecast.py --validate
 
 Three strength models are available and `--model all` runs each:
@@ -75,6 +79,11 @@ def build_parser() -> argparse.ArgumentParser:
                     help="re-run under alternative rate assumptions and show the spread")
     ap.add_argument("--calibration", action="store_true",
                     help="print what the projection is worth and stop")
+    ap.add_argument("--backtest", action="store_true",
+                    help="rewind every completed season and score the forecast against what "
+                         "actually happened, then stop")
+    ap.add_argument("--as-of-weeks", default="0",
+                    help="comma-separated weeks to rewind to for --backtest (0 = preseason)")
     ap.add_argument("--validate", action="store_true", help="run the guards and stop")
     ap.add_argument("--skip-guards", action="store_true",
                     help="skip the correctness guards (not recommended)")
@@ -133,6 +142,15 @@ def main(argv=None) -> int:
         print(f"guards OK for {completed}: the scores -> standings -> champion path "
               "reproduces every built bracket, and a finished season forecasts at 100%.\n")
     if args.validate:
+        return 0
+
+    if args.backtest:
+        weeks = tuple(int(w) for w in str(args.as_of_weeks).split(",") if w.strip())
+        bt = F.backtest(as_of_weeks=weeks, sims=max(args.sims // 4, 2000), seed=args.seed)
+        print(F.render_backtest(bt))
+        print()
+        print("PLAYOFF PROBABILITY CALIBRATION — does 75% mean three times in four?")
+        print(bt.calibration("roster", as_of_week=weeks[0]).to_string(index=False))
         return 0
 
     calib = F.calibrate()
