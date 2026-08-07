@@ -10,16 +10,114 @@ not alter `exports/`, `data/`, the workflows, or anything `python -m lotg`
 produces. A written-up inquiry lands as a note in `plan/notes/` (plus, if it
 needed one, a script in `scripts/`), never as a change to a build output.
 
+## Answer first. Ask before you build anything.
+
+**A question is a request for the answer, not for a pull request.** Most
+inquiries are someone wanting a number in the next couple of minutes. Give them
+that, then ask whether they want it made permanent. Everything else in this
+document — the note in `plan/notes/`, the new primitive, the guard, the tests,
+the PR — is **phase two, and it starts only when they say yes.**
+
+### Phase one: the answer (target: under 3 minutes)
+
+1. **Find the number and report it.** One command if a sheet has it, a scratch
+   script if not. A throwaway script is *fine here* — the rule against them
+   (below) governs what gets committed, not how you get the first answer.
+2. **Clear the accuracy floor** (next section). Non-negotiable, and it is fast.
+3. **Report the answer with its caveats inline**, in chat. Which snapshot/date it
+   is as of, what was excluded, anything borderline (the over-inclusive rule at
+   the bottom applies to a two-line answer exactly as it does to a note).
+4. **Then ask**, in one line: *want this written up as a note / shipped as a
+   helper + PR, or was the answer all you needed?*
+
+What phase one does **not** include, no matter how obviously useful it looks:
+writing to `plan/notes/`, adding anything to `lib/`, adding tests, running the
+full suite (~2.5 minutes on its own), committing, or opening a PR.
+
+### The accuracy floor — what speed never buys
+
+**The 3 minutes is a target. Accuracy is the constraint.** They almost never
+conflict: the checks below cost seconds, because the expensive parts of an
+inquiry (the primitive, the test suite, the note, the PR) are the parts that
+*prove* an answer to the next reader, not the parts that make it right. When
+they do conflict, the budget yields — take the extra minute and say why. Nothing
+here is ever traded away for speed:
+
+- **Read the trap list before you trust a number.** It is at the bottom of this
+  file, it is short, and every entry on it is there because it silently produced
+  a wrong answer at least once. `PF` is not Sleeper's raw points; positions
+  drift; 2020 has no snapshot; `"0"` is a legal empty slot; offseason trades sit
+  in `week_01`; `Points added` is cumulative. Skimming it is ~30 seconds and it
+  is the single highest-value thing in phase one.
+- **Reconcile against a build number whenever one exists.** If the build
+  computes the thing, or something adjacent, reproduce a handful of its rows
+  before quoting yours. Three weeks is enough for a spot-check; the full sweep
+  is phase two. This is what separates "I computed something" from "I computed
+  *the same thing the league's tables report*".
+- **When nothing can verify it, say so in the answer.** An unverifiable number
+  is reportable — quietly presenting one as though it were checked is not. Name
+  which parts are backed by a build figure and which are not.
+- **Never round off a caveat to make the answer land cleanly.** The
+  over-inclusive rule is not a phase-two luxury: as-of date, what was excluded,
+  and any borderline item that could move the ranking go in the first reply.
+- **If the fast path and a slower reading disagree, report the disagreement**
+  rather than picking the one you got first.
+
+A fast wrong answer is worse than no answer, because it gets acted on. If the
+question cannot be answered accurately in three minutes, the honest phase-one
+reply is the partial answer, what is still unverified, and how long the rest
+will take.
+
+### Phase two: only after they say yes
+
+Then the rest of this document applies as written — the primitive instead of the
+script, the `check_*` guard, the tests, `python -m pytest tests/ -q`, the note,
+the draft PR. Ask which parts they want; "just the note" is a common answer and
+is much cheaper than the full treatment.
+
+### What phase one actually looks like
+
+"Give all 8 teams by avg age (current rosters)" — a question with no sheet to
+read it off (the exports stop at the last completed season) and no primitive
+when it was first asked. Phase one was still four steps:
+
+```bash
+pip install pandas                                     # the one setup step
+python scripts/inquire.py columns 'age'                # -> team_week "Player average age"
+grep -n "Player average age" src/lotg.py               # -> how the build computes it
+python scratch.py                                      # roster json x birth dates; 2s
+```
+
+The scratch script did both jobs at once: averaged today's rosters, *and*
+recomputed the build's own column for three past weeks to prove the arithmetic
+matched (24/24 exact). That is the accuracy floor cleared inside the budget —
+the reconciliation was two extra lines in a script that had already loaded the
+data. The primitive, the 680-week guard, the tests and the note all came later,
+and only because the asker was asked first.
+
+Note what the floor caught even on the fast path: rosters here run 29-36
+players, so the average depends on whether taxi and IR count — worth a line in
+the answer, not a silent choice.
+
+### Two things that cost minutes if you rediscover them
+
+- **`pandas` is not installed.** It is the *only* dependency the inquiry layer
+  needs: `pip install pandas`, a few seconds. Do **not** `pip install -r
+  requirements.txt` for an inquiry — it drags in ortools and takes minutes.
+- **You do not have to read this whole file to answer.** Skim the tool table and
+  the trap list; come back for the section you actually need. Reading 400 lines
+  before running one command is most of the way to blowing the 3-minute budget.
+
 ## The tools
 
 | Tool | For |
 |---|---|
 | `scripts/inquire.py` (`lotg_support.inquiry`) | finding, filtering and ranking anything in the twelve export sheets, and reading the raw Sleeper snapshot |
 | `scripts/whatif.py` (`lotg_support.replay`) | counterfactual seasons: rewind a trade — or a whole sequence of them — or move a player, replay every week, re-seed, re-run the bracket |
-| `lotg_support.analysis` (via `inquire.py group/stacks/compare/compare-all/correlate/stretch/timeline/scarcity/spend`) | the joins and comparisons a judgement question needs: position attached to any sheet, roster-group depth, lineup composition, cohort tests with FDR control, arbitrary time windows, entity timelines, positional scarcity, spend vs return |
+| `lotg_support.analysis` (via `inquire.py group/stacks/compare/compare-all/correlate/stretch/timeline/scarcity/spend/age`) | the joins and comparisons a judgement question needs: position attached to any sheet, roster-group depth, lineup composition, cohort tests with FDR control, arbitrary time windows, entity timelines, positional scarcity, spend vs return, roster age (including the in-progress season) |
 | `scripts/contract_study.py` (`lotg_support.contracts`) | the *real world* side: what an NFL contract predicts about fantasy production — signings ranked inside their position's market, matched against comparable players who did not get paid |
 
-All three are additive and read-only. None is imported by the build or run by
+All of them are additive and read-only. None is imported by the build or run by
 any workflow.
 
 ## Start here, not with a script
@@ -176,6 +274,26 @@ the pooled number: a gap that exists in one season and reverses in another is a
 different claim from one that holds every year, and the pooled mean cannot tell
 you which you have.
 
+**Roster age, including right now.** The exports stop at the last completed
+season, so `team_week."Player average age"` cannot answer "how old is each
+roster *today*". `roster_ages()` recomputes that column from the snapshot, which
+lets it run on the in-progress season:
+
+```bash
+python scripts/inquire.py age                          # current rosters, oldest first
+python scripts/inquire.py age --pool starters          # or 'active' (no taxi/IR)
+python scripts/inquire.py age --season 2025 --week 17  # the build's per-week reading
+```
+
+Rosters are not the same size in this league, so the pool is an assumption, not
+a detail — a deep bench of young taxi stashes moves a mean. Default `all`
+matches the build (taxi and IR included); re-run under `active` / `starters`
+before quoting a gap between neighbouring teams. `--week` also takes `on=` in
+Python, which is how you compare two different rosters at the *same* date and
+strip natural ageing out of the delta. `check_roster_age_matches_build` ties the
+whole thing to the built column for every team-week 2021-2025.
+(`ROSTER_AGE_2026.md`.)
+
 **Scarcity and spend.**
 
 ```bash
@@ -272,10 +390,11 @@ Three guards, also run by `whatif.py` before it answers, and by
    one trade composed equals `undo_trade` of it, and an undo composed with its
    mirror cancels to no moves at all.
 
-The analysis layer has its own two, in `tests/test_analysis.py`: the starter
+The analysis layer has its own three, in `tests/test_analysis.py`: the starter
 points it rebuilds from `player_week` must equal `team_week.PF` (allowing the
-+5), and its `max_same_nfl_team` must equal the build's own "Most number of
-players started from same NFL team" column for every lineup.
++5), its `max_same_nfl_team` must equal the build's own "Most number of
+players started from same NFL team" column for every lineup, and `roster_ages`
+must reproduce `team_week."Player average age"` for every team-week.
 
 A counterfactual whose baseline cannot reproduce reality is not evidence. If a
 guard fails, fix that before quoting any number.
@@ -292,6 +411,16 @@ list is here so an answer written by hand does not walk into them.
 - **2020 has exports but no snapshot.** It came from the ESPN backfill, so
   anything snapshot-based must skip it: `season_meta(2020).has_snapshot` is
   False and `replay()` refuses it by name.
+- **The in-progress season is the mirror image: snapshot, no exports.** The
+  build emits no `team_week` rows for a preseason week, so any "as of now"
+  question (roster age, who is on which roster) has to come from
+  `exports/snapshot/season_<current>/`, and any test asserting against it must
+  use `completed_seasons()`. `Q.export_seasons()` and `Q.snapshot_seasons()`
+  genuinely differ at both ends.
+- **Only the current season's snapshot carries `traded_picks.json`.** Past
+  seasons' folders have rosters, users and weeks but no pick file, so a
+  pick-ownership question about a past date has to be reconstructed from trade
+  events — the current-ownership shortcut works for "now" only.
 - **The starting lineup changed.** One flex through 2023, two from 2024. Read it
   from `season_meta(year).starting_slots`, never hardcode it.
 - **The playoff calendar changed.** Weeks 16-17 through 2025; 2026 starts week
@@ -378,12 +507,17 @@ practice, for an inquiry:
 - name what was held constant (FAAB, draft picks, second-order behaviour) and
   say why it cannot change the answer — or that it could.
 
-## When the helper you need does not exist — add it
+## When the helper you need does not exist — offer it, then add it
 
-This toolkit is meant to grow. If a question needs a primitive that is not here,
-**write the primitive, not a throwaway script**: the next inquiry of that shape
-should start where this one finished. Ship it as its own PR, separate from the
-answer.
+**Phase two only.** Answer the question first with whatever gets you there
+fastest, including a scratch script, and ask. A missing primitive is a reason to
+*offer* to build one; it is not permission to spend twenty minutes building it
+before anyone has seen the number.
+
+Once they say yes: this toolkit is meant to grow. If a question needs a
+primitive that is not here, **commit the primitive, not the throwaway script**
+— the next inquiry of that shape should start where this one finished. Ship it
+as its own PR, separate from the answer.
 
 The rule that makes this safe is that an inquiry **changes no outcome**. Adding
 a helper must not alter a single byte of what the build produces or what any
@@ -439,6 +573,10 @@ the tooling separable: a reviewer should be able to take the primitive without
 taking the conclusion.
 
 ## Writing it up
+
+**Phase two only** — a note is what an answer becomes when someone asks for it
+to be kept, not the default shape of a reply. The answer itself belongs in chat,
+first.
 
 - The note goes in `plan/notes/` — the question, the answer, the method, the
   guards that back it, and the caveats. `WHATIF_HERBERT_TRADE_2025.md` is the

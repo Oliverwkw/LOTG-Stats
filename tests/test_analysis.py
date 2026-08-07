@@ -1,12 +1,15 @@
 """Analysis primitives: position joins, lineup composition, cohorts, scarcity.
 
-Two of the guards tie this layer to numbers the build computed independently,
+Three of the guards tie this layer to numbers the build computed independently,
 which is what makes it safe to answer a judgement question from:
 
   * the starter points reconstructed from `player_week` must equal `team_week.PF`
     (allowing exactly the +5 semifinal home-field bonus);
   * `max_same_nfl_team` must equal the build's own
-    "Most number of players started from same NFL team" column, every lineup.
+    "Most number of players started from same NFL team" column, every lineup;
+  * `roster_ages` must reproduce `team_week."Player average age"` for every
+    team-week — which is what licenses using it on the season the exports do
+    not cover yet.
 
 The rest pin behaviour that a wrong answer would depend on: depth measures that
 distinguish one star from a real corps, a cohort comparison that reports both
@@ -314,6 +317,59 @@ def test_timeline_merges_three_sheets_in_date_order():
     assert set(scoped["team"]) == {"shmuel256"}
 
 
+def test_roster_age_reproduces_the_builds_column():
+    if not _HAVE_EXPORTS:
+        return _skip("no exports")
+    for year in _seasons():
+        problems = A.check_roster_age_matches_build(year)
+        assert not problems, problems[:3]
+
+
+def test_pick_and_player_ages_use_the_builds_arithmetic():
+    from datetime import date
+    # A pick's rookie is 22 exactly on the Sept 1 the anchor is set at, and
+    # ages a year per year — this is what puts picks on the same scale as
+    # players in 'Team age including picks'.
+    assert A.pick_expected_age(2029, date(2029, 9, 1)) == 22.0
+    assert A.pick_expected_age(2029, date(2026, 9, 1)) == 19.0
+    # The build ages week 1 at Sept 1 and every later week 7 days on.
+    assert A.week_reference_date(2025, 1) == date(2025, 9, 1)
+    assert A.week_reference_date(2025, 3) == date(2025, 9, 15)
+    # A player the dictionary has no birth date for reads None, never 0.
+    assert A.player_age("no-such-player-id", date(2026, 1, 1)) is None
+
+
+def test_current_rosters_can_be_aged_and_the_ranking_survives_the_pool():
+    if not _HAVE_EXPORTS:
+        return _skip("no exports")
+    seasons = Q.snapshot_seasons()
+    if not seasons:
+        return _skip("no snapshot")
+    season = max(seasons)
+    frame = A.roster_ages(season)
+    assert len(frame) == len(Q.teams(season)), frame
+    # Ranked oldest first, and every roster is fully aged or says how many
+    # players it could not age.
+    assert list(frame["avg_age"]) == sorted(frame["avg_age"], reverse=True)
+    assert (frame["aged"] + frame["missing"] == frame["players"]).all()
+    assert (frame["youngest"] <= frame["avg_age"]).all()
+    assert (frame["oldest"] >= frame["avg_age"]).all()
+    # Roster sizes differ, so the pool is an assumption — the top and bottom
+    # of the ranking must not depend on which one is chosen.
+    active = A.roster_ages(season, pool="active")
+    starters = A.roster_ages(season, pool="starters")
+    for other in (active, starters):
+        assert other.iloc[0]["Team"] == frame.iloc[0]["Team"], other
+        assert set(other.tail(2)["Team"]) == set(frame.tail(2)["Team"]), other
+    # Picks pull every team younger — they are all younger than any player.
+    with_picks = A.roster_ages(season, include_picks=True)
+    assert (with_picks["avg_age_incl_picks"] < with_picks["avg_age"]).all()
+    # Every pick in the horizon is held by exactly one team.
+    held = A.picks_held(season)
+    assert sum(len(v) for v in held.values()) == (
+        A.PICK_HORIZON * A._draft_rounds(season) * len(Q.teams(season)))
+
+
 def test_reads_are_pure():
     if not _HAVE_EXPORTS:
         return _skip("no exports")
@@ -321,6 +377,7 @@ def test_reads_are_pure():
     A.lineup_stacks(season=2025)
     A.spend_by_position(season=2025)
     A.scarcity(2025)
+    A.roster_ages(max(Q.snapshot_seasons()), include_picks=True)
     after = {p: p.stat().st_mtime for p in (_ROOT / "exports").glob("*.csv")}
     assert before == after, "analysis must never write to exports/"
 
@@ -345,6 +402,9 @@ TESTS = [
     test_best_stretch_finds_contiguous_runs,
     test_best_stretch_labels_are_clean_and_span_shows_gaps,
     test_timeline_merges_three_sheets_in_date_order,
+    test_roster_age_reproduces_the_builds_column,
+    test_pick_and_player_ages_use_the_builds_arithmetic,
+    test_current_rosters_can_be_aged_and_the_ranking_survives_the_pool,
     test_reads_are_pure,
 ]
 

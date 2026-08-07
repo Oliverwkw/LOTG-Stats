@@ -29,6 +29,12 @@ single export sheet holds:
     position to the *replacement* one, where replacement rank is taken from how
     many of that position the league actually starts each week, not assumed.
 
+  * **Roster age, including right now.** `roster_ages()` recomputes
+    `team_week."Player average age"` from the snapshot, which lets it answer the
+    question for the *current* rosters — the exports stop at the last completed
+    season, so the built column cannot. `check_roster_age_matches_build` ties it
+    back to that column for every team-week the build did compute.
+
   * **Spend by position.** `spend_by_position()` joins draft capital (pick slot
     and KTC on draft day) and FAAB outlay to the points that came back, per
     team, so "am I valuing QBs differently from the league" is answerable per
@@ -50,6 +56,7 @@ import functools
 import math
 import random
 from dataclasses import dataclass, field
+from datetime import date, datetime, timedelta
 from typing import Dict, List, Optional, Sequence, Tuple
 
 import pandas as pd
@@ -769,6 +776,203 @@ def scarcity(season: int, demand_multiple: float = 1.0,
 
 
 # ---------------------------------------------------------------------------
+# Roster age
+# ---------------------------------------------------------------------------
+# The build anchors each week's ages at Sept 1 + 7·(week-1) rather than at the
+# real calendar date of the week, because the snapshot carries no per-week
+# timestamp. Mirrored here so a recomputed age can be checked against the
+# build's own column (check_roster_age_matches_build).
+AGE_SEASON_START = (9, 1)
+# Rookies average ~22 when the league's rookie draft wraps in early September,
+# so a not-yet-known pick is priced as someone born Sept 1 of (Y - 22). Same
+# anchor the build uses for 'Team age including picks'.
+PICK_ROOKIE_AGE = 22
+# 'Team age including picks' looks three drafts ahead; further out, a pick's
+# expected age is too uncertain to average into a roster.
+PICK_HORIZON = 3
+# Which rostered players an average is taken over. "all" is the build's own
+# definition (every player on the roster, taxi and IR included); the other two
+# exist so a ranking can be shown not to depend on that choice.
+ROSTER_POOLS = ("all", "active", "starters")
+
+
+@functools.lru_cache(maxsize=1)
+def _birth_dates_cached(root: str) -> Dict[str, str]:
+    blob = Q._snap("sleeper_players_nfl.json")
+    out: Dict[str, str] = {}
+    for pid, rec in (blob or {}).items():
+        born = (rec or {}).get("birth_date") or (rec or {}).get("birthdate")
+        if born:
+            out[str(pid)] = str(born)
+    return out
+
+
+def birth_dates() -> Dict[str, str]:
+    """{player_id: birth date} from the Sleeper dictionary in the snapshot.
+
+    `inquiry.Players` deliberately keeps only name/position/team, so this is
+    the one place the raw dictionary's birth dates are read.
+    """
+    return dict(_birth_dates_cached(str(Q.repo_root())))
+
+
+def player_age(player_id: str, on: date) -> Optional[float]:
+    """Age in years on a date, or None when the dictionary has no birth date.
+
+    Days / 365.25, rounded to 2 — the build's own arithmetic, so the two agree
+    to the last digit rather than to a tolerance.
+    """
+    born = _birth_dates_cached(str(Q.repo_root())).get(str(player_id))
+    if not born:
+        return None
+    try:
+        parsed = datetime.strptime(str(born)[:10], "%Y-%m-%d").date()
+    except ValueError:
+        return None
+    return round((on - parsed).days / 365.25, 2)
+
+
+def pick_expected_age(pick_year: int, on: date) -> float:
+    """Synthetic age of the not-yet-known rookie a future pick will become."""
+    return round((on - date(int(pick_year) - PICK_ROOKIE_AGE, *AGE_SEASON_START)).days
+                 / 365.25, 2)
+
+
+def week_reference_date(season: int, week: int) -> date:
+    """The date the build ages a season's week at (Sept 1 + 7·(week-1))."""
+    return date(int(season), *AGE_SEASON_START) + timedelta(days=7 * (int(week) - 1))
+
+
+def _roster_pool(roster: dict, pool: str) -> List[str]:
+    if pool not in ROSTER_POOLS:
+        raise ValueError(f"pool must be one of {ROSTER_POOLS}, got {pool!r}")
+    players = [str(p) for p in (roster.get("players") or ())]
+    if pool == "all":
+        return players
+    if pool == "starters":
+        return [str(p) for p in (roster.get("starters") or ()) if str(p) != Q.EMPTY_SLOT]
+    benched = {str(p) for p in (roster.get("taxi") or ())}
+    benched |= {str(p) for p in (roster.get("reserve") or ())}
+    return [p for p in players if p not in benched]
+
+
+def picks_held(season: int, horizon: int = PICK_HORIZON) -> Dict[int, List[int]]:
+    """{roster_id: [pick year, ...]} for the future picks each team holds *now*.
+
+    Reads the snapshot's `traded_picks.json`, which lists only picks that have
+    moved — every other pick still belongs to its original owner, so the
+    un-listed ones are filled in rather than dropped (a team's own retained
+    picks are most of its capital). This is current ownership only: the file
+    is a snapshot, not a ledger, so unlike the build there is no walking back
+    to a past date. Raises FileNotFoundError for a season without the file.
+    """
+    rosters = Q._snap(f"season_{int(season)}/rosters.json")
+    roster_ids = [int(r["roster_id"]) for r in rosters]
+    rounds = _draft_rounds(season)
+    moved = {(int(p["season"]), int(p["round"]), int(p["roster_id"])): int(p["owner_id"])
+             for p in Q._snap(f"season_{int(season)}/traded_picks.json")}
+    out: Dict[int, List[int]] = {rid: [] for rid in roster_ids}
+    for offset in range(1, int(horizon) + 1):
+        year = int(season) + offset
+        for rnd in range(1, rounds + 1):
+            for original in roster_ids:
+                out[moved.get((year, rnd, original), original)].append(year)
+    return out
+
+
+def _draft_rounds(season: int, default: int = 4) -> int:
+    try:
+        drafts = Q._snap(f"season_{int(season)}/drafts.json")
+    except FileNotFoundError:
+        return default
+    for draft in (drafts or []):
+        rounds = ((draft or {}).get("settings") or {}).get("rounds")
+        if rounds:
+            return int(rounds)
+    return default
+
+
+def roster_ages(season: int, week: Optional[int] = None, on: Optional[date] = None,
+                pool: str = "all", include_picks: bool = False) -> pd.DataFrame:
+    """How old each team's roster is, ranked oldest first.
+
+    The exports stop at the last completed season, so "how old is each roster
+    *now*" cannot be read off `team_week."Player average age"` — it has to come
+    from the snapshot. This computes that column the build's way and extends it
+    to the in-progress season.
+
+    Three parameters carry the assumptions:
+
+    `week` — omit it for the current rosters (`rosters.json`, i.e. the snapshot's
+    live state); pass one to age the roster Sleeper fielded that week
+    (`matchups.json`), which is what the build's per-week column does.
+
+    `on` — the date ages are measured at. Defaults to `week_reference_date` when
+    a week is given (matching the build) and to today otherwise.
+
+    `pool` — which players count: `all` (the build's definition, taxi and IR
+    included), `active` (taxi and IR removed) or `starters`. Roster sizes are not
+    equal across this league, so a deep bench of young stashes moves the mean;
+    reporting the ranking under more than one pool is how you show it doesn't.
+
+    Set `include_picks` for the companion `Team age including picks` measure,
+    which averages the next `PICK_HORIZON` drafts' picks in at their expected
+    rookie age. Requires the season's `traded_picks.json`; only the current
+    season's snapshot carries one.
+
+    Columns: Team, players, aged, avg_age, median_age, youngest, oldest,
+    youngest_player, oldest_player (+ picks, avg_age_incl_picks) and `missing`,
+    the count of rostered players the dictionary has no birth date for — kept
+    as a column rather than filtered, since it is the denominator's caveat.
+    """
+    teams = Q.teams(season)
+    if week is None:
+        rosters = {int(r["roster_id"]): r for r in Q._snap(f"season_{int(season)}/rosters.json")}
+        at = on or date.today()
+    else:
+        rosters = {rid: {"players": list(row.players), "starters": list(row.starters)}
+                   for rid, row in Q.week(season, int(week)).items()}
+        at = on or week_reference_date(season, int(week))
+        if pool == "active":
+            raise ValueError("pool='active' needs taxi/reserve, which a week's "
+                             "matchups do not carry — use rosters (week=None)")
+    held = picks_held(season) if include_picks else {}
+    names = Q.players()
+    rows: List[Dict[str, object]] = []
+    for rid, roster in sorted(rosters.items()):
+        ids = _roster_pool(roster, pool)
+        aged = [(pid, player_age(pid, at)) for pid in ids]
+        known = [(pid, age) for pid, age in aged if age is not None]
+        if not known:
+            continue
+        ages = sorted((age for _, age in known))
+        oldest = max(known, key=lambda pair: pair[1])
+        youngest = min(known, key=lambda pair: pair[1])
+        row: Dict[str, object] = {
+            "Team": teams.get(rid, f"Roster {rid}"),
+            "players": len(ids),
+            "aged": len(known),
+            "missing": len(ids) - len(known),
+            "avg_age": round(sum(ages) / len(ages), 2),
+            "median_age": round(float(pd.Series(ages).median()), 2),
+            "youngest": youngest[1],
+            "oldest": oldest[1],
+            "youngest_player": names.name(youngest[0]),
+            "oldest_player": names.name(oldest[0]),
+        }
+        if include_picks:
+            pick_ages = [pick_expected_age(year, at) for year in held.get(rid, [])]
+            combined = [age for _, age in known] + pick_ages
+            row["picks"] = len(pick_ages)
+            row["avg_age_incl_picks"] = round(sum(combined) / len(combined), 2)
+        rows.append(row)
+    frame = pd.DataFrame(rows)
+    if frame.empty:
+        return frame
+    return frame.sort_values("avg_age", ascending=False).reset_index(drop=True)
+
+
+# ---------------------------------------------------------------------------
 # Spend by position
 # ---------------------------------------------------------------------------
 def spend_by_position(team: Optional[str] = None,
@@ -885,6 +1089,28 @@ def check_stack_counts_match_build(season: int) -> List[str]:
     return problems
 
 
+def check_roster_age_matches_build(season: int, tolerance: float = 0.011) -> List[str]:
+    """`roster_ages` must reproduce `team_week."Player average age"` exactly.
+
+    The whole point of the primitive is to carry that column forward into a
+    season the exports do not cover yet, so it is only trustworthy if it
+    reproduces the column on the seasons they do. Tolerance is half of the
+    build's own rounding step, not a fudge factor.
+    """
+    problems: List[str] = []
+    built = {(str(r["Team"]), int(float(r["Week"]))): Q.to_number(r["Player average age"])
+             for _, r in Q.rows("team_week", f"Year={season}").iterrows()}
+    for week in Q.played_weeks(season):
+        for row in roster_ages(season, week=week).itertuples():
+            want = built.get((row.Team, int(week)))
+            if want is None:
+                continue
+            if abs(row.avg_age - want) > tolerance:
+                problems.append(f"{season} week {week} {row.Team}: avg age {row.avg_age:.2f} "
+                                f"!= built {want:g}")
+    return problems
+
+
 def check_positions_are_placed(min_rate: float = 0.99) -> List[str]:
     """Every real player in picks/transactions must get a position.
 
@@ -921,4 +1147,5 @@ def validate(season: int) -> List[str]:
     """Every guard for one season; empty means the analysis layer reconciles."""
     return (check_starter_points_reconcile(season)
             + check_stack_counts_match_build(season)
+            + check_roster_age_matches_build(season)
             + check_positions_are_placed())
