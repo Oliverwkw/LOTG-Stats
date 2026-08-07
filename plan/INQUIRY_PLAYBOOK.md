@@ -116,6 +116,7 @@ the answer, not a silent choice.
 | `scripts/whatif.py` (`lotg_support.replay`) | counterfactual seasons: rewind a trade — or a whole sequence of them — or move a player, replay every week, re-seed, re-run the bracket |
 | `lotg_support.analysis` (via `inquire.py group/stacks/compare/compare-all/correlate/stretch/timeline/scarcity/spend/age`) | the joins and comparisons a judgement question needs: position attached to any sheet, roster-group depth, lineup composition, cohort tests with FDR control, arbitrary time windows, entity timelines, positional scarcity, spend vs return, roster age (including the in-progress season) |
 | `scripts/contract_study.py` (`lotg_support.contracts`) | the *real world* side: what an NFL contract predicts about fantasy production — signings ranked inside their position's market, matched against comparable players who did not get paid |
+| `scripts/forecast.py` (`lotg_support.forecast`) | the season that has not happened yet: project rosters (rates, ageing, market-priced rookies, availability and depth), calibrate against completed seasons, simulate championship / playoff / seeding odds |
 
 All of them are additive and read-only. None is imported by the build or run by
 any workflow.
@@ -334,6 +335,55 @@ whole family. Every choice — what counts as big, how close a control must be,
 whether one-year deals count — is a parameter, and
 `plan/notes/CONTRACT_VALUE_BY_POSITION.md` runs the sensitivity table.
 
+## The season that has not happened yet
+
+"Who wins this year" is not a lookup, so it has its own tool.
+
+```bash
+python scripts/forecast.py --season 2026            # % chance of each team winning
+python scripts/forecast.py --season 2026 --detail   # injuries, depth, age, rookie class
+python scripts/forecast.py --season 2026 --model all --seeds
+python scripts/forecast.py --season 2026 --sensitivity
+python scripts/forecast.py --calibration            # what the projection is worth
+```
+
+Five layers, each fitted from this league's own history and separately
+inspectable: **player rate** (two seasons, recency-weighted, shrunk, then
+age-adjusted on a fitted curve); **rookie price** (from draft-day KTC against
+what past classes returned — this is what makes a weak class read as weak);
+**who can play** (taxi and unsigned removed, availability simulated with the
+lineup refilled from whoever is left, so depth costs points); **who plays whom**
+(always the real pairings; `schedule(year)` says whether a season is a balanced
+round-robin — 2026 is, 2021-2025 are not); and **calibration** against every
+completed season, which is where the simulation's spread comes from.
+
+Three strength models, `--model all` runs each: `roster`, `history` and
+`uniform`. **Quote the distance from `uniform`** — that is what says whether the
+projection is telling you anything.
+
+**Two rules this tool exists to enforce.**
+
+*Outside reporting goes in a dated, sourced file, never in code.*
+`plan/notes/forecast_status_<year>.csv` is one row per player: availability, a
+rate multiplier, a note saying why, a URL and an `as_of` date. It is the only
+place a judgement about the real world enters, and `check_research_file` refuses
+a row that names nobody on a roster or omits its source. Research rots — the
+date is there so the next reader can see how badly.
+
+*The backtest may not see the present.* Today's injury designations, today's
+free agents and a research file written today are all future information to a
+projection of 2022. Letting the free-agent check into the backtest lifts
+out-of-sample r from 0.68 to 0.73 — that is leakage, not skill. The calibration
+therefore runs with all three off, which makes it a floor for the live forecast
+rather than a flattering estimate.
+
+**Report the refinements' measured value, not their plausibility.** Ageing, KTC
+rookie pricing, recency and the depth model are each real at player level and
+each worth almost nothing at *team* level (out-of-sample r moves 0.759 → 0.766
+across all of them, on 32 team-seasons — not significant). What they change is
+which of two close teams is favourite. Say that plainly rather than dressing it
+up as accuracy.
+
 ## Counterfactuals
 
 ```bash
@@ -492,6 +542,37 @@ list is here so an answer written by hand does not walk into them.
   team sold stars for draft picks there is no vacated slot and the returning
   stars simply sit — the counterfactual PF can even fall. Report it, but read the
   spread from `anchored` and `ceiling`. (`WHATIF_TEARDOWN_2024.md`.)
+
+### Forecasting traps
+
+- **A roster's player list is not its startable players.** A week's `players`
+  includes the **taxi squad** and anyone on **reserve/IR**, neither of which can
+  be started. Feed that list to an optimal-lineup routine and it will cheerfully
+  start a taxi quarterback — in 2026 that meant Patrick Mahomes (reserve)
+  reading as plehv79's best player and Fernando Mendoza (taxi) making
+  Oliverwkw's lineup. `forecast.startable_pool` removes taxi. A rostered player
+  with **no NFL team** is the same problem with a different cause.
+- **In the preseason, Sleeper's injury flags are stale.** A manager parks a
+  player in the IR slot in December and never moves him, so an August snapshot
+  records how *last* season ended: 11 of the 15 players flagged on 2026 rosters
+  were injured in the closing weeks of 2025, and the flags were wrong in both
+  directions (three fully healthy, one an unsigned free agent). The season's
+  `nflverse_injuries.csv` is empty until games are played. Believe the flags
+  only in season; before that, use dated outside reporting.
+- **The regular season is not always a round-robin.** 2026's fourteen weeks are
+  a clean double round-robin (every pair twice, so no strength-of-schedule edge
+  can exist); 2021-2025 ran fifteen, where some pairs met three times and some
+  twice. And SoS must be measured against the *other* teams, not the
+  whole-league mean — a team never draws itself, so comparing to a mean that
+  includes it reads every strong team as having an easy schedule.
+- **The rookie draft is not all rookies.** Veterans get picked in it (2026 had
+  Darnell Mooney at 4.07 and Chig Okonkwo at 3.02), so a draft-slot prior must
+  only be applied to players with no history of their own. And the reverse trap:
+  projecting a real rookie at zero penalises whoever holds the most picks —
+  `forecast.rookie_price` prices him from draft-day KTC instead.
+- **`team_year.Points` includes the playoffs**, so it is not "how good was this
+  team": four teams play two extra weeks and four do not. Any strength measure
+  has to come from `team_week` filtered to `regular_season_weeks`.
 
 ## Over-inclusive reporting
 
