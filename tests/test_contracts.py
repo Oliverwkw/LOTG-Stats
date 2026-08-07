@@ -185,6 +185,92 @@ def test_control_pool_excludes_the_other_notable_signings():
 
 
 # ---------------------------------------------------------------------------
+# Cost: the per-season cap table hidden inside every contract row
+# ---------------------------------------------------------------------------
+def _career_cost() -> list:
+    """What OTC hangs off a contract row: the player's WHOLE career, not this deal."""
+    return [
+        {"year": "2019", "team": "A", "cap_number": 1.0, "cap_percent": 0.005,
+         "cash_paid": 1.0, "base_salary": 0.9},
+        {"year": "2020", "team": "A", "cap_number": 12.0, "cap_percent": 0.060,
+         "cash_paid": 20.0, "base_salary": 5.0},
+        {"year": "Total", "team": "Total", "cap_number": 13.0, "cap_percent": None,
+         "cash_paid": 21.0, "base_salary": 5.9},
+    ]
+
+
+def _contracts_with_history() -> pd.DataFrame:
+    """One player, two contracts — each carrying the same career cap table."""
+    rows = []
+    for year, apy in ((2018, 8.0), (2020, 20.0)):
+        rows.append({"player": "WR 1", "gsis_id": "WR1", "position": "WR", "team": "A",
+                     "year_signed": year, "years": 3.0, "apy": apy,
+                     "apy_cap_pct": 0.05, "guaranteed": 10.0, "draft_year": 2015.0,
+                     "cols": _career_cost()})
+    return pd.DataFrame(rows)
+
+
+def test_cost_panel_does_not_double_count_a_career():
+    """The trap: `cols` repeats the whole career on every contract row."""
+    cost = C.cost_panel(2011, 2025, contracts=_contracts_with_history())
+    assert not cost.duplicated(["gsis_id", "season"]).any(), cost
+    assert sorted(cost["season"]) == [2019, 2020], cost["season"].tolist()   # no 'Total'
+    assert float(cost.loc[cost["season"] == 2020, "cap_number"].iloc[0]) == 12.0
+    print("  two contracts for one player still yield one row per season, no Total row")
+
+
+def test_cost_panel_respects_the_year_window():
+    cost = C.cost_panel(2020, 2025, contracts=_contracts_with_history())
+    assert cost["season"].tolist() == [2020], cost["season"].tolist()
+    print("  seasons outside the window are excluded before the join")
+
+
+def test_cost_units_guard_catches_a_rescaled_column():
+    """cap_number in dollars instead of $M must not pass silently."""
+    broken = _contracts_with_history().copy()
+    history = [dict(h) for h in _career_cost()]
+    for h in history:
+        if h["cap_number"] is not None:
+            h["cap_number"] = h["cap_number"] * 1_000_000
+    broken["cols"] = [history for _ in range(len(broken))]
+    cost = C.cost_panel(2011, 2025, contracts=broken)
+    implied = cost["cap_number"] / cost["cap_percent"]
+    assert (implied > C.IMPLIED_CAP_RANGE[1]).any(), implied.tolist()
+    print("  a dollars-not-millions cap column implies an impossible salary cap")
+
+
+def test_rank_persistence_separates_a_stable_metric_from_a_shuffled_one():
+    import random
+
+    rows = []
+    order = list(range(40))
+    for season in (2019, 2020, 2021):
+        shuffled = order[:]
+        random.Random(season).shuffle(shuffled)
+        for i, noise in zip(order, shuffled):
+            rows.append({"player_id": f"WR{i}", "season": season, "position": "WR",
+                         "stable": float(i), "shuffled": float(noise)})
+    frame = pd.DataFrame(rows)
+    stable = C.rank_persistence(frame, "stable")
+    stable = float(stable[stable["position"] == "WR"]["rank_corr"].iloc[0])
+    shuffled = C.rank_persistence(frame, "shuffled")
+    shuffled = float(shuffled[shuffled["position"] == "WR"]["rank_corr"].iloc[0])
+    assert stable > 0.99, stable
+    assert abs(shuffled) < 0.5, shuffled
+    print(f"  a fixed ordering persists at {stable:.2f}, a reshuffled one at "
+          f"{shuffled:+.2f}")
+
+
+def test_the_cost_guards_pass_on_real_data():
+    if not (_HAVE_EXPORTS and C.have_contracts()):
+        return _skip("needs the cached nflverse contracts file")
+    problems = (C.check_cost_panel_is_one_row_per_player_season()
+                + C.check_cost_units() + C.check_cost_covers_the_field())
+    assert not problems, problems
+    print("  real cost panel: no duplicates, units imply a real cap, coverage holds")
+
+
+# ---------------------------------------------------------------------------
 # Reporting
 # ---------------------------------------------------------------------------
 def test_summary_reports_fdr_q_values_over_the_whole_family():

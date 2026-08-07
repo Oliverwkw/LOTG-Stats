@@ -277,6 +277,139 @@ def signings(first_year: int = FIRST_SIGNING_YEAR, last_year: Optional[int] = No
 
 
 # ---------------------------------------------------------------------------
+# What a player actually cost, season by season
+# ---------------------------------------------------------------------------
+# A contract row's `cols` is not that contract's schedule — it is the player's
+# whole career cap table, scraped from his Over The Cap page and repeated on
+# every one of his contract rows. Exploding the column without deduplicating
+# first counts each of his seasons once per contract he ever signed.
+COST_FIELDS: Tuple[str, ...] = ("cap_number", "cap_percent", "cash_paid", "base_salary")
+
+# cap_number is in $M and cap_percent is a share of that year's cap, so their
+# ratio has to land near a real NFL salary cap. Both ends are generous: the cap
+# ran $120M in 2011 and $279M in 2025, and cap_percent is rounded to three
+# decimals, which makes the ratio noisy for cheap players.
+IMPLIED_CAP_RANGE: Tuple[float, float] = (100.0, 350.0)
+
+
+def _explode_cost(contracts: pd.DataFrame, first_year: int, last_year: int) -> pd.DataFrame:
+    contracts = contracts[contracts["position"].isin(POSITIONS)
+                          & contracts["gsis_id"].notna()]
+    # One row per player before exploding — see the note above.
+    newest = (contracts.sort_values("year_signed")
+              .drop_duplicates("gsis_id", keep="last"))
+    rows: List[Dict[str, object]] = []
+    for r in newest.itertuples():
+        for season in (r.cols if r.cols is not None else ()):
+            year = str(season.get("year"))
+            if not year.isdigit():      # the trailing 'Total' row
+                continue
+            year_int = int(year)
+            if not first_year <= year_int <= last_year:
+                continue
+            rows.append({"gsis_id": r.gsis_id, "player": r.player,
+                         "position": r.position, "season": year_int,
+                         "nfl_team": season.get("team"),
+                         **{f: season.get(f) for f in COST_FIELDS}})
+    return pd.DataFrame(rows)
+
+
+@functools.lru_cache(maxsize=4)
+def _cost_panel_cached(first_year: int, last_year: int, root: str) -> pd.DataFrame:
+    return _explode_cost(load_contracts(), first_year, last_year)
+
+
+def cost_panel(first_year: int = FIRST_SIGNING_YEAR - 1,
+               last_year: Optional[int] = None,
+               contracts: Optional[pd.DataFrame] = None) -> pd.DataFrame:
+    """What each player was charged against the cap, one row per player-season.
+
+    `cap_number` is the season's cap hit in $M and `cap_percent` its share of
+    that year's cap; `cash_paid` is what he actually banked. All three rank
+    players near-identically (ρ ≈ 0.93-0.98), so the choice between them is not
+    where the risk in a value metric lives — see `value_panel`.
+    """
+    if last_year is None:
+        last_year = max(Q.completed_seasons())
+    if contracts is not None:
+        return _explode_cost(contracts, first_year, last_year)
+    return _cost_panel_cached(first_year, last_year, str(Q.repo_root())).copy()
+
+
+def value_panel(first_year: int = FIRST_SIGNING_YEAR, last_year: Optional[int] = None,
+                scoring: str = "lotg", panel: Optional[pd.DataFrame] = None
+                ) -> pd.DataFrame:
+    """Fantasy points against real-world cost, per player-season.
+
+    Three flavours of the same idea, because the naive one does not survive
+    contact with a fifteen-year window:
+
+      * `points_per_million` — season points per $1M of cap hit. What people
+        mean by FPTS/$M, and **not comparable across seasons**: the cap doubled
+        between 2011 and 2025, so the same player is worth half as much per
+        dollar at the end of the window as at the start.
+      * `points_per_cap_pct` — season points per 1% of that year's cap. The same
+        metric with the inflation taken out; flat across the window, so this is
+        the one to rank on.
+      * `points_per_million_cash` — per $1M actually paid that season.
+
+    `rookie_deal` flags the seasons a player was still on his draft-slotted
+    contract. It is not a footnote: those seasons dominate the top of any
+    per-dollar ranking, so a leaderboard that does not split on it is mostly a
+    list of players who have not been paid yet.
+    """
+    if last_year is None:
+        last_year = max(Q.completed_seasons())
+    if panel is None:
+        panel = season_points(list(range(first_year, last_year + 1)), scoring=scoring)
+    cost = cost_panel(first_year, last_year)
+    merged = panel.merge(cost.drop(columns=["player", "position"]),
+                         left_on=["player_id", "season"],
+                         right_on=["gsis_id", "season"], how="left")
+    draft = dict(zip(*(lambda c: (c["gsis_id"], c["draft_year"]))(
+        load_contracts().sort_values("year_signed").drop_duplicates("gsis_id", keep="last"))))
+    drafted = pd.to_numeric([draft.get(g, float("nan")) for g in merged["player_id"]],
+                            errors="coerce")
+    merged["rookie_deal"] = (merged["season"] - drafted) <= 3
+    cap = pd.to_numeric(merged["cap_number"], errors="coerce")
+    pct = pd.to_numeric(merged["cap_percent"], errors="coerce")
+    cash = pd.to_numeric(merged["cash_paid"], errors="coerce")
+    merged["points_per_million"] = merged["points"] / cap.where(cap > 0)
+    merged["points_per_cap_pct"] = merged["points"] / (100 * pct.where(pct > 0))
+    merged["points_per_million_cash"] = merged["points"] / cash.where(cash > 0)
+    return merged
+
+
+def rank_persistence(frame: pd.DataFrame, metric: str, by: Sequence[str] = ("season", "position"),
+                     entity: str = "player_id", season: str = "season"
+                     ) -> pd.DataFrame:
+    """How much of a metric's ranking survives into the next season.
+
+    The reason this lives here: a ratio can be far less stable than either of
+    its parts, and nothing about the ratio's own spread reveals that. Ranking
+    within `by` first, so the answer is not driven by league-wide drift.
+
+    Read it against a benchmark, never alone — points and cap hit both persist
+    at 0.6-0.85 across this window, so a value metric at 0.35 is telling you the
+    ordering is mostly one-season noise.
+    """
+    df = frame[[entity, season, metric, *[b for b in by if b not in (entity, season)]]].copy()
+    df["_rank"] = df.groupby(list(by))[metric].rank(pct=True)
+    nxt = df[[entity, season, "_rank"]].rename(columns={"_rank": "_next"})
+    nxt[season] = nxt[season] - 1
+    joined = df.merge(nxt, on=[entity, season], how="inner")
+    rows = []
+    for position in POSITIONS:
+        sub = joined[joined["position"] == position] if "position" in joined else joined
+        pair = sub[["_rank", "_next"]].dropna()
+        rows.append({"position": position, "metric": metric, "n": len(pair),
+                     # Spearman by hand: Pearson on ranks, no scipy in this repo.
+                     "rank_corr": round(float(pair["_rank"].rank().corr(
+                         pair["_next"].rank())), 3) if len(pair) > 10 else float("nan")})
+    return pd.DataFrame(rows)
+
+
+# ---------------------------------------------------------------------------
 # The event frame: what a player did before and after
 # ---------------------------------------------------------------------------
 def _lookup(panel: pd.DataFrame) -> Dict[Tuple[str, int], Tuple[float, float, float, float]]:
@@ -699,6 +832,64 @@ def check_contract_join(min_rate: float = 0.95, top_n: int = BIG_CONTRACT_TOP_N
     return []
 
 
+def check_cost_panel_is_one_row_per_player_season() -> List[str]:
+    """The `cols` explode must not double-count.
+
+    Every contract row carries the player's *whole* career cap table, so an
+    explode without deduplicating first returns his 2019 season once per
+    contract he has ever signed. A duplicate here silently multiplies cost and
+    halves every per-dollar number.
+    """
+    cost = cost_panel()
+    dupes = cost.duplicated(["gsis_id", "season"]).sum()
+    if dupes:
+        example = cost[cost.duplicated(["gsis_id", "season"], keep=False)].head(2)
+        return [f"{dupes} duplicated player-seasons in the cost panel, e.g. "
+                f"{example['player'].tolist()}"]
+    return []
+
+
+def check_cost_units(sample_positions: Sequence[str] = POSITIONS) -> List[str]:
+    """`cap_number` in $M over `cap_percent` as a share must imply a real cap.
+
+    There is no cost figure anywhere in the build to reconcile against, so this
+    guard leans on the data's own internal consistency instead: the two columns
+    are different renderings of the same money, and their ratio has to land on
+    the league's actual salary cap. It catches a units change (dollars instead
+    of millions, percents instead of shares) that would rescale every value
+    number without otherwise looking wrong.
+    """
+    cost = cost_panel()
+    cap = pd.to_numeric(cost["cap_number"], errors="coerce")
+    pct = pd.to_numeric(cost["cap_percent"], errors="coerce")
+    # Rounding in cap_percent (3 dp) makes cheap players' ratios wild; read it
+    # off the expensive ones, where the rounding is worth well under a percent.
+    keep = (cap > 0) & (pct >= 0.05)
+    implied = (cap[keep] / pct[keep]).groupby(cost.loc[keep, "season"]).median()
+    problems = []
+    for season, value in implied.items():
+        if not IMPLIED_CAP_RANGE[0] <= value <= IMPLIED_CAP_RANGE[1]:
+            problems.append(f"{season}: cap_number/cap_percent implies a "
+                            f"${value:,.0f}M salary cap, outside {IMPLIED_CAP_RANGE}")
+    if not len(implied):
+        problems.append("no season had an expensive enough contract to check units")
+    return problems
+
+
+def check_cost_covers_the_field(min_rate: float = 0.85) -> List[str]:
+    """Most fantasy-relevant player-seasons need a cost, or the metric is a subset.
+
+    Misses are real players with no Over The Cap page (practice-squad call-ups,
+    a season played on a deal OTC never listed), not a join failure, so the bar
+    is a rate rather than zero.
+    """
+    values = value_panel()
+    rate = float(values["cap_number"].notna().mean())
+    if rate < min_rate:
+        return [f"only {rate:.1%} of fantasy player-seasons carry a cap number"]
+    return []
+
+
 def check_controls_are_balanced(tolerance: float = 5.0) -> List[str]:
     """Matched controls must start from the same place as the signers.
 
@@ -721,4 +912,6 @@ def check_controls_are_balanced(tolerance: float = 5.0) -> List[str]:
 
 def validate() -> List[str]:
     """Every guard. Empty means the contract layer reconciles with the build."""
-    return check_scoring_reconciles() + check_contract_join() + check_controls_are_balanced()
+    return (check_scoring_reconciles() + check_contract_join()
+            + check_controls_are_balanced() + check_cost_panel_is_one_row_per_player_season()
+            + check_cost_units() + check_cost_covers_the_field())

@@ -218,6 +218,77 @@ either: a manager acting on this in any one offseason is playing a 70-80% coin.
 
 ---
 
+## Follow-up: FPTS per $1M per year — computable, and mostly not usable
+
+Yes, it can be computed, three ways, all from the same contracts file. Every
+contract row carries the player's whole career cap table (`cols`), so alongside
+APY there is **what he was actually charged against the cap that season**
+(`cap_number`), his share of that year's cap (`cap_percent`), and the cash he
+banked (`cash_paid`). 91% of fantasy-relevant player-seasons 2011-2025 carry
+one. The three denominators rank players almost identically (ρ = 0.93-0.98), so
+the choice between them is not where the risk lives.
+
+Median points per $1M of cap hit, and the same with inflation removed:
+
+| position | n | FPTS per $1M | FPTS per 1% of cap | mean/median |
+|---|---|---|---|---|
+| QB | 1,066 | 15.4 | 27.5 | 2.59 |
+| RB | 1,967 | 50.1 | 90.5 | 1.65 |
+| TE | 1,742 | 22.7 | 42.2 | 1.94 |
+| WR | 2,991 | 37.1 | 68.5 | 1.80 |
+
+**Four things break it**, in descending order of severity:
+
+1. **Raw dollars are not comparable across seasons.** The median fell from 48.1
+   FPTS/$1M in 2011 to 20.4 in 2025 — **−58%**, entirely cap inflation. The same
+   series measured per 1% of the cap is flat (58.2 → 59.0, **+1%**). Any ranking
+   that pools seasons in dollars is ranking by year. Use `points_per_cap_pct`.
+2. **It is mostly a rookie-contract detector.** 75-91% of the top decile of
+   FPTS/$1M is a season played on a draft-slotted deal. Median RB on a rookie
+   contract: 63.5, versus 34.0 for veterans — on *half* the points (43.4 vs
+   81.2), purely because the denominator is a third of the size.
+3. **The ratio is far noisier than either of its parts.** Year-over-year rank
+   correlation, within position and season:
+
+   | metric | QB | RB | WR | TE |
+   |---|---|---|---|---|
+   | cap hit | 0.83 | 0.74 | 0.79 | 0.82 |
+   | fantasy points | 0.71 | 0.64 | 0.70 | 0.70 |
+   | **FPTS per 1% of cap** | **0.34** | **0.41** | **0.44** | **0.40** |
+
+   Both inputs persist at 0.64-0.83; the ratio of them persists at 0.34-0.44.
+   Worse, inside the big-contract cohort — where cost is roughly held fixed —
+   year Y efficiency predicts year Y+1 efficiency at **+0.24 / +0.13 / +0.01 /
+   +0.34** (QB/RB/WR/TE) while points alone predict points at +0.28 / +0.30 /
+   +0.39 / +0.57. On a single signing it is close to a coin flip.
+4. **Cross-position comparison measures the market, not value.** RB 90.5 points
+   per 1% of cap against QB 27.5 does not mean RBs are three times the fantasy
+   bargain; it means the NFL pays quarterbacks for things fantasy does not score
+   and has stopped paying running backs at all. Comparing positions on this
+   metric mostly recovers the NFL's positional pay scale.
+
+The failure mode is visible in the leaderboard. Best big deals by FPTS per $1M of
+APY: Darren Sproles 2014 (45.3), Reggie Bush 2011 (43.3), Martellus Bennett 2013
+(38.3) — i.e. the *cheapest* deals that still cleared the top five at their
+position. Worst: Jerick McKinnon 2018 and Dustin Keller 2013 at 0.0 (never
+played a snap on the deal), then Brandon Aiyuk 2024 (1.0) and Deshaun Watson 2022
+(1.8). It ranks contracts by size with production as a tiebreak.
+
+**Where it is usable**: as a descriptive, *within one position and one season*,
+on cap share rather than dollars, with rookie deals separated out — "who gave
+this league the most fantasy points per unit of NFL money in 2024". Not as a
+cross-era, cross-position, or single-signing judgement.
+
+**What to use instead** for "was this contract good for fantasy": points above a
+positional replacement level per 1% of cap (which removes the cheap-backup
+inflation), or the matched-control gap in the body of this note, which asks the
+question the ratio is trying to ask but holds prior production constant instead
+of dividing by money.
+
+```bash
+python scripts/contract_study.py value      # all four diagnostics above
+```
+
 ## Method
 
 * **Contracts**: nflverse's republication of Over The Cap's `historical_contracts`.

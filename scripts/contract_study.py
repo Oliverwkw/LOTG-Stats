@@ -12,6 +12,9 @@ thing it writes is the nflverse download cache under `.cache/`.
     # the misleading version everyone quotes: signers against themselves
     python scripts/contract_study.py raw
 
+    # fantasy points per $1M of real-world cost, and the three things that break it
+    python scripts/contract_study.py value
+
     # is it rate or role? does a bigger deal say more? does it hold every year?
     python scripts/contract_study.py decompose
     python scripts/contract_study.py dose
@@ -99,6 +102,50 @@ def cmd_years(args) -> None:
     print((table > 0).mean().round(2).to_string())
 
 
+def cmd_value(args) -> None:
+    """FPTS per $1M, with the three things that break it."""
+    values = C.value_panel(first_year=args.first_year, last_year=args.last_year,
+                           scoring=args.scoring)
+    priced = values[values["points_per_million"].notna()]
+    print(f"{len(priced):,} player-seasons with both fantasy points and a cap hit "
+          f"({values['cap_number'].notna().mean():.1%} of the panel)\n")
+
+    print("per position — the headline metric, and the same thing with cap "
+          "inflation removed:")
+    print(priced.groupby("position").agg(
+        n=("points_per_million", "size"),
+        per_million=("points_per_million", "median"),
+        per_cap_pct=("points_per_cap_pct", "median"),
+        mean_over_median=("points_per_million", lambda s: s.mean() / s.median()),
+    ).round(2).to_string())
+    print("  (mean/median far from 1 is the right tail: a minimum-salary player "
+          "with one good year)\n")
+
+    print("1. raw dollars are not comparable across seasons — median by season:")
+    drift = priced.groupby("season").agg(per_million=("points_per_million", "median"),
+                                         per_cap_pct=("points_per_cap_pct", "median"))
+    print(drift.round(1).to_string())
+    first, last = drift.iloc[0], drift.iloc[-1]
+    print(f"  over the window: per $1M {last.per_million / first.per_million - 1:+.0%}, "
+          f"per 1% of cap {last.per_cap_pct / first.per_cap_pct - 1:+.0%}\n")
+
+    print("2. it is mostly a rookie-contract detector — median by contract type:")
+    print(priced.groupby(["position", "rookie_deal"]).agg(
+        n=("points_per_million", "size"),
+        per_million=("points_per_million", "median"),
+        median_points=("points", "median"),
+        median_cap_hit=("cap_number", "median")).round(1).to_string())
+    print()
+
+    print("3. the ratio is noisier than either of its parts — year-over-year "
+          "rank correlation:")
+    persistence = pd.concat([C.rank_persistence(values, m) for m in
+                             ("points_per_million", "points_per_cap_pct",
+                              "points", "cap_number")])
+    print(persistence.pivot(index="metric", columns="position",
+                            values="rank_corr").to_string())
+
+
 def cmd_signings(args) -> None:
     frame = C.signings(first_year=args.first_year, last_year=args.last_year)
     frame = frame[frame["rank_in_position_year"] <= args.top_n]
@@ -116,8 +163,9 @@ def cmd_validate(args) -> None:
     problems = C.validate()
     if not problems:
         print("all guards pass: re-scored points reproduce the build's own season "
-              "totals, the big signings join to real seasons, and the matched "
-              "cohorts are balanced at baseline")
+              "totals, the big signings join to real seasons, the matched cohorts "
+              "are balanced at baseline, and the cost panel is one row per "
+              "player-season in the units it claims")
         return
     for p in problems:
         print(f"FAIL {p}")
@@ -150,7 +198,8 @@ def main(argv=None) -> None:
     sub = parser.add_subparsers(dest="command", required=True)
     for name, fn in (("study", cmd_study), ("raw", cmd_raw),
                      ("decompose", cmd_decompose), ("dose", cmd_dose),
-                     ("years", cmd_years), ("signings", cmd_signings),
+                     ("years", cmd_years), ("value", cmd_value),
+                     ("signings", cmd_signings),
                      ("validate", cmd_validate)):
         sub.add_parser(name, help=fn.__doc__).set_defaults(func=fn)
     args = parser.parse_args(argv)

@@ -202,6 +202,7 @@ nflverse) to a player-season fantasy panel scored with this league's settings.
 python scripts/contract_study.py study                 # big signings vs matched non-signers
 python scripts/contract_study.py raw                   # signers vs themselves (the misleading one)
 python scripts/contract_study.py decompose             # was it games or points per game?
+python scripts/contract_study.py value                 # fantasy points per $1M, and what breaks it
 python scripts/contract_study.py signings --year 2025
 python scripts/contract_study.py validate
 ```
@@ -317,6 +318,18 @@ list is here so an answer written by hand does not walk into them.
   `.parquet` is maintained (and reading it needs `pyarrow`). `load_contracts()`
   refuses a file whose newest signing predates `MIN_EXPECTED_YEAR` rather than
   quietly answering a question about 2011-2022.
+- **A contract row's `cols` is the player's whole career cap table, not that
+  contract's.** Over The Cap hangs the same career table off every deal a player
+  ever signed, so exploding the column without deduplicating to one row per
+  player counts each season once per contract. `cost_panel()` does the dedupe
+  and `check_cost_panel_is_one_row_per_player_season()` guards it.
+- **Points-per-dollar is a ratio, and behaves like one.** FPTS/$1M is not
+  comparable across seasons (the cap doubled 2011-2025; use points per 1% of
+  cap), is dominated by rookie contracts, and persists year-over-year at
+  0.34-0.44 when both its inputs persist at 0.64-0.83. Rank on it within a
+  position and season or not at all — `contract_study.py value` prints all four
+  diagnostics, and `rank_persistence()` is the general test to run before
+  trusting any derived ratio.
 - **A player's own before/after around a big contract is regression to the
   mean.** Points fall at every position after a top-five deal, because the deal
   followed a career year. Any "did X change after Y" question about a player
