@@ -23,6 +23,7 @@ rediscovering the same handful of traps. All of that is one command here.
     python scripts/inquire.py stacks --compare 'Max PF' --condition 'stack_WR>=2'
     python scripts/inquire.py scarcity --season 2025
     python scripts/inquire.py spend --team Oliverwkw
+    python scripts/inquire.py age                      # current rosters, oldest first
 
     # over-inclusive: rank on EVERY column, don't curate which stats to check
     python scripts/inquire.py sweep team_year --where Team=shmuel256 --where Year=2025 \
@@ -266,6 +267,22 @@ def cmd_scarcity(args) -> None:
               f"{f' x {args.demand_multiple}' if args.demand_multiple != 1.0 else ''})")
         for s in rows:
             print(f"  {s.describe()}")
+
+
+def cmd_age(args) -> None:
+    from lotg_support import analysis as A
+
+    season = args.season or max(Q.snapshot_seasons())
+    df = A.roster_ages(season, week=args.week, pool=args.pool,
+                       include_picks=not args.no_picks)
+    _emit(df, args.csv, args.limit)
+    if not args.csv:
+        when = (f"week {args.week} (aged at {A.week_reference_date(season, args.week)})"
+                if args.week else "the current rosters, aged today")
+        print(f"\n{season}: {when}, pool={args.pool}.")
+        print("'all' is the build's own definition (taxi and IR included) — rosters "
+              "are not the same size here, so re-run with --pool active/starters "
+              "before quoting a gap between two neighbouring teams.")
 
 
 def cmd_spend(args) -> None:
@@ -524,6 +541,18 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--demand-multiple", type=float, default=1.0,
                    help="scale replacement rank (1.0 = exactly what the league starts)")
     p.set_defaults(func=cmd_scarcity)
+
+    p = sub.add_parser("age", help="team roster ages, oldest first (defaults to the current rosters)")
+    p.add_argument("--season", type=int, help="default: the latest snapshot season")
+    p.add_argument("--week", type=int, help="age the lineup fielded that week instead of today's roster")
+    p.add_argument("--pool", default="all",
+                   help="which players count: all (default — the build's definition, "
+                        "taxi and IR included), active, or starters")
+    p.add_argument("--no-picks", action="store_true",
+                   help="skip the picks-inclusive column (needs traded_picks.json)")
+    p.add_argument("-n", "--limit", type=int, default=0)
+    p.add_argument("--csv", action="store_true")
+    p.set_defaults(func=cmd_age)
 
     p = sub.add_parser("spend", help="draft capital + FAAB per position, against points returned")
     p.add_argument("--team")
