@@ -301,9 +301,102 @@ because Bowers is freed and loses because Hill and Mixon are written down, and
 the freeing is worth more. (`unsigned play on` and `stale IR instead` only mean
 anything with research off, since a researched row overrides both.)
 
+## Has it ever been right? Backtesting the probabilities
+
+Everything above measures how well the projection predicts a team's **mean
+weekly points**. That is not the same question as whether a 30% favourite wins
+three times in ten. So every completed season is rewound to its own preseason,
+forecast strictly out of sample — calibration, rookie price and age curve all
+refitted leaving that season out; no injury designations, no research file, no
+free-agent check, because all three are facts about today — and scored against
+what the build says actually happened.
+
+```bash
+python scripts/forecast.py --backtest
+python scripts/forecast.py --backtest --as-of-weeks 0,4,8,12
+```
+
+| Model | champion log-loss | champion Brier | P(real champion) | favourite won | playoff Brier | E[wins] MAE | seed rho |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| **roster** | **1.849** | **0.793** | **21.8%** | **3 of 5** | **0.152** | **1.92** | **0.62** |
+| history | 2.070 | 0.861 | 13.7% | 2 of 5 | 0.228 | 2.47 | 0.27 |
+| uniform (guessing) | 2.085 | 0.876 | 12.4% | 0 of 5 | 0.250 | 2.62 | −0.04 |
+
+Guessing scores 2.079 log-loss and 0.250 playoff Brier, so `uniform` landing on
+2.085/0.250 is the harness proving itself. **The roster model beats guessing on
+every metric**, and `history` — last season's table alone — is worth almost
+nothing over guessing on the championship (2.070 vs 2.079), which is the same
+verdict the projection-level fit gave.
+
+Season by season:
+
+| Season | Real champion | Forecast gave it | Its rank in the forecast | Playoff field hit |
+|---|---|---:|---:|---:|
+| 2021 | stevenb123 | 3.4% | 6th | 3 of 4 |
+| 2022 | LWebs53 | 40.9% | **1st** | 3 of 4 |
+| 2023 | LWebs53 | 28.9% | **1st** | 4 of 4 |
+| 2024 | stevenb123 | 9.0% | 4th | 3 of 4 |
+| 2025 | shmuel256 | 27.0% | **1st** | 4 of 4 |
+
+**2021 is the one real miss** — the champion was the model's 6th choice at 3.4%.
+It is also the season whose only history is the 2020 ESPN backfill, and the
+weakest season in the projection fit (r = 0.38). 2024 is a soft miss: 4th at 9%.
+
+### Is it over-confident?
+
+The direct test needs no baseline: compare the realised score to the score the
+forecast **expects of itself** (the entropy of its own distribution). Above 1.0
+means it was more confident than it deserved.
+
+| | realised | model expects | ratio |
+|---|---:|---:|---:|
+| champion log-loss | 1.861 | 1.669 | **1.11** |
+| champion Brier | 0.794 | 0.769 | **1.03** |
+| playoff Brier | 0.153 | 0.176 | **0.87** |
+
+No consistent direction: mildly over-confident on the champion, mildly *under*-
+confident on playoff berths, and the champion figure is dragged almost entirely
+by 2021 (drop it and the ratio falls to 0.86). A uniform forecast scores exactly
+1.00 here by construction, which is the sanity check. **Five champions cannot
+resolve calibration more finely than this.**
+
+### Does it update sensibly once games are played?
+
+| As of week | champion log-loss | playoff Brier | E[wins] MAE | seed rho |
+|---|---:|---:|---:|---:|
+| 0 (preseason) | 1.849 | 0.152 | 1.92 | 0.62 |
+| 8 | 1.273 | 0.044 | 1.05 | 0.87 |
+| 12 | 1.199 | 0.008 | 0.68 | 0.93 |
+
+Monotone, as it must be. Worth noting honestly: **by week 8 the roster
+projection's edge over `uniform` has almost gone** (1.273 vs 1.338), because
+eight weeks of banked results swamp any preseason prior. The projection earns
+its keep in August and gives most of that back by Hallowe'en.
+
+### Two adjustments considered, and rejected
+
+Both were tested rather than argued about, scoring only 2022-2025 (2021 excluded
+as a *target*, since no model could have had a fair shot at it):
+
+**Drop 2021 from the calibration fit.** Log-loss 1.484 → 1.464, playoff Brier
+0.132 → 0.121, E[wins] MAE 1.86 → 1.75. A real but small improvement, on four
+scored seasons, at the cost of 20% of the calibration sample. **Not adopted** —
+it is available as `calibrate(seasons=...)` for anyone who wants it, and the
+2021 caveat is already stated.
+
+**Re-tune the confidence level.** Scaling `sd_true` from 0.6× to 2× moves
+log-loss over a range of just 1.447 to 1.577 — about 6% — and the curve is
+**monotone with no interior optimum**. A monotone improvement with no minimum is
+what over-fitting to four champions looks like, not a discovered parameter.
+**Not adopted.** The reassuring reading is that the answer barely depends on this
+knob at all.
+
+The backtest is now a guard (`check_beats_uniform`), so a future change that
+breaks the probabilities fails the suite rather than quietly shipping.
+
 ## Guards
 
-Run before the CLI answers, and in CI (`tests/test_forecast.py`, 30 checks):
+Run before the CLI answers, and in CI (`tests/test_forecast.py`, 34 checks):
 
 1. **`check_bracket_pipeline`** — the real snapshot scores pushed through
    exactly the scores → standings → champion path the simulation uses must
@@ -316,7 +409,11 @@ Run before the CLI answers, and in CI (`tests/test_forecast.py`, 30 checks):
    check: every row must name a player who is actually rostered, cite a URL,
    carry a valid date and a note saying why, and give an availability that is a
    probability.
-4. **`check_schedule_is_balanced`** — reported, not asserted, precisely because
+4. **`check_beats_uniform`** — the only guard on the *answer* rather than the
+   machinery: rewound out-of-sample forecasts of every completed season must
+   beat 1/n on champion log-loss, playoff Brier and expected-wins error, and
+   rank seeds at rho > 0.3.
+5. **`check_schedule_is_balanced`** — reported, not asserted, precisely because
    the answer differs by season.
 
 Plus, in the tests: taxi players are provably unstartable and provably were in
@@ -384,6 +481,8 @@ python scripts/forecast.py --season 2026 --detail               # depth, age, ro
 python scripts/forecast.py --season 2026 --model all --seeds    # baselines + seeding
 python scripts/forecast.py --season 2026 --sensitivity          # the assumption grid
 python scripts/forecast.py --calibration                        # what the projection is worth
+python scripts/forecast.py --backtest                           # has it ever been right?
+python scripts/forecast.py --backtest --as-of-weeks 0,4,8,12
 python scripts/forecast.py --validate                           # the guards
 ```
 

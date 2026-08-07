@@ -491,6 +491,65 @@ def test_an_unknown_strength_model_is_refused():
         raise AssertionError("expected an unknown strength model to raise")
 
 
+def test_as_of_week_rewinds_the_clock():
+    """A finished season must be answerable as though it had not happened yet."""
+    if not _HAVE_DATA:
+        return _skip("no exports/snapshot")
+    year = _seasons()[-1]
+    full = F.forecast(year, sims=200)
+    assert full.by_champion()[0].champion == 100.0, "a played-out season should be certain"
+    pre = F.forecast(year, sims=2000, as_of_week=0,
+                     availability=F._backtest_availability(F.AvailabilityModel()))
+    assert pre.played_weeks == (), "as_of_week=0 must treat no week as known"
+    assert max(o.champion for o in pre.odds) < 100.0, "a rewound season cannot be certain"
+    assert abs(sum(o.champion for o in pre.odds) - 100.0) < 1e-6
+    mid = F.forecast(year, sims=2000, as_of_week=8,
+                     availability=F._backtest_availability(F.AvailabilityModel()))
+    assert mid.played_weeks == tuple(range(1, 9)), mid.played_weeks
+    # more information must not make the forecast less certain about the winner
+    assert max(o.champion for o in mid.odds) >= max(o.champion for o in pre.odds) - 5.0
+
+
+def test_the_forecast_beats_guessing_on_seasons_that_happened():
+    """The only test of the probabilities rather than the machinery."""
+    if not _HAVE_DATA:
+        return _skip("no exports/snapshot")
+    problems = F.check_beats_uniform(sims=2000)
+    assert not problems, problems
+    bt = F.backtest(as_of_weeks=(0,), sims=2000, models=("roster", "uniform"))
+    roster, uniform = bt.summary("roster"), bt.summary("uniform")
+    print(f"  champion log-loss {roster['champion_logloss']:.3f} vs {uniform['champion_logloss']:.3f} "
+          f"guessing; playoff Brier {roster['playoff_brier']:.3f} vs "
+          f"{uniform['playoff_brier']:.3f}; seed rho {roster['seed_rho']:.2f}")
+
+
+def test_the_backtest_is_actually_out_of_sample():
+    """It must refit leaving the scored season out, and see none of today's facts."""
+    if not _HAVE_DATA:
+        return _skip("no exports/snapshot")
+    seasons = _seasons()
+    if len(seasons) < 3:
+        return _skip("not enough seasons")
+    # the calibration a backtest uses for season Y must not contain Y
+    for year in seasons:
+        others = [y for y in seasons if y != year]
+        assert year not in F.calibrate(others).seasons
+    # and the availability model it runs under must be blind to the present
+    back = F._backtest_availability(F.AvailabilityModel())
+    assert back.designations == "never" and back.research is False
+    assert back.unsigned_availability == 1.0
+
+
+def test_a_uniform_forecast_is_exactly_as_confident_as_it_should_be():
+    """Sanity check on the confidence ratio: a 1/n forecast can only score 1.0."""
+    if not _HAVE_DATA:
+        return _skip("no exports/snapshot")
+    bt = F.backtest(as_of_weeks=(0,), sims=2000, models=("uniform",))
+    s = bt.summary("uniform")
+    assert abs(s["confidence_ratio_champion"] - 1.0) < 0.08, s["confidence_ratio_champion"]
+    assert abs(s["champion_logloss"] - s["champion_logloss_uniform"]) < 0.08, s
+
+
 def test_reads_are_pure():
     """An inquiry must not write. Nothing under exports/ may change."""
     if not _HAVE_DATA:
@@ -546,6 +605,10 @@ TESTS = [
     test_simulated_weekly_spread_matches_history,
     test_the_same_seed_gives_the_same_answer,
     test_an_unknown_strength_model_is_refused,
+    test_as_of_week_rewinds_the_clock,
+    test_the_forecast_beats_guessing_on_seasons_that_happened,
+    test_the_backtest_is_actually_out_of_sample,
+    test_a_uniform_forecast_is_exactly_as_confident_as_it_should_be,
     test_reads_are_pure,
     test_the_build_does_not_import_the_forecast,
 ]
