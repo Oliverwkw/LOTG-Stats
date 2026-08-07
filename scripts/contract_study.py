@@ -1,0 +1,242 @@
+"""Ask what a real-world NFL contract predicts about fantasy production.
+
+A thin command line over `lotg_support.contracts`. It reads Over The Cap's
+contract history (via nflverse) and the build's own nflverse weekly stats,
+prints, and changes nothing: no export, no workflow, no build output. The only
+thing it writes is the nflverse download cache under `.cache/`.
+
+    # the answer: big signings vs matched players who did not get paid
+    python scripts/contract_study.py study
+    python scripts/contract_study.py study --top-n 3 --min-years 3
+
+    # the misleading version everyone quotes: signers against themselves
+    python scripts/contract_study.py raw
+
+    # weekly fantasy points per 1% of cap, by position, and what a cap slice buys
+    python scripts/contract_study.py value
+    python scripts/contract_study.py value --season-totals --min-cap-share 0
+
+    # is it rate or role? does a bigger deal say more? does it hold every year?
+    python scripts/contract_study.py decompose
+    python scripts/contract_study.py dose
+    python scripts/contract_study.py years
+
+    # who the big deals actually were
+    python scripts/contract_study.py signings --year 2025
+    python scripts/contract_study.py signings --position WR --top-n 5
+
+    # the guards that tie this to numbers the build already published
+    python scripts/contract_study.py validate
+
+Needs `pyarrow` (the maintained contracts asset is parquet; the csv on that
+release has been frozen since 2022) and network access on first run.
+"""
+from __future__ import annotations
+
+import argparse
+import sys
+from pathlib import Path
+
+import pandas as pd
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
+
+from lotg_support import contracts as C  # noqa: E402
+
+
+def _study(args) -> C.ContractStudy:
+    return C.study(top_n=args.top_n, rank_from=args.rank_from,
+                   first_year=args.first_year, last_year=args.last_year,
+                   scoring=args.scoring, k=args.k, caliper_sd=args.caliper,
+                   age_caliper=(None if args.no_age else args.age_caliper),
+                   min_baseline_games=args.min_games, min_years=args.min_years,
+                   seed=args.seed)
+
+
+def cmd_study(args) -> None:
+    result = _study(args)
+    print(result.describe(outcomes=("y0_points", "y1_points", "two_year_points")))
+    if args.all_outcomes:
+        print()
+        print(result.summary.to_string(index=False))
+    print()
+    print("gap = signer minus the mean of his matched controls; positive means the "
+          "contract said something last season's stat line had not.")
+    if len(result.unmatched):
+        print(f"\nunmatched signings ({len(result.unmatched)}) — reported, not hidden; "
+              f"they skew to the very top of the market, where nobody comparable "
+              f"went unpaid:")
+        print(result.unmatched.nlargest(min(10, len(result.unmatched)),
+                                        "base_points").to_string(index=False))
+
+
+def cmd_raw(args) -> None:
+    print("signers against THEMSELVES — no control group, so this is mostly "
+          "regression to the mean:")
+    print(C.raw_before_after(top_n=args.top_n, first_year=args.first_year,
+                             last_year=args.last_year, scoring=args.scoring
+                             ).to_string(index=False))
+
+
+def cmd_decompose(args) -> None:
+    result = _study(args)
+    keep = ("y0_games", "y1_games", "y0_ppg", "y1_ppg",
+            "y0_startable", "y1_startable")
+    print("did the contract buy games or points per game?")
+    print(result.summary[result.summary["outcome"].isin(keep)].to_string(index=False))
+
+
+def cmd_dose(args) -> None:
+    result = _study(args)
+    print("two-year gap by how big the deal was within its position-year:")
+    print(C.dose_response(result.matched).to_string(index=False))
+
+
+def cmd_years(args) -> None:
+    result = _study(args)
+    table = C.by_signing_year(result.matched)
+    print("two-year gap, one signing class at a time (a pooled gap carried by two "
+          "classes is not a finding):")
+    print(table.to_string())
+    print()
+    print("share of signing years with a positive gap:")
+    print((table > 0).mean().round(2).to_string())
+
+
+def cmd_value(args) -> None:
+    """FPTS per unit of real-world cost, season and weekly, with what breaks it."""
+    values = C.value_panel(first_year=args.first_year, last_year=args.last_year,
+                           scoring=args.scoring)
+    priced = values[values["points_per_million"].notna()]
+    vets = priced[~priced["rookie_deal"].fillna(False)]
+    print(f"{len(priced):,} player-seasons with both fantasy points and a cap hit "
+          f"({values['cap_number'].notna().mean():.1%} of the panel); "
+          f"{len(vets):,} of them on veteran contracts\n")
+
+    qualified = vets[(vets["games"] >= args.value_min_games)
+                     & (vets["cap_share_pct"] >= args.min_cap_share)]
+    print(f"WEEKLY points per 1% of cap — veteran contracts, "
+          f">= {args.value_min_games} games, >= {args.min_cap_share:g}% of the cap:")
+    print(qualified.groupby("position").agg(
+        n=("ppg_per_cap_pct", "size"),
+        median=("ppg_per_cap_pct", "median"),
+        p25=("ppg_per_cap_pct", lambda s: s.quantile(0.25)),
+        p75=("ppg_per_cap_pct", lambda s: s.quantile(0.75)),
+        median_ppg=("ppg", "median"),
+        median_cap_share=("cap_share_pct", "median"),
+        median_cap_hit=("cap_number", "median")).round(2).to_string())
+    print("\n  by season:")
+    print(qualified.pivot_table(index="season", columns="position",
+                                values="ppg_per_cap_pct",
+                                aggfunc="median").round(2).to_string())
+
+    print("\nwhat the NEXT percent of cap buys — the same cohort by price band:")
+    curve = C.cost_curve(values, min_games=args.value_min_games)
+    print(curve.pivot(index="tier", columns="position", values="value").to_string())
+    print("\n  median ppg in each band (the numerator, undivided):")
+    print(curve.pivot(index="tier", columns="position", values="ppg").to_string())
+    print("\n  n:")
+    print(curve.pivot(index="tier", columns="position", values="n").to_string())
+
+    if args.season_totals:
+        print("\n" + "=" * 70)
+        print("season totals per 1% of cap (availability back in the numerator):")
+        print(vets.groupby("position").agg(
+            n=("points_per_cap_pct", "size"),
+            median=("points_per_cap_pct", "median"),
+            median_per_million=("points_per_million", "median"),
+            mean_over_median=("points_per_million",
+                              lambda s: s.mean() / s.median())).round(2).to_string())
+        print("\n1. raw dollars are not comparable across seasons — median by season:")
+        drift = priced.groupby("season").agg(
+            per_million=("points_per_million", "median"),
+            per_cap_pct=("points_per_cap_pct", "median"))
+        print(drift.round(1).to_string())
+        first, last = drift.iloc[0], drift.iloc[-1]
+        print(f"  over the window: per $1M {last.per_million / first.per_million - 1:+.0%}, "
+              f"per 1% of cap {last.per_cap_pct / first.per_cap_pct - 1:+.0%}")
+        print("\n2. it is mostly a rookie-contract detector — median by contract type:")
+        print(priced.groupby(["position", "rookie_deal"]).agg(
+            n=("points_per_million", "size"),
+            per_million=("points_per_million", "median"),
+            median_points=("points", "median"),
+            median_cap_hit=("cap_number", "median")).round(1).to_string())
+
+    print("\n3. the ratio is noisier than either of its parts — year-over-year "
+          "rank correlation:")
+    persistence = pd.concat([C.rank_persistence(qualified, m) for m in
+                             ("ppg_per_cap_pct", "points_per_cap_pct", "ppg", "points")])
+    print(persistence.pivot(index="metric", columns="position",
+                            values="rank_corr").to_string())
+
+
+def cmd_signings(args) -> None:
+    frame = C.signings(first_year=args.first_year, last_year=args.last_year)
+    frame = frame[frame["rank_in_position_year"] <= args.top_n]
+    if args.position:
+        frame = frame[frame["position"] == args.position.upper()]
+    if args.year:
+        frame = frame[frame["year_signed"] == args.year]
+    columns = ["player", "position", "team", "year_signed", "years", "apy",
+               "apy_cap_pct", "guaranteed", "rank_in_position_year"]
+    frame = frame.sort_values(["year_signed", "position", "rank_in_position_year"])
+    print(frame[columns].to_string(index=False))
+
+
+def cmd_validate(args) -> None:
+    problems = C.validate()
+    if not problems:
+        print("all guards pass: re-scored points reproduce the build's own season "
+              "totals, the big signings join to real seasons, the matched cohorts "
+              "are balanced at baseline, and the cost panel is one row per "
+              "player-season in the units it claims")
+        return
+    for p in problems:
+        print(f"FAIL {p}")
+    sys.exit(1)
+
+
+def main(argv=None) -> None:
+    parser = argparse.ArgumentParser(description=__doc__,
+                                     formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument("--top-n", type=int, default=C.BIG_CONTRACT_TOP_N,
+                        help="'big' = top N deals at the position that year")
+    parser.add_argument("--rank-from", type=int, default=1,
+                        help="lowest rank to include (6 with --top-n 10 = the second tier)")
+    parser.add_argument("--first-year", type=int, default=C.FIRST_SIGNING_YEAR)
+    parser.add_argument("--last-year", type=int, default=None)
+    parser.add_argument("--scoring", choices=list(C.SCORING), default="lotg")
+    parser.add_argument("-k", type=int, default=C.MATCH_K, help="controls per signer")
+    parser.add_argument("--caliper", type=float, default=C.MATCH_CALIPER_SD,
+                        help="control's prior points must be within this many sd")
+    parser.add_argument("--age-caliper", type=float, default=C.MATCH_AGE_CALIPER)
+    parser.add_argument("--no-age", action="store_true",
+                        help="match on production alone, ignoring age")
+    parser.add_argument("--min-games", type=int, default=C.MIN_BASELINE_GAMES)
+    parser.add_argument("--min-years", type=float, default=None,
+                        help="drop deals shorter than this (3 = no tags/prove-it years)")
+    parser.add_argument("--position", default=None)
+    parser.add_argument("--year", type=int, default=None)
+    parser.add_argument("--all-outcomes", action="store_true")
+    parser.add_argument("--value-min-games", type=int, default=8,
+                        help="value: minimum games for a weekly rate to mean anything")
+    parser.add_argument("--min-cap-share", type=float, default=1.0,
+                        help="value: minimum share of the cap, in percent")
+    parser.add_argument("--season-totals", action="store_true",
+                        help="value: also print the season-total metric and its failure modes")
+    parser.add_argument("--seed", type=int, default=0)
+    sub = parser.add_subparsers(dest="command", required=True)
+    for name, fn in (("study", cmd_study), ("raw", cmd_raw),
+                     ("decompose", cmd_decompose), ("dose", cmd_dose),
+                     ("years", cmd_years), ("value", cmd_value),
+                     ("signings", cmd_signings),
+                     ("validate", cmd_validate)):
+        sub.add_parser(name, help=fn.__doc__).set_defaults(func=fn)
+    args = parser.parse_args(argv)
+    pd.set_option("display.width", 200)
+    pd.set_option("display.max_rows", 400)
+    args.func(args)
+
+
+if __name__ == "__main__":
+    main()
