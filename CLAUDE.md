@@ -21,6 +21,12 @@ follow the phase workflow and the mandatory 3-part audit in
 X", "would Y still have won without that trade"). These are read-only: they must
 not change `exports/`, `data/`, the workflows, or any build output.
 
+**An inquiry is answered in chat, fast — then you ask.** Target under 3 minutes
+to the number itself, scratch script and all. The note in `plan/notes/`, the new
+helper in `lib/`, the tests and the PR are a *second phase* that starts only
+when the asker says they want it. Do not open a PR for a question. (`pip install
+pandas` is the one setup step; skip `requirements.txt`, it pulls ortools.)
+
 **Start an inquiry at `plan/INQUIRY_PLAYBOOK.md`.** It documents the tools that
 exist for exactly this — `scripts/inquire.py` for finding/filtering/ranking
 across the twelve export sheets and the raw snapshot (including over-inclusive
@@ -35,14 +41,15 @@ Sleeper's current-only player dictionary). Do not hand-roll a loader over
 
 ## Conventions
 
-- Answers and analyses are written up as notes in `plan/notes/`. Reusable logic
-  goes in `lib/lotg_support/` with a test in `tests/`; a script in `scripts/` is
-  a thin CLI over it.
-- **If an inquiry needs a helper that does not exist yet, add it** — as its own
-  PR, additive only, changing no build output. `plan/INQUIRY_PLAYBOOK.md` has
-  the rules and the pre-PR checklist ("When the helper you need does not
-  exist"). Do not solve it in a throwaway script that the next session cannot
-  find.
+- Answers and analyses are written up as notes in `plan/notes/` **once asked
+  for**. Reusable logic goes in `lib/lotg_support/` with a test in `tests/`; a
+  script in `scripts/` is a thin CLI over it.
+- **If an inquiry needs a helper that does not exist yet, offer to add it** —
+  answer the question first, then build it if they want it, as its own PR,
+  additive only, changing no build output. `plan/INQUIRY_PLAYBOOK.md` has the
+  rules and the pre-PR checklist ("When the helper you need does not exist").
+  Once you are building it, put it in `lib/`, not in a throwaway script the next
+  session cannot find.
 - **Report over-inclusively**: flag every borderline item and classify it
   (by-design / needs-human-judgment / defect) rather than filtering quietly.
   This is the standing rule for the audits, the weekly digest and inquiries

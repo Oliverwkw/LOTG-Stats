@@ -10,6 +10,67 @@ not alter `exports/`, `data/`, the workflows, or anything `python -m lotg`
 produces. A written-up inquiry lands as a note in `plan/notes/` (plus, if it
 needed one, a script in `scripts/`), never as a change to a build output.
 
+## Answer first. Ask before you build anything.
+
+**A question is a request for the answer, not for a pull request.** Most
+inquiries are someone wanting a number in the next couple of minutes. Give them
+that, then ask whether they want it made permanent. Everything else in this
+document — the note in `plan/notes/`, the new primitive, the guard, the tests,
+the PR — is **phase two, and it starts only when they say yes.**
+
+### Phase one: the answer (target: under 3 minutes)
+
+1. **Find the number and report it.** One command if a sheet has it, a scratch
+   script if not. A throwaway script is *fine here* — the rule against them
+   (below) governs what gets committed, not how you get the first answer.
+2. **Spot-check it, cheaply.** If the build already computes the thing, or
+   something adjacent, reproduce a handful of its rows and say you did. Seconds,
+   not a sweep. A fast wrong answer is worthless.
+3. **Report the answer with its caveats inline**, in chat. Which snapshot/date it
+   is as of, what was excluded, anything borderline (the over-inclusive rule at
+   the bottom applies to a two-line answer exactly as it does to a note).
+4. **Then ask**, in one line: *want this written up as a note / shipped as a
+   helper + PR, or was the answer all you needed?*
+
+What phase one does **not** include, no matter how obviously useful it looks:
+writing to `plan/notes/`, adding anything to `lib/`, adding tests, running the
+full suite (~2.5 minutes on its own), committing, or opening a PR.
+
+### Phase two: only after they say yes
+
+Then the rest of this document applies as written — the primitive instead of the
+script, the `check_*` guard, the tests, `python -m pytest tests/ -q`, the note,
+the draft PR. Ask which parts they want; "just the note" is a common answer and
+is much cheaper than the full treatment.
+
+### What phase one actually looks like
+
+"Give all 8 teams by avg age (current rosters)" — a question with no sheet to
+read it off (the exports stop at the last completed season) and no primitive
+when it was first asked. Phase one was still four steps:
+
+```bash
+pip install pandas                                     # the one setup step
+python scripts/inquire.py columns 'age'                # -> team_week "Player average age"
+grep -n "Player average age" src/lotg.py               # -> how the build computes it
+python scratch.py                                      # roster json x birth dates; 2s
+```
+
+The scratch script did both jobs at once: averaged today's rosters, *and*
+recomputed the build's own column for three past weeks to prove the arithmetic
+matched (24/24 exact). Answer plus evidence, well inside the budget. The
+primitive, the 680-week guard, the tests and the note all came later — and only
+because the asker was asked first.
+
+### Two things that cost minutes if you rediscover them
+
+- **`pandas` is not installed.** It is the *only* dependency the inquiry layer
+  needs: `pip install pandas`, a few seconds. Do **not** `pip install -r
+  requirements.txt` for an inquiry — it drags in ortools and takes minutes.
+- **You do not have to read this whole file to answer.** Skim the tool table and
+  the trap list; come back for the section you actually need. Reading 400 lines
+  before running one command is most of the way to blowing the 3-minute budget.
+
 ## The tools
 
 | Tool | For |
@@ -349,12 +410,17 @@ practice, for an inquiry:
 - name what was held constant (FAAB, draft picks, second-order behaviour) and
   say why it cannot change the answer — or that it could.
 
-## When the helper you need does not exist — add it
+## When the helper you need does not exist — offer it, then add it
 
-This toolkit is meant to grow. If a question needs a primitive that is not here,
-**write the primitive, not a throwaway script**: the next inquiry of that shape
-should start where this one finished. Ship it as its own PR, separate from the
-answer.
+**Phase two only.** Answer the question first with whatever gets you there
+fastest, including a scratch script, and ask. A missing primitive is a reason to
+*offer* to build one; it is not permission to spend twenty minutes building it
+before anyone has seen the number.
+
+Once they say yes: this toolkit is meant to grow. If a question needs a
+primitive that is not here, **commit the primitive, not the throwaway script**
+— the next inquiry of that shape should start where this one finished. Ship it
+as its own PR, separate from the answer.
 
 The rule that makes this safe is that an inquiry **changes no outcome**. Adding
 a helper must not alter a single byte of what the build produces or what any
@@ -410,6 +476,10 @@ the tooling separable: a reviewer should be able to take the primitive without
 taking the conclusion.
 
 ## Writing it up
+
+**Phase two only** — a note is what an answer becomes when someone asks for it
+to be kept, not the default shape of a reply. The answer itself belongs in chat,
+first.
 
 - The note goes in `plan/notes/` — the question, the answer, the method, the
   guards that back it, and the caveats. `WHATIF_HERBERT_TRADE_2025.md` is the
