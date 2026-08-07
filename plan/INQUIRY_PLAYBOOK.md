@@ -16,7 +16,7 @@ needed one, a script in `scripts/`), never as a change to a build output.
 |---|---|
 | `scripts/inquire.py` (`lotg_support.inquiry`) | finding, filtering and ranking anything in the twelve export sheets, and reading the raw Sleeper snapshot |
 | `scripts/whatif.py` (`lotg_support.replay`) | counterfactual seasons: rewind a trade — or a whole sequence of them — or move a player, replay every week, re-seed, re-run the bracket |
-| `lotg_support.analysis` (via `inquire.py group/stacks/compare/compare-all/correlate/stretch/timeline/scarcity/spend`) | the joins and comparisons a judgement question needs: position attached to any sheet, roster-group depth, lineup composition, cohort tests with FDR control, arbitrary time windows, entity timelines, positional scarcity, spend vs return |
+| `lotg_support.analysis` (via `inquire.py group/stacks/compare/compare-all/correlate/stretch/timeline/scarcity/spend/age`) | the joins and comparisons a judgement question needs: position attached to any sheet, roster-group depth, lineup composition, cohort tests with FDR control, arbitrary time windows, entity timelines, positional scarcity, spend vs return, roster age (including the in-progress season) |
 
 All three are additive and read-only. None is imported by the build or run by
 any workflow.
@@ -175,6 +175,26 @@ the pooled number: a gap that exists in one season and reverses in another is a
 different claim from one that holds every year, and the pooled mean cannot tell
 you which you have.
 
+**Roster age, including right now.** The exports stop at the last completed
+season, so `team_week."Player average age"` cannot answer "how old is each
+roster *today*". `roster_ages()` recomputes that column from the snapshot, which
+lets it run on the in-progress season:
+
+```bash
+python scripts/inquire.py age                          # current rosters, oldest first
+python scripts/inquire.py age --pool starters          # or 'active' (no taxi/IR)
+python scripts/inquire.py age --season 2025 --week 17  # the build's per-week reading
+```
+
+Rosters are not the same size in this league, so the pool is an assumption, not
+a detail — a deep bench of young taxi stashes moves a mean. Default `all`
+matches the build (taxi and IR included); re-run under `active` / `starters`
+before quoting a gap between neighbouring teams. `--week` also takes `on=` in
+Python, which is how you compare two different rosters at the *same* date and
+strip natural ageing out of the delta. `check_roster_age_matches_build` ties the
+whole thing to the built column for every team-week 2021-2025.
+(`ROSTER_AGE_2026.md`.)
+
 **Scarcity and spend.**
 
 ```bash
@@ -248,10 +268,11 @@ Three guards, also run by `whatif.py` before it answers, and by
    one trade composed equals `undo_trade` of it, and an undo composed with its
    mirror cancels to no moves at all.
 
-The analysis layer has its own two, in `tests/test_analysis.py`: the starter
+The analysis layer has its own three, in `tests/test_analysis.py`: the starter
 points it rebuilds from `player_week` must equal `team_week.PF` (allowing the
-+5), and its `max_same_nfl_team` must equal the build's own "Most number of
-players started from same NFL team" column for every lineup.
++5), its `max_same_nfl_team` must equal the build's own "Most number of
+players started from same NFL team" column for every lineup, and `roster_ages`
+must reproduce `team_week."Player average age"` for every team-week.
 
 A counterfactual whose baseline cannot reproduce reality is not evidence. If a
 guard fails, fix that before quoting any number.
@@ -268,6 +289,16 @@ list is here so an answer written by hand does not walk into them.
 - **2020 has exports but no snapshot.** It came from the ESPN backfill, so
   anything snapshot-based must skip it: `season_meta(2020).has_snapshot` is
   False and `replay()` refuses it by name.
+- **The in-progress season is the mirror image: snapshot, no exports.** The
+  build emits no `team_week` rows for a preseason week, so any "as of now"
+  question (roster age, who is on which roster) has to come from
+  `exports/snapshot/season_<current>/`, and any test asserting against it must
+  use `completed_seasons()`. `Q.export_seasons()` and `Q.snapshot_seasons()`
+  genuinely differ at both ends.
+- **Only the current season's snapshot carries `traded_picks.json`.** Past
+  seasons' folders have rosters, users and weeks but no pick file, so a
+  pick-ownership question about a past date has to be reconstructed from trade
+  events — the current-ownership shortcut works for "now" only.
 - **The starting lineup changed.** One flex through 2023, two from 2024. Read it
   from `season_meta(year).starting_slots`, never hardcode it.
 - **The playoff calendar changed.** Weeks 16-17 through 2025; 2026 starts week
