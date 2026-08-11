@@ -709,6 +709,11 @@ def timeline(player: Optional[str] = None, team: Optional[str] = None,
 # reading the *exported* sheet, where the pids are gone and only names survive.
 PICK_ASSET = re.compile(r"^\d{4}\s")
 
+# FAAB rides along in the same asset cells, written "$15 FAAB" (25 distinct
+# amounts across the sheet, 166 tokens, 2022 onward). It is neither a pick nor a
+# placeholder, so anything testing only for those reads cash as a player.
+FAAB_ASSET = re.compile(r"^\$")
+
 # Sleeper can record one exchange twice — once as the pick trade, once as the
 # player swap that executes it — when the picks change hands around the draft
 # that converts them. The league's only instance: on 2021-08-29 LWebs53 and
@@ -738,19 +743,29 @@ ACQUISITION_EVENTS: Tuple[str, ...] = ("draft", "add", "trade")
 EXPORT_TIMEZONE = "America/New_York"
 
 
-def split_assets(cell: object) -> Tuple[List[str], List[str]]:
-    """One `trades` sheet asset cell -> (player names, pick labels).
+def split_assets(cell: object) -> Tuple[List[str], List[str], List[str]]:
+    """One `trades` sheet asset cell -> (player names, pick labels, FAAB).
 
-    Use this rather than a bare `split(";")` — see `PICK_ASSET`.
+    Use this rather than a bare `split(";")`: the cell mixes three kinds of
+    asset and only one of them is a player. See `PICK_ASSET` and `FAAB_ASSET`
+    for what the other two look like and why each has bitten. The three lists
+    are returned rather than filtered away so a caller pricing a trade can see
+    everything that moved.
     """
     players: List[str] = []
     picks: List[str] = []
+    faab: List[str] = []
     for raw in str(cell if cell is not None else "").split(";"):
         asset = raw.strip()
         if not asset or asset.lower() == "nan" or is_placeholder(asset):
             continue
-        (picks if PICK_ASSET.match(asset) else players).append(asset)
-    return players, picks
+        if PICK_ASSET.match(asset):
+            picks.append(asset)
+        elif FAAB_ASSET.match(asset):
+            faab.append(asset)
+        else:
+            players.append(asset)
+    return players, picks, faab
 
 
 def _sheet_epoch_ms(stamp: object) -> Optional[int]:
@@ -780,9 +795,23 @@ def _resolve_quietly(name: str) -> str:
 
 
 def _season_of_label(label: object) -> Optional[int]:
-    """Season out of a `picks.Year` label — "2021 (vet)" -> 2021, "startup" -> None."""
+    """Season out of a `picks.Year` label — "2021 (vet)" -> 2021, "startup" -> inception.
+
+    "startup" is the league's 19-round inception draft: 152 rows numbered
+    through 19.08, matching the ESPN draft of 2020-09-10 recorded in
+    `exports/raw/drafts_2020.json`, and 150 of its 152 picks played here that
+    same season. It therefore belongs to the earliest exported season, not to
+    no season at all — leaving it unlabelled drops every startup acquisition
+    out of any season-filtered view, which loses the origin of every original
+    roster and makes a filtered `path` start at a player's first *trade*.
+    """
     match = re.search(r"(\d{4})", str(label))
-    return int(match.group(1)) if match else None
+    if match:
+        return int(match.group(1))
+    if str(label).strip().lower() == "startup":
+        seasons = Q.export_seasons()
+        return min(seasons) if seasons else None
+    return None
 
 
 def _sheet_trade_events(seasons: Sequence[int]) -> List[dict]:
@@ -1438,6 +1467,7 @@ def check_trade_counts_match_build(include_duplicates: bool = False) -> List[str
     ledger = ownership_ledger(events=("trade",), include_duplicates=include_duplicates)
     counted = ledger["player"].value_counts() if not ledger.empty else {}
     problems: List[str] = []
+    known = {str(p).strip() for p in Q.load_sheet("player_all_time")["Player"]}
     for _, r in Q.load_sheet("player_all_time").iterrows():
         name = str(r["Player"]).strip()
         built = Q.to_number(r["Number of trades"])
@@ -1448,6 +1478,13 @@ def check_trade_counts_match_build(include_duplicates: bool = False) -> List[str
             problems.append(f"{name}: ledger counts {got} trade(s), "
                             f"player_all_time says {built:g} "
                             f"(delta {got - int(built):+d})")
+    # Both directions. Comparing only the names the build knows about cannot see
+    # a *phantom* — an asset the ledger mistook for a player, which has no
+    # `player_all_time` row to be compared against and so passes silently. That
+    # is exactly how FAAB ("$15 FAAB") would enter as a traded player.
+    for name in sorted(set(counted.index if hasattr(counted, "index") else ()) - known):
+        problems.append(f"{name!r}: {int(counted[name])} ledger trade(s) but no "
+                        f"player_all_time row — not a player?")
     return problems
 
 

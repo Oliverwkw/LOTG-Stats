@@ -26,6 +26,8 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
+import pandas as pd
+
 _ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(_ROOT / "lib"))
 
@@ -43,28 +45,52 @@ def _skip(reason: str) -> bool:
 # ---------------------------------------------------------------------------
 # Pure logic — no exports needed
 # ---------------------------------------------------------------------------
-def test_pick_assets_are_not_players():
-    """The trap: splitting an asset cell on ';' reads a pick as a player."""
+def test_an_asset_cell_holds_three_kinds_of_thing():
+    """The trap: an asset cell mixes players, picks and cash. Only one is a player."""
     cell = ("Alvin Kamara; 2021 1.06(T. Etienne); Mike Williams; "
-            "2027 4(Oliverwkw); 2022 3.07(Z. White)")
-    players, picks = A.split_assets(cell)
+            "2027 4(Oliverwkw); $15 FAAB; 2022 3.07(Z. White)")
+    players, picks, faab = A.split_assets(cell)
     assert players == ["Alvin Kamara", "Mike Williams"], players
     assert len(picks) == 3, picks
+    assert faab == ["$15 FAAB"], faab
     # A pick's parenthetical names the player it became; he was not traded here.
     assert not any("Etienne" in p for p in players)
+    # Cash is neither a pick nor a placeholder, so a two-way test lets it through
+    # as a player — 166 tokens across the sheet would have become acquisitions.
+    assert not any("FAAB" in p for p in players)
 
-    empty_players, empty_picks = A.split_assets("")
-    assert empty_players == [] and empty_picks == []
+    assert A.split_assets("") == ([], [], [])
     # Placeholder cells (a trade with nothing coming back on that side) and the
     # "nan" a missing cell reads as are both dropped, not counted as a player.
     assert A.split_assets("nan")[0] == []
     assert A.split_assets("Unknown; -")[0] == []
 
 
+def test_no_asset_cell_holds_anything_but_those_three():
+    """Over-inclusive: sweep the whole sheet rather than trusting the two regexes.
+
+    Anything classified as a player that no player dictionary can resolve is
+    either a new asset kind or a name problem, and should be looked at.
+    """
+    if not _HAVE_EXPORTS:
+        return _skip("no exports")
+    sheet = Q.load_sheet("trades")
+    strays = set()
+    for _, row in sheet.iterrows():
+        for column in ("Assets received", "Assets sent"):
+            for name in A.split_assets(row[column])[0]:
+                if not A._resolve_quietly(name):
+                    strays.add(name)
+    # "David Johnson" is ambiguous in Sleeper's dictionary (two of them), so it
+    # resolves to nothing and keeps the sheet's spelling — that is the designed
+    # fallback, not a stray asset kind. Anything else here is a real finding.
+    assert strays <= {"David Johnson"}, sorted(strays)
+
+
 def test_season_labels_parse():
     assert A._season_of_label("2021") == 2021
     assert A._season_of_label("2021 (vet)") == 2021
-    assert A._season_of_label("startup") is None
+    assert A._season_of_label("nonsense") is None
 
 
 def test_unknown_event_kind_is_rejected():
@@ -102,6 +128,34 @@ def test_the_documented_duplicate_is_the_only_one():
     assert all("+1" in p for p in problems), problems
 
 
+def test_the_count_guard_catches_a_phantom_player():
+    """The guard must look both ways, or it cannot see a non-player asset.
+
+    Comparing only the names `player_all_time` knows about is blind to an asset
+    the ledger mistook for a player: it has no row to be compared against, so it
+    passes silently. Feeding the guard a ledger containing cash proves the
+    second direction fires.
+    """
+    if not _HAVE_EXPORTS:
+        return _skip("no exports")
+    real = A.ownership_ledger
+
+    def with_a_phantom(*args, **kwargs):
+        df = real(*args, **kwargs)
+        phantom = df.iloc[[0]].copy()
+        phantom["player"] = "$15 FAAB"
+        phantom["event"] = "trade"
+        return pd.concat([df, phantom], ignore_index=True)
+
+    A.ownership_ledger = with_a_phantom
+    try:
+        problems = A.check_trade_counts_match_build()
+    finally:
+        A.ownership_ledger = real
+    assert any("FAAB" in p for p in problems), problems
+    assert any("not a player" in p for p in problems), problems
+
+
 def test_every_trade_hands_off_from_where_the_player_was():
     """Ordering, sender attribution and the cross-source merge, in one assertion."""
     if not _HAVE_EXPORTS:
@@ -119,6 +173,27 @@ def test_sheet_timestamps_are_read_on_the_export_clock():
     assert stamp == 1630252388000, stamp
     # ... and five hours in winter, which is why this is a zone and not a constant.
     assert A._sheet_epoch_ms("2021-12-22 10:31:49") == 1640187109000
+
+
+def test_the_startup_draft_belongs_to_the_inaugural_season():
+    """`startup` is a season, not the absence of one.
+
+    It is the 19-round ESPN inception draft of 2020-09-10 (152 rows, numbered
+    through 19.08). Leaving it unlabelled drops every original roster's origin
+    out of a season-filtered view, so `--season 2020` returned no drafts at all
+    and a filtered `path` began at a player's first trade instead of his draft.
+    """
+    if not _HAVE_EXPORTS:
+        return _skip("no exports")
+    inaugural = min(Q.export_seasons())
+    assert A._season_of_label("startup") == inaugural
+
+    drafts = A.ownership_ledger(season=inaugural, events=("draft",))
+    assert len(drafts) == 152, len(drafts)
+    # And the origin still precedes every move that season.
+    kamara = A.ownership_ledger(player="Alvin Kamara")
+    assert kamara.iloc[0]["event"] == "draft"
+    assert int(kamara.iloc[0]["season"]) == inaugural
 
 
 def test_ledger_covers_every_season_including_the_snapshotless_one():
@@ -195,13 +270,16 @@ def test_reads_are_pure():
 
 
 TESTS = [
-    test_pick_assets_are_not_players,
+    test_an_asset_cell_holds_three_kinds_of_thing,
+    test_no_asset_cell_holds_anything_but_those_three,
     test_season_labels_parse,
     test_unknown_event_kind_is_rejected,
     test_trade_counts_match_the_builds_own_column,
+    test_the_count_guard_catches_a_phantom_player,
     test_every_trade_hands_off_from_where_the_player_was,
     test_sheet_timestamps_are_read_on_the_export_clock,
     test_the_documented_duplicate_is_the_only_one,
+    test_the_startup_draft_belongs_to_the_inaugural_season,
     test_ledger_covers_every_season_including_the_snapshotless_one,
     test_ledger_is_one_row_per_acquisition_in_order,
     test_summary_separates_spells_from_teams,

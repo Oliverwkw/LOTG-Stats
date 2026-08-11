@@ -64,12 +64,21 @@ The ledger rebuilds ownership from the raw record: one row per acquisition
 2021-2026, name-matched from the exported sheet for 2020 (the ESPN backfill has
 no snapshot). Both derivations, and the `player_all_time` filter, agree.
 
+The origins come from `picks`, where the league's inception draft is labelled
+`startup` rather than with a year: 152 rows numbered through 19.08, matching the
+19-round ESPN draft of 2020-09-10, with 150 of its 152 picks playing here that
+same season. It is treated as belonging to the inaugural exported season, so
+Kamara's ledger begins where it should — drafted by shmuel256 — rather than at
+his first trade.
+
 ## What backs it
 
 - `check_trade_counts_match_build` — the ledger's trade rows, counted per
   player, equal `player_all_time."Number of trades"` for **all 651 players**,
   exactly. The build counts trades from Sleeper pids off `_recv_player_ids`;
-  the ledger counts events. Two independent paths, no drift.
+  the ledger counts events. Two independent paths, no drift. It compares both
+  directions: a name in the ledger with no `player_all_time` row is reported
+  too, which is what catches an asset mistaken for a player.
 - `check_ledger_chains` — every one of the **464** trade hand-offs takes the
   player from exactly the roster the ledger last had him on. This is the
   stronger guard: it tests ordering, sender attribution and the snapshot/sheet
@@ -80,9 +89,11 @@ no snapshot). Both derivations, and the `player_all_time` filter, agree.
 
 Three, all now in `plan/INQUIRY_PLAYBOOK.md` and handled in code:
 
-1. **A traded pick is not a traded player.** `trades.Assets received` writes a
-   pick as `2021 1.06(T. Etienne)`; splitting the cell on `;` invents a 2020
-   trade for a player who entered the league in 2021. `analysis.split_assets()`.
+1. **An asset cell holds three kinds of thing.** `trades.Assets received`
+   writes a pick as `2021 1.06(T. Etienne)` and FAAB as `$15 FAAB`; splitting
+   the cell on `;` invents a 2020 trade for a player who entered the league in
+   2021, and turns cash into a traded player. `analysis.split_assets()` returns
+   players, picks and FAAB separately.
 2. **Sleeper can record one exchange twice.** On 2021-08-29 LWebs53 and
    shmuel256 traded 2021 2.08 for 3.06 plus two fourths, *and* separately
    swapped the two players those picks became (Michael Carter for Rhamondre

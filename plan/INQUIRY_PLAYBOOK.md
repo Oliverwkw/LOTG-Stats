@@ -115,6 +115,7 @@ the answer, not a silent choice.
 | `scripts/inquire.py` (`lotg_support.inquiry`) | finding, filtering and ranking anything in the twelve export sheets, and reading the raw Sleeper snapshot |
 | `scripts/whatif.py` (`lotg_support.replay`) | counterfactual seasons: rewind a trade — or a whole sequence of them — or move a player, replay every week, re-seed, re-run the bracket |
 | `lotg_support.analysis` (via `inquire.py group/stacks/compare/compare-all/correlate/stretch/timeline/ownership/scarcity/spend/age`) | the joins and comparisons a judgement question needs: position attached to any sheet, roster-group depth, lineup composition, cohort tests with FDR control, arbitrary time windows, entity timelines, who owned whom and in what order, positional scarcity, spend vs return, roster age (including the in-progress season) |
+| `scripts/draft_capital.py` (`lotg_support.draft_capital`) | what a draft slot returns across *all* rounds, who gets which slot under each era's ordering rule, and what moving up the order costs in roster ceiling |
 | `scripts/contract_study.py` (`lotg_support.contracts`) | the *real world* side: what an NFL contract predicts about fantasy production — signings ranked inside their position's market, matched against comparable players who did not get paid |
 | `scripts/forecast.py` (`lotg_support.forecast`) | the season that has not happened yet: project rosters (rates, ageing, market-priced rookies, availability and depth), calibrate against completed seasons, simulate championship / playoff / seeding odds |
 
@@ -287,7 +288,12 @@ python scripts/inquire.py ownership --min-boomerangs 4
 between them is the point — `boomerangs` and `path` say where he went back to.
 `check_trade_counts_match_build` ties the ledger's trade rows to
 `player_all_time."Number of trades"` for all 651 players, exactly, which is what
-licenses quoting it. (`OWNERSHIP_PING_PONG.md`.)
+licenses quoting it — in both directions, so an asset the ledger mistook for a
+player (cash, a pick) is caught rather than passing for want of a row to compare
+against. `check_ledger_chains` is the stronger one: all 464 trade hand-offs must
+take the player from exactly the roster the ledger last had him on, which tests
+ordering, sender attribution and the snapshot/sheet merge at once.
+(`OWNERSHIP_PING_PONG.md`.)
 
 **Cohort comparison.** `compare(frame, condition, metric)` reports *both*
 cohorts — n, mean, median, sd — plus the difference, Cohen's d, a deterministic
@@ -315,6 +321,33 @@ Python, which is how you compare two different rosters at the *same* date and
 strip natural ageing out of the delta. `check_roster_age_matches_build` ties the
 whole thing to the built column for every team-week 2021-2025.
 (`ROSTER_AGE_2026.md`.)
+
+**Draft capital, and what a tank actually buys.** "Is it worth blowing it up for
+the first pick" is three questions, and doing it by hand walks into the `picks`
+traps every time.
+
+```bash
+python scripts/draft_capital.py haul               # what a slot's WHOLE draft returned
+python scripts/draft_capital.py slots --statistic bust_rate
+python scripts/draft_capital.py cohorts            # the two comparisons that matter
+python scripts/draft_capital.py order --all        # who gets which slot, under each rule
+python scripts/draft_capital.py cost --draft 2026 --team Oliverwkw
+```
+
+`haul_table()` prices a draft position across all four rounds, because owning
+1.01 means owning 2.01/3.01/4.01 and the rounds behave nothing alike.
+`slot_cohorts()` runs the two comparisons through `analysis.compare` — bottom
+four vs playoff teams (**+416, p=0.002**), and the marginal one, slots 1-2 vs
+3-4 (**−155, p=0.53**) — so the answer arrives with both cohorts and a per-draft
+breakdown rather than a mean. Note the `aggregate` parameter: a **rate** column
+must be compared per pick, never summed across a slot's four picks.
+
+`bottom_four_order()` implements both ordering rules and `order_rule()` says
+which era a draft belongs to. `ceiling_cost()` prices moving up in the currency
+the current rule uses — which players must leave for a roster's Max PF to reach
+a target — by calling the build's own `lineup.compute_optimal_lineup`.
+`check_max_pf_matches_build` and `check_bottom_four_order_matches_picks` tie
+both halves to the build. (`TANKING_AND_DRAFT_CAPITAL.md`.)
 
 **Scarcity and spend.**
 
@@ -518,13 +551,16 @@ list is here so an answer written by hand does not walk into them.
   legal lineup, not a bug.
 - **Offseason trades live in `week_01`** of the season they precede. The
   Herbert deal is dated 2025-08-07 and sits in `season_2025/weeks/week_01`.
-- **A traded pick is not a traded player.** `trades.Assets received` is free
-  text and a pick in it is written `2021 1.06(T. Etienne)` — splitting the cell
-  on `;` reads `T. Etienne` as a player who changed hands, which invents a 2020
-  trade for someone who did not enter the league until 2021. The build never
-  hits this (it counts by Sleeper pid, off `_recv_player_ids`); it is purely a
-  hazard for code reading the *exported* sheet, where the pids are gone.
-  `analysis.split_assets()` separates the two.
+- **An asset cell holds three kinds of thing, and only one is a player.**
+  `trades.Assets received` is free text. A pick in it is written
+  `2021 1.06(T. Etienne)`, so splitting the cell on `;` reads `T. Etienne` as a
+  player who changed hands — inventing a 2020 trade for someone who did not
+  enter the league until 2021. FAAB is written `$15 FAAB` (166 tokens, 2022
+  onward), and being neither a pick nor a placeholder it survives any test that
+  only looks for those, turning cash into a traded player. The build never hits
+  either (it counts by Sleeper pid, off `_recv_player_ids`); both are purely
+  hazards for code reading the *exported* sheet, where the pids are gone.
+  `analysis.split_assets()` returns the three separately.
 - **Sleeper can record one exchange twice.** When picks change hands around the
   draft that converts them, there can be both a pick trade and a player swap
   executing it — the league's one instance is 2021-08-29, LWebs53 and shmuel256
@@ -585,6 +621,35 @@ list is here so an answer written by hand does not walk into them.
   each other on the **rate** columns (`Avg points added adjusted by position` and
   its pick-adjusted difference), never on `Points added`, which rewards whoever
   has been rostered longest. (`WHATIF_TEARDOWN_2024.md`.)
+- **The draft-order rule changed at the 2026 draft.** Through 2025 the bottom
+  four picked in reverse final placement; from 2026 they pick in **ascending
+  Max PF** — roster ceiling, not record. Peter finished 5th with the league's
+  worst ceiling and picked 1.01; Oliver finished 8th and picked 1.03. Applied
+  retroactively the rule moves the 1.01 in four of six drafts, so any
+  historical tanking claim has to say which rule it assumes.
+  `draft_capital.order_rule()` / `MAX_PF_RULE_FROM_DRAFT`, guarded against
+  `picks."Original Team"` for every draft on record.
+- **The playoff block's draft order is not a rule this data can pin down.** It
+  is reverse placement through the 2022 draft and swaps 3rd/4th from 2023 on,
+  with no stated reason. `draft_capital.playoff_block()` returns what was
+  observed; nothing models it.
+- **Placement counted the toilet bowl through the 2024 draft.** Non-playoff
+  finishes used record through week ≤17 for 2020-2024 and the regular season
+  only from 2025 (`src/lotg.py:14907`), so winning consolation games used to
+  cost draft position: Jacob went 3-12 in 2023, won both toilet games, and lost
+  the 1.01 to a 5-10 team on a **1.92-point** PF tiebreak.
+- **Slots above the league size exist.** The toilet-bowl reward pick is written
+  `2.09`, and it belongs to a *non-playoff* team — so a bottom-four-vs-rest
+  comparison that leaves it in files it under the playoff teams and inflates the
+  gap (+416 becomes +440). `draft_capital.hauls()` drops and counts it.
+- **Past seasons' snapshots have no `drafts.json`.** Like `traded_picks.json`,
+  only the current season carries it, so the record of who owned a slot in an
+  earlier draft is `picks."Original Team"`, not the snapshot.
+- **Removing a star lowers Max PF by much less than he scored.** The optimal
+  lineup only loses his margin over the next-best legal option, so the observed
+  exchange rate is about **1.9 points of production per 1 point of ceiling** and
+  you have to strip depth as well as stars. Any "just sell the stars and tank"
+  reasoning under the ceiling rule is wrong by roughly a factor of two.
 - **The `strict` lineup model is degenerate for a player-for-picks trade.** It
   only lets an arrival occupy the slot the departing player vacated, so when a
   team sold stars for draft picks there is no vacated slot and the returning
