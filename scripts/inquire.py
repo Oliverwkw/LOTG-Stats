@@ -24,6 +24,7 @@ rediscovering the same handful of traps. All of that is one command here.
     python scripts/inquire.py scarcity --season 2025
     python scripts/inquire.py spend --team Oliverwkw
     python scripts/inquire.py age                      # current rosters, oldest first
+    python scripts/inquire.py ownership --min-trades 3 --max-teams 2
 
     # over-inclusive: rank on EVERY column, don't curate which stats to check
     python scripts/inquire.py sweep team_year --where Team=shmuel256 --where Year=2025 \
@@ -253,6 +254,31 @@ def cmd_timeline(args) -> None:
 
     df = A.timeline(player=args.player, team=args.team, season=args.season)
     _emit(df.drop(columns=["undated"], errors="ignore"), args.csv, args.limit)
+
+
+def cmd_ownership(args) -> None:
+    from lotg_support import analysis as A
+
+    ledger = A.ownership_ledger(player=args.player, season=args.season,
+                                events=(("trade",) if args.trades_only
+                                        else A.ACQUISITION_EVENTS))
+    if args.ledger or args.player:
+        _emit(_select(ledger, args.select), args.csv, args.limit)
+        if not args.csv:
+            print("\nOne row per acquisition; a spell ends at the next one. "
+                  "2020 rows are name-matched from the sheet (no snapshot).")
+        return
+    df = A.ownership_summary(ledger)
+    if args.min_trades:
+        df = df[df["trades"] >= args.min_trades]
+    if args.max_teams:
+        df = df[df["teams"] <= args.max_teams]
+    if args.min_boomerangs:
+        df = df[df["boomerangs"] >= args.min_boomerangs]
+    _emit(_select(df, args.select), args.csv, args.limit)
+    if not args.csv:
+        print("\n`spells` counts acquisitions and `teams` distinct rosters — the gap "
+              "is a player who went back somewhere (`boomerangs`, `path`).")
 
 
 def cmd_scarcity(args) -> None:
@@ -535,6 +561,24 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("-n", "--limit", type=int, default=0)
     p.add_argument("--csv", action="store_true")
     p.set_defaults(func=cmd_timeline)
+
+    p = sub.add_parser("ownership",
+                       help="which rosters held each player, in order — the all-players timeline")
+    p.add_argument("--player", help="one player's ledger instead of the league summary")
+    p.add_argument("--season", type=int)
+    p.add_argument("--ledger", action="store_true",
+                   help="the raw acquisition rows rather than one row per player")
+    p.add_argument("--trades-only", action="store_true",
+                   help="ignore drafts and waiver adds; count trades alone")
+    p.add_argument("--min-trades", type=int, default=0)
+    p.add_argument("--max-teams", type=int, default=0,
+                   help="e.g. --min-trades 3 --max-teams 2 finds the ping-pong players")
+    p.add_argument("--min-boomerangs", type=int, default=0,
+                   help="players re-acquired by a roster that already had them")
+    p.add_argument("--select", default="", help="comma-separated columns to show")
+    p.add_argument("-n", "--limit", type=int, default=0)
+    p.add_argument("--csv", action="store_true")
+    p.set_defaults(func=cmd_ownership)
 
     p = sub.add_parser("scarcity", help="surplus of the best player over replacement, by position")
     p.add_argument("--season", type=int)
