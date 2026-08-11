@@ -230,9 +230,7 @@
     "adds": {
       "5133": 7
     },
-    "drops": {
-      "6805": 7
-    },
+    "drops": null,
     "consenter_ids": [
       7
     ],

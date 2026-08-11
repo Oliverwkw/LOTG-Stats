@@ -69,6 +69,10 @@
   },
   "avatar": "bacf626c72ab39f35077ce4a4f99a149",
   "company_id": null,
+  "shard": 926,
+  "season": "2025",
+  "season_type": "regular",
+  "sport": "nfl",
   "scoring_settings": {
     "sack": 1.0,
     "fgm_40_49": 4.0,
@@ -115,10 +119,6 @@
     "pts_allow_7_13": 4.0,
     "st_ff": 0.0
   },
-  "season": "2025",
-  "season_type": "regular",
-  "shard": 926,
-  "sport": "nfl",
   "last_message_id": "1312101554618109952",
   "draft_id": "1192931349575991297",
   "last_author_avatar": "7ee196d29d33b131f9a27e07191766bd",

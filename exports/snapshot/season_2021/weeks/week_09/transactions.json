@@ -16,9 +16,7 @@
     "adds": {
       "4198": 1
     },
-    "drops": {
-      "5284": 1
-    },
+    "drops": null,
     "consenter_ids": [
       1
     ],
@@ -45,9 +43,7 @@
     "adds": {
       "5110": 1
     },
-    "drops": {
-      "5284": 1
-    },
+    "drops": null,
     "consenter_ids": [
       1
     ],
@@ -74,9 +70,7 @@
     "adds": {
       "6824": 1
     },
-    "drops": {
-      "5284": 1
-    },
+    "drops": null,
     "consenter_ids": [
       1
     ],

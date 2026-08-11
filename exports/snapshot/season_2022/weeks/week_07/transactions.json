@@ -17,9 +17,7 @@
     "adds": {
       "7583": 1
     },
-    "drops": {
-      "5000": 1
-    },
+    "drops": null,
     "consenter_ids": [
       1
     ],
@@ -77,9 +75,7 @@
     "adds": {
       "8157": 7
     },
-    "drops": {
-      "1825": 7
-    },
+    "drops": null,
     "consenter_ids": [
       7
     ],
@@ -137,9 +133,7 @@
     "adds": {
       "7583": 6
     },
-    "drops": {
-      "3242": 6
-    },
+    "drops": null,
     "consenter_ids": [
       6
     ],

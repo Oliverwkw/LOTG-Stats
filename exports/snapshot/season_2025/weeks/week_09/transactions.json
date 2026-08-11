@@ -378,9 +378,7 @@
     "consenter_ids": [
       1
     ],
-    "drops": {
-      "2505": 1
-    },
+    "drops": null,
     "roster_ids": [
       1
     ],
@@ -471,9 +469,7 @@
     "consenter_ids": [
       3
     ],
-    "drops": {
-      "11562": 3
-    },
+    "drops": null,
     "roster_ids": [
       3
     ],
@@ -501,9 +497,7 @@
     "consenter_ids": [
       8
     ],
-    "drops": {
-      "1373": 8
-    },
+    "drops": null,
     "roster_ids": [
       8
     ],
