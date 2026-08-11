@@ -47,9 +47,7 @@
     "adds": {
       "4029": 6
     },
-    "drops": {
-      "7562": 6
-    },
+    "drops": null,
     "consenter_ids": [
       6
     ],
@@ -137,9 +135,7 @@
     "adds": {
       "19": 6
     },
-    "drops": {
-      "7083": 6
-    },
+    "drops": null,
     "consenter_ids": [
       6
     ],
@@ -253,9 +249,7 @@
     "adds": {
       "9492": 6
     },
-    "drops": {
-      "7083": 6
-    },
+    "drops": null,
     "consenter_ids": [
       6
     ],
@@ -283,9 +277,7 @@
     "adds": {
       "9504": 3
     },
-    "drops": {
-      "19": 3
-    },
+    "drops": null,
     "consenter_ids": [
       3
     ],
@@ -429,9 +421,7 @@
     "adds": {
       "2306": 1
     },
-    "drops": {
-      "10866": 1
-    },
+    "drops": null,
     "consenter_ids": [
       1
     ],
@@ -459,9 +449,7 @@
     "adds": {
       "11616": 1
     },
-    "drops": {
-      "10866": 1
-    },
+    "drops": null,
     "consenter_ids": [
       1
     ],

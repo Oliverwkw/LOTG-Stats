@@ -301,9 +301,7 @@
     "adds": {
       "6865": 1
     },
-    "drops": {
-      "8160": 1
-    },
+    "drops": null,
     "consenter_ids": [
       1
     ],
