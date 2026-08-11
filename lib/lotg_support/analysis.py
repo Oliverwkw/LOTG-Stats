@@ -24,6 +24,13 @@ single export sheet holds:
     permutation p-value, and a per-season breakdown so a result driven by one
     season cannot hide inside a pooled average.
 
+  * **Ownership, for every player at once.** `timeline()` tells the story of
+    one entity; `ownership_ledger()` / `ownership_summary()` are the vectorised
+    form — one row per acquisition for the whole league, collapsed to how many
+    rosters held a player and in what order — which is what a "who has property
+    P about their ownership history" question needs.
+    `check_trade_counts_match_build` ties it to `player_all_time`.
+
   * **Positional scarcity.** `value_curve()` / `scarcity()` measure what a
     position's points actually cost: the drop from the best player at a
     position to the *replacement* one, where replacement rank is taken from how
@@ -55,8 +62,10 @@ from __future__ import annotations
 import functools
 import math
 import random
+import re
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
+from zoneinfo import ZoneInfo
 from typing import Dict, List, Optional, Sequence, Tuple
 
 import pandas as pd
@@ -689,6 +698,307 @@ def timeline(player: Optional[str] = None, team: Optional[str] = None,
 
 
 # ---------------------------------------------------------------------------
+# Ownership: which rosters held a player, in what order
+# ---------------------------------------------------------------------------
+# A traded draft pick is written into the `trades` sheet's asset cells as
+# "2021 1.06(T. Etienne)" — the leading season is what distinguishes it from a
+# player. Splitting an asset cell on ";" without this test reads "T. Etienne"
+# as a traded player, which invents a 2020 trade for a player who did not enter
+# the league until 2021. The build itself never has this problem (it counts
+# trades by Sleeper pid, off `_recv_player_ids`); it is only a hazard for code
+# reading the *exported* sheet, where the pids are gone and only names survive.
+PICK_ASSET = re.compile(r"^\d{4}\s")
+
+# Sleeper can record one exchange twice — once as the pick trade, once as the
+# player swap that executes it — when the picks change hands around the draft
+# that converts them. The league's only instance: on 2021-08-29 LWebs53 and
+# shmuel256 traded 2021 2.08 for 3.06 + two later fourths (transaction
+# 737726835374374912), and the same pair separately swapped the two players
+# those picks became, Michael Carter for Rhamondre Stevenson (transaction
+# 737729902018686976, timestamped inside the draft window). `picks` confirms
+# they are the same assets: 2.08 is Carter, held by LWebs53, originally
+# shmuel256's; 3.06 is Stevenson, held by shmuel256, originally LWebs53's.
+# Counting both would move each player twice for one deal, so the player-side
+# record is dropped and the pick trade kept — which is what the build does, and
+# why `check_trade_counts_match_build` reconciles exactly.
+DUPLICATE_TRADE_TRANSACTIONS: Dict[str, str] = {
+    "737729902018686976": "player-side duplicate of pick trade 737726835374374912 "
+                          "(2021-08-29, LWebs53 <-> shmuel256)",
+}
+
+ACQUISITION_EVENTS: Tuple[str, ...] = ("draft", "add", "trade")
+
+# The exported sheets write their `Date` as Sleeper's `created` stamp rendered in
+# US Eastern: 524 of the 548 `trades` rows land within two seconds of a snapshot
+# trade's `created` under this zone (the 24 that do not are exactly the 2020 ESPN
+# rows, which have no snapshot), against 2 under UTC and 6 under US Central.
+# Ordering a snapshot event against a sheet event therefore means putting both on
+# this clock — the snapshot's own date is day-precision only, so without it a
+# waiver add and the trade that moved the player out the same day sort by luck.
+EXPORT_TIMEZONE = "America/New_York"
+
+
+def split_assets(cell: object) -> Tuple[List[str], List[str]]:
+    """One `trades` sheet asset cell -> (player names, pick labels).
+
+    Use this rather than a bare `split(";")` — see `PICK_ASSET`.
+    """
+    players: List[str] = []
+    picks: List[str] = []
+    for raw in str(cell if cell is not None else "").split(";"):
+        asset = raw.strip()
+        if not asset or asset.lower() == "nan" or is_placeholder(asset):
+            continue
+        (picks if PICK_ASSET.match(asset) else players).append(asset)
+    return players, picks
+
+
+def _sheet_epoch_ms(stamp: object) -> Optional[int]:
+    """A sheet timestamp -> epoch ms, so it can be ordered against a snapshot event.
+
+    Returns None for a blank or unparseable cell (a draft row carries a season,
+    not a day), which sorts to the front of its season rather than being dropped.
+    """
+    text = str(stamp if stamp is not None else "").strip()
+    if not text:
+        return None
+    try:
+        local = datetime.fromisoformat(text)
+    except ValueError:
+        return None
+    if local.tzinfo is None:
+        local = local.replace(tzinfo=ZoneInfo(EXPORT_TIMEZONE))
+    return int(local.timestamp() * 1000)
+
+
+def _resolve_quietly(name: str) -> str:
+    """Sleeper pid for a name, or "" — a lookup failure is data, not an error."""
+    try:
+        return Q.players().resolve(name)
+    except (KeyError, LookupError, ValueError):
+        return ""
+
+
+def _season_of_label(label: object) -> Optional[int]:
+    """Season out of a `picks.Year` label — "2021 (vet)" -> 2021, "startup" -> None."""
+    match = re.search(r"(\d{4})", str(label))
+    return int(match.group(1)) if match else None
+
+
+def _sheet_trade_events(seasons: Sequence[int]) -> List[dict]:
+    """Acquisitions from the exported `trades` sheet, for seasons given.
+
+    Only used where no snapshot exists (2020, the ESPN backfill), because the
+    sheet has lost the pids and a multi-team trade's sender has to be recovered
+    by matching the player's name on the other rows of the same trade.
+    """
+    wanted = {int(s) for s in seasons}
+    if not wanted:
+        return []
+    sheet = Q.load_sheet("trades")
+    senders: Dict[Tuple[int, str, str], List[str]] = {}
+    rows: List[Tuple[int, str, str, List[str]]] = []
+    for _, r in sheet.iterrows():
+        year = Q.to_number(r["Season"])
+        if year is None or int(year) not in wanted:
+            continue
+        year, date, team = int(year), str(r["Date"]), str(r["Team"])
+        for name in split_assets(r["Assets sent"])[0]:
+            senders.setdefault((year, date, name), []).append(team)
+        rows.append((year, date, team, split_assets(r["Assets received"])[0]))
+    events: List[dict] = []
+    for year, date, team, received in rows:
+        for name in received:
+            gave = [t for t in senders.get((year, date, name), []) if t != team]
+            events.append({
+                "player": name, "player_id": _resolve_quietly(name), "season": year,
+                "date": date, "event": "trade", "team": team,
+                "from_team": gave[0] if len(gave) == 1 else "",
+                "source": "sheet", "_order": _sheet_epoch_ms(date),
+            })
+    return events
+
+
+def _snapshot_trade_events(seasons: Sequence[int],
+                           include_duplicates: bool = False) -> List[dict]:
+    """Acquisitions from the raw Sleeper snapshot — pid-exact.
+
+    Skips `DUPLICATE_TRADE_TRANSACTIONS` unless asked for them.
+    """
+    events: List[dict] = []
+    names = Q.players()
+    for year in seasons:
+        teams = Q.teams(year)
+        # `Q.trades` decides what counts as a completed trade; the raw pass here
+        # is only to recover the *sending* roster, which `Trade` does not carry.
+        dropped_by: Dict[str, Dict[str, int]] = {}
+        completed_at: Dict[str, int] = {}
+        for txn in Q.raw_transactions(year):
+            if txn.get("type") == "trade":
+                txn_id = str(txn.get("transaction_id"))
+                dropped_by[txn_id] = {
+                    str(k): int(v) for k, v in (txn.get("drops") or {}).items()}
+                # `created`, not `status_updated`: that is the stamp the sheets
+                # print, so the two sources order consistently against each other.
+                completed_at[txn_id] = int(txn.get("created") or 0)
+        for trade in Q.trades(season=year):
+            if not include_duplicates and trade.transaction_id in DUPLICATE_TRADE_TRANSACTIONS:
+                continue
+            drops = dropped_by.get(trade.transaction_id, {})
+            for roster_id, pids in trade.received.items():
+                for pid in pids:
+                    sender = drops.get(str(pid))
+                    events.append({
+                        "player": names.name(str(pid)), "player_id": str(pid),
+                        "season": trade.season, "date": trade.date, "event": "trade",
+                        "team": teams.get(int(roster_id), str(roster_id)),
+                        "from_team": teams.get(int(sender), "") if sender else "",
+                        "source": "snapshot",
+                        "_order": completed_at.get(trade.transaction_id, 0),
+                    })
+    return events
+
+
+def ownership_ledger(player: Optional[str] = None, season: Optional[int] = None,
+                     events: Sequence[str] = ACQUISITION_EVENTS,
+                     include_duplicates: bool = False) -> pd.DataFrame:
+    """Every acquisition of every player, in date order — the all-players `timeline`.
+
+    `timeline()` answers "tell me the story of X" one entity at a time, which
+    cannot answer "across all players, who has property P about their ownership
+    history" — most traded, longest single tenure, never changed hands, kept
+    bouncing between the same two rosters. This is the vectorised form: one row
+    per *acquisition*, `player, player_id, season, date, event, team, from_team,
+    source`, for the whole league at once. Departures are implied by the next
+    acquisition, so a spell's end is `NaN` for whoever is still rostered.
+
+    Trades come from the raw snapshot wherever one exists, keyed by Sleeper pid
+    exactly as the build counts them; 2020 has no snapshot (the ESPN backfill)
+    so its trades are parsed out of the exported sheet's asset text instead, and
+    marked `source="sheet"` because that path is name-matched and cannot see a
+    pick that was already converted. Drafts come from `picks` (undated — the
+    sheet records a season, not a day) and waiver/free-agent adds from
+    `transactions`.
+
+    `events` selects which acquisition kinds to include; dropping "add" and
+    "draft" leaves the pure trade ledger. `include_duplicates` restores the
+    `DUPLICATE_TRADE_TRANSACTIONS` rows, which are excluded by default because
+    they record a second time an exchange that is already in the ledger.
+    """
+    kinds = {str(e).strip().lower() for e in events}
+    unknown = kinds - set(ACQUISITION_EVENTS)
+    if unknown:
+        raise ValueError(f"unknown event kind(s) {sorted(unknown)}; "
+                         f"expected any of {list(ACQUISITION_EVENTS)}")
+    rows: List[dict] = []
+
+    if "trade" in kinds:
+        snapshot_years = [y for y in Q.snapshot_seasons() if season is None or y == season]
+        sheet_years = [y for y in Q.export_seasons()
+                       if y not in set(Q.snapshot_seasons())
+                       and (season is None or y == season)]
+        rows.extend(_snapshot_trade_events(snapshot_years, include_duplicates))
+        rows.extend(_sheet_trade_events(sheet_years))
+
+    if "draft" in kinds:
+        for _, r in Q.load_sheet("picks").iterrows():
+            name = str(r["Player Picked"]).strip()
+            if is_placeholder(name):
+                continue
+            year = _season_of_label(r["Year"])
+            if season is not None and year != season:
+                continue
+            rows.append({"player": name, "player_id": _resolve_quietly(name),
+                         "season": year, "date": "", "event": "draft",
+                         "team": str(r["Team"]), "from_team": "", "source": "sheet",
+                         "_order": None})
+
+    if "add" in kinds:
+        for _, r in Q.load_sheet("transactions").iterrows():
+            name = str(r["Player Added"]).strip()
+            if is_placeholder(name):
+                continue
+            year = Q.to_number(r["Season"])
+            year = int(year) if year is not None else None
+            if season is not None and year != season:
+                continue
+            rows.append({"player": name, "player_id": _resolve_quietly(name),
+                         "season": year, "date": str(r["Date"]), "event": "add",
+                         "team": str(r["Team"]), "from_team": "", "source": "sheet",
+                         "_order": _sheet_epoch_ms(r["Date"])})
+
+    df = pd.DataFrame(rows, columns=["player", "player_id", "season", "date",
+                                     "event", "team", "from_team", "source", "_order"])
+    if df.empty:
+        return df.drop(columns=["_order"])
+    df["_order"] = pd.to_numeric(df["_order"], errors="coerce")
+    # A pid is the only identity that survives a rename, so prefer the
+    # dictionary's spelling when we have one and keep the sheet's when we do not.
+    known = df["player_id"].astype(str).str.strip() != ""
+    df.loc[known, "player"] = [Q.players().name(p) for p in df.loc[known, "player_id"]]
+    if player is not None:
+        pid = _resolve_quietly(player)
+        wanted = Q.players().name(pid) if pid else str(player).strip()
+        match = df["player"].str.lower() == wanted.lower()
+        if pid:
+            match = match | (df["player_id"].astype(str) == pid)
+        df = df[match]
+    df["season"] = pd.to_numeric(df["season"], errors="coerce").astype("Int64")
+    # Order on the instant, not on the printed date: snapshot dates are
+    # day-precision, so sorting their text against a sheet timestamp puts a
+    # same-day trade before the waiver add that preceded it. Undated rows (the
+    # draft, which records a season and not a day) and the startup draft (no
+    # season at all) sort to the front rather than to the end, so `path` reads
+    # in the order the player actually moved.
+    return (df.sort_values(["player", "season", "_order"], na_position="first")
+            .drop(columns=["_order"]).reset_index(drop=True))
+
+
+def ownership_summary(ledger: Optional[pd.DataFrame] = None,
+                      season: Optional[int] = None) -> pd.DataFrame:
+    """One row per player: how many rosters held him, and how often he moved.
+
+    `spells` counts acquisitions, `teams` counts *distinct* rosters, so the two
+    coming apart is the whole point — a player with 4 spells and 2 teams went
+    back somewhere. `boomerangs` counts the acquisitions by a roster that had
+    already owned him, and `path` writes the route out in order.
+
+    Pass a `ledger` to summarise a filtered one; the default builds the full
+    ledger, which is the expensive call.
+    """
+    df = ownership_ledger(season=season) if ledger is None else ledger
+    if df.empty:
+        return pd.DataFrame()
+    rows: List[dict] = []
+    for name, events in df.groupby("player", sort=False):
+        teams: List[str] = [str(t) for t in events["team"]]
+        seen: set = set()
+        boomerangs = 0
+        for team in teams:
+            if team in seen:
+                boomerangs += 1
+            seen.add(team)
+        counts = events["event"].value_counts()
+        ids = sorted({str(p) for p in events["player_id"] if str(p).strip()})
+        rows.append({
+            "player": name,
+            "player_id": ids[0] if len(ids) == 1 else ";".join(ids),
+            "spells": len(events),
+            "trades": int(counts.get("trade", 0)),
+            "adds": int(counts.get("add", 0)),
+            "drafted": bool(counts.get("draft", 0)),
+            "teams": len(seen),
+            "boomerangs": boomerangs,
+            "first_team": teams[0],
+            "last_team": teams[-1],
+            "path": " > ".join(teams),
+        })
+    out = pd.DataFrame(rows)
+    return out.sort_values(["trades", "spells", "player"],
+                           ascending=[False, False, True]).reset_index(drop=True)
+
+
+# ---------------------------------------------------------------------------
 # Positional scarcity
 # ---------------------------------------------------------------------------
 def observed_demand(season: Optional[int] = None) -> Dict[str, float]:
@@ -1108,6 +1418,64 @@ def check_roster_age_matches_build(season: int, tolerance: float = 0.011) -> Lis
             if abs(row.avg_age - want) > tolerance:
                 problems.append(f"{season} week {week} {row.Team}: avg age {row.avg_age:.2f} "
                                 f"!= built {want:g}")
+    return problems
+
+
+def check_trade_counts_match_build(include_duplicates: bool = False) -> List[str]:
+    """Ledger trade counts must equal `player_all_time."Number of trades"`.
+
+    The build counts a trade once per *received* player per trade, keyed by
+    Sleeper pid; the ledger's trade rows are the same events from the same
+    source, so the two are directly comparable and any drift is a real defect
+    in one of them. Currently exact for all 651 players, which is what makes the
+    ledger quotable — including across 2020, whose trades the ledger has to
+    recover by name from the exported sheet because there is no snapshot.
+
+    This is also the detector for a new `DUPLICATE_TRADE_TRANSACTIONS` case: a
+    second Sleeper record of an exchange already in the ledger shows up here as
+    a player counted once more than the build counts him.
+    """
+    ledger = ownership_ledger(events=("trade",), include_duplicates=include_duplicates)
+    counted = ledger["player"].value_counts() if not ledger.empty else {}
+    problems: List[str] = []
+    for _, r in Q.load_sheet("player_all_time").iterrows():
+        name = str(r["Player"]).strip()
+        built = Q.to_number(r["Number of trades"])
+        if built is None:
+            continue
+        got = int(counted.get(name, 0))
+        if got != int(built):
+            problems.append(f"{name}: ledger counts {got} trade(s), "
+                            f"player_all_time says {built:g} "
+                            f"(delta {got - int(built):+d})")
+    return problems
+
+
+def check_ledger_chains() -> List[str]:
+    """Every trade must take a player from exactly where the ledger last had him.
+
+    The strongest statement available about the ledger, because it tests three
+    things a count cannot: that the events are in the right order, that the
+    sending roster is attributed correctly, and that merging the snapshot with
+    the sheets did not lose a move. A player who arrives at team B "from" team A
+    while the ledger shows him last acquired by C means one of those is wrong.
+
+    Exact for all 464 hand-offs today. The two ways it has caught a defect: two
+    trades of one player on the same day ordered by luck, and a waiver add
+    sorting after the same-day trade that moved the player out.
+    """
+    ledger = ownership_ledger()
+    problems: List[str] = []
+    for name, events in ledger.groupby("player", sort=False):
+        rows = list(events.itertuples())
+        for previous, current in zip(rows, rows[1:]):
+            if current.event != "trade" or not current.from_team:
+                continue
+            if current.from_team != previous.team:
+                problems.append(
+                    f"{name}: {current.date} trade to {current.team} says it came "
+                    f"from {current.from_team}, but the ledger last had him "
+                    f"acquired by {previous.team} ({previous.event})")
     return problems
 
 

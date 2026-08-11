@@ -114,7 +114,7 @@ the answer, not a silent choice.
 |---|---|
 | `scripts/inquire.py` (`lotg_support.inquiry`) | finding, filtering and ranking anything in the twelve export sheets, and reading the raw Sleeper snapshot |
 | `scripts/whatif.py` (`lotg_support.replay`) | counterfactual seasons: rewind a trade — or a whole sequence of them — or move a player, replay every week, re-seed, re-run the bracket |
-| `lotg_support.analysis` (via `inquire.py group/stacks/compare/compare-all/correlate/stretch/timeline/scarcity/spend/age`) | the joins and comparisons a judgement question needs: position attached to any sheet, roster-group depth, lineup composition, cohort tests with FDR control, arbitrary time windows, entity timelines, positional scarcity, spend vs return, roster age (including the in-progress season) |
+| `lotg_support.analysis` (via `inquire.py group/stacks/compare/compare-all/correlate/stretch/timeline/ownership/scarcity/spend/age`) | the joins and comparisons a judgement question needs: position attached to any sheet, roster-group depth, lineup composition, cohort tests with FDR control, arbitrary time windows, entity timelines, who owned whom and in what order, positional scarcity, spend vs return, roster age (including the in-progress season) |
 | `scripts/contract_study.py` (`lotg_support.contracts`) | the *real world* side: what an NFL contract predicts about fantasy production — signings ranked inside their position's market, matched against comparable players who did not get paid |
 | `scripts/forecast.py` (`lotg_support.forecast`) | the season that has not happened yet: project rosters (rates, ageing, market-priced rookies, availability and depth), calibrate against completed seasons, simulate championship / playoff / seeding odds |
 
@@ -267,6 +267,27 @@ trades — three sheets, three date columns — into one chronological log:
 python scripts/inquire.py timeline --player 'Justin Herbert'
 python scripts/inquire.py timeline --team shmuel256 --season 2025
 ```
+
+**The story of every entity at once.** `timeline()` takes one player at a time,
+so it cannot answer "across *all* players, who has property P about their
+ownership history". `ownership_ledger()` is the vectorised form — one row per
+acquisition (draft, waiver add, trade) for the whole league, with the sending
+roster named — and `ownership_summary()` collapses it to one row per player:
+
+```bash
+# who kept bouncing between the same two rosters?
+python scripts/inquire.py ownership --min-trades 3 --max-teams 2
+# the full route, one player at a time
+python scripts/inquire.py ownership --player 'Alvin Kamara'
+# re-acquired by a roster that already had him
+python scripts/inquire.py ownership --min-boomerangs 4
+```
+
+`spells` counts acquisitions, `teams` counts *distinct* rosters, and the gap
+between them is the point — `boomerangs` and `path` say where he went back to.
+`check_trade_counts_match_build` ties the ledger's trade rows to
+`player_all_time."Number of trades"` for all 651 players, exactly, which is what
+licenses quoting it. (`OWNERSHIP_PING_PONG.md`.)
 
 **Cohort comparison.** `compare(frame, condition, metric)` reports *both*
 cohorts — n, mean, median, sd — plus the difference, Cohen's d, a deterministic
@@ -497,6 +518,21 @@ list is here so an answer written by hand does not walk into them.
   legal lineup, not a bug.
 - **Offseason trades live in `week_01`** of the season they precede. The
   Herbert deal is dated 2025-08-07 and sits in `season_2025/weeks/week_01`.
+- **A traded pick is not a traded player.** `trades.Assets received` is free
+  text and a pick in it is written `2021 1.06(T. Etienne)` — splitting the cell
+  on `;` reads `T. Etienne` as a player who changed hands, which invents a 2020
+  trade for someone who did not enter the league until 2021. The build never
+  hits this (it counts by Sleeper pid, off `_recv_player_ids`); it is purely a
+  hazard for code reading the *exported* sheet, where the pids are gone.
+  `analysis.split_assets()` separates the two.
+- **Sleeper can record one exchange twice.** When picks change hands around the
+  draft that converts them, there can be both a pick trade and a player swap
+  executing it — the league's one instance is 2021-08-29, LWebs53 and shmuel256
+  trading 2021 2.08 for 3.06 (+ two fourths) and separately swapping the two
+  players those picks became, Michael Carter for Rhamondre Stevenson. Counting
+  both moves each player twice for one deal. `analysis.DUPLICATE_TRADE_TRANSACTIONS`
+  holds the id and the reasoning; `check_trade_counts_match_build` is the
+  detector if another one ever appears.
 - **Team-name case differs** between Sleeper (`Shmuel256`) and the sheets
   (`shmuel256`). `canonical_team()` / `teams(year)` return the sheets' spelling.
 - **Names are ambiguous.** "Lamar Jackson" is also a cornerback. `resolve()`
