@@ -24,7 +24,7 @@ clean week instead.
 HOW MUCH IT SAYS depends entirely on whether anything needs a decision:
 
   * NOTHING FLAGGED, no missed weeks, upstream drift measured — the email is its
-    title and one line: "Nflverse changed N values, which in turn changed M
+    title and one line: "NFLverse changed N values, which in turn changed M
     cells". No sections, no all-clear notes for the parts with nothing to say,
     no per-file breakdown. Upstream revising completed seasons and our exports
     following is the normal state of this pipeline, not an event; the only facts
@@ -180,7 +180,7 @@ def _upstream_only_html(drift, attributed_cells: int) -> str:
     signal. The full layout comes back the moment anything is flagged.
     """
     return ('<ul style="margin:0;padding-left:20px;color:#333;">'
-            f'<li style="margin:0;">Nflverse changed {drift.changed_cells} values, '
+            f'<li style="margin:0;">NFLverse changed {drift.changed_cells} values, '
             f'which in turn changed {attributed_cells} cells</li></ul>')
 
 

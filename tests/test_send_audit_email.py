@@ -97,10 +97,10 @@ def check_nflverse_section():
     # followed" IS one line. Not a shorter section list — one line, one bullet,
     # nothing but the title beside it.
     ok &= _ok("says exactly the one sentence",
-              "Nflverse changed 2306 values, which in turn changed 57 cells" in html, html)
+              "NFLverse changed 2306 values, which in turn changed 57 cells" in html, html)
     text = " ".join(re.sub(r"<[^>]+>", " ", html).split())
     expect = (f"LOTG dataset health — {date.today().isoformat()} "
-              "Nflverse changed 2306 values, which in turn changed 57 cells")
+              "NFLverse changed 2306 values, which in turn changed 57 cells")
     ok &= _ok("and nothing else besides the title", text == expect, repr(text))
     ok &= _ok("exactly one bullet", html.count("<li") == 1, html)
     for gone in ("Dataset breakages", "NFLverse changes", "Missed injuries",
@@ -112,7 +112,7 @@ def check_nflverse_section():
     _, clean, _ = E.render_email(flags=[], gaps={}, captures_present=True,
                                  drift=N.Drift(compared=True), attributed=0)
     ok &= _ok("a quiet upstream week is the same one line",
-              "Nflverse changed 0 values, which in turn changed 0 cells" in clean, clean)
+              "NFLverse changed 0 values, which in turn changed 0 cells" in clean, clean)
 
     # The moment anything is flagged the full layout returns, including the
     # breakdown the breakage has to be read against.

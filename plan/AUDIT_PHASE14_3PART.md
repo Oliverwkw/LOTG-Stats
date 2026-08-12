@@ -492,7 +492,7 @@ schema clean, subject line back to "✅ all clear".
 Once a week with no real breakage reliably comes out clean, the long form has
 nothing to carry. A fully-attributed week is now the title and a single bullet:
 
-> Nflverse changed 17001 values, which in turn changed 37 cells
+> NFLverse changed 17001 values, which in turn changed 37 cells
 
 No sections, no all-clear notes for the parts with nothing to say, no per-file
 breakdown, no footer. Upstream revising completed seasons and our exports
