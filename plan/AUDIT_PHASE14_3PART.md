@@ -486,3 +486,21 @@ makes the check easy to ignore on the week it means something.
 
 Replaying the email's 17 rows against drift of the reported size: **17 → 0**,
 schema clean, subject line back to "✅ all clear".
+
+### The clean-week email is one line
+
+Once a week with no real breakage reliably comes out clean, the long form has
+nothing to carry. A fully-attributed week is now the title and a single bullet:
+
+> Nflverse changed 17001 values, which in turn changed 37 cells
+
+No sections, no all-clear notes for the parts with nothing to say, no per-file
+breakdown, no footer. Upstream revising completed seasons and our exports
+following is the normal state of this pipeline, not an event — the only facts
+worth reading are how big the change was and how far it reached. "Cells" is the
+count of individual VALUES that moved in the attributed rows, which is a truer
+measure of reach than the row count (one revised game moves several columns on
+the same row).
+
+The full layout returns the moment anything needs a decision: a breakage, a
+missed injury week, or no drift snapshot to make the claim from.

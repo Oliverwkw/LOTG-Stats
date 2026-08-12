@@ -410,6 +410,10 @@ class Report:
         # NflverseAttribution.covers_columns.
         self.attributed_direct = 0
         self.attributed_pool = 0
+        # Individual VALUES that moved in the attributed rows (a row usually
+        # carries several). This is what the collapsed one-line email reports as
+        # the reach of an upstream release into our exports.
+        self.attributed_cells = 0
         self.attributed_sheets: Dict[str, int] = {}
         self.attributed_columns: List[Tuple[str, int]] = []
 
@@ -704,6 +708,7 @@ def audit_diffs(cur: Dict[str, pd.DataFrame], base: Dict[str, pd.DataFrame],
     total_attributed = sum(attributed.values())
     rep.attributed_sheets = dict(sorted(attributed.items(), key=lambda kv: -kv[1]))
     rep.attributed_columns = attributed_cols.most_common(_MAX_SUMMARY_COLS)
+    rep.attributed_cells = sum(attributed_cols.values())
     rep.attributed_pool = pool_swept
     rep.attributed_direct = total_attributed - pool_swept
     if total_attributed:
