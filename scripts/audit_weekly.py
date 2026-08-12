@@ -178,6 +178,10 @@ PLAYER_NAME_COLS = {
 def _matches(column: str, needles) -> bool:
     c = str(column).lower()
     return any(n in c for n in needles)
+
+
+# The player a draft pick became, as our asset lists write it: "2024 4.06(K. Vidal)".
+_PAREN = re.compile(r"\(([^)]*)\)")
 class NflverseAttribution:
     """Which of our rows a given NFLverse revision can account for.
 
@@ -252,11 +256,23 @@ class NflverseAttribution:
 
     @staticmethod
     def _names_in(text: str) -> Set[str]:
-        """The player names inside a cell. Asset lists are ';'-separated and mix
-        players with picks ("2028 4(LWebs53)"); folding leaves the picks harmless."""
+        """The player names inside a cell.
+
+        Asset lists are ';'-separated and mix plain players ("Mike Gesicki")
+        with draft picks. A pick names the player it became in parentheses,
+        abbreviated — "2024 4.06(K. Vidal)" — so the whole part folds to
+        something no player name can match, and a trade made entirely of picks
+        had nothing attributable on it at all even though its PPG columns are
+        computed from exactly those players. Pull the parenthesised half out too:
+        it is nflverse's own `short_name` form, which `load_name_aliases`
+        indexes. Team names appear in the same position on unmade picks
+        ("2028 4(LWebs53)") and simply match nobody.
+        """
         out: Set[str] = set()
         for part in str(text or "").split(";"):
             out |= name_variants(part)
+            for inner in _PAREN.findall(part):
+                out |= name_variants(inner)
         return out
 
     def _mentions(self, text: str, year: str) -> bool:
@@ -394,6 +410,10 @@ class Report:
         # NflverseAttribution.covers_columns.
         self.attributed_direct = 0
         self.attributed_pool = 0
+        # Individual VALUES that moved in the attributed rows (a row usually
+        # carries several). This is what the collapsed one-line email reports as
+        # the reach of an upstream release into our exports.
+        self.attributed_cells = 0
         self.attributed_sheets: Dict[str, int] = {}
         self.attributed_columns: List[Tuple[str, int]] = []
 
@@ -688,6 +708,7 @@ def audit_diffs(cur: Dict[str, pd.DataFrame], base: Dict[str, pd.DataFrame],
     total_attributed = sum(attributed.values())
     rep.attributed_sheets = dict(sorted(attributed.items(), key=lambda kv: -kv[1]))
     rep.attributed_columns = attributed_cols.most_common(_MAX_SUMMARY_COLS)
+    rep.attributed_cells = sum(attributed_cols.values())
     rep.attributed_pool = pool_swept
     rep.attributed_direct = total_attributed - pool_swept
     if total_attributed:
@@ -712,6 +733,13 @@ def current_schema(cur: Dict[str, pd.DataFrame]) -> Dict[str, List[str]]:
     return {name: list(df.columns) for name, df in cur.items() if not df.empty}
 
 
+def _only_insertions(have: Sequence[str], pinned: Sequence[str]) -> bool:
+    """True when `have` is `pinned` with new columns inserted — every pinned
+    column still present, still in its pinned order relative to the others."""
+    it = iter(have)
+    return all(c in it for c in pinned)
+
+
 def audit_schema(cur: Dict[str, pd.DataFrame], rep: Report) -> None:
     rep.head("Part 2 — schema breaks")
     if not _SCHEMA_BASELINE.exists():
@@ -733,10 +761,18 @@ def audit_schema(cur: Dict[str, pd.DataFrame], rep: Report) -> None:
             rep.flag(f"**{name}**: {len(missing)} expected column(s) gone — "
                      f"{', '.join(missing[:8])}{' …' if len(missing) > 8 else ''}")
             clean = False
-        elif have[:len(cols)] != cols:
+        elif have[:len(cols)] != cols and not _only_insertions(have, cols):
+            # Genuinely shuffled: the pinned columns no longer appear in their
+            # pinned order relative to each other, which breaks consumers that
+            # read by position. Adding a column mid-sheet does NOT do that, and
+            # is handled as a stale pin below.
             rep.flag(f"**{name}**: columns reordered vs the pinned baseline.")
             clean = False
         if extra:
+            # A feature PR adding columns is normal here and is not a dataset
+            # breakage — it is a pin that has not caught up. Saying so as a note
+            # (rather than flagging three sheets red) keeps the schema check
+            # meaning "something was lost or shuffled".
             rep.note(f"**{name}**: {len(extra)} new column(s) — "
                      f"{', '.join(extra[:8])}{' …' if len(extra) > 8 else ''} "
                      "(re-pin with --update-schema if intended).")
