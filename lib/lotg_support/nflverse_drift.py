@@ -97,9 +97,9 @@ def normalize_name(value) -> str:
 
     Casefold, strip accents, drop punctuation and any generational suffix. That
     takes the unmatched share of the players in our exports from 5.8% to 1.9%;
-    what is left is genuine alias divergence no folding can bridge (Sleeper's
-    "Kenny Gainwell" for upstream's "Kenneth Gainwell") plus players who never
-    recorded an NFL snap, so upstream has nothing of theirs to revise anyway.
+    Folding alone still leaves genuine alias divergence — Sleeper's "Zonovan
+    Knight" against upstream's "Bam Knight" — which `load_name_aliases` closes
+    by reading the other spellings NFLverse itself publishes.
     """
     s = unicodedata.normalize("NFKD", str(value or ""))
     s = "".join(c for c in s if not unicodedata.combining(c))
@@ -120,6 +120,75 @@ def name_variants(value) -> Set[str]:
     if not folded:
         return set()
     return {folded, folded.replace(" ", "")}
+
+
+# Where nflverse_player_ids.csv keeps the pieces of a name. NFLverse publishes
+# several spellings per player and they do not agree with each other, which is
+# the whole point: `player_display_name` in the stats files is only one of them.
+_ALIAS_FIRST = ("common_first_name", "first_name", "football_name")
+_ALIAS_LAST = ("last_name",)
+_PLAYER_IDS_FILE = "nflverse_player_ids.csv"
+
+
+def load_name_aliases(cache_dir: Optional[Path]) -> Dict[str, Set[str]]:
+    """gsis id -> every folded spelling of that player NFLverse publishes.
+
+    The stats files carry one name per player and it is not always the one our
+    Sleeper-sourced exports use. `nflverse_player_ids.csv` carries the rest, and
+    between them they close the alias gap folding cannot:
+
+      * 00-0037157 — display_name "Bam Knight", football_name "Zonovan",
+        last_name "Knight". Our exports say "Zonovan Knight".
+      * 00-0034367 — display_name "Nyheim Hines", short_name "N.Miller-Hines".
+        Our exports say "Nyheim Miller-Hines".
+
+    `short_name` earns its place twice over: "K.Vidal" is also exactly the form
+    our pick labels use ("2024 4.06(K. Vidal)"), so the same index resolves the
+    players behind traded picks. It is an initial plus a surname, so it can be
+    shared by two players; attribution is permissive by design and reports the
+    rows it withheld, so an ambiguous match costs a reported row, not a silent one.
+    """
+    out: Dict[str, Set[str]] = {}
+    if not cache_dir:
+        return out
+    path = Path(cache_dir) / _PLAYER_IDS_FILE
+    if not path.is_file():
+        return out
+    try:
+        ids = pd.read_csv(path, low_memory=False, dtype=str).fillna("")
+    except Exception:
+        return out
+    if "gsis_id" not in ids.columns:
+        return out
+    cols = [c for c in (*_ALIAS_FIRST, *_ALIAS_LAST, "display_name", "short_name")
+            if c in ids.columns]
+    for row in ids[["gsis_id", *cols]].itertuples(index=False):
+        gsis = str(getattr(row, "gsis_id", "") or "")
+        if not gsis:
+            continue
+        display = str(getattr(row, "display_name", "") or "")
+        short = str(getattr(row, "short_name", "") or "")
+        names = {display, short}
+        # Surnames: the explicit column, the tail of the display name, and the
+        # tail of "K.Vidal" — which is where "Miller-Hines" only ever appears.
+        lasts = {str(getattr(row, c, "") or "") for c in _ALIAS_LAST}
+        if display:
+            lasts.add(display.split()[-1])
+        if "." in short:
+            lasts.add(short.split(".", 1)[1])
+        firsts = {str(getattr(row, c, "") or "") for c in _ALIAS_FIRST}
+        if display:
+            firsts.add(display.split()[0])
+        for f in firsts:
+            for l in lasts:
+                if f and l:
+                    names.add(f"{f} {l}")
+        variants: Set[str] = set()
+        for n in names:
+            variants |= name_variants(n)
+        if variants:
+            out.setdefault(gsis, set()).update(variants)
+    return out
 
 
 @dataclass
@@ -313,8 +382,19 @@ def _seasons_of(rows: pd.DataFrame, key: List[str],
     return out
 
 
+def _player_ids_of(rows: pd.DataFrame, key: List[str]) -> Set[str]:
+    """The gsis ids of a set of revised rows, for the alias lookup."""
+    for col in ("player_id", "gsis_id"):
+        if col in rows.columns:
+            return {str(v) for v in rows[col].dropna().unique()}
+        if col in key:
+            pos = key.index(col)
+            return {str(i[pos] if isinstance(i, tuple) else i) for i in rows.index}
+    return set()
+
+
 def _diff_one(name: str, before: pd.DataFrame, after: pd.DataFrame,
-              drift: Drift) -> FileDrift:
+              drift: Drift, aliases: Optional[Dict[str, Set[str]]] = None) -> FileDrift:
     fd = FileDrift(name=name)
     fd.columns_added = [c for c in after.columns if c not in before.columns]
     fd.columns_removed = [c for c in before.columns if c not in after.columns]
@@ -357,6 +437,13 @@ def _diff_one(name: str, before: pd.DataFrame, after: pd.DataFrame,
     if bool(pool_mask.any()):
         drift.pools_disturbed = True
         drift.pool_seasons |= _seasons_of(a.loc[pool_mask], key, fd.season)
+
+    if fd.changed_rows and aliases:
+        # Register EVERY spelling of each revised player, not just the one this
+        # file happens to print. Our exports carry the Sleeper name, which for
+        # some players is a different string entirely.
+        for pid in _player_ids_of(a.loc[changed_mask], key):
+            drift.players |= aliases.get(pid, set())
 
     if fd.changed_rows and name_col:
         touched = a.loc[changed_mask]
@@ -403,11 +490,13 @@ def diff_nflverse_cache(before_dir: Optional[Path], after_dir: Optional[Path],
     drift.compared = True
     drift.missing_files = [n for n in before if n not in after]
     drift.new_files = [n for n in after if n not in before]
+    # Read the alias table from the same snapshot the fresh build fetched.
+    aliases = load_name_aliases(after_dir)
     for name in sorted(set(before) & set(after)):
         try:
             b = pd.read_csv(before[name], low_memory=False)
             a = pd.read_csv(after[name], low_memory=False)
         except Exception:
             continue
-        drift.files.append(_diff_one(name, b, a, drift))
+        drift.files.append(_diff_one(name, b, a, drift, aliases))
     return drift

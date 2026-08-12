@@ -423,3 +423,66 @@ Replaying the email's own counts (1596 percentile + 36 PAR + 41 career + 99
 pick-adjusted + 184 position-adjusted + 3 chain) against drift of the reported
 size: **2015 flagged rows → 0**, with 1919 rows attributed (449 direct, 1470
 swept along by the re-seated pools) and the NFLverse section back to one line.
+
+---
+
+## Round: the 2026-08-12 health email — 17 rows, three separate causes
+
+First run after the attribution rework. Flagged rows fell 2015 → 17, and the
+NFLverse escalation stayed quiet on a release of the same size (18788 values
+across 12465 rows, +23/-1 roster rows, 245 new columns), attributing 2935 of our
+rows. The 17 that remained were three distinct causes, none of them our build.
+
+### 1. Trades of nothing but draft picks (11 rows)
+
+Every flagged trade's assets were picks, written as `2024 4.06(K. Vidal)` /
+`2023 3.05(M. Mims)`. The moved columns (`Avg PPG of received players on team`,
+`Difference of averages`, and the position-adjusted values on top) are computed
+from the players those picks BECAME — but attribution read the asset string
+whole, and `2024 4.06(K. Vidal)` folds to something no player name can match. A
+pick-only trade therefore had nothing attributable on it at all.
+
+The parenthesised half is nflverse's own `short_name` format. Reading it gives
+an exact match for **24 of the 26** pick labels in the flagged trades; the 2
+misses are 2026 rookies with no upstream record, so nothing of theirs can be
+revised anyway. Five labels are shared by more than one player ("T. McBride"),
+which is permissive in the established direction — the row is still counted and
+reported, just not flagged.
+
+### 2. Alias divergence folding cannot reach (6 rows, 2 players)
+
+Exactly the residual the previous round documented and predicted: **Nyheim
+Miller-Hines** (4 rows) and **Zonovan Knight** (2). Both were called
+unfixable-without-a-crosswalk; that was wrong, and the data was already cached.
+`nflverse_player_ids.csv` publishes several spellings per player and they do not
+agree with the stats files:
+
+| gsis | stats files | ids file | our exports |
+|---|---|---|---|
+| 00-0037157 | `Bam Knight` | display `Bam Knight`, football_name **`Zonovan`**, last `Knight` | `Zonovan Knight` |
+| 00-0034367 | `Nyheim Hines` | display `Nyheim Hines`, short_name **`N.Miller-Hines`** | `Nyheim Miller-Hines` |
+
+Composing first-name candidates against surname candidates recovers our spelling
+in both cases. The earlier check missed it by testing each column as a whole
+name instead of combining them. The same table is what resolves the pick labels
+above, so one alias index closes both causes.
+
+### 3. A schema pin that hadn't caught up (3 flags)
+
+`team_all_time` / `team_year` / `team_week` came back red for "columns reordered
+vs the pinned baseline". Nothing was lost: PR #386 added 8 columns (`Points from
+QBs/WRs/TEs/RBs` and their `% of points` siblings) **mid-sheet**, which shifts
+every later column and trips the order check. The pin was last refreshed in
+\#370.
+
+Re-pinned. The check also now separates the two cases: if every pinned column is
+still present in its pinned relative order and the difference is purely inserted
+columns, that is a stale pin and gets the existing "re-pin with --update-schema"
+NOTE. A genuine shuffle of pinned columns, or one going missing, still flags.
+Feature PRs add columns here most weeks; calling that a dataset breakage is what
+makes the check easy to ignore on the week it means something.
+
+### Result
+
+Replaying the email's 17 rows against drift of the reported size: **17 → 0**,
+schema clean, subject line back to "✅ all clear".
