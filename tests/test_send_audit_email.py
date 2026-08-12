@@ -9,7 +9,9 @@ Run: PYTHONPATH=src:lib python tests/test_send_audit_email.py
 from __future__ import annotations
 
 import os
+import re
 import sys
+from datetime import date
 from pathlib import Path
 
 _ROOT = Path(__file__).resolve().parent.parent
@@ -86,31 +88,50 @@ def check_nflverse_section():
     drift.files.append(N.FileDrift(
         name="nflverse_stats_player_week_2025.csv", changed_cells=2306,
         changed_rows=1850, top_columns=[("position", 1169), ("fumble_recovery_yards_own", 296)]))
-    _, html, issues = E.render_email(flags=[], gaps={}, captures_present=True,
-                                     drift=drift, attributed=32)
-    ok = _ok("section is rendered", "NFLverse changes" in html)
-    ok &= _ok("says how many changes",
-              "NFLverse made 2306 value(s) across 1850 row(s)" in html, html[:400])
-    ok &= _ok("says how much of ours it explains",
-              "accounts for 32 changed past-season row(s)" in html)
-    ok &= _ok("drift alone is NOT an issue week", issues is False)
+    subject, html, issues = E.render_email(flags=[], gaps={}, captures_present=True,
+                                           drift=drift, attributed=32, attributed_cells=57)
+    ok = _ok("drift alone is NOT an issue week", issues is False)
+    ok &= _ok("subject still says all clear", "all clear" in subject, subject)
 
     # A week whose entire story is "upstream revised data and our exports
-    # followed" IS that one line. The per-file breakdown is a diagnostic to read
-    # a breakage against; on a clean week it buried the signal under a page of
-    # upstream trivia, which is what made the 2026-08-05 email unreadable.
-    ok &= _ok("a clean week collapses to the summary line",
-              "position (1169)" not in html, html[:600])
+    # followed" IS one line. Not a shorter section list — one line, one bullet,
+    # nothing but the title beside it.
+    ok &= _ok("says exactly the one sentence",
+              "NFLverse changed 2306 values, which in turn changed 57 cells" in html, html)
+    text = " ".join(re.sub(r"<[^>]+>", " ", html).split())
+    expect = (f"LOTG dataset health — {date.today().isoformat()} "
+              "NFLverse changed 2306 values, which in turn changed 57 cells")
+    ok &= _ok("and nothing else besides the title", text == expect, repr(text))
+    ok &= _ok("exactly one bullet", html.count("<li") == 1, html)
+    for gone in ("Dataset breakages", "NFLverse changes", "Missed injuries",
+                 "All clear this week", "Automated weekly dataset-health check",
+                 "position (1169)"):
+        ok &= _ok(f"no {gone!r} heading//note", gone not in html)
+
+    # A quiet upstream week is the same shape — there is even less to say.
+    _, clean, _ = E.render_email(flags=[], gaps={}, captures_present=True,
+                                 drift=N.Drift(compared=True), attributed=0)
+    ok &= _ok("a quiet upstream week is the same one line",
+              "NFLverse changed 0 values, which in turn changed 0 cells" in clean, clean)
+
+    # The moment anything is flagged the full layout returns, including the
+    # breakdown the breakage has to be read against.
     flags = [{"section": "Part 1", "text": "player_year: 1 changed", "details": []}]
     _, busy, _ = E.render_email(flags=flags, gaps={}, captures_present=True,
                                 drift=drift, attributed=32,
                                 attributed_sheets={"player_year": 32})
-    ok &= _ok("a flagged week keeps the breakdown to read it against",
+    ok &= _ok("a flagged week keeps the sections",
+              "Dataset breakages" in busy and "Missed injuries" in busy)
+    ok &= _ok("and the breakdown to read it against",
               "position (1169)" in busy and "our rows it explains" in busy, busy[:900])
+    ok &= _ok("with the upstream summary spelled out",
+              "NFLverse made 2306 value(s) across 1850 row(s)" in busy)
 
-    _, clean, _ = E.render_email(flags=[], gaps={}, captures_present=True,
-                                 drift=N.Drift(compared=True), attributed=0)
-    ok &= _ok("a quiet upstream week reads clean", "made no changes" in clean)
+    # A missed injury week is also something to look at, so it un-collapses.
+    _, gappy, _ = E.render_email(flags=[], gaps={2026: [3]}, captures_present=True,
+                                 drift=drift, attributed=32)
+    ok &= _ok("a missed injury week keeps the full layout",
+              "Missed injuries" in gappy and "weeks 3" in gappy)
 
     _, none_html, _ = E.render_email(flags=[], gaps={}, captures_present=True)
     ok &= _ok("no snapshot -> says it wasn't measured",

@@ -461,6 +461,146 @@ def check_trade_chain_columns_are_build_volatile(_tmp):
     return ok
 
 
+# --- the 2026-08-12 email: what folding alone could not reach ---------------
+def check_nflverse_alias_table_bridges_sleeper_spellings(tmp):
+    """Some players are spelled differently upstream in a way no folding fixes.
+    NFLverse publishes the other spellings itself, in nflverse_player_ids.csv —
+    display_name "Bam Knight" carries football_name "Zonovan"; "Nyheim Hines"
+    carries short_name "N.Miller-Hines". Both are what our exports say."""
+    d = tmp / "al"
+    d.mkdir(parents=True, exist_ok=True)
+    pd.DataFrame([
+        {"gsis_id": "00-0037157", "display_name": "Bam Knight", "first_name": "Bam",
+         "common_first_name": "Bam", "football_name": "Zonovan",
+         "last_name": "Knight", "short_name": "Z.Knight"},
+        {"gsis_id": "00-0034367", "display_name": "Nyheim Hines", "first_name": "Nyheim",
+         "common_first_name": "Nyheim", "football_name": "Nyheim",
+         "last_name": "Hines", "short_name": "N.Miller-Hines"},
+        {"gsis_id": "00-0039901", "display_name": "Kimani Vidal", "first_name": "Kimani",
+         "common_first_name": "Kimani", "football_name": "Kimani",
+         "last_name": "Vidal", "short_name": "K.Vidal"},
+    ]).to_csv(d / "nflverse_player_ids.csv", index=False)
+
+    al = N.load_name_aliases(d)
+    ok = _ok("Sleeper's 'Zonovan Knight' reaches upstream's 'Bam Knight'",
+             bool(N.name_variants("Zonovan Knight") & al["00-0037157"]))
+    ok &= _ok("and 'Nyheim Miller-Hines' reaches 'Nyheim Hines'",
+              bool(N.name_variants("Nyheim Miller-Hines") & al["00-0034367"]))
+    ok &= _ok("the published spelling still matches too",
+              bool(N.name_variants("Bam Knight") & al["00-0037157"]))
+    ok &= _ok("a pick label's short form resolves",
+              bool(N.name_variants("K. Vidal") & al["00-0039901"]))
+    ok &= _ok("no alias file -> empty table, not a crash", N.load_name_aliases(tmp / "nope") == {})
+
+    # End to end: the stats file prints "Bam Knight", our export says "Zonovan
+    # Knight", and the row must still be attributed.
+    stats = pd.DataFrame([["00-0037157", "Bam Knight", 2022, 5, 24, 0]],
+                         columns=["player_id", "player_display_name", "season",
+                                  "week", "receiving_yards", "rushing_first_downs"])
+    nb, na = tmp / "nb", tmp / "na"
+    for p, yards in ((nb, 24), (na, 23)):
+        p.mkdir(parents=True, exist_ok=True)
+        s = stats.copy(); s.loc[0, "receiving_yards"] = yards
+        s.to_csv(p / "nflverse_stats_player_week_2022.csv", index=False)
+    (na / "nflverse_player_ids.csv").write_text((d / "nflverse_player_ids.csv").read_text())
+    drift = N.diff_nflverse_cache(nb, na)
+
+    base_py = pd.DataFrame({"Player": ["Zonovan Knight"], "Year": ["2022"],
+                            "Points (full season)": ["57.10"]})
+    cur_py = base_py.copy(); cur_py.loc[0, "Points (full season)"] = "57.00"
+    pw = pd.DataFrame({"Player": ["Zonovan Knight"], "Team": ["T"],
+                       "Year": ["2022"], "Week": ["5"]})
+    rep, attributed = _audit(tmp / "e2e", cur_py, pw, base_py, pw, drift)
+    ok &= _ok("the Sleeper-spelled row is attributed", attributed == 1,
+              f"attributed={attributed}\n{rep.render()}")
+    ok &= _ok("and not flagged", rep.confirmed == 0, rep.render())
+    return ok
+
+
+def check_traded_picks_name_the_player_they_became(tmp):
+    """A trade of nothing but draft picks writes its players as "2024 4.06(K.
+    Vidal)". The PPG columns are computed from those players, but the asset
+    string folds to nothing a name can match, so 11 such trades were flagged."""
+    ok = _ok("the pick's player is pulled out of the label",
+             bool(A.NflverseAttribution._names_in("2024 4.06(K. Vidal)")
+                  & N.name_variants("K. Vidal")))
+    ok &= _ok("plain players still work",
+              bool(A.NflverseAttribution._names_in("Mike Gesicki; Allen Lazard")
+                   & N.name_variants("Allen Lazard")))
+
+    base_tr = pd.DataFrame({
+        "Team": ["BROsenzweig", "LWebs53"], "Team's traded with 1": ["shmuel256", "x"],
+        "Date": ["2024-07-13 18:51:36", "2024-01-01 00:00:00"], "Season": ["2024", "2024"],
+        "Assets received": ["2024 4.06(K. Vidal)", "2024 4.09(Q. Nobody)"],
+        "Assets sent": ["2024 4.07(T. Tracy)", "2024 4.10(Z. Nobody)"],
+        "Avg PPG of received players on team": ["6.7826", "1.0"]})
+    cur_tr = base_tr.copy()
+    cur_tr["Avg PPG of received players on team"] = ["6.8261", "1.5"]
+    pw = pd.DataFrame({"Player": ["Kimani Vidal"], "Team": ["T"],
+                       "Year": ["2024"], "Week": ["1"]})
+
+    drift = N.Drift(compared=True)
+    drift.players |= N.name_variants("K. Vidal") | N.name_variants("T. Tracy")
+
+    cur_d, base_d = tmp / "tc", tmp / "tb"
+    for dd, tr in ((cur_d, cur_tr), (base_d, base_tr)):
+        dd.mkdir(parents=True, exist_ok=True)
+        tr.to_csv(dd / "trades.csv", index=False)
+        pw.to_csv(dd / "player_week.csv", index=False)
+    cur = {n: A._read(cur_d, n) for n in A.SHEETS}
+    base = {n: A._read(base_d, n) for n in A.SHEETS}
+    rep = A.Report()
+    attributed = A.audit_diffs(cur, base, 2026, rep, A.NflverseAttribution(drift, cur))
+    text = rep.render()
+    ok &= _ok("the revised pick's trade is withheld", "BROsenzweig" not in text, text)
+    ok &= _ok("a trade of picks upstream never touched still flags", "LWebs53" in text, text)
+    ok &= _ok("one row attributed", attributed == 1, f"attributed={attributed}")
+    return ok
+
+
+def check_added_columns_are_a_stale_pin_not_a_breakage(_tmp):
+    """Three sheets came back red for "columns reordered" because a feature PR
+    added 8 columns mid-sheet and the pin hadn't caught up. Nothing was lost —
+    that is a pin to refresh, not history coming unfrozen. A real shuffle, and
+    a column actually going missing, still flag."""
+    pinned = ["A", "B", "C", "D"]
+    ok = _ok("inserting new columns keeps the pinned order",
+             A._only_insertions(["A", "NEW", "B", "C", "D2", "D"], pinned))
+    ok &= _ok("swapping two pinned columns does not",
+              not A._only_insertions(["B", "A", "C", "D"], pinned))
+    ok &= _ok("a dropped pinned column does not",
+              not A._only_insertions(["A", "B", "D"], pinned))
+
+    import json, tempfile, pathlib
+    # audit_schema reads a column-only frame as a missing sheet, so give each
+    # one a row — otherwise every case below "passes" for the wrong reason.
+    def sheet(cols):
+        return pd.DataFrame([{c: "1" for c in cols}], columns=cols)
+
+    real = A._SCHEMA_BASELINE
+    tmpf = pathlib.Path(tempfile.mkdtemp()) / "schema.json"
+    tmpf.write_text(json.dumps({"team_year": pinned}))
+    A._SCHEMA_BASELINE = tmpf
+    try:
+        rep = A.Report()
+        A.audit_schema({"team_year": sheet(["A", "B", "NEW", "C", "D"])}, rep)
+        ok &= _ok("an insertion is a note, not a flag", rep.confirmed == 0, rep.render())
+        ok &= _ok("and says to re-pin", "--update-schema" in rep.render(), rep.render())
+
+        rep2 = A.Report()
+        A.audit_schema({"team_year": sheet(["B", "A", "C", "D"])}, rep2)
+        ok &= _ok("a genuine reorder still flags", rep2.confirmed == 1, rep2.render())
+        ok &= _ok("and says so", "reordered" in rep2.render(), rep2.render())
+
+        rep3 = A.Report()
+        A.audit_schema({"team_year": sheet(["A", "B", "C"])}, rep3)
+        ok &= _ok("a missing column still flags", rep3.confirmed == 1, rep3.render())
+        ok &= _ok("naming what is gone", "column(s) gone" in rep3.render(), rep3.render())
+    finally:
+        A._SCHEMA_BASELINE = real
+    return ok
+
+
 def run_all() -> bool:
     all_ok = True
     tests = [
@@ -480,6 +620,9 @@ def run_all() -> bool:
         check_current_season_roster_churn_is_not_significant,
         check_pool_columns_track_the_builds_scoring_inputs,
         check_trade_chain_columns_are_build_volatile,
+        check_nflverse_alias_table_bridges_sleeper_spellings,
+        check_traded_picks_name_the_player_they_became,
+        check_added_columns_are_a_stale_pin_not_a_breakage,
         lambda _t: check_significant_drift_flags_in_the_report(_t),
     ]
     with tempfile.TemporaryDirectory() as d:

@@ -18,9 +18,20 @@ alerts on two things:
     the lagging nflverse feed for them.
 
 It's a weekly heartbeat: it sends every week so a silent inbox means "the check
-didn't run", not "nothing's wrong". A clean week is a short "✅ all clear" note;
-a bad week leads with the specific breakages / missed weeks. Pass --skip-clean to
-suppress the email on a clean week instead.
+didn't run", not "nothing's wrong". Pass --skip-clean to suppress the email on a
+clean week instead.
+
+HOW MUCH IT SAYS depends entirely on whether anything needs a decision:
+
+  * NOTHING FLAGGED, no missed weeks, upstream drift measured — the email is its
+    title and one line: "NFLverse changed N values, which in turn changed M
+    cells". No sections, no all-clear notes for the parts with nothing to say,
+    no per-file breakdown. Upstream revising completed seasons and our exports
+    following is the normal state of this pipeline, not an event; the only facts
+    worth reading are how big the change was and how far it reached. Everything
+    else the long form carries exists to be read AGAINST a breakage.
+  * ANYTHING FLAGGED — the full layout returns: the breakages themselves, the
+    NFLverse breakdown to read them against, and the missed-injury weeks.
 
 Credentials come through lotg_support.mailer (DIGEST_KEY-decrypted, same as the
 digest). Safe no-op (logged, exit 0) when creds are absent, unless --require.
@@ -156,13 +167,44 @@ def _injury_html(gaps: dict, captures_present: bool) -> str:
             + "".join(items) + "</ul>")
 
 
+def _upstream_only_html(drift, attributed_cells: int) -> str:
+    """The whole email, on a week that is nothing but upstream drift.
+
+    One bullet, one sentence, no sections. If every past-season row that moved
+    moved because NFLverse revised the data underneath it, there is nothing to
+    look at and nothing to decide — the only fact worth a maintainer's attention
+    is how big the upstream change was and how far it reached into our exports.
+    Everything the long form carries (per-file breakdown, which of our sheets it
+    touched, the all-clear notes for the sections with nothing to say) exists to
+    be read against a breakage, so on a clean week it is noise around the
+    signal. The full layout comes back the moment anything is flagged.
+    """
+    return ('<ul style="margin:0;padding-left:20px;color:#333;">'
+            f'<li style="margin:0;">NFLverse changed {drift.changed_cells} values, '
+            f'which in turn changed {attributed_cells} cells</li></ul>')
+
+
 def render_email(flags, gaps: dict, captures_present: bool, drift=None,
-                 attributed: int = 0, attributed_sheets=None, attributed_columns=None):
+                 attributed: int = 0, attributed_sheets=None, attributed_columns=None,
+                 attributed_cells: int = 0):
     """Return (subject, html, has_issues)."""
     n_break = len(flags)
     n_gap = sum(len(v) for v in gaps.values())
     has_issues = bool(n_break or n_gap)
     today = date.today().isoformat()
+
+    # Nothing flagged, no missed weeks, and upstream drift actually measured:
+    # the week collapses to its one line. Without a drift snapshot we cannot
+    # make that claim, so the full layout stands.
+    if not has_issues and drift is not None and getattr(drift, "compared", False):
+        html = f"""<div style="max-width:680px;margin:0 auto;padding:16px;font:15px/1.5 system-ui,sans-serif;color:#222;">
+  <div style="background:#e7f4ea;border-radius:8px;padding:14px 16px;margin-bottom:16px;">
+    <h1 style="font:700 20px/1.3 system-ui,sans-serif;color:#0b2545;margin:0;">LOTG dataset health — {today}</h1>
+  </div>
+  {_upstream_only_html(drift, attributed_cells)}
+</div>"""
+        return f"✅ LOTG dataset health — all clear ({today})", html, False
+
     if has_issues:
         bits = []
         if n_break:
@@ -238,7 +280,7 @@ def main(argv=None) -> int:
 
     subject, html, has_issues = render_email(
         flags, gaps, bool(captures), rep.drift, rep.nflverse_attributed,
-        rep.attributed_sheets, rep.attributed_columns)
+        rep.attributed_sheets, rep.attributed_columns, rep.attributed_cells)
     print(f"[audit-email] {subject}")
     if args.out:
         Path(args.out).parent.mkdir(parents=True, exist_ok=True)
