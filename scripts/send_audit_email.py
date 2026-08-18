@@ -86,9 +86,11 @@ def _esc(s: str) -> str:
 
 def _breakage_html(flags) -> str:
     if not flags:
-        return ('<p style="color:#137333;margin:0;">✅ No dataset breakages — '
-                'historical data is frozen, every sheet keeps its pinned columns, '
-                'and the last build ran clean.</p>')
+        return ('<p style="color:#137333;margin:0;">✅ Nothing unaccounted for — '
+                'every row of every sheet either matches the committed build or is '
+                'explained (the wall clock, a renumbered row pointer, or an '
+                'NFLverse revision), every sheet keeps its pinned columns, and the '
+                'last build logged no errors.</p>')
     items = []
     for f in flags:
         sec = f" <span style=\"color:#888;\">({_esc(f['section'].split('—')[0].strip())})</span>" if f.get("section") else ""
@@ -131,8 +133,8 @@ def _nflverse_html(drift, attributed: int, sheets=None, columns=None,
         return f'<p style="color:#137333;margin:0;">✅ {summary}</p>'
     tail = ""
     if attributed:
-        tail = (f' It accounts for {attributed} changed past-season row(s) in our '
-                'exports, which are therefore not flagged as breakages.')
+        tail = (f' It accounts for {attributed} changed row(s) in our exports, '
+                'which are therefore not flagged as breakages.')
     lines = []
     if breakages:
         lines = list(drift.detail_lines())
