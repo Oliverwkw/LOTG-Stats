@@ -1345,6 +1345,54 @@ def digest_title(meta: dict) -> str:
             else f"LOTG weekly digest — {season} season")
 
 
+def digest_sections(
+    crossings: Sequence[Crossing] = (),
+    projections: Sequence[Projection] = (),
+    milestones: Sequence[Milestone] = (),
+    records: Sequence[YearlyRecord] = (),
+    highlights: Sequence[WeeklyHighlight] = (),
+    events: Sequence["EventCrossing"] = (),
+) -> List[Tuple[str, str, list]]:
+    """(title, verb, items) for every non-empty digest section, in email order.
+
+    The single place the digest's shape is declared. `render_digest_html` walks
+    it to build the email and `digest_summary` walks it to write the lede, so a
+    new section appears in both by being added here and nowhere else — the lede
+    can't silently stop covering a section the email grew.
+
+    An empty `verb` means the section renders flat (one sentence per line);
+    otherwise items are grouped by `.group()` under "<entity> <verb>:".
+    """
+    def sect(sec):
+        return [x for x in projections if x.section == sec]
+
+    # In-season shows projections as "on pace"; a completed-season wrap resolves
+    # them to final results ("finished Nth"), so the heading changes to match.
+    yr_final = any(getattr(p, "final", False) for p in projections)
+    yr_title = "Season-long results" if yr_final else "On pace this season"
+    pace_verb = "finished with the" if yr_final else "on pace for"
+
+    out: List[Tuple[str, str, list]] = [
+        ("Single-week records (this week)", "had these single-week records",
+         list(highlights)),
+        ("All-time leaderboard moves — players", "made these all-time moves",
+         [c for c in crossings if c.section == "players"]),
+        ("All-time leaderboard moves — teams", "made these all-time moves",
+         [c for c in crossings if c.section == "teams"]),
+        ("New single-season records", "set these single-season records",
+         list(records)),
+        ("League milestones", "", list(milestones)),
+        (f"{yr_title} — players", pace_verb, sect("players")),
+        (f"{yr_title} — teams", pace_verb, sect("teams")),
+        (f"{yr_title} — league", pace_verb, sect("league")),
+    ]
+    # One section per board sheet, in _BOARD_SHEETS order.
+    out += [(f"All-time leaderboard moves — {cfg['title']}", "moved",
+             [e for e in events if e.sheet == sheet])
+            for sheet, cfg in _BOARD_SHEETS.items()]
+    return [(t, v, items) for t, v, items in out if items]
+
+
 def render_digest_html(
     crossings: Sequence[Crossing],
     projections: Sequence[Projection],
@@ -1356,44 +1404,22 @@ def render_digest_html(
     intro: str = "",
     events: Sequence["EventCrossing"] = (),
 ) -> str:
-    def sect(sec):
-        return [x for x in projections if x.section == sec]
-
     if header is None:
         header = digest_title(meta)
-
-    # In-season shows projections as "on pace"; a completed-season wrap resolves
-    # them to final results ("finished Nth"), so the heading changes to match.
-    yr_final = any(getattr(p, "final", False) for p in projections)
-    yr_title = "Season-long results" if yr_final else "On pace this season"
-    pace_verb = "finished with the" if yr_final else "on pace for"
 
     body = [
         '<div style="max-width:680px;margin:0 auto;padding:16px;">',
         f'  <h1 style="font:700 22px/1.3 system-ui,sans-serif;'
         f'color:#0b2545;margin:0 0 4px;">{header}</h1>',
-        (f'  <p style="font:16px/1.4 system-ui,sans-serif;color:#0b2545;'
-         f'margin:0 0 8px;">{intro}</p>' if intro else ""),
-        _grouped_section_html("Single-week records (this week)", list(highlights),
-                              "had these single-week records"),
-        _grouped_section_html("All-time leaderboard moves — players",
-                              [c for c in crossings if c.section == "players"], "made these all-time moves"),
-        _grouped_section_html("All-time leaderboard moves — teams",
-                              [c for c in crossings if c.section == "teams"], "made these all-time moves"),
-        _grouped_section_html("New single-season records", list(records),
-                              "set these single-season records"),
-        _section_html("League milestones", [m.sentence() for m in milestones]),
-        _grouped_section_html(f"{yr_title} — players", sect("players"), pace_verb),
-        _grouped_section_html(f"{yr_title} — teams", sect("teams"), pace_verb),
-        _grouped_section_html(f"{yr_title} — league", sect("league"), pace_verb),
+        (f'  <p style="font:16px/1.5 system-ui,sans-serif;color:#0b2545;'
+         f'margin:0 0 8px;padding:12px 14px;background:#f2f6fb;'
+         f'border-left:3px solid #0b2545;border-radius:4px;">{intro}</p>'
+         if intro else ""),
     ]
-    # One section per board sheet, in _BOARD_SHEETS order, so a new sheet shows up
-    # in the email by being added there and nowhere else.
-    body += [
-        _grouped_section_html(f"All-time leaderboard moves — {cfg['title']}",
-                              [e for e in events if e.sheet == sheet], "moved")
-        for sheet, cfg in _BOARD_SHEETS.items()
-    ]
+    for title, verb, items in digest_sections(
+            crossings, projections, milestones, records, highlights, events):
+        body.append(_grouped_section_html(title, items, verb) if verb
+                    else _section_html(title, [i.sentence() for i in items]))
     if not any([highlights, crossings, records, milestones, projections, events]):
         body.append('  <p style="font:15px system-ui,sans-serif;color:#666;">'
                      'No leaderboard changes this week.</p>')

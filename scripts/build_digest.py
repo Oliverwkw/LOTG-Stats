@@ -17,11 +17,17 @@ is no in-progress week. A digest with no movement is suppressed at SEND time
 in-season and off. `--phrasing-csv PATH` writes the "how every stat is phrased"
 catalog and exits.
 
+The email opens with a two-or-three-sentence lede saying what actually happened,
+because the list under it runs to dozens of one-line facts. Claude writes it when
+ANTHROPIC_API_KEY is set and the draft passes a grounding guard; otherwise it is
+the counts. Neither path can fail the build — see `lotg_support/digest_summary`.
+
 Delivery is separate — see `scripts/send_digest.py`. This CLI only renders.
 
 Usage:
   PYTHONPATH=src:lib python scripts/build_digest.py [--exports DIR]
        [--snapshot PATH] [--out PATH] [--force] [--phrasing-csv PATH]
+       [--no-ai-summary]
 """
 from __future__ import annotations
 
@@ -33,6 +39,7 @@ from pathlib import Path
 import pandas as pd
 
 from lotg_support import digest as D
+from lotg_support import digest_summary as DS
 
 _ROOT = Path(__file__).resolve().parent.parent
 
@@ -56,6 +63,9 @@ def main(argv=None) -> int:
     ap.add_argument("--replica", default=None,
                     help="write the 'most recent digest' replica (latest completed "
                          "season's post-championship wrap) to this path and exit")
+    ap.add_argument("--no-ai-summary", action="store_true",
+                    help="skip the Claude-written lede and always use the counted "
+                         "one (the default anyway when ANTHROPIC_API_KEY is unset)")
     args = ap.parse_args(argv)
 
     exports = Path(args.exports)
@@ -167,8 +177,21 @@ def main(argv=None) -> int:
         else:
             event_changes = D.diff_events(prior_events, events)
 
+    # The lede: two or three sentences above the list saying what actually
+    # happened, because 68 one-line facts is a wall nobody reads. Claude writes
+    # it from the digest's own sentences when a key is configured and the draft
+    # passes the grounding guard; otherwise it's the counts. Either way this
+    # cannot fail the build — see lotg_support/digest_summary.
+    sections = D.digest_sections(crossings, proj_changes, milestones,
+                                 record_changes, highlights, event_changes)
+    intro = DS.build_intro(sections, D.digest_title(meta),
+                           use_ai=not args.no_ai_summary)
+    if intro:
+        print(f"[digest] lede: {intro}")
+
     html = D.render_digest_html(crossings, proj_changes, meta, milestones,
-                                record_changes, highlights, events=event_changes)
+                                record_changes, highlights, intro=intro,
+                                events=event_changes)
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(html)
     print(f"[digest] {len(highlights)} single-week highlight(s), {len(crossings)} crossing(s), "
