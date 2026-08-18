@@ -4,6 +4,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 import json
+import os
+import subprocess
 
 import pandas as pd
 
@@ -16,6 +18,30 @@ SLEEPER_BASE = "https://api.sleeper.app/v1"
 # Records when snapshot_all last captured live data, so a build can tell whether
 # the committed snapshot is fresh enough to build on (see snapshot_age_days).
 SNAPSHOT_META_NAME = "_snapshot_meta.json"
+
+
+def _current_commit() -> Optional[str]:
+    """The commit this build ran from — GITHUB_SHA in Actions, else `git`."""
+    sha = os.environ.get("GITHUB_SHA")
+    if sha:
+        return sha.strip()
+    try:
+        out = subprocess.run(["git", "rev-parse", "HEAD"], capture_output=True,
+                             text=True, timeout=10)
+        return out.stdout.strip() or None
+    except Exception:
+        return None
+
+
+def snapshot_built_from_commit(repo_root: Path) -> Optional[str]:
+    """The commit the committed exports were built from, if it was recorded."""
+    meta = repo_root / "exports" / "snapshot" / SNAPSHOT_META_NAME
+    if not meta.exists():
+        return None
+    try:
+        return json.loads(meta.read_text()).get("built_from_commit") or None
+    except Exception:
+        return None
 
 
 def snapshot_captured_at(repo_root: Path) -> Optional[datetime]:
@@ -244,9 +270,15 @@ def snapshot_all(
             week += 1
 
     # Stamp the capture time last, so a partially-written snapshot isn't dated fresh.
+    # `built_from_commit` is what lets the weekly audit tell a REGRESSION from a
+    # code change: Part 1 asks "does a fresh rebuild reproduce the committed
+    # exports?", which is only answerable while both sides are the same software.
+    # Without the stamp, every merged PR read as historical data coming unfrozen.
     _safe_write_json(
         snapshot_dir / SNAPSHOT_META_NAME,
-        {"captured_at": datetime.now(timezone.utc).isoformat(), "league_id": str(league_id)},
+        {"captured_at": datetime.now(timezone.utc).isoformat(),
+         "league_id": str(league_id),
+         "built_from_commit": _current_commit()},
     )
 
     return snapshot_dir

@@ -322,7 +322,15 @@ jobs:
         env:
           DIGEST_KEY: ${{ secrets.DIGEST_KEY }}
           DIGEST_RECIPIENTS: ${{ secrets.DIGEST_RECIPIENTS }}
-        run: python scripts/send_digest.py --skip-empty
+        # `--manual` on a hand-triggered run: the real digest, but addressed to
+        # the maintainer instead of the league. Only the Tuesday cron mails all
+        # eight. Run 462 was a workflow_dispatch and went to everyone.
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            python scripts/send_digest.py --skip-empty --manual
+          else
+            python scripts/send_digest.py --skip-empty
+          fi
 
       - name: Rotate digest snapshot (Tuesday send run only)
         # Commit the rotated ranks snapshot ONLY on the send run, and only once

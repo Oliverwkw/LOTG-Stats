@@ -22,6 +22,7 @@ because delivery isn't wired yet.
 Usage:
   python scripts/send_digest.py [--html PATH] [--config PATH]
                                 [--snapshot PATH] [--skip-empty] [--require]
+                                [--manual]   # hand-triggered: maintainer only
 """
 from __future__ import annotations
 
@@ -46,6 +47,10 @@ _decrypt_credentials = mailer.decrypt_credentials
 def _recipients_for(cfg: dict, test: bool):
     """Test emails go to `test_recipients` (falling back to `recipients`); the
     real digest goes to `recipients` (the whole league).
+
+    `--manual` routes here too — see main(). A hand-triggered run is someone
+    checking their work, and it must not put a provisional digest in front of
+    eight people; run 462 mailed one to the whole league before this existed.
 
     A DIGEST_TEST_RECIPIENTS / DIGEST_RECIPIENTS env var (repo secret) overrides
     the committed YAML, so the addresses need not sit in this public repo."""
@@ -90,6 +95,10 @@ def main(argv=None) -> int:
     ap.add_argument("--test", action="store_true",
                     help="send a confirmation email (delivery banner + a replay of "
                          "the most recent real digest) to the test recipients")
+    ap.add_argument("--manual", action="store_true",
+                    help="this run was triggered by hand, not by the weekly cron: "
+                         "send the REAL digest but only to the test recipients "
+                         "(the maintainer), never to the league")
     ap.add_argument("--last-digest", default=str(_ROOT / "data" / "digest" / "last_digest.html"),
                     help="the most recent real digest, replayed inside a test email")
     args = ap.parse_args(argv)
@@ -123,7 +132,10 @@ def main(argv=None) -> int:
             return _bail("digest has no changes this week — skipping send.")
         subject = _subject(Path(args.snapshot))
 
-    recipients = _recipients_for(cfg, args.test)
+    # A manual run gets the real digest, addressed like a test.
+    recipients = _recipients_for(cfg, args.test or args.manual)
+    if args.manual and not args.test:
+        print("[send] manual run — addressing the maintainer only, not the league.")
     if not recipients:
         return _bail(f"no recipients configured in {args.config}.")
 

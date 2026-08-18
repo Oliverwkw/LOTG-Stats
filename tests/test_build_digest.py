@@ -123,10 +123,32 @@ def check_legacy_snapshot_rebaselines():
                    _EMPTY in h.read_text())
 
 
+def check_manual_run_addresses_the_maintainer():
+    """A hand-triggered run sends the REAL digest, but only to the maintainer.
+
+    Run 462 was a workflow_dispatch and mailed a provisional digest — 65 lines of
+    churn from a KTC correction — to all eight league members."""
+    import send_digest as S
+    cfg = {"recipients": ["a@x.com", "b@x.com", "c@x.com"],
+           "test_recipients": ["okeimweiss@gmail.com"]}
+    league = S._recipients_for(cfg, False)
+    manual = S._recipients_for(cfg, True)
+    ok = _ok("the weekly cron still reaches the league", len(league) == 3, league)
+    ok &= _ok("a manual run reaches the maintainer only",
+              manual == ["okeimweiss@gmail.com"], manual)
+    ok &= _ok("--manual is a real flag", "--manual" in open(
+        _ROOT / "scripts" / "send_digest.py").read())
+    wf = (_ROOT / ".github" / "workflows" / "build.yml").read_text()
+    ok &= _ok("the workflow passes it on workflow_dispatch",
+              "--skip-empty --manual" in wf and 'github.event_name }}" = "workflow_dispatch"' in wf)
+    return ok
+
+
 def run_all() -> bool:
     all_ok = True
     for t in (check_year_round_build, check_movement_makes_nonempty,
-              check_legacy_snapshot_rebaselines):
+              check_legacy_snapshot_rebaselines,
+              check_manual_run_addresses_the_maintainer):
         print(f"\n{t.__name__}:")
         all_ok &= bool(t())
     print("\n" + ("ALL PASS" if all_ok else "SOME FAILED"))
