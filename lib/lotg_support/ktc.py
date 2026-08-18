@@ -89,20 +89,44 @@ def load_directory(repo_root: Path) -> List[Dict]:
     return json.loads(cache.read_text())
 
 
+# How long a cached history may go without being re-fetched. "Past values don't
+# change" is true and was taken to mean the file never needed refreshing — but a
+# history also ENDS where it was fetched, so an unrefreshed cache freezes the
+# recent tail. Measured 2026-08-18: every cached history stopped at 2026-07-13,
+# the day after ktc.py last changed and busted the Actions cache key. Five weeks
+# of quotes had simply never been downloaded, and with the no-window rule every
+# target in that span falls back to carrying an older value.
+#
+# Keyed on the FILE's age, not the data's: a retired player's history legitimately
+# ends years ago and must not be re-fetched every build for that reason.
+_HISTORY_MAX_AGE_H = float(os.environ.get("LOTG_KTC_HISTORY_MAX_AGE_H", "24"))
+
+
 def load_history(repo_root: Path, name_id: str) -> List[Dict]:
-    """Per-player full history. Cached indefinitely (past values don't change)."""
+    """Per-player full history, re-fetched once the cached file goes stale.
+
+    Past values don't change, so a stale read is never *wrong* — it is just
+    short, missing everything published since the file was written. On a fetch
+    failure the cached copy is returned rather than dropped."""
     cache = _cache_dir(repo_root) / "players" / f"{name_id}.json"
+    cached: Optional[List[Dict]] = None
     if cache.exists():
         try:
-            return json.loads(cache.read_text())
+            cached = json.loads(cache.read_text())
         except Exception:
             cache.unlink(missing_ok=True)
+        else:
+            age_h = (datetime.utcnow().timestamp() - cache.stat().st_mtime) / 3600.0
+            if age_h < _HISTORY_MAX_AGE_H:
+                return cached
     try:
         data = _http_get_json(f"{DD_BASE}/player/{name_id}")
     except Exception:
-        return []
+        return cached if cached is not None else []
     if not isinstance(data, list):
         data = []
+    if not data and cached:
+        return cached          # an empty answer must not erase a good history
     cache.write_text(json.dumps(data))
     return data
 

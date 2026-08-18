@@ -215,6 +215,44 @@ def test_no_stray_aug28_draft_anchors():
 # Worth-zero must stay distinct from could-not-value.
 # --------------------------------------------------------------------------
 
+def test_cached_history_is_refetched_once_stale():
+    """A cached history is a warm start, not a permanent answer.
+
+    "Past values don't change" is true, but a history also ENDS where it was
+    fetched — so a never-refreshed cache silently freezes the recent tail. Every
+    cached file stopped at 2026-07-13 (the day ktc.py last busted the Actions
+    cache key) until this was added.
+    """
+    import json, os, time, tempfile, pathlib
+    from lotg_support import ktc as K
+    root = pathlib.Path(tempfile.mkdtemp())
+    d = root / "data" / "ktc_cache" / "players"
+    d.mkdir(parents=True, exist_ok=True)
+    (d / "x.json").write_text(json.dumps([{"date": "2024-01-01", "sf_trade_value": 1}]))
+    calls = []
+    real = K._http_get_json
+    K._http_get_json = lambda url: (calls.append(url),
+                                    [{"date": "2026-08-18", "sf_trade_value": 2}])[1]
+    try:
+        # Fresh file -> served from cache, no fetch.
+        assert K.load_history(root, "x")[0]["date"] == "2024-01-01"
+        assert calls == [], calls
+        # Age it past the window -> re-fetched, and the new tail lands.
+        old = time.time() - (K._HISTORY_MAX_AGE_H + 1) * 3600
+        os.utime(d / "x.json", (old, old))
+        got = K.load_history(root, "x")
+        assert len(calls) == 1, calls
+        assert got[-1]["date"] == "2026-08-18", got
+        # A failed fetch must return the cached copy, never erase it.
+        os.utime(d / "x.json", (old, old))
+        def boom(url): raise RuntimeError("down")
+        K._http_get_json = boom
+        assert K.load_history(root, "x")[-1]["date"] == "2026-08-18"
+    finally:
+        K._http_get_json = real
+    print("ok: test_cached_history_is_refetched_once_stale")
+
+
 def test_zero_and_none_are_distinct_outcomes():
     """A retired player resolves to 0.0; an unknown one resolves to None.
 
@@ -273,6 +311,7 @@ def test_side_values_does_not_drop_zeros():
 if __name__ == "__main__":
     for fn in (
         test_no_stray_aug28_draft_anchors,
+        test_cached_history_is_refetched_once_stale,
         test_zero_and_none_are_distinct_outcomes,
         test_side_values_does_not_drop_zeros,
         test_clean_slot_labels,
