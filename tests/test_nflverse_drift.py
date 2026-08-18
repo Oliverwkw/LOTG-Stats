@@ -184,7 +184,7 @@ def check_audit_withholds_attributable_rows(tmp):
               "Cooper Kupp" not in text and "Jaylin Noel" not in text, text)
     ok &= _ok("but counted", attributed == 2, f"attributed={attributed}")
     ok &= _ok("and reported, with the column",
-              "2 past-season row(s) moved because NFLverse revised" in text
+              "2 row(s) moved because NFLverse revised" in text
               and "Points (full season) (2)" in text, text)
     return ok
 
@@ -247,7 +247,7 @@ def check_added_removed_rows_are_never_attributed(tmp):
     rep, attributed = _audit(tmp / "ar", cur_py, pw, base_py, pw, drift)
     text = rep.render()
     ok = _ok("the added row is still flagged", rep.confirmed == 1, f"{rep.confirmed}\n{text}")
-    ok &= _ok("reported as added", "1 added past-season row(s)" in text, text)
+    ok &= _ok("reported as added", "1 added row(s) moved" in text, text)
     ok &= _ok("nothing attributed", attributed == 0, f"attributed={attributed}")
     return ok
 
@@ -584,7 +584,12 @@ def check_added_columns_are_a_stale_pin_not_a_breakage(_tmp):
     try:
         rep = A.Report()
         A.audit_schema({"team_year": sheet(["A", "B", "NEW", "C", "D"])}, rep)
-        ok &= _ok("an insertion is a note, not a flag", rep.confirmed == 0, rep.render())
+        # A column that is not in the pin is a change to the shape of what we
+        # ship. The audit cannot tell a feature PR from an accident, so it says
+        # so and the pin is refreshed deliberately rather than by default.
+        ok &= _ok("an insertion is flagged, naming the column and the fix",
+                  rep.confirmed == 1 and "NEW" in rep.render()
+                  and "--update-schema" in rep.render(), rep.render())
         ok &= _ok("and says to re-pin", "--update-schema" in rep.render(), rep.render())
 
         rep2 = A.Report()
