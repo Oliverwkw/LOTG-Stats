@@ -223,12 +223,20 @@ def test_zero_and_none_are_distinct_outcomes():
     (N/A). If asset_value_at ever collapsed the two, that distinction dies.
     """
     idx = ValueIndex()
-    idx.add_player("known", [{"date": "2021-06-01", "trade_value": 900}], "trade_value")
-    # On the rolls today, so a post-floor absence is not zeroed by the off-rolls rule.
-    idx.active_sids = {"known", "ranked_but_late"}
+    idx.add_player("known", [{"date": "2023-12-20", "trade_value": 900}], "trade_value")
+    idx.add_player("stale", [{"date": "2021-06-01", "trade_value": 900}], "trade_value")
+    # Today's directory must not enter into any of this — see asset_value_at.
+    idx.active_sids = {"known", "stale", "never_ranked"}
     # A player KTC never ranked, queried after the floor -> confirmed worthless.
     assert asset_value_at(None, "never_ranked", date(2024, 1, 1), idx) == 0.0
-    # A real value resolves as itself.
+    # A quote from twelve days earlier resolves as itself.
+    assert asset_value_at(None, "known", date(2024, 1, 1), idx) == 900.0
+    # A quote from two and a half years earlier does NOT carry forward: he was not
+    # being quoted at the target, so he was off the rolls THEN -> 0.0. This holds
+    # whether or not he is on the rolls today, which is the point.
+    assert asset_value_at(None, "stale", date(2024, 1, 1), idx) == 0.0
+    idx.active_sids = set()
+    assert asset_value_at(None, "stale", date(2024, 1, 1), idx) == 0.0
     assert asset_value_at(None, "known", date(2024, 1, 1), idx) == 900.0
     # An unknown asset with no id at all -> None, not 0.
     assert asset_value_at(None, None, date(2024, 1, 1), idx) is None

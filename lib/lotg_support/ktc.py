@@ -126,7 +126,8 @@ class ValueIndex:
         # pick full_name (dynasty-daddy labels) -> sorted history
         self.pick: Dict[str, List[Tuple[str, float]]] = {}
         # sleeper_ids currently in KTC's rolls (today's directory). A player NOT
-        # in this set is off the rolls (retired / aged out, e.g. Drew Brees) and
+        # in this set is off the rolls TODAY (retired / aged out, e.g. Drew Brees).
+        # Historical checkpoints must not consult it — see asset_value_at — and
         # is worth 0 — distinct from an active player who simply has no value at a
         # pre-history date. Populated by build_index.
         self.active_sids: set = set()
@@ -343,8 +344,9 @@ def build_index(
             pick_name_to_name_id[fn] = nm
 
     idx = ValueIndex()
-    # Current KTC rolls (active assets in today's directory), so the query can
-    # tell "off the rolls -> value 0" from "active but pre-history -> unknown".
+    # Current KTC rolls (active assets in today's directory). Used for pick
+    # labelling and diagnostics only: a historical value must never depend on who
+    # happens to be listed on the day the build runs (see asset_value_at).
     idx.active_sids = {str(p.get("sleeper_id")) for p in directory if p.get("sleeper_id")}
     idx.last_active_season = {str(k): int(v) for k, v in (last_active_season or {}).items()}
 
@@ -526,7 +528,6 @@ def asset_value_at(
         return None
     sid = str(sleeper_id)
     pairs = idx.player.get(sid)
-    off_rolls = sid not in idx.active_sids
     # When there's NO KTC value at the target, return 0 (genuinely valueless)
     # rather than N/A (unknown) IF we can affirm the player had no legitimate
     # dynasty value then:
@@ -540,9 +541,9 @@ def asset_value_at(
     las = idx.last_active_season.get(sid)
     confirmed_zero = (target >= KTC_FLOOR) or (las is not None and target.year > las)
 
-    # KTC = 0 ONLY when the player has demonstrably dropped off the rolls BY the
-    # target date (off the current rolls AND target is after their last recorded
-    # KTC value), OR when absence is confirmed valueless per the rule above.
+    # KTC = 0 ONLY when the player had demonstrably dropped off the rolls BY the
+    # TARGET DATE — judged from his own quote history, not from today's directory
+    # — OR when absence is confirmed valueless per the rule above.
     if not pairs:
         return 0.0 if confirmed_zero else None
     v = idx.value_at(sid, target, is_pick=False)  # latest value on/before target
@@ -550,13 +551,23 @@ def asset_value_at(
         # target precedes their first recorded value: 0 if confirmed valueless,
         # else unknown (active pre-tracking) -> N/A.
         return 0.0 if confirmed_zero else None
-    # v carries the last known value forward. If the player is off the current rolls
-    # AND target is LONG after their last recorded value, they've genuinely dropped
-    # off KTC by then -> 0 (don't carry a stale value forward for months). A SHORT
-    # gap (e.g. an end-of-rookie checkpoint two weeks after a sparse Wayback point)
-    # carries the real value forward.
+    # v carries the last known value forward. When `target` is LONG after the last
+    # recorded value, the player was not being quoted AT THE TARGET — that is what
+    # "off the rolls" has to mean for a historical checkpoint, and the player's own
+    # history is the only thing that can say it. A SHORT gap (e.g. an end-of-rookie
+    # checkpoint two weeks after a sparse Wayback point) carries the real value
+    # forward.
+    #
+    # This deliberately does NOT consult `idx.active_sids`. That set is today's KTC
+    # directory, which churns daily, and gating the rule on it made a 2025
+    # checkpoint depend on whether the player happened to be listed on the morning
+    # of the build: Odell Beckham's last quote is 2025-01-18, and his "2 years after
+    # draft day" (2025-09) read 0.0 in one week's build and 167.0 the next — the
+    # January quote leaking eight months forward — with no code change in between.
+    # Neither number was found; only the directory moved. Asking the history
+    # instead makes the answer a property of the date, not of the build day.
     last_ds = pairs[-1][0]
-    if off_rolls and target.isoformat() > last_ds:
+    if target.isoformat() > last_ds:
         try:
             ly, lm, ld = (int(x) for x in last_ds.split("-"))
             if (target - date(ly, lm, ld)).days > 120:
