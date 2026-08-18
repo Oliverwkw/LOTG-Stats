@@ -86,9 +86,9 @@ def _esc(s: str) -> str:
 
 def _breakage_html(flags) -> str:
     if not flags:
-        return ('<p style="color:#137333;margin:0;">✅ No dataset breakages — '
-                'historical data is frozen, every sheet keeps its pinned columns, '
-                'and the last build ran clean.</p>')
+        return ('<p style="color:#137333;margin:0;">✅ Nothing moved — not one row '
+                'of any sheet differs from the committed build, every sheet keeps '
+                'its pinned columns, and the last build logged no errors.</p>')
     items = []
     for f in flags:
         sec = f" <span style=\"color:#888;\">({_esc(f['section'].split('—')[0].strip())})</span>" if f.get("section") else ""
@@ -113,8 +113,9 @@ def _breakage_html(flags) -> str:
 def _nflverse_html(drift, attributed: int, sheets=None, columns=None,
                    breakages: int = 0) -> str:
     """The 'NFLverse made N changes' line. Upstream back-corrects completed
-    seasons; that is their data moving, not our build breaking, so it gets its
-    own informational section instead of being counted as a breakage.
+    seasons, so this gets its own informational section — but the rows it touched
+    are still flagged in Part 1. The section says which of the flags upstream can
+    explain; it never withholds one.
 
     How much detail rides along depends on whether anything actually needs a
     look. A week whose whole story is "upstream revised some data and our
@@ -131,8 +132,9 @@ def _nflverse_html(drift, attributed: int, sheets=None, columns=None,
         return f'<p style="color:#137333;margin:0;">✅ {summary}</p>'
     tail = ""
     if attributed:
-        tail = (f' It accounts for {attributed} changed past-season row(s) in our '
-                'exports, which are therefore not flagged as breakages.')
+        tail = (f' It could account for {attributed} of the changed row(s) flagged '
+                'above — the likeliest place to start, not a reason they were not '
+                'flagged.')
     lines = []
     if breakages:
         lines = list(drift.detail_lines())

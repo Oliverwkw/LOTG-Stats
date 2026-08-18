@@ -46,23 +46,68 @@ def check_current_season_ignores_future_picks(tmp):
               A._current_season(cur) == 2026, f"got {A._current_season(cur)}")
 
 
-def check_diff_flags_past_change_exempts_current(tmp):
+def check_diff_flags_every_row_including_current_season(tmp):
+    """Nothing is exempt by season. The old audit compared only rows from
+    completed seasons, which left the whole in-progress season — and, on picks,
+    every future-dated row — unchecked."""
     base_dir, cur_dir = tmp / "base", tmp / "cur"
     base = pd.DataFrame({"Team": ["A", "A", "A"], "Year": ["2024", "2025", "2026"], "PF": ["100", "110", "50"]})
     _write(base_dir, "team_year", base)
-    # Change a 2024 (historical) value AND a 2026 (current) value.
     cur = base.copy()
-    cur.loc[0, "PF"] = "999"   # historical → must flag
-    cur.loc[2, "PF"] = "80"    # current    → exempt
+    cur.loc[0, "PF"] = "999"   # historical
+    cur.loc[2, "PF"] = "80"    # in-progress season
     _write(cur_dir, "team_year", cur)
     curf = {n: A._read(cur_dir, n) for n in A.SHEETS}
     basef = {n: A._read(base_dir, n) for n in A.SHEETS}
     rep = A.Report()
     A.audit_diffs(curf, basef, 2026, rep)
     text = rep.render()
-    ok = _ok("historical 2024 change flagged", rep.confirmed == 1, f"confirmed={rep.confirmed}")
+    ok = _ok("the sheet is flagged", rep.confirmed == 1, f"confirmed={rep.confirmed}")
     ok &= _ok("report names team_year", "team_year" in text)
-    ok &= _ok("current-season 2026 change NOT flagged", "999" not in text or "Year=2026" not in text)
+    ok &= _ok("both rows counted", "2 changed" in text, text)
+    ok &= _ok("the historical row is named", "999" in text, text)
+    ok &= _ok("the CURRENT-season row is named too", "Year=2026" in text, text)
+    return ok
+
+
+def check_all_time_sheets_are_diffed(tmp):
+    """player/team/league_all_time have no per-row season and used to be skipped
+    entirely — 288 columns nothing ever compared."""
+    base_dir, cur_dir = tmp / "base", tmp / "cur"
+    for d, pf, donuts in ((base_dir, "100", "7"), (cur_dir, "101", "9")):
+        _write(d, "team_all_time", pd.DataFrame({"Team": ["A", "B"], "PF": [pf, "200"]}))
+        _write(d, "player_all_time", pd.DataFrame({"Player": ["p", "q"], "Points": ["10", "20"]}))
+        _write(d, "league_all_time", pd.DataFrame({"Number of donuts": [donuts]}))
+    curf = {n: A._read(cur_dir, n) for n in A.SHEETS}
+    basef = {n: A._read(base_dir, n) for n in A.SHEETS}
+    rep = A.Report()
+    A.audit_diffs(curf, basef, 2026, rep)
+    text = rep.render()
+    ok = _ok("team_all_time is compared", "team_all_time" in text, text)
+    ok &= _ok("its moved column is named", "PF" in text, text)
+    ok &= _ok("the one-row league sheet pairs as a change, not add+remove",
+              "league_all_time" in text and "1 changed" in text, text)
+    ok &= _ok("the league delta is shown", "7" in text and "9" in text, text)
+    return ok
+
+
+def check_no_column_is_exempt(tmp):
+    """The build-volatile classifier no longer decides what gets compared."""
+    base_dir, cur_dir = tmp / "base", tmp / "cur"
+    cols = {"Team": ["A"], "Year": ["2024"], "Luck": ["1.0"], "Trading skill": ["50.0"],
+            "Hardship": ["3.0"], "Future draft capital": ["9.0"]}
+    _write(base_dir, "team_year", pd.DataFrame(cols))
+    moved = dict(cols, **{"Luck": ["2.0"], "Trading skill": ["51.0"],
+                          "Hardship": ["4.0"], "Future draft capital": ["8.0"]})
+    _write(cur_dir, "team_year", pd.DataFrame(moved))
+    rep = A.Report()
+    A.audit_diffs({n: A._read(cur_dir, n) for n in A.SHEETS},
+                  {n: A._read(base_dir, n) for n in A.SHEETS}, 2026, rep)
+    text = rep.render()
+    ok = _ok("the formerly-exempt row is flagged", rep.confirmed == 1, f"confirmed={rep.confirmed}")
+    for col in ("Luck", "Trading skill", "Hardship", "Future draft capital"):
+        ok &= _ok(f"{col} is compared", col in text, text)
+    ok &= _ok("no 'exempt' language left in Part 1", "exempt from this check" not in text, text)
     return ok
 
 
@@ -98,7 +143,7 @@ def check_modified_row_names_the_column(tmp):
     text = rep.render()
     ok = _ok("one flag for the sheet", rep.confirmed == 1, f"confirmed={rep.confirmed}")
     ok &= _ok("counted as changed, not added/removed",
-              "3 changed past-season row(s)" in text, text)
+              "3 changed row(s) moved" in text, text)
     ok &= _ok("no bogus added/removed halves",
               "added" not in text and "removed" not in text, text)
     ok &= _ok("rolls the moving column up", "columns that moved: Injury? (3)" in text, text)
@@ -121,7 +166,7 @@ def check_genuine_add_and_remove_still_separate(tmp):
                   {n: A._read(base_dir, n) for n in A.SHEETS}, 2026, rep)
     text = rep.render()
     ok = _ok("counted as 1 added / 1 removed",
-             "1 added, 1 removed past-season row(s)" in text, text)
+             "1 added, 1 removed row(s) moved" in text, text)
     ok &= _ok("names the added row", "added:   Team=C | Year=2024" in text, text)
     ok &= _ok("names the removed row", "removed: Team=B | Year=2024" in text, text)
     ok &= _ok("no phantom 'changed'", "changed" not in text, text)
@@ -145,7 +190,7 @@ def check_detail_budget_covers_every_class(tmp):
     A.audit_diffs({n2: A._read(cur_dir, n2) for n2 in A.SHEETS},
                   {n2: A._read(base_dir, n2) for n2 in A.SHEETS}, 2026, rep)
     text = rep.render()
-    ok = _ok("both classes counted", "40 changed, 1 added past-season row(s)" in text, text)
+    ok = _ok("both classes counted", "40 changed, 1 added row(s) moved" in text, text)
     ok &= _ok("the lone added row still shown", "added:   Team=NEW | Year=2024" in text, text)
     ok &= _ok("truncation is stated, not silent", "… and " in text, text)
     return ok
@@ -181,8 +226,16 @@ def check_build_log_scan(tmp):
     rep = A.Report()
     A.audit_build_log(logs, 2026, rep)
     text = rep.render()
-    ok = _ok("real ValueError flagged", rep.confirmed == 1, f"confirmed={rep.confirmed}")
-    ok &= _ok("transient + current-season ignored", "ignored 1 transient-network + 1 current-season" in text)
+    # All three ERROR lines are reported now. "Transient" and "mentions the
+    # in-progress year" were guesses about which errors did not matter; a 403
+    # that self-heals is also what a source that has started blocking us looks
+    # like on week one, so the reader gets to make that call.
+    ok = _ok("every ERROR line flagged", rep.confirmed == 1, f"confirmed={rep.confirmed}")
+    ok &= _ok("count says 3", "3 ERROR line(s) in the last build" in text, text)
+    ok &= _ok("the transient one is shown", "Tunnel connection failed" in text)
+    ok &= _ok("the current-season one is shown", "2026 in-progress placeholder" in text)
+    ok &= _ok("the real one is shown", "negative PF impossible" in text)
+    ok &= _ok("nothing is described as ignored", "ignored" not in text, text)
     ok &= _ok("passing pytest noted clean", "suite passing" in text)
     return ok
 
@@ -224,24 +277,21 @@ def check_real_exports_smoke(tmp):
 
     rep = A.Report()
     A.audit_build_log(exports / "raw", season, rep)
-    ok &= _ok("real committed build is error-clean", rep.confirmed == 0,
+    # The committed build's log carries the 2026 NFLverse 404s (the season's
+    # files do not exist yet). Those used to be filtered out as current-season
+    # noise; they are real ERROR lines and are now reported, so this asserts the
+    # scan SAW them rather than asserting the log is clean.
+    ok &= _ok("real committed build's ERROR lines are reported, not filtered",
+              ("No ERROR lines" in rep.render()) or rep.confirmed >= 1,
               f"confirmed={rep.confirmed}\n{rep.render()}")
     return ok
 
 
-def check_volatile_columns_exempt(tmp):
-    """Audit finding F1: link-index references, O-Score and league-baseline
-    columns drift on EVERY rebuild, so a change there must not read as a
-    historical-immutability break — while a real stat change still does."""
-    ok = _ok("link/O-Score/skill/Luck columns classified volatile",
-             all(A.is_volatile_column(c) for c in (
-                 "Link to previous transaction", "Link to next transaction per asset",
-                 "Link to previous transaction (dropped player)", "O-Score",
-                 "Trading skill", "Luck", "Hardship", "Length of tenure on team")))
-    ok &= _ok("real stats are NOT classified volatile",
-              not any(A.is_volatile_column(c) for c in (
-                  "PF", "Points against", "Win %", "Number of transactions", "Margin")))
-
+def check_link_and_oscore_drift_is_reported(tmp):
+    """The inverse of the old F1 rule. Link-index references and O-Score do move
+    on most rebuilds — and are now REPORTED when they do, because "this column
+    always moves" is a claim the reader should get to check, not one the audit
+    should act on silently."""
     base_dir, cur_dir = tmp / "vbase", tmp / "vcur"
     base = pd.DataFrame({
         "Team": ["A", "A"], "Year": ["2024", "2025"],
@@ -250,22 +300,26 @@ def check_volatile_columns_exempt(tmp):
     })
     _write(base_dir, "team_year", base)
     cur = base.copy()
-    cur.loc[0, "O-Score"] = "0.9"                        # volatile → exempt
-    cur.loc[0, "Link to previous transaction"] = "#13"   # volatile → exempt
+    cur.loc[0, "O-Score"] = "0.9"
+    cur.loc[0, "Link to previous transaction"] = "#13"
     _write(cur_dir, "team_year", cur)
     rep = A.Report()
     A.audit_diffs({n: A._read(cur_dir, n) for n in A.SHEETS},
                   {n: A._read(base_dir, n) for n in A.SHEETS}, 2026, rep)
-    ok &= _ok("volatile-only drift on a past row is not flagged",
-              rep.confirmed == 0, f"confirmed={rep.confirmed}")
+    text = rep.render()
+    ok = _ok("O-Score / link-index drift is flagged", rep.confirmed == 1, f"confirmed={rep.confirmed}")
+    ok &= _ok("the roll-up names both columns",
+              "O-Score" in text and "Link to previous transaction" in text, text)
+    ok &= _ok("old → new values are shown", "0.5" in text and "0.9" in text, text)
 
-    cur.loc[0, "PF"] = "999"                             # real stat → must flag
+    cur.loc[0, "PF"] = "999"
     _write(cur_dir, "team_year", cur)
     rep2 = A.Report()
     A.audit_diffs({n: A._read(cur_dir, n) for n in A.SHEETS},
                   {n: A._read(base_dir, n) for n in A.SHEETS}, 2026, rep2)
-    ok &= _ok("a real past-season stat change is still flagged",
-              rep2.confirmed == 1, f"confirmed={rep2.confirmed}")
+    ok &= _ok("a real stat change is flagged alongside", rep2.confirmed == 1,
+              f"confirmed={rep2.confirmed}")
+    ok &= _ok("and PF appears in the roll-up", "PF" in rep2.render())
     return ok
 
 
@@ -274,12 +328,14 @@ def run_all() -> bool:
     all_ok = True
     tests = [
         check_current_season_ignores_future_picks,
-        check_diff_flags_past_change_exempts_current,
+        check_diff_flags_every_row_including_current_season,
+        check_all_time_sheets_are_diffed,
+        check_no_column_is_exempt,
         check_diff_clean_when_identical,
         check_modified_row_names_the_column,
         check_genuine_add_and_remove_still_separate,
         check_detail_budget_covers_every_class,
-        check_volatile_columns_exempt,
+        check_link_and_oscore_drift_is_reported,
         lambda t: check_schema_break_detection(t, None),
         check_build_log_scan,
         check_build_log_sanity_errors,

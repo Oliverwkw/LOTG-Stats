@@ -180,11 +180,15 @@ def check_audit_withholds_attributable_rows(tmp):
     ok = _ok("only the unexplained row is a breakage", rep.confirmed == 1,
              f"confirmed={rep.confirmed}\n{text}")
     ok &= _ok("and it is named", "Derrick Henry" in text, text)
-    ok &= _ok("the attributable rows are withheld",
-              "Cooper Kupp" not in text and "Jaylin Noel" not in text, text)
-    ok &= _ok("but counted", attributed == 2, f"attributed={attributed}")
-    ok &= _ok("and reported, with the column",
-              "2 past-season row(s) moved because NFLverse revised" in text
+    # Attribution is an EXPLANATION now, not a suppression. The rows are flagged
+    # like any other; the count tells the reader which of them upstream could
+    # account for, so a real regression that lands in the same week as a
+    # revision can no longer hide behind it.
+    ok &= _ok("the attributable rows are flagged too",
+              "Cooper Kupp" in text and "Jaylin Noel" in text, text)
+    ok &= _ok("and counted", attributed == 2, f"attributed={attributed}")
+    ok &= _ok("and named as a likely cause, with the column",
+              "2 have an NFLverse revision that could account for them" in text
               and "Points (full season) (2)" in text, text)
     return ok
 
@@ -229,7 +233,8 @@ def check_downstream_rows_follow_the_player(tmp):
     rep = A.Report()
     attributed = A.audit_diffs(cur, base, 2026, rep, A.NflverseAttribution(drift, cur))
     text = rep.render()
-    ok = _ok("the revised player's team-week is withheld", "plehv79" not in text, text)
+    ok = _ok("the revised player's team-week is flagged and attributed",
+             "plehv79" in text and "could account for them" in text, text)
     ok &= _ok("another team's is still flagged", "LWebs53" in text, text)
     ok &= _ok("one row attributed", attributed == 1, f"attributed={attributed}")
     return ok
@@ -247,7 +252,7 @@ def check_added_removed_rows_are_never_attributed(tmp):
     rep, attributed = _audit(tmp / "ar", cur_py, pw, base_py, pw, drift)
     text = rep.render()
     ok = _ok("the added row is still flagged", rep.confirmed == 1, f"{rep.confirmed}\n{text}")
-    ok &= _ok("reported as added", "1 added past-season row(s)" in text, text)
+    ok &= _ok("reported as added", "1 added row(s) moved" in text, text)
     ok &= _ok("nothing attributed", attributed == 0, f"attributed={attributed}")
     return ok
 
@@ -301,7 +306,8 @@ def check_name_suffixes_do_not_break_attribution(tmp):
     rep, attributed = _audit(tmp / "s", cur_py, pw, base_py, pw, drift)
     ok &= _ok("both suffixed players are attributed", attributed == 2,
               f"attributed={attributed}\n{rep.render()}")
-    ok &= _ok("so nothing is flagged", rep.confirmed == 0, rep.render())
+    ok &= _ok("and flagged, with upstream named as the likely cause",
+              rep.confirmed == 1 and "could account for them" in rep.render(), rep.render())
     return ok
 
 
@@ -323,7 +329,8 @@ def check_alltime_pool_columns_follow_a_position_relabel(tmp):
     rep, attributed = _audit(tmp / "p", py, cur_pw, py, base_pw, drift)
     ok = _ok("the pool move explains both rows", attributed == 2,
              f"attributed={attributed}\n{rep.render()}")
-    ok &= _ok("nothing is flagged", rep.confirmed == 0, rep.render())
+    ok &= _ok("and flagged, with the pool move named",
+              rep.confirmed == 1 and "positional baseline" in rep.render(), rep.render())
 
     # ... but only that column. An ordinary stat moving on the same row is not
     # something a repooling can account for.
@@ -335,7 +342,7 @@ def check_alltime_pool_columns_follow_a_position_relabel(tmp):
     rep2, attributed2 = _audit(tmp / "p2", py, cur2, py, base2, drift)
     ok &= _ok("an unexplained column keeps the row flagged", rep2.confirmed == 1,
               rep2.render())
-    ok &= _ok("and nothing is withheld", attributed2 == 0, f"attributed={attributed2}")
+    ok &= _ok("and nothing is attributed to upstream", attributed2 == 0, f"attributed={attributed2}")
     return ok
 
 
@@ -364,7 +371,8 @@ def check_season_pool_columns_are_scoped_to_their_season(tmp):
     rep = A.Report()
     attributed = A.audit_diffs(cur, base, 2026, rep, A.NflverseAttribution(drift, cur))
     text = rep.render()
-    ok = _ok("the revised season's pick is withheld", "Bijan Robinson" not in text, text)
+    ok = _ok("the revised season's pick is flagged and attributed",
+             "Bijan Robinson" in text and "could account for them" in text, text)
     ok &= _ok("an untouched season's is still flagged", "Kyle Pitts" in text, text)
     ok &= _ok("one row attributed", attributed == 1, f"attributed={attributed}")
     return ok
@@ -387,7 +395,8 @@ def check_career_columns_follow_an_earlier_seasons_revision(tmp):
     rep, attributed = _audit(tmp / "c", cur_py, pw, base_py, pw, drift)
     ok = _ok("the carry-over is attributed", attributed == 2,
              f"attributed={attributed}\n{rep.render()}")
-    ok &= _ok("nothing flagged", rep.confirmed == 0, rep.render())
+    ok &= _ok("and flagged, with upstream named",
+              rep.confirmed == 1 and "could account for them" in rep.render(), rep.render())
 
     # A player upstream never touched at all is still a breakage.
     base2 = pd.DataFrame({"Player": ["Derrick Henry"], "Year": ["2023"],
@@ -513,7 +522,7 @@ def check_nflverse_alias_table_bridges_sleeper_spellings(tmp):
     rep, attributed = _audit(tmp / "e2e", cur_py, pw, base_py, pw, drift)
     ok &= _ok("the Sleeper-spelled row is attributed", attributed == 1,
               f"attributed={attributed}\n{rep.render()}")
-    ok &= _ok("and not flagged", rep.confirmed == 0, rep.render())
+    ok &= _ok("and flagged like any other move", rep.confirmed == 1, rep.render())
     return ok
 
 
@@ -552,7 +561,8 @@ def check_traded_picks_name_the_player_they_became(tmp):
     rep = A.Report()
     attributed = A.audit_diffs(cur, base, 2026, rep, A.NflverseAttribution(drift, cur))
     text = rep.render()
-    ok &= _ok("the revised pick's trade is withheld", "BROsenzweig" not in text, text)
+    ok &= _ok("the revised pick's trade is flagged and attributed",
+              "BROsenzweig" in text and "could account for them" in text, text)
     ok &= _ok("a trade of picks upstream never touched still flags", "LWebs53" in text, text)
     ok &= _ok("one row attributed", attributed == 1, f"attributed={attributed}")
     return ok
@@ -584,7 +594,12 @@ def check_added_columns_are_a_stale_pin_not_a_breakage(_tmp):
     try:
         rep = A.Report()
         A.audit_schema({"team_year": sheet(["A", "B", "NEW", "C", "D"])}, rep)
-        ok &= _ok("an insertion is a note, not a flag", rep.confirmed == 0, rep.render())
+        # A column that is not in the pin is a change to the shape of what we
+        # ship. The audit cannot tell a feature PR from an accident, so it says
+        # so and the pin is refreshed deliberately rather than by default.
+        ok &= _ok("an insertion is flagged, naming the column and the fix",
+                  rep.confirmed == 1 and "NEW" in rep.render()
+                  and "--update-schema" in rep.render(), rep.render())
         ok &= _ok("and says to re-pin", "--update-schema" in rep.render(), rep.render())
 
         rep2 = A.Report()

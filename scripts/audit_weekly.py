@@ -5,15 +5,22 @@ the full manual audit (see plan/MASTER_TODO.md), this runs unattended on a cron
 and only has to *surface* three failure modes so the owner gets a red run + the
 default GitHub "scheduled workflow failed" email:
 
-  PART 1 — UNEXPECTED DIFFS (reproducibility).  Historical (completed-season)
-    data should be reproducible: once a season is over, rebuilding must yield
-    the same player_week / team_year / trades / … rows. The weekly workflow
-    rebuilds FROM SCRATCH with the caches regenerated and passes the exports
-    committed at HEAD as `--baseline`, so this part answers "does a cold rebuild
-    still reproduce what we ship?". Any add / remove / change to a *past-season*
-    row is flagged. Current-season rows legitimately churn, so they're exempt —
-    as are the build-volatile columns below, which move on every rebuild by
-    design and would otherwise bury the signal (~2k rows/week).
+  PART 1 — UNEXPECTED DIFFS (reproducibility).  The weekly workflow rebuilds
+    FROM SCRATCH with the caches regenerated and passes the exports committed at
+    HEAD as `--baseline`, so this part answers "does a cold rebuild still
+    reproduce what we ship?".
+
+    NOTHING IS EXEMPT. Every sheet (including the all-time rollups, which carry
+    no per-row season), every column (including the ones that move most weeks —
+    link indexes, O-Score, the skill / Luck family, rolling KTC windows, tenure)
+    and every row (current and future seasons included) is compared. Each of
+    those exemptions was a prediction about which movements could not be bugs,
+    and the predictions were wrong: the calendar-dependent injury flags #381
+    fixed moved Luck and little else for a week, and the picks sheet is
+    two-thirds future-dated rows that were never compared at all. An audit that
+    decides in advance what does not count cannot catch what it excluded.
+    Volume is handled by REPORTING, not by filtering — the per-sheet "columns
+    that moved" roll-up turns one broad cause into one line.
 
     A row that was EDITED (the overwhelmingly common case) is reported as one
     `changed` entry naming the columns that moved and their old → new values,
@@ -21,13 +28,14 @@ default GitHub "scheduled workflow failed" email:
     which is what identifies the cause. Only rows with no counterpart on the
     other side are reported as a bare add / remove.
 
-    Rows that moved because NFLVERSE revised the data underneath them are NOT
-    flagged: upstream back-correcting a completed season is their data moving,
-    not our build failing to reproduce it. They're counted and their columns
-    reported under the NFLverse section instead — see below. "Underneath them"
+    Rows that moved because NFLVERSE revised the data underneath them ARE still
+    flagged; the attribution is reported alongside as the likely cause to check
+    first. It is deliberately permissive enough to absorb a real regression that
+    lands on the same row in the same week, so treating it as an excuse is
+    exactly how such a bug would hide. "Underneath them"
     is wider than the row itself: a revision reaches our exports through three
     spans (the all-time percentile pool, a season's own positional baselines,
-    and one player's whole game log), so a row is excused when every column that
+    and one player's whole game log), so a row is attributed when every column that
     moved in it rides a span the week's drift disturbed. See the channel tables
     below `NflverseAttribution` for why each family of columns belongs where.
 
@@ -36,19 +44,23 @@ default GitHub "scheduled workflow failed" email:
     the freshly fetched one says exactly what upstream changed. That's an
     informational "NFLverse made N changes" line, and it supplies the
     (player, season, week) coordinates Part 1 uses to attribute its own diffs.
-    It becomes a CONFIRMED problem only when the drift is structural (rows,
-    columns or files appearing / vanishing) or has moved more of our exports
-    than lotg_support.nflverse_drift.MAX_ATTRIBUTED_ROWS.
+    It becomes a CONFIRMED problem in its own right when the drift is structural
+    (rows, columns or files appearing / vanishing) or has moved more of our
+    exports than lotg_support.nflverse_drift.MAX_ATTRIBUTED_ROWS — but the rows
+    it touched are flagged in Part 1 either way.
 
   PART 2 — SCHEMA BREAKS.  Every sheet's columns are pinned in a committed
-    baseline (data/audit/schema_baseline.json). A missing / renamed / reordered
-    column is a break; a brand-new column is noted (regenerate the baseline with
-    --update-schema when the change is intentional).
+    baseline (data/audit/schema_baseline.json). A missing, renamed, reordered OR
+    added column is a break, as is a sheet that is not pinned at all — the audit
+    cannot tell a feature PR from an accident, so the pin gets refreshed
+    deliberately (--update-schema) rather than by default.
 
-  PART 3 — BUILD ERRORS (not attributable to the in-progress season).  We read
-    the last build segment of exports/raw/build_debug.log plus the committed
-    pytest log, and flag ERROR-level lines / tracebacks / test failures that
-    aren't transient network blips or expected current-season preseason noise.
+  PART 3 — BUILD ERRORS.  We read the last build segment of
+    exports/raw/build_debug.log plus the pytest log and flag every ERROR-level
+    line and test failure. Nothing is written off as a transient blip or as
+    in-progress-season noise. (Only the LAST build segment is read — the log
+    accumulates runs, and earlier segments are earlier builds that were already
+    reported.)
 
 Exit code is 1 when any part has a CONFIRMED problem (so the scheduled run goes
 red and notifies), else 0. The report is written to stdout and, when running in
@@ -84,10 +96,11 @@ SHEETS = [
     "picks", "trades", "transactions",
 ]
 
-# Sheets whose rows carry a per-row season, so completed-season rows are frozen.
-# name -> the column that identifies the season. All-time / cumulative sheets
-# (player_all_time, team_all_time, league_all_time) are intentionally absent:
-# their aggregates roll in the in-progress season and so legitimately move.
+# Sheets whose rows carry a per-row season. This is now only a LABEL — it names
+# the column so a reported row can say which season it belongs to. It does NOT
+# decide what gets compared: every sheet, every column and every row is diffed
+# (see audit_diffs). The all-time sheets are absent because their rows have no
+# season, not because they are out of scope.
 SEASON_COL = {
     "player_year": "Year", "team_year": "Year", "league_year": "Year",
     "player_week": "Year", "team_week": "Year", "league_week": "Year",
@@ -96,6 +109,8 @@ SEASON_COL = {
 
 # A few human-readable identifying columns per sheet, for the diff report only.
 ID_COLS = {
+    "player_all_time": ["Player"], "team_all_time": ["Team"],
+    "league_all_time": [],          # one row; classify_diff pairs it positionally
     "player_year": ["Player", "Year"], "team_year": ["Team", "Year"],
     "league_year": ["Year"],
     "player_week": ["Player", "Year", "Week"], "team_week": ["Team", "Year", "Week"],
@@ -109,14 +124,10 @@ _MAX_REPORT = 25       # cap per-sheet diff lines so the report stays readable
 _MAX_DELTA_COLS = 4    # cap the "col: old → new" pairs shown for one changed row
 _MAX_SUMMARY_COLS = 8  # cap the per-sheet "columns that moved" roll-up
 
-# Columns whose COMPLETED-SEASON values legitimately move on every rebuild (link
-# indexes, league-relative percentiles, present-day rolling windows), so a change
-# there must not read as a historical-immutability break. The classifier is
-# shared with the digest (which uses it to avoid emailing a fake all-time move) —
-# see lib/lotg_support/volatile_columns.py for the full rationale and F1 basis.
-from lotg_support.volatile_columns import (  # noqa: E402
-    is_volatile_column, _VOLATILE_SUBSTRINGS, _VOLATILE_EXACT,
-)
+# NOTE: lib/lotg_support/volatile_columns.py is deliberately NOT imported here
+# any more. Classifying a column as "expected to drift" and then not comparing it
+# is how a real regression in that column goes unreported; the audit now compares
+# everything and lets the per-sheet roll-up carry the explanation instead.
 from lotg_support.nflverse_drift import (  # noqa: E402
     Drift, diff_nflverse_cache, name_variants, normalize_name,
 )
@@ -129,7 +140,7 @@ from lotg_support.nflverse_drift import (  # noqa: E402
 # columns read the NFLverse game log through three different spans, and a
 # coordinate-exact (player, season, week) match — all the audit had — can only
 # see the first. Each span below is the channel one family of columns travels,
-# and a row is excused only when EVERY column that moved in it has a channel the
+# and a row is attributed only when EVERY column that moved in it has a channel the
 # week's drift can actually account for.
 
 # ALL-TIME POOL. "Positional scoring percentile" places a score inside the
@@ -142,7 +153,7 @@ from lotg_support.nflverse_drift import (  # noqa: E402
 _POOL_ALLTIME_COLUMNS = ("positional scoring percentile",)
 
 # WITHIN-SEASON POOL. The rest of the league-relative family is computed inside
-# a single season, so it is only excused by a revision in that same season:
+# a single season, so it is only attributable to a revision in that same season:
 #   * Starter PAR — replacement level is the bottom third of that (year, week,
 #     position)'s started scores, so it moves for the whole cohort.
 #   * "… adjusted by position" and the values built on top of it (player /
@@ -324,7 +335,7 @@ class NflverseAttribution:
 
         The coordinate match above answers "did upstream revise this exact row";
         this answers the harder half — "did upstream revise something this row's
-        value is computed FROM". A row is only excused when every moved column
+        value is computed FROM". A row is only attributed when every moved column
         rides a channel the week's drift actually disturbed, so one unexplained
         column still fails the whole row.
 
@@ -511,13 +522,6 @@ def audit_nflverse(drift: Drift, attributed_rows: int, rep: Report,
 # ---------------------------------------------------------------------------
 # Part 1 — unexpected diffs (completed-season immutability)
 # ---------------------------------------------------------------------------
-def _past_rows(df: pd.DataFrame, season_col: str, current_season: int) -> pd.DataFrame:
-    if df.empty or season_col not in df.columns:
-        return df.iloc[0:0]
-    yrs = pd.to_numeric(df[season_col], errors="coerce")
-    return df[yrs < current_season]
-
-
 def _row_key(row: pd.Series, cols: List[str]) -> str:
     return " | ".join(f"{c}={row.get(c, '')}" for c in cols if c in row.index)
 
@@ -549,7 +553,14 @@ def classify_diff(shared: List[str], idcols: List[str],
     pos = {c: i for i, c in enumerate(shared)}
     kpos = [pos[c] for c in idcols if c in pos]
     if not kpos:
-        # No identifying columns to pair on — fall back to reporting both sides.
+        # A one-row sheet (league_all_time) has no identifying columns, but the
+        # single row on each side IS the pair — report it as a modification with
+        # its deltas rather than as a meaningless add + remove.
+        if len(cur_rows) == 1 and len(base_rows) == 1:
+            deltas = [(shared[j], base_rows[0][j], cur_rows[0][j])
+                      for j in range(len(shared)) if base_rows[0][j] != cur_rows[0][j]]
+            return [((), deltas, cur_rows[0])], [], []
+        # Otherwise there is nothing to pair on — report both sides.
         return [], [() for _ in cur_rows], [() for _ in base_rows]
 
     def key(t: tuple) -> tuple:
@@ -582,42 +593,39 @@ def audit_diffs(cur: Dict[str, pd.DataFrame], base: Dict[str, pd.DataFrame],
                 attrib: Optional[NflverseAttribution] = None) -> int:
     """Report past-season rows that moved. Returns the number of rows withheld
     from the flags because an NFLverse revision accounts for them."""
-    rep.head("Part 1 — unexpected diffs (completed-season immutability)")
+    rep.head("Part 1 — unexpected diffs (every sheet, every column, every row)")
     if not base or all(df.empty for df in base.values()):
-        rep.note("No baseline exports supplied — skipping the historical diff "
+        rep.note("No baseline exports supplied — skipping the diff "
                  "(first run, or the workflow couldn't materialise a prior version).")
         return 0
-    if current_season is None:
-        rep.note("No season detected in the current exports — skipping diff.")
-        return 0
-    rep.note(f"In-progress season = **{current_season}** "
-             f"(rows for {current_season} are exempt; earlier seasons must be frozen).")
+    if current_season is not None:
+        rep.note(f"In-progress season = **{current_season}** — named for context only. "
+                 "Nothing is exempt: a moved row is flagged whichever season it is in.")
 
     any_change = False
     flagged_any = False
-    skipped_total = 0
     pool_swept = 0
     attributed: Dict[str, int] = {}
     attributed_cols: Counter = Counter()
-    for name, season_col in SEASON_COL.items():
+    for name in SHEETS:
         c, b = cur.get(name), base.get(name)
         if c is None or b is None or c.empty or b.empty:
             continue
+        # EVERY shared column. There is no build-volatile exemption: a column
+        # that moves every week is either a bug or a fact about the data, and
+        # the audit's job is to say so rather than to decide in advance which
+        # movements do not count. (The per-sheet "columns that moved" roll-up
+        # below is what keeps a broad, explainable move readable.)
         shared = [col for col in b.columns if col in c.columns]
-        # Drop the columns that legitimately drift between builds (link-index
-        # references, percentiles, league-baseline stats) — comparing them would
-        # flag ~2k historical rows every week. The season column is kept so the
-        # row still identifies itself.
-        volatile = [col for col in shared
-                    if col != season_col and is_volatile_column(col)]
-        skipped_total += len(volatile)
-        shared = [col for col in shared if col not in volatile]
         if not shared:
             continue
-        cp = _past_rows(c, season_col, current_season)[shared]
-        bp = _past_rows(b, season_col, current_season)[shared]
-        if cp.empty and bp.empty:
-            continue
+        # EVERY row, current and future seasons included. "Completed seasons are
+        # frozen" was a narrower question than "does this build reproduce"; a
+        # current-season row that moves for the wrong reason is just as much a
+        # bug, and the picks sheet is two-thirds future-dated rows that the old
+        # gate never compared at all.
+        cp = c[shared]
+        bp = b[shared]
         # Full-row multiset diff, then re-paired on the identifying columns so a
         # MODIFIED row is reported as one change (with the columns that moved)
         # rather than as an unexplained removed+added pair.
@@ -631,12 +639,14 @@ def audit_diffs(cur: Dict[str, pd.DataFrame], base: Dict[str, pd.DataFrame],
         idcols = [c2 for c2 in ID_COLS.get(name, []) if c2 in shared]
         changed, added, removed = classify_diff(shared, idcols, removed_tups, added_tups)
 
-        # Peel off the rows an NFLverse revision accounts for. Upstream
-        # back-correcting a completed season is not our build failing to
-        # reproduce, so those rows are counted and their moved columns reported
-        # under the NFLverse section — but they don't fail the run.
+        # Count the rows an NFLverse revision can account for. This is now an
+        # EXPLANATION attached to the report, not a suppression: an upstream
+        # revision is a likely cause, and the attribution is deliberately
+        # permissive enough to absorb a real regression that happens to land on
+        # the same row in the same week. Deciding it was upstream and staying
+        # silent is exactly how a bug hides, so those rows are flagged like any
+        # other and the count tells the reader where to look first.
         if attrib is not None and attrib.active:
-            kept, taken = [], []
             for item in changed:
                 k, deltas, row_tup = item
                 row = dict(zip(shared, row_tup))
@@ -646,25 +656,19 @@ def audit_diffs(cur: Dict[str, pd.DataFrame], base: Dict[str, pd.DataFrame],
                 else:
                     channel = attrib.covers_columns(name, idcols, k, row, cols)
                 if channel is None:
-                    kept.append(item)
                     continue
-                taken.append(item)
                 if channel == "pool":
                     pool_swept += 1
-            if taken:
-                attributed[name] = attributed.get(name, 0) + len(taken)
-                for _, deltas, _ in taken:
-                    for col, _o, _n in deltas:
-                        attributed_cols[col] += 1
-            changed = kept
+                attributed[name] = attributed.get(name, 0) + 1
+                for col, _o, _n in deltas:
+                    attributed_cols[col] += 1
         if not changed and not added and not removed:
             continue
 
         counts = [(len(changed), "changed"), (len(added), "added"), (len(removed), "removed")]
         parts = ", ".join(f"{n} {label}" for n, label in counts if n)
         flagged_any = True
-        rep.flag(f"**{name}**: {parts} past-season row(s) — "
-                 "historical data is not supposed to change.")
+        rep.flag(f"**{name}**: {parts} row(s) moved since the committed build.")
 
         # The roll-up is the actionable line: one column moving across many rows
         # is a single cause (a revised upstream feed, a formula change), not N
@@ -700,11 +704,6 @@ def audit_diffs(cur: Dict[str, pd.DataFrame], base: Dict[str, pd.DataFrame],
         _emit(changed, _changed_line)
         _emit(added, lambda k: f"    - added:   {_key_text(idcols, k)}")
         _emit(removed, lambda k: f"    - removed: {_key_text(idcols, k)}")
-    if skipped_total:
-        rep.note(f"{skipped_total} build-volatile column(s) across the sheets are "
-                 "exempt from this check (link-index references, O-Score / skill / "
-                 "Luck / Hardship baselines, tenure & forward-looking values) — "
-                 "they legitimately move on every rebuild.")
     total_attributed = sum(attributed.values())
     rep.attributed_sheets = dict(sorted(attributed.items(), key=lambda kv: -kv[1]))
     rep.attributed_columns = attributed_cols.most_common(_MAX_SUMMARY_COLS)
@@ -716,13 +715,12 @@ def audit_diffs(cur: Dict[str, pd.DataFrame], base: Dict[str, pd.DataFrame],
         cols = ", ".join(f"{c} ({n})" for c, n in attributed_cols.most_common(6))
         swept = (f" {pool_swept} of them are league-relative values swept along by a "
                  "re-seated positional baseline." if pool_swept else "")
-        rep.note(f"{total_attributed} past-season row(s) moved because NFLverse "
-                 f"revised the data underneath them — not flagged. {sheets}."
+        rep.note(f"Of the rows above, {total_attributed} have an NFLverse revision "
+                 f"that could account for them — a likely cause to check first, not "
+                 f"a clean bill of health. {sheets}."
                  + (f" Columns: {cols}." if cols else "") + swept)
     if not any_change:
-        rep.ok("No completed-season row changed since the previous build.")
-    elif not flagged_any:
-        rep.ok("No completed-season row changed beyond what NFLverse revised upstream.")
+        rep.ok("Not one row of any sheet changed since the committed build.")
     return total_attributed
 
 
@@ -769,16 +767,19 @@ def audit_schema(cur: Dict[str, pd.DataFrame], rep: Report) -> None:
             rep.flag(f"**{name}**: columns reordered vs the pinned baseline.")
             clean = False
         if extra:
-            # A feature PR adding columns is normal here and is not a dataset
-            # breakage — it is a pin that has not caught up. Saying so as a note
-            # (rather than flagging three sheets red) keeps the schema check
-            # meaning "something was lost or shuffled".
-            rep.note(f"**{name}**: {len(extra)} new column(s) — "
+            # A schema that no longer matches its pin is a change to the shape of
+            # what we ship, whether the cause is a feature PR or an accident. The
+            # audit cannot tell those apart, so it says so and the pin gets
+            # refreshed deliberately (--update-schema) rather than by default.
+            rep.flag(f"**{name}**: {len(extra)} column(s) not in the pinned baseline — "
                      f"{', '.join(extra[:8])}{' …' if len(extra) > 8 else ''} "
                      "(re-pin with --update-schema if intended).")
+            clean = False
     for name in cur:
         if name not in baseline and not cur[name].empty:
-            rep.note(f"**{name}**: sheet not in the baseline (new sheet?).")
+            rep.flag(f"**{name}**: sheet is not in the pinned baseline "
+                     "(re-pin with --update-schema if intended).")
+            clean = False
     if clean:
         rep.ok("Every pinned sheet has all its expected columns, in order.")
 
@@ -790,14 +791,12 @@ def write_schema_baseline(cur: Dict[str, pd.DataFrame]) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Part 3 — build errors not attributable to the in-progress season
+# Part 3 — build errors
 # ---------------------------------------------------------------------------
-# Transient upstream blips that don't indicate a broken build — the cached
-# baseline covers them and they self-heal next run.
-_TRANSIENT = re.compile(
-    r"tunnel connection failed|urlerror|connectionerror|timed out|timeout|"
-    r"403 forbidden|404 client error|429|502|503|max retries|temporarily unavailable",
-    re.IGNORECASE)
+# There is no transient allowance any more. A 403 that "self-heals next run" is
+# also what a source that has started blocking us looks like on its first week,
+# and a build that silently fell back to cached data produced numbers nobody
+# checked. Every ERROR-shaped line in the last build is reported.
 # A candidate error line is a structured build-log ERROR ("[ts] ERROR at …") or a
 # Python exception *terminator* ("urllib.error.URLError: …"). Bare "Traceback"
 # headers and intermediate code frames carry no diagnosis, so we skip them and
@@ -812,24 +811,15 @@ def _last_build_segment(text: str) -> str:
 
 
 def audit_build_log(logs_dir: Path, current_season: Optional[int], rep: Report) -> None:
-    rep.head("Part 3 — build errors (not current-season / transient)")
+    # `current_season` is accepted for call compatibility and deliberately unused:
+    # a log line is no longer written off because it mentions the in-progress year.
+    rep.head("Part 3 — build errors (every ERROR line in the last build)")
     debug = logs_dir / "build_debug.log"
     if not debug.exists():
         rep.note(f"No build log at {debug} — nothing to scan.")
     else:
         seg = _last_build_segment(debug.read_text(errors="replace"))
-        season_tok = str(current_season) if current_season else None
-        flagged, transient, current = [], 0, 0
-        for ln in seg.splitlines():
-            if not _ERROR_LINE.search(ln):
-                continue
-            if _TRANSIENT.search(ln):
-                transient += 1
-                continue
-            if season_tok and season_tok in ln:
-                current += 1  # preseason / in-progress-season noise (e.g. injuries_2026 404)
-                continue
-            flagged.append(ln.strip())
+        flagged = [ln.strip() for ln in seg.splitlines() if _ERROR_LINE.search(ln)]
         # The build's own data-quality summary is the authoritative error count.
         m = re.findall(r"data-quality sanity:\s*(\d+)\s*ERROR,\s*(\d+)\s*WARN", seg)
         if m:
@@ -837,14 +827,13 @@ def audit_build_log(logs_dir: Path, current_season: Optional[int], rep: Report) 
             (rep.flag if errs else rep.ok)(
                 f"build data-quality sanity: {errs} ERROR, {warns} WARN.")
         if flagged:
-            rep.flag(f"{len(flagged)} non-transient / non-current-season ERROR line(s):")
+            rep.flag(f"{len(flagged)} ERROR line(s) in the last build:")
             for ln in flagged[:_MAX_REPORT]:
                 rep.raw(f"    - {ln}")
+            if len(flagged) > _MAX_REPORT:
+                rep.raw(f"    - … and {len(flagged) - _MAX_REPORT} more")
         else:
-            rep.ok("No non-transient, non-current-season ERROR lines in the last build.")
-        if transient or current:
-            rep.note(f"ignored {transient} transient-network + {current} "
-                     f"current-season ({season_tok}) log line(s).")
+            rep.ok("No ERROR lines in the last build.")
 
     pytest_log = logs_dir / "pytest.log"
     if pytest_log.exists():
