@@ -70,6 +70,65 @@ def check_diff_flags_every_row_including_current_season(tmp):
     return ok
 
 
+def check_new_league_events_are_not_breakages(tmp):
+    """A trade landing is supposed to move the dataset. The counts, the
+    league-relative scores and the trade's own rows are new information, not a
+    build that failed to reproduce — but only while there ARE new events."""
+    base_dir, cur_dir = tmp / "leb", tmp / "lec"
+    def trades(n):
+        return pd.DataFrame({"Team": [f"T{i}" for i in range(n)],
+                             "Team's traded with 1": ["X"] * n,
+                             "Date": [f"d{i}" for i in range(n)],
+                             "Season": ["2026"] * n,
+                             "Assets received": ["Newman"] * n,
+                             "O-Score": [str(50 + i) for i in range(n)]})
+    _write(base_dir, "trades", trades(3))
+    _write(cur_dir, "trades", trades(4))          # one new deal
+    team = pd.DataFrame({"Team": ["A"], "Total trades": ["10"], "Trading skill": ["50.0"]})
+    _write(base_dir, "team_all_time", team)
+    _write(cur_dir, "team_all_time", pd.DataFrame(
+        {"Team": ["A"], "Total trades": ["11"], "Trading skill": ["50.4"]}))
+    rep = A.Report()
+    A.audit_diffs({n: A._read(cur_dir, n) for n in A.SHEETS},
+                  {n: A._read(base_dir, n) for n in A.SHEETS}, 2026, rep)
+    ok = _ok("a week with a new trade flags nothing derived from it",
+             rep.confirmed == 0, rep.render())
+
+    # Same movement with NO new event is unexplained, and flags.
+    _write(cur_dir, "trades", trades(3))
+    rep2 = A.Report()
+    A.audit_diffs({n: A._read(cur_dir, n) for n in A.SHEETS},
+                  {n: A._read(base_dir, n) for n in A.SHEETS}, 2026, rep2)
+    ok &= _ok("the same movement with no new event is flagged",
+              rep2.confirmed == 1 and "Trading skill" in rep2.render(), rep2.render())
+    return ok
+
+
+def check_matured_window_vs_corrected_zero(tmp):
+    """The Beckham case. A rolling KTC window filling in for the first time is
+    the anniversary arriving (blank → value). A ZERO turning into a value is a
+    wrong number being corrected, and must survive."""
+    base_dir, cur_dir = tmp / "mwb", tmp / "mwc"
+    base = pd.DataFrame({
+        "Team": ["A", "B"], "Player Added": ["p", "q"], "Player Dropped": ["", ""],
+        "Date": ["2025-08-06 00:00:00", "2023-11-15 00:00:00"], "Season": ["2025", "2023"],
+        "KTC value of player added 1 year later": ["", "0.0"],
+    })
+    _write(base_dir, "transactions", base)
+    cur = base.copy()
+    cur.loc[0, "KTC value of player added 1 year later"] = "5042.6"   # matured
+    cur.loc[1, "KTC value of player added 1 year later"] = "167.0"    # corrected zero
+    _write(cur_dir, "transactions", cur)
+    rep = A.Report()
+    A.audit_diffs({n: A._read(cur_dir, n) for n in A.SHEETS},
+                  {n: A._read(base_dir, n) for n in A.SHEETS}, 2026, rep)
+    text = rep.render()
+    ok = _ok("one row survives", rep.confirmed == 1 and "1 changed" in text, text)
+    ok &= _ok("the corrected zero is the one reported", "167.0" in text, text)
+    ok &= _ok("the matured window is not", "5042.6" not in text, text)
+    return ok
+
+
 def check_wall_clock_is_not_a_change(tmp):
     """A tenure counter advancing by the elapsed time is the clock, not the
     dataset moving — but ONLY when it advances by the same amount as the rest of
@@ -96,9 +155,9 @@ def check_wall_clock_is_not_a_change(tmp):
     ok &= _ok("only the two odd rows are flagged", "2 changed" in text, text)
     ok &= _ok("the oversized advance is named", "131" in text, text)
     ok &= _ok("the backwards one is named", "93" in text, text)
-    ok &= _ok("the clock rows are not flagged", "107" not in text.split("Wall clock")[0], text)
-    ok &= _ok("and are accounted for in a note",
-              "Wall clock: 2 row(s)" in text and "+7" in text, text)
+    ok &= _ok("the clock rows are not flagged", "107" not in text, text)
+    ok &= _ok("and the clock rows leave no trace in the report",
+              text.count("changed:") == 2, text)
 
     # A clock tick that also moved something else stays, with the tick removed.
     cur2 = base.copy()
@@ -113,7 +172,7 @@ def check_wall_clock_is_not_a_change(tmp):
     ok &= _ok("a row that also moved a real column is still flagged",
               rep2.confirmed == 1 and "O-Score" in t2, t2)
     ok &= _ok("but its clock tick is not listed as part of the finding",
-              "Length of tenure" not in t2.split("Wall clock")[0], t2)
+              "Length of tenure" not in t2, t2)
     return ok
 
 
@@ -144,10 +203,8 @@ def check_renumbered_pointers_are_not_a_change(tmp):
                   {n: A._read(base_dir, n) for n in A.SHEETS}, 2026, rep)
     text = rep.render()
     ok = _ok("the repointed row is flagged", "Number=1.02" in text, text)
-    ok &= _ok("the merely renumbered row is not",
-              "Number=1.01" not in text.split("Row-index pointers")[0], text)
-    ok &= _ok("and is accounted for in a note",
-              "Row-index pointers: 1 row(s)" in text, text)
+    ok &= _ok("the merely renumbered row is not", "Number=1.01" not in text, text)
+    ok &= _ok("and leaves no trace in the report", text.count("changed:") == 1, text)
     return ok
 
 
@@ -411,6 +468,8 @@ def run_all() -> bool:
         check_current_season_ignores_future_picks,
         check_diff_flags_every_row_including_current_season,
         check_all_time_sheets_are_diffed,
+        check_new_league_events_are_not_breakages,
+        check_matured_window_vs_corrected_zero,
         check_wall_clock_is_not_a_change,
         check_renumbered_pointers_are_not_a_change,
         check_no_column_is_exempt,

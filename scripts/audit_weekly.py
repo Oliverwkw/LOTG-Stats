@@ -605,6 +605,35 @@ _LINK_TARGETS = {"T": "trades", "": "transactions", "PH": "picks"}
 _LINK_REF = re.compile(r"^\s*([A-Za-z]*)#(\d+)\s*$")
 
 
+_WINDOW_COLUMNS = ("year later", "years later", "year after", "years after")
+
+
+def is_window_column(column: str) -> bool:
+    """A KTC value measured a fixed time AFTER the event — it cannot be computed
+    until that anniversary passes."""
+    c = str(column).lower()
+    return any(n in c for n in _WINDOW_COLUMNS)
+
+
+def _is_blank(v) -> bool:
+    return str(v).strip().lower() in ("", "nan", "n/a", "none")
+
+
+def strip_matured_windows(changed: List[tuple]) -> Tuple[List[tuple], int]:
+    """Drop the first value a rolling window takes. Blank → a number is the
+    anniversary arriving; a number → a different number is not, and neither is
+    0 → a number, which is a value that was wrong and has been corrected."""
+    kept, matured = [], 0
+    for k, deltas, row in changed:
+        rest = [(c, o, n) for c, o, n in deltas
+                if not (is_window_column(c) and _is_blank(o) and not _is_blank(n))]
+        if not rest:
+            matured += 1
+            continue
+        kept.append((k, rest, row))
+    return kept, matured
+
+
 def is_link_column(column: str) -> bool:
     return "link to" in str(column).lower()
 
@@ -659,6 +688,109 @@ def strip_stable_links(changed: List[tuple], base_frames: Dict[str, pd.DataFrame
             continue
         kept.append((k, rest, row))
     return kept, dropped
+
+
+# ---------------------------------------------------------------------------
+# League events
+# ---------------------------------------------------------------------------
+# When a trade lands, the dataset is SUPPOSED to move. Trade counts change,
+# players change hands, the league-relative percentiles every team and deal is
+# scored against re-seat, and pointers that had nowhere to point now do. That is
+# new information arriving, not the build failing to reproduce — three deals one
+# week moved 500+ rows, and reporting them as breakages is how the one row that
+# mattered got lost.
+#
+# Gated on there actually being new events: with no adds or removes this week,
+# none of it is suppressed and an O-Score that moves on its own is still a
+# finding.
+_EVENT_COLUMNS = (
+    "number of trades", "total trades", "offseason trades", "number of transactions",
+    "number of teams", "last team", "drafting skill", "trading skill",
+    "transaction skill", "o-score", "trade impact score", "future draft capital",
+    "assets retained now", "assets traded away", "assets dropped to fa",
+    "return from trades", "additional assets traded away in those deals",
+    "date dropped/traded",
+)
+# Where a sheet names the players an event moved, so a tenure that STOPPED
+# because the asset left can be told from a tenure that moved for no reason.
+_EVENT_PLAYER_COLS = {
+    "picks": ("Player Picked",),
+    "trades": ("Assets received", "Assets sent"),
+    "transactions": ("Player Added", "Player Dropped"),
+}
+
+
+def is_event_column(column: str) -> bool:
+    c = str(column).lower()
+    return c == "team" or any(n in c for n in _EVENT_COLUMNS)
+
+
+class LeagueEvents:
+    """The picks / trades / transactions rows that are new (or gone) this week,
+    and what they touched."""
+
+    def __init__(self, cur: Dict[str, pd.DataFrame], base: Dict[str, pd.DataFrame]) -> None:
+        self.targets: Set[tuple] = set()      # (sheet, *id-key) of each new/removed row
+        self.players: Set[str] = set()
+        for sheet in _EVENT_PLAYER_COLS:
+            c, b = cur.get(sheet), base.get(sheet)
+            if c is None or b is None or c.empty or b.empty:
+                continue
+            idc = [x for x in ID_COLS.get(sheet, []) if x in c.columns and x in b.columns]
+            if not idc:
+                continue
+            ck = {tuple(str(v) for v in r) for r in c[idc].values}
+            bk = {tuple(str(v) for v in r) for r in b[idc].values}
+            fresh = (ck - bk) | (bk - ck)
+            if not fresh:
+                continue
+            self.targets |= {(sheet,) + k for k in fresh}
+            rows = c[[tuple(str(v) for v in r) in fresh for r in c[idc].values]]
+            for col in _EVENT_PLAYER_COLS[sheet]:
+                if col not in rows.columns:
+                    continue
+                for cell in rows[col].dropna().astype(str):
+                    for part in cell.split(";"):
+                        name = _PAREN.sub("", part).strip()
+                        if name:
+                            self.players.add(name)
+        self.active = bool(self.targets)
+
+    def _links_to_new_events(self, old, new, base_frames, cur_frames) -> bool:
+        """True when the pointer only gained or lost references to this week's
+        new events — the deal that just happened being wired in."""
+        was, now = _resolve_refs(old, base_frames), _resolve_refs(new, cur_frames)
+        if was is None or now is None:
+            return False
+        moved = [t for t in (set(map(tuple, was)) ^ set(map(tuple, now))) if t != ("",)]
+        return bool(moved) and all(t in self.targets for t in moved)
+
+    def is_new_row(self, sheet: str, idcols: Sequence[str], key: tuple) -> bool:
+        """True when this whole row IS one of the week's events, or belongs to a
+        player one of them moved — a trade's own two rows, and the season row a
+        player gains when he joins a team."""
+        if (sheet,) + tuple(key) in self.targets:
+            return True
+        named = {str(v) for c, v in zip(idcols, key)
+                 if c in ("Player", "Player Picked", "Player Added", "Player Dropped")}
+        return bool(named & self.players)
+
+    def covers(self, sheet: str, deltas, row: dict,
+               base_frames, cur_frames) -> bool:
+        """True when every column that moved in this row is the new events
+        arriving."""
+        named = {str(row.get(c, "")) for c in _EVENT_PLAYER_COLS.get(sheet, ())}
+        touched = bool(named & self.players)
+        for col, old, new in deltas:
+            if is_event_column(col):
+                continue
+            if is_link_column(col) and self._links_to_new_events(old, new,
+                                                                 base_frames, cur_frames):
+                continue
+            if is_wall_clock_column(col) and touched:
+                continue          # the tenure stopped because the asset moved
+            return False
+        return True
 
 
 # ---------------------------------------------------------------------------
@@ -753,8 +885,7 @@ def audit_diffs(cur: Dict[str, pd.DataFrame], base: Dict[str, pd.DataFrame],
     pool_swept = 0
     attributed: Dict[str, int] = {}
     attributed_cols: Counter = Counter()
-    clock_ticked: Dict[str, tuple] = {}
-    links_renumbered: Dict[str, int] = {}
+    events = LeagueEvents(cur, base)
     for name in SHEETS:
         c, b = cur.get(name), base.get(name)
         if c is None or b is None or c.empty or b.empty:
@@ -791,15 +922,25 @@ def audit_diffs(cur: Dict[str, pd.DataFrame], base: Dict[str, pd.DataFrame],
         # amount as the rest of its sheet is time passing, not the dataset
         # moving. Anything the clock does NOT explain stays in `changed`.
         step = wall_clock_step(changed)
-        changed, ticked = strip_wall_clock(changed, step)
-        if ticked:
-            clock_ticked[name] = (ticked, step)
+        changed, _ticked = strip_wall_clock(changed, step)
 
         # Same idea for the row-index pointers: a renumbered pointer that still
         # lands on the same event is not a change to the dataset.
-        changed, renumbered = strip_stable_links(changed, base, cur)
-        if renumbered:
-            links_renumbered[name] = renumbered
+        changed, _renumbered = strip_stable_links(changed, base, cur)
+
+        # A rolling KTC window reaching its anniversary and taking its first
+        # value is the calendar, not the dataset moving.
+        changed, _matured = strip_matured_windows(changed)
+
+        # New league events — a trade landing is supposed to move the counts,
+        # the league-relative scores and the pointers that now have somewhere to
+        # point. Suppressed only while there ARE new events this week.
+        if events.active:
+            changed = [item for item in changed
+                       if not events.covers(name, item[1],
+                                            dict(zip(shared, item[2])), base, cur)]
+            added = [k for k in added if not events.is_new_row(name, idcols, k)]
+            removed = [k for k in removed if not events.is_new_row(name, idcols, k)]
 
         # Peel off the rows an NFLverse revision accounts for. Upstream
         # back-correcting a season is THEIR data moving, not our build failing to
@@ -870,17 +1011,6 @@ def audit_diffs(cur: Dict[str, pd.DataFrame], base: Dict[str, pd.DataFrame],
         _emit(changed, _changed_line)
         _emit(added, lambda k: f"    - added:   {_key_text(idcols, k)}")
         _emit(removed, lambda k: f"    - removed: {_key_text(idcols, k)}")
-    if clock_ticked:
-        bits = ", ".join(f"{sheet} ({n} row(s), +{_num(step)})"
-                         for sheet, (n, step) in clock_ticked.items())
-        rep.note(f"Wall clock: {sum(n for n, _ in clock_ticked.values())} row(s) "
-                 f"advanced a tenure counter by the elapsed time and moved nothing "
-                 f"else — not flagged. {bits}.")
-    if links_renumbered:
-        bits = ", ".join(f"{sheet} ({n})" for sheet, n in links_renumbered.items())
-        rep.note(f"Row-index pointers: {sum(links_renumbered.values())} row(s) had a "
-                 f"\"Link to …\" renumbered but still pointing at the same event, and "
-                 f"moved nothing else — not flagged. {bits}.")
     total_attributed = sum(attributed.values())
     rep.attributed_sheets = dict(sorted(attributed.items(), key=lambda kv: -kv[1]))
     rep.attributed_columns = attributed_cols.most_common(_MAX_SUMMARY_COLS)
