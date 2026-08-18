@@ -215,6 +215,44 @@ def test_no_stray_aug28_draft_anchors():
 # Worth-zero must stay distinct from could-not-value.
 # --------------------------------------------------------------------------
 
+def test_cached_history_is_refetched_once_stale():
+    """A cached history is a warm start, not a permanent answer.
+
+    "Past values don't change" is true, but a history also ENDS where it was
+    fetched — so a never-refreshed cache silently freezes the recent tail. Every
+    cached file stopped at 2026-07-13 (the day ktc.py last busted the Actions
+    cache key) until this was added.
+    """
+    import json, os, time, tempfile, pathlib
+    from lotg_support import ktc as K
+    root = pathlib.Path(tempfile.mkdtemp())
+    d = root / "data" / "ktc_cache" / "players"
+    d.mkdir(parents=True, exist_ok=True)
+    (d / "x.json").write_text(json.dumps([{"date": "2024-01-01", "sf_trade_value": 1}]))
+    calls = []
+    real = K._http_get_json
+    K._http_get_json = lambda url: (calls.append(url),
+                                    [{"date": "2026-08-18", "sf_trade_value": 2}])[1]
+    try:
+        # Fresh file -> served from cache, no fetch.
+        assert K.load_history(root, "x")[0]["date"] == "2024-01-01"
+        assert calls == [], calls
+        # Age it past the window -> re-fetched, and the new tail lands.
+        old = time.time() - (K._HISTORY_MAX_AGE_H + 1) * 3600
+        os.utime(d / "x.json", (old, old))
+        got = K.load_history(root, "x")
+        assert len(calls) == 1, calls
+        assert got[-1]["date"] == "2026-08-18", got
+        # A failed fetch must return the cached copy, never erase it.
+        os.utime(d / "x.json", (old, old))
+        def boom(url): raise RuntimeError("down")
+        K._http_get_json = boom
+        assert K.load_history(root, "x")[-1]["date"] == "2026-08-18"
+    finally:
+        K._http_get_json = real
+    print("ok: test_cached_history_is_refetched_once_stale")
+
+
 def test_zero_and_none_are_distinct_outcomes():
     """A retired player resolves to 0.0; an unknown one resolves to None.
 
@@ -223,13 +261,30 @@ def test_zero_and_none_are_distinct_outcomes():
     (N/A). If asset_value_at ever collapsed the two, that distinction dies.
     """
     idx = ValueIndex()
-    idx.add_player("known", [{"date": "2021-06-01", "trade_value": 900}], "trade_value")
-    # On the rolls today, so a post-floor absence is not zeroed by the off-rolls rule.
-    idx.active_sids = {"known", "ranked_but_late"}
+    # The mirror published on both of these days (any player's quote defines a
+    # covered day), so a target landing on one is answerable exactly.
+    idx.add_player("known", [{"date": "2024-01-01", "trade_value": 900}], "trade_value")
+    idx.add_player("stale", [{"date": "2021-06-01", "trade_value": 900}], "trade_value")
+    # Today's directory must not enter into any of this — see asset_value_at.
+    idx.active_sids = {"known", "stale", "never_ranked"}
     # A player KTC never ranked, queried after the floor -> confirmed worthless.
     assert asset_value_at(None, "never_ranked", date(2024, 1, 1), idx) == 0.0
-    # A real value resolves as itself.
+    # Quoted on the target date -> that value, no window involved.
     assert asset_value_at(None, "known", date(2024, 1, 1), idx) == 900.0
+    # The mirror covered 2024-01-01 and did not list `stale`, so he was off the
+    # rolls THAT DAY -> 0.0. His 2021 quote is not dragged forward.
+    assert asset_value_at(None, "stale", date(2024, 1, 1), idx) == 0.0
+    # And that holds whether or not he is on the rolls today, which is the point.
+    idx.active_sids = set()
+    assert asset_value_at(None, "stale", date(2024, 1, 1), idx) == 0.0
+    assert asset_value_at(None, "known", date(2024, 1, 1), idx) == 900.0
+    # TRAILING EDGE: past the mirror's last snapshot it has covered nobody, so
+    # zeroing would wipe the league. There the last quote is carried.
+    assert asset_value_at(None, "known", date(2024, 3, 1), idx) == 900.0
+    # PRE-MIRROR: before 2021-04-16 the sparse Wayback backfill is all there is,
+    # so the nearest earlier quote is still carried forward.
+    idx.add_player("early", [{"date": "2020-05-01", "trade_value": 500}], "trade_value")
+    assert asset_value_at(None, "early", date(2020, 9, 1), idx) == 500.0
     # An unknown asset with no id at all -> None, not 0.
     assert asset_value_at(None, None, date(2024, 1, 1), idx) is None
 
@@ -256,6 +311,7 @@ def test_side_values_does_not_drop_zeros():
 if __name__ == "__main__":
     for fn in (
         test_no_stray_aug28_draft_anchors,
+        test_cached_history_is_refetched_once_stale,
         test_zero_and_none_are_distinct_outcomes,
         test_side_values_does_not_drop_zeros,
         test_clean_slot_labels,

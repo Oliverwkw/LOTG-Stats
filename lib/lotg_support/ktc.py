@@ -89,20 +89,44 @@ def load_directory(repo_root: Path) -> List[Dict]:
     return json.loads(cache.read_text())
 
 
+# How long a cached history may go without being re-fetched. "Past values don't
+# change" is true and was taken to mean the file never needed refreshing — but a
+# history also ENDS where it was fetched, so an unrefreshed cache freezes the
+# recent tail. Measured 2026-08-18: every cached history stopped at 2026-07-13,
+# the day after ktc.py last changed and busted the Actions cache key. Five weeks
+# of quotes had simply never been downloaded, and with the no-window rule every
+# target in that span falls back to carrying an older value.
+#
+# Keyed on the FILE's age, not the data's: a retired player's history legitimately
+# ends years ago and must not be re-fetched every build for that reason.
+_HISTORY_MAX_AGE_H = float(os.environ.get("LOTG_KTC_HISTORY_MAX_AGE_H", "24"))
+
+
 def load_history(repo_root: Path, name_id: str) -> List[Dict]:
-    """Per-player full history. Cached indefinitely (past values don't change)."""
+    """Per-player full history, re-fetched once the cached file goes stale.
+
+    Past values don't change, so a stale read is never *wrong* — it is just
+    short, missing everything published since the file was written. On a fetch
+    failure the cached copy is returned rather than dropped."""
     cache = _cache_dir(repo_root) / "players" / f"{name_id}.json"
+    cached: Optional[List[Dict]] = None
     if cache.exists():
         try:
-            return json.loads(cache.read_text())
+            cached = json.loads(cache.read_text())
         except Exception:
             cache.unlink(missing_ok=True)
+        else:
+            age_h = (datetime.utcnow().timestamp() - cache.stat().st_mtime) / 3600.0
+            if age_h < _HISTORY_MAX_AGE_H:
+                return cached
     try:
         data = _http_get_json(f"{DD_BASE}/player/{name_id}")
     except Exception:
-        return []
+        return cached if cached is not None else []
     if not isinstance(data, list):
         data = []
+    if not data and cached:
+        return cached          # an empty answer must not erase a good history
     cache.write_text(json.dumps(data))
     return data
 
@@ -126,7 +150,8 @@ class ValueIndex:
         # pick full_name (dynasty-daddy labels) -> sorted history
         self.pick: Dict[str, List[Tuple[str, float]]] = {}
         # sleeper_ids currently in KTC's rolls (today's directory). A player NOT
-        # in this set is off the rolls (retired / aged out, e.g. Drew Brees) and
+        # in this set is off the rolls TODAY (retired / aged out, e.g. Drew Brees).
+        # Historical checkpoints must not consult it — see asset_value_at — and
         # is worth 0 — distinct from an active player who simply has no value at a
         # pre-history date. Populated by build_index.
         self.active_sids: set = set()
@@ -135,6 +160,15 @@ class ValueIndex:
         # at a date whose season is after their last rostered NFL season was out of
         # the league by then -> 0, not N/A. Populated by build_index.
         self.last_active_season: Dict[str, int] = {}
+        # Every calendar day the MIRROR published a quote for anyone. Measured on
+        # the committed cache, dynasty-daddy has a quote on all 1,915 days from
+        # 2021-04-16 to its latest snapshot — no interior holes at all, and never
+        # a day where fewer than half the in-span players are listed. So on a day
+        # the source covered, a player's absence is not a sampling gap: he was off
+        # the rolls, and 0 is the answer. The only days it does NOT cover are the
+        # trailing edge between its last snapshot and today, where zeroing would
+        # wrongly wipe the whole league — see asset_value_at.
+        self.source_days: set = set()
 
     @staticmethod
     def _history_to_pairs(history: List[Dict], value_col: str) -> List[Tuple[str, float]]:
@@ -151,10 +185,26 @@ class ValueIndex:
         out.sort(key=lambda kv: kv[0])
         return out
 
-    def add_player(self, sleeper_id: str, history: List[Dict], value_col: str) -> None:
+    def add_player(self, sleeper_id: str, history: List[Dict], value_col: str,
+                   is_source: bool = True) -> None:
+        """`is_source` marks a history that came from the daily mirror, whose
+        dates define which days the source covered. The Wayback backfill is
+        sparse and must NOT contribute days — see source_days."""
         pairs = self._history_to_pairs(history, value_col)
         if pairs:
             self.player[str(sleeper_id)] = pairs
+            if is_source:
+                self.source_days.update(d for d, _ in pairs)
+
+    def value_on(self, key: str, target: date, *, is_pick: bool) -> Optional[float]:
+        """The value quoted ON `target` exactly, or None."""
+        target_s = target.isoformat()
+        for ds, v in reversed((self.pick if is_pick else self.player).get(key) or ()):
+            if ds == target_s:
+                return v
+            if ds < target_s:
+                return None
+        return None
 
     def add_pick(self, full_name: str, history: List[Dict], value_col: str) -> None:
         pairs = self._history_to_pairs(history, value_col)
@@ -343,8 +393,9 @@ def build_index(
             pick_name_to_name_id[fn] = nm
 
     idx = ValueIndex()
-    # Current KTC rolls (active assets in today's directory), so the query can
-    # tell "off the rolls -> value 0" from "active but pre-history -> unknown".
+    # Current KTC rolls (active assets in today's directory). Used for pick
+    # labelling and diagnostics only: a historical value must never depend on who
+    # happens to be listed on the day the build runs (see asset_value_at).
     idx.active_sids = {str(p.get("sleeper_id")) for p in directory if p.get("sleeper_id")}
     idx.last_active_season = {str(k): int(v) for k, v in (last_active_season or {}).items()}
 
@@ -491,6 +542,43 @@ def _furthest_listed_pick_value(
     return None
 
 
+# dynasty-daddy's mirror starts here; before it we are on the Wayback backfill.
+_MIRROR_START = date(2021, 4, 16)
+
+# Provenance of every resolution, for the build to dump alongside the exports.
+# Deliberately NOT a column on any sheet: it is a diagnostic for the audit, and a
+# per-cell "where did this come from" column on picks / trades / transactions
+# would be four more columns of noise in every reader's spreadsheet.
+_PROVENANCE: List[Tuple[str, str, Optional[str], str, Optional[float]]] = []
+
+
+def reset_provenance() -> None:
+    _PROVENANCE.clear()
+
+
+def get_provenance() -> List[Tuple[str, str, Optional[str], str, Optional[float]]]:
+    """(asset, target_date, quote_date_used, source, value) per resolution.
+
+    `source` is one of: `mirror` (quoted on the target date itself), `off-rolls`
+    (the mirror covered that day and did not list the asset -> 0),
+    `trailing-edge-carry` / `backfill-carry` (the only two places a value is read
+    from a different date), or `no-history`."""
+    return list(_PROVENANCE)
+
+
+def _note(asset: str, target: date, quote_date: Optional[str],
+          source: str, value: Optional[float]) -> None:
+    _PROVENANCE.append((str(asset), target.isoformat(), quote_date, source, value))
+
+
+def _quote_date(pairs, target: date) -> Optional[str]:
+    t = target.isoformat()
+    for ds, _v in reversed(pairs or ()):
+        if ds <= t:
+            return ds
+    return None
+
+
 def asset_value_at(
     asset_label: Optional[str],
     sleeper_id: Optional[str],
@@ -526,7 +614,6 @@ def asset_value_at(
         return None
     sid = str(sleeper_id)
     pairs = idx.player.get(sid)
-    off_rolls = sid not in idx.active_sids
     # When there's NO KTC value at the target, return 0 (genuinely valueless)
     # rather than N/A (unknown) IF we can affirm the player had no legitimate
     # dynasty value then:
@@ -540,9 +627,9 @@ def asset_value_at(
     las = idx.last_active_season.get(sid)
     confirmed_zero = (target >= KTC_FLOOR) or (las is not None and target.year > las)
 
-    # KTC = 0 ONLY when the player has demonstrably dropped off the rolls BY the
-    # target date (off the current rolls AND target is after their last recorded
-    # KTC value), OR when absence is confirmed valueless per the rule above.
+    # KTC = 0 ONLY when the player had demonstrably dropped off the rolls BY the
+    # TARGET DATE — judged from his own quote history, not from today's directory
+    # — OR when absence is confirmed valueless per the rule above.
     if not pairs:
         return 0.0 if confirmed_zero else None
     v = idx.value_at(sid, target, is_pick=False)  # latest value on/before target
@@ -550,17 +637,32 @@ def asset_value_at(
         # target precedes their first recorded value: 0 if confirmed valueless,
         # else unknown (active pre-tracking) -> N/A.
         return 0.0 if confirmed_zero else None
-    # v carries the last known value forward. If the player is off the current rolls
-    # AND target is LONG after their last recorded value, they've genuinely dropped
-    # off KTC by then -> 0 (don't carry a stale value forward for months). A SHORT
-    # gap (e.g. an end-of-rookie checkpoint two weeks after a sparse Wayback point)
-    # carries the real value forward.
-    last_ds = pairs[-1][0]
-    if off_rolls and target.isoformat() > last_ds:
-        try:
-            ly, lm, ld = (int(x) for x in last_ds.split("-"))
-            if (target - date(ly, lm, ld)).days > 120:
-                return 0.0
-        except Exception:
-            pass
+    # MIRROR ERA: no window at all. The mirror published a quote every single day
+    # it covered — measured on the committed cache, all 1,915 days from 2021-04-16
+    # to its latest snapshot, with never a day under half coverage. So if it
+    # covered `target` and this player has no quote on it, he was off the rolls
+    # THAT DAY and 0 is the answer, not a stale value dragged forward.
+    #
+    # The one exception is the trailing edge: between the mirror's last snapshot
+    # and today it has covered nobody, and zeroing there would wipe the whole
+    # league, so those carry the most recent quote.
+    #
+    # Note what is deliberately absent: `idx.active_sids`, today's KTC directory.
+    # Gating any of this on it made a 2025 checkpoint depend on whether the player
+    # was listed on the morning of the build — Beckham's "2 years after draft day"
+    # read 0.0 one week and 167.0 the next with no code change in between.
+    if target >= _MIRROR_START and idx.source_days:
+        if target.isoformat() in idx.source_days:
+            exact = idx.value_on(sid, target, is_pick=False)
+            _note(sid, target, target.isoformat() if exact is not None else None,
+                  "mirror" if exact is not None else "off-rolls",
+                  exact if exact is not None else 0.0)
+            return exact if exact is not None else 0.0
+        _note(sid, target, _quote_date(pairs, target), "trailing-edge-carry", v)
+        return v
+
+    # PRE-MIRROR (before 2021-04-16): dynasty-daddy does not reach back here, and
+    # the one-time Wayback backfill is sparse by nature, so the nearest earlier
+    # quote is the best reading available and is carried forward unchanged.
+    _note(sid, target, _quote_date(pairs, target), "backfill-carry", v)
     return v
