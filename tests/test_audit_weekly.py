@@ -70,6 +70,87 @@ def check_diff_flags_every_row_including_current_season(tmp):
     return ok
 
 
+def check_wall_clock_is_not_a_change(tmp):
+    """A tenure counter advancing by the elapsed time is the clock, not the
+    dataset moving — but ONLY when it advances by the same amount as the rest of
+    its sheet. Any other movement in the same column is still a finding."""
+    base_dir, cur_dir = tmp / "wcb", tmp / "wcc"
+    base = pd.DataFrame({
+        "Year": ["2021"] * 4, "Number": ["1.01", "1.02", "1.03", "1.04"],
+        "Player Picked": ["P1", "P2", "P3", "P4"],
+        "Length of tenure on team": ["100", "100", "100", "100"],
+        "O-Score": ["10", "20", "30", "40"],
+    })
+    _write(base_dir, "picks", base)
+    cur = base.copy()
+    cur.loc[0, "Length of tenure on team"] = "107"    # the clock
+    cur.loc[1, "Length of tenure on team"] = "107"    # the clock
+    cur.loc[2, "Length of tenure on team"] = "131"    # NOT the clock
+    cur.loc[3, "Length of tenure on team"] = "93"     # went backwards
+    _write(cur_dir, "picks", cur)
+    rep = A.Report()
+    A.audit_diffs({n: A._read(cur_dir, n) for n in A.SHEETS},
+                  {n: A._read(base_dir, n) for n in A.SHEETS}, 2026, rep)
+    text = rep.render()
+    ok = _ok("the sheet is still flagged", rep.confirmed == 1, f"confirmed={rep.confirmed}")
+    ok &= _ok("only the two odd rows are flagged", "2 changed" in text, text)
+    ok &= _ok("the oversized advance is named", "131" in text, text)
+    ok &= _ok("the backwards one is named", "93" in text, text)
+    ok &= _ok("the clock rows are not flagged", "107" not in text.split("Wall clock")[0], text)
+    ok &= _ok("and are accounted for in a note",
+              "Wall clock: 2 row(s)" in text and "+7" in text, text)
+
+    # A clock tick that also moved something else stays, with the tick removed.
+    cur2 = base.copy()
+    cur2.loc[0, "Length of tenure on team"] = "107"
+    cur2.loc[1, "Length of tenure on team"] = "107"
+    cur2.loc[0, "O-Score"] = "11"
+    _write(cur_dir, "picks", cur2)
+    rep2 = A.Report()
+    A.audit_diffs({n: A._read(cur_dir, n) for n in A.SHEETS},
+                  {n: A._read(base_dir, n) for n in A.SHEETS}, 2026, rep2)
+    t2 = rep2.render()
+    ok &= _ok("a row that also moved a real column is still flagged",
+              rep2.confirmed == 1 and "O-Score" in t2, t2)
+    ok &= _ok("but its clock tick is not listed as part of the finding",
+              "Length of tenure" not in t2.split("Wall clock")[0], t2)
+    return ok
+
+
+def check_renumbered_pointers_are_not_a_change(tmp):
+    """"Link to …" holds a ROW NUMBER. Inserting a trade renumbers hundreds of
+    them without a single relationship changing — but a pointer that now lands on
+    a DIFFERENT event is a repointing bug and must survive."""
+    base_dir, cur_dir = tmp / "lkb", tmp / "lkc"
+    def trades(rows):
+        return pd.DataFrame({"Team": [r[0] for r in rows], "Date": [r[1] for r in rows],
+                             "Team's traded with 1": ["X"] * len(rows), "Season": ["2024"] * len(rows)})
+    base_trades = trades([("A", "d1"), ("B", "d2"), ("C", "d3")])
+    cur_trades = trades([("N", "d0"), ("A", "d1"), ("B", "d2"), ("C", "d3")])  # one inserted first
+    _write(base_dir, "trades", base_trades)
+    _write(cur_dir, "trades", cur_trades)
+    picks = pd.DataFrame({
+        "Year": ["2021", "2021"], "Number": ["1.01", "1.02"],
+        "Player Picked": ["P1", "P2"],
+        "Link to next transaction": ["T#2", "T#3"],
+    })
+    _write(base_dir, "picks", picks)
+    moved = picks.copy()
+    moved.loc[0, "Link to next transaction"] = "T#3"   # renumbered, same trade (B/d2)
+    moved.loc[1, "Link to next transaction"] = "T#1"   # now a DIFFERENT trade (N/d0)
+    _write(cur_dir, "picks", moved)
+    rep = A.Report()
+    A.audit_diffs({n: A._read(cur_dir, n) for n in A.SHEETS},
+                  {n: A._read(base_dir, n) for n in A.SHEETS}, 2026, rep)
+    text = rep.render()
+    ok = _ok("the repointed row is flagged", "Number=1.02" in text, text)
+    ok &= _ok("the merely renumbered row is not",
+              "Number=1.01" not in text.split("Row-index pointers")[0], text)
+    ok &= _ok("and is accounted for in a note",
+              "Row-index pointers: 1 row(s)" in text, text)
+    return ok
+
+
 def check_all_time_sheets_are_diffed(tmp):
     """player/team/league_all_time have no per-row season and used to be skipped
     entirely — 288 columns nothing ever compared."""
@@ -330,6 +411,8 @@ def run_all() -> bool:
         check_current_season_ignores_future_picks,
         check_diff_flags_every_row_including_current_season,
         check_all_time_sheets_are_diffed,
+        check_wall_clock_is_not_a_change,
+        check_renumbered_pointers_are_not_a_change,
         check_no_column_is_exempt,
         check_diff_clean_when_identical,
         check_modified_row_names_the_column,

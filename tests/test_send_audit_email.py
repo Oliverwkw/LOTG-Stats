@@ -40,7 +40,7 @@ def check_clean_email():
     subject, html, issues = E.render_email(flags=[], gaps={}, captures_present=True)
     ok = _ok("clean subject says all clear", "all clear" in subject and subject.startswith("✅"))
     ok &= _ok("no issues flagged", issues is False)
-    ok &= _ok("breakage section clean", "Nothing moved" in html)
+    ok &= _ok("breakage section clean", "Nothing unaccounted for" in html)
     ok &= _ok("injury section clean", "has an injury capture" in html)
     return ok
 

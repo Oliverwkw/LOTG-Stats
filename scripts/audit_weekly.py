@@ -10,17 +10,25 @@ default GitHub "scheduled workflow failed" email:
     HEAD as `--baseline`, so this part answers "does a cold rebuild still
     reproduce what we ship?".
 
-    NOTHING IS EXEMPT. Every sheet (including the all-time rollups, which carry
-    no per-row season), every column (including the ones that move most weeks —
-    link indexes, O-Score, the skill / Luck family, rolling KTC windows, tenure)
-    and every row (current and future seasons included) is compared. Each of
-    those exemptions was a prediction about which movements could not be bugs,
-    and the predictions were wrong: the calendar-dependent injury flags #381
-    fixed moved Luck and little else for a week, and the picks sheet is
-    two-thirds future-dated rows that were never compared at all. An audit that
-    decides in advance what does not count cannot catch what it excluded.
-    Volume is handled by REPORTING, not by filtering — the per-sheet "columns
-    that moved" roll-up turns one broad cause into one line.
+    NOTHING IS EXEMPT BY NAME. Every sheet (including the all-time rollups,
+    which carry no per-row season), every column (including the ones that move
+    most weeks — O-Score, the skill / Luck family, rolling KTC windows) and every
+    row (current and future seasons included) is compared. Each of the old
+    exemptions was a prediction about which movements could not be bugs, and the
+    predictions were wrong: the picks sheet is two-thirds future-dated rows that
+    were never compared, and the first week they were, a 2028 pick had quietly
+    changed hands. An audit that decides in advance what does not count cannot
+    catch what it excluded.
+
+    TWO MOVEMENTS ARE SUPPRESSED, AND ONLY WHERE THEY ARE PROVED. A tenure
+    counter that advanced by the same elapsed time as the rest of its sheet is
+    the wall clock; a "Link to …" that was renumbered but still resolves to the
+    same event is a row number, not a relationship. Both are verified per row
+    against the data — a tenure that moved by some other amount, or backwards,
+    and a pointer that now lands on a different event, are flagged. That is the
+    opposite of a name-based exemption: it is the only form of the rule that can
+    still catch the bug it is filtering around. A third suppression, NFLverse
+    upstream revisions, is described below.
 
     A row that was EDITED (the overwhelmingly common case) is reported as one
     `changed` entry naming the columns that moved and their old → new values,
@@ -520,6 +528,140 @@ def audit_nflverse(drift: Drift, attributed_rows: int, rep: Report,
 
 
 # ---------------------------------------------------------------------------
+# The wall clock
+# ---------------------------------------------------------------------------
+# One family of columns is a stopwatch: "how long has this asset been on this
+# team", counted to TODAY. Every still-held asset advances by exactly the days
+# between the two builds, so a week's rebuild moves ~270 rows by an identical
+# amount. That is the clock, not a change, and reporting it every week trains
+# the reader to skim the one part of the email that must not be skimmed.
+#
+# It is suppressed only where it is PROVABLY the clock: the row moved by the
+# same amount as the bulk of its sheet, and forwards. A tenure that moved by
+# some other amount, or backwards, or on an asset whose tenure should have
+# stopped, is not the clock and is still flagged — which is the failure a blanket
+# name-based exemption would have hidden.
+_WALL_CLOCK_COLUMNS = ("length of tenure",)
+
+
+def is_wall_clock_column(column: str) -> bool:
+    return any(n in str(column).lower() for n in _WALL_CLOCK_COLUMNS)
+
+
+def _tick(deltas: Sequence[tuple]) -> Optional[float]:
+    """The advance a wall-clock delta represents, or None if it isn't one."""
+    for col, old, new in deltas:
+        if not is_wall_clock_column(col):
+            continue
+        try:
+            step = float(new) - float(old)
+        except (TypeError, ValueError):
+            return None
+        return step if step > 0 else None
+    return None
+
+
+def wall_clock_step(changed: Sequence[tuple]) -> Optional[float]:
+    """The one advance the sheet's clock columns share this week, if there is
+    one. Taken as the modal positive step so a single odd row can't define it."""
+    steps = Counter(t for t in (_tick(d) for _k, d, _r in changed) if t is not None)
+    if not steps:
+        return None
+    step, n = steps.most_common(1)[0]
+    return step if n >= 2 else None
+
+
+def strip_wall_clock(changed: List[tuple], step: Optional[float]) -> Tuple[List[tuple], int]:
+    """Drop the clock's own tick from each row's deltas; rows left with nothing
+    else are the clock and nothing more. Returns (kept, rows_dropped)."""
+    if step is None:
+        return changed, 0
+    kept, dropped = [], 0
+    for k, deltas, row in changed:
+        rest = [(c, o, n) for c, o, n in deltas
+                if not (is_wall_clock_column(c) and _tick([(c, o, n)]) == step)]
+        if not rest:
+            dropped += 1
+            continue
+        kept.append((k, rest, row))
+    return kept, dropped
+
+
+# ---------------------------------------------------------------------------
+# Row-index pointers
+# ---------------------------------------------------------------------------
+# The "Link to …" columns are 1-based ROW NUMBERS into another sheet — "T#193"
+# is the 193rd trade, "#48" the 48th transaction. Insert six trades and every
+# later pointer renumbers, so one ordinary week rewrites ~750 of them without a
+# single relationship changing.
+#
+# Suppressed only where the pointer still means the same thing: both sides are
+# resolved against their own sheet and the delta is dropped only when they land
+# on the SAME event. A pointer that now resolves to a different trade — or to
+# nothing — is a real repointing bug and is flagged, which is exactly what a
+# name-based exemption on "link to" could never see.
+# A cell holds one pointer ("#48") or a per-asset list ("T#7; #54; PH#64").
+_LINK_TARGETS = {"T": "trades", "": "transactions", "PH": "picks"}
+_LINK_REF = re.compile(r"^\s*([A-Za-z]*)#(\d+)\s*$")
+
+
+def is_link_column(column: str) -> bool:
+    return "link to" in str(column).lower()
+
+
+def _resolve_refs(cell: str, frames: Dict[str, pd.DataFrame]) -> Optional[list]:
+    """Every pointer in the cell, resolved to what it points AT. None if any one
+    of them can't be read — an unreadable pointer is not something to wave off."""
+    out = []
+    for part in str(cell).split(";"):
+        if not part.strip():
+            out.append(("", ))          # an empty slot is itself a value
+            continue
+        target = _resolve_link(part, frames)
+        if target is None:
+            return None
+        out.append(target)
+    return out
+
+
+def _resolve_link(ref: str, frames: Dict[str, pd.DataFrame]) -> Optional[tuple]:
+    """(sheet, identifying-key) the pointer lands on, or None if it can't be read."""
+    m = _LINK_REF.match(str(ref))
+    if not m:
+        return None
+    sheet = _LINK_TARGETS.get(m.group(1).upper())
+    df = frames.get(sheet) if sheet else None
+    if df is None or df.empty:
+        return None
+    i = int(m.group(2)) - 1               # the exports write these 1-based
+    if not (0 <= i < len(df)):
+        return None
+    row = df.iloc[i]
+    cols = [c for c in ID_COLS.get(sheet, []) if c in df.columns]
+    return (sheet,) + tuple(str(row[c]) for c in cols)
+
+
+def strip_stable_links(changed: List[tuple], base_frames: Dict[str, pd.DataFrame],
+                       cur_frames: Dict[str, pd.DataFrame]) -> Tuple[List[tuple], int]:
+    """Drop pointer deltas that were only renumbered. Returns (kept, rows_dropped)."""
+    kept, dropped = [], 0
+    for k, deltas, row in changed:
+        rest = []
+        for col, old, new in deltas:
+            if is_link_column(col):
+                was = _resolve_refs(old, base_frames)
+                now = _resolve_refs(new, cur_frames)
+                if was is not None and was == now:
+                    continue          # same events, new row numbers
+            rest.append((col, old, new))
+        if not rest:
+            dropped += 1
+            continue
+        kept.append((k, rest, row))
+    return kept, dropped
+
+
+# ---------------------------------------------------------------------------
 # Part 1 — unexpected diffs (completed-season immutability)
 # ---------------------------------------------------------------------------
 def _row_key(row: pd.Series, cols: List[str]) -> str:
@@ -528,6 +670,10 @@ def _row_key(row: pd.Series, cols: List[str]) -> str:
 
 def _key_text(idcols: Sequence[str], key: tuple) -> str:
     return " | ".join(f"{c}={v}" for c, v in zip(idcols, key)) or "(row)"
+
+
+def _num(v: float) -> str:
+    return str(int(v)) if float(v).is_integer() else f"{v:g}"
 
 
 def _fmt(v: str) -> str:
@@ -607,6 +753,8 @@ def audit_diffs(cur: Dict[str, pd.DataFrame], base: Dict[str, pd.DataFrame],
     pool_swept = 0
     attributed: Dict[str, int] = {}
     attributed_cols: Counter = Counter()
+    clock_ticked: Dict[str, tuple] = {}
+    links_renumbered: Dict[str, int] = {}
     for name in SHEETS:
         c, b = cur.get(name), base.get(name)
         if c is None or b is None or c.empty or b.empty:
@@ -639,14 +787,27 @@ def audit_diffs(cur: Dict[str, pd.DataFrame], base: Dict[str, pd.DataFrame],
         idcols = [c2 for c2 in ID_COLS.get(name, []) if c2 in shared]
         changed, added, removed = classify_diff(shared, idcols, removed_tups, added_tups)
 
-        # Count the rows an NFLverse revision can account for. This is now an
-        # EXPLANATION attached to the report, not a suppression: an upstream
-        # revision is a likely cause, and the attribution is deliberately
-        # permissive enough to absorb a real regression that happens to land on
-        # the same row in the same week. Deciding it was upstream and staying
-        # silent is exactly how a bug hides, so those rows are flagged like any
-        # other and the count tells the reader where to look first.
+        # Peel off the wall clock first — a tenure counter advancing by the same
+        # amount as the rest of its sheet is time passing, not the dataset
+        # moving. Anything the clock does NOT explain stays in `changed`.
+        step = wall_clock_step(changed)
+        changed, ticked = strip_wall_clock(changed, step)
+        if ticked:
+            clock_ticked[name] = (ticked, step)
+
+        # Same idea for the row-index pointers: a renumbered pointer that still
+        # lands on the same event is not a change to the dataset.
+        changed, renumbered = strip_stable_links(changed, base, cur)
+        if renumbered:
+            links_renumbered[name] = renumbered
+
+        # Peel off the rows an NFLverse revision accounts for. Upstream
+        # back-correcting a season is THEIR data moving, not our build failing to
+        # reproduce it — measured on the 2026-08-12 run that is 2,935 of our rows
+        # in one week, and calling those bugs would bury every real finding. They
+        # are counted and their columns reported under the NFLverse section.
         if attrib is not None and attrib.active:
+            kept, taken = [], []
             for item in changed:
                 k, deltas, row_tup = item
                 row = dict(zip(shared, row_tup))
@@ -656,12 +817,17 @@ def audit_diffs(cur: Dict[str, pd.DataFrame], base: Dict[str, pd.DataFrame],
                 else:
                     channel = attrib.covers_columns(name, idcols, k, row, cols)
                 if channel is None:
+                    kept.append(item)
                     continue
+                taken.append(item)
                 if channel == "pool":
                     pool_swept += 1
-                attributed[name] = attributed.get(name, 0) + 1
-                for col, _o, _n in deltas:
-                    attributed_cols[col] += 1
+            if taken:
+                attributed[name] = attributed.get(name, 0) + len(taken)
+                for _, deltas, _ in taken:
+                    for col, _o, _n in deltas:
+                        attributed_cols[col] += 1
+            changed = kept
         if not changed and not added and not removed:
             continue
 
@@ -704,6 +870,17 @@ def audit_diffs(cur: Dict[str, pd.DataFrame], base: Dict[str, pd.DataFrame],
         _emit(changed, _changed_line)
         _emit(added, lambda k: f"    - added:   {_key_text(idcols, k)}")
         _emit(removed, lambda k: f"    - removed: {_key_text(idcols, k)}")
+    if clock_ticked:
+        bits = ", ".join(f"{sheet} ({n} row(s), +{_num(step)})"
+                         for sheet, (n, step) in clock_ticked.items())
+        rep.note(f"Wall clock: {sum(n for n, _ in clock_ticked.values())} row(s) "
+                 f"advanced a tenure counter by the elapsed time and moved nothing "
+                 f"else — not flagged. {bits}.")
+    if links_renumbered:
+        bits = ", ".join(f"{sheet} ({n})" for sheet, n in links_renumbered.items())
+        rep.note(f"Row-index pointers: {sum(links_renumbered.values())} row(s) had a "
+                 f"\"Link to …\" renumbered but still pointing at the same event, and "
+                 f"moved nothing else — not flagged. {bits}.")
     total_attributed = sum(attributed.values())
     rep.attributed_sheets = dict(sorted(attributed.items(), key=lambda kv: -kv[1]))
     rep.attributed_columns = attributed_cols.most_common(_MAX_SUMMARY_COLS)
@@ -715,12 +892,14 @@ def audit_diffs(cur: Dict[str, pd.DataFrame], base: Dict[str, pd.DataFrame],
         cols = ", ".join(f"{c} ({n})" for c, n in attributed_cols.most_common(6))
         swept = (f" {pool_swept} of them are league-relative values swept along by a "
                  "re-seated positional baseline." if pool_swept else "")
-        rep.note(f"Of the rows above, {total_attributed} have an NFLverse revision "
-                 f"that could account for them — a likely cause to check first, not "
-                 f"a clean bill of health. {sheets}."
+        rep.note(f"{total_attributed} row(s) moved because NFLverse revised the "
+                 f"data underneath them — not flagged. {sheets}."
                  + (f" Columns: {cols}." if cols else "") + swept)
     if not any_change:
         rep.ok("Not one row of any sheet changed since the committed build.")
+    elif not flagged_any:
+        rep.ok("Every row that moved is explained — an upstream NFLverse revision "
+               "or the wall clock. Nothing unaccounted for.")
     return total_attributed
 
 
