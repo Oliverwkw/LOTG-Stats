@@ -21,6 +21,13 @@ It's a weekly heartbeat: it sends every week so a silent inbox means "the check
 didn't run", not "nothing's wrong". Pass --skip-clean to suppress the email on a
 clean week instead.
 
+A week WITH findings opens with a lede — up to five sentences saying which of
+them needs a decision, because a flag per sheet with a dozen detail lines under
+each is a wall. Claude writes it when ANTHROPIC_API_KEY is set (one repo secret;
+setup is documented in lib/lotg_support/email_summary.py) and the draft passes
+the grounding guards; otherwise it is a counted line. Neither can stop the email
+going out. A clean week gets no lede — that email is already one sentence.
+
 HOW MUCH IT SAYS depends entirely on whether anything needs a decision:
 
   * NOTHING FLAGGED, no missed weeks, upstream drift measured — the email is its
@@ -38,7 +45,7 @@ digest). Safe no-op (logged, exit 0) when creds are absent, unless --require.
 
 Usage:
   PYTHONPATH=src:lib python scripts/send_audit_email.py \
-      --exports exports --baseline /tmp/baseline_exports
+      --exports exports --baseline /tmp/baseline_exports [--no-ai-summary]
 """
 from __future__ import annotations
 
@@ -54,9 +61,10 @@ _ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(_ROOT / "scripts"))
 sys.path.insert(0, str(_ROOT / "lib"))
 
-import audit_weekly as A          # noqa: E402
-import injury_coverage as C       # noqa: E402
-from lotg_support import mailer   # noqa: E402
+import audit_weekly as A                       # noqa: E402
+import injury_coverage as C                    # noqa: E402
+from lotg_support import email_summary as ES   # noqa: E402
+from lotg_support import mailer                # noqa: E402
 
 _CREDS_ENC = _ROOT / "config" / "digest_credentials.enc"
 
@@ -186,9 +194,66 @@ def _upstream_only_html(drift, attributed_cells: int) -> str:
             f'which in turn changed {attributed_cells} cells</li></ul>')
 
 
+# ---------------------------------------------------------------------------
+# The lede
+# ---------------------------------------------------------------------------
+# A week with findings is a wall: a flag per sheet, a dozen detail lines under
+# each, plus the NFLverse breakdown they have to be read against. The lede says
+# which of it needs a decision. Same machinery as the digest's (one repo secret
+# turns it on; see lib/lotg_support/email_summary.py), and the same rule: it
+# cannot stop the email — build_intro never raises, and a lede that isn't
+# available or isn't grounded degrades to the counted line below.
+#
+# Only on a week WITH findings. The clean-week email is already one sentence
+# long; a summary of one sentence is noise.
+def _lede_sections(flags, gaps: dict, drift, attributed: int):
+    """The audit's own rendered lines, grouped the way the email groups them."""
+    breaks = []
+    for f in flags:
+        breaks.append(ES.Line(f["text"]))
+        breaks += [ES.Line("    " + (d[2:] if d.startswith("- ") else d))
+                   for d in f["details"][:_MAX_DETAIL_LINES]]
+    upstream = []
+    if drift is not None and getattr(drift, "compared", False):
+        tail = (f" It accounts for {attributed} changed row(s) in our exports."
+                if attributed else "")
+        upstream.append(ES.Line(drift.summary() + tail))
+    injuries = [ES.Line(f"{season}: weeks "
+                        + ", ".join(str(w) for w in gaps[season])
+                        + " were played but have no injury capture.")
+                for season in sorted(gaps)]
+    return [(t, "", items) for t, items in (
+        ("Dataset breakages", breaks),
+        ("NFLverse changes", upstream),
+        ("Missed injuries", injuries),
+    ) if items]
+
+
+def _counted_lede(flags, gaps: dict) -> str:
+    """The deterministic audit lede: how many findings, and how many gaps."""
+    n_break, n_gap = len(flags), sum(len(v) for v in gaps.values())
+    bits = []
+    if n_break:
+        sheets = len({f.get("section") or f["text"] for f in flags})
+        bits.append(f"{n_break} finding{'s' if n_break != 1 else ''} "
+                    f"across {sheets} audit section{'s' if sheets != 1 else ''}")
+    if n_gap:
+        bits.append(f"{n_gap} missed injury week{'s' if n_gap != 1 else ''}")
+    # No "needs a look" — the banner directly above already says that.
+    return (" and ".join(bits) + ".") if bits else ""
+
+
+def _lede_html(intro: str) -> str:
+    if not intro:
+        return ""
+    return ('<p style="margin:0 0 16px;padding:12px 14px;background:#f2f6fb;'
+            'border-left:3px solid #0b2545;border-radius:4px;color:#0b2545;">'
+            f'{intro}</p>')
+
+
 def render_email(flags, gaps: dict, captures_present: bool, drift=None,
                  attributed: int = 0, attributed_sheets=None, attributed_columns=None,
-                 attributed_cells: int = 0):
+                 attributed_cells: int = 0, use_ai: bool = True):
     """Return (subject, html, has_issues)."""
     n_break = len(flags)
     n_gap = sum(len(v) for v in gaps.values())
@@ -219,11 +284,20 @@ def render_email(flags, gaps: dict, captures_present: bool, drift=None,
         subject = f"✅ LOTG dataset health — all clear ({today})"
         banner_bg, banner = "#e7f4ea", "✅ All clear this week"
 
+    # Only on a week with findings — see _lede_sections.
+    intro = ES.build_intro(
+        _lede_sections(flags, gaps, drift, attributed), subject,
+        fallback=_counted_lede(flags, gaps), system=ES.SYSTEM_AUDIT,
+        use_ai=use_ai) if has_issues else ""
+    if intro:
+        print(f"[audit-email] lede: {intro}")
+
     html = f"""<div style="max-width:680px;margin:0 auto;padding:16px;font:15px/1.5 system-ui,sans-serif;color:#222;">
   <div style="background:{banner_bg};border-radius:8px;padding:14px 16px;margin-bottom:16px;">
     <h1 style="font:700 20px/1.3 system-ui,sans-serif;color:#0b2545;margin:0;">LOTG dataset health — {today}</h1>
     <p style="margin:4px 0 0;color:#0b2545;">{banner}</p>
   </div>
+  {_lede_html(intro)}
   <h2 style="font:600 17px/1.3 system-ui,sans-serif;color:#1a2b3c;margin:18px 0 6px;">Dataset breakages</h2>
   {_breakage_html(flags)}
   <h2 style="font:600 17px/1.3 system-ui,sans-serif;color:#1a2b3c;margin:22px 0 6px;">NFLverse changes</h2>
@@ -260,6 +334,9 @@ def main(argv=None) -> int:
                     help="don't send when there are no breakages and no missed weeks")
     ap.add_argument("--require", action="store_true",
                     help="exit non-zero instead of skipping when the send is impossible")
+    ap.add_argument("--no-ai-summary", action="store_true",
+                    help="skip the Claude-written lede and always use the counted "
+                         "one (the default anyway when ANTHROPIC_API_KEY is unset)")
     args = ap.parse_args(argv)
 
     def _bail(msg: str) -> int:
@@ -282,7 +359,8 @@ def main(argv=None) -> int:
 
     subject, html, has_issues = render_email(
         flags, gaps, bool(captures), rep.drift, rep.nflverse_attributed,
-        rep.attributed_sheets, rep.attributed_columns, rep.attributed_cells)
+        rep.attributed_sheets, rep.attributed_columns, rep.attributed_cells,
+        use_ai=not args.no_ai_summary)
     print(f"[audit-email] {subject}")
     if args.out:
         Path(args.out).parent.mkdir(parents=True, exist_ok=True)

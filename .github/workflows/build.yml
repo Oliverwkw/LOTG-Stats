@@ -186,8 +186,9 @@ jobs:
         env:
           PYTHONPATH: src:lib
           # Writes the lede at the top of the email. Optional: with no secret
-          # configured the digest falls back to the counted lede and builds
-          # exactly as before — see lib/lotg_support/digest_summary.py.
+          # configured the digest falls back to a counted line and builds exactly
+          # as before — see lib/lotg_support/email_summary.py, which documents
+          # how to create the secret.
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         run: |
           set -o pipefail

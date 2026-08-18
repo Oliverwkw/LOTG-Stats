@@ -1,8 +1,10 @@
 """Phase 14: weekly dataset-health email (send_audit_email.py) tests.
 
 Covers recipient selection, the clean-week vs issues-week email rendering
-(subject, banner, breakage + injury sections), and that a clean week with
---skip-clean and no creds is a safe no-op. No SMTP is exercised.
+(subject, banner, breakage + injury sections, and the lede on a week with
+findings), and that a clean week with --skip-clean and no creds is a safe no-op.
+No SMTP is exercised, and no lede test reaches the network — ANTHROPIC_API_KEY is
+unset in these runs, so every one exercises the counted path.
 
 Run: PYTHONPATH=src:lib python tests/test_send_audit_email.py
 """
@@ -152,11 +154,93 @@ def check_skip_clean_no_creds_is_noop():
     return _ok("clean + skip-clean + no creds → exit 0", rc == 0, f"rc={rc}")
 
 
+# ---------------------------------------------------------------------------
+# The lede
+# ---------------------------------------------------------------------------
+def check_lede_only_on_a_week_with_findings():
+    """A clean week's email is already one sentence long; summarising it would
+    be noise. A week with findings is a wall, which is what the lede is for."""
+    flags = [{"section": "Part 1 — unexpected diffs",
+              "text": "team_year: 1 changed past-season row",
+              "details": ["changed: Team=A | Year=2024 — PF: 100 → 999"]}]
+    _, issues_html, _ = E.render_email(flags=flags, gaps={2026: [2, 3]},
+                                       captures_present=True)
+    _, clean_html, _ = E.render_email(flags=[], gaps={}, captures_present=True)
+    lede = "1 finding across 1 audit section and 2 missed injury weeks."
+    ok = _ok("a week with findings gets a lede", lede in issues_html, issues_html[:400])
+    ok &= _ok("above the first section",
+              issues_html.index(lede) < issues_html.index("Dataset breakages"))
+    ok &= _ok("a clean week gets none", "audit section" not in clean_html)
+    return ok
+
+
+def check_counted_lede_content():
+    """What actually ships until an ANTHROPIC_API_KEY secret exists."""
+    two = [{"section": "Part 1 — unexpected diffs", "text": "team_year moved", "details": []},
+           {"section": "Part 2 — schema", "text": "picks lost a column", "details": []}]
+    ok = _ok("counts findings and sections",
+             E._counted_lede(two, {}) == "2 findings across 2 audit sections.",
+             E._counted_lede(two, {}))
+    ok &= _ok("singular reads correctly",
+              E._counted_lede(two[:1], {}) == "1 finding across 1 audit section.",
+              E._counted_lede(two[:1], {}))
+    ok &= _ok("injury gaps are carried",
+              "and 3 missed injury weeks." in E._counted_lede(two, {2026: [1, 2], 2025: [7]}),
+              E._counted_lede(two, {2026: [1, 2], 2025: [7]}))
+    ok &= _ok("gaps alone still summarise",
+              E._counted_lede([], {2026: [4]}) == "1 missed injury week.",
+              E._counted_lede([], {2026: [4]}))
+    ok &= _ok("nothing to say -> nothing said", E._counted_lede([], {}) == "")
+    return ok
+
+
+def check_lede_material_is_the_audit_own_lines():
+    """The model is handed the audit's rendered findings and nothing else — no
+    frames, no raw values it would have to interpret."""
+    flags = [{"section": "Part 1", "text": "team_year: 1 changed past-season row",
+              "details": ["- changed: Team=A | Year=2024 — PF: 100 → 999"]}]
+    secs = E._lede_sections(flags, {2026: [2]}, None, 0)
+    titles = [t for t, _v, _i in secs]
+    lines = [i.sentence() for _t, _v, items in secs for i in items]
+    ok = _ok("no empty sections", titles == ["Dataset breakages", "Missed injuries"], titles)
+    ok &= _ok("carries the finding", any("team_year: 1 changed" in l for l in lines))
+    ok &= _ok("carries its detail", any("PF: 100 → 999" in l for l in lines))
+    ok &= _ok("strips the markdown bullet", not any(l.strip().startswith("- ") for l in lines))
+    ok &= _ok("names the missed weeks", any("2026: weeks 2" in l for l in lines))
+    return ok
+
+
+def check_lede_cannot_stop_the_email():
+    """The point of the whole design: the lede is a nicety on top of an email
+    that has to go out. Anything that goes wrong writing it costs the lede and
+    nothing else."""
+    import lotg_support.email_summary as ES
+    flags = [{"section": "Part 1", "text": "team_year moved", "details": []}]
+
+    def _boom(*a, **k):
+        raise RuntimeError("summariser exploded")
+
+    prev = ES.ai_summary
+    ES.ai_summary = _boom
+    try:
+        subject, html, issues = E.render_email(flags=flags, gaps={}, captures_present=True)
+    finally:
+        ES.ai_summary = prev
+    ok = _ok("the email still renders", bool(html) and issues is True)
+    ok &= _ok("with its subject intact", subject.startswith("⚠️"), subject)
+    ok &= _ok("and its findings intact", "team_year moved" in html)
+    ok &= _ok("just without a lede", "audit section" not in html)
+    return ok
+
+
 def run_all() -> bool:
     all_ok = True
     for t in (check_recipients, check_clean_email, check_issues_email,
               check_detail_lines_not_silently_cut, check_nflverse_section,
-              check_empty_tracker_note, check_skip_clean_no_creds_is_noop):
+              check_empty_tracker_note, check_skip_clean_no_creds_is_noop,
+              check_lede_only_on_a_week_with_findings, check_counted_lede_content,
+              check_lede_material_is_the_audit_own_lines,
+              check_lede_cannot_stop_the_email):
         print(f"\n{t.__name__}:")
         all_ok &= bool(t())
     print("\n" + ("ALL PASS" if all_ok else "SOME FAILED"))

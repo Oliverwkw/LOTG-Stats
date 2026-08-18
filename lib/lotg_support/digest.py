@@ -1356,7 +1356,7 @@ def digest_sections(
     """(title, verb, items) for every non-empty digest section, in email order.
 
     The single place the digest's shape is declared. `render_digest_html` walks
-    it to build the email and `digest_summary` walks it to write the lede, so a
+    it to build the email and `email_summary` walks it to write the lede, so a
     new section appears in both by being added here and nowhere else — the lede
     can't silently stop covering a section the email grew.
 

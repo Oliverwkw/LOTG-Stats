@@ -140,6 +140,11 @@ jobs:
           PYTHONPATH: src:lib
           DIGEST_KEY: ${{ secrets.DIGEST_KEY }}
           DIGEST_AUDIT_RECIPIENTS: ${{ secrets.DIGEST_AUDIT_RECIPIENTS }}
+          # Writes the lede at the top of a week WITH findings. Optional: with no
+          # secret configured the email falls back to a counted line and sends
+          # exactly as before — see lib/lotg_support/email_summary.py, which
+          # documents how to create the secret.
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         run: |
           python scripts/send_audit_email.py \
             --exports exports \

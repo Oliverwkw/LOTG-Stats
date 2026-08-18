@@ -1,13 +1,16 @@
-"""Phase 15: the digest lede — the paragraph above the wall of one-line facts.
+"""Phase 15: the lede — the paragraph above the wall of one-line facts.
 
-Covers the two ways it gets written and, mostly, the guard between them: an AI
-draft only ships if every number in it already appeared in the material it was
-given. The AI path is exercised against a stub client (no network, no key), so
-the request shape and the response handling are tested here rather than
-discovered in production. The deterministic path is tested for content, not just
-for existing — it is what the league actually reads whenever the key is unset.
+Shared by both weekly emails (the Tuesday digest and the Wednesday audit).
+Covers the two ways it gets written and, mostly, the guards between them: an AI
+draft only ships if it is short enough and if every number in it already appeared
+in the material it was given. The AI path is exercised against a stub client (no
+network, no key), so the request shape and the response handling are tested here
+rather than discovered in production. The deterministic path is tested for
+content, not just for existing — it is what actually gets read whenever the key
+is unset. And the whole thing is tested for being unable to stop an email: the
+lede is a nicety on top of mail that has to go out either way.
 
-Run: PYTHONPATH=src:lib python tests/test_digest_summary.py
+Run: PYTHONPATH=src:lib python tests/test_email_summary.py
 """
 from __future__ import annotations
 
@@ -20,7 +23,7 @@ _ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(_ROOT / "lib"))
 
 from lotg_support import digest as D              # noqa: E402
-from lotg_support import digest_summary as DS     # noqa: E402
+from lotg_support import email_summary as DS      # noqa: E402
 
 
 def _ok(name, cond, detail=""):
@@ -106,13 +109,34 @@ def check_shape_guard():
     ok &= _ok("a preamble is rejected",
               not DS._acceptable("Here is your summary: trades moved.", src))
     ok &= _ok("a bullet list is rejected", not DS._acceptable("- trades moved", src))
-    ok &= _ok("a second digest is rejected",
+    ok &= _ok("a runaway wall of words is rejected",
               not DS._acceptable(" ".join(["word"] * (DS._MAX_WORDS + 1)), src))
     return ok
 
 
+def check_sentence_cap():
+    """The cap is on sentences, not words — a lede may be five short ones or a
+    single long one, and length should track how much happened."""
+    src = DS._prompt(_sections(), "hdr")
+    five = "One. Two. Three. Four. Five."
+    ok = _ok("five sentences is the limit", DS.sentence_count(five) == 5)
+    ok &= _ok("five is accepted", DS._acceptable(five, src))
+    ok &= _ok("six is rejected", not DS._acceptable(five + " Six.", src))
+    ok &= _ok("one sentence is fine", DS._acceptable("Quiet week.", src))
+    # The whole reason for the lookahead in _SENT_END: these emails are full of
+    # decimals and dotted pick numbers.
+    ok &= _ok("decimals are not sentence ends",
+              DS.sentence_count("Pick 2.04 took 1st at 103.3 all-time.") == 1)
+    ok &= _ok("an unterminated fragment still counts",
+              DS.sentence_count("no full stop here") == 1)
+    ok &= _ok("nothing is zero sentences", DS.sentence_count("  ") == 0)
+    return ok
+
+
 def check_prompt_carries_the_lines_and_admits_truncation():
-    src = DS._prompt(_sections(), "LOTG weekly digest — 2026 season, week 7")
+    secs = _sections()
+    src = DS._prompt(secs, "LOTG weekly digest — 2026 season, week 7",
+                     DS.counted_summary(secs))
     ok = _ok("carries the header", "week 7" in src)
     ok &= _ok("carries the counts", "3 leaderboard moves" in src, )
     ok &= _ok("carries the digest's own sentences", "Josh Doctson" in src and "103.3" in src)
@@ -123,7 +147,7 @@ def check_prompt_carries_the_lines_and_admits_truncation():
     trunc = DS._prompt(big, "hdr")
     ok &= _ok("a huge week is capped", trunc.count("\nline ") <= DS._MAX_LINES)
     ok &= _ok("and the model is told it was capped",
-              "not shown — do not claim to have seen every move" in trunc)
+              "not shown — do not claim to have seen every line" in trunc)
     return ok
 
 
@@ -293,6 +317,7 @@ def run_all() -> bool:
         check_counted_summary_condenses_many_sections,
         check_grounding_guard,
         check_shape_guard,
+        check_sentence_cap,
         check_prompt_carries_the_lines_and_admits_truncation,
         check_ai_request_shape,
         check_ai_failures_all_fall_back,
@@ -308,7 +333,7 @@ def run_all() -> bool:
     return all_ok
 
 
-def test_digest_summary():
+def test_email_summary():
     assert run_all()
 
 
