@@ -128,22 +128,17 @@ def main(argv=None) -> int:
         frames["player_week"], frames["team_week"],
         frames["league_week"], frames["team_year"],
     )
-    events = D.season_event_highlights(frames, meta["season"]) if meta["season"] else []
-    current["event_keys"] = D.event_key_map(events)
-    # Two-sided (zero-centered) extremes: matchup margins this week + trade
-    # differentials this season, ranked by |value| with both sides named.
-    week_no = D.latest_completed_week(frames["team_week"], meta["season"]) if meta["season"] else None
-    paired = []
-    if meta["season"] and week_no:
-        paired += D.matchup_highlights(frames["team_week"], meta["season"], week_no)
-        paired += D.season_paired_highlights(frames, meta["season"])
-    current["paired_keys"] = D.paired_key_map(paired)
+    # The boards cover EVERY numeric column of EVERY row-level sheet, over every
+    # row ever — a season, a week, a pick, a trade, a transaction. A recompute
+    # that re-values history reshuffles an all-time top/bottom 5, and that
+    # reshuffle is the thing to report, whichever sheet it lands on.
+    events = D.all_board_highlights(frames)
+    current["event_board"] = D.event_board(events)
 
     prior = D.load_snapshot(snap_path)
     if prior is None:
         print("[digest] no prior snapshot — baselining this week (no diff yet).")
         crossings, proj_changes, milestones, record_changes, event_changes = [], [], [], [], []
-        paired_changes = []
     else:
         crossings = D.diff_snapshots(prior, current)
         milestones = D.milestone_crossings(
@@ -162,27 +157,22 @@ def main(argv=None) -> int:
             record_changes = []
         else:
             record_changes = D.diff_records(prior_records, records)
-        prior_events = prior.get("event_keys")
+        # A snapshot from before the all-seasons board (it carried `event_keys`,
+        # current-season only) has no `event_board`, so the first run after the
+        # change re-baselines silently rather than emailing the whole board.
+        prior_events = prior.get("event_board")
         if prior_events is None:
-            print("[digest] baselining event highlights this week (no diff yet).")
+            print("[digest] baselining event boards this week (no diff yet).")
             event_changes = []
         else:
             event_changes = D.diff_events(prior_events, events)
-        prior_paired = prior.get("paired_keys")
-        if prior_paired is None:
-            print("[digest] baselining two-sided extremes this week (no diff yet).")
-            paired_changes = []
-        else:
-            paired_changes = D.diff_paired(prior_paired, paired)
 
     html = D.render_digest_html(crossings, proj_changes, meta, milestones,
-                                record_changes, highlights, events=event_changes,
-                                paired=paired_changes)
+                                record_changes, highlights, events=event_changes)
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(html)
     print(f"[digest] {len(highlights)} single-week highlight(s), {len(crossings)} crossing(s), "
-          f"{len(record_changes)} record(s), {len(event_changes)} event(s), "
-          f"{len(paired_changes)} two-sided extreme(s), "
+          f"{len(record_changes)} record(s), {len(event_changes)} board move(s), "
           f"{len(milestones)} milestone(s), {len(proj_changes)} on-pace change(s) -> {out_path}")
 
     D.save_snapshot(snap_path, current)

@@ -65,11 +65,12 @@ def check_low_end_crossing():
     return _ok("low-end crossing (F to 1st-lowest, passing E)", ("F", "E", 1, "low") in got, f"got {got}")
 
 
-def check_volatile_columns_excluded_from_crossings():
-    # Build-volatile / recompute-sensitive columns (league-relative percentiles
-    # like Luck, `... skill`, O-Score) must NOT generate all-time crossings — they
-    # drift a hair whenever a historical input is revised and would email a phantom
-    # move. A normal column that reorders still fires.
+def check_every_numeric_column_ranks():
+    # #380 excluded the "build-volatile" families (Luck, `... skill`, O-Score,
+    # rolling KTC windows) from all-time crossings on the theory that they drift a
+    # hair on every recompute. They are back in: a reorder is a reorder, and these
+    # are exactly the columns a reader wants to hear about. Nothing numeric is
+    # filtered out of a snapshot now.
     names = [f"T{i}" for i in range(8)]
     def teams(swap):
         rows = []
@@ -84,12 +85,12 @@ def check_volatile_columns_excluded_from_crossings():
     tw = pd.DataFrame({"Team": ["T0"], "Year": [2025], "Week": [1]})
     prev = D.build_snapshot(pd.DataFrame({"Player": []}), teams(False), ty, tw)
     curr = D.build_snapshot(pd.DataFrame({"Player": []}), teams(True), ty, tw)
-    ok = _ok("Luck excluded from the team snapshot", "Luck" not in curr["teams"], list(curr["teams"]))
-    ok &= _ok("Max PF kept in the team snapshot", "Max PF" in curr["teams"])
+    ok = _ok("Luck ranked in the team snapshot", "Luck" in curr["teams"], list(curr["teams"]))
+    ok &= _ok("Max PF ranked in the team snapshot", "Max PF" in curr["teams"])
     cx = D.diff_snapshots(prev, curr)
     cols = {c.column for c in cx}
     ok &= _ok("normal column reorder fires a crossing", "Max PF" in cols, f"got {cols}")
-    ok &= _ok("volatile column reorder fires nothing", "Luck" not in cols, f"got {cols}")
+    ok &= _ok("formerly-volatile column reorder fires too", "Luck" in cols, f"got {cols}")
     return ok
 
 
@@ -248,25 +249,140 @@ def check_event_highlights():
         "Player Picked": ["P1", "P2", "P3", "P4"],
         "O-Score": [50, 60, 90, 10.0],   # P3 best ever, P4 worst ever
     })
-    ev = D.event_highlights(picks, "picks", "Year", 2025, window=3)
+    ev = D.board_highlights(picks, "picks", window=3)
     got = [(e.label, e.column, e.end, e.rank) for e in ev]
-    ok = _ok("best 2025 pick flagged 1st-highest",
+    ok = _ok("best pick ever flagged 1st-highest",
              ("2025 pick 1.03 (P3)", "O-Score", "high", 1) in got, f"got {got}")
-    ok &= _ok("worst 2025 pick flagged 1st-lowest",
+    ok &= _ok("worst pick ever flagged 1st-lowest",
               ("2025 pick 1.04 (P4)", "O-Score", "low", 1) in got)
-    ok &= _ok("sentence names the sheet", any("of any pick ever" in e.sentence() for e in ev))
-    # diff: an already-reported event is suppressed; a new one fires.
-    prior = D.event_key_map([e for e in ev if e.end == "high"])
-    changed = D.diff_events(prior, ev)
-    ok &= _ok("prior event suppressed, new kept",
-              all(e.end != "high" for e in changed) and any(e.end == "low" for e in changed))
+    # The board holds every season's rows, which is what lets a re-valued 2024
+    # pick be reported at all.
+    labels = {e.label for e in ev}
+    ok &= _ok("board includes historical picks",
+              "2024 pick 1.02 (P2)" in labels, f"labels={sorted(labels)}")
     return ok
 
 
-def check_paired_two_sided():
-    # A matchup's margin is +M / -M for the two teams: one two-sided stat, not
-    # two records. two_sided_columns detects it from the mirror rows; paired
-    # highlights rank by |value| and name both sides in one row.
+def check_board_covers_every_sheet():
+    """Season and week rows sit on boards of their own, so a change to a
+    COMPLETED season's row is reported — not only the in-progress one's."""
+    frames = {
+        "team_year": pd.DataFrame({
+            "Team": ["A", "B", "C", "D", "E", "F"],
+            "Year": [2020, 2021, 2022, 2023, 2024, 2025],
+            "PF": [1000.0, 1100, 1200, 1300, 1400, 1500],
+        }),
+        "player_week": pd.DataFrame({
+            "Player": list("abcdef"), "Year": [2020, 2021, 2022, 2023, 2024, 2025],
+            "Week": [1, 2, 3, 4, 5, 6], "Points": [10.0, 20, 30, 40, 50, 60],
+        }),
+    }
+    ev = D.all_board_highlights(frames, window=3)
+    sheets = {e.sheet for e in ev}
+    ok = _ok("team_year gets a board", "team_year" in sheets, f"got {sheets}")
+    ok &= _ok("player_week gets a board", "player_week" in sheets, f"got {sheets}")
+    ok &= _ok("season rows are labelled by team and year",
+              any(e.label == "F 2025" for e in ev), f"got {sorted({e.label for e in ev})}")
+    ok &= _ok("week rows are labelled by player, year and week",
+              any(e.label == "f 2025 week 6" for e in ev))
+    # Re-value a COMPLETED season and the board reports it.
+    prior = D.event_board(ev)
+    frames["team_year"].loc[0, "PF"] = 9999.0     # 2020 becomes the highest ever
+    changes = D.diff_events(prior, D.all_board_highlights(frames, window=3))
+    ok &= _ok("a completed season's re-valued row is reported",
+              any(c.label == "A 2020" and c.column == "PF" and c.rank == 1 for c in changes),
+              f"got {[c.sentence() for c in changes]}")
+    return ok
+
+
+def check_event_board_diff():
+    """A recompute that re-values HISTORY must surface: the user-facing case is a
+    KTC window change reshuffling the all-time O-Score top 5 on an event sheet.
+    It reads as an all-time crossing — "<mover> passes <passed> for Nth-highest"."""
+    def picks_with(oscores):
+        return pd.DataFrame({
+            "Year": [2024, 2024, 2025, 2025],
+            "Number": ["1.01", "1.02", "1.03", "1.04"],
+            "Player Picked": ["P1", "P2", "P3", "P4"],
+            "O-Score": list(oscores),
+        })
+
+    def board(oscores):
+        return D.board_highlights(picks_with(oscores), "picks", window=3)
+
+    base = board([50, 60, 90, 10.0])          # high: P3 1st, P2 2nd, P1 3rd; low: P4 1st
+    prior = D.event_board(base)
+    ok = _ok("board snapshot is a list of dicts",
+             bool(prior) and all(isinstance(d, dict) for d in prior))
+    ok &= _ok("unchanged data reports nothing", D.diff_events(prior, base) == [])
+
+    # The 2024 pick P1 is re-valued and takes 1st — a historical row moving the
+    # all-time top of the board.
+    changes = D.diff_events(prior, board([95, 60, 90, 10.0]))
+    ok &= _ok("re-valued historical pick reported once", len(changes) == 1,
+              f"got {[c.sentence() for c in changes]}")
+    c = changes[0] if changes else None
+    ok &= _ok("the mover is the re-valued 2024 pick",
+              c is not None and c.label == "2024 pick 1.01 (P1)")
+    ok &= _ok("it names who it passed and the place taken",
+              c is not None and c.passed == "2025 pick 1.03 (P3)" and c.rank == 1,
+              f"passed={getattr(c, 'passed', None)} rank={getattr(c, 'rank', None)}")
+    ok &= _ok("sentence reads like an all-time crossing",
+              c is not None and c.sentence() ==
+              "2024 pick 1.01 (P1) passes 2025 pick 1.03 (P3) for 1st-highest O-Score (95).",
+              f"got {c.sentence() if c else None}")
+    ok &= _ok("the picks it passed get no line of their own",
+              all(x.label == "2024 pick 1.01 (P1)" for x in changes))
+
+    # A pick pushed OFF the board is not announced — only the mover is.
+    changes = D.diff_events(prior, board([50, 60, 90, 70.0]))
+    ok &= _ok("displaced picks are not reported",
+              all("no longer" not in x.sentence() for x in changes),
+              f"got {[x.sentence() for x in changes]}")
+    ok &= _ok("the climber is reported",
+              any(x.label == "2025 pick 1.04 (P4)" for x in changes),
+              f"got {[x.sentence() for x in changes]}")
+
+    # A pre-board snapshot (list of key strings) must re-baseline, not report
+    # every place on the board as new.
+    ok &= _ok("legacy string snapshot re-baselines silently",
+              D.diff_events(["picks|2024 pick 1.01 (P1)|O-Score|high:3"], base) == [])
+    ok &= _ok("empty prior re-baselines silently", D.diff_events([], base) == [])
+    return ok
+
+
+def check_event_labels():
+    """Labels name the assets, so a line says what actually moved."""
+    trades = pd.DataFrame([{
+        "Team": "Oliverwkw", "Date": "2023-12-05 18:46:43",
+        "Assets received": "A; B; C; D; E",
+    }])
+    label = D._board_label("trades", trades.iloc[0])
+    ok = _ok("trade label carries date + assets, capped",
+             label == "Oliverwkw's 2023-12-05 trade for A, B, C +2 more", f"got {label}")
+    one = D._board_label("trades", pd.DataFrame(
+        [{"Team": "T", "Date": "2024-01-02 03:04:05", "Assets received": "Solo"}]).iloc[0])
+    ok &= _ok("single asset needs no '+N more'", one == "T's 2024-01-02 trade for Solo", f"got {one}")
+    bare = D._board_label("trades", pd.DataFrame(
+        [{"Team": "T", "Date": "2024-01-02 03:04:05", "Assets received": ""}]).iloc[0])
+    ok &= _ok("a trade with no assets listed still labels", bare == "T's 2024-01-02 trade", f"got {bare}")
+    add = D._board_label("transactions", pd.DataFrame(
+        [{"Team": "T", "Date": "2025-09-01 18:00:20", "Player Added": "QJ",
+          "Player Dropped": "X"}]).iloc[0])
+    ok &= _ok("transaction label names the added player",
+              add == "T's 2025-09-01 move for QJ", f"got {add}")
+    drop = D._board_label("transactions", pd.DataFrame(
+        [{"Team": "T", "Date": "2025-09-01 18:00:20", "Player Added": "",
+          "Player Dropped": "X"}]).iloc[0])
+    ok &= _ok("a drop-only row reads as a drop", drop == "T's 2025-09-01 drop of X", f"got {drop}")
+    return ok
+
+
+def check_mirrored_columns():
+    # A matchup's margin is +M / -M for the two teams: one fact, not two records.
+    # Mirrored columns are detected structurally (rows that pair through an
+    # opponent column) and ranked over their POSITIVE side only, so the board
+    # names each game once, from the winner's row.
     tw = pd.DataFrame({
         "Team":     ["A", "B", "C", "D", "E", "F", "G", "H", "A", "C"],
         "Opponent": ["B", "A", "D", "C", "F", "E", "H", "G", "C", "A"],
@@ -276,24 +392,34 @@ def check_paired_two_sided():
         "Margin":   [30, -30, 5, -5, 50, -50, 2, -2, 10, -10],
         "PF":       [120, 90, 100, 95, 140, 90, 101, 99, 110, 100],
     })
-    cols = D.two_sided_columns(tw, "Team", "Opponent", ["Year", "Week"])
-    ok = _ok("margin detected two-sided", "Margin" in cols, f"got {cols}")
-    ok &= _ok("PF not detected two-sided", "PF" not in cols, f"got {cols}")
-    # This week (2025 w2) has the biggest blowout (|50|) and the closest game (|2|).
-    mh = D.matchup_highlights(tw, 2025, 2, window=3)
-    got = [(p.a, p.b, p.end, p.rank) for p in mh]
-    ok &= _ok("blowout E/F flagged largest",
-              ("E", "F", "high", 1) in got or ("F", "E", "high", 1) in got, f"got {got}")
-    ok &= _ok("nailbiter G/H flagged smallest",
-              ("G", "H", "low", 1) in got or ("H", "G", "low", 1) in got, f"got {got}")
-    ok &= _ok("one row per matchup (deduped)", len(mh) == len({tuple(sorted([p.a, p.b])) + (p.column, p.end) for p in mh}))
-    ok &= _ok("sentence names both sides",
-              any("between" in p.sentence() and "margin" in p.sentence().lower() for p in mh))
-    # diff: an already-reported pair is suppressed; a new one fires.
-    prior = D.paired_key_map([p for p in mh if p.end == "high"])
-    changed = D.diff_paired(prior, mh)
-    ok &= _ok("prior paired suppressed, new kept",
-              all(p.end != "high" for p in changed) and any(p.end == "low" for p in changed))
+    mirrored = D.mirrored_columns(tw, "team_week")
+    ok = _ok("margin detected as mirrored", "Margin" in mirrored, f"got {mirrored}")
+    ok &= _ok("PF not detected as mirrored", "PF" not in mirrored, f"got {mirrored}")
+    ok &= _ok("mirrored pool keeps only the positive side",
+              sorted(D.rankable_series(tw, "Margin", True).tolist()) == [2, 5, 10, 30, 50])
+    ok &= _ok("an unmirrored column keeps every value",
+              len(D.rankable_series(tw, "PF", False)) == 10)
+
+    board = D.board_highlights(tw, "team_week", window=3)
+    margins = [(e.label, e.end, e.rank, e.value) for e in board if e.column == "Margin"]
+    ok &= _ok("biggest blowout named once, from the winner",
+              ("E 2025 week 2", "high", 1, 50.0) in margins, f"got {margins}")
+    ok &= _ok("closest game is the LOW end, not a mirror of the blowout",
+              ("G 2025 week 2", "low", 1, 2.0) in margins, f"got {margins}")
+    ok &= _ok("no loser row on the margin board",
+              not any(lbl.startswith(("F ", "H ")) for lbl, *_ in margins), f"got {margins}")
+    ok &= _ok("a mirrored column can't report the same game twice",
+              len(margins) == len({(r, e) for _, e, r, _ in margins}), f"got {margins}")
+
+    # A symmetric DISTRIBUTION is not a mirror: no opponent pairing, no clipping.
+    pw = pd.DataFrame({"Player": list("abcdefgh"), "Year": [2025] * 8, "Week": [1] * 8,
+                       "Change from previous week": [9, -9, 4, -4, 7, -7, 1, -1]})
+    ok &= _ok("symmetric-but-unpaired column is not mirrored",
+              D.mirrored_columns(pw, "player_week") == set())
+    lows = [e for e in D.board_highlights(pw, "player_week", window=3)
+            if e.column == "Change from previous week" and e.end == "low"]
+    ok &= _ok("so its biggest DROP is still a record",
+              any(e.value == -9 for e in lows), f"got {[(e.label, e.value) for e in lows]}")
     return ok
 
 
@@ -459,7 +585,7 @@ def run_all() -> bool:
         check_ranking_order_and_missing,
         check_player_high_low_crossings,
         check_low_end_crossing,
-        check_volatile_columns_excluded_from_crossings,
+        check_every_numeric_column_ranks,
         check_team_any_of_8_reported_once,
         check_new_entity_no_false_pass,
         check_in_season_gate,
@@ -469,7 +595,10 @@ def run_all() -> bool:
         check_weekly_highlights,
 
         check_event_highlights,
-        check_paired_two_sided,
+        check_board_covers_every_sheet,
+        check_event_board_diff,
+        check_event_labels,
+        check_mirrored_columns,
         check_replica_minimal,
         check_league_window,
         check_league_milestones,

@@ -28,6 +28,7 @@ exact sentence template for every discovered stat.
 """
 from __future__ import annotations
 
+from collections import Counter as _Counter
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -37,7 +38,6 @@ import math
 
 import pandas as pd
 
-from lotg_support.volatile_columns import is_volatile_column
 
 
 # ---------------------------------------------------------------------------
@@ -69,8 +69,7 @@ LEAGUE_WINDOW_CAP = 5
 # league_all_time "major" cumulative totals that earn a milestone note when they
 # cross a round number. (No leaderboard for a single-row sheet.)
 MAJOR_LEAGUE_STATS = (
-    "PF", "Number of transactions", "Total trades",
-    "Number of donuts", "Amount of FAAB spent",
+    "PF", "Number of transactions", "Total trades", "Amount of FAAB spent",
 )
 
 # Sentinels the build writes for "no value" — treated as missing for ranking.
@@ -176,6 +175,56 @@ def discover_numeric_columns(df: pd.DataFrame, entity_col: str,
 
 
 # ---------------------------------------------------------------------------
+# Mirrored (zero-centred) columns
+# ---------------------------------------------------------------------------
+# Some columns hold the SAME fact twice with opposite signs: a matchup's margin
+# is +M for the winner and -M for the loser, a trade's net KTC is +X for one side
+# and -X for the other. Ranking the raw values would report one fact as two
+# records — the biggest blowout AND the biggest defeat, always the same game — and
+# would fill the bottom of every such board with the mirror images of its top.
+# So a mirrored column is ranked over its POSITIVE values only: "1st-highest
+# Margin" is the biggest blowout, "1st-lowest Margin" the closest game, each named
+# once, from the side that came out ahead.
+#
+# Detected STRUCTURALLY (two_sided_columns), from rows that pair up through a
+# counterpart column — not from the shape of the distribution. A distribution
+# test would also catch `Change from previous week`, which is symmetric because
+# players gain and lose about equally often, and clipping it to positives would
+# throw away "biggest drop from last week" — a real record, not a mirror image.
+# sheet -> (the row's side, the column naming the other side, the columns that
+# identify the shared event). Only sheets whose rows come in sides can mirror.
+_MIRROR_PAIRS = {
+    "team_week": ("Team", "Opponent", ("Year", "Week")),
+    "trades": ("Team", "Team's traded with 1", ("Date", "Season")),
+}
+
+
+def mirrored_columns(df: pd.DataFrame, sheet: str) -> set:
+    """The columns of `sheet` that hold one fact from both sides."""
+    pair = _MIRROR_PAIRS.get(sheet)
+    if not pair or df is None or df.empty or pair[1] not in df.columns:
+        return set()
+    return set(two_sided_columns(df, pair[0], pair[1], list(pair[2])))
+
+
+def numeric_series(df: pd.DataFrame, column: str) -> "pd.Series":
+    """The column as floats, sentinels ("N/A", "In Progress") dropped. Uses the
+    vectorised parser when the column is already numeric — the weekly sheets are
+    20k rows deep and a per-cell Python parse over every column is the difference
+    between a build step and a coffee break."""
+    col = df[column]
+    if pd.api.types.is_numeric_dtype(col):
+        return pd.to_numeric(col, errors="coerce").dropna()
+    return pd.to_numeric(col.map(_to_float), errors="coerce").dropna()
+
+
+def rankable_series(df: pd.DataFrame, column: str, mirrored: bool = False) -> "pd.Series":
+    """`numeric_series`, reduced to the positive side when the column mirrors."""
+    s = numeric_series(df, column)
+    return s[s > 0] if mirrored else s
+
+
+# ---------------------------------------------------------------------------
 # Rankings (descending: index 0 = highest value; tail = lowest)
 # ---------------------------------------------------------------------------
 def rank_column(df: pd.DataFrame, entity_col: str, column: str) -> List[dict]:
@@ -236,16 +285,15 @@ def build_snapshot(
     captured_at = captured_at or datetime.now(timezone.utc)
     season = current_season(team_year)
     weeks = weeks_completed(team_week, season) if season is not None else 0
-    # Skip build-volatile / recompute-sensitive columns (league-relative
-    # percentiles like Luck, `... skill`, O-Score, rolling KTC windows): a
-    # completed-season all-time value in these drifts a hair whenever any
-    # historical input is revised, which would flip a rank-boundary tie and
-    # email the league a phantom "leaderboard move" — especially in the offseason
-    # when no game has been played. Same classifier the weekly audit uses.
-    p_cols = [c for c in discover_numeric_columns(player_all_time, "Player")
-              if not is_volatile_column(c)]
-    t_cols = [c for c in discover_numeric_columns(team_all_time, "Team")
-              if not is_volatile_column(c)]
+    # EVERY numeric column ranks — no volatility filter. #380 excluded the
+    # league-relative and rolling families here on the theory that they drift a
+    # hair on every recompute and would flip a rank-boundary tie into a phantom
+    # move; in practice a rank-boundary flip is a real change of order and the
+    # columns it hides (the skill family, Luck, the KTC windows) are ones a
+    # reader wants to hear about. The weekly AUDIT still exempts them — there the
+    # question is "did a frozen historical value move", which is a different one.
+    p_cols = discover_numeric_columns(player_all_time, "Player")
+    t_cols = discover_numeric_columns(team_all_time, "Team")
     return {
         "meta": {
             "captured_at": captured_at.isoformat(),
@@ -628,7 +676,6 @@ def diff_records(prior_map: dict, records: Sequence[YearlyRecord]) -> List[Yearl
 # of all time" alerts. This is how the weekly sheets get directly involved in the
 # digest (they otherwise only feed the year/all-time rollups). Booleans (per-week
 # award flags) are skipped — their tallies show via the year/all-time paths.
-from collections import Counter as _Counter
 
 # A single-week value shared by more than this many week-rows is too common to be
 # a "record" (e.g. the pile of 0s on percentile / streak columns, or a routinely
@@ -682,7 +729,7 @@ def latest_completed_season_week(team_week: pd.DataFrame) -> Optional[tuple]:
 
 def _highlights_for_frame(section: str, wk_df: pd.DataFrame, entity_col: str,
                           season: int, week: int, window: int,
-                          skip: Sequence[str] = ()) -> List[WeeklyHighlight]:
+                          sheet: str = "") -> List[WeeklyHighlight]:
     if wk_df.empty or "Year" not in wk_df.columns or "Week" not in wk_df.columns:
         return []
     year = pd.to_numeric(wk_df["Year"], errors="coerce")
@@ -692,11 +739,10 @@ def _highlights_for_frame(section: str, wk_df: pd.DataFrame, entity_col: str,
         return []
     has_entity = entity_col in wk_df.columns
 
+    mirrored = mirrored_columns(wk_df, sheet)
     out: List[WeeklyHighlight] = []
     for col in discover_numeric_columns(wk_df, entity_col):
-        if col in skip:
-            continue  # two-sided (margin, PF gap) — handled by matchup_highlights
-        all_vals = [v for v in (_to_float(x) for x in wk_df[col]) if v is not None]
+        all_vals = rankable_series(wk_df, col, col in mirrored).tolist()
         if len(all_vals) < window:
             continue
         # Both ends (some stats go negative, so "lowest ever" is meaningful).
@@ -708,7 +754,10 @@ def _highlights_for_frame(section: str, wk_df: pd.DataFrame, entity_col: str,
         low_rank = {v: i + 1 for i, v in enumerate(sorted(counts))}
         for _, r in this_week.iterrows():
             v = _to_float(r[col])
-            if v is None or counts[v] > _MAX_HIGHLIGHT_TIES:
+            # `v not in counts` covers the losing half of a mirrored column: the
+            # pool holds only the positive side, so the loser's -M isn't ranked
+            # (the same fact is already reported from the winner's row).
+            if v is None or v not in counts or counts[v] > _MAX_HIGHLIGHT_TIES:
                 continue
             entity = str(r[entity_col]) if has_entity else "The league"
             if high_rank[v] <= window:
@@ -734,22 +783,33 @@ def weekly_highlights(player_week: pd.DataFrame, team_week: pd.DataFrame,
         week = latest_completed_week(team_week, season)
     if not week:
         return []
-    team_skip = two_sided_columns(team_week, "Team", "Opponent", ["Year", "Week"]) \
-        if not team_week.empty and "Opponent" in team_week.columns else []
     out: List[WeeklyHighlight] = []
-    out += _highlights_for_frame("players", player_week, "Player", season, week, window)
-    out += _highlights_for_frame("teams", team_week, "Team", season, week, window, skip=team_skip)
-    out += _highlights_for_frame("league", league_week, "Year", season, week, window)
+    out += _highlights_for_frame("players", player_week, "Player", season, week, window,
+                                 sheet="player_week")
+    out += _highlights_for_frame("teams", team_week, "Team", season, week, window,
+                                 sheet="team_week")
+    out += _highlights_for_frame("league", league_week, "Year", season, week, window,
+                                 sheet="league_week")
     return out
 
 
 # ---------------------------------------------------------------------------
-# Event highlights (picks / trades / transactions — event-log sheets)
+# All-time boards (every row-level sheet)
 # ---------------------------------------------------------------------------
-# These sheets are per-event, not per-entity leaderboards. So we rank each
-# event's value against EVERY event of that kind ever, and surface the top/bottom
-# extremes among a target set of events (a season's, for the wrap; a week's, for
-# the live digest). "The best pick of 2025 (O-Score) — 2nd-highest ever."
+# A sheet's rows are its records: a pick, a trade, a transaction — but equally
+# one player's season, one team's week. Every numeric column of every such sheet
+# is ranked over EVERY row of that sheet ever, and the top/bottom `WINDOW` are
+# snapshotted. Week over week the board is diffed and read out in the same
+# "X passes Y for Nth-highest …" sentence as the player / team all-time boards,
+# because it is the same news: a place on a leaderboard changed hands.
+#
+# Covering every season (not just the in-progress one) is what makes a recompute
+# of HISTORY reportable. A rolling KTC window crossing an anniversary, or a
+# formula change, re-values a 2023 trade into the all-time O-Score top 5 — the row
+# that moved is a past-season row, and a board holding only the current season's
+# rows produced no item at all.
+
+
 @dataclass
 class EventHighlight:
     sheet: str          # "picks" | "trades" | "transactions"
@@ -758,6 +818,7 @@ class EventHighlight:
     end: str            # "high" | "low"
     rank: int
     value: float
+    key: str = ""       # stable row identity (see _event_row_key); NOT the label
 
     def group(self) -> str:
         return self.label
@@ -773,134 +834,163 @@ class EventHighlight:
                 f"{_ordinal(self.rank)}-{end_word} of any {self.sheet[:-1]} ever.")
 
 
-def _event_label(sheet: str, row) -> str:
+def _event_cell(row, col) -> str:
+    v = row.get(col) if hasattr(row, "get") else None
+    return "" if v is None or (isinstance(v, float) and math.isnan(v)) else str(v)
+
+
+# How many assets a trade label names before it stops listing them. The longest
+# deal on record received 12 (330 characters); a subject line's worth is enough
+# to recognise the deal, and the sheet holds the full list.
+_LABEL_ASSETS = 3
+
+
+def _asset_summary(raw: str) -> str:
+    """"A; B; C; D" -> "A, B, C +1 more" — the assets a side of a deal received."""
+    parts = [a.strip() for a in str(raw).split(";") if a.strip()]
+    if not parts:
+        return ""
+    shown = ", ".join(parts[:_LABEL_ASSETS])
+    extra = len(parts) - _LABEL_ASSETS
+    return f"{shown} +{extra} more" if extra > 0 else shown
+
+
+def _board_label(sheet: str, row) -> str:
+    """How a row is named in the email. Season / week rows are named by entity and
+    when; event rows name what actually moved (the assets)."""
     def g(c):
-        v = row.get(c) if hasattr(row, "get") else None
-        return "" if v is None or (isinstance(v, float) and math.isnan(v)) else str(v)
+        return _event_cell(row, c)
+    # Dates carry a timestamp for uniqueness; the label only needs the day. (The
+    # row KEY still uses the full value — see _board_row_key.)
+    day = lambda c: g(c)[:10]
+    if sheet == "player_year":
+        return f"{g('Player')} {g('Year')}".strip()
+    if sheet == "team_year":
+        return f"{g('Team')} {g('Year')}".strip()
+    if sheet == "league_year":
+        return f"the {g('Year')} season".strip()
+    if sheet == "player_week":
+        return f"{g('Player')} {g('Year')} week {g('Week')}".strip()
+    if sheet == "team_week":
+        return f"{g('Team')} {g('Year')} week {g('Week')}".strip()
+    if sheet == "league_week":
+        return f"{g('Year')} week {g('Week')}".strip()
     if sheet == "picks":
         return f"{g('Year')} pick {g('Number')} ({g('Player Picked')})".strip()
     if sheet == "trades":
-        return f"{g('Team')}'s {g('Date')} trade".strip()
+        # Name what the team got: "whose trade" alone doesn't say what moved, and
+        # a team can make several deals on one day.
+        got = _asset_summary(g("Assets received"))
+        head = f"{g('Team')}'s {day('Date')} trade"
+        return f"{head} for {got}" if got else head
     if sheet == "transactions":
-        who = g("Player Added") or g("Player Dropped")
-        return f"{g('Team')}'s move for {who}".strip()
+        added, dropped = g("Player Added"), g("Player Dropped")
+        # The date disambiguates: one team can pick the same player up twice, and
+        # two board lines reading "LWebs53's move for Jeff Wilson" are unreadable.
+        head = f"{g('Team')}'s {day('Date')}"
+        if added:
+            return f"{head} move for {added}".strip()
+        return f"{head} drop of {dropped}".strip() if dropped else f"{head} move"
     return sheet
 
 
-def event_highlights(df: pd.DataFrame, sheet: str, season_col: str,
-                     target_season: int, window: int = WINDOW,
-                     max_ties: int = _MAX_HIGHLIGHT_TIES,
-                     skip: Sequence[str] = ()) -> List[EventHighlight]:
-    """Top/bottom-`window` events (by each numeric column) among `target_season`'s
-    events, ranked against every event of that kind ever. Values shared by more
-    than `max_ties` events are skipped (common values aren't records). Columns in
-    `skip` (two-sided differentials) are handled by paired_highlights instead."""
-    if df is None or df.empty or season_col not in df.columns:
-        return []
-    season_num = pd.to_numeric(df[season_col], errors="coerce")
-    target = df[season_num == target_season]
-    if target.empty:
-        return []
-    out: List[EventHighlight] = []
-    for col in discover_numeric_columns(df, season_col):
-        if col in skip:
-            continue
-        all_vals = [v for v in (_to_float(x) for x in df[col]) if v is not None]
-        if len(all_vals) < window:
-            continue
-        counts = _Counter(all_vals)
-        high_rank = {v: i + 1 for i, v in enumerate(sorted(counts, reverse=True))}
-        low_rank = {v: i + 1 for i, v in enumerate(sorted(counts))}
-        for _, r in target.iterrows():
-            v = _to_float(r[col])
-            if v is None or counts[v] > max_ties:
-                continue
-            if high_rank[v] <= window:
-                out.append(EventHighlight(sheet, _event_label(sheet, r), col, "high", high_rank[v], v))
-            elif low_rank[v] <= window:
-                out.append(EventHighlight(sheet, _event_label(sheet, r), col, "low", low_rank[v], v))
-    return out
-
-
-_TRADE_OPP = "Team's traded with 1"
-_TRADE_IDS = ("Date", "Season")
-
-
-def season_event_highlights(frames: dict, season: int,
-                            window: int = WINDOW) -> List[EventHighlight]:
-    """Event highlights across picks / trades / transactions for one season.
-    Two-sided trade differentials (KTC/age) are excluded here — they're paired
-    up separately by `season_paired_highlights`."""
-    trades = frames.get("trades", pd.DataFrame())
-    trade_skip = two_sided_columns(trades, "Team", _TRADE_OPP, _TRADE_IDS)
-    out: List[EventHighlight] = []
-    out += event_highlights(frames.get("picks", pd.DataFrame()), "picks", "Year", season, window)
-    out += event_highlights(trades, "trades", "Season", season, window, skip=trade_skip)
-    out += event_highlights(frames.get("transactions", pd.DataFrame()), "transactions", "Season", season, window)
-    return out
-
-
-def matchup_highlights(team_week: pd.DataFrame, season: int, week: int,
-                       window: int = WINDOW) -> List[PairedHighlight]:
-    """Two-sided matchup extremes for one completed week (margin, pregame-max-PF
-    gap): each game ranked by |value| against every game ever, both teams named."""
-    if team_week is None or team_week.empty or "Opponent" not in team_week.columns:
-        return []
-    cols = two_sided_columns(team_week, "Team", "Opponent", ["Year", "Week"])
+# The board's row identity. NOT the label — a label is written for a human and
+# repeats (the same team picking the same player up twice), which would merge two
+# distinct rows into one place on the board and manufacture movement between them
+# on every diff. NOT the row index either: inserting one current-season row
+# renumbers every later one, which is the same trap the "Link to …" columns fall
+# into. `ids` in _BOARD_SHEETS are the sheets' natural keys.
+def _board_row_key(sheet: str, row) -> str:
+    cols = _BOARD_SHEETS.get(sheet, {}).get("ids")
     if not cols:
-        return []
-    year = pd.to_numeric(team_week["Year"], errors="coerce")
-    wknum = pd.to_numeric(team_week["Week"], errors="coerce")
-    mask = (year == season) & (wknum == week)
-    return paired_highlights(team_week, "Team", "Opponent", ["Year", "Week"],
-                             "matchup", mask, cols, window=window)
+        return _board_label(sheet, row)
+    return sheet + "|" + "|".join(_event_cell(row, c) for c in cols)
 
 
-def season_paired_highlights(frames: dict, season: int,
-                             window: int = WINDOW) -> List[PairedHighlight]:
-    """Two-sided trade extremes for one season (KTC / age differentials), each
-    trade ranked by |value| against every trade ever, both teams named."""
-    trades = frames.get("trades", pd.DataFrame())
-    cols = two_sided_columns(trades, "Team", _TRADE_OPP, _TRADE_IDS)
-    if not cols or trades.empty or "Season" not in trades.columns:
+# Every row-level sheet gets a board. A sheet's "events" are its rows: a pick, a
+# trade, a transaction — but also one player's season, one team's week. Ranking
+# all of them against every row of that sheet ever is what makes the answer to
+# "did anything move into the top 5 of anything?" a single mechanism instead of
+# one special case per sheet. `entity` is the column discover_numeric_columns
+# treats as the row's name (not a stat); `ids` are the natural key; `title` names
+# the section in the email.
+_BOARD_SHEETS = {
+    "player_year":  {"entity": "Player", "ids": ("Player", "Year"),
+                     "title": "player seasons"},
+    "team_year":    {"entity": "Team", "ids": ("Team", "Year"),
+                     "title": "team seasons"},
+    "league_year":  {"entity": "Year", "ids": ("Year",),
+                     "title": "league seasons"},
+    "player_week":  {"entity": "Player", "ids": ("Player", "Year", "Week"),
+                     "title": "player weeks"},
+    "team_week":    {"entity": "Team", "ids": ("Team", "Year", "Week"),
+                     "title": "team weeks"},
+    "league_week":  {"entity": "Year", "ids": ("Year", "Week"),
+                     "title": "league weeks"},
+    "picks":        {"entity": "Year", "ids": ("Year", "Number"),
+                     "title": "draft picks"},
+    "trades":       {"entity": "Season", "ids": ("Team", "Date", "Team's traded with 1"),
+                     "title": "trades"},
+    "transactions": {"entity": "Season",
+                     "ids": ("Team", "Date", "Player Added", "Player Dropped"),
+                     "title": "transactions"},
+}
+
+
+def board_highlights(df: pd.DataFrame, sheet: str, window: int = WINDOW,
+                     max_ties: int = _MAX_HIGHLIGHT_TIES) -> List[EventHighlight]:
+    """The top/bottom-`window` rows of every numeric column on one sheet, ranked
+    against every row of that sheet ever (mirrored columns: positive side only).
+
+    Ranks run over DISTINCT values, so ties share a place. A value shared by more
+    than `max_ties` rows is not a record and is left off the board — it still
+    occupies its rank, so the places below it keep their numbering."""
+    cfg = _BOARD_SHEETS.get(sheet)
+    if cfg is None or df is None or df.empty:
         return []
-    mask = pd.to_numeric(trades["Season"], errors="coerce") == season
-    return paired_highlights(trades, "Team", _TRADE_OPP, list(_TRADE_IDS),
-                             "trade", mask, cols, window=window)
+    mirrored = mirrored_columns(df, sheet)
+    out: List[EventHighlight] = []
+    for col in discover_numeric_columns(df, cfg["entity"]):
+        s = rankable_series(df, col, col in mirrored)
+        if len(s) < window:
+            continue
+        counts = s.value_counts()
+        desc = sorted(counts.index, reverse=True)
+        # value -> (end, rank); the high end wins when a value qualifies at both
+        # (a short board where the top and bottom five overlap).
+        wanted: Dict[float, tuple] = {}
+        for i, v in enumerate(desc[:window]):
+            if counts[v] <= max_ties:
+                wanted[v] = ("high", i + 1)
+        for i, v in enumerate(reversed(desc[-window:])):
+            if v not in wanted and counts[v] <= max_ties:
+                wanted[v] = ("low", i + 1)
+        if not wanted:
+            continue
+        for idx, value in s[s.isin(wanted)].items():
+            row = df.loc[idx]
+            end, rank = wanted[value]
+            out.append(EventHighlight(sheet, _board_label(sheet, row), col,
+                                      end, rank, float(value),
+                                      _board_row_key(sheet, row)))
+    return out
+
+
+def all_board_highlights(frames: dict, window: int = WINDOW) -> List[EventHighlight]:
+    """Every board across every sheet that has rows to rank — what the weekly
+    digest snapshots and diffs."""
+    out: List[EventHighlight] = []
+    for sheet in _BOARD_SHEETS:
+        out += board_highlights(frames.get(sheet, pd.DataFrame()), sheet, window)
+    return out
 
 
 # ---------------------------------------------------------------------------
-# Zero-centered / two-sided stats (margins, KTC & age differentials)
+# Mirror detection for the phrasing catalog
 # ---------------------------------------------------------------------------
-# A two-sided stat is the SAME event seen from both sides: a matchup's margin is
-# +M for the winner and -M for the loser; a trade's net KTC is +X / -X. Ranking
-# the raw value would report the two mirror rows as separate "records", so instead
-# we rank by ABSOLUTE value (biggest blowout / closest game; most lopsided /
-# most even trade) and name BOTH sides in one row.
-@dataclass
-class PairedHighlight:
-    scope: str          # "matchup" | "trade" | "transaction"
-    a: str
-    b: str
-    column: str
-    end: str            # "high" = largest |value|, "low" = smallest |value|
-    rank: int
-    magnitude: float
-
-    def group(self) -> str:
-        return f"The {self.scope} between {self.a} and {self.b}"
-
-    def detail(self) -> str:
-        end_word = "largest" if self.end == "high" else "smallest"
-        return f"{_ordinal(self.rank)}-{end_word} {self.column} ever ({_fmt(self.magnitude)})"
-
-    def sentence(self) -> str:
-        end_word = "largest" if self.end == "high" else "smallest"
-        return (f"The {self.scope} between {self.a} and {self.b} had the "
-                f"{_ordinal(self.rank)}-{end_word} {self.column} of all time "
-                f"({_fmt(self.magnitude)}).")
-
-
+# The email itself no longer needs this: a mirrored column is detected by
+# is_mirrored_column and ranked on its positive side like any other. This
+# per-matchup form survives only to LABEL such columns in the phrasing catalog.
 def two_sided_columns(df: pd.DataFrame, entity_col: str, opp_col: str,
                       id_cols: Sequence[str]) -> List[str]:
     """Numeric columns that are genuinely two-sided: for most events the pair's
@@ -933,75 +1023,95 @@ def two_sided_columns(df: pd.DataFrame, entity_col: str, opp_col: str,
             out.append(col)
     return out
 
+@dataclass
+class EventCrossing:
+    """One event overtaking another on an all-time event board.
 
-def paired_highlights(df: pd.DataFrame, entity_col: str, opp_col: str,
-                      id_cols: Sequence[str], scope: str, target_mask,
-                      cols: Sequence[str], window: int = WINDOW,
-                      max_ties: int = _MAX_HIGHLIGHT_TIES) -> List[PairedHighlight]:
-    """For each two-sided `col`, rank events by |value| (deduping the two mirror
-    rows into one pair) and surface the top/bottom `window` among the target
-    events (this week's matchups / this season's trades)."""
-    if df is None or df.empty or opp_col not in df.columns:
-        return []
-    tgt = target_mask.reindex(df.index, fill_value=False) if hasattr(target_mask, "reindex") else target_mask
-    out: List[PairedHighlight] = []
-    for col in cols:
-        seen = set()
-        rows = []  # (a, b, |value|, in_target)
-        for i, r in df.iterrows():
-            v = _to_float(r[col])
-            if v is None:
-                continue
-            a, b = str(r[entity_col]), str(r.get(opp_col) or "")
-            if not b:
-                continue
-            key = tuple(str(r.get(c, "")) for c in id_cols) + tuple(sorted([a, b]))
-            if key in seen:
-                continue
-            seen.add(key)
-            rows.append((a, b, abs(v), bool(tgt.loc[i]) if hasattr(tgt, "loc") else bool(tgt[i])))
-        if len(rows) < window:
-            continue
-        counts = _Counter(av for _, _, av, _ in rows)
-        high_rank = {v: i + 1 for i, v in enumerate(sorted(counts, reverse=True))}
-        low_rank = {v: i + 1 for i, v in enumerate(sorted(counts))}
-        for a, b, av, in_tgt in rows:
-            if not in_tgt or counts[av] > max_ties:
-                continue
-            if high_rank[av] <= window:
-                out.append(PairedHighlight(scope, a, b, col, "high", high_rank[av], av))
-            elif low_rank[av] <= window:
-                out.append(PairedHighlight(scope, a, b, col, "low", low_rank[av], av))
+    Phrased exactly like an all-time player/team `Crossing` — "<mover> passes
+    <passed> for 1st-highest O-Score (103.3)" — because it is the same kind of
+    news: a place on a leaderboard changed hands. Only the mover is reported.
+    Everyone it passed is pushed down a place, and a note for each of them would
+    turn one overtake into five lines; the same riser-only convention
+    CROSSING_CONFIG uses for the all-time team boards.
+    """
+    sheet: str          # "picks" | "trades" | "transactions"
+    label: str          # the mover, named; identity is the row key
+    passed: str         # who held this place last week
+    column: str
+    end: str            # "high" | "low"
+    rank: int
+    value: Optional[float]
+
+    def group(self) -> str:
+        return self.label
+
+    def detail(self) -> str:
+        end_word = "highest" if self.end == "high" else "lowest"
+        return (f"passes {self.passed} for {_ordinal(self.rank)}-{end_word} "
+                f"{self.column} ({_fmt(self.value)})")
+
+    def sentence(self) -> str:
+        return f"{self.label} {self.detail()}."
+
+
+def event_board(events: Sequence[EventHighlight]) -> list:
+    """The snapshot payload: every place on every event board, with its rank, in
+    a stable order so the committed snapshot diffs cleanly week to week."""
+    return sorted(
+        ({"sheet": e.sheet, "key": e.key, "label": e.label, "column": e.column,
+          "end": e.end, "rank": e.rank, "value": e.value} for e in events),
+        key=lambda d: (d["sheet"], d["column"], d["end"], d["rank"], d["key"]))
+
+
+def _prior_board(prior_board) -> Optional[Dict[tuple, dict]]:
+    """Prior board as (sheet, column, end) -> {rank -> place, keys -> {key: rank}}.
+    None when it can't be read as a board — including the pre-board snapshot
+    format (a list of "sheet|label|col|end:rank" strings), which the caller then
+    treats as "no prior", re-baselining in silence instead of reporting the whole
+    board as new."""
+    if not prior_board:
+        return None
+    out: Dict[tuple, dict] = {}
+    for d in prior_board:
+        if not isinstance(d, dict):
+            return None
+        try:
+            slot = out.setdefault((d["sheet"], d["column"], d["end"]),
+                                  {"by_rank": {}, "by_key": {}})
+            rank = int(d["rank"])
+            slot["by_key"][d["key"]] = rank
+            # Ties share a rank; the first label is enough to name who was there.
+            slot["by_rank"].setdefault(rank, d.get("label", d["key"]))
+        except (KeyError, TypeError, ValueError):
+            return None
     return out
 
 
-def _paired_key(p: PairedHighlight) -> str:
-    ab = "|".join(sorted([p.a, p.b]))
-    return f"{p.scope}|{ab}|{p.column}|{p.end}:{p.rank}"
+def diff_events(prior_board, events: Sequence[EventHighlight]) -> List[EventCrossing]:
+    """Overtakes on the event boards since `prior_board`.
 
-
-def paired_key_map(pairs: Sequence[PairedHighlight]) -> list:
-    return sorted(_paired_key(p) for p in pairs)
-
-
-def diff_paired(prior_keys, pairs: Sequence[PairedHighlight]) -> List[PairedHighlight]:
-    prior = set(prior_keys or [])
-    return [p for p in pairs if _paired_key(p) not in prior]
-
-
-def _event_key(e: EventHighlight) -> str:
-    return f"{e.sheet}|{e.label}|{e.column}|{e.end}:{e.rank}"
-
-
-def event_key_map(events: Sequence[EventHighlight]) -> list:
-    """Sorted event-highlight keys for the snapshot, so the live digest only
-    re-reports a notable pick/trade/transaction when it's newly notable."""
-    return sorted(_event_key(e) for e in events)
-
-
-def diff_events(prior_keys, events: Sequence[EventHighlight]) -> List[EventHighlight]:
-    prior = set(prior_keys or [])
-    return [e for e in events if _event_key(e) not in prior]
+    An event is reported when it now holds a place nearer the watched end than it
+    held last week — including arriving from off the board entirely, which is how
+    a re-valued historical row shows up. `passed` is whoever held that place last
+    week; with no one there (the board was shorter), there is no overtake to
+    report and the event is skipped."""
+    prior = _prior_board(prior_board)
+    if prior is None:
+        return []
+    out: List[EventCrossing] = []
+    for e in events:
+        slot = prior.get((e.sheet, e.column, e.end))
+        if not slot:
+            continue
+        was = slot["by_key"].get(e.key)
+        if was is not None and e.rank >= was:
+            continue                       # unmoved, or pushed down by someone else
+        passed = slot["by_rank"].get(e.rank)
+        if passed is None or passed == e.label:
+            continue
+        out.append(EventCrossing(e.sheet, e.label, passed, e.column,
+                                 e.end, e.rank, e.value))
+    return out
 
 
 # ---------------------------------------------------------------------------
@@ -1081,32 +1191,26 @@ def phrasing_catalog(
         rows.append({"sheet": sheet, "stat": stat, "scope": scope, "scale": scale,
                      "phrase_when_rises": rise, "phrase_when_falls": fall})
 
-    def _paired_add(sheet, col, scope_noun):
-        # Two-sided (zero-centered) stat: ranked by |value|, both sides in one row.
-        _add(sheet, col, "two-sided extreme (top/bottom 5 by |value|, both sides named)", "n/a",
-             f"The {scope_noun} between <A> and <B> had the <N>th-largest {col} of all time (<value>).",
-             f"The {scope_noun} between <A> and <B> had the <N>th-smallest {col} of all time (<value>).")
+    def _board_rows(sheet, df):
+        """Every numeric column of a row-level sheet, ranked over every row ever."""
+        if df is None or df.empty or sheet not in _BOARD_SHEETS:
+            return
+        mirrored = mirrored_columns(df, sheet)
+        for col in discover_numeric_columns(df, _BOARD_SHEETS[sheet]["entity"]):
+            note = " — mirrored, ranked on its positive side only" if col in mirrored else ""
+            _add(sheet, col, f"all-time board (top/bottom 5 of every row ever{note})", "n/a",
+                 f"<row> passes <other> for <N>th-highest {col} (<value>).",
+                 f"<row> passes <other> for <N>th-lowest {col} (<value>).")
 
-    def _event_rows(sheet, df, season_col, opp_col=None, id_cols=(), scope_noun=""):
+    def _weekly_rows(sheet, df, entity_col, who):
         if df is None or df.empty:
             return
-        singular = sheet[:-1]
-        two_sided = set(two_sided_columns(df, "Team", opp_col, id_cols)) if opp_col else set()
-        for col in discover_numeric_columns(df, season_col):
-            if col in two_sided:
-                _paired_add(sheet, col, scope_noun)
-                continue
-            _add(sheet, col, "event highlight (top/bottom 5 of all such events ever)", "n/a",
-                 f"<event>: {col} of <value> — <N>th-highest of any {singular} ever.",
-                 f"<event>: {col} of <value> — <N>th-lowest of any {singular} ever.")
-
-    def _weekly_rows(sheet, df, entity_col, who, opp_col=None, id_cols=(), scope_noun=""):
-        if df is None or df.empty:
-            return
-        two_sided = set(two_sided_columns(df, entity_col, opp_col, id_cols)) if opp_col else set()
+        mirrored = mirrored_columns(df, sheet)
         for col in discover_numeric_columns(df, entity_col):
-            if col in two_sided:
-                _paired_add(sheet, col, scope_noun)
+            if col in mirrored:
+                _add(sheet, col, "single-week record (mirrored: positive side only)", "n/a",
+                     f"{who}'s {col} this week (<value>) is the <N>th-highest single week ever.",
+                     f"{who}'s {col} this week (<value>) is the <N>th-closest to zero ever.")
                 continue
             _add(sheet, col, "single-week record (top/bottom 5 of all weeks ever)", "n/a",
                  f"{who}'s {col} this week (<value>) is the <N>th-highest single week ever.",
@@ -1144,19 +1248,18 @@ def phrasing_catalog(
     _pace_rows("league_year", league_year, "Year", "The league",
                "top/bottom floor(#seasons/3), capped at 5")
 
-    # Weekly sheets: single-week records ranked across every week ever. team_week
-    # carries two-sided matchup stats (margin, PF gap) — those phrase as pairs.
+    # Weekly sheets also carry the this-week records, on top of their boards.
     _weekly_rows("player_week", player_week, "Player", "<player>")
-    _weekly_rows("team_week", team_week, "Team", "<team>",
-                 opp_col="Opponent", id_cols=("Year", "Week"), scope_noun="matchup")
+    _weekly_rows("team_week", team_week, "Team", "<team>")
     _weekly_rows("league_week", league_week, "Year", "The league")
 
-    # Event-log sheets: picks / trades / transactions ranked across all events.
-    # trades carry two-sided differentials (KTC / age) — those phrase as pairs.
-    _event_rows("picks", picks, "Year")
-    _event_rows("trades", trades, "Season",
-                opp_col=_TRADE_OPP, id_cols=_TRADE_IDS, scope_noun="trade")
-    _event_rows("transactions", transactions, "Season")
+    # Every row-level sheet is on an all-time board: seasons, weeks, and events.
+    for _sheet, _df in (("player_year", player_year), ("team_year", team_year),
+                        ("league_year", league_year), ("player_week", player_week),
+                        ("team_week", team_week), ("league_week", league_week),
+                        ("picks", picks), ("trades", trades),
+                        ("transactions", transactions)):
+        _board_rows(_sheet, _df)
 
     # league_all_time: milestones only (single-row sheet, no leaderboard).
     if league_all_time is not None and not league_all_time.empty:
@@ -1251,8 +1354,7 @@ def render_digest_html(
     highlights: Sequence[WeeklyHighlight] = (),
     header: Optional[str] = None,
     intro: str = "",
-    events: Sequence[EventHighlight] = (),
-    paired: Sequence["PairedHighlight"] = (),
+    events: Sequence["EventCrossing"] = (),
 ) -> str:
     def sect(sec):
         return [x for x in projections if x.section == sec]
@@ -1274,8 +1376,6 @@ def render_digest_html(
          f'margin:0 0 8px;">{intro}</p>' if intro else ""),
         _grouped_section_html("Single-week records (this week)", list(highlights),
                               "had these single-week records"),
-        _grouped_section_html("Matchup extremes",
-                              [p for p in paired if p.scope == "matchup"], "was notable"),
         _grouped_section_html("All-time leaderboard moves — players",
                               [c for c in crossings if c.section == "players"], "made these all-time moves"),
         _grouped_section_html("All-time leaderboard moves — teams",
@@ -1286,16 +1386,15 @@ def render_digest_html(
         _grouped_section_html(f"{yr_title} — players", sect("players"), pace_verb),
         _grouped_section_html(f"{yr_title} — teams", sect("teams"), pace_verb),
         _grouped_section_html(f"{yr_title} — league", sect("league"), pace_verb),
-        _grouped_section_html("Notable draft picks",
-                              [e for e in events if e.sheet == "picks"], "was notable"),
-        _grouped_section_html("Notable trades",
-                              [e for e in events if e.sheet == "trades"], "was notable"),
-        _grouped_section_html("Two-sided trade extremes",
-                              [p for p in paired if p.scope == "trade"], "was notable"),
-        _grouped_section_html("Notable transactions",
-                              [e for e in events if e.sheet == "transactions"], "was notable"),
     ]
-    if not any([highlights, crossings, records, milestones, projections, events, paired]):
+    # One section per board sheet, in _BOARD_SHEETS order, so a new sheet shows up
+    # in the email by being added there and nowhere else.
+    body += [
+        _grouped_section_html(f"All-time leaderboard moves — {cfg['title']}",
+                              [e for e in events if e.sheet == sheet], "moved")
+        for sheet, cfg in _BOARD_SHEETS.items()
+    ]
+    if not any([highlights, crossings, records, milestones, projections, events]):
         body.append('  <p style="font:15px system-ui,sans-serif;color:#666;">'
                      'No leaderboard changes this week.</p>')
     body.append("</div>")
@@ -1303,8 +1402,8 @@ def render_digest_html(
 
 
 def digest_is_empty(crossings, projections, milestones=(), records=(),
-                    highlights=(), events=(), paired=()) -> bool:
-    return not any([crossings, projections, milestones, records, highlights, events, paired])
+                    highlights=(), events=()) -> bool:
+    return not any([crossings, projections, milestones, records, highlights, events])
 
 
 def _champion_of(team_year: pd.DataFrame, season: int) -> Optional[str]:
