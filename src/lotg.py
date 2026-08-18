@@ -9208,6 +9208,28 @@ def build_all(repo_root: Path) -> None:
     except Exception:
         pass
 
+    # KTC PROVENANCE. Where every resolved value came from, one row per lookup:
+    # a quote published on the target date itself (`mirror`), an absence on a day
+    # the mirror did cover (`off-rolls` -> 0), or one of the two places a value is
+    # still read from a different date (`trailing-edge-carry`, `backfill-carry`).
+    # Written to exports/raw/, NOT as a column on any sheet — it is a diagnostic
+    # for the weekly audit, and four more columns on picks / trades / transactions
+    # would be noise for every human reading them. A summary line goes to the
+    # build log so a shift in the mix is visible without opening the file.
+    try:
+        from lotg_support.ktc import get_provenance
+        _prov = get_provenance()
+        if _prov:
+            _pdf = pd.DataFrame(_prov, columns=["asset", "target_date",
+                                                "quote_date_used", "source", "value"])
+            _praw = repo_root / "exports" / "raw"
+            _praw.mkdir(parents=True, exist_ok=True)
+            _pdf.to_csv(_praw / "ktc_provenance.csv", index=False)
+            _mix = _pdf["source"].value_counts().to_dict()
+            _log(debug, f"[{_now_iso()}] ktc provenance: {len(_pdf)} lookups -> {_mix}")
+    except Exception as e:
+        _log_exc(debug, "ktc_provenance", e)
+
     tx = pd.DataFrame(transactions_rows)
     tr = pd.DataFrame(trades_rows)
     ph = pd.DataFrame(pick_rows)

@@ -78,10 +78,17 @@ jobs:
       - name: Restore KTC cache
         # data/ktc_cache/ holds dynasty-daddy's per-player history files
         # (~1k players, ~1800 daily rows each). Without this cache every
-        # build re-fetches all of them, costing ~7-10 minutes. The
-        # directory.json refresh logic inside lotg_support/ktc.py still
-        # forces today's snapshot every 6 hours, so cache restore here
-        # is safe even when KTC values change.
+        # build re-fetches all of them, costing ~7-10 minutes.
+        #
+        # The cache is a WARM START, not a substitute for fetching. ktc.py
+        # re-fetches any history file older than LOTG_KTC_HISTORY_MAX_AGE_H
+        # (24h by default) and refreshes directory.json every 6h, so a weekly
+        # build always pulls the week's new quotes and pays that ~7-10 minutes;
+        # what the restore buys is the unchanged bulk of each file and a cheap
+        # same-day re-run. It used to be read as permanent — histories were
+        # cached indefinitely, so between ktc.py changes NO new quote was ever
+        # downloaded and every history froze at the day the key last busted
+        # (measured 2026-08-18: all of them stopped at 2026-07-13).
         #
         # Same keying rationale as the NFLverse cache above: changing ktc.py
         # busts cleanly (no bare `ktc-cache-` fallback that would resurrect
