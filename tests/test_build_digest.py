@@ -69,20 +69,64 @@ def check_movement_makes_nonempty():
         h = Path(d) / "d.html"
         B.main(["--exports", str(exports), "--snapshot", str(snap), "--out", str(h)])
         data = json.loads(snap.read_text())
-        if not data.get("event_keys"):
-            print("  [SKIP] no event keys in snapshot to perturb")
+        if not data.get("event_board"):
+            print("  [SKIP] no event board in snapshot to perturb")
             return True
-        data["event_keys"] = data["event_keys"][:-3]   # forget 3 events → they re-fire
+        board = data["event_board"]
+        ok = _ok("board covers seasons before the in-progress one",
+                 any(" 2024 " in d["label"] or "2024" in d["label"] for d in board),
+                 f"{len(board)} places on the board")
+        # Model a real overtake: say last week's board had the top two places the
+        # other way round, so this week's holder of 1st passes the one recorded
+        # there. (Dropping places instead would make an event "pass itself",
+        # which is precisely what the diff declines to report.)
+        first = next((i for i, d in enumerate(board) if d["rank"] == 1
+                      and any(o["sheet"] == d["sheet"] and o["column"] == d["column"]
+                              and o["end"] == d["end"] and o["rank"] == 2 for o in board)),
+                     None)
+        if first is None:
+            print("  [SKIP] no board column with a 1st and a 2nd to swap")
+            return ok
+        a = board[first]
+        b = next(o for o in board if o["sheet"] == a["sheet"] and o["column"] == a["column"]
+                 and o["end"] == a["end"] and o["rank"] == 2)
+        a["key"], b["key"] = b["key"], a["key"]
+        a["label"], b["label"] = b["label"], a["label"]
         snap.write_text(json.dumps(data))
         B.main(["--exports", str(exports), "--snapshot", str(snap), "--out", str(h)])
         html = h.read_text()
-        return _ok("movement → non-empty digest with in-season structure",
-                   _EMPTY not in html and "Notable" in html, f"empty_marker={_EMPTY in html}")
+        ok &= _ok("an overtake → non-empty digest with the event sections",
+                  _EMPTY not in html and "All-time leaderboard moves —" in html,
+                  f"empty_marker={_EMPTY in html}")
+        ok &= _ok("the line reads as a crossing, not a 'no longer' note",
+                  " passes " in html and "no longer" not in html)
+        return ok
+
+
+def check_legacy_snapshot_rebaselines():
+    """A snapshot written before the all-seasons board carried `event_keys` (the
+    current season only). The first run after the change must re-baseline in
+    silence — not mail the league every place on a ~1000-entry board."""
+    exports = _ROOT / "exports"
+    if not (exports / "transactions.csv").exists():
+        print("  [SKIP] no real exports present")
+        return True
+    with tempfile.TemporaryDirectory() as d:
+        snap, h = Path(d) / "snap.json", Path(d) / "d.html"
+        B.main(["--exports", str(exports), "--snapshot", str(snap), "--out", str(h)])
+        data = json.loads(snap.read_text())
+        data.pop("event_board", None)
+        data["event_keys"] = ["trades|someone's 2020-01-01 trade|O-Score|high:1"]
+        snap.write_text(json.dumps(data))
+        B.main(["--exports", str(exports), "--snapshot", str(snap), "--out", str(h)])
+        return _ok("legacy snapshot re-baselines (empty digest, no mass email)",
+                   _EMPTY in h.read_text())
 
 
 def run_all() -> bool:
     all_ok = True
-    for t in (check_year_round_build, check_movement_makes_nonempty):
+    for t in (check_year_round_build, check_movement_makes_nonempty,
+              check_legacy_snapshot_rebaselines):
         print(f"\n{t.__name__}:")
         all_ok &= bool(t())
     print("\n" + ("ALL PASS" if all_ok else "SOME FAILED"))

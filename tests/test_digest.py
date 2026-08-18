@@ -255,11 +255,95 @@ def check_event_highlights():
     ok &= _ok("worst 2025 pick flagged 1st-lowest",
               ("2025 pick 1.04 (P4)", "O-Score", "low", 1) in got)
     ok &= _ok("sentence names the sheet", any("of any pick ever" in e.sentence() for e in ev))
-    # diff: an already-reported event is suppressed; a new one fires.
-    prior = D.event_key_map([e for e in ev if e.end == "high"])
-    changed = D.diff_events(prior, ev)
-    ok &= _ok("prior event suppressed, new kept",
-              all(e.end != "high" for e in changed) and any(e.end == "low" for e in changed))
+    # The weekly board (no target season) holds historical events too, which is
+    # what lets a re-valued 2024 pick be reported at all.
+    board = D.event_highlights(picks, "picks", "Year", window=3)
+    labels = {e.label for e in board}
+    ok &= _ok("all-seasons board includes a 2024 pick",
+              "2024 pick 1.02 (P2)" in labels, f"labels={sorted(labels)}")
+    return ok
+
+
+def check_event_board_diff():
+    """A recompute that re-values HISTORY must surface: the user-facing case is a
+    KTC window change reshuffling the all-time O-Score top 5 on an event sheet.
+    It reads as an all-time crossing — "<mover> passes <passed> for Nth-highest"."""
+    def picks_with(oscores):
+        return pd.DataFrame({
+            "Year": [2024, 2024, 2025, 2025],
+            "Number": ["1.01", "1.02", "1.03", "1.04"],
+            "Player Picked": ["P1", "P2", "P3", "P4"],
+            "O-Score": list(oscores),
+        })
+
+    def board(oscores):
+        return D.event_highlights(picks_with(oscores), "picks", "Year", window=3)
+
+    base = board([50, 60, 90, 10.0])          # high: P3 1st, P2 2nd, P1 3rd; low: P4 1st
+    prior = D.event_board(base)
+    ok = _ok("board snapshot is a list of dicts",
+             bool(prior) and all(isinstance(d, dict) for d in prior))
+    ok &= _ok("unchanged data reports nothing", D.diff_events(prior, base) == [])
+
+    # The 2024 pick P1 is re-valued and takes 1st — a historical row moving the
+    # all-time top of the board.
+    changes = D.diff_events(prior, board([95, 60, 90, 10.0]))
+    ok &= _ok("re-valued historical pick reported once", len(changes) == 1,
+              f"got {[c.sentence() for c in changes]}")
+    c = changes[0] if changes else None
+    ok &= _ok("the mover is the re-valued 2024 pick",
+              c is not None and c.label == "2024 pick 1.01 (P1)")
+    ok &= _ok("it names who it passed and the place taken",
+              c is not None and c.passed == "2025 pick 1.03 (P3)" and c.rank == 1,
+              f"passed={getattr(c, 'passed', None)} rank={getattr(c, 'rank', None)}")
+    ok &= _ok("sentence reads like an all-time crossing",
+              c is not None and c.sentence() ==
+              "2024 pick 1.01 (P1) passes 2025 pick 1.03 (P3) for 1st-highest O-Score (95).",
+              f"got {c.sentence() if c else None}")
+    ok &= _ok("the picks it passed get no line of their own",
+              all(x.label == "2024 pick 1.01 (P1)" for x in changes))
+
+    # A pick pushed OFF the board is not announced — only the mover is.
+    changes = D.diff_events(prior, board([50, 60, 90, 70.0]))
+    ok &= _ok("displaced picks are not reported",
+              all("no longer" not in x.sentence() for x in changes),
+              f"got {[x.sentence() for x in changes]}")
+    ok &= _ok("the climber is reported",
+              any(x.label == "2025 pick 1.04 (P4)" for x in changes),
+              f"got {[x.sentence() for x in changes]}")
+
+    # A pre-board snapshot (list of key strings) must re-baseline, not report
+    # every place on the board as new.
+    ok &= _ok("legacy string snapshot re-baselines silently",
+              D.diff_events(["picks|2024 pick 1.01 (P1)|O-Score|high:3"], base) == [])
+    ok &= _ok("empty prior re-baselines silently", D.diff_events([], base) == [])
+    return ok
+
+
+def check_event_labels():
+    """Labels name the assets, so a line says what actually moved."""
+    trades = pd.DataFrame([{
+        "Team": "Oliverwkw", "Date": "2023-12-05 18:46:43",
+        "Assets received": "A; B; C; D; E",
+    }])
+    label = D._event_label("trades", trades.iloc[0])
+    ok = _ok("trade label carries date + assets, capped",
+             label == "Oliverwkw's 2023-12-05 trade for A, B, C +2 more", f"got {label}")
+    one = D._event_label("trades", pd.DataFrame(
+        [{"Team": "T", "Date": "2024-01-02 03:04:05", "Assets received": "Solo"}]).iloc[0])
+    ok &= _ok("single asset needs no '+N more'", one == "T's 2024-01-02 trade for Solo", f"got {one}")
+    bare = D._event_label("trades", pd.DataFrame(
+        [{"Team": "T", "Date": "2024-01-02 03:04:05", "Assets received": ""}]).iloc[0])
+    ok &= _ok("a trade with no assets listed still labels", bare == "T's 2024-01-02 trade", f"got {bare}")
+    add = D._event_label("transactions", pd.DataFrame(
+        [{"Team": "T", "Date": "2025-09-01 18:00:20", "Player Added": "QJ",
+          "Player Dropped": "X"}]).iloc[0])
+    ok &= _ok("transaction label names the added player",
+              add == "T's 2025-09-01 move for QJ", f"got {add}")
+    drop = D._event_label("transactions", pd.DataFrame(
+        [{"Team": "T", "Date": "2025-09-01 18:00:20", "Player Added": "",
+          "Player Dropped": "X"}]).iloc[0])
+    ok &= _ok("a drop-only row reads as a drop", drop == "T's 2025-09-01 drop of X", f"got {drop}")
     return ok
 
 
@@ -469,6 +553,8 @@ def run_all() -> bool:
         check_weekly_highlights,
 
         check_event_highlights,
+        check_event_board_diff,
+        check_event_labels,
         check_paired_two_sided,
         check_replica_minimal,
         check_league_window,

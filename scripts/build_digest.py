@@ -128,8 +128,11 @@ def main(argv=None) -> int:
         frames["player_week"], frames["team_week"],
         frames["league_week"], frames["team_year"],
     )
-    events = D.season_event_highlights(frames, meta["season"]) if meta["season"] else []
-    current["event_keys"] = D.event_key_map(events)
+    # The event boards (picks / trades / transactions) cover EVERY season, not
+    # just the in-progress one: a recompute that re-values history reshuffles the
+    # all-time top/bottom 5, and that reshuffle is the thing to report.
+    events = D.all_event_highlights(frames)
+    current["event_board"] = D.event_board(events)
     # Two-sided (zero-centered) extremes: matchup margins this week + trade
     # differentials this season, ranked by |value| with both sides named.
     week_no = D.latest_completed_week(frames["team_week"], meta["season"]) if meta["season"] else None
@@ -162,9 +165,12 @@ def main(argv=None) -> int:
             record_changes = []
         else:
             record_changes = D.diff_records(prior_records, records)
-        prior_events = prior.get("event_keys")
+        # A snapshot from before the all-seasons board (it carried `event_keys`,
+        # current-season only) has no `event_board`, so the first run after the
+        # change re-baselines silently rather than emailing the whole board.
+        prior_events = prior.get("event_board")
         if prior_events is None:
-            print("[digest] baselining event highlights this week (no diff yet).")
+            print("[digest] baselining event boards this week (no diff yet).")
             event_changes = []
         else:
             event_changes = D.diff_events(prior_events, events)

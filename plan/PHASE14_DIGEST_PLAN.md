@@ -133,8 +133,30 @@ Actions UI once the workflow is on the default branch (after merge).
    of that kind ever**, and the top/bottom 5 surface. *"plehv79's move for Jacory
    Croskey-Merritt: Faab of 120 — 1st-highest of any transaction ever."* /
    *"2025 pick 3.08 (Jalen Milroe): Number of trades of 11 — 1st-highest of any
-   pick ever."* In the live digest they're diffed (only newly-notable events
-   fire); in the wrap they're the season's notable events.
+   pick ever."*
+
+   The live digest snapshots the **whole board, every season** — not just the
+   in-progress one — and diffs it as a leaderboard, phrased exactly like a
+   player / team all-time crossing: *"Oliverwkw's 2023-12-05 trade for Ja'Marr
+   Chase, 2024 1.08(B. Thomas) passes stevenb123's 2021-11-02 trade for Cooper
+   Kupp for 1st-highest O-Score (103.3)."* That is what makes a recompute of
+   HISTORY reportable: when a rolling KTC window or a formula change re-values a
+   2023 trade into the all-time O-Score top 5, the event that moved is a
+   past-season row, and while the board held only the current season's events the
+   reshuffle produced no item at all.
+
+   Only the **mover** is reported — the event that now holds a place nearer the
+   watched end than it held last week, including arriving from off the board.
+   Everyone it passed is pushed down a place and gets no line of its own, the
+   same riser-only convention `CROSSING_CONFIG` uses for the all-time team
+   boards; one overtake is one sentence. A place is identified by the sheet's
+   natural row key (not the human label, which repeats when a team picks the same
+   player up twice, and not the row index, which renumbers whenever a
+   current-season event is inserted). Labels name the assets — what a trade
+   received, who a transaction added — capped at three plus "+N more". Measured
+   churn on real consecutive builds (runs 456→457→461) is at most one reported
+   overtake per period out of a ~980-place board, so `--skip-empty` still
+   suppresses a genuinely quiet week.
 
 ### Season wrap (offseason test email / post-championship)
 The wrap can't diff (one-time email), so it stands in with everything that
