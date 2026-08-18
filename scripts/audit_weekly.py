@@ -85,6 +85,7 @@ import argparse
 import json
 import os
 import re
+import subprocess
 import sys
 from collections import Counter, defaultdict
 from pathlib import Path
@@ -136,6 +137,7 @@ _MAX_SUMMARY_COLS = 8  # cap the per-sheet "columns that moved" roll-up
 # any more. Classifying a column as "expected to drift" and then not comparing it
 # is how a real regression in that column goes unreported; the audit now compares
 # everything and lets the per-sheet roll-up carry the explanation instead.
+from lotg_support.snapshot import snapshot_built_from_commit  # noqa: E402
 from lotg_support.nflverse_drift import (  # noqa: E402
     Drift, diff_nflverse_cache, name_variants, normalize_name,
 )
@@ -489,7 +491,8 @@ def run_audit(current_dir: Path, baseline_dir: Optional[Path],
     rep = Report()
     drift = diff_nflverse_cache(nflverse_before, nflverse_after)
     attrib = NflverseAttribution(drift, cur)
-    attributed = audit_diffs(cur, base, season, rep, attrib)
+    code_changes = code_changes_since(snapshot_built_from_commit(_ROOT))
+    attributed = audit_diffs(cur, base, season, rep, attrib, code_changes)
     rep.drift, rep.nflverse_attributed = drift, attributed
     # The volume threshold is judged on the DIRECT attributions only: pooled
     # fan-out scales with how league-relative our stats are, not with how much
@@ -691,6 +694,47 @@ def strip_stable_links(changed: List[tuple], base_frames: Dict[str, pd.DataFrame
 
 
 # ---------------------------------------------------------------------------
+# Code changes since the committed exports were built
+# ---------------------------------------------------------------------------
+# Part 1 asks "does a fresh rebuild reproduce the exports we ship?". That is only
+# a meaningful question while both sides are the SAME SOFTWARE. Merge a PR that
+# corrects a formula and the rebuild will legitimately disagree with exports
+# built before it — which is the fix working, not history coming unfrozen.
+#
+# The build stamps `built_from_commit` into exports/snapshot/_snapshot_meta.json;
+# when that differs from the commit the audit is running at, the commits in
+# between are the explanation, and Part 1's diffs are reported with them instead
+# of flagged. The movement is still shown in full — the columns, the counts, the
+# per-row deltas — so a PR that moved more than it should is still visible. What
+# changes is that it doesn't turn the run red for doing what it said it would.
+#
+# Once the exports are rebuilt at the same commit (the next Tuesday build), this
+# stops applying and any residual movement flags normally.
+def code_changes_since(commit: Optional[str]) -> List[Tuple[str, str]]:
+    """(sha, subject) for each commit between the exports' build and HEAD."""
+    if not commit:
+        return []
+    try:
+        out = subprocess.run(
+            ["git", "log", "--no-merges", "--format=%h %s", f"{commit}..HEAD"],
+            capture_output=True, text=True, timeout=15, cwd=str(_ROOT))
+    except Exception:
+        return []
+    rows = []
+    for line in (out.stdout or "").splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        sha, _, subject = line.partition(" ")
+        # Skip the bot's own export/snapshot pushes: they change data, not code.
+        if subject.startswith(("Auto-refresh committed exports",
+                               "Weekly digest snapshot rotation")):
+            continue
+        rows.append((sha, subject))
+    return rows
+
+
+# ---------------------------------------------------------------------------
 # League events
 # ---------------------------------------------------------------------------
 # When a trade lands, the dataset is SUPPOSED to move. Trade counts change,
@@ -868,7 +912,8 @@ def classify_diff(shared: List[str], idcols: List[str],
 
 def audit_diffs(cur: Dict[str, pd.DataFrame], base: Dict[str, pd.DataFrame],
                 current_season: Optional[int], rep: Report,
-                attrib: Optional[NflverseAttribution] = None) -> int:
+                attrib: Optional[NflverseAttribution] = None,
+                code_changes: Sequence[Tuple[str, str]] = ()) -> int:
     """Report past-season rows that moved. Returns the number of rows withheld
     from the flags because an NFLverse revision accounts for them."""
     rep.head("Part 1 — unexpected diffs (every sheet, every column, every row)")
@@ -886,6 +931,16 @@ def audit_diffs(cur: Dict[str, pd.DataFrame], base: Dict[str, pd.DataFrame],
     attributed: Dict[str, int] = {}
     attributed_cols: Counter = Counter()
     events = LeagueEvents(cur, base)
+    # A rebuild at a different commit than the exports were built from is not
+    # answering the reproducibility question — see code_changes_since. Report the
+    # movement, name the commits, don't go red.
+    if code_changes:
+        shown = ", ".join(f"{sha} {subj}" for sha, subj in code_changes[:_MAX_SUMMARY_COLS])
+        more = (f" … +{len(code_changes) - _MAX_SUMMARY_COLS} more"
+                if len(code_changes) > _MAX_SUMMARY_COLS else "")
+        rep.note(f"{len(code_changes)} code change(s) landed since these exports were "
+                 f"built, so a rebuild is expected to disagree with them — the moves "
+                 f"below are REPORTED, not flagged: {shown}{more}.")
     for name in SHEETS:
         c, b = cur.get(name), base.get(name)
         if c is None or b is None or c.empty or b.empty:
@@ -974,8 +1029,12 @@ def audit_diffs(cur: Dict[str, pd.DataFrame], base: Dict[str, pd.DataFrame],
 
         counts = [(len(changed), "changed"), (len(added), "added"), (len(removed), "removed")]
         parts = ", ".join(f"{n} {label}" for n, label in counts if n)
-        flagged_any = True
-        rep.flag(f"**{name}**: {parts} row(s) moved since the committed build.")
+        if code_changes:
+            rep.note(f"**{name}**: {parts} row(s) moved since the committed build "
+                     "(explained by the code changes above).")
+        else:
+            flagged_any = True
+            rep.flag(f"**{name}**: {parts} row(s) moved since the committed build.")
 
         # The roll-up is the actionable line: one column moving across many rows
         # is a single cause (a revised upstream feed, a formula change), not N
