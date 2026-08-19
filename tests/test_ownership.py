@@ -216,31 +216,57 @@ def test_ledger_covers_every_season_including_the_snapshotless_one():
 # Shape and semantics
 # ---------------------------------------------------------------------------
 def test_ledger_is_one_row_per_acquisition_in_order():
+    """Kamara is the ping-pong case: drafted once, then traded back and forth.
+
+    Everything asserted here is derived from the exports rather than written
+    down, because this is a LIVE league — Kamara was traded again on the morning
+    of 2026-08-19 and a pinned "three trades, path shmuel > steven > shmuel >
+    steven" turned into two red tests about nothing. What actually has to hold
+    is the SHAPE: the startup draft comes first, every later row is a trade, and
+    each one hands him on from wherever the ledger last had him.
+    """
     if not _HAVE_EXPORTS:
         return _skip("no exports")
     df = A.ownership_ledger(player="Alvin Kamara")
     assert {"player", "player_id", "season", "date", "event", "team",
             "from_team", "source"} == set(df.columns)
-    assert list(df["event"]) == ["draft", "trade", "trade", "trade"]
+    # He entered in the startup draft and has changed hands by trade ever since.
+    assert len(df) >= 4, f"expected the startup draft + his trades, got {len(df)}"
+    assert list(df["event"]) == ["draft"] + ["trade"] * (len(df) - 1)
     # The undated startup draft sorts to the front, not to the end.
-    assert df.iloc[0]["team"] == "shmuel256"
-    assert list(df["team"]) == ["shmuel256", "stevenb123", "shmuel256", "stevenb123"]
-    # Both ends of every trade are named.
+    assert df.iloc[0]["event"] == "draft"
     trades = df[df["event"] == "trade"]
+    # Both ends of every trade are named, and nobody trades with themselves.
     assert all(t for t in trades["from_team"]), "a trade must record its sender"
     assert not any(r.team == r.from_team for r in trades.itertuples())
+    # Each trade takes him from exactly where the ledger last had him.
+    held = list(df["team"])
+    assert list(trades["from_team"]) == held[:-1], (
+        f"chain breaks: {held} vs senders {list(trades['from_team'])}")
 
 
 def test_summary_separates_spells_from_teams():
+    """spells counts ACQUISITIONS, teams counts distinct rosters — the two come
+    apart exactly when a player returns to a roster he has already been on.
+
+    Kamara is the worked example, reconciled against his own ledger rather than
+    against numbers written down here: he keeps getting traded (see the note on
+    the previous test), so his counts are not constants.
+    """
     if not _HAVE_EXPORTS:
         return _skip("no exports")
     summary = A.ownership_summary()
     kamara = summary[summary["player"] == "Alvin Kamara"].iloc[0]
-    assert kamara["trades"] == 3
-    assert kamara["teams"] == 2, "two rosters, three trades — the ping-pong case"
-    assert kamara["spells"] == 4, "the startup draft is an acquisition too"
-    assert kamara["boomerangs"] == 2
-    assert kamara["path"] == ("shmuel256 > stevenb123 > shmuel256 > stevenb123")
+    ledger = A.ownership_ledger(player="Alvin Kamara")
+    path = list(ledger["team"])
+    assert kamara["trades"] == int((ledger["event"] == "trade").sum())
+    assert kamara["spells"] == len(path), "the startup draft is an acquisition too"
+    assert kamara["teams"] == len(set(path))
+    assert kamara["boomerangs"] == len(path) - len(set(path))
+    assert kamara["path"] == " > ".join(path)
+    # He is the ping-pong case: fewer rosters than acquisitions, i.e. he has
+    # been re-acquired by a roster that already had him.
+    assert kamara["teams"] < kamara["spells"], "Kamara should be a boomerang case"
     # spells >= teams always: you cannot be on more rosters than times acquired.
     assert (summary["spells"] >= summary["teams"]).all()
     # boomerangs is exactly the excess.

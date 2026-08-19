@@ -328,8 +328,14 @@ class Drift:
         # shuffled off the practice squad. Escalating that churn is how a quiet
         # August week ("+17 rows in nflverse_weekly_rosters_2026") came out as
         # "games appearing or disappearing" — an alarm about routine transactions.
+        # A file with no season in its name is not a game log — it is a
+        # DIRECTORY (nflverse_player_ids.csv), which gains and loses rows every
+        # time upstream re-syncs its player list. Counting that churn as games
+        # moving reported "NFLverse added / withdrew 1365 row(s) — games
+        # appearing or disappearing" for a week whose games did not move at all.
         moved = sum(f.added_rows + f.removed_rows for f in self.files
-                    if current_season is None or f.season != current_season)
+                    if f.season is not None
+                    and (current_season is None or f.season != current_season))
         if moved:
             return f"NFLverse added / withdrew {moved} row(s) — games appearing or disappearing"
         # Volume. A big upstream release is not itself a problem — NFLverse

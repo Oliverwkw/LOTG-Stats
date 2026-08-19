@@ -128,12 +128,22 @@ def _nflverse_html(drift, attributed: int, sheets=None, columns=None,
     seasons; that is their data moving, not our build breaking, so it gets its
     own informational section instead of being counted as a breakage.
 
-    How much detail rides along depends on whether anything actually needs a
-    look. A week whose whole story is "upstream revised some data and our
-    exports followed" IS the summary line — the per-file breakdown and the
-    itemised list of our rows are diagnostics for reading a breakage against,
-    and printing them on a clean week buried the signal in a page of noise. So
-    they appear only when the audit flagged something.
+    ONE SENTENCE, ALWAYS. This section used to carry a bullet list under the
+    header on any week with a breakage: a per-file breakdown of what upstream
+    revised, then which of our sheets it explained, then which columns moved in
+    them. Nine bullets of five-figure counts, in the section explicitly headed
+    "not a breakage" — and the same per-file list already appears verbatim
+    under the drift's own flag above it, so the email printed it twice. None of
+    it is a decision the maintainer makes: how many `fumble_recovery_yards_own`
+    cells upstream touched in 2019 does not change what to do about the rows
+    that DID flag. The size of the change and how far it reached is the whole
+    story, and that is what `drift.summary()` says. The breakdown still exists
+    on the audit's own stdout / the run's step summary, and the artifacts hold
+    the frames themselves, for the week somebody wants to dig.
+
+    `sheets` / `columns` / `breakages` stay in the signature: the caller passes
+    what the audit computed, and this is the one place that decides how much of
+    it a reader sees.
     """
     if drift is None or not getattr(drift, "compared", False):
         return ('<p style="color:#666;margin:0;">No NFLverse snapshot to compare '
@@ -145,20 +155,7 @@ def _nflverse_html(drift, attributed: int, sheets=None, columns=None,
     if attributed:
         tail = (f' It accounts for {attributed} changed row(s) in our exports, '
                 'which are therefore not flagged as breakages.')
-    lines = []
-    if breakages:
-        lines = list(drift.detail_lines())
-        if sheets:
-            lines.append("our rows it explains: "
-                         + ", ".join(f"{k} ({v})" for k, v in sheets.items()))
-        if columns:
-            lines.append("columns that moved in them: "
-                         + ", ".join(f"{c} ({n})" for c, n in columns))
-    sub = ""
-    if lines:
-        lis = "".join(f'<li style="margin:0;">{_esc(l)}</li>' for l in lines)
-        sub = f'<ul style="margin:6px 0 0;padding-left:18px;color:#555;">{lis}</ul>'
-    return (f'<p style="margin:0;color:#5a4a00;">ℹ️ {summary}{tail}</p>{sub}')
+    return f'<p style="margin:0;color:#5a4a00;">ℹ️ {summary}{tail}</p>' 
 
 
 def _injury_html(gaps: dict, captures_present: bool) -> str:
