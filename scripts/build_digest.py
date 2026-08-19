@@ -17,6 +17,12 @@ is no in-progress week. A digest with no movement is suppressed at SEND time
 in-season and off. `--phrasing-csv PATH` writes the "how every stat is phrased"
 catalog and exits.
 
+The email opens with a short lede — up to five sentences, fewer on a quiet week —
+saying what actually happened, because the list under it runs to dozens of
+one-line facts. It is computed, not written: every move is scored on place,
+prominence and surprise, and the winner leads. See `lotg_support/email_summary`
+(and `plan/notes/ai-email-lede.md` for the shelved model-written version).
+
 Delivery is separate — see `scripts/send_digest.py`. This CLI only renders.
 
 Usage:
@@ -33,6 +39,7 @@ from pathlib import Path
 import pandas as pd
 
 from lotg_support import digest as D
+from lotg_support import email_summary as DS
 
 _ROOT = Path(__file__).resolve().parent.parent
 
@@ -167,8 +174,20 @@ def main(argv=None) -> int:
         else:
             event_changes = D.diff_events(prior_events, events)
 
+    # The lede: up to five sentences above the list saying what actually
+    # happened, because 65 one-line facts is a wall nobody reads. Computed, not
+    # written — every move is scored on place, prominence and surprise, and the
+    # winner leads. Cannot fail the build; build_intro never raises. See
+    # lotg_support/email_summary.
+    sections = D.digest_sections(crossings, proj_changes, milestones,
+                                 record_changes, highlights, event_changes)
+    intro = DS.build_intro(sections, D.digest_title(meta))
+    if intro:
+        print(f"[digest] lede: {intro}")
+
     html = D.render_digest_html(crossings, proj_changes, meta, milestones,
-                                record_changes, highlights, events=event_changes)
+                                record_changes, highlights, intro=intro,
+                                events=event_changes)
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(html)
     print(f"[digest] {len(highlights)} single-week highlight(s), {len(crossings)} crossing(s), "

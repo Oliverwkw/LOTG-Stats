@@ -21,6 +21,15 @@ It's a weekly heartbeat: it sends every week so a silent inbox means "the check
 didn't run", not "nothing's wrong". Pass --skip-clean to suppress the email on a
 clean week instead.
 
+A week WITH findings opens with a lede — up to five sentences saying which of
+them is most likely to be a REAL BUG, because a flag per sheet with a dozen
+detail lines under each is a wall. It is computed, not written: a lost column or
+a build error outranks rows that moved, and among rows that moved the SHAPE of
+the number change (a value that went blank, dropped to zero, flipped sign, or
+jumped an order of magnitude) is what separates a defect from upstream drift.
+See lotg_support.email_summary. It cannot stop the email going out. A clean week
+gets no lede — that email is already one sentence.
+
 HOW MUCH IT SAYS depends entirely on whether anything needs a decision:
 
   * NOTHING FLAGGED, no missed weeks, upstream drift measured — the email is its
@@ -54,9 +63,10 @@ _ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(_ROOT / "scripts"))
 sys.path.insert(0, str(_ROOT / "lib"))
 
-import audit_weekly as A          # noqa: E402
-import injury_coverage as C       # noqa: E402
-from lotg_support import mailer   # noqa: E402
+import audit_weekly as A                       # noqa: E402
+import injury_coverage as C                    # noqa: E402
+from lotg_support import email_summary as ES   # noqa: E402
+from lotg_support import mailer                # noqa: E402
 
 _CREDS_ENC = _ROOT / "config" / "digest_credentials.enc"
 
@@ -186,6 +196,25 @@ def _upstream_only_html(drift, attributed_cells: int) -> str:
             f'which in turn changed {attributed_cells} cells</li></ul>')
 
 
+# ---------------------------------------------------------------------------
+# The lede
+# ---------------------------------------------------------------------------
+# A week with findings is a wall: a flag per sheet, a dozen detail lines under
+# each, plus the NFLverse breakdown they have to be read against. The lede says
+# which of it is most likely to be a real bug — see lotg_support.email_summary,
+# which parses the audit's own detail lines for the SHAPE of each number change
+# (blank, zero, sign flip, order of magnitude) rather than just counting rows.
+#
+# Only on a week WITH findings. The clean-week email is already one sentence
+# long; a summary of one sentence is noise.
+def _lede_html(intro: str) -> str:
+    if not intro:
+        return ""
+    return ('<p style="margin:0 0 16px;padding:12px 14px;background:#f2f6fb;'
+            'border-left:3px solid #0b2545;border-radius:4px;color:#0b2545;">'
+            f'{_esc(intro)}</p>')
+
+
 def render_email(flags, gaps: dict, captures_present: bool, drift=None,
                  attributed: int = 0, attributed_sheets=None, attributed_columns=None,
                  attributed_cells: int = 0):
@@ -219,11 +248,16 @@ def render_email(flags, gaps: dict, captures_present: bool, drift=None,
         subject = f"✅ LOTG dataset health — all clear ({today})"
         banner_bg, banner = "#e7f4ea", "✅ All clear this week"
 
+    intro = ES.audit_lede(flags, gaps, drift, attributed) if has_issues else ""
+    if intro:
+        print(f"[audit-email] lede: {intro}")
+
     html = f"""<div style="max-width:680px;margin:0 auto;padding:16px;font:15px/1.5 system-ui,sans-serif;color:#222;">
   <div style="background:{banner_bg};border-radius:8px;padding:14px 16px;margin-bottom:16px;">
     <h1 style="font:700 20px/1.3 system-ui,sans-serif;color:#0b2545;margin:0;">LOTG dataset health — {today}</h1>
     <p style="margin:4px 0 0;color:#0b2545;">{banner}</p>
   </div>
+  {_lede_html(intro)}
   <h2 style="font:600 17px/1.3 system-ui,sans-serif;color:#1a2b3c;margin:18px 0 6px;">Dataset breakages</h2>
   {_breakage_html(flags)}
   <h2 style="font:600 17px/1.3 system-ui,sans-serif;color:#1a2b3c;margin:22px 0 6px;">NFLverse changes</h2>
