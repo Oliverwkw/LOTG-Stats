@@ -47,6 +47,66 @@ def _download_best_effort(urls: list[str], out: Path, timeout: int) -> None:
     if last_err is not None:
         raise last_err
 
+# ---------------------------------------------------------------------------
+# Fantasy-position pins
+# ---------------------------------------------------------------------------
+# NFLverse labels a player by the position he PLAYS. For a two-way player that
+# is a defensible label upstream and a broken one here: our league rosters and
+# scores him at ONE fantasy position, and every league-relative stat we compute
+# pools him with whoever shares that label — the weekly positional scoring
+# percentile, the `_pos_factor` "adjusted by position" scaling, Starter PAR's
+# replacement level (the bottom third of that year/week/position's started
+# scores) and the "Number of X started" counts.
+#
+# Travis Hunter is the case this exists for. He is drafted, rostered and started
+# in this league as a WR. In August 2026 NFLverse relabelled his 2025 weeks 1-7
+# from WR/WR to CB/DB, which put him in a 2025 "CB" pool whose only member was
+# himself: his weekly percentiles collapsed to 0.0 or 100.0 ranked against his
+# own seven games (week 5, 9.4 pts -> 100.0; week 3, 3.1 pts -> 0.0), where the
+# WR pool had them at 32.4 and 6.6. Weeks 8-17 have no NFLverse row at all and
+# fall back to Sleeper's dictionary, so they stayed WR — splitting one player
+# across two position pools inside a single season.
+#
+# Keyed by gsis_id, never by name: names collide and upstream re-spells them.
+# Applied on READ rather than to the cached file, so `.cache` stays a faithful
+# copy of what NFLverse published and the weekly audit's drift diff still sees
+# the relabel for what it is.
+#
+# This is a pin, not a mapping table to grow by default: add a player only when
+# his fantasy position here is genuinely unambiguous and upstream disagrees.
+FANTASY_POSITION_PINS: dict[str, str] = {
+    "00-0040718": "WR",   # Travis Hunter (JAX) — two-way WR/CB, rostered as a WR
+}
+
+# The columns that carry a position label in the NFLverse files we read, and the
+# columns those files use for the GSIS player id.
+_POSITION_COLS = ("position", "position_group", "depth_chart_position", "ngs_position")
+_GSIS_COLS = ("player_id", "gsis_id")
+
+
+def apply_position_pins(df: pd.DataFrame) -> pd.DataFrame:
+    """Overwrite the position labels of pinned players. Returns `df` (mutated).
+
+    A no-op for every file that carries neither a GSIS id column nor a position
+    column, and for every frame that names none of the pinned players.
+    """
+    if df is None or df.empty or not FANTASY_POSITION_PINS:
+        return df
+    id_col = next((c for c in _GSIS_COLS if c in df.columns), None)
+    if id_col is None:
+        return df
+    pos_cols = [c for c in _POSITION_COLS if c in df.columns]
+    if not pos_cols:
+        return df
+    ids = df[id_col].astype(str)
+    for pid, pos in FANTASY_POSITION_PINS.items():
+        hit = ids == pid
+        if hit.any():
+            for col in pos_cols:
+                df.loc[hit, col] = pos
+    return df
+
+
 def load_dynastyprocess_playerids(cfg: ExternalConfig) -> pd.DataFrame:
     # Official DynastyProcess data repo includes player id mappings (incl sleeper_id).
     # File was renamed from playerids.csv to db_playerids.csv; keep legacy as fallback.
@@ -116,7 +176,7 @@ def load_nflverse_player_ids(cfg: ExternalConfig) -> pd.DataFrame:
     path = cfg.cache_dir / "nflverse_player_ids.csv"
     if (not path.exists()) or path.stat().st_size == 0:
         _download_best_effort(urls, path, cfg.timeout_seconds)
-    return pd.read_csv(path)
+    return apply_position_pins(pd.read_csv(path))
 
 def load_nflverse_stats_player_week(cfg: ExternalConfig, season: int, force_refresh: bool = False) -> pd.DataFrame:
     """Load nflverse weekly player stats; used for team-by-week and played detection.
@@ -143,9 +203,10 @@ def load_nflverse_stats_player_week(cfg: ExternalConfig, season: int, force_refr
                 raise
     # handle possible gz without relying on pandas compression inference
     try:
-        return pd.read_csv(path, low_memory=False)
+        df = pd.read_csv(path, low_memory=False)
     except Exception:
-        return pd.read_csv(path, compression='gzip', low_memory=False)
+        df = pd.read_csv(path, compression='gzip', low_memory=False)
+    return apply_position_pins(df)
 
 
 def load_nflverse_weekly_rosters(cfg: ExternalConfig, season: int, force_refresh: bool = False) -> pd.DataFrame:
@@ -166,6 +227,7 @@ def load_nflverse_weekly_rosters(cfg: ExternalConfig, season: int, force_refresh
             if not path.exists() or path.stat().st_size == 0:
                 raise
     try:
-        return pd.read_csv(path, low_memory=False)
+        df = pd.read_csv(path, low_memory=False)
     except Exception:
-        return pd.read_csv(path, compression='gzip', low_memory=False)
+        df = pd.read_csv(path, compression='gzip', low_memory=False)
+    return apply_position_pins(df)
