@@ -49,11 +49,11 @@ class _Item:
 def _sections():
     return [
         ("All-time leaderboard moves — draft picks", "moved", [
-            _Item("2021 pick 4.07 (Josh Doctson) passes 2021 pick 4.06 for 1st-lowest KTC (0)."),
+            _Item("2021 pick 4.07 (Josh Doctson) passes 2021 pick 4.06 for lowest KTC (0)."),
             _Item("startup pick 19.04 (Larry Fitzgerald) passes 2021 pick 4.07 for 2nd-lowest KTC (65)."),
         ]),
         ("All-time leaderboard moves — trades", "moved", [
-            _Item("Oliverwkw's 2023-12-05 trade passes LWebs53's trade for 1st-highest O-Score (103.3)."),
+            _Item("Oliverwkw's 2023-12-05 trade passes LWebs53's trade for highest O-Score (103.3)."),
         ]),
     ]
 
@@ -148,8 +148,8 @@ def check_sections_cover_the_whole_email():
     )
     titles = [t for t, _v, _i in every]
     ok &= _ok("players and teams are separate sections", len(titles) == 3, titles)
-    ok &= _ok("milestones render flat (no group())",
-              [v for t, v, _ in every if t == "League milestones"] == [""])
+    ok &= _ok("milestones render flat (no entity to group by)",
+              [g for t, g, _ in every if t == "League milestones"] == [False])
     ok &= _ok("empty sections are dropped", D.digest_sections() == [])
     return ok
 
