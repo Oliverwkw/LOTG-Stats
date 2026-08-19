@@ -400,17 +400,320 @@ def check_career_columns_follow_an_earlier_seasons_revision(tmp):
     return ok
 
 
+def check_alltime_rows_are_attributable_at_all(tmp):
+    """A career total is the sum of season rows that WERE attributed.
+
+    The all-time sheets carry no `Year`, and every path into the attribution
+    read that blank as "no season matched": `covers` had no branch for them and
+    the within-season pool test compared "" against the disturbed seasons. So
+    every career and franchise total was unattributable by construction — 206 of
+    one week's 455 flagged rows, each one the roll-up of a player_year row the
+    same audit had just explained on the sheet above.
+    """
+    base = pd.DataFrame({"Player": ["Baker Mayfield", "Untouched Guy"],
+                         "Points (full career)": ["1991.02", "500.0"],
+                         "Avg points (full career)": ["15.5548", "10.0"]})
+    cur = base.copy()
+    cur["Points (full career)"] = ["1988.62", "480.0"]
+    cur["Avg points (full career)"] = ["15.5361", "9.6"]
+    pw = pd.DataFrame({"Player": ["Baker Mayfield"], "Team": ["T"],
+                       "Year": ["2024"], "Week": ["1"]})
+
+    drift = N.Drift(compared=True)
+    drift.player_seasons.add(("baker mayfield", 2024))
+    drift.pools_disturbed = True
+    drift.pool_seasons.add(2024)
+
+    cur_d, base_d = tmp / "ac", tmp / "ab"
+    for d, pat in ((cur_d, cur), (base_d, base)):
+        d.mkdir(parents=True, exist_ok=True)
+        pat.to_csv(d / "player_all_time.csv", index=False)
+        pw.to_csv(d / "player_week.csv", index=False)
+    c = {n: A._read(cur_d, n) for n in A.SHEETS}
+    b = {n: A._read(base_d, n) for n in A.SHEETS}
+    rep = A.Report()
+    A.audit_diffs(c, b, 2026, rep, A.NflverseAttribution(drift, c))
+    text = rep.render()
+    ok = _ok("the revised player's career total is withheld",
+             "Baker Mayfield" not in text, text)
+    ok &= _ok("an unrevised player's career total still flags",
+              "Untouched Guy" in text, text)
+    return ok
+
+
+def check_alltime_rows_still_flag_an_unexplained_column(tmp):
+    """Containment: making the all-time sheets attributable must not make them
+    unflaggable.
+
+    This is the Travis Hunter case in miniature. Upstream relabelled a rostered
+    WR as a CB, and the franchise's "Number of WR started" fell by one. Nothing
+    about that rides a scoring or roster channel, so it has to survive — it was
+    the single real finding buried under that week's 455 rows.
+    """
+    base = pd.DataFrame({"Team": ["Oliverwkw"], "Number of WR started": ["34"],
+                         "Hardship": ["4891.36"]})
+    cur = pd.DataFrame({"Team": ["Oliverwkw"], "Number of WR started": ["33"],
+                        "Hardship": ["4890.62"]})
+    pw = pd.DataFrame({"Player": ["Travis Hunter"], "Team": ["Oliverwkw"],
+                       "Year": ["2025"], "Week": ["1"]})
+
+    drift = N.Drift(compared=True)
+    drift.player_seasons.add(("travis hunter", 2025))
+    drift.player_weeks.add(("travis hunter", 2025, 1))
+    drift.pools_disturbed = True
+    drift.pool_seasons.add(2025)
+
+    cur_d, base_d = tmp / "fc", tmp / "fb"
+    for d, tat in ((cur_d, cur), (base_d, base)):
+        d.mkdir(parents=True, exist_ok=True)
+        tat.to_csv(d / "team_all_time.csv", index=False)
+        pw.to_csv(d / "player_week.csv", index=False)
+    c = {n: A._read(cur_d, n) for n in A.SHEETS}
+    b = {n: A._read(base_d, n) for n in A.SHEETS}
+    rep = A.Report()
+    A.audit_diffs(c, b, 2026, rep, A.NflverseAttribution(drift, c))
+    text = rep.render()
+    return _ok("a franchise column with no channel is still flagged",
+               "Number of WR started" in text and "team_all_time" in text, text)
+
+
+def check_pick_year_labels_that_are_not_years_resolve(tmp):
+    """`picks.Year` is a LABEL: "2021 (vet)" and "startup" are not season keys.
+
+    Compared for equality against the disturbed seasons they matched nothing, so
+    182 of one week's 386 changed pick rows could never be attributed however
+    plainly upstream had moved them. The leading year resolves "2021 (vet)";
+    "startup" has no year at all and spans every season, as a startup pick's
+    career-spanning values genuinely do.
+    """
+    cols = ["Year", "Number", "Player Picked", "Starter PAR"]
+    base = pd.DataFrame([["2021 (vet)", "2.03", "Jordan Love", "100.0"],
+                         ["startup", "1.01", "Alvin Kamara", "200.0"],
+                         ["2019", "1.01", "Quiet Season", "300.0"]], columns=cols)
+    cur = base.copy()
+    cur["Starter PAR"] = ["99.0", "199.0", "299.0"]
+    pw = pd.DataFrame({"Player": ["X"], "Team": ["T"], "Year": ["2021"], "Week": ["1"]})
+
+    drift = N.Drift(compared=True)
+    drift.pools_disturbed = True
+    drift.pool_seasons |= {2021, 2025}
+    drift.player_seasons |= {("someone", 2021), ("someone", 2025)}
+
+    cur_d, base_d = tmp / "lc", tmp / "lb"
+    for d, pk in ((cur_d, cur), (base_d, base)):
+        d.mkdir(parents=True, exist_ok=True)
+        pk.to_csv(d / "picks.csv", index=False)
+        pw.to_csv(d / "player_week.csv", index=False)
+    c = {n: A._read(cur_d, n) for n in A.SHEETS}
+    b = {n: A._read(base_d, n) for n in A.SHEETS}
+    rep = A.Report()
+    A.audit_diffs(c, b, 2026, rep, A.NflverseAttribution(drift, c))
+    text = rep.render()
+    ok = _ok('"2021 (vet)" resolves to the 2021 pool', "Jordan Love" not in text, text)
+    ok &= _ok('"startup" spans every season', "Alvin Kamara" not in text, text)
+    ok &= _ok("a season nothing disturbed is still flagged",
+              "Quiet Season" in text, text)
+    return ok
+
+
+def check_sheet_rank_columns_ride_the_pool(tmp):
+    """O-Score is a row's PLACE among every row of its sheet, not a value.
+
+    `_add_oscore` averages four percentiles taken across the whole sheet, so one
+    corrected yardage figure re-ranks every row it passes and the row that moves
+    need never have been revised itself. Its INPUTS stay on the narrower
+    channels, so a component moving for a player upstream did not touch is still
+    a finding.
+    """
+    cols = ["Team", "Player Added", "Player Dropped", "Date", "O-Score", "Avg net points"]
+    base = pd.DataFrame([["T1", "A", "", "2023-01-01", "32.8", "5.0"],
+                         ["T2", "Stranger", "", "2023-01-02", "40.0", "7.0"]], columns=cols)
+    cur = base.copy()
+    cur.loc[0, "O-Score"] = "32.7"                     # rank fan-out alone
+    cur.loc[1, ["O-Score", "Avg net points"]] = ["39.9", "6.0"]   # an input moved too
+    pw = pd.DataFrame({"Player": ["A"], "Team": ["T1"], "Year": ["2023"], "Week": ["1"]})
+
+    drift = N.Drift(compared=True)
+    drift.pools_disturbed = True
+    drift.pool_seasons.add(2023)
+    drift.player_seasons.add(("a", 2023))
+
+    cur_d, base_d = tmp / "oc", tmp / "ob"
+    for d, tx in ((cur_d, cur), (base_d, base)):
+        d.mkdir(parents=True, exist_ok=True)
+        tx.to_csv(d / "transactions.csv", index=False)
+        pw.to_csv(d / "player_week.csv", index=False)
+    c = {n: A._read(cur_d, n) for n in A.SHEETS}
+    b = {n: A._read(base_d, n) for n in A.SHEETS}
+    rep = A.Report()
+    A.audit_diffs(c, b, 2026, rep, A.NflverseAttribution(drift, c))
+    text = rep.render()
+    ok = _ok("an O-Score moving on its own is rank fan-out",
+             "Player Added=A" not in text, text)
+    ok &= _ok("an O-Score input moving for an unrevised player still flags",
+              "Stranger" in text, text)
+    return ok
+
+
+def check_event_and_upstream_explanations_compose(tmp):
+    """Two true explanations on one row must not cancel each other out.
+
+    The 2026-08-19 trade moved every team's all-time trade counts in the same
+    week upstream moved their hardship. Each channel used to have to account for
+    the WHOLE row or nothing, so the event channel bailed on the hardship, the
+    upstream channel bailed on the trade counts, and a row both of them could
+    explain between them was flagged.
+    """
+    base_tr = pd.DataFrame({"Team": ["A"], "Team's traded with 1": ["B"],
+                            "Date": ["2020-01-01"], "O-Score": ["50.0"]})
+    cur_tr = pd.concat([base_tr, pd.DataFrame({
+        "Team": ["A"], "Team's traded with 1": ["B"],
+        "Date": ["2026-08-19"], "O-Score": ["60.0"]})], ignore_index=True)
+    base = pd.DataFrame({"Team": ["A"], "Total trades": ["1"], "Hardship": ["100.0"]})
+    cur = pd.DataFrame({"Team": ["A"], "Total trades": ["2"], "Hardship": ["99.0"]})
+    pw = pd.DataFrame({"Player": ["P"], "Team": ["A"], "Year": ["2025"], "Week": ["1"]})
+
+    drift = N.Drift(compared=True)
+    drift.player_seasons.add(("p", 2025))
+    drift.player_weeks.add(("p", 2025, 1))
+    drift.pools_disturbed = True
+    drift.pool_seasons.add(2025)
+
+    cur_d, base_d = tmp / "cc", tmp / "cb"
+    for d, tat, tr in ((cur_d, cur, cur_tr), (base_d, base, base_tr)):
+        d.mkdir(parents=True, exist_ok=True)
+        tat.to_csv(d / "team_all_time.csv", index=False)
+        tr.to_csv(d / "trades.csv", index=False)
+        pw.to_csv(d / "player_week.csv", index=False)
+    c = {n: A._read(cur_d, n) for n in A.SHEETS}
+    b = {n: A._read(base_d, n) for n in A.SHEETS}
+    rep = A.Report()
+    A.audit_diffs(c, b, 2026, rep, A.NflverseAttribution(drift, c))
+    text = rep.render()
+    return _ok("a row half-explained by each channel is fully explained",
+               rep.confirmed == 0, text)
+
+
+def check_the_nflverse_breakdown_is_not_a_findings_evidence(tmp):
+    """The per-file drift breakdown belongs to its SECTION, not to the flag
+    above it — `grouped_flags` (what the email renders) must not adopt it."""
+    drift = N.Drift(compared=True)
+    drift.files.append(N.FileDrift(name="nflverse_stats_player_week_2024.csv",
+                                  changed_cells=2682, changed_rows=2065,
+                                  added_rows=3, removed_rows=1))
+    rep = A.Report()
+    A.audit_nflverse(drift, 10, rep, 2026, 10)
+    flags = rep.grouped_flags()
+    ok = _ok("the breakdown still renders for stdout / the step summary",
+             "nflverse_stats_player_week_2024.csv" in rep.render(), rep.render())
+    ok &= _ok("but no finding claims it as its detail",
+              all("nflverse_stats_player_week_2024.csv" not in d
+                  for f in flags for d in f["details"]), str(flags))
+    return ok
+
+
+def check_blank_rows_appearing_are_not_a_production_change(tmp):
+    """A player-week row is not the same thing as a game of football.
+
+    NFLverse also emits an ALL-ZERO line for a player who dressed and recorded
+    nothing, and revises which players get one. Every one of the five rows that
+    appeared or vanished in completed 2024/2025 on the 2026-08-19 run was blank
+    — a fullback, a guard, a defensive end, a safety and a receiver, no yards,
+    no touches, no points on either side — and the week was escalated to a
+    breakage reading "games appearing or disappearing". Nothing on a field had
+    changed.
+    """
+    cols = ["player_id", "player_display_name", "season", "week",
+            "receiving_yards", "rushing_yards"]
+    before = pd.DataFrame([["00-1", "Kept Guy", 2024, 1, 40, 0]], columns=cols)
+    after = pd.DataFrame([["00-1", "Kept Guy", 2024, 1, 40, 0],
+                          ["00-2", "Blank Lineman", 2024, 5, 0, 0]], columns=cols)
+    bd, ad = tmp / "bb", tmp / "ba"
+    for d, f in ((bd, before), (ad, after)):
+        d.mkdir(parents=True, exist_ok=True)
+        f.to_csv(d / "nflverse_stats_player_week_2024.csv", index=False)
+    drift = N.diff_nflverse_cache(bd, ad)
+    ok = _ok("the blank row is still counted as a row",
+             drift.files[0].added_rows == 1, str(drift.files[0]))
+    ok &= _ok("but not as production", drift.files[0].scoring_rows_moved == 0)
+    ok &= _ok("so the week is not escalated",
+              drift.is_significant(0, 2026) is None, str(drift.is_significant(0, 2026)))
+    return ok
+
+
+def check_a_scoring_row_appearing_still_escalates(tmp):
+    """The alarm this replaces was worth having — a completed season gaining a
+    row that carries actual production really is history moving."""
+    cols = ["player_id", "player_display_name", "season", "week",
+            "receiving_yards", "rushing_yards"]
+    before = pd.DataFrame([["00-1", "Kept Guy", 2024, 1, 40, 0]], columns=cols)
+    after = pd.DataFrame([["00-1", "Kept Guy", 2024, 1, 40, 0],
+                          ["00-3", "Real Game", 2024, 5, 88, 12]], columns=cols)
+    bd, ad = tmp / "sb", tmp / "sa"
+    for d, f in ((bd, before), (ad, after)):
+        d.mkdir(parents=True, exist_ok=True)
+        f.to_csv(d / "nflverse_stats_player_week_2024.csv", index=False)
+    drift = N.diff_nflverse_cache(bd, ad)
+    reason = drift.is_significant(0, 2026)
+    ok = _ok("a row carrying yards counts as production",
+             drift.files[0].scoring_rows_moved == 1)
+    ok &= _ok("and escalates", reason is not None and "scoring row(s)" in reason, str(reason))
+    ok &= _ok("naming production, not games", "games appearing" not in (reason or ""), str(reason))
+    return ok
+
+
+def check_a_withdrawn_scoring_row_escalates_too(tmp):
+    """Production vanishing from a completed season is the same alarm."""
+    cols = ["player_id", "player_display_name", "season", "week", "receiving_yards"]
+    before = pd.DataFrame([["00-1", "Kept", 2024, 1, 40],
+                           ["00-4", "Erased Game", 2024, 9, 61]], columns=cols)
+    after = pd.DataFrame([["00-1", "Kept", 2024, 1, 40]], columns=cols)
+    bd, ad = tmp / "wb", tmp / "wa"
+    for d, f in ((bd, before), (ad, after)):
+        d.mkdir(parents=True, exist_ok=True)
+        f.to_csv(d / "nflverse_stats_player_week_2024.csv", index=False)
+    drift = N.diff_nflverse_cache(bd, ad)
+    return _ok("a withdrawn scoring row escalates",
+               (drift.is_significant(0, 2026) or "").startswith("NFLverse added / withdrew 1"),
+               str(drift.is_significant(0, 2026)))
+
+
+def check_directory_churn_is_not_games_moving(tmp):
+    """`nflverse_player_ids.csv` has no season: it is a player DIRECTORY, and it
+    gains and loses rows whenever upstream re-syncs its list. Counting that as
+    games appearing reported 1365 games moving in a week where none did."""
+    drift = N.Drift(compared=True)
+    drift.files.append(N.FileDrift(name="nflverse_player_ids.csv",
+                                  added_rows=682, removed_rows=678))
+    ok = _ok("directory churn is not significant",
+             drift.is_significant(0, 2026) is None, str(drift.is_significant(0, 2026)))
+    drift.files.append(N.FileDrift(name="nflverse_stats_player_week_2024.csv",
+                                  added_rows=3, removed_rows=1,
+                                  scoring_rows_moved=4))
+    reason = drift.is_significant(0, 2026)
+    ok &= _ok("a completed season's production moving still is",
+              reason is not None and "4 scoring row(s)" in reason, str(reason))
+    return ok
+
+
 def check_current_season_roster_churn_is_not_significant(tmp):
     """The in-progress season's weekly roster file gains rows every time somebody
-    is signed. That is not "games appearing or disappearing" — escalating it is
-    how a quiet August week led with a red flag."""
+    is signed. That is not history moving — escalating it is how a quiet August
+    week led with a red flag.
+
+    The rows here carry production (`scoring_rows_moved`), so the ONLY thing
+    keeping them quiet is that they are the in-progress season; the season gate
+    is what this pins. Blank rows in a completed season are a separate case with
+    its own check.
+    """
     d = N.Drift(compared=True)
     d.files.append(N.FileDrift(name="nflverse_weekly_rosters_2026.csv",
-                               changed_cells=4416, changed_rows=699, added_rows=17))
+                               changed_cells=4416, changed_rows=699, added_rows=17,
+                               scoring_rows_moved=17))
     ok = _ok("routine in-progress-season roster churn is not escalated",
              d.is_significant(0, current_season=2026) is None,
              str(d.is_significant(0, current_season=2026)))
-    ok &= _ok("a COMPLETED season gaining rows still is",
+    ok &= _ok("a COMPLETED season gaining scoring rows still is",
               "added / withdrew" in (d.is_significant(0, current_season=2027) or ""),
               str(d.is_significant(0, current_season=2027)))
     ok &= _ok("and with no season known, the old behaviour holds",
@@ -623,6 +926,16 @@ def run_all() -> bool:
         check_season_pool_columns_are_scoped_to_their_season,
         check_career_columns_follow_an_earlier_seasons_revision,
         check_current_season_roster_churn_is_not_significant,
+        check_alltime_rows_are_attributable_at_all,
+        check_alltime_rows_still_flag_an_unexplained_column,
+        check_pick_year_labels_that_are_not_years_resolve,
+        check_sheet_rank_columns_ride_the_pool,
+        check_event_and_upstream_explanations_compose,
+        check_the_nflverse_breakdown_is_not_a_findings_evidence,
+        check_directory_churn_is_not_games_moving,
+        check_blank_rows_appearing_are_not_a_production_change,
+        check_a_scoring_row_appearing_still_escalates,
+        check_a_withdrawn_scoring_row_escalates_too,
         check_pool_columns_track_the_builds_scoring_inputs,
         check_trade_chain_columns_are_build_volatile,
         check_nflverse_alias_table_bridges_sleeper_spellings,

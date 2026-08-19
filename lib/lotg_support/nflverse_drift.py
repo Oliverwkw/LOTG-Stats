@@ -198,6 +198,10 @@ class FileDrift:
     changed_rows: int = 0
     added_rows: int = 0
     removed_rows: int = 0
+    # Of `added_rows` + `removed_rows`, how many carry a non-zero SCORING stat.
+    # Upstream emits all-zero lines for players who dressed and did nothing —
+    # see `_scoring_rows`. Those are roster housekeeping, not football.
+    scoring_rows_moved: int = 0
     columns_added: List[str] = field(default_factory=list)
     columns_removed: List[str] = field(default_factory=list)
     top_columns: List[Tuple[str, int]] = field(default_factory=list)
@@ -328,10 +332,17 @@ class Drift:
         # shuffled off the practice squad. Escalating that churn is how a quiet
         # August week ("+17 rows in nflverse_weekly_rosters_2026") came out as
         # "games appearing or disappearing" — an alarm about routine transactions.
-        moved = sum(f.added_rows + f.removed_rows for f in self.files
-                    if current_season is None or f.season != current_season)
+        # A file with no season in its name is not a game log — it is a
+        # DIRECTORY (nflverse_player_ids.csv), which gains and loses rows every
+        # time upstream re-syncs its player list. Counting that churn as games
+        # moving reported "NFLverse added / withdrew 1365 row(s) — games
+        # appearing or disappearing" for a week whose games did not move at all.
+        moved = sum(f.scoring_rows_moved for f in self.files
+                    if f.season is not None
+                    and (current_season is None or f.season != current_season))
         if moved:
-            return f"NFLverse added / withdrew {moved} row(s) — games appearing or disappearing"
+            return (f"NFLverse added / withdrew {moved} scoring row(s) — "
+                    "a completed season's production changed")
         # Volume. A big upstream release is not itself a problem — NFLverse
         # shipped 18678 revised values in one August 2026 week — and a fixed
         # ceiling on how many of OUR rows may follow just turned every such week
@@ -393,6 +404,33 @@ def _player_ids_of(rows: pd.DataFrame, key: List[str]) -> Set[str]:
     return set()
 
 
+def _scoring_rows(rows: pd.DataFrame) -> int:
+    """How many of these rows record a non-zero scoring stat.
+
+    A player-week row is not the same thing as a game of football. NFLverse also
+    emits an ALL-ZERO line for a player who dressed and recorded nothing, and it
+    revises which players get one: the 2026-08-19 run saw five rows appear or
+    vanish across completed 2024 and 2025, and every single one was blank — a
+    fullback, a guard, a defensive end, a safety and a receiver, no yards, no
+    touches, no points, on either side of the diff. Nothing that happened on a
+    field changed.
+
+    That is not nothing to us — a blank row still counts as a game in a career
+    average's denominator, and the one of those five players we have ever
+    rostered had his career PPG move 2.3253 -> 2.2917 on 83 games becoming 84 —
+    but it is a different event from a score being corrected, and reporting it
+    as "games appearing or disappearing" says the louder of the two. The cell
+    diff still reports the averages that followed.
+    """
+    if rows is None or rows.empty:
+        return 0
+    cols = [c for c in _SCORING_COLS if c in rows.columns]
+    if not cols:
+        return len(rows)          # can't tell; don't quietly downgrade it
+    vals = rows[cols].apply(pd.to_numeric, errors="coerce").fillna(0.0)
+    return int((vals != 0).any(axis=1).sum())
+
+
 def _diff_one(name: str, before: pd.DataFrame, after: pd.DataFrame,
               drift: Drift, aliases: Optional[Dict[str, Set[str]]] = None) -> FileDrift:
     fd = FileDrift(name=name)
@@ -411,8 +449,12 @@ def _diff_one(name: str, before: pd.DataFrame, after: pd.DataFrame,
 
     b = before.drop_duplicates(key).set_index(key).sort_index()
     a = after.drop_duplicates(key).set_index(key).sort_index()
-    fd.added_rows = len(a.index.difference(b.index))
-    fd.removed_rows = len(b.index.difference(a.index))
+    added_ix = a.index.difference(b.index)
+    removed_ix = b.index.difference(a.index)
+    fd.added_rows = len(added_ix)
+    fd.removed_rows = len(removed_ix)
+    fd.scoring_rows_moved = (_scoring_rows(a.loc[added_ix])
+                             + _scoring_rows(b.loc[removed_ix]))
     common = b.index.intersection(a.index)
     if len(common) == 0:
         return fd
