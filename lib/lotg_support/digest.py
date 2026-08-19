@@ -38,6 +38,8 @@ import math
 
 import pandas as pd
 
+from .email_summary import stat_relevance
+
 
 
 # ---------------------------------------------------------------------------
@@ -120,6 +122,16 @@ def _to_float(value) -> Optional[float]:
         return None
 
 
+def _place(rank: int, end: str) -> str:
+    """"highest" / "lowest" for 1st, "2nd-highest" and so on below it.
+
+    "1st-highest" says the same thing twice — "highest" already means first — and
+    the doubling is loudest on exactly the lines that matter most. Ranks below
+    first still need the ordinal to mean anything."""
+    end_word = "highest" if end == "high" else "lowest"
+    return end_word if rank == 1 else f"{_ordinal(rank)}-{end_word}"
+
+
 def _ordinal(n: int) -> str:
     if 10 <= (n % 100) <= 20:
         suf = "th"
@@ -182,8 +194,8 @@ def discover_numeric_columns(df: pd.DataFrame, entity_col: str,
 # and -X for the other. Ranking the raw values would report one fact as two
 # records — the biggest blowout AND the biggest defeat, always the same game — and
 # would fill the bottom of every such board with the mirror images of its top.
-# So a mirrored column is ranked over its POSITIVE values only: "1st-highest
-# Margin" is the biggest blowout, "1st-lowest Margin" the closest game, each named
+# So a mirrored column is ranked over its POSITIVE values only: "highest
+# Margin" is the biggest blowout, "lowest Margin" the closest game, each named
 # once, from the side that came out ahead.
 #
 # Detected STRUCTURALLY (two_sided_columns), from rows that pair up through a
@@ -333,17 +345,15 @@ class Crossing:
         return self.mover
 
     def detail(self) -> str:
-        end_word = "highest" if self.end == "high" else "lowest"
         verb = "ties" if self.tied else "passes"
-        return (f"{verb} {self.passed} for {_ordinal(self.rank)}-{end_word} "
+        return (f"{verb} {self.passed} for {_place(self.rank, self.end)} "
                 f"{self.column} ({_fmt(self.value)})")
 
     def sentence(self) -> str:
-        end_word = "highest" if self.end == "high" else "lowest"
-        verb = "ties" if self.tied else "passes"
-        return (f"{self.mover} {verb} {self.passed} for "
-                f"{_ordinal(self.rank)}-{end_word} {self.column} all-time "
-                f"({_fmt(self.value)}).")
+        # No "all-time": the section header says it, and EventCrossing — the same
+        # kind of news on a different sheet — never said it. Two spellings of one
+        # sentence under two identically-shaped headers was the odd part.
+        return f"{self.mover} {self.detail()}."
 
 
 def _rank_map(entries: Sequence[dict]) -> Dict[str, int]:
@@ -437,16 +447,14 @@ class Projection:
         return "The league" if self.section == "league" else self.entity
 
     def detail(self) -> str:
-        end_word = "highest" if self.end == "high" else "lowest"
-        return f"{_ordinal(self.rank)}-{end_word} {self.column} ({_fmt(self.projected)})"
+        return f"{_place(self.rank, self.end)} {self.column} ({_fmt(self.projected)})"
 
     def sentence(self) -> str:
-        end_word = "highest" if self.end == "high" else "lowest"
         val = _fmt(self.projected)
         if self.final:
-            return (f"{self.group()} finished with the {_ordinal(self.rank)}-{end_word} "
+            return (f"{self.group()} finished with the {_place(self.rank, self.end)} "
                     f"{self.column} of any season ({val}).")
-        return (f"{self.group()} is on pace for {_ordinal(self.rank)}-{end_word} "
+        return (f"{self.group()} is on pace for {_place(self.rank, self.end)} "
                 f"{self.column} this season ({val}).")
 
 
@@ -600,6 +608,14 @@ class YearlyRecord:
     column: str
     value: float
 
+    # A record is only emitted when the value beats every completed season
+    # (`_records_for_frame`), so it is 1st place on that stat's all-time
+    # single-season board — by construction, not by convention. Saying so keeps
+    # it sorting alongside every other 1st place instead of behind them; the
+    # prose already carries the claim ("most in any season"), which is why the
+    # sentence doesn't repeat it as an ordinal.
+    rank: int = 1
+
     def group(self) -> str:
         return "The league" if self.section == "league" else self.entity
 
@@ -609,6 +625,11 @@ class YearlyRecord:
     def sentence(self) -> str:
         return (f"{self.group()} sets a new single-season record for {self.column} "
                 f"({_fmt(self.value)}) — most in any season.")
+
+    def line(self) -> str:
+        # The header already says "New single-season records"; saying it again
+        # and then adding "most in any season" states one fact three times.
+        return f"{self.group()}: {self.detail()} — most in any season."
 
 
 def _records_for_frame(section: str, year_df: pd.DataFrame,
@@ -695,6 +716,12 @@ def diff_records(prior_map: dict, records: Sequence[YearlyRecord]) -> List[Yearl
 _MAX_HIGHLIGHT_TIES = 5
 
 
+# Two spellings, on purpose:
+#   sentence()  stands alone — the lede quotes it, and a lede that needs its
+#               section header to make sense is no use at the top of the email.
+#   line()      is what the SECTION prints, where the header has already said
+#               where you are. Default: the same string. Overridden only where
+#               the standalone framing would restate the header word for word.
 @dataclass
 class WeeklyHighlight:
     section: str        # "players" | "teams" | "league"
@@ -708,13 +735,16 @@ class WeeklyHighlight:
         return "The league" if self.section == "league" else self.entity
 
     def detail(self) -> str:
-        end_word = "highest" if self.end == "high" else "lowest"
-        return f"{self.column} ({_fmt(self.value)}) — {_ordinal(self.rank)}-{end_word} single week ever"
+        return f"{self.column} ({_fmt(self.value)}) — {_place(self.rank, self.end)} ever"
 
     def sentence(self) -> str:
-        end_word = "highest" if self.end == "high" else "lowest"
         return (f"{self.group()}'s {self.column} this week ({_fmt(self.value)}) is the "
-                f"{_ordinal(self.rank)}-{end_word} single week ever.")
+                f"{_place(self.rank, self.end)} single week ever.")
+
+    def line(self) -> str:
+        # "…'s Points this week (55) is the highest single week ever" under a
+        # header that already reads "Single-week records (this week)".
+        return f"{self.group()}'s {self.detail()}."
 
 
 def latest_completed_week(team_week: pd.DataFrame, season: int) -> Optional[int]:
@@ -836,14 +866,12 @@ class EventHighlight:
         return self.label
 
     def detail(self) -> str:
-        end_word = "highest" if self.end == "high" else "lowest"
         return (f"{self.column} of {_fmt(self.value)} — "
-                f"{_ordinal(self.rank)}-{end_word} of any {self.sheet[:-1]} ever")
+                f"{_place(self.rank, self.end)} of any {self.sheet[:-1]} ever")
 
     def sentence(self) -> str:
-        end_word = "highest" if self.end == "high" else "lowest"
         return (f"{self.label}: {self.column} of {_fmt(self.value)} — "
-                f"{_ordinal(self.rank)}-{end_word} of any {self.sheet[:-1]} ever.")
+                f"{_place(self.rank, self.end)} of any {self.sheet[:-1]} ever.")
 
 
 def _event_cell(row, col) -> str:
@@ -1040,7 +1068,7 @@ class EventCrossing:
     """One event overtaking another on an all-time event board.
 
     Phrased exactly like an all-time player/team `Crossing` — "<mover> passes
-    <passed> for 1st-highest O-Score (103.3)" — because it is the same kind of
+    <passed> for highest O-Score (103.3)" — because it is the same kind of
     news: a place on a leaderboard changed hands. Only the mover is reported.
     Everyone it passed is pushed down a place, and a note for each of them would
     turn one overtake into five lines; the same riser-only convention
@@ -1062,9 +1090,8 @@ class EventCrossing:
         return self.label
 
     def detail(self) -> str:
-        end_word = "highest" if self.end == "high" else "lowest"
         verb = "ties" if self.tied else "passes"
-        return (f"{verb} {self.passed} for {_ordinal(self.rank)}-{end_word} "
+        return (f"{verb} {self.passed} for {_place(self.rank, self.end)} "
                 f"{self.column} ({_fmt(self.value)})")
 
     def sentence(self) -> str:
@@ -1117,7 +1144,7 @@ def diff_events(prior_board, events: Sequence[EventHighlight]) -> List[EventCros
     values, so two rows at the same rank hold the same value: if anyone else is
     still standing on the rank the mover arrived at, nobody was displaced and the
     move is reported as a tie. Getting this wrong is not a nuance — "passes X for
-    1st-highest" when X is still there says the opposite of what happened."""
+    highest" when X is still there says the opposite of what happened."""
     prior = _prior_board(prior_board)
     if prior is None:
         return []
@@ -1167,6 +1194,10 @@ class Milestone:
     def sentence(self) -> str:
         return (f"League {self.stat} passes {_fmt(self.milestone)} "
                 f"(now {_fmt(self.value)}).")
+
+    def line(self) -> str:
+        # Under "League milestones", the leading "League" is the header again.
+        return f"{self.stat} passes {_fmt(self.milestone)} (now {_fmt(self.value)})."
 
 
 def league_milestone_values(league_all_time: pd.DataFrame) -> Dict[str, float]:
@@ -1334,24 +1365,97 @@ def _section_html(title: str, lines: Sequence[str]) -> str:
     )
 
 
-def _grouped_section_html(title: str, items: Sequence, verb: str) -> str:
+# Reading order inside a section: PLACE first, then how much the stat matters.
+# A 1st-place move is the only place anyone remembers, so every 1st comes before
+# every 2nd whatever it is on; within one place, the stats the league argues
+# about come before the diagnostics. `stat_relevance` is the lede's own table —
+# the summary at the top and the list below it should agree about what matters,
+# and two tables would drift apart.
+#
+# The only placeless item is a league milestone — a threshold crossing, not a
+# position on a board — so it sorts last on place, which inside the milestone
+# section (its only home) just means it orders by relevance. Everything else
+# carries a real place, single-season records included: those are 1st by
+# construction, and treating them as placeless used to sink the strongest claim
+# in the email below every 5th-place shuffle it shared a section with.
+#
+# The trailing key parts only make the order stable: an email that reshuffled
+# equal items between builds would show up as movement in the audit's diff.
+_NO_PLACE = 99
+
+
+def _order_key(item) -> tuple:
+    rank = getattr(item, "rank", None)
+    place = int(rank) if isinstance(rank, int) else _NO_PLACE
+    # Milestones name their stat `stat`, everything else names it `column`.
+    column = str(getattr(item, "column", None) or getattr(item, "stat", "") or "")
+    return (place, -stat_relevance(column), column, item.sentence())
+
+
+def _ucfirst(text: str) -> str:
+    """Capitalise the first letter and nothing else — `str.capitalize` lowercases
+    the rest, which turns "highest Number of transactions" into "…number…"."""
+    return text[:1].upper() + text[1:] if text else text
+
+
+def _line_of(item) -> str:
+    """The item as the SECTION prints it — `line()` where it differs from
+    `sentence()`, which is only where the standalone framing restates the
+    header."""
+    return getattr(item, "line", item.sentence)()
+
+
+def _label_is_the_header(title: str, group: str) -> bool:
+    """True when a section is one entity's and the header already names it.
+
+    Only fires on the league sections, by construction: "Season-long results —
+    league" holds nothing but "The league", so labelling its bullets "The
+    league:" prints the header a second time. A teams section suffixed "teams"
+    never matches an entity called "Oliverwkw"."""
+    suffix = title.rsplit("—", 1)[-1].strip().lower().rstrip("s")
+    name = group.strip().lower()
+    name = name[4:] if name.startswith("the ") else name
+    return bool(suffix) and suffix == name
+
+
+def _grouped_section_html(title: str, items: Sequence) -> str:
     """Group items by their .group() so one entity's many items read as
-    "<entity> <verb>:" + an indented sub-list, instead of an endless flat list.
-    A group with a single item stays inline (its full .sentence())."""
+    "<entity>:" + an indented sub-list, instead of an endless flat list. A group
+    with a single item stays inline (its full line()).
+
+    The label is the bare entity and a colon. It used to carry a verb — "made
+    these all-time moves", "had these single-week records" — which was the
+    section header said twice, one line apart. The sub-list's own wording
+    already supplies the verb where one is needed.
+
+    A group stays together and takes the position of its BEST item: breaking one
+    up to interleave its 3rd-place move with someone else's would cost the reader
+    the one thing the grouping buys them — seeing everything one entity did in a
+    single place."""
     if not items:
         return ""
     groups: "Dict[str, list]" = {}
     for it in items:
         groups.setdefault(it.group(), []).append(it)
-    lines = []
+    ordered = []
     for g, its in groups.items():
-        if len(its) == 1:
-            lines.append(its[0].sentence())
+        its.sort(key=_order_key)
+        ordered.append((_order_key(its[0]), g, its))
+    ordered.sort(key=lambda t: t[0])
+    lines = []
+    for _key, g, its in ordered:
+        if _label_is_the_header(title, g):
+            # One entity, already named by the header: its items are the section.
+            # Nesting them under an empty label would print a bullet with nothing
+            # in it and indent everything below it for no reason.
+            lines.extend(_ucfirst(i.detail()) + "." for i in its)
+        elif len(its) == 1:
+            lines.append(_line_of(its[0]))
         else:
             sub = "".join(
                 f'<li style="margin:0;">{i.detail()}</li>' for i in its)
             lines.append(
-                f'{g} {verb}:'
+                f'{g}:'
                 f'<ul style="margin:2px 0 6px;padding-left:20px;color:#555;">{sub}</ul>')
     return _section_html(title, lines)
 
@@ -1393,16 +1497,18 @@ def digest_sections(
     records: Sequence[YearlyRecord] = (),
     highlights: Sequence[WeeklyHighlight] = (),
     events: Sequence["EventCrossing"] = (),
-) -> List[Tuple[str, str, list]]:
-    """(title, verb, items) for every non-empty digest section, in email order.
+) -> List[Tuple[str, bool, list]]:
+    """(title, grouped, items) for every non-empty digest section, in email order.
 
     The single place the digest's shape is declared. `render_digest_html` walks
     it to build the email and `email_summary` walks it to write the lede, so a
     new section appears in both by being added here and nowhere else — the lede
     can't silently stop covering a section the email grew.
 
-    An empty `verb` means the section renders flat (one sentence per line);
-    otherwise items are grouped by `.group()` under "<entity> <verb>:".
+    `grouped` is whether one entity's several items collapse under a single
+    "<entity>:" label; a flat section prints one line each. Milestones are the
+    only flat kind — a league total crossing a round number has no entity to
+    group by.
     """
     def sect(sec):
         return [x for x in projections if x.section == sec]
@@ -1411,27 +1517,24 @@ def digest_sections(
     # them to final results ("finished Nth"), so the heading changes to match.
     yr_final = any(getattr(p, "final", False) for p in projections)
     yr_title = "Season-long results" if yr_final else "On pace this season"
-    pace_verb = "finished with the" if yr_final else "on pace for"
 
-    out: List[Tuple[str, str, list]] = [
-        ("Single-week records (this week)", "had these single-week records",
-         list(highlights)),
-        ("All-time leaderboard moves — players", "made these all-time moves",
+    out: List[Tuple[str, bool, list]] = [
+        ("Single-week records (this week)", True, list(highlights)),
+        ("All-time leaderboard moves — players", True,
          [c for c in crossings if c.section == "players"]),
-        ("All-time leaderboard moves — teams", "made these all-time moves",
+        ("All-time leaderboard moves — teams", True,
          [c for c in crossings if c.section == "teams"]),
-        ("New single-season records", "set these single-season records",
-         list(records)),
-        ("League milestones", "", list(milestones)),
-        (f"{yr_title} — players", pace_verb, sect("players")),
-        (f"{yr_title} — teams", pace_verb, sect("teams")),
-        (f"{yr_title} — league", pace_verb, sect("league")),
+        ("New single-season records", True, list(records)),
+        ("League milestones", False, list(milestones)),
+        (f"{yr_title} — players", True, sect("players")),
+        (f"{yr_title} — teams", True, sect("teams")),
+        (f"{yr_title} — league", True, sect("league")),
     ]
     # One section per board sheet, in _BOARD_SHEETS order.
-    out += [(f"All-time leaderboard moves — {cfg['title']}", "moved",
+    out += [(f"All-time leaderboard moves — {cfg['title']}", True,
              [e for e in events if e.sheet == sheet])
             for sheet, cfg in _BOARD_SHEETS.items()]
-    return [(t, v, items) for t, v, items in out if items]
+    return [(t, g, items) for t, g, items in out if items]
 
 
 def render_digest_html(
@@ -1457,10 +1560,11 @@ def render_digest_html(
          f'border-left:3px solid #0b2545;border-radius:4px;">{intro}</p>'
          if intro else ""),
     ]
-    for title, verb, items in digest_sections(
+    for title, grouped, items in digest_sections(
             crossings, projections, milestones, records, highlights, events):
-        body.append(_grouped_section_html(title, items, verb) if verb
-                    else _section_html(title, [i.sentence() for i in items]))
+        body.append(_grouped_section_html(title, items) if grouped
+                    else _section_html(title, [_line_of(i)
+                                               for i in sorted(items, key=_order_key)]))
     if not any([highlights, crossings, records, milestones, projections, events]):
         body.append('  <p style="font:15px system-ui,sans-serif;color:#666;">'
                      'No leaderboard changes this week.</p>')

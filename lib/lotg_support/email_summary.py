@@ -139,7 +139,8 @@ _SECTION_WEIGHT = (
 # Stats the league argues about. Matched on the column's family (see
 # `_column_family`), so "Points added" and "Avg points added" both land here.
 _PROMINENT = {
-    "o-score", "points", "avg points", "net points", "points added",
+    "o-score", "pf", "avg pf", "max pf", "pa", "points", "avg points",
+    "net points", "points added",
     "points against", "points lost", "differential", "avg differential",
     "win %", "all-play win %", "faab", "total faab bid", "record",
     "trade impact score", "player addition value", "trade addition value",
@@ -181,6 +182,14 @@ def _column_family(column: str) -> str:
         if len(out) >= _FAMILY_MAX_WORDS:
             break
     return " ".join(out) if out else str(column)
+
+
+def stat_relevance(column: str) -> float:
+    """How much this stat matters, 0.45 (a diagnostic) to 1.5 (one the league
+    argues about). Public because the email ORDERS by it too — the lede and the
+    list should agree about which stats are worth reading first, and two tables
+    would drift apart."""
+    return _prominence(column, _column_family(column))
 
 
 def _prominence(column: str, family: str) -> float:

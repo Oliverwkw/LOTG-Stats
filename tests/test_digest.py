@@ -62,7 +62,7 @@ def check_low_end_crossing():
     curr = [{"entity": "T", "value": 50}, {"entity": "E", "value": 22}, {"entity": "F", "value": 21}]
     cx = D._column_crossings("players", "Points", prev, curr, _PLAYERS, D.WINDOW, True)
     got = [(c.mover, c.passed, c.rank, c.end) for c in cx]
-    return _ok("low-end crossing (F to 1st-lowest, passing E)", ("F", "E", 1, "low") in got, f"got {got}")
+    return _ok("low-end crossing (F to the lowest place, passing E)", ("F", "E", 1, "low") in got, f"got {got}")
 
 
 def check_every_numeric_column_ranks():
@@ -150,7 +150,7 @@ def check_projection_gate_scale_and_weekly_exclusion():
     wk7 = [w for _ in seasons[:-1] for w in range(1, 15)] + list(range(1, 8))
     proj = D.project_on_pace(py, team_year, ly, pd.DataFrame({"Year": yrs7, "Week": wk7}))
     cols = {p.column for p in proj}
-    ok &= _ok("Hardship projected + is 1st-highest",
+    ok &= _ok("Hardship projected + is the highest",
               any(p.column == "Hardship" and abs(p.projected - 110) < 1e-6 and p.rank == 1 for p in proj))
     ok &= _ok("Win % projected as-is", any(p.column == "Win %" and abs(p.projected - 0.9) < 1e-6 for p in proj))
     ok &= _ok("weekly-counting stats excluded from on-pace",
@@ -222,7 +222,7 @@ def check_weekly_highlights():
     lw = pd.DataFrame({"Year": [], "Week": []})
     hl = D.weekly_highlights(pw, tw, lw, ty, window=2)
     got = [(h.entity, h.column, h.end, h.rank) for h in hl]
-    ok = _ok("A's 200 is 1st-highest single week ever", ("A", "PF", "high", 1) in got, f"got {got}")
+    ok = _ok("A's 200 is the highest single week ever", ("A", "PF", "high", 1) in got, f"got {got}")
     ok &= _ok("B's 95 is 2nd-lowest single week ever (both ends work)", ("B", "PF", "low", 2) in got)
     ok &= _ok("sentence reads as single-week record",
               any("single week ever" in h.sentence() for h in hl))
@@ -251,9 +251,9 @@ def check_event_highlights():
     })
     ev = D.board_highlights(picks, "picks", window=3)
     got = [(e.label, e.column, e.end, e.rank) for e in ev]
-    ok = _ok("best pick ever flagged 1st-highest",
+    ok = _ok("best pick ever flagged highest",
              ("2025 pick 1.03 (P3)", "O-Score", "high", 1) in got, f"got {got}")
-    ok &= _ok("worst pick ever flagged 1st-lowest",
+    ok &= _ok("worst pick ever flagged lowest",
               ("2025 pick 1.04 (P4)", "O-Score", "low", 1) in got)
     # The board holds every season's rows, which is what lets a re-valued 2024
     # pick be reported at all.
@@ -329,7 +329,7 @@ def check_event_board_diff():
               f"passed={getattr(c, 'passed', None)} rank={getattr(c, 'rank', None)}")
     ok &= _ok("sentence reads like an all-time crossing",
               c is not None and c.sentence() ==
-              "2024 pick 1.01 (P1) passes 2025 pick 1.03 (P3) for 1st-highest O-Score (95).",
+              "2024 pick 1.01 (P1) passes 2025 pick 1.03 (P3) for highest O-Score (95).",
               f"got {c.sentence() if c else None}")
     ok &= _ok("the picks it passed get no line of their own",
               all(x.label == "2024 pick 1.01 (P1)" for x in changes))
@@ -522,7 +522,7 @@ def check_render_html_smoke():
     ok = _ok("html has crossing + projection + milestone + record + week",
              "passes" in html and "on pace" in html and "League milestones" in html
              and "passes 50,000" in html and "New single-season records" in html
-             and "sets a new single-season record" in html and "week 7" in html)
+             and "most in any season" in html and "week 7" in html)
     ok &= _ok("empty digest fallback",
               "No leaderboard changes" in D.render_digest_html([], [], {"season": 2026, "weeks_completed": 7}, []))
     return ok
@@ -583,8 +583,8 @@ def check_tie_joins_are_said_to_be_ties():
     """Arriving at a place someone already holds is not overtaking them.
 
     On the event boards ranks run over DISTINCT values, so co-occupancy of a rank
-    IS a shared value. Saying "passes X for 1st-lowest" while X is still standing
-    on 1st states the opposite of what happened."""
+    IS a shared value. Saying "passes X for lowest" while X is still standing on
+    it states the opposite of what happened."""
     def hl(key, label, rank, value):
         return D.EventHighlight(sheet="picks", label=label, column="KTC",
                                 end="low", rank=rank, value=value, key=key)
@@ -602,7 +602,7 @@ def check_tie_joins_are_said_to_be_ties():
     ok &= _ok("naming who it is level with", bool(out) and out[0].passed == "pick 4.06",
               out and out[0].passed)
     ok &= _ok("and the sentence says so",
-              bool(out) and "ties pick 4.06 for 1st-lowest" in out[0].sentence(),
+              bool(out) and "ties pick 4.06 for lowest KTC" in out[0].sentence(),
               out and out[0].sentence())
 
     # The same move, but 4.06 is pushed off the place: a real overtake.
@@ -642,6 +642,179 @@ def check_all_time_tie_joins():
     return ok
 
 
+def check_section_reading_order():
+    """Inside a section: every 1st place before every 2nd, and within one place
+    the stats the league argues about before the diagnostics."""
+    def mv(label, col, rank):
+        return D.EventCrossing(sheet="picks", label=label, passed="X", column=col,
+                               end="low", rank=rank, value=1.0)
+
+    items = [mv("first_diagnostic", "Pick-adjusted Difference in KTC", 1),
+             mv("second_middling", "KTC at end of rookie year", 2),
+             mv("first_middling", "KTC at end of rookie year", 1),
+             mv("second_prominent", "O-Score", 2)]
+    html = D._grouped_section_html("T", items)
+    want = ["first_middling", "first_diagnostic",     # place 1, by relevance
+            "second_prominent", "second_middling"]    # then place 2, by relevance
+    at = [html.index(f"{w} passes") for w in want]
+    ok = _ok("place first, then stat relevance", at == sorted(at),
+             [w for _, w in sorted(zip(at, want))])
+    ok &= _ok("a diagnostic 1st still beats a prominent 2nd",
+              html.index("first_diagnostic passes") < html.index("second_prominent passes"))
+    return ok
+
+
+def check_bullet_groups_stay_together_at_their_best_place():
+    """A group is the one thing that lets a reader see everything one entity did
+    in a single place; splitting it to interleave its 3rd-place move with someone
+    else's would spend exactly that. So it stays whole and takes the position of
+    its BEST item — and orders internally by the same rule."""
+    def mv(label, col, rank):
+        return D.EventCrossing(sheet="picks", label=label, passed="X", column=col,
+                               end="low", rank=rank, value=1.0)
+
+    items = [mv("solo", "O-Score", 2),
+             mv("grp", "KTC at end of rookie year", 3),
+             mv("grp", "O-Score", 1),
+             mv("grp", "KTC at end of rookie year", 2)]
+    html = D._grouped_section_html("T", items)
+    ok = _ok("the group renders as one bullet list", html.count("<ul") == 2, html.count("<ul"))
+    ok &= _ok("placed by its best item, ahead of a 2nd-place single",
+              html.index("grp:") < html.index("solo passes"))
+    inner = html[html.index("grp:"):html.index("solo passes")]
+    ok &= _ok("and ordered internally the same way",
+              inner.index("for lowest") < inner.index("2nd-lowest") < inner.index("3rd-lowest"),
+              inner[:200])
+    ok &= _ok("the group is contiguous — nothing interleaved into it",
+              "solo" not in inner)
+    return ok
+
+
+def check_records_are_first_places():
+    """A single-season record is only emitted when the value beats every
+    completed season, so it IS 1st place on that stat's board. Treating it as
+    placeless sank the strongest claim in the email below every 5th-place
+    shuffle it shared a section with."""
+    rec = D.YearlyRecord("teams", "Oliverwkw", "Number of transactions", 47.0)
+    ok = _ok("a record carries a place", rec.rank == 1, rec.rank)
+    ok &= _ok("and sorts as one", D._order_key(rec)[0] == 1)
+
+    fifth = D.EventCrossing(sheet="picks", label="z", passed="X", column="O-Score",
+                            end="low", rank=5, value=1.0)
+    html = D._grouped_section_html("T", [fifth, rec])
+    ok &= _ok("so it leads a 5th place it shares a section with",
+              html.index("most in any season") < html.index("z passes"), html)
+
+    # A milestone is a threshold crossing, not a position on a board — it is the
+    # one thing that genuinely has no place.
+    ok &= _ok("a milestone is still placeless",
+              D._order_key(D.Milestone("PF", 50000.0, 50000.0))[0] == D._NO_PLACE)
+    return ok
+
+
+def check_flat_sections_are_ordered_too():
+    """One rule for the whole email: the milestone section has no bullet groups,
+    but it still reads best-stat-first."""
+    ms = [D.Milestone("Amount of FAAB spent", 12000.0, 10000.0),
+          D.Milestone("PF", 500000.0, 500000.0)]
+    html = D.render_digest_html([], [], {"season": 2026, "weeks_completed": 7},
+                                milestones=ms)
+    return _ok("the more relevant stat leads",
+               html.index("PF passes") < html.index("Amount of FAAB spent passes"), html)
+
+
+def check_order_is_stable():
+    """Equal items must not reshuffle between builds: the audit diffs this email's
+    inputs, and a cosmetic reshuffle would read as movement."""
+    def mv(label):
+        return D.EventCrossing(sheet="picks", label=label, passed="X", column="O-Score",
+                               end="low", rank=1, value=1.0)
+
+    items = [mv("a"), mv("b"), mv("c")]
+    once = D._grouped_section_html("T", items)
+    twice = D._grouped_section_html("T", list(reversed(items)))
+    return _ok("same items, same order regardless of input order", once == twice)
+
+
+def check_first_place_drops_the_ordinal():
+    """"1st-highest" says the same thing twice — "highest" already means first,
+    and the doubling is loudest on exactly the lines that matter most. Places
+    below first still need the ordinal to mean anything."""
+    def cr(rank, end):
+        return D.Crossing("players", "PF", end, rank, "A", "B", 10.0)
+
+    ok = _ok("1st-highest -> highest", "for highest PF" in cr(1, "high").sentence(),
+             cr(1, "high").sentence())
+    ok &= _ok("1st-lowest -> lowest", "for lowest PF" in cr(1, "low").sentence(),
+              cr(1, "low").sentence())
+    ok &= _ok("2nd keeps its ordinal", "2nd-highest PF" in cr(2, "high").sentence())
+    ok &= _ok("no '1st-' anywhere in a first place",
+              "1st-" not in cr(1, "high").sentence() + cr(1, "low").detail())
+    # Every phrasing goes through the same helper, so nothing is left behind.
+    ok &= _ok("the helper is the only spelling of the phrase",
+              D._place(1, "high") == "highest" and D._place(1, "low") == "lowest"
+              and D._place(4, "low") == "4th-lowest")
+    return ok
+
+
+def check_a_line_does_not_repeat_its_own_header():
+    """A section header says where you are; the lines under it shouldn't say it
+    again. `sentence()` keeps the standalone framing the lede needs; `line()` is
+    what the section prints."""
+    w = D.WeeklyHighlight("players", "A", "Points", "high", 1, 55.4)
+    r = D.YearlyRecord("teams", "A", "Total trades", 12.0)
+    m = D.Milestone("PF", 112807.0, 100000.0)
+    c = D.Crossing("players", "Points", "high", 1, "A", "B", 2100.0)
+    ok = _ok("the lede's copy still stands alone",
+             "single week ever" in w.sentence() and "single-season record" in r.sentence()
+             and w.sentence().startswith("A's Points this week"))
+    ok &= _ok("under 'Single-week records (this week)', drop both",
+              w.line() == "A's Points (55.4) — highest ever.", w.line())
+    ok &= _ok("under 'New single-season records', say it once",
+              r.line() == "A: Total trades (12) — most in any season.", r.line())
+    ok &= _ok("under 'League milestones', drop the League",
+              m.line() == "PF passes 100,000 (now 112,807).", m.line())
+    ok &= _ok("crossings stop saying 'all-time' — the header does, and "
+              "EventCrossing never did",
+              "all-time" not in c.sentence(), c.sentence())
+    return ok
+
+
+def check_group_label_is_the_bare_entity():
+    """The verb used to be the header again, one line apart: "All-time
+    leaderboard moves — players" over "Ja'Marr Chase made these all-time
+    moves:"."""
+    items = [D.Crossing("players", "Points", "high", 1, "A", "B", 10.0),
+             D.Crossing("players", "Avg points", "high", 2, "A", "B", 22.0)]
+    html = D._grouped_section_html("All-time leaderboard moves — players", items)
+    ok = _ok("the label is the entity and a colon", "A:<ul" in html, html[:160])
+    ok &= _ok("no verb echoing the header", "all-time moves" not in html, html)
+    return ok
+
+
+def check_league_sections_drop_the_redundant_label():
+    """"Season-long results — league" holds nothing but "The league", so
+    labelling its bullets "The league:" prints the header a second time. A teams
+    section suffixed "teams" must NOT match an entity called "Oliverwkw"."""
+    ps = [D.Projection("league", "The league", "Total trades", "high", 3, 8, 44.0, 44.0),
+          D.Projection("league", "The league", "Number of transactions", "high", 1, 8, 300.0, 300.0)]
+    html = D._grouped_section_html("Season-long results — league", ps)
+    ok = _ok("no 'The league:' label", "The league" not in html, html)
+    ok &= _ok("items sit at the top level, not under an empty bullet",
+              html.count("<ul") == 1, html)
+    ok &= _ok("and read as sentences", "Highest Number of transactions (300)." in html, html)
+
+    ok &= _ok("the header must actually name the entity",
+              D._label_is_the_header("Season-long results — league", "The league"))
+    ok &= _ok("a teams section keeps its labels",
+              not D._label_is_the_header("Season-long results — teams", "Oliverwkw"))
+    ok &= _ok("and a players section does too",
+              not D._label_is_the_header("All-time leaderboard moves — players", "Ja'Marr Chase"))
+    ok &= _ok("a header with no suffix never matches",
+              not D._label_is_the_header("New single-season records", "The league"))
+    return ok
+
+
 def run_all() -> bool:
     tests = [
         check_discovery_drops_non_numeric,
@@ -662,6 +835,15 @@ def run_all() -> bool:
         check_event_board_diff,
         check_tie_joins_are_said_to_be_ties,
         check_all_time_tie_joins,
+        check_section_reading_order,
+        check_bullet_groups_stay_together_at_their_best_place,
+        check_records_are_first_places,
+        check_flat_sections_are_ordered_too,
+        check_order_is_stable,
+        check_first_place_drops_the_ordinal,
+        check_a_line_does_not_repeat_its_own_header,
+        check_group_label_is_the_bare_entity,
+        check_league_sections_drop_the_redundant_label,
         check_event_labels,
         check_mirrored_columns,
         check_replica_minimal,
