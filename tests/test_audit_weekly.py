@@ -374,7 +374,7 @@ def check_build_log_scan(tmp):
     ok &= _ok("the current-season one is shown", "2026 in-progress placeholder" in text)
     ok &= _ok("the real one is shown", "negative PF impossible" in text)
     ok &= _ok("nothing is described as ignored", "ignored" not in text, text)
-    ok &= _ok("passing pytest noted clean", "suite passing" in text)
+    ok &= _ok("passing pytest noted clean", "the test suite passes" in text)
     return ok
 
 
@@ -388,6 +388,97 @@ def check_build_log_sanity_errors(tmp):
     rep = A.Report()
     A.audit_build_log(logs, 2026, rep)
     return _ok("data-quality ERROR count fails the run", rep.confirmed == 1, f"confirmed={rep.confirmed}")
+
+
+def check_preseason_404_is_explained_not_flagged(tmp):
+    """NFLverse publishes a season's files once that season plays games.
+
+    Ask for 2026 in August 2026 and every mirror 404s. The loader falls back and
+    the build finishes; nothing is wrong, and nothing can be done about it until
+    week 1. Removing the name-based exemptions (nothing is written off for
+    mentioning the in-progress year) correctly stopped hiding it and left it
+    flagged as a breakage every week of the offseason instead.
+
+    This is an EXPLANATION and it expires on its own: it holds only while our
+    own `team_week` has no played week for the season the error names.
+    """
+    logs = tmp / "raw404"
+    logs.mkdir(parents=True, exist_ok=True)
+    (logs / "build_debug.log").write_text(
+        "[t] ===== Build start =====\n"
+        "[t] ERROR at load_nflverse_stats_player_week_2026: HTTPError: 404 Client "
+        "Error: Not Found for url: https://x/stats_player_week_2026.csv.gz\n"
+        "requests.exceptions.HTTPError: 404 Client Error: Not Found for url: "
+        "https://x/stats_player_week_2026.csv.gz\n"
+        "[t] ERROR at ktc_value_diff: URLError: Tunnel connection failed: 403 Forbidden\n"
+        "[t] ===== Build end =====\n")
+    cur = {"team_week": pd.DataFrame({"Team": ["A"], "Year": ["2025"], "Week": ["1"]})}
+    rep = A.Report()
+    A.audit_build_log(logs, 2026, rep, cur)
+    text = rep.render()
+    ok = _ok("the unplayed-season 404 is not flagged",
+             "stats_player_week_2026" not in text, text)
+    ok &= _ok("the 403 still is", "Tunnel connection failed" in text, text)
+    ok &= _ok("exactly one ERROR line survives",
+              "1 ERROR line(s) in the last build" in text, text)
+    return ok
+
+
+def check_the_same_404_flags_once_the_season_is_played(tmp):
+    """The explanation is not "ignore load_nflverse_*". Give `team_week` a 2026
+    row and the identical log line is a finding again."""
+    logs = tmp / "raw404b"
+    logs.mkdir(parents=True, exist_ok=True)
+    (logs / "build_debug.log").write_text(
+        "===== Build start =====\n"
+        "[t] ERROR at load_nflverse_stats_player_week_2026: HTTPError: 404 Client "
+        "Error: Not Found for url: https://x/stats_player_week_2026.csv.gz\n"
+        "===== Build end =====\n")
+    cur = {"team_week": pd.DataFrame({"Team": ["A"], "Year": ["2026"], "Week": ["1"]})}
+    rep = A.Report()
+    A.audit_build_log(logs, 2026, rep, cur)
+    return _ok("a played season's missing file is a real finding",
+               rep.confirmed == 1 and "stats_player_week_2026" in rep.render(),
+               rep.render())
+
+
+def check_a_404_for_a_played_past_season_always_flags(tmp):
+    """A completed season losing its upstream file is the alarming case and must
+    never ride the pre-season explanation."""
+    logs = tmp / "raw404c"
+    logs.mkdir(parents=True, exist_ok=True)
+    (logs / "build_debug.log").write_text(
+        "===== Build start =====\n"
+        "[t] ERROR at load_nflverse_stats_player_week_2023: HTTPError: 404 Not Found\n"
+        "===== Build end =====\n")
+    cur = {"team_week": pd.DataFrame({"Team": ["A"], "Year": ["2025"], "Week": ["1"]})}
+    rep = A.Report()
+    A.audit_build_log(logs, 2026, rep, cur)
+    return _ok("a completed season's missing file flags", rep.confirmed == 1, rep.render())
+
+
+def check_a_traceback_echo_is_not_counted_twice(tmp):
+    """Both an `[ts] ERROR at …` line and a bare `SomeError: msg` are matched on
+    purpose — a bare one is the only trace of a failure that never reached the
+    structured logger. But when they are the SAME failure, counting both
+    reported "4 ERROR line(s)" for two errors."""
+    logs = tmp / "rawecho"
+    logs.mkdir(parents=True, exist_ok=True)
+    (logs / "build_debug.log").write_text(
+        "===== Build start =====\n"
+        "[t] ERROR at reconcile: ValueError: negative PF impossible\n"
+        "Traceback (most recent call last):\n"
+        "ValueError: negative PF impossible\n"
+        "RuntimeError: something nothing else logged\n"
+        "===== Build end =====\n")
+    rep = A.Report()
+    A.audit_build_log(logs, 2026, rep, {})
+    text = rep.render()
+    ok = _ok("the echoed traceback tail is not counted again",
+             "2 ERROR line(s) in the last build" in text, text)
+    ok &= _ok("an unechoed bare exception is still kept",
+              "something nothing else logged" in text, text)
+    return ok
 
 
 def check_real_exports_smoke(tmp):
@@ -481,6 +572,10 @@ def run_all() -> bool:
         lambda t: check_schema_break_detection(t, None),
         check_build_log_scan,
         check_build_log_sanity_errors,
+        check_preseason_404_is_explained_not_flagged,
+        check_the_same_404_flags_once_the_season_is_played,
+        check_a_404_for_a_played_past_season_always_flags,
+        check_a_traceback_echo_is_not_counted_twice,
         check_real_exports_smoke,
     ]
     for t in tests:

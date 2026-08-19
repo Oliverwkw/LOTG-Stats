@@ -160,7 +160,15 @@ from lotg_support.nflverse_drift import (  # noqa: E402
 # on the committed exports, flipping a single TE week to WR moves 1770 of the
 # 21376 percentile values — which is the shape of the 1596 one-row-per-0.1
 # percentile "breakages" this reporting was rebuilt for.
-_POOL_ALLTIME_COLUMNS = ("positional scoring percentile",)
+# "Pick-adjusted Difference in X" is the same shape one draft over: X minus the
+# baseline for that DRAFT SLOT, averaged over every draft ever held at it. So it
+# moves for a pick whose own X did not — the whole 2026 rookie class carries
+# `Avg career PPG adjusted by position` = 0.0, having played no NFL games, and
+# still had its pick-adjusted difference move when the slot's history was
+# revised. The underlying X stays on the narrower within-season channel below,
+# so a player's OWN value moving unexplained is still flagged.
+_POOL_ALLTIME_COLUMNS = ("positional scoring percentile",
+                         "pick-adjusted difference")
 
 # WITHIN-SEASON POOL. The rest of the league-relative family is computed inside
 # a single season, so it is only attributable to a revision in that same season:
@@ -180,16 +188,56 @@ _POOL_SEASON_COLUMNS = ("starter par", "adjusted by position",
 # therefore moves a 2023 row, and pinning attribution to the row's season left
 # every one of those looking like our build failing to reproduce.
 _PLAYER_LOG_COLUMNS = (
-    "points (full season)", "from career", "from previous season", "ppg",
-    "difference of averages", "points added", "points lost", "net points",
+    "points (full season)", "(full career)", "from career", "from previous season",
+    "ppg", "difference of averages", "points added", "points lost", "net points",
     "dropped avg points", "dropped total points",
 )
+
+# SHEET-WIDE RANK. These are not values at all — they are a row's PLACE among
+# every other row of its sheet, so any revision anywhere re-seats them and the
+# row they land on need not have been revised itself:
+#   * O-Score — the mean of four PERCENTILES taken across the whole sheet
+#     (src/lotg.py `_add_oscore`). One corrected yardage figure re-ranks every
+#     row it passes.
+#   * Trade impact score — a weighted sum of five Z-SCORED signals, standardised
+#     league-wide, so the mean and SD it subtracts move with any input.
+#   * Drafting / Trading / Transaction skill — shrunk means of the O-Scores of a
+#     team's picks / trades / transactions, so they inherit the fan-out.
+# Like the all-time pool this is unbounded by design: it is counted as "pool"
+# fan-out, never as direct attribution, so it can't inflate the volume check in
+# `Drift.is_significant`. Containment lives in the INPUTS — the four components
+# stay on the narrower player-log and within-season-pool channels, so a row
+# whose O-Score moved alongside an input that upstream cannot explain is still
+# flagged on that input.
+_SHEET_RANK_COLUMNS = ("o-score", "trade impact score",
+                       "drafting skill", "trading skill", "transaction skill")
+
+# TEAM ROSTER AGGREGATE. Summed over the players a team actually rostered, so
+# they follow a revision to any of those players rather than to the team:
+#   * Hardship / Starter-adjusted Hardship — the expected-if-healthy points of
+#     everyone who missed to injury or suspension, valued off each player's
+#     RECENT scoring baseline. That baseline is a rolling window, so a revision
+#     in week 3 moves the hardship of weeks 4-8 and the exact-week coordinate
+#     match is too tight; the season is the right granularity.
+#   * Luck / Avg yearly luck — a composite whose terms include that hardship
+#     and the pregame talent estimate, both built from the same scoring inputs.
+_TEAM_ROSTER_COLUMNS = ("hardship", "luck")
+
+# Sheets whose rows have no season because they aggregate every season there is.
+_ALLTIME_SHEETS = frozenset({"player_all_time", "team_all_time", "league_all_time"})
+
+# The season at the front of a sheet's Year cell. `picks.Year` is a LABEL, not a
+# number: "2021 (vet)" is the 2021 veteran draft and "startup" is the 2020
+# startup draft, so a bare equality test against a season key never matched
+# either of them.
+_LEADING_YEAR = re.compile(r"^(\d{4})")
 
 # Where each sheet names the players a row is about, for the game-log channel.
 # team_* / league_* are absent on purpose: they name no player, so they stay on
 # the roster-reachability path below.
 PLAYER_NAME_COLS = {
     "player_week": ["Player"], "player_year": ["Player"],
+    "player_all_time": ["Player"],
     "picks": ["Player Picked"],
     "transactions": ["Player Added", "Player Dropped"],
     "trades": ["Assets received", "Assets sent"],
@@ -245,6 +293,10 @@ class NflverseAttribution:
         self.league_weeks: Set[tuple] = set()
         self.league_years: Set[str] = set()
         self.names_by_year: Dict[str, Set[str]] = defaultdict(set)
+        # Every season upstream carries data for, so `_row_seasons` can tell a
+        # real season from a future-dated pick that has no games behind it.
+        self.known_seasons: Set[str] = {str(y) for _p, y in (drift.player_seasons
+                                                             if drift else ())}
         # Folded + string-normalised copies: our exports are read as str,
         # NFLverse as int, and the two spell suffixed names differently.
         self._pw_keys: Set[tuple] = {(normalize_name(p), str(y), str(w))
@@ -311,12 +363,68 @@ class NflverseAttribution:
                 out |= self._names_in(val)
         return out
 
+    def _row_seasons(self, sheet: str, kv: Dict[str, str],
+                     row: Dict[str, str]) -> Optional[Set[str]]:
+        """The seasons this row's values are computed over, or None for "all".
+
+        The within-season pool channel asks "was the pool this value was ranked
+        inside re-seated this week", which needs to know WHICH season's pool.
+        Three kinds of row cannot answer with a single season, and reading a
+        blank or unparseable `Year` as "no season matched" is what left them
+        permanently unattributable:
+
+          * the all-time sheets — a career or franchise total is summed over
+            every season there is, so every season's pool is one of its inputs;
+          * `picks.Year` is not always a year. It carries "2021 (vet)" for the
+            2021 veteran draft and "startup" for the 2020 startup draft, neither
+            of which ever equalled a season key;
+          * future-dated picks (2027-2031) have no season of their own at all —
+            their pick-adjusted values are ranked against the whole historical
+            pick pool.
+
+        So: the all-time sheets and anything with no parseable season span
+        everything; "2021 (vet)" resolves to 2021 like the plain label it is;
+        and a parsed season past the last one upstream carries spans everything
+        too, because that is what a pick with no games behind it is ranked on.
+        """
+        if sheet in _ALLTIME_SHEETS:
+            return None
+        raw = str(kv.get("Year") or row.get("Year") or row.get("Season") or "").strip()
+        m = _LEADING_YEAR.match(raw)
+        if not m:
+            return None
+        yr = m.group(1)
+        if self.known_seasons and yr > max(self.known_seasons):
+            return None
+        return {yr}
+
+    def _pool_season_disturbed(self, sheet: str, kv: Dict[str, str],
+                               row: Dict[str, str]) -> bool:
+        seasons = self._row_seasons(sheet, kv, row)
+        if seasons is None:
+            return bool(self.pool_seasons)
+        return bool(seasons & self.pool_seasons)
+
+    def _team_touched(self, team: str) -> bool:
+        """True when this team rostered a revised player in ANY season."""
+        return any(t == team for t, _y in self.team_years)
+
     def covers(self, sheet: str, idcols: List[str], key: tuple,
                row: Dict[str, str]) -> bool:
         if not self.active:
             return False
         kv = dict(zip(idcols, key))
         yr = str(kv.get("Year") or row.get("Year") or row.get("Season") or "")
+        # NOTE the all-time sheets are deliberately absent here. This is the
+        # COORDINATE fast path: upstream revised this exact row, so every column
+        # on it may move. An all-time row has no coordinate to match — the only
+        # test available is "did upstream revise anybody this player / team ever
+        # had", which a week touching 16k players answers yes to every time, and
+        # would attribute every career and franchise total forever. They go to
+        # `covers_columns` instead, where each column has to name the channel it
+        # rode. What that leaves flagged — a franchise's "Number of WR started"
+        # moving with no scoring or roster channel behind it — is exactly the
+        # kind of finding this audit exists to surface.
         if sheet == "player_week":
             return (normalize_name(kv.get("Player")), yr, str(kv.get("Week"))) in self._pw_keys
         if sheet == "player_year":
@@ -360,14 +468,18 @@ class NflverseAttribution:
         if not self.active or not moved:
             return None
         kv = dict(zip(idcols, key))
-        yr = str(kv.get("Year") or row.get("Year") or row.get("Season") or "")
-        pool_season = yr in self.pool_seasons
+        pool_season = self._pool_season_disturbed(sheet, kv, row)
         players = None      # resolved lazily; the name columns are the expensive bit
         pool_only = True
         for col in moved:
             if self.pools_disturbed and _matches(col, _POOL_ALLTIME_COLUMNS):
                 continue
+            if self.pools_disturbed and _matches(col, _SHEET_RANK_COLUMNS):
+                continue
             if pool_season and _matches(col, _POOL_SEASON_COLUMNS):
+                continue
+            if _matches(col, _TEAM_ROSTER_COLUMNS) and self._roster_touched(sheet, kv, row):
+                pool_only = False
                 continue
             if _matches(col, _PLAYER_LOG_COLUMNS):
                 if players is None:
@@ -377,6 +489,25 @@ class NflverseAttribution:
                     continue
             return None
         return "pool" if pool_only else "direct"
+
+    def _roster_touched(self, sheet: str, kv: Dict[str, str],
+                        row: Dict[str, str]) -> bool:
+        """Did this team roster a revised player over the span this row covers?
+
+        Hardship values a missed player off a ROLLING recent-scoring baseline,
+        so the (team, year, week) coordinate match `covers` uses is too tight —
+        a week-3 revision moves the hardship of weeks 4-8, none of which name a
+        revised player themselves. The season is the right granularity, and the
+        all-time row is the team's whole history.
+        """
+        team = str(kv.get("Team") or row.get("Team") or "")
+        seasons = self._row_seasons(sheet, kv, row)
+        if not team:                       # the league sheets: any team will do
+            return bool(self.team_years if seasons is None
+                        else {y for _t, y in self.team_years} & seasons)
+        if seasons is None:
+            return self._team_touched(team)
+        return bool({(team, y) for y in seasons} & self.team_years)
 
 
 # ---------------------------------------------------------------------------
@@ -455,11 +586,22 @@ class Report:
     def raw(self, text: str) -> None:
         self.entries.append(("raw", text))
 
+    def breakdown(self, text: str) -> None:
+        """A diagnostic line that belongs to a SECTION, not to a finding.
+
+        Renders identically to `raw` on stdout and in the run's step summary,
+        but `grouped_flags` stops at it, so the weekly email does not hang it
+        under the finding above as though it were that finding's evidence. The
+        NFLverse per-file breakdown is the case: nine lines of upstream cell
+        counts that answer no question the email asks.
+        """
+        self.entries.append(("breakdown", text))
+
     def render(self) -> str:
         status = "❌ PROBLEMS FOUND" if self.confirmed else "✅ CLEAN"
         marks = {"head": lambda t: f"\n## {t}\n", "ok": lambda t: f"- ✅ {t}",
                  "note": lambda t: f"- ℹ️ {t}", "flag": lambda t: f"- ❌ {t}",
-                 "raw": lambda t: t}
+                 "raw": lambda t: t, "breakdown": lambda t: t}
         body = "\n".join(marks[e[0]](e[1]) for e in self.entries)
         return f"# Weekly audit — {status} ({self.confirmed} confirmed)\n" + body
 
@@ -500,7 +642,7 @@ def run_audit(current_dir: Path, baseline_dir: Optional[Path],
     # line no matter how small the revision behind it.
     audit_nflverse(drift, rep.attributed_direct, rep, season, attributed)
     audit_schema(cur, rep)
-    audit_build_log(current_dir / "raw", season, rep)
+    audit_build_log(current_dir / "raw", season, rep, cur)
     return rep
 
 
@@ -527,7 +669,7 @@ def audit_nflverse(drift: Drift, attributed_rows: int, rep: Report,
     else:
         rep.note(line)
     for d in drift.detail_lines():
-        rep.raw(f"    - {d}")
+        rep.breakdown(f"    - {d}")
 
 
 # ---------------------------------------------------------------------------
@@ -819,22 +961,36 @@ class LeagueEvents:
                  if c in ("Player", "Player Picked", "Player Added", "Player Dropped")}
         return bool(named & self.players)
 
+    def explains(self, sheet: str, deltas, row: dict,
+                 base_frames, cur_frames) -> Set[str]:
+        """Which of this row's moved columns are the new events arriving.
+
+        Returned per COLUMN rather than as a verdict on the whole row, because
+        the two explanations compose: the 2026-08-19 trade moved every team's
+        all-time trade counts in the same week upstream moved their hardship and
+        luck, and a channel that has to account for the entire row or nothing
+        accounted for neither. Whatever this leaves behind is handed to the
+        NFLverse attribution, and only what BOTH fail to explain is flagged.
+        """
+        named = {str(row.get(c, "")) for c in _EVENT_PLAYER_COLS.get(sheet, ())}
+        touched = bool(named & self.players)
+        out: Set[str] = set()
+        for col, old, new in deltas:
+            if is_event_column(col):
+                out.add(col)
+            elif is_link_column(col) and self._links_to_new_events(old, new,
+                                                                   base_frames, cur_frames):
+                out.add(col)
+            elif is_wall_clock_column(col) and touched:
+                out.add(col)      # the tenure stopped because the asset moved
+        return out
+
     def covers(self, sheet: str, deltas, row: dict,
                base_frames, cur_frames) -> bool:
         """True when every column that moved in this row is the new events
         arriving."""
-        named = {str(row.get(c, "")) for c in _EVENT_PLAYER_COLS.get(sheet, ())}
-        touched = bool(named & self.players)
-        for col, old, new in deltas:
-            if is_event_column(col):
-                continue
-            if is_link_column(col) and self._links_to_new_events(old, new,
-                                                                 base_frames, cur_frames):
-                continue
-            if is_wall_clock_column(col) and touched:
-                continue          # the tenure stopped because the asset moved
-            return False
-        return True
+        return len(self.explains(sheet, deltas, row, base_frames, cur_frames)) == len(
+            {c for c, _o, _n in deltas})
 
 
 # ---------------------------------------------------------------------------
@@ -991,9 +1147,19 @@ def audit_diffs(cur: Dict[str, pd.DataFrame], base: Dict[str, pd.DataFrame],
         # the league-relative scores and the pointers that now have somewhere to
         # point. Suppressed only while there ARE new events this week.
         if events.active:
-            changed = [item for item in changed
-                       if not events.covers(name, item[1],
-                                            dict(zip(shared, item[2])), base, cur)]
+            # Peel off the COLUMNS the week's new events explain and carry the
+            # rest forward, rather than keeping or dropping the row whole. A
+            # franchise total that gained a trade this week and had its hardship
+            # revised upstream in the same week is two explanations on one row;
+            # each channel used to have to cover all of it alone, so neither did.
+            narrowed = []
+            for k, deltas, row_tup in changed:
+                row = dict(zip(shared, row_tup))
+                explained = events.explains(name, deltas, row, base, cur)
+                rest = [d for d in deltas if d[0] not in explained]
+                if rest:
+                    narrowed.append((k, rest, row_tup))
+            changed = narrowed
             added = [k for k in added if not events.is_new_row(name, idcols, k)]
             removed = [k for k in removed if not events.is_new_row(name, idcols, k)]
 
@@ -1170,6 +1336,9 @@ def write_schema_baseline(cur: Dict[str, pd.DataFrame]) -> None:
 # headers and intermediate code frames carry no diagnosis, so we skip them and
 # classify the terminal exception line instead (which does mention the cause).
 _ERROR_LINE = re.compile(r"\]\s+ERROR\b|^\s*[\w.]+(Error|Exception):")
+# A genuine "upstream has no such file", as opposed to a 403 / timeout / 500.
+_NOT_FOUND = re.compile(r"\b404\b|\bNot Found\b", re.I)
+_SEASON_IN_LINE = re.compile(r"(?<!\d)(20\d{2})(?!\d)")
 
 
 def _last_build_segment(text: str) -> str:
@@ -1178,16 +1347,69 @@ def _last_build_segment(text: str) -> str:
     return text[starts[-1]:] if starts else text
 
 
-def audit_build_log(logs_dir: Path, current_season: Optional[int], rep: Report) -> None:
+def _last_played_season(cur: Dict[str, pd.DataFrame]) -> Optional[int]:
+    """The most recent season our own exports record a played week for."""
+    tw = cur.get("team_week")
+    if tw is None or tw.empty or "Year" not in tw.columns:
+        return None
+    years = [int(y) for y in tw["Year"].astype(str) if y.strip().isdigit()]
+    return max(years) if years else None
+
+
+def _unplayed_season_404(line: str, last_played: Optional[int]) -> bool:
+    """Is this error line a NOT-FOUND for a season that has not been played?
+
+    NFLverse publishes a season's stats and injury files when that season starts
+    producing games. Ask for 2026 in August 2026 and every mirror 404s, because
+    the file does not exist yet — the build's own log says so on the next line
+    ("season 2026: preseason"). The loader falls back and the build completes.
+
+    This is an EXPLANATION, not an exemption: it is not "ignore anything named
+    load_nflverse_*", it is "upstream has no file for a season nobody has played
+    a week of". The moment 2026 kicks off, `team_week` gains 2026 rows, this
+    stops being true, and the same 404 flags. A 403, a timeout or a 500 is never
+    covered — only a genuine not-found — so the KTC tunnel failures still flag.
+    """
+    if last_played is None or not _NOT_FOUND.search(line):
+        return False
+    seasons = [int(y) for y in _SEASON_IN_LINE.findall(line)]
+    return bool(seasons) and all(y > last_played for y in seasons)
+
+
+def _dedupe_traceback_echo(lines: Sequence[str]) -> List[str]:
+    """Drop the bare `SomeError: msg` tail of a traceback whose message the
+    structured `[ts] ERROR at …` line above it already carries.
+
+    Both shapes are matched on purpose — a bare exception line is the only trace
+    of a failure that never reached the structured logger — but when they are
+    the same failure, counting both reported "4 ERROR line(s)" for two errors.
+    """
+    structured = [l for l in lines if "] ERROR" in l]
+    out = []
+    for ln in lines:
+        if "] ERROR" not in ln:
+            msg = ln.split(": ", 1)[-1].strip()
+            if msg and any(msg in st for st in structured):
+                continue
+        out.append(ln)
+    return out
+
+
+def audit_build_log(logs_dir: Path, current_season: Optional[int], rep: Report,
+                    cur: Optional[Dict[str, pd.DataFrame]] = None) -> None:
     # `current_season` is accepted for call compatibility and deliberately unused:
     # a log line is no longer written off because it mentions the in-progress year.
     rep.head("Part 3 — build errors (every ERROR line in the last build)")
     debug = logs_dir / "build_debug.log"
+    last_played = _last_played_season(cur or {})
     if not debug.exists():
         rep.note(f"No build log at {debug} — nothing to scan.")
     else:
         seg = _last_build_segment(debug.read_text(errors="replace"))
-        flagged = [ln.strip() for ln in seg.splitlines() if _ERROR_LINE.search(ln)]
+        candidates = _dedupe_traceback_echo(
+            [ln.strip() for ln in seg.splitlines() if _ERROR_LINE.search(ln)])
+        explained = [ln for ln in candidates if _unplayed_season_404(ln, last_played)]
+        flagged = [ln for ln in candidates if ln not in explained]
         # The build's own data-quality summary is the authoritative error count.
         m = re.findall(r"data-quality sanity:\s*(\d+)\s*ERROR,\s*(\d+)\s*WARN", seg)
         if m:
@@ -1200,6 +1422,10 @@ def audit_build_log(logs_dir: Path, current_season: Optional[int], rep: Report) 
                 rep.raw(f"    - {ln}")
             if len(flagged) > _MAX_REPORT:
                 rep.raw(f"    - … and {len(flagged) - _MAX_REPORT} more")
+        elif explained:
+            rep.ok(f"No unexplained ERROR lines in the last build "
+                   f"({len(explained)} were upstream 404s for season(s) not yet "
+                   f"played — the last played season is {last_played}).")
         else:
             rep.ok("No ERROR lines in the last build.")
 
@@ -1208,9 +1434,9 @@ def audit_build_log(logs_dir: Path, current_season: Optional[int], rep: Report) 
         tail = pytest_log.read_text(errors="replace")
         m = re.search(r"(\d+) failed", tail)
         if m and int(m.group(1)) > 0:
-            rep.flag(f"committed pytest log reports {m.group(1)} failing test(s).")
+            rep.flag(f"the test suite reports {m.group(1)} failing test(s).")
         elif re.search(r"\bpassed\b", tail):
-            rep.ok("committed pytest log shows the suite passing.")
+            rep.ok("the test suite passes.")
 
 
 # ---------------------------------------------------------------------------

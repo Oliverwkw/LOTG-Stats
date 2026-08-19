@@ -116,18 +116,25 @@ def check_nflverse_section():
     ok &= _ok("a quiet upstream week is the same one line",
               "NFLverse changed 0 values, which in turn changed 0 cells" in clean, clean)
 
-    # The moment anything is flagged the full layout returns, including the
-    # breakdown the breakage has to be read against.
+    # The moment anything is flagged the full layout returns — the sections, and
+    # the upstream summary the breakage has to be read against. NOT the per-file
+    # breakdown under it: nine bullets of upstream cell counts, in the section
+    # headed "not a breakage", answering no question the reader is asking, and
+    # duplicating a list the drift's own flag already prints above. The audit's
+    # stdout and the run's step summary still carry it.
     flags = [{"section": "Part 1", "text": "player_year: 1 changed", "details": []}]
     _, busy, _ = E.render_email(flags=flags, gaps={}, captures_present=True,
                                 drift=drift, attributed=32,
                                 attributed_sheets={"player_year": 32})
     ok &= _ok("a flagged week keeps the sections",
               "Dataset breakages" in busy and "Missed injuries" in busy)
-    ok &= _ok("and the breakdown to read it against",
-              "position (1169)" in busy and "our rows it explains" in busy, busy[:900])
     ok &= _ok("with the upstream summary spelled out",
               "NFLverse made 2306 value(s) across 1850 row(s)" in busy)
+    ok &= _ok("and how far it reached into our exports",
+              "accounts for 32 changed row(s)" in busy, busy[:900])
+    for gone in ("position (1169)", "our rows it explains",
+                 "columns that moved in them"):
+        ok &= _ok(f"but not the {gone!r} breakdown", gone not in busy, busy[:900])
 
     # A missed injury week is also something to look at, so it un-collapses.
     _, gappy, _ = E.render_email(flags=[], gaps={2026: [3]}, captures_present=True,

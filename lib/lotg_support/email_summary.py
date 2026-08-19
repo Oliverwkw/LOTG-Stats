@@ -689,10 +689,21 @@ def _audit_lede(flags: Sequence[dict], gaps: dict, drift, attributed: int) -> st
 
     # 1. The alarm. A structural break speaks for itself; a row that merely moved
     #    needs its swing quoted, because the swing IS the question.
+    #
+    #    Opening by restating the top finding is RANKING — it says which of
+    #    several to read first. With exactly one finding there is nothing to
+    #    rank, and the sentence becomes a verbatim echo of the bullet directly
+    #    beneath it. That never showed while a bad week carried ten findings;
+    #    the week the noise was cleared, the whole email was one drift line
+    #    printed three times (lede, breakage, NFLverse section). So on a
+    #    single-finding week the echo is dropped and the lede keeps only what
+    #    the finding does not already say — its breadth and its swing profile,
+    #    which are computed, not restated. If that leaves nothing, there is no
+    #    lede, exactly as on a clean week.
     if top.worst >= 0.60 and top.kind:
         where = f" on {top.sheet}" if top.sheet else ""
         parts.append(f"Worth opening first{where}: {top.kind} in {top.column}.")
-    else:
+    elif len(found) > 1:
         parts.append(_sentence(top.text))
 
     # 2. Breadth, from the audit's own per-column roll-up. One column across a
@@ -750,7 +761,15 @@ def _audit_lede(flags: Sequence[dict], gaps: dict, drift, attributed: int) -> st
     if n_gap:
         parts.append(f"{_plural(n_gap, 'injury week')} have no capture.")
 
-    return _fit(parts) or _counted_audit(flags, gaps)
+    # `_counted_audit` is the floor for a week that HAS something to summarise
+    # and whose sentences all got trimmed. A single finding with nothing
+    # computed to add is a different case: "1 finding across 1 audit section"
+    # sits above one bullet saying the same thing in more words. No lede, the
+    # same as a clean week.
+    fitted = _fit(parts)
+    if fitted:
+        return fitted
+    return "" if len(found) == 1 else _counted_audit(flags, gaps)
 
 
 def _sentence(text: str) -> str:
