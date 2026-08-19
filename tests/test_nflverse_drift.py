@@ -612,6 +612,72 @@ def check_the_nflverse_breakdown_is_not_a_findings_evidence(tmp):
     return ok
 
 
+def check_blank_rows_appearing_are_not_a_production_change(tmp):
+    """A player-week row is not the same thing as a game of football.
+
+    NFLverse also emits an ALL-ZERO line for a player who dressed and recorded
+    nothing, and revises which players get one. Every one of the five rows that
+    appeared or vanished in completed 2024/2025 on the 2026-08-19 run was blank
+    — a fullback, a guard, a defensive end, a safety and a receiver, no yards,
+    no touches, no points on either side — and the week was escalated to a
+    breakage reading "games appearing or disappearing". Nothing on a field had
+    changed.
+    """
+    cols = ["player_id", "player_display_name", "season", "week",
+            "receiving_yards", "rushing_yards"]
+    before = pd.DataFrame([["00-1", "Kept Guy", 2024, 1, 40, 0]], columns=cols)
+    after = pd.DataFrame([["00-1", "Kept Guy", 2024, 1, 40, 0],
+                          ["00-2", "Blank Lineman", 2024, 5, 0, 0]], columns=cols)
+    bd, ad = tmp / "bb", tmp / "ba"
+    for d, f in ((bd, before), (ad, after)):
+        d.mkdir(parents=True, exist_ok=True)
+        f.to_csv(d / "nflverse_stats_player_week_2024.csv", index=False)
+    drift = N.diff_nflverse_cache(bd, ad)
+    ok = _ok("the blank row is still counted as a row",
+             drift.files[0].added_rows == 1, str(drift.files[0]))
+    ok &= _ok("but not as production", drift.files[0].scoring_rows_moved == 0)
+    ok &= _ok("so the week is not escalated",
+              drift.is_significant(0, 2026) is None, str(drift.is_significant(0, 2026)))
+    return ok
+
+
+def check_a_scoring_row_appearing_still_escalates(tmp):
+    """The alarm this replaces was worth having — a completed season gaining a
+    row that carries actual production really is history moving."""
+    cols = ["player_id", "player_display_name", "season", "week",
+            "receiving_yards", "rushing_yards"]
+    before = pd.DataFrame([["00-1", "Kept Guy", 2024, 1, 40, 0]], columns=cols)
+    after = pd.DataFrame([["00-1", "Kept Guy", 2024, 1, 40, 0],
+                          ["00-3", "Real Game", 2024, 5, 88, 12]], columns=cols)
+    bd, ad = tmp / "sb", tmp / "sa"
+    for d, f in ((bd, before), (ad, after)):
+        d.mkdir(parents=True, exist_ok=True)
+        f.to_csv(d / "nflverse_stats_player_week_2024.csv", index=False)
+    drift = N.diff_nflverse_cache(bd, ad)
+    reason = drift.is_significant(0, 2026)
+    ok = _ok("a row carrying yards counts as production",
+             drift.files[0].scoring_rows_moved == 1)
+    ok &= _ok("and escalates", reason is not None and "scoring row(s)" in reason, str(reason))
+    ok &= _ok("naming production, not games", "games appearing" not in (reason or ""), str(reason))
+    return ok
+
+
+def check_a_withdrawn_scoring_row_escalates_too(tmp):
+    """Production vanishing from a completed season is the same alarm."""
+    cols = ["player_id", "player_display_name", "season", "week", "receiving_yards"]
+    before = pd.DataFrame([["00-1", "Kept", 2024, 1, 40],
+                           ["00-4", "Erased Game", 2024, 9, 61]], columns=cols)
+    after = pd.DataFrame([["00-1", "Kept", 2024, 1, 40]], columns=cols)
+    bd, ad = tmp / "wb", tmp / "wa"
+    for d, f in ((bd, before), (ad, after)):
+        d.mkdir(parents=True, exist_ok=True)
+        f.to_csv(d / "nflverse_stats_player_week_2024.csv", index=False)
+    drift = N.diff_nflverse_cache(bd, ad)
+    return _ok("a withdrawn scoring row escalates",
+               (drift.is_significant(0, 2026) or "").startswith("NFLverse added / withdrew 1"),
+               str(drift.is_significant(0, 2026)))
+
+
 def check_directory_churn_is_not_games_moving(tmp):
     """`nflverse_player_ids.csv` has no season: it is a player DIRECTORY, and it
     gains and loses rows whenever upstream re-syncs its list. Counting that as
@@ -622,24 +688,32 @@ def check_directory_churn_is_not_games_moving(tmp):
     ok = _ok("directory churn is not significant",
              drift.is_significant(0, 2026) is None, str(drift.is_significant(0, 2026)))
     drift.files.append(N.FileDrift(name="nflverse_stats_player_week_2024.csv",
-                                  added_rows=3, removed_rows=1))
+                                  added_rows=3, removed_rows=1,
+                                  scoring_rows_moved=4))
     reason = drift.is_significant(0, 2026)
-    ok &= _ok("a completed season's games moving still is",
-              reason is not None and "4 row(s)" in reason, str(reason))
+    ok &= _ok("a completed season's production moving still is",
+              reason is not None and "4 scoring row(s)" in reason, str(reason))
     return ok
 
 
 def check_current_season_roster_churn_is_not_significant(tmp):
     """The in-progress season's weekly roster file gains rows every time somebody
-    is signed. That is not "games appearing or disappearing" — escalating it is
-    how a quiet August week led with a red flag."""
+    is signed. That is not history moving — escalating it is how a quiet August
+    week led with a red flag.
+
+    The rows here carry production (`scoring_rows_moved`), so the ONLY thing
+    keeping them quiet is that they are the in-progress season; the season gate
+    is what this pins. Blank rows in a completed season are a separate case with
+    its own check.
+    """
     d = N.Drift(compared=True)
     d.files.append(N.FileDrift(name="nflverse_weekly_rosters_2026.csv",
-                               changed_cells=4416, changed_rows=699, added_rows=17))
+                               changed_cells=4416, changed_rows=699, added_rows=17,
+                               scoring_rows_moved=17))
     ok = _ok("routine in-progress-season roster churn is not escalated",
              d.is_significant(0, current_season=2026) is None,
              str(d.is_significant(0, current_season=2026)))
-    ok &= _ok("a COMPLETED season gaining rows still is",
+    ok &= _ok("a COMPLETED season gaining scoring rows still is",
               "added / withdrew" in (d.is_significant(0, current_season=2027) or ""),
               str(d.is_significant(0, current_season=2027)))
     ok &= _ok("and with no season known, the old behaviour holds",
@@ -859,6 +933,9 @@ def run_all() -> bool:
         check_event_and_upstream_explanations_compose,
         check_the_nflverse_breakdown_is_not_a_findings_evidence,
         check_directory_churn_is_not_games_moving,
+        check_blank_rows_appearing_are_not_a_production_change,
+        check_a_scoring_row_appearing_still_escalates,
+        check_a_withdrawn_scoring_row_escalates_too,
         check_pool_columns_track_the_builds_scoring_inputs,
         check_trade_chain_columns_are_build_volatile,
         check_nflverse_alias_table_bridges_sleeper_spellings,

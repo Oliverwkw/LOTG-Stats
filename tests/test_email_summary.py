@@ -349,6 +349,50 @@ def check_column_family():
     return ok
 
 
+def check_a_single_finding_lede_does_not_echo_it():
+    """The lede RANKS findings. With one finding there is nothing to rank.
+
+    Opening by restating the top finding says "read this one first", which earns
+    a sentence when there are ten. With exactly one it is a verbatim echo of the
+    bullet immediately below it — and when that finding is the NFLverse drift
+    line, the same sentence appears a third time under the NFLverse header. It
+    never showed while a bad week carried ten findings; the week the noise was
+    cleared, it was the whole email.
+    """
+    drift_text = ("NFLverse made 27571 value(s) across 15476 row(s). "
+                  "Significant: a completed season's production changed")
+    one = [{"section": "NFLverse upstream drift", "text": drift_text, "details": []}]
+    lede = DS.audit_lede(one, {}, None, 0)
+    ok = _ok("a single finding is not echoed back",
+             drift_text not in lede, repr(lede))
+    ok &= _ok("and with nothing else to add there is no lede at all",
+              lede == "", repr(lede))
+
+    # Two findings: naming the one to open first is the lede doing its job.
+    two = one + [{"section": "Part 1", "text": "player_year: 40 changed row(s)",
+                  "details": ["    - columns that moved: Points (40)"]}]
+    lede2 = DS.audit_lede(two, {}, None, 0)
+    ok &= _ok("with two findings the ranking sentence returns", bool(lede2), repr(lede2))
+    ok &= _ok("and names one of them",
+              "player_year" in lede2 or "NFLverse" in lede2, repr(lede2))
+    return ok
+
+
+def check_a_single_finding_still_gets_what_it_does_not_say():
+    """Dropping the echo must not drop the ANALYSIS. Breadth and swing shape are
+    computed from the audit's detail lines, not restated from them, so a lone
+    finding that hides a blank value still says so."""
+    one = [{"section": "Part 1", "text": "player_year: 40 changed row(s) moved",
+            "details": ["    - columns that moved: Points (40)",
+                        "    - changed: Player=X | Year=2024 — Points: 120.4 → "]}]
+    lede = DS.audit_lede(one, {}, None, 0)
+    ok = _ok("the lone finding's own text is not echoed",
+             "40 changed row(s) moved" not in lede, repr(lede))
+    ok &= _ok("but the lede still reports what it found",
+              bool(lede) and ("blank" in lede or "column" in lede), repr(lede))
+    return ok
+
+
 def run_all() -> bool:
     tests = [
         check_counted_summary_names_the_sections,
@@ -368,6 +412,8 @@ def run_all() -> bool:
         check_build_intro_always_returns_something,
         check_lede_renders_above_the_list,
         check_sections_cover_the_whole_email,
+        check_a_single_finding_lede_does_not_echo_it,
+        check_a_single_finding_still_gets_what_it_does_not_say,
     ]
     all_ok = True
     for t in tests:
