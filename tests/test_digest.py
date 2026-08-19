@@ -579,6 +579,69 @@ def check_real_exports_smoke():
     return ok
 
 
+def check_tie_joins_are_said_to_be_ties():
+    """Arriving at a place someone already holds is not overtaking them.
+
+    On the event boards ranks run over DISTINCT values, so co-occupancy of a rank
+    IS a shared value. Saying "passes X for 1st-lowest" while X is still standing
+    on 1st states the opposite of what happened."""
+    def hl(key, label, rank, value):
+        return D.EventHighlight(sheet="picks", label=label, column="KTC",
+                                end="low", rank=rank, value=value, key=key)
+
+    prior = [{"sheet": "picks", "key": "k06", "label": "pick 4.06",
+              "column": "KTC", "end": "low", "rank": 1, "value": 0.0},
+             {"sheet": "picks", "key": "k07", "label": "pick 4.07",
+              "column": "KTC", "end": "low", "rank": 2, "value": 5.0}]
+    # 4.07 is re-valued down to 0 and lands ON 4.06's place rather than below it.
+    joined = [hl("k06", "pick 4.06", 1, 0.0), hl("k07", "pick 4.07", 1, 0.0)]
+    out = D.diff_events(prior, joined)
+    ok = _ok("the mover is reported", len(out) == 1, [o.sentence() for o in out])
+    ok &= _ok("as a tie, not an overtake", bool(out) and out[0].tied,
+              out and out[0].sentence())
+    ok &= _ok("naming who it is level with", bool(out) and out[0].passed == "pick 4.06",
+              out and out[0].passed)
+    ok &= _ok("and the sentence says so",
+              bool(out) and "ties pick 4.06 for 1st-lowest" in out[0].sentence(),
+              out and out[0].sentence())
+
+    # The same move, but 4.06 is pushed off the place: a real overtake.
+    took = [hl("k07", "pick 4.07", 1, 0.0), hl("k06", "pick 4.06", 2, 5.0)]
+    out2 = D.diff_events(prior, took)
+    ok &= _ok("a genuine overtake still says passes",
+              len(out2) == 1 and not out2[0].tied and "passes" in out2[0].sentence(),
+              [o.sentence() for o in out2])
+    return ok
+
+
+def check_all_time_tie_joins():
+    """Same rule on the player/team all-time boards, where ranks are positional
+    and a tie is two adjacent entries holding the SAME value."""
+    def board(pairs):
+        return {"players": {"PF": [{"entity": e, "value": v} for e, v in pairs]}}
+
+    prev = board([("A", 100.0), ("Q", 90.0), ("B", 80.0),
+                  ("D", 70.0), ("E", 60.0), ("F", 50.0)])
+    # B rises to exactly Q's value and sorts above it on name — it joined the
+    # place, it did not take it.
+    curr = board([("A", 100.0), ("B", 90.0), ("Q", 90.0),
+                  ("D", 70.0), ("E", 60.0), ("F", 50.0)])
+    out = [c for c in D.diff_snapshots(prev, curr) if c.mover == "B"]
+    ok = _ok("the riser is reported", len(out) == 1, [c.sentence() for c in out])
+    ok &= _ok("as a tie", bool(out) and out[0].tied, out and out[0].sentence())
+    ok &= _ok("phrased 'ties'", bool(out) and "ties Q" in out[0].sentence(),
+              out and out[0].sentence())
+
+    # Values that merely ROUND to the same display string are not a tie — both
+    # render as "90.0", and calling them level would be a false claim.
+    near = board([("A", 100.0), ("B", 90.02), ("Q", 90.0),
+                  ("D", 70.0), ("E", 60.0), ("F", 50.0)])
+    out2 = [c for c in D.diff_snapshots(prev, near) if c.mover == "B"]
+    ok &= _ok("near-equal values are an overtake, not a tie",
+              bool(out2) and not out2[0].tied, out2 and out2[0].sentence())
+    return ok
+
+
 def run_all() -> bool:
     tests = [
         check_discovery_drops_non_numeric,
@@ -597,6 +660,8 @@ def run_all() -> bool:
         check_event_highlights,
         check_board_covers_every_sheet,
         check_event_board_diff,
+        check_tie_joins_are_said_to_be_ties,
+        check_all_time_tie_joins,
         check_event_labels,
         check_mirrored_columns,
         check_replica_minimal,

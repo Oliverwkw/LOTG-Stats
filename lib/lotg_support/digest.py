@@ -321,20 +321,27 @@ class Crossing:
     end: str            # "high" | "low"
     rank: int           # position from the watched end (1-indexed)
     mover: str
-    passed: str
+    passed: str         # who was overtaken — or, when `tied`, who is now level
     value: float
+    # Arriving at a place someone already holds is not overtaking them, and
+    # saying "passes" there is simply false: both entities hold the place now.
+    # A tie is also the more interesting event of the two — a record equalled
+    # reads differently from a record broken — so it is phrased, not glossed.
+    tied: bool = False
 
     def group(self) -> str:
         return self.mover
 
     def detail(self) -> str:
         end_word = "highest" if self.end == "high" else "lowest"
-        return (f"passes {self.passed} for {_ordinal(self.rank)}-{end_word} "
+        verb = "ties" if self.tied else "passes"
+        return (f"{verb} {self.passed} for {_ordinal(self.rank)}-{end_word} "
                 f"{self.column} ({_fmt(self.value)})")
 
     def sentence(self) -> str:
         end_word = "highest" if self.end == "high" else "lowest"
-        return (f"{self.mover} passes {self.passed} for "
+        verb = "ties" if self.tied else "passes"
+        return (f"{self.mover} {verb} {self.passed} for "
                 f"{_ordinal(self.rank)}-{end_word} {self.column} all-time "
                 f"({_fmt(self.value)}).")
 
@@ -384,8 +391,13 @@ def _column_crossings(section: str, column: str,
             if not flipped:
                 continue
             display_rank = new_rank if end == "high" else (n - idx)
+            # These boards rank by position, so a tie shows up as two adjacent
+            # entries with the SAME value, ordered by name. Compare the values
+            # exactly: 41.34 and 41.36 both render as "41.3" but are not a tie,
+            # and calling them one would put a false claim in the email.
+            tied = curr[idx]["value"] == curr[neighbor_idx]["value"]
             out.append(Crossing(section, column, end, display_rank,
-                                mover, passed, curr[idx]["value"]))
+                                mover, passed, curr[idx]["value"], tied))
     return out
 
 
@@ -1036,18 +1048,23 @@ class EventCrossing:
     """
     sheet: str          # "picks" | "trades" | "transactions"
     label: str          # the mover, named; identity is the row key
-    passed: str         # who held this place last week
+    passed: str         # who held this place last week — or, when `tied`, who
+                        # the mover is now level with
     column: str
     end: str            # "high" | "low"
     rank: int
     value: Optional[float]
+    # See Crossing.tied. On these boards ranks run over DISTINCT values, so a
+    # shared rank IS a shared value — co-occupancy of the rank is the test.
+    tied: bool = False
 
     def group(self) -> str:
         return self.label
 
     def detail(self) -> str:
         end_word = "highest" if self.end == "high" else "lowest"
-        return (f"passes {self.passed} for {_ordinal(self.rank)}-{end_word} "
+        verb = "ties" if self.tied else "passes"
+        return (f"{verb} {self.passed} for {_ordinal(self.rank)}-{end_word} "
                 f"{self.column} ({_fmt(self.value)})")
 
     def sentence(self) -> str:
@@ -1094,10 +1111,22 @@ def diff_events(prior_board, events: Sequence[EventHighlight]) -> List[EventCros
     held last week — including arriving from off the board entirely, which is how
     a re-valued historical row shows up. `passed` is whoever held that place last
     week; with no one there (the board was shorter), there is no overtake to
-    report and the event is skipped."""
+    report and the event is skipped.
+
+    A place can also be JOINED rather than taken. These boards rank over distinct
+    values, so two rows at the same rank hold the same value: if anyone else is
+    still standing on the rank the mover arrived at, nobody was displaced and the
+    move is reported as a tie. Getting this wrong is not a nuance — "passes X for
+    1st-highest" when X is still there says the opposite of what happened."""
     prior = _prior_board(prior_board)
     if prior is None:
         return []
+    # Who else stands on each place NOW. Built once, not per event: on a busy
+    # week this walks several thousand board places.
+    co: Dict[tuple, Dict[int, List[str]]] = {}
+    for e in events:
+        co.setdefault((e.sheet, e.column, e.end), {}).setdefault(e.rank, []).append(e.key)
+    label_of = {(e.sheet, e.column, e.end, e.key): e.label for e in events}
     out: List[EventCrossing] = []
     for e in events:
         slot = prior.get((e.sheet, e.column, e.end))
@@ -1109,8 +1138,20 @@ def diff_events(prior_board, events: Sequence[EventHighlight]) -> List[EventCros
         passed = slot["by_rank"].get(e.rank)
         if passed is None or passed == e.label:
             continue
+        others = [k for k in co[(e.sheet, e.column, e.end)][e.rank] if k != e.key]
+        tied = bool(others)
+        if tied:
+            # Name whoever the mover is level with. Prefer last week's holder of
+            # the place when they are still on it — that is the comparison the
+            # reader already has in their head from last week's email.
+            still = [k for k in others
+                     if label_of.get((e.sheet, e.column, e.end, k)) == passed]
+            key = still[0] if still else others[0]
+            passed = label_of.get((e.sheet, e.column, e.end, key), passed)
+            if passed == e.label:
+                continue
         out.append(EventCrossing(e.sheet, e.label, passed, e.column,
-                                 e.end, e.rank, e.value))
+                                 e.end, e.rank, e.value, tied))
     return out
 
 
@@ -1345,6 +1386,54 @@ def digest_title(meta: dict) -> str:
             else f"LOTG weekly digest — {season} season")
 
 
+def digest_sections(
+    crossings: Sequence[Crossing] = (),
+    projections: Sequence[Projection] = (),
+    milestones: Sequence[Milestone] = (),
+    records: Sequence[YearlyRecord] = (),
+    highlights: Sequence[WeeklyHighlight] = (),
+    events: Sequence["EventCrossing"] = (),
+) -> List[Tuple[str, str, list]]:
+    """(title, verb, items) for every non-empty digest section, in email order.
+
+    The single place the digest's shape is declared. `render_digest_html` walks
+    it to build the email and `email_summary` walks it to write the lede, so a
+    new section appears in both by being added here and nowhere else — the lede
+    can't silently stop covering a section the email grew.
+
+    An empty `verb` means the section renders flat (one sentence per line);
+    otherwise items are grouped by `.group()` under "<entity> <verb>:".
+    """
+    def sect(sec):
+        return [x for x in projections if x.section == sec]
+
+    # In-season shows projections as "on pace"; a completed-season wrap resolves
+    # them to final results ("finished Nth"), so the heading changes to match.
+    yr_final = any(getattr(p, "final", False) for p in projections)
+    yr_title = "Season-long results" if yr_final else "On pace this season"
+    pace_verb = "finished with the" if yr_final else "on pace for"
+
+    out: List[Tuple[str, str, list]] = [
+        ("Single-week records (this week)", "had these single-week records",
+         list(highlights)),
+        ("All-time leaderboard moves — players", "made these all-time moves",
+         [c for c in crossings if c.section == "players"]),
+        ("All-time leaderboard moves — teams", "made these all-time moves",
+         [c for c in crossings if c.section == "teams"]),
+        ("New single-season records", "set these single-season records",
+         list(records)),
+        ("League milestones", "", list(milestones)),
+        (f"{yr_title} — players", pace_verb, sect("players")),
+        (f"{yr_title} — teams", pace_verb, sect("teams")),
+        (f"{yr_title} — league", pace_verb, sect("league")),
+    ]
+    # One section per board sheet, in _BOARD_SHEETS order.
+    out += [(f"All-time leaderboard moves — {cfg['title']}", "moved",
+             [e for e in events if e.sheet == sheet])
+            for sheet, cfg in _BOARD_SHEETS.items()]
+    return [(t, v, items) for t, v, items in out if items]
+
+
 def render_digest_html(
     crossings: Sequence[Crossing],
     projections: Sequence[Projection],
@@ -1356,44 +1445,22 @@ def render_digest_html(
     intro: str = "",
     events: Sequence["EventCrossing"] = (),
 ) -> str:
-    def sect(sec):
-        return [x for x in projections if x.section == sec]
-
     if header is None:
         header = digest_title(meta)
-
-    # In-season shows projections as "on pace"; a completed-season wrap resolves
-    # them to final results ("finished Nth"), so the heading changes to match.
-    yr_final = any(getattr(p, "final", False) for p in projections)
-    yr_title = "Season-long results" if yr_final else "On pace this season"
-    pace_verb = "finished with the" if yr_final else "on pace for"
 
     body = [
         '<div style="max-width:680px;margin:0 auto;padding:16px;">',
         f'  <h1 style="font:700 22px/1.3 system-ui,sans-serif;'
         f'color:#0b2545;margin:0 0 4px;">{header}</h1>',
-        (f'  <p style="font:16px/1.4 system-ui,sans-serif;color:#0b2545;'
-         f'margin:0 0 8px;">{intro}</p>' if intro else ""),
-        _grouped_section_html("Single-week records (this week)", list(highlights),
-                              "had these single-week records"),
-        _grouped_section_html("All-time leaderboard moves — players",
-                              [c for c in crossings if c.section == "players"], "made these all-time moves"),
-        _grouped_section_html("All-time leaderboard moves — teams",
-                              [c for c in crossings if c.section == "teams"], "made these all-time moves"),
-        _grouped_section_html("New single-season records", list(records),
-                              "set these single-season records"),
-        _section_html("League milestones", [m.sentence() for m in milestones]),
-        _grouped_section_html(f"{yr_title} — players", sect("players"), pace_verb),
-        _grouped_section_html(f"{yr_title} — teams", sect("teams"), pace_verb),
-        _grouped_section_html(f"{yr_title} — league", sect("league"), pace_verb),
+        (f'  <p style="font:16px/1.5 system-ui,sans-serif;color:#0b2545;'
+         f'margin:0 0 8px;padding:12px 14px;background:#f2f6fb;'
+         f'border-left:3px solid #0b2545;border-radius:4px;">{intro}</p>'
+         if intro else ""),
     ]
-    # One section per board sheet, in _BOARD_SHEETS order, so a new sheet shows up
-    # in the email by being added there and nowhere else.
-    body += [
-        _grouped_section_html(f"All-time leaderboard moves — {cfg['title']}",
-                              [e for e in events if e.sheet == sheet], "moved")
-        for sheet, cfg in _BOARD_SHEETS.items()
-    ]
+    for title, verb, items in digest_sections(
+            crossings, projections, milestones, records, highlights, events):
+        body.append(_grouped_section_html(title, items, verb) if verb
+                    else _section_html(title, [i.sentence() for i in items]))
     if not any([highlights, crossings, records, milestones, projections, events]):
         body.append('  <p style="font:15px system-ui,sans-serif;color:#666;">'
                      'No leaderboard changes this week.</p>')
