@@ -321,20 +321,27 @@ class Crossing:
     end: str            # "high" | "low"
     rank: int           # position from the watched end (1-indexed)
     mover: str
-    passed: str
+    passed: str         # who was overtaken — or, when `tied`, who is now level
     value: float
+    # Arriving at a place someone already holds is not overtaking them, and
+    # saying "passes" there is simply false: both entities hold the place now.
+    # A tie is also the more interesting event of the two — a record equalled
+    # reads differently from a record broken — so it is phrased, not glossed.
+    tied: bool = False
 
     def group(self) -> str:
         return self.mover
 
     def detail(self) -> str:
         end_word = "highest" if self.end == "high" else "lowest"
-        return (f"passes {self.passed} for {_ordinal(self.rank)}-{end_word} "
+        verb = "ties" if self.tied else "passes"
+        return (f"{verb} {self.passed} for {_ordinal(self.rank)}-{end_word} "
                 f"{self.column} ({_fmt(self.value)})")
 
     def sentence(self) -> str:
         end_word = "highest" if self.end == "high" else "lowest"
-        return (f"{self.mover} passes {self.passed} for "
+        verb = "ties" if self.tied else "passes"
+        return (f"{self.mover} {verb} {self.passed} for "
                 f"{_ordinal(self.rank)}-{end_word} {self.column} all-time "
                 f"({_fmt(self.value)}).")
 
@@ -384,8 +391,13 @@ def _column_crossings(section: str, column: str,
             if not flipped:
                 continue
             display_rank = new_rank if end == "high" else (n - idx)
+            # These boards rank by position, so a tie shows up as two adjacent
+            # entries with the SAME value, ordered by name. Compare the values
+            # exactly: 41.34 and 41.36 both render as "41.3" but are not a tie,
+            # and calling them one would put a false claim in the email.
+            tied = curr[idx]["value"] == curr[neighbor_idx]["value"]
             out.append(Crossing(section, column, end, display_rank,
-                                mover, passed, curr[idx]["value"]))
+                                mover, passed, curr[idx]["value"], tied))
     return out
 
 
@@ -1036,18 +1048,23 @@ class EventCrossing:
     """
     sheet: str          # "picks" | "trades" | "transactions"
     label: str          # the mover, named; identity is the row key
-    passed: str         # who held this place last week
+    passed: str         # who held this place last week — or, when `tied`, who
+                        # the mover is now level with
     column: str
     end: str            # "high" | "low"
     rank: int
     value: Optional[float]
+    # See Crossing.tied. On these boards ranks run over DISTINCT values, so a
+    # shared rank IS a shared value — co-occupancy of the rank is the test.
+    tied: bool = False
 
     def group(self) -> str:
         return self.label
 
     def detail(self) -> str:
         end_word = "highest" if self.end == "high" else "lowest"
-        return (f"passes {self.passed} for {_ordinal(self.rank)}-{end_word} "
+        verb = "ties" if self.tied else "passes"
+        return (f"{verb} {self.passed} for {_ordinal(self.rank)}-{end_word} "
                 f"{self.column} ({_fmt(self.value)})")
 
     def sentence(self) -> str:
@@ -1094,10 +1111,22 @@ def diff_events(prior_board, events: Sequence[EventHighlight]) -> List[EventCros
     held last week — including arriving from off the board entirely, which is how
     a re-valued historical row shows up. `passed` is whoever held that place last
     week; with no one there (the board was shorter), there is no overtake to
-    report and the event is skipped."""
+    report and the event is skipped.
+
+    A place can also be JOINED rather than taken. These boards rank over distinct
+    values, so two rows at the same rank hold the same value: if anyone else is
+    still standing on the rank the mover arrived at, nobody was displaced and the
+    move is reported as a tie. Getting this wrong is not a nuance — "passes X for
+    1st-highest" when X is still there says the opposite of what happened."""
     prior = _prior_board(prior_board)
     if prior is None:
         return []
+    # Who else stands on each place NOW. Built once, not per event: on a busy
+    # week this walks several thousand board places.
+    co: Dict[tuple, Dict[int, List[str]]] = {}
+    for e in events:
+        co.setdefault((e.sheet, e.column, e.end), {}).setdefault(e.rank, []).append(e.key)
+    label_of = {(e.sheet, e.column, e.end, e.key): e.label for e in events}
     out: List[EventCrossing] = []
     for e in events:
         slot = prior.get((e.sheet, e.column, e.end))
@@ -1109,8 +1138,20 @@ def diff_events(prior_board, events: Sequence[EventHighlight]) -> List[EventCros
         passed = slot["by_rank"].get(e.rank)
         if passed is None or passed == e.label:
             continue
+        others = [k for k in co[(e.sheet, e.column, e.end)][e.rank] if k != e.key]
+        tied = bool(others)
+        if tied:
+            # Name whoever the mover is level with. Prefer last week's holder of
+            # the place when they are still on it — that is the comparison the
+            # reader already has in their head from last week's email.
+            still = [k for k in others
+                     if label_of.get((e.sheet, e.column, e.end, k)) == passed]
+            key = still[0] if still else others[0]
+            passed = label_of.get((e.sheet, e.column, e.end, key), passed)
+            if passed == e.label:
+                continue
         out.append(EventCrossing(e.sheet, e.label, passed, e.column,
-                                 e.end, e.rank, e.value))
+                                 e.end, e.rank, e.value, tied))
     return out
 
 

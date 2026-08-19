@@ -260,14 +260,19 @@ def check_ai_failures_all_fall_back():
 
 
 def check_build_intro_always_returns_something():
+    """With no key there is still a lede — the reasoned one, which leads with a
+    line rather than a count. `counted_summary` is now the floor beneath it, not
+    what ships."""
     import os
     prev = os.environ.pop("ANTHROPIC_API_KEY", None)
     try:
         text = DS.build_intro(_sections(), "hdr")
-        ok = _ok("no key -> the counted lede", text.startswith("3 leaderboard moves"), text)
-        ok &= _ok("--no-ai-summary -> the counted lede",
-                  DS.build_intro(_sections(), "hdr", use_ai=False).startswith("3 leaderboard"))
+        ok = _ok("no key -> a lede that leads with a line",
+                 text.startswith("Oliverwkw's 2023-12-05 trade"), text)
+        ok &= _ok("--no-ai-summary -> the same",
+                  DS.build_intro(_sections(), "hdr", use_ai=False) == text)
         ok &= _ok("nothing moved -> no lede", DS.build_intro([], "hdr") == "")
+        ok &= _ok("inside the budget", len(text.split()) <= DS._LEDE_MAX_WORDS)
     finally:
         if prev is not None:
             os.environ["ANTHROPIC_API_KEY"] = prev
@@ -311,6 +316,155 @@ def check_sections_cover_the_whole_email():
     return ok
 
 
+# ---------------------------------------------------------------------------
+# The reasoned lede
+# ---------------------------------------------------------------------------
+class _Move:
+    """Shaped like an EventCrossing — the attributes the scorer reads."""
+
+    def __init__(self, label, column, rank, end="low", sheet="picks", tied=False):
+        self.label, self.column, self.rank = label, column, rank
+        self.end, self.sheet, self.tied = end, sheet, tied
+
+    def sentence(self):
+        w = "ties" if self.tied else "passes"
+        return f"{self.label} {w} someone for {self.rank}-{self.end}est {self.column} (1)."
+
+    def group(self):
+        return self.label
+
+
+def _week(n_ktc=20, extras=()):
+    """A week that is mostly one stat family, plus whatever else is passed."""
+    bulk = [_Move(f"pick {i}", "KTC at end of rookie year", 3, sheet="picks")
+            for i in range(n_ktc)]
+    return [("All-time leaderboard moves — draft picks", "moved", bulk + list(extras))]
+
+
+def check_reasoned_leads_with_place_and_prominence():
+    """First place and a stat the league argues about beat a 5th-place move on a
+    diagnostic column, even when the diagnostic one is rarer."""
+    secs = _week(extras=[_Move("A", "O-Score", 1),
+                         _Move("B", "Pick-adjusted Difference in KTC", 1),
+                         _Move("C", "O-Score", 5)])
+    out = DS.reasoned_summary(secs)
+    ok = _ok("leads with the prominent 1st-place line", out.startswith("A passes"), out)
+    ok &= _ok("not the diagnostic column", not out.startswith("B "), out)
+    ok &= _ok("not the 5th-place line", not out.startswith("C "), out)
+    return ok
+
+
+def check_reasoned_folds_the_bulk_into_one_clause():
+    """The point of the whole thing: 20 lines that are one event get one clause,
+    not 20 mentions — and the clause merges the sheets that event landed on."""
+    secs = _week(extras=[_Move("A", "O-Score", 1)])
+    secs.append(("All-time leaderboard moves — trades", "moved",
+                 [_Move(f"t{i}", "KTC value of player added at end of season", 3,
+                        sheet="trades") for i in range(9)]))
+    out = DS.reasoned_summary(secs)
+    ok = _ok("names the family once", out.count("KTC") == 1, out)
+    ok &= _ok("counts the whole family across sheets", "29 KTC moves" in out, out)
+    ok &= _ok("names the sheets it spans",
+              "draft picks" in out and "trades" in out, out)
+    ok &= _ok("no individual bulk line is quoted", "pick 0 " not in out, out)
+    return ok
+
+
+def check_reasoned_reports_surprise():
+    """A lone move in the direction nothing else went is the one a reader could
+    not have guessed, and it should outrank a same-place move in the crowd."""
+    bulk = [_Move(f"p{i}", "Points", 2, end="low", sheet="picks") for i in range(12)]
+    odd = _Move("ODD", "Points", 2, end="high", sheet="picks")
+    out = DS.reasoned_summary([("All-time leaderboard moves — draft picks", "moved",
+                               bulk + [odd])])
+    return _ok("the against-the-grain move leads", out.startswith("ODD "), out)
+
+
+def check_reasoned_flags_ties():
+    secs = _week(n_ktc=6, extras=[_Move("A", "O-Score", 1),
+                                  _Move("T1", "Points", 2, tied=True),
+                                  _Move("T2", "Points", 2, tied=True),
+                                  _Move("T3", "Points", 3, tied=True)])
+    out = DS.reasoned_summary(secs)
+    ok = _ok("a week with several ties says so", "3 of the 10 were ties" in out, out)
+    quiet = DS.reasoned_summary(_week(n_ktc=6, extras=[_Move("A", "O-Score", 1)]))
+    ok &= _ok("a week with none doesn't", "ties" not in quiet, quiet)
+    return ok
+
+
+def check_reasoned_survives_a_huge_week():
+    """The whole design constraint: a 6,000-line week with pathological labels
+    must still produce a paragraph, not a wall — and must not take a coffee
+    break doing it."""
+    import time
+    label = "Oliverwkw's 2024-08-06 trade for " + ", ".join(f"Player {i}" for i in range(8))
+    items = [_Move(label, ["KTC at end of rookie year", "O-Score", "Points"][i % 3],
+                   (i % 5) + 1, end="high" if i % 2 else "low",
+                   sheet=["picks", "trades", "transactions"][i % 3], tied=i % 7 == 0)
+             for i in range(6000)]
+    secs = [("All-time leaderboard moves — trades", "moved", items)]
+    t0 = time.time()
+    out = DS.reasoned_summary(secs)
+    elapsed = time.time() - t0
+    ok = _ok("still a paragraph", 0 < DS.sentence_count(out) <= DS._MAX_SENTENCES,
+             f"{DS.sentence_count(out)} sentences")
+    ok &= _ok("inside the word budget", len(out.split()) <= DS._LEDE_MAX_WORDS,
+              f"{len(out.split())} words")
+    ok &= _ok("fast enough to sit in a build", elapsed < 2.0, f"{elapsed*1000:.0f} ms")
+    return ok
+
+
+def check_reasoned_never_returns_a_wall():
+    """A line too long to quote can't be the lede. It yields to one that fits,
+    and if nothing fits the counted line ships instead."""
+    long_label = " ".join(["word"] * 200)
+    secs = [("All-time leaderboard moves — trades", "moved",
+             [_Move(long_label, "O-Score", 1), _Move("short", "Points", 2)])]
+    out = DS.reasoned_summary(secs)
+    ok = _ok("the unquotable line yields", out.startswith("short "), out[:80])
+    only = [("All-time leaderboard moves — trades", "moved",
+             [_Move(long_label, "O-Score", 1), _Move(long_label, "Points", 2)])]
+    fell_back = DS.reasoned_summary(only)
+    ok &= _ok("nothing quotable -> the counted line",
+              fell_back.startswith("2 leaderboard moves"), fell_back[:80])
+    ok &= _ok("and it is still short", len(fell_back.split()) <= DS._LEDE_MAX_WORDS)
+    return ok
+
+
+def check_reasoned_is_the_default_fallback():
+    import os
+    prev = os.environ.pop("ANTHROPIC_API_KEY", None)
+    try:
+        secs = _week(extras=[_Move("A", "O-Score", 1)])
+        out = DS.build_intro(secs, "hdr")
+        ok = _ok("build_intro ships the reasoned lede, not the counts",
+                 out.startswith("A passes"), out)
+        ok &= _ok("an explicit fallback still wins (the audit email's)",
+                  DS.build_intro(secs, "hdr", fallback="mine.") == "mine.")
+    finally:
+        if prev is not None:
+            os.environ["ANTHROPIC_API_KEY"] = prev
+    return ok
+
+
+def check_column_family():
+    """Qualifiers are what make one stat look like five."""
+    cases = {
+        "KTC at end of rookie year": "KTC",
+        "KTC 1 year after draft day": "KTC",
+        "KTC value of player added at end of season": "KTC",
+        "O-Score": "O-Score",
+        "Number of trades": "Number of trades",
+        "Avg points added adjusted by position": "Avg points added",
+        "Win % vs Oliverwkw": "Win %",
+    }
+    ok = True
+    for col, want in cases.items():
+        ok &= _ok(f"{col!r} -> {want!r}", DS._column_family(col) == want,
+                  DS._column_family(col))
+    return ok
+
+
 def run_all() -> bool:
     tests = [
         check_counted_summary_names_the_sections,
@@ -318,6 +472,14 @@ def run_all() -> bool:
         check_grounding_guard,
         check_shape_guard,
         check_sentence_cap,
+        check_column_family,
+        check_reasoned_leads_with_place_and_prominence,
+        check_reasoned_folds_the_bulk_into_one_clause,
+        check_reasoned_reports_surprise,
+        check_reasoned_flags_ties,
+        check_reasoned_survives_a_huge_week,
+        check_reasoned_never_returns_a_wall,
+        check_reasoned_is_the_default_fallback,
         check_prompt_carries_the_lines_and_admits_truncation,
         check_ai_request_shape,
         check_ai_failures_all_fall_back,

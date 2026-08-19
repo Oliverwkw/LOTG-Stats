@@ -13,8 +13,11 @@ This writes the few sentences that go above the list. Two ways, tried in order:
      it has to work out — and asked which of them matter. That is the judgment a
      count can't make: one 1st-place overtake outweighs thirty 5th-place
      shuffles, and one schema break outweighs a thousand re-valued cells.
-  2. **The caller's own counted line**, otherwise. Deterministic, offline, always
-     true, never interesting.
+  2. **`reasoned_summary`**, otherwise — a deterministic lede that scores every
+     line on place, prominence and surprise, leads with the winner, and folds the
+     bulk into one clause. Offline, always true, and good enough that the AI path
+     is an upgrade rather than a requirement. (The audit email passes its own
+     counted line instead.)
 
 Every AI draft passes `is_grounded` before it ships: every number in it must
 already appear in the material it was given. These are stats emails — a lede that
@@ -60,6 +63,10 @@ from typing import List, Optional, Sequence, Tuple
 # word ceiling is only a runaway guard for a model that ignores the sentence cap.
 _MAX_SENTENCES = 5
 _MAX_WORDS = 150
+# The deterministic lede quotes the digest's own sentences instead of writing
+# its own, so it gets a tighter budget: a quoted line can be 30 words on its own.
+_LEDE_MAX_WORDS = 70
+_HEAD_MAX_WORDS = 32
 # What we hand the model. A quiet week is a dozen lines; the busiest digest on
 # record is under a hundred. The cap is a cost guard, not a filter we expect to
 # bind — when it does bind, the prompt says so, so the model doesn't claim to
@@ -173,6 +180,288 @@ def _short(title: str) -> str:
     """Section title as it reads mid-sentence: "All-time leaderboard moves —
     draft picks" is "draft picks"."""
     return title.split("—")[-1].strip().rstrip(")").lower() if "—" in title else title.lower()
+
+
+# ---------------------------------------------------------------------------
+# The reasoned lede (deterministic, and the one that actually ships by default)
+# ---------------------------------------------------------------------------
+# `counted_summary` says how much moved. This says which move mattered, which is
+# the question a reader actually has, and it answers it without a network call.
+#
+# Three things make a line worth leading with, and they are scored independently
+# and multiplied, so a line has to be good on more than one axis to win:
+#
+#   PLACE        1st is not "a bit better" than 5th, it is the only place anyone
+#                remembers. The weights fall off a cliff after 2nd.
+#   PROMINENCE   "O-Score" and "Points" are stats the league argues about;
+#                "Pick-adjusted Difference in KTC 2 years after draft day" is a
+#                diagnostic column that happens to be rankable. Both are true;
+#                only one is news.
+#   SURPRISE     A line is interesting in proportion to how little it resembles
+#                the rest of the week. Twenty-three moves on one column are one
+#                event reported twenty-three times; the single move on a column
+#                nothing else touched, or in the direction nothing else went, is
+#                the one a reader could not have guessed.
+#
+# Everything is a single O(n) pass over the items, at most two are ever named,
+# and the composed lede is trimmed sentence-by-sentence to the same caps the AI
+# lede is held to — so a 65-line week and a 6,500-line week produce the same
+# shape of paragraph, and neither can produce a wall.
+
+# Places fall off a cliff: 1st is the story, 2nd is a footnote, 5th is a rounding
+# error. Anything past the board window shares the floor.
+_PLACE_WEIGHT = {1: 1.0, 2: 0.42, 3: 0.24, 4: 0.17, 5: 0.13}
+_PLACE_FLOOR = 0.10
+
+# What kind of news the section is, independent of the line in it. A record or a
+# milestone is a threshold nobody had crossed before; a board move is a
+# reshuffle; an on-pace change is a projection, and projections are the softest
+# claim in the email.
+_SECTION_WEIGHT = (
+    ("milestone", 1.35),
+    ("single-season record", 1.30),
+    ("single-week record", 1.15),
+    ("— players", 1.10),
+    ("— teams", 1.10),
+    ("on pace", 0.55),
+    ("season-long results", 0.75),
+)
+
+# Stats the league argues about. Matched on the column's family (see
+# `_column_family`), so "Points added" and "Avg points added" both land here.
+_PROMINENT = {
+    "o-score", "points", "avg points", "net points", "points added",
+    "points against", "points lost", "differential", "avg differential",
+    "win %", "all-play win %", "faab", "total faab bid", "record",
+    "trade impact score", "player addition value", "trade addition value",
+    "number of trades", "number of transactions",
+}
+# Deliberately NOT prominent: "KTC". It is real and rankable, but it is also the
+# column this pipeline recomputes most often, so a KTC week is the norm rather
+# than the news. Leaving it in the set above let the week's own bulk win the
+# headline over the one line that wasn't part of it.
+# Diagnostic columns: real, rankable, and not what anyone means by a record.
+_DERIVED_MARKERS = ("pick-adjusted", "adjusted by position", "quartile",
+                    "volatility", "difference of averages", "over same time",
+                    "5 games before", "times as", "% of starts", "cuff",
+                    "length of tenure", "skill")
+
+_FAMILY_STOP_STRONG = {"at", "after", "value", "values", "adjusted", "vs",
+                       "before", "over", "while", "when"}
+_FAMILY_STOP_WEAK = {"of", "per", "in", "from", "by", "on"}
+_FAMILY_MAX_WORDS = 3
+
+
+def _column_family(column: str) -> str:
+    """The stat a column belongs to, with its qualifiers stripped.
+
+    "KTC at end of rookie year", "KTC 1 year after draft day" and "KTC value of
+    player added at end of season" are one stat measured at three moments — the
+    lede needs to see them as one story, which is exactly what makes a week of
+    KTC churn describable in a clause instead of twenty-three lines."""
+    out: List[str] = []
+    for tok in str(column).split():
+        low = tok.lower().strip(",;:()")
+        if tok[:1].isdigit() and out:
+            break
+        if low in _FAMILY_STOP_STRONG and out:
+            break
+        if low in _FAMILY_STOP_WEAK and len(out) >= 2:
+            break
+        out.append(tok)
+        if len(out) >= _FAMILY_MAX_WORDS:
+            break
+    return " ".join(out) if out else str(column)
+
+
+def _prominence(column: str, family: str) -> float:
+    low = str(column).lower()
+    if any(m in low for m in _DERIVED_MARKERS):
+        return 0.45
+    if family.lower() in _PROMINENT:
+        return 1.5
+    # A long, heavily qualified name is its own signal that the column is a
+    # measurement rather than a headline.
+    return 0.8 if len(low.split()) > 4 else 1.0
+
+
+class _Cand:
+    """One reportable line, with the facts the scoring needs pulled off it.
+
+    Every attribute is read with a default, so an item type this module has never
+    seen scores as an ordinary line instead of raising."""
+
+    __slots__ = ("item", "section", "rank", "column", "family", "end",
+                 "sheet", "tied", "derived", "score")
+
+    def __init__(self, item, section: str):
+        self.item = item
+        self.section = section
+        self.rank = getattr(item, "rank", None)
+        self.column = str(getattr(item, "column", "") or "")
+        self.family = _column_family(self.column) if self.column else section
+        self.end = str(getattr(item, "end", "") or "")
+        self.sheet = str(getattr(item, "sheet", "") or getattr(item, "section", "") or section)
+        self.tied = bool(getattr(item, "tied", False))
+        self.derived = _prominence(self.column, self.family) < 1.0
+        self.score = 0.0
+
+    def sentence(self) -> str:
+        return self.item.sentence()
+
+
+def _section_weight(title: str) -> float:
+    low = title.lower()
+    for needle, w in _SECTION_WEIGHT:
+        if needle in low:
+            return w
+    return 1.0
+
+
+def _score(cands: List[_Cand]) -> None:
+    """Score every candidate in place. One pass to count, one to score."""
+    fam_n: dict = {}
+    end_n: dict = {}
+    for c in cands:
+        fam_n[(c.sheet, c.family)] = fam_n.get((c.sheet, c.family), 0) + 1
+        end_n[(c.sheet, c.end)] = end_n.get((c.sheet, c.end), 0) + 1
+    for c in cands:
+        place = _PLACE_WEIGHT.get(c.rank, _PLACE_FLOOR) if c.rank else 0.5
+        weight = place * _section_weight(c.section) * _prominence(c.column, c.family)
+        # Surprise, part one: how alone this line is. One move on a column
+        # nothing else touched is news; the twenty-third move on one column is
+        # the same news, restated.
+        n = fam_n[(c.sheet, c.family)]
+        weight *= 1.6 if n == 1 else (1.15 if n == 2 else (0.7 if n >= 8 else 1.0))
+        # Surprise, part two: direction. When a sheet moved almost entirely at
+        # one end, the lone move at the other end is the one nobody predicted.
+        same, other = end_n.get((c.sheet, c.end), 0), end_n.get(
+            (c.sheet, "low" if c.end == "high" else "high"), 0)
+        if c.end and other >= 4 and same <= max(1, other // 4):
+            weight *= 1.4
+        # A record equalled is a different event from a record broken, and at the
+        # sharp end of a board it is the rarer of the two.
+        if c.tied and (c.rank or 99) <= 2:
+            weight *= 1.2
+        c.score = weight
+
+
+def _blocks(cands: List[_Cand], min_size: int = 4):
+    """(family, count, [section, ...]) for the stat families big enough to be one
+    story, biggest first.
+
+    Merged across SHEETS on purpose. A KTC re-valuation lands on picks, trades
+    and transactions at once; reporting it as three blocks describes the sheets
+    it touched rather than the single thing that happened."""
+    counts: dict = {}
+    where: dict = {}
+    for c in cands:
+        counts[c.family] = counts.get(c.family, 0) + 1
+        where.setdefault(c.family, []).append(_short(c.section))
+    out = []
+    for fam, n in counts.items():
+        if n < min_size:
+            continue
+        seen, secs = set(), []
+        for w in where[fam]:                       # first-seen order, deduped
+            if w not in seen:
+                seen.add(w)
+                secs.append(w)
+        out.append((fam, n, secs))
+    return sorted(out, key=lambda t: -t[1])
+
+
+def _join(words: Sequence[str]) -> str:
+    """"a", "a and b", "a, b and c" — the list reads as prose, not as output."""
+    ws = list(words)
+    if len(ws) <= 1:
+        return ws[0] if ws else ""
+    return ", ".join(ws[:-1]) + " and " + ws[-1]
+
+
+def reasoned_summary(sections: Sequence[Tuple[str, str, list]]) -> str:
+    """The deterministic lede that leads with the most notable line.
+
+    Falls back to `counted_summary` if it can't do better — an empty week, or a
+    headline sentence so long that quoting it would defeat the purpose."""
+    cands = [_Cand(i, title) for title, _v, items in sections for i in items
+             if hasattr(i, "sentence")]
+    if not cands:
+        return ""
+    if len(cands) == 1:
+        return _fit([cands[0].sentence()]) or counted_summary(sections)
+    _score(cands)
+    ranked = sorted(cands, key=lambda c: -c.score)
+    total = len(cands)
+
+    # The headline is quoted verbatim, so it has to be quotable. Some labels run
+    # very long (a four-asset trade names all four), and a 40-word opening
+    # sentence defeats the point of having a lede at all — so a line that can't
+    # be said briefly yields to the next-best one that can.
+    head = next((c for c in ranked[:6]
+                 if len(c.sentence().split()) <= _HEAD_MAX_WORDS), ranked[0])
+    parts = [head.sentence()]
+    named = {id(head)}
+
+    # The bulk, worked out BEFORE the second line is chosen. One stat family
+    # carrying most of the week IS the week, and saying that once is worth more
+    # than any of the lines inside it.
+    rest = [c for c in cands if id(c) not in named]
+    big = [b for b in _blocks(rest) if b[1] >= max(4, int(0.2 * total))][:2]
+    covered = sum(n for _f, n, _s in big)
+    block_fams = {f for f, _n, _s in big}
+
+    # A second line earns its place only by being about a different STAT, by not
+    # already being covered by a block, and by being a stat rather than a
+    # diagnostic — another KTC line above the sentence that says "59 KTC moves"
+    # is the same fact told twice, and no lede should open on a column called
+    # "Pick-adjusted Difference in KTC 4 years after draft day".
+    for c in ranked[1:8]:
+        if (c.score >= 0.4 * head.score and c.family != head.family
+                and c.family not in block_fams
+                and (not c.derived or head.derived)
+                and len(c.sentence().split()) <= _HEAD_MAX_WORDS):
+            parts.append(c.sentence())
+            named.add(id(c))
+            rest = [x for x in rest if id(x) != id(c)]
+            break
+    if len(big) == 1:
+        fam, n, secs = big[0]
+        lead = ("The rest of the week is one story: " if covered >= 0.7 * len(rest)
+                else "Most of the rest is one story: ")
+        parts.append(f"{lead}{n} {fam} moves across {_join(secs[:3])}.")
+    elif big:
+        parts.append("Most of the rest is "
+                     + _join([f"{n} {fam} moves" for fam, n, _s in big]) + ".")
+
+    leftover = len(rest) - covered
+    if leftover and (not big or leftover >= max(3, int(0.1 * total))):
+        where = _join(sorted({_short(c.section) for c in rest})[:3])
+        parts.append(f"{leftover} other {'move' if leftover == 1 else 'moves'} "
+                     f"across {where}.")
+
+    # Ties are easy to miss in a list of near-identical lines, and a week that is
+    # a third ties is a different week from one that is none.
+    ties = sum(1 for c in cands if c.tied)
+    if ties >= 3:
+        parts.append(f"{ties} of the {total} were ties rather than overtakes.")
+
+    return _fit(parts) or counted_summary(sections)
+
+
+def _fit(parts: List[str]) -> str:
+    """Join what fits, dropping whole sentences from the end — never cutting one
+    mid-way, which would leave a half-stated fact in the email.
+
+    Held to a tighter word budget than the AI lede: this one QUOTES the digest's
+    own sentences rather than writing its own, and quoted sentences are long."""
+    out: List[str] = []
+    for p in parts:
+        trial = out + [p]
+        if len(trial) > _MAX_SENTENCES or len(" ".join(trial).split()) > _LEDE_MAX_WORDS:
+            break
+        out = trial
+    return " ".join(out)
 
 
 # ---------------------------------------------------------------------------
@@ -310,9 +599,19 @@ def build_intro(sections: Sequence[Tuple[str, str, list]], title: str,
     try:
         if not sections:
             return ""
-        counted = counted_summary(sections) if fallback is None else fallback
+        # The digest's own fallback reasons about the lines (see
+        # `reasoned_summary`); the audit email passes its own counted line in.
+        counted = (reasoned_summary(sections) or counted_summary(sections)
+                   if fallback is None else fallback)
         if use_ai:
-            text = ai_summary(sections, title, counted, system=system, model=model)
+            # The deterministic read goes into the prompt as well as being the
+            # fallback: its aggregates ("59 KTC moves", "16 of the 65") are
+            # computed truths the model would otherwise have to work out, and
+            # `is_grounded` refuses numbers that aren't in front of it.
+            totals = counted_summary(sections)
+            if counted and counted != totals:
+                totals = f"{totals}\nA deterministic read of the same lines: {counted}"
+            text = ai_summary(sections, title, totals, system=system, model=model)
             if text:
                 return text
         return counted

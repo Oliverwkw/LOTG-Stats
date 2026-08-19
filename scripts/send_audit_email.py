@@ -25,8 +25,9 @@ A week WITH findings opens with a lede — up to five sentences saying which of
 them needs a decision, because a flag per sheet with a dozen detail lines under
 each is a wall. Claude writes it when ANTHROPIC_API_KEY is set (one repo secret;
 setup is documented in lib/lotg_support/email_summary.py) and the draft passes
-the grounding guards; otherwise it is a counted line. Neither can stop the email
-going out. A clean week gets no lede — that email is already one sentence.
+the grounding guards; otherwise it is a counted line (the audit's findings are
+already ranked by the audit itself, so there is nothing for a scorer to add).
+Neither can stop the email going out. A clean week gets no lede — that email is already one sentence.
 
 HOW MUCH IT SAYS depends entirely on whether anything needs a decision:
 
