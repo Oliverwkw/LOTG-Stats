@@ -22,12 +22,13 @@ didn't run", not "nothing's wrong". Pass --skip-clean to suppress the email on a
 clean week instead.
 
 A week WITH findings opens with a lede — up to five sentences saying which of
-them needs a decision, because a flag per sheet with a dozen detail lines under
-each is a wall. Claude writes it when ANTHROPIC_API_KEY is set (one repo secret;
-setup is documented in lib/lotg_support/email_summary.py) and the draft passes
-the grounding guards; otherwise it is a counted line (the audit's findings are
-already ranked by the audit itself, so there is nothing for a scorer to add).
-Neither can stop the email going out. A clean week gets no lede — that email is already one sentence.
+them is most likely to be a REAL BUG, because a flag per sheet with a dozen
+detail lines under each is a wall. It is computed, not written: a lost column or
+a build error outranks rows that moved, and among rows that moved the SHAPE of
+the number change (a value that went blank, dropped to zero, flipped sign, or
+jumped an order of magnitude) is what separates a defect from upstream drift.
+See lotg_support.email_summary. It cannot stop the email going out. A clean week
+gets no lede — that email is already one sentence.
 
 HOW MUCH IT SAYS depends entirely on whether anything needs a decision:
 
@@ -46,7 +47,7 @@ digest). Safe no-op (logged, exit 0) when creds are absent, unless --require.
 
 Usage:
   PYTHONPATH=src:lib python scripts/send_audit_email.py \
-      --exports exports --baseline /tmp/baseline_exports [--no-ai-summary]
+      --exports exports --baseline /tmp/baseline_exports
 """
 from __future__ import annotations
 
@@ -200,61 +201,23 @@ def _upstream_only_html(drift, attributed_cells: int) -> str:
 # ---------------------------------------------------------------------------
 # A week with findings is a wall: a flag per sheet, a dozen detail lines under
 # each, plus the NFLverse breakdown they have to be read against. The lede says
-# which of it needs a decision. Same machinery as the digest's (one repo secret
-# turns it on; see lib/lotg_support/email_summary.py), and the same rule: it
-# cannot stop the email — build_intro never raises, and a lede that isn't
-# available or isn't grounded degrades to the counted line below.
+# which of it is most likely to be a real bug — see lotg_support.email_summary,
+# which parses the audit's own detail lines for the SHAPE of each number change
+# (blank, zero, sign flip, order of magnitude) rather than just counting rows.
 #
 # Only on a week WITH findings. The clean-week email is already one sentence
 # long; a summary of one sentence is noise.
-def _lede_sections(flags, gaps: dict, drift, attributed: int):
-    """The audit's own rendered lines, grouped the way the email groups them."""
-    breaks = []
-    for f in flags:
-        breaks.append(ES.Line(f["text"]))
-        breaks += [ES.Line("    " + (d[2:] if d.startswith("- ") else d))
-                   for d in f["details"][:_MAX_DETAIL_LINES]]
-    upstream = []
-    if drift is not None and getattr(drift, "compared", False):
-        tail = (f" It accounts for {attributed} changed row(s) in our exports."
-                if attributed else "")
-        upstream.append(ES.Line(drift.summary() + tail))
-    injuries = [ES.Line(f"{season}: weeks "
-                        + ", ".join(str(w) for w in gaps[season])
-                        + " were played but have no injury capture.")
-                for season in sorted(gaps)]
-    return [(t, "", items) for t, items in (
-        ("Dataset breakages", breaks),
-        ("NFLverse changes", upstream),
-        ("Missed injuries", injuries),
-    ) if items]
-
-
-def _counted_lede(flags, gaps: dict) -> str:
-    """The deterministic audit lede: how many findings, and how many gaps."""
-    n_break, n_gap = len(flags), sum(len(v) for v in gaps.values())
-    bits = []
-    if n_break:
-        sheets = len({f.get("section") or f["text"] for f in flags})
-        bits.append(f"{n_break} finding{'s' if n_break != 1 else ''} "
-                    f"across {sheets} audit section{'s' if sheets != 1 else ''}")
-    if n_gap:
-        bits.append(f"{n_gap} missed injury week{'s' if n_gap != 1 else ''}")
-    # No "needs a look" — the banner directly above already says that.
-    return (" and ".join(bits) + ".") if bits else ""
-
-
 def _lede_html(intro: str) -> str:
     if not intro:
         return ""
     return ('<p style="margin:0 0 16px;padding:12px 14px;background:#f2f6fb;'
             'border-left:3px solid #0b2545;border-radius:4px;color:#0b2545;">'
-            f'{intro}</p>')
+            f'{_esc(intro)}</p>')
 
 
 def render_email(flags, gaps: dict, captures_present: bool, drift=None,
                  attributed: int = 0, attributed_sheets=None, attributed_columns=None,
-                 attributed_cells: int = 0, use_ai: bool = True):
+                 attributed_cells: int = 0):
     """Return (subject, html, has_issues)."""
     n_break = len(flags)
     n_gap = sum(len(v) for v in gaps.values())
@@ -285,11 +248,7 @@ def render_email(flags, gaps: dict, captures_present: bool, drift=None,
         subject = f"✅ LOTG dataset health — all clear ({today})"
         banner_bg, banner = "#e7f4ea", "✅ All clear this week"
 
-    # Only on a week with findings — see _lede_sections.
-    intro = ES.build_intro(
-        _lede_sections(flags, gaps, drift, attributed), subject,
-        fallback=_counted_lede(flags, gaps), system=ES.SYSTEM_AUDIT,
-        use_ai=use_ai) if has_issues else ""
+    intro = ES.audit_lede(flags, gaps, drift, attributed) if has_issues else ""
     if intro:
         print(f"[audit-email] lede: {intro}")
 
@@ -335,9 +294,6 @@ def main(argv=None) -> int:
                     help="don't send when there are no breakages and no missed weeks")
     ap.add_argument("--require", action="store_true",
                     help="exit non-zero instead of skipping when the send is impossible")
-    ap.add_argument("--no-ai-summary", action="store_true",
-                    help="skip the Claude-written lede and always use the counted "
-                         "one (the default anyway when ANTHROPIC_API_KEY is unset)")
     args = ap.parse_args(argv)
 
     def _bail(msg: str) -> int:
@@ -360,8 +316,7 @@ def main(argv=None) -> int:
 
     subject, html, has_issues = render_email(
         flags, gaps, bool(captures), rep.drift, rep.nflverse_attributed,
-        rep.attributed_sheets, rep.attributed_columns, rep.attributed_cells,
-        use_ai=not args.no_ai_summary)
+        rep.attributed_sheets, rep.attributed_columns, rep.attributed_cells)
     print(f"[audit-email] {subject}")
     if args.out:
         Path(args.out).parent.mkdir(parents=True, exist_ok=True)

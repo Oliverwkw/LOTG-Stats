@@ -19,18 +19,15 @@ catalog and exits.
 
 The email opens with a short lede — up to five sentences, fewer on a quiet week —
 saying what actually happened, because the list under it runs to dozens of
-one-line facts. Claude writes it when ANTHROPIC_API_KEY is set and the draft
-passes the guards; otherwise a deterministic pass scores every line on place,
-prominence and surprise and leads with the winner. Neither path can fail the build:
-see `lotg_support/email_summary`, which also documents the one repo secret that
-turns the Claude lede on.
+one-line facts. It is computed, not written: every move is scored on place,
+prominence and surprise, and the winner leads. See `lotg_support/email_summary`
+(and `plan/notes/ai-email-lede.md` for the shelved model-written version).
 
 Delivery is separate — see `scripts/send_digest.py`. This CLI only renders.
 
 Usage:
   PYTHONPATH=src:lib python scripts/build_digest.py [--exports DIR]
        [--snapshot PATH] [--out PATH] [--force] [--phrasing-csv PATH]
-       [--no-ai-summary]
 """
 from __future__ import annotations
 
@@ -66,10 +63,6 @@ def main(argv=None) -> int:
     ap.add_argument("--replica", default=None,
                     help="write the 'most recent digest' replica (latest completed "
                          "season's post-championship wrap) to this path and exit")
-    ap.add_argument("--no-ai-summary", action="store_true",
-                    help="skip the Claude-written lede and always use the "
-                         "deterministic one (the default anyway when "
-                         "ANTHROPIC_API_KEY is unset)")
     args = ap.parse_args(argv)
 
     exports = Path(args.exports)
@@ -182,15 +175,13 @@ def main(argv=None) -> int:
             event_changes = D.diff_events(prior_events, events)
 
     # The lede: up to five sentences above the list saying what actually
-    # happened, because 65 one-line facts is a wall nobody reads. Claude writes
-    # it from the digest's own sentences when a key is configured and the draft
-    # passes the guards; otherwise the deterministic scorer picks the headline.
-    # Either way this cannot fail the build — build_intro never raises. See
+    # happened, because 65 one-line facts is a wall nobody reads. Computed, not
+    # written — every move is scored on place, prominence and surprise, and the
+    # winner leads. Cannot fail the build; build_intro never raises. See
     # lotg_support/email_summary.
     sections = D.digest_sections(crossings, proj_changes, milestones,
                                  record_changes, highlights, event_changes)
-    intro = DS.build_intro(sections, D.digest_title(meta),
-                           use_ai=not args.no_ai_summary)
+    intro = DS.build_intro(sections, D.digest_title(meta))
     if intro:
         print(f"[digest] lede: {intro}")
 

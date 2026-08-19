@@ -6,55 +6,27 @@ with findings, runs to a flag per sheet with a dozen detail lines under each.
 Nobody reads a wall, and the one line that matters sits in it with the same
 weight as the thirtieth.
 
-This writes the few sentences that go above the list. Two ways, tried in order:
+This writes the few sentences that go above the list. Both ledes are computed —
+no model, no key, no network, nothing to pay for — but neither is a count.
+Each reasons about its own kind of email:
 
-  1. **Claude** (`ANTHROPIC_API_KEY` set). The model is handed the email's own
-     already-rendered sentences — never a frame, never a rank map, never a number
-     it has to work out — and asked which of them matter. That is the judgment a
-     count can't make: one 1st-place overtake outweighs thirty 5th-place
-     shuffles, and one schema break outweighs a thousand re-valued cells.
-  2. **`reasoned_summary`**, otherwise — a deterministic lede that scores every
-     line on place, prominence and surprise, leads with the winner, and folds the
-     bulk into one clause. Offline, always true, and good enough that the AI path
-     is an upgrade rather than a requirement. (The audit email passes its own
-     counted line instead.)
+  `digest_lede`  scores every board move on PLACE, PROMINENCE and SURPRISE,
+                 leads with the winner, and folds the bulk into one clause.
+  `audit_lede`   scores every finding on how likely it is to be a REAL BUG:
+                 a lost column or a build error outranks rows that moved, and
+                 among rows that moved, the size and shape of the number swing
+                 is what separates a defect from drift.
 
-Every AI draft passes `is_grounded` before it ships: every number in it must
-already appear in the material it was given. These are stats emails — a lede that
-invents a number is worse than no lede, and the fallback is one line away. A
-draft that trips the guard is dropped silently in favour of (2).
+An AI version of this was written, tested and shelved; `plan/notes/ai-email-lede.md`
+has the prompts, the grounding guard, the code and the setup steps, along with
+the cases where a model would beat these heuristics.
 
 **Nothing here can stop an email going out.** Every entry point returns a string
-or "" — no key, no `anthropic` package, an API error, a timeout, a refusal, an
-over-long answer, or an unexpected exception anywhere in this module all end the
-same way: the counted lede, or no lede at all, and the email sends exactly as it
-did before this file existed.
-
-Env:
-  ANTHROPIC_API_KEY     enables the AI lede; absent (and no ANTHROPIC_AUTH_TOKEN)
-                        means the counted lede and no network call at all.
-  LOTG_SUMMARY_MODEL    override the model (default: claude-opus-5).
-
-TURNING THE AI LEDE ON (one repo secret, no other setup):
-
-  1. Create an API key at https://platform.claude.com/settings/keys and copy it
-     (it is shown once). Any workspace works; spend is a few cents a month —
-     two emails a week, a page of text each.
-  2. In GitHub: the repo -> Settings -> Secrets and variables -> Actions ->
-     "New repository secret". Name it exactly ANTHROPIC_API_KEY, paste the key,
-     click "Add secret".
-  3. Nothing else. `.github/workflows/build.yml` (digest) and
-     `weekly_health_email.yml` (audit) already pass the secret through; with no
-     secret present they pass an empty string and this module never dials out.
-
-  To check it took: after the next run, `exports/raw/digest.log` /
-  `exports/raw/audit_email.log` print the lede that shipped and, when the AI one
-  was rejected, exactly why. To turn it back off, delete the secret.
+or "", and `build_intro` catches everything: the lede is a nicety on top of mail
+that has to send either way.
 """
 from __future__ import annotations
 
-import html
-import os
 import re
 from typing import List, Optional, Sequence, Tuple
 
@@ -62,69 +34,20 @@ from typing import List, Optional, Sequence, Tuple
 # sentences or one long one, and a word budget quietly punishes the former. The
 # word ceiling is only a runaway guard for a model that ignores the sentence cap.
 _MAX_SENTENCES = 5
-_MAX_WORDS = 150
-# The deterministic lede quotes the digest's own sentences instead of writing
-# its own, so it gets a tighter budget: a quoted line can be 30 words on its own.
-_LEDE_MAX_WORDS = 70
-_HEAD_MAX_WORDS = 32
+# Two is a paragraph; one is a headline with no context. A week with more than
+# one move always gets a second sentence, even if it has to run over budget.
+_MIN_SENTENCES = 2
+# The lede QUOTES the digest's own sentences instead of writing its own, and a
+# quoted line can be 30 words on its own — so the budget is generous, with a hard
+# ceiling behind it that only the minimum-sentence rule can push into.
+_LEDE_MAX_WORDS = 95
+_LEDE_HARD_WORDS = 130
+_HEAD_MAX_WORDS = 34
 # What we hand the model. A quiet week is a dozen lines; the busiest digest on
 # record is under a hundred. The cap is a cost guard, not a filter we expect to
 # bind — when it does bind, the prompt says so, so the model doesn't claim to
 # have seen every line.
-_MAX_LINES = 150
-_MODEL = os.environ.get("LOTG_SUMMARY_MODEL", "claude-opus-5")
-_TIMEOUT_S = 90.0
 
-_LENGTH_RULE = f"""\
-- At most {_MAX_SENTENCES} sentences, and fewer whenever fewer will do — one \
-sentence is the right length for a quiet week. Length should track how much \
-actually happened, not fill the allowance.
-- Plain prose, no bullets, no heading, no markdown, no preamble like "Here is". \
-Output only the paragraph itself."""
-
-_GROUNDING_RULE = """\
-- Every fact must come from the lines you are given. Do not use any number that \
-does not appear there, do not compute new numbers, and do not name anything that \
-is not named there."""
-
-SYSTEM_DIGEST = f"""\
-You write the opening paragraph of a fantasy-football league's weekly stats \
-email. Below it sits the full list of every leaderboard move, which the reader \
-can already see. Your job is to tell them which of those moves is worth caring \
-about, so they know whether to read on.
-
-Rules:
-{_LENGTH_RULE}
-{_GROUNDING_RULE}
-- Lead with the single most notable item, then the shape of the rest. A 1st- or \
-2nd-place move outranks a 5th-place one; a record or a milestone outranks a \
-board shuffle; a stat people care about (points, O-Score, trades) outranks an \
-obscure one.
-- When a whole section moved for one obvious reason — dozens of draft-pick KTC \
-values, say — say that as one clause rather than listing them.
-- Write for the league members, not for an analyst. Name teams and players the \
-way the lines do. No hype, no exclamation marks, no second-guessing the data."""
-
-SYSTEM_AUDIT = f"""\
-You write the opening paragraph of a weekly dataset-health email for the one \
-person who maintains a fantasy-football stats pipeline. Below it sits the full \
-audit: every finding, its detail lines, what upstream revised, and which weeks \
-are missing injury captures. Your job is to tell the maintainer what needs a \
-decision, so they know whether to open it now or after coffee.
-
-Rules:
-{_LENGTH_RULE}
-{_GROUNDING_RULE}
-- Lead with the thing most likely to be a real defect. A lost or renamed column, \
-a build error, or a failing test outranks rows that moved; rows that moved for no \
-stated reason outrank rows explained by an upstream revision or a merged code \
-change; a missed injury week is the least urgent thing here.
-- Say what moved and roughly how much, not every sheet by name. If many sheets \
-moved for one stated reason, say the reason once.
-- Do not diagnose, do not speculate about a cause the lines don't state, and do \
-not recommend a fix. Do not reassure — if the findings are all explained, say \
-so plainly and stop.
-- Write to a peer who knows this pipeline. No hedging, no exclamation marks."""
 
 
 # ---------------------------------------------------------------------------
@@ -139,20 +62,6 @@ class Line:
 
     def sentence(self) -> str:
         return self.text
-
-
-def section_lines(sections: Sequence[Tuple[str, str, list]]) -> List[Tuple[str, List[str]]]:
-    """(title, [sentence, ...]) per section — the email's own phrasing.
-
-    Deliberately the rendered sentences and nothing else. The model never sees a
-    frame, a rank map, or a raw value it would have to interpret, so the worst it
-    can do is choose badly among true statements."""
-    out = []
-    for title, _verb, items in sections:
-        lines = [i.sentence() for i in items if hasattr(i, "sentence")]
-        if lines:
-            out.append((title, lines))
-    return out
 
 
 def counted_summary(sections: Sequence[Tuple[str, str, list]]) -> str:
@@ -292,7 +201,7 @@ class _Cand:
     seen scores as an ordinary line instead of raising."""
 
     __slots__ = ("item", "section", "rank", "column", "family", "end",
-                 "sheet", "tied", "derived", "score")
+                 "sheet", "tied", "derived", "who", "score")
 
     def __init__(self, item, section: str):
         self.item = item
@@ -304,6 +213,7 @@ class _Cand:
         self.sheet = str(getattr(item, "sheet", "") or getattr(item, "section", "") or section)
         self.tied = bool(getattr(item, "tied", False))
         self.derived = _prominence(self.column, self.family) < 1.0
+        self.who = str(getattr(item, "group", lambda: "")() or "")
         self.score = 0.0
 
     def sentence(self) -> str:
@@ -411,31 +321,38 @@ def reasoned_summary(sections: Sequence[Tuple[str, str, list]]) -> str:
     covered = sum(n for _f, n, _s in big)
     block_fams = {f for f, _n, _s in big}
 
-    # A second line earns its place only by being about a different STAT, by not
-    # already being covered by a block, and by being a stat rather than a
-    # diagnostic — another KTC line above the sentence that says "59 KTC moves"
-    # is the same fact told twice, and no lede should open on a column called
-    # "Pick-adjusted Difference in KTC 4 years after draft day".
+    # A second line earns its place by being about a different STAT and by not
+    # already being covered by a block — another KTC line above the sentence that
+    # says "59 KTC moves" is the same fact told twice, and so is a second line
+    # about the same trade. A diagnostic column is NOT excluded: `_prominence`
+    # already discounts it in the score, and an all-time worst on one is still an
+    # all-time worst.
     for c in ranked[1:8]:
         if (c.score >= 0.4 * head.score and c.family != head.family
                 and c.family not in block_fams
-                and (not c.derived or head.derived)
+                and (c.who != head.who or not c.who)
                 and len(c.sentence().split()) <= _HEAD_MAX_WORDS):
             parts.append(c.sentence())
             named.add(id(c))
             rest = [x for x in rest if id(x) != id(c)]
             break
+    # The leftover rides on the block clause rather than taking a sentence of its
+    # own, because the two are one thought — and because the counts have to
+    # CLOSE. "59 KTC moves" under "16 of the 65" left six moves unaccounted for,
+    # which reads as an arithmetic mistake even when every figure is right.
+    leftover = len(rest) - covered
+    spare = (f", plus {leftover} other{'' if leftover == 1 else 's'}"
+             if leftover else "")
     if len(big) == 1:
         fam, n, secs = big[0]
         lead = ("The rest of the week is one story: " if covered >= 0.7 * len(rest)
                 else "Most of the rest is one story: ")
-        parts.append(f"{lead}{n} {fam} moves across {_join(secs[:3])}.")
+        parts.append(f"{lead}{n} {fam} moves across {_join(secs[:3])}{spare}.")
     elif big:
         parts.append("Most of the rest is "
-                     + _join([f"{n} {fam} moves" for fam, n, _s in big]) + ".")
-
-    leftover = len(rest) - covered
-    if leftover and (not big or leftover >= max(3, int(0.1 * total))):
+                     + _join([f"{n} {fam} moves" for fam, n, _s in big])
+                     + f"{spare}.")
+    elif leftover:
         where = _join(sorted({_short(c.section) for c in rest})[:3])
         parts.append(f"{leftover} other {'move' if leftover == 1 else 'moves'} "
                      f"across {where}.")
@@ -446,6 +363,10 @@ def reasoned_summary(sections: Sequence[Tuple[str, str, list]]) -> str:
     if ties >= 3:
         parts.append(f"{ties} of the {total} were ties rather than overtakes.")
 
+    # Two sentences minimum when there is more than one move: if the composition
+    # above produced only a headline, the shape of the week is the missing half.
+    if len(parts) == 1 and total > 1:
+        parts.append(counted_summary(sections))
     return _fit(parts) or counted_summary(sections)
 
 
@@ -453,12 +374,18 @@ def _fit(parts: List[str]) -> str:
     """Join what fits, dropping whole sentences from the end — never cutting one
     mid-way, which would leave a half-stated fact in the email.
 
-    Held to a tighter word budget than the AI lede: this one QUOTES the digest's
-    own sentences rather than writing its own, and quoted sentences are long."""
+    Two sentences are guaranteed when two exist: a lone headline reads as an
+    accident rather than a summary. That guarantee can push past the normal word
+    budget, but never past the hard ceiling — a lede longer than the list it
+    summarises has failed at its one job."""
     out: List[str] = []
     for p in parts:
         trial = out + [p]
-        if len(trial) > _MAX_SENTENCES or len(" ".join(trial).split()) > _LEDE_MAX_WORDS:
+        if len(trial) > _MAX_SENTENCES:
+            break
+        words = len(" ".join(trial).split())
+        required = len(trial) <= _MIN_SENTENCES
+        if words > (_LEDE_HARD_WORDS if required else _LEDE_MAX_WORDS):
             break
         out = trial
     return " ".join(out)
@@ -467,23 +394,10 @@ def _fit(parts: List[str]) -> str:
 # ---------------------------------------------------------------------------
 # The guards
 # ---------------------------------------------------------------------------
-_NUM = re.compile(r"\d[\d,]*(?:\.\d+)?")
 # A sentence ends at .!? followed by whitespace or the end of the text. "103.3"
 # and "pick 2.04" don't match (the dot is followed by a digit), which is the
 # whole reason for the lookahead.
 _SENT_END = re.compile(r"[.!?][\"')\]]*(?:\s|$)")
-
-
-def _numbers(text: str) -> set:
-    """Numeric tokens, comma- and trailing-zero-normalised so "1,234" and "1234"
-    and "1234.0" are the same number."""
-    out = set()
-    for raw in _NUM.findall(text or ""):
-        v = raw.replace(",", "")
-        if "." in v:
-            v = v.rstrip("0").rstrip(".")
-        out.add(v or "0")
-    return out
 
 
 def sentence_count(text: str) -> int:
@@ -496,125 +410,348 @@ def sentence_count(text: str) -> int:
     return len(ends) + trailing
 
 
-def is_grounded(summary: str, source: str) -> bool:
-    """Every number in `summary` also appears in `source`.
-
-    Ordinals ("2nd") and values ("103.3") both fall out of the same regex, so a
-    draft that promotes a 5th-place move to "1st", or rounds a value, fails here
-    rather than in someone's inbox. The counted line is stated in `source` for
-    the same reason — the model is never asked to add anything up."""
-    return _numbers(summary).issubset(_numbers(source))
-
-
-def _acceptable(summary: str, source: str) -> bool:
-    s = (summary or "").strip()
-    if not s or sentence_count(s) > _MAX_SENTENCES or len(s.split()) > _MAX_WORDS:
-        return False
-    # A model that answered with a list, a heading, or a preamble did not follow
-    # the brief; the counted lede is better than a half-followed one.
-    if s.startswith(("#", "-", "*", "Here", "Summary")) or "\n\n" in s:
-        return False
-    return is_grounded(s, source)
-
-
-# ---------------------------------------------------------------------------
-# The AI lede
-# ---------------------------------------------------------------------------
-def _prompt(sections: Sequence[Tuple[str, str, list]], title: str,
-            totals: str = "") -> str:
-    blocks = [f"Email header: {title}", f"Totals: {totals}", ""]
-    budget = _MAX_LINES
-    for name, lines in section_lines(sections):
-        shown = lines[:budget]
-        blocks.append(f"## {name} ({len(lines)})")
-        blocks += shown
-        if len(shown) < len(lines):
-            blocks.append(f"(+{len(lines) - len(shown)} more lines in this section, "
-                          f"not shown — do not claim to have seen every line)")
-        blocks.append("")
-        budget -= len(shown)
-        if budget <= 0:
-            break
-    return "\n".join(blocks)
-
-
-def ai_summary(sections: Sequence[Tuple[str, str, list]], title: str,
-               totals: str = "", system: str = SYSTEM_DIGEST,
-               model: Optional[str] = None) -> Optional[str]:
-    """Claude's lede, or None if it isn't available or isn't usable.
-
-    Never raises: a missing package, a missing key, a network failure, a refusal
-    and an ungrounded draft are all the same outcome to the caller — no lede,
-    use the counted one."""
-    if not (os.environ.get("ANTHROPIC_API_KEY") or os.environ.get("ANTHROPIC_AUTH_TOKEN")):
-        return None
-    try:
-        import anthropic
-    except Exception:                             # noqa: BLE001 — absent or broken install
-        return None
-    source = _prompt(sections, title, totals)
-    try:
-        client = anthropic.Anthropic(timeout=_TIMEOUT_S)
-        with client.messages.stream(
-            model=model or _MODEL,
-            max_tokens=2000,
-            system=system,
-            thinking={"type": "adaptive"},
-            output_config={"effort": "medium"},
-            messages=[{"role": "user", "content": source}],
-        ) as stream:
-            message = stream.get_final_message()
-    except Exception as exc:                      # noqa: BLE001 — never fail the email
-        print(f"[lede] AI summary unavailable ({type(exc).__name__}: {exc}) "
-              f"— using the counted lede.")
-        return None
-    if getattr(message, "stop_reason", None) == "refusal":
-        print("[lede] AI summary declined — using the counted lede.")
-        return None
-    text = " ".join(b.text for b in message.content
-                    if getattr(b, "type", None) == "text").strip()
-    if not _acceptable(text, source):
-        print(f"[lede] AI summary rejected by the guards "
-              f"({sentence_count(text)} sentence(s), {len(text.split())} words) "
-              f"— using the counted lede.")
-        return None
-    # This string is interpolated straight into the email body. It is the only
-    # part of either email we didn't write, so it gets escaped; an `&` or a `<`
-    # in a model-written sentence would otherwise render as broken markup.
-    return html.escape(text, quote=False)
-
 
 # ---------------------------------------------------------------------------
 # Entry point
 # ---------------------------------------------------------------------------
-def build_intro(sections: Sequence[Tuple[str, str, list]], title: str,
-                fallback: Optional[str] = None, system: str = SYSTEM_DIGEST,
-                use_ai: bool = True, model: Optional[str] = None) -> str:
-    """The lede for this email: Claude's if it's available and grounded, the
-    caller's counted line otherwise, "" when there is nothing to summarise.
+def build_intro(sections: Sequence[Tuple[str, str, list]], title: str = "",
+                fallback: Optional[str] = None) -> str:
+    """The digest's lede: the reasoned read of the board moves, the counts as a
+    floor beneath it, "" when there is nothing to summarise.
 
-    Cannot raise. The lede is a nicety on top of an email that has to go out
-    either way, so an unexpected failure anywhere in here costs the lede and
+    `fallback` lets a caller supply its own lede instead — the audit email does,
+    via `audit_lede`, because its findings need a different kind of reasoning.
+
+    Cannot raise. An unexpected failure anywhere in here costs the lede and
     nothing else."""
     try:
-        if not sections:
+        if not sections and fallback is None:
             return ""
-        # The digest's own fallback reasons about the lines (see
-        # `reasoned_summary`); the audit email passes its own counted line in.
-        counted = (reasoned_summary(sections) or counted_summary(sections)
-                   if fallback is None else fallback)
-        if use_ai:
-            # The deterministic read goes into the prompt as well as being the
-            # fallback: its aggregates ("59 KTC moves", "16 of the 65") are
-            # computed truths the model would otherwise have to work out, and
-            # `is_grounded` refuses numbers that aren't in front of it.
-            totals = counted_summary(sections)
-            if counted and counted != totals:
-                totals = f"{totals}\nA deterministic read of the same lines: {counted}"
-            text = ai_summary(sections, title, totals, system=system, model=model)
-            if text:
-                return text
-        return counted
+        if fallback is not None:
+            return fallback
+        return reasoned_summary(sections) or counted_summary(sections)
     except Exception as exc:                      # noqa: BLE001 — never fail the email
         print(f"[lede] summary skipped ({type(exc).__name__}: {exc}).")
         return ""
+
+
+# `digest_lede` is the name the callers should use; `reasoned_summary` stays as
+# the implementation it delegates to.
+digest_lede = build_intro
+
+
+# ---------------------------------------------------------------------------
+# The audit lede — which finding is most likely to be a real bug
+# ---------------------------------------------------------------------------
+# The digest lede asks "which move is most interesting?". The audit asks a
+# harder and more useful question: "which of these is a DEFECT, and which is the
+# pipeline working?" Most weeks the answer is "none of them" — upstream revised
+# some data and our exports followed — so the lede's job is to say, in one
+# sentence, whether this is one of those weeks.
+#
+# Three things separate a defect from drift, in order:
+#
+#   STRUCTURE    A pinned column that vanished or was renamed, a build error, a
+#                failing test. These are not judgement calls: the pipeline said
+#                it would produce something and didn't.
+#   SWING SHAPE  Among rows that merely moved, the SHAPE of the number change is
+#                the signal. A value that went blank, dropped to zero, or flipped
+#                sign is a different event from one that moved 2%. This is the
+#                bug class this repo keeps hitting — a present-day feed deciding
+#                a historical value, which shows up as a wall of `1613 → 0`.
+#   BREADTH      One column moving across a thousand rows is one cause reported a
+#                thousand times. Many columns moving in one sheet is broader and
+#                worse. Counting rows conflates the two; counting distinct
+#                columns doesn't.
+#
+# Everything is parsed out of the audit's own already-rendered detail lines, so
+# the lede cannot contradict the list underneath it.
+
+# Blanks are half of most drift pairs, and audit_weekly renders them as "∅".
+_BLANKS = {"", "∅", "n/a", "na", "nan", "none", "null", "in progress", "-"}
+# "changed: Team=A | Year=2024 — PF: 100 → 999; O-Score: 41.2 → 39.8"
+_DELTA_SPLIT = " — "
+_ARROW = " → "
+# How a finding's own section places it before any of its details are read.
+_AUDIT_SECTION_WEIGHT = (
+    ("part 2", 1.00),      # schema: a pinned column lost or renamed
+    ("schema", 1.00),
+    ("part 3", 0.92),      # build errors, failing tests
+    ("part 1", 0.45),      # rows moved — the swing shape decides how much it matters
+)
+# Matched against the finding's SECTION only. Matching its text too looked
+# harmless and wasn't: every Part 1 finding ends "since the committed build",
+# so a substring test for "build" promoted routine row movement to the weight of
+# a build error, and the real build error stopped leading the email.
+# These phrases are unambiguous enough to raise a finding on their own.
+_STRUCTURAL_MARKERS = ("missing pinned column", "renamed", "no longer present",
+                       "build error", "failing test", "test failed",
+                       "lost column", "unreadable", "could not be read")
+_SWING_WEIGHT = 0.5        # how much the worst swing can lift a Part 1 finding
+# A swing of this factor or more is reported as a defect shape rather than a
+# correction. Two-and-a-half times is deliberately low: on these sheets a value
+# that merely doubled is already the wrong value, not a revised one.
+_FOLD_MIN = 2.5
+# The shapes that read as a defect rather than a correction, and how to count
+# them in prose. Everything not in here is ordinary movement.
+_SEVERE_KINDS = {
+    "blank": "went blank",
+    "zero": "dropped to zero",
+    "sign": "flipped sign",
+    "fold": "swung several-fold",
+}
+
+
+def _num(text: str) -> Optional[float]:
+    try:
+        return float(str(text).replace(",", "").replace("%", "").strip())
+    except (TypeError, ValueError):
+        return None
+
+
+def _swing(old: str, new: str) -> Tuple[float, str, str]:
+    """(severity 0-1, kind key, how to say it).
+
+    Ordered by how hard the change is to explain as ordinary drift. A number that
+    became nothing, or became zero, or moved by a factor, is the shape of a bug;
+    a number that moved a couple of percent is the shape of an upstream
+    correction. The fold case reports the actual multiple, because "a 10x swing"
+    and "a 1000x swing" are not the same news."""
+    o_raw, n_raw = str(old).strip(), str(new).strip()
+    o_blank, n_blank = o_raw.lower() in _BLANKS, n_raw.lower() in _BLANKS
+    if o_blank and n_blank:
+        return 0.0, "", ""
+    if n_blank:
+        return 1.00, "blank", "a value that went blank"
+    if o_blank:
+        # A window maturing looks exactly like this and is expected; the audit
+        # already suppresses the clean cases, so what reaches here is mild.
+        return 0.15, "filled", "a blank that filled in"
+    o, n = _num(o_raw), _num(n_raw)
+    if o is None or n is None:
+        return 0.40, "text", "a text value that changed"
+    if o == n:
+        return 0.0, "", ""
+    if n == 0:
+        return 0.90, "zero", "a value that dropped to zero"
+    if o == 0:
+        return 0.50, "offzero", "a value that came off zero"
+    if o * n < 0:
+        return 0.80, "sign", "a value that flipped sign"
+    big, small = max(abs(o), abs(n)), min(abs(o), abs(n))
+    ratio = big / small if small else float("inf")
+    if ratio >= _FOLD_MIN:
+        sev = 0.62 + min(0.10, (ratio - _FOLD_MIN) / 100.0)
+        return sev, "fold", f"a {_mult(ratio)} swing"
+    rel = abs(n - o) / max(abs(o), 1e-9)
+    return min(0.55, rel), ("move" if rel >= 0.25 else ""), \
+        ("a large move" if rel >= 0.25 else "")
+
+
+def _mult(ratio: float) -> str:
+    """"10×", "1,000×" — rounded, because the exact factor of a bug is noise."""
+    if ratio == float("inf") or ratio >= 1000:
+        return "1,000×+"
+    # 9.99 rounds to "10.0×", which reads as a typo; hand it to the integer form.
+    return f"{ratio:.0f}×" if ratio >= 9.5 else f"{ratio:.1f}×"
+
+
+_ROLLUP = "columns that moved: "
+_ROLLUP_ITEM = re.compile(r"^(?P<col>.+?)\s*\((?P<n>\d+)\)$")
+
+
+class _Finding:
+    """One audit flag: the worst swing under it, and the columns it moved."""
+
+    __slots__ = ("text", "section", "sheet", "score", "worst", "kind",
+                 "column", "columns", "swings", "shown", "sampled")
+
+    def __init__(self, flag: dict):
+        self.text = str(flag.get("text") or "").replace("**", "")
+        self.section = str(flag.get("section") or "")
+        self.sheet = self.text.split(":")[0].strip() if ":" in self.text else ""
+        self.worst, self.kind, self.column = 0.0, "", ""
+        details = list(flag.get("details") or ())
+        # Per-column row counts for the WHOLE finding, from the audit's own
+        # roll-up. The `changed:` lines under it are a sample the audit chose to
+        # show, so counting those would describe the sample, not the week.
+        self.columns = _rollup(details)
+        self.sampled = not self.columns
+        self.swings: dict = {}
+        self.shown = 0
+        seen: dict = {}
+        for col, old, new in _deltas(details):
+            self.shown += 1
+            seen[col] = seen.get(col, 0) + 1
+            sev, key, label = _swing(old, new)
+            if key:
+                self.swings[key] = self.swings.get(key, 0) + 1
+            if sev > self.worst:
+                self.worst, self.kind, self.column = sev, label, col
+        # Without a roll-up the only breadth evidence is the lines the audit
+        # chose to show — usable, but it describes the sample, and `sampled`
+        # makes the lede say so rather than passing it off as the whole week.
+        if self.sampled:
+            self.columns = seen
+        base = 0.60
+        sec = self.section.lower()
+        for needle, w in _AUDIT_SECTION_WEIGHT:
+            if needle in sec:
+                base = w
+                break
+        low = self.text.lower()
+        if any(m in low for m in _STRUCTURAL_MARKERS):
+            base = max(base, 0.92)
+        self.score = min(1.0, base + _SWING_WEIGHT * self.worst)
+
+
+def _rollup(details: Sequence[str]) -> dict:
+    """{column: rows} from the audit's "columns that moved:" line, if present."""
+    out: dict = {}
+    for line in details:
+        i = str(line).find(_ROLLUP)
+        if i < 0:
+            continue
+        tail = str(line)[i + len(_ROLLUP):].split(" … ")[0]
+        for item in tail.split(", "):
+            m = _ROLLUP_ITEM.match(item.strip())
+            if m:
+                out[m.group("col")] = int(m.group("n"))
+    return out
+
+
+def _deltas(details: Sequence[str]):
+    """(column, old, new) for every `COL: old → new` pair in the detail lines.
+
+    Reads the audit's own rendering rather than re-deriving anything, so the
+    lede is incapable of describing a change the list below it doesn't show."""
+    for line in details:
+        if _ROLLUP in str(line):
+            continue
+        _, sep, tail = str(line).partition(_DELTA_SPLIT)
+        if not sep:
+            continue
+        for piece in tail.split("; "):
+            col, sep2, rest = piece.partition(": ")
+            if not sep2 or _ARROW not in rest:
+                continue
+            old, _, new = rest.partition(_ARROW)
+            yield col.strip(), old.strip(), new.strip()
+
+
+def audit_lede(flags: Sequence[dict], gaps: Optional[dict] = None,
+               drift=None, attributed: int = 0) -> str:
+    """The dataset-health lede: what most needs a look, and whether it is a bug.
+
+    Cannot raise — `render_email` calls it while assembling an email that has to
+    go out regardless."""
+    try:
+        return _audit_lede(flags, gaps or {}, drift, attributed)
+    except Exception as exc:                      # noqa: BLE001
+        print(f"[lede] audit summary skipped ({type(exc).__name__}: {exc}).")
+        return _counted_audit(flags, gaps or {})
+
+
+def _counted_audit(flags: Sequence[dict], gaps: dict) -> str:
+    n_break, n_gap = len(flags), sum(len(v) for v in gaps.values())
+    bits = []
+    if n_break:
+        sections = len({f.get("section") or f.get("text") for f in flags})
+        bits.append(f"{n_break} finding{'s' if n_break != 1 else ''} across "
+                    f"{sections} audit section{'s' if sections != 1 else ''}")
+    if n_gap:
+        bits.append(f"{n_gap} missed injury week{'s' if n_gap != 1 else ''}")
+    return (" and ".join(bits) + ".") if bits else ""
+
+
+def _plural(n: int, word: str) -> str:
+    return f"{n} {word}" + ("" if n == 1 else "s")
+
+
+def _audit_lede(flags: Sequence[dict], gaps: dict, drift, attributed: int) -> str:
+    found = [_Finding(f) for f in flags]
+    n_gap = sum(len(v) for v in gaps.values())
+    if not found:
+        return (f"No findings; {_plural(n_gap, 'missed injury week')}."
+                if n_gap else "")
+    found.sort(key=lambda f: -f.score)
+    top = found[0]
+    parts: List[str] = []
+
+    # 1. The alarm. A structural break speaks for itself; a row that merely moved
+    #    needs its swing quoted, because the swing IS the question.
+    if top.worst >= 0.60 and top.kind:
+        where = f" on {top.sheet}" if top.sheet else ""
+        parts.append(f"Worth opening first{where}: {top.kind} in {top.column}.")
+    else:
+        parts.append(_sentence(top.text))
+
+    # 2. Breadth, from the audit's own per-column roll-up. One column across a
+    #    thousand rows is one cause reported a thousand times; several columns in
+    #    one sheet is wider and worse — and a row count cannot tell them apart.
+    cols: dict = {}
+    for f in found:
+        for c, n in f.columns.items():
+            cols[c] = cols.get(c, 0) + n
+    total = sum(cols.values())
+    sampled = all(f.sampled for f in found)
+
+    def _unit(n: int) -> str:
+        noun = "changed value" if sampled else "changed row"
+        return f"{n} {noun}{'' if n == 1 else 's'}" + (" shown" if sampled else "")
+
+    if len(cols) == 1 and total:
+        only = top.column if top.column in cols else next(iter(cols))
+        parts.append(f"All of it is one column, {only} ({_unit(total)}).")
+    elif total and max(cols.values()) >= 0.6 * total:
+        col, n = max(cols.items(), key=lambda kv: kv[1])
+        # Don't name the column twice — the first sentence already did.
+        named = "that column" if col == top.column else f"one column, {col}"
+        parts.append(f"{n} of the {_unit(total)} are {named}; "
+                     f"{_plural(len(cols) - 1, 'other')} moved too.")
+    elif len(cols) > 1:
+        parts.append(f"{_plural(len(cols), 'column')} moved.")
+
+    # 3. The swing profile — the sentence that says "bug" or "drift". Counted
+    #    over the changes the audit chose to SHOW, so it is described that way.
+    shapes: dict = {}
+    for f in found:
+        for kind, n in f.swings.items():
+            shapes[kind] = shapes.get(kind, 0) + n
+    severe = sorted(((k, n) for k, n in shapes.items() if k in _SEVERE_KINDS),
+                    key=lambda kv: -kv[1])
+    shown = sum(f.shown for f in found)
+    if severe:
+        parts.append("Of the changes shown, "
+                     + _join([f"{n} {_SEVERE_KINDS[k]}" for k, n in severe[:3]]) + ".")
+    elif shapes.get("move"):
+        parts.append(f"{shapes['move']} of the changes shown are large moves, but "
+                     "none are blanks, zeroes or sign flips.")
+    elif shown:
+        parts.append("None of the changes shown are blanks, zeroes or sign flips.")
+
+    # 4. What is already accounted for, and what is merely missing. Separate
+    #    sentences: joined they read as a garden path, and `_fit` can drop the
+    #    least important one on its own when the budget is tight.
+    if drift is not None and getattr(drift, "compared", False) \
+            and getattr(drift, "any_change", False):
+        parts.append(f"NFLverse changed {drift.changed_cells} values"
+                     + (f", explaining {_plural(attributed, 'row')} of ours."
+                        if attributed else "."))
+    if n_gap:
+        parts.append(f"{_plural(n_gap, 'injury week')} have no capture.")
+
+    return _fit(parts) or _counted_audit(flags, gaps)
+
+
+def _sentence(text: str) -> str:
+    """A finding's own text as a sentence — it is written as a fragment.
+
+    Left uncapitalised when it opens with a sheet name ("picks: missing pinned
+    column …"). Those are identifiers, and "Player_year" is not a word."""
+    t = str(text).strip().rstrip(".")
+    if not t:
+        return ""
+    first = t.split(" ", 1)[0]
+    lead = t if first.endswith(":") or "_" in first else t[:1].upper() + t[1:]
+    return lead + "."

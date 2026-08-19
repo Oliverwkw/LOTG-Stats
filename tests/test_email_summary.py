@@ -1,21 +1,20 @@
-"""Phase 15: the lede — the paragraph above the wall of one-line facts.
+"""Phase 15: the digest lede — the paragraph above the wall of one-line facts.
 
-Shared by both weekly emails (the Tuesday digest and the Wednesday audit).
-Covers the two ways it gets written and, mostly, the guards between them: an AI
-draft only ships if it is short enough and if every number in it already appeared
-in the material it was given. The AI path is exercised against a stub client (no
-network, no key), so the request shape and the response handling are tested here
-rather than discovered in production. The deterministic path is tested for
-content, not just for existing — it is what actually gets read whenever the key
-is unset. And the whole thing is tested for being unable to stop an email: the
-lede is a nicety on top of mail that has to go out either way.
+The lede is computed, so it is tested for CONTENT: that it leads with the line a
+reader would pick, folds the week's bulk into one clause, reports what is
+surprising rather than what is merely numerous, and accounts for every move it
+doesn't name. Also for the two properties that make it safe to run inside a
+build — it cannot produce a wall (bounded on a 6,000-line week with pathological
+labels), and it cannot stop an email.
+
+The audit email's lede is tested in tests/test_send_audit_email.py, next to the
+findings it reasons about.
 
 Run: PYTHONPATH=src:lib python tests/test_email_summary.py
 """
 from __future__ import annotations
 
 import sys
-import types
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -86,43 +85,12 @@ def check_counted_summary_condenses_many_sections():
     return ok
 
 
-def check_grounding_guard():
-    """The reason the guard exists: this is a stats email, and a lede that
-    invents a number is worse than no lede at all."""
-    src = "passes for 1st-highest O-Score (103.3). 2nd-lowest KTC (65)."
-    ok = _ok("faithful numbers pass",
-             DS.is_grounded("A trade took 1st-highest O-Score at 103.3.", src))
-    ok &= _ok("a promoted rank fails", not DS.is_grounded("took 3rd place", src))
-    ok &= _ok("a rounded value fails", not DS.is_grounded("O-Score of 103", src))
-    ok &= _ok("a fabricated count fails", not DS.is_grounded("all 42 picks moved", src))
-    ok &= _ok("no numbers at all is fine", DS.is_grounded("Trades reshuffled the top.", src))
-    ok &= _ok("commas and trailing zeros normalise",
-              DS.is_grounded("1,234 and 103.30", "1234 points, 103.3 O-Score"))
-    return ok
-
-
-def check_shape_guard():
-    src = DS._prompt(_sections(), "hdr")
-    ok = _ok("a clean draft is accepted",
-             DS._acceptable("Trades reshuffled the all-time top.", src))
-    ok &= _ok("empty is rejected", not DS._acceptable("   ", src))
-    ok &= _ok("a preamble is rejected",
-              not DS._acceptable("Here is your summary: trades moved.", src))
-    ok &= _ok("a bullet list is rejected", not DS._acceptable("- trades moved", src))
-    ok &= _ok("a runaway wall of words is rejected",
-              not DS._acceptable(" ".join(["word"] * (DS._MAX_WORDS + 1)), src))
-    return ok
-
-
 def check_sentence_cap():
     """The cap is on sentences, not words — a lede may be five short ones or a
-    single long one, and length should track how much happened."""
-    src = DS._prompt(_sections(), "hdr")
-    five = "One. Two. Three. Four. Five."
-    ok = _ok("five sentences is the limit", DS.sentence_count(five) == 5)
-    ok &= _ok("five is accepted", DS._acceptable(five, src))
-    ok &= _ok("six is rejected", not DS._acceptable(five + " Six.", src))
-    ok &= _ok("one sentence is fine", DS._acceptable("Quiet week.", src))
+    couple of long ones, and length should track how much happened."""
+    ok = _ok("five sentences is the limit",
+             DS.sentence_count("One. Two. Three. Four. Five.") == 5)
+    ok &= _ok("two is the floor", DS._MIN_SENTENCES == 2)
     # The whole reason for the lookahead in _SENT_END: these emails are full of
     # decimals and dotted pick numbers.
     ok &= _ok("decimals are not sentence ends",
@@ -133,149 +101,19 @@ def check_sentence_cap():
     return ok
 
 
-def check_prompt_carries_the_lines_and_admits_truncation():
-    secs = _sections()
-    src = DS._prompt(secs, "LOTG weekly digest — 2026 season, week 7",
-                     DS.counted_summary(secs))
-    ok = _ok("carries the header", "week 7" in src)
-    ok &= _ok("carries the counts", "3 leaderboard moves" in src, )
-    ok &= _ok("carries the digest's own sentences", "Josh Doctson" in src and "103.3" in src)
-    ok &= _ok("labels each section with its size", "draft picks (2)" in src)
-
-    big = [("All-time leaderboard moves — draft picks", "moved",
-            [_Item(f"line {i}") for i in range(DS._MAX_LINES + 25)])]
-    trunc = DS._prompt(big, "hdr")
-    ok &= _ok("a huge week is capped", trunc.count("\nline ") <= DS._MAX_LINES)
-    ok &= _ok("and the model is told it was capped",
-              "not shown — do not claim to have seen every line" in trunc)
-    return ok
-
-
-# ---------------------------------------------------------------------------
-# The AI path, against a stub client — no key, no network.
-# ---------------------------------------------------------------------------
-class _Block:
-    def __init__(self, text):
-        self.type, self.text = "text", text
-
-
-class _Msg:
-    def __init__(self, text, stop_reason="end_turn"):
-        self.content, self.stop_reason = [_Block(text)], stop_reason
-
-
-class _Stream:
-    def __init__(self, msg):
-        self._msg = msg
-
-    def __enter__(self):
-        return self
-
-    def __exit__(self, *a):
-        return False
-
-    def get_final_message(self):
-        if isinstance(self._msg, Exception):
-            raise self._msg
-        return self._msg
-
-
-def _stub_anthropic(monkey_result, captured: dict):
-    """A module object shaped like `anthropic` for the one call we make."""
-    mod = types.ModuleType("anthropic")
-
-    class _Messages:
-        def stream(self, **kw):
-            captured.update(kw)
-            return _Stream(monkey_result)
-
-    class _Client:
-        def __init__(self, **kw):
-            captured["client_kwargs"] = kw
-            self.messages = _Messages()
-
-    mod.Anthropic = _Client
-    return mod
-
-
-def _run_ai(result, env_key="sk-test"):
-    import os
-    captured: dict = {}
-    prev_mod, prev_key = sys.modules.get("anthropic"), os.environ.get("ANTHROPIC_API_KEY")
-    sys.modules["anthropic"] = _stub_anthropic(result, captured)
-    if env_key:
-        os.environ["ANTHROPIC_API_KEY"] = env_key
-    else:
-        os.environ.pop("ANTHROPIC_API_KEY", None)
-    try:
-        return DS.ai_summary(_sections(), "LOTG weekly digest — 2026 season, week 7"), captured
-    finally:
-        if prev_mod is None:
-            sys.modules.pop("anthropic", None)
-        else:
-            sys.modules["anthropic"] = prev_mod
-        if prev_key is None:
-            os.environ.pop("ANTHROPIC_API_KEY", None)
-        else:
-            os.environ["ANTHROPIC_API_KEY"] = prev_key
-
-
-def check_ai_request_shape():
-    """Pins the request the build actually sends: a current model, adaptive
-    thinking, and streaming (a non-streaming call at this max_tokens is what
-    trips SDK HTTP timeouts)."""
-    good = "Oliverwkw's trade took 1st-highest O-Score at 103.3; the draft-pick board reshuffled below it."
-    text, kw = _run_ai(_Msg(good))
-    ok = _ok("a grounded draft ships", text == good, text)
-    ok &= _ok("model is a current one", kw.get("model") == "claude-opus-5", kw.get("model"))
-    ok &= _ok("adaptive thinking", kw.get("thinking") == {"type": "adaptive"}, kw.get("thinking"))
-    ok &= _ok("no budget_tokens (400s on this model)",
-              "budget_tokens" not in str(kw.get("thinking")))
-    ok &= _ok("no sampling params (400 on this model)",
-              not {"temperature", "top_p", "top_k"} & set(kw))
-    ok &= _ok("the user turn is the digest's own lines",
-              "Josh Doctson" in kw["messages"][0]["content"])
-    ok &= _ok("a system prompt is set", bool(kw.get("system")))
-    ok &= _ok("a timeout is set", kw.get("client_kwargs", {}).get("timeout"))
-    # The lede is the one part of the email we didn't write, and it is
-    # interpolated raw into the HTML body.
-    esc, _ = _run_ai(_Msg("Trades & picks moved; <b> is not markup."))
-    ok &= _ok("model output is HTML-escaped",
-              "&amp;" in esc and "&lt;b&gt;" in esc, esc)
-    return ok
-
-
-def check_ai_failures_all_fall_back():
-    """Every way the call can go wrong is the same outcome to the caller: no
-    lede, use the counts. None of them may raise — this runs inside the build."""
-    ok = _ok("an ungrounded draft is dropped",
-             _run_ai(_Msg("Trades set a new record of 999 points."))[0] is None)
-    ok &= _ok("a refusal is dropped",
-              _run_ai(_Msg("...", stop_reason="refusal"))[0] is None)
-    ok &= _ok("an API error is dropped",
-              _run_ai(RuntimeError("connection reset"))[0] is None)
-    ok &= _ok("no key means no call at all",
-              _run_ai(_Msg("anything"), env_key=None)[0] is None)
-    return ok
-
-
 def check_build_intro_always_returns_something():
-    """With no key there is still a lede — the reasoned one, which leads with a
-    line rather than a count. `counted_summary` is now the floor beneath it, not
-    what ships."""
-    import os
-    prev = os.environ.pop("ANTHROPIC_API_KEY", None)
-    try:
-        text = DS.build_intro(_sections(), "hdr")
-        ok = _ok("no key -> a lede that leads with a line",
-                 text.startswith("Oliverwkw's 2023-12-05 trade"), text)
-        ok &= _ok("--no-ai-summary -> the same",
-                  DS.build_intro(_sections(), "hdr", use_ai=False) == text)
-        ok &= _ok("nothing moved -> no lede", DS.build_intro([], "hdr") == "")
-        ok &= _ok("inside the budget", len(text.split()) <= DS._LEDE_MAX_WORDS)
-    finally:
-        if prev is not None:
-            os.environ["ANTHROPIC_API_KEY"] = prev
+    """The lede leads with a line rather than a count; `counted_summary` is the
+    floor beneath it, not what ships. And it cannot raise — it runs inside a
+    build that has to finish."""
+    text = DS.build_intro(_sections(), "hdr")
+    ok = _ok("a lede that leads with a line",
+             text.startswith("Oliverwkw's 2023-12-05 trade"), text)
+    ok &= _ok("an explicit fallback wins (the audit email's route)",
+              DS.build_intro(_sections(), "hdr", fallback="mine.") == "mine.")
+    ok &= _ok("nothing moved -> no lede", DS.build_intro([], "hdr") == "")
+    ok &= _ok("inside the budget", len(text.split()) <= DS._LEDE_HARD_WORDS)
+    ok &= _ok("a lede that blows up costs the lede and nothing else",
+              DS.build_intro([object()], "hdr") == "")
     return ok
 
 
@@ -343,7 +181,8 @@ def _week(n_ktc=20, extras=()):
 
 def check_reasoned_leads_with_place_and_prominence():
     """First place and a stat the league argues about beat a 5th-place move on a
-    diagnostic column, even when the diagnostic one is rarer."""
+    diagnostic column, even when the diagnostic one is rarer. The diagnostic is
+    still worth a mention, though — an all-time worst is an all-time worst."""
     secs = _week(extras=[_Move("A", "O-Score", 1),
                          _Move("B", "Pick-adjusted Difference in KTC", 1),
                          _Move("C", "O-Score", 5)])
@@ -351,7 +190,52 @@ def check_reasoned_leads_with_place_and_prominence():
     ok = _ok("leads with the prominent 1st-place line", out.startswith("A passes"), out)
     ok &= _ok("not the diagnostic column", not out.startswith("B "), out)
     ok &= _ok("not the 5th-place line", not out.startswith("C "), out)
+    ok &= _ok("the diagnostic 1st place still gets named", "B passes" in out, out)
     return ok
+
+
+def check_reasoned_numbers_close():
+    """Every move is either named or counted. "59 KTC moves" under "16 of the 65"
+    left six unaccounted for, which reads as an arithmetic mistake even when
+    every figure in it is right."""
+    import re
+    secs = _week(n_ktc=20, extras=[_Move("A", "O-Score", 1),
+                                   _Move("B", "Total FAAB bid", 1),
+                                   _Move("C", "Points", 4),
+                                   _Move("D", "Points", 5)])
+    out = DS.reasoned_summary(secs)
+    named = sum(1 for who in "ABCD" if f"{who} passes" in out)
+    block = int(re.search(r"(\d+) KTC moves", out).group(1))
+    spare = re.search(r"plus (\d+) other", out)
+    spare_n = int(spare.group(1)) if spare else 0
+    ok = _ok("the counts add up to every move",
+             named + block + spare_n == 24, f"{named}+{block}+{spare_n} vs 24")
+    ok &= _ok("and the leftover is stated, not implied", spare is not None, out)
+    return ok
+
+
+def check_reasoned_is_two_to_five_sentences():
+    """One sentence reads as an accident rather than a summary; six is a wall."""
+    ok = True
+    for n, extras in ((6, [_Move("A", "O-Score", 1)]),
+                      (40, [_Move("A", "O-Score", 1), _Move("B", "Points", 1)]),
+                      (0, [_Move("A", "O-Score", 1), _Move("B", "Points", 2)])):
+        out = DS.reasoned_summary(_week(n_ktc=n, extras=extras))
+        c = DS.sentence_count(out)
+        ok &= _ok(f"{n} bulk + {len(extras)} others -> {c} sentences",
+                  DS._MIN_SENTENCES <= c <= DS._MAX_SENTENCES, out)
+    single = DS.reasoned_summary(_week(n_ktc=0, extras=[_Move("A", "O-Score", 1)]))
+    ok &= _ok("one move is allowed one sentence", DS.sentence_count(single) == 1, single)
+    return ok
+
+
+def check_runner_up_is_a_different_entity():
+    """Two lines about the same trade is one line, printed twice."""
+    secs = _week(n_ktc=6, extras=[_Move("SAME", "O-Score", 1),
+                                  _Move("SAME", "Points", 1),
+                                  _Move("OTHER", "Total FAAB bid", 1)])
+    out = DS.reasoned_summary(secs)
+    return _ok("the second line is someone else", out.count("SAME passes") == 1, out)
 
 
 def check_reasoned_folds_the_bulk_into_one_clause():
@@ -469,20 +353,18 @@ def run_all() -> bool:
     tests = [
         check_counted_summary_names_the_sections,
         check_counted_summary_condenses_many_sections,
-        check_grounding_guard,
-        check_shape_guard,
         check_sentence_cap,
         check_column_family,
         check_reasoned_leads_with_place_and_prominence,
+        check_reasoned_numbers_close,
+        check_reasoned_is_two_to_five_sentences,
+        check_runner_up_is_a_different_entity,
         check_reasoned_folds_the_bulk_into_one_clause,
         check_reasoned_reports_surprise,
         check_reasoned_flags_ties,
         check_reasoned_survives_a_huge_week,
         check_reasoned_never_returns_a_wall,
         check_reasoned_is_the_default_fallback,
-        check_prompt_carries_the_lines_and_admits_truncation,
-        check_ai_request_shape,
-        check_ai_failures_all_fall_back,
         check_build_intro_always_returns_something,
         check_lede_renders_above_the_list,
         check_sections_cover_the_whole_email,
