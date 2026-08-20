@@ -1,9 +1,9 @@
 ============================= test session starts ==============================
-platform linux -- Python 3.11.15, pytest-9.1.1, pluggy-1.6.0 -- /opt/hostedtoolcache/Python/3.11.15/x64/bin/python
+platform linux -- Python 3.11.16, pytest-9.1.1, pluggy-1.6.0 -- /opt/hostedtoolcache/Python/3.11.16/x64/bin/python
 cachedir: .pytest_cache
 rootdir: /home/runner/work/LOTG-Stats/LOTG-Stats
 configfile: pyproject.toml
-collecting ... collected 234 items
+collecting ... collected 236 items
 
 tests/test_analysis.py::test_placeholders_are_recognised PASSED          [  0%]
 tests/test_analysis.py::test_compare_reports_both_sides_and_the_breakdown PASSED [  0%]
@@ -37,58 +37,59 @@ tests/test_contracts.py::test_lotg_points_charge_the_fumbles_a_player_got_back P
 tests/test_contracts.py::test_rookie_deals_are_not_signings PASSED       [ 12%]
 tests/test_contracts.py::test_big_is_ranked_within_position_and_year PASSED [ 13%]
 tests/test_contracts.py::test_a_season_never_played_is_zero_points_but_no_rate PASSED [ 13%]
-tests/test_contracts.py::test_controls_come_from_the_same_position_and_season PASSED [ 14%]
+tests/test_contracts.py::test_controls_come_from_the_same_position_and_season PASSED [ 13%]
 tests/test_contracts.py::test_a_signer_with_nobody_close_is_dropped_not_stretched PASSED [ 14%]
 tests/test_contracts.py::test_control_pool_excludes_the_other_notable_signings PASSED [ 14%]
 tests/test_contracts.py::test_cost_panel_does_not_double_count_a_career PASSED [ 15%]
 tests/test_contracts.py::test_cost_panel_respects_the_year_window PASSED [ 15%]
 tests/test_contracts.py::test_cost_units_guard_catches_a_rescaled_column PASSED [ 16%]
 tests/test_contracts.py::test_rank_persistence_separates_a_stable_metric_from_a_shuffled_one PASSED [ 16%]
-tests/test_contracts.py::test_cost_curve_applies_the_games_floor_and_the_price_bands PASSED [ 17%]
+tests/test_contracts.py::test_cost_curve_applies_the_games_floor_and_the_price_bands PASSED [ 16%]
 tests/test_contracts.py::test_weekly_value_is_the_season_value_divided_by_games PASSED [ 17%]
 tests/test_contracts.py::test_derived_league_cap_tracks_the_published_cap PASSED [ 17%]
 tests/test_contracts.py::test_the_cost_guards_pass_on_real_data PASSED   [ 18%]
 tests/test_contracts.py::test_summary_reports_fdr_q_values_over_the_whole_family PASSED [ 18%]
 tests/test_contracts.py::test_the_permutation_p_is_deterministic_and_two_sided PASSED [ 19%]
 tests/test_contracts.py::test_big_signings_join_to_real_seasons PASSED   [ 19%]
-tests/test_contracts.py::test_matched_cohorts_start_level PASSED         [ 20%]
+tests/test_contracts.py::test_matched_cohorts_start_level PASSED         [ 19%]
 tests/test_contracts.py::test_the_contracts_file_is_the_maintained_one PASSED [ 20%]
 tests/test_cross_sheet_reconciliation.py::test_cross_sheet_reconciliation PASSED [ 20%]
 tests/test_cross_source_and_pad.py::test_cross_source_and_pad PASSED     [ 21%]
 tests/test_digest.py::test_digest_engine PASSED                          [ 21%]
 tests/test_digest_send.py::test_digest_send PASSED                       [ 22%]
 tests/test_draft_cache_bypass.py::test_registered_live_draft_bypasses_cache PASSED [ 22%]
-tests/test_draft_cache_bypass.py::test_unregistered_past_draft_still_caches PASSED [ 23%]
+tests/test_draft_cache_bypass.py::test_unregistered_past_draft_still_caches PASSED [ 22%]
 tests/test_draft_cache_bypass.py::test_empty_registry_caches_all_drafts PASSED [ 23%]
 tests/test_draft_cache_bypass.py::test_current_league_and_players_still_never_cache PASSED [ 23%]
 tests/test_draft_cache_bypass.py::test_no_cache_dir_never_caches PASSED  [ 24%]
 tests/test_draft_capital.py::test_max_pf_matches_build PASSED            [ 24%]
 tests/test_draft_capital.py::test_bottom_four_order_matches_picks PASSED [ 25%]
 tests/test_draft_capital.py::test_rule_actually_changed PASSED           [ 25%]
-tests/test_draft_capital.py::test_haul_table_reconciles PASSED           [ 26%]
+tests/test_draft_capital.py::test_haul_table_reconciles PASSED           [ 25%]
 tests/test_draft_capital.py::test_validate_runs_clean PASSED             [ 26%]
 tests/test_draft_capital.py::test_startup_and_unmade_picks_are_excluded_and_counted PASSED [ 26%]
 tests/test_draft_capital.py::test_unplayed_draft_is_excluded_by_default PASSED [ 27%]
 tests/test_draft_capital.py::test_reward_picks_are_flagged_not_silently_dropped PASSED [ 27%]
-tests/test_draft_capital.py::test_haul_total_is_the_sum_of_its_rounds PASSED [ 28%]
+tests/test_draft_capital.py::test_haul_total_is_the_sum_of_its_rounds PASSED [ 27%]
 tests/test_draft_capital.py::test_bust_rate_is_a_share PASSED            [ 28%]
-tests/test_draft_capital.py::test_rate_metric_is_never_summed_across_rounds PASSED [ 29%]
+tests/test_draft_capital.py::test_rate_metric_is_never_summed_across_rounds PASSED [ 28%]
 tests/test_draft_capital.py::test_cohorts_report_both_sides_and_a_breakdown PASSED [ 29%]
 tests/test_draft_capital.py::test_stripping_nobody_reproduces_the_baseline PASSED [ 29%]
 tests/test_draft_capital.py::test_stripping_lowers_the_ceiling_monotonically PASSED [ 30%]
 tests/test_draft_capital.py::test_exchange_rate_exceeds_one PASSED       [ 30%]
-tests/test_draft_capital.py::test_cost_target_and_baseline_share_a_weeks_basis PASSED [ 31%]
+tests/test_draft_capital.py::test_cost_target_and_baseline_share_a_weeks_basis PASSED [ 30%]
 tests/test_draft_capital.py::test_cost_warns_that_it_is_a_floor PASSED   [ 31%]
-tests/test_draft_capital.py::test_order_rule_switches_at_the_documented_draft PASSED [ 32%]
+tests/test_draft_capital.py::test_order_rule_switches_at_the_documented_draft PASSED [ 31%]
 tests/test_draft_capital.py::test_order_comparison_prices_both_rules PASSED [ 32%]
 tests/test_draft_capital.py::test_unknown_rule_raises PASSED             [ 32%]
+tests/test_email_summary.py::test_email_summary PASSED                   [ 33%]
 tests/test_forecast.py::test_rookie_price_prefers_the_market_and_falls_back_to_the_slot PASSED [ 33%]
 tests/test_forecast.py::test_age_curve_only_adjusts_positions_it_fitted PASSED [ 33%]
 tests/test_forecast.py::test_strength_split_never_goes_imaginary PASSED  [ 34%]
 tests/test_forecast.py::test_models_label_every_assumption PASSED        [ 34%]
 tests/test_forecast.py::test_bracket_pipeline_reproduces_every_built_season PASSED [ 35%]
 tests/test_forecast.py::test_a_finished_season_forecasts_at_one_hundred_percent PASSED [ 35%]
-tests/test_forecast.py::test_validate_runs_every_guard_over_every_completed_season PASSED [ 35%]
+tests/test_forecast.py::test_validate_runs_every_guard_over_every_completed_season PASSED [ 36%]
 tests/test_forecast.py::test_schedule_balance_is_reported_not_assumed PASSED [ 36%]
 tests/test_forecast.py::test_strength_of_schedule_is_zero_when_the_schedule_is_balanced PASSED [ 36%]
 tests/test_forecast.py::test_rates_only_ever_look_backwards PASSED       [ 37%]
@@ -154,58 +155,59 @@ tests/test_inquiry.py::test_unavailable_flags_come_from_the_build PASSED [ 62%]
 tests/test_inquiry.py::test_rankable_columns_are_discovered_not_curated PASSED [ 62%]
 tests/test_inquiry.py::test_sweep_reports_every_end_and_flags_volatile PASSED [ 63%]
 tests/test_inquiry.py::test_sweep_window_bounds_what_is_reported PASSED  [ 63%]
-tests/test_inquiry.py::test_extremes_covers_both_ends_of_each_column PASSED [ 64%]
+tests/test_inquiry.py::test_extremes_covers_both_ends_of_each_column PASSED [ 63%]
 tests/test_inquiry.py::test_reads_are_pure PASSED                        [ 64%]
 tests/test_ktc_pick_labels.py::test_clean_slot_labels PASSED             [ 64%]
 tests/test_ktc_pick_labels.py::test_parenthetical_rider_matches_clean_form PASSED [ 65%]
 tests/test_ktc_pick_labels.py::test_bare_round_equals_unknown_slot PASSED [ 65%]
 tests/test_ktc_pick_labels.py::test_unknown_slot_spans_round PASSED      [ 66%]
 tests/test_ktc_pick_labels.py::test_toilet_pick_209_normalises PASSED    [ 66%]
-tests/test_ktc_pick_labels.py::test_garbage_returns_empty PASSED         [ 67%]
+tests/test_ktc_pick_labels.py::test_garbage_returns_empty PASSED         [ 66%]
 tests/test_ktc_pick_labels.py::test_whitespace_tolerated PASSED          [ 67%]
 tests/test_ktc_pick_labels.py::test_listed_class_uses_own_value PASSED   [ 67%]
 tests/test_ktc_pick_labels.py::test_unlisted_class_clamps_to_furthest_listed PASSED [ 68%]
 tests/test_ktc_pick_labels.py::test_clamp_follows_the_listing_horizon PASSED [ 68%]
 tests/test_ktc_pick_labels.py::test_no_listing_at_all_stays_none PASSED  [ 69%]
 tests/test_ktc_pick_labels.py::test_never_substitutes_an_already_drafted_class PASSED [ 69%]
-tests/test_ktc_pick_labels.py::test_never_substitutes_the_target_year_class PASSED [ 70%]
+tests/test_ktc_pick_labels.py::test_never_substitutes_the_target_year_class PASSED [ 69%]
 tests/test_ktc_pick_labels.py::test_5xx_picks_value_as_a_408 PASSED      [ 70%]
 tests/test_ktc_pick_labels.py::test_5xx_mapping_leaves_real_rounds_alone PASSED [ 70%]
 tests/test_ktc_pick_labels.py::test_no_stray_aug28_draft_anchors PASSED  [ 71%]
 tests/test_ktc_pick_labels.py::test_cached_history_is_refetched_once_stale PASSED [ 71%]
 tests/test_ktc_pick_labels.py::test_zero_and_none_are_distinct_outcomes PASSED [ 72%]
 tests/test_ktc_pick_labels.py::test_side_values_does_not_drop_zeros PASSED [ 72%]
-tests/test_live_status_scope.py::test_live_status_scope PASSED           [ 73%]
+tests/test_live_status_scope.py::test_live_status_scope PASSED           [ 72%]
 tests/test_nflverse_drift.py::test_nflverse_drift PASSED                 [ 73%]
 tests/test_ownership.py::test_an_asset_cell_holds_three_kinds_of_thing PASSED [ 73%]
 tests/test_ownership.py::test_no_asset_cell_holds_anything_but_those_three PASSED [ 74%]
 tests/test_ownership.py::test_season_labels_parse PASSED                 [ 74%]
 tests/test_ownership.py::test_unknown_event_kind_is_rejected PASSED      [ 75%]
 tests/test_ownership.py::test_trade_counts_match_the_builds_own_column PASSED [ 75%]
-tests/test_ownership.py::test_the_documented_duplicate_is_the_only_one PASSED [ 76%]
+tests/test_ownership.py::test_the_documented_duplicate_is_the_only_one PASSED [ 75%]
 tests/test_ownership.py::test_the_count_guard_catches_a_phantom_player PASSED [ 76%]
 tests/test_ownership.py::test_every_trade_hands_off_from_where_the_player_was PASSED [ 76%]
 tests/test_ownership.py::test_sheet_timestamps_are_read_on_the_export_clock PASSED [ 77%]
 tests/test_ownership.py::test_the_startup_draft_belongs_to_the_inaugural_season PASSED [ 77%]
-tests/test_ownership.py::test_ledger_covers_every_season_including_the_snapshotless_one PASSED [ 78%]
+tests/test_ownership.py::test_ledger_covers_every_season_including_the_snapshotless_one PASSED [ 77%]
 tests/test_ownership.py::test_ledger_is_one_row_per_acquisition_in_order PASSED [ 78%]
-tests/test_ownership.py::test_summary_separates_spells_from_teams PASSED [ 79%]
+tests/test_ownership.py::test_summary_separates_spells_from_teams PASSED [ 78%]
 tests/test_ownership.py::test_summary_totals_agree_with_the_ledger PASSED [ 79%]
 tests/test_ownership.py::test_reads_are_pure PASSED                      [ 79%]
 tests/test_pick_chain_links.py::test_pick_chain_link_integrity PASSED    [ 80%]
 tests/test_player_history_continuity.py::test_no_player_history_continuity_breaks PASSED [ 80%]
+tests/test_position_pins.py::test_position_pins PASSED                   [ 80%]
 tests/test_pre_season_blanking.py::test_blanks_not_started_game_stats PASSED [ 81%]
 tests/test_pre_season_blanking.py::test_completed_season_untouched PASSED [ 81%]
 tests/test_pre_season_blanking.py::test_player_year_keep_set PASSED      [ 82%]
 tests/test_pre_season_blanking.py::test_noop_when_season_started_or_unknown PASSED [ 82%]
-tests/test_refresh_external.py::test_refresh_external PASSED             [ 82%]
+tests/test_refresh_external.py::test_refresh_external PASSED             [ 83%]
 tests/test_replay.py::test_is_legal_respects_slots_and_the_empty_sentinel PASSED [ 83%]
 tests/test_replay.py::test_standings_order_matches_the_build_rule PASSED [ 83%]
 tests/test_replay.py::test_ties_count_as_half_a_win PASSED               [ 84%]
 tests/test_replay.py::test_unknown_model_is_refused PASSED               [ 84%]
 tests/test_replay.py::test_every_real_lineup_is_legal PASSED             [ 85%]
 tests/test_replay.py::test_ceiling_model_reproduces_the_built_max_pf PASSED [ 85%]
-tests/test_replay.py::test_no_move_replay_reproduces_every_season PASSED [ 85%]
+tests/test_replay.py::test_no_move_replay_reproduces_every_season PASSED [ 86%]
 tests/test_replay.py::test_2020_cannot_be_replayed_and_says_so PASSED    [ 86%]
 tests/test_replay.py::test_bracket_applies_the_home_field_bonus_to_the_higher_seed_only PASSED [ 86%]
 tests/test_replay.py::test_undo_trade_finds_the_2025_herbert_deal PASSED [ 87%]
@@ -242,40 +244,40 @@ tests/test_two_week_final.py::test_second_finals_week_only_2026_week17 PASSED [1
 
 =============================== warnings summary ===============================
 tests/test_contracts.py::test_weekly_value_is_the_season_value_divided_by_games
-  /opt/hostedtoolcache/Python/3.11.15/x64/lib/python3.11/site-packages/_pytest/python.py:171: PytestReturnNotNoneWarning: Test functions should return None, but tests/test_contracts.py::test_weekly_value_is_the_season_value_divided_by_games returned <class 'bool'>.
+  /opt/hostedtoolcache/Python/3.11.16/x64/lib/python3.11/site-packages/_pytest/python.py:171: PytestReturnNotNoneWarning: Test functions should return None, but tests/test_contracts.py::test_weekly_value_is_the_season_value_divided_by_games returned <class 'bool'>.
   Did you mean to use `assert` instead of `return`?
   See https://docs.pytest.org/en/stable/how-to/assert.html#return-not-none for more information.
     warnings.warn(
 
 tests/test_contracts.py::test_derived_league_cap_tracks_the_published_cap
-  /opt/hostedtoolcache/Python/3.11.15/x64/lib/python3.11/site-packages/_pytest/python.py:171: PytestReturnNotNoneWarning: Test functions should return None, but tests/test_contracts.py::test_derived_league_cap_tracks_the_published_cap returned <class 'bool'>.
+  /opt/hostedtoolcache/Python/3.11.16/x64/lib/python3.11/site-packages/_pytest/python.py:171: PytestReturnNotNoneWarning: Test functions should return None, but tests/test_contracts.py::test_derived_league_cap_tracks_the_published_cap returned <class 'bool'>.
   Did you mean to use `assert` instead of `return`?
   See https://docs.pytest.org/en/stable/how-to/assert.html#return-not-none for more information.
     warnings.warn(
 
 tests/test_contracts.py::test_the_cost_guards_pass_on_real_data
-  /opt/hostedtoolcache/Python/3.11.15/x64/lib/python3.11/site-packages/_pytest/python.py:171: PytestReturnNotNoneWarning: Test functions should return None, but tests/test_contracts.py::test_the_cost_guards_pass_on_real_data returned <class 'bool'>.
+  /opt/hostedtoolcache/Python/3.11.16/x64/lib/python3.11/site-packages/_pytest/python.py:171: PytestReturnNotNoneWarning: Test functions should return None, but tests/test_contracts.py::test_the_cost_guards_pass_on_real_data returned <class 'bool'>.
   Did you mean to use `assert` instead of `return`?
   See https://docs.pytest.org/en/stable/how-to/assert.html#return-not-none for more information.
     warnings.warn(
 
 tests/test_contracts.py::test_big_signings_join_to_real_seasons
-  /opt/hostedtoolcache/Python/3.11.15/x64/lib/python3.11/site-packages/_pytest/python.py:171: PytestReturnNotNoneWarning: Test functions should return None, but tests/test_contracts.py::test_big_signings_join_to_real_seasons returned <class 'bool'>.
+  /opt/hostedtoolcache/Python/3.11.16/x64/lib/python3.11/site-packages/_pytest/python.py:171: PytestReturnNotNoneWarning: Test functions should return None, but tests/test_contracts.py::test_big_signings_join_to_real_seasons returned <class 'bool'>.
   Did you mean to use `assert` instead of `return`?
   See https://docs.pytest.org/en/stable/how-to/assert.html#return-not-none for more information.
     warnings.warn(
 
 tests/test_contracts.py::test_matched_cohorts_start_level
-  /opt/hostedtoolcache/Python/3.11.15/x64/lib/python3.11/site-packages/_pytest/python.py:171: PytestReturnNotNoneWarning: Test functions should return None, but tests/test_contracts.py::test_matched_cohorts_start_level returned <class 'bool'>.
+  /opt/hostedtoolcache/Python/3.11.16/x64/lib/python3.11/site-packages/_pytest/python.py:171: PytestReturnNotNoneWarning: Test functions should return None, but tests/test_contracts.py::test_matched_cohorts_start_level returned <class 'bool'>.
   Did you mean to use `assert` instead of `return`?
   See https://docs.pytest.org/en/stable/how-to/assert.html#return-not-none for more information.
     warnings.warn(
 
 tests/test_contracts.py::test_the_contracts_file_is_the_maintained_one
-  /opt/hostedtoolcache/Python/3.11.15/x64/lib/python3.11/site-packages/_pytest/python.py:171: PytestReturnNotNoneWarning: Test functions should return None, but tests/test_contracts.py::test_the_contracts_file_is_the_maintained_one returned <class 'bool'>.
+  /opt/hostedtoolcache/Python/3.11.16/x64/lib/python3.11/site-packages/_pytest/python.py:171: PytestReturnNotNoneWarning: Test functions should return None, but tests/test_contracts.py::test_the_contracts_file_is_the_maintained_one returned <class 'bool'>.
   Did you mean to use `assert` instead of `return`?
   See https://docs.pytest.org/en/stable/how-to/assert.html#return-not-none for more information.
     warnings.warn(
 
 -- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
-================= 234 passed, 6 warnings in 108.08s (0:01:48) ==================
+================= 236 passed, 6 warnings in 209.79s (0:03:29) ==================
