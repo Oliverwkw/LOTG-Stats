@@ -246,6 +246,92 @@ def test_the_trade_split_still_reconciles():
         assert seen, name
 
 
+# --------------------------------------------------------------------------- #
+# the counters that follow the season, not the league week
+# --------------------------------------------------------------------------- #
+def _num(v):
+    t = str(v).strip()
+    return None if t in ("", "nan", "None", "N/A") else float(t)
+
+
+def test_team_year_equals_the_weeks_except_where_a_move_has_no_week():
+    """`team_year` is season-scoped; `team_week` can only hold in-season moves.
+
+    A move made after a championship belongs to the next season's OFFSEASON,
+    which has no week to sit in — so it counts in `team_year` and in no week at
+    all. Every team-season where the two differ must therefore contain a
+    transaction dated in that season's offseason. Anything else is a defect.
+    """
+    if not _HAVE or not (_EXPORTS / "team_year.csv").exists():
+        return _skip("no exports/")
+    from collections import defaultdict
+    weeks = defaultdict(int)
+    for r in _rows("team_week.csv"):
+        v = _num(r.get("Number of transactions"))
+        if v is not None:
+            weeks[(r["Team"], int(r["Year"]))] += int(v)
+    offseason = defaultdict(list)
+    for r in _rows("transactions.csv"):
+        season = int(r["Season"])
+        when = date.fromisoformat(str(r["Date"])[:10])
+        if when < lotg._nfl_kickoff_thursday(season):
+            offseason[(r["Team"], season)].append(str(when))
+    checked = differed = 0
+    for r in _rows("team_year.csv"):
+        v = _num(r.get("Number of transactions"))
+        if v is None:
+            continue
+        key = (r["Team"], int(r["Year"]))
+        checked += 1
+        if int(v) == weeks[key]:
+            continue
+        differed += 1
+        assert int(v) > weeks[key], (key, weeks[key], int(v), "season total below the weeks")
+        assert offseason[key], (key, weeks[key], int(v),
+                                "differs but has no offseason move to explain it")
+    assert checked > 40, checked
+    assert differed, "no team-season differs — the guard would be vacuous"
+
+
+def test_league_year_ties_to_the_team_year_rows_it_rolls_up():
+    if not _HAVE or not (_EXPORTS / "league_year.csv").exists():
+        return _skip("no exports/")
+    from collections import defaultdict
+    per = defaultdict(int)
+    for r in _rows("team_year.csv"):
+        v = _num(r.get("Number of transactions"))
+        if v is not None:
+            per[int(r["Year"])] += int(v)
+    seen = 0
+    for r in _rows("league_year.csv"):
+        v = _num(r.get("Number of transactions"))
+        if v is None:
+            continue
+        seen += 1
+        assert int(v) == per[int(r["Year"])], (r["Year"], int(v), per[int(r["Year"])])
+    assert seen, "no league_year rows checked"
+
+
+def test_a_post_championship_move_is_in_no_week_of_the_season_it_left():
+    """The concrete case, named so a regression does not read as arithmetic.
+
+    A transaction dated after its league season's championship must not be
+    counted in that season's week 17 — it is the next season's offseason.
+    """
+    if not _HAVE:
+        return _skip("no exports/")
+    from collections import defaultdict
+    # rows whose Season is NOT the calendar year they fall in, forward direction
+    forward = [r for r in _rows("transactions.csv")
+               if int(r["Season"]) == date.fromisoformat(str(r["Date"])[:10]).year + 1]
+    assert forward, "no post-championship moves found — guard would be vacuous"
+    for r in forward:
+        prev = int(r["Season"]) - 1
+        end = _ENDS.get(prev)
+        assert end is not None and date.fromisoformat(str(r["Date"])[:10]) > end, (
+            r["Team"], r["Date"], r["Season"], f"not actually past {prev}'s final")
+
+
 if __name__ == "__main__":
     for fn in (
         test_the_season_is_the_first_championship_not_yet_played,
@@ -258,6 +344,9 @@ if __name__ == "__main__":
         test_every_year_mismatch_straddles_a_championship,
         test_player_year_transaction_counts_follow_the_same_seasons,
         test_the_trade_split_still_reconciles,
+        test_team_year_equals_the_weeks_except_where_a_move_has_no_week,
+        test_league_year_ties_to_the_team_year_rows_it_rolls_up,
+        test_a_post_championship_move_is_in_no_week_of_the_season_it_left,
     ):
         fn()
         print(f"ok: {fn.__name__}")

@@ -3265,6 +3265,15 @@ def build_all(repo_root: Path) -> None:
     opp_pf_map: Dict[Tuple[int, int, int], Optional[float]] = {}
     stage_label_map: Dict[Tuple[int, int, int], Optional[str]] = {}
     playoff_start_by_season: Dict[int, Optional[int]] = {}
+    # Activity counted under the season each move BELONGS to, rather than the
+    # league week it was filed under. team_year / team_all_time and the league
+    # sheets read these instead of summing team_week, which cannot hold a move
+    # that lands in its season's offseason. Same counting semantics as the
+    # weekly columns — per team, per movement — just a different bucket.
+    _tx_by_team_season: Dict[Tuple[str, int], int] = defaultdict(int)
+    _tr_by_team_season: Dict[Tuple[str, int], int] = defaultdict(int)
+    _faab_by_team_season: Dict[Tuple[str, int], float] = defaultdict(float)
+
     # season -> championship Monday, filled in as each league season is walked.
     # A move dated on or before the PREVIOUS season's entry was made while that
     # season was still being played, so it carries that season's label.
@@ -4971,6 +4980,28 @@ def build_all(repo_root: Path) -> None:
             trade_count: Dict[str, int] = defaultdict(int)
             tx_count: Dict[str, int] = defaultdict(int)
 
+            # A move made after this season's championship belongs to the NEXT
+            # season's offseason, and an offseason move has no week — so it must
+            # not be credited to this week, and cannot be credited to a week in
+            # the season it does belong to either. The weekly counters therefore
+            # take only the moves whose season IS this one, while the SEASON
+            # counters take every move under the season it belongs to. team_year
+            # and the league sheets read the latter instead of summing weeks.
+            def _credit_tx(_tm: str, _mv: int, _n: int = 1) -> None:
+                _tx_by_team_season[(str(_tm), int(_mv))] += _n
+                if int(_mv) == int(season):
+                    tx_count[_tm] += _n
+
+            def _credit_trade(_tm: str, _mv: int) -> None:
+                _tr_by_team_season[(str(_tm), int(_mv))] += 1
+                if int(_mv) == int(season):
+                    trade_count[_tm] += 1
+
+            def _credit_faab(_tm: str, _mv: int, _amt: float) -> None:
+                _faab_by_team_season[(str(_tm), int(_mv))] += float(_amt)
+                if int(_mv) == int(season):
+                    faab_spent[_tm] += float(_amt)
+
             for t in tx_by_week.get(wk, []):
                 try:
                     ttype = t.get("type")
@@ -4994,6 +5025,16 @@ def build_all(repo_root: Path) -> None:
                     # stay row-for-row consistent with the detail CSVs.
                     if _epoch_ms_to_dt(t.get("created")) is None:
                         continue
+                    # Same timestamp Loop 2 uses — a waiver is anchored at the
+                    # run that settled it, not when it was claimed. Resolving it
+                    # differently here would let the two loops disagree about
+                    # which season a move belongs to, which is the whole defect
+                    # this is closing.
+                    _c_ms = t.get("status_updated") if ttype == "waiver" else None
+                    if _c_ms is None:
+                        _c_ms = t.get("created")
+                    _mv_season = _move_season(_epoch_ms_to_dt(_c_ms), season,
+                                              _season_end_by_season)
 
                     # Resolve every team participating in this transaction via
                     # roster_ids -> roster_to_team. We deliberately do NOT use
@@ -5042,8 +5083,8 @@ def build_all(repo_root: Path) -> None:
                         # Credit both sides.
                         for tm in teams_in_tx:
                             if not _deep_offseason:
-                                trade_count[tm] += 1
-                            tx_count[tm] += 1
+                                _credit_trade(tm, _mv_season)
+                            _credit_tx(tm, _mv_season)
                     else:
                         # waiver / free_agent / commissioner — credit the
                         # destination roster of EACH add AND the dropping
@@ -5066,7 +5107,7 @@ def build_all(repo_root: Path) -> None:
                             if not tm_name:
                                 tm_name = (teams_in_tx[0] if teams_in_tx else None) or creator_team
                             if tm_name:
-                                tx_count[tm_name] += 1
+                                _credit_tx(tm_name, _mv_season)
                                 if _rid_i is not None:
                                     add_rosters.add(int(_rid_i))
                         # remaining drops (per roster) become "orphan" drops
@@ -5093,7 +5134,7 @@ def build_all(repo_root: Path) -> None:
                             if not tm_name:
                                 tm_name = (teams_in_tx[0] if teams_in_tx else None) or creator_team
                             if tm_name:
-                                tx_count[tm_name] += n_orphan
+                                _credit_tx(tm_name, _mv_season, n_orphan)
 
                     # FAAB lives under settings.waiver_bid on Sleeper transactions
                     # (legacy code looked under metadata, which was always empty).
@@ -5111,7 +5152,7 @@ def build_all(repo_root: Path) -> None:
                     if bid:
                         primary = (teams_in_tx[0] if teams_in_tx else None) or creator_team
                         if primary:
-                            faab_spent[primary] += float(bid)
+                            _credit_faab(primary, _mv_season, float(bid))
                 except Exception as e:
                     _log_exc(debug, f"tx_summary_{season}_wk{wk}", e)
 
@@ -7588,42 +7629,51 @@ def build_all(repo_root: Path) -> None:
             # reflect the manual rows we just added. Find the Year+Week
             # rows that match each manual row's Date and increment.
             if n_added and not tw.empty and "Year" in tw.columns and "Week" in tw.columns:
-                from datetime import date as _dt_date
-                # NFL week 1 starts the first Thursday of September. For
-                # the dates we care about, a simple approximation is
-                # enough: week N starts roughly Sep 7 + 7*(N-1) of that
-                # year. Pre-season / week 1 prep dates map to week 1.
+                # The week a manual row lands in, on the same calendar every
+                # other date uses. This carried its own flat Sept 5 anchor —
+                # a third variant alongside the Sept 7 ones already retired,
+                # and wrong by up to five days depending on the season.
                 def _week_for_date(dstr: str, season: int):
                     try:
-                        d = datetime.fromisoformat(str(dstr).replace("Z","+00:00")).date()
+                        d = datetime.fromisoformat(str(dstr).replace("Z", "+00:00")).date()
                     except Exception:
                         return None
-                    season_start = _dt_date(int(season), 9, 5)
-                    if d < season_start:
-                        return 1
-                    diff = (d - season_start).days // 7 + 1
-                    return min(max(1, diff), 17)
+                    return max(1, _season_week_of(d, int(season)))
 
                 for _, mrow in mdf.iterrows():
                     season = mrow.get("Season")
                     if pd.isna(season):
                         continue
                     season = int(season)
-                    wk = _week_for_date(str(mrow.get("Date")), season)
                     team = str(mrow.get("Team"))
+                    try:
+                        _m_dt = datetime.fromisoformat(str(mrow.get("Date")).replace("Z", "+00:00"))
+                    except Exception:
+                        _m_dt = None
+                    # Season-scope it exactly like every other move, so the
+                    # season counters team_year reads stay complete. Without
+                    # this a manual row shows up in team_week but nowhere in
+                    # the season total (shmuel256's 2023 Puka Nacua pickup).
+                    _m_season = _move_season(_m_dt, season, _season_end_by_season)
+                    _faab_m = _to_float(mrow.get("Faab"), 0.0) or 0.0
+                    _tx_by_team_season[(team, int(_m_season))] += 1
+                    if _faab_m:
+                        _faab_by_team_season[(team, int(_m_season))] += float(_faab_m)
+                    if int(_m_season) != season:
+                        continue  # offseason in the season it belongs to: no week
+                    wk = _week_for_date(str(mrow.get("Date")), season)
                     if not wk:
                         continue
-                    mask = (tw["Team"]==team) & (tw["Year"]==season) & (tw["Week"]==wk)
+                    mask = (tw["Team"] == team) & (tw["Year"] == season) & (tw["Week"] == wk)
                     matches = tw[mask]
                     if matches.empty:
                         continue
                     idx_ = matches.index[0]
                     cur = pd.to_numeric(tw.at[idx_, "Number of transactions"], errors="coerce")
                     tw.at[idx_, "Number of transactions"] = int((0 if pd.isna(cur) else cur) + 1)
-                    faab = _to_float(mrow.get("Faab"), 0.0) or 0.0
-                    if faab:
+                    if _faab_m:
                         cur_f = pd.to_numeric(tw.at[idx_, "Amount of FAAB spent"], errors="coerce")
-                        tw.at[idx_, "Amount of FAAB spent"] = round((0.0 if pd.isna(cur_f) else cur_f) + faab, 2)
+                        tw.at[idx_, "Amount of FAAB spent"] = round((0.0 if pd.isna(cur_f) else cur_f) + _faab_m, 2)
     except Exception as e:
         _log_exc(debug, "manual_transactions_merge", e)
 
@@ -15097,13 +15147,15 @@ def build_all(repo_root: Path) -> None:
                 "Starter-adjusted Hardship": round(float(pd.to_numeric(g.get("Starter-adjusted Hardship"), errors="coerce").fillna(0.0).sum()), 4),
                 "Offseason starter turnover": 0,
                 "Inseason starter turnover": 0,
-                # Roll up per-week activity (already computed in team_week) into
-                # the season total. Previously these stayed at N/A because no
-                # aggregation step carried them across.
-                "Number of transactions": int(pd.to_numeric(g.get("Number of transactions"), errors="coerce").fillna(0.0).sum()),
-                "Number of trades": int(pd.to_numeric(g.get("Number of trades"), errors="coerce").fillna(0.0).sum()),
+                # Season activity, counted under the season each move BELONGS
+                # to. This used to sum team_week, which silently filed a move
+                # made after the championship under the season that had just
+                # finished — team_week has no bucket for it, because in the
+                # season it belongs to it is offseason and has no week.
+                "Number of transactions": int(_tx_by_team_season.get((str(team), int(yr)), 0)),
+                "Number of trades": int(_tr_by_team_season.get((str(team), int(yr)), 0)),
                 "Amount of FAAB spent": (
-                    round(float(pd.to_numeric(g.get("Amount of FAAB spent"), errors="coerce").fillna(0.0).sum()), 2)
+                    round(float(_faab_by_team_season.get((str(team), int(yr)), 0.0)), 2)
                     if int(yr) >= 2022 else None
                 ),
                 # Highest combined matchup score (own PF + opponent PF) the
@@ -16737,8 +16789,12 @@ def build_all(repo_root: Path) -> None:
                     for _pos in ["QB", "WR", "RB", "TE"]
                     for _kind in ["started", "rostered"]
                 },
+                # Season-scoped like the counts beside it (see team_year): a
+                # bid placed after the championship belongs to the next
+                # season's offseason, which team_week cannot hold.
                 "Amount of FAAB spent": (
-                    float(pd.to_numeric(g.get("Amount of FAAB spent"), errors="coerce").fillna(0.0).sum())
+                    round(float(sum(_v for (_t, _s), _v in _faab_by_team_season.items()
+                                    if int(_s) == int(yr))), 2)
                     if int(yr) >= 2022 else None
                 ),
             })
@@ -16909,9 +16965,11 @@ def build_all(repo_root: Path) -> None:
                 for _pos in ["QB", "WR", "RB", "TE"]
                 for _kind in ["started", "rostered"]
             },
-            "Number of transactions": int(pd.to_numeric(g_week.get("Number of transactions"), errors="coerce").fillna(0.0).sum()),
-            "Number of trades": int(pd.to_numeric(g_week.get("Number of trades"), errors="coerce").fillna(0.0).sum()),
-            "Amount of FAAB spent": float(pd.to_numeric(g_week.get("Amount of FAAB spent"), errors="coerce").fillna(0.0).sum()),
+            # Season-scoped (see team_year): summing team_week would drop every
+            # move that belongs to a season's offseason, which has no week.
+            "Number of transactions": int(sum(_tx_by_team_season.values())),
+            "Number of trades": int(sum(_tr_by_team_season.values())),
+            "Amount of FAAB spent": round(float(sum(_faab_by_team_season.values())), 2),
             "Most number of players started from same NFL team": float(pd.to_numeric(g_week.get("Most number of players started from same NFL team"), errors="coerce").fillna(0.0).max()),
             "Most number of players rostered from same NFL team": float(pd.to_numeric(g_week.get("Most number of players rostered from same NFL team"), errors="coerce").fillna(0.0).max()),
             "Most number of QBs started from same NFL team": float(pd.to_numeric(g_week.get("Most number of QBs started from same NFL team"), errors="coerce").fillna(0.0).max()),
