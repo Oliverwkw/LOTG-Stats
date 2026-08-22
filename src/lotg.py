@@ -959,13 +959,21 @@ def _col_number_format(col: str) -> Optional[str]:
 
 def _startup_remaining_maps(pick_rows, pw):
     """Support for the 'Startup draft players remaining' column = how many of a
-    team's OWN 2020-startup picks it still rosters at a point in time. Startup
-    picks weren't tradeable on ESPN, so the drafter is the pick's (Original) Team.
+    team's OWN 2020-startup picks it still rosters at a point in time.
+
+    Keyed on the pick's FINAL Team — the team that actually made the selection.
+    This used to read Original Team, on the premise that startup picks weren't
+    tradeable on ESPN so the two always agreed. Six of them were traded (the
+    LWebs53 <-> AceMatthew slot swap), and there Original Team is the
+    counterparty: reading it credits Mike Evans to the manager who sold the
+    slot rather than the one who drafted and rostered him. The 2020 week-1
+    rosters settle it — reconciled against the draft they leave 0 unexplained
+    players under the drafter model and 10 under the slot-owner model.
     Returns (sids_by_team, roster_by_tw, weeks_by_ty, latest_by_team)."""
     sids_by_team: Dict[str, set] = defaultdict(set)
     for pr in (pick_rows or []):
         if pr.get("_is_startup") and pr.get("_player_id"):
-            t = str(pr.get("Original Team") or pr.get("Final Team") or "").strip()
+            t = str(pr.get("Final Team") or pr.get("Original Team") or "").strip()
             if t:
                 sids_by_team[t].add(str(pr["_player_id"]))
     roster_by_tw: Dict[Tuple[str, int, int], set] = defaultdict(set)
@@ -17531,7 +17539,13 @@ def build_all(repo_root: Path) -> None:
                     # transaction" silently drops its real trade. The 5.0X FAAB
                     # buys work the same way under their 5NN sentinel round.
                     _num_s = str(ph.at[_pi, "Number"]).strip()
-                    _m5s = re.match(r"5\.0?(\d+)", _num_s)
+                    # A startup "5.0X" is a REAL round-5 pick of the 19-round
+                    # inaugural draft, not a FAAB buy — its trades live under
+                    # plain round 5. Sending it to the _R5XX_BASE sentinel looks
+                    # up a key nothing writes, so all eight lose the link to
+                    # their own chain (two of them to a real trade).
+                    _m5s = (None if _su_row(ph.at[_pi, "_is_startup"] if "_is_startup" in ph.columns else None)
+                            else re.match(r"5\.0?(\d+)", _num_s))
                     if _num_s == "2.09":
                         _rd = _R209
                     elif _m5s:
@@ -17696,7 +17710,9 @@ def build_all(repo_root: Path) -> None:
                         # sentinel rounds (their trades live there); match that so
                         # the draft row links to its real trade chain, not "N/A".
                         _num_k = str(ph.at[_pi, "Number"]).strip()
-                        _m5k = re.match(r"5\.0?(\d+)", _num_k)
+                        # Same startup carve-out as the PH# anchor above.
+                        _m5k = (None if _su_row(ph.at[_pi, "_is_startup"] if "_is_startup" in ph.columns else None)
+                                else re.match(r"5\.0?(\d+)", _num_k))
                         _rd_k = (_R209 if _num_k == "2.09"
                                  else (_R5XX_BASE + int(_m5k.group(1))) if _m5k
                                  else int(_nm.group(1)))

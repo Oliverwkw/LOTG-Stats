@@ -1507,15 +1507,21 @@ def check_research_file(year: int) -> List[str]:
         return []
     problems: List[str] = []
     players = Q.players()
-    rostered = set()
-    for pids in startable_pool(year).values():
-        rostered.update(players.name(pid) for pid in pids)
-    # taxi players are legitimately researched even though they cannot start
-    for row in Q.week(year, 1).values():
-        rostered.update(players.name(pid) for pid in row.players)
     for name, note in sorted(notes.items()):
-        if name not in rostered:
-            problems.append(f"{year} research: {name!r} is on nobody's roster — typo?")
+        # What this catches is a TYPO — a name that is nobody. It used to
+        # demand the player also be on a roster, which is a different and
+        # wrong test: an unsigned free agent is exactly the kind of player
+        # worth a research note, and a rostered one can be cut mid-season
+        # without the note becoming a mistake. (Nick Chubb, researched as
+        # "unsigned free agent at 30", failed the roster form the week he
+        # went unrostered.) A note about a player nobody rosters simply
+        # moves nobody's projection.
+        try:
+            players.resolve(name)
+        except KeyError:
+            problems.append(f"{year} research: {name!r} matches no NFL player — typo?")
+        except Exception as exc:  # AmbiguousPlayer — a partial name, so which one?
+            problems.append(f"{year} research: {name!r} is ambiguous — {exc}")
         if not note.source.startswith("http"):
             problems.append(f"{year} research: {name} has no source URL")
         if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", note.as_of):

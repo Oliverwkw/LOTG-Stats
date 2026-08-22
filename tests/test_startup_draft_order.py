@@ -317,6 +317,140 @@ def test_real_faab_buys_are_still_treated_as_synthetic():
     assert untraded, "every FAAB buy moved — the zero-for-the-buy case is untested"
 
 
+# --------------------------------------------------------------------------- #
+# the drafter, and the 2020 week-1 rosters that settle who it is
+# --------------------------------------------------------------------------- #
+def _norm(name: str) -> str:
+    return re.sub(r"[^a-z]", "", str(name).lower())
+
+
+# The exports carry no player ids, so a roster is matched to a draft by name.
+# Every sheet here is a build output and uses Sleeper's canonical spelling, so
+# exact (punctuation-insensitive) names match — no aliasing needed, and none
+# wanted: a "last name + first initial" fallback silently merges Duke Johnson
+# with David Johnson, which is the ambiguity trap this repo already documents.
+
+
+def _startup_by_column(column: str):
+    by_team = {}
+    for r in _startup_rows():
+        by_team.setdefault(str(r[column]), set()).add(_norm(r["Player Picked"]))
+    return by_team
+
+
+def _rosters(year=None, week=None):
+    import csv
+    out = {}
+    with (_EXPORTS / "player_week.csv").open(newline="", encoding="utf-8") as fh:
+        for r in csv.DictReader(fh):
+            if year is not None and str(r["Year"]) != str(year):
+                continue
+            if week is not None and str(r["Week"]) != str(week):
+                continue
+            out.setdefault((r["Team"], str(r["Year"]), str(r["Week"])), set()).add(_norm(r["Player"]))
+    return out
+
+
+_EXPORTS = _ROOT / "exports"
+
+
+def test_startup_remaining_credits_the_drafter_not_the_slot_owner():
+    """`Startup draft players remaining` counts who a team DRAFTED.
+
+    On the six swapped picks the drafter and the slot owner are different
+    managers, so the two readings disagree — by up to 3 players across 160
+    team-weeks, every season, for both teams in the deal. Recomputed here from
+    the picks sheet and the weekly rosters rather than trusted.
+    """
+    if not _HAVE_PICKS or not (_EXPORTS / "team_week.csv").exists():
+        return _skip("no exports/")
+    import csv
+    drafted = _startup_by_column("Team")          # Final Team = the selector
+    owned = _startup_by_column("Original Team")   # slot owner
+    rosters = _rosters()
+    checked = disagreed = 0
+    with (_EXPORTS / "team_week.csv").open(newline="", encoding="utf-8") as fh:
+        for r in csv.DictReader(fh):
+            got = str(r.get("Startup draft players remaining", "")).strip()
+            if got in ("", "nan", "N/A"):
+                continue
+            key = (r["Team"], str(r["Year"]), str(r["Week"]))
+            men = rosters.get(key)
+            if men is None:
+                continue
+            by_drafter = len(drafted.get(r["Team"], set()) & men)
+            by_owner = len(owned.get(r["Team"], set()) & men)
+            assert int(float(got)) == by_drafter, (key, got, by_drafter)
+            checked += 1
+            disagreed += (by_drafter != by_owner)
+    assert checked > 500, checked
+    # If the two readings never diverged the guard would prove nothing.
+    assert disagreed, "drafter and slot owner agree everywhere — guard is vacuous"
+
+
+def test_2020_week_one_rosters_reconcile_to_the_draft_and_the_ledger():
+    """Every 2020 week-1 roster spot traces to a pick, an add, or a drop.
+
+    The strongest available check that the startup and the 2020 offseason are
+    completely accounted for: 152 picks, plus the adds and minus the drops the
+    transaction log records through week 1, must reproduce the rosters exactly.
+    """
+    if not _HAVE_PICKS or not (_EXPORTS / "transactions.csv").exists():
+        return _skip("no exports/")
+    import csv
+    drafted = _startup_by_column("Team")
+    adds, drops = {}, {}
+    with (_EXPORTS / "transactions.csv").open(newline="", encoding="utf-8") as fh:
+        for r in csv.DictReader(fh):
+            # NFL week 1 2020 ran Sept 10-14; allow the Tuesday after.
+            if str(r["Season"]) != "2020" or str(r["Date"])[:10] > "2020-09-15":
+                continue
+            if r["Player Added"]:
+                adds.setdefault(r["Team"], set()).add(_norm(r["Player Added"]))
+            if r["Player Dropped"]:
+                drops.setdefault(r["Team"], set()).add(_norm(r["Player Dropped"]))
+    rosters = _rosters(2020, 1)
+    assert len(rosters) == 8, sorted(rosters)
+    unexplained = []
+    for (team, _y, _w), men in rosters.items():
+        got, add, drop = drafted.get(team, set()), adds.get(team, set()), drops.get(team, set())
+        unexplained += [f"{team}: {x} on the roster from nowhere" for x in sorted(men - got - add)]
+        unexplained += [f"{team}: {x} drafted, absent, no drop" for x in sorted(got - men - drop)]
+    assert not unexplained, unexplained
+
+
+def test_startup_round_five_picks_link_to_their_own_chain():
+    """A startup 5.0X is a real round-5 pick, not a FAAB buy.
+
+    Its trades live under plain round 5, so routing it to the `_R5XX_BASE`
+    sentinel looks up a key nothing writes and loses the link — including, for
+    the two swapped ones, a link to a real trade their round-4 and round-8
+    counterparts in the same deal both have.
+    """
+    if not _HAVE_PICKS:
+        return _skip("no exports/picks.csv")
+    rows = {str(r["Number"]): r for r in _startup_rows()
+            if str(r["Number"]).startswith("5.")}
+    assert len(rows) == _TEAMS, sorted(rows)
+    for num, r in rows.items():
+        prev = str(r["Link to previous transaction"]).strip()
+        moved = str(r["Original Team"]) != str(r["Team"])
+        if moved:
+            assert prev.startswith("T#"), (num, prev, "swapped but no trade link")
+        else:
+            assert prev in ("", "nan", "N/A"), (num, prev, "never moved but links to a trade")
+    # Each swapped pick links to the SAME trade row as its counterparts on the
+    # same side of the deal — one trade, six legs, two sides.
+    by_side = {}
+    for r in _startup_rows():
+        if str(r["Original Team"]) == str(r["Team"]):
+            continue
+        by_side.setdefault(r["Team"], set()).add(str(r["Link to previous transaction"]).strip())
+    assert len(by_side) == 2, sorted(by_side)
+    for team, links in by_side.items():
+        assert len(links) == 1, (team, links, "one deal should be one trade row")
+
+
 if __name__ == "__main__":
     for fn in (
         test_slot_from_pick_in_round_reverses_even_rounds,
@@ -332,6 +466,9 @@ if __name__ == "__main__":
         test_sheet_records_the_swap_as_a_two_sided_trade,
         test_swap_picks_each_count_one_trade,
         test_real_faab_buys_are_still_treated_as_synthetic,
+        test_startup_remaining_credits_the_drafter_not_the_slot_owner,
+        test_2020_week_one_rosters_reconcile_to_the_draft_and_the_ledger,
+        test_startup_round_five_picks_link_to_their_own_chain,
     ):
         fn()
         print(f"ok: {fn.__name__}")

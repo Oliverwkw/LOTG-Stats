@@ -313,6 +313,30 @@ Surfaced by an inquiry ("what % of Oliverwkw's points is Nick Chubb?"), full wri
   the same overlay that fills in the picks the other 2020 trade emails dropped, keyed
   `pick_year 2020` with `orig_owner` = the slot's owner. Result: two `trades.csv` rows
   (504 -> 506), three picks each way, all six pick rows at `Number of trades` 1.
+- [x] **`Startup draft players remaining` credits the drafter again.** `_startup_remaining_maps`
+  still keyed on `Original Team`, which after the ownership fix is the *counterparty* on the
+  six swapped picks — crediting Mike Evans to the manager who sold the slot. Wrong by up to 3
+  players across **160 team-weeks**, both swap teams, every season. The 2020 week-1 rosters
+  settle it: 0 unexplained players under the drafter model, 10 under the slot-owner model.
+- [x] **Two more "5.0X is a FAAB buy" shortcuts, in the link builders.** The PH# anchor and
+  the previous-transaction lookup both route a `5.0X` to the `_R5XX_BASE` sentinel, so all
+  eight startup round-5 picks looked up a key nothing writes and lost their chain — including
+  the two swapped ones, whose round-4 and round-8 counterparts in the same deal both linked
+  fine. All six now link to their own side of the trade (`T#1` / `T#135`).
+- [x] 🔍 **2020 offseason fully reconciled** (per user). 152 startup picks + 10 adds − 6 drops
+  reproduce all eight 2020 week-1 rosters exactly, 0 unexplained either way. Earliest 2020
+  transaction is 2020-09-09 23:33, 108 minutes after the slot swap and before the draft ended.
+  Guarded by `test_2020_week_one_rosters_reconcile_to_the_draft_and_the_ledger`.
+- [x] 🔍 **The unmatched 2020-11-29 22:23:39 ESPN trade was VETOED** — 5 vetoes vs 2 upholds,
+  final `TRADE_ACCEPT` records `status=CANCELED`, and Fitzpatrick never appears on AceMatthew
+  after it. The real Cook deal (for a 10-pick haul) followed 94 minutes later at 23:57:04 and
+  is already in the ledger. Correctly excluded; no action.
+- [x] **`check_research_file` no longer requires a researched player to be rostered.** It is a
+  TYPO check: an unsigned free agent is exactly what deserves a research note, and a rostered
+  player can be cut mid-season without the note becoming wrong. Now resolves the name against
+  the player dictionary — a name that is nobody is a typo, an ambiguous partial says so.
+  (Nick Chubb, researched as "unsigned free agent at 30", failed the roster form the week he
+  went unrostered.) [per user]
 - [x] **Three "5.0X is a FAAB buy" shortcuts had to learn about the startup.** Its round 5
   holds eight REAL picks (two of them swapped), so `pick_lookup`, `_pick_to_drafted` and
   `_pick_hist_lines` were skipping them — the round-5 legs read 0 trades and rendered as a

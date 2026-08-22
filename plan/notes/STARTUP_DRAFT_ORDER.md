@@ -185,6 +185,44 @@ Worth keeping straight: the **weekly** bucket is a different rule and was not
 touched. An offseason trade within 7 days of kickoff still rolls into week 1 by
 design, so "offseason" and "week 1" legitimately co-occur — as they do here.
 
+## What the 2020 week-1 rosters settle
+
+The rosters are the arbiter for who "drafted" a swapped pick, and they are
+unambiguous. Reconciling each team's week-1 2020 roster against the draft:
+
+| model | unexplained players |
+|---|---|
+| pick credited to its **drafter** (Final Team) | **0** |
+| pick credited to its **slot owner** (Original Team) | 10 |
+
+Mike Evans is on LWebs53's week-1 roster, not AceMatthew's. That is what fixed
+`Startup draft players remaining`, which still keyed on `Original Team` and so
+credited each swapped player to the manager who *sold* the slot — wrong by up to
+3 players across **160 team-weeks**, every season, for both teams in the deal.
+
+The same reconciliation answers the wider question: **the 2020 offseason is
+completely accounted for.** 152 startup picks, plus the 10 adds and minus the 6
+drops the transaction log records through week 1, reproduce all eight rosters
+exactly, with nothing left over on either side. The earliest 2020 transaction is
+BROsenzweig dropping Josh Doctson at **2020-09-09 23:33** — an hour and 48
+minutes after the slot swap, and before the draft had even finished.
+
+## The 2020-11-29 trade that is not in the ledger
+
+An ESPN `TRADE_PROPOSAL` at 22:23:39 (Dalvin Cook to LWebs53 for Ryan
+Fitzpatrick) has no email counterpart, which made it look like a trade the
+build might be missing. It is not: the league **vetoed** it. Five vetoes
+(stevenb123, shmuel256, BROsenzweig, Oliverwkw, and LWebs53 himself) against two
+upholds, and the final `TRADE_ACCEPT` record carries `status=CANCELED`. The
+rosters agree — Fitzpatrick never appears on AceMatthew after that date.
+
+What happened instead is the better story: **94 minutes later**, at 23:57:04,
+the two agreed the real deal — Cook to LWebs53 for a ten-pick haul (2021 1st,
+2nd and 4th; 2022 1st and 3rd; 2023 1st; 2024 1st and 3rd; 2025 1st and 3rd),
+the bundle already in `commissioner_pick_trades.csv`. Cook duly changes hands at
+week 13. A straight Cook-for-Fitzpatrick swap was vetoed as lopsided; the priced
+version stood. Correctly excluded, no action needed.
+
 ## Still open
 
 - **It is a pick-only trade**, the league's only one. Any 2020 trade analysis
