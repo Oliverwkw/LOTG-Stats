@@ -246,6 +246,152 @@ def test_the_trade_split_still_reconciles():
         assert seen, name
 
 
+# --------------------------------------------------------------------------- #
+# the counters that follow the season, not the league week
+# --------------------------------------------------------------------------- #
+def _num(v):
+    t = str(v).strip()
+    return None if t in ("", "nan", "None", "N/A") else float(t)
+
+
+def test_team_year_equals_the_weeks_except_where_a_move_has_no_week():
+    """`team_year` is season-scoped; `team_week` can only hold in-season moves.
+
+    A move made after a championship belongs to the next season's OFFSEASON,
+    which has no week to sit in — so it counts in `team_year` and in no week at
+    all. Every team-season where the two differ must therefore hold enough
+    offseason moves to account for the gap. Anything else is a defect.
+
+    'Number of transactions' counts trades as well as adds/drops (a trade
+    credits both it and 'Number of trades'), so the explanation has to be
+    looked for in `trades.csv` as well as `transactions.csv` — reading only the
+    latter reports a season whose offseason was all trades as unexplained.
+    """
+    if not _HAVE or not (_EXPORTS / "team_year.csv").exists():
+        return _skip("no exports/")
+    from collections import defaultdict
+    weeks = defaultdict(int)
+    played = set()
+    for r in _rows("team_week.csv"):
+        played.add(int(r["Year"]))
+        v = _num(r.get("Number of transactions"))
+        if v is not None:
+            weeks[(r["Team"], int(r["Year"]))] += int(v)
+    offseason = defaultdict(list)
+    every = defaultdict(list)
+    for sheet in ("transactions.csv", "trades.csv"):
+        for r in _rows(sheet):
+            season = int(r["Season"])
+            when = date.fromisoformat(str(r["Date"])[:10])
+            every[(r["Team"], season)].append((sheet, str(when)))
+            if when < lotg._nfl_kickoff_thursday(season):
+                offseason[(r["Team"], season)].append((sheet, str(when)))
+    checked = differed = 0
+    for r in _rows("team_year.csv"):
+        v = _num(r.get("Number of transactions"))
+        if v is None:
+            continue
+        key = (r["Team"], int(r["Year"]))
+        checked += 1
+        if int(key[1]) not in played:
+            # A season with no played weeks has no week for ANY of its moves, so
+            # its season total is knowable exactly rather than as a bound.
+            assert int(v) == len(every[key]), (
+                key, int(v), len(every[key]), "unplayed season disagrees with its own moves")
+            if int(v):
+                differed += 1
+            continue
+        if int(v) == weeks[key]:
+            continue
+        differed += 1
+        assert int(v) > weeks[key], (key, weeks[key], int(v), "season total below the weeks")
+        assert offseason[key], (key, weeks[key], int(v),
+                                "differs but has no offseason move to explain it")
+        assert int(v) - weeks[key] <= len(offseason[key]), (
+            key, weeks[key], int(v), len(offseason[key]),
+            "differs by more than its offseason moves can account for")
+    assert checked > 40, checked
+    assert differed, "no team-season differs — the guard would be vacuous"
+
+
+def test_league_year_ties_to_the_team_year_rows_it_rolls_up():
+    if not _HAVE or not (_EXPORTS / "league_year.csv").exists():
+        return _skip("no exports/")
+    from collections import defaultdict
+    per = defaultdict(int)
+    for r in _rows("team_year.csv"):
+        v = _num(r.get("Number of transactions"))
+        if v is not None:
+            per[int(r["Year"])] += int(v)
+    seen = 0
+    for r in _rows("league_year.csv"):
+        v = _num(r.get("Number of transactions"))
+        if v is None:
+            continue
+        seen += 1
+        assert int(v) == per[int(r["Year"])], (r["Year"], int(v), per[int(r["Year"])])
+    assert seen, "no league_year rows checked"
+
+
+def test_the_all_time_sheets_roll_up_the_same_team_year_rows():
+    """`league_all_time` and `team_all_time` must roll up the same seasons.
+
+    Both are all-time totals of the same activity, so they have to agree with
+    each other and with `team_year`. `league_all_time` used to sum `team_week`,
+    which drops offseason moves AND the whole in-progress season (it has no
+    played weeks), leaving it short of `team_all_time` by that season's total.
+    """
+    if not _HAVE or not (_EXPORTS / "league_all_time.csv").exists():
+        return _skip("no exports/")
+    # The sheets carry "Offseason / Inseason / Total trades", not a bare
+    # "Number of trades" — that one is internal and never rendered, so there is
+    # nothing to reconcile here. test_season_window covers the trade split.
+    ty_tx = 0
+    ty_faab = 0.0
+    for r in _rows("team_year.csv"):
+        ty_tx += int(_num(r.get("Number of transactions")) or 0)
+        ty_faab += _num(r.get("Amount of FAAB spent")) or 0.0
+    assert ty_tx, "no team_year transactions — the guard would be vacuous"
+    la = _rows("league_all_time.csv")
+    assert len(la) == 1, len(la)
+    assert int(_num(la[0].get("Number of transactions")) or 0) == ty_tx, (
+        int(_num(la[0].get("Number of transactions")) or 0), ty_tx)
+    assert abs((_num(la[0].get("Amount of FAAB spent")) or 0.0) - ty_faab) < 0.51, (
+        la[0].get("Amount of FAAB spent"), ty_faab)
+    if not (_EXPORTS / "team_all_time.csv").exists():
+        return
+    # team_all_time tops itself up from any season that produced no team_year
+    # row at all; while every season has one, the two must land on the number.
+    ty_years = {int(r["Year"]) for r in _rows("team_year.csv")}
+    detail_years = {int(r["Season"]) for sheet in ("transactions.csv", "trades.csv")
+                    for r in _rows(sheet)}
+    if not detail_years <= ty_years:
+        return _skip(f"seasons with no team_year row: {sorted(detail_years - ty_years)}")
+    ta_tx = sum(int(_num(r.get("Number of transactions")) or 0)
+                for r in _rows("team_all_time.csv"))
+    assert ta_tx == ty_tx, (ta_tx, ty_tx)
+
+
+def test_a_post_championship_move_is_in_no_week_of_the_season_it_left():
+    """The concrete case, named so a regression does not read as arithmetic.
+
+    A transaction dated after its league season's championship must not be
+    counted in that season's week 17 — it is the next season's offseason.
+    """
+    if not _HAVE:
+        return _skip("no exports/")
+    from collections import defaultdict
+    # rows whose Season is NOT the calendar year they fall in, forward direction
+    forward = [r for r in _rows("transactions.csv")
+               if int(r["Season"]) == date.fromisoformat(str(r["Date"])[:10]).year + 1]
+    assert forward, "no post-championship moves found — guard would be vacuous"
+    for r in forward:
+        prev = int(r["Season"]) - 1
+        end = _ENDS.get(prev)
+        assert end is not None and date.fromisoformat(str(r["Date"])[:10]) > end, (
+            r["Team"], r["Date"], r["Season"], f"not actually past {prev}'s final")
+
+
 if __name__ == "__main__":
     for fn in (
         test_the_season_is_the_first_championship_not_yet_played,
@@ -258,6 +404,10 @@ if __name__ == "__main__":
         test_every_year_mismatch_straddles_a_championship,
         test_player_year_transaction_counts_follow_the_same_seasons,
         test_the_trade_split_still_reconciles,
+        test_team_year_equals_the_weeks_except_where_a_move_has_no_week,
+        test_league_year_ties_to_the_team_year_rows_it_rolls_up,
+        test_the_all_time_sheets_roll_up_the_same_team_year_rows,
+        test_a_post_championship_move_is_in_no_week_of_the_season_it_left,
     ):
         fn()
         print(f"ok: {fn.__name__}")
