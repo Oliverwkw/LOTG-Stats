@@ -305,23 +305,22 @@ asked for after the startup chain.
 - [x] **`_R5XX_BASE`'s "real drafts are 4 rounds" comment corrected** (the sentinel maths is
   safe; the premise is what licensed the broken string checks), and the **draft-value round-5
   remap now asserts** the startup exclusion it silently depends on 60 lines upstream.
-- [x] **Which SEASON a dated move belongs to.** Rule:
-  `season = year - 1 if month == 1 else year`, which reproduces every non-January label and
-  fixes both ends: 69 January rows (55 tx + 14 trades) labelled with the new calendar year,
-  and **15 December-31 rows labelled with the NEXT season** (14 of them the synthesized
-  2020-12-31 ESPN→Sleeper migration drops). 84 of 2096 rows. The current behaviour is *not*
-  calendar year as first reported but Sleeper's league rollover, which lands differently each
-  year — hence 3 of 7 January groups already correct. Not a one-liner: `Season` is stamped
-  from the league-loop variable at two emit sites and ~10 accumulators bucket by the same
-  variable — and contrary to the first write-up, `created_dt` IS in scope in that loop (the
-  backward search that said otherwise stopped short of the assignment). Two corrections that
-  mattered: the rule reads the **league clock**, not UTC — 2021-01-01 00:00 UTC displays and
-  belongs as 2020-12-31, which is exactly the boundary the 14 migration drops sit on — and
-  the synthesized rows take their season from `_move_season` too, not from the first four
-  characters of a UTC string. Guard: every trade/transaction row's `Season` now agrees with
-  its own DISPLAYED `Date` (0 of 2016 disagree), and `player_year` transaction counts
-  reconcile to `transactions.csv` exactly (0 of 1856). [per user: "there's a trade deadline
-  but still can add drop — treat those as part of the previous calendar year"]
+- [x] **Which SEASON a dated move belongs to** [per user]. A season is kickoff week 1 through
+  the end of the championship game; a move carries the label of the season whose in-season or
+  offseason it is part of. That makes the label the move's own calendar year with **one**
+  exception: a move between Jan 1 and that season's **championship Monday** was made while the
+  season was still being played, so it keeps that season. Exactly 2 rows in the dataset differ
+  from their date's year (2023-01-01 under 2022, 2022-01-02 under 2021); **16 rows move**
+  (the 14 synthesized 2020-12-31 migration drops, one 2025-01-01, one 2025-12-31). Corrections
+  made on the way: it is NOT "January rolls back" (a first cut moved 84 rows, most already
+  right — the boundary is the championship, not the month); `created_dt` IS in scope in the
+  accumulator loop (a backward search said otherwise and stopped short); and the rule reads the
+  **league clock**, since 2021-01-01 00:00 UTC displays and belongs as 2020-12-31 — exactly
+  where the migration drops sit. `_season_window` and `_move_season` now share
+  `_season_end_monday`, so the split and the label cannot drift. Guards: every row's `Season`
+  agrees with its own DISPLAYED `Date` (0 of 2016 disagree), the only year mismatches are
+  January-before-championship, and `player_year` tx counts reconcile to `transactions.csv`
+  (0 of 1859).
 - [ ] 🔍 **Still league-week scoped:** `team_week`/`team_year` "Number of transactions" and
   "Number of trades". A January move is still counted in the league week Sleeper filed it
   under, and team_year sums team_week rather than reading the records — so 84 moves sit in a

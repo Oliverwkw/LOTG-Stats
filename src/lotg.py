@@ -234,26 +234,48 @@ def _season_week_of(d: date, season: int, max_week: int = 17) -> int:
     return max(1, min(int(max_week), (d - kick).days // 7 + 1))
 
 
-def _move_season(when: Optional[datetime], fallback_season: int) -> int:
+def _season_end_monday(season: int, playoff_start: Optional[int]) -> Optional[date]:
+    """Championship Monday — the day the season's last game finishes.
+
+    The season runs kickoff week 1 through the end of the championship game, so
+    this is the far edge of "in-season". `_finals_weeks` handles the 2026+
+    two-week final; a season whose playoff start we never learned has no end
+    yet and returns None.
+    """
+    fw = _finals_weeks(playoff_start, season)
+    if not fw:
+        return None
+    return _week_thursday(int(season), int(fw[-1])) + timedelta(days=4)
+
+
+def _move_season(when: Optional[datetime], fallback_season: int,
+                 season_end: Optional[Dict[int, Optional[date]]] = None) -> int:
     """Fantasy season a dated roster move belongs to.
 
-    The trade deadline passes but adds and drops keep going, so the tail of a
-    season spills past New Year — those moves are that season's business, not
-    the next one's. January therefore rolls back a year; every other month
-    keeps its own, which reproduces the label the build already gives all but
-    84 of its 2096 moves.
+    A season is kickoff week 1 through the end of the championship game, and a
+    move is labelled with the season whose in-season or offseason it is part of.
+    In practice that means the label is simply the move's own calendar year —
+    with exactly one exception, and it is the reason this helper exists.
 
-    What it replaces is not "calendar year" (as it looks from the outside) but
-    Sleeper's league rollover, which lands on a different date each year — so
-    the old behaviour was inconsistent rather than uniformly off. It broke at
-    both ends: January moves filed under the season about to start, and 15 rows
-    dated December 31 filed under the NEXT season (fourteen of them the
-    synthesized 2020-12-31 ESPN->Sleeper migration drops).
+    The trade deadline passes but adds and drops keep going, so a season's
+    playoffs can run past New Year. A move made between **January 1 and that
+    season's championship Monday** happened while the season was still being
+    played, and belongs to it, even though the calendar has already ticked over.
+    Those are the only rows whose listed year differs from their date. Once
+    championship Monday is past, the offseason has begun and every move takes
+    its own calendar year, right through to the next kickoff.
+
+    What this replaces is not "calendar year", though that is how it looks from
+    outside: the season came from Sleeper's league rollover, which lands on a
+    different date each year, so the old behaviour was inconsistent rather than
+    uniformly off — right for some January moves and wrong for others, and
+    wrong for 15 rows dated December 31 that were filed under the NEXT season
+    (fourteen of them the synthesized 2020-12-31 ESPN->Sleeper migration drops).
 
     Read in LEAGUE time, not UTC. Timestamps are UTC internally and the Date
     column is rendered America/New_York at write time, so a move at 2021-01-01
     00:00 UTC displays as 2020-12-31 19:00 — deriving the season from the UTC
-    month would label it from a date no reader can see on the sheet. Taking the
+    date would label it from a day no reader can see on the sheet. Taking the
     Eastern wall clock keeps Season and Date answerable against each other.
     """
     if when is None:
@@ -265,7 +287,12 @@ def _move_season(when: Optional[datetime], fallback_season: int) -> int:
         local = local.astimezone(ZoneInfo("America/New_York"))
     except Exception:
         pass  # fall back to whatever clock we were handed
-    return int(local.year) - 1 if int(local.month) == 1 else int(local.year)
+    day = local.date() if hasattr(local, "date") else local
+    year = int(day.year)
+    prev_end = (season_end or {}).get(year - 1)
+    if prev_end is not None and day <= prev_end:
+        return year - 1
+    return year
 
 
 def _week_complete_cutoff(season: int, week: int) -> datetime:
@@ -3233,6 +3260,10 @@ def build_all(repo_root: Path) -> None:
     opp_pf_map: Dict[Tuple[int, int, int], Optional[float]] = {}
     stage_label_map: Dict[Tuple[int, int, int], Optional[str]] = {}
     playoff_start_by_season: Dict[int, Optional[int]] = {}
+    # season -> championship Monday, filled in as each league season is walked.
+    # A move dated on or before the PREVIOUS season's entry was made while that
+    # season was still being played, so it carries that season's label.
+    _season_end_by_season: Dict[int, Optional[date]] = {}
     roster_ids_by_season: Dict[int, List[int]] = {}
     roster_to_team_by_season: Dict[int, Dict[int, str]] = {}
     draft_rounds_by_season: Dict[int, int] = {}
@@ -3682,6 +3713,7 @@ def build_all(repo_root: Path) -> None:
             pass
         playoff_start = _to_int(settings.get("playoff_week_start"), None)
         playoff_start_by_season[season] = playoff_start
+        _season_end_by_season[season] = _season_end_monday(season, playoff_start)
 
         # cache played_by_week
         if season not in played_by_week_by_season:
@@ -5765,12 +5797,13 @@ def build_all(repo_root: Path) -> None:
                         continue
                     # The season this move BELONGS to, which is not always the
                     # league season it was filed under — see _move_season.
-                    _mv_season = _move_season(created_dt, season)
+                    _mv_season = _move_season(created_dt, season, _season_end_by_season)
                     if _mv_season != int(season):
                         # It rolled back, so the league week it was filed under
-                        # belongs to a different season. Put it in the last week
-                        # of the season it really belongs to — it happened after
-                        # that season's games, so no earlier week is honest.
+                        # belongs to a different season. A rolled-back move is
+                        # one made on or before championship Monday, i.e. while
+                        # that season was still being PLAYED — so it has a real
+                        # week there, and the calendar gives it directly.
                         _mv_wk = _season_week_of(
                             created_dt.date(), _mv_season,
                             max_week=max(_finals_weeks(
@@ -8123,7 +8156,8 @@ def build_all(repo_root: Path) -> None:
                     # rows cluster on the 2020->2021 platform-transfer boundary,
                     # where the two disagree (2021-01-01T00:00Z displays, and
                     # belongs, as 2020).
-                    "Date": dt, "Season": _move_season(_aware(dt), _to_int(str(dt)[:4], None)),
+                    "Date": dt, "Season": _move_season(_aware(dt), _to_int(str(dt)[:4], None),
+                                           _season_end_by_season),
                     "_added_pid": added_pid, "_dropped_pid": dropped_pid,
                     "_synthesized": True, "Number of bids": None,
                     "Link to next transaction": None, "Link to previous transaction": None,
@@ -12789,15 +12823,14 @@ def build_all(repo_root: Path) -> None:
     # season stops at its championship, not at New Year, so a deal made after
     # the title game was in-season until the calendar rolled over.
     def _season_window(season: int) -> Tuple[date, Optional[date]]:
-        """(week-1 Thursday, championship Monday) for a season."""
-        _kick = _nfl_kickoff_thursday(int(season))
-        _ps = playoff_start_by_season.get(int(season))
-        _fw = _finals_weeks(_ps, int(season))
-        # Championship Monday = the day after that week's Sunday games. A season
-        # still in progress (or one whose playoff start we never learned) has no
-        # end yet, so nothing is offseason-after.
-        _end = (_kick + timedelta(days=4 + 7 * (int(_fw[-1]) - 1))) if _fw else None
-        return _kick, _end
+        """(week-1 Thursday, championship Monday) for a season.
+
+        The same two edges `_move_season` labels against, so a move's season and
+        whether it reads offseason can never drift apart: a row is in-season
+        exactly when its own date falls inside its own season's window.
+        """
+        return (_nfl_kickoff_thursday(int(season)),
+                _season_end_monday(int(season), playoff_start_by_season.get(int(season))))
 
     def _trade_is_offseason(dt_str, season) -> Optional[bool]:
         try:

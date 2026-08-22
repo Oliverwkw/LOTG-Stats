@@ -68,36 +68,48 @@ deep-offseason move clamps to week 1 rather than dropping out), now visible as
 ## Which SEASON a move belongs to — done, see below
 
 Shipped separately (same sweep, own PR). The spec, kept here because the
-investigation moved it twice:
+investigation moved it three times:
 
-**The rule is `season = year - 1 if month == 1 else year`.** It reproduces every
-non-January label exactly and fixes both ends:
+**A season is kickoff week 1 through the end of the championship game, and a
+move carries the label of the season whose in-season or offseason it is part
+of.** In practice that makes the label the move's own calendar year — with one
+exception, which is the whole reason a helper exists:
 
-- **January.** 55 transactions and 14 trades are labelled with the new calendar
-  year when they belong to the season that just ended.
-- **December 31.** 15 rows sit the other way round — labelled with the *next*
-  season (14 on 2020-12-31, the synthesized ESPN→Sleeper migration drops, and
-  one on 2025-12-31). These were not in the original finding; they turned up
-  while checking that non-January rows already matched their calendar year.
+> A move made between January 1 and that season's **championship Monday**
+> happened while the season was still being *played*, and belongs to it, even
+> though the calendar has ticked over.
 
-84 of 2096 rows in total. Note what the current behaviour actually is: **not**
-calendar year, as the sweep first reported, but Sleeper's own league rollover,
-which lands on a different date each year — which is why 3 of the 7 January
-groups are already right and 4 are not.
+Those are the only rows whose listed year differs from their date. There are
+**two** in the whole dataset: a 2023-01-01 transaction under season 2022 (whose
+final ran to Jan 2) and a 2022-01-02 one under 2021 (final Jan 3). Once
+championship Monday is past the offseason has begun and every move takes its own
+calendar year, right through to the next kickoff — so a March move is that
+year's offseason, not the previous season's tail.
 
-Two corrections to how that was first written up, both worth keeping:
+Sixteen rows move: the fourteen synthesized 2020-12-31 migration drops (filed
+under 2021, and 2020's championship was Dec 28, so they are 2020 offseason), one
+2025-01-01 (2024 ended Dec 30 — already offseason, so 2025) and one 2025-12-31.
 
-- **The accumulators do have the date.** The claim that one of the loops has no
+Three corrections the investigation had to make on the way, all worth keeping:
+
+- **It is not "January rolls back".** The first implementation rolled all of
+  January and moved 84 rows; most of those were already right. The boundary is
+  the championship, not the month, and the two land differently every year
+  because the final's date moves.
+- **The accumulators do have the date.** The claim that one loop has no
   timestamp in scope was wrong — it came from a backward search that stopped
-  short of the assignment. `created_dt` is set at the top of the same loop the
-  accumulators sit in, which is what made this tractable.
+  short of the assignment. `created_dt` is set at the top of the same loop.
 - **The rule has to read the LEAGUE clock, not UTC.** Timestamps are UTC
   internally and the Date column is rendered America/New_York at write time, so
-  2021-01-01 00:00 UTC displays as 2020-12-31 19:00. Deriving the season from
-  the UTC month labels a row from a date that appears nowhere on the sheet —
-  the same representation mismatch that produced the startup-draft bug. It is
-  not hypothetical: it is exactly the boundary the fourteen migration drops sit
-  on.
+  2021-01-01 00:00 UTC displays as 2020-12-31 19:00. Deriving from the UTC date
+  labels a row from a day that appears nowhere on the sheet — the same
+  representation mismatch that produced the startup-draft bug, and not
+  hypothetical: it is exactly the boundary the fourteen migration drops sit on.
+
+`_season_window` (the Offseason/Inseason split) and `_move_season` (the label)
+now read the same two edges from `_season_end_monday`, so a row is in-season
+exactly when its own date falls inside its own season's window. They cannot
+drift apart.
 
 **What still is not covered.** `team_week` / `team_year` "Number of
 transactions" and "Number of trades" stay league-week scoped — a January move is
