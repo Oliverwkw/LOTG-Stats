@@ -16938,6 +16938,12 @@ def build_all(repo_root: Path) -> None:
         except Exception as e:
             _log_exc(debug, "league_year_unique_extras", e)
 
+        def _ty_total(_col: str) -> float:
+            """All-time total of a team_year column, 0.0 when there is nothing."""
+            if not isinstance(team_year, pd.DataFrame) or _col not in team_year.columns:
+                return 0.0
+            return float(pd.to_numeric(team_year[_col], errors="coerce").fillna(0.0).sum())
+
         league_all = pd.DataFrame([{
             "PF": float(pd.to_numeric(g_week["PF"], errors="coerce").fillna(0.0).sum()),
             "Avg PF": float(pd.to_numeric(g_week["PF"], errors="coerce").fillna(0.0).mean()),
@@ -16965,11 +16971,15 @@ def build_all(repo_root: Path) -> None:
                 for _pos in ["QB", "WR", "RB", "TE"]
                 for _kind in ["started", "rostered"]
             },
-            # Season-scoped (see team_year): summing team_week would drop every
-            # move that belongs to a season's offseason, which has no week.
-            "Number of transactions": int(sum(_tx_by_team_season.values())),
-            "Number of trades": int(sum(_tr_by_team_season.values())),
-            "Amount of FAAB spent": round(float(sum(_faab_by_team_season.values())), 2),
+            # Rolled up from team_year, the same source team_all_time sums, so
+            # the two all-time sheets cannot disagree. Summing team_week (what
+            # this did before) dropped every move belonging to a season's
+            # offseason, which has no week to sit in; summing the season
+            # counters directly would instead skip the in-progress season,
+            # whose team_year row is seeded from the detail tables.
+            "Number of transactions": int(_ty_total("Number of transactions")),
+            "Number of trades": int(_ty_total("Number of trades")),
+            "Amount of FAAB spent": round(_ty_total("Amount of FAAB spent"), 2),
             "Most number of players started from same NFL team": float(pd.to_numeric(g_week.get("Most number of players started from same NFL team"), errors="coerce").fillna(0.0).max()),
             "Most number of players rostered from same NFL team": float(pd.to_numeric(g_week.get("Most number of players rostered from same NFL team"), errors="coerce").fillna(0.0).max()),
             "Most number of QBs started from same NFL team": float(pd.to_numeric(g_week.get("Most number of QBs started from same NFL team"), errors="coerce").fillna(0.0).max()),
@@ -17022,7 +17032,10 @@ def build_all(repo_root: Path) -> None:
                 if (isinstance(team_all, pd.DataFrame) and "Startup draft players remaining" in team_all.columns)
                 else None
             )
-            league_all["Amount of FAAB spent"] = float(pd.to_numeric(g_week.get("Amount of FAAB spent"), errors="coerce").fillna(0.0).sum())
+            # FAAB rolls up from team_year like the counts beside it. This used
+            # to re-sum team_week here, which undid the season-scoped total set
+            # above: a bid placed in a season's offseason sits in no week.
+            league_all["Amount of FAAB spent"] = round(_ty_total("Amount of FAAB spent"), 2)
             # Distinct trades all-time (Phase 5B item 1).
             # Offseason / Inseason / Total trades all-time = sum across seasons
             # (each trade lives in exactly one season).

@@ -149,7 +149,25 @@ What moves: exactly the two rows named above, out of the old season's week 17
 and into the new season's total. `Oliverwkw 2024` week 17 goes 1 -> 0 and the
 season 33 -> 32; `stevenb123 2025` week 17 goes 2 -> 1 and the season 59 -> 58.
 
-**One reconciliation deliberately does not hold offline.** `league_all_time`
-counts the 2026 credit; the 2025-league offline build has no `team_year` row for
-2026 to hold it, so the two differ by exactly 1 there. CI builds 2026 and both
-sides include it.
+**Where `league_all_time` gets its totals, and why it changed twice.** It used
+to sum `team_week`, which drops both the offseason moves above *and* the whole
+in-progress season (2026 has no played weeks, so no `team_week` rows at all) —
+it read 1929 against `team_all_time`'s 2011. Summing the new season counters
+directly fixed the offseason half but not the in-progress half: a season still
+being played gets its `team_year` row from a **separate** seeding path that
+counts `transactions_rows` / `trades_rows` straight, and those rows include the
+synthesized lineage-closing transactions that the per-event counters have never
+credited. Two counting paths, two answers.
+
+So all three all-time counters now roll up from `team_year`, which is the same
+source `team_all_time` already sums — the two all-time sheets cannot disagree,
+whatever the seeding path. A later line that re-summed `team_week` into
+`league_all_time`'s "Amount of FAAB spent", quietly undoing the total set
+above, is gone with it.
+
+That the synthesized rows are counted for an in-progress season and not for a
+completed one is a **pre-existing** inconsistency, not one this change
+introduced, and it is left alone here: fixing it means rebuilding the team
+counters from the final rows the way the *player* counters already are, which
+would move every completed season's transaction count. Named here so the next
+session finds it rather than rediscovering it.

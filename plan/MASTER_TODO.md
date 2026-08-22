@@ -328,9 +328,22 @@ asked for after the startup chain.
   a waiver, `created` otherwise — both displaced moves are waivers, so getting this wrong
   would have recreated the defect) and credits the weekly counter only when the season
   matches, plus a season-scoped counter always. team_year reads the latter; team_all_time and
-  league_year already roll up from team_year; league_all_time sums the same counters.
+  league_year already roll up from team_year; league_all_time rolls up from team_year too.
   league_week still sums weeks, which is right. Moves exactly 2 rows: Oliverwkw 2024 W17
   1->0 (season 33->32), stevenb123 2025 W17 2->1 (season 59->58).
+- [x] **league_all_time was short by a whole season.** It summed team_week, so it dropped the
+  offseason moves AND all of 2026 (in progress, no played weeks, no team_week rows): 1929
+  against team_all_time's 2011. Summing the season counters instead fixed only half — an
+  in-progress season's team_year row comes from a SEPARATE seeding path that counts
+  transactions_rows/trades_rows straight, including the synthesized lineage-closing rows the
+  per-event counters never credit. All three all-time counters now roll up from team_year,
+  the same source team_all_time sums, so the two all-time sheets cannot disagree. A later line
+  that re-summed team_week into league_all_time's FAAB, undoing the total set above, is gone.
+- [ ] 🔍 **Pre-existing, not from this change:** synthesized lineage-closing transactions are
+  counted for an in-progress season (seeded from the rows) and not for a completed one (the
+  per-event counters skip them). Fixing it means rebuilding the TEAM counters from the final
+  rows the way the PLAYER counters already are, which moves every completed season's
+  transaction count — its own change, with the user's call on the numbers.
 - [x] **The manual-transactions overlay bypassed the counters** — it increments team_week
   directly, so shmuel256's hand-entered 2023 Puka Nacua pickup sat in a week but in no season
   total. Season-scoped now. It also carried a **third flat date anchor (`Sept 5`)** the
