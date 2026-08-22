@@ -305,7 +305,7 @@ asked for after the startup chain.
 - [x] **`_R5XX_BASE`'s "real drafts are 4 rounds" comment corrected** (the sentinel maths is
   safe; the premise is what licensed the broken string checks), and the **draft-value round-5
   remap now asserts** the startup exclusion it silently depends on 60 lines upstream.
-- [ ] 🔍 **Which SEASON a dated move belongs to — own PR.** Rule:
+- [x] **Which SEASON a dated move belongs to.** Rule:
   `season = year - 1 if month == 1 else year`, which reproduces every non-January label and
   fixes both ends: 69 January rows (55 tx + 14 trades) labelled with the new calendar year,
   and **15 December-31 rows labelled with the NEXT season** (14 of them the synthesized
@@ -313,8 +313,22 @@ asked for after the startup chain.
   calendar year as first reported but Sleeper's league rollover, which lands differently each
   year — hence 3 of 7 January groups already correct. Not a one-liner: `Season` is stamped
   from the league-loop variable at two emit sites and ~10 accumulators bucket by the same
-  variable, one of them in a loop with **no date in scope**. [per user: "there's a trade
-  deadline but still can add drop — treat those as part of the previous calendar year"]
+  variable — and contrary to the first write-up, `created_dt` IS in scope in that loop (the
+  backward search that said otherwise stopped short of the assignment). Two corrections that
+  mattered: the rule reads the **league clock**, not UTC — 2021-01-01 00:00 UTC displays and
+  belongs as 2020-12-31, which is exactly the boundary the 14 migration drops sit on — and
+  the synthesized rows take their season from `_move_season` too, not from the first four
+  characters of a UTC string. Guard: every trade/transaction row's `Season` now agrees with
+  its own DISPLAYED `Date` (0 of 2016 disagree), and `player_year` transaction counts
+  reconcile to `transactions.csv` exactly (0 of 1856). [per user: "there's a trade deadline
+  but still can add drop — treat those as part of the previous calendar year"]
+- [ ] 🔍 **Still league-week scoped:** `team_week`/`team_year` "Number of transactions" and
+  "Number of trades". A January move is still counted in the league week Sleeper filed it
+  under, and team_year sums team_week rather than reading the records — so 84 moves sit in a
+  team-week row from a different season than their own `Season`. Closing it means crediting a
+  move across a season boundary the loops do not share, and a post-championship move has no
+  honest week in the season it belongs to (week 0 is the build's convention there, and is not
+  a valid team_week key). Bounded and flagged rather than given an invented week.
 
 ### Phase 13 follow-up — startup picks were numbered by SLOT, not draft ORDER
 Surfaced by an inquiry ("what % of Oliverwkw's points is Nick Chubb?"), full write-up in

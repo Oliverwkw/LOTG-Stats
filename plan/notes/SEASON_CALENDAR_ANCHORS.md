@@ -65,12 +65,10 @@ deep-offseason move clamps to week 1 rather than dropping out), now visible as
   from that frame 60 lines earlier, with nothing tying the two together. A real
   round-6+ pick reaching it now fails loudly instead of inflating Draft Value.
 
-## Deliberately not here: which SEASON a move belongs to
+## Which SEASON a move belongs to — done, see below
 
-The remaining sweep item — a post-deadline move belonging to the previous
-season — turned out to be a bigger change than the anchors, and the
-investigation moved the spec, so it gets its own PR. Recorded here so the next
-session does not re-derive it:
+Shipped separately (same sweep, own PR). The spec, kept here because the
+investigation moved it twice:
 
 **The rule is `season = year - 1 if month == 1 else year`.** It reproduces every
 non-January label exactly and fixes both ends:
@@ -87,9 +85,27 @@ calendar year, as the sweep first reported, but Sleeper's own league rollover,
 which lands on a different date each year — which is why 3 of the 7 January
 groups are already right and 4 are not.
 
-Why it is not a one-line change: `Season` is stamped from the league-loop
-variable at two emit sites, and about ten accumulators (`player_tx_week`,
-`player_trade_year`, …) bucket by that same loop variable. One of those loops
-has **no date in scope at all**, so date-derived attribution has to be threaded
-into it. Relabelling only the emitted rows would leave `trades.csv` disagreeing
-with the per-season counts on the player sheets.
+Two corrections to how that was first written up, both worth keeping:
+
+- **The accumulators do have the date.** The claim that one of the loops has no
+  timestamp in scope was wrong — it came from a backward search that stopped
+  short of the assignment. `created_dt` is set at the top of the same loop the
+  accumulators sit in, which is what made this tractable.
+- **The rule has to read the LEAGUE clock, not UTC.** Timestamps are UTC
+  internally and the Date column is rendered America/New_York at write time, so
+  2021-01-01 00:00 UTC displays as 2020-12-31 19:00. Deriving the season from
+  the UTC month labels a row from a date that appears nowhere on the sheet —
+  the same representation mismatch that produced the startup-draft bug. It is
+  not hypothetical: it is exactly the boundary the fourteen migration drops sit
+  on.
+
+**What still is not covered.** `team_week` / `team_year` "Number of
+transactions" and "Number of trades" stay league-week scoped — a January move is
+still counted in the league week Sleeper filed it under, and `team_year` sums
+`team_week` rather than reading the records. So 84 moves are counted in a
+team-week row belonging to a different season than their own `Season` label.
+Closing that means crediting a move across a season boundary the loops do not
+share, and a post-championship move has no honest week in the season it belongs
+to (the build's own convention for that case is week 0, which is not a valid
+team_week key). Left as a known, bounded gap rather than papered over with an
+invented week.
