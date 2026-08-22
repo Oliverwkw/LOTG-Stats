@@ -959,13 +959,21 @@ def _col_number_format(col: str) -> Optional[str]:
 
 def _startup_remaining_maps(pick_rows, pw):
     """Support for the 'Startup draft players remaining' column = how many of a
-    team's OWN 2020-startup picks it still rosters at a point in time. Startup
-    picks weren't tradeable on ESPN, so the drafter is the pick's (Original) Team.
+    team's OWN 2020-startup picks it still rosters at a point in time.
+
+    Keyed on the pick's FINAL Team — the team that actually made the selection.
+    This used to read Original Team, on the premise that startup picks weren't
+    tradeable on ESPN so the two always agreed. Six of them were traded (the
+    LWebs53 <-> AceMatthew slot swap), and there Original Team is the
+    counterparty: reading it credits Mike Evans to the manager who sold the
+    slot rather than the one who drafted and rostered him. The 2020 week-1
+    rosters settle it — reconciled against the draft they leave 0 unexplained
+    players under the drafter model and 10 under the slot-owner model.
     Returns (sids_by_team, roster_by_tw, weeks_by_ty, latest_by_team)."""
     sids_by_team: Dict[str, set] = defaultdict(set)
     for pr in (pick_rows or []):
         if pr.get("_is_startup") and pr.get("_player_id"):
-            t = str(pr.get("Original Team") or pr.get("Final Team") or "").strip()
+            t = str(pr.get("Final Team") or pr.get("Original Team") or "").strip()
             if t:
                 sids_by_team[t].add(str(pr["_player_id"]))
     roster_by_tw: Dict[Tuple[str, int, int], set] = defaultdict(set)
@@ -6754,25 +6762,49 @@ def build_all(repo_root: Path) -> None:
     # ----- 2020 ESPN startup draft (19 rounds) -----
     # Emitted directly (not through the rookie-draft rebuild, which caps rounds at
     # 4 and synthesizes future picks / trade chains that don't apply to a one-time
-    # veteran startup). Year is tagged "startup". Picks were not tradeable
-    # on-platform in 2020 — the lone off-platform slot swap is already baked into
-    # who actually drafted each slot — so Original Team == Final Team and no pick
-    # moved. Each row carries _player_id, so every downstream pick stat pass (PPG /
+    # veteran startup). Year is tagged "startup". Original Team is the slot's
+    # owner and Final Team the drafter: equal on 146 picks, and different on the
+    # six that moved in the draft-day slot swap, whose trade legs come from the
+    # `commissioner_pick_trades.csv` overlay like every other 2020 pick leg.
+    # Each row carries _player_id, so every downstream pick stat pass (PPG /
     # addition value / O-Score / age) computes for it exactly like a real pick;
     # _pick_draft_year() maps "startup" -> 2020 for those passes. KTC stays N/A
     # (no pre-Aug-2021 KTC history).
     try:
         if _startup_draft_picks:
             _su_rid_to_team = season_roster_to_team.get(2020, {})
-            # Snake startup: a team's slot is its round-1 draft position. Round 1
-            # picks are in slot order, so overall pick number == slot there.
+            # Snake startup: a team's SLOT is its round-1 draft position, but the
+            # position it picks FROM reverses every even round (slot 1 picks 1st
+            # in round 1, 8th in round 2). Pick numbers here follow true draft
+            # ORDER, matching how the rookie/vet ledger numbers its picks — so
+            # Nick Chubb, taken 16th overall by the slot-1 team, is 2.08 and not
+            # 2.01. Numbering off the constant slot instead labelled all 72
+            # even-round picks backwards, and because the pick-adjustment pass
+            # reads a pick's overall position straight back out of that label
+            # ((round-1)*8 + number), it also compared every startup pick
+            # against the wrong neighbours.
+            # `pick_in_round` comes from ESPN's own `roundPickNumber`; the
+            # fallback derives it from the drafter's slot for any pick that
+            # somehow lacks it, which is exact except across a draft-day swap.
             _slot_by_rid: Dict[int, int] = {}
             for _p in _startup_draft_picks:
                 if _to_int(_p.get("round"), 0) == 1:
-                    _rid1 = _to_int(_p.get("roster_id"), None)
+                    _rid1 = _to_int(_p.get("original_roster_id"), None)
+                    if _rid1 is None:
+                        _rid1 = _to_int(_p.get("roster_id"), None)
                     _ov1 = _to_int(_p.get("pick_no"), None)
                     if _rid1 is not None and _ov1 is not None:
                         _slot_by_rid[int(_rid1)] = int(_ov1)
+            _su_teams = len(_slot_by_rid) or 8
+
+            def _su_pick_in_round(_rnd, _slot, _pick_in_round):
+                _pir = _to_int(_pick_in_round, None)
+                if _pir is not None:
+                    return _pir
+                if _slot is None:
+                    return None
+                return (_su_teams + 1 - int(_slot)) if int(_rnd) % 2 == 0 else int(_slot)
+
             _n_startup = 0
             for _p in _startup_draft_picks:
                 _rnd = _to_int(_p.get("round"), None)
@@ -6780,7 +6812,12 @@ def build_all(repo_root: Path) -> None:
                 _ov = _to_int(_p.get("pick_no"), None)
                 if _rnd is None or _rid is None:
                     continue
-                _slot = _slot_by_rid.get(int(_rid))
+                # The slot belongs to the pick, so it follows the pick's OWNER,
+                # not whoever ended up selecting from it.
+                _orid = _to_int(_p.get("original_roster_id"), None)
+                if _orid is None:
+                    _orid = int(_rid)
+                _slot = _to_int(_p.get("draft_slot"), None) or _slot_by_rid.get(int(_orid))
                 if _slot is None and _ov is not None and _slot_by_rid:
                     _slot = ((int(_ov) - 1) % len(_slot_by_rid)) + 1
                 _md = _p.get("metadata") if isinstance(_p.get("metadata"), dict) else {}
@@ -6793,6 +6830,11 @@ def build_all(repo_root: Path) -> None:
                 _dp_nm = f"{_md.get('first_name','')} {_md.get('last_name','')}".strip()
                 _nm = (_sleeper_nm if (_sleeper_nm and _sleeper_nm != _pid_s) else None) or _dp_nm or _sleeper_nm
                 _tm = _su_rid_to_team.get(int(_rid), f"Roster {_rid}")
+                # Original Team = the team that OWNED the slot, which is the
+                # drafter on 146 of the 152 picks and the counterparty on the
+                # six LWebs53 <-> AceMatthew draft-day swaps (rounds 4, 5, 8).
+                _otm = _su_rid_to_team.get(int(_orid), _tm)
+                _pir = _su_pick_in_round(_rnd, _slot, _p.get("pick_in_round"))
                 pick_rows.append({
                     # Computed as a normal 2020 draft so every downstream pick pass
                     # (PPG / addition value / O-Score / age / links / position
@@ -6801,8 +6843,8 @@ def build_all(repo_root: Path) -> None:
                     # the picks sheet is written.
                     "Year": 2020,
                     "_is_startup": True,
-                    "Number": _format_pick_number(int(_rnd), _slot),
-                    "Original Team": _tm,
+                    "Number": _format_pick_number(int(_rnd), _pir if _pir is not None else _slot),
+                    "Original Team": _otm,
                     "Final Team": _tm,
                     "Player Picked": _nm,
                     "_player_id": (str(_p.get("player_id")) if _valid_pid(_p.get("player_id")) else None),
@@ -9233,6 +9275,14 @@ def build_all(repo_root: Path) -> None:
     tx = pd.DataFrame(transactions_rows)
     tr = pd.DataFrame(trades_rows)
     ph = pd.DataFrame(pick_rows)
+
+    # `_is_startup` is set only on the 152 startup rows, so every other row holds
+    # NaN — and NaN is TRUTHY. A bare `bool(row.get("_is_startup"))` therefore
+    # reads every rookie pick as a startup pick, which is the opposite of what
+    # each caller wants. Always ask through this.
+    def _su_row(_v: Any) -> bool:
+        return _v is True or str(_v).strip().lower() == "true"
+
     # No dedupe / chain reconstruction needed — the pick_history rebuild
     # block (above) emits exactly one row per (frame, round, slot) with
     # chains already resolved.
@@ -9447,8 +9497,13 @@ def build_all(repo_root: Path) -> None:
                 # Synthetic draft-day picks (2.09 toilet reward, 5.0X FAAB buys)
                 # are off-platform and never referenced in Sleeper trades; keep
                 # them out of the trade pick-label map so they can't shadow a
-                # real same-(year,round,owner) pick.
-                if num.strip() == "2.09" or rnd_i >= 5:
+                # real same-(year,round,owner) pick. The 19-round startup is the
+                # exception: its rounds 5-19 are REAL picks (120 of them), four
+                # of which changed hands in the draft-day slot swap (two in
+                # round 5, two in round 8), and no synthetic 5.0X exists in its
+                # year — so excluding it left those legs rendering as a bare
+                # "2020 5.??" instead of naming the player.
+                if num.strip() == "2.09" or (rnd_i >= 5 and not _su_row(prow.get("_is_startup"))):
                     continue
                 orig_team = str(prow.get("Original Team") or "").strip()
                 if not orig_team:
@@ -9743,7 +9798,10 @@ def build_all(repo_root: Path) -> None:
                     continue
                 # Skip synthetic off-platform picks (2.09 / 5.0X) — they aren't
                 # Sleeper-traded and must not shadow a real (year,round,owner) pick.
-                if str(_phr.get("Number", "")).strip() == "2.09" or int(_nm.group(1)) >= 5:
+                # Startup rounds 5-19 are real picks in a year that has neither,
+                # so they stay in (see the same carve-out on the chain lookup).
+                if (str(_phr.get("Number", "")).strip() == "2.09"
+                        or (int(_nm.group(1)) >= 5 and not _su_row(_phr.get("_is_startup")))):
                     continue
                 _key = (int(_ym.group(1)), int(_nm.group(1)), _norm_team_name(_phr.get("Original Team", "")))
                 _pick_to_drafted[_key] = (_plp, _norm_team_name(_phr.get("Final Team", "")), int(_ym.group(1)))
@@ -10315,6 +10373,12 @@ def build_all(repo_root: Path) -> None:
                 _maxpos = _rsize * (_max_round or 1)
 
                 def _window_slots(_R: int, _S: int) -> List[Tuple[int, int]]:
+                    # Overall draft position, read straight back out of the pick
+                    # NUMBER. That only holds because every draft numbers its
+                    # picks by true draft ORDER — including the snake startup,
+                    # where the number is the position picked from, not the
+                    # owner's constant slot. Number a snake off the slot and
+                    # this silently reverses every even round.
                     _pos = (_R - 1) * _rsize + _S
                     if _pos <= 1:
                         _ps = [1, 2]
@@ -12785,13 +12849,36 @@ def build_all(repo_root: Path) -> None:
     # --------------------------
     # Distinct trade events split into Offseason / Inseason / Total (user
     # request) for the team_year/all_time and league_year/all_time sheets.
-    # Offseason = trade dated before that season's kickoff (Sept 7).
+    # In-season = between that season's REAL week-1 kickoff and the Monday its
+    # championship ends; everything either side of that is offseason. Both ends
+    # move year to year and a fixed Sept 7 anchor got both wrong: kickoff is the
+    # Thursday after Labor Day (Sept 5 in 2019, Sept 11 in 2025), so a
+    # genuinely-preseason deal in the Sept 7-10 gap read as in-season — that is
+    # what made the 2020 startup slot swap, struck the evening before the draft
+    # finished, an "in-season" trade. The far end was missing entirely: the
+    # season stops at its championship, not at New Year, so a deal made after
+    # the title game was in-season until the calendar rolled over.
+    def _season_window(season: int) -> Tuple[date, Optional[date]]:
+        """(week-1 Thursday, championship Monday) for a season."""
+        _kick = _nfl_kickoff_thursday(int(season))
+        _ps = playoff_start_by_season.get(int(season))
+        _fw = _finals_weeks(_ps, int(season))
+        # Championship Monday = the day after that week's Sunday games. A season
+        # still in progress (or one whose playoff start we never learned) has no
+        # end yet, so nothing is offseason-after.
+        _end = (_kick + timedelta(days=4 + 7 * (int(_fw[-1]) - 1))) if _fw else None
+        return _kick, _end
+
     def _trade_is_offseason(dt_str, season) -> Optional[bool]:
         try:
             d = datetime.fromisoformat(str(dt_str).replace("Z", "+00:00")).date()
-            return d < date(int(season), 9, 7)
         except Exception:
             return None
+        try:
+            _kick, _end = _season_window(int(season))
+        except Exception:
+            return None
+        return d < _kick or (_end is not None and d > _end)
     _team_trade_dates_split: Dict[Tuple[str, int], Dict[str, set]] = defaultdict(
         lambda: {"off": set(), "in": set(), "tot": set()}
     )
@@ -15543,7 +15630,8 @@ def build_all(repo_root: Path) -> None:
 
         # Trades split (user request): Offseason / Inseason / Total trades, as
         # DISTINCT trade events the team was in that season. Offseason = trade
-        # dated before that season's kickoff (Sept 7); Inseason = on/after.
+        # outside that season's real playing window (before its week-1 kickoff
+        # or after its championship Monday); Inseason = inside it.
         # team_all_time sums these per-season counts (a trade lives in one
         # season). Replaces the single "Number of trades" on the year/all-time
         # sheets; the per-week sheets keep "Number of trades".
@@ -15625,17 +15713,21 @@ def build_all(repo_root: Path) -> None:
 
         team_year = team_year.sort_values(["Team", "Year"]).reset_index(drop=True)
         team_year["Change in win % from previous season"] = team_year.groupby("Team")["Win %"].diff()
-        # Earliest tracked season has no prior offseason in the dataset, so its
-        # offseason turnover / trades are N/A (no prior-season championship
-        # roster to diff against, no offseason-before-the-first-season to
-        # count) — not 0. Done before the all-time rollup so the NaN is
+        # Earliest tracked season has no prior offseason ROSTER in the dataset,
+        # so its offseason turnover is N/A (nothing to diff the week-1 roster
+        # against) — not 0. Done before the all-time rollup so the NaN is
         # excluded from team_all_time's per-season mean/sum.
+        # Offseason TRADES are not in that boat: the league's first season has a
+        # real one, the startup draft-day slot swap, struck before the 2020
+        # kickoff. Blanking it made the row read Offseason N/A + Inseason 4 =
+        # Total 5, and disagreed with team_all_time, which counts the split
+        # straight off the trade dates rather than off this column.
         try:
             _ty_years = pd.to_numeric(team_year["Year"], errors="coerce")
             _earliest_ty = _ty_years.min()
             if pd.notna(_earliest_ty):
                 _first_mask = _ty_years == _earliest_ty
-                for _oc in ("Offseason starter turnover", "Offseason roster turnover", "Offseason trades"):
+                for _oc in ("Offseason starter turnover", "Offseason roster turnover"):
                     if _oc in team_year.columns:
                         team_year.loc[_first_mask, _oc] = np.nan
         except Exception as e:
@@ -16802,13 +16894,15 @@ def build_all(repo_root: Path) -> None:
                      if (pd.notna(y) and int(y) in _star_hi_y and int(y) in _star_lo_y) else None)
                     for y in _yrs
                 ]
-                # Earliest tracked season has no prior offseason → N/A, not 0
-                # (mirrors team_year; the sum of an all-NaN team_year column
-                # would otherwise collapse back to 0 in the league rollup).
+                # Earliest tracked season has no prior offseason ROSTER → its
+                # turnover is N/A, not 0 (mirrors team_year; the sum of an
+                # all-NaN team_year column would otherwise collapse back to 0
+                # in the league rollup). Offseason TRADES stay a real count —
+                # the 2020 startup slot swap is one.
                 _ly_first = _yrs.min()
                 if pd.notna(_ly_first):
                     _ly_mask = _yrs == _ly_first
-                    for _oc in ("Offseason starter turnover", "Offseason roster turnover", "Offseason trades"):
+                    for _oc in ("Offseason starter turnover", "Offseason roster turnover"):
                         if _oc in league_year.columns:
                             league_year.loc[_ly_mask, _oc] = np.nan
         except Exception as e:
@@ -16964,18 +17058,18 @@ def build_all(repo_root: Path) -> None:
     # for two teams counts once per team in the all-time pool).
     try:
         if not pw.empty and {"Team", "Year", "Week", "Player ID"}.issubset(pw.columns):
-            # Drafter(s) of each player, by normalized team handle. Startup picks
-            # weren't tradeable (ESPN), so the drafter is the pick's Original
-            # Team; for later drafts it's the Final Team that made the selection.
+            # Drafter(s) of each player, by normalized team handle: the Final
+            # Team is the one that made the selection, at every draft. The
+            # startup used to be special-cased to Original Team on the premise
+            # that ESPN picks were never traded — six of them were (the
+            # LWebs53 <-> AceMatthew swap), and on those the original owner is
+            # the counterparty, not the drafter.
             _draft_team_by_pid: Dict[str, set] = defaultdict(set)
             for _pr in (pick_rows or []):
                 _dpid = _pr.get("_player_id")
                 if not _dpid:
                     continue
-                if _pr.get("_is_startup"):
-                    _dt = _pr.get("Original Team") or _pr.get("Final Team")
-                else:
-                    _dt = _pr.get("Final Team") or _pr.get("Original Team")
+                _dt = _pr.get("Final Team") or _pr.get("Original Team")
                 if _dt:
                     _draft_team_by_pid[str(_dpid)].add(_norm_team_name(str(_dt)))
 
@@ -17445,7 +17539,13 @@ def build_all(repo_root: Path) -> None:
                     # transaction" silently drops its real trade. The 5.0X FAAB
                     # buys work the same way under their 5NN sentinel round.
                     _num_s = str(ph.at[_pi, "Number"]).strip()
-                    _m5s = re.match(r"5\.0?(\d+)", _num_s)
+                    # A startup "5.0X" is a REAL round-5 pick of the 19-round
+                    # inaugural draft, not a FAAB buy — its trades live under
+                    # plain round 5. Sending it to the _R5XX_BASE sentinel looks
+                    # up a key nothing writes, so all eight lose the link to
+                    # their own chain (two of them to a real trade).
+                    _m5s = (None if _su_row(ph.at[_pi, "_is_startup"] if "_is_startup" in ph.columns else None)
+                            else re.match(r"5\.0?(\d+)", _num_s))
                     if _num_s == "2.09":
                         _rd = _R209
                     elif _m5s:
@@ -17610,7 +17710,9 @@ def build_all(repo_root: Path) -> None:
                         # sentinel rounds (their trades live there); match that so
                         # the draft row links to its real trade chain, not "N/A".
                         _num_k = str(ph.at[_pi, "Number"]).strip()
-                        _m5k = re.match(r"5\.0?(\d+)", _num_k)
+                        # Same startup carve-out as the PH# anchor above.
+                        _m5k = (None if _su_row(ph.at[_pi, "_is_startup"] if "_is_startup" in ph.columns else None)
+                                else re.match(r"5\.0?(\d+)", _num_k))
                         _rd_k = (_R209 if _num_k == "2.09"
                                  else (_R5XX_BASE + int(_m5k.group(1))) if _m5k
                                  else int(_nm.group(1)))
@@ -17720,7 +17822,12 @@ def build_all(repo_root: Path) -> None:
             # (sort key 0000) so all histories start the same way, ahead of even a
             # player's pre-draft free-agent stints.
             _is_209 = _num == "2.09"
-            _is_5xx = bool(re.match(r"\s*5\.", _num))
+            # A startup "5.0X" is a REAL round-5 pick of the 19-round inaugural
+            # draft, not a FAAB buy — its ledger events sit under plain round 5,
+            # not the _R5XX_BASE sentinel, so routing it below would find no hops
+            # and report 0 trades (and call it a 20-FAAB buy in the header).
+            _is_5xx = (bool(re.match(r"\s*5\.", _num))
+                       and not _su_row(ph.at[_pi, "_is_startup"] if "_is_startup" in ph.columns else None))
             if "(vet)" in _yr_disp.lower():
                 # The 2021 supplemental veteran draft (distinct from the 2020 ESPN
                 # startup draft) — anchor it at the start of its year so it sorts

@@ -284,6 +284,81 @@ startup-N/A, **#319** the 12-round audit-fix batch). All 7 steps done; the post-
 (Bugs A/B/C + the Hardship cross-era confirm) are all closed. The closing run 397-vs-395 3-part
 audit (`plan/AUDIT_PHASE13_RUN397_vs_395.md`) found 0 regressions. **Clear to start Phase 14.**
 
+### Phase 13 follow-up — startup picks were numbered by SLOT, not draft ORDER
+Surfaced by an inquiry ("what % of Oliverwkw's points is Nick Chubb?"), full write-up in
+`plan/notes/STARTUP_DRAFT_ORDER.md`.
+- [x] **74 of 152 startup picks mislabeled.** The startup is a snake, so a team's constant
+  draft slot is not the position it picks from on even rounds. `espn_2020.py` discarded
+  ESPN's `roundPickNumber` and `lotg.py` rebuilt the number as `round.slot`, reversing all
+  72 even-round picks (+2 in round 5, see below). Chubb, 16th overall, read `2.01` instead
+  of `2.08`. Fixed by carrying `pick_in_round` through and numbering by true draft order —
+  the same convention the rookie/vet ledger already uses.
+- [x] **Every startup pick-adjusted value was computed against the wrong neighbours.**
+  `_window_slots` recovers overall position as `(round-1)*8 + number`, so a reversed even
+  round shifts the 8-nearest baseline by most of a round. Self-correcting once the numbers
+  are true order; ~0.2-0.3 sd of movement on all four adjusted columns (Chubb's Player
+  addition value diff: −17.55 → −29.97). Startup `O-Score` is downstream of two of them and
+  moves too — **it cannot be checked offline (KTC N/A there), so verify it in the results
+  audit.**
+- [x] **The 6 picks that broke the snake are the startup slot swap.** They are the only
+  picks carrying ESPN's `owningTeamIds`: LWebs53 and AceMatthew exchanged their round 4, 5
+  and 8 picks. Corroborated by the lone picks-involving email trade (2020-09-09, ~6h before
+  the draft finished) and by `espn_2020_backfill.md`'s own prose. `Original Team` is now the
+  slot's owner and `Final Team` the drafter; drafter attribution no longer special-cases the
+  startup on the retired premise that ESPN picks were never traded.
+- [x] **The swap is a recorded trade.** Its email has no player legs, so it parsed to an
+  empty shell that produced no trade row. The shell now takes its two teams from the draft
+  record (the only pick-only email of the season, matched against the only pair of swap
+  partners in the picks) and its six pick legs from `data/commissioner_pick_trades.csv` —
+  the same overlay that fills in the picks the other 2020 trade emails dropped, keyed
+  `pick_year 2020` with `orig_owner` = the slot's owner. Result: two `trades.csv` rows
+  (504 -> 506), three picks each way, all six pick rows at `Number of trades` 1.
+- [x] **`Startup draft players remaining` credits the drafter again.** `_startup_remaining_maps`
+  still keyed on `Original Team`, which after the ownership fix is the *counterparty* on the
+  six swapped picks — crediting Mike Evans to the manager who sold the slot. Wrong by up to 3
+  players across **160 team-weeks**, both swap teams, every season. The 2020 week-1 rosters
+  settle it: 0 unexplained players under the drafter model, 10 under the slot-owner model.
+- [x] **Two more "5.0X is a FAAB buy" shortcuts, in the link builders.** The PH# anchor and
+  the previous-transaction lookup both route a `5.0X` to the `_R5XX_BASE` sentinel, so all
+  eight startup round-5 picks looked up a key nothing writes and lost their chain — including
+  the two swapped ones, whose round-4 and round-8 counterparts in the same deal both linked
+  fine. All six now link to their own side of the trade (`T#1` / `T#135`).
+- [x] 🔍 **2020 offseason fully reconciled** (per user). 152 startup picks + 10 adds − 6 drops
+  reproduce all eight 2020 week-1 rosters exactly, 0 unexplained either way. Earliest 2020
+  transaction is 2020-09-09 23:33, 108 minutes after the slot swap and before the draft ended.
+  Guarded by `test_2020_week_one_rosters_reconcile_to_the_draft_and_the_ledger`.
+- [x] 🔍 **The unmatched 2020-11-29 22:23:39 ESPN trade was VETOED** — 5 vetoes vs 2 upholds,
+  final `TRADE_ACCEPT` records `status=CANCELED`, and Fitzpatrick never appears on AceMatthew
+  after it. The real Cook deal (for a 10-pick haul) followed 94 minutes later at 23:57:04 and
+  is already in the ledger. Correctly excluded; no action.
+- [x] **`check_research_file` no longer requires a researched player to be rostered.** It is a
+  TYPO check: an unsigned free agent is exactly what deserves a research note, and a rostered
+  player can be cut mid-season without the note becoming wrong. Now resolves the name against
+  the player dictionary — a name that is nobody is a typo, an ambiguous partial says so.
+  (Nick Chubb, researched as "unsigned free agent at 30", failed the roster form the week he
+  went unrostered.) [per user]
+- [x] **Three "5.0X is a FAAB buy" shortcuts had to learn about the startup.** Its round 5
+  holds eight REAL picks (two of them swapped), so `pick_lookup`, `_pick_to_drafted` and
+  `_pick_hist_lines` were skipping them — the round-5 legs read 0 trades and rendered as a
+  bare `2020 5.??` while their round-4/8 counterparts in the same deal read 1. Carved out
+  via `_su_row()`, which also fixes the NaN-is-truthy trap on the `_is_startup` flag. The
+  seven genuine 5.0X buys (2025/2026) are unaffected, guarded by a test.
+- [x] **The in-season/offseason boundary is dynamic now** (per user: "it changes"). It was a
+  fixed Sept 7, wrong at both ends: kickoff is the Thursday after Labor Day and moves six
+  days across the seasons on record (Sept 4 in 2025, Sept 10 in 2020/2026), and the far end
+  did not exist — a season ran to New Year rather than to its championship. Now
+  (`_nfl_kickoff_thursday(season)` .. championship Monday from `_finals_weeks()`). On the
+  data as it stands **only the slot swap moves** (2020-09-09 < the Sept 10 kickoff): every
+  other trade sits well inside its window, and no trade at all falls after a championship,
+  so that half is a guard, not a restatement.
+- [x] **The first season's `Offseason trades` is a real count, not N/A.** It was blanked
+  alongside offseason turnover on the premise that there is no offseason before the first
+  season — but the slot swap is one. Blanking left 2020 reading `Offseason N/A + Inseason 4
+  = Total 5`, and disagreed with team_all_time, which counts the split off the trade dates.
+  Turnover stays N/A (no prior-season roster to diff). Side effect: with the NaN gone the
+  column renders as an integer (`1`, not `1.0`) across every season, matching its
+  `Inseason`/`Total` siblings — a formatting diff on every row, no value change.
+
 ## Phase 14 — In-season weekly digest email
 **Trigger:** Tuesday 14:00 UTC (~10am ET) build+digest+**email**; plus a Thursday 16:00 UTC pregame build with **no email**. Runs year-round since #379 (a week with no movement renders empty and `--skip-empty` drops it); snapshot rotates only on the Tuesday send run so emails diff week-to-week. (Wired into `build.yml`.)
 

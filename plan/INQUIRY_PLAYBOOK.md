@@ -642,9 +642,33 @@ list is here so an answer written by hand does not walk into them.
   `2.09`, and it belongs to a *non-playoff* team — so a bottom-four-vs-rest
   comparison that leaves it in files it under the playoff teams and inflates the
   gap (+416 becomes +440). `draft_capital.hauls()` drops and counts it.
+- **A season's in-season window moves every year, at both ends.** Offseason /
+  Inseason is split on (that season's week-1 Thursday .. its championship
+  Monday), not a fixed date: kickoff is the Thursday after Labor Day and ranges
+  Sept 4 (2025) to Sept 10 (2020, 2026), and the season stops at the title game,
+  not at New Year. `_nfl_kickoff_thursday(season)` + `_finals_weeks()`. Anything
+  hand-rolling "before Sept 7" will file a preseason deal as in-season — that is
+  what hid the 2020 startup slot swap in the in-season bucket. Note the weekly
+  bucket is a *different* rule: an offseason trade within 7 days of kickoff still
+  rolls into week 1 by design, so "offseason" and "week 1" legitimately co-occur.
 - **Past seasons' snapshots have no `drafts.json`.** Like `traded_picks.json`,
   only the current season carries it, so the record of who owned a slot in an
   earlier draft is `picks."Original Team"`, not the snapshot.
+- **The startup is the one SNAKE draft, so its slots and its pick numbers are
+  different things.** `picks."Number"` is the position picked FROM, at every
+  draft — Oliverwkw held the 1.01 and therefore the **2.08**, not a `2.01`. Do
+  not read a startup pick number as the owner's slot, and do not assume a team's
+  number is constant down the rounds; it mirrors every even round. (It really
+  did read `2.01` until the fix in `plan/notes/STARTUP_DRAFT_ORDER.md`, which
+  also skewed every startup pick-adjusted column, so a startup pick figure
+  quoted from an older build is wrong.)
+- **Six startup picks were traded, so `Original Team` is not the drafter there.**
+  LWebs53 and AceMatthew swapped their round 4, 5 and 8 picks (Mike Evans,
+  Golladay, A. Robinson, DJ Moore, Keenan Allen, Hunter Henry). `Final Team`
+  drafted; `Original Team` owned the slot. It is a real `trades.csv` row now —
+  two, one per side, dated 2020-09-09 with three picks each way — but it is
+  **pick-only**, so any 2020 trade analysis that keys on players will see an
+  empty deal. It is also the league's only **offseason** trade before 2021.
 - **Removing a star lowers Max PF by much less than he scored.** The optimal
   lineup only loses his margin over the next-best legal option, so the observed
   exchange rate is about **1.9 points of production per 1 point of ceiling** and
