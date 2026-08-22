@@ -252,25 +252,27 @@ def _move_season(when: Optional[datetime], fallback_season: int,
                  season_end: Optional[Dict[int, Optional[date]]] = None) -> int:
     """Fantasy season a dated roster move belongs to.
 
-    A season is kickoff week 1 through the end of the championship game, and a
-    move is labelled with the season whose in-season or offseason it is part of.
-    In practice that means the label is simply the move's own calendar year —
-    with exactly one exception, and it is the reason this helper exists.
+    A season runs from kickoff week 1 to the end of its championship game, and
+    everything after that championship is the NEXT season's business — its
+    offseason — right through to that season's kickoff. So the whole rule is:
 
-    The trade deadline passes but adds and drops keep going, so a season's
-    playoffs can run past New Year. A move made between **January 1 and that
-    season's championship Monday** happened while the season was still being
-    played, and belongs to it, even though the calendar has already ticked over.
-    Those are the only rows whose listed year differs from their date. Once
-    championship Monday is past, the offseason has begun and every move takes
-    its own calendar year, right through to the next kickoff.
+        the move belongs to the first season whose championship has not
+        happened yet.
 
-    What this replaces is not "calendar year", though that is how it looks from
-    outside: the season came from Sleeper's league rollover, which lands on a
-    different date each year, so the old behaviour was inconsistent rather than
-    uniformly off — right for some January moves and wrong for others, and
-    wrong for 15 rows dated December 31 that were filed under the NEXT season
-    (fourteen of them the synthesized 2020-12-31 ESPN->Sleeper migration drops).
+    That is one comparison, and it settles both edges at once. A move in
+    January before the final is still the old season, because the season is
+    still being played. A move in late December AFTER the final is already the
+    new season, even though the calendar has not turned. Both cases really
+    occur here, because the championship date moves: 2020's final was Dec 28
+    and 2021's ran to Jan 3.
+
+    So a listed year can differ from its date in either direction, and the
+    league calendar decides which — not the month.
+
+    What this replaces is not "calendar year", though that is how it looks
+    from outside. The season came from Sleeper's league rollover, which lands
+    on a different date each year, so the old behaviour was inconsistent
+    rather than uniformly off.
 
     Read in LEAGUE time, not UTC. Timestamps are UTC internally and the Date
     column is rendered America/New_York at write time, so a move at 2021-01-01
@@ -288,11 +290,14 @@ def _move_season(when: Optional[datetime], fallback_season: int,
     except Exception:
         pass  # fall back to whatever clock we were handed
     day = local.date() if hasattr(local, "date") else local
-    year = int(day.year)
-    prev_end = (season_end or {}).get(year - 1)
-    if prev_end is not None and day <= prev_end:
-        return year - 1
-    return year
+    known = sorted((int(_s), _e) for _s, _e in (season_end or {}).items() if _e is not None)
+    for _s, _end in known:
+        if day <= _end:
+            return _s
+    # Past every championship we know about: the season after the last one that
+    # has finished, or the date's own year if that is later (a gap year, or a
+    # season whose playoff start we have not learned yet).
+    return max(known[-1][0] + 1, int(day.year)) if known else int(day.year)
 
 
 def _week_complete_cutoff(season: int, week: int) -> datetime:

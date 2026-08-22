@@ -1,27 +1,23 @@
 """Which season a dated roster move belongs to.
 
-A season is kickoff week 1 through the end of the championship game, and a move
-carries the label of the season whose in-season or offseason it is part of. In
-practice that makes the label the move's own calendar year — with exactly one
-exception, which is the whole reason the helper exists:
+A season runs from kickoff week 1 to the end of its championship game, and
+everything after that championship belongs to the NEXT season — its offseason —
+through to that season's kickoff. The whole rule is one comparison:
 
-    A move made between January 1 and that season's **championship Monday**
-    happened while the season was still being PLAYED, and belongs to it, even
-    though the calendar has ticked over.
+    a move belongs to the first season whose championship has not happened yet.
 
-Those are the only rows whose listed year differs from their date; there are two
-of them in the whole dataset. Once championship Monday is past the offseason has
-begun, and every move takes its own calendar year through to the next kickoff.
+That settles both edges at once, and both edges really occur here, because the
+championship date moves: 2020's final was Dec 28 and 2021's ran to Jan 3. So a
+move in January *before* the final is still the old season (it is still being
+played), and a move in late December *after* the final is already the new one
+(even though the calendar has not turned). A listed year can therefore differ
+from its date in either direction, and the league calendar decides which — not
+the month.
 
-Two things about the old behaviour are worth pinning, because both surprised the
-investigation that produced this:
-
-  * It was **not** calendar year, though it looks like it from outside. It was
-    Sleeper's own league rollover, which lands on a different date each year —
-    so some January moves were already right and others were not.
-  * It broke at **both** ends. Some January moves were filed under the season
-    about to start, and 15 rows dated December 31 under the season after —
-    fourteen of them the synthesized 2020-12-31 ESPN->Sleeper migration drops.
+The old behaviour was **not** calendar year, though it looks like it from
+outside: the season came from Sleeper's league rollover, which lands on a
+different date each year. It happened to agree with the real league calendar
+almost everywhere, which is why so few rows move.
 
 The rule reads the **league** clock. Timestamps are UTC internally and the Date
 column is rendered America/New_York at write time, so 2021-01-01 00:00 UTC
@@ -79,28 +75,43 @@ def _rows(name: str):
 # --------------------------------------------------------------------------- #
 # the rule itself
 # --------------------------------------------------------------------------- #
-def test_only_up_to_championship_monday_rolls_back():
+def test_the_season_is_the_first_championship_not_yet_played():
     for iso, want, why in (
-        ("2022-01-02T18:00:00+00:00", 2021, "2021 championship Sunday"),
+        ("2020-09-09T21:45:18+00:00", 2020, "preseason 2020"),
+        ("2020-12-16T16:43:22+00:00", 2020, "in-season 2020"),
+        ("2020-12-31T18:00:00+00:00", 2021, "AFTER 2020's Dec 28 final -> next season"),
+        ("2022-01-02T18:00:00+00:00", 2021, "2021 championship Sunday, still 2021"),
         ("2022-01-03T18:00:00+00:00", 2021, "2021 championship Monday, inclusive"),
-        ("2022-01-04T18:00:00+00:00", 2022, "the day after — offseason has begun"),
+        ("2022-01-04T18:00:00+00:00", 2022, "the day after -> 2022"),
+        ("2022-03-09T21:05:26+00:00", 2022, "2022 offseason"),
         ("2023-01-01T18:00:00+00:00", 2022, "2022's final ran to Jan 2"),
-        ("2023-01-10T18:00:00+00:00", 2023, "well past it"),
+        ("2023-01-10T18:00:00+00:00", 2023, "past it -> 2023"),
         ("2024-01-13T18:00:00+00:00", 2024, "2023 ended Jan 1"),
-        ("2025-01-01T18:00:00+00:00", 2025, "2024 ended Dec 30 — already offseason"),
-        ("2026-01-01T18:00:00+00:00", 2026, "2025 ended Dec 29"),
-        ("2020-12-31T18:00:00+00:00", 2020, "after its own championship, own year"),
-        ("2022-02-09T12:00:00+00:00", 2022, "offseason keeps its own year"),
-        ("2022-03-09T21:05:26+00:00", 2022, "offseason keeps its own year"),
-        ("2020-09-09T21:45:18+00:00", 2020, "preseason keeps its own year"),
+        ("2025-01-01T18:00:00+00:00", 2025, "2024 ended Dec 30 — already 2025"),
+        ("2025-12-31T18:00:00+00:00", 2026, "AFTER 2025's Dec 29 final -> 2026"),
+        ("2026-01-01T18:00:00+00:00", 2026, "2026 offseason"),
     ):
         assert lotg._move_season(_utc(iso), 9999, _ENDS) == want, (iso, why)
 
 
-def test_a_season_with_no_known_end_never_rolls_a_move_back():
-    # An in-progress season has no championship Monday yet; guessing one would
-    # relabel live moves, so nothing rolls back into it.
-    assert lotg._move_season(_utc("2027-01-02T18:00:00+00:00"), 9999, {2026: None}) == 2027
+def test_a_december_championship_pushes_the_rest_of_december_forward():
+    # The half of the rule a month-based reading gets wrong. 2020's final was
+    # Dec 28 and 2025's Dec 29, so the last days of those calendar years are
+    # already the NEXT season's offseason.
+    assert lotg._move_season(_utc("2020-12-29T18:00:00+00:00"), 9999, _ENDS) == 2021
+    assert lotg._move_season(_utc("2025-12-30T18:00:00+00:00"), 9999, _ENDS) == 2026
+    # while a final that runs into January holds its own season there
+    assert lotg._move_season(_utc("2022-01-01T18:00:00+00:00"), 9999, _ENDS) == 2021
+
+
+def test_past_every_known_championship_it_falls_forward_not_back():
+    # A season whose playoff start we have not learned has no end, so it cannot
+    # be matched; the move belongs to the season after the last finished one.
+    assert lotg._move_season(_utc("2026-12-31T18:00:00+00:00"), 9999,
+                             {2025: date(2025, 12, 29)}) == 2026
+    assert lotg._move_season(_utc("2027-06-01T18:00:00+00:00"), 9999,
+                             {2025: date(2025, 12, 29)}) == 2027
+    # and with nothing to go on at all it takes the date's own year
     assert lotg._move_season(_utc("2027-01-02T18:00:00+00:00"), 9999, {}) == 2027
 
 
@@ -108,15 +119,15 @@ def test_it_reads_the_league_clock_not_utc():
     # 2021-01-01 00:00 UTC is 2020-12-31 19:00 in New York: December there, so
     # the season that just ended. This is the boundary the 14 synthesized
     # ESPN->Sleeper migration drops sit on.
-    assert lotg._move_season(_utc("2021-01-01T00:00:00+00:00"), 9999, _ENDS) == 2020
-    # And the mirror: 2022-01-04 00:00 UTC is 2022-01-03 19:00 in New York —
-    # championship Monday, so it rolls back where the UTC date would not.
+    assert lotg._move_season(_utc("2021-01-01T00:00:00+00:00"), 9999, _ENDS) == 2021
+    # 2022-01-04 00:00 UTC is 2022-01-03 19:00 in New York — championship
+    # Monday, so it is still 2021 where the UTC date would say 2022.
     assert lotg._move_season(_utc("2022-01-04T00:00:00+00:00"), 9999, _ENDS) == 2021
 
 
 def test_a_naive_timestamp_is_read_as_utc_not_rejected():
     naive = datetime(2021, 1, 1, 0, 0)
-    assert lotg._move_season(naive, 9999, _ENDS) == 2020
+    assert lotg._move_season(naive, 9999, _ENDS) == 2021
 
 
 def test_no_timestamp_falls_back_rather_than_guessing():
@@ -128,8 +139,10 @@ def test_no_timestamp_falls_back_rather_than_guessing():
 # --------------------------------------------------------------------------- #
 def _expected(displayed_date: str) -> int:
     when = date.fromisoformat(displayed_date)
-    prev_end = _ENDS.get(when.year - 1)
-    return when.year - 1 if (prev_end is not None and when <= prev_end) else when.year
+    for season in sorted(_ENDS):
+        if when <= _ENDS[season]:
+            return season
+    return max(max(_ENDS) + 1, when.year)
 
 
 def test_every_dated_move_agrees_with_its_own_date():
@@ -155,12 +168,13 @@ def test_every_dated_move_agrees_with_its_own_date():
     assert not problems, problems[:10]
 
 
-def test_the_only_year_mismatches_are_played_in_january():
-    """A listed year that differs from the date is the exception, so name it.
+def test_every_year_mismatch_straddles_a_championship():
+    """A listed year that differs from the date is fine — but only at the seam.
 
-    Every such row must be a move made in January, on or before the championship
-    Monday of the season it is labelled with — i.e. while that season's final
-    was still to be played. Anything else is a defect.
+    Both directions are legal and both occur: a January move before its
+    season's final keeps the old year, a late-December move after its season's
+    final takes the new one. What is NOT legal is a mismatch away from that
+    boundary, so each one is checked against the championship it straddles.
     """
     if not _HAVE:
         return _skip("no exports/")
@@ -172,10 +186,17 @@ def test_the_only_year_mismatches_are_played_in_january():
                 odd.append((name, r["Team"], when, int(r["Season"])))
     assert odd, "no year mismatches at all — the guard would be vacuous"
     for name, team, when, season in odd:
-        assert when.month == 1, (name, team, str(when), season, "not January")
-        end = _ENDS.get(season)
-        assert end is not None and when <= end, (
-            name, team, str(when), season, f"past championship Monday {end}")
+        where = (name, team, str(when), season)
+        if season == when.year - 1:
+            # labelled with the season that was still being played
+            end = _ENDS.get(season)
+            assert end is not None and when <= end, (*where, f"past its final {end}")
+        elif season == when.year + 1:
+            # labelled with the season whose offseason had already begun
+            end = _ENDS.get(when.year)
+            assert end is not None and when > end, (*where, f"not yet past {end}")
+        else:
+            raise AssertionError((*where, "off by more than one season"))
 
 
 def test_player_year_transaction_counts_follow_the_same_seasons():
@@ -227,13 +248,14 @@ def test_the_trade_split_still_reconciles():
 
 if __name__ == "__main__":
     for fn in (
-        test_only_up_to_championship_monday_rolls_back,
-        test_a_season_with_no_known_end_never_rolls_a_move_back,
+        test_the_season_is_the_first_championship_not_yet_played,
+        test_a_december_championship_pushes_the_rest_of_december_forward,
+        test_past_every_known_championship_it_falls_forward_not_back,
         test_it_reads_the_league_clock_not_utc,
         test_a_naive_timestamp_is_read_as_utc_not_rejected,
         test_no_timestamp_falls_back_rather_than_guessing,
         test_every_dated_move_agrees_with_its_own_date,
-        test_the_only_year_mismatches_are_played_in_january,
+        test_every_year_mismatch_straddles_a_championship,
         test_player_year_transaction_counts_follow_the_same_seasons,
         test_the_trade_split_still_reconciles,
     ):
