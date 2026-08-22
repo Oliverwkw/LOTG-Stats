@@ -206,6 +206,33 @@ def _nfl_kickoff_thursday(season: int) -> date:
     return labor_day + timedelta(days=3)
 
 
+def _week_thursday(season: int, week: int) -> date:
+    """Date fantasy `week` of `season` opens — its Thursday night game.
+
+    Every "which week is this date in / when was that week" calculation in the
+    build used to anchor on a flat Sept 7. Real kickoff is the Thursday after
+    Labor Day and moves six days across the seasons on record (Sept 4 in 2025,
+    Sept 10 in 2020 and 2026), so the flat anchor put a date up to three days
+    either side of its true week — enough to file a move in the wrong one.
+    """
+    return _nfl_kickoff_thursday(int(season)) + timedelta(days=7 * (int(week) - 1))
+
+
+def _season_week_of(d: date, season: int, max_week: int = 17) -> int:
+    """Fantasy week a date falls in, 0 for the deep offseason.
+
+    An offseason move rolls into week 1's WEEKLY bucket only if it lands within
+    7 days of kickoff (Phase 5C item 9); anything earlier gets 0 and no weekly
+    bucket. Season/all-time totals count from the distinct move list, so those
+    still include it. Four near-identical copies of this rule used to sit in
+    lotg.py and espn_2020.py, each with its own flat Sept 7 — one place now.
+    """
+    kick = _nfl_kickoff_thursday(int(season))
+    if d < kick:
+        return 1 if (kick - d).days <= 7 else 0
+    return max(1, min(int(max_week), (d - kick).days // 7 + 1))
+
+
 def _week_complete_cutoff(season: int, week: int) -> datetime:
     """UTC instant after which fantasy `week`'s NFL games are safely final:
     Tuesday 08:00 UTC (≈ 3am ET), a few hours after that week's Monday Night
@@ -419,8 +446,11 @@ def _first_col(df: pd.DataFrame, candidates: List[str]) -> Optional[str]:
 _R209 = 209
 
 # Internal sentinel rounds for the 5.0X FAAB-buy picks: slot 5.0N -> round
-# _R5XX_BASE + N (5.01 -> 501, 5.02 -> 502, ...). Real drafts are 4 rounds, so
-# these never collide with a real pick; they render "5.0N" and (like the 2.09)
+# _R5XX_BASE + N (5.01 -> 501, 5.02 -> 502, ...). ROOKIE drafts are 4 rounds, so
+# the sentinel never collides numerically with a real pick — but the 19-round
+# 2020 startup has genuine rounds 5-19, so a check on the DISPLAY string
+# ("5.0X means FAAB buy") is not the same test and must exclude startup rows;
+# see `_su_row`. They render "5.0N" and (like the 2.09)
 # count as a 4.08 only in slot-based calcs.
 _R5XX_BASE = 500
 
@@ -3514,7 +3544,7 @@ def build_all(repo_root: Path) -> None:
                 except Exception:
                     continue
                 try:
-                    _wk_d = date(int(_bk_yr), 9, 7) + timedelta(days=7 * (_wk_bk - 1))
+                    _wk_d = _week_thursday(int(_bk_yr), _wk_bk)
                     _wk_iso = _wk_d.isoformat()
                 except Exception:
                     _wk_iso = ""
@@ -3725,7 +3755,7 @@ def build_all(repo_root: Path) -> None:
                                         continue
                                 # Approx Thursday-of-week date for sorting.
                                 try:
-                                    wk_d = date(int(season), 9, 7) + timedelta(days=7 * (wk - 1))
+                                    wk_d = _week_thursday(int(season), wk)
                                     wk_iso = wk_d.isoformat()
                                 except Exception:
                                     wk_iso = ""
@@ -4931,7 +4961,7 @@ def build_all(repo_root: Path) -> None:
                         # in the season/all-time totals (which are counted from
                         # the distinct trade ledger, not the weekly sum).
                         _tr_dt = _epoch_ms_to_dt(t.get("created"))
-                        _kick = date(int(season), 9, 7)
+                        _kick = _nfl_kickoff_thursday(int(season))
                         _deep_offseason = bool(
                             _tr_dt is not None
                             and _tr_dt.date() < _kick
@@ -7050,11 +7080,7 @@ def build_all(repo_root: Path) -> None:
                 return 1
             try:
                 _d = datetime.fromisoformat(str(_dt_str).replace("Z", "+00:00")).date()
-                _season_start = date(int(_season), 9, 7)
-                if _d < _season_start:
-                    return 1 if (_season_start - _d).days <= 7 else 0
-                _wk = (_d - _season_start).days // 7 + 1
-                return max(1, min(17, int(_wk)))
+                return _season_week_of(_d, int(_season))
             except Exception:
                 return 1
 
@@ -7946,7 +7972,7 @@ def build_all(repo_root: Path) -> None:
                         # offseason, which has no scored weeks yet, so `_last`
                         # stays 2023). Without this guard we synth a phantom 2023
                         # cut for a player who was traded, not cut.
-                        _lastwk_start = date(_ly, 9, 7) + timedelta(days=7 * (_lw - 1))
+                        _lastwk_start = _week_thursday(_ly, _lw)
                         _real_departure = False
                         for _he in _holder_events.get(str(_pid_t), []):
                             if _he[2] == "depart" and _he[3] == _team_t:
@@ -7962,7 +7988,7 @@ def build_all(repo_root: Path) -> None:
                             # a mid-week pickup in their last rostered week) and
                             # before the next scored week, so the add's departure
                             # closes and the drop isn't itself orphaned.
-                            _dd = date(_ly, 9, 7) + timedelta(days=7 * _lw)
+                            _dd = _week_thursday(_ly, _lw + 1)
                             _synth_drop(_team_t, _pid_t, pd.Timestamp(_dd, tz="UTC").isoformat())
                             _n_terminal += 1
                     if _n_terminal:
@@ -8020,7 +8046,7 @@ def build_all(repo_root: Path) -> None:
                         if _rk_days:
                             _anchor_ts = pd.Timestamp(_rk_days[0], tz="UTC").isoformat()
                         else:
-                            _fw_start = date(_fy, 9, 7) + timedelta(days=7 * (_fw - 1) + 1)
+                            _fw_start = (_week_thursday(_fy, _fw) + timedelta(days=1))
                             _anchor_ts = pd.Timestamp(_fw_start, tz="UTC").isoformat()
                         _synth_add(_team_a, _pid_a, _anchor_ts)
                         _n_arr += 1
@@ -8188,7 +8214,7 @@ def build_all(repo_root: Path) -> None:
                 # "is this player_week row after the pickup date" gate.
                 def _approx_week_date(year: int, week: int) -> str:
                     try:
-                        d = date(int(year), 9, 7) + timedelta(days=7 * (int(week) - 1))
+                        d = _week_thursday(int(year), int(week))
                         return d.isoformat()
                     except Exception:
                         return ""
@@ -8318,7 +8344,7 @@ def build_all(repo_root: Path) -> None:
 
             def _approx_week_date2(year, week):
                 try:
-                    d = _date_cls(int(year), 9, 7) + timedelta(days=7 * (int(week) - 1))
+                    d = _week_thursday(int(year), int(week))
                     return d.isoformat()
                 except Exception:
                     return ""
@@ -9286,164 +9312,14 @@ def build_all(repo_root: Path) -> None:
     # No dedupe / chain reconstruction needed — the pick_history rebuild
     # block (above) emits exactly one row per (frame, round, slot) with
     # chains already resolved.
-
-    # Pick-history chain reconstruction lives in the rebuild block above
-    # — this legacy in-place mutator is preserved (gated off) for
-    # reference and quick rollback. The new rebuild handles chain +
-    # commissioner flag in one pass.
+    # Pick-history chain reconstruction lives in the rebuild block above.
+    # A 152-line legacy in-place mutator used to sit here behind `if False:`,
+    # kept for reference — but dead code that still parses reads as live to
+    # anyone grepping, and it carried its own copy of the "5.0X is a FAAB
+    # buy" skip that the startup fix had to chase through four places. The
+    # rebuild handles chain + commissioner flag in one pass; git history has
+    # the old mutator if it is ever wanted.
     try:
-        if False:
-            # Use the most-recent season's snapshot; it accumulates history.
-            # Sleeper REMOVES used picks from traded_picks once the
-            # draft happens. So the latest_season snapshot is missing
-            # all historical pick movements (2021-2025 in our chain).
-            # Combine events from every season's snapshot — picks that
-            # were tracked at any point during their lifecycle show up.
-            # Dedup since the same event appears in multiple snapshots
-            # (a 2025 1.05 trade in 2023 shows in the 2023, 2024, and
-            # 2025 snapshots until the draft used the pick).
-            all_events_raw: List[Dict[str, Any]] = []
-            for _snap_yr, _snap in traded_picks_by_season.items():
-                if _snap:
-                    all_events_raw.extend(_snap)
-            seen_ev: Set[Tuple[Any, Any, Any, Any, Any]] = set()
-            all_events: List[Dict[str, Any]] = []
-            for ev in all_events_raw:
-                if not isinstance(ev, dict):
-                    continue
-                key = (
-                    ev.get("season"), ev.get("round"),
-                    ev.get("roster_id"),
-                    ev.get("previous_owner_id"), ev.get("owner_id"),
-                )
-                if key in seen_ev:
-                    continue
-                seen_ev.add(key)
-                all_events.append(ev)
-            # Group events by (season, round). Sleeper returns events in
-            # roughly chronological order within a snapshot; we'll preserve
-            # insertion order.
-            # Sleeper's traded_picks entries carry `roster_id` = the
-            # pick's ORIGINAL owner. We key events by (season, round,
-            # original_owner) so each pick is its own chain. The old
-            # (season, round)-only keying collapsed all picks of the
-            # same round into one graph, which dropped chains whenever
-            # two picks passed through the same intermediate team.
-            events_by_pick: Dict[Tuple[int, int, int], List[Tuple[int, int]]] = defaultdict(list)
-            for tp in all_events:
-                try:
-                    s = int(tp.get("season"))
-                    rd = int(tp.get("round"))
-                    orig = _to_int(tp.get("roster_id"), None)
-                    prev = _to_int(tp.get("previous_owner_id"), None)
-                    new = _to_int(tp.get("owner_id"), None)
-                    if orig is None or prev is None or new is None:
-                        continue
-                    events_by_pick[(s, rd, int(orig))].append((int(prev), int(new)))
-                except Exception:
-                    continue
-
-            # For each pick, walk its chain by following prev → new
-            # starting from the original owner.
-            # chain_by_final[(season, round, final_rid)] = [origin, mid1, ..., final]
-            # chain_by_origin[(season, round, orig_rid)] = same chain
-            chain_by_final: Dict[Tuple[int, int, int], List[int]] = {}
-            chain_by_origin: Dict[Tuple[int, int, int], List[int]] = {}
-            for (s, rd, orig), events in events_by_pick.items():
-                chain = [int(orig)]
-                cur = int(orig)
-                remaining = list(events)
-                # Greedy walk: at each step find the next event whose
-                # prev_owner matches our current cursor. Avoids needing
-                # events to be in chronological order.
-                guard = 0
-                while remaining and guard < 50:
-                    guard += 1
-                    next_idx = None
-                    for idx, (p, n) in enumerate(remaining):
-                        if p == cur:
-                            next_idx = idx
-                            break
-                    if next_idx is None:
-                        break
-                    _, n = remaining.pop(next_idx)
-                    if n in chain:  # cycle guard
-                        break
-                    chain.append(int(n))
-                    cur = int(n)
-                final = chain[-1]
-                chain_by_final[(s, rd, int(final))] = chain
-                chain_by_origin[(s, rd, int(orig))] = chain
-
-            # Apply to ph
-            for i, r in ph.iterrows():
-                yr = _to_int(r.get("Year"), None)
-                num = str(r.get("Number") or "")
-                # Synthetic off-platform picks (2.09 toilet reward, 5.0X FAAB buys)
-                # are hand-built rows that keep their own Original/Final Team. They
-                # parse as round 2 / 5, so the generic chain lookup below would
-                # wrongly graft the REAL 2nd-/5th-round pick's chain onto them. The
-                # 2.09's own trades live under the _R209 ledger key and are rendered
-                # straight from there in _pick_hist_lines, so skip these here.
-                if num.strip() == "2.09" or num.strip().startswith("5."):
-                    continue
-                # Accept both legacy 'R1.5' format and current '1.05'.
-                m = re.match(r"^R?(\d+)(?:\.|$)", num)
-                if yr is None or not m:
-                    continue
-                rnd = int(m.group(1))
-
-                # Pick-row construction now seeds "Original Team" with the
-                # slot owner (true origin) when slot_to_roster_id is
-                # available — convert back to roster_id and look up by
-                # origin. Fall back to Final Team if Original Team is
-                # missing.
-                rid_to_team = season_roster_to_team.get(int(yr), {})
-                t2r = season_team_to_roster.get(int(yr), {})
-
-                orig_team_disp = str(r.get("Original Team") or "")
-                orig_rid = t2r.get(_norm_team_name(orig_team_disp))
-                final_team_disp = str(r.get("Final Team") or "")
-                final_rid_row = t2r.get(_norm_team_name(final_team_disp))
-
-                chain = None
-                if orig_rid is not None:
-                    chain = chain_by_origin.get((int(yr), rnd, int(orig_rid)))
-                if chain is None and final_rid_row is not None:
-                    chain = chain_by_final.get((int(yr), rnd, int(final_rid_row)))
-                    if chain and orig_rid is None:
-                        orig_rid = int(chain[0])
-
-                if not chain or len(chain) < 2:
-                    # No chain found OR chain has just the origin (no trades).
-                    # Still make sure Final Team reflects chain end if we
-                    # learned one.
-                    if chain and orig_rid is not None:
-                        ph.at[i, "Original Team"] = rid_to_team.get(int(chain[0]), f"Roster {chain[0]}")
-                    # Commissioner flag still applies even without a chain.
-                    if orig_rid is not None and (int(yr), rnd, int(orig_rid)) in commissioner_pick_moves:
-                        ph.at[i, "Commissioner moved?"] = True
-                    continue
-
-                # Rewrite Original Team to the chain origin (covers the
-                # rare case where slot map disagreed with the event log).
-                ph.at[i, "Original Team"] = rid_to_team.get(int(chain[0]), f"Roster {chain[0]}")
-                # Final Team = last owner in the chain (post-trades).
-                ph.at[i, "Final Team"] = rid_to_team.get(int(chain[-1]), f"Roster {chain[-1]}")
-                # Trade 1..N = intermediate owners (exclude the origin at index 0)
-                for j, owner_rid in enumerate(chain[1:11], start=1):
-                    try:
-                        ph.at[i, f"Trade {j}"] = rid_to_team.get(int(owner_rid), f"Roster {owner_rid}")
-                    except Exception:
-                        continue
-
-                # Commissioner-moved flag: any (year, round, original_owner)
-                # in commissioner_pick_moves means this pick's ownership
-                # shift wasn't a normal transaction-recorded trade.
-                # Surface this on pick_history so it's visible.
-                if (int(yr), rnd, int(chain[0])) in commissioner_pick_moves:
-                    ph.at[i, "Commissioner moved?"] = True
-
         # Apply Commissioner-moved? flag to any remaining picks not
         # covered by the chain reconstruction loop above (e.g.,
         # picks whose final owner happens to be the original owner
@@ -9819,7 +9695,7 @@ def build_all(repo_root: Path) -> None:
                     _yi, _wi = int(_y), int(_w)
                 except Exception:
                     continue
-                _wkd = (date(_yi, 9, 7) + timedelta(days=7 * (_wi - 1))).isoformat()
+                _wkd = _week_thursday(_yi, _wi).isoformat()
                 _started_idx[(str(_t), str(_p))].append((_yi, _wi, float(_pt or 0.0), _wkd))
 
         # (fantasy team, player name) -> sorted wk_dates the player was ROSTERED
@@ -9836,7 +9712,7 @@ def build_all(repo_root: Path) -> None:
                     _yi, _wi = int(_y), int(_w)
                 except Exception:
                     continue
-                _wkd = (date(_yi, 9, 7) + timedelta(days=7 * (_wi - 1))).isoformat()
+                _wkd = _week_thursday(_yi, _wi).isoformat()
                 _pw_rostered_idx[(str(_t), str(_p))].append(_wkd)
 
         # 2020 was the ESPN season — nflverse's 2020 weekly log is generic PPR and
@@ -9866,7 +9742,7 @@ def build_all(repo_root: Path) -> None:
                     continue  # NFL bye / no game that week
                 if _ptf == 0.0 and (str(_in) == "True" or str(_su) == "True"):
                     continue  # scoreless injury/suspension DNP -> not a game played
-                _wkd = (date(_yi, 9, 7) + timedelta(days=7 * (_wi - 1))).isoformat()
+                _wkd = _week_thursday(_yi, _wi).isoformat()
                 _pw_played_idx[(str(_t), str(_p))].append((_yi, _wi, _ptf, _wkd))
 
         # ---- Item 7E indexes (V2 Trade addition value: leverage + cuff) ----
@@ -9890,7 +9766,7 @@ def build_all(repo_root: Path) -> None:
                     _yi, _wi = int(_y), int(_w)
                 except Exception:
                     continue
-                _wkd = (date(_yi, 9, 7) + timedelta(days=7 * (_wi - 1))).isoformat()
+                _wkd = _week_thursday(_yi, _wi).isoformat()
                 _is_starter = str(_sb) == "Starter"
                 _inj_free = (not bool(_inj)) and (not bool(_bye))
                 _nflt = str(_nt or "")
@@ -15332,7 +15208,16 @@ def build_all(repo_root: Path) -> None:
                 # slot 8 (so a fifth never inflates round counts as a "round 5").
                 _num = phx["Number"].astype(str).str.strip()
                 phx.loc[_num == "2.09", "_PickNo"] = 8.0
+                # Round 5 here can only be a synthetic 5.0X FAAB buy, because
+                # the startup — the one draft with REAL rounds 5-19 — was
+                # dropped from phx above. That exclusion is 60 lines away and
+                # nothing tied the two together, so assert it rather than
+                # trust it: folding a real round-15 startup pick into "round 4
+                # slot 8" would quietly inflate a team's Draft Value.
                 _is5 = phx["_Round"] == 5.0
+                assert not (phx["_Round"] > 5.0).any(), (
+                    "a real round-6+ pick reached the draft-value remap — the "
+                    "startup exclusion above must have stopped working")
                 phx.loc[_is5, "_Round"] = 4.0
                 phx.loc[_is5, "_PickNo"] = 8.0
                 phx["_DraftVal"] = phx["_PickNo"].apply(lambda x: 1.0 / (x + 1.0) if pd.notna(x) else 0.0)
@@ -16528,10 +16413,7 @@ def build_all(repo_root: Path) -> None:
             return 1
         try:
             d = datetime.fromisoformat(str(dt_str).replace("Z", "+00:00")).date()
-            ss = date(int(season), 9, 7)
-            if d < ss:
-                return 1 if (ss - d).days <= 7 else 0
-            return max(1, min(17, (d - ss).days // 7 + 1))
+            return _season_week_of(d, int(season))
         except Exception:
             return 1
 
@@ -17312,11 +17194,9 @@ def build_all(repo_root: Path) -> None:
                 def _week_for_tx(dt_obj, season_val) -> int:
                     try:
                         d = dt_obj.date() if hasattr(dt_obj, "date") else dt_obj
-                        season_start = date(int(season_val), 9, 7)
-                        if d < season_start:
-                            return 1
-                        wk = (d - season_start).days // 7 + 1
-                        return max(1, min(17, int(wk)))
+                        # Tanking clamps a deep-offseason move to week 1
+                        # rather than dropping it, so max(1, ...) here.
+                        return max(1, _season_week_of(d, int(season_val)))
                     except Exception:
                         return 1
 
@@ -17369,11 +17249,9 @@ def build_all(repo_root: Path) -> None:
                 def _week_for_tr(dt_obj, season_val) -> int:
                     try:
                         d = dt_obj.date() if hasattr(dt_obj, "date") else dt_obj
-                        season_start = date(int(season_val), 9, 7)
-                        if d < season_start:
-                            return 1
-                        wk = (d - season_start).days // 7 + 1
-                        return max(1, min(17, int(wk)))
+                        # Tanking clamps a deep-offseason move to week 1
+                        # rather than dropping it, so max(1, ...) here.
+                        return max(1, _season_week_of(d, int(season_val)))
                     except Exception:
                         return 1
 
