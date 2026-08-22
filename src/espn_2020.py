@@ -673,7 +673,11 @@ def emit_sleeper_2020(loaded: Dict[str, Any]) -> Dict[str, Any]:
             return 1
         try:
             d = _dt.datetime.fromisoformat(str(dt_str).replace("Z", "+00:00")).date()
-            ss = _dt.date(SEASON, 9, 7)
+            # Real NFL week 1 is the Thursday after Labor Day — Sept 10 in 2020,
+            # three days past the flat Sept 7 this used to assume, which put
+            # every 2020 trade up to three days deep into the wrong week.
+            _sep1 = _dt.date(SEASON, 9, 1)
+            ss = _sep1 + _dt.timedelta(days=(0 - _sep1.weekday()) % 7) + _dt.timedelta(days=3)
             if d < ss:
                 return 1 if (ss - d).days <= 7 else 0
             return max(1, min(17, (d - ss).days // 7 + 1))
