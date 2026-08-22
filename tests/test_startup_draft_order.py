@@ -287,7 +287,15 @@ def test_swap_picks_each_count_one_trade():
 
 def test_real_faab_buys_are_still_treated_as_synthetic():
     # The startup carve-outs must not let a genuine 5.0X draft-day FAAB buy
-    # (2025/2026 only) back into the pick-label map or the trade chain.
+    # (2025/2026 only) back into the pick-label map or the trade chain: its
+    # trades live under the _R5XX_BASE sentinel key, not plain round 5.
+    #
+    # What that does NOT mean is "a FAAB buy has no trades". The buy itself
+    # counts 0, but the pick is a distinct tradeable asset afterwards and each
+    # onward trade counts — 2026's 5.01 and 5.02 both changed hands and read 1
+    # in the build BEFORE these carve-outs existed. Asserting 0 across the board
+    # only looked safe offline, where the 2025-league build has no 2026 rows at
+    # all: the offline data is missing exactly the case that falsifies it.
     if not _HAVE_PICKS:
         return _skip("no exports/picks.csv")
     import csv
@@ -295,8 +303,18 @@ def test_real_faab_buys_are_still_treated_as_synthetic():
         buys = [r for r in csv.DictReader(fh)
                 if str(r["Number"]).startswith("5.") and str(r["Year"]) != "startup"]
     assert buys, "no 5.0X FAAB buys found — the guard would be vacuous"
+    untraded = 0
     for r in buys:
-        assert str(r["Number of trades"]) == "0", (r["Year"], r["Number"])
+        moved = str(r["Original Team"]) != str(r["Team"])
+        count = int(float(r["Number of trades"] or 0))
+        if moved:
+            # It left its buyer, so its sentinel chain has to show that.
+            assert count >= 1, (r["Year"], r["Number"], "moved but reads 0 trades")
+        else:
+            # Never moved: the buy itself must not be counted as a trade.
+            assert count == 0, (r["Year"], r["Number"], count)
+            untraded += 1
+    assert untraded, "every FAAB buy moved — the zero-for-the-buy case is untested"
 
 
 if __name__ == "__main__":
