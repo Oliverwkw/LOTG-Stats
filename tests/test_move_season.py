@@ -43,7 +43,7 @@ sys.path.insert(0, str(_ROOT / "lib"))
 import lotg  # noqa: E402
 
 _EXPORTS = _ROOT / "exports"
-_HAVE = (_EXPORTS / "transactions.csv").exists()
+_HAVE = (_EXPORTS / "add_drops.csv").exists()
 
 
 def _skip(reason: str) -> bool:
@@ -155,7 +155,7 @@ def test_every_dated_move_agrees_with_its_own_date():
         return _skip("no exports/")
     problems = []
     checked = 0
-    for name in ("trades.csv", "transactions.csv"):
+    for name in ("trades.csv", "add_drops.csv"):
         for r in _rows(name):
             when = str(r["Date"])[:10]
             if len(when) < 10:
@@ -179,7 +179,7 @@ def test_every_year_mismatch_straddles_a_championship():
     if not _HAVE:
         return _skip("no exports/")
     odd = []
-    for name in ("trades.csv", "transactions.csv"):
+    for name in ("trades.csv", "add_drops.csv"):
         for r in _rows(name):
             when = date.fromisoformat(str(r["Date"])[:10])
             if int(r["Season"]) != when.year:
@@ -210,7 +210,7 @@ def test_player_year_transaction_counts_follow_the_same_seasons():
         return _skip("no exports/")
     from collections import Counter, defaultdict
     per = defaultdict(Counter)
-    for r in _rows("transactions.csv"):
+    for r in _rows("add_drops.csv"):
         season = int(r["Season"])
         if r["Player Added"]:
             per[season][r["Player Added"]] += 1
@@ -218,14 +218,14 @@ def test_player_year_transaction_counts_follow_the_same_seasons():
             per[season][r["Player Dropped"]] += 1
     bad, checked = [], 0
     for r in _rows("player_year.csv"):
-        raw = str(r.get("Number of transactions", "")).strip()
+        raw = str(r.get("Number of Add/Drops", "")).strip()
         if raw in ("", "nan", "N/A"):
             continue
         checked += 1
         got = int(float(raw))
         want = per[int(r["Year"])][r["Player"]]
         if got != want:
-            bad.append(f"{r['Player']} {r['Year']}: player_year {got}, transactions.csv {want}")
+            bad.append(f"{r['Player']} {r['Year']}: player_year {got}, add_drops.csv {want}")
     assert checked > 1000, checked
     assert not bad, bad[:10]
 
@@ -262,10 +262,10 @@ def test_team_year_equals_the_weeks_except_where_a_move_has_no_week():
     all. Every team-season where the two differ must therefore hold enough
     offseason moves to account for the gap. Anything else is a defect.
 
-    'Number of transactions' counts trades as well as adds/drops (a trade
-    credits both it and 'Number of trades'), so the explanation has to be
-    looked for in `trades.csv` as well as `transactions.csv` — reading only the
-    latter reports a season whose offseason was all trades as unexplained.
+    'Total transactions' counts trades as well as add/drops, so the
+    explanation has to be looked for in `trades.csv` as well as `add_drops.csv`
+    — reading only the latter reports a season whose offseason was all trades as
+    unexplained.
     """
     if not _HAVE or not (_EXPORTS / "team_year.csv").exists():
         return _skip("no exports/")
@@ -274,12 +274,12 @@ def test_team_year_equals_the_weeks_except_where_a_move_has_no_week():
     played = set()
     for r in _rows("team_week.csv"):
         played.add(int(r["Year"]))
-        v = _num(r.get("Number of transactions"))
+        v = _num(r.get("Total transactions"))
         if v is not None:
             weeks[(r["Team"], int(r["Year"]))] += int(v)
     offseason = defaultdict(list)
     every = defaultdict(list)
-    for sheet in ("transactions.csv", "trades.csv"):
+    for sheet in ("add_drops.csv", "trades.csv"):
         for r in _rows(sheet):
             season = int(r["Season"])
             when = date.fromisoformat(str(r["Date"])[:10])
@@ -288,7 +288,7 @@ def test_team_year_equals_the_weeks_except_where_a_move_has_no_week():
                 offseason[(r["Team"], season)].append((sheet, str(when)))
     checked = differed = 0
     for r in _rows("team_year.csv"):
-        v = _num(r.get("Number of transactions"))
+        v = _num(r.get("Total transactions"))
         if v is None:
             continue
         key = (r["Team"], int(r["Year"]))
@@ -320,12 +320,12 @@ def test_league_year_ties_to_the_team_year_rows_it_rolls_up():
     from collections import defaultdict
     per = defaultdict(int)
     for r in _rows("team_year.csv"):
-        v = _num(r.get("Number of transactions"))
+        v = _num(r.get("Number of Add/Drops"))
         if v is not None:
             per[int(r["Year"])] += int(v)
     seen = 0
     for r in _rows("league_year.csv"):
-        v = _num(r.get("Number of transactions"))
+        v = _num(r.get("Number of Add/Drops"))
         if v is None:
             continue
         seen += 1
@@ -349,13 +349,13 @@ def test_the_all_time_sheets_roll_up_the_same_team_year_rows():
     ty_tx = 0
     ty_faab = 0.0
     for r in _rows("team_year.csv"):
-        ty_tx += int(_num(r.get("Number of transactions")) or 0)
+        ty_tx += int(_num(r.get("Number of Add/Drops")) or 0)
         ty_faab += _num(r.get("Amount of FAAB spent")) or 0.0
     assert ty_tx, "no team_year transactions — the guard would be vacuous"
     la = _rows("league_all_time.csv")
     assert len(la) == 1, len(la)
-    assert int(_num(la[0].get("Number of transactions")) or 0) == ty_tx, (
-        int(_num(la[0].get("Number of transactions")) or 0), ty_tx)
+    assert int(_num(la[0].get("Number of Add/Drops")) or 0) == ty_tx, (
+        int(_num(la[0].get("Number of Add/Drops")) or 0), ty_tx)
     assert abs((_num(la[0].get("Amount of FAAB spent")) or 0.0) - ty_faab) < 0.51, (
         la[0].get("Amount of FAAB spent"), ty_faab)
     if not (_EXPORTS / "team_all_time.csv").exists():
@@ -363,11 +363,11 @@ def test_the_all_time_sheets_roll_up_the_same_team_year_rows():
     # team_all_time tops itself up from any season that produced no team_year
     # row at all; while every season has one, the two must land on the number.
     ty_years = {int(r["Year"]) for r in _rows("team_year.csv")}
-    detail_years = {int(r["Season"]) for sheet in ("transactions.csv", "trades.csv")
+    detail_years = {int(r["Season"]) for sheet in ("add_drops.csv", "trades.csv")
                     for r in _rows(sheet)}
     if not detail_years <= ty_years:
         return _skip(f"seasons with no team_year row: {sorted(detail_years - ty_years)}")
-    ta_tx = sum(int(_num(r.get("Number of transactions")) or 0)
+    ta_tx = sum(int(_num(r.get("Number of Add/Drops")) or 0)
                 for r in _rows("team_all_time.csv"))
     assert ta_tx == ty_tx, (ta_tx, ty_tx)
 
@@ -382,7 +382,7 @@ def test_a_post_championship_move_is_in_no_week_of_the_season_it_left():
         return _skip("no exports/")
     from collections import defaultdict
     # rows whose Season is NOT the calendar year they fall in, forward direction
-    forward = [r for r in _rows("transactions.csv")
+    forward = [r for r in _rows("add_drops.csv")
                if int(r["Season"]) == date.fromisoformat(str(r["Date"])[:10]).year + 1]
     assert forward, "no post-championship moves found — guard would be vacuous"
     for r in forward:
