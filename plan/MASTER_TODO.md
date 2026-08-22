@@ -305,16 +305,27 @@ asked for after the startup chain.
 - [x] **`_R5XX_BASE`'s "real drafts are 4 rounds" comment corrected** (the sentinel maths is
   safe; the premise is what licensed the broken string checks), and the **draft-value round-5
   remap now asserts** the startup exclusion it silently depends on 60 lines upstream.
-- [ ] 🔍 **Which SEASON a dated move belongs to — own PR.** Rule:
-  `season = year - 1 if month == 1 else year`, which reproduces every non-January label and
-  fixes both ends: 69 January rows (55 tx + 14 trades) labelled with the new calendar year,
-  and **15 December-31 rows labelled with the NEXT season** (14 of them the synthesized
-  2020-12-31 ESPN→Sleeper migration drops). 84 of 2096 rows. The current behaviour is *not*
-  calendar year as first reported but Sleeper's league rollover, which lands differently each
-  year — hence 3 of 7 January groups already correct. Not a one-liner: `Season` is stamped
-  from the league-loop variable at two emit sites and ~10 accumulators bucket by the same
-  variable, one of them in a loop with **no date in scope**. [per user: "there's a trade
-  deadline but still can add drop — treat those as part of the previous calendar year"]
+- [x] **Which SEASON a dated move belongs to** [per user]. A season runs kickoff week 1 to the
+  end of its championship game, and everything after that championship belongs to the NEXT
+  season. One comparison: **the first season whose championship has not happened yet.** Both
+  edges occur, because the final's date moves (2020: Dec 28; 2021: ran to Jan 3) — a January
+  move before the final keeps the old season, a late-December move after it takes the new one.
+  17 rows have a listed year differing from their date, in both directions; **only 2 change
+  from what the build produced before** (2025-01-01 Metchie 2024→2025, 2025-12-30 Gray
+  2025→2026), because Sleeper's league rollover happened to agree with the real calendar
+  almost everywhere. Three corrections on the way: it is NOT a month rule (a first cut moved
+  84 rows, a second 16 — both miss half the seam); `created_dt` IS in scope in the accumulator
+  loop; and the rule reads the **league clock**, since 2021-01-01 00:00 UTC displays as
+  2020-12-31. `_season_window` and `_move_season` share `_season_end_monday`, so the split and
+  the label cannot drift. Guards: every row's `Season` agrees with its own DISPLAYED `Date`
+  (0 of 2016 disagree), each year mismatch straddles a real championship, and `player_year` tx
+  counts reconcile to `transactions.csv` (0 of 1859).
+- [ ] 🔍 **Still league-week scoped:** `team_week`/`team_year` "Number of transactions" and
+  "Number of trades". A move is counted in the league week Sleeper filed it under and
+  team_year sums team_week rather than reading the records, so the two rows above sit in the
+  OLD season's week 17 while labelled with the new season. Both are offseason under their new
+  season, so they have no honest week there anyway (week 0 is the build's convention, and is
+  not a valid team_week key). A two-row, named gap.
 
 ### Phase 13 follow-up — startup picks were numbered by SLOT, not draft ORDER
 Surfaced by an inquiry ("what % of Oliverwkw's points is Nick Chubb?"), full write-up in
