@@ -151,14 +151,49 @@ A fourth site — the chain application at `src/lotg.py:9371` — carries the sa
 `5.` skip but sits inside an `if False:` block, so it is dead code and was left
 alone.
 
+## The boundary the swap landed on
+
+Filing the swap surfaced a third thing: it came out as an **in-season** trade,
+because the Offseason / Inseason split anchored on a fixed **Sept 7**. That is
+wrong at both ends, and by an amount that moves:
+
+- **Kickoff moves.** NFL week 1 is the Thursday after Labor Day — Sept 4 in
+  2025, Sept 10 in 2020 and 2026, six days of spread across the seasons on
+  record. A fixed Sept 7 reads everything in the gap as in-season, which is
+  exactly where a deal struck the evening before the 2020 draft finished sits.
+- **The far end did not exist.** A season ends at its championship, not at New
+  Year, so a deal made after the title game counted as in-season until the
+  calendar rolled over.
+
+The window is now `(_nfl_kickoff_thursday(season) .. championship Monday)`, the
+second from `_finals_weeks()` — both already in the build, just not used here.
+On the data as it stands **only the swap actually moves**: every other trade
+sits well inside its window, and no trade at all falls after a championship, so
+that half is a guard against a case that has not happened rather than a
+restatement of one that has.
+
+That in turn exposed the first season's `Offseason trades` being blanked to N/A,
+on the premise that there is no offseason before the league's first season.
+There is now one. Blanking it left 2020 reading `Offseason N/A + Inseason 4 =
+Total 5` and disagreeing with `team_all_time`, which counts the split straight
+off the trade dates. Offseason **turnover** stays N/A — there genuinely is no
+prior-season roster to diff against. Removing the NaN also lets the column
+render as an integer (`1`, not `1.0`) across every season, matching its
+`Inseason` / `Total` siblings: a formatting diff on every row, no value change.
+
+Worth keeping straight: the **weekly** bucket is a different rule and was not
+touched. An offseason trade within 7 days of kickoff still rolls into week 1 by
+design, so "offseason" and "week 1" legitimately co-occur — as they do here.
+
 ## Still open
 
-- **The swap counts as an IN-SEASON trade.** The offseason/in-season split
-  anchors on a fixed Sept 7 kickoff and the 2020 startup ran Sept 9-10, so a
-  draft-day deal lands in-season (`Inseason trades` +1 for both teams). Moving
-  the anchor is a league-wide convention change, not a 2020 fix.
 - **It is a pick-only trade**, the league's only one. Any 2020 trade analysis
   that keys on players sees an empty deal.
+- **Season is assigned by calendar year.** A trade struck during a championship
+  week that falls in January (2022-01-03, 2023-01-02, 2024-01-01) would be
+  filed under the *next* season and read as offseason. No such trade exists, and
+  this predates the window change — but the window cannot fix it, because the
+  season label is decided before it is consulted.
 - **Whether any 2020 pick trade is missing entirely.** Off-platform pick trades
   were possible in 2020 (see `espn_2020_backfill.md`) and would leave no
   `owningTeamIds` trace. Only on-platform slot swaps are recoverable this way.

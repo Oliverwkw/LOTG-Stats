@@ -12841,13 +12841,36 @@ def build_all(repo_root: Path) -> None:
     # --------------------------
     # Distinct trade events split into Offseason / Inseason / Total (user
     # request) for the team_year/all_time and league_year/all_time sheets.
-    # Offseason = trade dated before that season's kickoff (Sept 7).
+    # In-season = between that season's REAL week-1 kickoff and the Monday its
+    # championship ends; everything either side of that is offseason. Both ends
+    # move year to year and a fixed Sept 7 anchor got both wrong: kickoff is the
+    # Thursday after Labor Day (Sept 5 in 2019, Sept 11 in 2025), so a
+    # genuinely-preseason deal in the Sept 7-10 gap read as in-season — that is
+    # what made the 2020 startup slot swap, struck the evening before the draft
+    # finished, an "in-season" trade. The far end was missing entirely: the
+    # season stops at its championship, not at New Year, so a deal made after
+    # the title game was in-season until the calendar rolled over.
+    def _season_window(season: int) -> Tuple[date, Optional[date]]:
+        """(week-1 Thursday, championship Monday) for a season."""
+        _kick = _nfl_kickoff_thursday(int(season))
+        _ps = playoff_start_by_season.get(int(season))
+        _fw = _finals_weeks(_ps, int(season))
+        # Championship Monday = the day after that week's Sunday games. A season
+        # still in progress (or one whose playoff start we never learned) has no
+        # end yet, so nothing is offseason-after.
+        _end = (_kick + timedelta(days=4 + 7 * (int(_fw[-1]) - 1))) if _fw else None
+        return _kick, _end
+
     def _trade_is_offseason(dt_str, season) -> Optional[bool]:
         try:
             d = datetime.fromisoformat(str(dt_str).replace("Z", "+00:00")).date()
-            return d < date(int(season), 9, 7)
         except Exception:
             return None
+        try:
+            _kick, _end = _season_window(int(season))
+        except Exception:
+            return None
+        return d < _kick or (_end is not None and d > _end)
     _team_trade_dates_split: Dict[Tuple[str, int], Dict[str, set]] = defaultdict(
         lambda: {"off": set(), "in": set(), "tot": set()}
     )
@@ -15599,7 +15622,8 @@ def build_all(repo_root: Path) -> None:
 
         # Trades split (user request): Offseason / Inseason / Total trades, as
         # DISTINCT trade events the team was in that season. Offseason = trade
-        # dated before that season's kickoff (Sept 7); Inseason = on/after.
+        # outside that season's real playing window (before its week-1 kickoff
+        # or after its championship Monday); Inseason = inside it.
         # team_all_time sums these per-season counts (a trade lives in one
         # season). Replaces the single "Number of trades" on the year/all-time
         # sheets; the per-week sheets keep "Number of trades".
@@ -15681,17 +15705,21 @@ def build_all(repo_root: Path) -> None:
 
         team_year = team_year.sort_values(["Team", "Year"]).reset_index(drop=True)
         team_year["Change in win % from previous season"] = team_year.groupby("Team")["Win %"].diff()
-        # Earliest tracked season has no prior offseason in the dataset, so its
-        # offseason turnover / trades are N/A (no prior-season championship
-        # roster to diff against, no offseason-before-the-first-season to
-        # count) — not 0. Done before the all-time rollup so the NaN is
+        # Earliest tracked season has no prior offseason ROSTER in the dataset,
+        # so its offseason turnover is N/A (nothing to diff the week-1 roster
+        # against) — not 0. Done before the all-time rollup so the NaN is
         # excluded from team_all_time's per-season mean/sum.
+        # Offseason TRADES are not in that boat: the league's first season has a
+        # real one, the startup draft-day slot swap, struck before the 2020
+        # kickoff. Blanking it made the row read Offseason N/A + Inseason 4 =
+        # Total 5, and disagreed with team_all_time, which counts the split
+        # straight off the trade dates rather than off this column.
         try:
             _ty_years = pd.to_numeric(team_year["Year"], errors="coerce")
             _earliest_ty = _ty_years.min()
             if pd.notna(_earliest_ty):
                 _first_mask = _ty_years == _earliest_ty
-                for _oc in ("Offseason starter turnover", "Offseason roster turnover", "Offseason trades"):
+                for _oc in ("Offseason starter turnover", "Offseason roster turnover"):
                     if _oc in team_year.columns:
                         team_year.loc[_first_mask, _oc] = np.nan
         except Exception as e:
@@ -16858,13 +16886,15 @@ def build_all(repo_root: Path) -> None:
                      if (pd.notna(y) and int(y) in _star_hi_y and int(y) in _star_lo_y) else None)
                     for y in _yrs
                 ]
-                # Earliest tracked season has no prior offseason → N/A, not 0
-                # (mirrors team_year; the sum of an all-NaN team_year column
-                # would otherwise collapse back to 0 in the league rollup).
+                # Earliest tracked season has no prior offseason ROSTER → its
+                # turnover is N/A, not 0 (mirrors team_year; the sum of an
+                # all-NaN team_year column would otherwise collapse back to 0
+                # in the league rollup). Offseason TRADES stay a real count —
+                # the 2020 startup slot swap is one.
                 _ly_first = _yrs.min()
                 if pd.notna(_ly_first):
                     _ly_mask = _yrs == _ly_first
-                    for _oc in ("Offseason starter turnover", "Offseason roster turnover", "Offseason trades"):
+                    for _oc in ("Offseason starter turnover", "Offseason roster turnover"):
                         if _oc in league_year.columns:
                             league_year.loc[_ly_mask, _oc] = np.nan
         except Exception as e:

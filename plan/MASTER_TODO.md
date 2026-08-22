@@ -319,10 +319,21 @@ Surfaced by an inquiry ("what % of Oliverwkw's points is Nick Chubb?"), full wri
   bare `2020 5.??` while their round-4/8 counterparts in the same deal read 1. Carved out
   via `_su_row()`, which also fixes the NaN-is-truthy trap on the `_is_startup` flag. The
   seven genuine 5.0X buys (2025/2026) are unaffected, guarded by a test.
-- [ ] 🔍 **The swap counts as an IN-SEASON trade** (`Inseason trades` +1 for both teams).
-  The offseason/in-season split anchors on a fixed Sept 7 kickoff; the 2020 startup ran
-  Sept 9-10, so a draft-day deal lands in-season. Changing the anchor is a league-wide
-  convention change, not a 2020 fix — flagged, not touched.
+- [x] **The in-season/offseason boundary is dynamic now** (per user: "it changes"). It was a
+  fixed Sept 7, wrong at both ends: kickoff is the Thursday after Labor Day and moves six
+  days across the seasons on record (Sept 4 in 2025, Sept 10 in 2020/2026), and the far end
+  did not exist — a season ran to New Year rather than to its championship. Now
+  (`_nfl_kickoff_thursday(season)` .. championship Monday from `_finals_weeks()`). On the
+  data as it stands **only the slot swap moves** (2020-09-09 < the Sept 10 kickoff): every
+  other trade sits well inside its window, and no trade at all falls after a championship,
+  so that half is a guard, not a restatement.
+- [x] **The first season's `Offseason trades` is a real count, not N/A.** It was blanked
+  alongside offseason turnover on the premise that there is no offseason before the first
+  season — but the slot swap is one. Blanking left 2020 reading `Offseason N/A + Inseason 4
+  = Total 5`, and disagreed with team_all_time, which counts the split off the trade dates.
+  Turnover stays N/A (no prior-season roster to diff). Side effect: with the NaN gone the
+  column renders as an integer (`1`, not `1.0`) across every season, matching its
+  `Inseason`/`Total` siblings — a formatting diff on every row, no value change.
 
 ## Phase 14 — In-season weekly digest email
 **Trigger:** Tuesday 14:00 UTC (~10am ET) build+digest+**email**; plus a Thursday 16:00 UTC pregame build with **no email**. Runs year-round since #379 (a week with no movement renders empty and `--skip-empty` drops it); snapshot rotates only on the Tuesday send run so emails diff week-to-week. (Wired into `build.yml`.)

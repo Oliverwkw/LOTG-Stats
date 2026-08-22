@@ -642,6 +642,15 @@ list is here so an answer written by hand does not walk into them.
   `2.09`, and it belongs to a *non-playoff* team — so a bottom-four-vs-rest
   comparison that leaves it in files it under the playoff teams and inflates the
   gap (+416 becomes +440). `draft_capital.hauls()` drops and counts it.
+- **A season's in-season window moves every year, at both ends.** Offseason /
+  Inseason is split on (that season's week-1 Thursday .. its championship
+  Monday), not a fixed date: kickoff is the Thursday after Labor Day and ranges
+  Sept 4 (2025) to Sept 10 (2020, 2026), and the season stops at the title game,
+  not at New Year. `_nfl_kickoff_thursday(season)` + `_finals_weeks()`. Anything
+  hand-rolling "before Sept 7" will file a preseason deal as in-season — that is
+  what hid the 2020 startup slot swap in the in-season bucket. Note the weekly
+  bucket is a *different* rule: an offseason trade within 7 days of kickoff still
+  rolls into week 1 by design, so "offseason" and "week 1" legitimately co-occur.
 - **Past seasons' snapshots have no `drafts.json`.** Like `traded_picks.json`,
   only the current season carries it, so the record of who owned a slot in an
   earlier draft is `picks."Original Team"`, not the snapshot.
@@ -659,8 +668,7 @@ list is here so an answer written by hand does not walk into them.
   drafted; `Original Team` owned the slot. It is a real `trades.csv` row now —
   two, one per side, dated 2020-09-09 with three picks each way — but it is
   **pick-only**, so any 2020 trade analysis that keys on players will see an
-  empty deal. It also lands in the **in-season** bucket: the offseason split
-  anchors on a fixed Sept 7 kickoff, and the 2020 startup ran Sept 9-10.
+  empty deal. It is also the league's only **offseason** trade before 2021.
 - **Removing a star lowers Max PF by much less than he scored.** The optimal
   lineup only loses his margin over the next-best legal option, so the observed
   exchange rate is about **1.9 points of production per 1 point of ceiling** and
