@@ -165,9 +165,34 @@ whatever the seeding path. A later line that re-summed `team_week` into
 `league_all_time`'s "Amount of FAAB spent", quietly undoing the total set
 above, is gone with it.
 
-That the synthesized rows are counted for an in-progress season and not for a
-completed one is a **pre-existing** inconsistency, not one this change
-introduced, and it is left alone here: fixing it means rebuilding the team
-counters from the final rows the way the *player* counters already are, which
-would move every completed season's transaction count. Named here so the next
-session finds it rather than rediscovering it.
+**And the synthesized rows, which that turned up.** The build synthesizes
+lineage-closing transactions — the 2020->2021 platform-transfer releases,
+terminal dead-end cuts, arrivals with no recorded add — so a player's ownership
+history has no holes in it. They are appended **after** the weekly loop has
+finished, so the scattered per-event counters never saw them: rendered into
+`transactions.csv`, counted in no team's season total. **28 of 56 completed
+team-seasons were short, by 85 moves in total.** `JacobRosenzweig 2021` read
+**2** against **13** rows in its own detail sheets — nearly its whole season was
+lineage rows.
+
+The team counters are now rebuilt from the final rows, which is the same fix,
+in the same place, for the same reason as the `player_year` /
+`player_all_time` rebuild that already sat directly above them ("Recomputing
+from the rows is the single source of truth"). It also covers the other
+direction that rebuild names — rows the dedup pass removed after their counter
+increment had already fired — though at team level none of those show up.
+
+A synthesized row that falls **in-season** now gets its `team_week` bucket too,
+derived from its own date on the league clock: it has no Sleeper leg to read,
+because it never existed on the platform. One deliberately unchanged: a
+synthesized row in the deep offseason gets week 0, the build's "no weekly
+bucket" convention, which is right — offseason has no week.
+
+Real rows keep their **leg**, not a date-derived week. A waiver processed
+Wednesday morning belongs to the week the league says it does; re-deriving every
+week from dates would shift those by one. The date rule applies only where there
+is no leg to read.
+
+`_league_day()` came out of `_move_season` for this, so the season a move
+belongs to and the week it sits in are read off the same clock. Deriving one
+from UTC and the other from league time is precisely how the seam above opened.

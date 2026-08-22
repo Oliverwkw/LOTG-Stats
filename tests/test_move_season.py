@@ -343,19 +343,19 @@ def test_the_all_time_sheets_roll_up_the_same_team_year_rows():
     """
     if not _HAVE or not (_EXPORTS / "league_all_time.csv").exists():
         return _skip("no exports/")
-    ty_tx = ty_tr = 0
+    # The sheets carry "Offseason / Inseason / Total trades", not a bare
+    # "Number of trades" — that one is internal and never rendered, so there is
+    # nothing to reconcile here. test_season_window covers the trade split.
+    ty_tx = 0
     ty_faab = 0.0
     for r in _rows("team_year.csv"):
         ty_tx += int(_num(r.get("Number of transactions")) or 0)
-        ty_tr += int(_num(r.get("Number of trades")) or 0)
         ty_faab += _num(r.get("Amount of FAAB spent")) or 0.0
     assert ty_tx, "no team_year transactions — the guard would be vacuous"
     la = _rows("league_all_time.csv")
     assert len(la) == 1, len(la)
     assert int(_num(la[0].get("Number of transactions")) or 0) == ty_tx, (
         int(_num(la[0].get("Number of transactions")) or 0), ty_tx)
-    assert int(_num(la[0].get("Number of trades")) or 0) == ty_tr, (
-        int(_num(la[0].get("Number of trades")) or 0), ty_tr)
     assert abs((_num(la[0].get("Amount of FAAB spent")) or 0.0) - ty_faab) < 0.51, (
         la[0].get("Amount of FAAB spent"), ty_faab)
     if not (_EXPORTS / "team_all_time.csv").exists():

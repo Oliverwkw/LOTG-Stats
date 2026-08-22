@@ -339,11 +339,17 @@ asked for after the startup chain.
   per-event counters never credit. All three all-time counters now roll up from team_year,
   the same source team_all_time sums, so the two all-time sheets cannot disagree. A later line
   that re-summed team_week into league_all_time's FAAB, undoing the total set above, is gone.
-- [ ] 🔍 **Pre-existing, not from this change:** synthesized lineage-closing transactions are
-  counted for an in-progress season (seeded from the rows) and not for a completed one (the
-  per-event counters skip them). Fixing it means rebuilding the TEAM counters from the final
-  rows the way the PLAYER counters already are, which moves every completed season's
-  transaction count — its own change, with the user's call on the numbers.
+- [x] **Synthesized rows now count as if they were not synthesized** [per user]. The
+  lineage-closing transactions (2020->2021 platform-transfer releases, terminal dead-end cuts,
+  arrivals with no recorded add) are appended AFTER the weekly loop, so the per-event counters
+  never saw them: in transactions.csv, in no team's season total. **28 of 56 completed
+  team-seasons were short, by 85 moves**; JacobRosenzweig 2021 read 2 against 13 detail rows.
+  The TEAM counters are rebuilt from the final rows now — same fix, same place, same reasoning
+  as the player_year/player_all_time rebuild directly above them. An in-season synthesized row
+  also gets its team_week bucket, from its own date on the league clock (no Sleeper leg exists
+  to read). Real rows keep their leg: re-deriving every week from dates would shift a Wednesday
+  waiver back a week. `_league_day()` extracted from `_move_season` so season and week are read
+  off one clock. Guards in `tests/test_synthesized_rows.py`.
 - [x] **The manual-transactions overlay bypassed the counters** — it increments team_week
   directly, so shmuel256's hand-entered 2023 Puka Nacua pickup sat in a week but in no season
   total. Season-scoped now. It also carried a **third flat date anchor (`Sept 5`)** the

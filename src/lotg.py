@@ -248,6 +248,27 @@ def _season_end_monday(season: int, playoff_start: Optional[int]) -> Optional[da
     return _week_thursday(int(season), int(fw[-1])) + timedelta(days=4)
 
 
+def _league_day(when: Optional[datetime]) -> Optional[date]:
+    """The calendar day a timestamp falls on in LEAGUE time.
+
+    Timestamps are UTC internally and the Date column is rendered
+    America/New_York at write time, so a move at 2021-01-01 00:00 UTC displays
+    as 2020-12-31 19:00. Every date-based question about a move — which season
+    it belongs to, which week it sits in — has to be asked of the same clock the
+    reader sees, or the answers stop agreeing with each other and with the sheet.
+    """
+    if when is None:
+        return None
+    local = when
+    try:
+        if local.tzinfo is None:
+            local = local.replace(tzinfo=timezone.utc)
+        local = local.astimezone(ZoneInfo("America/New_York"))
+    except Exception:
+        pass  # fall back to whatever clock we were handed
+    return local.date() if hasattr(local, "date") else local
+
+
 def _move_season(when: Optional[datetime], fallback_season: int,
                  season_end: Optional[Dict[int, Optional[date]]] = None) -> int:
     """Fantasy season a dated roster move belongs to.
@@ -280,16 +301,9 @@ def _move_season(when: Optional[datetime], fallback_season: int,
     date would label it from a day no reader can see on the sheet. Taking the
     Eastern wall clock keeps Season and Date answerable against each other.
     """
-    if when is None:
+    day = _league_day(when)
+    if day is None:
         return int(fallback_season)
-    local = when
-    try:
-        if local.tzinfo is None:
-            local = local.replace(tzinfo=timezone.utc)
-        local = local.astimezone(ZoneInfo("America/New_York"))
-    except Exception:
-        pass  # fall back to whatever clock we were handed
-    day = local.date() if hasattr(local, "date") else local
     known = sorted((int(_s), _e) for _s, _e in (season_end or {}).items() if _e is not None)
     for _s, _end in known:
         if day <= _end:
@@ -8282,6 +8296,84 @@ def build_all(repo_root: Path) -> None:
                             player_drop_year[(_dpid, _tx_season)] += 1
             except Exception as e:
                 _log_exc(debug, "player_tx_counter_rebuild", e)
+
+            # Same fix, same reason, for the TEAM counters. The scattered
+            # per-event increments fire in the weekly loop, which has long
+            # finished by the time the synthesized lineage-closing rows are
+            # appended here — so every one of those rows landed in
+            # transactions.csv and in no team's season total. Counting the final
+            # rows makes team_year (and team_all_time / league_year /
+            # league_all_time, which roll up from it) agree with the detail
+            # sheets 1:1 by construction, which is what "as if it were not
+            # synthesized" means: a fabricated row is counted exactly like a row
+            # Sleeper handed us. A trade counts in BOTH 'Number of trades' and
+            # 'Number of transactions', which is how the weekly loop credits it.
+            try:
+                _tx_by_team_season.clear()
+                _tr_by_team_season.clear()
+                _faab_by_team_season.clear()
+                for _txr in transactions_rows:
+                    _t = str(_txr.get("Team") or "")
+                    try:
+                        _s = int(_txr.get("Season"))
+                    except (TypeError, ValueError):
+                        continue
+                    if not _t:
+                        continue
+                    _tx_by_team_season[(_t, _s)] += 1
+                    _f = _to_float(_txr.get("Faab"), 0.0) or 0.0
+                    if _f:
+                        _faab_by_team_season[(_t, _s)] += float(_f)
+                for _trr in trades_rows:
+                    _t = str(_trr.get("Team") or "")
+                    try:
+                        _s = int(_trr.get("Season"))
+                    except (TypeError, ValueError):
+                        continue
+                    if not _t:
+                        continue
+                    _tr_by_team_season[(_t, _s)] += 1
+                    _tx_by_team_season[(_t, _s)] += 1
+            except Exception as e:
+                _log_exc(debug, "team_tx_counter_rebuild", e)
+
+            # And the WEEKLY table, for the same rows. The season totals above
+            # now hold them; team_week still would not, so a synthesized row
+            # made in-season would sit in a season total with no week under it.
+            # A synthesized row has no Sleeper leg to read — it never existed on
+            # the platform — so its week comes from its own date, on the same
+            # league clock its Season does. A row in the deep offseason gets
+            # week 0, which is the build's "no weekly bucket" convention and
+            # correct: offseason has no week.
+            try:
+                _synth_wk_credited = 0
+                for _txr in transactions_rows:
+                    if not _txr.get("_synthesized"):
+                        continue
+                    _t = str(_txr.get("Team") or "")
+                    try:
+                        _s = int(_txr.get("Season"))
+                    except (TypeError, ValueError):
+                        continue
+                    _day = _league_day(_aware(_txr.get("Date")))
+                    if not _t or _day is None:
+                        continue
+                    _wk = _season_week_of(_day, _s)
+                    if not _wk:
+                        continue  # deep offseason: no weekly bucket, by design
+                    _m = (tw["Team"] == _t) & (tw["Year"] == _s) & (tw["Week"] == _wk)
+                    _hit = tw[_m]
+                    if _hit.empty:
+                        continue
+                    _i = _hit.index[0]
+                    _cur = pd.to_numeric(tw.at[_i, "Number of transactions"], errors="coerce")
+                    tw.at[_i, "Number of transactions"] = int((0 if pd.isna(_cur) else _cur) + 1)
+                    _synth_wk_credited += 1
+                if _synth_wk_credited:
+                    _log(debug, f"[{_now_iso()}] INFO credited {_synth_wk_credited} synthesized "
+                                f"transaction rows to their team_week bucket")
+            except Exception as e:
+                _log_exc(debug, "team_week_synth_credit", e)
 
             if _synth_rows or _synth_add_rows:
                 for k in event_log:
