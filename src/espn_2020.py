@@ -67,6 +67,21 @@ def _rid(espn_team_id):
     """Map an ESPN teamId to the manager's stable Sleeper roster_id."""
     return ESPN_TO_SLEEPER_RID.get(espn_team_id, espn_team_id)
 
+
+# The 2020 startup was a SNAKE draft, so a team's constant draft slot and the
+# position it actually picks from diverge on every even round: the team at slot
+# 1 picks 1st in round 1 and 8th in round 2. ESPN records the true position
+# (`roundPickNumber`); this recovers the slot behind it, which is what a pick
+# ASSET is named by (Sleeper's `draft_slot`).
+def _slot_from_pick_in_round(round_id, pick_in_round):
+    """True in-round position -> the owner's constant draft slot (snake)."""
+    try:
+        _r, _p = int(round_id), int(pick_in_round)
+    except (TypeError, ValueError):
+        return None
+    return (len(TEAM_TO_MANAGER) + 1 - _p) if _r % 2 == 0 else _p
+
+
 # ESPN lineupSlotId: starters are everything except bench(20)/IR(21).
 BENCH_SLOTS = {20, 21}
 SLOT_NAME = {
@@ -194,11 +209,18 @@ def parse_draft(raw: Dict[str, Any], bridge: Dict[int, Dict[str, Any]]) -> List[
     for p in raw["draft"].get("picks", []):
         pid = p.get("playerId")
         ident = bridge.get(pid, {})
+        # `owningTeamIds` is present ONLY on a pick whose slot changed hands:
+        # `teamId` is then the team that made the selection and `owningTeamIds`
+        # the slot's original owner. Six of the 152 startup picks carry it (the
+        # LWebs53 <-> AceMatthew swap of rounds 4, 5 and 8); on every other pick
+        # the key is absent and the original owner IS the selecting team.
+        _owning = p.get("owningTeamIds") or []
         picks.append({
             "round": p.get("roundId"),
             "pick_in_round": p.get("roundPickNumber"),
             "overall": p.get("overallPickNumber"),
             "team_id": p.get("teamId"),
+            "original_team_id": (_owning[0] if _owning else p.get("teamId")),
             "manager": TEAM_TO_MANAGER.get(p.get("teamId")),
             "keeper": p.get("keeper", False),
             "espn_player_id": pid,
@@ -658,6 +680,27 @@ def emit_sleeper_2020(loaded: Dict[str, Any]) -> Dict[str, Any]:
         except Exception:
             return 1
     team_by_mgr = {mgr: _rid(tid) for tid, mgr in TEAM_TO_MANAGER.items()}
+    # The startup draft-day slot swap is the league's one pick-only trade, and
+    # it reaches us from two directions that each know half of it. The trade
+    # EMAIL knows when it happened and that it involved picks, but its body
+    # listed no player legs, so it parses to an empty shell — no teams, no
+    # assets, no `trades.csv` row. The DRAFT RECORD knows exactly which slots
+    # moved (`owningTeamIds` on six picks) but carries no date and no deal.
+    # Joining them gives the shell its two teams, which is what
+    # `data/commissioner_pick_trades.csv` then hangs the six pick legs off —
+    # the same overlay that fills in the picks the other 2020 trade emails
+    # dropped. Without the teams the overlay has nothing to attach to.
+    _swap_rids = sorted({r for p in loaded["draft"]
+                         if p["team_id"] != p["original_team_id"]
+                         for r in (_rid(p["team_id"]), _rid(p["original_team_id"]))})
+    _legless_pick_trades = [t for t in trades
+                            if t.get("involves_picks") and not t.get("legs")]
+    if len(_legless_pick_trades) != 1 or len(_swap_rids) != 2:
+        # Either the email layer grew a second pick-only trade or the draft
+        # record stopped naming exactly two swap partners. Attaching on a
+        # guess would put the legs on the wrong deal, so attach to nothing and
+        # let the overlay report its rows as unmatched.
+        _swap_rids = []
     for t in trades:
         # _calendar_trade_wk never returns None (falls back to 1 for a
         # missing date); a real 0 (deep-offseason, no weekly bucket) must
@@ -672,6 +715,8 @@ def emit_sleeper_2020(loaded: Dict[str, Any]) -> Dict[str, Any]:
             to_rid = team_by_mgr.get(l["to_manager"]); fr_rid = team_by_mgr.get(l["from_manager"])
             if to_rid: adds[ps] = to_rid; rids.add(to_rid)
             if fr_rid: drops[ps] = fr_rid; rids.add(fr_rid)
+        if not rids and _swap_rids and t in _legless_pick_trades:
+            rids = set(_swap_rids)
         tx_by_week[wk].append({
             "transaction_id": f"et{tid}", "type": "trade", "status": "complete",
             "roster_ids": sorted(rids), "adds": adds or None, "drops": drops or None,
@@ -680,7 +725,18 @@ def emit_sleeper_2020(loaded: Dict[str, Any]) -> Dict[str, Any]:
         })
 
     # draft + picks (Sleeper shape)
+    # `pick_in_round` is the pick's TRUE position within its round, which in a
+    # snake draft is not the owner's constant draft slot: at slot 1 you pick
+    # first in round 1 and LAST in round 2. Carrying it (as Sleeper's
+    # `pick_in_round`) is what lets the build number startup picks by real draft
+    # order; deriving the number from the drafter's round-1 slot instead labels
+    # every even round backwards. `original_roster_id` is the slot's owner
+    # before any draft-day pick swap — equal to `roster_id` except on the six
+    # traded picks.
     picks = [{"round": p["round"], "pick_no": p["overall"], "roster_id": _rid(p["team_id"]),
+              "pick_in_round": p["pick_in_round"],
+              "draft_slot": _slot_from_pick_in_round(p["round"], p["pick_in_round"]),
+              "original_roster_id": _rid(p["original_team_id"]),
               "player_id": sid(p["espn_player_id"]), "is_keeper": p["keeper"],
               "metadata": {"first_name": (p["player"] or "").split(" ")[0],
                            "last_name": " ".join((p["player"] or "").split(" ")[1:])}}
