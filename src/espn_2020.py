@@ -680,6 +680,27 @@ def emit_sleeper_2020(loaded: Dict[str, Any]) -> Dict[str, Any]:
         except Exception:
             return 1
     team_by_mgr = {mgr: _rid(tid) for tid, mgr in TEAM_TO_MANAGER.items()}
+    # The startup draft-day slot swap is the league's one pick-only trade, and
+    # it reaches us from two directions that each know half of it. The trade
+    # EMAIL knows when it happened and that it involved picks, but its body
+    # listed no player legs, so it parses to an empty shell — no teams, no
+    # assets, no `trades.csv` row. The DRAFT RECORD knows exactly which slots
+    # moved (`owningTeamIds` on six picks) but carries no date and no deal.
+    # Joining them gives the shell its two teams, which is what
+    # `data/commissioner_pick_trades.csv` then hangs the six pick legs off —
+    # the same overlay that fills in the picks the other 2020 trade emails
+    # dropped. Without the teams the overlay has nothing to attach to.
+    _swap_rids = sorted({r for p in loaded["draft"]
+                         if p["team_id"] != p["original_team_id"]
+                         for r in (_rid(p["team_id"]), _rid(p["original_team_id"]))})
+    _legless_pick_trades = [t for t in trades
+                            if t.get("involves_picks") and not t.get("legs")]
+    if len(_legless_pick_trades) != 1 or len(_swap_rids) != 2:
+        # Either the email layer grew a second pick-only trade or the draft
+        # record stopped naming exactly two swap partners. Attaching on a
+        # guess would put the legs on the wrong deal, so attach to nothing and
+        # let the overlay report its rows as unmatched.
+        _swap_rids = []
     for t in trades:
         # _calendar_trade_wk never returns None (falls back to 1 for a
         # missing date); a real 0 (deep-offseason, no weekly bucket) must
@@ -694,6 +715,8 @@ def emit_sleeper_2020(loaded: Dict[str, Any]) -> Dict[str, Any]:
             to_rid = team_by_mgr.get(l["to_manager"]); fr_rid = team_by_mgr.get(l["from_manager"])
             if to_rid: adds[ps] = to_rid; rids.add(to_rid)
             if fr_rid: drops[ps] = fr_rid; rids.add(fr_rid)
+        if not rids and _swap_rids and t in _legless_pick_trades:
+            rids = set(_swap_rids)
         tx_by_week[wk].append({
             "transaction_id": f"et{tid}", "type": "trade", "status": "complete",
             "roster_ids": sorted(rids), "adds": adds or None, "drops": drops or None,

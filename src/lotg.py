@@ -6754,10 +6754,11 @@ def build_all(repo_root: Path) -> None:
     # ----- 2020 ESPN startup draft (19 rounds) -----
     # Emitted directly (not through the rookie-draft rebuild, which caps rounds at
     # 4 and synthesizes future picks / trade chains that don't apply to a one-time
-    # veteran startup). Year is tagged "startup". Picks were not tradeable
-    # on-platform in 2020 — the lone off-platform slot swap is already baked into
-    # who actually drafted each slot — so Original Team == Final Team and no pick
-    # moved. Each row carries _player_id, so every downstream pick stat pass (PPG /
+    # veteran startup). Year is tagged "startup". Original Team is the slot's
+    # owner and Final Team the drafter: equal on 146 picks, and different on the
+    # six that moved in the draft-day slot swap, whose trade legs come from the
+    # `commissioner_pick_trades.csv` overlay like every other 2020 pick leg.
+    # Each row carries _player_id, so every downstream pick stat pass (PPG /
     # addition value / O-Score / age) computes for it exactly like a real pick;
     # _pick_draft_year() maps "startup" -> 2020 for those passes. KTC stays N/A
     # (no pre-Aug-2021 KTC history).
@@ -9266,6 +9267,14 @@ def build_all(repo_root: Path) -> None:
     tx = pd.DataFrame(transactions_rows)
     tr = pd.DataFrame(trades_rows)
     ph = pd.DataFrame(pick_rows)
+
+    # `_is_startup` is set only on the 152 startup rows, so every other row holds
+    # NaN — and NaN is TRUTHY. A bare `bool(row.get("_is_startup"))` therefore
+    # reads every rookie pick as a startup pick, which is the opposite of what
+    # each caller wants. Always ask through this.
+    def _su_row(_v: Any) -> bool:
+        return _v is True or str(_v).strip().lower() == "true"
+
     # No dedupe / chain reconstruction needed — the pick_history rebuild
     # block (above) emits exactly one row per (frame, round, slot) with
     # chains already resolved.
@@ -9480,8 +9489,13 @@ def build_all(repo_root: Path) -> None:
                 # Synthetic draft-day picks (2.09 toilet reward, 5.0X FAAB buys)
                 # are off-platform and never referenced in Sleeper trades; keep
                 # them out of the trade pick-label map so they can't shadow a
-                # real same-(year,round,owner) pick.
-                if num.strip() == "2.09" or rnd_i >= 5:
+                # real same-(year,round,owner) pick. The 19-round startup is the
+                # exception: its rounds 5-19 are REAL picks (120 of them), four
+                # of which changed hands in the draft-day slot swap (two in
+                # round 5, two in round 8), and no synthetic 5.0X exists in its
+                # year — so excluding it left those legs rendering as a bare
+                # "2020 5.??" instead of naming the player.
+                if num.strip() == "2.09" or (rnd_i >= 5 and not _su_row(prow.get("_is_startup"))):
                     continue
                 orig_team = str(prow.get("Original Team") or "").strip()
                 if not orig_team:
@@ -9776,7 +9790,10 @@ def build_all(repo_root: Path) -> None:
                     continue
                 # Skip synthetic off-platform picks (2.09 / 5.0X) — they aren't
                 # Sleeper-traded and must not shadow a real (year,round,owner) pick.
-                if str(_phr.get("Number", "")).strip() == "2.09" or int(_nm.group(1)) >= 5:
+                # Startup rounds 5-19 are real picks in a year that has neither,
+                # so they stay in (see the same carve-out on the chain lookup).
+                if (str(_phr.get("Number", "")).strip() == "2.09"
+                        or (int(_nm.group(1)) >= 5 and not _su_row(_phr.get("_is_startup")))):
                     continue
                 _key = (int(_ym.group(1)), int(_nm.group(1)), _norm_team_name(_phr.get("Original Team", "")))
                 _pick_to_drafted[_key] = (_plp, _norm_team_name(_phr.get("Final Team", "")), int(_ym.group(1)))
@@ -17759,7 +17776,12 @@ def build_all(repo_root: Path) -> None:
             # (sort key 0000) so all histories start the same way, ahead of even a
             # player's pre-draft free-agent stints.
             _is_209 = _num == "2.09"
-            _is_5xx = bool(re.match(r"\s*5\.", _num))
+            # A startup "5.0X" is a REAL round-5 pick of the 19-round inaugural
+            # draft, not a FAAB buy — its ledger events sit under plain round 5,
+            # not the _R5XX_BASE sentinel, so routing it below would find no hops
+            # and report 0 trades (and call it a 20-FAAB buy in the header).
+            _is_5xx = (bool(re.match(r"\s*5\.", _num))
+                       and not _su_row(ph.at[_pi, "_is_startup"] if "_is_startup" in ph.columns else None))
             if "(vet)" in _yr_disp.lower():
                 # The 2021 supplemental veteran draft (distinct from the 2020 ESPN
                 # startup draft) — anchor it at the start of its year so it sorts

@@ -16,6 +16,15 @@ ledger, timestamped ~6 hours before the draft finished. They are the only reason
 the draft is not a pure slot-ordered snake, so they double as the fixture that
 proves the numbering is read from ESPN rather than re-derived from the drafter.
 
+The swap is also a real trade now. Its email carried no player legs, so it
+parsed to an empty shell that produced no `trades.csv` row; the shell gets its
+two teams from the draft record and its six pick legs from the
+`commissioner_pick_trades.csv` overlay, the same one that fills in the picks the
+other 2020 trade emails dropped. Two of those legs are round-5 picks, which a
+"5.0X is a draft-day FAAB buy" shortcut used to swallow — so the guards below
+check both that the six read one trade each and that a genuine FAAB buy still
+does not.
+
 The raw-source checks run wherever `data/espn_2020_raw/` is present. The
 export-based checks need a build that includes this fix; they skip when
 `exports/` is absent.
@@ -222,6 +231,74 @@ def test_sheet_marks_the_traded_picks_and_only_those():
         assert got_player.split()[-1] == player.split()[-1], (num, got_player)
 
 
+# --------------------------------------------------------------------------- #
+# the swap as a trade (needs a build carrying this fix)
+# --------------------------------------------------------------------------- #
+_TRADES = _ROOT / "exports" / "trades.csv"
+_SWAP_TS_PREFIX = "2020-09-09"
+
+
+def _rows(path):
+    import csv
+    with path.open(newline="", encoding="utf-8") as fh:
+        return list(csv.DictReader(fh))
+
+
+def test_sheet_records_the_swap_as_a_two_sided_trade():
+    if not _TRADES.exists():
+        return _skip("no exports/trades.csv")
+    rows = [r for r in _rows(_TRADES) if str(r.get("Date", "")).startswith(_SWAP_TS_PREFIX)]
+    assert len(rows) == 2, (
+        len(rows), "the startup slot swap should be one trade seen from both sides "
+        "— exports may predate the overlay rows in commissioner_pick_trades.csv")
+    by_team = {r["Team"]: r for r in rows}
+    assert set(by_team) == {"LWebs53", "AceMatthew"}, sorted(by_team)
+    for team, other in (("LWebs53", "AceMatthew"), ("AceMatthew", "LWebs53")):
+        row = by_team[team]
+        assert row["Team's traded with 1"] == other, row
+        # Three picks each way, and one side's receipts are the other's sends.
+        assert row["Number of assets received"] == "3", row
+        assert row["Number of assets traded away"] == "3", row
+        assert row["Assets received"] == by_team[other]["Assets sent"], row
+        assert row["Assets sent"] == by_team[other]["Assets received"], row
+    # Picks are rendered by the label the rest of the sheets parse — "YYYY R.SS
+    # (player)" — using the startup's real year, since it has no rookie draft to
+    # collide with. The round-5 legs are the ones a "5.0X is a FAAB buy"
+    # shortcut used to swallow.
+    got = set(by_team["LWebs53"]["Assets received"].split("; "))
+    assert got == {"2020 4.05(M. Evans)", "2020 5.04(D. Moore)", "2020 8.05(K. Allen)"}, got
+
+
+def test_swap_picks_each_count_one_trade():
+    if not _HAVE_PICKS:
+        return _skip("no exports/picks.csv")
+    swapped = [r for r in _startup_rows() if str(r["Original Team"]) != str(r["Team"])]
+    assert len(swapped) == 6, len(swapped)
+    for r in swapped:
+        # All six moved in the SAME deal, so all six read 1 — the round-5 pair
+        # used to read 0 while their round-4 and round-8 counterparts read 1.
+        assert str(r["Number of trades"]) == "1", (r["Number"], r["Number of trades"])
+        # A recorded trade is not a commissioner move.
+        assert str(r["Commissioner moved?"]).lower() == "false", r["Number"]
+    # And nothing else in the startup moved.
+    untouched = [r for r in _startup_rows() if str(r["Original Team"]) == str(r["Team"])]
+    assert all(str(r["Number of trades"]) == "0" for r in untouched)
+
+
+def test_real_faab_buys_are_still_treated_as_synthetic():
+    # The startup carve-outs must not let a genuine 5.0X draft-day FAAB buy
+    # (2025/2026 only) back into the pick-label map or the trade chain.
+    if not _HAVE_PICKS:
+        return _skip("no exports/picks.csv")
+    import csv
+    with _PICKS.open(newline="", encoding="utf-8") as fh:
+        buys = [r for r in csv.DictReader(fh)
+                if str(r["Number"]).startswith("5.") and str(r["Year"]) != "startup"]
+    assert buys, "no 5.0X FAAB buys found — the guard would be vacuous"
+    for r in buys:
+        assert str(r["Number of trades"]) == "0", (r["Year"], r["Number"])
+
+
 if __name__ == "__main__":
     for fn in (
         test_slot_from_pick_in_round_reverses_even_rounds,
@@ -234,6 +311,9 @@ if __name__ == "__main__":
         test_each_team_picks_once_per_round,
         test_sheet_numbers_startup_picks_by_draft_order,
         test_sheet_marks_the_traded_picks_and_only_those,
+        test_sheet_records_the_swap_as_a_two_sided_trade,
+        test_swap_picks_each_count_one_trade,
+        test_real_faab_buys_are_still_treated_as_synthetic,
     ):
         fn()
         print(f"ok: {fn.__name__}")

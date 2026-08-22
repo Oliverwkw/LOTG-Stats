@@ -306,9 +306,23 @@ Surfaced by an inquiry ("what % of Oliverwkw's points is Nick Chubb?"), full wri
   the draft finished) and by `espn_2020_backfill.md`'s own prose. `Original Team` is now the
   slot's owner and `Final Team` the drafter; drafter attribution no longer special-cases the
   startup on the retired premise that ESPN picks were never traded.
-- [ ] 🔍 **The swap is still absent from `trades.csv`** — its email has no player legs, so it
-  produces no trade row and `Number of trades` on those pick rows stays 0. Modelling a
-  pick-only 2020 trade is its own change.
+- [x] **The swap is a recorded trade.** Its email has no player legs, so it parsed to an
+  empty shell that produced no trade row. The shell now takes its two teams from the draft
+  record (the only pick-only email of the season, matched against the only pair of swap
+  partners in the picks) and its six pick legs from `data/commissioner_pick_trades.csv` —
+  the same overlay that fills in the picks the other 2020 trade emails dropped, keyed
+  `pick_year 2020` with `orig_owner` = the slot's owner. Result: two `trades.csv` rows
+  (504 -> 506), three picks each way, all six pick rows at `Number of trades` 1.
+- [x] **Three "5.0X is a FAAB buy" shortcuts had to learn about the startup.** Its round 5
+  holds eight REAL picks (two of them swapped), so `pick_lookup`, `_pick_to_drafted` and
+  `_pick_hist_lines` were skipping them — the round-5 legs read 0 trades and rendered as a
+  bare `2020 5.??` while their round-4/8 counterparts in the same deal read 1. Carved out
+  via `_su_row()`, which also fixes the NaN-is-truthy trap on the `_is_startup` flag. The
+  seven genuine 5.0X buys (2025/2026) are unaffected, guarded by a test.
+- [ ] 🔍 **The swap counts as an IN-SEASON trade** (`Inseason trades` +1 for both teams).
+  The offseason/in-season split anchors on a fixed Sept 7 kickoff; the 2020 startup ran
+  Sept 9-10, so a draft-day deal lands in-season. Changing the anchor is a league-wide
+  convention change, not a 2020 fix — flagged, not touched.
 
 ## Phase 14 — In-season weekly digest email
 **Trigger:** Tuesday 14:00 UTC (~10am ET) build+digest+**email**; plus a Thursday 16:00 UTC pregame build with **no email**. Runs year-round since #379 (a week with no movement renders empty and `--skip-empty` drops it); snapshot rotates only on the Tuesday send run so emails diff week-to-week. (Wired into `build.yml`.)

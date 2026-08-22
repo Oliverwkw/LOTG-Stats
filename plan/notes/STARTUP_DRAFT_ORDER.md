@@ -101,13 +101,64 @@ tradeable (ESPN)". Six of them were.
 `Commissioner moved?` stays `False` on the six: it marks an *untracked* hop, and
 this one is recorded by the source.
 
+## The swap as a trade
+
+The 2020-09-09 email is the only picks-involving one of the season, and its body
+listed no player legs — so it parsed to an empty shell with no teams and no
+assets, and produced no `trades.csv` row. The two sources each hold half of the
+deal: the **email** knows when it happened and that it involved picks; the
+**draft record** knows exactly which slots moved but carries no date. Joining
+them gives the shell its two teams, and
+`data/commissioner_pick_trades.csv` — the same overlay that fills in the picks
+the other 2020 trade emails dropped — hangs the six pick legs off it, keyed
+`pick_year 2020` with `orig_owner` = the slot's owner (for a startup pick,
+round + slot ↔ round + original owner is one to one).
+
+The join is guarded rather than assumed: it attaches only when there is exactly
+one legless picks-involving email **and** exactly two swap partners in the draft.
+If either stops holding, it attaches to nothing and the overlay reports its rows
+as unmatched, rather than putting the legs on the wrong deal.
+
+Result — two rows, one per side:
+
+```
+AceMatthew  recv 2020 4.07(K. Golladay); 2020 5.02(A. Robinson); 2020 8.07(H. Henry)
+            sent 2020 4.05(M. Evans);    2020 5.04(D. Moore);    2020 8.05(K. Allen)
+LWebs53     the mirror
+```
+
+`trades.csv` 504 → 506 rows; both teams +1 trade on the team sheets and 2020 +1
+league-wide; `transactions.csv` unchanged. All six pick rows now read
+`Number of trades` 1.
+
+### Three "5.0X is a FAAB buy" shortcuts had to learn about the startup
+
+A pick numbered `5.0X` had only ever meant the synthetic 20-FAAB draft-day buy,
+so three places skipped them: `pick_lookup` (trade asset labels),
+`_pick_to_drafted`, and `_pick_hist_lines`, which routed them to a sentinel
+`_R5XX_BASE` ledger key. The 19-round startup's round 5 holds **eight real
+picks**, two of them swapped — so before the carve-out the round-5 legs read 0
+trades and rendered as a bare `2020 5.??`, while their round-4 and round-8
+counterparts *in the same deal* read 1.
+
+The carve-out goes through `_su_row()`, which also closes a trap worth naming:
+`_is_startup` is set only on the 152 startup rows, so every other row holds
+**NaN — and NaN is truthy**. A bare `bool(row.get("_is_startup"))` reads every
+rookie pick as a startup pick, exactly inverting the intent. The seven genuine
+5.0X buys (2025/2026) are unchanged and are guarded by their own test.
+
+A fourth site — the chain application at `src/lotg.py:9371` — carries the same
+`5.` skip but sits inside an `if False:` block, so it is dead code and was left
+alone.
+
 ## Still open
 
-- **The swap is invisible in `trades.csv`.** The 2020-09-09 trade has no player
-  legs, so it produces no row. The picks sheet now shows it via `Original Team` ≠
-  `Final Team`, but the trade ledger does not list it and `Number of trades` on
-  those pick rows stays 0. Modelling a pick-only 2020 trade is a larger change
-  than this one and was left alone.
+- **The swap counts as an IN-SEASON trade.** The offseason/in-season split
+  anchors on a fixed Sept 7 kickoff and the 2020 startup ran Sept 9-10, so a
+  draft-day deal lands in-season (`Inseason trades` +1 for both teams). Moving
+  the anchor is a league-wide convention change, not a 2020 fix.
+- **It is a pick-only trade**, the league's only one. Any 2020 trade analysis
+  that keys on players sees an empty deal.
 - **Whether any 2020 pick trade is missing entirely.** Off-platform pick trades
   were possible in 2020 (see `espn_2020_backfill.md`) and would leave no
   `owningTeamIds` trace. Only on-platform slot swaps are recoverable this way.

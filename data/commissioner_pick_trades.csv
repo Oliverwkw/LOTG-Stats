@@ -21,6 +21,20 @@
 # orig_owner = the pick's original (draft-slot) owner; from/to = this hop.
 pick_year,round,orig_owner,from_owner,to_owner,trade_created_utc,deal,notes
 # --- 2020 ESPN trades (picks missing from the email-parsed legs) ---
+# The startup draft-day slot swap: LWebs53 and AceMatthew exchanged their round
+# 4, 5 and 8 STARTUP slots, so six picks changed hands (two per round, one each
+# way). ESPN records it natively on the picks themselves (`owningTeamIds`), and
+# the trade email of 2020-09-09 21:45 — the only picks-involving one all season,
+# ~6h before the draft finished — has no player legs at all, so it parsed to an
+# empty shell that produced no trade row. pick_year 2020 = the startup draft;
+# orig_owner is the SLOT's owner, which for a startup pick is what identifies it
+# (round + slot <-> round + original owner, one to one).
+2020,4,LWebs53,LWebs53,AceMatthew,2020-09-09 21:45:18,startup slot swap,4.07 -> Ace (Golladay)
+2020,4,AceMatthew,AceMatthew,LWebs53,2020-09-09 21:45:18,startup slot swap,4.05 -> Luke (M. Evans)
+2020,5,LWebs53,LWebs53,AceMatthew,2020-09-09 21:45:18,startup slot swap,5.02 -> Ace (A. Robinson)
+2020,5,AceMatthew,AceMatthew,LWebs53,2020-09-09 21:45:18,startup slot swap,5.04 -> Luke (DJ Moore)
+2020,8,LWebs53,LWebs53,AceMatthew,2020-09-09 21:45:18,startup slot swap,8.07 -> Ace (H. Henry)
+2020,8,AceMatthew,AceMatthew,LWebs53,2020-09-09 21:45:18,startup slot swap,8.05 -> Luke (K. Allen)
 2021,3,AceMatthew,AceMatthew,shmuel256,2020-10-29 17:09:26,ARob-DeVante Parker trade,
 2021,4,shmuel256,shmuel256,AceMatthew,2020-10-29 17:09:26,ARob-DeVante Parker trade,
 2021,1,plehv79,plehv79,shmuel256,2020-12-01 16:47:53,Edwards-Helaire trade,1.05 to Sam for CEH

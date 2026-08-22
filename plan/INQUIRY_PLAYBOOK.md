@@ -656,9 +656,11 @@ list is here so an answer written by hand does not walk into them.
 - **Six startup picks were traded, so `Original Team` is not the drafter there.**
   LWebs53 and AceMatthew swapped their round 4, 5 and 8 picks (Mike Evans,
   Golladay, A. Robinson, DJ Moore, Keenan Allen, Hunter Henry). `Final Team`
-  drafted; `Original Team` owned the slot. The deal has no player legs so it
-  produces **no `trades.csv` row** — a 2020 pick-trade question answered from the
-  trade ledger alone will miss it.
+  drafted; `Original Team` owned the slot. It is a real `trades.csv` row now —
+  two, one per side, dated 2020-09-09 with three picks each way — but it is
+  **pick-only**, so any 2020 trade analysis that keys on players will see an
+  empty deal. It also lands in the **in-season** bucket: the offseason split
+  anchors on a fixed Sept 7 kickoff, and the 2020 startup ran Sept 9-10.
 - **Removing a star lowers Max PF by much less than he scored.** The optimal
   lineup only loses his margin over the next-best legal option, so the observed
   exchange rate is about **1.9 points of production per 1 point of ceiling** and
