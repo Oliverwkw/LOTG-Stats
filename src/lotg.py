@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, List, Any, Tuple, Optional, Set
 from datetime import datetime, timezone, timedelta, date
+from zoneinfo import ZoneInfo
 from collections import Counter, deque, defaultdict
 import json
 import math
@@ -231,6 +232,72 @@ def _season_week_of(d: date, season: int, max_week: int = 17) -> int:
     if d < kick:
         return 1 if (kick - d).days <= 7 else 0
     return max(1, min(int(max_week), (d - kick).days // 7 + 1))
+
+
+def _season_end_monday(season: int, playoff_start: Optional[int]) -> Optional[date]:
+    """Championship Monday — the day the season's last game finishes.
+
+    The season runs kickoff week 1 through the end of the championship game, so
+    this is the far edge of "in-season". `_finals_weeks` handles the 2026+
+    two-week final; a season whose playoff start we never learned has no end
+    yet and returns None.
+    """
+    fw = _finals_weeks(playoff_start, season)
+    if not fw:
+        return None
+    return _week_thursday(int(season), int(fw[-1])) + timedelta(days=4)
+
+
+def _move_season(when: Optional[datetime], fallback_season: int,
+                 season_end: Optional[Dict[int, Optional[date]]] = None) -> int:
+    """Fantasy season a dated roster move belongs to.
+
+    A season runs from kickoff week 1 to the end of its championship game, and
+    everything after that championship is the NEXT season's business — its
+    offseason — right through to that season's kickoff. So the whole rule is:
+
+        the move belongs to the first season whose championship has not
+        happened yet.
+
+    That is one comparison, and it settles both edges at once. A move in
+    January before the final is still the old season, because the season is
+    still being played. A move in late December AFTER the final is already the
+    new season, even though the calendar has not turned. Both cases really
+    occur here, because the championship date moves: 2020's final was Dec 28
+    and 2021's ran to Jan 3.
+
+    So a listed year can differ from its date in either direction, and the
+    league calendar decides which — not the month.
+
+    What this replaces is not "calendar year", though that is how it looks
+    from outside. The season came from Sleeper's league rollover, which lands
+    on a different date each year, so the old behaviour was inconsistent
+    rather than uniformly off.
+
+    Read in LEAGUE time, not UTC. Timestamps are UTC internally and the Date
+    column is rendered America/New_York at write time, so a move at 2021-01-01
+    00:00 UTC displays as 2020-12-31 19:00 — deriving the season from the UTC
+    date would label it from a day no reader can see on the sheet. Taking the
+    Eastern wall clock keeps Season and Date answerable against each other.
+    """
+    if when is None:
+        return int(fallback_season)
+    local = when
+    try:
+        if local.tzinfo is None:
+            local = local.replace(tzinfo=timezone.utc)
+        local = local.astimezone(ZoneInfo("America/New_York"))
+    except Exception:
+        pass  # fall back to whatever clock we were handed
+    day = local.date() if hasattr(local, "date") else local
+    known = sorted((int(_s), _e) for _s, _e in (season_end or {}).items() if _e is not None)
+    for _s, _end in known:
+        if day <= _end:
+            return _s
+    # Past every championship we know about: the season after the last one that
+    # has finished, or the date's own year if that is later (a gap year, or a
+    # season whose playoff start we have not learned yet).
+    return max(known[-1][0] + 1, int(day.year)) if known else int(day.year)
 
 
 def _week_complete_cutoff(season: int, week: int) -> datetime:
@@ -3198,6 +3265,10 @@ def build_all(repo_root: Path) -> None:
     opp_pf_map: Dict[Tuple[int, int, int], Optional[float]] = {}
     stage_label_map: Dict[Tuple[int, int, int], Optional[str]] = {}
     playoff_start_by_season: Dict[int, Optional[int]] = {}
+    # season -> championship Monday, filled in as each league season is walked.
+    # A move dated on or before the PREVIOUS season's entry was made while that
+    # season was still being played, so it carries that season's label.
+    _season_end_by_season: Dict[int, Optional[date]] = {}
     roster_ids_by_season: Dict[int, List[int]] = {}
     roster_to_team_by_season: Dict[int, Dict[int, str]] = {}
     draft_rounds_by_season: Dict[int, int] = {}
@@ -3647,6 +3718,7 @@ def build_all(repo_root: Path) -> None:
             pass
         playoff_start = _to_int(settings.get("playoff_week_start"), None)
         playoff_start_by_season[season] = playoff_start
+        _season_end_by_season[season] = _season_end_monday(season, playoff_start)
 
         # cache played_by_week
         if season not in played_by_week_by_season:
@@ -5728,6 +5800,21 @@ def build_all(repo_root: Path) -> None:
                     # entry was already skipped upstream.
                     if created_dt is None:
                         continue
+                    # The season this move BELONGS to, which is not always the
+                    # league season it was filed under — see _move_season.
+                    _mv_season = _move_season(created_dt, season, _season_end_by_season)
+                    if _mv_season != int(season):
+                        # It rolled back, so the league week it was filed under
+                        # belongs to a different season. A rolled-back move is
+                        # one made on or before championship Monday, i.e. while
+                        # that season was still being PLAYED — so it has a real
+                        # week there, and the calendar gives it directly.
+                        _mv_wk = _season_week_of(
+                            created_dt.date(), _mv_season,
+                            max_week=max(_finals_weeks(
+                                playoff_start_by_season.get(_mv_season), _mv_season) or [17]))
+                    else:
+                        _mv_wk = wk
                     creator = str(t.get("creator") or "")
                     # Resolve via the canonical roster_to_team mapping so the
                     # 'Team' column in the output stays consistent across
@@ -6006,7 +6093,7 @@ def build_all(repo_root: Path) -> None:
                                 # deal reads the same on every row.
                                 "Total number of assets in trade": _total_assets_in_trade,
                                 "Date": created_dt.isoformat() if created_dt else (str(created_date) if created_date else None),
-                                "Season": int(season),
+                                "Season": int(_mv_season),
                                 # Internal-only sleeper ID lists used by the
                                 # KTC value lookup pass. Not in the schema
                                 # catalog, so they get filtered out before
@@ -6092,8 +6179,8 @@ def build_all(repo_root: Path) -> None:
                     for pid, rrid in adds.items():
                         pid = str(pid)
                         rrid_str = str(rrid)
-                        player_tx_week[(pid, season, wk)] += 1
-                        player_tx_year[(pid, season)] += 1
+                        player_tx_week[(pid, _mv_season, _mv_wk)] += 1
+                        player_tx_year[(pid, _mv_season)] += 1
                         player_tx_all[pid] += 1
                         dropped = None
                         drop_list = drops_by_roster.get(rrid_str)
@@ -6104,11 +6191,11 @@ def build_all(repo_root: Path) -> None:
 
                         if dropped:
                             dropped_id = str(dropped)
-                            player_tx_week[(dropped_id, season, wk)] += 1
-                            player_tx_year[(dropped_id, season)] += 1
+                            player_tx_week[(dropped_id, _mv_season, _mv_wk)] += 1
+                            player_tx_year[(dropped_id, _mv_season)] += 1
                             player_tx_all[dropped_id] += 1
-                            player_drop_week[(dropped_id, season, wk)] += 1
-                            player_drop_year[(dropped_id, season)] += 1
+                            player_drop_week[(dropped_id, _mv_season, _mv_wk)] += 1
+                            player_drop_year[(dropped_id, _mv_season)] += 1
                             player_drop_all[dropped_id] += 1
 
                         # Team for THIS specific add = the roster the player
@@ -6203,7 +6290,7 @@ def build_all(repo_root: Path) -> None:
                         _total_faab_emit = row_total_faab
                         _faab_diff_emit = row_faab_diff_2nd
                         _faab_pct_emit = row_faab_pct_2nd
-                        if int(season) < 2022:
+                        if int(_mv_season) < 2022:
                             _faab_emit = None
                             _total_faab_emit = None
                             _faab_diff_emit = None
@@ -6220,7 +6307,7 @@ def build_all(repo_root: Path) -> None:
                             "FAAB difference over second place": _faab_diff_emit,
                             "FAAB premium %": _faab_pct_emit,
                             "Date": created_dt.isoformat() if created_dt else (str(created_date) if created_date else None),
-                            "Season": int(season),
+                            "Season": int(_mv_season),
                             # Internal-only sleeper IDs for the KTC pass.
                             # Filtered out before write_outputs (not in the
                             # plan catalog).
@@ -6248,11 +6335,11 @@ def build_all(repo_root: Path) -> None:
                     for rrid_orphan_str, drop_list in drops_by_roster.items():
                         for dp_str in drop_list:
                             dropped_id = str(dp_str)
-                            player_tx_week[(dropped_id, season, wk)] += 1
-                            player_tx_year[(dropped_id, season)] += 1
+                            player_tx_week[(dropped_id, _mv_season, _mv_wk)] += 1
+                            player_tx_year[(dropped_id, _mv_season)] += 1
                             player_tx_all[dropped_id] += 1
-                            player_drop_week[(dropped_id, season, wk)] += 1
-                            player_drop_year[(dropped_id, season)] += 1
+                            player_drop_week[(dropped_id, _mv_season, _mv_wk)] += 1
+                            player_drop_year[(dropped_id, _mv_season)] += 1
                             player_drop_all[dropped_id] += 1
                             # tx_count for orphan drops is credited in Loop 1
                             # (the per-week tx summary pass earlier) so that
@@ -6291,7 +6378,7 @@ def build_all(repo_root: Path) -> None:
                                         "FAAB difference over second place": None,
                                         "FAAB premium %": None,
                                         "Date": drop_dt,
-                                        "Season": int(season),
+                                        "Season": int(_mv_season),
                                         "_added_pid": None,
                                         "_dropped_pid": str(dropped_id) if dropped_id else None,
                                         "Number of bids": None,
@@ -8069,7 +8156,13 @@ def build_all(repo_root: Path) -> None:
                     "type of transaction (waiver/free agency)": "free_agent",
                     "Faab": None, "Total FAAB bid": None,
                     "FAAB difference over second place": None, "FAAB premium %": None,
-                    "Date": dt, "Season": _to_int(str(dt)[:4], None),
+                    # Season from the timestamp's LEAGUE-time year, not the
+                    # first four characters of a UTC string: these synthesized
+                    # rows cluster on the 2020->2021 platform-transfer boundary,
+                    # where the two disagree (2021-01-01T00:00Z displays, and
+                    # belongs, as 2020).
+                    "Date": dt, "Season": _move_season(_aware(dt), _to_int(str(dt)[:4], None),
+                                           _season_end_by_season),
                     "_added_pid": added_pid, "_dropped_pid": dropped_pid,
                     "_synthesized": True, "Number of bids": None,
                     "Link to next transaction": None, "Link to previous transaction": None,
@@ -12735,15 +12828,14 @@ def build_all(repo_root: Path) -> None:
     # season stops at its championship, not at New Year, so a deal made after
     # the title game was in-season until the calendar rolled over.
     def _season_window(season: int) -> Tuple[date, Optional[date]]:
-        """(week-1 Thursday, championship Monday) for a season."""
-        _kick = _nfl_kickoff_thursday(int(season))
-        _ps = playoff_start_by_season.get(int(season))
-        _fw = _finals_weeks(_ps, int(season))
-        # Championship Monday = the day after that week's Sunday games. A season
-        # still in progress (or one whose playoff start we never learned) has no
-        # end yet, so nothing is offseason-after.
-        _end = (_kick + timedelta(days=4 + 7 * (int(_fw[-1]) - 1))) if _fw else None
-        return _kick, _end
+        """(week-1 Thursday, championship Monday) for a season.
+
+        The same two edges `_move_season` labels against, so a move's season and
+        whether it reads offseason can never drift apart: a row is in-season
+        exactly when its own date falls inside its own season's window.
+        """
+        return (_nfl_kickoff_thursday(int(season)),
+                _season_end_monday(int(season), playoff_start_by_season.get(int(season))))
 
     def _trade_is_offseason(dt_str, season) -> Optional[bool]:
         try:
