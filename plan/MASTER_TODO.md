@@ -320,12 +320,40 @@ asked for after the startup chain.
   the label cannot drift. Guards: every row's `Season` agrees with its own DISPLAYED `Date`
   (0 of 2016 disagree), each year mismatch straddles a real championship, and `player_year` tx
   counts reconcile to `transactions.csv` (0 of 1859).
-- [ ] 🔍 **Still league-week scoped:** `team_week`/`team_year` "Number of transactions" and
-  "Number of trades". A move is counted in the league week Sleeper filed it under and
-  team_year sums team_week rather than reading the records, so the two rows above sit in the
-  OLD season's week 17 while labelled with the new season. Both are offseason under their new
-  season, so they have no honest week there anyway (week 0 is the build's convention, and is
-  not a valid team_week key). A two-row, named gap.
+- [x] **The weekly counters follow the season too** [per user]. `team_week`/`team_year`
+  "Number of transactions"/"Number of trades"/"Amount of FAAB spent" reached team_year by
+  SUMMING team_week, which filed a post-championship move under the season that had just
+  finished — team_week has no bucket for it, since in its own season it is offseason. Loop 1
+  now resolves each move's season with the SAME timestamp rule as Loop 2 (`status_updated` for
+  a waiver, `created` otherwise — both displaced moves are waivers, so getting this wrong
+  would have recreated the defect) and credits the weekly counter only when the season
+  matches, plus a season-scoped counter always. team_year reads the latter; team_all_time and
+  league_year already roll up from team_year; league_all_time rolls up from team_year too.
+  league_week still sums weeks, which is right. Moves exactly 2 rows: Oliverwkw 2024 W17
+  1->0 (season 33->32), stevenb123 2025 W17 2->1 (season 59->58).
+- [x] **league_all_time was short by a whole season.** It summed team_week, so it dropped the
+  offseason moves AND all of 2026 (in progress, no played weeks, no team_week rows): 1929
+  against team_all_time's 2011. Summing the season counters instead fixed only half — an
+  in-progress season's team_year row comes from a SEPARATE seeding path that counts
+  transactions_rows/trades_rows straight, including the synthesized lineage-closing rows the
+  per-event counters never credit. All three all-time counters now roll up from team_year,
+  the same source team_all_time sums, so the two all-time sheets cannot disagree. A later line
+  that re-summed team_week into league_all_time's FAAB, undoing the total set above, is gone.
+- [x] **Synthesized rows now count as if they were not synthesized** [per user]. The
+  lineage-closing transactions (2020->2021 platform-transfer releases, terminal dead-end cuts,
+  arrivals with no recorded add) are appended AFTER the weekly loop, so the per-event counters
+  never saw them: in transactions.csv, in no team's season total. **28 of 56 completed
+  team-seasons were short, by 85 moves**; JacobRosenzweig 2021 read 2 against 13 detail rows.
+  The TEAM counters are rebuilt from the final rows now — same fix, same place, same reasoning
+  as the player_year/player_all_time rebuild directly above them. An in-season synthesized row
+  also gets its team_week bucket, from its own date on the league clock (no Sleeper leg exists
+  to read). Real rows keep their leg: re-deriving every week from dates would shift a Wednesday
+  waiver back a week. `_league_day()` extracted from `_move_season` so season and week are read
+  off one clock. Guards in `tests/test_synthesized_rows.py`.
+- [x] **The manual-transactions overlay bypassed the counters** — it increments team_week
+  directly, so shmuel256's hand-entered 2023 Puka Nacua pickup sat in a week but in no season
+  total. Season-scoped now. It also carried a **third flat date anchor (`Sept 5`)** the
+  earlier sweep missed because it was not one of the Sept 7 variants; now `_season_week_of`.
 
 ### Phase 13 follow-up — startup picks were numbered by SLOT, not draft ORDER
 Surfaced by an inquiry ("what % of Oliverwkw's points is Nick Chubb?"), full write-up in

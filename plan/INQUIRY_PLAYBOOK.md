@@ -537,6 +537,19 @@ list is here so an answer written by hand does not walk into them.
   seasons' folders have rosters, users and weeks but no pick file, so a
   pick-ownership question about a past date has to be reconstructed from trade
   events — the current-ownership shortcut works for "now" only.
+- **Some `transactions.csv` rows are synthesized, and they count.** The build
+  fabricates lineage-closing moves — the 2020->2021 platform-transfer releases,
+  terminal dead-end cuts, arrivals with no recorded add — so ownership history
+  has no holes. They look like ordinary drop-only rows with no FAAB and no bid
+  count, and they are a large share of some team-seasons (nearly all of
+  `JacobRosenzweig 2021`). They are counted in the team totals like any other
+  row; do not filter them out of a "how many moves" answer, and do not read
+  their blank FAAB as a zero-dollar claim — there was no claim.
+- **A move's season is not its calendar year, and its week is not its date.**
+  Season is the first championship not yet played (`_move_season`), read on the
+  league clock; a real move's week is Sleeper's own leg, which can differ from
+  the week its date falls in (a Wednesday waiver). Only a synthesized row, which
+  has no leg, takes its week from its date.
 - **The starting lineup changed.** One flex through 2023, two from 2024. Read it
   from `season_meta(year).starting_slots`, never hardcode it.
 - **The playoff calendar changed.** Weeks 16-17 through 2025; 2026 starts week
