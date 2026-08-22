@@ -645,6 +645,20 @@ list is here so an answer written by hand does not walk into them.
 - **Past seasons' snapshots have no `drafts.json`.** Like `traded_picks.json`,
   only the current season carries it, so the record of who owned a slot in an
   earlier draft is `picks."Original Team"`, not the snapshot.
+- **The startup is the one SNAKE draft, so its slots and its pick numbers are
+  different things.** `picks."Number"` is the position picked FROM, at every
+  draft — Oliverwkw held the 1.01 and therefore the **2.08**, not a `2.01`. Do
+  not read a startup pick number as the owner's slot, and do not assume a team's
+  number is constant down the rounds; it mirrors every even round. (It really
+  did read `2.01` until the fix in `plan/notes/STARTUP_DRAFT_ORDER.md`, which
+  also skewed every startup pick-adjusted column, so a startup pick figure
+  quoted from an older build is wrong.)
+- **Six startup picks were traded, so `Original Team` is not the drafter there.**
+  LWebs53 and AceMatthew swapped their round 4, 5 and 8 picks (Mike Evans,
+  Golladay, A. Robinson, DJ Moore, Keenan Allen, Hunter Henry). `Final Team`
+  drafted; `Original Team` owned the slot. The deal has no player legs so it
+  produces **no `trades.csv` row** — a 2020 pick-trade question answered from the
+  trade ledger alone will miss it.
 - **Removing a star lowers Max PF by much less than he scored.** The optimal
   lineup only loses his margin over the next-best legal option, so the observed
   exchange rate is about **1.9 points of production per 1 point of ceiling** and

@@ -1,0 +1,115 @@
+# The 2020 startup was numbered by draft slot, not draft order
+
+Found while answering "what % of Oliverwkw's all-time points is Nick Chubb?" —
+the answer (5.18%) was fine, but the pick that produced him read `2.01` on the
+picks sheet. Oliverwkw held the 1.01 in a **snake** startup, so his round-2 pick
+was the *last* of the round: Chubb went **16th overall**, and ESPN's own draft
+record calls him **`2.08`**.
+
+## What was wrong
+
+A team's **draft slot** is constant across a draft. The **position it picks
+from** is not — a snake reverses every even round, so slot 1 picks 1st in round
+1 and 8th in round 2. The two coincide only in a linear draft.
+
+`src/espn_2020.py` kept `round` and `overallPickNumber` when it reshaped ESPN's
+picks into Sleeper's form, and **threw `roundPickNumber` away**. The build then
+re-derived a number in `src/lotg.py` by taking each team's *round-1* pick as a
+constant slot and writing `round.slot`. Every even round came out backwards.
+
+**74 of 152 startup picks were mislabeled** — all 72 even-round picks, plus 2 in
+round 5 that moved for the separate reason below.
+
+This is not only cosmetic. The pick-adjustment pass recovers a pick's overall
+position straight back out of its number:
+
+```python
+_pos = (_R - 1) * _rsize + _S      # src/lotg.py, _window_slots
+```
+
+and scores each non-rookie pick against the mean of its **8 nearest neighbours**
+by that position. With even rounds reversed, Chubb was compared against a window
+centred on real pick 9 instead of real pick 16 — pulling four round-1 picks into
+his baseline. Essentially every startup pick moved:
+
+| Column (stat sd) | Picks changed | mean abs Δ | max abs Δ | Chubb: before → after |
+|---|---|---|---|---|
+| Avg PPG on team adj. by position (4.79) | 141/141 | 1.08 | 3.85 | −3.0463 → **−5.9550** |
+| Avg career PPG adj. by position (4.33) | 152/152 | 0.85 | 3.19 | −1.3600 → **−3.9625** |
+| Avg points added adj. by position (7.39) | 144/152 | 1.27 | 3.47 | −1.0788 → **−3.5800** |
+| Player addition value (23.09) | 141/141 | 4.57 | 14.44 | −17.5513 → **−29.9698** |
+
+Roughly 0.2-0.3 sd on average, and not in a systematic direction: Chubb gets
+*worse* because his true neighbourhood is the strong early-round-3 tight ends
+(Kittle, Kelce, Andrews) rather than the round-1 busts (Michael Thomas, CEH).
+
+`O-Score` for startup picks is a percentile over the non-rookie pool built from
+two of these columns, so it moves too. It cannot be checked offline — KTC is
+unreachable there and O-Score is N/A for **every** pick, rookie included.
+
+## The six picks that broke the snake
+
+Six picks did not fit the slot-reversal pattern at all. They are the only ones in
+the draft carrying ESPN's **`owningTeamIds`** key — its marker for a pick whose
+slot changed hands, where `teamId` is the team that made the selection and
+`owningTeamIds` the slot's original owner:
+
+| Overall | Pick | Player | Drafted by | Slot owned by |
+|---|---|---|---|---|
+| 29 | 4.05 | Mike Evans | LWebs53 | AceMatthew |
+| 31 | 4.07 | Kenny Golladay | AceMatthew | LWebs53 |
+| 34 | 5.02 | Allen Robinson | AceMatthew | LWebs53 |
+| 36 | 5.04 | D.J. Moore | LWebs53 | AceMatthew |
+| 61 | 8.05 | Keenan Allen | LWebs53 | AceMatthew |
+| 63 | 8.07 | Hunter Henry | AceMatthew | LWebs53 |
+
+It is a clean two-way deal: **LWebs53 and AceMatthew swapped their round 4, 5 and
+8 picks with each other**, each round's two picks mirroring exactly. Net movement
+is small — LWebs53 moved up two spots in rounds 4 and 8, AceMatthew up two in
+round 5.
+
+Three independent things agree:
+
+1. Once the slot follows the pick's **owner** rather than its drafter, the draft
+   is a **perfect snake** — zero violations across all 152 picks.
+2. `data/espn_2020_raw/email_trades.json` holds exactly one picks-involving trade
+   all season, timestamped **2020-09-09T21:45:18Z**, ~6 hours before the draft
+   completed (`completeDate` = 2020-09-10T03:30:24Z). Its legs are empty, which
+   is why it never produced a `trades.csv` row — the email parser only extracts
+   player legs.
+3. `plan/notes/espn_2020_backfill.md` already recorded it in prose: *"The one
+   on-platform 'pick trade' email is the startup-draft slot swap."* It had simply
+   never been modelled in code.
+
+This also retires the premise behind the drafter-attribution special case, which
+read the startup's drafter off `Original Team` "because startup picks weren't
+tradeable (ESPN)". Six of them were.
+
+## The fix
+
+- `src/espn_2020.py` carries `pick_in_round` (ESPN's `roundPickNumber`),
+  `draft_slot` (recovered through the snake) and `original_roster_id`
+  (`owningTeamIds`, falling back to the selecting team) into the Sleeper-shaped
+  picks.
+- `src/lotg.py` numbers startup picks by **true draft order**, matching how the
+  rookie/vet ledger already numbers its own picks by pick-order position. The
+  pick-adjustment window then reads correct positions with no change of its own.
+- `Original Team` is the slot's owner, `Final Team` the drafter — equal on 146
+  picks, different on the six above.
+- Drafter attribution uses `Final Team` at every draft, startup included.
+
+`Commissioner moved?` stays `False` on the six: it marks an *untracked* hop, and
+this one is recorded by the source.
+
+## Still open
+
+- **The swap is invisible in `trades.csv`.** The 2020-09-09 trade has no player
+  legs, so it produces no row. The picks sheet now shows it via `Original Team` ≠
+  `Final Team`, but the trade ledger does not list it and `Number of trades` on
+  those pick rows stays 0. Modelling a pick-only 2020 trade is a larger change
+  than this one and was left alone.
+- **Whether any 2020 pick trade is missing entirely.** Off-platform pick trades
+  were possible in 2020 (see `espn_2020_backfill.md`) and would leave no
+  `owningTeamIds` trace. Only on-platform slot swaps are recoverable this way.
+- **Startup `O-Score` is unverified.** It moves with the corrected inputs but
+  cannot be computed offline; it needs a look in the post-merge results audit.

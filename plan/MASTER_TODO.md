@@ -284,6 +284,32 @@ startup-N/A, **#319** the 12-round audit-fix batch). All 7 steps done; the post-
 (Bugs A/B/C + the Hardship cross-era confirm) are all closed. The closing run 397-vs-395 3-part
 audit (`plan/AUDIT_PHASE13_RUN397_vs_395.md`) found 0 regressions. **Clear to start Phase 14.**
 
+### Phase 13 follow-up — startup picks were numbered by SLOT, not draft ORDER
+Surfaced by an inquiry ("what % of Oliverwkw's points is Nick Chubb?"), full write-up in
+`plan/notes/STARTUP_DRAFT_ORDER.md`.
+- [x] **74 of 152 startup picks mislabeled.** The startup is a snake, so a team's constant
+  draft slot is not the position it picks from on even rounds. `espn_2020.py` discarded
+  ESPN's `roundPickNumber` and `lotg.py` rebuilt the number as `round.slot`, reversing all
+  72 even-round picks (+2 in round 5, see below). Chubb, 16th overall, read `2.01` instead
+  of `2.08`. Fixed by carrying `pick_in_round` through and numbering by true draft order —
+  the same convention the rookie/vet ledger already uses.
+- [x] **Every startup pick-adjusted value was computed against the wrong neighbours.**
+  `_window_slots` recovers overall position as `(round-1)*8 + number`, so a reversed even
+  round shifts the 8-nearest baseline by most of a round. Self-correcting once the numbers
+  are true order; ~0.2-0.3 sd of movement on all four adjusted columns (Chubb's Player
+  addition value diff: −17.55 → −29.97). Startup `O-Score` is downstream of two of them and
+  moves too — **it cannot be checked offline (KTC N/A there), so verify it in the results
+  audit.**
+- [x] **The 6 picks that broke the snake are the startup slot swap.** They are the only
+  picks carrying ESPN's `owningTeamIds`: LWebs53 and AceMatthew exchanged their round 4, 5
+  and 8 picks. Corroborated by the lone picks-involving email trade (2020-09-09, ~6h before
+  the draft finished) and by `espn_2020_backfill.md`'s own prose. `Original Team` is now the
+  slot's owner and `Final Team` the drafter; drafter attribution no longer special-cases the
+  startup on the retired premise that ESPN picks were never traded.
+- [ ] 🔍 **The swap is still absent from `trades.csv`** — its email has no player legs, so it
+  produces no trade row and `Number of trades` on those pick rows stays 0. Modelling a
+  pick-only 2020 trade is its own change.
+
 ## Phase 14 — In-season weekly digest email
 **Trigger:** Tuesday 14:00 UTC (~10am ET) build+digest+**email**; plus a Thursday 16:00 UTC pregame build with **no email**. Runs year-round since #379 (a week with no movement renders empty and `--skip-empty` drops it); snapshot rotates only on the Tuesday send run so emails diff week-to-week. (Wired into `build.yml`.)
 

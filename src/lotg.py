@@ -6764,15 +6764,38 @@ def build_all(repo_root: Path) -> None:
     try:
         if _startup_draft_picks:
             _su_rid_to_team = season_roster_to_team.get(2020, {})
-            # Snake startup: a team's slot is its round-1 draft position. Round 1
-            # picks are in slot order, so overall pick number == slot there.
+            # Snake startup: a team's SLOT is its round-1 draft position, but the
+            # position it picks FROM reverses every even round (slot 1 picks 1st
+            # in round 1, 8th in round 2). Pick numbers here follow true draft
+            # ORDER, matching how the rookie/vet ledger numbers its picks — so
+            # Nick Chubb, taken 16th overall by the slot-1 team, is 2.08 and not
+            # 2.01. Numbering off the constant slot instead labelled all 72
+            # even-round picks backwards, and because the pick-adjustment pass
+            # reads a pick's overall position straight back out of that label
+            # ((round-1)*8 + number), it also compared every startup pick
+            # against the wrong neighbours.
+            # `pick_in_round` comes from ESPN's own `roundPickNumber`; the
+            # fallback derives it from the drafter's slot for any pick that
+            # somehow lacks it, which is exact except across a draft-day swap.
             _slot_by_rid: Dict[int, int] = {}
             for _p in _startup_draft_picks:
                 if _to_int(_p.get("round"), 0) == 1:
-                    _rid1 = _to_int(_p.get("roster_id"), None)
+                    _rid1 = _to_int(_p.get("original_roster_id"), None)
+                    if _rid1 is None:
+                        _rid1 = _to_int(_p.get("roster_id"), None)
                     _ov1 = _to_int(_p.get("pick_no"), None)
                     if _rid1 is not None and _ov1 is not None:
                         _slot_by_rid[int(_rid1)] = int(_ov1)
+            _su_teams = len(_slot_by_rid) or 8
+
+            def _su_pick_in_round(_rnd, _slot, _pick_in_round):
+                _pir = _to_int(_pick_in_round, None)
+                if _pir is not None:
+                    return _pir
+                if _slot is None:
+                    return None
+                return (_su_teams + 1 - int(_slot)) if int(_rnd) % 2 == 0 else int(_slot)
+
             _n_startup = 0
             for _p in _startup_draft_picks:
                 _rnd = _to_int(_p.get("round"), None)
@@ -6780,7 +6803,12 @@ def build_all(repo_root: Path) -> None:
                 _ov = _to_int(_p.get("pick_no"), None)
                 if _rnd is None or _rid is None:
                     continue
-                _slot = _slot_by_rid.get(int(_rid))
+                # The slot belongs to the pick, so it follows the pick's OWNER,
+                # not whoever ended up selecting from it.
+                _orid = _to_int(_p.get("original_roster_id"), None)
+                if _orid is None:
+                    _orid = int(_rid)
+                _slot = _to_int(_p.get("draft_slot"), None) or _slot_by_rid.get(int(_orid))
                 if _slot is None and _ov is not None and _slot_by_rid:
                     _slot = ((int(_ov) - 1) % len(_slot_by_rid)) + 1
                 _md = _p.get("metadata") if isinstance(_p.get("metadata"), dict) else {}
@@ -6793,6 +6821,11 @@ def build_all(repo_root: Path) -> None:
                 _dp_nm = f"{_md.get('first_name','')} {_md.get('last_name','')}".strip()
                 _nm = (_sleeper_nm if (_sleeper_nm and _sleeper_nm != _pid_s) else None) or _dp_nm or _sleeper_nm
                 _tm = _su_rid_to_team.get(int(_rid), f"Roster {_rid}")
+                # Original Team = the team that OWNED the slot, which is the
+                # drafter on 146 of the 152 picks and the counterparty on the
+                # six LWebs53 <-> AceMatthew draft-day swaps (rounds 4, 5, 8).
+                _otm = _su_rid_to_team.get(int(_orid), _tm)
+                _pir = _su_pick_in_round(_rnd, _slot, _p.get("pick_in_round"))
                 pick_rows.append({
                     # Computed as a normal 2020 draft so every downstream pick pass
                     # (PPG / addition value / O-Score / age / links / position
@@ -6801,8 +6834,8 @@ def build_all(repo_root: Path) -> None:
                     # the picks sheet is written.
                     "Year": 2020,
                     "_is_startup": True,
-                    "Number": _format_pick_number(int(_rnd), _slot),
-                    "Original Team": _tm,
+                    "Number": _format_pick_number(int(_rnd), _pir if _pir is not None else _slot),
+                    "Original Team": _otm,
                     "Final Team": _tm,
                     "Player Picked": _nm,
                     "_player_id": (str(_p.get("player_id")) if _valid_pid(_p.get("player_id")) else None),
@@ -10315,6 +10348,12 @@ def build_all(repo_root: Path) -> None:
                 _maxpos = _rsize * (_max_round or 1)
 
                 def _window_slots(_R: int, _S: int) -> List[Tuple[int, int]]:
+                    # Overall draft position, read straight back out of the pick
+                    # NUMBER. That only holds because every draft numbers its
+                    # picks by true draft ORDER — including the snake startup,
+                    # where the number is the position picked from, not the
+                    # owner's constant slot. Number a snake off the slot and
+                    # this silently reverses every even round.
                     _pos = (_R - 1) * _rsize + _S
                     if _pos <= 1:
                         _ps = [1, 2]
@@ -16964,18 +17003,18 @@ def build_all(repo_root: Path) -> None:
     # for two teams counts once per team in the all-time pool).
     try:
         if not pw.empty and {"Team", "Year", "Week", "Player ID"}.issubset(pw.columns):
-            # Drafter(s) of each player, by normalized team handle. Startup picks
-            # weren't tradeable (ESPN), so the drafter is the pick's Original
-            # Team; for later drafts it's the Final Team that made the selection.
+            # Drafter(s) of each player, by normalized team handle: the Final
+            # Team is the one that made the selection, at every draft. The
+            # startup used to be special-cased to Original Team on the premise
+            # that ESPN picks were never traded — six of them were (the
+            # LWebs53 <-> AceMatthew swap), and on those the original owner is
+            # the counterparty, not the drafter.
             _draft_team_by_pid: Dict[str, set] = defaultdict(set)
             for _pr in (pick_rows or []):
                 _dpid = _pr.get("_player_id")
                 if not _dpid:
                     continue
-                if _pr.get("_is_startup"):
-                    _dt = _pr.get("Original Team") or _pr.get("Final Team")
-                else:
-                    _dt = _pr.get("Final Team") or _pr.get("Original Team")
+                _dt = _pr.get("Final Team") or _pr.get("Original Team")
                 if _dt:
                     _draft_team_by_pid[str(_dpid)].add(_norm_team_name(str(_dt)))
 
