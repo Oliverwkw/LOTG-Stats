@@ -58,11 +58,11 @@ def check_player_high_low_crossings():
 
 
 def check_low_end_crossing():
-    prev = [{"entity": "T", "value": 50}, {"entity": "F", "value": 20}, {"entity": "E", "value": 25}]
-    curr = [{"entity": "T", "value": 50}, {"entity": "E", "value": 22}, {"entity": "F", "value": 21}]
+    prev = [{"entity": "T", "value": 50}, {"entity": "E", "value": 20}, {"entity": "F", "value": 25}]
+    curr = [{"entity": "T", "value": 50}, {"entity": "F", "value": 18}, {"entity": "E", "value": 20}]
     cx = D._column_crossings("players", "Points", prev, curr, _PLAYERS, D.WINDOW, True)
     got = [(c.mover, c.passed, c.rank, c.end) for c in cx]
-    return _ok("low-end crossing (F to the lowest place, passing E)", ("F", "E", 1, "low") in got, f"got {got}")
+    return _ok("low-end crossing (F drops below E to the lowest place)", ("F", ("E",), 1, "low") in got, f"got {got}")
 
 
 def check_every_numeric_column_ranks():
@@ -106,7 +106,7 @@ def check_team_any_of_8_reported_once():
     ok = _ok("mid-board team swap reported exactly once", len(cx) == 1, f"got {len(cx)}")
     if cx:
         ok &= _ok("reported as the riser at its new rank",
-                  cx[0].mover == "T3" and cx[0].passed == "T2" and cx[0].rank == 3 and cx[0].end == "high",
+                  cx[0].mover == "T3" and cx[0].passed == ("T2",) and cx[0].rank == 3 and cx[0].end == "high",
                   cx[0].sentence())
     return ok
 
@@ -325,7 +325,7 @@ def check_event_board_diff():
     ok &= _ok("the mover is the re-valued 2024 pick",
               c is not None and c.label == "2024 pick 1.01 (P1)")
     ok &= _ok("it names who it passed and the place taken",
-              c is not None and c.passed == "2025 pick 1.03 (P3)" and c.rank == 1,
+              c is not None and c.passed == ("2025 pick 1.03 (P3)",) and c.rank == 1,
               f"passed={getattr(c, 'passed', None)} rank={getattr(c, 'rank', None)}")
     ok &= _ok("sentence reads like an all-time crossing",
               c is not None and c.sentence() ==
@@ -366,12 +366,12 @@ def check_event_labels():
     bare = D._board_label("trades", pd.DataFrame(
         [{"Team": "T", "Date": "2024-01-02 03:04:05", "Assets received": ""}]).iloc[0])
     ok &= _ok("a trade with no assets listed still labels", bare == "T's 2024-01-02 trade", f"got {bare}")
-    add = D._board_label("transactions", pd.DataFrame(
+    add = D._board_label("add_drops", pd.DataFrame(
         [{"Team": "T", "Date": "2025-09-01 18:00:20", "Player Added": "QJ",
           "Player Dropped": "X"}]).iloc[0])
     ok &= _ok("transaction label names the added player",
               add == "T's 2025-09-01 move for QJ", f"got {add}")
-    drop = D._board_label("transactions", pd.DataFrame(
+    drop = D._board_label("add_drops", pd.DataFrame(
         [{"Team": "T", "Date": "2025-09-01 18:00:20", "Player Added": "",
           "Player Dropped": "X"}]).iloc[0])
     ok &= _ok("a drop-only row reads as a drop", drop == "T's 2025-09-01 drop of X", f"got {drop}")
@@ -514,7 +514,7 @@ def check_phrasing_catalog():
 
 
 def check_render_html_smoke():
-    c = D.Crossing("teams", "Max PF", "high", 3, "BRO", "shmuel", 305.0)
+    c = D.Crossing("teams", "Max PF", "high", 3, "BRO", 305.0, passed=("shmuel",))
     p = D.Projection("teams", "A", "Hardship", "high", 1, 3, 110.0)
     m = D.Milestone("PF", 51000.0, 50000.0)
     rec = D.YearlyRecord("teams", "BRO", "Times One-man army?", 9.0)
@@ -597,19 +597,19 @@ def check_tie_joins_are_said_to_be_ties():
     joined = [hl("k06", "pick 4.06", 1, 0.0), hl("k07", "pick 4.07", 1, 0.0)]
     out = D.diff_events(prior, joined)
     ok = _ok("the mover is reported", len(out) == 1, [o.sentence() for o in out])
-    ok &= _ok("as a tie, not an overtake", bool(out) and out[0].tied,
+    ok &= _ok("as a tie-join, not an overtake", bool(out) and out[0].joined,
               out and out[0].sentence())
-    ok &= _ok("naming who it is level with", bool(out) and out[0].passed == "pick 4.06",
-              out and out[0].passed)
+    ok &= _ok("naming who it is level with", bool(out) and out[0].others == ("pick 4.06",),
+              out and out[0].others)
     ok &= _ok("and the sentence says so",
-              bool(out) and "ties pick 4.06 for lowest KTC" in out[0].sentence(),
+              bool(out) and "joins a tie with pick 4.06 for lowest KTC" in out[0].sentence(),
               out and out[0].sentence())
 
     # The same move, but 4.06 is pushed off the place: a real overtake.
     took = [hl("k07", "pick 4.07", 1, 0.0), hl("k06", "pick 4.06", 2, 5.0)]
     out2 = D.diff_events(prior, took)
     ok &= _ok("a genuine overtake still says passes",
-              len(out2) == 1 and not out2[0].tied and "passes" in out2[0].sentence(),
+              len(out2) == 1 and not out2[0].joined and "passes" in out2[0].sentence(),
               [o.sentence() for o in out2])
     return ok
 
@@ -628,8 +628,8 @@ def check_all_time_tie_joins():
                   ("D", 70.0), ("E", 60.0), ("F", 50.0)])
     out = [c for c in D.diff_snapshots(prev, curr) if c.mover == "B"]
     ok = _ok("the riser is reported", len(out) == 1, [c.sentence() for c in out])
-    ok &= _ok("as a tie", bool(out) and out[0].tied, out and out[0].sentence())
-    ok &= _ok("phrased 'ties'", bool(out) and "ties Q" in out[0].sentence(),
+    ok &= _ok("as a tie-join", bool(out) and out[0].joined, out and out[0].sentence())
+    ok &= _ok("phrased 'joins a tie with'", bool(out) and "joins a tie with Q for 2nd-highest PF" in out[0].sentence(),
               out and out[0].sentence())
 
     # Values that merely ROUND to the same display string are not a tie — both
@@ -638,7 +638,7 @@ def check_all_time_tie_joins():
                   ("D", 70.0), ("E", 60.0), ("F", 50.0)])
     out2 = [c for c in D.diff_snapshots(prev, near) if c.mover == "B"]
     ok &= _ok("near-equal values are an overtake, not a tie",
-              bool(out2) and not out2[0].tied, out2 and out2[0].sentence())
+              bool(out2) and not out2[0].joined, out2 and out2[0].sentence())
     return ok
 
 
@@ -646,7 +646,7 @@ def check_section_reading_order():
     """Inside a section: every 1st place before every 2nd, and within one place
     the stats the league argues about before the diagnostics."""
     def mv(label, col, rank):
-        return D.EventCrossing(sheet="picks", label=label, passed="X", column=col,
+        return D.EventCrossing(sheet="picks", label=label, passed=("X",), column=col,
                                end="low", rank=rank, value=1.0)
 
     items = [mv("first_diagnostic", "Pick-adjusted Difference in KTC", 1),
@@ -670,7 +670,7 @@ def check_bullet_groups_stay_together_at_their_best_place():
     else's would spend exactly that. So it stays whole and takes the position of
     its BEST item — and orders internally by the same rule."""
     def mv(label, col, rank):
-        return D.EventCrossing(sheet="picks", label=label, passed="X", column=col,
+        return D.EventCrossing(sheet="picks", label=label, passed=("X",), column=col,
                                end="low", rank=rank, value=1.0)
 
     items = [mv("solo", "O-Score", 2),
@@ -695,11 +695,11 @@ def check_records_are_first_places():
     completed season, so it IS 1st place on that stat's board. Treating it as
     placeless sank the strongest claim in the email below every 5th-place
     shuffle it shared a section with."""
-    rec = D.YearlyRecord("teams", "Oliverwkw", "Number of transactions", 47.0)
+    rec = D.YearlyRecord("teams", "Oliverwkw", "Number of Add/Drops", 47.0)
     ok = _ok("a record carries a place", rec.rank == 1, rec.rank)
     ok &= _ok("and sorts as one", D._order_key(rec)[0] == 1)
 
-    fifth = D.EventCrossing(sheet="picks", label="z", passed="X", column="O-Score",
+    fifth = D.EventCrossing(sheet="picks", label="z", passed=("X",), column="O-Score",
                             end="low", rank=5, value=1.0)
     html = D._grouped_section_html("T", [fifth, rec])
     ok &= _ok("so it leads a 5th place it shares a section with",
@@ -727,7 +727,7 @@ def check_order_is_stable():
     """Equal items must not reshuffle between builds: the audit diffs this email's
     inputs, and a cosmetic reshuffle would read as movement."""
     def mv(label):
-        return D.EventCrossing(sheet="picks", label=label, passed="X", column="O-Score",
+        return D.EventCrossing(sheet="picks", label=label, passed=("X",), column="O-Score",
                                end="low", rank=1, value=1.0)
 
     items = [mv("a"), mv("b"), mv("c")]
@@ -741,7 +741,7 @@ def check_first_place_drops_the_ordinal():
     and the doubling is loudest on exactly the lines that matter most. Places
     below first still need the ordinal to mean anything."""
     def cr(rank, end):
-        return D.Crossing("players", "PF", end, rank, "A", "B", 10.0)
+        return D.Crossing("players", "PF", end, rank, "A", 10.0, passed=("B",))
 
     ok = _ok("1st-highest -> highest", "for highest PF" in cr(1, "high").sentence(),
              cr(1, "high").sentence())
@@ -764,7 +764,7 @@ def check_a_line_does_not_repeat_its_own_header():
     w = D.WeeklyHighlight("players", "A", "Points", "high", 1, 55.4)
     r = D.YearlyRecord("teams", "A", "Total trades", 12.0)
     m = D.Milestone("PF", 112807.0, 100000.0)
-    c = D.Crossing("players", "Points", "high", 1, "A", "B", 2100.0)
+    c = D.Crossing("players", "Points", "high", 1, "A", 2100.0, passed=("B",))
     ok = _ok("the lede's copy still stands alone",
              "single week ever" in w.sentence() and "single-season record" in r.sentence()
              and w.sentence().startswith("A's Points this week"))
@@ -784,8 +784,8 @@ def check_group_label_is_the_bare_entity():
     """The verb used to be the header again, one line apart: "All-time
     leaderboard moves — players" over "Ja'Marr Chase made these all-time
     moves:"."""
-    items = [D.Crossing("players", "Points", "high", 1, "A", "B", 10.0),
-             D.Crossing("players", "Avg points", "high", 2, "A", "B", 22.0)]
+    items = [D.Crossing("players", "Points", "high", 1, "A", 10.0, passed=("B",)),
+             D.Crossing("players", "Avg points", "high", 2, "A", 22.0, passed=("B",))]
     html = D._grouped_section_html("All-time leaderboard moves — players", items)
     ok = _ok("the label is the entity and a colon", "A:<ul" in html, html[:160])
     ok &= _ok("no verb echoing the header", "all-time moves" not in html, html)
@@ -797,12 +797,12 @@ def check_league_sections_drop_the_redundant_label():
     labelling its bullets "The league:" prints the header a second time. A teams
     section suffixed "teams" must NOT match an entity called "Oliverwkw"."""
     ps = [D.Projection("league", "The league", "Total trades", "high", 3, 8, 44.0, 44.0),
-          D.Projection("league", "The league", "Number of transactions", "high", 1, 8, 300.0, 300.0)]
+          D.Projection("league", "The league", "Number of Add/Drops", "high", 1, 8, 300.0, 300.0)]
     html = D._grouped_section_html("Season-long results — league", ps)
     ok = _ok("no 'The league:' label", "The league" not in html, html)
     ok &= _ok("items sit at the top level, not under an empty bullet",
               html.count("<ul") == 1, html)
-    ok &= _ok("and read as sentences", "Highest Number of transactions (300)." in html, html)
+    ok &= _ok("and read as sentences", "Highest Number of Add/Drops (300)." in html, html)
 
     ok &= _ok("the header must actually name the entity",
               D._label_is_the_header("Season-long results — league", "The league"))

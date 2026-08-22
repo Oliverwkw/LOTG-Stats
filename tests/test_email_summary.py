@@ -284,7 +284,7 @@ def check_reasoned_survives_a_huge_week():
     label = "Oliverwkw's 2024-08-06 trade for " + ", ".join(f"Player {i}" for i in range(8))
     items = [_Move(label, ["KTC at end of rookie year", "O-Score", "Points"][i % 3],
                    (i % 5) + 1, end="high" if i % 2 else "low",
-                   sheet=["picks", "trades", "transactions"][i % 3], tied=i % 7 == 0)
+                   sheet=["picks", "trades", "add_drops"][i % 3], tied=i % 7 == 0)
              for i in range(6000)]
     secs = [("All-time leaderboard moves — trades", "moved", items)]
     t0 = time.time()
