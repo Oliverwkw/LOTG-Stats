@@ -1065,6 +1065,10 @@ def _col_number_format(col: str) -> Optional[str]:
             or "all-play win" in n
             or n in ("highest win % vs a team", "lowest win % vs a team")):
         return "0.00%"
+    # Tanking is a tiny marginal delta — 2 decimals collapse most values to 0.00
+    # in the workbook. Show 4 (the CSV already carries 4).
+    if n == "tanking":
+        return "0.0000"
     # Everything else numeric (PPG, points, PF, PAR, KTC, addition value, Luck,
     # skill, O-Score, …) -> 2 decimals, no commas. (Harmless on text cells.)
     return "0.00"
@@ -1234,6 +1238,13 @@ def _column_kind(col: str) -> str:
     }
     if col_l in text_exact:
         return "text"
+
+    # player_additions KTC checkpoints/changes are numeric metrics — keep them
+    # numeric so a missing/future value renders N/A (via _preserve_na) like the
+    # picks-sheet KTC columns, instead of being caught by the generic "pick"
+    # text-marker below (which "...after pickup" would otherwise match).
+    if col_l.startswith("ktc ") and "pickup" in col_l:
+        return "numeric"
 
     # Substring-based markers: a column counts as text when its label *contains*
     # any of these tokens. Important: keep these specific enough that they
@@ -1521,6 +1532,16 @@ def _preserve_na(col: str) -> bool:
     if col_l == "ktc on draft day" or col_l == "ktc at end of rookie year":
         return True
     if re.match(r"^ktc \d+ years? after draft day$", col_l):
+        return True
+    # KTC checkpoints + changes on player_additions (pickup-relative). Blank =
+    # untracked player, a future checkpoint (KTC never pulls forward — e.g. end
+    # of season for an in-progress season, or "4 years after" for a recent add),
+    # or the KTC index failed to build. Distinct from 'KTC is actually zero'.
+    if col_l in {"ktc at pickup", "ktc at end of season"}:
+        return True
+    if re.match(r"^ktc \d+ years? after pickup$", col_l):
+        return True
+    if col_l.startswith("ktc change "):
         return True
     # Dropped avg/total points: N/A when the row dropped nobody; an explicit
     # 0 is real (the dropped player never played another NFL game).
@@ -8307,6 +8328,61 @@ def build_all(repo_root: Path) -> None:
                 event_log[(_sa["Team"], _sa["Player Added"])].append((_sa["Date"], "add"))
                 add_drop_rows.append(_synth_tx(_sa["Team"], _sa["Player Added"],
                                                    _sa["_added_pid"], None, None, _sa["Date"]))
+
+            # Commissioner-correction cleanup: a commissioner ADD that undoes a
+            # same-team DROP of the same player within the previous 24 hours is a
+            # correction of an erroneous drop, not a real move. Delete BOTH the
+            # drop and the re-add so the player reads as CONTINUOUSLY tenured
+            # (per league). Downstream — counts, tenure, links, player_additions
+            # — all read the pruned add_drop_rows / event_log, so they inherit it.
+            try:
+                def _cc_dt(_s):
+                    try:
+                        return pd.to_datetime(_s)
+                    except Exception:
+                        return None
+
+                def _cc_named(_v):
+                    return _v is not None and str(_v).strip() not in ("", "nan", "None", "N/A")
+
+                _cc_drop_by_tp: Dict[Tuple[str, str], List[Tuple[Any, int]]] = defaultdict(list)
+                for _ix, _r in enumerate(add_drop_rows):
+                    _dp = _r.get("Player Dropped")
+                    if _cc_named(_dp):
+                        _d = _cc_dt(_r.get("Date"))
+                        if _d is not None:
+                            _cc_drop_by_tp[(str(_r.get("Team")), str(_dp))].append((_d, _ix))
+                _cc_remove: Set[int] = set()
+                for _ix, _r in enumerate(add_drop_rows):
+                    if str(_r.get("type of add/drop (waiver/free agency)") or "") != "commissioner":
+                        continue
+                    _add = _r.get("Player Added")
+                    if not _cc_named(_add):
+                        continue
+                    _adt = _cc_dt(_r.get("Date"))
+                    if _adt is None:
+                        continue
+                    _win = _adt - pd.Timedelta(hours=24)
+                    _prior = sorted([(_d, _j) for (_d, _j) in
+                                     _cc_drop_by_tp.get((str(_r.get("Team")), str(_add)), [])
+                                     if _win <= _d < _adt])
+                    if _prior:
+                        _cc_remove.add(_ix)
+                        _cc_remove.add(_prior[-1][1])   # the most recent prior drop
+                if _cc_remove:
+                    _cc_events = [(str(add_drop_rows[i].get("Team")),
+                                   str(add_drop_rows[i].get("Player Added")
+                                       or add_drop_rows[i].get("Player Dropped") or ""),
+                                   str(add_drop_rows[i].get("Date"))) for i in _cc_remove]
+                    add_drop_rows[:] = [r for i, r in enumerate(add_drop_rows) if i not in _cc_remove]
+                    for (_tm, _pl, _dt) in _cc_events:
+                        _k = (_tm, _pl)
+                        if _k in event_log:
+                            event_log[_k] = [e for e in event_log[_k] if str(e[0]) != _dt]
+                    _log(debug, f"[{_now_iso()}] INFO commissioner-correction cleanup: removed "
+                                f"{len(_cc_remove)} rows (same-team drop + commissioner re-add within 24h)")
+            except Exception as e:
+                _log_exc(debug, "commish_correction_cleanup", e)
 
             # Round-4 Part A/B fix: rebuild the player transaction / drop
             # counters straight from the FINAL transactions_rows so they match
@@ -19105,6 +19181,9 @@ def build_all(repo_root: Path) -> None:
             _pa_by_name[_k].sort(key=lambda e: e["date"])
 
         # Tanking per (team, season) from team_year.
+        # Tanking per (team, season) from team_year (absolute value); used as the
+        # draft-row fallback only. (The Tanking DELTA rework — a before-minus-after
+        # change on every addition, incl. picks — is tracked separately.)
         _pa_tank: Dict[Tuple[str, int], Any] = {}
         if isinstance(team_year, pd.DataFrame) and {"Team", "Year", "Tanking"}.issubset(team_year.columns):
             for _tm, _yr, _tk in zip(team_year["Team"].astype(str),
