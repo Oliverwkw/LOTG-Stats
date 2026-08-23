@@ -3724,6 +3724,11 @@ def build_all(repo_root: Path) -> None:
     # ------------- Build each season -------------
     traded_picks_by_season: Dict[int, List[Dict[str, Any]]] = {}
     season_roster_to_team: Dict[int, Dict[int, str]] = {}
+    # (team, season) -> its rostered player IDs (from the season's Sleeper roster
+    # snapshot). Powers the offseason "Team age including picks" for a season that
+    # has no team_week rows yet (an in-progress/not-yet-played season), so the
+    # marginal Tanking delta is non-zero for its additions and draft picks too.
+    _roster_players_by_ts: Dict[Tuple[str, int], List[str]] = {}
     season_team_to_roster: Dict[int, Dict[str, int]] = {}
     season_draft_picks_all: Dict[int, List[Dict[str, Any]]] = {}
     draft_picks_records: List[Dict[str, Any]] = []
@@ -4127,6 +4132,13 @@ def build_all(repo_root: Path) -> None:
         season_team_to_roster[season] = {
             _norm_team_name(v): k for k, v in roster_to_team.items() if v is not None
         }
+        for _rr in rosters or []:
+            _rid = _to_int(_rr.get("roster_id"), None)
+            _tm = roster_to_team.get(_rid) if _rid is not None else None
+            if _tm:
+                _roster_players_by_ts[(str(_tm), int(season))] = [
+                    str(_p) for _p in (_rr.get("players") or []) if _p
+                ]
         # Persist the season's roster ids for downstream pick-history /
         # draft-frame logic. (Prior code only populated this via
         # _ensure_pick_bases.setdefault, which had a chicken-and-egg gate
@@ -17592,6 +17604,37 @@ def build_all(repo_root: Path) -> None:
     except Exception as e:
         _log_exc(debug, "tanking_delta_maps", e)
 
+    # Offseason / in-progress fallback: a season that has NO played weeks yet
+    # (e.g. the current 2026 offseason) contributes no team_week rows, so its
+    # roster age (A) / entity count (N) are missing and every 2026 add or draft
+    # pick would score 0. Compute "Team age including picks" straight from the
+    # season's Sleeper roster snapshot (players' ages at ~Sept 1 + future picks
+    # held) and seed it at a synthetic week 0, so the delta is non-zero there too.
+    try:
+        _seasons_with_weeks = {s for (_t, s, _w) in _TANK_A}
+        _fallback_A: Dict[int, List[float]] = defaultdict(list)
+        for (_tm, _sea), _pids in _roster_players_by_ts.items():
+            if _sea in _seasons_with_weeks:
+                continue  # real weekly ages already exist for this season
+            _ref = date(int(_sea), 9, 1)
+            _rages = [a for a in (_calc_age((pid_meta.get(str(p)) or {}).get("birth_date"), _ref)
+                                  for p in _pids) if a is not None]
+            try:
+                _pk_ages = _picks_held_by_team_at(_tm, int(_sea), _ref)
+            except Exception:
+                _pk_ages = []
+            _combined = _rages + list(_pk_ages)
+            if _combined:
+                _A0 = sum(_combined) / len(_combined)
+                _TANK_A[(str(_tm), int(_sea), 0)] = float(_A0)
+                _TANK_N[(str(_tm), int(_sea), 0)] = float(len(_combined))
+                _fallback_A[int(_sea)].append(_A0)
+        for _sea, _vals in _fallback_A.items():
+            if _sea not in _TANK_LAGE and _vals:
+                _TANK_LAGE[int(_sea)] = float(sum(_vals) / len(_vals))
+    except Exception as e:
+        _log_exc(debug, "tanking_offseason_age_fallback", e)
+
     def _tanking_delta_row(team, season_i, wk_i, recv_sum, recv_n, sent_sum, sent_n, fcap_delta) -> float:
         """Marginal ΔTanking for one transaction/trade (see block header)."""
         try:
@@ -17753,6 +17796,53 @@ def build_all(repo_root: Path) -> None:
                 tr["Tanking"] = vals
     except Exception as e:
         _log_exc(debug, "trades_links_tanking", e)
+
+    # Picks: marginal ΔTanking from DRAFTING the player. Per league, draft
+    # capital is treated as RESETTING at the draft (the future picks that fed it
+    # come in, the pick itself is spent), so the future-capital term is 0 and the
+    # change comes entirely from AGE — adding a young rookie pulls the roster's
+    # "age including picks" down, which reads as (positive) tanking. Same age
+    # formula as add_drops/trades; surfaced on picks and player_additions' draft
+    # rows so all channels use one method.
+    try:
+        if isinstance(ph, pd.DataFrame) and not ph.empty and \
+                {"Year", "Final Team", "Player Picked"}.issubset(ph.columns):
+            _pk_tank_vals: List[Any] = []
+            for _i in ph.index:
+                _pl = str(ph.at[_i, "Player Picked"] or "").strip()
+                _ft = str(ph.at[_i, "Final Team"] or "").strip()
+                if not _ft or not _pl or _pl.upper() in ("N/A", "UNKNOWN", ""):
+                    _pk_tank_vals.append(None); continue
+                _ym = re.match(r"\s*(\d{4})", str(ph.at[_i, "Year"] or ""))
+                if _ym:
+                    _sea = int(_ym.group(1))
+                elif "startup" in str(ph.at[_i, "Year"] or "").lower():
+                    _sea = min({s for (_t, s) in _roster_players_by_ts} | {2020})
+                else:
+                    _pk_tank_vals.append(None); continue
+                _pid = ph.at[_i, "_player_id"] if "_player_id" in ph.columns else None
+                # Rookie's age at ~Sept 1 of the draft year (same reference the
+                # offseason roster-age fallback uses).
+                _dref = date(int(_sea), 9, 1)
+                _age = _calc_age((pid_meta.get(str(_pid)) or {}).get("birth_date"), _dref) if _pid else None
+                if _age is None:
+                    _pk_tank_vals.append(0.0); continue
+                # The team's roster age (A) INCLUDES the just-drafted rookie, so
+                # the marginal effect of drafting THEM is A vs A-without-the-rookie
+                # (removing the rookie raises the age; adding a young one lowers it
+                # => positive tanking). Draft-capital term is 0 (it reset at the
+                # draft), so this is the age term alone: (1/6)·(A_pre − A)/(L−21).
+                _A = _TANK_A.get((_ft, int(_sea), 1), _TANK_A.get((_ft, int(_sea), 0)))
+                _N = _TANK_N.get((_ft, int(_sea), 1), _TANK_N.get((_ft, int(_sea), 0)))
+                _L = _TANK_LAGE.get(int(_sea))
+                _tk = 0.0
+                if _A is not None and _N is not None and _N > 1 and _L is not None and abs(_L - 21.0) > 1e-9:
+                    _A_pre = (float(_N) * float(_A) - float(_age)) / (float(_N) - 1.0)
+                    _tk = round((1.0 / 6.0) * (_A_pre - float(_A)) / (float(_L) - 21.0), 4)
+                _pk_tank_vals.append(_tk)
+            ph["Tanking"] = _pk_tank_vals
+    except Exception as e:
+        _log_exc(debug, "picks_tanking", e)
 
     # Player-chain links (Phase 6D): split the transaction links into chains
     # that follow the ADDED player and the DROPPED player across every later /
@@ -19525,7 +19615,8 @@ def build_all(repo_root: Path) -> None:
                 _pk_raw = None
                 if _pk is not None:
                     _pk_raw = _pk.isoformat() if hasattr(_pk, "isoformat") else str(_pk)
-                _emit(_tm, str(_pl), "Draft", _pk_raw, _sea, f"PH#{int(_i) + 1}", _nl, None)
+                _pk_tank = ph.at[_i, "Tanking"] if "Tanking" in ph.columns else None
+                _emit(_tm, str(_pl), "Draft", _pk_raw, _sea, f"PH#{int(_i) + 1}", _nl, _pk_tank)
 
         if _pa_rows:
             player_additions = pd.DataFrame(_pa_rows)
