@@ -338,17 +338,37 @@ _STORY_RESERVE = 48
 #   MARKET DRIFT       KTC and age move on their own, every single run, forever.
 #                      A week that is mostly KTC churn is the quietest kind there
 #                      is, however many rows it touches.
-#   NEW RESULTS        the in-progress season moved. This is the only bucket that
-#                      is actually news about games that were played.
+#   NEW RESULTS        the in-progress season's game production moved.
+#
+# The first two ARE new data — market prices and the calendar are real inputs —
+# and only re-valued history is the pipeline talking to itself. So a headline can
+# come from any of the three; only recompute is barred from it.
 #
 # A special case of re-valued history is worth calling out by name: a row that
 # now "passes" an earlier-numbered version of ITSELF. That only happens when a
 # key the boards rank on was renumbered — the unmistakable signature of a
 # structural change — so the lede says so in as many words.
 #
-# Only KTC drifts on its own; "Age when drafted" is a fixed historical fact, not
-# drift (when it "moves" it is a renumber, caught as a self-reference below).
-_DRIFT_FAMILIES = {"ktc"}
+# Things that move on their own, without a game being played, are still NEW DATA:
+#   Length of tenure — the wall clock advancing a still-rostered player's tenure.
+#   Current KTC       — the live market re-pricing a player TODAY.
+# But a DATED KTC checkpoint ("KTC on draft day", "… 3 years after draft day",
+# "… at end of rookie year") is settled history: that value belonged to a past
+# date and is fixed, so when it moves it is a backfill correction or a renumber —
+# a recompute, not the market. And "Pick-adjusted Difference in KTC …" is a
+# recompute diagnostic (family "Pick-adjusted Difference"), never drift.
+_KTC_CHECKPOINT = re.compile(r"after|at end|on draft|rookie|year")
+
+
+def _is_new_data_family(column: str, family: str) -> bool:
+    """A column whose movement is real new data rather than a recompute — the
+    wall clock (tenure) or the live market (a CURRENT KTC, not a dated checkpoint)."""
+    fam, col = str(family).lower(), str(column).lower()
+    if fam.startswith("length of tenure"):
+        return True
+    if "ktc" in col and fam.startswith("ktc") and not _KTC_CHECKPOINT.search(col):
+        return True
+    return False
 _PAREN = re.compile(r"\(([^()]*)\)\s*$")
 _YEAR = re.compile(r"\b(20\d\d)\b")
 
@@ -402,7 +422,7 @@ def _provenance(cand: "_Cand", season: Optional[int],
     # before the family check (an "Age when drafted" self-pass is not drift).
     if _self_reference(cand):
         return "recompute"
-    if cand.family.lower() in _DRIFT_FAMILIES:
+    if _is_new_data_family(cand.column, cand.family):
         return "drift"
     yr = _row_season(getattr(cand.item, "label", "") or
                      getattr(cand.item, "mover", "") or cand.section)
@@ -420,7 +440,7 @@ def _prov_phrase(recomp: int, drift: int, live: int) -> str:
     if live:
         bits.append(f"{live} from new results")
     if drift:
-        bits.append(f"{drift} market drift")
+        bits.append(f"{drift} KTC/tenure drift")
     return _join(bits)
 
 
@@ -491,10 +511,14 @@ def _bulk_story(rest: List["_Cand"], season: Optional[int],
         lead = f"{n} more" if have_named else f"{n}"
         return [f"{lead} {'move' if n == 1 else 'moves'} across {where}."]
 
-    # MARKET DRIFT dominates: KTC/age churn, the quietest busy week there is.
-    if drift >= 0.6 * n and block_fam and block_fam.lower() in _DRIFT_FAMILIES:
+    # DRIFT dominates: KTC / tenure moving on their own — real new data, but the
+    # quietest kind, so it is summarised rather than dressed up as an event. (Only
+    # tenure or a current KTC can reach here as drift; dated KTC checkpoints are
+    # already counted as recompute, so a KTC-checkpoint block never triggers it.)
+    if drift >= 0.6 * n and block_fam and \
+            block_fam.lower().startswith(("length of tenure", "ktc")):
         lead = "The rest is" if have_named else "The week was"
-        return [f"{lead} market drift — {block_n} {block_fam} moves across "
+        return [f"{lead} routine drift — {block_n} {block_fam} moves across "
                 f"{block_secs}{plus}{_besides(exclude='drift')}."]
 
     # RE-VALUED HISTORY dominates: the settled past moved, which means the
@@ -558,15 +582,16 @@ def reasoned_summary(sections: Sequence[Tuple[str, str, list]],
     block_fams = {f for f, _n, _s in big}
 
     # The standout lines, quoted verbatim so they can't drift from the facts —
-    # but ONLY new-data lines are eligible to be one. A re-valued past row is the
-    # pipeline recomputing, not news about the league; spotlighting one as the
-    # headline while the summary below calls the week a recompute contradicts
-    # itself. Recompute lines still feed the story sentence — they just never
-    # take the headline. (With no season to judge by, provenance is unknowable,
-    # so every line stays eligible and the old behaviour holds — but the digest
-    # always supplies one.)
+    # but ONLY new-data lines are eligible to be one. New data is any of: new
+    # results, a market move (KTC), or the clock advancing a tenure — anything but
+    # a RECOMPUTE, which is the pipeline recomputing a settled value, not news
+    # about the league. Spotlighting a recompute as the headline while the summary
+    # below calls the week a recompute contradicts itself; recompute lines still
+    # feed that summary, they just never take the headline. (With no season to
+    # judge by, provenance is unknowable, so every line stays eligible and the old
+    # behaviour holds — but the digest always supplies one.)
     eligible = [c for c in ranked
-                if season is None or _provenance(c, season, in_season) == "live"]
+                if season is None or _provenance(c, season, in_season) != "recompute"]
     parts: List[str] = []
     words = 0
     named: set = set()
