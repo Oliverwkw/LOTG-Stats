@@ -18294,6 +18294,139 @@ def build_all(repo_root: Path) -> None:
     # by Team+Date upstream so the within-team row-index links remain
     # valid; pick_history uses its custom Year/Number ordering).
 
+    # ==================================================================
+    # Game-accurate week boundaries for tenure windowing, shared by the
+    # add_drops start-rate recompute (below) and the player_additions sheet, so
+    # the two ALWAYS agree. A fantasy week runs from just after the previous
+    # week's last game to its OWN last game (Sunday/Monday) — never the Thursday
+    # opener — so a player picked up on a game day is credited the starts they
+    # actually made that week. Both consumers read the FINAL player_week here, so
+    # a pickup-week start the mid-build pass could miss is now counted on both.
+    # ==================================================================
+    _week_end_date: Dict[Tuple[int, int], str] = {}
+    try:
+        if isinstance(games, pd.DataFrame) and not games.empty and \
+                {"season", "week", "gameday"}.issubset(games.columns):
+            _g = games.dropna(subset=["season", "week"]).copy()
+            _g["_gd"] = _g["gameday"].astype(str).str[:10]
+            for (_s, _w), _gg in _g.groupby(["season", "week"]):
+                _dates = [d for d in _gg["_gd"].tolist() if d[:4].isdigit()]
+                if _dates:
+                    _week_end_date[(int(_s), int(_w))] = max(_dates)
+    except Exception as e:
+        _log_exc(debug, "week_end_date_map", e)
+
+    def _last_game_date(_season: Any, _week: Any) -> Optional[str]:
+        """Date of the LAST game of (season, week) — the week's closing edge
+        (Sun/Mon), never its Thursday opener. Falls back to the Monday after the
+        Thursday anchor when the schedule row is missing (e.g. a future week)."""
+        _s = _to_int(_season, None); _w = _to_int(_week, None)
+        if _s is None or _w is None:
+            return None
+        _d = _week_end_date.get((_s, _w))
+        if _d:
+            return _d
+        try:
+            return (_week_thursday(_s, _w) + timedelta(days=4)).isoformat()
+        except Exception:
+            return None
+
+    # (team, player) -> its FINAL player_week weeks, each tagged with the date of
+    # that week's last game. Built once and shared.
+    _pw_ten: Dict[Tuple[str, str], List[Dict[str, Any]]] = defaultdict(list)
+    try:
+        if isinstance(pw, pd.DataFrame) and not pw.empty and \
+                {"Team", "Player", "Year", "Week", "Points", "Starter/Bench"}.issubset(pw.columns):
+            _hv = [c for c in ("Team", "Player", "Year", "Week", "Points",
+                               "Starter/Bench", "Position", "Injury?", "Bye?") if c in pw.columns]
+            for _row in pw[_hv].itertuples(index=False, name=None):
+                _r = dict(zip(_hv, _row))
+                _ed = _last_game_date(_r.get("Year"), _r.get("Week"))
+                if not _ed:
+                    continue
+                try:
+                    _pts = float(_r.get("Points")) if _r.get("Points") not in (None, "") else 0.0
+                except Exception:
+                    _pts = 0.0
+                _pw_ten[(str(_r.get("Team")), str(_r.get("Player")))].append({
+                    "ed": _ed,
+                    "starter": str(_r.get("Starter/Bench")).strip().lower() == "starter",
+                    "inj": str(_r.get("Injury?")).strip().lower() in ("true", "1", "yes"),
+                    "bye": str(_r.get("Bye?")).strip().lower() in ("true", "1", "yes"),
+                    "pts": _pts,
+                    "pos": str(_r.get("Position") or "").upper(),
+                })
+            for _k in _pw_ten:
+                _pw_ten[_k].sort(key=lambda e: e["ed"])
+    except Exception as e:
+        _log_exc(debug, "pw_tenure_index", e)
+
+    def _tenure_stats(_team: Any, _name: Any, _pickup: Any, _drop: Any) -> Dict[str, Any]:
+        """Tenure-limited aggregates from the FINAL player_week: the weeks whose
+        LAST GAME falls in [pickup, drop). Dates compared day-granular, which is
+        tz-robust (the boundary is Sun/Mon, never the same day as a Thu pickup)."""
+        out = {"weeks": 0, "starts": 0, "inj_weeks": 0, "inj_starts": 0,
+               "points_started": 0.0, "sum_pts": 0.0, "first_start_ed": None,
+               "weeks_before_start": None, "pos": ""}
+        _pk = str(_pickup)[:10] if _pickup else ""
+        if not _pk:
+            return out
+        _dr = str(_drop)[:10] if _drop else ""
+        _weeks = [e for e in _pw_ten.get((str(_team), str(_name)), [])
+                  if e["ed"] >= _pk and (not _dr or e["ed"] < _dr)]
+        out["weeks"] = len(_weeks)
+        _starts = [e for e in _weeks if e["starter"]]
+        out["starts"] = len(_starts)
+        out["inj_weeks"] = sum(1 for e in _weeks if not e["bye"] and not e["inj"])
+        out["inj_starts"] = sum(1 for e in _weeks if e["starter"] and not e["bye"] and not e["inj"])
+        out["points_started"] = sum(e["pts"] for e in _starts)
+        out["sum_pts"] = sum(e["pts"] for e in _weeks)
+        if _starts:
+            out["first_start_ed"] = _starts[0]["ed"]
+            out["weeks_before_start"] = sum(1 for e in _weeks if e["ed"] < _starts[0]["ed"])
+        out["pos"] = (_starts[0]["pos"] if _starts else (_weeks[0]["pos"] if _weeks else "")) or ""
+        return out
+
+    # Recompute add_drops start-rate + weeks-to-start + Player addition value
+    # from the FINAL player_week (the corrected boundaries), BEFORE O-Score so
+    # its percentiles read the fixed values. Only rows with an added player;
+    # pure drops keep their dropped-side Player addition value untouched.
+    try:
+        if isinstance(add_drops_df, pd.DataFrame) and not add_drops_df.empty and "Player Added" in add_drops_df.columns:
+            _CUFF_BONUS_RC = 5.0
+            _adj_col = "Difference of averages adjusted by position"
+            for _i in add_drops_df.index:
+                _add = add_drops_df.at[_i, "Player Added"]
+                if not (_add is not None and str(_add).strip()
+                        and str(_add).strip().lower() not in ("nan", "none", "n/a")):
+                    continue
+                _tm = str(add_drops_df.at[_i, "Team"]) if "Team" in add_drops_df.columns else ""
+                _pk = str(add_drops_df.at[_i, "Date"]) if "Date" in add_drops_df.columns else ""
+                _dr = str(add_drops_df.at[_i, "Date dropped/traded"]) if "Date dropped/traded" in add_drops_df.columns else ""
+                if _dr.strip().lower() in ("nan", "none", "n/a", ""):
+                    _dr = ""
+                _st = _tenure_stats(_tm, str(_add), _pk, _dr)
+                add_drops_df.at[_i, "Number of starts before next drop"] = int(_st["starts"])
+                _pct = _pinj = None
+                if _st["weeks"] > 0:
+                    _pct = round(_st["starts"] / _st["weeks"], 4)
+                    add_drops_df.at[_i, "% of starts made while rostered"] = _pct
+                if _st["inj_weeks"] > 0:
+                    _pinj = round(_st["inj_starts"] / _st["inj_weeks"], 4)
+                    add_drops_df.at[_i, "Injury adjusted % of starts made while rostered"] = _pinj
+                if _st["weeks_before_start"] is not None:
+                    add_drops_df.at[_i, "Weeks between pickup and start"] = int(_st["weeks_before_start"])
+                if _adj_col in add_drops_df.columns:
+                    _adj = pd.to_numeric(pd.Series([add_drops_df.at[_i, _adj_col]]), errors="coerce").iloc[0]
+                    if pd.notna(_adj):
+                        _cf = (str(add_drops_df.at[_i, "Cuff at time of pickup?"]).strip().lower()
+                               in ("true", "1", "yes")) if "Cuff at time of pickup?" in add_drops_df.columns else False
+                        _pv = float(_adj) * (1.0 + (_pct or 0.0)) * (1.0 + (_pinj or 0.0)) \
+                            + (_CUFF_BONUS_RC if _cf else 0.0)
+                        add_drops_df.at[_i, "Player addition value"] = round(_pv, 4)
+    except Exception as e:
+        _log_exc(debug, "add_drops_startrate_recompute", e)
+
     # ------------------------------------------------------------------
     # Item 4: "O-Score" on picks / transactions / trades.
     # For each sheet, take 4 stats, convert each to its PERCENTILE (0-100)
@@ -18884,47 +19017,32 @@ def build_all(repo_root: Path) -> None:
             if _fn and _fn not in _pa_name_to_pid:
                 _pa_name_to_pid[_fn] = str(_pid)
 
-        # player_week index by (team, name), each entry dated to its NFL week.
-        _pa_by_tp: Dict[Tuple[str, str], List[Dict[str, Any]]] = defaultdict(list)
+        # player_week index by player name (all teams), each week dated to its
+        # last game — for the pre-pickup 5-game form snapshot. Tenure-limited
+        # TEAM stats come from the shared _pw_ten via _tenure_stats.
         _pa_by_name: Dict[str, List[Dict[str, Any]]] = defaultdict(list)
-        if not pw.empty and {"Team", "Player", "Year", "Week", "Points", "Starter/Bench"}.issubset(pw.columns):
-            for _r in pw.itertuples(index=False):
-                _d = _r._asdict() if hasattr(_r, "_asdict") else None
-            # itertuples mangles column names with spaces/'?'; use plain iteration.
-            _cols = ["Team", "Player", "Year", "Week", "Points", "Starter/Bench", "Position", "Injury?", "Bye?"]
+        if not pw.empty and {"Player", "Year", "Week", "Points"}.issubset(pw.columns):
+            _cols = ["Player", "Year", "Week", "Points", "Injury?", "Bye?"]
             _have = [c for c in _cols if c in pw.columns]
-            _sub = pw[_have]
-            for _row in _sub.itertuples(index=False, name=None):
+            for _row in pw[_have].itertuples(index=False, name=None):
                 _rec = dict(zip(_have, _row))
-                try:
-                    _y = int(_rec.get("Year")); _w = int(_rec.get("Week"))
-                except Exception:
+                _ed = _last_game_date(_rec.get("Year"), _rec.get("Week"))
+                if not _ed:
                     continue
-                try:
-                    _wd = _week_thursday(_y, _w).isoformat()
-                except Exception:
-                    _wd = ""
                 try:
                     _pts = float(_rec.get("Points")) if _rec.get("Points") not in (None, "") else 0.0
                 except Exception:
                     _pts = 0.0
-                _entry = {
-                    "y": _y, "w": _w, "date": _wd, "pts": _pts,
-                    "starter": str(_rec.get("Starter/Bench")).strip().lower() == "starter",
-                    "pos": str(_rec.get("Position") or "").upper(),
+                _pa_by_name[str(_rec.get("Player"))].append({
+                    "date": _ed, "pts": _pts,
                     "inj": str(_rec.get("Injury?")).strip().lower() in ("true", "1", "yes"),
                     "bye": str(_rec.get("Bye?")).strip().lower() in ("true", "1", "yes"),
-                }
-                _tm = str(_rec.get("Team")); _nm = str(_rec.get("Player"))
-                _pa_by_tp[(_tm, _nm)].append(_entry)
-                _pa_by_name[_nm].append(_entry)
-        for _k in _pa_by_tp:
-            _pa_by_tp[_k].sort(key=lambda e: (e["y"], e["w"]))
+                })
         for _k in _pa_by_name:
-            _pa_by_name[_k].sort(key=lambda e: (e["y"], e["w"]))
+            _pa_by_name[_k].sort(key=lambda e: e["date"])
         # Latest week on record — the "as of" end for an OPEN tenure's day count.
-        _pa_latest_date = max((e["date"] for _lst in _pa_by_tp.values() for e in _lst
-                               if e["date"]), default=None)
+        _pa_latest_date = max((e["ed"] for _lst in _pw_ten.values() for e in _lst
+                               if e["ed"]), default=None)
 
         # Tanking per (team, season) from team_year.
         _pa_tank: Dict[Tuple[str, int], Any] = {}
@@ -19041,63 +19159,48 @@ def build_all(repo_root: Path) -> None:
             _cnt_drop_total[(_tm, _nm)] += 1
 
         def _pa_scoring(_team, _name, _pickup, _drop, _season, _pid, _pos):
-            """Tenure-limited scoring from player_week, [pickup, drop)."""
-            out = {"_n_ros": 0, "_first_start_date": None}
+            """Tenure-limited scoring, over the SAME game-accurate window the
+            add_drops recompute uses (_tenure_stats / _pw_ten), so the two sheets
+            agree row-for-row on starts and start-rate."""
+            out = {"_n_ros": 0, "_first_start_date": None, "_weeks_before_start": None}
             if not _pickup:
                 # No resolvable pickup date -> cannot window a tenure. Return
-                # empties rather than silently summing the player's WHOLE career
-                # on the team (which an open lower bound "" would otherwise do).
+                # empties rather than silently summing the player's WHOLE career.
                 return out
-            _pk = str(_pickup)[:10]
-            _dr = str(_drop)[:10] if _drop else ""
-            weeks = [e for e in _pa_by_tp.get((str(_team), str(_name)), [])
-                     if e["date"] and e["date"] >= _pk and (not _dr or e["date"] < _dr)]
-            n_ros = len(weeks)
-            starts = [e for e in weeks if e["starter"]]
-            inj_weeks = [e for e in weeks if not e["bye"] and not e["inj"]]
-            inj_starts = [e for e in inj_weeks if e["starter"]]
-            n_start = len(starts)
-            pos = (_pos or (starts[0]["pos"] if starts else (weeks[0]["pos"] if weeks else ""))) or ""
+            st = _tenure_stats(_team, _name, _pickup, _drop)
+            n_ros = st["weeks"]; n_start = st["starts"]
+            pos = (_pos or st["pos"]) or ""
             fac = _pos_factor(_season, pos) if pos else 1.0
-            out["Games played on team"] = len(inj_weeks)
+            out["Games played on team"] = st["inj_weeks"]
             out["Starts on team"] = n_start
             out["Number of starts before next drop"] = n_start
             out["% of starts made while rostered"] = round(n_start / n_ros, 4) if n_ros else None
             out["Injury adjusted % of starts made while rostered"] = (
-                round(len(inj_starts) / len(inj_weeks), 4) if inj_weeks else None)
-            avg_ppg = (sum(e["pts"] for e in weeks) / n_ros) if n_ros else None
+                round(st["inj_starts"] / st["inj_weeks"], 4) if st["inj_weeks"] else None)
+            avg_ppg = (st["sum_pts"] / n_ros) if n_ros else None
             out["Avg PPG on team"] = round(avg_ppg, 2) if avg_ppg is not None else None
             out["Avg PPG on team adjusted by position"] = (
                 round(avg_ppg * fac, 2) if avg_ppg is not None else None)
-            pts_added = sum(e["pts"] for e in starts)
+            pts_added = st["points_started"]
             out["Points added"] = round(pts_added, 2)
             out["Avg points added"] = round(pts_added / n_start, 2) if n_start else None
             avg_add_adj = (pts_added * fac / n_start) if n_start else None
             out["Avg points added adjusted by position"] = (
                 round(avg_add_adj, 2) if avg_add_adj is not None else None)
             # last 5 played games before pickup, any team
+            _pk = str(_pickup)[:10]
             before = [e for e in _pa_by_name.get(str(_name), [])
-                      if e["date"] and _pk and e["date"] < _pk and not e["bye"] and not e["inj"]]
+                      if e["date"] and e["date"] < _pk and not e["bye"] and not e["inj"]]
             last5 = before[-5:]
             out["PPG of 5 games before pickup"] = (
                 round(sum(e["pts"] for e in last5) / len(last5), 2) if last5 else None)
             pct = out["% of starts made while rostered"]
             out["Player addition value"] = (
                 round(avg_add_adj * (1 + (pct or 0.0)), 4) if avg_add_adj is not None else None)
-            # tenure in NFL weeks: distinct (year,week) buckets between pickup/drop
-            out["_first_start_date"] = starts[0]["date"] if starts else None
+            out["_first_start_date"] = st["first_start_ed"]
             out["_n_ros"] = n_ros
+            out["_weeks_before_start"] = st["weeks_before_start"]
             return out
-
-        def _pa_weeks_between(_team, _name, _pickup, _drop, first_start):
-            _pk = str(_pickup)[:10] if _pickup else ""
-            _dr = str(_drop)[:10] if _drop else ""
-            if not first_start:
-                return None
-            weeks = [e for e in _pa_by_tp.get((str(_team), str(_name)), [])
-                     if e["date"] and e["date"] >= _pk and e["date"] < first_start
-                     and (not _dr or e["date"] < _dr)]
-            return len(weeks)
 
         _pa_rows: List[Dict[str, Any]] = []
 
@@ -19157,8 +19260,7 @@ def build_all(repo_root: Path) -> None:
                 "KTC 2 years after pickup": _pa_ktc(pid, _pa_plus_years(pickup_dt, 2)) if pickup_dt else None,
                 "KTC 3 years after pickup": _pa_ktc(pid, _pa_plus_years(pickup_dt, 3)) if pickup_dt else None,
                 "KTC 4 years after pickup": _pa_ktc(pid, _pa_plus_years(pickup_dt, 4)) if pickup_dt else None,
-                "Weeks between pickup and start": _pa_weeks_between(
-                    team, name, pickup_dt, drop, sc.get("_first_start_date")),
+                "Weeks between pickup and start": sc.get("_weeks_before_start"),
                 "Link to next transaction": next_link,
             }
             _pa_rows.append(row)
