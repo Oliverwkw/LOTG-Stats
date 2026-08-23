@@ -9604,15 +9604,8 @@ def build_all(repo_root: Path) -> None:
                 _pv_date = max(trade_date, KTC_FLOOR)
                 pick_recv_total = 0.0
                 pick_recv_hits = 0
-                for _pi, plabel in enumerate(recv_picks):
+                for plabel in recv_picks:
                     v = asset_value_at(str(plabel), None, _pv_date, idx)
-                    if v is None and _pi < len(recv_pick_metas):
-                        # Pick slot unpriceable here (e.g. the 2020 startup
-                        # picks, before KTC's pre-2021 pick-slot history) -> value
-                        # it by the DRAFTED player's KTC, the same fallback the
-                        # KTC-difference columns use. Keeps the startup slot-swap's
-                        # 'Pick value received' from reading blank.
-                        v = _pick_drafted_value(recv_pick_metas[_pi], _pv_date)
                     if v is not None:
                         pick_recv_total += v
                         pick_recv_hits += 1
