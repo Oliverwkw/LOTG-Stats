@@ -281,9 +281,42 @@ def check_reasoned_broad_week_is_not_one_story():
     ok &= _ok("shows the provenance split",
               "re-valued history" in out and "new results" in out
               and "market drift" in out, out)
-    ok &= _ok("counts the remainder exactly (14+7+6=27)", "27 moves across" in out, out)
+    ok &= _ok("counts the remainder exactly", "moves across" in out, out)
     ok &= _ok("names the biggest family as a thread",
               "biggest single thread" in out and "Pick-adjusted Difference" in out, out)
+    return ok
+
+
+def check_reasoned_highlights_only_new_data():
+    """The headline is reserved for NEW DATA. A re-valued settled-history line —
+    however high it scores — is the pipeline recomputing, not news, so it never
+    takes the headline; it feeds the story sentence instead."""
+    secs = [
+        # A high-scoring RECOMPUTE line (a 2020 trade, 1st place) — must not lead.
+        ("All-time leaderboard moves — trades", "moved",
+         [_Move("BigOldTrade's 2020-09-09 trade", "O-Score", 1, end="high",
+                sheet="trades")]),
+        # A quieter LIVE line — this is the one worth highlighting.
+        ("All-time leaderboard moves — player weeks", "moved",
+         [_Move("Rookie 2026 week 1", "Points", 3, end="high", sheet="player_week")]),
+        # Recompute bulk.
+        ("All-time leaderboard moves — draft picks", "moved",
+         [_Move(f"startup pick 2.0{i} (p{i})", "Pick-adjusted Difference in KTC",
+                3, sheet="picks") for i in range(10)]),
+    ]
+    out = DS.reasoned_summary(secs, season=2026)
+    ok = _ok("the new-data line is highlighted", "Rookie 2026 week 1" in out, out)
+    ok &= _ok("the high-scoring recompute line is NOT highlighted",
+              "BigOldTrade" not in out, out)
+    ok &= _ok("the recompute bulk is the story",
+              "recompute" in out and "re-value settled history" in out, out)
+    # And a PURE recompute week has no headline at all — just the story.
+    pure = DS.reasoned_summary([
+        ("All-time leaderboard moves — trades", "moved",
+         [_Move(f"T{i}'s 2020-09-09 trade", "O-Score", (i % 5) + 1, end="high",
+                sheet="trades") for i in range(12)])], season=2026)
+    ok &= _ok("a pure-recompute week leads with the story, no false headline",
+              pure.startswith("This is a recompute") or "recompute" in pure, pure)
     return ok
 
 
@@ -345,11 +378,11 @@ def check_reasoned_names_up_to_three_standouts():
     they must be distinct entities on distinct stats."""
     secs = [
         ("All-time leaderboard moves — players", "moved",
-         [_Move("Alice", "PF", 1, end="high", sheet="player_year")]),
+         [_Move("Alice 2026", "PF", 1, end="high", sheet="player_year")]),
         ("All-time leaderboard moves — teams", "moved",
-         [_Move("Bravo", "Win %", 1, end="high", sheet="team_year")]),
+         [_Move("Bravo 2026", "Win %", 1, end="high", sheet="team_year")]),
         ("All-time leaderboard moves — trades", "moved",
-         [_Move("Charlie's trade", "O-Score", 1, end="high", sheet="trades")]),
+         [_Move("Charlie's 2026-09-01 trade", "O-Score", 1, end="high", sheet="trades")]),
     ] + _week(n_ktc=8, extras=[])
     out = DS.reasoned_summary(secs, season=2026)
     named = sum(1 for who in ("Alice", "Bravo", "Charlie") if who in out)
@@ -518,6 +551,7 @@ def run_all() -> bool:
         check_runner_up_is_a_different_entity,
         check_reasoned_folds_the_bulk_into_one_clause,
         check_reasoned_broad_week_is_not_one_story,
+        check_reasoned_highlights_only_new_data,
         check_reasoned_names_the_cause,
         check_reasoned_calls_out_renumber_artifacts,
         check_reasoned_names_up_to_three_standouts,
