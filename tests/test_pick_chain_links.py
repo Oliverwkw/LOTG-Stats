@@ -41,7 +41,7 @@ def _refs(v):
                     reason="no build present")
 def test_pick_chain_link_integrity():
     d = _exports_dir()
-    tx = _rows(d / "transactions.csv")
+    tx = _rows(d / "add_drops.csv")
     tr = _rows(d / "trades.csv")
     ph = _rows(d / "picks.csv")
     maxn = {"#": len(tx), "T#": len(tr), "PH#": len(ph)}
@@ -54,7 +54,7 @@ def test_pick_chain_link_integrity():
 
     # (1) every link cell in-range
     link_cols = {
-        "transactions": ["Link to next transaction (added player)",
+        "add_drops": ["Link to next transaction (added player)",
                          "Link to previous transaction (added player)",
                          "Link to next transaction (dropped player)",
                          "Link to previous transaction (dropped player)"],
@@ -62,7 +62,7 @@ def test_pick_chain_link_integrity():
                    "Link to previous transaction per asset"],
         "picks": ["Link to next transaction", "Link to previous transaction"],
     }
-    for sheet, rows in (("transactions", tx), ("trades", tr), ("picks", ph)):
+    for sheet, rows in (("add_drops", tx), ("trades", tr), ("picks", ph)):
         for i, row in enumerate(rows):
             for c in link_cols[sheet]:
                 for ref in _refs(row.get(c, "")):

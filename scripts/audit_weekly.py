@@ -102,7 +102,7 @@ SHEETS = [
     "player_all_time", "team_all_time", "league_all_time",
     "player_year", "team_year", "league_year",
     "player_week", "team_week", "league_week",
-    "picks", "trades", "transactions",
+    "picks", "trades", "add_drops", "player_additions",
 ]
 
 # Sheets whose rows carry a per-row season. This is now only a LABEL — it names
@@ -113,7 +113,8 @@ SHEETS = [
 SEASON_COL = {
     "player_year": "Year", "team_year": "Year", "league_year": "Year",
     "player_week": "Year", "team_week": "Year", "league_week": "Year",
-    "picks": "Year", "trades": "Season", "transactions": "Season",
+    "picks": "Year", "trades": "Season", "add_drops": "Season",
+    "player_additions": "Season",
 }
 
 # A few human-readable identifying columns per sheet, for the diff report only.
@@ -126,7 +127,8 @@ ID_COLS = {
     "league_week": ["Year", "Week"],
     "picks": ["Year", "Number", "Player Picked"],
     "trades": ["Team", "Team's traded with 1", "Date"],
-    "transactions": ["Team", "Player Added", "Player Dropped", "Date"],
+    "add_drops": ["Team", "Player Added", "Player Dropped", "Date"],
+    "player_additions": ["Player", "Team", "Addition type", "Date"],
 }
 
 _MAX_REPORT = 25       # cap per-sheet diff lines so the report stays readable
@@ -201,7 +203,7 @@ _PLAYER_LOG_COLUMNS = (
 #     row it passes.
 #   * Trade impact score — a weighted sum of five Z-SCORED signals, standardised
 #     league-wide, so the mean and SD it subtracts move with any input.
-#   * Drafting / Trading / Transaction skill — shrunk means of the O-Scores of a
+#   * Drafting / Trading / Add/Drop skill — shrunk means of the O-Scores of a
 #     team's picks / trades / transactions, so they inherit the fan-out.
 # Like the all-time pool this is unbounded by design: it is counted as "pool"
 # fan-out, never as direct attribution, so it can't inflate the volume check in
@@ -210,7 +212,7 @@ _PLAYER_LOG_COLUMNS = (
 # whose O-Score moved alongside an input that upstream cannot explain is still
 # flagged on that input.
 _SHEET_RANK_COLUMNS = ("o-score", "trade impact score",
-                       "drafting skill", "trading skill", "transaction skill")
+                       "drafting skill", "trading skill", "add/drop skill")
 
 # TEAM ROSTER AGGREGATE. Summed over the players a team actually rostered, so
 # they follow a revision to any of those players rather than to the team:
@@ -239,7 +241,8 @@ PLAYER_NAME_COLS = {
     "player_week": ["Player"], "player_year": ["Player"],
     "player_all_time": ["Player"],
     "picks": ["Player Picked"],
-    "transactions": ["Player Added", "Player Dropped"],
+    "add_drops": ["Player Added", "Player Dropped"],
+    "player_additions": ["Player"],
     "trades": ["Assets received", "Assets sent"],
 }
 
@@ -439,7 +442,7 @@ class NflverseAttribution:
             return yr in self.league_years
         if sheet == "picks":
             return self._mentions(str(kv.get("Player Picked") or ""), yr)
-        if sheet == "transactions":
+        if sheet == "add_drops":
             return self._mentions(
                 f"{kv.get('Player Added') or ''};{kv.get('Player Dropped') or ''}", yr)
         if sheet == "trades":
@@ -746,7 +749,7 @@ def strip_wall_clock(changed: List[tuple], step: Optional[float]) -> Tuple[List[
 # nothing — is a real repointing bug and is flagged, which is exactly what a
 # name-based exemption on "link to" could never see.
 # A cell holds one pointer ("#48") or a per-asset list ("T#7; #54; PH#64").
-_LINK_TARGETS = {"T": "trades", "": "transactions", "PH": "picks"}
+_LINK_TARGETS = {"T": "trades", "": "add_drops", "PH": "picks"}
 _LINK_REF = re.compile(r"^\s*([A-Za-z]*)#(\d+)\s*$")
 
 
@@ -890,9 +893,11 @@ def code_changes_since(commit: Optional[str]) -> List[Tuple[str, str]]:
 # none of it is suppressed and an O-Score that moves on its own is still a
 # finding.
 _EVENT_COLUMNS = (
-    "number of trades", "total trades", "offseason trades", "number of transactions",
+    "number of trades", "total trades", "offseason trades", "number of add/drops",
+    "total transactions", "number of waiver adds", "number of free agency adds",
+    "number of pure drops",
     "number of teams", "last team", "drafting skill", "trading skill",
-    "transaction skill", "o-score", "trade impact score", "future draft capital",
+    "add/drop skill", "o-score", "trade impact score", "future draft capital",
     "assets retained now", "assets traded away", "assets dropped to fa",
     "return from trades", "additional assets traded away in those deals",
     "date dropped/traded",
@@ -902,7 +907,8 @@ _EVENT_COLUMNS = (
 _EVENT_PLAYER_COLS = {
     "picks": ("Player Picked",),
     "trades": ("Assets received", "Assets sent"),
-    "transactions": ("Player Added", "Player Dropped"),
+    "add_drops": ("Player Added", "Player Dropped"),
+    "player_additions": ("Player",),
 }
 
 

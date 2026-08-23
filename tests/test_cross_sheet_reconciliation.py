@@ -58,7 +58,7 @@ def reconcile(frames) -> list:
     cmp_group(py, "Player", "Points", pa, "Player", 0.05, "player_all Points = Σ player_year")
     cmp_group(ty, "Team", "Points", ta, "Team", 0.05, "team_all Points = Σ team_year")
     cmp_group(py, "Player", "Times as Player of the week?", pa, "Player", 0.5, "player_all Times PotW = Σ player_year")
-    cmp_group(ty, "Team", "Number of transactions", ta, "Team", 0.5, "team_all #tx = Σ team_year")
+    cmp_group(ty, "Team", "Number of Add/Drops", ta, "Team", 0.5, "team_all #add/drops = Σ team_year")
 
     # player_year Points = Σ player_week Points
     g = pw.groupby(["Player", "Year"])["Points"].apply(lambda s: _num(s).sum()).reset_index()
@@ -118,7 +118,7 @@ def reconcile(frames) -> list:
     # is padded with a row for every (player, season) that has real transaction
     # activity but no weekly appearance — offseason-only moves (bucketed under the
     # prior fantasy year) and initial-roster vets dropped with no recorded 'add'.
-    cmp_group(py, "Player", "Number of transactions", pa, "Player", 0.5,
+    cmp_group(py, "Player", "Number of Add/Drops", pa, "Player", 0.5,
               "player_all #tx = Σ player_year", known=False)
     return out
 

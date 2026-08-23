@@ -657,7 +657,7 @@ def timeline(player: Optional[str] = None, team: Optional[str] = None,
                                     if str(r.get("Original Team", "")).strip()
                                     and r.get("Original Team") != r["Team"] else "")})
 
-    txns = Q.load_sheet("transactions")
+    txns = Q.load_sheet("add_drops")
     for _, r in txns.iterrows():
         year = Q.to_number(r["Season"])
         if season and year != season:
@@ -673,7 +673,7 @@ def timeline(player: Optional[str] = None, team: Optional[str] = None,
             if faab:
                 bits.append(f"${faab:g} FAAB")
             events.append({"date": str(r["Date"]), "season": int(year) if year else None,
-                           "event": str(r["type of transaction (waiver/free agency)"]) or "add/drop",
+                           "event": str(r["type of add/drop (waiver/free agency)"]) or "add/drop",
                            "team": str(r["Team"]), "detail": " ".join(bits)})
 
     trades = Q.load_sheet("trades")
@@ -943,7 +943,7 @@ def ownership_ledger(player: Optional[str] = None, season: Optional[int] = None,
                          "_order": None})
 
     if "add" in kinds:
-        for _, r in Q.load_sheet("transactions").iterrows():
+        for _, r in Q.load_sheet("add_drops").iterrows():
             name = str(r["Player Added"]).strip()
             if is_placeholder(name):
                 continue
@@ -1334,7 +1334,7 @@ def spend_by_position(team: Optional[str] = None,
     """
     picks = Q.rows("picks", *( [f"Year={season}"] if season else [] ))
     picks = with_position(picks, "Player Picked", "Year")
-    txns = Q.rows("transactions", *( [f"Season={season}"] if season else [] ))
+    txns = Q.rows("add_drops", *( [f"Season={season}"] if season else [] ))
     txns = with_position(txns, "Player Added", "Season")
     starts = lineups(season=season, starters_only=True)
 
@@ -1525,7 +1525,7 @@ def check_positions_are_placed(min_rate: float = 0.99) -> List[str]:
     """
     problems: List[str] = []
     for sheet, name_col, season_col in (("picks", "Player Picked", "Year"),
-                                        ("transactions", "Player Added", "Season")):
+                                        ("add_drops", "Player Added", "Season")):
         stats = placement_report(sheet, name_col, season_col)
         if stats["rate"] < min_rate:
             problems.append(f"{sheet}: only {stats['rate']:.1%} of named players got a "

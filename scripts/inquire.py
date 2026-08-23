@@ -331,7 +331,7 @@ def cmd_player(args) -> None:
         print(f"\n--- {section} ---")
         cols = {
             "by_year": ["Player", "Year", "Top Team", "Points", "Avg points"],
-            "added": ["Team", "Player Added", "type of transaction (waiver/free agency)", "Date", "Faab"],
+            "added": ["Team", "Player Added", "type of add/drop (waiver/free agency)", "Date", "Faab"],
             "dropped": ["Team", "Player Dropped", "Date", "Season"],
             "drafted": ["Year", "Number", "Player Picked", "Team"],
         }.get(section)

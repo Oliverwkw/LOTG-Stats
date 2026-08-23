@@ -111,7 +111,8 @@ SHEETS: Tuple[str, ...] = (
     "league_week",
     "league_year",
     "league_all_time",
-    "transactions",
+    "add_drops",
+    "player_additions",
     "trades",
     "picks",
     "formulas",
@@ -129,7 +130,8 @@ ENTITY_COL: Dict[str, str] = {
     "league_week": "Week Name",
     "league_year": "Year",
     "league_all_time": "",
-    "transactions": "Player Added",
+    "add_drops": "Player Added",
+    "player_additions": "Player",
     "trades": "Team",
     "picks": "Player Picked",
     "formulas": "Stat",
@@ -140,8 +142,12 @@ _ALIASES = {
     "pat": "player_all_time", "tw": "team_week", "ty": "team_year",
     "ta": "team_all_time", "tat": "team_all_time", "lw": "league_week",
     "ly": "league_year", "la": "league_all_time", "lat": "league_all_time",
-    "txn": "transactions", "trans": "transactions", "trade": "trades",
+    "txn": "add_drops", "trans": "add_drops", "trade": "trades",
+    "transactions": "add_drops", "transaction": "add_drops",
+    "add_drop": "add_drops", "adddrop": "add_drops", "adddrops": "add_drops",
     "pick": "picks", "draft": "picks",
+    "additions": "player_additions", "player_additions": "player_additions",
+    "adds": "player_additions", "gains": "player_additions",
 }
 
 
@@ -1083,8 +1089,8 @@ def player_dossier(name: str) -> Dict[str, Any]:
         "all_time": rows("player_all_time", f"Player~{matcher}"),
         "by_year": rows("player_year", f"Player~{matcher}"),
         "by_week": rows("player_week", f"Player~{matcher}"),
-        "added": rows("transactions", f"Player Added~{matcher}"),
-        "dropped": rows("transactions", f"Player Dropped~{matcher}"),
+        "added": rows("add_drops", f"Player Added~{matcher}"),
+        "dropped": rows("add_drops", f"Player Dropped~{matcher}"),
         "drafted": rows("picks", f"Player Picked~{matcher}"),
     }
 
@@ -1098,7 +1104,7 @@ def team_dossier(team: str) -> Dict[str, Any]:
         "by_year": rows("team_year", f"Team~{matcher}"),
         "by_week": rows("team_week", f"Team~{matcher}"),
         "trades": rows("trades", f"Team~{matcher}"),
-        "transactions": rows("transactions", f"Team~{matcher}"),
+        "transactions": rows("add_drops", f"Team~{matcher}"),
     }
 
 

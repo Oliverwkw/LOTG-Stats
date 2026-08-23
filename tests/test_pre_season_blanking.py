@@ -29,11 +29,11 @@ def _team_year_frame() -> pd.DataFrame:
         [
             {"Team": "AceMatthew", "Year": 2024, "Player average age": 26.5,
              "Points": 1800.0, "Number of QB started": 2, "Number of donuts": 0,
-             "Trading skill": 55.0, "Number of transactions": 30,
+             "Trading skill": 55.0, "Number of Add/Drops": 30,
              "Offseason trades": 1.0, "Draft Value": 4.2},
             {"Team": "AceMatthew", "Year": 2026, "Player average age": 0.0,
              "Points": float("nan"), "Number of QB started": 0, "Number of donuts": 0,
-             "Trading skill": 44.1, "Number of transactions": 4,
+             "Trading skill": 44.1, "Number of Add/Drops": 4,
              "Offseason trades": 2.0, "Draft Value": 1.22},
         ]
     )
@@ -50,7 +50,7 @@ def test_blanks_not_started_game_stats():
     assert row26["Points"] == "N/A"
     # Genuine offseason facts survive.
     assert row26["Trading skill"] == 44.1
-    assert row26["Number of transactions"] == 4
+    assert row26["Number of Add/Drops"] == 4
     assert row26["Offseason trades"] == 2.0
     assert row26["Draft Value"] == 1.22
     assert row26["Team"] == "AceMatthew"
@@ -73,7 +73,7 @@ def test_player_year_keep_set():
             {"Player": "Audric Estime", "Year": 2026, "Age": 23.15,
              "Points (full season)": 0.0, "Times as Player of the week?": 0,
              "Change in points from previous season": -48.1,
-             "Number of transactions": 2, "Rookie?": False, "Top Team": "AceMatthew"},
+             "Number of Add/Drops": 2, "Rookie?": False, "Top Team": "AceMatthew"},
         ]
     )
     out = _blank_pre_season_year_stats(df, "Player-year", {2024, 2025})
@@ -84,7 +84,7 @@ def test_player_year_keep_set():
     assert r["Change in points from previous season"] == "N/A"
     # Offseason identity / activity survives.
     assert r["Age"] == 23.15
-    assert r["Number of transactions"] == 2
+    assert r["Number of Add/Drops"] == 2
     assert bool(r["Rookie?"]) is False
     assert r["Top Team"] == "AceMatthew"
 

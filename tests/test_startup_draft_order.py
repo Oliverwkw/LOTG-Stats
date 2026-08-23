@@ -395,12 +395,12 @@ def test_2020_week_one_rosters_reconcile_to_the_draft_and_the_ledger():
     completely accounted for: 152 picks, plus the adds and minus the drops the
     transaction log records through week 1, must reproduce the rosters exactly.
     """
-    if not _HAVE_PICKS or not (_EXPORTS / "transactions.csv").exists():
+    if not _HAVE_PICKS or not (_EXPORTS / "add_drops.csv").exists():
         return _skip("no exports/")
     import csv
     drafted = _startup_by_column("Team")
     adds, drops = {}, {}
-    with (_EXPORTS / "transactions.csv").open(newline="", encoding="utf-8") as fh:
+    with (_EXPORTS / "add_drops.csv").open(newline="", encoding="utf-8") as fh:
         for r in csv.DictReader(fh):
             # NFL week 1 2020 ran Sept 10-14; allow the Tuesday after.
             if str(r["Season"]) != "2020" or str(r["Date"])[:10] > "2020-09-15":

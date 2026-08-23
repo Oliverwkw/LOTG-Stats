@@ -98,6 +98,16 @@ def apply_position_pins(df: pd.DataFrame) -> pd.DataFrame:
     pos_cols = [c for c in _POSITION_COLS if c in df.columns]
     if not pos_cols:
         return df
+    # A position column that arrived ALL-EMPTY — e.g. a preseason weekly-roster
+    # file published before the season starts, where nflverse hasn't populated
+    # positions yet — is typed float64 by the CSV reader. Writing a string label
+    # ('WR') into a float64 column raises TypeError under pandas' strict dtype
+    # assignment, which aborted the whole 2026 weekly-roster load. Cast the
+    # columns we're about to overwrite to object first (a no-op for a normal
+    # string position column).
+    for col in pos_cols:
+        if df[col].dtype != object:
+            df[col] = df[col].astype(object)
     ids = df[id_col].astype(str)
     for pid, pos in FANTASY_POSITION_PINS.items():
         hit = ids == pid

@@ -541,7 +541,7 @@ def check_sheet_rank_columns_ride_the_pool(tmp):
     cur_d, base_d = tmp / "oc", tmp / "ob"
     for d, tx in ((cur_d, cur), (base_d, base)):
         d.mkdir(parents=True, exist_ok=True)
-        tx.to_csv(d / "transactions.csv", index=False)
+        tx.to_csv(d / "add_drops.csv", index=False)
         pw.to_csv(d / "player_week.csv", index=False)
     c = {n: A._read(cur_d, n) for n in A.SHEETS}
     b = {n: A._read(base_d, n) for n in A.SHEETS}

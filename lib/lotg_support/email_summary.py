@@ -144,7 +144,7 @@ _PROMINENT = {
     "points against", "points lost", "differential", "avg differential",
     "win %", "all-play win %", "faab", "total faab bid", "record",
     "trade impact score", "player addition value", "trade addition value",
-    "number of trades", "number of transactions",
+    "number of trades", "number of add/drops", "total transactions",
 }
 # Deliberately NOT prominent: "KTC". It is real and rankable, but it is also the
 # column this pipeline recomputes most often, so a KTC week is the norm rather
