@@ -26,7 +26,7 @@ from __future__ import annotations
 _VOLATILE_SUBSTRINGS = (
     "link to",
     "o-score",
-    "skill",                # Drafting / Trading / Transaction skill
+    "skill",                # Drafting / Trading / Add/Drop skill
     "luck",                 # Luck / Avg yearly luck — league-relative each season
     "length of tenure",
     "trade impact score",

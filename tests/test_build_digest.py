@@ -61,7 +61,7 @@ def check_movement_makes_nonempty():
     """Drop an event key from the snapshot so that event re-fires as 'new' — proves
     movement yields a non-empty digest (the same mechanism as a real weekly diff)."""
     exports = _ROOT / "exports"
-    if not (exports / "transactions.csv").exists():
+    if not (exports / "add_drops.csv").exists():
         print("  [SKIP] no real exports present")
         return True
     with tempfile.TemporaryDirectory() as d:
@@ -108,7 +108,7 @@ def check_legacy_snapshot_rebaselines():
     current season only). The first run after the change must re-baseline in
     silence — not mail the league every place on a ~1000-entry board."""
     exports = _ROOT / "exports"
-    if not (exports / "transactions.csv").exists():
+    if not (exports / "add_drops.csv").exists():
         print("  [SKIP] no real exports present")
         return True
     with tempfile.TemporaryDirectory() as d:

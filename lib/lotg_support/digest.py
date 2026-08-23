@@ -71,7 +71,7 @@ LEAGUE_WINDOW_CAP = 5
 # league_all_time "major" cumulative totals that earn a milestone note when they
 # cross a round number. (No leaderboard for a single-row sheet.)
 MAJOR_LEAGUE_STATS = (
-    "PF", "Number of transactions", "Total trades", "Amount of FAAB spent",
+    "PF", "Number of Add/Drops", "Total transactions", "Total trades", "Amount of FAAB spent",
 )
 
 # Sentinels the build writes for "no value" — treated as missing for ranking.
@@ -253,6 +253,58 @@ def rank_column(df: pd.DataFrame, entity_col: str, column: str) -> List[dict]:
     return rows
 
 
+def competition_ranks(values: Sequence[float], end: str) -> Dict[float, int]:
+    """value -> competition ("1224") rank from the watched `end`.
+
+    Tied values share the smallest rank they'd occupy, and the next distinct
+    value's rank skips by the count of tied values above it — a two-way tie for
+    1st makes the next value 3rd, not 2nd. This is what lets tied rows take up
+    the requisite number of the top-N slots."""
+    counts = _Counter(values)
+    ordered = sorted(counts, reverse=(end == "high"))
+    ranks: Dict[float, int] = {}
+    pos = 1
+    for v in ordered:
+        ranks[v] = pos
+        pos += counts[v]
+    return ranks
+
+
+def _name_list(names: Sequence[str]) -> str:
+    """"X" / "X and Y" / "X, Y and Z" — the way a person would read a short list."""
+    names = list(names)
+    if not names:
+        return ""
+    if len(names) == 1:
+        return names[0]
+    if len(names) == 2:
+        return f"{names[0]} and {names[1]}"
+    return f"{', '.join(names[:-1])} and {names[-1]}"
+
+
+# The largest tie a "joins a tie" line will report. Joining a tie bigger than
+# this (6+ holders including the mover) is not worth a line — the value is too
+# common to be news — so it is suppressed entirely (Change 4).
+_MAX_JOIN_TIE = 5
+
+
+def _crossing_detail(joined: bool, others: Sequence[str], passed: Sequence[str],
+                     place: str, column: str, value: Optional[float]) -> str:
+    """Shared phrasing for an all-time / event-board move.
+
+    joined:  the mover ARRIVED at a value others already hold (a tie), rather
+             than displacing anyone. Two-way -> name the one other holder;
+             three-to-five-way -> just "joins a tie for".
+    passed:  the entities the mover overtook (one, or several when it leapt a
+             whole tie), named in full."""
+    val = f" ({_fmt(value)})" if value is not None else ""
+    if joined:
+        if len(others) == 1:
+            return f"joins a tie with {others[0]} for {place} {column}{val}"
+        return f"joins a tie for {place} {column}{val}"
+    return f"passes {_name_list(passed)} for {place} {column}{val}"
+
+
 def _rankings_for(df: pd.DataFrame, entity_col: str,
                   columns: Sequence[str]) -> Dict[str, List[dict]]:
     out: Dict[str, List[dict]] = {}
@@ -331,23 +383,23 @@ class Crossing:
     section: str        # "players" | "teams"
     column: str
     end: str            # "high" | "low"
-    rank: int           # position from the watched end (1-indexed)
+    rank: int           # competition rank from the watched end (1-indexed)
     mover: str
-    passed: str         # who was overtaken — or, when `tied`, who is now level
     value: float
-    # Arriving at a place someone already holds is not overtaking them, and
-    # saying "passes" there is simply false: both entities hold the place now.
-    # A tie is also the more interesting event of the two — a record equalled
-    # reads differently from a record broken — so it is phrased, not glossed.
-    tied: bool = False
+    # Arriving at a value someone already holds is JOINING a tie, not overtaking
+    # anyone — "passes X" there says the opposite of what happened. A join names
+    # the co-holder(s); an overtake names everyone the mover leapt (which can be
+    # a whole tie at once). See _crossing_detail.
+    joined: bool = False
+    others: tuple = ()          # co-holders at the mover's value, when joined
+    passed: tuple = ()          # entities overtaken, when not joined
 
     def group(self) -> str:
         return self.mover
 
     def detail(self) -> str:
-        verb = "ties" if self.tied else "passes"
-        return (f"{verb} {self.passed} for {_place(self.rank, self.end)} "
-                f"{self.column} ({_fmt(self.value)})")
+        return _crossing_detail(self.joined, self.others, self.passed,
+                                _place(self.rank, self.end), self.column, self.value)
 
     def sentence(self) -> str:
         # No "all-time": the section header says it, and EventCrossing — the same
@@ -356,58 +408,61 @@ class Crossing:
         return f"{self.mover} {self.detail()}."
 
 
-def _rank_map(entries: Sequence[dict]) -> Dict[str, int]:
-    return {e["entity"]: i + 1 for i, e in enumerate(entries)}
-
-
 def _column_crossings(section: str, column: str,
                       prev: Sequence[dict], curr: Sequence[dict],
                       ends: Sequence[str], window: Optional[int],
                       cap_half: bool) -> List[Crossing]:
     """Crossings within the watched end(s) of one column.
 
+    Ranks are COMPETITION ranks over values (Change 4): a two-way tie for 1st
+    makes the next distinct value 3rd, and tied rows take up the requisite number
+    of the top-N slots. A mover that arrives at a value others already hold JOINS
+    that tie (phrased as a join, suppressed entirely once the tie exceeds five);
+    a mover that lands alone overtakes everyone that was ahead of it and is now
+    behind — a whole tie at once, named in full.
+
     `window=None` watches the whole board (used for the 8-team league, "any
     movement in the 8"). When `cap_half` is set the window is capped at half the
-    board so the top and bottom ends never overlap — otherwise a mid-table swap
-    on a small board would be reported at BOTH ends (riser "Nth-highest" AND
-    faller "Mth-lowest"). On the huge player board the cap never binds.
+    board so the top and bottom ends never overlap.
     """
     out: List[Crossing] = []
-    prev_rank = _rank_map(prev)
+    prev_val = {e["entity"]: e["value"] for e in prev}
+    curr_val = {e["entity"]: e["value"] for e in curr}
     n = len(curr)
     window = n if window is None else window
     if cap_half:
         window = min(window, max(1, n // 2))
     for end in ends:
-        slots = range(0, min(window, n)) if end == "high" \
-            else range(max(0, n - window), n)
-        for idx in slots:
-            mover = curr[idx]["entity"]
-            if mover not in prev_rank:
+        prev_rank = competition_ranks([e["value"] for e in prev], end)
+        curr_rank = competition_ranks([e["value"] for e in curr], end)
+        for mover, v in curr_val.items():
+            if mover not in prev_val:
                 continue
-            new_rank = idx + 1
-            old_rank = prev_rank[mover]
-            improved = (new_rank < old_rank) if end == "high" else (new_rank > old_rank)
-            if not improved:
+            new_rank = curr_rank[v]
+            if new_rank > window:
                 continue
-            neighbor_idx = idx + 1 if end == "high" else idx - 1
-            if not (0 <= neighbor_idx < n):
+            old_rank = prev_rank.get(prev_val[mover])
+            if old_rank is None or new_rank >= old_rank:
+                continue  # not improved toward this end
+            others = [x for x, xv in curr_val.items()
+                      if x != mover and xv == v]
+            if others:
+                # Joined a tie. Suppress once it exceeds five holders total.
+                if len(others) >= _MAX_JOIN_TIE:
+                    continue
+                out.append(Crossing(section, column, end, new_rank, mover, v,
+                                    joined=True, others=tuple(sorted(others))))
                 continue
-            passed = curr[neighbor_idx]["entity"]
-            passed_old = prev_rank.get(passed)
-            if passed_old is None:
+            # Landed alone: everyone that was ahead of the mover and is now behind
+            # it got overtaken (a whole tie counts as several).
+            passed = [x for x in curr_val
+                      if x != mover and x in prev_val
+                      and prev_rank.get(prev_val[x], n + 1) < old_rank
+                      and curr_rank[curr_val[x]] > new_rank]
+            if not passed:
                 continue
-            flipped = (passed_old < old_rank) if end == "high" else (passed_old > old_rank)
-            if not flipped:
-                continue
-            display_rank = new_rank if end == "high" else (n - idx)
-            # These boards rank by position, so a tie shows up as two adjacent
-            # entries with the SAME value, ordered by name. Compare the values
-            # exactly: 41.34 and 41.36 both render as "41.3" but are not a tie,
-            # and calling them one would put a false claim in the email.
-            tied = curr[idx]["value"] == curr[neighbor_idx]["value"]
-            out.append(Crossing(section, column, end, display_rank,
-                                mover, passed, curr[idx]["value"], tied))
+            out.append(Crossing(section, column, end, new_rank, mover, v,
+                                joined=False, passed=tuple(sorted(passed))))
     return out
 
 
@@ -792,8 +847,10 @@ def _highlights_for_frame(section: str, wk_df: pd.DataFrame, entity_col: str,
         # value shared by more than _MAX_HIGHLIGHT_TIES rows (that's how booleans
         # and heavily-tied cumulative extremes fall out — per the >5-tied rule).
         counts = _Counter(all_vals)
-        high_rank = {v: i + 1 for i, v in enumerate(sorted(counts, reverse=True))}
-        low_rank = {v: i + 1 for i, v in enumerate(sorted(counts))}
+        # Competition ("1224") ranks so tied weeks take up the requisite slots:
+        # a two-way tie for the record makes the next value the 3rd-best ever.
+        high_rank = competition_ranks(all_vals, "high")
+        low_rank = competition_ranks(all_vals, "low")
         for _, r in this_week.iterrows():
             v = _to_float(r[col])
             # `v not in counts` covers the losing half of a mirrored column: the
@@ -854,7 +911,7 @@ def weekly_highlights(player_week: pd.DataFrame, team_week: pd.DataFrame,
 
 @dataclass
 class EventHighlight:
-    sheet: str          # "picks" | "trades" | "transactions"
+    sheet: str          # "picks" | "trades" | "add_drops"
     label: str          # human name of the event (e.g. "2025 pick 1.01 (…)")
     column: str
     end: str            # "high" | "low"
@@ -923,7 +980,7 @@ def _board_label(sheet: str, row) -> str:
         got = _asset_summary(g("Assets received"))
         head = f"{g('Team')}'s {day('Date')} trade"
         return f"{head} for {got}" if got else head
-    if sheet == "transactions":
+    if sheet == "add_drops":
         added, dropped = g("Player Added"), g("Player Dropped")
         # The date disambiguates: one team can pick the same player up twice, and
         # two board lines reading "LWebs53's move for Jeff Wilson" are unreadable.
@@ -931,6 +988,10 @@ def _board_label(sheet: str, row) -> str:
         if added:
             return f"{head} move for {added}".strip()
         return f"{head} drop of {dropped}".strip() if dropped else f"{head} move"
+    if sheet == "player_additions":
+        # "<Team>'s <date> <Waiver|Trade|Draft…> pickup of <Player>"
+        kind = (g("Addition type") or "").lower() or "pickup"
+        return f"{g('Team')}'s {day('Date')} {kind} of {g('Player')}".strip()
     return sheet
 
 
@@ -971,9 +1032,12 @@ _BOARD_SHEETS = {
                      "title": "draft picks"},
     "trades":       {"entity": "Season", "ids": ("Team", "Date", "Team's traded with 1"),
                      "title": "trades"},
-    "transactions": {"entity": "Season",
+    "add_drops": {"entity": "Season",
                      "ids": ("Team", "Date", "Player Added", "Player Dropped"),
-                     "title": "transactions"},
+                     "title": "add/drops"},
+    "player_additions": {"entity": "Player",
+                     "ids": ("Player", "Team", "Date", "Addition type"),
+                     "title": "player additions"},
 }
 
 
@@ -982,9 +1046,11 @@ def board_highlights(df: pd.DataFrame, sheet: str, window: int = WINDOW,
     """The top/bottom-`window` rows of every numeric column on one sheet, ranked
     against every row of that sheet ever (mirrored columns: positive side only).
 
-    Ranks run over DISTINCT values, so ties share a place. A value shared by more
-    than `max_ties` rows is not a record and is left off the board — it still
-    occupies its rank, so the places below it keep their numbering."""
+    Ranks are COMPETITION ranks over values (Change 4): tied rows take up the
+    requisite number of the top-N slots, so a two-way tie for 1st makes the next
+    value 3rd. A value shared by more than `max_ties` rows is not a record and is
+    left off the board — but it still occupies its slots, so the places below it
+    keep their numbering."""
     cfg = _BOARD_SHEETS.get(sheet)
     if cfg is None or df is None or df.empty:
         return []
@@ -995,16 +1061,18 @@ def board_highlights(df: pd.DataFrame, sheet: str, window: int = WINDOW,
         if len(s) < window:
             continue
         counts = s.value_counts()
-        desc = sorted(counts.index, reverse=True)
+        vals = s.tolist()
+        hi = competition_ranks(vals, "high")
+        lo = competition_ranks(vals, "low")
         # value -> (end, rank); the high end wins when a value qualifies at both
         # (a short board where the top and bottom five overlap).
         wanted: Dict[float, tuple] = {}
-        for i, v in enumerate(desc[:window]):
-            if counts[v] <= max_ties:
-                wanted[v] = ("high", i + 1)
-        for i, v in enumerate(reversed(desc[-window:])):
-            if v not in wanted and counts[v] <= max_ties:
-                wanted[v] = ("low", i + 1)
+        for v, r in hi.items():
+            if r <= window and counts[v] <= max_ties:
+                wanted[v] = ("high", r)
+        for v, r in lo.items():
+            if v not in wanted and r <= window and counts[v] <= max_ties:
+                wanted[v] = ("low", r)
         if not wanted:
             continue
         for idx, value in s[s.isin(wanted)].items():
@@ -1065,34 +1133,30 @@ def two_sided_columns(df: pd.DataFrame, entity_col: str, opp_col: str,
 
 @dataclass
 class EventCrossing:
-    """One event overtaking another on an all-time event board.
+    """One event overtaking (or joining) a place on an all-time event board.
 
-    Phrased exactly like an all-time player/team `Crossing` — "<mover> passes
-    <passed> for highest O-Score (103.3)" — because it is the same kind of
-    news: a place on a leaderboard changed hands. Only the mover is reported.
-    Everyone it passed is pushed down a place, and a note for each of them would
-    turn one overtake into five lines; the same riser-only convention
-    CROSSING_CONFIG uses for the all-time team boards.
+    Phrased exactly like an all-time player/team `Crossing`. A mover that lands
+    alone overtakes whoever held the slot it took — a whole tie at once, named in
+    full ("passes X and Y for lowest"). A mover that arrives at a value others
+    still hold JOINS the tie instead (named when two-way, summarised otherwise,
+    suppressed once the tie exceeds five). Only the mover is reported.
     """
-    sheet: str          # "picks" | "trades" | "transactions"
+    sheet: str          # "picks" | "trades" | "add_drops"
     label: str          # the mover, named; identity is the row key
-    passed: str         # who held this place last week — or, when `tied`, who
-                        # the mover is now level with
     column: str
     end: str            # "high" | "low"
     rank: int
     value: Optional[float]
-    # See Crossing.tied. On these boards ranks run over DISTINCT values, so a
-    # shared rank IS a shared value — co-occupancy of the rank is the test.
-    tied: bool = False
+    joined: bool = False
+    others: tuple = ()          # co-holders at the mover's value, when joined
+    passed: tuple = ()          # entities overtaken, when not joined
 
     def group(self) -> str:
         return self.label
 
     def detail(self) -> str:
-        verb = "ties" if self.tied else "passes"
-        return (f"{verb} {self.passed} for {_place(self.rank, self.end)} "
-                f"{self.column} ({_fmt(self.value)})")
+        return _crossing_detail(self.joined, self.others, self.passed,
+                                _place(self.rank, self.end), self.column, self.value)
 
     def sentence(self) -> str:
         return f"{self.label} {self.detail()}."
@@ -1124,8 +1188,9 @@ def _prior_board(prior_board) -> Optional[Dict[tuple, dict]]:
                                   {"by_rank": {}, "by_key": {}})
             rank = int(d["rank"])
             slot["by_key"][d["key"]] = rank
-            # Ties share a rank; the first label is enough to name who was there.
-            slot["by_rank"].setdefault(rank, d.get("label", d["key"]))
+            # Every holder of a rank last week, so overtaking a whole tie names
+            # all of them (Change 4).
+            slot["by_rank"].setdefault(rank, []).append(d.get("label", d["key"]))
         except (KeyError, TypeError, ValueError):
             return None
     return out
@@ -1140,11 +1205,12 @@ def diff_events(prior_board, events: Sequence[EventHighlight]) -> List[EventCros
     week; with no one there (the board was shorter), there is no overtake to
     report and the event is skipped.
 
-    A place can also be JOINED rather than taken. These boards rank over distinct
-    values, so two rows at the same rank hold the same value: if anyone else is
+    A place can also be JOINED rather than taken: ranks are competition ranks
+    over values, so co-occupants of a rank hold the same value. If anyone else is
     still standing on the rank the mover arrived at, nobody was displaced and the
-    move is reported as a tie. Getting this wrong is not a nuance — "passes X for
-    highest" when X is still there says the opposite of what happened."""
+    move is a tie-join — named when two-way, summarised for three-to-five, and
+    suppressed once the tie exceeds five. Landing alone overtakes every prior
+    holder of the slot taken (a whole tie counts as several), named in full."""
     prior = _prior_board(prior_board)
     if prior is None:
         return []
@@ -1162,23 +1228,27 @@ def diff_events(prior_board, events: Sequence[EventHighlight]) -> List[EventCros
         was = slot["by_key"].get(e.key)
         if was is not None and e.rank >= was:
             continue                       # unmoved, or pushed down by someone else
-        passed = slot["by_rank"].get(e.rank)
-        if passed is None or passed == e.label:
-            continue
-        others = [k for k in co[(e.sheet, e.column, e.end)][e.rank] if k != e.key]
-        tied = bool(others)
-        if tied:
-            # Name whoever the mover is level with. Prefer last week's holder of
-            # the place when they are still on it — that is the comparison the
-            # reader already has in their head from last week's email.
-            still = [k for k in others
-                     if label_of.get((e.sheet, e.column, e.end, k)) == passed]
-            key = still[0] if still else others[0]
-            passed = label_of.get((e.sheet, e.column, e.end, key), passed)
-            if passed == e.label:
+        ck = (e.sheet, e.column, e.end)
+        other_keys = [k for k in co[ck][e.rank] if k != e.key]
+        if other_keys:
+            # Joined a tie. Suppress once it exceeds five holders total.
+            if len(other_keys) >= _MAX_JOIN_TIE:
                 continue
-        out.append(EventCrossing(e.sheet, e.label, passed, e.column,
-                                 e.end, e.rank, e.value, tied))
+            others = sorted(label_of.get((e.sheet, e.column, e.end, k), k)
+                            for k in other_keys)
+            if e.label in others:
+                # A different row of the SAME entity already held the place; that
+                # is not news about the entity.
+                continue
+            out.append(EventCrossing(e.sheet, e.label, e.column, e.end, e.rank,
+                                     e.value, joined=True, others=tuple(others)))
+            continue
+        # Landed alone: overtook every prior holder of the slot it now occupies.
+        passed = [lbl for lbl in slot["by_rank"].get(e.rank, []) if lbl != e.label]
+        if not passed:
+            continue
+        out.append(EventCrossing(e.sheet, e.label, e.column, e.end, e.rank,
+                                 e.value, joined=False, passed=tuple(sorted(passed))))
     return out
 
 
@@ -1254,7 +1324,8 @@ def phrasing_catalog(
     league_week: Optional[pd.DataFrame] = None,
     picks: Optional[pd.DataFrame] = None,
     trades: Optional[pd.DataFrame] = None,
-    transactions: Optional[pd.DataFrame] = None,
+    add_drops: Optional[pd.DataFrame] = None,
+    player_additions: Optional[pd.DataFrame] = None,
 ) -> List[dict]:
     """One row per (sheet, stat) describing exactly how a change is phrased."""
     rows: List[dict] = []
@@ -1330,7 +1401,8 @@ def phrasing_catalog(
                         ("league_year", league_year), ("player_week", player_week),
                         ("team_week", team_week), ("league_week", league_week),
                         ("picks", picks), ("trades", trades),
-                        ("transactions", transactions)):
+                        ("add_drops", add_drops),
+                        ("player_additions", player_additions)):
         _board_rows(_sheet, _df)
 
     # league_all_time: milestones only (single-row sheet, no leaderboard).
@@ -1394,7 +1466,7 @@ def _order_key(item) -> tuple:
 
 def _ucfirst(text: str) -> str:
     """Capitalise the first letter and nothing else — `str.capitalize` lowercases
-    the rest, which turns "highest Number of transactions" into "…number…"."""
+    the rest, which turns "highest Number of Add/Drops" into "…number…"."""
     return text[:1].upper() + text[1:] if text else text
 
 

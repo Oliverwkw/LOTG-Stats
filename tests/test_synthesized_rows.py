@@ -4,7 +4,7 @@ The build synthesizes lineage-closing transactions — the 2020->2021 platform
 transfer releases, terminal dead-end cuts, and arrivals with no recorded add —
 so a player's ownership history has no holes in it. Those rows are appended to
 `transactions_rows` **after** the weekly loop has finished, so the scattered
-per-event counters never saw them: they were rendered into `transactions.csv`
+per-event counters never saw them: they were rendered into `add_drops.csv`
 and counted in no team's season total. 28 of 56 completed team-seasons were
 short, by 85 moves in total; `JacobRosenzweig 2021` read **2** transactions
 against **13** rows in its own detail sheets.
@@ -57,10 +57,10 @@ def _num(v):
 
 
 def _detail_counts():
-    """(team, season) -> number of rows across transactions.csv + trades.csv."""
+    """(team, season) -> number of rows across add_drops.csv + trades.csv."""
     from collections import defaultdict
     n = defaultdict(int)
-    for sheet in ("transactions.csv", "trades.csv"):
+    for sheet in ("add_drops.csv", "trades.csv"):
         for r in _rows(sheet):
             n[(r["Team"], int(r["Season"]))] += 1
     return n
@@ -69,15 +69,15 @@ def _detail_counts():
 def test_team_year_counts_every_row_of_its_detail_sheets():
     """The whole point: a row in the sheet is a row in the count.
 
-    'Number of transactions' counts trades too (a trade credits both it and the
-    trade columns), so the two detail sheets together are the population.
+    'Total transactions' counts trades too (Number of Add/Drops + trades), so
+    the two detail sheets together are the population.
     """
     if not _HAVE:
         return _skip("no exports/")
     n = _detail_counts()
     checked = 0
     for r in _rows("team_year.csv"):
-        v = _num(r.get("Number of transactions"))
+        v = _num(r.get("Total transactions"))
         if v is None:
             continue
         key = (r["Team"], int(r["Year"]))
@@ -94,8 +94,8 @@ def test_the_named_case_is_counted_in_full():
     got = [r for r in _rows("team_year.csv")
            if (r["Team"], int(r["Year"])) == _NAMED]
     assert len(got) == 1, len(got)
-    assert int(_num(got[0]["Number of transactions"]) or 0) == n[_NAMED] > 10, (
-        got[0]["Number of transactions"], n[_NAMED])
+    assert int(_num(got[0]["Total transactions"]) or 0) == n[_NAMED] > 10, (
+        got[0]["Total transactions"], n[_NAMED])
 
 
 def test_the_lineage_rows_are_really_there_to_be_counted():
@@ -103,7 +103,7 @@ def test_the_lineage_rows_are_really_there_to_be_counted():
     checks above go quietly vacuous rather than failing."""
     if not _HAVE:
         return _skip("no exports/")
-    lineage = [r for r in _rows("transactions.csv")
+    lineage = [r for r in _rows("add_drops.csv")
                if (r["Team"], int(r["Season"])) == _NAMED
                and not (r.get("Player Added") or "").strip()
                and _num(r.get("Faab")) is None]
@@ -121,11 +121,11 @@ def test_an_in_season_synthesized_row_lands_in_a_week():
     played = set()
     for r in _rows("team_week.csv"):
         played.add(int(r["Year"]))
-        v = _num(r.get("Number of transactions"))
+        v = _num(r.get("Total transactions"))
         if v is not None:
             weeks[(r["Team"], int(r["Year"]))] += int(v)
     weekless = defaultdict(int)
-    for sheet in ("transactions.csv", "trades.csv"):
+    for sheet in ("add_drops.csv", "trades.csv"):
         for r in _rows(sheet):
             season = int(r["Season"])
             when = date.fromisoformat(str(r["Date"])[:10])

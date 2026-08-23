@@ -114,11 +114,11 @@ def check_matured_window_vs_corrected_zero(tmp):
         "Date": ["2025-08-06 00:00:00", "2023-11-15 00:00:00"], "Season": ["2025", "2023"],
         "KTC value of player added 1 year later": ["", "0.0"],
     })
-    _write(base_dir, "transactions", base)
+    _write(base_dir, "add_drops", base)
     cur = base.copy()
     cur.loc[0, "KTC value of player added 1 year later"] = "5042.6"   # matured
     cur.loc[1, "KTC value of player added 1 year later"] = "167.0"    # corrected zero
-    _write(cur_dir, "transactions", cur)
+    _write(cur_dir, "add_drops", cur)
     rep = A.Report()
     A.audit_diffs({n: A._read(cur_dir, n) for n in A.SHEETS},
                   {n: A._read(base_dir, n) for n in A.SHEETS}, 2026, rep)

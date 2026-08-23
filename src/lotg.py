@@ -138,7 +138,8 @@ import team_all_time
 import team_week
 import team_year
 import trades
-import transactions
+import add_drops
+import player_additions
 import formulas
 import espn_2020
 
@@ -153,9 +154,10 @@ DOCUMENT_MODULES = [
     league_week,
     league_year,
     league_all_time,
-    transactions,
+    add_drops,
     trades,
     pick_history,
+    player_additions,
 ]
 
 
@@ -922,7 +924,7 @@ _TOPIC_FILL = {
 }
 _FAMILY_TAB = {
     "player": "5B9BD5", "team": "70AD47", "league": "FFC000",
-    "transactions": "ED7D31", "trades": "7030A0", "picks": "808080",
+    "add_drops": "ED7D31", "trades": "7030A0", "picks": "808080",
     "formulas": "44546A",
 }
 _TOPIC_IDENTITY = {
@@ -931,7 +933,7 @@ _TOPIC_IDENTITY = {
     "starter/bench", "season", "date", "date dropped/traded", "top team", "last team",
     "top team points", "player picked", "player added", "player dropped",
     "reference player name", "team's traded with", "age", "rookie?", "taxi-eligible",
-    "type of transaction (waiver/free agency)", "etc", "number", "original team",
+    "type of add/drop (waiver/free agency)", "etc", "number", "original team",
 }
 
 
@@ -1063,6 +1065,10 @@ def _col_number_format(col: str) -> Optional[str]:
             or "all-play win" in n
             or n in ("highest win % vs a team", "lowest win % vs a team")):
         return "0.00%"
+    # Tanking is a tiny marginal delta — 2 decimals collapse most values to 0.00
+    # in the workbook. Show 4 (the CSV already carries 4).
+    if n == "tanking":
+        return "0.0000"
     # Everything else numeric (PPG, points, PF, PAR, KTC, addition value, Luck,
     # skill, O-Score, …) -> 2 decimals, no commas. (Harmless on text cells.)
     return "0.00"
@@ -1233,6 +1239,13 @@ def _column_kind(col: str) -> str:
     if col_l in text_exact:
         return "text"
 
+    # player_additions KTC checkpoints/changes are numeric metrics — keep them
+    # numeric so a missing/future value renders N/A (via _preserve_na) like the
+    # picks-sheet KTC columns, instead of being caught by the generic "pick"
+    # text-marker below (which "...after pickup" would otherwise match).
+    if col_l.startswith("ktc ") and "pickup" in col_l:
+        return "numeric"
+
     # Substring-based markers: a column counts as text when its label *contains*
     # any of these tokens. Important: keep these specific enough that they
     # don't grab numeric columns by accident.
@@ -1241,7 +1254,7 @@ def _column_kind(col: str) -> str:
         "link to ",
         "trade ",
         "pick",
-        "type of transaction",  # 'type of transaction (waiver/free agency)' variants
+        "type of transaction",  # 'type of add/drop (waiver/free agency)' variants
         "player added",
         "player dropped",
         "assets received",
@@ -1519,6 +1532,16 @@ def _preserve_na(col: str) -> bool:
     if col_l == "ktc on draft day" or col_l == "ktc at end of rookie year":
         return True
     if re.match(r"^ktc \d+ years? after draft day$", col_l):
+        return True
+    # KTC checkpoints + changes on player_additions (pickup-relative). Blank =
+    # untracked player, a future checkpoint (KTC never pulls forward — e.g. end
+    # of season for an in-progress season, or "4 years after" for a recent add),
+    # or the KTC index failed to build. Distinct from 'KTC is actually zero'.
+    if col_l in {"ktc at pickup", "ktc at end of season"}:
+        return True
+    if re.match(r"^ktc \d+ years? after pickup$", col_l):
+        return True
+    if col_l.startswith("ktc change "):
         return True
     # Dropped avg/total points: N/A when the row dropped nobody; an explicit
     # 0 is real (the dropped player never played another NFL game).
@@ -1824,17 +1847,18 @@ def _pos_points_rollup(g: pd.DataFrame) -> Dict[str, Any]:
 _PRE_SEASON_KEEP_COLUMNS: Dict[str, set] = {
     "team-year": {
         "team", "year",
-        "number of transactions",
-        "offseason trades", "inseason trades", "total trades",
+        "number of add/drops",
+        "number of waiver adds", "number of free agency adds", "number of pure drops",
+        "offseason trades", "inseason trades", "total trades", "total transactions",
         "amount of faab spent",
         "draft value",
         "number of first round picks made", "total number of picks made",
         "future draft capital",
-        "drafting skill", "trading skill", "transaction skill",
+        "drafting skill", "trading skill", "add/drop skill",
     },
     "player-year": {
         "player", "year", "top team", "last team", "rookie?", "age",
-        "number of teams", "number of transactions",
+        "number of teams", "number of add/drops",
         "number of drops", "number of trades",
     },
 }
@@ -2289,6 +2313,40 @@ def build_all(repo_root: Path) -> None:
             games["week"] = pd.to_numeric(games["week"], errors="coerce").astype("Int64")
         except Exception:
             pass
+
+    # Game-accurate week boundaries — shared by every tenure-windowed sheet
+    # (picks, add_drops, player_additions) so all three measure a player's time
+    # on a team the same way. A fantasy week runs from just after the previous
+    # week's last game to its OWN last game (Sun/Mon) — never the Thursday
+    # opener — so a player picked up on a game day is credited the starts they
+    # actually made that week.
+    _week_end_date: Dict[Tuple[int, int], str] = {}
+    try:
+        if isinstance(games, pd.DataFrame) and not games.empty and \
+                {"season", "week", "gameday"}.issubset(games.columns):
+            _g = games.dropna(subset=["season", "week"]).copy()
+            _g["_gd"] = _g["gameday"].astype(str).str[:10]
+            for (_s, _w), _gg in _g.groupby(["season", "week"]):
+                _dates = [d for d in _gg["_gd"].tolist() if d[:4].isdigit()]
+                if _dates:
+                    _week_end_date[(int(_s), int(_w))] = max(_dates)
+    except Exception as e:
+        _log_exc(debug, "week_end_date_map", e)
+
+    def _last_game_date(_season: Any, _week: Any) -> Optional[str]:
+        """Date of the LAST game of (season, week) — the week's closing edge
+        (Sun/Mon), never its Thursday opener. Falls back to the Monday after the
+        Thursday anchor when the schedule row is missing (e.g. a future week)."""
+        _s = _to_int(_season, None); _w = _to_int(_week, None)
+        if _s is None or _w is None:
+            return None
+        _d = _week_end_date.get((_s, _w))
+        if _d:
+            return _d
+        try:
+            return (_week_thursday(_s, _w) + timedelta(days=4)).isoformat()
+        except Exception:
+            return None
 
     # Sleeper NFL players (meta)
     try:
@@ -2748,7 +2806,7 @@ def build_all(repo_root: Path) -> None:
                 # "#N" -> transactions row N, "T#N" -> trades row N, "PH#N" ->
                 # pick_history row N (1-indexed; xlsx adds 1 for the header).
                 _ref_re = re.compile(r"^(PH|T)?#(\d+)$")
-                _ref_sheet = {"": "transactions", "T": "trades", "PH": "picks"}
+                _ref_sheet = {"": "add_drops", "T": "trades", "PH": "picks"}
 
                 def _set_ref_link(cell, ref):
                     m = _ref_re.match(str(ref).strip())
@@ -2840,7 +2898,7 @@ def build_all(repo_root: Path) -> None:
                 # pins Opponent -> 5 cols). trades pins just its first 3 (Team,
                 # Team's traded with 1, Assets received) — the extra counterparty
                 # columns for multi-team trades live at the far right, outside it.
-                _pin_n = 5 if sheet_name == "team_week" else (3 if sheet_name == "trades" else 4)
+                _pin_n = 5 if sheet_name == "team_week" else (3 if sheet_name in ("trades", "player_additions") else 4)
                 ws.freeze_panes = f"{get_column_letter(_pin_n + 1)}2"
 
                 # Family tab color.
@@ -2921,11 +2979,11 @@ def build_all(repo_root: Path) -> None:
                 try:
                     _link_pat = []   # columns -> player_all_time
                     _link_pw = []    # columns -> player_week (per-week ref)
-                    if sheet_name in ("player_week", "player_year", "player_all_time"):
+                    if sheet_name in ("player_week", "player_year", "player_all_time", "player_additions"):
                         _link_pat.append("Player")
                     if sheet_name == "picks":
                         _link_pat.append("Player Picked")
-                    if sheet_name == "transactions":
+                    if sheet_name == "add_drops":
                         _link_pat += ["Player Added", "Player Dropped"]
                     if sheet_name == "player_week":
                         _link_pw.append("Reference player name")
@@ -3086,7 +3144,7 @@ def build_all(repo_root: Path) -> None:
                 # PAR/Points) so good/bad pops at a glance.
                 try:
                     _scale_cols = {
-                        "picks": "O-Score", "transactions": "O-Score", "trades": "O-Score",
+                        "picks": "O-Score", "add_drops": "O-Score", "trades": "O-Score",
                         "team_year": "Win %", "team_all_time": "All time win %", "team_week": "PF",
                         "player_year": "Starter PAR", "player_all_time": "Starter PAR",
                         "player_week": "Points",
@@ -3244,7 +3302,7 @@ def build_all(repo_root: Path) -> None:
     # ------------- Output rows -------------
     player_week_rows: List[Dict[str, Any]] = []
     team_week_rows: List[Dict[str, Any]] = []
-    transactions_rows: List[Dict[str, Any]] = []
+    add_drop_rows: List[Dict[str, Any]] = []
     # Cross-season per-player NFL game log (sourced from nflverse, so
     # weeks count as "played" whether or not the player was on a
     # fantasy roster at the time). Used by the transactions polish
@@ -3262,11 +3320,11 @@ def build_all(repo_root: Path) -> None:
     # 'Weeks between pickup and start' / 'Date dropped/traded'.
     orphan_drop_events: List[Dict[str, Any]] = []
     pick_rows: List[Dict[str, Any]] = []
-    player_tx_week: Dict[Tuple[str, int, int], int] = defaultdict(int)
+    player_addrop_week: Dict[Tuple[str, int, int], int] = defaultdict(int)
     player_drop_week: Dict[Tuple[str, int, int], int] = defaultdict(int)
-    player_tx_year: Dict[Tuple[str, int], int] = defaultdict(int)
+    player_addrop_year: Dict[Tuple[str, int], int] = defaultdict(int)
     player_drop_year: Dict[Tuple[str, int], int] = defaultdict(int)
-    player_tx_all: Dict[str, int] = defaultdict(int)
+    player_addrop_all: Dict[str, int] = defaultdict(int)
     player_drop_all: Dict[str, int] = defaultdict(int)
 
     def _player_display_name(pid: Any) -> str:
@@ -3284,9 +3342,21 @@ def build_all(repo_root: Path) -> None:
     # sheets read these instead of summing team_week, which cannot hold a move
     # that lands in its season's offseason. Same counting semantics as the
     # weekly columns — per team, per movement — just a different bucket.
-    _tx_by_team_season: Dict[Tuple[str, int], int] = defaultdict(int)
+    _addrop_by_team_season: Dict[Tuple[str, int], int] = defaultdict(int)
     _tr_by_team_season: Dict[Tuple[str, int], int] = defaultdict(int)
     _faab_by_team_season: Dict[Tuple[str, int], float] = defaultdict(float)
+    # Add/Drop breakdown (waiver adds / free-agency adds / pure drops), per team
+    # per season and per team-season-week. Populated from the final
+    # transactions_rows in the same rebuild pass that fixes _tx_by_team_season, so
+    # they reconcile with "Number of Add/Drops" row-for-row (minus commissioner
+    # adds, which are deliberately left out of the free-agency bucket). Their sum
+    # is Add/Drops minus commissioner adds, not Add/Drops itself — by design.
+    _waiver_add_by_ts: Dict[Tuple[str, int], int] = defaultdict(int)
+    _fa_add_by_ts: Dict[Tuple[str, int], int] = defaultdict(int)
+    _puredrop_by_ts: Dict[Tuple[str, int], int] = defaultdict(int)
+    _waiver_add_by_tsw: Dict[Tuple[str, int, int], int] = defaultdict(int)
+    _fa_add_by_tsw: Dict[Tuple[str, int, int], int] = defaultdict(int)
+    _puredrop_by_tsw: Dict[Tuple[str, int, int], int] = defaultdict(int)
 
     # season -> championship Monday, filled in as each league season is walked.
     # A move dated on or before the PREVIOUS season's entry was made while that
@@ -3654,6 +3724,11 @@ def build_all(repo_root: Path) -> None:
     # ------------- Build each season -------------
     traded_picks_by_season: Dict[int, List[Dict[str, Any]]] = {}
     season_roster_to_team: Dict[int, Dict[int, str]] = {}
+    # (team, season) -> its rostered player IDs (from the season's Sleeper roster
+    # snapshot). Powers the offseason "Team age including picks" for a season that
+    # has no team_week rows yet (an in-progress/not-yet-played season), so the
+    # marginal Tanking delta is non-zero for its additions and draft picks too.
+    _roster_players_by_ts: Dict[Tuple[str, int], List[str]] = {}
     season_team_to_roster: Dict[int, Dict[str, int]] = {}
     season_draft_picks_all: Dict[int, List[Dict[str, Any]]] = {}
     draft_picks_records: List[Dict[str, Any]] = []
@@ -4057,6 +4132,13 @@ def build_all(repo_root: Path) -> None:
         season_team_to_roster[season] = {
             _norm_team_name(v): k for k, v in roster_to_team.items() if v is not None
         }
+        for _rr in rosters or []:
+            _rid = _to_int(_rr.get("roster_id"), None)
+            _tm = roster_to_team.get(_rid) if _rid is not None else None
+            if _tm:
+                _roster_players_by_ts[(str(_tm), int(season))] = [
+                    str(_p) for _p in (_rr.get("players") or []) if _p
+                ]
         # Persist the season's roster ids for downstream pick-history /
         # draft-frame logic. (Prior code only populated this via
         # _ensure_pick_bases.setdefault, which had a chicken-and-egg gate
@@ -4992,7 +5074,7 @@ def build_all(repo_root: Path) -> None:
             # tx summaries
             faab_spent: Dict[str, float] = defaultdict(float)
             trade_count: Dict[str, int] = defaultdict(int)
-            tx_count: Dict[str, int] = defaultdict(int)
+            add_drop_count: Dict[str, int] = defaultdict(int)
 
             # A move made after this season's championship belongs to the NEXT
             # season's offseason, and an offseason move has no week — so it must
@@ -5001,10 +5083,10 @@ def build_all(repo_root: Path) -> None:
             # take only the moves whose season IS this one, while the SEASON
             # counters take every move under the season it belongs to. team_year
             # and the league sheets read the latter instead of summing weeks.
-            def _credit_tx(_tm: str, _mv: int, _n: int = 1) -> None:
-                _tx_by_team_season[(str(_tm), int(_mv))] += _n
+            def _credit_addrop(_tm: str, _mv: int, _n: int = 1) -> None:
+                _addrop_by_team_season[(str(_tm), int(_mv))] += _n
                 if int(_mv) == int(season):
-                    tx_count[_tm] += _n
+                    add_drop_count[_tm] += _n
 
             def _credit_trade(_tm: str, _mv: int) -> None:
                 _tr_by_team_season[(str(_tm), int(_mv))] += 1
@@ -5094,11 +5176,14 @@ def build_all(repo_root: Path) -> None:
                             and _tr_dt.date() < _kick
                             and (_kick - _tr_dt.date()).days > 7
                         )
-                        # Credit both sides.
+                        # Credit both sides. A trade is NOT an add/drop, so it
+                        # does not touch the add/drop counter — it is counted only
+                        # in the trade tally. "Total transactions" (= Add/Drops +
+                        # trades) is derived at output time, so a trade still
+                        # reaches that combined column through the trade tally.
                         for tm in teams_in_tx:
                             if not _deep_offseason:
                                 _credit_trade(tm, _mv_season)
-                            _credit_tx(tm, _mv_season)
                     else:
                         # waiver / free_agent / commissioner — credit the
                         # destination roster of EACH add AND the dropping
@@ -5109,7 +5194,7 @@ def build_all(repo_root: Path) -> None:
                         #     across 2 rosters): +1 per roster
                         #   - pure drop (0 adds + N drops on same roster):
                         #     +N (each visible in transactions.csv too)
-                        # team_week / team_year 'Number of transactions'
+                        # team_week / team_year 'Number of Add/Drops'
                         # reconciles row-for-row with transactions.csv.
                         adds_dict = t.get("adds") if isinstance(t.get("adds"), dict) else {}
                         drops_dict = t.get("drops") if isinstance(t.get("drops"), dict) else {}
@@ -5121,7 +5206,7 @@ def build_all(repo_root: Path) -> None:
                             if not tm_name:
                                 tm_name = (teams_in_tx[0] if teams_in_tx else None) or creator_team
                             if tm_name:
-                                _credit_tx(tm_name, _mv_season)
+                                _credit_addrop(tm_name, _mv_season)
                                 if _rid_i is not None:
                                     add_rosters.add(int(_rid_i))
                         # remaining drops (per roster) become "orphan" drops
@@ -5148,7 +5233,7 @@ def build_all(repo_root: Path) -> None:
                             if not tm_name:
                                 tm_name = (teams_in_tx[0] if teams_in_tx else None) or creator_team
                             if tm_name:
-                                _credit_tx(tm_name, _mv_season, n_orphan)
+                                _credit_addrop(tm_name, _mv_season, n_orphan)
 
                     # FAAB lives under settings.waiver_bid on Sleeper transactions
                     # (legacy code looked under metadata, which was always empty).
@@ -5498,7 +5583,7 @@ def build_all(repo_root: Path) -> None:
                         # starter point total. team_year / team_all_time sum it so
                         # their shares divide by the same base the weekly ones did.
                         "_StarterPointsTotal": round(starter_pts_total, 2),
-                        "Number of transactions": int(tx_count.get(team, 0)),
+                        "Number of Add/Drops": int(add_drop_count.get(team, 0)),
                         "Number of trades": int(trade_count.get(team, 0)),
                         "Amount of FAAB spent": (
                             round(float(faab_spent.get(team, 0.0)), 2)
@@ -6234,9 +6319,9 @@ def build_all(repo_root: Path) -> None:
                     for pid, rrid in adds.items():
                         pid = str(pid)
                         rrid_str = str(rrid)
-                        player_tx_week[(pid, _mv_season, _mv_wk)] += 1
-                        player_tx_year[(pid, _mv_season)] += 1
-                        player_tx_all[pid] += 1
+                        player_addrop_week[(pid, _mv_season, _mv_wk)] += 1
+                        player_addrop_year[(pid, _mv_season)] += 1
+                        player_addrop_all[pid] += 1
                         dropped = None
                         drop_list = drops_by_roster.get(rrid_str)
                         if drop_list:
@@ -6246,9 +6331,9 @@ def build_all(repo_root: Path) -> None:
 
                         if dropped:
                             dropped_id = str(dropped)
-                            player_tx_week[(dropped_id, _mv_season, _mv_wk)] += 1
-                            player_tx_year[(dropped_id, _mv_season)] += 1
-                            player_tx_all[dropped_id] += 1
+                            player_addrop_week[(dropped_id, _mv_season, _mv_wk)] += 1
+                            player_addrop_year[(dropped_id, _mv_season)] += 1
+                            player_addrop_all[dropped_id] += 1
                             player_drop_week[(dropped_id, _mv_season, _mv_wk)] += 1
                             player_drop_year[(dropped_id, _mv_season)] += 1
                             player_drop_all[dropped_id] += 1
@@ -6352,11 +6437,11 @@ def build_all(repo_root: Path) -> None:
                             _faab_pct_emit = None
                         elif ttype == "waiver" and _faab_emit is None:
                             _faab_emit = 0
-                        transactions_rows.append({
+                        add_drop_rows.append({
                             "Team": row_team,
                             "Player Added": pid_meta.get(pid, {}).get("full_name") or pid,
                             "Player Dropped": pid_meta.get(dropped, {}).get("full_name") if dropped else None,
-                            "type of transaction (waiver/free agency)": ttype,
+                            "type of add/drop (waiver/free agency)": ttype,
                             "Faab": _faab_emit,
                             "Total FAAB bid": _total_faab_emit,
                             "FAAB difference over second place": _faab_diff_emit,
@@ -6390,9 +6475,9 @@ def build_all(repo_root: Path) -> None:
                     for rrid_orphan_str, drop_list in drops_by_roster.items():
                         for dp_str in drop_list:
                             dropped_id = str(dp_str)
-                            player_tx_week[(dropped_id, _mv_season, _mv_wk)] += 1
-                            player_tx_year[(dropped_id, _mv_season)] += 1
-                            player_tx_all[dropped_id] += 1
+                            player_addrop_week[(dropped_id, _mv_season, _mv_wk)] += 1
+                            player_addrop_year[(dropped_id, _mv_season)] += 1
+                            player_addrop_all[dropped_id] += 1
                             player_drop_week[(dropped_id, _mv_season, _mv_wk)] += 1
                             player_drop_year[(dropped_id, _mv_season)] += 1
                             player_drop_all[dropped_id] += 1
@@ -6419,15 +6504,15 @@ def build_all(repo_root: Path) -> None:
                                     })
                                     # Also emit a transactions.csv row so the
                                     # detail file reconciles with team_year's
-                                    # 'Number of transactions' count. Pure drops
+                                    # 'Number of Add/Drops' count. Pure drops
                                     # are real transactions in Sleeper and were
                                     # previously invisible — tx_count would
                                     # increment but no row would be written.
-                                    transactions_rows.append({
+                                    add_drop_rows.append({
                                         "Team": drop_team,
                                         "Player Added": None,
                                         "Player Dropped": drop_player_name,
-                                        "type of transaction (waiver/free agency)": ttype,
+                                        "type of add/drop (waiver/free agency)": ttype,
                                         "Faab": None,
                                         "Total FAAB bid": None,
                                         "FAAB difference over second place": None,
@@ -7252,8 +7337,8 @@ def build_all(repo_root: Path) -> None:
         pw_keys["Player ID"] = pw_keys["Player ID"].astype(str)
         pw_keys["Year"] = pd.to_numeric(pw_keys["Year"], errors="coerce").astype("Int64")
         pw_keys["Week"] = pd.to_numeric(pw_keys["Week"], errors="coerce").astype("Int64")
-        pw["Number of transactions"] = [
-            int(player_tx_week.get(
+        pw["Number of Add/Drops"] = [
+            int(player_addrop_week.get(
                 (
                     str(player_id),
                     int(year) if pd.notna(year) else None,
@@ -7594,7 +7679,7 @@ def build_all(repo_root: Path) -> None:
                     "Team": str(mrow.get("Team")),
                     "Player Added": added_name,
                     "Player Dropped": dropped_name,
-                    "type of transaction (waiver/free agency)": str(mrow.get("Type") or "free_agent"),
+                    "type of add/drop (waiver/free agency)": str(mrow.get("Type") or "free_agent"),
                     "Faab": _to_float(mrow.get("Faab"), None),
                     "Total FAAB bid": _to_float(mrow.get("Total FAAB bid"), None),
                     "FAAB difference over second place": None,
@@ -7621,7 +7706,7 @@ def build_all(repo_root: Path) -> None:
                     "Tanking": None,
                     "Number of times picked up by this team": None,
                 }
-                transactions_rows.append(row)
+                add_drop_rows.append(row)
                 # Also credit per-week/year/all counters so player
                 # rollups stay consistent with the manual entries.
                 try:
@@ -7629,11 +7714,11 @@ def build_all(repo_root: Path) -> None:
                 except Exception:
                     season_i = None
                 if added_pid and season_i is not None:
-                    player_tx_year[(str(added_pid), season_i)] += 1
-                    player_tx_all[str(added_pid)] += 1
+                    player_addrop_year[(str(added_pid), season_i)] += 1
+                    player_addrop_all[str(added_pid)] += 1
                 if dropped_pid and season_i is not None:
-                    player_tx_year[(str(dropped_pid), season_i)] += 1
-                    player_tx_all[str(dropped_pid)] += 1
+                    player_addrop_year[(str(dropped_pid), season_i)] += 1
+                    player_addrop_all[str(dropped_pid)] += 1
                     player_drop_year[(str(dropped_pid), season_i)] += 1
                     player_drop_all[str(dropped_pid)] += 1
                 n_added += 1
@@ -7670,7 +7755,7 @@ def build_all(repo_root: Path) -> None:
                     # the season total (shmuel256's 2023 Puka Nacua pickup).
                     _m_season = _move_season(_m_dt, season, _season_end_by_season)
                     _faab_m = _to_float(mrow.get("Faab"), 0.0) or 0.0
-                    _tx_by_team_season[(team, int(_m_season))] += 1
+                    _addrop_by_team_season[(team, int(_m_season))] += 1
                     if _faab_m:
                         _faab_by_team_season[(team, int(_m_season))] += float(_faab_m)
                     if int(_m_season) != season:
@@ -7683,8 +7768,8 @@ def build_all(repo_root: Path) -> None:
                     if matches.empty:
                         continue
                     idx_ = matches.index[0]
-                    cur = pd.to_numeric(tw.at[idx_, "Number of transactions"], errors="coerce")
-                    tw.at[idx_, "Number of transactions"] = int((0 if pd.isna(cur) else cur) + 1)
+                    cur = pd.to_numeric(tw.at[idx_, "Number of Add/Drops"], errors="coerce")
+                    tw.at[idx_, "Number of Add/Drops"] = int((0 if pd.isna(cur) else cur) + 1)
                     if _faab_m:
                         cur_f = pd.to_numeric(tw.at[idx_, "Amount of FAAB spent"], errors="coerce")
                         tw.at[idx_, "Amount of FAAB spent"] = round((0.0 if pd.isna(cur_f) else cur_f) + _faab_m, 2)
@@ -7704,12 +7789,12 @@ def build_all(repo_root: Path) -> None:
     #    player's first start on that team. None if never started.
     # --------------------------
     try:
-        if transactions_rows:
+        if add_drop_rows:
             # Sort by date so the running counters scan chronologically.
             def _date_key(r):
                 d = r.get("Date") or ""
                 return str(d)
-            transactions_rows.sort(key=_date_key)
+            add_drop_rows.sort(key=_date_key)
 
             # (Source-level dedup of Sleeper transactions runs in the per-week
             # fetch loop, but the 2020 ESPN roster-diff orphan-drop synthesis can
@@ -7722,17 +7807,17 @@ def build_all(repo_root: Path) -> None:
             # identical on those fields never legitimately co-exist.)
             _seen_tx: set = set()
             _deduped_tx: List[Dict[str, Any]] = []
-            for _txr in transactions_rows:
-                _sig = (str(_txr.get("Team")), str(_txr.get("Player Added")),
-                        str(_txr.get("Player Dropped")), str(_txr.get("Date")))
+            for _adr in add_drop_rows:
+                _sig = (str(_adr.get("Team")), str(_adr.get("Player Added")),
+                        str(_adr.get("Player Dropped")), str(_adr.get("Date")))
                 if _sig in _seen_tx:
                     continue
                 _seen_tx.add(_sig)
-                _deduped_tx.append(_txr)
-            if len(_deduped_tx) != len(transactions_rows):
-                _log(debug, f"[{_now_iso()}] INFO deduped {len(transactions_rows) - len(_deduped_tx)} "
+                _deduped_tx.append(_adr)
+            if len(_deduped_tx) != len(add_drop_rows):
+                _log(debug, f"[{_now_iso()}] INFO deduped {len(add_drop_rows) - len(_deduped_tx)} "
                             f"duplicate transaction rows (same team/added/dropped/date)")
-                transactions_rows[:] = _deduped_tx
+                add_drop_rows[:] = _deduped_tx
 
             # 1) Number of times picked up / dropped by this team (Phase 6C).
             #    Both now INCLUDE trades: a player received in a trade counts as
@@ -7749,7 +7834,7 @@ def build_all(repo_root: Path) -> None:
 
             acq_events = []  # (date, team, player, row_or_None)
             drop_events = []
-            for r in transactions_rows:
+            for r in add_drop_rows:
                 team = r.get("Team")
                 if not team:
                     continue
@@ -7787,7 +7872,7 @@ def build_all(repo_root: Path) -> None:
             # (Python decides locals at compile time), which broke player_week
             # construction earlier with an UnboundLocalError. Use dt_str.
             event_log: Dict[Tuple[str, str], List[Tuple[str, str]]] = defaultdict(list)
-            for r in transactions_rows:
+            for r in add_drop_rows:
                 team = r.get("Team")
                 add = r.get("Player Added")
                 dropped = r.get("Player Dropped")
@@ -7844,11 +7929,11 @@ def build_all(repo_root: Path) -> None:
             # pid-keyed history still renders them — desyncing the two and spawning
             # phantom teleports (and a bogus "2021 (vet)" pseudo-player).
             _holder_events: Dict[str, List[Tuple[str, int, str, str]]] = defaultdict(list)
-            for r in transactions_rows:
+            for r in add_drop_rows:
                 _tm = r.get("Team"); _d = str(r.get("Date") or "")
                 if not (_tm and _d):
                     continue
-                _typ = str(r.get("type of transaction (waiver/free agency)") or "").lower()
+                _typ = str(r.get("type of add/drop (waiver/free agency)") or "").lower()
                 _apid = r.get("_added_pid"); _dpid = r.get("_dropped_pid")
                 if _apid:
                     _kind = "add_fa" if _typ in ("free_agent", "waiver") else "add_other"
@@ -8217,7 +8302,7 @@ def build_all(repo_root: Path) -> None:
             def _synth_tx(team, added, added_pid, dropped, dropped_pid, dt):
                 return {
                     "Team": team, "Player Added": added, "Player Dropped": dropped,
-                    "type of transaction (waiver/free agency)": "free_agent",
+                    "type of add/drop (waiver/free agency)": "free_agent",
                     "Faab": None, "Total FAAB bid": None,
                     "FAAB difference over second place": None, "FAAB premium %": None,
                     # Season from the timestamp's LEAGUE-time year, not the
@@ -8248,13 +8333,130 @@ def build_all(repo_root: Path) -> None:
                 orphan_drop_events.append({"Team": _sr["Team"],
                                            "Player Dropped": _sr["Player Dropped"],
                                            "Date": _sr["Date"]})
-                transactions_rows.append(_synth_tx(_sr["Team"], None, None,
+                add_drop_rows.append(_synth_tx(_sr["Team"], None, None,
                                                    _sr["Player Dropped"], _sr["_dropped_pid"],
                                                    _sr["Date"]))
             for _sa in _synth_add_rows:
                 event_log[(_sa["Team"], _sa["Player Added"])].append((_sa["Date"], "add"))
-                transactions_rows.append(_synth_tx(_sa["Team"], _sa["Player Added"],
+                add_drop_rows.append(_synth_tx(_sa["Team"], _sa["Player Added"],
                                                    _sa["_added_pid"], None, None, _sa["Date"]))
+
+            # Commissioner-correction cleanup: a commissioner ADD that undoes a
+            # same-team DROP of the same player within the previous 24 hours is a
+            # correction of an erroneous drop, not a real move. Delete BOTH the
+            # drop and the re-add so the player reads as CONTINUOUSLY tenured
+            # (per league). Downstream — counts, tenure, links, player_additions
+            # — all read the pruned add_drop_rows / event_log, so they inherit it.
+            try:
+                def _cc_dt(_s):
+                    try:
+                        return pd.to_datetime(_s)
+                    except Exception:
+                        return None
+
+                def _cc_named(_v):
+                    return _v is not None and str(_v).strip() not in ("", "nan", "None", "N/A")
+
+                # Index every add and every drop by (team, player) so a
+                # commissioner row can find the move it reverses in either
+                # direction.
+                _cc_drop_by_tp: Dict[Tuple[str, str], List[Tuple[Any, int]]] = defaultdict(list)
+                _cc_add_by_tp: Dict[Tuple[str, str], List[Tuple[Any, int]]] = defaultdict(list)
+                for _ix, _r in enumerate(add_drop_rows):
+                    _d = _cc_dt(_r.get("Date"))
+                    if _d is None:
+                        continue
+                    _dp = _r.get("Player Dropped")
+                    if _cc_named(_dp):
+                        _cc_drop_by_tp[(str(_r.get("Team")), str(_dp))].append((_d, _ix))
+                    _ap = _r.get("Player Added")
+                    if _cc_named(_ap):
+                        _cc_add_by_tp[(str(_r.get("Team")), str(_ap))].append((_d, _ix))
+                # A commissioner move is (≈99% of the time) a correction of a
+                # mistake, not a real transaction. So for each commissioner row we
+                # delete the commissioner row AND undo the specific MISTAKE it
+                # reverses — leaving the player as if neither ever happened
+                # (continuous tenure). Two mirror directions:
+                #   • commish ADD of X  ⇢ cancels a prior DROP of X (an erroneous cut)
+                #   • commish DROP of X ⇢ cancels a prior ADD of X (an erroneous pickup)
+                # The undo is LEG-level, not row-level: the mistake can live in a
+                # compound waiver ("add X / drop Y") where only one leg is the
+                # error. Cancelling just that leg keeps the other player's real
+                # move intact (no collateral drop/add, no new dangling history).
+                # A row that loses BOTH legs contributed nothing and is dropped —
+                # so a compound waiver reverted on both sides (commish drop-X AND
+                # commish add-Y) disappears entirely. Real case: Oliverwkw's
+                # 2023-09-04 "add Jerome Ford / drop Isaiah Spiller" waiver,
+                # reverted 90s later by a commish drop-Ford + a commish add-Spiller
+                # — all three rows go, Ford's real pickup is the next day, Spiller
+                # is never dropped.
+                _cc_remove: Set[int] = set()          # commissioner rows to delete outright
+                _cc_cancel_add: Set[int] = set()      # rows whose ADD leg is the reverted mistake
+                _cc_cancel_drop: Set[int] = set()     # rows whose DROP leg is the reverted mistake
+                for _ix, _r in enumerate(add_drop_rows):
+                    if str(_r.get("type of add/drop (waiver/free agency)") or "") != "commissioner":
+                        continue
+                    _cdt = _cc_dt(_r.get("Date"))
+                    if _cdt is None:
+                        continue
+                    _win = _cdt - pd.Timedelta(hours=24)
+                    _team = str(_r.get("Team"))
+                    _matched = False
+                    _add = _r.get("Player Added")
+                    if _cc_named(_add):     # commish re-add ⇢ cancel the erroneous prior DROP of X
+                        _prior = [(_d, _j) for (_d, _j) in _cc_drop_by_tp.get((_team, str(_add)), [])
+                                  if _win <= _d < _cdt and _j != _ix]
+                        if _prior:
+                            _cc_cancel_drop.add(max(_prior)[1]); _matched = True
+                    _drop = _r.get("Player Dropped")
+                    if _cc_named(_drop):    # commish drop ⇢ cancel the erroneous prior ADD of X
+                        _prior = [(_d, _j) for (_d, _j) in _cc_add_by_tp.get((_team, str(_drop)), [])
+                                  if _win <= _d < _cdt and _j != _ix]
+                        if _prior:
+                            _cc_cancel_add.add(max(_prior)[1]); _matched = True
+                    if _matched:
+                        _cc_remove.add(_ix)
+                if _cc_remove or _cc_cancel_add or _cc_cancel_drop:
+                    _cc_scrub: List[Tuple[str, str, str]] = []
+                    # Commissioner rows: scrub both of their legs and delete them.
+                    for i in _cc_remove:
+                        _tm = str(add_drop_rows[i].get("Team")); _dt = str(add_drop_rows[i].get("Date"))
+                        for _pl in (add_drop_rows[i].get("Player Added"),
+                                    add_drop_rows[i].get("Player Dropped")):
+                            if _cc_named(_pl):
+                                _cc_scrub.append((_tm, str(_pl), _dt))
+                    # Mistake rows: cancel only the reverted leg in place.
+                    for i in _cc_cancel_add:
+                        _tm = str(add_drop_rows[i].get("Team")); _dt = str(add_drop_rows[i].get("Date"))
+                        _pl = add_drop_rows[i].get("Player Added")
+                        if _cc_named(_pl):
+                            _cc_scrub.append((_tm, str(_pl), _dt))
+                        add_drop_rows[i]["Player Added"] = None
+                        add_drop_rows[i]["_added_pid"] = None
+                    for i in _cc_cancel_drop:
+                        _tm = str(add_drop_rows[i].get("Team")); _dt = str(add_drop_rows[i].get("Date"))
+                        _pl = add_drop_rows[i].get("Player Dropped")
+                        if _cc_named(_pl):
+                            _cc_scrub.append((_tm, str(_pl), _dt))
+                        add_drop_rows[i]["Player Dropped"] = None
+                        add_drop_rows[i]["_dropped_pid"] = None
+                    # A mistake row emptied of BOTH legs contributed nothing — drop it.
+                    _cc_emptied = {i for i in (_cc_cancel_add | _cc_cancel_drop)
+                                   if not _cc_named(add_drop_rows[i].get("Player Added"))
+                                   and not _cc_named(add_drop_rows[i].get("Player Dropped"))}
+                    _cc_gone = _cc_remove | _cc_emptied
+                    add_drop_rows[:] = [r for i, r in enumerate(add_drop_rows) if i not in _cc_gone]
+                    for (_tm, _pl, _dt) in _cc_scrub:
+                        _k = (_tm, _pl)
+                        if _k in event_log:
+                            event_log[_k] = [e for e in event_log[_k] if str(e[0]) != _dt]
+                    _log(debug, f"[{_now_iso()}] INFO commissioner-correction cleanup: removed "
+                                f"{len(_cc_gone)} rows ({len(_cc_remove)} commissioner corrections + "
+                                f"{len(_cc_emptied)} fully-reverted mistakes), cancelled "
+                                f"{len(_cc_cancel_add) + len(_cc_cancel_drop)} mistake leg(s) "
+                                f"(commissioner add/drop reverses a same-player move within 24h)")
+            except Exception as e:
+                _log_exc(debug, "commish_correction_cleanup", e)
 
             # Round-4 Part A/B fix: rebuild the player transaction / drop
             # counters straight from the FINAL transactions_rows so they match
@@ -8267,32 +8469,32 @@ def build_all(repo_root: Path) -> None:
             # ESPN orphan drops whose row was later removed by the
             # team/added/dropped/date dedup pass (the counter increment stayed,
             # the row didn't). Both failure modes desync player_year /
-            # player_all_time 'Number of drops' / 'Number of transactions' from
+            # player_all_time 'Number of drops' / 'Number of Add/Drops' from
             # the transactions sheet. Recomputing from the rows is the single
-            # source of truth: 'Number of transactions' = adds + drops involving
+            # source of truth: 'Number of Add/Drops' = adds + drops involving
             # the player; 'Number of drops' = drop cells only (trades are a
             # separate 'Number of trades' column, computed from trades_rows).
             try:
-                player_tx_year.clear(); player_tx_all.clear()
+                player_addrop_year.clear(); player_addrop_all.clear()
                 player_drop_year.clear(); player_drop_all.clear()
-                for _txr in transactions_rows:
+                for _adr in add_drop_rows:
                     try:
-                        _tx_season = int(_txr.get("Season")) if _txr.get("Season") is not None else None
+                        _tx_season = int(_adr.get("Season")) if _adr.get("Season") is not None else None
                     except Exception:
                         _tx_season = None
-                    _apid = _txr.get("_added_pid")
-                    _dpid = _txr.get("_dropped_pid")
+                    _apid = _adr.get("_added_pid")
+                    _dpid = _adr.get("_dropped_pid")
                     if _apid:
                         _apid = str(_apid)
-                        player_tx_all[_apid] += 1
+                        player_addrop_all[_apid] += 1
                         if _tx_season is not None:
-                            player_tx_year[(_apid, _tx_season)] += 1
+                            player_addrop_year[(_apid, _tx_season)] += 1
                     if _dpid:
                         _dpid = str(_dpid)
-                        player_tx_all[_dpid] += 1
+                        player_addrop_all[_dpid] += 1
                         player_drop_all[_dpid] += 1
                         if _tx_season is not None:
-                            player_tx_year[(_dpid, _tx_season)] += 1
+                            player_addrop_year[(_dpid, _tx_season)] += 1
                             player_drop_year[(_dpid, _tx_season)] += 1
             except Exception as e:
                 _log_exc(debug, "player_tx_counter_rebuild", e)
@@ -8306,24 +8508,60 @@ def build_all(repo_root: Path) -> None:
             # league_all_time, which roll up from it) agree with the detail
             # sheets 1:1 by construction, which is what "as if it were not
             # synthesized" means: a fabricated row is counted exactly like a row
-            # Sleeper handed us. A trade counts in BOTH 'Number of trades' and
-            # 'Number of transactions', which is how the weekly loop credits it.
+            # Sleeper handed us. A trade counts ONLY in 'Number of trades' (it is
+            # not an add/drop); the combined 'Total transactions' column is
+            # derived later as Number of Add/Drops + the trade count.
             try:
-                _tx_by_team_season.clear()
+                _addrop_by_team_season.clear()
                 _tr_by_team_season.clear()
                 _faab_by_team_season.clear()
-                for _txr in transactions_rows:
-                    _t = str(_txr.get("Team") or "")
+                _waiver_add_by_ts.clear(); _fa_add_by_ts.clear(); _puredrop_by_ts.clear()
+                _waiver_add_by_tsw.clear(); _fa_add_by_tsw.clear(); _puredrop_by_tsw.clear()
+                for _adr in add_drop_rows:
+                    _t = str(_adr.get("Team") or "")
                     try:
-                        _s = int(_txr.get("Season"))
+                        _s = int(_adr.get("Season"))
                     except (TypeError, ValueError):
                         continue
                     if not _t:
                         continue
-                    _tx_by_team_season[(_t, _s)] += 1
-                    _f = _to_float(_txr.get("Faab"), 0.0) or 0.0
+                    _addrop_by_team_season[(_t, _s)] += 1
+                    _f = _to_float(_adr.get("Faab"), 0.0) or 0.0
                     if _f:
                         _faab_by_team_season[(_t, _s)] += float(_f)
+                    # Add/Drop breakdown. A row is a "pure drop" when it has a
+                    # dropped player and no added player. Otherwise it is an add,
+                    # split by claim type; commissioner adds are counted in none
+                    # of the three buckets (they are neither waiver nor FA).
+                    _ttype = str(_adr.get("type of add/drop (waiver/free agency)") or "")
+                    _added = _adr.get("Player Added")
+                    _has_add = _added is not None and str(_added).strip() not in ("", "nan", "None")
+                    _dropped = _adr.get("Player Dropped")
+                    _has_drop = _dropped is not None and str(_dropped).strip() not in ("", "nan", "None")
+                    _adbucket = None
+                    if not _has_add and _has_drop:
+                        _adbucket = "drop"
+                    elif _has_add and _ttype == "waiver":
+                        _adbucket = "waiver"
+                    elif _has_add and _ttype == "free_agent":
+                        _adbucket = "fa"
+                    if _adbucket is not None:
+                        _w = None
+                        _dday = _league_day(_aware(_adr.get("Date")))
+                        if _dday is not None:
+                            _w = _season_week_of(_dday, _s)
+                        if _adbucket == "waiver":
+                            _waiver_add_by_ts[(_t, _s)] += 1
+                            if _w:
+                                _waiver_add_by_tsw[(_t, _s, int(_w))] += 1
+                        elif _adbucket == "fa":
+                            _fa_add_by_ts[(_t, _s)] += 1
+                            if _w:
+                                _fa_add_by_tsw[(_t, _s, int(_w))] += 1
+                        else:
+                            _puredrop_by_ts[(_t, _s)] += 1
+                            if _w:
+                                _puredrop_by_tsw[(_t, _s, int(_w))] += 1
                 for _trr in trades_rows:
                     _t = str(_trr.get("Team") or "")
                     try:
@@ -8333,7 +8571,8 @@ def build_all(repo_root: Path) -> None:
                     if not _t:
                         continue
                     _tr_by_team_season[(_t, _s)] += 1
-                    _tx_by_team_season[(_t, _s)] += 1
+                    # A trade is not an add/drop: it stays out of the add/drop
+                    # counter and reaches "Total transactions" via the trade tally.
             except Exception as e:
                 _log_exc(debug, "team_tx_counter_rebuild", e)
 
@@ -8347,15 +8586,15 @@ def build_all(repo_root: Path) -> None:
             # correct: offseason has no week.
             try:
                 _synth_wk_credited = 0
-                for _txr in transactions_rows:
-                    if not _txr.get("_synthesized"):
+                for _adr in add_drop_rows:
+                    if not _adr.get("_synthesized"):
                         continue
-                    _t = str(_txr.get("Team") or "")
+                    _t = str(_adr.get("Team") or "")
                     try:
-                        _s = int(_txr.get("Season"))
+                        _s = int(_adr.get("Season"))
                     except (TypeError, ValueError):
                         continue
-                    _day = _league_day(_aware(_txr.get("Date")))
+                    _day = _league_day(_aware(_adr.get("Date")))
                     if not _t or _day is None:
                         continue
                     _wk = _season_week_of(_day, _s)
@@ -8366,8 +8605,8 @@ def build_all(repo_root: Path) -> None:
                     if _hit.empty:
                         continue
                     _i = _hit.index[0]
-                    _cur = pd.to_numeric(tw.at[_i, "Number of transactions"], errors="coerce")
-                    tw.at[_i, "Number of transactions"] = int((0 if pd.isna(_cur) else _cur) + 1)
+                    _cur = pd.to_numeric(tw.at[_i, "Number of Add/Drops"], errors="coerce")
+                    tw.at[_i, "Number of Add/Drops"] = int((0 if pd.isna(_cur) else _cur) + 1)
                     _synth_wk_credited += 1
                 if _synth_wk_credited:
                     _log(debug, f"[{_now_iso()}] INFO credited {_synth_wk_credited} synthesized "
@@ -8391,7 +8630,7 @@ def build_all(repo_root: Path) -> None:
                 # counts, not one numbered and one blank.
                 acq_events2: List[Tuple[str, str, str, Any]] = []
                 drop_events2: List[Tuple[str, str, str, Any]] = []
-                for r in transactions_rows:
+                for r in add_drop_rows:
                     team = r.get("Team")
                     if not team:
                         continue
@@ -8422,7 +8661,7 @@ def build_all(repo_root: Path) -> None:
                     if row is not None:
                         row["Number of times dropped by this team"] = drop_count[(team, player)]
 
-            for r in transactions_rows:
+            for r in add_drop_rows:
                 team = r.get("Team")
                 add = r.get("Player Added")
                 add_date = r.get("Date") or ""
@@ -8468,7 +8707,7 @@ def build_all(repo_root: Path) -> None:
                         (yr, wk, started, _approx_week_date(yr, wk))
                     )
 
-                for r in transactions_rows:
+                for r in add_drop_rows:
                     team = r.get("Team")
                     add = r.get("Player Added")
                     add_date = r.get("Date") or ""
@@ -8570,7 +8809,7 @@ def build_all(repo_root: Path) -> None:
         return (_la / _pa) if (_pa and _la) else 1.0
 
     try:
-        if transactions_rows and not pw.empty:
+        if add_drop_rows and not pw.empty:
             from datetime import date as _date_cls
             # --- precompute per-player game logs across the whole pw ---
             pw_min_p = pw[["Player", "Team", "Year", "Week", "Points",
@@ -8713,7 +8952,7 @@ def build_all(repo_root: Path) -> None:
 
             CUFF_BONUS = 5.0  # PPG-equivalent bonus when player is a cuff at pickup
 
-            for r in transactions_rows:
+            for r in add_drop_rows:
                 team = r.get("Team")
                 added = r.get("Player Added")
                 dropped = r.get("Player Dropped")
@@ -9088,7 +9327,7 @@ def build_all(repo_root: Path) -> None:
             for plabel in (row.get("_drop_picks") or []):
                 if plabel:
                     needed_picks.add(str(plabel))
-        for tx_row in transactions_rows:
+        for tx_row in add_drop_rows:
             sid = tx_row.get("_added_pid")
             if sid:
                 needed_sids.add(str(sid))
@@ -9201,11 +9440,45 @@ def build_all(repo_root: Path) -> None:
                     hits += 1
             return total, hits
 
+        # A traded pick that has already been DRAFTED becomes the drafted player:
+        # once its draft has happened, value the pick by that PLAYER's KTC. This
+        # is the fallback used when a pick's own slot value is unavailable at a
+        # checkpoint (e.g. the 2020 startup picks, before KTC's pre-2021 history)
+        # — the drafted players (Golladay, Robinson, Henry, …) DO have KTC at the
+        # later checkpoints, so the deal gets a real KTC diff (and O-Score).
+        _pick_drafted_ktc: Dict[Tuple[int, int, str], Tuple[Optional[str], date]] = {}
+        try:
+            for _pr in pick_rows:
+                _ym2 = re.match(r"\s*(\d{4})", str(_pr.get("Year", "")))
+                _nm2 = re.match(r"\s*(\d+)\.(\d+)", str(_pr.get("Number", "")))
+                _pl2 = str(_pr.get("Player Picked", "")).strip()
+                if not _ym2 or not _nm2 or not _pl2 or _pl2.upper() in ("N/A", "UNKNOWN"):
+                    continue
+                _pid2 = _pr.get("_player_id") or _ktc_name_to_sid.get(_pl2)
+                if not _pid2:
+                    continue
+                _dy2 = int(_ym2.group(1))
+                _k2 = (_dy2, int(_nm2.group(1)), _norm_team_name(_pr.get("Original Team", "")))
+                _pick_drafted_ktc[_k2] = (str(_pid2), date(_dy2, 9, 1))
+        except Exception as e:
+            _log_exc(debug, "pick_drafted_ktc_map", e)
+
+        def _pick_drafted_value(meta, target: date) -> Optional[float]:
+            try:
+                _k = (int(meta[0]), int(meta[1]), _norm_team_name(str(meta[2])))
+            except Exception:
+                return None
+            _d = _pick_drafted_ktc.get(_k)
+            if not _d or not _d[0] or target < _d[1]:
+                return None
+            return asset_value_at(None, _d[0], target, idx)
+
         def _side_values(
             target: date,
             player_ids: List[str],
             pick_labels: List[str],
             faab: float = 0.0,
+            pick_metas: Optional[List[Any]] = None,
         ) -> List[float]:
             """Per-asset KTC values on one side (for the package-tax diff). FAAB
             dollars are valued at the league-wide avg KTC-per-$ (Fix 3).
@@ -9225,8 +9498,11 @@ def build_all(repo_root: Path) -> None:
                 v = asset_value_at(None, str(sid), target, idx)
                 if v is not None:
                     out.append(float(v))
-            for plabel in pick_labels:
+            for _pi, plabel in enumerate(pick_labels):
                 v = asset_value_at(str(plabel), None, target, idx)
+                if v is None and pick_metas is not None and _pi < len(pick_metas):
+                    # Pick slot unpriceable here -> value the drafted player.
+                    v = _pick_drafted_value(pick_metas[_pi], target)
                 if v is not None:
                     out.append(float(v))
             if faab and faab > 0 and _ktc_per_faab > 0:
@@ -9310,11 +9586,13 @@ def build_all(repo_root: Path) -> None:
             drop_picks: List[str],
             recv_faab: float = 0.0,
             drop_faab: float = 0.0,
+            recv_pick_metas: Optional[List[Any]] = None,
+            drop_pick_metas: Optional[List[Any]] = None,
         ) -> Optional[float]:
             if target > today:
                 return None
-            recv_vals = _side_values(target, recv_ids, recv_picks, recv_faab)
-            sent_vals = _side_values(target, drop_ids, drop_picks, drop_faab)
+            recv_vals = _side_values(target, recv_ids, recv_picks, recv_faab, recv_pick_metas)
+            sent_vals = _side_values(target, drop_ids, drop_picks, drop_faab, drop_pick_metas)
             # An EMPTY side is not the same as an UNVALUED one. A side that
             # carried no assets at all (a pure FAAB gift, or a one-way move where
             # the counterparty row holds the other half) is genuinely worth 0 and
@@ -9357,16 +9635,24 @@ def build_all(repo_root: Path) -> None:
             # Value each traded pick under the future-pick rule (round average if
             # traded before its determining season, else its actual resolved slot).
             # _recv_picks/_recv_pick_meta are parallel; meta carries (year,round,orig).
-            recv_picks = [p for p in (_pick_val_label(m, trade_date)
-                                      for m in (row.get("_recv_pick_meta") or [])) if p]
-            drop_picks = [p for p in (_pick_val_label(m, trade_date)
-                                      for m in (row.get("_drop_pick_meta") or [])) if p]
+            # Keep the pick LABELS and their METAS parallel — the meta lets a
+            # drafted pick fall back to its player's KTC when the slot value is
+            # unavailable (2020 startup).
+            _recv_pl = [(m, _pick_val_label(m, trade_date)) for m in (row.get("_recv_pick_meta") or [])]
+            _recv_pl = [(m, lbl) for (m, lbl) in _recv_pl if lbl]
+            recv_picks = [lbl for (m, lbl) in _recv_pl]
+            recv_pick_metas = [m for (m, lbl) in _recv_pl]
+            _drop_pl = [(m, _pick_val_label(m, trade_date)) for m in (row.get("_drop_pick_meta") or [])]
+            _drop_pl = [(m, lbl) for (m, lbl) in _drop_pl if lbl]
+            drop_picks = [lbl for (m, lbl) in _drop_pl]
+            drop_pick_metas = [m for (m, lbl) in _drop_pl]
             recv_faab = float(row.get("_recv_faab") or 0.0)
             drop_faab = float(row.get("_drop_faab") or 0.0)
 
             # Deal time
             if trade_date <= today:
-                diff = _diff_at(trade_date, recv_ids, drop_ids, recv_picks, drop_picks, recv_faab, drop_faab)
+                diff = _diff_at(trade_date, recv_ids, drop_ids, recv_picks, drop_picks, recv_faab, drop_faab,
+                                recv_pick_metas, drop_pick_metas)
                 if diff is not None:
                     row["KTC value difference at deal time"] = diff
 
@@ -9429,7 +9715,8 @@ def build_all(repo_root: Path) -> None:
                 # than the trade itself doesn't make sense.
                 if ref_date < trade_date:
                     ref_date = trade_date
-                diff = _diff_at(ref_date, recv_ids, drop_ids, recv_picks, drop_picks, recv_faab, drop_faab)
+                diff = _diff_at(ref_date, recv_ids, drop_ids, recv_picks, drop_picks, recv_faab, drop_faab,
+                                recv_pick_metas, drop_pick_metas)
                 if diff is not None:
                     row[col_name] = diff
 
@@ -9457,7 +9744,7 @@ def build_all(repo_root: Path) -> None:
             ("1 year later",     "y1"),
             ("2 years later",    "y2"),
         ]
-        for tx_row in transactions_rows:
+        for tx_row in add_drop_rows:
             ds = tx_row.get("Date")
             if not ds:
                 continue
@@ -9533,7 +9820,7 @@ def build_all(repo_root: Path) -> None:
     except Exception as e:
         _log_exc(debug, "ktc_provenance", e)
 
-    tx = pd.DataFrame(transactions_rows)
+    add_drops_df = pd.DataFrame(add_drop_rows)
     tr = pd.DataFrame(trades_rows)
     ph = pd.DataFrame(pick_rows)
 
@@ -9691,7 +9978,7 @@ def build_all(repo_root: Path) -> None:
         # called them 'retained'. Now they go into a new 'Assets
         # dropped to FA' bucket and the chain terminates there.
         team_fa_drops: Dict[Tuple[str, str], List[str]] = defaultdict(list)
-        for r in transactions_rows:
+        for r in add_drop_rows:
             team_t = str(r.get("Team") or "")
             sid_d = r.get("_dropped_pid")
             if not team_t or not sid_d:
@@ -9714,6 +10001,17 @@ def build_all(repo_root: Path) -> None:
                 if d > after:
                     return d
             return None
+
+        def _pick_tenure_end(team: str, pid: str, after: str) -> Optional[str]:
+            """When a drafted player LEAVES the drafting team — the earlier of the
+            next trade away and the next free-agency drop. Closing the tenure only
+            on trades (the old behaviour) let a drafted-then-DROPPED player's later
+            stints on the same team merge into one open tenure. Matches the
+            departure detection used by add_drops / player_additions."""
+            _t = _next_out_player(team, str(pid), after)
+            _cands = [d for d in ((_t["date"] if _t else None),
+                                  _next_fa_drop_player(team, str(pid), after)) if d]
+            return min(_cands) if _cands else None
 
         def _next_out_pick(team: str, pmeta: Tuple[int, int, str], after: str) -> Optional[Dict[str, Any]]:
             for e in team_pick_events.get((team, tuple(pmeta)), []):
@@ -9755,7 +10053,7 @@ def build_all(repo_root: Path) -> None:
         # referenced pids first, then fall back to the rest of pid_meta.
         _league_pids: List[str] = []
         try:
-            for _lr in transactions_rows:
+            for _lr in add_drop_rows:
                 for _lk in ("_added_pid", "_dropped_pid"):
                     if _lr.get(_lk):
                         _league_pids.append(str(_lr.get(_lk)))
@@ -9842,8 +10140,7 @@ def build_all(repo_root: Path) -> None:
                     _sid = _pr.get("_player_id") or name_to_sid_local2.get(_ply)
                     if _ft and _ym and _sid:
                         _draft_iso = _draft_anchor_iso(int(_ym.group(1)))
-                        _nx = _next_out_player(_ft, _sid, _draft_iso)
-                        _end_iso = (_nx["date"][:10] if _nx else _today_iso)
+                        _end_iso = (_pick_tenure_end(_ft, _sid, _draft_iso) or _today_iso)[:10]
                         try:
                             _d0 = datetime.fromisoformat(_draft_iso).date()
                             _d1 = datetime.fromisoformat(_end_iso).date()
@@ -9930,7 +10227,7 @@ def build_all(repo_root: Path) -> None:
                     _yi, _wi = int(_y), int(_w)
                 except Exception:
                     continue
-                _wkd = _week_thursday(_yi, _wi).isoformat()
+                _wkd = _last_game_date(_yi, _wi) or _week_thursday(_yi, _wi).isoformat()
                 _started_idx[(str(_t), str(_p))].append((_yi, _wi, float(_pt or 0.0), _wkd))
 
         # (fantasy team, player name) -> sorted wk_dates the player was ROSTERED
@@ -9947,7 +10244,7 @@ def build_all(repo_root: Path) -> None:
                     _yi, _wi = int(_y), int(_w)
                 except Exception:
                     continue
-                _wkd = _week_thursday(_yi, _wi).isoformat()
+                _wkd = _last_game_date(_yi, _wi) or _week_thursday(_yi, _wi).isoformat()
                 _pw_rostered_idx[(str(_t), str(_p))].append(_wkd)
 
         # 2020 was the ESPN season — nflverse's 2020 weekly log is generic PPR and
@@ -9977,7 +10274,7 @@ def build_all(repo_root: Path) -> None:
                     continue  # NFL bye / no game that week
                 if _ptf == 0.0 and (str(_in) == "True" or str(_su) == "True"):
                     continue  # scoreless injury/suspension DNP -> not a game played
-                _wkd = _week_thursday(_yi, _wi).isoformat()
+                _wkd = _last_game_date(_yi, _wi) or _week_thursday(_yi, _wi).isoformat()
                 _pw_played_idx[(str(_t), str(_p))].append((_yi, _wi, _ptf, _wkd))
 
         # ---- Item 7E indexes (V2 Trade addition value: leverage + cuff) ----
@@ -10001,7 +10298,7 @@ def build_all(repo_root: Path) -> None:
                     _yi, _wi = int(_y), int(_w)
                 except Exception:
                     continue
-                _wkd = _week_thursday(_yi, _wi).isoformat()
+                _wkd = _last_game_date(_yi, _wi) or _week_thursday(_yi, _wi).isoformat()
                 _is_starter = str(_sb) == "Starter"
                 _inj_free = (not bool(_inj)) and (not bool(_bye))
                 _nflt = str(_nt or "")
@@ -10144,8 +10441,7 @@ def build_all(repo_root: Path) -> None:
                         continue  # PPG stays N/A (no data), points stay 0
                     _sid = str(_sid)
                     _draft_iso = _draft_anchor_iso(int(_ym.group(1)))
-                    _nx = _next_out_player(_ft, _sid, _draft_iso)
-                    _end_iso = (_nx["date"][:10] if _nx else _today_iso2)
+                    _end_iso = (_pick_tenure_end(_ft, _sid, _draft_iso) or _today_iso2)[:10]
                     _pos = ((pid_meta.get(_sid) or {}).get("pos") or "").upper() or None
                     _fac = _pos_factor(int(_ym.group(1)), _pos)
                     _all_games = [
@@ -10359,8 +10655,7 @@ def build_all(repo_root: Path) -> None:
                         except Exception:
                             pass
                     # Post-draft tenure window + per-week roster/start stats.
-                    _nx = _next_out_player(_ft, _sid, _draft_iso)
-                    _end_iso = (_nx["date"][:10] if _nx else _today_iso3)
+                    _end_iso = (_pick_tenure_end(_ft, _sid, _draft_iso) or _today_iso3)[:10]
                     _ents = [
                         _e for _e in _pwfull_idx.get((_ft, _ply), [])
                         if _e["wkd"] >= _draft_iso and (not _end_iso or _e["wkd"] < _end_iso)
@@ -12894,7 +13189,7 @@ def build_all(repo_root: Path) -> None:
                 # SKIPS playoff weeks rather than holding a value through them,
                 # so the terminal encoding lists each run exactly once.)
 
-                _ntx = pd.to_numeric(pd.Series([row.get("Number of transactions")]), errors="coerce").iloc[0]
+                _ntx = pd.to_numeric(pd.Series([row.get("Number of Add/Drops")]), errors="coerce").iloc[0]
                 _ntr = pd.to_numeric(pd.Series([row.get("Number of trades")]), errors="coerce").iloc[0]
                 _moves = (0 if pd.isna(_ntx) else float(_ntx)) + (0 if pd.isna(_ntr) else float(_ntr))
                 _quiet = (_quiet + 1) if (_played and _moves == 0) else 0
@@ -13047,7 +13342,7 @@ def build_all(repo_root: Path) -> None:
     player_tenures: Dict[str, List[Dict[str, Any]]] = {}
     try:
         events: List[Tuple[str, str, str, str]] = []  # (pid, date_iso, team, kind)
-        for _r in transactions_rows:
+        for _r in add_drop_rows:
             _date_s = _r.get("Date")
             if not _date_s:
                 continue
@@ -13833,8 +14128,8 @@ def build_all(repo_root: Path) -> None:
             }
         )
 
-        py["Number of transactions"] = [
-            int(player_tx_year.get((str(player_id), int(year) if pd.notna(year) else None), 0))
+        py["Number of Add/Drops"] = [
+            int(player_addrop_year.get((str(player_id), int(year) if pd.notna(year) else None), 0))
             for player_id, year in py[["Player ID", "Year"]].itertuples(index=False, name=None)
         ]
         py["Number of drops"] = [
@@ -13911,7 +14206,7 @@ def build_all(repo_root: Path) -> None:
         # Concrete case: Tom Brady was dropped to FA in 2023 (a real
         # transactions.csv row) but had no roster appearance, so the
         # pw-derived player_year was missing 2023 Brady — and Brady's
-        # 'Number of transactions' summed across years was 8 vs the
+        # 'Number of Add/Drops' summed across years was 8 vs the
         # 9 in player_all_time. Pad here with skeleton rows.
         try:
             existing = set()
@@ -13951,7 +14246,7 @@ def build_all(repo_root: Path) -> None:
                         (str(date_v or ""), str(team_v))
                     )
 
-            for r in transactions_rows:
+            for r in add_drop_rows:
                 try:
                     season_i = int(r.get("Season")) if r.get("Season") is not None else None
                 except Exception:
@@ -14114,7 +14409,7 @@ def build_all(repo_root: Path) -> None:
                         "Number of teams": len(tenure_team_secs_full) or _tx_nteams,
                         # Counters mirror what the main pw-derived
                         # rows would have gotten from the same dicts.
-                        "Number of transactions": int(player_tx_year.get((str(sid), int(yr)), 0)),
+                        "Number of Add/Drops": int(player_addrop_year.get((str(sid), int(yr)), 0)),
                         "Number of drops": int(player_drop_year.get((str(sid), int(yr)), 0)),
                         "Number of trades": int(player_trade_year.get((str(sid), int(yr)), 0)),
                     })
@@ -14468,8 +14763,8 @@ def build_all(repo_root: Path) -> None:
             }
         )
 
-        pa["Number of transactions"] = [
-            int(player_tx_all.get(str(player_id), 0))
+        pa["Number of Add/Drops"] = [
+            int(player_addrop_all.get(str(player_id), 0))
             for player_id in pa["Player ID"].tolist()
         ]
         pa["Number of drops"] = [
@@ -14495,7 +14790,7 @@ def build_all(repo_root: Path) -> None:
                 existing_pa = {str(p) for p in player_all["Player ID"].astype(str).tolist()}
 
             tx_sids: Set[str] = set()
-            for r in transactions_rows:
+            for r in add_drop_rows:
                 for fld in ("_added_pid", "_dropped_pid"):
                     sid = r.get(fld)
                     if sid:
@@ -14563,7 +14858,7 @@ def build_all(repo_root: Path) -> None:
                         "Top team": top_team_pad,
                         "Last team": last_team_pad,
                         "Number of teams": len(tenure_team_secs),
-                        "Number of transactions": int(player_tx_all.get(str(sid), 0)),
+                        "Number of Add/Drops": int(player_addrop_all.get(str(sid), 0)),
                         "Number of drops": int(player_drop_all.get(str(sid), 0)),
                         "Number of trades": int(player_trade_all.get(str(sid), 0)),
                         "Taxi-eligible": _pad_taxi,
@@ -15244,7 +15539,7 @@ def build_all(repo_root: Path) -> None:
                 # made after the championship under the season that had just
                 # finished — team_week has no bucket for it, because in the
                 # season it belongs to it is offseason and has no week.
-                "Number of transactions": int(_tx_by_team_season.get((str(team), int(yr)), 0)),
+                "Number of Add/Drops": int(_addrop_by_team_season.get((str(team), int(yr)), 0)),
                 "Number of trades": int(_tr_by_team_season.get((str(team), int(yr)), 0)),
                 "Amount of FAAB spent": (
                     round(float(_faab_by_team_season.get((str(team), int(yr)), 0.0)), 2)
@@ -15332,11 +15627,11 @@ def build_all(repo_root: Path) -> None:
                             "Hardship": None,
                             "Offseason starter turnover": 0,
                             "Inseason starter turnover": 0,
-                            # Number of transactions / trades / FAAB
+                            # Number of Add/Drops / trades / FAAB
                             # spent will be backfilled from the detail
                             # tables by the post-build reconciliation
                             # step we already run for completed seasons.
-                            "Number of transactions": 0,
+                            "Number of Add/Drops": 0,
                             "Number of trades": 0,
                             "Amount of FAAB spent": 0.0,
                             "Combined matchup score": None,
@@ -15350,9 +15645,9 @@ def build_all(repo_root: Path) -> None:
                     # Without this they'd stay at 0 even though we have
                     # real offseason activity (drafts, FA pickups,
                     # trades) for the in-progress season.
-                    tx_count_ip: Dict[Tuple[str, int], int] = defaultdict(int)
-                    tx_faab_ip: Dict[Tuple[str, int], float] = defaultdict(float)
-                    for r in transactions_rows:
+                    add_drop_count_ip: Dict[Tuple[str, int], int] = defaultdict(int)
+                    add_drop_faab_ip: Dict[Tuple[str, int], float] = defaultdict(float)
+                    for r in add_drop_rows:
                         try:
                             t = str(r.get("Team") or "")
                             s = int(r.get("Season")) if r.get("Season") is not None else None
@@ -15360,12 +15655,12 @@ def build_all(repo_root: Path) -> None:
                             continue
                         if not t or s is None or s not in in_progress:
                             continue
-                        tx_count_ip[(t, s)] += 1
+                        add_drop_count_ip[(t, s)] += 1
                         try:
                             f = float(r.get("Faab") or 0.0)
                         except Exception:
                             f = 0.0
-                        tx_faab_ip[(t, s)] += f
+                        add_drop_faab_ip[(t, s)] += f
                     tr_count_ip: Dict[Tuple[str, int], int] = defaultdict(int)
                     for r in trades_rows:
                         try:
@@ -15376,8 +15671,10 @@ def build_all(repo_root: Path) -> None:
                         if not t or s is None or s not in in_progress:
                             continue
                         tr_count_ip[(t, s)] += 1
-                    # Trades are counted by both Number of trades and
-                    # Number of transactions in our schema.
+                    # A trade is NOT an add/drop: "Number of Add/Drops" counts
+                    # only the detail add/drop rows; trades reach the combined
+                    # "Total transactions" column (derived later) via the trade
+                    # tally.
                     for idx, row in team_year.iterrows():
                         try:
                             s = int(row.get("Year"))
@@ -15386,11 +15683,11 @@ def build_all(repo_root: Path) -> None:
                             continue
                         if s not in in_progress:
                             continue
-                        n_tx = tx_count_ip.get((t, s), 0)
+                        n_tx = add_drop_count_ip.get((t, s), 0)
                         n_tr = tr_count_ip.get((t, s), 0)
-                        team_year.at[idx, "Number of transactions"] = int(n_tx + n_tr)
+                        team_year.at[idx, "Number of Add/Drops"] = int(n_tx)
                         team_year.at[idx, "Number of trades"] = int(n_tr)
-                        team_year.at[idx, "Amount of FAAB spent"] = round(tx_faab_ip.get((t, s), 0.0), 2)
+                        team_year.at[idx, "Amount of FAAB spent"] = round(add_drop_faab_ip.get((t, s), 0.0), 2)
         except Exception as e:
             _log_exc(debug, "team_year_in_progress_seed", e)
 
@@ -16211,7 +16508,7 @@ def build_all(repo_root: Path) -> None:
                         "Draft Value": ("Draft Value", "sum"),
                         "Number of first round picks made": ("Number of first round picks made", "sum"),
                         "Total number of picks made": ("Total number of picks made", "sum"),
-                        "Number of transactions": ("Number of transactions", "sum"),
+                        "Number of Add/Drops": ("Number of Add/Drops", "sum"),
                         "Offseason trades": ("Offseason trades", "sum"),
                         "Inseason trades": ("Inseason trades", "sum"),
                         "Total trades": ("Total trades", "sum"),
@@ -16272,7 +16569,7 @@ def build_all(repo_root: Path) -> None:
                     continue
             extra_tx_by_team: Dict[str, int] = defaultdict(int)
             extra_faab_by_team: Dict[str, float] = defaultdict(float)
-            for tx_row in transactions_rows:
+            for tx_row in add_drop_rows:
                 try:
                     dt = tx_row.get("Date")
                     if not dt:
@@ -16295,8 +16592,8 @@ def build_all(repo_root: Path) -> None:
                 for idx, row in team_all.iterrows():
                     tm = str(row.get("Team") or "")
                     if tm in extra_tx_by_team:
-                        cur = pd.to_numeric(team_all.at[idx, "Number of transactions"], errors="coerce")
-                        team_all.at[idx, "Number of transactions"] = int((0 if pd.isna(cur) else cur) + extra_tx_by_team[tm])
+                        cur = pd.to_numeric(team_all.at[idx, "Number of Add/Drops"], errors="coerce")
+                        team_all.at[idx, "Number of Add/Drops"] = int((0 if pd.isna(cur) else cur) + extra_tx_by_team[tm])
                     if tm in extra_faab_by_team:
                         cur = pd.to_numeric(team_all.at[idx, "Amount of FAAB spent"], errors="coerce")
                         team_all.at[idx, "Amount of FAAB spent"] = round(float((0 if pd.isna(cur) else cur) + extra_faab_by_team[tm]), 2)
@@ -16744,7 +17041,7 @@ def build_all(repo_root: Path) -> None:
                 "Number of WR rostered": int(pd.to_numeric(g.get("Number of WR rostered"), errors="coerce").fillna(0.0).sum()),
                 "Number of RB rostered": int(pd.to_numeric(g.get("Number of RB rostered"), errors="coerce").fillna(0.0).sum()),
                 "Number of TE rostered": int(pd.to_numeric(g.get("Number of TE rostered"), errors="coerce").fillna(0.0).sum()),
-                "Number of transactions": int(pd.to_numeric(g.get("Number of transactions"), errors="coerce").fillna(0.0).sum()),
+                "Number of Add/Drops": int(pd.to_numeric(g.get("Number of Add/Drops"), errors="coerce").fillna(0.0).sum()),
                 # Distinct trade events this week (Phase 5B item 1), not the
                 # per-team sum.
                 "Number of trades": int(len(_trade_dates_by_yw.get((int(yr), int(wk)), set()))),
@@ -16957,7 +17254,7 @@ def build_all(repo_root: Path) -> None:
                         "Inseason starter turnover": ("Inseason starter turnover", "sum"),
                         "Offseason roster turnover": ("Offseason roster turnover", "sum"),
                         "Inseason roster turnover": ("Inseason roster turnover", "sum"),
-                        "_ty_tx": ("Number of transactions", "sum"),
+                        "_ty_tx": ("Number of Add/Drops", "sum"),
                         "_ty_tr": ("Number of trades", "sum"),
                     }
                 )
@@ -16970,10 +17267,10 @@ def build_all(repo_root: Path) -> None:
                     ],
                     errors="ignore",
                 ).merge(ty_agg, on="Year", how="left")
-                # Number of transactions / trades roll up from team_year too —
+                # Number of Add/Drops / trades roll up from team_year too —
                 # league_year had these at 0 before despite team_year being correct.
                 if "_ty_tx" in league_year.columns:
-                    league_year["Number of transactions"] = pd.to_numeric(league_year["_ty_tx"], errors="coerce").fillna(0).astype(int)
+                    league_year["Number of Add/Drops"] = pd.to_numeric(league_year["_ty_tx"], errors="coerce").fillna(0).astype(int)
                 if "_ty_tr" in league_year.columns:
                     league_year["Number of trades"] = pd.to_numeric(league_year["_ty_tr"], errors="coerce").fillna(0).astype(int)
                 league_year.drop(columns=["_ty_tx", "_ty_tr"], inplace=True, errors="ignore")
@@ -17069,7 +17366,7 @@ def build_all(repo_root: Path) -> None:
             # offseason, which has no week to sit in; summing the season
             # counters directly would instead skip the in-progress season,
             # whose team_year row is seeded from the detail tables.
-            "Number of transactions": int(_ty_total("Number of transactions")),
+            "Number of Add/Drops": int(_ty_total("Number of Add/Drops")),
             "Number of trades": int(_ty_total("Number of trades")),
             "Amount of FAAB spent": round(_ty_total("Amount of FAAB spent"), 2),
             "Most number of players started from same NFL team": float(pd.to_numeric(g_week.get("Most number of players started from same NFL team"), errors="coerce").fillna(0.0).max()),
@@ -17369,6 +17666,37 @@ def build_all(repo_root: Path) -> None:
     except Exception as e:
         _log_exc(debug, "tanking_delta_maps", e)
 
+    # Offseason / in-progress fallback: a season that has NO played weeks yet
+    # (e.g. the current 2026 offseason) contributes no team_week rows, so its
+    # roster age (A) / entity count (N) are missing and every 2026 add or draft
+    # pick would score 0. Compute "Team age including picks" straight from the
+    # season's Sleeper roster snapshot (players' ages at ~Sept 1 + future picks
+    # held) and seed it at a synthetic week 0, so the delta is non-zero there too.
+    try:
+        _seasons_with_weeks = {s for (_t, s, _w) in _TANK_A}
+        _fallback_A: Dict[int, List[float]] = defaultdict(list)
+        for (_tm, _sea), _pids in _roster_players_by_ts.items():
+            if _sea in _seasons_with_weeks:
+                continue  # real weekly ages already exist for this season
+            _ref = date(int(_sea), 9, 1)
+            _rages = [a for a in (_calc_age((pid_meta.get(str(p)) or {}).get("birth_date"), _ref)
+                                  for p in _pids) if a is not None]
+            try:
+                _pk_ages = _picks_held_by_team_at(_tm, int(_sea), _ref)
+            except Exception:
+                _pk_ages = []
+            _combined = _rages + list(_pk_ages)
+            if _combined:
+                _A0 = sum(_combined) / len(_combined)
+                _TANK_A[(str(_tm), int(_sea), 0)] = float(_A0)
+                _TANK_N[(str(_tm), int(_sea), 0)] = float(len(_combined))
+                _fallback_A[int(_sea)].append(_A0)
+        for _sea, _vals in _fallback_A.items():
+            if _sea not in _TANK_LAGE and _vals:
+                _TANK_LAGE[int(_sea)] = float(sum(_vals) / len(_vals))
+    except Exception as e:
+        _log_exc(debug, "tanking_offseason_age_fallback", e)
+
     def _tanking_delta_row(team, season_i, wk_i, recv_sum, recv_n, sent_sum, sent_n, fcap_delta) -> float:
         """Marginal ΔTanking for one transaction/trade (see block header)."""
         try:
@@ -17397,7 +17725,7 @@ def build_all(repo_root: Path) -> None:
 
     try:
         # normalize date
-        if not tx.empty and "Date" in tx.columns:
+        if not add_drops_df.empty and "Date" in add_drops_df.columns:
             # format='ISO8601' parses each value independently against
             # any ISO-8601 variant rather than inferring one format
             # across the column. Without it, pandas locks onto the
@@ -17405,7 +17733,7 @@ def build_all(repo_root: Path) -> None:
             # space-separated form) and silently coerces any other
             # ISO variant to NaT — which dropped the manual Puka row
             # whose Date was the cleaner 'YYYY-MM-DDTHH:MM:SS+ZZ:ZZ'.
-            tx["Date"] = pd.to_datetime(tx["Date"], errors="coerce", utc=True, format="ISO8601")
+            add_drops_df["Date"] = pd.to_datetime(add_drops_df["Date"], errors="coerce", utc=True, format="ISO8601")
             # Drop rows that couldn't be anchored to a real timestamp. The
             # orphan-drop guard in the source loop only catches the case
             # where both created_dt and created_date are None; values that
@@ -17413,7 +17741,7 @@ def build_all(repo_root: Path) -> None:
             # epochs) still produce NaT here. Those rows can't be ordered
             # for link-prev/next or year-tanking joins, and would otherwise
             # land in transactions.csv with Date='N/A'.
-            tx = tx[tx["Date"].notna()].reset_index(drop=True)
+            add_drops_df = add_drops_df[add_drops_df["Date"].notna()].reset_index(drop=True)
             # Determinism: many rows share an identical (Team, Date) — most
             # notably the season-end orphan-drop synthesis, which stamps a whole
             # per-team batch with one "YYYY-08-23 20:00:00" instant. pandas
@@ -17425,7 +17753,7 @@ def build_all(repo_root: Path) -> None:
             # (Player Added, Player Dropped) — unique within a (Team, Date)
             # group, the same identity the upstream dedup treats as unique — so
             # the final order, and thus every "#N" ref, is fully deterministic.
-            tx = tx.sort_values(
+            add_drops_df = add_drops_df.sort_values(
                 ["Team", "Date", "Player Added", "Player Dropped"],
                 kind="stable", na_position="first",
             ).reset_index(drop=True)
@@ -17434,9 +17762,9 @@ def build_all(repo_root: Path) -> None:
             # 'Link to next' on the last row of each team is NaN, otherwise
             # points at row N+1. The previous formula used shift(-1)+2 which
             # was off-by-one (row 1 got linked to row 3 instead of row 2).
-            tx["Link to previous transaction"] = tx.groupby("Team").cumcount().replace(0, np.nan)
-            tx["Link to next transaction"] = tx.groupby("Team").cumcount() + 2
-            tx.loc[tx.groupby("Team").tail(1).index, "Link to next transaction"] = np.nan
+            add_drops_df["Link to previous transaction"] = add_drops_df.groupby("Team").cumcount().replace(0, np.nan)
+            add_drops_df["Link to next transaction"] = add_drops_df.groupby("Team").cumcount() + 2
+            add_drops_df.loc[add_drops_df.groupby("Team").tail(1).index, "Link to next transaction"] = np.nan
 
             # Tanking (Phase 6E) — marginal ΔTanking from THIS transaction,
             # holding all else constant (see the tanking-delta block header).
@@ -17445,7 +17773,7 @@ def build_all(repo_root: Path) -> None:
             # entity count (N). Week derived from Date: NFL Week 1 ~Sept 7,
             # week N starts 7*(N-1) days later; pre-Wk1 floors to 1, post-Wk17
             # caps at 17.
-            if not tw.empty and "Season" in tx.columns:
+            if not tw.empty and "Season" in add_drops_df.columns:
                 def _week_for_tx(dt_obj, season_val) -> int:
                     try:
                         d = dt_obj.date() if hasattr(dt_obj, "date") else dt_obj
@@ -17456,13 +17784,13 @@ def build_all(repo_root: Path) -> None:
                         return 1
 
                 def _tcol(name):
-                    return (pd.to_numeric(tx[name], errors="coerce").fillna(0.0)
-                            if name in tx.columns else pd.Series(0.0, index=tx.index))
+                    return (pd.to_numeric(add_drops_df[name], errors="coerce").fillna(0.0)
+                            if name in add_drops_df.columns else pd.Series(0.0, index=add_drops_df.index))
                 _rs = _tcol("_tank_recv_age_sum"); _rn = _tcol("_tank_recv_n")
                 _ss = _tcol("_tank_sent_age_sum"); _sn = _tcol("_tank_sent_n")
                 _fc = _tcol("_tank_fcap_delta")
                 vals: List[float] = []
-                for i, (t, s, d) in enumerate(zip(tx["Team"], tx["Season"], tx["Date"])):
+                for i, (t, s, d) in enumerate(zip(add_drops_df["Team"], add_drops_df["Season"], add_drops_df["Date"])):
                     try:
                         season_i = int(s)
                     except Exception:
@@ -17472,10 +17800,10 @@ def build_all(repo_root: Path) -> None:
                         t, season_i, wk_i,
                         _rs.iloc[i], _rn.iloc[i], _ss.iloc[i], _sn.iloc[i], _fc.iloc[i],
                     ))
-                tx["Tanking"] = vals
+                add_drops_df["Tanking"] = vals
         else:
-            if "Tanking" in tx.columns:
-                tx["Tanking"] = pd.to_numeric(tx["Tanking"], errors="coerce").fillna(0.0)
+            if "Tanking" in add_drops_df.columns:
+                add_drops_df["Tanking"] = pd.to_numeric(add_drops_df["Tanking"], errors="coerce").fillna(0.0)
     except Exception as e:
         _log_exc(debug, "transactions_links_tanking", e)
 
@@ -17531,13 +17859,60 @@ def build_all(repo_root: Path) -> None:
     except Exception as e:
         _log_exc(debug, "trades_links_tanking", e)
 
+    # Picks: marginal ΔTanking from DRAFTING the player. Per league, draft
+    # capital is treated as RESETTING at the draft (the future picks that fed it
+    # come in, the pick itself is spent), so the future-capital term is 0 and the
+    # change comes entirely from AGE — adding a young rookie pulls the roster's
+    # "age including picks" down, which reads as (positive) tanking. Same age
+    # formula as add_drops/trades; surfaced on picks and player_additions' draft
+    # rows so all channels use one method.
+    try:
+        if isinstance(ph, pd.DataFrame) and not ph.empty and \
+                {"Year", "Final Team", "Player Picked"}.issubset(ph.columns):
+            _pk_tank_vals: List[Any] = []
+            for _i in ph.index:
+                _pl = str(ph.at[_i, "Player Picked"] or "").strip()
+                _ft = str(ph.at[_i, "Final Team"] or "").strip()
+                if not _ft or not _pl or _pl.upper() in ("N/A", "UNKNOWN", ""):
+                    _pk_tank_vals.append(None); continue
+                _ym = re.match(r"\s*(\d{4})", str(ph.at[_i, "Year"] or ""))
+                if _ym:
+                    _sea = int(_ym.group(1))
+                elif "startup" in str(ph.at[_i, "Year"] or "").lower():
+                    _sea = min({s for (_t, s) in _roster_players_by_ts} | {2020})
+                else:
+                    _pk_tank_vals.append(None); continue
+                _pid = ph.at[_i, "_player_id"] if "_player_id" in ph.columns else None
+                # Rookie's age at ~Sept 1 of the draft year (same reference the
+                # offseason roster-age fallback uses).
+                _dref = date(int(_sea), 9, 1)
+                _age = _calc_age((pid_meta.get(str(_pid)) or {}).get("birth_date"), _dref) if _pid else None
+                if _age is None:
+                    _pk_tank_vals.append(0.0); continue
+                # The team's roster age (A) INCLUDES the just-drafted rookie, so
+                # the marginal effect of drafting THEM is A vs A-without-the-rookie
+                # (removing the rookie raises the age; adding a young one lowers it
+                # => positive tanking). Draft-capital term is 0 (it reset at the
+                # draft), so this is the age term alone: (1/6)·(A_pre − A)/(L−21).
+                _A = _TANK_A.get((_ft, int(_sea), 1), _TANK_A.get((_ft, int(_sea), 0)))
+                _N = _TANK_N.get((_ft, int(_sea), 1), _TANK_N.get((_ft, int(_sea), 0)))
+                _L = _TANK_LAGE.get(int(_sea))
+                _tk = 0.0
+                if _A is not None and _N is not None and _N > 1 and _L is not None and abs(_L - 21.0) > 1e-9:
+                    _A_pre = (float(_N) * float(_A) - float(_age)) / (float(_N) - 1.0)
+                    _tk = round((1.0 / 6.0) * (_A_pre - float(_A)) / (float(_L) - 21.0), 4)
+                _pk_tank_vals.append(_tk)
+            ph["Tanking"] = _pk_tank_vals
+    except Exception as e:
+        _log_exc(debug, "picks_tanking", e)
+
     # Player-chain links (Phase 6D): split the transaction links into chains
     # that follow the ADDED player and the DROPPED player across every later /
     # earlier event involving them — transactions AND trades. References are
     # "#N" = transactions.csv row N, "T#N" = trades.csv row N (1-indexed, final
     # sorted order). Both tx and tr are fully sorted/indexed by this point.
     try:
-        if not tx.empty:
+        if not add_drops_df.empty:
             # A real player name — excludes blanks and every "absent" sentinel
             # the data uses. Critically, pure-drop rows carry Player Added as
             # NaN/None (rendered "N/A" only at write time), so str() yields
@@ -17553,9 +17928,9 @@ def build_all(repo_root: Path) -> None:
                 return _real_player(_a) and not re.match(r"^\d{4}\b", _s) and not _s.endswith("FAAB")
 
             chains: Dict[str, List[Tuple[Any, str]]] = defaultdict(list)
-            for _i in tx.index:
-                _ref = f"#{int(_i) + 1}"; _d = tx.at[_i, "Date"]
-                _add = str(tx.at[_i, "Player Added"]).strip(); _drop = str(tx.at[_i, "Player Dropped"]).strip()
+            for _i in add_drops_df.index:
+                _ref = f"#{int(_i) + 1}"; _d = add_drops_df.at[_i, "Date"]
+                _add = str(add_drops_df.at[_i, "Player Added"]).strip(); _drop = str(add_drops_df.at[_i, "Player Dropped"]).strip()
                 if _real_player(_add):
                     chains[_add].append((_d, _ref))
                 if _real_player(_drop):
@@ -17576,7 +17951,7 @@ def build_all(repo_root: Path) -> None:
             # _tx_id. A player's next/previous link then skips the OTHER rows of
             # the same trade it's already on and lands on the next DISTINCT
             # transaction/trade that involves them.
-            _ref_event: Dict[str, str] = {f"#{int(_i) + 1}": f"X{int(_i) + 1}" for _i in tx.index}
+            _ref_event: Dict[str, str] = {f"#{int(_i) + 1}": f"X{int(_i) + 1}" for _i in add_drops_df.index}
             if not tr.empty and "_tx_id" in tr.columns:
                 for _j in tr.index:
                     _ref_event[f"T#{int(_j) + 1}"] = f"E{tr.at[_j, '_tx_id']}"
@@ -17750,9 +18125,9 @@ def build_all(repo_root: Path) -> None:
                 return _nxt, _prv
 
             a_next, a_prev, d_next, d_prev = [], [], [], []
-            for _i in tx.index:
+            for _i in add_drops_df.index:
                 _ref = f"#{int(_i) + 1}"
-                _add = str(tx.at[_i, "Player Added"]).strip(); _drop = str(tx.at[_i, "Player Dropped"]).strip()
+                _add = str(add_drops_df.at[_i, "Player Added"]).strip(); _drop = str(add_drops_df.at[_i, "Player Dropped"]).strip()
                 if _real_player(_add):
                     _n, _p = _neighbors(_add, _ref); a_next.append(_n); a_prev.append(_p)
                 else:
@@ -17761,10 +18136,10 @@ def build_all(repo_root: Path) -> None:
                     _n, _p = _neighbors(_drop, _ref); d_next.append(_n); d_prev.append(_p)
                 else:
                     d_next.append(None); d_prev.append(None)
-            tx["Link to next transaction (added player)"] = a_next
-            tx["Link to previous transaction (added player)"] = a_prev
-            tx["Link to next transaction (dropped player)"] = d_next
-            tx["Link to previous transaction (dropped player)"] = d_prev
+            add_drops_df["Link to next transaction (added player)"] = a_next
+            add_drops_df["Link to previous transaction (added player)"] = a_prev
+            add_drops_df["Link to next transaction (dropped player)"] = d_next
+            add_drops_df["Link to previous transaction (dropped player)"] = d_prev
 
             # Per-asset trade links (Phase 7B + pick chains): for each asset
             # RECEIVED in a trade, follow it to its next / previous event as a
@@ -17902,7 +18277,7 @@ def build_all(repo_root: Path) -> None:
 
         # Per-player events (full detail), by Sleeper player_id, keyed by sort_ts.
         _pl_events: Dict[str, List[Tuple[str, str]]] = defaultdict(list)
-        for _tx in transactions_rows:
+        for _tx in add_drop_rows:
             _tm = _cl(_tx.get("Team")); _d = _hd(_tx.get("Date")); _ts = _hts(_tx.get("Date"))
             _added = _cl(_tx.get("Player Added")); _dropped = _cl(_tx.get("Player Dropped"))
             _faab = _cl(_tx.get("Faab"))
@@ -18237,6 +18612,109 @@ def build_all(repo_root: Path) -> None:
     # by Team+Date upstream so the within-team row-index links remain
     # valid; pick_history uses its custom Year/Number ordering).
 
+    # ==================================================================
+    # (season, week) last-game boundaries (_last_game_date) are defined once,
+    # right after the schedule loads, and shared by picks / add_drops /
+    # player_additions so all three window a tenure identically. Below we build
+    # the FINAL-player_week tenure index and _tenure_stats over those boundaries.
+    # ==================================================================
+
+    # (team, player) -> its FINAL player_week weeks, each tagged with the date of
+    # that week's last game. Built once and shared.
+    _pw_ten: Dict[Tuple[str, str], List[Dict[str, Any]]] = defaultdict(list)
+    try:
+        if isinstance(pw, pd.DataFrame) and not pw.empty and \
+                {"Team", "Player", "Year", "Week", "Points", "Starter/Bench"}.issubset(pw.columns):
+            _hv = [c for c in ("Team", "Player", "Year", "Week", "Points",
+                               "Starter/Bench", "Position", "Injury?", "Bye?") if c in pw.columns]
+            for _row in pw[_hv].itertuples(index=False, name=None):
+                _r = dict(zip(_hv, _row))
+                _ed = _last_game_date(_r.get("Year"), _r.get("Week"))
+                if not _ed:
+                    continue
+                try:
+                    _pts = float(_r.get("Points")) if _r.get("Points") not in (None, "") else 0.0
+                except Exception:
+                    _pts = 0.0
+                _pw_ten[(str(_r.get("Team")), str(_r.get("Player")))].append({
+                    "ed": _ed,
+                    "starter": str(_r.get("Starter/Bench")).strip().lower() == "starter",
+                    "inj": str(_r.get("Injury?")).strip().lower() in ("true", "1", "yes"),
+                    "bye": str(_r.get("Bye?")).strip().lower() in ("true", "1", "yes"),
+                    "pts": _pts,
+                    "pos": str(_r.get("Position") or "").upper(),
+                })
+            for _k in _pw_ten:
+                _pw_ten[_k].sort(key=lambda e: e["ed"])
+    except Exception as e:
+        _log_exc(debug, "pw_tenure_index", e)
+
+    def _tenure_stats(_team: Any, _name: Any, _pickup: Any, _drop: Any) -> Dict[str, Any]:
+        """Tenure-limited aggregates from the FINAL player_week: the weeks whose
+        LAST GAME falls in [pickup, drop). Dates compared day-granular, which is
+        tz-robust (the boundary is Sun/Mon, never the same day as a Thu pickup)."""
+        out = {"weeks": 0, "starts": 0, "inj_weeks": 0, "inj_starts": 0,
+               "points_started": 0.0, "sum_pts": 0.0, "first_start_ed": None,
+               "weeks_before_start": None, "pos": ""}
+        _pk = str(_pickup)[:10] if _pickup else ""
+        if not _pk:
+            return out
+        _dr = str(_drop)[:10] if _drop else ""
+        _weeks = [e for e in _pw_ten.get((str(_team), str(_name)), [])
+                  if e["ed"] >= _pk and (not _dr or e["ed"] < _dr)]
+        out["weeks"] = len(_weeks)
+        _starts = [e for e in _weeks if e["starter"]]
+        out["starts"] = len(_starts)
+        out["inj_weeks"] = sum(1 for e in _weeks if not e["bye"] and not e["inj"])
+        out["inj_starts"] = sum(1 for e in _weeks if e["starter"] and not e["bye"] and not e["inj"])
+        out["points_started"] = sum(e["pts"] for e in _starts)
+        out["sum_pts"] = sum(e["pts"] for e in _weeks)
+        if _starts:
+            out["first_start_ed"] = _starts[0]["ed"]
+            out["weeks_before_start"] = sum(1 for e in _weeks if e["ed"] < _starts[0]["ed"])
+        out["pos"] = (_starts[0]["pos"] if _starts else (_weeks[0]["pos"] if _weeks else "")) or ""
+        return out
+
+    # Recompute add_drops start-rate + weeks-to-start + Player addition value
+    # from the FINAL player_week (the corrected boundaries), BEFORE O-Score so
+    # its percentiles read the fixed values. Only rows with an added player;
+    # pure drops keep their dropped-side Player addition value untouched.
+    try:
+        if isinstance(add_drops_df, pd.DataFrame) and not add_drops_df.empty and "Player Added" in add_drops_df.columns:
+            _CUFF_BONUS_RC = 5.0
+            _adj_col = "Difference of averages adjusted by position"
+            for _i in add_drops_df.index:
+                _add = add_drops_df.at[_i, "Player Added"]
+                if not (_add is not None and str(_add).strip()
+                        and str(_add).strip().lower() not in ("nan", "none", "n/a")):
+                    continue
+                _tm = str(add_drops_df.at[_i, "Team"]) if "Team" in add_drops_df.columns else ""
+                _pk = str(add_drops_df.at[_i, "Date"]) if "Date" in add_drops_df.columns else ""
+                _dr = str(add_drops_df.at[_i, "Date dropped/traded"]) if "Date dropped/traded" in add_drops_df.columns else ""
+                if _dr.strip().lower() in ("nan", "none", "n/a", ""):
+                    _dr = ""
+                _st = _tenure_stats(_tm, str(_add), _pk, _dr)
+                add_drops_df.at[_i, "Number of starts before next drop"] = int(_st["starts"])
+                _pct = _pinj = None
+                if _st["weeks"] > 0:
+                    _pct = round(_st["starts"] / _st["weeks"], 4)
+                    add_drops_df.at[_i, "% of starts made while rostered"] = _pct
+                if _st["inj_weeks"] > 0:
+                    _pinj = round(_st["inj_starts"] / _st["inj_weeks"], 4)
+                    add_drops_df.at[_i, "Injury adjusted % of starts made while rostered"] = _pinj
+                if _st["weeks_before_start"] is not None:
+                    add_drops_df.at[_i, "Weeks between pickup and start"] = int(_st["weeks_before_start"])
+                if _adj_col in add_drops_df.columns:
+                    _adj = pd.to_numeric(pd.Series([add_drops_df.at[_i, _adj_col]]), errors="coerce").iloc[0]
+                    if pd.notna(_adj):
+                        _cf = (str(add_drops_df.at[_i, "Cuff at time of pickup?"]).strip().lower()
+                               in ("true", "1", "yes")) if "Cuff at time of pickup?" in add_drops_df.columns else False
+                        _pv = float(_adj) * (1.0 + (_pct or 0.0)) * (1.0 + (_pinj or 0.0)) \
+                            + (_CUFF_BONUS_RC if _cf else 0.0)
+                        add_drops_df.at[_i, "Player addition value"] = round(_pv, 4)
+    except Exception as e:
+        _log_exc(debug, "add_drops_startrate_recompute", e)
+
     # ------------------------------------------------------------------
     # Item 4: "O-Score" on picks / transactions / trades.
     # For each sheet, take 4 stats, convert each to its PERCENTILE (0-100)
@@ -18331,7 +18809,7 @@ def build_all(repo_root: Path) -> None:
                 pool_mask=_nr_osc,
             )
         _add_oscore(
-            tx,
+            add_drops_df,
             ["Avg net points", "Player addition value", "__MOST_RECENT_KTC__",
              "% of starts made while rostered"],
             ["KTC value of player added 2 years later", "KTC value of player added 1 year later",
@@ -18365,46 +18843,46 @@ def build_all(repo_root: Path) -> None:
     # No zero-to-bottom tie rule here: a 0 in the dropped-points columns is the
     # BEST outcome (the player never played again), not "no production".
     # Placed BEFORE the manager-skill aggregation so these scores feed the
-    # Transaction skill at 1/3 weight (see _tx_pure below); every NON-pure-drop
+    # Add/Drop skill at 1/3 weight (see _tx_pure below); every NON-pure-drop
     # O-Score is left exactly as computed above.
-    _tx_pure = None    # boolean mask of pure-drop tx rows, reused by Transaction skill
+    _tx_pure = None    # boolean mask of pure-drop tx rows, reused by Add/Drop skill
     try:
-        if tx is not None and not tx.empty and "O-Score" in tx.columns:
+        if add_drops_df is not None and not add_drops_df.empty and "O-Score" in add_drops_df.columns:
             def _blank(_c):
                 # True where the cell is empty / N/A — robust to "", None, NaN,
                 # "N/A", "nan". Missing column -> treat every row as blank.
-                if _c not in tx.columns:
-                    return pd.Series(True, index=tx.index)
-                _s = tx[_c].astype("string").str.strip().str.lower()
+                if _c not in add_drops_df.columns:
+                    return pd.Series(True, index=add_drops_df.index)
+                _s = add_drops_df[_c].astype("string").str.strip().str.lower()
                 return _s.isna() | _s.isin(["", "n/a", "nan", "none"])
             # A pure drop is an add-nobody / drop-somebody row. Use the internal
             # sleeper-id columns as the source of truth (present pre-output) and
             # fall back to the display names, so this can't be fooled by however
             # the empty add side happens to be rendered on a given build.
-            _add_blank = _blank("_added_pid") if "_added_pid" in tx.columns else _blank("Player Added")
-            _drop_set = ~(_blank("_dropped_pid") if "_dropped_pid" in tx.columns else _blank("Player Dropped"))
+            _add_blank = _blank("_added_pid") if "_added_pid" in add_drops_df.columns else _blank("Player Added")
+            _drop_set = ~(_blank("_dropped_pid") if "_dropped_pid" in add_drops_df.columns else _blank("Player Dropped"))
             _pure = (_add_blank & _drop_set).fillna(False)
             _tx_pure = _pure
             _n_pure = int(_pure.sum())
             _log(debug, f"[{_now_iso()}] INFO pure-drop O-Score: {_n_pure} drop-only txns detected "
-                        f"(cols: _added_pid={'_added_pid' in tx.columns}, Player Added={'Player Added' in tx.columns})")
+                        f"(cols: _added_pid={'_added_pid' in add_drops_df.columns}, Player Added={'Player Added' in add_drops_df.columns})")
             if _n_pure:
-                _mr = pd.Series(np.nan, index=tx.index)
+                _mr = pd.Series(np.nan, index=add_drops_df.index)
                 for _c in ["Net KTC value 2 years later", "Net KTC value 1 year later",
                            "Net KTC value at end of season", "Net KTC value at deal time"]:
-                    _v = pd.to_numeric(tx.get(_c), errors="coerce")
+                    _v = pd.to_numeric(add_drops_df.get(_c), errors="coerce")
                     _mr = _mr.where(_mr.notna(), _v)
                 _comps = [
                     _mr.fillna(0.0),
-                    pd.to_numeric(tx.get("Dropped avg points"), errors="coerce"),
-                    pd.to_numeric(tx.get("Dropped total points"), errors="coerce"),
-                    pd.to_numeric(tx.get("Player addition value"), errors="coerce"),
+                    pd.to_numeric(add_drops_df.get("Dropped avg points"), errors="coerce"),
+                    pd.to_numeric(add_drops_df.get("Dropped total points"), errors="coerce"),
+                    pd.to_numeric(add_drops_df.get("Player addition value"), errors="coerce"),
                 ]
                 _pcts = pd.concat(
                     [(_s.where(_pure)).rank(pct=True, method="average") * 100.0 for _s in _comps],
                     axis=1)
                 _osc_drop = (_pcts.mean(axis=1) / 2.0).round(1)
-                tx.loc[_pure, "O-Score"] = _osc_drop[_pure]
+                add_drops_df.loc[_pure, "O-Score"] = _osc_drop[_pure]
                 _log(debug, f"[{_now_iso()}] INFO pure-drop O-Score: scored {_n_pure} drop-only transactions (ceiling 50)")
     except Exception as e:
         _log_exc(debug, "oscore_pure_drops", e)
@@ -18417,7 +18895,7 @@ def build_all(repo_root: Path) -> None:
     # and inactive managers sit near neutral instead of being over-rewarded.
     # N/A for a (team, year) with no events of that type. Picks use Final Team
     # (the drafter); trades/transactions use Team + Season; vet picks carry an
-    # N/A O-Score and drop out of the mean automatically. Transaction skill now
+    # N/A O-Score and drop out of the mean automatically. Add/Drop skill now
     # INCLUDES pure-drop txns, but each counts 1/3 as much as an add/swap (weight
     # 1/3 vs 1) so a flurry of drops can't dominate the score.
     try:
@@ -18451,9 +18929,9 @@ def build_all(repo_root: Path) -> None:
 
         # Transactions: pure drops (drop-only rows) count 1/3 as much as adds/swaps.
         _tx_wt = None
-        if _tx_pure is not None and tx is not None and not tx.empty:
-            _tx_wt = pd.Series(1.0, index=tx.index)
-            _tx_wt[_tx_pure.reindex(tx.index).fillna(False)] = 1.0 / 3.0
+        if _tx_pure is not None and add_drops_df is not None and not add_drops_df.empty:
+            _tx_wt = pd.Series(1.0, index=add_drops_df.index)
+            _tx_wt[_tx_pure.reindex(add_drops_df.index).fillna(False)] = 1.0 / 3.0
 
         # Drafting skill is a shrunk mean of pick O-Scores; all picks (rookie,
         # startup, 2021 vet) now carry an O-Score (startup/vet scored in their own
@@ -18461,7 +18939,7 @@ def build_all(repo_root: Path) -> None:
         _skill_specs = [
             ("Drafting skill", ph, "Final Team", "Year", None),
             ("Trading skill", tr, "Team", "Season", None),
-            ("Transaction skill", tx, "Team", "Season", _tx_wt),
+            ("Add/Drop skill", add_drops_df, "Team", "Season", _tx_wt),
         ]
         for _name, _df, _tc, _yc, _wts in _skill_specs:
             _ymap, _amap = _skill_maps(_df, _tc, _yc, _wts)
@@ -18578,10 +19056,10 @@ def build_all(repo_root: Path) -> None:
     # purely cosmetic. These three are the only time-of-day columns; all other
     # date columns are date-only or numeric.
     try:
-        if not tx.empty and "Date" in tx.columns:
-            tx["Date"] = _to_eastern_display(tx["Date"])
-        if not tx.empty and "Date dropped/traded" in tx.columns:
-            tx["Date dropped/traded"] = _to_eastern_display(tx["Date dropped/traded"])
+        if not add_drops_df.empty and "Date" in add_drops_df.columns:
+            add_drops_df["Date"] = _to_eastern_display(add_drops_df["Date"])
+        if not add_drops_df.empty and "Date dropped/traded" in add_drops_df.columns:
+            add_drops_df["Date dropped/traded"] = _to_eastern_display(add_drops_df["Date dropped/traded"])
         if not tr.empty and "Date" in tr.columns:
             tr["Date"] = _to_eastern_display(tr["Date"])
     except Exception as e:
@@ -18678,11 +19156,542 @@ def build_all(repo_root: Path) -> None:
             "trades_recv": [[str(_t.get("Season")), [str(x) for x in (_t.get("_recv_player_ids") or [])]] for _t in trades_rows],
             "tx": [[_t.get("Player Added"), (str(_t.get("_added_pid")) if _t.get("_added_pid") else None),
                     _t.get("Player Dropped"), (str(_t.get("_dropped_pid")) if _t.get("_dropped_pid") else None)]
-                   for _t in transactions_rows],
+                   for _t in add_drop_rows],
         }
         (_snap_dir / "audit_snapshot.json").write_text(_snj.dumps(_snap))
     except Exception as e:
         _log_exc(debug, "audit_snapshot", e)
+
+    # ------------------------------------------------------------------
+    # Add/Drop breakdown (Change 1) + Total transactions (Change 3).
+    # Derived centrally here, where every team/league frame is final, from the
+    # authoritative per-(team,season[,week]) breakdown dicts built alongside
+    # "Number of Add/Drops". The three breakdown counts exclude commissioner
+    # adds by design, so they sum to Add/Drops minus commissioner adds, not to
+    # Add/Drops. "Total transactions" = "Number of Add/Drops" + the frame's
+    # trade count ("Total trades" on season/all-time frames, "Number of trades"
+    # on the weekly frames) — i.e. every move of either kind.
+    try:
+        _BREAK = (("Number of waiver adds", _waiver_add_by_ts, _waiver_add_by_tsw),
+                  ("Number of free agency adds", _fa_add_by_ts, _fa_add_by_tsw),
+                  ("Number of pure drops", _puredrop_by_ts, _puredrop_by_tsw))
+
+        def _total_tx(frame: pd.DataFrame, trade_col: str) -> None:
+            if trade_col not in frame.columns:
+                frame["Total transactions"] = pd.to_numeric(
+                    frame.get("Number of Add/Drops"), errors="coerce").fillna(0).astype(int)
+                return
+            frame["Total transactions"] = (
+                pd.to_numeric(frame["Number of Add/Drops"], errors="coerce").fillna(0)
+                + pd.to_numeric(frame[trade_col], errors="coerce").fillna(0)
+            ).astype("Int64")
+
+        # team_week / league_week: per (season, week), keyed off the *-by_tsw dicts.
+        if isinstance(tw, pd.DataFrame) and not tw.empty:
+            _t = tw["Team"].astype(str)
+            _y = pd.to_numeric(tw["Year"], errors="coerce")
+            _w = pd.to_numeric(tw["Week"], errors="coerce")
+            for _col, _d_ts, _d_tsw in _BREAK:
+                tw[_col] = [
+                    int(_d_tsw.get((t, int(y), int(w)), 0)) if pd.notna(y) and pd.notna(w) else 0
+                    for t, y, w in zip(_t, _y, _w)
+                ]
+            _total_tx(tw, "Number of trades")
+        if isinstance(league_week, pd.DataFrame) and not league_week.empty:
+            _y = pd.to_numeric(league_week["Year"], errors="coerce")
+            _w = pd.to_numeric(league_week["Week"], errors="coerce")
+            for _col, _d_ts, _d_tsw in _BREAK:
+                _agg: Dict[Tuple[int, int], int] = defaultdict(int)
+                for (t, s, wk), v in _d_tsw.items():
+                    _agg[(int(s), int(wk))] += v
+                league_week[_col] = [
+                    int(_agg.get((int(y), int(w)), 0)) if pd.notna(y) and pd.notna(w) else 0
+                    for y, w in zip(_y, _w)
+                ]
+            _total_tx(league_week, "Number of trades")
+
+        # team_year: per (team, season) off *-by_ts.
+        if isinstance(team_year, pd.DataFrame) and not team_year.empty:
+            _t = team_year["Team"].astype(str)
+            _y = pd.to_numeric(team_year["Year"], errors="coerce")
+            for _col, _d_ts, _d_tsw in _BREAK:
+                team_year[_col] = [
+                    int(_d_ts.get((t, int(y)), 0)) if pd.notna(y) else 0
+                    for t, y in zip(_t, _y)
+                ]
+            _total_tx(team_year, "Total trades")
+
+        # team_all_time: per team, summed across seasons.
+        if isinstance(team_all, pd.DataFrame) and not team_all.empty:
+            _t = team_all["Team"].astype(str)
+            for _col, _d_ts, _d_tsw in _BREAK:
+                _agg_t: Dict[str, int] = defaultdict(int)
+                for (t, s), v in _d_ts.items():
+                    _agg_t[t] += v
+                team_all[_col] = [int(_agg_t.get(t, 0)) for t in _t]
+            _total_tx(team_all, "Total trades")
+
+        # league_year: per season, summed across teams.
+        if isinstance(league_year, pd.DataFrame) and not league_year.empty:
+            _y = pd.to_numeric(league_year["Year"], errors="coerce")
+            for _col, _d_ts, _d_tsw in _BREAK:
+                _agg_s: Dict[int, int] = defaultdict(int)
+                for (t, s), v in _d_ts.items():
+                    _agg_s[int(s)] += v
+                league_year[_col] = [
+                    int(_agg_s.get(int(y), 0)) if pd.notna(y) else 0 for y in _y
+                ]
+            _total_tx(league_year, "Total trades")
+
+        # league_all_time: single row, grand total across every team-season.
+        if isinstance(league_all, pd.DataFrame) and not league_all.empty:
+            for _col, _d_ts, _d_tsw in _BREAK:
+                league_all[_col] = int(sum(_d_ts.values()))
+            _total_tx(league_all, "Total trades")
+    except Exception as e:
+        _log_exc(debug, "addrop_breakdown_and_total", e)
+
+    # ==================================================================
+    # player_additions sheet (Change 5): one row per player GAINED, across
+    # every acquisition channel — add/drop pickups, trade receives, and draft
+    # picks — so the three can be compared side by side. Pure drops are excluded
+    # (nothing was gained). Scoring is computed UNIFORMLY from player_week over
+    # each acquisition's own tenure, so a waiver add and a draft pick are graded
+    # on the same ruler.
+    # ------------------------------------------------------------------
+    player_additions = pd.DataFrame()
+    try:
+        import re as _re_pa
+        from datetime import date as _date_pa
+
+        def _pa_split(_s):
+            if _s is None:
+                return []
+            _t = str(_s).strip()
+            if not _t or _t.lower() in ("nan", "none", "n/a"):
+                return []
+            return [p.strip() for p in _t.split(";") if p.strip()]
+
+        _pick_re = _re_pa.compile(r"^\d{4} ")
+
+        def _pa_is_player(_name):
+            _n = str(_name or "").strip()
+            # "Unknown" is the picks sheet's placeholder for an unmade (future)
+            # pick — not a real acquisition. FAAB moved in a trade ("5 FAAB",
+            # "$10 FAAB", …) is money, not a player gained — never a row.
+            if not _n or _n.upper() in ("FAAB", "N/A") or _n.lower() in ("nan", "none", "unknown"):
+                return False
+            if "faab" in _n.lower():
+                return False
+            return not bool(_pick_re.match(_n))
+
+        def _pa_to_date(_s):
+            if _s is None:
+                return None
+            _t = str(_s).strip()
+            if not _t or _t.lower() in ("nan", "none", "n/a"):
+                return None
+            try:
+                return _date_pa.fromisoformat(_t[:10])
+            except Exception:
+                return None
+
+        # name -> pid, from player_week (rostered, so disambiguated by real use),
+        # falling back to the /players/nfl dictionary.
+        _pa_name_to_pid: Dict[str, str] = {}
+        if not pw.empty and {"Player", "Player ID"}.issubset(pw.columns):
+            for _nm, _pid in zip(pw["Player"].astype(str), pw["Player ID"].astype(str)):
+                if _nm and _pid and _nm not in _pa_name_to_pid:
+                    _pa_name_to_pid[_nm] = _pid
+        for _pid, _m in pid_meta.items():
+            _fn = str(_m.get("full_name") or "").strip()
+            if _fn and _fn not in _pa_name_to_pid:
+                _pa_name_to_pid[_fn] = str(_pid)
+
+        # player_week index by player name (all teams), each week dated to its
+        # last game — for the pre-pickup 5-game form snapshot. Tenure-limited
+        # TEAM stats come from the shared _pw_ten via _tenure_stats.
+        _pa_by_name: Dict[str, List[Dict[str, Any]]] = defaultdict(list)
+        if not pw.empty and {"Player", "Year", "Week", "Points"}.issubset(pw.columns):
+            _cols = ["Player", "Year", "Week", "Points", "Injury?", "Bye?"]
+            _have = [c for c in _cols if c in pw.columns]
+            for _row in pw[_have].itertuples(index=False, name=None):
+                _rec = dict(zip(_have, _row))
+                _ed = _last_game_date(_rec.get("Year"), _rec.get("Week"))
+                if not _ed:
+                    continue
+                try:
+                    _pts = float(_rec.get("Points")) if _rec.get("Points") not in (None, "") else 0.0
+                except Exception:
+                    _pts = 0.0
+                _pa_by_name[str(_rec.get("Player"))].append({
+                    "date": _ed, "pts": _pts,
+                    "inj": str(_rec.get("Injury?")).strip().lower() in ("true", "1", "yes"),
+                    "bye": str(_rec.get("Bye?")).strip().lower() in ("true", "1", "yes"),
+                })
+        for _k in _pa_by_name:
+            _pa_by_name[_k].sort(key=lambda e: e["date"])
+
+        # Tanking per (team, season) from team_year.
+        # Tanking per (team, season) from team_year (absolute value); used as the
+        # draft-row fallback only. (The Tanking DELTA rework — a before-minus-after
+        # change on every addition, incl. picks — is tracked separately.)
+        _pa_tank: Dict[Tuple[str, int], Any] = {}
+        if isinstance(team_year, pd.DataFrame) and {"Team", "Year", "Tanking"}.issubset(team_year.columns):
+            for _tm, _yr, _tk in zip(team_year["Team"].astype(str),
+                                     pd.to_numeric(team_year["Year"], errors="coerce"),
+                                     team_year["Tanking"]):
+                if pd.notna(_yr):
+                    _pa_tank[(_tm, int(_yr))] = _tk
+
+        # Departure index (a player LEAVING a team: dropped, or traded away),
+        # built from the FINAL add_drops (tx) and trades (tr) frames so its dates
+        # are in the SAME display format/timezone as the pickup dates read from
+        # those same frames. (The internal event_log is UTC with a 'T' separator
+        # while tx/tr Dates are Eastern with a space — mixing them makes a same-
+        # day departure sort wrong, which would run a re-pickup's tenure on to
+        # the WRONG drop.)
+        _pa_departs: Dict[Tuple[str, str], List[str]] = defaultdict(list)
+        if isinstance(add_drops_df, pd.DataFrame) and not add_drops_df.empty:
+            for _i in add_drops_df.index:
+                _dp = add_drops_df.at[_i, "Player Dropped"] if "Player Dropped" in add_drops_df.columns else None
+                _tm = str(add_drops_df.at[_i, "Team"]) if "Team" in add_drops_df.columns else ""
+                _dt = str(add_drops_df.at[_i, "Date"]) if "Date" in add_drops_df.columns else ""
+                if _tm and _dt and _pa_is_player(_dp):
+                    _pa_departs[(_tm, str(_dp))].append(_dt)
+        if isinstance(tr, pd.DataFrame) and not tr.empty:
+            for _i in tr.index:
+                _tm = str(tr.at[_i, "Team"]) if "Team" in tr.columns else ""
+                _dt = str(tr.at[_i, "Date"]) if "Date" in tr.columns else ""
+                for _a in _pa_split(tr.at[_i, "Assets sent"]) if "Assets sent" in tr.columns else []:
+                    if _tm and _dt and _pa_is_player(_a):
+                        _pa_departs[(_tm, _a)].append(_dt)
+        for _k in _pa_departs:
+            _pa_departs[_k].sort()
+
+        # Inaugural season — the "startup" draft (picks.Year == "startup") belongs
+        # to it, so its rows get a real pickup date instead of an unparseable one.
+        _pa_inaugural = 2020
+        try:
+            if isinstance(add_drops_df, pd.DataFrame) and "Season" in add_drops_df.columns:
+                _ss = pd.to_numeric(add_drops_df["Season"], errors="coerce").dropna()
+                if len(_ss):
+                    _pa_inaugural = int(_ss.min())
+        except Exception:
+            pass
+
+        def _pa_next_drop(_team, _name, _after_ts):
+            # The next DEPARTURE strictly after this pickup. Both sides come from
+            # tx/tr Dates (same format), so a same-day drop hours later closes
+            # THIS tenure rather than a re-pickup rolling on to a later drop.
+            _aft = str(_after_ts)
+            for _dt in _pa_departs.get((str(_team), str(_name)), []):
+                if _dt and _dt > _aft:
+                    return _dt
+            return None
+
+        try:
+            _ktc_index_pa = _ktc_idx
+        except NameError:
+            _ktc_index_pa = None
+        try:
+            from lotg_support.ktc import asset_value_at as _pa_ktc_at
+        except Exception:
+            _pa_ktc_at = None
+
+        _pa_today = datetime.utcnow().date()
+
+        def _pa_ktc(_pid, _on):
+            # KTC must never PULL FORWARD: a checkpoint dated in the future (e.g.
+            # "4 years after pickup" for a player added under four years ago) has
+            # not happened yet, so it stays blank instead of borrowing today's
+            # value.
+            if _pa_ktc_at is None or _ktc_index_pa is None or _pid is None or _on is None:
+                return None
+            if _on > _pa_today:
+                return None
+            try:
+                _v = _pa_ktc_at(None, str(_pid), _on, _ktc_index_pa)
+                return None if _v is None else round(float(_v), 0)
+            except Exception:
+                return None
+
+        def _pa_plus_years(_d, _n):
+            try:
+                return _d.replace(year=_d.year + _n)
+            except ValueError:
+                return _d.replace(year=_d.year + _n, day=28)
+
+        def _pa_age(_pid, _on):
+            _m = pid_meta.get(str(_pid)) if _pid else None
+            _bd = _pa_to_date(_m.get("birth_date")) if _m else None
+            if _bd is None or _on is None:
+                return None
+            return round((_on - _bd).days / 365.25, 1)
+
+        # Running counts: how many times THIS team has added / dropped this player
+        # up to and including each event.
+        _acq_list: List[Tuple[str, str, str]] = []   # (date, team, name)
+        _drp_list: List[Tuple[str, str, str]] = []
+        for _row in add_drop_rows:
+            _tm = str(_row.get("Team") or ""); _dt = str(_row.get("Date") or "")
+            _a = _row.get("Player Added"); _dp = _row.get("Player Dropped")
+            if _tm and _pa_is_player(_a):
+                _acq_list.append((_dt, _tm, str(_a)))
+            if _tm and _pa_is_player(_dp):
+                _drp_list.append((_dt, _tm, str(_dp)))
+        for _row in trades_rows:
+            _tm = str(_row.get("Team") or ""); _dt = str(_row.get("Date") or "")
+            for _asset in _pa_split(_row.get("Assets received")):
+                if _pa_is_player(_asset):
+                    _acq_list.append((_dt, _tm, _asset))
+            for _asset in _pa_split(_row.get("Assets sent")):
+                if _pa_is_player(_asset):
+                    _drp_list.append((_dt, _tm, _asset))
+        _acq_running: Dict[Tuple[str, str, str], int] = {}
+        _cnt_add: Dict[Tuple[str, str], int] = defaultdict(int)
+        for _dt, _tm, _nm in sorted(_acq_list, key=lambda e: e[0]):
+            _cnt_add[(_tm, _nm)] += 1
+            _acq_running[(_dt, _tm, _nm)] = _cnt_add[(_tm, _nm)]
+        _cnt_drop_total: Dict[Tuple[str, str], int] = defaultdict(int)
+        for _dt, _tm, _nm in _drp_list:
+            _cnt_drop_total[(_tm, _nm)] += 1
+
+        def _pa_scoring(_team, _name, _pickup, _drop, _season, _pid, _pos):
+            """Tenure-limited scoring, over the SAME game-accurate window the
+            add_drops recompute uses (_tenure_stats / _pw_ten), so the two sheets
+            agree row-for-row on starts and start-rate."""
+            out = {"_n_ros": 0, "_first_start_date": None, "_weeks_before_start": None}
+            if not _pickup:
+                # No resolvable pickup date -> cannot window a tenure. Return
+                # empties rather than silently summing the player's WHOLE career.
+                return out
+            st = _tenure_stats(_team, _name, _pickup, _drop)
+            n_ros = st["weeks"]; n_start = st["starts"]
+            pos = (_pos or st["pos"]) or ""
+            fac = _pos_factor(_season, pos) if pos else 1.0
+            out["Games played on team"] = st["inj_weeks"]
+            out["Starts on team"] = n_start
+            out["Number of starts before next drop"] = n_start
+            out["% of starts made while rostered"] = round(n_start / n_ros, 4) if n_ros else None
+            out["Injury adjusted % of starts made while rostered"] = (
+                round(st["inj_starts"] / st["inj_weeks"], 4) if st["inj_weeks"] else None)
+            avg_ppg = (st["sum_pts"] / n_ros) if n_ros else None
+            out["Avg PPG on team"] = round(avg_ppg, 2) if avg_ppg is not None else None
+            out["Avg PPG on team adjusted by position"] = (
+                round(avg_ppg * fac, 2) if avg_ppg is not None else None)
+            pts_added = st["points_started"]
+            out["Points added"] = round(pts_added, 2)
+            out["Avg points added"] = round(pts_added / n_start, 2) if n_start else None
+            avg_add_adj = (pts_added * fac / n_start) if n_start else None
+            out["Avg points added adjusted by position"] = (
+                round(avg_add_adj, 2) if avg_add_adj is not None else None)
+            # last 5 played games before pickup, any team
+            _pk = str(_pickup)[:10]
+            before = [e for e in _pa_by_name.get(str(_name), [])
+                      if e["date"] and e["date"] < _pk and not e["bye"] and not e["inj"]]
+            last5 = before[-5:]
+            out["PPG of 5 games before pickup"] = (
+                round(sum(e["pts"] for e in last5) / len(last5), 2) if last5 else None)
+            pct = out["% of starts made while rostered"]
+            out["Player addition value"] = (
+                round(avg_add_adj * (1 + (pct or 0.0)), 4) if avg_add_adj is not None else None)
+            out["_first_start_date"] = st["first_start_ed"]
+            out["_n_ros"] = n_ros
+            out["_weeks_before_start"] = st["weeks_before_start"]
+            return out
+
+        _pa_rows: List[Dict[str, Any]] = []
+
+        def _emit(team, name, atype, pickup_raw, season, ref, next_link, tanking=None):
+            if not _pa_is_player(name) or not team:
+                return
+            pickup_dt = _pa_to_date(pickup_raw)
+            pid = _pa_name_to_pid.get(str(name))
+            # Departure detection uses the FULL pickup timestamp so a same-day
+            # drop closes this tenure (see _pa_next_drop).
+            drop = _pa_next_drop(team, name, pickup_raw) if pickup_raw else None
+            pos = (pid_meta.get(str(pid), {}) or {}).get("pos") if pid else None
+            sc = _pa_scoring(team, name, pickup_dt, drop, season, pid, pos)
+            tenure_days = None
+            if pickup_dt is not None:
+                # Closed tenure -> to the departure; STILL rostered -> to TODAY
+                # (same "as of now" basis add_drops' Length of tenure uses). Using
+                # today, not the last game week, keeps an ongoing hold from
+                # reading SHORTER than a player dropped in the current offseason.
+                _end = _pa_to_date(drop) if drop else _pa_today
+                if _end is not None:
+                    tenure_days = max(0, (_end - pickup_dt).days)
+            # Cuff — always a real True/False (the handcuff test at pickup),
+            # computed the same way for every channel so it is never N/A.
+            try:
+                cuff = bool(_recv_is_cuff(str(name), str(team),
+                                          str(pickup_raw)[:10] if pickup_raw else ""))
+            except Exception:
+                cuff = False
+            # Tanking — the acquiring team's tank value AT the move (from the
+            # source add_drops/trades row); falls back to the team's season
+            # value for draft rows. Coerce blanks so an in-progress season (2026)
+            # still shows its running value rather than N/A.
+            def _blankish(_v):
+                return _v is None or (isinstance(_v, float) and _v != _v) \
+                    or str(_v).strip().lower() in ("", "nan", "none", "n/a")
+            tank = None if _blankish(tanking) else tanking
+            if tank is None and season is not None:
+                _ty_tank = _pa_tank.get((str(team), int(season)))
+                tank = None if _blankish(_ty_tank) else _ty_tank
+            # KTC checkpoints (pickup-relative; never pull forward — see _pa_ktc).
+            ktc_pick = _pa_ktc(pid, pickup_dt)
+            ktc_end = _pa_ktc(pid, _date_pa(season + 1, 2, 1)) if (pickup_dt and season) else None
+            ktc_1 = _pa_ktc(pid, _pa_plus_years(pickup_dt, 1)) if pickup_dt else None
+            ktc_2 = _pa_ktc(pid, _pa_plus_years(pickup_dt, 2)) if pickup_dt else None
+            ktc_3 = _pa_ktc(pid, _pa_plus_years(pickup_dt, 3)) if pickup_dt else None
+            ktc_4 = _pa_ktc(pid, _pa_plus_years(pickup_dt, 4)) if pickup_dt else None
+
+            def _kdiff(_later, _base):
+                if _later is None or _base is None:
+                    return None
+                return round(float(_later) - float(_base), 0)
+            row = {
+                "Player": name,
+                "Team": team,
+                "Addition type": atype,
+                "Date": pickup_dt.isoformat() if pickup_dt else None,
+                "Link to addition": ref,
+                "Season": season,
+                "Date dropped/traded": (str(drop)[:19] if drop else None),
+                "Number of starts before next drop": sc.get("Number of starts before next drop"),
+                "Number of times added by this team": _acq_running.get(
+                    ((pickup_dt.isoformat() if pickup_dt else ""), str(team), str(name)))
+                    or _cnt_add.get((str(team), str(name))),
+                "Number of times dropped by this team": _cnt_drop_total.get((str(team), str(name)), 0),
+                "Tenure (days)": tenure_days,
+                "Tenure (NFL weeks)": sc.get("_n_ros"),
+                "Games played on team": sc.get("Games played on team"),
+                "Starts on team": sc.get("Starts on team"),
+                "% of starts made while rostered": sc.get("% of starts made while rostered"),
+                "Injury adjusted % of starts made while rostered":
+                    sc.get("Injury adjusted % of starts made while rostered"),
+                "Avg PPG on team": sc.get("Avg PPG on team"),
+                "Avg PPG on team adjusted by position": sc.get("Avg PPG on team adjusted by position"),
+                "Points added": sc.get("Points added"),
+                "Avg points added": sc.get("Avg points added"),
+                "Avg points added adjusted by position": sc.get("Avg points added adjusted by position"),
+                "PPG of 5 games before pickup": sc.get("PPG of 5 games before pickup"),
+                "Player addition value": sc.get("Player addition value"),
+                "Age at pickup": _pa_age(pid, pickup_dt),
+                "Cuff at pickup?": cuff,
+                "Tanking": tank,
+                "KTC at pickup": ktc_pick,
+                "KTC at end of season": ktc_end,
+                "KTC 1 year after pickup": ktc_1,
+                "KTC 2 years after pickup": ktc_2,
+                "KTC 3 years after pickup": ktc_3,
+                "KTC 4 years after pickup": ktc_4,
+                "KTC change by end of season": _kdiff(ktc_end, ktc_pick),
+                "KTC change 1 year after pickup": _kdiff(ktc_1, ktc_pick),
+                "KTC change 2 years after pickup": _kdiff(ktc_2, ktc_pick),
+                "KTC change 3 years after pickup": _kdiff(ktc_3, ktc_pick),
+                "KTC change 4 years after pickup": _kdiff(ktc_4, ktc_pick),
+                "Weeks between pickup and start": sc.get("_weeks_before_start"),
+                "Link to next transaction": next_link,
+            }
+            _pa_rows.append(row)
+
+        _TYPE_LABEL = {"waiver": "Waiver", "free_agent": "Free agency",
+                       "commissioner": "Commissioner"}
+
+        # --- add/drop pickups ---
+        if isinstance(add_drops_df, pd.DataFrame) and not add_drops_df.empty:
+            _nl_col = "Link to next transaction (added player)"
+            for _i in add_drops_df.index:
+                _add = add_drops_df.at[_i, "Player Added"] if "Player Added" in add_drops_df.columns else None
+                if not _pa_is_player(_add):
+                    continue
+                _tm = str(add_drops_df.at[_i, "Team"]) if "Team" in add_drops_df.columns else ""
+                _pk_raw = str(add_drops_df.at[_i, "Date"]) if "Date" in add_drops_df.columns else None
+                _pk = _pa_to_date(_pk_raw)
+                try:
+                    _sea = int(add_drops_df.at[_i, "Season"])
+                except Exception:
+                    _sea = _pk.year if _pk else None
+                _ttype = str(add_drops_df.at[_i, "type of add/drop (waiver/free agency)"]) \
+                    if "type of add/drop (waiver/free agency)" in add_drops_df.columns else ""
+                _tank_src = add_drops_df.at[_i, "Tanking"] if "Tanking" in add_drops_df.columns else None
+                _nl = add_drops_df.at[_i, _nl_col] if _nl_col in add_drops_df.columns else None
+                _emit(_tm, str(_add), _TYPE_LABEL.get(_ttype, "Add"),
+                      _pk_raw, _sea, f"#{int(_i) + 1}", _nl, _tank_src)
+
+        # --- trade receives (one row per received player) ---
+        if isinstance(tr, pd.DataFrame) and not tr.empty:
+            _per_asset_next = "Link to next transaction per asset"
+            for _i in tr.index:
+                _tm = str(tr.at[_i, "Team"]) if "Team" in tr.columns else ""
+                _pk_raw = str(tr.at[_i, "Date"]) if "Date" in tr.columns else None
+                _pk = _pa_to_date(_pk_raw)
+                try:
+                    _sea = int(tr.at[_i, "Season"])
+                except Exception:
+                    _sea = _pk.year if _pk else None
+                _recv = _pa_split(tr.at[_i, "Assets received"]) if "Assets received" in tr.columns else []
+                _links = _pa_split(tr.at[_i, _per_asset_next]) if _per_asset_next in tr.columns else []
+                for _j, _asset in enumerate(_recv):
+                    if not _pa_is_player(_asset):
+                        continue
+                    _nl = _links[_j] if _j < len(_links) else None
+                    _tank_src = tr.at[_i, "Tanking"] if "Tanking" in tr.columns else None
+                    _emit(_tm, _asset, "Trade", _pk_raw, _sea, f"T#{int(_i) + 1}", _nl, _tank_src)
+
+        # --- draft picks ---
+        if isinstance(ph, pd.DataFrame) and not ph.empty:
+            _nl_col_p = "Link to next transaction"
+            for _i in ph.index:
+                _pl = ph.at[_i, "Player Picked"] if "Player Picked" in ph.columns else None
+                if not _pa_is_player(_pl):
+                    continue
+                _tm = str(ph.at[_i, "Final Team"]) if "Final Team" in ph.columns else (
+                    str(ph.at[_i, "Team"]) if "Team" in ph.columns else "")
+                _yr_str = str(ph.at[_i, "Year"]) if "Year" in ph.columns else ""
+                _ym = _re_pa.match(r"(\d{4})", _yr_str)
+                if _ym:
+                    _sea = int(_ym.group(1))
+                elif "startup" in _yr_str.lower():
+                    _sea = _pa_inaugural
+                else:
+                    _sea = None
+                _pk = None
+                if _sea is not None:
+                    # Use the picks sheet's own draft anchor so Tenure (days)
+                    # equals its "Length of tenure on team" to the day.
+                    try:
+                        _pk = _draft_anchor(_sea)
+                    except Exception:
+                        _pk = None
+                    if _pk is None:
+                        _dd = sorted(rookie_draft_dates_by_season.get(_sea, set()) or set())
+                        _pk = _pa_to_date(str(_dd[0])) if _dd else _date_pa(_sea, 9, 1)
+                _cuff = ph.at[_i, "Cuff when drafted?"] if "Cuff when drafted?" in ph.columns else None
+                _nl = ph.at[_i, _nl_col_p] if _nl_col_p in ph.columns else None
+                # _draft_anchor may return a date OR an ISO string (the season
+                # draft-date sets hold either) — normalise to a string.
+                _pk_raw = None
+                if _pk is not None:
+                    _pk_raw = _pk.isoformat() if hasattr(_pk, "isoformat") else str(_pk)
+                _pk_tank = ph.at[_i, "Tanking"] if "Tanking" in ph.columns else None
+                _emit(_tm, str(_pl), "Draft", _pk_raw, _sea, f"PH#{int(_i) + 1}", _nl, _pk_tank)
+
+        if _pa_rows:
+            player_additions = pd.DataFrame(_pa_rows)
+            # Stable order: season, date, team, player.
+            player_additions = player_additions.sort_values(
+                ["Season", "Date", "Team", "Player"], na_position="last"
+            ).reset_index(drop=True)
+        _log(debug, f"[{_now_iso()}] INFO player_additions: {len(player_additions)} addition events "
+                    f"({sum(1 for r in _pa_rows if r['Addition type']=='Trade')} trade, "
+                    f"{sum(1 for r in _pa_rows if r['Addition type']=='Draft')} draft, "
+                    f"{sum(1 for r in _pa_rows if r['Addition type'] in ('Waiver','Free agency','Commissioner'))} add/drop)")
+    except Exception as e:
+        _log_exc(debug, "player_additions", e)
 
     context = {
         "player_week": pw,
@@ -18694,9 +19703,10 @@ def build_all(repo_root: Path) -> None:
         "league_week": league_week,
         "league_year": league_year,
         "league_all_time": league_all,
-        "transactions": tx,
+        "add_drops": add_drops_df,
         "trades": tr,
         "pick_history": ph,
+        "player_additions": player_additions,
     }
     tables = [
         (doc.FILE_NAME, doc.build_output(context), doc.PLAN_KEY)

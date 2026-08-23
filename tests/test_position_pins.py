@@ -93,6 +93,28 @@ def check_pin_accepts_either_id_column() -> bool:
                E.apply_position_pins(df.copy())["position"].iat[0] == "WR")
 
 
+def check_pin_survives_an_all_empty_position_column() -> bool:
+    """A preseason weekly-roster file has its position column ALL-EMPTY, so the
+    CSV reader types it float64. Writing a string label into a float64 column
+    raises TypeError under pandas' strict dtype assignment, which used to abort
+    the whole 2026 weekly-roster load. The pin must cast to object and write the
+    label without raising, leaving non-pinned rows empty."""
+    import numpy as np
+    df = pd.DataFrame({
+        "gsis_id": ["00-0040718", "00-0011111"],
+        "position": [np.nan, np.nan],   # float64 dtype, as pandas infers for an all-empty column
+        "team": ["JAX", "KC"],
+    })
+    ok = _ok("all-empty position column is float64 before pinning",
+             df["position"].dtype == "float64")
+    out = E.apply_position_pins(df.copy())
+    ok &= _ok("the pinned player gets his label without a TypeError",
+              out.loc[out.gsis_id == "00-0040718", "position"].iat[0] == "WR")
+    ok &= _ok("a non-pinned row stays empty (not coerced to a bogus label)",
+              pd.isna(out.loc[out.gsis_id == "00-0011111", "position"].iat[0]))
+    return ok
+
+
 def check_pin_is_a_noop_on_unrelated_frames() -> bool:
     """A frame with no id column, no position column, or no pinned player is
     returned untouched rather than raising."""
@@ -156,6 +178,7 @@ def run_all() -> bool:
     for t in (check_pin_rewrites_only_the_pinned_player,
               check_pin_matches_on_gsis_id_not_name,
               check_pin_accepts_either_id_column,
+              check_pin_survives_an_all_empty_position_column,
               check_pin_is_a_noop_on_unrelated_frames,
               check_no_position_pool_of_one,
               check_a_player_keeps_one_position_per_season):
