@@ -2293,6 +2293,40 @@ def build_all(repo_root: Path) -> None:
         except Exception:
             pass
 
+    # Game-accurate week boundaries — shared by every tenure-windowed sheet
+    # (picks, add_drops, player_additions) so all three measure a player's time
+    # on a team the same way. A fantasy week runs from just after the previous
+    # week's last game to its OWN last game (Sun/Mon) — never the Thursday
+    # opener — so a player picked up on a game day is credited the starts they
+    # actually made that week.
+    _week_end_date: Dict[Tuple[int, int], str] = {}
+    try:
+        if isinstance(games, pd.DataFrame) and not games.empty and \
+                {"season", "week", "gameday"}.issubset(games.columns):
+            _g = games.dropna(subset=["season", "week"]).copy()
+            _g["_gd"] = _g["gameday"].astype(str).str[:10]
+            for (_s, _w), _gg in _g.groupby(["season", "week"]):
+                _dates = [d for d in _gg["_gd"].tolist() if d[:4].isdigit()]
+                if _dates:
+                    _week_end_date[(int(_s), int(_w))] = max(_dates)
+    except Exception as e:
+        _log_exc(debug, "week_end_date_map", e)
+
+    def _last_game_date(_season: Any, _week: Any) -> Optional[str]:
+        """Date of the LAST game of (season, week) — the week's closing edge
+        (Sun/Mon), never its Thursday opener. Falls back to the Monday after the
+        Thursday anchor when the schedule row is missing (e.g. a future week)."""
+        _s = _to_int(_season, None); _w = _to_int(_week, None)
+        if _s is None or _w is None:
+            return None
+        _d = _week_end_date.get((_s, _w))
+        if _d:
+            return _d
+        try:
+            return (_week_thursday(_s, _w) + timedelta(days=4)).isoformat()
+        except Exception:
+            return None
+
     # Sleeper NFL players (meta)
     try:
         players_nfl = sc.players_nfl()
@@ -9770,6 +9804,17 @@ def build_all(repo_root: Path) -> None:
                     return d
             return None
 
+        def _pick_tenure_end(team: str, pid: str, after: str) -> Optional[str]:
+            """When a drafted player LEAVES the drafting team — the earlier of the
+            next trade away and the next free-agency drop. Closing the tenure only
+            on trades (the old behaviour) let a drafted-then-DROPPED player's later
+            stints on the same team merge into one open tenure. Matches the
+            departure detection used by add_drops / player_additions."""
+            _t = _next_out_player(team, str(pid), after)
+            _cands = [d for d in ((_t["date"] if _t else None),
+                                  _next_fa_drop_player(team, str(pid), after)) if d]
+            return min(_cands) if _cands else None
+
         def _next_out_pick(team: str, pmeta: Tuple[int, int, str], after: str) -> Optional[Dict[str, Any]]:
             for e in team_pick_events.get((team, tuple(pmeta)), []):
                 if e["role"] == "out" and e["date"] > after:
@@ -9897,8 +9942,7 @@ def build_all(repo_root: Path) -> None:
                     _sid = _pr.get("_player_id") or name_to_sid_local2.get(_ply)
                     if _ft and _ym and _sid:
                         _draft_iso = _draft_anchor_iso(int(_ym.group(1)))
-                        _nx = _next_out_player(_ft, _sid, _draft_iso)
-                        _end_iso = (_nx["date"][:10] if _nx else _today_iso)
+                        _end_iso = (_pick_tenure_end(_ft, _sid, _draft_iso) or _today_iso)[:10]
                         try:
                             _d0 = datetime.fromisoformat(_draft_iso).date()
                             _d1 = datetime.fromisoformat(_end_iso).date()
@@ -9985,7 +10029,7 @@ def build_all(repo_root: Path) -> None:
                     _yi, _wi = int(_y), int(_w)
                 except Exception:
                     continue
-                _wkd = _week_thursday(_yi, _wi).isoformat()
+                _wkd = _last_game_date(_yi, _wi) or _week_thursday(_yi, _wi).isoformat()
                 _started_idx[(str(_t), str(_p))].append((_yi, _wi, float(_pt or 0.0), _wkd))
 
         # (fantasy team, player name) -> sorted wk_dates the player was ROSTERED
@@ -10002,7 +10046,7 @@ def build_all(repo_root: Path) -> None:
                     _yi, _wi = int(_y), int(_w)
                 except Exception:
                     continue
-                _wkd = _week_thursday(_yi, _wi).isoformat()
+                _wkd = _last_game_date(_yi, _wi) or _week_thursday(_yi, _wi).isoformat()
                 _pw_rostered_idx[(str(_t), str(_p))].append(_wkd)
 
         # 2020 was the ESPN season — nflverse's 2020 weekly log is generic PPR and
@@ -10032,7 +10076,7 @@ def build_all(repo_root: Path) -> None:
                     continue  # NFL bye / no game that week
                 if _ptf == 0.0 and (str(_in) == "True" or str(_su) == "True"):
                     continue  # scoreless injury/suspension DNP -> not a game played
-                _wkd = _week_thursday(_yi, _wi).isoformat()
+                _wkd = _last_game_date(_yi, _wi) or _week_thursday(_yi, _wi).isoformat()
                 _pw_played_idx[(str(_t), str(_p))].append((_yi, _wi, _ptf, _wkd))
 
         # ---- Item 7E indexes (V2 Trade addition value: leverage + cuff) ----
@@ -10056,7 +10100,7 @@ def build_all(repo_root: Path) -> None:
                     _yi, _wi = int(_y), int(_w)
                 except Exception:
                     continue
-                _wkd = _week_thursday(_yi, _wi).isoformat()
+                _wkd = _last_game_date(_yi, _wi) or _week_thursday(_yi, _wi).isoformat()
                 _is_starter = str(_sb) == "Starter"
                 _inj_free = (not bool(_inj)) and (not bool(_bye))
                 _nflt = str(_nt or "")
@@ -10199,8 +10243,7 @@ def build_all(repo_root: Path) -> None:
                         continue  # PPG stays N/A (no data), points stay 0
                     _sid = str(_sid)
                     _draft_iso = _draft_anchor_iso(int(_ym.group(1)))
-                    _nx = _next_out_player(_ft, _sid, _draft_iso)
-                    _end_iso = (_nx["date"][:10] if _nx else _today_iso2)
+                    _end_iso = (_pick_tenure_end(_ft, _sid, _draft_iso) or _today_iso2)[:10]
                     _pos = ((pid_meta.get(_sid) or {}).get("pos") or "").upper() or None
                     _fac = _pos_factor(int(_ym.group(1)), _pos)
                     _all_games = [
@@ -10414,8 +10457,7 @@ def build_all(repo_root: Path) -> None:
                         except Exception:
                             pass
                     # Post-draft tenure window + per-week roster/start stats.
-                    _nx = _next_out_player(_ft, _sid, _draft_iso)
-                    _end_iso = (_nx["date"][:10] if _nx else _today_iso3)
+                    _end_iso = (_pick_tenure_end(_ft, _sid, _draft_iso) or _today_iso3)[:10]
                     _ents = [
                         _e for _e in _pwfull_idx.get((_ft, _ply), [])
                         if _e["wkd"] >= _draft_iso and (not _end_iso or _e["wkd"] < _end_iso)
@@ -18295,41 +18337,11 @@ def build_all(repo_root: Path) -> None:
     # valid; pick_history uses its custom Year/Number ordering).
 
     # ==================================================================
-    # Game-accurate week boundaries for tenure windowing, shared by the
-    # add_drops start-rate recompute (below) and the player_additions sheet, so
-    # the two ALWAYS agree. A fantasy week runs from just after the previous
-    # week's last game to its OWN last game (Sunday/Monday) — never the Thursday
-    # opener — so a player picked up on a game day is credited the starts they
-    # actually made that week. Both consumers read the FINAL player_week here, so
-    # a pickup-week start the mid-build pass could miss is now counted on both.
+    # (season, week) last-game boundaries (_last_game_date) are defined once,
+    # right after the schedule loads, and shared by picks / add_drops /
+    # player_additions so all three window a tenure identically. Below we build
+    # the FINAL-player_week tenure index and _tenure_stats over those boundaries.
     # ==================================================================
-    _week_end_date: Dict[Tuple[int, int], str] = {}
-    try:
-        if isinstance(games, pd.DataFrame) and not games.empty and \
-                {"season", "week", "gameday"}.issubset(games.columns):
-            _g = games.dropna(subset=["season", "week"]).copy()
-            _g["_gd"] = _g["gameday"].astype(str).str[:10]
-            for (_s, _w), _gg in _g.groupby(["season", "week"]):
-                _dates = [d for d in _gg["_gd"].tolist() if d[:4].isdigit()]
-                if _dates:
-                    _week_end_date[(int(_s), int(_w))] = max(_dates)
-    except Exception as e:
-        _log_exc(debug, "week_end_date_map", e)
-
-    def _last_game_date(_season: Any, _week: Any) -> Optional[str]:
-        """Date of the LAST game of (season, week) — the week's closing edge
-        (Sun/Mon), never its Thursday opener. Falls back to the Monday after the
-        Thursday anchor when the schedule row is missing (e.g. a future week)."""
-        _s = _to_int(_season, None); _w = _to_int(_week, None)
-        if _s is None or _w is None:
-            return None
-        _d = _week_end_date.get((_s, _w))
-        if _d:
-            return _d
-        try:
-            return (_week_thursday(_s, _w) + timedelta(days=4)).isoformat()
-        except Exception:
-            return None
 
     # (team, player) -> its FINAL player_week weeks, each tagged with the date of
     # that week's last game. Built once and shared.
@@ -18989,8 +19001,11 @@ def build_all(repo_root: Path) -> None:
         def _pa_is_player(_name):
             _n = str(_name or "").strip()
             # "Unknown" is the picks sheet's placeholder for an unmade (future)
-            # pick — not a real acquisition, so it never becomes a row.
+            # pick — not a real acquisition. FAAB moved in a trade ("5 FAAB",
+            # "$10 FAAB", …) is money, not a player gained — never a row.
             if not _n or _n.upper() in ("FAAB", "N/A") or _n.lower() in ("nan", "none", "unknown"):
+                return False
+            if "faab" in _n.lower():
                 return False
             return not bool(_pick_re.match(_n))
 
@@ -19040,9 +19055,6 @@ def build_all(repo_root: Path) -> None:
                 })
         for _k in _pa_by_name:
             _pa_by_name[_k].sort(key=lambda e: e["date"])
-        # Latest week on record — the "as of" end for an OPEN tenure's day count.
-        _pa_latest_date = max((e["ed"] for _lst in _pw_ten.values() for e in _lst
-                               if e["ed"]), default=None)
 
         # Tanking per (team, season) from team_year.
         _pa_tank: Dict[Tuple[str, int], Any] = {}
@@ -19108,8 +19120,16 @@ def build_all(repo_root: Path) -> None:
         except Exception:
             _pa_ktc_at = None
 
+        _pa_today = datetime.utcnow().date()
+
         def _pa_ktc(_pid, _on):
+            # KTC must never PULL FORWARD: a checkpoint dated in the future (e.g.
+            # "4 years after pickup" for a player added under four years ago) has
+            # not happened yet, so it stays blank instead of borrowing today's
+            # value.
             if _pa_ktc_at is None or _ktc_index_pa is None or _pid is None or _on is None:
+                return None
+            if _on > _pa_today:
                 return None
             try:
                 _v = _pa_ktc_at(None, str(_pid), _on, _ktc_index_pa)
@@ -19204,7 +19224,7 @@ def build_all(repo_root: Path) -> None:
 
         _pa_rows: List[Dict[str, Any]] = []
 
-        def _emit(team, name, atype, pickup_raw, season, ref, next_link, cuff):
+        def _emit(team, name, atype, pickup_raw, season, ref, next_link, tanking=None):
             if not _pa_is_player(name) or not team:
                 return
             pickup_dt = _pa_to_date(pickup_raw)
@@ -19216,14 +19236,43 @@ def build_all(repo_root: Path) -> None:
             sc = _pa_scoring(team, name, pickup_dt, drop, season, pid, pos)
             tenure_days = None
             if pickup_dt is not None:
-                # Closed tenure -> to the departure; open tenure -> to the latest
-                # week on record (so an ongoing hold reads its real span, not 0).
-                _end = _pa_to_date(drop) if drop else _pa_to_date(_pa_latest_date)
+                # Closed tenure -> to the departure; STILL rostered -> to TODAY
+                # (same "as of now" basis add_drops' Length of tenure uses). Using
+                # today, not the last game week, keeps an ongoing hold from
+                # reading SHORTER than a player dropped in the current offseason.
+                _end = _pa_to_date(drop) if drop else _pa_today
                 if _end is not None:
                     tenure_days = max(0, (_end - pickup_dt).days)
-            ktc_end = None
-            if pickup_dt is not None:
-                ktc_end = _pa_ktc(pid, _date_pa(season + 1, 2, 1)) if season else None
+            # Cuff — always a real True/False (the handcuff test at pickup),
+            # computed the same way for every channel so it is never N/A.
+            try:
+                cuff = bool(_recv_is_cuff(str(name), str(team),
+                                          str(pickup_raw)[:10] if pickup_raw else ""))
+            except Exception:
+                cuff = False
+            # Tanking — the acquiring team's tank value AT the move (from the
+            # source add_drops/trades row); falls back to the team's season
+            # value for draft rows. Coerce blanks so an in-progress season (2026)
+            # still shows its running value rather than N/A.
+            def _blankish(_v):
+                return _v is None or (isinstance(_v, float) and _v != _v) \
+                    or str(_v).strip().lower() in ("", "nan", "none", "n/a")
+            tank = None if _blankish(tanking) else tanking
+            if tank is None and season is not None:
+                _ty_tank = _pa_tank.get((str(team), int(season)))
+                tank = None if _blankish(_ty_tank) else _ty_tank
+            # KTC checkpoints (pickup-relative; never pull forward — see _pa_ktc).
+            ktc_pick = _pa_ktc(pid, pickup_dt)
+            ktc_end = _pa_ktc(pid, _date_pa(season + 1, 2, 1)) if (pickup_dt and season) else None
+            ktc_1 = _pa_ktc(pid, _pa_plus_years(pickup_dt, 1)) if pickup_dt else None
+            ktc_2 = _pa_ktc(pid, _pa_plus_years(pickup_dt, 2)) if pickup_dt else None
+            ktc_3 = _pa_ktc(pid, _pa_plus_years(pickup_dt, 3)) if pickup_dt else None
+            ktc_4 = _pa_ktc(pid, _pa_plus_years(pickup_dt, 4)) if pickup_dt else None
+
+            def _kdiff(_later, _base):
+                if _later is None or _base is None:
+                    return None
+                return round(float(_later) - float(_base), 0)
             row = {
                 "Player": name,
                 "Team": team,
@@ -19253,13 +19302,18 @@ def build_all(repo_root: Path) -> None:
                 "Player addition value": sc.get("Player addition value"),
                 "Age at pickup": _pa_age(pid, pickup_dt),
                 "Cuff at pickup?": cuff,
-                "Tanking": _pa_tank.get((str(team), int(season))) if season is not None else None,
-                "KTC at pickup": _pa_ktc(pid, pickup_dt),
+                "Tanking": tank,
+                "KTC at pickup": ktc_pick,
                 "KTC at end of season": ktc_end,
-                "KTC 1 year after pickup": _pa_ktc(pid, _pa_plus_years(pickup_dt, 1)) if pickup_dt else None,
-                "KTC 2 years after pickup": _pa_ktc(pid, _pa_plus_years(pickup_dt, 2)) if pickup_dt else None,
-                "KTC 3 years after pickup": _pa_ktc(pid, _pa_plus_years(pickup_dt, 3)) if pickup_dt else None,
-                "KTC 4 years after pickup": _pa_ktc(pid, _pa_plus_years(pickup_dt, 4)) if pickup_dt else None,
+                "KTC 1 year after pickup": ktc_1,
+                "KTC 2 years after pickup": ktc_2,
+                "KTC 3 years after pickup": ktc_3,
+                "KTC 4 years after pickup": ktc_4,
+                "KTC change by end of season": _kdiff(ktc_end, ktc_pick),
+                "KTC change 1 year after pickup": _kdiff(ktc_1, ktc_pick),
+                "KTC change 2 years after pickup": _kdiff(ktc_2, ktc_pick),
+                "KTC change 3 years after pickup": _kdiff(ktc_3, ktc_pick),
+                "KTC change 4 years after pickup": _kdiff(ktc_4, ktc_pick),
                 "Weeks between pickup and start": sc.get("_weeks_before_start"),
                 "Link to next transaction": next_link,
             }
@@ -19284,10 +19338,10 @@ def build_all(repo_root: Path) -> None:
                     _sea = _pk.year if _pk else None
                 _ttype = str(add_drops_df.at[_i, "type of add/drop (waiver/free agency)"]) \
                     if "type of add/drop (waiver/free agency)" in add_drops_df.columns else ""
-                _cuff = add_drops_df.at[_i, "Cuff at time of pickup?"] if "Cuff at time of pickup?" in add_drops_df.columns else None
+                _tank_src = add_drops_df.at[_i, "Tanking"] if "Tanking" in add_drops_df.columns else None
                 _nl = add_drops_df.at[_i, _nl_col] if _nl_col in add_drops_df.columns else None
                 _emit(_tm, str(_add), _TYPE_LABEL.get(_ttype, "Add"),
-                      _pk_raw, _sea, f"#{int(_i) + 1}", _nl, _cuff)
+                      _pk_raw, _sea, f"#{int(_i) + 1}", _nl, _tank_src)
 
         # --- trade receives (one row per received player) ---
         if isinstance(tr, pd.DataFrame) and not tr.empty:
@@ -19306,7 +19360,8 @@ def build_all(repo_root: Path) -> None:
                     if not _pa_is_player(_asset):
                         continue
                     _nl = _links[_j] if _j < len(_links) else None
-                    _emit(_tm, _asset, "Trade", _pk_raw, _sea, f"T#{int(_i) + 1}", _nl, None)
+                    _tank_src = tr.at[_i, "Tanking"] if "Tanking" in tr.columns else None
+                    _emit(_tm, _asset, "Trade", _pk_raw, _sea, f"T#{int(_i) + 1}", _nl, _tank_src)
 
         # --- draft picks ---
         if isinstance(ph, pd.DataFrame) and not ph.empty:
@@ -19327,14 +19382,23 @@ def build_all(repo_root: Path) -> None:
                     _sea = None
                 _pk = None
                 if _sea is not None:
-                    _dd = sorted(rookie_draft_dates_by_season.get(_sea, set()) or set())
-                    if _dd:
-                        _pk = _pa_to_date(str(_dd[0]))
+                    # Use the picks sheet's own draft anchor so Tenure (days)
+                    # equals its "Length of tenure on team" to the day.
+                    try:
+                        _pk = _draft_anchor(_sea)
+                    except Exception:
+                        _pk = None
                     if _pk is None:
-                        _pk = _date_pa(_sea, 9, 1)
+                        _dd = sorted(rookie_draft_dates_by_season.get(_sea, set()) or set())
+                        _pk = _pa_to_date(str(_dd[0])) if _dd else _date_pa(_sea, 9, 1)
                 _cuff = ph.at[_i, "Cuff when drafted?"] if "Cuff when drafted?" in ph.columns else None
                 _nl = ph.at[_i, _nl_col_p] if _nl_col_p in ph.columns else None
-                _emit(_tm, str(_pl), "Draft", (_pk.isoformat() if _pk else None), _sea, f"PH#{int(_i) + 1}", _nl, _cuff)
+                # _draft_anchor may return a date OR an ISO string (the season
+                # draft-date sets hold either) — normalise to a string.
+                _pk_raw = None
+                if _pk is not None:
+                    _pk_raw = _pk.isoformat() if hasattr(_pk, "isoformat") else str(_pk)
+                _emit(_tm, str(_pl), "Draft", _pk_raw, _sea, f"PH#{int(_i) + 1}", _nl, None)
 
         if _pa_rows:
             player_additions = pd.DataFrame(_pa_rows)

@@ -1082,6 +1082,11 @@
     "KTC 2 years after pickup",
     "KTC 3 years after pickup",
     "KTC 4 years after pickup",
+    "KTC change by end of season",
+    "KTC change 1 year after pickup",
+    "KTC change 2 years after pickup",
+    "KTC change 3 years after pickup",
+    "KTC change 4 years after pickup",
     "Weeks between pickup and start",
     "Link to next transaction"
   ]
