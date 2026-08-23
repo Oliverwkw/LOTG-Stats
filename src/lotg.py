@@ -9290,11 +9290,45 @@ def build_all(repo_root: Path) -> None:
                     hits += 1
             return total, hits
 
+        # A traded pick that has already been DRAFTED becomes the drafted player:
+        # once its draft has happened, value the pick by that PLAYER's KTC. This
+        # is the fallback used when a pick's own slot value is unavailable at a
+        # checkpoint (e.g. the 2020 startup picks, before KTC's pre-2021 history)
+        # — the drafted players (Golladay, Robinson, Henry, …) DO have KTC at the
+        # later checkpoints, so the deal gets a real KTC diff (and O-Score).
+        _pick_drafted_ktc: Dict[Tuple[int, int, str], Tuple[Optional[str], date]] = {}
+        try:
+            for _pr in pick_rows:
+                _ym2 = re.match(r"\s*(\d{4})", str(_pr.get("Year", "")))
+                _nm2 = re.match(r"\s*(\d+)\.(\d+)", str(_pr.get("Number", "")))
+                _pl2 = str(_pr.get("Player Picked", "")).strip()
+                if not _ym2 or not _nm2 or not _pl2 or _pl2.upper() in ("N/A", "UNKNOWN"):
+                    continue
+                _pid2 = _pr.get("_player_id") or _ktc_name_to_sid.get(_pl2)
+                if not _pid2:
+                    continue
+                _dy2 = int(_ym2.group(1))
+                _k2 = (_dy2, int(_nm2.group(1)), _norm_team_name(_pr.get("Original Team", "")))
+                _pick_drafted_ktc[_k2] = (str(_pid2), date(_dy2, 9, 1))
+        except Exception as e:
+            _log_exc(debug, "pick_drafted_ktc_map", e)
+
+        def _pick_drafted_value(meta, target: date) -> Optional[float]:
+            try:
+                _k = (int(meta[0]), int(meta[1]), _norm_team_name(str(meta[2])))
+            except Exception:
+                return None
+            _d = _pick_drafted_ktc.get(_k)
+            if not _d or not _d[0] or target < _d[1]:
+                return None
+            return asset_value_at(None, _d[0], target, idx)
+
         def _side_values(
             target: date,
             player_ids: List[str],
             pick_labels: List[str],
             faab: float = 0.0,
+            pick_metas: Optional[List[Any]] = None,
         ) -> List[float]:
             """Per-asset KTC values on one side (for the package-tax diff). FAAB
             dollars are valued at the league-wide avg KTC-per-$ (Fix 3).
@@ -9314,8 +9348,11 @@ def build_all(repo_root: Path) -> None:
                 v = asset_value_at(None, str(sid), target, idx)
                 if v is not None:
                     out.append(float(v))
-            for plabel in pick_labels:
+            for _pi, plabel in enumerate(pick_labels):
                 v = asset_value_at(str(plabel), None, target, idx)
+                if v is None and pick_metas is not None and _pi < len(pick_metas):
+                    # Pick slot unpriceable here -> value the drafted player.
+                    v = _pick_drafted_value(pick_metas[_pi], target)
                 if v is not None:
                     out.append(float(v))
             if faab and faab > 0 and _ktc_per_faab > 0:
@@ -9399,11 +9436,13 @@ def build_all(repo_root: Path) -> None:
             drop_picks: List[str],
             recv_faab: float = 0.0,
             drop_faab: float = 0.0,
+            recv_pick_metas: Optional[List[Any]] = None,
+            drop_pick_metas: Optional[List[Any]] = None,
         ) -> Optional[float]:
             if target > today:
                 return None
-            recv_vals = _side_values(target, recv_ids, recv_picks, recv_faab)
-            sent_vals = _side_values(target, drop_ids, drop_picks, drop_faab)
+            recv_vals = _side_values(target, recv_ids, recv_picks, recv_faab, recv_pick_metas)
+            sent_vals = _side_values(target, drop_ids, drop_picks, drop_faab, drop_pick_metas)
             # An EMPTY side is not the same as an UNVALUED one. A side that
             # carried no assets at all (a pure FAAB gift, or a one-way move where
             # the counterparty row holds the other half) is genuinely worth 0 and
@@ -9446,16 +9485,24 @@ def build_all(repo_root: Path) -> None:
             # Value each traded pick under the future-pick rule (round average if
             # traded before its determining season, else its actual resolved slot).
             # _recv_picks/_recv_pick_meta are parallel; meta carries (year,round,orig).
-            recv_picks = [p for p in (_pick_val_label(m, trade_date)
-                                      for m in (row.get("_recv_pick_meta") or [])) if p]
-            drop_picks = [p for p in (_pick_val_label(m, trade_date)
-                                      for m in (row.get("_drop_pick_meta") or [])) if p]
+            # Keep the pick LABELS and their METAS parallel — the meta lets a
+            # drafted pick fall back to its player's KTC when the slot value is
+            # unavailable (2020 startup).
+            _recv_pl = [(m, _pick_val_label(m, trade_date)) for m in (row.get("_recv_pick_meta") or [])]
+            _recv_pl = [(m, lbl) for (m, lbl) in _recv_pl if lbl]
+            recv_picks = [lbl for (m, lbl) in _recv_pl]
+            recv_pick_metas = [m for (m, lbl) in _recv_pl]
+            _drop_pl = [(m, _pick_val_label(m, trade_date)) for m in (row.get("_drop_pick_meta") or [])]
+            _drop_pl = [(m, lbl) for (m, lbl) in _drop_pl if lbl]
+            drop_picks = [lbl for (m, lbl) in _drop_pl]
+            drop_pick_metas = [m for (m, lbl) in _drop_pl]
             recv_faab = float(row.get("_recv_faab") or 0.0)
             drop_faab = float(row.get("_drop_faab") or 0.0)
 
             # Deal time
             if trade_date <= today:
-                diff = _diff_at(trade_date, recv_ids, drop_ids, recv_picks, drop_picks, recv_faab, drop_faab)
+                diff = _diff_at(trade_date, recv_ids, drop_ids, recv_picks, drop_picks, recv_faab, drop_faab,
+                                recv_pick_metas, drop_pick_metas)
                 if diff is not None:
                     row["KTC value difference at deal time"] = diff
 
@@ -9518,7 +9565,8 @@ def build_all(repo_root: Path) -> None:
                 # than the trade itself doesn't make sense.
                 if ref_date < trade_date:
                     ref_date = trade_date
-                diff = _diff_at(ref_date, recv_ids, drop_ids, recv_picks, drop_picks, recv_faab, drop_faab)
+                diff = _diff_at(ref_date, recv_ids, drop_ids, recv_picks, drop_picks, recv_faab, drop_faab,
+                                recv_pick_metas, drop_pick_metas)
                 if diff is not None:
                     row[col_name] = diff
 
