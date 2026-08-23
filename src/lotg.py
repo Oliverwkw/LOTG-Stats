@@ -8357,42 +8357,104 @@ def build_all(repo_root: Path) -> None:
                 def _cc_named(_v):
                     return _v is not None and str(_v).strip() not in ("", "nan", "None", "N/A")
 
+                # Index every add and every drop by (team, player) so a
+                # commissioner row can find the move it reverses in either
+                # direction.
                 _cc_drop_by_tp: Dict[Tuple[str, str], List[Tuple[Any, int]]] = defaultdict(list)
+                _cc_add_by_tp: Dict[Tuple[str, str], List[Tuple[Any, int]]] = defaultdict(list)
                 for _ix, _r in enumerate(add_drop_rows):
+                    _d = _cc_dt(_r.get("Date"))
+                    if _d is None:
+                        continue
                     _dp = _r.get("Player Dropped")
                     if _cc_named(_dp):
-                        _d = _cc_dt(_r.get("Date"))
-                        if _d is not None:
-                            _cc_drop_by_tp[(str(_r.get("Team")), str(_dp))].append((_d, _ix))
-                _cc_remove: Set[int] = set()
+                        _cc_drop_by_tp[(str(_r.get("Team")), str(_dp))].append((_d, _ix))
+                    _ap = _r.get("Player Added")
+                    if _cc_named(_ap):
+                        _cc_add_by_tp[(str(_r.get("Team")), str(_ap))].append((_d, _ix))
+                # A commissioner move is (≈99% of the time) a correction of a
+                # mistake, not a real transaction. So for each commissioner row we
+                # delete the commissioner row AND undo the specific MISTAKE it
+                # reverses — leaving the player as if neither ever happened
+                # (continuous tenure). Two mirror directions:
+                #   • commish ADD of X  ⇢ cancels a prior DROP of X (an erroneous cut)
+                #   • commish DROP of X ⇢ cancels a prior ADD of X (an erroneous pickup)
+                # The undo is LEG-level, not row-level: the mistake can live in a
+                # compound waiver ("add X / drop Y") where only one leg is the
+                # error. Cancelling just that leg keeps the other player's real
+                # move intact (no collateral drop/add, no new dangling history).
+                # A row that loses BOTH legs contributed nothing and is dropped —
+                # so a compound waiver reverted on both sides (commish drop-X AND
+                # commish add-Y) disappears entirely. Real case: Oliverwkw's
+                # 2023-09-04 "add Jerome Ford / drop Isaiah Spiller" waiver,
+                # reverted 90s later by a commish drop-Ford + a commish add-Spiller
+                # — all three rows go, Ford's real pickup is the next day, Spiller
+                # is never dropped.
+                _cc_remove: Set[int] = set()          # commissioner rows to delete outright
+                _cc_cancel_add: Set[int] = set()      # rows whose ADD leg is the reverted mistake
+                _cc_cancel_drop: Set[int] = set()     # rows whose DROP leg is the reverted mistake
                 for _ix, _r in enumerate(add_drop_rows):
                     if str(_r.get("type of add/drop (waiver/free agency)") or "") != "commissioner":
                         continue
+                    _cdt = _cc_dt(_r.get("Date"))
+                    if _cdt is None:
+                        continue
+                    _win = _cdt - pd.Timedelta(hours=24)
+                    _team = str(_r.get("Team"))
+                    _matched = False
                     _add = _r.get("Player Added")
-                    if not _cc_named(_add):
-                        continue
-                    _adt = _cc_dt(_r.get("Date"))
-                    if _adt is None:
-                        continue
-                    _win = _adt - pd.Timedelta(hours=24)
-                    _prior = sorted([(_d, _j) for (_d, _j) in
-                                     _cc_drop_by_tp.get((str(_r.get("Team")), str(_add)), [])
-                                     if _win <= _d < _adt])
-                    if _prior:
+                    if _cc_named(_add):     # commish re-add ⇢ cancel the erroneous prior DROP of X
+                        _prior = [(_d, _j) for (_d, _j) in _cc_drop_by_tp.get((_team, str(_add)), [])
+                                  if _win <= _d < _cdt and _j != _ix]
+                        if _prior:
+                            _cc_cancel_drop.add(max(_prior)[1]); _matched = True
+                    _drop = _r.get("Player Dropped")
+                    if _cc_named(_drop):    # commish drop ⇢ cancel the erroneous prior ADD of X
+                        _prior = [(_d, _j) for (_d, _j) in _cc_add_by_tp.get((_team, str(_drop)), [])
+                                  if _win <= _d < _cdt and _j != _ix]
+                        if _prior:
+                            _cc_cancel_add.add(max(_prior)[1]); _matched = True
+                    if _matched:
                         _cc_remove.add(_ix)
-                        _cc_remove.add(_prior[-1][1])   # the most recent prior drop
-                if _cc_remove:
-                    _cc_events = [(str(add_drop_rows[i].get("Team")),
-                                   str(add_drop_rows[i].get("Player Added")
-                                       or add_drop_rows[i].get("Player Dropped") or ""),
-                                   str(add_drop_rows[i].get("Date"))) for i in _cc_remove]
-                    add_drop_rows[:] = [r for i, r in enumerate(add_drop_rows) if i not in _cc_remove]
-                    for (_tm, _pl, _dt) in _cc_events:
+                if _cc_remove or _cc_cancel_add or _cc_cancel_drop:
+                    _cc_scrub: List[Tuple[str, str, str]] = []
+                    # Commissioner rows: scrub both of their legs and delete them.
+                    for i in _cc_remove:
+                        _tm = str(add_drop_rows[i].get("Team")); _dt = str(add_drop_rows[i].get("Date"))
+                        for _pl in (add_drop_rows[i].get("Player Added"),
+                                    add_drop_rows[i].get("Player Dropped")):
+                            if _cc_named(_pl):
+                                _cc_scrub.append((_tm, str(_pl), _dt))
+                    # Mistake rows: cancel only the reverted leg in place.
+                    for i in _cc_cancel_add:
+                        _tm = str(add_drop_rows[i].get("Team")); _dt = str(add_drop_rows[i].get("Date"))
+                        _pl = add_drop_rows[i].get("Player Added")
+                        if _cc_named(_pl):
+                            _cc_scrub.append((_tm, str(_pl), _dt))
+                        add_drop_rows[i]["Player Added"] = None
+                        add_drop_rows[i]["_added_pid"] = None
+                    for i in _cc_cancel_drop:
+                        _tm = str(add_drop_rows[i].get("Team")); _dt = str(add_drop_rows[i].get("Date"))
+                        _pl = add_drop_rows[i].get("Player Dropped")
+                        if _cc_named(_pl):
+                            _cc_scrub.append((_tm, str(_pl), _dt))
+                        add_drop_rows[i]["Player Dropped"] = None
+                        add_drop_rows[i]["_dropped_pid"] = None
+                    # A mistake row emptied of BOTH legs contributed nothing — drop it.
+                    _cc_emptied = {i for i in (_cc_cancel_add | _cc_cancel_drop)
+                                   if not _cc_named(add_drop_rows[i].get("Player Added"))
+                                   and not _cc_named(add_drop_rows[i].get("Player Dropped"))}
+                    _cc_gone = _cc_remove | _cc_emptied
+                    add_drop_rows[:] = [r for i, r in enumerate(add_drop_rows) if i not in _cc_gone]
+                    for (_tm, _pl, _dt) in _cc_scrub:
                         _k = (_tm, _pl)
                         if _k in event_log:
                             event_log[_k] = [e for e in event_log[_k] if str(e[0]) != _dt]
                     _log(debug, f"[{_now_iso()}] INFO commissioner-correction cleanup: removed "
-                                f"{len(_cc_remove)} rows (same-team drop + commissioner re-add within 24h)")
+                                f"{len(_cc_gone)} rows ({len(_cc_remove)} commissioner corrections + "
+                                f"{len(_cc_emptied)} fully-reverted mistakes), cancelled "
+                                f"{len(_cc_cancel_add) + len(_cc_cancel_drop)} mistake leg(s) "
+                                f"(commissioner add/drop reverses a same-player move within 24h)")
             except Exception as e:
                 _log_exc(debug, "commish_correction_cleanup", e)
 
