@@ -115,7 +115,7 @@ def _short(title: str) -> str:
 #                nothing else touched, or in the direction nothing else went, is
 #                the one a reader could not have guessed.
 #
-# Everything is a single O(n) pass over the items, at most two are ever named,
+# Everything is a single O(n) pass over the items, up to four are ever named,
 # and the composed lede is trimmed sentence-by-sentence to the same caps the AI
 # lede is held to — so a 65-line week and a 6,500-line week produce the same
 # shape of paragraph, and neither can produce a wall.
@@ -213,7 +213,7 @@ class _Cand:
     seen scores as an ordinary line instead of raising."""
 
     __slots__ = ("item", "section", "rank", "column", "family", "end",
-                 "sheet", "tied", "joined", "derived", "who", "score")
+                 "sheet", "tied", "joined", "is_new", "derived", "who", "score")
 
     def __init__(self, item, section: str):
         self.item = item
@@ -224,6 +224,9 @@ class _Cand:
         self.end = str(getattr(item, "end", "") or "")
         self.sheet = str(getattr(item, "sheet", "") or getattr(item, "section", "") or section)
         self.tied = bool(getattr(item, "tied", False))
+        # A brand-new row (the diff found its key in no prior board) — a just-made
+        # trade/add, a freshly recorded pick. New data, whatever its column.
+        self.is_new = bool(getattr(item, "is_new", False))
         # A crossing that JOINED a place (arrived at a value someone still holds)
         # is a tie in every sense the reader cares about; the event boards phrase
         # it as `joined` where the player/team crossings use `tied`. The ties
@@ -310,17 +313,18 @@ def _join(words: Sequence[str]) -> str:
 # Below this a week is a handful of odds and ends, not a "broad" one worth a
 # where-it-landed sentence — the plain leftover clause says it in fewer words.
 _BROAD_MIN = 6
-# The lede may now call out up to THREE standout lines, not two — a rich week
-# often has a player record, a trade, and a team move that are three separate
-# stories, and collapsing them loses two of the three. A line still has to earn
-# it: score within `_RUNNERUP_FRAC` of the headline, a DIFFERENT stat family and
-# a different entity from everything already named, and short enough to quote.
-_MAX_NAMED = 3
+# The lede may call out up to FOUR standout lines — a rich week has a record, a
+# trade, a team move and more that are separate stories, and collapsing them
+# loses most. The first leads its own sentence; the rest are packed into one
+# semicolon-joined REEL, so four headlines cost two sentences, not four. A line
+# still has to earn it: score within `_RUNNERUP_FRAC` of the headline, a DIFFERENT
+# stat family and a different entity from everything named, and short enough.
+_MAX_NAMED = 4
 _RUNNERUP_FRAC = 0.4
-# Words held back from the named lines so the story (cause + detail, up to two
-# sentences) survives the final trim — the shape of the week is worth more than a
-# third quoted line.
-_STORY_RESERVE = 48
+# Words held back from the named lines so the cause sentence and the texture
+# sentence survive the final trim — the shape of the week is worth more than one
+# extra quoted line.
+_STORY_RESERVE = 50
 
 # ---------------------------------------------------------------------------
 # Provenance — telling a re-valuation apart from real results
@@ -411,11 +415,12 @@ def _provenance(cand: "_Cand", season: Optional[int],
     whose season can't be read (an all-time total, which only moves by
     recomputation anyway).
 
-    `live` — a genuinely new result — needs TWO things: a current-season row AND
-    a season that is actually underway. In the preseason (no weeks played yet) a
-    current-season row cannot have moved on new results — a 2026 rookie pick's
-    valuation shifts only because the board around it was recomputed — so with
-    `in_season` false nothing is live, and such a move reads as the recompute it
+    `live` — a genuinely new result — covers two cases: a BRAND-NEW row dated in
+    the current period (a trade or add just made, a pick freshly recorded — new
+    data whatever the time of year), and current-season game production once the
+    season is UNDERWAY. In the preseason a current-season row that is not new
+    cannot have moved on results — a 2026 rookie pick's valuation shifts only
+    because the board around it was recomputed — so it reads as the recompute it
     is."""
     # A row overtaking a renumbered version of itself didn't move — a key
     # changed. That is structural, whatever column it lands on, so it is judged
@@ -426,6 +431,12 @@ def _provenance(cand: "_Cand", season: Optional[int],
         return "drift"
     yr = _row_season(getattr(cand.item, "label", "") or
                      getattr(cand.item, "mover", "") or cand.section)
+    # A brand-new row in the current period is a real new transaction/pick — new
+    # data even in the offseason, when no week has been played. An OLD-dated new
+    # row is a historical event the pipeline only just started recording (e.g. a
+    # backfilled startup slot-swap): that is a recompute, so it is not live.
+    if cand.is_new and season and yr and yr >= season:
+        return "live"
     if in_season and season and yr and yr >= season:
         return "live"
     return "recompute"
@@ -462,7 +473,6 @@ def _bulk_story(rest: List["_Cand"], season: Optional[int],
     for c in rest:
         prov[_provenance(c, season, in_season)] += 1
     recomp, drift, live = prov["recompute"], prov["drift"], prov["live"]
-    arts = sum(1 for c in rest if _self_reference(c))
     sheets: dict = {}
     for c in rest:
         s = _short(c.section)
@@ -491,20 +501,6 @@ def _bulk_story(rest: List["_Cand"], season: Optional[int],
         phrase = _prov_phrase(r, d, li)
         return f"; {phrase} besides" if phrase else ""
 
-    def _detail() -> List[str]:
-        """The biggest stat thread and the renumber-artifact tell, folded into one
-        trailing sentence — kept SHORT and separate so the cause sentence above it
-        stays fast to read and the trim can drop this alone if the budget is tight."""
-        bits = []
-        if block_fam and block_n >= 4:
-            bits.append(f"the biggest single thread is {block_n} {block_fam} moves")
-        if arts >= 3:
-            bits.append(f"{arts} picks pass earlier-numbered versions of themselves")
-        if not bits:
-            return []
-        s = _join(bits)
-        return [s[0].upper() + s[1:] + "."]
-
     # A handful of odds and ends: one plain clause, no story to tell.
     if n < _BROAD_MIN and not block_fam:
         where = _join(sorted(sheets)[:3])
@@ -531,14 +527,14 @@ def _bulk_story(rest: List["_Cand"], season: Optional[int],
         newdata = live + drift
         nd = f", and only {newdata} reflect new data" if newdata else ""
         return [f"{lead}: {recomp} of the {n} {others_word} re-value settled "
-                f"history ({span}){nd}."] + _detail()
+                f"history ({span}){nd}."]
 
     # NEW RESULTS dominate: the in-progress season actually moved. On a big
     # in-season week this is the common case — so it still names the other causes,
     # to stay a complete account rather than only the headline pile.
     if live >= 0.6 * n:
         return [f"It was an active week — {live} of the {n} {others_word} are new "
-                f"results ({span}){_besides(exclude='live')}."] + _detail()
+                f"results ({span}){_besides(exclude='live')}."]
 
     # GENUINELY MIXED: no single cause owns it. Say how big, where it landed, and
     # the cause split — three facts that together are the week.
@@ -548,7 +544,41 @@ def _bulk_story(rest: List["_Cand"], season: Optional[int],
     tail = sum(cnt for _s, cnt in top[3:])
     where = span + (f", and {tail} elsewhere" if tail else "")
     split = _prov_phrase(recomp, drift, live)
-    return [f"{opener} {n} moves across {where} ({split})."] + _detail()
+    return [f"{opener} {n} moves across {where} ({split})."]
+
+
+def _reel(lines: Sequence[str]) -> str:
+    """The standouts after the headline, packed into ONE sentence — each still
+    quoted verbatim (so still grounded), joined by semicolons. Four headlines in
+    the space of one, instead of four separate sentences."""
+    clauses = [str(l).strip().rstrip(".") for l in lines if str(l).strip()]
+    return "; ".join(clauses) + "." if clauses else ""
+
+
+def _texture(cands: Sequence["_Cand"], rest: Sequence["_Cand"], total: int) -> List[str]:
+    """One dense closing sentence: the biggest one or two stat families still
+    moving, the renumber-artifact tell, and how much of the week was ties rather
+    than overtakes — three kinds of texture a reader would otherwise have to count
+    off the list themselves, folded together and dropped as a unit if the budget
+    is tight."""
+    bits: List[str] = []
+    blocks = [b for b in _blocks(list(rest)) if b[1] >= max(4, int(0.15 * total))][:2]
+    if len(blocks) == 1:
+        fam, cnt, _s = blocks[0]
+        bits.append(f"the biggest single thread is {cnt} {fam} moves")
+    elif blocks:
+        bits.append("the biggest threads are "
+                    + _join([f"{cnt} {fam}" for fam, cnt, _s in blocks]) + " moves")
+    arts = sum(1 for x in rest if _self_reference(x))
+    if arts >= 3:
+        bits.append(f"{arts} picks pass earlier-numbered versions of themselves")
+    ties = sum(1 for x in cands if x.joined)
+    if ties >= 3:
+        bits.append(f"{ties} of the {total} were ties rather than overtakes")
+    if not bits:
+        return []
+    s = "; ".join(bits)
+    return [s[0].upper() + s[1:] + "."]
 
 
 def reasoned_summary(sections: Sequence[Tuple[str, str, list]],
@@ -592,7 +622,7 @@ def reasoned_summary(sections: Sequence[Tuple[str, str, list]],
     # behaviour holds — but the digest always supplies one.)
     eligible = [c for c in ranked
                 if season is None or _provenance(c, season, in_season) != "recompute"]
-    parts: List[str] = []
+    named_lines: List[str] = []
     words = 0
     named: set = set()
     named_fams: set = set()
@@ -600,16 +630,17 @@ def reasoned_summary(sections: Sequence[Tuple[str, str, list]],
     if eligible:
         head = next((c for c in eligible
                      if len(c.sentence().split()) <= _HEAD_MAX_WORDS), eligible[0])
-        parts.append(head.sentence())
-        words = len(parts[0].split())
+        named_lines.append(head.sentence())
+        words = len(named_lines[0].split())
         named = {id(head)}
         named_fams = {head.family}
         named_who = {head.who} if head.who else set()
-        # Up to two more standouts join it if they clear the bar and add something
-        # new — a different stat AND a different entity. A word budget is held in
-        # reserve for the story so a run of long trade labels can't crowd it out.
+        # Up to three more standouts join it if they clear the bar and add
+        # something new — a different stat AND a different entity. A word budget is
+        # held in reserve for the story and texture so a run of long trade labels
+        # can't crowd them out; the extras are packed into one reel sentence below.
         for c in eligible:
-            if len(parts) >= _MAX_NAMED:
+            if len(named_lines) >= _MAX_NAMED:
                 break
             if id(c) in named:
                 continue
@@ -621,7 +652,7 @@ def reasoned_summary(sections: Sequence[Tuple[str, str, list]],
                     or (c.who and c.who in named_who) or w > _HEAD_MAX_WORDS
                     or words + w > _LEDE_MAX_WORDS - _STORY_RESERVE):
                 continue
-            parts.append(s)
+            named_lines.append(s)
             words += w
             named.add(id(c))
             named_fams.add(c.family)
@@ -629,13 +660,22 @@ def reasoned_summary(sections: Sequence[Tuple[str, str, list]],
                 named_who.add(c.who)
 
     rest = [c for c in cands if id(c) not in named]
-    parts += _bulk_story(rest, season, bool(named), in_season)
 
-    # Ties are easy to miss in a list of near-identical lines, and a week that is
-    # a third ties is a different week from one that is none.
-    ties = sum(1 for c in cands if c.joined)
-    if ties >= 3:
-        parts.append(f"{ties} of the {total} were ties rather than overtakes.")
+    # Compose, in priority order so `_fit` keeps the most valuable prefix: the
+    # marquee highlight, then the cause/scale story, then a REEL of the remaining
+    # standouts packed into one sentence, then a TEXTURE sentence folding the
+    # biggest threads, the renumber artifacts and the ties count together. A rich
+    # week thus packs four highlights plus the full analysis into five sentences;
+    # a quiet one is short because it has fewer of these, not thinner ones.
+    parts: List[str] = []
+    if named_lines:
+        parts.append(named_lines[0])
+    parts += _bulk_story(rest, season, bool(named), in_season)
+    if len(named_lines) > 1:
+        reel = _reel(named_lines[1:])
+        if reel:
+            parts.append(reel)
+    parts += _texture(cands, rest, total)
 
     # Two sentences minimum when a lone HEADLINE is all there is: a single quoted
     # line reads as an accident, so the shape of the week is the missing half. A

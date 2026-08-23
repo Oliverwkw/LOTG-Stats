@@ -161,9 +161,10 @@ class _Move:
     """Shaped like an EventCrossing — the attributes the scorer reads."""
 
     def __init__(self, label, column, rank, end="low", sheet="picks", tied=False,
-                 joined=False):
+                 joined=False, is_new=False):
         self.label, self.column, self.rank = label, column, rank
         self.end, self.sheet, self.tied, self.joined = end, sheet, tied, joined
+        self.is_new = is_new
 
     def sentence(self):
         w = "ties" if (self.tied or self.joined) else "passes"
@@ -312,6 +313,32 @@ def check_reasoned_tenure_and_ktc_are_new_data():
     return ok
 
 
+def check_reasoned_new_transactions_are_new_data():
+    """A brand-new row — a trade or add just made, flagged is_new by the diff
+    because its key was in no prior board — is new data even in the preseason, and
+    can headline. But an OLD-dated new row (a backfilled historical event the
+    pipeline only just started recording) is a recompute, not highlighted."""
+    bulk = [_Move(f"startup pick 4.0{i} (p{i})", "Points added", 3, sheet="picks")
+            for i in range(10)]
+    # A trade made just now (current season), brand-new to the boards.
+    fresh = DS.reasoned_summary([
+        ("All-time leaderboard moves — trades", "moved",
+         [_Move("Newp's 2026-08-20 trade", "O-Score", 1, end="high", sheet="trades",
+                is_new=True)] + bulk)], season=2026, weeks_completed=0)
+    ok = _ok("a just-made trade is new data → headlines even in the preseason",
+             "Newp's 2026-08-20 trade" in fresh, fresh)
+    # A brand-new row but dated years ago: the pipeline only just started recording
+    # a settled event (e.g. a backfilled startup slot-swap) — a recompute.
+    backfill = DS.reasoned_summary([
+        ("All-time leaderboard moves — trades", "moved",
+         [_Move("Oldp's 2020-08-20 slot swap", "O-Score", 1, end="high",
+                sheet="trades", is_new=True)] + bulk)], season=2026, weeks_completed=0)
+    ok &= _ok("a backfilled OLD event is a recompute, not highlighted",
+              "Oldp's 2020-08-20 slot swap" not in backfill
+              and backfill.startswith("This is a recompute"), backfill)
+    return ok
+
+
 def check_reasoned_broad_week_is_not_one_story():
     """A mixed week — no single family and no single CAUSE owning it — is framed
     by how big it is, where it landed, and the provenance split, not by calling a
@@ -340,7 +367,8 @@ def check_reasoned_broad_week_is_not_one_story():
               and "drift" in out, out)
     ok &= _ok("counts the remainder exactly", "moves across" in out, out)
     ok &= _ok("names the biggest family as a thread",
-              "biggest single thread" in out and "Pick-adjusted Difference" in out, out)
+              ("biggest single thread" in out or "biggest threads are" in out)
+              and "Pick-adjusted Difference" in out, out)
     return ok
 
 
@@ -609,6 +637,7 @@ def run_all() -> bool:
         check_reasoned_folds_the_bulk_into_one_clause,
         check_reasoned_preseason_is_all_recompute,
         check_reasoned_tenure_and_ktc_are_new_data,
+        check_reasoned_new_transactions_are_new_data,
         check_reasoned_broad_week_is_not_one_story,
         check_reasoned_highlights_only_new_data,
         check_reasoned_names_the_cause,

@@ -351,6 +351,45 @@ def check_event_board_diff():
     return ok
 
 
+def check_event_diff_flags_new_rows():
+    """is_new means the row's key was in the prior snapshot's FULL row set — a
+    genuinely brand-new row (a just-made trade/add, a freshly recorded pick). It
+    is told apart from BOTH a re-valued row AND an old row that merely climbs onto
+    a board for the first time — the distinction the ranked-only board can't make
+    alone, which is why the full key set is threaded through."""
+    def picks(rows):
+        return pd.DataFrame({"Year": [r[0] for r in rows], "Number": [r[1] for r in rows],
+                             "Player Picked": [r[2] for r in rows],
+                             "O-Score": [r[3] for r in rows]})
+    # Prior FULL set has five picks; P5 exists but sits off the (window=3) board.
+    prior_rows = [(2024, "1.01", "P1", 50), (2024, "1.02", "P2", 60),
+                  (2025, "1.03", "P3", 90), (2025, "1.04", "P4", 10.0),
+                  (2025, "1.05", "P5", 55)]
+    prior_keys = D.all_row_keys({"picks": picks(prior_rows)})
+    prior = D.event_board(D.board_highlights(picks(prior_rows), "picks", window=3))
+    # Now: P5 (old, was off the board) is re-valued and climbs to 1st; a genuinely
+    # new 2026 pick also lands high; P1 is re-valued upward.
+    cur = D.board_highlights(picks([
+        (2024, "1.01", "P1", 92), (2024, "1.02", "P2", 60),
+        (2025, "1.03", "P3", 90), (2025, "1.04", "P4", 10.0),
+        (2025, "1.05", "P5", 99), (2026, "1.06", "NEW", 95)]), "picks", window=3)
+    by = {c.label: c for c in D.diff_events(prior, cur, prior_row_keys=prior_keys)}
+    new = by.get("2026 pick 1.06 (NEW)")
+    climber = by.get("2025 pick 1.05 (P5)")
+    reval = by.get("2024 pick 1.01 (P1)")
+    ok = _ok("the brand-new pick is flagged is_new",
+             new is not None and new.is_new is True, str(list(by)))
+    ok &= _ok("an old row climbing onto the board is NOT is_new",
+              climber is not None and climber.is_new is False,
+              f"climber={climber and climber.is_new}")
+    ok &= _ok("a re-valued existing pick is NOT is_new",
+              reval is not None and reval.is_new is False,
+              f"reval={reval and reval.is_new}")
+    ok &= _ok("without the prior full key set, nothing is called new",
+              all(not c.is_new for c in D.diff_events(prior, cur)), "")
+    return ok
+
+
 def check_event_labels():
     """Labels name the assets, so a line says what actually moved."""
     trades = pd.DataFrame([{
@@ -833,6 +872,7 @@ def run_all() -> bool:
         check_event_highlights,
         check_board_covers_every_sheet,
         check_event_board_diff,
+        check_event_diff_flags_new_rows,
         check_tie_joins_are_said_to_be_ties,
         check_all_time_tie_joins,
         check_section_reading_order,
