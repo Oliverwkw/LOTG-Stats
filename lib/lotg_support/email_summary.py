@@ -38,10 +38,13 @@ _MAX_SENTENCES = 5
 # one move always gets a second sentence, even if it has to run over budget.
 _MIN_SENTENCES = 2
 # The lede QUOTES the digest's own sentences instead of writing its own, and a
-# quoted line can be 30 words on its own — so the budget is generous, with a hard
-# ceiling behind it that only the minimum-sentence rule can push into.
-_LEDE_MAX_WORDS = 95
-_LEDE_HARD_WORDS = 130
+# quoted line can be 30 words on its own. On a rich week it now carries up to
+# three of those PLUS a two-sentence read of what kind of week it was, so the
+# budget is generous — a hard ceiling behind it that only the minimum-sentence
+# rule can push into. Still bounded: the sentence cap is the real guard, and a
+# quiet week stays short because it has fewer sentences, not fewer words each.
+_LEDE_MAX_WORDS = 105
+_LEDE_HARD_WORDS = 135
 _HEAD_MAX_WORDS = 34
 # What we hand the model. A quiet week is a dozen lines; the busiest digest on
 # record is under a hundred. The cap is a cost guard, not a filter we expect to
@@ -210,7 +213,7 @@ class _Cand:
     seen scores as an ordinary line instead of raising."""
 
     __slots__ = ("item", "section", "rank", "column", "family", "end",
-                 "sheet", "tied", "derived", "who", "score")
+                 "sheet", "tied", "joined", "derived", "who", "score")
 
     def __init__(self, item, section: str):
         self.item = item
@@ -221,6 +224,12 @@ class _Cand:
         self.end = str(getattr(item, "end", "") or "")
         self.sheet = str(getattr(item, "sheet", "") or getattr(item, "section", "") or section)
         self.tied = bool(getattr(item, "tied", False))
+        # A crossing that JOINED a place (arrived at a value someone still holds)
+        # is a tie in every sense the reader cares about; the event boards phrase
+        # it as `joined` where the player/team crossings use `tied`. The ties
+        # tally below counts both — `_score` keeps using `tied` alone, so surfacing
+        # joins in the count doesn't quietly re-rank which line leads.
+        self.joined = self.tied or bool(getattr(item, "joined", False))
         self.derived = _prominence(self.column, self.family) < 1.0
         self.who = str(getattr(item, "group", lambda: "")() or "")
         self.score = 0.0
@@ -298,8 +307,190 @@ def _join(words: Sequence[str]) -> str:
     return ", ".join(ws[:-1]) + " and " + ws[-1]
 
 
-def reasoned_summary(sections: Sequence[Tuple[str, str, list]]) -> str:
-    """The deterministic lede that leads with the most notable line.
+# Below this a week is a handful of odds and ends, not a "broad" one worth a
+# where-it-landed sentence — the plain leftover clause says it in fewer words.
+_BROAD_MIN = 6
+# The lede may now call out up to THREE standout lines, not two — a rich week
+# often has a player record, a trade, and a team move that are three separate
+# stories, and collapsing them loses two of the three. A line still has to earn
+# it: score within `_RUNNERUP_FRAC` of the headline, a DIFFERENT stat family and
+# a different entity from everything already named, and short enough to quote.
+_MAX_NAMED = 3
+_RUNNERUP_FRAC = 0.4
+# Words held back from the named lines so the story (cause + detail, up to two
+# sentences) survives the final trim — the shape of the week is worth more than a
+# third quoted line.
+_STORY_RESERVE = 48
+
+# ---------------------------------------------------------------------------
+# Provenance — telling a re-valuation apart from real results
+# ---------------------------------------------------------------------------
+# The single most useful thing a lede can say about a busy week is WHY it is
+# busy, and there are three different reasons, which read as three different
+# weeks:
+#
+#   RE-VALUED HISTORY  a settled season's rows moved. A completed season's picks,
+#                      trades and weeks cannot change because of new games — they
+#                      are done — so when they move it is the pipeline recomputing
+#                      them: a formula, a key or an attribution changed. This is
+#                      the fingerprint of a code change (or an upstream data
+#                      correction), NOT of the league playing football.
+#   MARKET DRIFT       KTC and age move on their own, every single run, forever.
+#                      A week that is mostly KTC churn is the quietest kind there
+#                      is, however many rows it touches.
+#   NEW RESULTS        the in-progress season moved. This is the only bucket that
+#                      is actually news about games that were played.
+#
+# A special case of re-valued history is worth calling out by name: a row that
+# now "passes" an earlier-numbered version of ITSELF. That only happens when a
+# key the boards rank on was renumbered — the unmistakable signature of a
+# structural change — so the lede says so in as many words.
+_DRIFT_FAMILIES = {"ktc", "age"}
+_PAREN = re.compile(r"\(([^()]*)\)\s*$")
+_YEAR = re.compile(r"\b(20\d\d)\b")
+
+
+def _paren(label: str) -> str:
+    """The entity in a board label's trailing parentheses — the player in
+    "startup pick 10.07 (Tom Brady)", "" when there is none."""
+    m = _PAREN.search(str(label))
+    return m.group(1).strip() if m else ""
+
+
+def _self_reference(cand: "_Cand") -> bool:
+    """True when the mover passed or joined a DIFFERENT row of the same entity —
+    "Tom Brady 10.07 passes Tom Brady 10.02". The only thing that produces this
+    is a renumbered key, so it is a structural-change tell, not real movement."""
+    item = cand.item
+    mover = getattr(item, "label", None) or getattr(item, "mover", "") or ""
+    me = _paren(mover)
+    if not me:
+        return False
+    passed = list(getattr(item, "passed", ()) or ()) + \
+        list(getattr(item, "others", ()) or ())
+    return any(_paren(p) == me and str(p) != str(mover) for p in passed)
+
+
+def _row_season(label: str) -> Optional[int]:
+    """The season a board row belongs to, for the history-vs-live split. The 2020
+    startup carries no year in its label but is the oldest season there is."""
+    low = str(label).lower()
+    if "startup" in low:
+        return 2020
+    m = _YEAR.search(str(label))
+    return int(m.group(1)) if m else None
+
+
+def _provenance(cand: "_Cand", season: Optional[int]) -> str:
+    """"drift" | "live" | "recompute" — why this row moved. `recompute` is the
+    catch-all: a settled-history row, or one whose season can't be read (an
+    all-time total, which only moves by recomputation anyway)."""
+    if cand.family.lower() in _DRIFT_FAMILIES:
+        return "drift"
+    yr = _row_season(getattr(cand.item, "label", "") or
+                     getattr(cand.item, "mover", "") or cand.section)
+    if season and yr and yr >= season:
+        return "live"
+    return "recompute"
+
+
+def _prov_phrase(recomp: int, drift: int, live: int) -> str:
+    """The non-zero buckets, as "X re-valued, Y live, Z drift" — the split reads
+    as the week's cause at a glance."""
+    bits = []
+    if recomp:
+        bits.append(f"{recomp} re-valued history")
+    if live:
+        bits.append(f"{live} from new results")
+    if drift:
+        bits.append(f"{drift} market drift")
+    return _join(bits)
+
+
+def _bulk_story(rest: List["_Cand"], season: Optional[int],
+                big: List[tuple]) -> List[str]:
+    """The heart of the lede: one or two sentences that say what KIND of week
+    this was, framed by the dominant provenance of everything not already named.
+
+    Every branch closes the count — the numbers it quotes account for every
+    move in `rest` — because a summary whose figures don't add reads as a bug."""
+    n = len(rest)
+    if n == 0:
+        return []
+    prov = {"recompute": 0, "drift": 0, "live": 0}
+    for c in rest:
+        prov[_provenance(c, season)] += 1
+    recomp, drift, live = prov["recompute"], prov["drift"], prov["live"]
+    arts = sum(1 for c in rest if _self_reference(c))
+    sheets: dict = {}
+    for c in rest:
+        s = _short(c.section)
+        sheets[s] = sheets.get(s, 0) + 1
+    top = sorted(sheets.items(), key=lambda kv: (-kv[1], kv[0]))
+    span = _join([f"{cnt} on {s}" for s, cnt in top[:2]])
+
+    block_fam = big[0][0] if big else None
+    block_n = big[0][1] if big else 0
+    block_secs = _join(big[0][2][:3]) if big else span
+    others = n - block_n
+    plus = f", plus {others} other{'' if others == 1 else 's'}" if others else ""
+
+    def _detail() -> List[str]:
+        """The biggest stat thread and the renumber-artifact tell, folded into one
+        trailing sentence — kept SHORT and separate so the cause sentence above it
+        stays fast to read and the trim can drop this alone if the budget is tight."""
+        bits = []
+        if block_fam and block_n >= 4:
+            bits.append(f"the biggest single thread is {block_n} {block_fam} moves")
+        if arts >= 3:
+            bits.append(f"{arts} picks pass earlier-numbered versions of themselves")
+        if not bits:
+            return []
+        s = _join(bits)
+        return [s[0].upper() + s[1:] + "."]
+
+    # A handful of odds and ends: one plain clause, no story to tell.
+    if n < _BROAD_MIN and not block_fam:
+        where = _join(sorted(sheets)[:3])
+        return [f"{n} more {'move' if n == 1 else 'moves'} across {where}."]
+
+    # MARKET DRIFT dominates: KTC/age churn, the quietest busy week there is.
+    if drift >= 0.6 * n and block_fam and block_fam.lower() in _DRIFT_FAMILIES:
+        return [f"The rest is market drift — {block_n} {block_fam} moves across "
+                f"{block_secs}{plus}."]
+
+    # RE-VALUED HISTORY dominates: the settled past moved, which means the
+    # pipeline changed, not the standings. This is the sentence that separates a
+    # code/data-shape week from a football week — two short sentences, cause then
+    # detail, rather than one that runs to forty words.
+    if recomp >= 0.6 * n:
+        lead = ("This is a recompute, not a results week" if recomp >= 0.85 * n
+                else "This is mostly a recompute")
+        newdata = live + drift
+        nd = f", and only {newdata} reflect new data" if newdata else ""
+        return [f"{lead}: {recomp} of the {n} other moves re-value settled "
+                f"history ({span}){nd}."] + _detail()
+
+    # NEW RESULTS dominate: the in-progress season actually moved.
+    if live >= 0.6 * n:
+        return [f"It was an active week — {live} of the {n} other moves come from "
+                f"new results ({span})."] + _detail()
+
+    # GENUINELY MIXED: no single cause owns it. Say how big, where it landed, and
+    # the cause split — three facts that together are the week.
+    opener = ("It was a big, broad week —" if n >= 60 else
+              "It was a broad week —" if n >= 20 else
+              "The week was spread out —")
+    tail = sum(cnt for _s, cnt in top[3:])
+    where = span + (f", and {tail} elsewhere" if tail else "")
+    split = _prov_phrase(recomp, drift, live)
+    return [f"{opener} {n} moves across {where} ({split})."] + _detail()
+
+
+def reasoned_summary(sections: Sequence[Tuple[str, str, list]],
+                     season: Optional[int] = None) -> str:
+    """The deterministic lede: up to three standout lines, then one or two
+    sentences that say what KIND of week it was.
 
     Falls back to `counted_summary` if it can't do better — an empty week, or a
     headline sentence so long that quoting it would defeat the purpose."""
@@ -313,62 +504,50 @@ def reasoned_summary(sections: Sequence[Tuple[str, str, list]]) -> str:
     ranked = sorted(cands, key=lambda c: -c.score)
     total = len(cands)
 
-    # The headline is quoted verbatim, so it has to be quotable. Some labels run
-    # very long (a four-asset trade names all four), and a 40-word opening
-    # sentence defeats the point of having a lede at all — so a line that can't
-    # be said briefly yields to the next-best one that can.
+    # The blocks are worked out first: one stat family carrying a chunk of the
+    # week is the biggest thread, and a line already covered by a block should
+    # not also be quoted (that is the same fact told twice).
+    big = [b for b in _blocks(ranked) if b[1] >= max(4, int(0.2 * total))][:2]
+    block_fams = {f for f, _n, _s in big}
+
+    # The standout lines, quoted verbatim so they can't drift from the facts. The
+    # first is the headline; up to two more join it if they clear the bar and add
+    # something new — a different stat AND a different entity. A word budget is
+    # held in reserve for the story sentence, so a run of long trade labels can't
+    # crowd it out.
     head = next((c for c in ranked[:6]
                  if len(c.sentence().split()) <= _HEAD_MAX_WORDS), ranked[0])
     parts = [head.sentence()]
+    words = len(parts[0].split())
     named = {id(head)}
-
-    # The bulk, worked out BEFORE the second line is chosen. One stat family
-    # carrying most of the week IS the week, and saying that once is worth more
-    # than any of the lines inside it.
-    rest = [c for c in cands if id(c) not in named]
-    big = [b for b in _blocks(rest) if b[1] >= max(4, int(0.2 * total))][:2]
-    covered = sum(n for _f, n, _s in big)
-    block_fams = {f for f, _n, _s in big}
-
-    # A second line earns its place by being about a different STAT and by not
-    # already being covered by a block — another KTC line above the sentence that
-    # says "59 KTC moves" is the same fact told twice, and so is a second line
-    # about the same trade. A diagnostic column is NOT excluded: `_prominence`
-    # already discounts it in the score, and an all-time worst on one is still an
-    # all-time worst.
-    for c in ranked[1:8]:
-        if (c.score >= 0.4 * head.score and c.family != head.family
-                and c.family not in block_fams
-                and (c.who != head.who or not c.who)
-                and len(c.sentence().split()) <= _HEAD_MAX_WORDS):
-            parts.append(c.sentence())
-            named.add(id(c))
-            rest = [x for x in rest if id(x) != id(c)]
+    named_fams = {head.family}
+    named_who = {head.who} if head.who else set()
+    for c in ranked:
+        if len(parts) >= _MAX_NAMED:
             break
-    # The leftover rides on the block clause rather than taking a sentence of its
-    # own, because the two are one thought — and because the counts have to
-    # CLOSE. "59 KTC moves" under "16 of the 65" left six moves unaccounted for,
-    # which reads as an arithmetic mistake even when every figure is right.
-    leftover = len(rest) - covered
-    spare = (f", plus {leftover} other{'' if leftover == 1 else 's'}"
-             if leftover else "")
-    if len(big) == 1:
-        fam, n, secs = big[0]
-        lead = ("The rest of the week is one story: " if covered >= 0.7 * len(rest)
-                else "Most of the rest is one story: ")
-        parts.append(f"{lead}{n} {fam} moves across {_join(secs[:3])}{spare}.")
-    elif big:
-        parts.append("Most of the rest is "
-                     + _join([f"{n} {fam} moves" for fam, n, _s in big])
-                     + f"{spare}.")
-    elif leftover:
-        where = _join(sorted({_short(c.section) for c in rest})[:3])
-        parts.append(f"{leftover} other {'move' if leftover == 1 else 'moves'} "
-                     f"across {where}.")
+        if id(c) in named or c.score < _RUNNERUP_FRAC * head.score:
+            if id(c) in named:
+                continue
+            break                              # ranked desc — nothing better left
+        s = c.sentence()
+        w = len(s.split())
+        if (c.family in named_fams or c.family in block_fams
+                or (c.who and c.who in named_who) or w > _HEAD_MAX_WORDS
+                or words + w > _LEDE_MAX_WORDS - _STORY_RESERVE):
+            continue
+        parts.append(s)
+        words += w
+        named.add(id(c))
+        named_fams.add(c.family)
+        if c.who:
+            named_who.add(c.who)
+
+    rest = [c for c in cands if id(c) not in named]
+    parts += _bulk_story(rest, season, big)
 
     # Ties are easy to miss in a list of near-identical lines, and a week that is
     # a third ties is a different week from one that is none.
-    ties = sum(1 for c in cands if c.tied)
+    ties = sum(1 for c in cands if c.joined)
     if ties >= 3:
         parts.append(f"{ties} of the {total} were ties rather than overtakes.")
 
@@ -438,7 +617,12 @@ def build_intro(sections: Sequence[Tuple[str, str, list]], title: str = "",
             return ""
         if fallback is not None:
             return fallback
-        return reasoned_summary(sections) or counted_summary(sections)
+        # The current season, read off the title ("… — 2026 season, …"), is what
+        # tells a re-valued 2020 row apart from a live 2026 one. Absent or
+        # unparseable, provenance leans "recompute" — the neutral read.
+        m = _YEAR.search(title or "")
+        season = int(m.group(1)) if m else None
+        return reasoned_summary(sections, season) or counted_summary(sections)
     except Exception as exc:                      # noqa: BLE001 — never fail the email
         print(f"[lede] summary skipped ({type(exc).__name__}: {exc}).")
         return ""

@@ -160,12 +160,13 @@ def check_sections_cover_the_whole_email():
 class _Move:
     """Shaped like an EventCrossing — the attributes the scorer reads."""
 
-    def __init__(self, label, column, rank, end="low", sheet="picks", tied=False):
+    def __init__(self, label, column, rank, end="low", sheet="picks", tied=False,
+                 joined=False):
         self.label, self.column, self.rank = label, column, rank
-        self.end, self.sheet, self.tied = end, sheet, tied
+        self.end, self.sheet, self.tied, self.joined = end, sheet, tied, joined
 
     def sentence(self):
-        w = "ties" if self.tied else "passes"
+        w = "ties" if (self.tied or self.joined) else "passes"
         return f"{self.label} {w} someone for {self.rank}-{self.end}est {self.column} (1)."
 
     def group(self):
@@ -252,6 +253,118 @@ def check_reasoned_folds_the_bulk_into_one_clause():
               "draft picks" in out and "trades" in out, out)
     ok &= _ok("no individual bulk line is quoted", "pick 0 " not in out, out)
     return ok
+
+
+def check_reasoned_broad_week_is_not_one_story():
+    """A mixed week — no single family and no single CAUSE owning it — is framed
+    by how big it is, where it landed, and the provenance split, not by calling a
+    40%-share family "the story"."""
+    secs = [
+        ("All-time leaderboard moves — draft picks", "moved",
+         [_Move("startup pick 1.01 (A)", "O-Score", 1, sheet="picks")]
+         + [_Move(f"startup pick 2.0{i} (p{i})", "Pick-adjusted Difference in KTC",
+                  3, sheet="picks") for i in range(8)]),           # 2020 -> recompute
+        ("All-time leaderboard moves — trades", "moved",
+         [_Move(f"T{i}'s 2020-09-09 trade", "Avg net points", 3, sheet="trades")
+          for i in range(6)]),                                     # 2020 -> recompute
+        ("All-time leaderboard moves — player weeks", "moved",
+         [_Move(f"q{i} 2026 week 1", "Points", 3, sheet="player_week")
+          for i in range(7)]),                                     # 2026 -> live
+        ("All-time leaderboard moves — league weeks", "moved",
+         [_Move(f"2026 week {i}", "KTC at end of rookie year", 3, sheet="league_week")
+          for i in range(6)]),                                     # KTC -> drift
+    ]  # 28 moves: 14 recompute, 7 live, 6 drift — no cause over 60%
+    out = DS.reasoned_summary(secs, season=2026)
+    ok = _ok("never claims 'one story'", "one story" not in out, out)
+    ok &= _ok("frames the week by scale", "broad week" in out, out)
+    ok &= _ok("names where it landed", "on draft picks" in out, out)
+    ok &= _ok("shows the provenance split",
+              "re-valued history" in out and "new results" in out
+              and "market drift" in out, out)
+    ok &= _ok("counts the remainder exactly (14+7+6=27)", "27 moves across" in out, out)
+    ok &= _ok("names the biggest family as a thread",
+              "biggest single thread" in out and "Pick-adjusted Difference" in out, out)
+    return ok
+
+
+def check_reasoned_names_the_cause():
+    """The point of the rewrite: the lede says WHY the week is busy — a re-valued
+    past reads as a recompute, KTC churn as drift, the live season as results.
+    A settled row can't move from new games, so its movement is a code/data-shape
+    change, and the lede should say so instead of dressing it up as news."""
+    head = [_Move("Somebody", "O-Score", 1, sheet="picks")]
+    # Re-valued history: 2020 rows, non-drift columns.
+    recompute = DS.reasoned_summary([
+        ("All-time leaderboard moves — draft picks", "moved",
+         head + [_Move(f"startup pick 3.0{i} (p{i})", "Points added", 3, sheet="picks")
+                 for i in range(10)])], season=2026)
+    ok = _ok("settled-history movement is called a recompute",
+             "recompute" in recompute and "re-value settled history" in recompute,
+             recompute)
+    # Drift: KTC family.
+    drift = DS.reasoned_summary([
+        ("All-time leaderboard moves — draft picks", "moved",
+         head + [_Move(f"2024 pick {i}", "KTC 1 year after draft day", 3,
+                       sheet="picks") for i in range(10)])], season=2026)
+    ok &= _ok("KTC churn is called market drift", "market drift" in drift, drift)
+    # Live: current-season rows.
+    live = DS.reasoned_summary([
+        ("All-time leaderboard moves — player weeks", "moved",
+         head + [_Move(f"q{i} 2026 week 2", "Points", 3, sheet="player_week")
+                 for i in range(10)])], season=2026)
+    ok &= _ok("current-season movement is called new results",
+              "active week" in live and "new results" in live, live)
+    return ok
+
+
+def check_reasoned_calls_out_renumber_artifacts():
+    """A pick that "passes" an earlier-numbered version of itself is the signature
+    of a renumbered key — a structural change — and the lede names it as such
+    rather than passing it off as real movement."""
+    class _Self:
+        def __init__(self, num, prev):
+            self.label = f"startup pick {num} (Tom Brady)"
+            self.passed = (f"startup pick {prev} (Tom Brady)",)
+            self.others = ()
+            self.column, self.rank, self.end, self.sheet = "Points added", 3, "high", "picks"
+        def sentence(self):
+            return f"{self.label} passes {self.passed[0]} for Points added."
+        def group(self):
+            return "Tom Brady"
+    head = [_Move("Somebody", "O-Score", 1, sheet="picks")]
+    selves = [_Self(f"{10+i}.07", f"{10+i}.02") for i in range(5)]
+    out = DS.reasoned_summary([
+        ("All-time leaderboard moves — draft picks", "moved", head + selves)],
+        season=2026)
+    return _ok("names the self-pass renumber artifacts",
+               "earlier-numbered versions of themselves" in out, out)
+
+
+def check_reasoned_names_up_to_three_standouts():
+    """A rich week has more than two stories; the lede may quote up to three, and
+    they must be distinct entities on distinct stats."""
+    secs = [
+        ("All-time leaderboard moves — players", "moved",
+         [_Move("Alice", "PF", 1, end="high", sheet="player_year")]),
+        ("All-time leaderboard moves — teams", "moved",
+         [_Move("Bravo", "Win %", 1, end="high", sheet="team_year")]),
+        ("All-time leaderboard moves — trades", "moved",
+         [_Move("Charlie's trade", "O-Score", 1, end="high", sheet="trades")]),
+    ] + _week(n_ktc=8, extras=[])
+    out = DS.reasoned_summary(secs, season=2026)
+    named = sum(1 for who in ("Alice", "Bravo", "Charlie") if who in out)
+    return _ok("three distinct standouts can all be named", named == 3, out)
+
+
+def check_reasoned_counts_joins_as_ties():
+    """The event boards phrase a shared-value arrival as `joined`, not `tied`;
+    the ties tally has to count both, or an all-joins week reports zero ties."""
+    secs = _week(n_ktc=6, extras=[_Move("A", "O-Score", 1),
+                                  _Move("J1", "Points", 2, joined=True),
+                                  _Move("J2", "Points", 2, joined=True),
+                                  _Move("J3", "Points", 3, joined=True)])
+    out = DS.reasoned_summary(secs)
+    return _ok("joins count toward the ties tally", "3 of the 10 were ties" in out, out)
 
 
 def check_reasoned_reports_surprise():
@@ -404,6 +517,11 @@ def run_all() -> bool:
         check_reasoned_is_two_to_five_sentences,
         check_runner_up_is_a_different_entity,
         check_reasoned_folds_the_bulk_into_one_clause,
+        check_reasoned_broad_week_is_not_one_story,
+        check_reasoned_names_the_cause,
+        check_reasoned_calls_out_renumber_artifacts,
+        check_reasoned_names_up_to_three_standouts,
+        check_reasoned_counts_joins_as_ties,
         check_reasoned_reports_surprise,
         check_reasoned_flags_ties,
         check_reasoned_survives_a_huge_week,
