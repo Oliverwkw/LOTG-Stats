@@ -384,11 +384,19 @@ def _row_season(label: str) -> Optional[int]:
     return int(m.group(1)) if m else None
 
 
-def _provenance(cand: "_Cand", season: Optional[int]) -> str:
+def _provenance(cand: "_Cand", season: Optional[int],
+                in_season: bool = True) -> str:
     """"drift" | "live" | "recompute" — why this row moved. `recompute` is the
     catch-all: a settled-history row, a self-reference (renumbered key), or one
     whose season can't be read (an all-time total, which only moves by
-    recomputation anyway)."""
+    recomputation anyway).
+
+    `live` — a genuinely new result — needs TWO things: a current-season row AND
+    a season that is actually underway. In the preseason (no weeks played yet) a
+    current-season row cannot have moved on new results — a 2026 rookie pick's
+    valuation shifts only because the board around it was recomputed — so with
+    `in_season` false nothing is live, and such a move reads as the recompute it
+    is."""
     # A row overtaking a renumbered version of itself didn't move — a key
     # changed. That is structural, whatever column it lands on, so it is judged
     # before the family check (an "Age when drafted" self-pass is not drift).
@@ -398,7 +406,7 @@ def _provenance(cand: "_Cand", season: Optional[int]) -> str:
         return "drift"
     yr = _row_season(getattr(cand.item, "label", "") or
                      getattr(cand.item, "mover", "") or cand.section)
-    if season and yr and yr >= season:
+    if in_season and season and yr and yr >= season:
         return "live"
     return "recompute"
 
@@ -417,7 +425,7 @@ def _prov_phrase(recomp: int, drift: int, live: int) -> str:
 
 
 def _bulk_story(rest: List["_Cand"], season: Optional[int],
-                have_named: bool = True) -> List[str]:
+                have_named: bool = True, in_season: bool = True) -> List[str]:
     """The heart of the lede: one or two sentences that say what KIND of week
     this was, framed by the dominant provenance of everything not already named.
 
@@ -432,7 +440,7 @@ def _bulk_story(rest: List["_Cand"], season: Optional[int],
     others_word = "other moves" if have_named else "moves"
     prov = {"recompute": 0, "drift": 0, "live": 0}
     for c in rest:
-        prov[_provenance(c, season)] += 1
+        prov[_provenance(c, season, in_season)] += 1
     recomp, drift, live = prov["recompute"], prov["drift"], prov["live"]
     arts = sum(1 for c in rest if _self_reference(c))
     sheets: dict = {}
@@ -520,9 +528,15 @@ def _bulk_story(rest: List["_Cand"], season: Optional[int],
 
 
 def reasoned_summary(sections: Sequence[Tuple[str, str, list]],
-                     season: Optional[int] = None) -> str:
+                     season: Optional[int] = None,
+                     weeks_completed: Optional[int] = None) -> str:
     """The deterministic lede: up to three standout lines, then one or two
     sentences that say what KIND of week it was.
+
+    `weeks_completed` gates what can count as new results: with no week played
+    yet (the preseason), nothing is live and the whole week is a recompute. When
+    it is not given the season is assumed underway, so a caller that only knows
+    the year still gets the year-based read.
 
     Falls back to `counted_summary` if it can't do better — an empty week, or a
     headline sentence so long that quoting it would defeat the purpose."""
@@ -535,6 +549,7 @@ def reasoned_summary(sections: Sequence[Tuple[str, str, list]],
     _score(cands)
     ranked = sorted(cands, key=lambda c: -c.score)
     total = len(cands)
+    in_season = weeks_completed is None or weeks_completed > 0
 
     # The blocks are worked out first: one stat family carrying a chunk of the
     # week is the biggest thread, and a line already covered by a block should
@@ -551,7 +566,7 @@ def reasoned_summary(sections: Sequence[Tuple[str, str, list]],
     # so every line stays eligible and the old behaviour holds — but the digest
     # always supplies one.)
     eligible = [c for c in ranked
-                if season is None or _provenance(c, season) == "live"]
+                if season is None or _provenance(c, season, in_season) == "live"]
     parts: List[str] = []
     words = 0
     named: set = set()
@@ -589,7 +604,7 @@ def reasoned_summary(sections: Sequence[Tuple[str, str, list]],
                 named_who.add(c.who)
 
     rest = [c for c in cands if id(c) not in named]
-    parts += _bulk_story(rest, season, bool(named))
+    parts += _bulk_story(rest, season, bool(named), in_season)
 
     # Ties are easy to miss in a list of near-identical lines, and a week that is
     # a third ties is a different week from one that is none.
@@ -652,12 +667,15 @@ def sentence_count(text: str) -> int:
 # Entry point
 # ---------------------------------------------------------------------------
 def build_intro(sections: Sequence[Tuple[str, str, list]], title: str = "",
-                fallback: Optional[str] = None) -> str:
+                fallback: Optional[str] = None,
+                weeks_completed: Optional[int] = None) -> str:
     """The digest's lede: the reasoned read of the board moves, the counts as a
     floor beneath it, "" when there is nothing to summarise.
 
     `fallback` lets a caller supply its own lede instead — the audit email does,
     via `audit_lede`, because its findings need a different kind of reasoning.
+    `weeks_completed` gates "new results": in the preseason (zero) nothing is
+    live, so a current-season row that moved is the recompute it actually is.
 
     Cannot raise. An unexpected failure anywhere in here costs the lede and
     nothing else."""
@@ -671,7 +689,8 @@ def build_intro(sections: Sequence[Tuple[str, str, list]], title: str = "",
         # unparseable, provenance leans "recompute" — the neutral read.
         m = _YEAR.search(title or "")
         season = int(m.group(1)) if m else None
-        return reasoned_summary(sections, season) or counted_summary(sections)
+        return (reasoned_summary(sections, season, weeks_completed)
+                or counted_summary(sections))
     except Exception as exc:                      # noqa: BLE001 — never fail the email
         print(f"[lede] summary skipped ({type(exc).__name__}: {exc}).")
         return ""

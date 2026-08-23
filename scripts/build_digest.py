@@ -182,7 +182,8 @@ def main(argv=None) -> int:
     # lotg_support/email_summary.
     sections = D.digest_sections(crossings, proj_changes, milestones,
                                  record_changes, highlights, event_changes)
-    intro = DS.build_intro(sections, D.digest_title(meta))
+    intro = DS.build_intro(sections, D.digest_title(meta),
+                           weeks_completed=meta.get("weeks_completed"))
     if intro:
         print(f"[digest] lede: {intro}")
 

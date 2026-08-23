@@ -255,6 +255,30 @@ def check_reasoned_folds_the_bulk_into_one_clause():
     return ok
 
 
+def check_reasoned_preseason_is_all_recompute():
+    """No week has been played yet, so a current-season row that moved did NOT
+    move on results — a 2026 rookie pick's valuation shifts only because the board
+    was recomputed. With weeks_completed=0 nothing is live: no headline, and the
+    week reads as the recompute it is."""
+    secs = [
+        ("All-time leaderboard moves — draft picks", "moved",
+         [_Move("2026 pick 1.02 (Rookie)", "O-Score", 4, end="low", sheet="picks")]
+         + [_Move(f"startup pick 3.0{i} (p{i})", "Points added", 3, sheet="picks")
+            for i in range(10)]),
+    ]
+    pre = DS.reasoned_summary(secs, season=2026, weeks_completed=0)
+    ok = _ok("preseason: the current-season pick is NOT highlighted",
+             "2026 pick 1.02 (Rookie)" not in pre, pre)
+    ok &= _ok("preseason: the week reads as a recompute",
+              pre.startswith("This is a recompute"), pre)
+    # The same board once the season is underway: that current-season row IS live
+    # and takes the headline.
+    live = DS.reasoned_summary(secs, season=2026, weeks_completed=5)
+    ok &= _ok("in-season: the current-season pick IS highlighted",
+              "2026 pick 1.02 (Rookie)" in live, live)
+    return ok
+
+
 def check_reasoned_broad_week_is_not_one_story():
     """A mixed week — no single family and no single CAUSE owning it — is framed
     by how big it is, where it landed, and the provenance split, not by calling a
@@ -550,6 +574,7 @@ def run_all() -> bool:
         check_reasoned_is_two_to_five_sentences,
         check_runner_up_is_a_different_entity,
         check_reasoned_folds_the_bulk_into_one_clause,
+        check_reasoned_preseason_is_all_recompute,
         check_reasoned_broad_week_is_not_one_story,
         check_reasoned_highlights_only_new_data,
         check_reasoned_names_the_cause,
