@@ -142,6 +142,10 @@ def main(argv=None) -> int:
     # reshuffle is the thing to report, whichever sheet it lands on.
     events = D.all_board_highlights(frames)
     current["event_board"] = D.event_board(events)
+    # The full row set of the transaction/pick sheets, so next week's diff can
+    # tell a brand-new row (a trade/add just made) from an old one that only just
+    # climbed onto a board. Stored here; consumed as `prior_row_keys` next run.
+    current["row_keys"] = D.all_row_keys(frames)
 
     prior = D.load_snapshot(snap_path)
     if prior is None:
@@ -173,7 +177,8 @@ def main(argv=None) -> int:
             print("[digest] baselining event boards this week (no diff yet).")
             event_changes = []
         else:
-            event_changes = D.diff_events(prior_events, events)
+            event_changes = D.diff_events(prior_events, events,
+                                          prior_row_keys=prior.get("row_keys"))
 
     # The lede: up to five sentences above the list saying what actually
     # happened, because 65 one-line facts is a wall nobody reads. Computed, not
@@ -182,7 +187,8 @@ def main(argv=None) -> int:
     # lotg_support/email_summary.
     sections = D.digest_sections(crossings, proj_changes, milestones,
                                  record_changes, highlights, event_changes)
-    intro = DS.build_intro(sections, D.digest_title(meta))
+    intro = DS.build_intro(sections, D.digest_title(meta),
+                           weeks_completed=meta.get("weeks_completed"))
     if intro:
         print(f"[digest] lede: {intro}")
 
