@@ -1093,6 +1093,29 @@ def all_board_highlights(frames: dict, window: int = WINDOW) -> List[EventHighli
     return out
 
 
+# The sheets where a brand-new ROW means a real new event — a trade or add just
+# made, a pick freshly recorded — so "this key was in no prior snapshot" is worth
+# knowing. The per-week / per-season aggregate sheets are excluded: a new row
+# there is just the calendar advancing, already told by the live/in-season split,
+# and tracking their every key would bloat the snapshot for no signal.
+_NEW_ROW_SHEETS = ("picks", "trades", "add_drops", "player_additions")
+
+
+def all_row_keys(frames: dict) -> List[str]:
+    """Every row key on the transaction/pick sheets — the full set, not just the
+    ranked places the event board keeps. Stored in the snapshot so next week's
+    diff can tell a genuinely NEW row (key absent here) from an old one that
+    merely climbed onto a board (key present here, just never top-five before)."""
+    keys = set()
+    for sheet in _NEW_ROW_SHEETS:
+        df = frames.get(sheet)
+        if df is None or getattr(df, "empty", True):
+            continue
+        for _, row in df.iterrows():
+            keys.add(_board_row_key(sheet, row))
+    return sorted(keys)
+
+
 # ---------------------------------------------------------------------------
 # Mirror detection for the phrasing catalog
 # ---------------------------------------------------------------------------
@@ -1150,6 +1173,11 @@ class EventCrossing:
     joined: bool = False
     others: tuple = ()          # co-holders at the mover's value, when joined
     passed: tuple = ()          # entities overtaken, when not joined
+    is_new: bool = False        # the row's key was in NO prior board — a brand-new
+    #                             row (a just-made trade/add, a freshly recorded
+    #                             pick), not a re-valued or re-ranked old one. A
+    #                             renumber does NOT set this: the slot key already
+    #                             existed, it just held a different player.
 
     def group(self) -> str:
         return self.label
@@ -1196,7 +1224,8 @@ def _prior_board(prior_board) -> Optional[Dict[tuple, dict]]:
     return out
 
 
-def diff_events(prior_board, events: Sequence[EventHighlight]) -> List[EventCrossing]:
+def diff_events(prior_board, events: Sequence[EventHighlight],
+                prior_row_keys: Optional[Sequence[str]] = None) -> List[EventCrossing]:
     """Overtakes on the event boards since `prior_board`.
 
     An event is reported when it now holds a place nearer the watched end than it
@@ -1214,6 +1243,17 @@ def diff_events(prior_board, events: Sequence[EventHighlight]) -> List[EventCros
     prior = _prior_board(prior_board)
     if prior is None:
         return []
+    # A row is brand-new when its key was in the prior snapshot's FULL row set
+    # (`prior_row_keys`) — not merely absent from the prior board, which would
+    # also catch an old row climbing into the top five for the first time, and a
+    # renumber whose slot key just changed hands. Without that set (a pre-upgrade
+    # snapshot), nothing can be called new: is_new stays False and the week
+    # re-baselines it silently rather than mislabelling re-valuations as new data.
+    new_row_keys = set(prior_row_keys) if prior_row_keys else None
+
+    def _is_new(e) -> bool:
+        return bool(new_row_keys is not None and e.sheet in _NEW_ROW_SHEETS
+                    and e.key not in new_row_keys)
     # Who else stands on each place NOW. Built once, not per event: on a busy
     # week this walks several thousand board places.
     co: Dict[tuple, Dict[int, List[str]]] = {}
@@ -1241,14 +1281,16 @@ def diff_events(prior_board, events: Sequence[EventHighlight]) -> List[EventCros
                 # is not news about the entity.
                 continue
             out.append(EventCrossing(e.sheet, e.label, e.column, e.end, e.rank,
-                                     e.value, joined=True, others=tuple(others)))
+                                     e.value, joined=True, others=tuple(others),
+                                     is_new=_is_new(e)))
             continue
         # Landed alone: overtook every prior holder of the slot it now occupies.
         passed = [lbl for lbl in slot["by_rank"].get(e.rank, []) if lbl != e.label]
         if not passed:
             continue
         out.append(EventCrossing(e.sheet, e.label, e.column, e.end, e.rank,
-                                 e.value, joined=False, passed=tuple(sorted(passed))))
+                                 e.value, joined=False, passed=tuple(sorted(passed)),
+                                 is_new=_is_new(e)))
     return out
 
 
