@@ -2204,10 +2204,15 @@ def _withhold_unplayed_rookie_oscore(picks, non_rookie_mask, current_season) -> 
     draft-slot KTC percentile — a grade off nothing that happened on the field,
     which the weekly digest then reports as a real bottom-five O-Score. Withhold
     it until he has a game on the board (his first start — i.e. after week 1 of
-    his rookie season): "Avg PPG on team" is NaN until then, so it is the clean
-    gate. Scoped to `current_season`, so no PAST rookie (long past his first week,
-    O-Score already earned) is touched, and the next build scores this class
-    normally the moment "Avg PPG on team" becomes a real number.
+    his rookie season). Scoped to `current_season`, so no PAST rookie (long past
+    his first week, O-Score already earned) is touched.
+
+    "No game yet" here is "Avg PPG on team" being blank OR zero — the two build-
+    time shapes it takes with no on-team production: a rookie never rostered for an
+    NFL week is NaN, but one already rostered in the preseason with no game is 0.0
+    (that 0.0 is only rendered N/A at export, AFTER this runs, which is why an
+    `.isna()`-only gate silently missed the whole class — see PR #410 audit). Once
+    he plays, the average is a real non-zero number and the next build scores him.
 
     Mutates `picks` in place; a no-op if the frame or the columns it needs are
     absent, so it can never fail a build."""
@@ -2216,8 +2221,10 @@ def _withhold_unplayed_rookie_oscore(picks, non_rookie_mask, current_season) -> 
             or not {"O-Score", "Avg PPG on team", "Year"} <= set(picks.columns)):
         return
     year = pd.to_numeric(picks["Year"], errors="coerce")
+    avg_ppg = pd.to_numeric(picks["Avg PPG on team"], errors="coerce")
+    no_game_yet = avg_ppg.isna() | (avg_ppg == 0)
     unplayed = (~non_rookie_mask.astype(bool)) & (year == int(current_season)) \
-        & picks["Avg PPG on team"].isna()
+        & no_game_yet
     picks.loc[unplayed, "O-Score"] = np.nan
 
 

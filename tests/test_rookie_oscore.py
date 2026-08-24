@@ -34,13 +34,15 @@ def _ok(name, cond, detail=""):
 
 
 def _frame():
-    # Four picks: a current-class rookie who hasn't played, one who has, a past
-    # rookie who never played, and a startup pick (non-rookie pool).
+    # Current-class rookies "with no game yet" take TWO build-time shapes: NaN
+    # (never rostered for an NFL week) and 0.0 (already rostered in the preseason
+    # but no game — the shape the PR #410 audit caught an .isna()-only gate
+    # missing). Plus a played rookie, a past rookie, and a startup pick.
     return pd.DataFrame({
-        "Year": ["2026", "2026", "2025", "startup"],
-        "Player Picked": ["Rook Unplayed", "Rook Played", "Old Rook", "Vet"],
-        "Avg PPG on team": [float("nan"), 12.0, float("nan"), 20.0],
-        "O-Score": [6.9, 55.0, 4.8, 71.0],
+        "Year": ["2026", "2026", "2026", "2025", "startup"],
+        "Player Picked": ["Rook NaN", "Rook Zero", "Rook Played", "Old Rook", "Vet"],
+        "Avg PPG on team": [float("nan"), 0.0, 12.0, float("nan"), 20.0],
+        "O-Score": [6.9, 7.5, 55.0, 4.8, 71.0],
     })
 
 
@@ -49,8 +51,10 @@ def check_withhold_unplayed_rookie_oscore():
     non_rookie = df["Year"].astype(str).str.contains("startup|vet", case=False)
     lotg._withhold_unplayed_rookie_oscore(df, non_rookie, current_season=2026)
     o = dict(zip(df["Player Picked"], df["O-Score"]))
-    ok = _ok("current-class rookie who hasn't played -> O-Score blanked",
-             math.isnan(o["Rook Unplayed"]), o)
+    ok = _ok("current-class rookie, no game (NaN AvgPPG) -> blanked",
+             math.isnan(o["Rook NaN"]), o)
+    ok &= _ok("current-class rookie, no game (0.0 AvgPPG at build) -> blanked",
+              math.isnan(o["Rook Zero"]), o)
     ok &= _ok("current-class rookie who HAS played -> kept", o["Rook Played"] == 55.0, o)
     ok &= _ok("a PAST rookie is not re-graded (week 1 long passed) -> kept",
               o["Old Rook"] == 4.8, o)
@@ -69,7 +73,7 @@ def check_is_a_safe_noop_when_columns_missing():
     lotg._withhold_unplayed_rookie_oscore(df2, None, current_season=2026)
     lotg._withhold_unplayed_rookie_oscore(df2, df2["Year"].str.contains("x"), current_season=None)
     ok &= _ok("missing mask or season -> no-op",
-              df2["O-Score"].tolist() == [6.9, 55.0, 4.8, 71.0])
+              df2["O-Score"].tolist() == [6.9, 7.5, 55.0, 4.8, 71.0])
     return ok
 
 
