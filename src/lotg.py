@@ -18855,8 +18855,8 @@ def build_all(repo_root: Path) -> None:
             _weeks_completed_by_season.get(int(current_season_for_rookies), 0))
         _add_oscore(
             add_drops_df,
-            ["Avg net points", "Player addition value", "__MOST_RECENT_KTC__",
-             "% of starts made while rostered"],
+            ["Avg net points adjusted by position", "Player addition value",
+             "__MOST_RECENT_KTC__", "% of starts made while rostered"],
             ["KTC value of player added 2 years later", "KTC value of player added 1 year later",
              "KTC value of player added at end of season", "KTC value of player added at deal time"],
             # '% of starts made while rostered' is N/A for adds never rostered
@@ -18867,7 +18867,8 @@ def build_all(repo_root: Path) -> None:
         )
         _add_oscore(
             tr,
-            ["Avg net points", "Trade addition value", "__MOST_RECENT_KTC__", "Trade impact score"],
+            ["Avg net points adjusted by position", "Trade addition value",
+             "__MOST_RECENT_KTC__", "Trade impact score"],
             ["KTC value difference 2 years later", "KTC value difference 1 year later",
              "KTC value difference at end of season", "KTC value difference at deal time"],
         )
