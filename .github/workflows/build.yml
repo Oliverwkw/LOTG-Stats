@@ -332,16 +332,20 @@ jobs:
             python scripts/send_digest.py --skip-empty
           fi
 
-      - name: Rotate digest snapshot (Tuesday send run only)
-        # Commit the rotated ranks snapshot ONLY on the send run, and only once
-        # the send above actually succeeded, so next week's email diffs against
-        # exactly one week ago. The Thursday pregame run rebuilds the snapshot
-        # locally but never commits it, leaving the baseline untouched. Separate
-        # from the exports commit above (which never touches data/digest) — one
-        # clean weekly rotation. Also persists the just-sent digest as
-        # data/digest/last_digest.html so the test-email button always replays
-        # the most recent real digest.
-        if: ${{ github.ref == 'refs/heads/main' && (github.event.schedule == '0 14 * * 2' || (github.event_name == 'workflow_dispatch' && github.event.inputs.send_email == 'true')) }}
+      - name: Rotate digest snapshot (Tuesday cron send only)
+        # Commit the rotated ranks snapshot ONLY on the automated Tuesday cron, so
+        # the next AUTOMATED email always diffs against exactly the previous
+        # automated email — never against a hand-triggered TEST run in between. A
+        # workflow_dispatch (the "send test email" button, even with
+        # send_email=true) still SENDS its digest above, but must NOT rotate the
+        # committed baseline: it reads the last Tuesday's snapshot, diffs against
+        # it, and leaves it untouched, so a mid-week test can't make the following
+        # Tuesday's email tiny (it would otherwise diff against the test, not the
+        # prior Tuesday). The Thursday pregame run likewise never commits it.
+        # Separate from the exports commit above (which never touches data/digest).
+        # Also persists the just-sent digest as data/digest/last_digest.html so the
+        # test-email button always replays the most recent real digest.
+        if: ${{ github.ref == 'refs/heads/main' && github.event.schedule == '0 14 * * 2' }}
         run: |
           set -euo pipefail
           if [ ! -f data/digest/ranks_snapshot.json ]; then

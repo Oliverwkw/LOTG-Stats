@@ -256,27 +256,50 @@ def check_reasoned_folds_the_bulk_into_one_clause():
     return ok
 
 
-def check_reasoned_preseason_is_all_recompute():
-    """No week has been played yet, so a current-season row that moved did NOT
-    move on results — a 2026 rookie pick's valuation shifts only because the board
-    was recomputed. With weeks_completed=0 nothing is live: no headline, and the
-    week reads as the recompute it is."""
+def check_reasoned_preseason_production_is_recompute():
+    """No week has been played, so a current-season PRODUCTION move (a game stat,
+    not a transaction or the market) did NOT move on results — a 2026 team's PF
+    can only have shifted by recompute. With weeks_completed=0 such a row is not
+    live; the week reads as the recompute it is. (Offseason transaction activity —
+    add/drops, trades, picks — IS live even now; that is a separate case.)"""
     secs = [
-        ("All-time leaderboard moves — draft picks", "moved",
-         [_Move("2026 pick 1.02 (Rookie)", "O-Score", 4, end="low", sheet="picks")]
-         + [_Move(f"startup pick 3.0{i} (p{i})", "Points added", 3, sheet="picks")
-            for i in range(10)]),
+        ("All-time leaderboard moves — teams", "moved",
+         [_Move("Team Z 2026", "PF", 4, end="low", sheet="team_year")]
+         + [_Move(f"Old{i} 2020", "PF", 3, sheet="team_year") for i in range(10)]),
     ]
     pre = DS.reasoned_summary(secs, season=2026, weeks_completed=0)
-    ok = _ok("preseason: the current-season pick is NOT highlighted",
-             "2026 pick 1.02 (Rookie)" not in pre, pre)
+    ok = _ok("preseason: the current-season production row is NOT highlighted",
+             "Team Z 2026" not in pre, pre)
     ok &= _ok("preseason: the week reads as a recompute",
               pre.startswith("This is a recompute"), pre)
-    # The same board once the season is underway: that current-season row IS live
-    # and takes the headline.
+    # Same board once the season is underway: that current-season row IS live.
     live = DS.reasoned_summary(secs, season=2026, weeks_completed=5)
-    ok &= _ok("in-season: the current-season pick IS highlighted",
-              "2026 pick 1.02 (Rookie)" in live, live)
+    ok &= _ok("in-season: the current-season production row IS highlighted",
+              "Team Z 2026" in live, live)
+    return ok
+
+
+def check_reasoned_offseason_activity_is_new_data():
+    """Real offseason activity — a current-season add/drop, trade or pick, or a
+    team count/skill aggregating them — is new data even before week 1, and can
+    headline; a PAST-season row on the same sheet stays a recompute."""
+    secs = [
+        ("All-time leaderboard moves — trades", "moved",
+         [_Move("shmuel256's 2026-08-20 trade for Brian Robinson", "Avg net points",
+                1, end="high", sheet="trades")]
+         + [_Move(f"Old{i}'s 2020-09 trade", "Avg net points", 3, sheet="trades")
+            for i in range(8)]),
+        ("All-time leaderboard moves — teams", "moved",
+         [_Move("Team A 2026", "Number of pure drops", 1, end="high", sheet="team_year")]),
+    ]
+    out = DS.reasoned_summary(secs, season=2026, weeks_completed=0)
+    ok = _ok("offseason activity headlines even in the preseason (a 2026 line)",
+             out.startswith("Team A 2026") or out.startswith("shmuel256's 2026"), out)
+    ok &= _ok("a past-season trade stays recompute (not the headline)",
+              not out.startswith("Old"), out)
+    ok &= _ok("the summary counts offseason activity as new data",
+              "reflect new data" in out or "active week" in out
+              or "new results" in out, out)
     return ok
 
 
@@ -635,7 +658,8 @@ def run_all() -> bool:
         check_reasoned_is_two_to_five_sentences,
         check_runner_up_is_a_different_entity,
         check_reasoned_folds_the_bulk_into_one_clause,
-        check_reasoned_preseason_is_all_recompute,
+        check_reasoned_preseason_production_is_recompute,
+        check_reasoned_offseason_activity_is_new_data,
         check_reasoned_tenure_and_ktc_are_new_data,
         check_reasoned_new_transactions_are_new_data,
         check_reasoned_broad_week_is_not_one_story,

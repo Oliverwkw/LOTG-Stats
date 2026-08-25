@@ -164,6 +164,30 @@ def is_weekly_counting_stat(column: str) -> bool:
     return c.startswith("times ") or "wins from" in c or "losses from" in c
 
 
+# Season-accumulating activity COUNTS (transactions, adds/drops, trades, FAAB).
+# Their LOW end is meaningless before a season fills out — every team sits near
+# zero in the preseason, so "fewest pure drops (0)" is noise, not a record. The
+# HIGH end is a real record and stays on the all-time board; the LOW end is left
+# to the on-pace projection, which is gated to week 3+ and reads as "on pace for
+# fewest …". (Weekly-counting awards/flips are excluded — they can't be projected,
+# so both their ends stay on the board.)
+_YEARLY_COUNTING_MARKERS = (
+    "number of trades", "number of add/drops", "number of adds", "number of drops",
+    "number of pure drops", "total transactions", "number of transactions",
+    "total faab bid", "amount of faab spent", "offseason trades",
+)
+_YEARLY_SHEETS = {"player_year", "team_year", "league_year"}
+
+
+def is_yearly_counting_stat(column: str) -> bool:
+    """A season-accumulating activity count whose LOW end belongs to the on-pace
+    projection, not the all-time board (see `_YEARLY_COUNTING_MARKERS`)."""
+    if is_weekly_counting_stat(column):
+        return False
+    c = column.lower()
+    return any(m in c for m in _YEARLY_COUNTING_MARKERS)
+
+
 # ---------------------------------------------------------------------------
 # Column discovery
 # ---------------------------------------------------------------------------
@@ -1064,15 +1088,20 @@ def board_highlights(df: pd.DataFrame, sheet: str, window: int = WINDOW,
         vals = s.tolist()
         hi = competition_ranks(vals, "high")
         lo = competition_ranks(vals, "low")
+        # A season-accumulating count's LOW end is left to the on-pace projection,
+        # not ranked on the all-time board — "fewest pure drops" is a preseason
+        # artifact, not a record. Only its HIGH end stays here.
+        low_on_board = not (sheet in _YEARLY_SHEETS and is_yearly_counting_stat(col))
         # value -> (end, rank); the high end wins when a value qualifies at both
         # (a short board where the top and bottom five overlap).
         wanted: Dict[float, tuple] = {}
         for v, r in hi.items():
             if r <= window and counts[v] <= max_ties:
                 wanted[v] = ("high", r)
-        for v, r in lo.items():
-            if v not in wanted and r <= window and counts[v] <= max_ties:
-                wanted[v] = ("low", r)
+        if low_on_board:
+            for v, r in lo.items():
+                if v not in wanted and r <= window and counts[v] <= max_ties:
+                    wanted[v] = ("low", r)
         if not wanted:
             continue
         for idx, value in s[s.isin(wanted)].items():
