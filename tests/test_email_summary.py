@@ -256,6 +256,32 @@ def check_reasoned_folds_the_bulk_into_one_clause():
     return ok
 
 
+def check_reasoned_flags_rookie_entry_at_week_8():
+    """Week 8 leads with a one-time flag that the rookie class is entering the
+    grades — its withheld pick O-Scores / pick-adjusted marks come online and
+    re-level the pick boards and Drafting skill — so the pick churn reads as the
+    class arriving, not a bug. Only week 8; never weeks 7 or 9."""
+    secs = [
+        ("All-time leaderboard moves — draft picks", "moved",
+         [_Move("2026 pick 1.02 (Rookie A)", "O-Score", 1, end="high", sheet="picks"),
+          _Move("2026 pick 2.05 (Rookie B)",
+                "Pick-adjusted Difference in KTC on draft day", 3, sheet="picks")]
+         + [_Move(f"2024 pick {i}", "O-Score", 3, sheet="picks") for i in range(4)]),
+    ]
+    wk8 = DS.reasoned_summary(secs, season=2026, weeks_completed=8)
+    ok = _ok("week 8 leads with the rookie-entry flag",
+             wk8.startswith("The 2026 rookie class enters the grades this week"), wk8)
+    ok &= _ok("the flag names the effect (re-level of pick boards / Drafting skill)",
+              "re-level" in wk8 and "Drafting skill" in wk8, wk8)
+    ok &= _ok("it counts the arriving class when it can",
+              "2 of the pick moves" in wk8, wk8)
+    for wk in (0, 7, 9):
+        out = DS.reasoned_summary(secs, season=2026, weeks_completed=wk)
+        ok &= _ok(f"week {wk}: no rookie-entry flag",
+                  not out.startswith("The 2026 rookie class enters"), out[:60])
+    return ok
+
+
 def check_reasoned_preseason_production_is_recompute():
     """No week has been played, so a current-season PRODUCTION move (a game stat,
     not a transaction or the market) did NOT move on results — a 2026 team's PF
@@ -658,6 +684,7 @@ def run_all() -> bool:
         check_reasoned_is_two_to_five_sentences,
         check_runner_up_is_a_different_entity,
         check_reasoned_folds_the_bulk_into_one_clause,
+        check_reasoned_flags_rookie_entry_at_week_8,
         check_reasoned_preseason_production_is_recompute,
         check_reasoned_offseason_activity_is_new_data,
         check_reasoned_tenure_and_ktc_are_new_data,

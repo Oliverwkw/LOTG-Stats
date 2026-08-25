@@ -10776,6 +10776,19 @@ def build_all(repo_root: Path) -> None:
                           if "_is_startup" in ph.columns else pd.Series(False, index=ph.index))
                 _nr_pa = _nr_pa | ph["Year"].astype(str).str.contains("vet", case=False)
                 _nr_idx = set(ph.index[_nr_pa])
+                # The CURRENT draft class, before week 8 of its rookie season, is
+                # graded on almost nothing yet — so its picks must not skew the
+                # pick-adjustment baseline for everyone else, and get no pick-
+                # adjusted diffs of their own (both blanked by skipping them below,
+                # which leaves their _rs_of unset -> their diff stays N/A). Mirrors
+                # the rookie O-Score gate; clears from week 8 on. Scoped to the
+                # current class by Year, so no past class is touched.
+                _early_rookie: set = set()
+                _cs_pa = current_season_for_rookies
+                if (_cs_pa is not None
+                        and _weeks_completed_by_season.get(int(_cs_pa), 0) < _ROOKIE_OSCORE_MIN_WEEK):
+                    _yr_pa = pd.to_numeric(ph["Year"], errors="coerce")
+                    _early_rookie = set(ph.index[_yr_pa == int(_cs_pa)]) - _nr_idx
                 # The 2021 supplemental vet draft is treated as a CONTINUATION of
                 # the 2020 startup (its 4 rounds append after startup's 19, i.e.
                 # vet 1.01 -> startup-equivalent round 20), so the two share one
@@ -10793,7 +10806,7 @@ def build_all(repo_root: Path) -> None:
                 _max_slot = 0
                 _max_round = 0
                 for _pi in ph.index:
-                    if _pi in _nr_idx:
+                    if _pi in _nr_idx or _pi in _early_rookie:
                         continue
                     _m = re.match(r"\s*(\d+)\.(\d+)", str(ph.at[_pi, "Number"]))
                     if not _m:

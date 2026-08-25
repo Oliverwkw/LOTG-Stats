@@ -325,6 +325,26 @@ _RUNNERUP_FRAC = 0.4
 # sentence survive the final trim — the shape of the week is worth more than one
 # extra quoted line.
 _STORY_RESERVE = 50
+# The week the current rookie class's O-Scores and pick-adjusted marks come online
+# (withheld until now — see the picks build). The digest lede flags it, once, so
+# the pick / Drafting-skill churn that follows reads as the class arriving, not a
+# bug. Kept in sync with the picks build's _ROOKIE_OSCORE_MIN_WEEK.
+_ROOKIE_ENTRY_WEEK = 8
+
+
+def _rookie_entry_line(cands: Sequence["_Cand"], season: int) -> str:
+    """The week-8 heads-up: the current rookie class enters the grades, so its pick
+    O-Scores and pick-adjusted marks come online and re-level the pick boards and
+    Drafting skill. Names how many of this week's moves are the class arriving when
+    it can tell (current-season pick crossings), else says it plainly."""
+    arriving = sum(1 for c in cands if getattr(c, "sheet", "") == "picks"
+                   and _row_season(getattr(c.item, "label", "")) == season)
+    tail = (f"; {arriving} of the pick moves below are the class arriving"
+            if arriving else "")
+    return (f"The {season} rookie class enters the grades this week — its pick "
+            f"O-Scores and pick-adjusted marks come online (withheld until week "
+            f"{_ROOKIE_ENTRY_WEEK}), re-levelling the pick boards and Drafting "
+            f"skill{tail}.")
 
 # ---------------------------------------------------------------------------
 # Provenance — telling a re-valuation apart from real results
@@ -702,6 +722,10 @@ def reasoned_summary(sections: Sequence[Tuple[str, str, list]],
     # week thus packs four highlights plus the full analysis into five sentences;
     # a quiet one is short because it has fewer of these, not thinner ones.
     parts: List[str] = []
+    # Week 8: a one-time flag that the rookie class is entering the data, ahead of
+    # everything else so the reader meets it before the pick churn it explains.
+    if weeks_completed == _ROOKIE_ENTRY_WEEK and season:
+        parts.append(_rookie_entry_line(cands, season))
     if named_lines:
         parts.append(named_lines[0])
     parts += _bulk_story(rest, season, bool(named), in_season)
