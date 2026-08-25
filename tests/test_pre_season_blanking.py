@@ -117,4 +117,5 @@ if __name__ == "__main__":
     test_completed_season_untouched()
     test_player_year_keep_set()
     test_noop_when_season_started_or_unknown()
+    test_manager_skills_blank_not_zero_when_no_moves()
     print("ok")
