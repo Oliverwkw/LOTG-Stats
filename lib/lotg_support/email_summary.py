@@ -373,6 +373,36 @@ def _is_new_data_family(column: str, family: str) -> bool:
     if "ktc" in col and fam.startswith("ktc") and not _KTC_CHECKPOINT.search(col):
         return True
     return False
+
+
+# Real offseason ACTIVITY is new data even before week 1: the league keeps
+# trading, adding, dropping and drafting all winter, and those are events, not
+# recomputes. A current-season row on a transaction sheet is one directly; a
+# current-season team/league COUNT or SKILL that aggregates them reflects the same
+# activity, so both read as live.
+_ACTIVITY_SHEETS = {"add_drops", "trades", "picks"}
+_ACTIVITY_COL_MARKERS = (
+    "add/drop", "pure drop", "number of trades", "offseason trades",
+    "total transactions", "number of transactions", "trading skill",
+    "drafting skill", "transaction skill", "faab", "number of adds",
+    "number of drops",
+)
+
+
+def _is_offseason_activity(cand: "_Cand", season: Optional[int],
+                           year: Optional[int]) -> bool:
+    """True when the move is real current-season transaction activity — a made or
+    traded add/drop/trade/pick, or a count/skill that aggregates them. New data
+    even in the offseason; a PAST-season row on the same sheet is a re-valuation,
+    which the season gate below leaves as a recompute."""
+    if not (season and year and year >= season):
+        return False
+    if cand.sheet in _ACTIVITY_SHEETS:
+        return True
+    col = str(cand.column).lower()
+    return any(m in col for m in _ACTIVITY_COL_MARKERS)
+
+
 _PAREN = re.compile(r"\(([^()]*)\)\s*$")
 _YEAR = re.compile(r"\b(20\d\d)\b")
 
@@ -436,6 +466,10 @@ def _provenance(cand: "_Cand", season: Optional[int],
     # row is a historical event the pipeline only just started recording (e.g. a
     # backfilled startup slot-swap): that is a recompute, so it is not live.
     if cand.is_new and season and yr and yr >= season:
+        return "live"
+    # Real offseason activity — a current-season add/drop, trade or pick, or a
+    # count/skill that aggregates them — is new data too, even before week 1.
+    if _is_offseason_activity(cand, season, yr):
         return "live"
     if in_season and season and yr and yr >= season:
         return "live"

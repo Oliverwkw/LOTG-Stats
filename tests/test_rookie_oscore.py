@@ -1,11 +1,11 @@
-"""A current-class rookie shouldn't carry an O-Score before he has played.
+"""A current-class rookie shouldn't carry an O-Score before half a season.
 
-Until a rookie's first game his four O-Score components collapse to his draft-slot
-KTC percentile — a grade off nothing on the field, which the weekly digest then
-reports as a real bottom-five O-Score (the 2026 Fernando Mendoza / Ty Simpson
-lines in the run-474 test email). `_withhold_unplayed_rookie_oscore` blanks it
-until "Avg PPG on team" is a real number (after week 1 of his first season),
-scoped to the current draft class so no past rookie is re-graded.
+Graded early, a rookie's four O-Score components collapse toward his draft-slot
+KTC percentile — a grade off almost nothing on the field, which the weekly digest
+then reports as a real bottom-five O-Score. `_withhold_early_rookie_oscore` blanks
+the whole current draft class until its rookie season has played `min_week` weeks
+(week 8), then scores it normally. Scoped to the current draft class by Year, so
+no past class is re-graded.
 
 Run: PYTHONPATH=src:lib python tests/test_rookie_oscore.py
 """
@@ -34,53 +34,61 @@ def _ok(name, cond, detail=""):
 
 
 def _frame():
-    # Current-class rookies "with no game yet" take TWO build-time shapes: NaN
-    # (never rostered for an NFL week) and 0.0 (already rostered in the preseason
-    # but no game — the shape the PR #410 audit caught an .isna()-only gate
-    # missing). Plus a played rookie, a past rookie, and a startup pick.
+    # A current-class (2026) rookie that HAS played some games, one that hasn't,
+    # a past rookie, and a startup pick. The class is graded on how far its
+    # SEASON has gone, not per-player play, so the played/unplayed pair should be
+    # treated identically before week 8.
     return pd.DataFrame({
-        "Year": ["2026", "2026", "2026", "2025", "startup"],
-        "Player Picked": ["Rook NaN", "Rook Zero", "Rook Played", "Old Rook", "Vet"],
-        "Avg PPG on team": [float("nan"), 0.0, 12.0, float("nan"), 20.0],
-        "O-Score": [6.9, 7.5, 55.0, 4.8, 71.0],
+        "Year": ["2026", "2026", "2025", "startup"],
+        "Player Picked": ["Rook Played", "Rook Unplayed", "Old Rook", "Vet"],
+        "O-Score": [55.0, 7.5, 4.8, 71.0],
     })
 
 
-def check_withhold_unplayed_rookie_oscore():
+def check_withhold_before_week_8():
     df = _frame()
     non_rookie = df["Year"].astype(str).str.contains("startup|vet", case=False)
-    lotg._withhold_unplayed_rookie_oscore(df, non_rookie, current_season=2026)
+    # Season only 5 weeks in -> whole current class withheld.
+    lotg._withhold_early_rookie_oscore(df, non_rookie, current_season=2026,
+                                       season_weeks_completed=5)
     o = dict(zip(df["Player Picked"], df["O-Score"]))
-    ok = _ok("current-class rookie, no game (NaN AvgPPG) -> blanked",
-             math.isnan(o["Rook NaN"]), o)
-    ok &= _ok("current-class rookie, no game (0.0 AvgPPG at build) -> blanked",
-              math.isnan(o["Rook Zero"]), o)
-    ok &= _ok("current-class rookie who HAS played -> kept", o["Rook Played"] == 55.0, o)
-    ok &= _ok("a PAST rookie is not re-graded (week 1 long passed) -> kept",
-              o["Old Rook"] == 4.8, o)
+    ok = _ok("before week 8: current-class rookie who played -> blanked",
+             math.isnan(o["Rook Played"]), o)
+    ok &= _ok("before week 8: current-class rookie unplayed -> blanked",
+              math.isnan(o["Rook Unplayed"]), o)
+    ok &= _ok("a PAST class is not re-graded -> kept", o["Old Rook"] == 4.8, o)
     ok &= _ok("a startup/vet pick is untouched", o["Vet"] == 71.0, o)
     return ok
 
 
-def check_is_a_safe_noop_when_columns_missing():
-    # No "Avg PPG on team" column: must not raise, must change nothing.
-    df = pd.DataFrame({"Year": ["2026"], "O-Score": [6.9]})
-    nr = pd.Series([False])
-    lotg._withhold_unplayed_rookie_oscore(df, nr, current_season=2026)
-    ok = _ok("missing columns -> no-op, no raise", df["O-Score"].iloc[0] == 6.9)
-    # Missing season / mask -> no-op.
+def check_scores_from_week_8_on():
+    df = _frame()
+    non_rookie = df["Year"].astype(str).str.contains("startup|vet", case=False)
+    lotg._withhold_early_rookie_oscore(df, non_rookie, current_season=2026,
+                                       season_weeks_completed=8)
+    ok = _ok("at week 8: the current class keeps its O-Score",
+             df["O-Score"].tolist() == [55.0, 7.5, 4.8, 71.0], df["O-Score"].tolist())
+    return ok
+
+
+def check_is_a_safe_noop_when_inputs_missing():
+    df = pd.DataFrame({"Year": ["2026"]})   # no O-Score column
+    lotg._withhold_early_rookie_oscore(df, pd.Series([False]), 2026, 5)
+    ok = _ok("missing columns -> no-op, no raise", "O-Score" not in df.columns or True)
     df2 = _frame()
-    lotg._withhold_unplayed_rookie_oscore(df2, None, current_season=2026)
-    lotg._withhold_unplayed_rookie_oscore(df2, df2["Year"].str.contains("x"), current_season=None)
-    ok &= _ok("missing mask or season -> no-op",
-              df2["O-Score"].tolist() == [6.9, 7.5, 55.0, 4.8, 71.0])
+    lotg._withhold_early_rookie_oscore(df2, None, 2026, 5)                 # no mask
+    lotg._withhold_early_rookie_oscore(df2, df2["Year"].str.contains("x"), None, 5)  # no season
+    lotg._withhold_early_rookie_oscore(df2, df2["Year"].str.contains("x"), 2026, None)  # no weeks
+    ok &= _ok("missing mask / season / week count -> no-op",
+              df2["O-Score"].tolist() == [55.0, 7.5, 4.8, 71.0])
     return ok
 
 
 def run_all() -> bool:
     all_ok = True
-    for t in (check_withhold_unplayed_rookie_oscore,
-              check_is_a_safe_noop_when_columns_missing):
+    for t in (check_withhold_before_week_8,
+              check_scores_from_week_8_on,
+              check_is_a_safe_noop_when_inputs_missing):
         print(f"\n{t.__name__}:")
         all_ok &= bool(t())
     print("\n" + ("ALL PASS" if all_ok else "SOME FAILED"))
