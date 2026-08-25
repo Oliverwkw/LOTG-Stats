@@ -351,6 +351,34 @@ def check_event_board_diff():
     return ok
 
 
+def check_yearly_counting_low_end_off_board():
+    """A season-accumulating count (pure drops, trades, transactions, FAAB) shows
+    only its HIGH end on the all-time board — its LOW end ("fewest …") is a
+    preseason artifact left to the on-pace projection (week 3+). A non-counting
+    yearly stat keeps BOTH ends; and weekly-counting awards are NOT reclassified."""
+    ok = _ok("'Number of pure drops' is a yearly counting stat",
+             D.is_yearly_counting_stat("Number of pure drops"))
+    ok &= _ok("'Number of trades' too", D.is_yearly_counting_stat("Number of trades"))
+    ok &= _ok("'PF' is not", not D.is_yearly_counting_stat("PF"))
+    ok &= _ok("a weekly-counting award is excluded (keeps both ends)",
+              not D.is_yearly_counting_stat("Times highest score?"))
+
+    ty = pd.DataFrame({
+        "Team": [f"T{i}" for i in range(6)], "Year": [2021, 2022, 2023, 2024, 2025, 2026],
+        "Number of pure drops": [10.0, 8, 6, 4, 2, 0],
+        "PF": [100.0, 90, 80, 70, 60, 50],
+    })
+    hl = D.board_highlights(ty, "team_year", window=3)
+    ends = {}
+    for h in hl:
+        ends.setdefault(h.column, set()).add(h.end)
+    ok &= _ok("pure drops: only the HIGH end reaches the board",
+              ends.get("Number of pure drops") == {"high"}, ends.get("Number of pure drops"))
+    ok &= _ok("PF: both ends stay on the board",
+              ends.get("PF") == {"high", "low"}, ends.get("PF"))
+    return ok
+
+
 def check_event_diff_flags_new_rows():
     """is_new means the row's key was in the prior snapshot's FULL row set — a
     genuinely brand-new row (a just-made trade/add, a freshly recorded pick). It
@@ -872,6 +900,7 @@ def run_all() -> bool:
         check_event_highlights,
         check_board_covers_every_sheet,
         check_event_board_diff,
+        check_yearly_counting_low_end_off_board,
         check_event_diff_flags_new_rows,
         check_tie_joins_are_said_to_be_ties,
         check_all_time_tie_joins,

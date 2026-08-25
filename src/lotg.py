@@ -1555,9 +1555,13 @@ def _preserve_na(col: str) -> bool:
     if col_l == "o-score":
         return True
     # Manager skill (team_year / team_all_time): shrunk-mean O-Score of the
-    # team's picks / trades / transactions. Blank = no events of that type
-    # (didn't draft/trade/transact) — N/A, distinct from a real low score.
-    if col_l in {"drafting skill", "trading skill", "transaction skill"}:
+    # team's picks / trades / add-drops. Blank = no events of that type (didn't
+    # draft/trade/add-drop) — N/A, distinct from a real low score. "Add/Drop
+    # skill" was "transaction skill" before #409 renamed it; the stale name here
+    # meant a team with no add/drops rendered a real 0 instead of blank (Trading
+    # skill blanked correctly, Add/Drop skill did not).
+    if col_l in {"drafting skill", "trading skill", "add/drop skill",
+                 "transaction skill"}:
         return True
     # All-play win % / Losses from hardship: N/A for a (team, year) with no
     # games that season (e.g. the not-yet-played current/future season).
@@ -2197,35 +2201,34 @@ class _Espn2020Client:
         return getattr(self._real, name)
 
 
-def _withhold_unplayed_rookie_oscore(picks, non_rookie_mask, current_season) -> None:
-    """Blank the O-Score of the CURRENT draft class's picks that haven't played yet.
+_ROOKIE_OSCORE_MIN_WEEK = 8
 
-    Before a rookie's first game his four O-Score components collapse to his
-    draft-slot KTC percentile — a grade off nothing that happened on the field,
-    which the weekly digest then reports as a real bottom-five O-Score. Withhold
-    it until he has a game on the board (his first start — i.e. after week 1 of
-    his rookie season). Scoped to `current_season`, so no PAST rookie (long past
-    his first week, O-Score already earned) is touched.
 
-    "No game yet" here is "Avg PPG on team" being blank OR zero — the two build-
-    time shapes it takes with no on-team production: a rookie never rostered for an
-    NFL week is NaN, but one already rostered in the preseason with no game is 0.0
-    (that 0.0 is only rendered N/A at export, AFTER this runs, which is why an
-    `.isna()`-only gate silently missed the whole class — see PR #410 audit). Once
-    he plays, the average is a real non-zero number and the next build scores him.
+def _withhold_early_rookie_oscore(picks, non_rookie_mask, current_season,
+                                  season_weeks_completed,
+                                  min_week=_ROOKIE_OSCORE_MIN_WEEK) -> None:
+    """Blank the O-Score of the CURRENT draft class until its season has played
+    `min_week` weeks (week 8 by default).
 
-    Mutates `picks` in place; a no-op if the frame or the columns it needs are
-    absent, so it can never fail a build."""
+    A rookie graded early is graded on almost nothing that happened on the field —
+    a handful of games (or none at all in the preseason), so the four components
+    collapse toward his draft-slot KTC percentile, and the digest reports the
+    result as a real bottom-five O-Score. Half a season is enough sample to grade
+    the pick, so the whole class is withheld until week 8 of its rookie year, then
+    scored normally from week 8 on. Scoped to `current_season` by draft Year, so no
+    PAST class (its rookie year long finished, O-Score already earned) is touched.
+
+    Mutates `picks` in place; a no-op if the frame, the season week count, or the
+    columns it needs are absent, so it can never fail a build."""
     if (picks is None or getattr(picks, "empty", True) or non_rookie_mask is None
-            or current_season is None
-            or not {"O-Score", "Avg PPG on team", "Year"} <= set(picks.columns)):
+            or current_season is None or season_weeks_completed is None
+            or "O-Score" not in picks.columns or "Year" not in picks.columns):
         return
+    if int(season_weeks_completed) >= int(min_week):
+        return                      # half a season played — grade the class normally
     year = pd.to_numeric(picks["Year"], errors="coerce")
-    avg_ppg = pd.to_numeric(picks["Avg PPG on team"], errors="coerce")
-    no_game_yet = avg_ppg.isna() | (avg_ppg == 0)
-    unplayed = (~non_rookie_mask.astype(bool)) & (year == int(current_season)) \
-        & no_game_yet
-    picks.loc[unplayed, "O-Score"] = np.nan
+    early = (~non_rookie_mask.astype(bool)) & (year == int(current_season))
+    picks.loc[early, "O-Score"] = np.nan
 
 
 def build_all(repo_root: Path) -> None:
@@ -3393,6 +3396,10 @@ def build_all(repo_root: Path) -> None:
     # A move dated on or before the PREVIOUS season's entry was made while that
     # season was still being played, so it carries that season's label.
     _season_end_by_season: Dict[int, Optional[date]] = {}
+    # Completed weeks per season (last week with real games, championship excluded),
+    # captured as each season is walked so the rookie O-Score gate downstream can
+    # ask "has this class's season reached week 8 yet?".
+    _weeks_completed_by_season: Dict[int, int] = {}
     roster_ids_by_season: Dict[int, List[int]] = {}
     roster_to_team_by_season: Dict[int, Dict[int, str]] = {}
     draft_rounds_by_season: Dict[int, int] = {}
@@ -4514,6 +4521,10 @@ def build_all(repo_root: Path) -> None:
         except Exception as e:
             last_week = 0
             _log_exc(debug, f"last_completed_week_{season}", e)
+        try:
+            _weeks_completed_by_season[int(season)] = int(last_week or 0)
+        except (TypeError, ValueError):
+            pass
 
         # Preseason / in-progress league with no completed games: still scan a
         # few weeks so offseason transactions (rookie-draft pick swaps, trades,
@@ -18804,7 +18815,8 @@ def build_all(repo_root: Path) -> None:
             df["O-Score"] = _osc
 
     _pick_oscore_stats = [
-        "Avg points added", "Pick-adjusted Difference in Player addition value",
+        "Avg points added adjusted by position",
+        "Pick-adjusted Difference in Player addition value",
         "__MOST_RECENT_KTC__", "Pick-adjusted Difference in Avg career PPG adjusted by position"]
     # KTC component is the PICK-ADJUSTED KTC difference (most-recent populated), so a
     # pick's market value is judged vs its draft-slot window, not in absolute terms.
@@ -18839,14 +18851,16 @@ def build_all(repo_root: Path) -> None:
                 droppable=("Pick-adjusted Difference in Player addition value",),
                 pool_mask=_nr_osc,
             )
-        # A current-class rookie graded before he has played is graded on nothing
-        # but his draft-slot KTC percentile — withhold his O-Score until he has a
-        # game on the board (after week 1 of his first season).
-        _withhold_unplayed_rookie_oscore(ph, _nr_osc, current_season_for_rookies)
+        # A current-class rookie graded before half a season is graded on almost
+        # nothing on the field — withhold the class's O-Score until week 8 of its
+        # rookie year.
+        _withhold_early_rookie_oscore(
+            ph, _nr_osc, current_season_for_rookies,
+            _weeks_completed_by_season.get(int(current_season_for_rookies), 0))
         _add_oscore(
             add_drops_df,
-            ["Avg net points", "Player addition value", "__MOST_RECENT_KTC__",
-             "% of starts made while rostered"],
+            ["Avg net points adjusted by position", "Player addition value",
+             "__MOST_RECENT_KTC__", "% of starts made while rostered"],
             ["KTC value of player added 2 years later", "KTC value of player added 1 year later",
              "KTC value of player added at end of season", "KTC value of player added at deal time"],
             # '% of starts made while rostered' is N/A for adds never rostered
@@ -18857,7 +18871,8 @@ def build_all(repo_root: Path) -> None:
         )
         _add_oscore(
             tr,
-            ["Avg net points", "Trade addition value", "__MOST_RECENT_KTC__", "Trade impact score"],
+            ["Avg net points adjusted by position", "Trade addition value",
+             "__MOST_RECENT_KTC__", "Trade impact score"],
             ["KTC value difference 2 years later", "KTC value difference 1 year later",
              "KTC value difference at end of season", "KTC value difference at deal time"],
         )
