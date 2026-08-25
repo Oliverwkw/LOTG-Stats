@@ -20,7 +20,18 @@ _ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(_ROOT / "src"))
 sys.path.insert(0, str(_ROOT / "lib"))
 
-from lotg import _blank_pre_season_year_stats  # noqa: E402
+from lotg import _blank_pre_season_year_stats, _preserve_na  # noqa: E402
+
+
+def test_manager_skills_blank_not_zero_when_no_moves():
+    """A skill grade (drafting / trading / add-drop) with no moves that season is
+    N/A, not a real 0 — 'Add/Drop skill' regressed to 0 after #409 renamed
+    'transaction skill' but the N/A list kept the old name. A real count (Number
+    of Add/Drops) keeps its genuine 0."""
+    for skill in ("Drafting skill", "Trading skill", "Add/Drop skill"):
+        assert _preserve_na(skill), skill
+    assert not _preserve_na("Number of Add/Drops")
+    assert not _preserve_na("PF")
 
 
 def _team_year_frame() -> pd.DataFrame:

@@ -1555,9 +1555,13 @@ def _preserve_na(col: str) -> bool:
     if col_l == "o-score":
         return True
     # Manager skill (team_year / team_all_time): shrunk-mean O-Score of the
-    # team's picks / trades / transactions. Blank = no events of that type
-    # (didn't draft/trade/transact) — N/A, distinct from a real low score.
-    if col_l in {"drafting skill", "trading skill", "transaction skill"}:
+    # team's picks / trades / add-drops. Blank = no events of that type (didn't
+    # draft/trade/add-drop) — N/A, distinct from a real low score. "Add/Drop
+    # skill" was "transaction skill" before #409 renamed it; the stale name here
+    # meant a team with no add/drops rendered a real 0 instead of blank (Trading
+    # skill blanked correctly, Add/Drop skill did not).
+    if col_l in {"drafting skill", "trading skill", "add/drop skill",
+                 "transaction skill"}:
         return True
     # All-play win % / Losses from hardship: N/A for a (team, year) with no
     # games that season (e.g. the not-yet-played current/future season).
