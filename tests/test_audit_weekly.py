@@ -176,6 +176,41 @@ def check_wall_clock_is_not_a_change(tmp):
     return ok
 
 
+def check_player_additions_tenure_days_is_wall_clock(tmp):
+    """player_additions' "Tenure (days)" is the same to-TODAY stopwatch as
+    add_drops' "Length of tenure", under a different name. A uniform one-day
+    advance across the still-held rows is the Tuesday→Wednesday clock and must
+    not be flagged; an irregular move (wrong magnitude, or backwards on a hold
+    that should have stopped) still is."""
+    base_dir, cur_dir = tmp / "pab", tmp / "pac"
+    base = pd.DataFrame({
+        "Player": ["P1", "P2", "P3", "P4"],
+        "Team": ["A", "A", "B", "B"],
+        "Addition type": ["Draft", "Trade", "Waiver", "Draft"],
+        "Date": ["2021-08-29", "2024-03-02", "2025-11-12", "2023-06-12"],
+        "Tenure (days)": ["1822", "906", "286", "1170"],
+    })
+    _write(base_dir, "player_additions", base)
+    cur = base.copy()
+    cur.loc[0, "Tenure (days)"] = "1823"   # the clock (+1)
+    cur.loc[1, "Tenure (days)"] = "907"    # the clock (+1)
+    cur.loc[2, "Tenure (days)"] = "300"    # NOT the clock (+14)
+    cur.loc[3, "Tenure (days)"] = "1100"   # went backwards
+    _write(cur_dir, "player_additions", cur)
+    rep = A.Report()
+    A.audit_diffs({n: A._read(cur_dir, n) for n in A.SHEETS},
+                  {n: A._read(base_dir, n) for n in A.SHEETS}, 2026, rep)
+    text = rep.render()
+    ok = _ok("the sheet is still flagged", rep.confirmed == 1, f"confirmed={rep.confirmed}")
+    ok &= _ok("only the two irregular rows are flagged", "2 changed" in text, text)
+    ok &= _ok("the oversized advance is named", "300" in text, text)
+    ok &= _ok("the backwards one is named", "1100" in text, text)
+    ok &= _ok("the +1 clock rows are not flagged", "1823" not in text, text)
+    ok &= _ok("and the clock rows leave no trace in the report",
+              text.count("changed:") == 2, text)
+    return ok
+
+
 def check_renumbered_pointers_are_not_a_change(tmp):
     """"Link to …" holds a ROW NUMBER. Inserting a trade renumbers hundreds of
     them without a single relationship changing — but a pointer that now lands on
@@ -562,6 +597,7 @@ def run_all() -> bool:
         check_new_league_events_are_not_breakages,
         check_matured_window_vs_corrected_zero,
         check_wall_clock_is_not_a_change,
+        check_player_additions_tenure_days_is_wall_clock,
         check_renumbered_pointers_are_not_a_change,
         check_no_column_is_exempt,
         check_diff_clean_when_identical,
