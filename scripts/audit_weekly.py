@@ -689,7 +689,18 @@ def audit_nflverse(drift: Drift, attributed_rows: int, rep: Report,
 # some other amount, or backwards, or on an asset whose tenure should have
 # stopped, is not the clock and is still flagged — which is the failure a blanket
 # name-based exemption would have hidden.
-_WALL_CLOCK_COLUMNS = ("length of tenure",)
+#
+# Two sheets carry a to-TODAY stopwatch: add_drops' "Length of tenure on team",
+# and player_additions' "Tenure (days)" — the same "days held, counted to today"
+# for a still-rostered pickup (src/lotg.py `tenure_days`, `_end = _pa_today` when
+# the hold is still open). Both drift by exactly the Tuesday-build → Wednesday-
+# rebuild gap (one day), so both belong here; only the name differs. The coarser
+# "Tenure (NFL weeks)" counter is deliberately NOT listed: it moves in whole-week
+# steps and so never ticks in the normal one-day cadence, and a single sheet-wide
+# `wall_clock_step` cannot carry two clocks running at different rates at once —
+# were the rebuild ever to span a game week, its uniform +1-week advance should
+# be handled by generalising the step to per-column, not by name-exempting it.
+_WALL_CLOCK_COLUMNS = ("length of tenure", "tenure (days)")
 
 
 def is_wall_clock_column(column: str) -> bool:
