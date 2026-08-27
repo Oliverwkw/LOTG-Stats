@@ -126,6 +126,7 @@ from lotg_support.external import (
 from lotg_support.lineup import compute_optimal_lineup
 from lotg_support.plan import load_plan_catalog, require_columns
 from lotg_support.history import reconcile_top_team, reconcile_last_team
+from lotg_support import pick_index
 
 import league_all_time
 import league_week
@@ -2214,6 +2215,16 @@ _ROOKIE_OSCORE_MIN_WEEK = 8
 # single "picks" sheet now covers both.
 _PICK_PLAN_KEYS = ("non_rookie_picks", "rookie_picks")
 
+# Export files the build no longer writes, deleted from exports/ on every build.
+# A rename or split does NOT retire the old CSV on its own: the build only ever
+# writes files, so the one the checkout brought along survives untouched; the
+# workflow's `git add exports` sees no change in an untouched file, so it stays
+# committed on main forever; and the shipped zip is built by globbing *.csv, so
+# it goes out to the league frozen at whatever the last pre-rename build said.
+# Worse, tests that gate on the old filename keep PASSING against that frozen
+# copy. Name it here instead, once, and the whole chain clears.
+_RETIRED_EXPORTS = ("picks.csv",)
+
 # Drafting skill weight for a non-rookie (startup / 2021 vet) pick, relative to
 # a rookie pick's 1.0. Those picks are scored in their own percentile universe
 # and there are nearly as many of them as there are rookie picks, so a plain
@@ -2728,6 +2739,30 @@ def build_all(repo_root: Path) -> None:
             except Exception as e:
                 _log_exc(debug, f"blank_na_sentinel_{fname}", e)
             out.to_csv(out_dir / fname, index=False)
+
+        # Clear out anything the build has stopped writing (see _RETIRED_EXPORTS)
+        # before the xlsx and the zip are assembled, so a retired table cannot
+        # ship alongside the sheets that replaced it.
+        for _retired in _RETIRED_EXPORTS:
+            try:
+                (out_dir / _retired).unlink()
+                _log(debug, f"[{_now_iso()}] INFO retired stale export: {_retired}")
+            except FileNotFoundError:
+                pass
+            except Exception as e:
+                _log_exc(debug, f"retire_export_{_retired}", e)
+
+        # Persist "PH#N -> (sheet, row)" beside the raw dumps. The picks frame is
+        # written as two INTERLEAVED sheets, so N indexes neither of them and the
+        # order is not recoverable from the CSVs; without this map every reader
+        # downstream of the export (the weekly link audit, the pick-chain guard,
+        # an inquiry spanning both drafts) loses the ability to follow a PH# ref.
+        try:
+            if pick_index.write_index(out_dir, _ph_ref_target):
+                _log(debug, f"[{_now_iso()}] INFO pick ref index: "
+                            f"{len(_ph_ref_target)} PH# refs -> raw/{pick_index.FILE_NAME}")
+        except Exception as e:
+            _log_exc(debug, "pick_ref_index", e)
 
         try:
             from openpyxl import Workbook

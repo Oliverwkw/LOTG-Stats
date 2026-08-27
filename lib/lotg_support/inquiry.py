@@ -8,7 +8,7 @@ that are already correct, instead of re-deriving them in a throwaway script.
 
 Three layers, smallest first:
 
-  1. **Sheets** — the twelve committed export CSVs, loaded once and cached, plus
+  1. **Sheets** — the fourteen committed export CSVs, loaded once and cached, plus
      `find_columns()` to answer "which sheet holds this concept?" across all
      ~1,300 columns without grepping headers by hand, and a tiny predicate
      filter (`Year=2025`, `Points>200`) that reads the same in code and on a
@@ -65,6 +65,7 @@ import pandas as pd
 # "1,234" and the build's blank sentinels). Shared with the digest so an
 # inquiry and the weekly email never disagree about what a cell means.
 from lotg_support.digest import _to_float as to_number  # noqa: F401
+from lotg_support import pick_index
 
 
 # ---------------------------------------------------------------------------
@@ -116,16 +117,17 @@ SHEETS: Tuple[str, ...] = (
     "trades",
     "non_rookie_picks",
     "rookie_picks",
-    "picks",          # virtual: the two pick sheets concatenated (see load_sheet)
+    "picks",          # virtual: the two pick sheets as one frame (see load_sheet)
     "formulas",
 )
 
 # The build writes the picks frame as TWO sheets. "picks" is kept as a VIRTUAL
-# sheet — the two concatenated, in build order — so every question that spans
-# both drafts ("who has the most X across all picks") still has one table to
-# ask, and the helpers written against it keep working. Ask for a real sheet by
-# name when the distinction matters, which for O-Score it does: the two are
-# scored in separate percentile universes and only one is slot-de-trended.
+# sheet — the two put back together in the frame's own row order — so every
+# question that spans both drafts ("who has the most X across all picks") still
+# has one table to ask, and the helpers written against it keep working. Ask for
+# a real sheet by name when the distinction matters, which for O-Score it does:
+# the two are scored in separate percentile universes and only one is
+# slot-de-trended.
 _PICKS_PARTS = ("non_rookie_picks", "rookie_picks")
 
 # What identifies a row, per sheet — used by top()/describe() for labelling and
@@ -189,22 +191,30 @@ def _load_sheet_cached(name: str, root: str) -> pd.DataFrame:
 def load_sheet(name: str) -> pd.DataFrame:
     """One export sheet as an all-text DataFrame (cached; do not mutate in place).
 
-    "picks" is virtual — the two real pick sheets concatenated in build order
-    (non-rookie first, matching the sheet order) — so a question about the draft
-    as a whole still has one table. It is a plain row union: both sheets carry
-    the same columns.
+    "picks" is virtual — the two real pick sheets as ONE table again — so a
+    question about the draft as a whole still has one to ask. It is a plain row
+    union: both sheets carry the same columns.
+
+    Row ORDER is the build frame's, restored from `exports/raw/pick_ref_index.csv`,
+    not the two sheets end to end: the sheets interleave in the frame, and a
+    `PH#N` ref counts through that frame, so concatenation would put row N
+    somewhere else. Only if that map is missing does this fall back to
+    non-rookie-then-rookie, which is fine for aggregates and wrong for PH# refs.
     """
     canon = sheet_name(name)
     root = str(repo_root())
     if canon == "picks":
-        parts = []
+        parts = {}
         for part in _PICKS_PARTS:
             try:
-                parts.append(_load_sheet_cached(part, root))
+                parts[part] = _load_sheet_cached(part, root)
             except FileNotFoundError:
                 continue
         if parts:
-            return pd.concat(parts, ignore_index=True)
+            ordered = pick_index.order_frame(Path(root) / "exports", parts)
+            if ordered is not None:
+                return ordered.drop(columns=["_sheet"])
+            return pd.concat(parts.values(), ignore_index=True)
         # An exports/ directory written BEFORE the split still has the single
         # picks.csv. Read it, so a checkout whose build predates the split keeps
         # answering questions instead of failing on a file it never had.

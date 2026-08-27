@@ -97,6 +97,8 @@ _ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(_ROOT / "lib"))   # so the shared classifier imports standalone
 _SCHEMA_BASELINE = _ROOT / "data" / "audit" / "schema_baseline.json"
 
+from lotg_support import pick_index  # noqa: E402  (needs the sys.path above)
+
 # All exported sheets (CSV basenames).
 SHEETS = [
     "player_all_time", "team_all_time", "league_all_time",
@@ -133,6 +135,14 @@ ID_COLS = {
     "add_drops": ["Team", "Player Added", "Player Dropped", "Date"],
     "player_additions": ["Player", "Team", "Addition type", "Date"],
 }
+
+# Not a sheet: the picks FRAME, rebuilt in build order from the two pick sheets
+# via exports/raw/pick_ref_index.csv. It is what a "PH#N" ref indexes, so the
+# link check resolves through it. Keyed with a leading underscore and added to
+# the frames dict only inside run_audit, so it can never be mistaken for an
+# export to diff or to pin a schema for.
+_PICKS_FRAME = "_picks_frame"
+ID_COLS[_PICKS_FRAME] = ["Year", "Number", "Player Picked"]
 
 _MAX_REPORT = 25       # cap per-sheet diff lines so the report stays readable
 _MAX_DELTA_COLS = 4    # cap the "col: old → new" pairs shown for one changed row
@@ -526,6 +536,24 @@ def _read(directory: Path, name: str) -> pd.DataFrame:
     return pd.read_csv(p, low_memory=False, dtype=str, keep_default_na=False)
 
 
+def _with_picks_frame(frames: Dict[str, pd.DataFrame],
+                      directory: Optional[Path]) -> Dict[str, pd.DataFrame]:
+    """Add the rebuilt picks frame (what `PH#N` indexes) to a frames dict.
+
+    Absent or unusable index -> the key is simply not there, and `_resolve_link`
+    leaves every PH# ref unresolved, which reports pick-link deltas instead of
+    stripping them. Blind, not wrong."""
+    if not frames or directory is None:
+        return frames
+    try:
+        frame = pick_index.order_frame(directory, frames)
+    except Exception:
+        frame = None
+    if frame is not None:
+        frames[_PICKS_FRAME] = frame
+    return frames
+
+
 # Played-stat sheets only for detecting the in-progress season — picks / trades
 # carry FUTURE years (upcoming draft picks, forward pick swaps) that would push
 # the "current season" past reality.
@@ -633,8 +661,9 @@ def run_audit(current_dir: Path, baseline_dir: Optional[Path],
     """Run all three audit parts against a build directory (+ optional git
     baseline for Part 1, + optional NFLverse cache snapshots) and return the
     populated Report."""
-    cur = {n: _read(current_dir, n) for n in SHEETS}
-    base = {n: _read(baseline_dir, n) for n in SHEETS} if baseline_dir else {}
+    cur = _with_picks_frame({n: _read(current_dir, n) for n in SHEETS}, current_dir)
+    base = (_with_picks_frame({n: _read(baseline_dir, n) for n in SHEETS}, baseline_dir)
+            if baseline_dir else {})
     season = _current_season(cur)
     rep = Report()
     drift = diff_nflverse_cache(nflverse_before, nflverse_after)
@@ -763,10 +792,10 @@ def strip_wall_clock(changed: List[tuple], step: Optional[float]) -> Tuple[List[
 # nothing — is a real repointing bug and is flagged, which is exactly what a
 # name-based exemption on "link to" could never see.
 # A cell holds one pointer ("#48") or a per-asset list ("T#7; #54; PH#64").
-# A PH# ref resolves into whichever pick sheet holds that row; the audit only
-# needs to know it is a pick sheet, so it checks both.
-_LINK_TARGETS = {"T": "trades", "": "add_drops",
-                 "PH": ("non_rookie_picks", "rookie_picks")}
+# "PH#N" is the picks FRAME's positional index, and that frame ships as two
+# interleaved sheets, so N indexes neither one — it is resolved through the
+# frame rebuilt from exports/raw/pick_ref_index.csv (see _PICKS_FRAME).
+_LINK_TARGETS = {"T": "trades", "": "add_drops", "PH": _PICKS_FRAME}
 _LINK_REF = re.compile(r"^\s*([A-Za-z]*)#(\d+)\s*$")
 
 
@@ -824,23 +853,20 @@ def _resolve_link(ref: str, frames: Dict[str, pd.DataFrame]) -> Optional[tuple]:
     if not m:
         return None
     sheet = _LINK_TARGETS.get(m.group(1).upper())
-    if isinstance(sheet, tuple):
-        # A "PH#N" ref is the picks FRAME's positional index, and that frame is
-        # written as two sheets, so N indexes neither one. The ref text is
-        # generated before the split and never renumbers, so there is no
-        # renumbering to strip here — leave it unresolved rather than pointing
-        # it at the wrong row (a delta on one, if it ever appears, is then
-        # REPORTED rather than silently dropped).
-        return None
     df = frames.get(sheet) if sheet else None
     if df is None or df.empty:
+        # For PH# this means the ref index was missing or unusable. Unresolved
+        # deltas are REPORTED rather than stripped, which is the safe direction.
         return None
     i = int(m.group(2)) - 1               # the exports write these 1-based
     if not (0 <= i < len(df)):
         return None
     row = df.iloc[i]
     cols = [c for c in ID_COLS.get(sheet, []) if c in df.columns]
-    return (sheet,) + tuple(str(row[c]) for c in cols)
+    # The rebuilt picks frame carries the sheet each row actually lives on, so a
+    # ref that migrates between the two pick sheets reads as the change it is.
+    named = str(row["_sheet"]) if "_sheet" in df.columns else sheet
+    return (named,) + tuple(str(row[c]) for c in cols)
 
 
 def strip_stable_links(changed: List[tuple], base_frames: Dict[str, pd.DataFrame],
@@ -1341,6 +1367,11 @@ def audit_schema(cur: Dict[str, pd.DataFrame], rep: Report) -> None:
                      "(re-pin with --update-schema if intended).")
             clean = False
     for name in cur:
+        # A leading underscore marks a derived frame the audit builds for itself
+        # (see _PICKS_FRAME) — not something the build ships, so not something to
+        # pin a schema for.
+        if name.startswith("_"):
+            continue
         if name not in baseline and not cur[name].empty:
             rep.flag(f"**{name}**: sheet is not in the pinned baseline "
                      "(re-pin with --update-schema if intended).")

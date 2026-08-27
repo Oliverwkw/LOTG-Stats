@@ -44,7 +44,8 @@ import espn_2020 as E  # noqa: E402
 
 _RAW = _ROOT / "data" / "espn_2020_raw"
 _HAVE_RAW = (_RAW / "view_mDraftDetail.json").exists()
-_PICKS = _ROOT / "exports" / "picks.csv"
+# The 2020 startup lives on the non-rookie half of the split picks frame.
+_PICKS = _ROOT / "exports" / "non_rookie_picks.csv"
 _HAVE_PICKS = _PICKS.exists()
 
 _TEAMS = len(E.TEAM_TO_MANAGER)
@@ -182,7 +183,7 @@ def _startup_rows():
 
 def test_sheet_numbers_startup_picks_by_draft_order():
     if not _HAVE_PICKS:
-        return _skip("no exports/picks.csv")
+        return _skip("no exports/non_rookie_picks.csv")
     rows = _startup_rows()
     assert len(rows) == 152, len(rows)
     by_num = {}
@@ -211,7 +212,7 @@ def test_sheet_numbers_startup_picks_by_draft_order():
 
 def test_sheet_marks_the_traded_picks_and_only_those():
     if not _HAVE_PICKS:
-        return _skip("no exports/picks.csv")
+        return _skip("no exports/non_rookie_picks.csv")
     expected = {f'{rnd}.{pos:02d}': (drafter, owner, player)
                 for (rnd, pos, drafter, owner, player) in _TRADED.values()}
     seen = {}
@@ -271,7 +272,7 @@ def test_sheet_records_the_swap_as_a_two_sided_trade():
 
 def test_swap_picks_each_count_one_trade():
     if not _HAVE_PICKS:
-        return _skip("no exports/picks.csv")
+        return _skip("no exports/non_rookie_picks.csv")
     swapped = [r for r in _startup_rows() if str(r["Original Team"]) != str(r["Team"])]
     assert len(swapped) == 6, len(swapped)
     for r in swapped:
@@ -297,7 +298,7 @@ def test_real_faab_buys_are_still_treated_as_synthetic():
     # only looked safe offline, where the 2025-league build has no 2026 rows at
     # all: the offline data is missing exactly the case that falsifies it.
     if not _HAVE_PICKS:
-        return _skip("no exports/picks.csv")
+        return _skip("no exports/non_rookie_picks.csv")
     import csv
     with _PICKS.open(newline="", encoding="utf-8") as fh:
         buys = [r for r in csv.DictReader(fh)
@@ -428,7 +429,7 @@ def test_startup_round_five_picks_link_to_their_own_chain():
     counterparts in the same deal both have.
     """
     if not _HAVE_PICKS:
-        return _skip("no exports/picks.csv")
+        return _skip("no exports/non_rookie_picks.csv")
     rows = {str(r["Number"]): r for r in _startup_rows()
             if str(r["Number"]).startswith("5.")}
     assert len(rows) == _TEAMS, sorted(rows)

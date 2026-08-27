@@ -10,7 +10,10 @@ Covers the four things the split has to get right:
   3. the de-trend is monotone, half-strength, bounded, and touches ONLY the
      non-rookie rows;
   4. the half-season gate is one predicate, shared by the withheld rookie
-     O-Score and the pick-adjustment reference pools.
+     O-Score and the pick-adjustment reference pools;
+  5. `PH#N` survives the split — the frame's own row order is written out as
+     `raw/pick_ref_index.csv` and rebuilds exactly, and the retired `picks.csv`
+     is named so the build deletes it instead of shipping it frozen.
 
 Run: PYTHONPATH=src:lib python tests/test_pick_sheets_split.py
 """
@@ -29,6 +32,7 @@ sys.path.insert(0, str(_ROOT / "lib"))
 sys.path.insert(0, str(_ROOT / "src"))
 
 import pick_history as PH               # noqa: E402
+from lotg_support import pick_index     # noqa: E402
 import non_rookie_picks as NRP          # noqa: E402
 import rookie_picks as RP               # noqa: E402
 
@@ -291,6 +295,100 @@ def check_against_the_committed_build():
     return ok
 
 
+def check_the_ref_index_rebuilds_the_frame_in_build_order():
+    """PH#N counts through the FRAME, and the frame interleaves the two sheets.
+
+    Concatenating the sheets is a different order, so the map is the only thing
+    that can put row N back. Round-trip it on a frame shaped like the real one:
+    a vet block, a rookie block, then the startup — the interleaving that broke
+    naive concatenation in the first place."""
+    import tempfile
+
+    frame = pd.DataFrame({
+        "Year": ["2021 (vet)"] * 2 + ["2022"] * 3 + ["startup"] * 2 + ["2023"],
+        "Number": ["1.01", "1.02", "1.01", "1.02", "1.03", "1.01", "1.02", "1.01"],
+    })
+    nr = frame[PH.non_rookie_mask(frame)]
+    rk = frame[~PH.non_rookie_mask(frame)]
+    # What the writer hands over: ref -> (sheet, XLSX row) = csv row + 2.
+    ref_target = {}
+    for sheet, part in (("non_rookie_picks", nr), ("rookie_picks", rk)):
+        for row_i, orig in enumerate(part.index):
+            ref_target[int(orig) + 1] = (sheet, row_i + 2)
+
+    with tempfile.TemporaryDirectory() as d:
+        ok = _ok("write_index returns a path under raw/",
+                 str(pick_index.write_index(d, ref_target)).endswith(
+                     f"{pick_index.RAW_SUBDIR}/{pick_index.FILE_NAME}"))
+        sheets = {"non_rookie_picks": nr.reset_index(drop=True),
+                  "rookie_picks": rk.reset_index(drop=True)}
+        rebuilt = pick_index.order_frame(d, sheets)
+        ok &= _ok("rebuilt frame is the original, row for row",
+                  rebuilt is not None
+                  and list(rebuilt["Year"]) == list(frame["Year"])
+                  and list(rebuilt["Number"]) == list(frame["Number"]),
+                  None if rebuilt is None else list(rebuilt["Year"]))
+        ok &= _ok("and it is NOT plain concatenation",
+                  list(pd.concat(sheets.values(), ignore_index=True)["Year"])
+                  != list(frame["Year"]))
+        ok &= _ok("_sheet says which half each row came from",
+                  rebuilt is not None
+                  and set(rebuilt.loc[PH.non_rookie_mask(rebuilt), "_sheet"]) == {"non_rookie_picks"})
+        # dict-of-lists variant, which is what the pick-chain guard reads
+        as_rows = {k: v.to_dict("records") for k, v in sheets.items()}
+        ordered = pick_index.order_rows(d, as_rows)
+        ok &= _ok("order_rows agrees with order_frame",
+                  ordered is not None
+                  and [r["Year"] for r in ordered] == list(frame["Year"]))
+        # A gapped map cannot be indexed positionally: say so, do not guess.
+        gapped = dict(ref_target)
+        gapped.pop(max(gapped))
+        gapped[max(gapped) + 5] = ("rookie_picks", 2)
+        pick_index.write_index(d, gapped)
+        ok &= _ok("a gapped map reads as unusable, not as a guess",
+                  pick_index.load_index(d) is None)
+    with tempfile.TemporaryDirectory() as d:
+        ok &= _ok("a pre-split exports/ reads as absent, not as an error",
+                  pick_index.load_index(d) is None
+                  and pick_index.order_rows(d, {}) is None
+                  and pick_index.order_frame(d, {}) is None)
+    return ok
+
+
+def check_the_retired_picks_csv_is_deleted_not_left_behind():
+    """A rename does not retire the old CSV — the build has to say so.
+
+    Left alone it survives the checkout untouched, so `git add exports` never
+    stages it, the zip globs it in, and every test gating on the old filename
+    keeps passing against a frozen table."""
+    ok = _ok("picks.csv is on the build's retired list",
+             "picks.csv" in getattr(lotg, "_RETIRED_EXPORTS", ()))
+    # The build deletes it and the export-refresh commit stages that deletion,
+    # so the file goes away at exactly the moment the two sheets replacing it
+    # arrive. Only assert it against a tree that HAS been rebuilt: the committed
+    # exports/ is a replay cache that lags main, and hand-deleting the old CSV
+    # there just leaves the tree half-split until the next refresh.
+    exports = _ROOT / "exports"
+    if (exports / "non_rookie_picks.csv").exists():
+        ok &= _ok("a post-split exports/ has no picks.csv left",
+                  not (exports / "picks.csv").exists())
+    else:
+        print("  [SKIP] exports/ predates the split — nothing to retire yet")
+    # Nothing may read the retired name back into existence.
+    readers = []
+    # lotg.py is where the name is RETIRED, and this file is where that is
+    # asserted; everyone else naming it would be reading the frozen table.
+    exempt = {"lotg.py", Path(__file__).name}
+    for folder in ("tests", "scripts", "lib", "src"):
+        for f in sorted((_ROOT / folder).rglob("*.py")):
+            if f.name in exempt:
+                continue
+            if '"picks.csv"' in f.read_text(errors="ignore"):
+                readers.append(str(f.relative_to(_ROOT)))
+    ok &= _ok("nothing loads exports/picks.csv any more", not readers, readers)
+    return ok
+
+
 def run_all() -> bool:
     all_ok = True
     for t in (check_split_is_exhaustive_disjoint_and_index_preserving,
@@ -303,6 +401,8 @@ def run_all() -> bool:
               check_detrend_never_fails_a_build,
               check_the_week_8_gate_is_one_predicate,
               check_drafting_skill_weight_is_a_half,
+              check_the_ref_index_rebuilds_the_frame_in_build_order,
+              check_the_retired_picks_csv_is_deleted_not_left_behind,
               check_against_the_committed_build):
         print(f"\n{t.__name__}:")
         all_ok &= bool(t())

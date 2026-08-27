@@ -35,7 +35,7 @@ getting it right. Where they do conflict, take the extra minute and say why.
 
 **Start an inquiry at `plan/INQUIRY_PLAYBOOK.md`.** It documents the tools that
 exist for exactly this — `scripts/inquire.py` for finding/filtering/ranking
-across the thirteen export sheets and the raw snapshot (including over-inclusive
+across the fourteen export sheets and the raw snapshot (including over-inclusive
 sweeps that rank on every column rather than a curated few), `lotg_support.analysis`
 for the joins a judgement question needs (position attached to any sheet, roster
 depth, lineup composition, cohort tests, positional scarcity, spend vs return),

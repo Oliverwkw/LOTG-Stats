@@ -516,10 +516,40 @@ on-field return were graded alike.
 - [x] Offline diff vs `origin/main`: **add_drops, trades, player_additions and
   every player/team/league sheet byte-identical**; only `formulas.csv` (docs) and
   the pick sheets themselves differ. Suite green (279 passed, 1 skipped).
-- [ ] **3-part audit** (code / results / diff) — **the results audit must carry
-  the de-trend and the Drafting-skill re-weight**, because neither can be checked
-  offline: KTC is unreachable there, so every offline O-Score is N/A and both
-  land as no-ops. Same limitation the Phase-13 startup-order fix hit.
+- [x] **3-part audit round 1 — run 480 vs run 479.** Code: 280 passed, sanity
+  0/0, and KTC DID resolve live (12,010 lookups), so the de-trend and the
+  re-weight were really exercised. Results: the split is exhaustive/disjoint and
+  order-preserving (184+364=548, 0 overlap); 1052 PH# links land correctly (320
+  number-labelled, 310 name-labelled, 0 wrong, 0 out of range); the de-trend
+  refits out of the published CSV to slope -6.0443 / intercept 74.4829 against
+  the logged -6.0421 / 74.4730 (1-dp rounding), mean O-Score preserved to 4 dp,
+  shift monotone -12.79 -> +2.96, nothing clamped; Drafting skill reconstructs
+  EXACTLY at w=0.5/1.0 on 8/8 all-time and 40/40 team_year rows (unweighted
+  reproduces none of them). Diff: zero movement on player/league sheets;
+  everything that moved maps to the wall clock (+2d), a KTC anniversary rolling
+  over, the week-8 gate, or the de-trend. No unexpected diffs.
+- [x] **Round-1 defects fixed** (all four were invisible in a green run):
+  - The retired `picks.csv` shipped anyway — the build only ever WRITES, so the
+    checkout's copy survived untouched into the artifact AND into
+    `LOTG_Exports.zip` (which globs `*.csv`), frozen with pre-de-trend
+    O-Scores, and `git add exports` had nothing to stage. Named in
+    `_RETIRED_EXPORTS` and deleted each build; the refresh commit now stages
+    that deletion (`git add -A exports`).
+  - Four test files still read the retired file and PASSED on it —
+    `test_pick_chain_links` was checking FRESH trades/add_drops refs against the
+    FROZEN table, `test_startup_draft_order` was guarding the Phase-13 ordering
+    fix on it, `test_draft_capital`'s build gate keyed on it, and
+    `test_forecast`'s write sentinel watched a file the build no longer writes.
+    All repointed.
+  - `PH#N` had become unresolvable: it is the FRAME's positional index and the
+    frame interleaves the two sheets, so N indexes neither. The build now writes
+    `exports/raw/pick_ref_index.csv` (`lotg_support.pick_index`), and the link
+    audit, the chain guard and `inquiry.load_sheet("picks")` all rebuild the
+    frame in build order through it. Readers tolerate its absence.
+  - `data/audit/schema_baseline.json` still pinned `picks`, so the first
+    Wednesday health email would have gone red on "sheet missing" + two unpinned
+    sheets. Re-pinned.
+- [ ] **3-part audit round 2** — re-run against the post-fix CI build.
 
 ## Phase 15 — TBD: OLD LEAGUES
 - [ ] **TBD.** Placeholder for integrating other historical/old leagues' data (e.g. the

@@ -112,7 +112,7 @@ the answer, not a silent choice.
 
 | Tool | For |
 |---|---|
-| `scripts/inquire.py` (`lotg_support.inquiry`) | finding, filtering and ranking anything in the thirteen export sheets, and reading the raw Sleeper snapshot |
+| `scripts/inquire.py` (`lotg_support.inquiry`) | finding, filtering and ranking anything in the fourteen export sheets, and reading the raw Sleeper snapshot |
 | `scripts/whatif.py` (`lotg_support.replay`) | counterfactual seasons: rewind a trade — or a whole sequence of them — or move a player, replay every week, re-seed, re-run the bracket |
 | `lotg_support.analysis` (via `inquire.py group/stacks/compare/compare-all/correlate/stretch/timeline/ownership/scarcity/spend/age`) | the joins and comparisons a judgement question needs: position attached to any sheet, roster-group depth, lineup composition, cohort tests with FDR control, arbitrary time windows, entity timelines, who owned whom and in what order, positional scarcity, spend vs return, roster age (including the in-progress season) |
 | `scripts/draft_capital.py` (`lotg_support.draft_capital`) | what a draft slot returns across *all* rounds, who gets which slot under each era's ordering rule, and what moving up the order costs in roster ceiling |
@@ -125,7 +125,7 @@ any workflow.
 ## Start here, not with a script
 
 ```bash
-# 1. Which sheet and column holds the concept? (~1,000 columns across 13 sheets;
+# 1. Which sheet and column holds the concept? (~1,000 columns across 14 sheets;
 #    column names AND their documented notes are searched)
 python scripts/inquire.py columns 'efficien|max pf'
 python scripts/inquire.py describe team_week Efficiency

@@ -554,7 +554,12 @@ def test_reads_are_pure():
     """An inquiry must not write. Nothing under exports/ may change."""
     if not _HAVE_DATA:
         return _skip("no exports/snapshot")
-    targets = [_ROOT / "exports" / "team_week.csv", _ROOT / "exports" / "picks.csv"]
+    # One aggregate sheet plus the pick sheets. Filtered to what is actually on
+    # disk: a committed exports/ from before the picks split has neither of the
+    # two, and a sentinel that does not exist proves nothing about writes.
+    targets = [p for p in (_ROOT / "exports" / "team_week.csv",
+                           _ROOT / "exports" / "non_rookie_picks.csv",
+                           _ROOT / "exports" / "rookie_picks.csv") if p.exists()]
     before = [(p.stat().st_mtime, p.stat().st_size) for p in targets]
     year = _live_season() or _seasons()[-1]
     F.forecast(year, sims=200)

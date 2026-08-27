@@ -226,7 +226,11 @@ jobs:
 
           git config user.name "lotg-exports-bot"
           git config user.email "noreply@anthropic.com"
-          git add exports
+          # -A so a file the build has RETIRED (a renamed or split sheet — see
+          # _RETIRED_EXPORTS in src/lotg.py) is staged as the deletion it is.
+          # Plain `git add exports` stages it too on modern git, but the old CSV
+          # surviving on main is exactly the failure this guards, so say it.
+          git add -A exports
           if git diff --cached --quiet; then
             echo "exports/ unchanged after rebuild; nothing to commit."
             exit 0
@@ -292,7 +296,7 @@ jobs:
             rm -rf exports
             cp -a "${staging}/exports" exports
             rm -rf "${staging}"
-            git add exports
+            git add -A exports
             if git diff --cached --quiet; then
               echo "exports/ identical to the new origin/main; nothing left to push."
               push_ok=1
