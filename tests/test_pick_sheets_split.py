@@ -462,9 +462,16 @@ def check_the_starts_term_reaches_player_additions():
     be read side by side, so the term has to be there too — and applied
     IDENTICALLY to every channel, which is that column's contract. Rebuilt from
     the sheet's own columns: value = adj points added x (1 + starts/170) x
-    (1 + % of starts). Tolerance is 0.02 because the sheet rounds its inputs to
-    2 decimals while the build multiplies the unrounded ones (measured max
-    reproduction error on a real build: 0.0099)."""
+    (1 + % of starts).
+
+    The sheet publishes `Avg points added adjusted by position` rounded to 2
+    decimals while the build multiplies the UNROUNDED value, so a reproduction
+    gap is expected. Its bound is not a magic number: the half-ulp of that
+    rounding, 0.005, times the two factors it then passes through. Derived per
+    row rather than hardcoded, because a future retune of the divisor widens the
+    factor and would quietly walk a fixed tolerance into a false pass — at /170
+    the worst case is 0.0156 and the build lands at 0.0113, but at /100 the same
+    fixed 0.02 would have almost no margin left."""
     import lotg_support.inquiry as Q
     if not _exports_are_current():
         print("  [SKIP] exports/ was built by older code — CI rebuilds before it runs")
@@ -482,20 +489,23 @@ def check_the_starts_term_reaches_player_additions():
     num = lambda c: pd.to_numeric(pa[c], errors="coerce")
     adj, starts = num(need[0]), num(need[1]).fillna(0.0)
     pct, have = num(need[2]).fillna(0.0), num(need[3])
-    want = (adj * (1.0 + starts / PH.STARTS_TENURE_DIVISOR) * (1.0 + pct)).round(4)
+    tenure = 1.0 + starts / PH.STARTS_TENURE_DIVISOR
+    want = (adj * tenure * (1.0 + pct)).round(4)
+    tol = (0.005 * tenure * (1.0 + pct)) + 1e-4      # + the published 4-dp rounding
     m = want.notna() & have.notna()
     err = (want[m] - have[m]).abs()
     ok = _ok("the shipped column carries the starts term",
-             bool(m.any()) and float(err.max()) <= 0.02,
-             f"n={int(m.sum())} max err {float(err.max()):.4f}" if m.any() else "no rows")
+             bool(m.any()) and bool((err <= tol[m]).all()),
+             f"n={int(m.sum())} max err {float(err.max()):.4f} "
+             f"vs tolerance {float(tol[m].max()):.4f}" if m.any() else "no rows")
     # Without the term it would NOT reconcile — otherwise this proves nothing.
     stale = (adj * (1.0 + pct)).round(4)
-    moved = m & (starts > 0) & ((stale - have).abs() > 0.02)
+    moved = m & (starts > 0) & ((stale - have).abs() > tol)
     ok &= _ok("and dropping it stops reconciling, so the check has teeth",
               int(moved.sum()) > 0, f"{int(moved.sum())} rows disagree without it")
+    zero = m & (starts == 0)
     ok &= _ok("a row with no starts is untouched by it",
-              bool((starts[m] == 0).any())
-              and float((want[m & (starts == 0)] - have[m & (starts == 0)]).abs().max()) <= 0.02)
+              bool(zero.any()) and bool(((want[zero] - have[zero]).abs() <= tol[zero]).all()))
     ok &= _ok("every channel gets it, none exempt",
               set(pa.loc[moved, "Addition type"].unique()) >= {"Draft", "Trade"},
               sorted(pa.loc[moved, "Addition type"].unique()))

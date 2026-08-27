@@ -611,6 +611,11 @@ Both asked for after reading the round-2 boards; both are re-gradings, not fixes
   36.29 -> 56.57), mean 1.54 on the movers; by channel Draft 221/388, Trade
   230/465, Free agency 139/616, Waiver 114/457. One column, no O-Score on this
   sheet and no skill metric downstream.
+  **Run 485 confirmed every one of those figures exactly** — 705 rows, +20.28
+  (Josh Allen 36.29 -> 56.57), mean 1.54, zero zero-start rows moved, and all
+  four per-channel counts on the nose. `Player addition value` was the ONLY
+  column that moved on the sheet, and every other sheet came back byte-identical
+  (plus 2 documentation cells in `formulas`). 281 passed.
   - [ ] **Open question — the flat divisor has a cohort bias.** 170 is elapsed
     starts, so it partly measures how long ago the move happened: rookie classes
     average 12.0 starts (2021) down to 2.4 (2025), and percentiles pool the
