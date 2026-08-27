@@ -380,7 +380,7 @@ def _is_new_data_family(column: str, family: str) -> bool:
 # recomputes. A current-season row on a transaction sheet is one directly; a
 # current-season team/league COUNT or SKILL that aggregates them reflects the same
 # activity, so both read as live.
-_ACTIVITY_SHEETS = {"add_drops", "trades", "picks"}
+_ACTIVITY_SHEETS = {"add_drops", "trades", "non_rookie_picks", "rookie_picks"}
 _ACTIVITY_COL_MARKERS = (
     "add/drop", "pure drop", "number of trades", "offseason trades",
     "total transactions", "number of transactions", "trading skill",

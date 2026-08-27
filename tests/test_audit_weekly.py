@@ -40,7 +40,7 @@ def check_current_season_ignores_future_picks(tmp):
     cur = {
         "team_year": pd.DataFrame({"Team": ["A", "B"], "Year": ["2025", "2026"]}),
         # picks carry future draft years that must NOT be read as "current".
-        "picks": pd.DataFrame({"Year": ["2026", "2027", "2031"], "Number": ["1.01", "1.02", "1.03"]}),
+        "rookie_picks": pd.DataFrame({"Year": ["2026", "2027", "2031"], "Number": ["1.01", "1.02", "1.03"]}),
     }
     return _ok("current season from played sheets, not future picks",
               A._current_season(cur) == 2026, f"got {A._current_season(cur)}")
@@ -140,13 +140,13 @@ def check_wall_clock_is_not_a_change(tmp):
         "Length of tenure on team": ["100", "100", "100", "100"],
         "O-Score": ["10", "20", "30", "40"],
     })
-    _write(base_dir, "picks", base)
+    _write(base_dir, "rookie_picks", base)
     cur = base.copy()
     cur.loc[0, "Length of tenure on team"] = "107"    # the clock
     cur.loc[1, "Length of tenure on team"] = "107"    # the clock
     cur.loc[2, "Length of tenure on team"] = "131"    # NOT the clock
     cur.loc[3, "Length of tenure on team"] = "93"     # went backwards
-    _write(cur_dir, "picks", cur)
+    _write(cur_dir, "rookie_picks", cur)
     rep = A.Report()
     A.audit_diffs({n: A._read(cur_dir, n) for n in A.SHEETS},
                   {n: A._read(base_dir, n) for n in A.SHEETS}, 2026, rep)
@@ -164,7 +164,7 @@ def check_wall_clock_is_not_a_change(tmp):
     cur2.loc[0, "Length of tenure on team"] = "107"
     cur2.loc[1, "Length of tenure on team"] = "107"
     cur2.loc[0, "O-Score"] = "11"
-    _write(cur_dir, "picks", cur2)
+    _write(cur_dir, "rookie_picks", cur2)
     rep2 = A.Report()
     A.audit_diffs({n: A._read(cur_dir, n) for n in A.SHEETS},
                   {n: A._read(base_dir, n) for n in A.SHEETS}, 2026, rep2)
@@ -228,11 +228,11 @@ def check_renumbered_pointers_are_not_a_change(tmp):
         "Player Picked": ["P1", "P2"],
         "Link to next transaction": ["T#2", "T#3"],
     })
-    _write(base_dir, "picks", picks)
+    _write(base_dir, "rookie_picks", picks)
     moved = picks.copy()
     moved.loc[0, "Link to next transaction"] = "T#3"   # renumbered, same trade (B/d2)
     moved.loc[1, "Link to next transaction"] = "T#1"   # now a DIFFERENT trade (N/d0)
-    _write(cur_dir, "picks", moved)
+    _write(cur_dir, "rookie_picks", moved)
     rep = A.Report()
     A.audit_diffs({n: A._read(cur_dir, n) for n in A.SHEETS},
                   {n: A._read(base_dir, n) for n in A.SHEETS}, 2026, rep)

@@ -476,6 +476,181 @@ Surfaced by an inquiry ("what % of Oliverwkw's points is Nick Chubb?"), full wri
 
 - [x] **3-part audit** (code / results / diff) — `plan/AUDIT_PHASE14_3PART.md`. Clean on data (Phase 14 is additive; zero `src/` or CSV changes; 9/9 hand-checked digest claims reconcile). 4 code findings F1–F4 all fixed (#369), plus 3 post-merge fixes from the run-447 cold-rebuild audit (#370).
 
+## Phase 14.5 — Split the picks sheet; de-trend the non-rookie O-Score
+**Why:** an inquiry into the worst startup picks by O-Score showed the two drafts
+are not comparable. A 19-round startup snake and a 4-round rookie draft have
+different slot economics, so the same O-Score means different things in each —
+and *within* the startup, an early bust and a 19th-round bust with the same
+on-field return were graded alike.
+
+- [x] **`picks.csv` -> `non_rookie_picks.csv` + `rookie_picks.csv`** (2020 startup
+  + 2021 vet | every rookie draft). The frame is still BUILT as one table and
+  split at OUTPUT: every `PH#N` ref is `ph`'s positional index + 1, and the pick
+  chains are keyed the same way, so splitting mid-build would renumber them and
+  move rows on sheets this change must not touch. The xlsx resolver maps a `PH#N`
+  into whichever sheet now holds that row (verified: 942 links, 254/254 trades
+  pick-links land on a row whose pick Number matches the label).
+- [x] **Non-rookie O-Score de-trended for draft slot**, after it is computed:
+  `expected = a + b·ln(overall position)` with `b` clamped ≤ 0 (monotone), each
+  score moved HALF the way off its expectation, clamped to 0-100 (raised to
+  THREE QUARTERS in the follow-up below). Startup + vet
+  are ONE sequence (vet continues after the startup's last pick), matching the
+  pick-adjustment window's own ordering. Centred on the fitted curve's own mean,
+  so the pool's mean O-Score is unchanged and a clamped slope is a true no-op.
+  On the committed data: 184 rows, slope −5.94, median shift 1.9, max 12.6;
+  Julio Jones 13.1→8.4, Michael Thomas 18.2→11.4, McCaffrey 93.4→80.8, Bryce
+  Love 9.8→12.1, Josh Allen (mid-draft) 98.6→98.7.
+- [x] **Drafting skill: a non-rookie pick weighs 0.5** against a rookie pick's
+  1.0 (the machinery already supported weights — pure drops use 1/3). Lands on
+  team_all_time and team_year 2021; the startup's Year is the non-numeric
+  "startup" tag, so it reaches the all-time grade only. Expected all-time deltas
+  −1.3 (stevenb123) to +2.3 (shmuel256); 2021 deltas −1.4 to +3.6.
+- [x] **The current rookie class is held out of the pick-adjustment reference
+  pools until week 8** — the same half-season gate that already withheld its
+  O-Score, now one shared predicate (`_early_rookie_class_mask`). It still
+  RECEIVES a diff, it just no longer defines one. **This was not previously the
+  case** (measured: all 169 older rookie picks reconcile exactly only with the
+  2026 class IN the pools, 0 without), so it is a real behaviour change, made
+  deliberately at the user's direction.
+- [x] **Both sheets appear separately in the weekly digest** (`_BOARD_SHEETS`
+  gains two entries with their own titles, so each gets its own section).
+- [x] Offline diff vs `origin/main`: **add_drops, trades, player_additions and
+  every player/team/league sheet byte-identical**; only `formulas.csv` (docs) and
+  the pick sheets themselves differ. Suite green (279 passed, 1 skipped).
+- [x] **3-part audit round 1 — run 480 vs run 479.** Code: 280 passed, sanity
+  0/0, and KTC DID resolve live (12,010 lookups), so the de-trend and the
+  re-weight were really exercised. Results: the split is exhaustive/disjoint and
+  order-preserving (184+364=548, 0 overlap); 1052 PH# links land correctly (320
+  number-labelled, 310 name-labelled, 0 wrong, 0 out of range); the de-trend
+  refits out of the published CSV to slope -6.0443 / intercept 74.4829 against
+  the logged -6.0421 / 74.4730 (1-dp rounding), mean O-Score preserved to 4 dp,
+  shift monotone -12.79 -> +2.96, nothing clamped; Drafting skill reconstructs
+  EXACTLY at w=0.5/1.0 on 8/8 all-time and 40/40 team_year rows (unweighted
+  reproduces none of them). Diff: zero movement on player/league sheets;
+  everything that moved maps to the wall clock (+2d), a KTC anniversary rolling
+  over, the week-8 gate, or the de-trend. No unexpected diffs.
+- [x] **Round-1 defects fixed** (all four were invisible in a green run):
+  - The retired `picks.csv` shipped anyway — the build only ever WRITES, so the
+    checkout's copy survived untouched into the artifact AND into
+    `LOTG_Exports.zip` (which globs `*.csv`), frozen with pre-de-trend
+    O-Scores, and `git add exports` had nothing to stage. Named in
+    `_RETIRED_EXPORTS` and deleted each build; the refresh commit now stages
+    that deletion (`git add -A exports`).
+  - Four test files still read the retired file and PASSED on it —
+    `test_pick_chain_links` was checking FRESH trades/add_drops refs against the
+    FROZEN table, `test_startup_draft_order` was guarding the Phase-13 ordering
+    fix on it, `test_draft_capital`'s build gate keyed on it, and
+    `test_forecast`'s write sentinel watched a file the build no longer writes.
+    All repointed.
+  - `PH#N` had become unresolvable: it is the FRAME's positional index and the
+    frame interleaves the two sheets, so N indexes neither. The build now writes
+    `exports/raw/pick_ref_index.csv` (`lotg_support.pick_index`), and the link
+    audit, the chain guard and `inquiry.load_sheet("picks")` all rebuild the
+    frame in build order through it. Readers tolerate its absence.
+  - `data/audit/schema_baseline.json` still pinned `picks`, so the first
+    Wednesday health email would have gone red on "sheet missing" + two unpinned
+    sheets. Re-pinned.
+- [x] **3-part audit round 2 — runs 481 and 482.** Round 2 caught a fifth defect
+  the local suite structurally could not: pointing all of
+  `test_startup_draft_order` at `non_rookie_picks` broke the one test in it that
+  guards ROOKIE picks (the 5.0X draft-day FAAB buys), which found zero of them
+  and tripped its own "the guard would be vacuous" assertion. Locally every test
+  in that file SKIPS, because the committed `exports/` still predates the split —
+  only CI can see this class of break until the first refresh commit lands.
+  Fixed to read both sheets. Run 482: **280 passed, 0 failed**, sanity 0/0,
+  `picks.csv` retired out of the artifact AND out of `LOTG_Exports.zip`, the ref
+  index written (548 refs, rebuilding the pre-split frame order exactly against
+  run 479), the schema pin matching both sheets, and **every shipped sheet
+  byte-identical to runs 481 and 480** — the fixes moved no data, which is
+  exactly what retiring a stale file and emitting a map should do.
+
+### Phase 14.5 follow-up — de-trend to 0.75, and length in the pick addition value
+Both asked for after reading the round-2 boards; both are re-gradings, not fixes.
+
+- [x] **`NONROOKIE_OSCORE_LAMBDA` 0.5 -> 0.75.** Half read the right way and the
+  only question was how hard to lean. At 0.75 the startup's worst first-rounders
+  (Michael Thomas 1.07, Ezekiel Elliott 1.03, Clyde Edwards-Helaire 1.08) all sit
+  inside the bottom nine, and the deep darts get their relief (Josh Doctson 19.07
+  4th-worst -> 10th, Bryce Love 19.06 6th -> 12th). Still short of 1.0 on the
+  original reasoning. Non-rookie only — the rookie board cannot move on this.
+- [x] **Pick `Player addition value` gains `x (1 + starts before next transaction
+  / 170)`.** Its two % terms are RATES, so the same start rate graded alike over
+  one season and six. 170 is roughly a decade of starts: the factor is 1.0 with
+  no starts, <=1.2 for 90% of picks, and 1.56 at the longest run (95 starts). Scales the PPG term only; the handcuff bonus lands after.
+  BOTH pick sheets; the add_drops / trades / player_additions versions of the
+  column are deliberately untouched.
+- [x] Predicted from the committed build before shipping (a simulator that
+  reproduced all 353 published O-Scores exactly): non-rookie max shift 7.8 /
+  mean 1.46, rookie max 4.7 / mean 0.47 and no lambda component at all. One
+  entry changes hands in each sheet's top 20 (McCaffrey 1.01 out for Jared Goff
+  19.05; Jayden Daniels out for James Cook) and one in each bottom 20 (Matt
+  Breida out for DeVante Parker; Jaydon Blue out for Terrace Marshall).
+- [x] **3-part audit round 3 — run 483.** 280 passed, sanity 0/0, de-trend logged
+  at lambda 0.75 / max shift 19.2. The diff vs run 482 is fully explained and has
+  nothing else in it: `Player addition value`, its pick-adjusted difference and
+  `O-Score` on BOTH pick sheets (484 + 365 cells), `Drafting skill` downstream
+  (5 all-time + 34 team_year), 4 documentation cells in `formulas`, and every
+  other sheet byte-identical — `add_drops`, `trades` and `player_additions` among
+  them, which is what confirms the addition-value change stayed picks-only.
+  Every pre-registered prediction landed: the shipped boards swap exactly
+  McCaffrey -> Jared Goff (top 20), Matt Breida -> DeVante Parker (bottom 20),
+  Jayden Daniels -> James Cook, Jaydon Blue -> Terrace Marshall, at the predicted
+  boundary values (80.4 / 20.8 / McCaffrey 74.9).
+- [x] **The starts term extended to `player_additions` only.** That sheet is the
+  cross-channel comparable, its main variable is a one-sided level (like the pick
+  sheets'), and it already carried `Starts on team` — so the term goes in
+  unchanged and stays uniform across channels, which is the column's contract.
+  Scoring longevity on the pick sheets but not here would have made the same
+  drafted player say two different things in two places (321 rows overlap,
+  corr 0.911). Deliberately NOT extended to `add_drops` or `trades`: their
+  addition value is a DIFFERENCE against a dropped/sent side, so length there
+  claims a small edge held long beats a big edge held briefly — a different
+  claim; and `trades` has no starts column at all, plus an additive pick term
+  that would leave pick-only hauls stuck at factor 1.0 while player hauls scale
+  to ~1.5. Predicted: 705 of 1,932 rows move (36%), max delta +20.28 (Josh Allen
+  36.29 -> 56.57), mean 1.54 on the movers; by channel Draft 221/388, Trade
+  230/465, Free agency 139/616, Waiver 114/457. One column, no O-Score on this
+  sheet and no skill metric downstream.
+  **Run 485 confirmed every one of those figures exactly** — 705 rows, +20.28
+  (Josh Allen 36.29 -> 56.57), mean 1.54, zero zero-start rows moved, and all
+  four per-channel counts on the nose. `Player addition value` was the ONLY
+  column that moved on the sheet, and every other sheet came back byte-identical
+  (plus 2 documentation cells in `formulas`). 281 passed.
+  - [x] **Raised and DECIDED: the flat divisor stays.** 170 is elapsed starts, so
+    it partly measures how long ago the move happened — rookie classes average
+    12.0 starts (2021) down to 2.4 (2025), and the percentile pools mix the
+    classes. A cohort-relative divisor (starts / starts AVAILABLE since the move)
+    would neutralise that. The maintainer's call is NOT to: **rewarding longevity
+    is the point of the term**, and normalising it away would leave a third rate
+    measure, which is the thing this was added to fix. A pick that held a starting
+    job for six years is meant to outrank one that held it for one, even though
+    part of that gap is simply having had the years. Do not re-propose.
+- [x] **Accepted, self-healing: the first post-merge digest is blind to the pick
+  boards.** `data/digest/ranks_snapshot.json` keys its board entries by SHEET
+  NAME (254 under `picks|...`), and `digest.diff_events` skips any event whose
+  `(sheet, column, end)` slot is absent from the prior snapshot — so the two
+  renamed sheets produce no crossings at all on the first run. Confirmed on run
+  480: 11 board moves, no pick section, despite 337 pick O-Scores having changed.
+  It does NOT flood the email with false "new row" entries, and it self-heals the
+  moment the Tuesday cron rotates the snapshot. Flagged, reviewed and accepted as
+  is — but expect NEXT Tuesday's digest to say nothing about the startup board
+  being re-graded, and do not read that as a bug.
+- [x] **Formulas sweep.** Coverage clean (0 undocumented columns, 0 plan-vs-catalog
+  drift). Verified against the build's own numbers: O-Score inside 0-100 on all
+  four sheets, the pure-drop 0-50 ceiling (max 47.7), the Drafting-skill shrink
+  reproducing 8/8 all-time, the +5 handcuff bonus landing at exactly 5.0 on all 8
+  cuff rows, and lambda 0.75 / divisor 170 matching the source constants. Three
+  fixes:
+  - **`Tanking` and `Team` still named `picks` as one of their sheets** — a sheet
+    that no longer exists. The committed coverage guard only checks
+    columns-without-an-entry, never entries-naming-something-gone, so a rename is
+    invisible to it in exactly this direction.
+  - **The new starts-term note claimed the factor stays "inside ~1.0-1.2"; it is
+    1.000-1.559.** True for 90% of picks, wrong for the tail (95 starts -> 1.56).
+    Corrected to state both.
+  - `PH#N` prose still read "= picks row"; it now names the two sheets and says
+    the ref counts through them as one frame.
+
 ## Phase 15 — TBD: OLD LEAGUES
 - [ ] **TBD.** Placeholder for integrating other historical/old leagues' data (e.g. the
   separate ESPN leagues seen in the 2020 emails — UChicago '24 = leagueId 57687541, UChi

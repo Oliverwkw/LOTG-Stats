@@ -69,7 +69,8 @@ def main(argv=None) -> int:
     frames = {n: _read(exports, n) for n in (
         "player_all_time", "team_all_time", "player_year", "team_year",
         "league_year", "league_all_time", "team_week", "player_week", "league_week",
-        "picks", "trades", "add_drops", "player_additions",
+        "non_rookie_picks", "rookie_picks", "trades", "add_drops",
+        "player_additions",
     )}
     required = ("player_all_time", "team_all_time", "team_year")
     if any(frames[n].empty for n in required):
@@ -83,7 +84,8 @@ def main(argv=None) -> int:
             frames["player_year"], frames["team_year"], frames["league_year"],
             frames["league_all_time"],
             frames["player_week"], frames["team_week"], frames["league_week"],
-            frames["picks"], frames["trades"], frames["add_drops"],
+            frames["non_rookie_picks"], frames["rookie_picks"],
+            frames["trades"], frames["add_drops"],
             frames["player_additions"],
         )
         D.write_phrasing_csv(Path(args.phrasing_csv), rows)

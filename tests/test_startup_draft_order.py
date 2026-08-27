@@ -44,8 +44,13 @@ import espn_2020 as E  # noqa: E402
 
 _RAW = _ROOT / "data" / "espn_2020_raw"
 _HAVE_RAW = (_RAW / "view_mDraftDetail.json").exists()
-_PICKS = _ROOT / "exports" / "picks.csv"
-_HAVE_PICKS = _PICKS.exists()
+# The picks frame ships as two sheets: the 2020 startup lives on the non-rookie
+# half, while the 5.0X draft-day FAAB buys this file also guards are rookie
+# picks. Both are needed, and row ORDER is irrelevant here (every read filters),
+# so they are simply read together.
+_PICK_SHEETS = [_ROOT / "exports" / "non_rookie_picks.csv",
+                _ROOT / "exports" / "rookie_picks.csv"]
+_HAVE_PICKS = all(p.exists() for p in _PICK_SHEETS)
 
 _TEAMS = len(E.TEAM_TO_MANAGER)
 _MGR_BY_RID = {v: k for k, v in E.SLEEPER_ROSTER_ID_BY_MANAGER.items()}
@@ -174,15 +179,23 @@ def test_each_team_picks_once_per_round():
 # --------------------------------------------------------------------------- #
 # the picks sheet (needs a build carrying this fix)
 # --------------------------------------------------------------------------- #
-def _startup_rows():
+def _pick_rows():
+    """Every pick, both sheets."""
     import csv
-    with _PICKS.open(newline="", encoding="utf-8") as fh:
-        return [r for r in csv.DictReader(fh) if str(r.get("Year")) == "startup"]
+    rows = []
+    for path in _PICK_SHEETS:
+        with path.open(newline="", encoding="utf-8") as fh:
+            rows.extend(csv.DictReader(fh))
+    return rows
+
+
+def _startup_rows():
+    return [r for r in _pick_rows() if str(r.get("Year")) == "startup"]
 
 
 def test_sheet_numbers_startup_picks_by_draft_order():
     if not _HAVE_PICKS:
-        return _skip("no exports/picks.csv")
+        return _skip("no exports/ pick sheets")
     rows = _startup_rows()
     assert len(rows) == 152, len(rows)
     by_num = {}
@@ -211,7 +224,7 @@ def test_sheet_numbers_startup_picks_by_draft_order():
 
 def test_sheet_marks_the_traded_picks_and_only_those():
     if not _HAVE_PICKS:
-        return _skip("no exports/picks.csv")
+        return _skip("no exports/ pick sheets")
     expected = {f'{rnd}.{pos:02d}': (drafter, owner, player)
                 for (rnd, pos, drafter, owner, player) in _TRADED.values()}
     seen = {}
@@ -271,7 +284,7 @@ def test_sheet_records_the_swap_as_a_two_sided_trade():
 
 def test_swap_picks_each_count_one_trade():
     if not _HAVE_PICKS:
-        return _skip("no exports/picks.csv")
+        return _skip("no exports/ pick sheets")
     swapped = [r for r in _startup_rows() if str(r["Original Team"]) != str(r["Team"])]
     assert len(swapped) == 6, len(swapped)
     for r in swapped:
@@ -297,11 +310,9 @@ def test_real_faab_buys_are_still_treated_as_synthetic():
     # only looked safe offline, where the 2025-league build has no 2026 rows at
     # all: the offline data is missing exactly the case that falsifies it.
     if not _HAVE_PICKS:
-        return _skip("no exports/picks.csv")
-    import csv
-    with _PICKS.open(newline="", encoding="utf-8") as fh:
-        buys = [r for r in csv.DictReader(fh)
-                if str(r["Number"]).startswith("5.") and str(r["Year"]) != "startup"]
+        return _skip("no exports/ pick sheets")
+    buys = [r for r in _pick_rows()
+            if str(r["Number"]).startswith("5.") and str(r["Year"]) != "startup"]
     assert buys, "no 5.0X FAAB buys found — the guard would be vacuous"
     untraded = 0
     for r in buys:
@@ -428,7 +439,7 @@ def test_startup_round_five_picks_link_to_their_own_chain():
     counterparts in the same deal both have.
     """
     if not _HAVE_PICKS:
-        return _skip("no exports/picks.csv")
+        return _skip("no exports/ pick sheets")
     rows = {str(r["Number"]): r for r in _startup_rows()
             if str(r["Number"]).startswith("5.")}
     assert len(rows) == _TEAMS, sorted(rows)

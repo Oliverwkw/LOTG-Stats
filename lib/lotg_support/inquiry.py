@@ -8,7 +8,7 @@ that are already correct, instead of re-deriving them in a throwaway script.
 
 Three layers, smallest first:
 
-  1. **Sheets** — the twelve committed export CSVs, loaded once and cached, plus
+  1. **Sheets** — the fourteen committed export CSVs, loaded once and cached, plus
      `find_columns()` to answer "which sheet holds this concept?" across all
      ~1,300 columns without grepping headers by hand, and a tiny predicate
      filter (`Year=2025`, `Points>200`) that reads the same in code and on a
@@ -65,6 +65,7 @@ import pandas as pd
 # "1,234" and the build's blank sentinels). Shared with the digest so an
 # inquiry and the weekly email never disagree about what a cell means.
 from lotg_support.digest import _to_float as to_number  # noqa: F401
+from lotg_support import pick_index
 
 
 # ---------------------------------------------------------------------------
@@ -114,9 +115,20 @@ SHEETS: Tuple[str, ...] = (
     "add_drops",
     "player_additions",
     "trades",
-    "picks",
+    "non_rookie_picks",
+    "rookie_picks",
+    "picks",          # virtual: the two pick sheets as one frame (see load_sheet)
     "formulas",
 )
+
+# The build writes the picks frame as TWO sheets. "picks" is kept as a VIRTUAL
+# sheet — the two put back together in the frame's own row order — so every
+# question that spans both drafts ("who has the most X across all picks") still
+# has one table to ask, and the helpers written against it keep working. Ask for
+# a real sheet by name when the distinction matters, which for O-Score it does:
+# the two are scored in separate percentile universes and only one is
+# slot-de-trended.
+_PICKS_PARTS = ("non_rookie_picks", "rookie_picks")
 
 # What identifies a row, per sheet — used by top()/describe() for labelling and
 # by find_columns() to keep keys out of "value" columns.
@@ -133,6 +145,8 @@ ENTITY_COL: Dict[str, str] = {
     "add_drops": "Player Added",
     "player_additions": "Player",
     "trades": "Team",
+    "non_rookie_picks": "Player Picked",
+    "rookie_picks": "Player Picked",
     "picks": "Player Picked",
     "formulas": "Stat",
 }
@@ -146,6 +160,9 @@ _ALIASES = {
     "transactions": "add_drops", "transaction": "add_drops",
     "add_drop": "add_drops", "adddrop": "add_drops", "adddrops": "add_drops",
     "pick": "picks", "draft": "picks",
+    "nonrookie_picks": "non_rookie_picks", "nrp": "non_rookie_picks",
+    "startup_picks": "non_rookie_picks", "vet_picks": "non_rookie_picks",
+    "rookie": "rookie_picks", "rp": "rookie_picks",
     "additions": "player_additions", "player_additions": "player_additions",
     "adds": "player_additions", "gains": "player_additions",
 }
@@ -172,14 +189,59 @@ def _load_sheet_cached(name: str, root: str) -> pd.DataFrame:
 
 
 def load_sheet(name: str) -> pd.DataFrame:
-    """One export sheet as an all-text DataFrame (cached; do not mutate in place)."""
-    return _load_sheet_cached(sheet_name(name), str(repo_root()))
+    """One export sheet as an all-text DataFrame (cached; do not mutate in place).
+
+    "picks" is virtual — the two real pick sheets as ONE table again — so a
+    question about the draft as a whole still has one to ask. It is a plain row
+    union: both sheets carry the same columns.
+
+    Row ORDER is the build frame's, restored from `exports/raw/pick_ref_index.csv`,
+    not the two sheets end to end: the sheets interleave in the frame, and a
+    `PH#N` ref counts through that frame, so concatenation would put row N
+    somewhere else. Only if that map is missing does this fall back to
+    non-rookie-then-rookie, which is fine for aggregates and wrong for PH# refs.
+    """
+    canon = sheet_name(name)
+    root = str(repo_root())
+    if canon == "picks":
+        parts = {}
+        for part in _PICKS_PARTS:
+            try:
+                parts[part] = _load_sheet_cached(part, root)
+            except FileNotFoundError:
+                continue
+        if parts:
+            ordered = pick_index.order_frame(Path(root) / "exports", parts)
+            if ordered is not None:
+                return ordered.drop(columns=["_sheet"])
+            return pd.concat(parts.values(), ignore_index=True)
+        # An exports/ directory written BEFORE the split still has the single
+        # picks.csv. Read it, so a checkout whose build predates the split keeps
+        # answering questions instead of failing on a file it never had.
+        return _load_sheet_cached("picks", root)
+    if canon in _PICKS_PARTS:
+        try:
+            return _load_sheet_cached(canon, root)
+        except FileNotFoundError:
+            # Same pre-split fallback, sliced to the half that was asked for.
+            df = _load_sheet_cached("picks", root)
+            nr = _non_rookie_rows(df)
+            return (df[nr] if canon == "non_rookie_picks" else df[~nr]).reset_index(drop=True)
+    return _load_sheet_cached(canon, root)
+
+
+def _non_rookie_rows(df: pd.DataFrame) -> pd.Series:
+    """Startup + 2021 vet rows of a pre-split picks frame (see load_sheet)."""
+    year = df["Year"].astype(str) if "Year" in df.columns else pd.Series("", index=df.index)
+    return year.str.strip().str.lower().eq("startup") | year.str.contains("vet", case=False, na=False)
 
 
 def all_sheets() -> Dict[str, pd.DataFrame]:
     """Every export sheet that exists, keyed by canonical name."""
     out: Dict[str, pd.DataFrame] = {}
     for name in SHEETS:
+        if name == "picks":
+            continue        # virtual — its two parts are already listed
         try:
             out[name] = load_sheet(name)
         except FileNotFoundError:

@@ -31,7 +31,7 @@ sys.path.insert(0, str(_ROOT / "lib"))
 from lotg_support import draft_capital as D  # noqa: E402
 from lotg_support import inquiry as Q  # noqa: E402
 
-_HAVE_EXPORTS = (_ROOT / "exports" / "picks.csv").exists()
+_HAVE_EXPORTS = (_ROOT / "exports" / "non_rookie_picks.csv").exists()
 _HAVE_SNAPSHOT = (_ROOT / "exports" / "snapshot").exists()
 
 

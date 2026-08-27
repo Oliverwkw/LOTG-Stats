@@ -126,11 +126,14 @@ from lotg_support.external import (
 from lotg_support.lineup import compute_optimal_lineup
 from lotg_support.plan import load_plan_catalog, require_columns
 from lotg_support.history import reconcile_top_team, reconcile_last_team
+from lotg_support import pick_index
 
 import league_all_time
 import league_week
 import league_year
+import non_rookie_picks
 import pick_history
+import rookie_picks
 import player_all_time
 import player_week
 import player_year
@@ -156,7 +159,11 @@ DOCUMENT_MODULES = [
     league_all_time,
     add_drops,
     trades,
-    pick_history,
+    # The picks frame is written as TWO sheets — the startup + 2021 vet draft
+    # apart from the rookie drafts, which are not comparable to them. Both read
+    # the same `pick_history` frame and split it at output (see that module).
+    non_rookie_picks,
+    rookie_picks,
     player_additions,
 ]
 
@@ -924,7 +931,8 @@ _TOPIC_FILL = {
 }
 _FAMILY_TAB = {
     "player": "5B9BD5", "team": "70AD47", "league": "FFC000",
-    "add_drops": "ED7D31", "trades": "7030A0", "picks": "808080",
+    "add_drops": "ED7D31", "trades": "7030A0",
+    "non_rookie_picks": "808080", "rookie_picks": "A6A6A6",
     "formulas": "44546A",
 }
 _TOPIC_IDENTITY = {
@@ -2203,6 +2211,26 @@ class _Espn2020Client:
 
 _ROOKIE_OSCORE_MIN_WEEK = 8
 
+# The two sheets the picks frame is written as. Anything that used to key on the
+# single "picks" sheet now covers both.
+_PICK_PLAN_KEYS = ("non_rookie_picks", "rookie_picks")
+
+# Export files the build no longer writes, deleted from exports/ on every build.
+# A rename or split does NOT retire the old CSV on its own: the build only ever
+# writes files, so the one the checkout brought along survives untouched; the
+# workflow's `git add exports` sees no change in an untouched file, so it stays
+# committed on main forever; and the shipped zip is built by globbing *.csv, so
+# it goes out to the league frozen at whatever the last pre-rename build said.
+# Worse, tests that gate on the old filename keep PASSING against that frozen
+# copy. Name it here instead, once, and the whole chain clears.
+_RETIRED_EXPORTS = ("picks.csv",)
+
+# Drafting skill weight for a non-rookie (startup / 2021 vet) pick, relative to
+# a rookie pick's 1.0. Those picks are scored in their own percentile universe
+# and there are nearly as many of them as there are rookie picks, so a plain
+# mean would let the one-off startup outvote six rookie drafts.
+_NONROOKIE_SKILL_WEIGHT = 0.5
+
 
 def _withhold_early_rookie_oscore(picks, non_rookie_mask, current_season,
                                   season_weeks_completed,
@@ -2220,15 +2248,41 @@ def _withhold_early_rookie_oscore(picks, non_rookie_mask, current_season,
 
     Mutates `picks` in place; a no-op if the frame, the season week count, or the
     columns it needs are absent, so it can never fail a build."""
-    if (picks is None or getattr(picks, "empty", True) or non_rookie_mask is None
-            or current_season is None or season_weeks_completed is None
-            or "O-Score" not in picks.columns or "Year" not in picks.columns):
+    if picks is None or getattr(picks, "empty", True) or "O-Score" not in picks.columns:
         return
-    if int(season_weeks_completed) >= int(min_week):
-        return                      # half a season played — grade the class normally
-    year = pd.to_numeric(picks["Year"], errors="coerce")
-    early = (~non_rookie_mask.astype(bool)) & (year == int(current_season))
+    early = _early_rookie_class_mask(picks, non_rookie_mask, current_season,
+                                     season_weeks_completed, min_week)
+    if early is None or not bool(early.any()):
+        return
     picks.loc[early, "O-Score"] = np.nan
+
+
+def _early_rookie_class_mask(picks, non_rookie_mask, current_season,
+                             season_weeks_completed,
+                             min_week=_ROOKIE_OSCORE_MIN_WEEK):
+    """The CURRENT rookie draft class, before its season has played `min_week`.
+
+    The one predicate behind both half-season gates — the withheld O-Score above
+    and the pick-adjustment reference pools below — so the two cannot drift apart
+    on what "too early to grade" means.
+
+    Returns an all-False mask (never None on a usable frame) once the season
+    reaches `min_week`, or when any input it needs is missing, so a caller can
+    always use the result without re-checking the season clock."""
+    if picks is None or getattr(picks, "empty", True):
+        return None
+    false = pd.Series(False, index=picks.index)
+    if (non_rookie_mask is None or current_season is None
+            or season_weeks_completed is None or "Year" not in picks.columns):
+        return false
+    try:
+        if int(season_weeks_completed) >= int(min_week):
+            return false            # half a season played — grade the class normally
+        year = pd.to_numeric(picks["Year"], errors="coerce")
+        _nr = non_rookie_mask.reindex(picks.index).fillna(False).astype(bool)
+        return (~_nr) & (year == int(current_season))
+    except (TypeError, ValueError):
+        return false
 
 
 def build_all(repo_root: Path) -> None:
@@ -2563,6 +2617,13 @@ def build_all(repo_root: Path) -> None:
     def write_outputs(tables: List[Tuple[str, pd.DataFrame, str]]) -> None:
         out_dir = repo_root / "exports"
         out_dir.mkdir(exist_ok=True)
+        # "PH#N" ref -> (sheet, xlsx row) for the split pick sheets. Filled in
+        # the write loop below and read by the hyperlink resolver.
+        _ph_ref_target: Dict[int, Tuple[str, int]] = {}
+        # sheet -> the original picks-frame index of each of its rows, in output
+        # order. The inverse of the above, for anything else keyed by that index
+        # (the per-pick asset-history hover comments).
+        _pick_sheet_orig: Dict[str, List[int]] = {}
         # Seasons that have actually kicked off = those with at least one played
         # (week-grain) row. Year-grain rows for any OTHER season are pure
         # offseason placeholders whose game-derived stats must read N/A, not 0
@@ -2585,6 +2646,22 @@ def build_all(repo_root: Path) -> None:
                 cols = _append_team_vs_columns(frame, cols, plan_key)
             if plan_key == "trades":
                 cols = _append_traded_with_columns(frame, cols)
+            # A "PH#N" ref (in trades / add_drops / player_additions) is the
+            # picks frame's own positional index + 1. That frame is now written
+            # as TWO sheets, so record where each original row ended up — which
+            # sheet, and which row of it — and let the xlsx resolver follow the
+            # ref there. The ref TEXT is untouched, so no other sheet moves.
+            if plan_key in _PICK_PLAN_KEYS and isinstance(frame, pd.DataFrame):
+                _origs: List[int] = []
+                for _row_i, _orig in enumerate(list(frame.index)):
+                    try:
+                        _oi = int(_orig)
+                    except (TypeError, ValueError):
+                        _origs.append(-1)
+                        continue
+                    _ph_ref_target[_oi + 1] = (plan_key, _row_i + 2)
+                    _origs.append(_oi)
+                _pick_sheet_orig[plan_key] = _origs
             frame = _safe_df(frame)
             out = _ensure_plan_columns(frame, cols)
             out = _fill_empty_columns(out, cols)
@@ -2662,6 +2739,30 @@ def build_all(repo_root: Path) -> None:
             except Exception as e:
                 _log_exc(debug, f"blank_na_sentinel_{fname}", e)
             out.to_csv(out_dir / fname, index=False)
+
+        # Clear out anything the build has stopped writing (see _RETIRED_EXPORTS)
+        # before the xlsx and the zip are assembled, so a retired table cannot
+        # ship alongside the sheets that replaced it.
+        for _retired in _RETIRED_EXPORTS:
+            try:
+                (out_dir / _retired).unlink()
+                _log(debug, f"[{_now_iso()}] INFO retired stale export: {_retired}")
+            except FileNotFoundError:
+                pass
+            except Exception as e:
+                _log_exc(debug, f"retire_export_{_retired}", e)
+
+        # Persist "PH#N -> (sheet, row)" beside the raw dumps. The picks frame is
+        # written as two INTERLEAVED sheets, so N indexes neither of them and the
+        # order is not recoverable from the CSVs; without this map every reader
+        # downstream of the export (the weekly link audit, the pick-chain guard,
+        # an inquiry spanning both drafts) loses the ability to follow a PH# ref.
+        try:
+            if pick_index.write_index(out_dir, _ph_ref_target):
+                _log(debug, f"[{_now_iso()}] INFO pick ref index: "
+                            f"{len(_ph_ref_target)} PH# refs -> raw/{pick_index.FILE_NAME}")
+        except Exception as e:
+            _log_exc(debug, "pick_ref_index", e)
 
         try:
             from openpyxl import Workbook
@@ -2840,13 +2941,24 @@ def build_all(repo_root: Path) -> None:
                 # "#N" -> transactions row N, "T#N" -> trades row N, "PH#N" ->
                 # pick_history row N (1-indexed; xlsx adds 1 for the header).
                 _ref_re = re.compile(r"^(PH|T)?#(\d+)$")
-                _ref_sheet = {"": "add_drops", "T": "trades", "PH": "picks"}
+                _ref_sheet = {"": "add_drops", "T": "trades"}
 
                 def _set_ref_link(cell, ref):
                     m = _ref_re.match(str(ref).strip())
                     if not m:
                         return
-                    cell.hyperlink = f"#'{_ref_sheet[m.group(1) or '']}'!A{int(m.group(2)) + 1}"
+                    _kind, _n = (m.group(1) or ""), int(m.group(2))
+                    if _kind == "PH":
+                        # The picks frame is two sheets now, so a PH# ref is
+                        # resolved through the map built while writing them
+                        # rather than by arithmetic on one sheet's rows.
+                        _tgt = _ph_ref_target.get(_n)
+                        if not _tgt:
+                            return
+                        _sheet, _row = _tgt
+                    else:
+                        _sheet, _row = _ref_sheet[_kind], _n + 1
+                    cell.hyperlink = f"#'{_sheet}'!A{_row}"
                     cell.style = "Hyperlink"
 
                 # Trades: explode each per-asset link column into one clickable
@@ -3015,7 +3127,7 @@ def build_all(repo_root: Path) -> None:
                     _link_pw = []    # columns -> player_week (per-week ref)
                     if sheet_name in ("player_week", "player_year", "player_all_time", "player_additions"):
                         _link_pat.append("Player")
-                    if sheet_name == "picks":
+                    if sheet_name in _PICK_PLAN_KEYS:
                         _link_pat.append("Player Picked")
                     if sheet_name == "add_drops":
                         _link_pat += ["Player Added", "Player Dropped"]
@@ -3158,9 +3270,14 @@ def build_all(repo_root: Path) -> None:
                         _cm.height = min(1100, max(90, 15 * _vis + 12))
                         _cell.comment = _cm
 
-                    if sheet_name == "picks" and pick_history_text and not d.empty:
+                    if sheet_name in _PICK_PLAN_KEYS and pick_history_text and not d.empty:
+                        # Keyed by the picks frame's own row index, so go
+                        # through the split map rather than this sheet's row
+                        # number — they are no longer the same thing.
+                        _origs = _pick_sheet_orig.get(sheet_name) or []
                         for _ri in range(len(d)):
-                            _txt = pick_history_text.get(_ri)
+                            _oi = _origs[_ri] if _ri < len(_origs) else -1
+                            _txt = pick_history_text.get(_oi) if _oi >= 0 else None
                             if _txt:
                                 _attach_hist(ws.cell(row=_ri + 2, column=1), _txt)
                     elif sheet_name == "player_all_time" and player_history_text and "Player" in d.columns:
@@ -3178,7 +3295,8 @@ def build_all(repo_root: Path) -> None:
                 # PAR/Points) so good/bad pops at a glance.
                 try:
                     _scale_cols = {
-                        "picks": "O-Score", "add_drops": "O-Score", "trades": "O-Score",
+                        "non_rookie_picks": "O-Score", "rookie_picks": "O-Score",
+                        "add_drops": "O-Score", "trades": "O-Score",
                         "team_year": "Win %", "team_all_time": "All time win %", "team_week": "PF",
                         "player_year": "Starter PAR", "player_all_time": "Starter PAR",
                         "player_week": "Points",
@@ -10742,8 +10860,15 @@ def build_all(repo_root: Path) -> None:
                         _otadj_f = None
                     if _otadj_f is not None:
                         _cuffb = _PICK_CUFF_BONUS if _cuff else 0.0
+                        # `_pct` / `_ipct` are RATES: they say how often the
+                        # player started, not for how long. The starts term adds
+                        # the length of the run so a six-year starter outgrades a
+                        # one-year one at the same clip (see
+                        # pick_history.STARTS_TENURE_DIVISOR). It scales the main
+                        # variable only; the handcuff bonus lands after it.
+                        _tenure = 1.0 + (_st / pick_history.STARTS_TENURE_DIVISOR)
                         ph.at[_i, "Player addition value"] = round(
-                            _otadj_f * (1.0 + _pct) * (1.0 + _ipct) + _cuffb, 4)
+                            _otadj_f * _tenure * (1.0 + _pct) * (1.0 + _ipct) + _cuffb, 4)
         except Exception as e:
             _log_exc(debug, "picks_usage_8e", e)
 
@@ -10792,6 +10917,24 @@ def build_all(repo_root: Path) -> None:
                 _rs_of: Dict[Any, Tuple[int, int]] = {}
                 _max_slot = 0
                 _max_round = 0
+                # The CURRENT class is not a reference until its season reaches
+                # week 8 — the same half-season gate that withholds its O-Score.
+                # Before then its picks carry 0.0 points added and a draft-day
+                # KTC, and a whole class of those in the slot pools drags every
+                # neighbouring slot's baseline down, so an OLD pick's
+                # pick-adjusted value would move because a rookie who has not
+                # played yet was drafted near its slot. They still RECEIVE a
+                # diff (computed against the settled picks); they just don't
+                # define one. From week 8 they join the pools like any pick.
+                _early_pa = _early_rookie_class_mask(
+                    ph, _nr_pa, current_season_for_rookies,
+                    _weeks_completed_by_season.get(int(current_season_for_rookies), 0))
+                _early_idx = (set(ph.index[_early_pa.astype(bool)])
+                              if _early_pa is not None else set())
+                if _early_idx:
+                    _log(debug, f"[{_now_iso()}] INFO pick-adjustment: holding "
+                                f"{len(_early_idx)} current-class picks out of the "
+                                f"reference pools until week {_ROOKIE_OSCORE_MIN_WEEK}")
                 for _pi in ph.index:
                     if _pi in _nr_idx:
                         continue
@@ -10812,6 +10955,8 @@ def build_all(repo_root: Path) -> None:
                     _rs_of[_pi] = (_R, _S)
                     _max_slot = max(_max_slot, _S)
                     _max_round = max(_max_round, _R)
+                    if _pi in _early_idx:
+                        continue        # gets a diff, doesn't define one (yet)
                     for _st in _padj_diff_stats:
                         try:
                             _vals_by_slot[_st][(_R, _S)].append(float(ph.at[_pi, _st]))
@@ -18857,6 +19002,21 @@ def build_all(repo_root: Path) -> None:
         _withhold_early_rookie_oscore(
             ph, _nr_osc, current_season_for_rookies,
             _weeks_completed_by_season.get(int(current_season_for_rookies), 0))
+        # Non-rookie draft-slot de-trend. The startup + vet pool is already
+        # ranked in its own percentile universe, but WITHIN that universe an
+        # early pick is still expected to return more than a 19th-round flier,
+        # so an early bust and a late bust with the same on-field return score
+        # alike. Move each non-rookie score THREE QUARTERS of the way off its
+        # slot's fitted expectation (pick_history.NONROOKIE_OSCORE_LAMBDA says
+        # why that and not all of it).
+        # Runs after the withholding so the two can't fight, and BEFORE the
+        # manager-skill aggregation below, which reads the O-Score column — the
+        # de-trended value is the O-Score, so Drafting skill sees exactly what
+        # the sheet shows.
+        if _nr_osc is not None and bool(_nr_osc.any()):
+            _dt = pick_history.detrend_non_rookie_oscore(ph, _nr_osc)
+            if _dt:
+                _log(debug, f"[{_now_iso()}] INFO non-rookie O-Score de-trend: {_dt}")
         _add_oscore(
             add_drops_df,
             ["Avg net points adjusted by position", "Player addition value",
@@ -18986,8 +19146,27 @@ def build_all(repo_root: Path) -> None:
         # Drafting skill is a shrunk mean of pick O-Scores; all picks (rookie,
         # startup, 2021 vet) now carry an O-Score (startup/vet scored in their own
         # percentile pool), so all feed the metric.
+        #
+        # Non-rookie picks count HALF. They are scored in a different percentile
+        # universe from the rookie picks and, at 184 rows against 204, a plain
+        # mean would let one 19-round startup dominate a manager's grade. Half
+        # weight keeps the startup in the metric — it IS drafting — without
+        # letting a draft nobody else ran decide the ranking. This lands on
+        # team_all_time (both drafts) and on team_year 2021 (the vet draft): the
+        # startup's Year is the non-numeric "startup" tag, which the year
+        # extraction below drops, so it reaches the all-time grade only.
+        _pick_wt = None
+        try:
+            if isinstance(ph, pd.DataFrame) and not ph.empty:
+                _nr_sk = pick_history.non_rookie_mask(ph).reindex(ph.index).fillna(False)
+                if bool(_nr_sk.any()):
+                    _pick_wt = pd.Series(1.0, index=ph.index)
+                    _pick_wt[_nr_sk.astype(bool)] = _NONROOKIE_SKILL_WEIGHT
+        except Exception as e:
+            _log_exc(debug, "drafting_skill_nonrookie_weight", e)
+
         _skill_specs = [
-            ("Drafting skill", ph, "Final Team", "Year", None),
+            ("Drafting skill", ph, "Final Team", "Year", _pick_wt),
             ("Trading skill", tr, "Team", "Season", None),
             ("Add/Drop skill", add_drops_df, "Team", "Season", _tx_wt),
         ]
@@ -19544,8 +19723,19 @@ def build_all(repo_root: Path) -> None:
             out["PPG of 5 games before pickup"] = (
                 round(sum(e["pts"] for e in last5) / len(last5), 2) if last5 else None)
             pct = out["% of starts made while rostered"]
+            # Same tenure-length term the pick sheets carry: `% of starts` is a
+            # RATE, so without it a player who started at a given clip for one
+            # season graded like one who held the job for six. Applied here too
+            # because this sheet is the CROSS-CHANNEL comparable — a draft, a
+            # trade and a waiver claim are meant to be read side by side, and
+            # scoring longevity on the pick sheets but not here would have made
+            # the same acquisition say two different things. Uniform across
+            # channels, which is this column's whole contract. A no-op by
+            # arithmetic on the 1,214 zero-start rows (they score 0.0 flat).
+            _tenure = 1.0 + (n_start / pick_history.STARTS_TENURE_DIVISOR)
             out["Player addition value"] = (
-                round(avg_add_adj * (1 + (pct or 0.0)), 4) if avg_add_adj is not None else None)
+                round(avg_add_adj * _tenure * (1 + (pct or 0.0)), 4)
+                if avg_add_adj is not None else None)
             out["_first_start_date"] = st["first_start_ed"]
             out["_n_ros"] = n_ros
             out["_weeks_before_start"] = st["weeks_before_start"]
