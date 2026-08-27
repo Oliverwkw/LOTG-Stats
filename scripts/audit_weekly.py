@@ -102,7 +102,8 @@ SHEETS = [
     "player_all_time", "team_all_time", "league_all_time",
     "player_year", "team_year", "league_year",
     "player_week", "team_week", "league_week",
-    "picks", "trades", "add_drops", "player_additions",
+    "non_rookie_picks", "rookie_picks", "trades", "add_drops",
+    "player_additions",
 ]
 
 # Sheets whose rows carry a per-row season. This is now only a LABEL — it names
@@ -113,7 +114,8 @@ SHEETS = [
 SEASON_COL = {
     "player_year": "Year", "team_year": "Year", "league_year": "Year",
     "player_week": "Year", "team_week": "Year", "league_week": "Year",
-    "picks": "Year", "trades": "Season", "add_drops": "Season",
+    "non_rookie_picks": "Year", "rookie_picks": "Year",
+    "trades": "Season", "add_drops": "Season",
     "player_additions": "Season",
 }
 
@@ -125,7 +127,8 @@ ID_COLS = {
     "league_year": ["Year"],
     "player_week": ["Player", "Year", "Week"], "team_week": ["Team", "Year", "Week"],
     "league_week": ["Year", "Week"],
-    "picks": ["Year", "Number", "Player Picked"],
+    "non_rookie_picks": ["Year", "Number", "Player Picked"],
+    "rookie_picks": ["Year", "Number", "Player Picked"],
     "trades": ["Team", "Team's traded with 1", "Date"],
     "add_drops": ["Team", "Player Added", "Player Dropped", "Date"],
     "player_additions": ["Player", "Team", "Addition type", "Date"],
@@ -240,7 +243,7 @@ _LEADING_YEAR = re.compile(r"^(\d{4})")
 PLAYER_NAME_COLS = {
     "player_week": ["Player"], "player_year": ["Player"],
     "player_all_time": ["Player"],
-    "picks": ["Player Picked"],
+    "non_rookie_picks": ["Player Picked"], "rookie_picks": ["Player Picked"],
     "add_drops": ["Player Added", "Player Dropped"],
     "player_additions": ["Player"],
     "trades": ["Assets received", "Assets sent"],
@@ -440,7 +443,7 @@ class NflverseAttribution:
             return (yr, str(kv.get("Week"))) in self.league_weeks
         if sheet == "league_year":
             return yr in self.league_years
-        if sheet == "picks":
+        if sheet in ("non_rookie_picks", "rookie_picks"):
             return self._mentions(str(kv.get("Player Picked") or ""), yr)
         if sheet == "add_drops":
             return self._mentions(
@@ -760,7 +763,10 @@ def strip_wall_clock(changed: List[tuple], step: Optional[float]) -> Tuple[List[
 # nothing — is a real repointing bug and is flagged, which is exactly what a
 # name-based exemption on "link to" could never see.
 # A cell holds one pointer ("#48") or a per-asset list ("T#7; #54; PH#64").
-_LINK_TARGETS = {"T": "trades", "": "add_drops", "PH": "picks"}
+# A PH# ref resolves into whichever pick sheet holds that row; the audit only
+# needs to know it is a pick sheet, so it checks both.
+_LINK_TARGETS = {"T": "trades", "": "add_drops",
+                 "PH": ("non_rookie_picks", "rookie_picks")}
 _LINK_REF = re.compile(r"^\s*([A-Za-z]*)#(\d+)\s*$")
 
 
@@ -818,6 +824,14 @@ def _resolve_link(ref: str, frames: Dict[str, pd.DataFrame]) -> Optional[tuple]:
     if not m:
         return None
     sheet = _LINK_TARGETS.get(m.group(1).upper())
+    if isinstance(sheet, tuple):
+        # A "PH#N" ref is the picks FRAME's positional index, and that frame is
+        # written as two sheets, so N indexes neither one. The ref text is
+        # generated before the split and never renumbers, so there is no
+        # renumbering to strip here — leave it unresolved rather than pointing
+        # it at the wrong row (a delta on one, if it ever appears, is then
+        # REPORTED rather than silently dropped).
+        return None
     df = frames.get(sheet) if sheet else None
     if df is None or df.empty:
         return None
@@ -916,7 +930,7 @@ _EVENT_COLUMNS = (
 # Where a sheet names the players an event moved, so a tenure that STOPPED
 # because the asset left can be told from a tenure that moved for no reason.
 _EVENT_PLAYER_COLS = {
-    "picks": ("Player Picked",),
+    "non_rookie_picks": ("Player Picked",), "rookie_picks": ("Player Picked",),
     "trades": ("Assets received", "Assets sent"),
     "add_drops": ("Player Added", "Player Dropped"),
     "player_additions": ("Player",),

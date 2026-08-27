@@ -178,6 +178,10 @@ _YEARLY_COUNTING_MARKERS = (
 )
 _YEARLY_SHEETS = {"player_year", "team_year", "league_year"}
 
+# The picks frame ships as two sheets — the 2020 startup + 2021 vet draft apart
+# from the rookie drafts. Anything that treated "picks" as one sheet covers both.
+_PICK_SHEETS = ("non_rookie_picks", "rookie_picks")
+
 
 def is_yearly_counting_stat(column: str) -> bool:
     """A season-accumulating activity count whose LOW end belongs to the on-pace
@@ -996,7 +1000,7 @@ def _board_label(sheet: str, row) -> str:
         return f"{g('Team')} {g('Year')} week {g('Week')}".strip()
     if sheet == "league_week":
         return f"{g('Year')} week {g('Week')}".strip()
-    if sheet == "picks":
+    if sheet in _PICK_SHEETS:
         return f"{g('Year')} pick {g('Number')} ({g('Player Picked')})".strip()
     if sheet == "trades":
         # Name what the team got: "whose trade" alone doesn't say what moved, and
@@ -1052,8 +1056,14 @@ _BOARD_SHEETS = {
                      "title": "team weeks"},
     "league_week":  {"entity": "Year", "ids": ("Year", "Week"),
                      "title": "league weeks"},
-    "picks":        {"entity": "Year", "ids": ("Year", "Number"),
-                     "title": "draft picks"},
+    # The picks frame ships as two sheets and they get two boards: the startup
+    # and the 2021 vet draft are scored in their own percentile universe (and
+    # de-trended for draft slot), so ranking them against rookie picks would
+    # compare grades that do not mean the same thing.
+    "non_rookie_picks": {"entity": "Year", "ids": ("Year", "Number"),
+                     "title": "startup & vet draft picks"},
+    "rookie_picks": {"entity": "Year", "ids": ("Year", "Number"),
+                     "title": "rookie draft picks"},
     "trades":       {"entity": "Season", "ids": ("Team", "Date", "Team's traded with 1"),
                      "title": "trades"},
     "add_drops": {"entity": "Season",
@@ -1127,7 +1137,7 @@ def all_board_highlights(frames: dict, window: int = WINDOW) -> List[EventHighli
 # knowing. The per-week / per-season aggregate sheets are excluded: a new row
 # there is just the calendar advancing, already told by the live/in-season split,
 # and tracking their every key would bloat the snapshot for no signal.
-_NEW_ROW_SHEETS = ("picks", "trades", "add_drops", "player_additions")
+_NEW_ROW_SHEETS = _PICK_SHEETS + ("trades", "add_drops", "player_additions")
 
 
 def all_row_keys(frames: dict) -> List[str]:
@@ -1393,7 +1403,8 @@ def phrasing_catalog(
     player_week: Optional[pd.DataFrame] = None,
     team_week: Optional[pd.DataFrame] = None,
     league_week: Optional[pd.DataFrame] = None,
-    picks: Optional[pd.DataFrame] = None,
+    non_rookie_picks: Optional[pd.DataFrame] = None,
+    rookie_picks: Optional[pd.DataFrame] = None,
     trades: Optional[pd.DataFrame] = None,
     add_drops: Optional[pd.DataFrame] = None,
     player_additions: Optional[pd.DataFrame] = None,
@@ -1471,7 +1482,8 @@ def phrasing_catalog(
     for _sheet, _df in (("player_year", player_year), ("team_year", team_year),
                         ("league_year", league_year), ("player_week", player_week),
                         ("team_week", team_week), ("league_week", league_week),
-                        ("picks", picks), ("trades", trades),
+                        ("non_rookie_picks", non_rookie_picks),
+                        ("rookie_picks", rookie_picks), ("trades", trades),
                         ("add_drops", add_drops),
                         ("player_additions", player_additions)):
         _board_rows(_sheet, _df)
