@@ -575,8 +575,8 @@ Both asked for after reading the round-2 boards; both are re-gradings, not fixes
   original reasoning. Non-rookie only — the rookie board cannot move on this.
 - [x] **Pick `Player addition value` gains `x (1 + starts before next transaction
   / 170)`.** Its two % terms are RATES, so the same start rate graded alike over
-  one season and six. 170 is roughly a decade of starts, keeping the factor
-  inside ~1.0-1.2. Scales the PPG term only; the handcuff bonus lands after.
+  one season and six. 170 is roughly a decade of starts: the factor is 1.0 with
+  no starts, <=1.2 for 90% of picks, and 1.56 at the longest run (95 starts). Scales the PPG term only; the handcuff bonus lands after.
   BOTH pick sheets; the add_drops / trades / player_additions versions of the
   column are deliberately untouched.
 - [x] Predicted from the committed build before shipping (a simulator that
@@ -585,7 +585,32 @@ Both asked for after reading the round-2 boards; both are re-gradings, not fixes
   entry changes hands in each sheet's top 20 (McCaffrey 1.01 out for Jared Goff
   19.05; Jayden Daniels out for James Cook) and one in each bottom 20 (Matt
   Breida out for DeVante Parker; Jaydon Blue out for Terrace Marshall).
-- [ ] **3-part audit round 3** + a formulas sweep.
+- [x] **3-part audit round 3 — run 483.** 280 passed, sanity 0/0, de-trend logged
+  at lambda 0.75 / max shift 19.2. The diff vs run 482 is fully explained and has
+  nothing else in it: `Player addition value`, its pick-adjusted difference and
+  `O-Score` on BOTH pick sheets (484 + 365 cells), `Drafting skill` downstream
+  (5 all-time + 34 team_year), 4 documentation cells in `formulas`, and every
+  other sheet byte-identical — `add_drops`, `trades` and `player_additions` among
+  them, which is what confirms the addition-value change stayed picks-only.
+  Every pre-registered prediction landed: the shipped boards swap exactly
+  McCaffrey -> Jared Goff (top 20), Matt Breida -> DeVante Parker (bottom 20),
+  Jayden Daniels -> James Cook, Jaydon Blue -> Terrace Marshall, at the predicted
+  boundary values (80.4 / 20.8 / McCaffrey 74.9).
+- [x] **Formulas sweep.** Coverage clean (0 undocumented columns, 0 plan-vs-catalog
+  drift). Verified against the build's own numbers: O-Score inside 0-100 on all
+  four sheets, the pure-drop 0-50 ceiling (max 47.7), the Drafting-skill shrink
+  reproducing 8/8 all-time, the +5 handcuff bonus landing at exactly 5.0 on all 8
+  cuff rows, and lambda 0.75 / divisor 170 matching the source constants. Three
+  fixes:
+  - **`Tanking` and `Team` still named `picks` as one of their sheets** — a sheet
+    that no longer exists. The committed coverage guard only checks
+    columns-without-an-entry, never entries-naming-something-gone, so a rename is
+    invisible to it in exactly this direction.
+  - **The new starts-term note claimed the factor stays "inside ~1.0-1.2"; it is
+    1.000-1.559.** True for 90% of picks, wrong for the tail (95 starts -> 1.56).
+    Corrected to state both.
+  - `PH#N` prose still read "= picks row"; it now names the two sheets and says
+    the ref counts through them as one frame.
 
 ## Phase 15 — TBD: OLD LEAGUES
 - [ ] **TBD.** Placeholder for integrating other historical/old leagues' data (e.g. the

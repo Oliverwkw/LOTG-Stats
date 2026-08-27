@@ -52,9 +52,10 @@ NONROOKIE_OSCORE_LAMBDA = 0.75
 # PPG by how OFTEN the player started. That is a RATE, so a player who started
 # at a given clip for one season and one who held it for six graded alike. This
 # term adds the length of the run: `1 + starts / 170`, where 170 is roughly a
-# decade of starts, so the factor stays inside ~1.0-1.2 and reads as a tilt
-# toward longevity rather than a second rate term. It multiplies the main
-# variable only — the handcuff bonus is added after it, unscaled.
+# decade of starts. Measured on the build: 1.0 for a pick that never started,
+# at or under 1.2 for 90% of picks, and 1.56 at the longest run in the data (95
+# starts) — a tilt toward longevity, not a second rate term. It multiplies the
+# main variable only — the handcuff bonus is added after it, unscaled.
 STARTS_TENURE_DIVISOR = 170.0
 
 # Slots per round. The startup and the vet draft are both 8-team drafts, and
