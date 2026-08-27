@@ -616,11 +616,25 @@ Both asked for after reading the round-2 boards; both are re-gradings, not fixes
   four per-channel counts on the nose. `Player addition value` was the ONLY
   column that moved on the sheet, and every other sheet came back byte-identical
   (plus 2 documentation cells in `formulas`). 281 passed.
-  - [ ] **Open question — the flat divisor has a cohort bias.** 170 is elapsed
-    starts, so it partly measures how long ago the move happened: rookie classes
-    average 12.0 starts (2021) down to 2.4 (2025), and percentiles pool the
-    classes. A cohort-relative divisor (starts / starts AVAILABLE since the
-    move) would fix it on every sheet that carries the term. Not done here.
+  - [x] **Raised and DECIDED: the flat divisor stays.** 170 is elapsed starts, so
+    it partly measures how long ago the move happened — rookie classes average
+    12.0 starts (2021) down to 2.4 (2025), and the percentile pools mix the
+    classes. A cohort-relative divisor (starts / starts AVAILABLE since the move)
+    would neutralise that. The maintainer's call is NOT to: **rewarding longevity
+    is the point of the term**, and normalising it away would leave a third rate
+    measure, which is the thing this was added to fix. A pick that held a starting
+    job for six years is meant to outrank one that held it for one, even though
+    part of that gap is simply having had the years. Do not re-propose.
+- [x] **Accepted, self-healing: the first post-merge digest is blind to the pick
+  boards.** `data/digest/ranks_snapshot.json` keys its board entries by SHEET
+  NAME (254 under `picks|...`), and `digest.diff_events` skips any event whose
+  `(sheet, column, end)` slot is absent from the prior snapshot — so the two
+  renamed sheets produce no crossings at all on the first run. Confirmed on run
+  480: 11 board moves, no pick section, despite 337 pick O-Scores having changed.
+  It does NOT flood the email with false "new row" entries, and it self-heals the
+  moment the Tuesday cron rotates the snapshot. Flagged, reviewed and accepted as
+  is — but expect NEXT Tuesday's digest to say nothing about the startup board
+  being re-graded, and do not read that as a bug.
 - [x] **Formulas sweep.** Coverage clean (0 undocumented columns, 0 plan-vs-catalog
   drift). Verified against the build's own numbers: O-Score inside 0-100 on all
   four sheets, the pure-drop 0-50 ceiling (max 47.7), the Drafting-skill shrink
