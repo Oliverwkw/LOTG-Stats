@@ -476,6 +476,51 @@ Surfaced by an inquiry ("what % of Oliverwkw's points is Nick Chubb?"), full wri
 
 - [x] **3-part audit** (code / results / diff) — `plan/AUDIT_PHASE14_3PART.md`. Clean on data (Phase 14 is additive; zero `src/` or CSV changes; 9/9 hand-checked digest claims reconcile). 4 code findings F1–F4 all fixed (#369), plus 3 post-merge fixes from the run-447 cold-rebuild audit (#370).
 
+## Phase 14.5 — Split the picks sheet; de-trend the non-rookie O-Score
+**Why:** an inquiry into the worst startup picks by O-Score showed the two drafts
+are not comparable. A 19-round startup snake and a 4-round rookie draft have
+different slot economics, so the same O-Score means different things in each —
+and *within* the startup, an early bust and a 19th-round bust with the same
+on-field return were graded alike.
+
+- [x] **`picks.csv` -> `non_rookie_picks.csv` + `rookie_picks.csv`** (2020 startup
+  + 2021 vet | every rookie draft). The frame is still BUILT as one table and
+  split at OUTPUT: every `PH#N` ref is `ph`'s positional index + 1, and the pick
+  chains are keyed the same way, so splitting mid-build would renumber them and
+  move rows on sheets this change must not touch. The xlsx resolver maps a `PH#N`
+  into whichever sheet now holds that row (verified: 942 links, 254/254 trades
+  pick-links land on a row whose pick Number matches the label).
+- [x] **Non-rookie O-Score de-trended for draft slot**, after it is computed:
+  `expected = a + b·ln(overall position)` with `b` clamped ≤ 0 (monotone), each
+  score moved HALF the way off its expectation, clamped to 0-100. Startup + vet
+  are ONE sequence (vet continues after the startup's last pick), matching the
+  pick-adjustment window's own ordering. Centred on the fitted curve's own mean,
+  so the pool's mean O-Score is unchanged and a clamped slope is a true no-op.
+  On the committed data: 184 rows, slope −5.94, median shift 1.9, max 12.6;
+  Julio Jones 13.1→8.4, Michael Thomas 18.2→11.4, McCaffrey 93.4→80.8, Bryce
+  Love 9.8→12.1, Josh Allen (mid-draft) 98.6→98.7.
+- [x] **Drafting skill: a non-rookie pick weighs 0.5** against a rookie pick's
+  1.0 (the machinery already supported weights — pure drops use 1/3). Lands on
+  team_all_time and team_year 2021; the startup's Year is the non-numeric
+  "startup" tag, so it reaches the all-time grade only. Expected all-time deltas
+  −1.3 (stevenb123) to +2.3 (shmuel256); 2021 deltas −1.4 to +3.6.
+- [x] **The current rookie class is held out of the pick-adjustment reference
+  pools until week 8** — the same half-season gate that already withheld its
+  O-Score, now one shared predicate (`_early_rookie_class_mask`). It still
+  RECEIVES a diff, it just no longer defines one. **This was not previously the
+  case** (measured: all 169 older rookie picks reconcile exactly only with the
+  2026 class IN the pools, 0 without), so it is a real behaviour change, made
+  deliberately at the user's direction.
+- [x] **Both sheets appear separately in the weekly digest** (`_BOARD_SHEETS`
+  gains two entries with their own titles, so each gets its own section).
+- [x] Offline diff vs `origin/main`: **add_drops, trades, player_additions and
+  every player/team/league sheet byte-identical**; only `formulas.csv` (docs) and
+  the pick sheets themselves differ. Suite green (279 passed, 1 skipped).
+- [ ] **3-part audit** (code / results / diff) — **the results audit must carry
+  the de-trend and the Drafting-skill re-weight**, because neither can be checked
+  offline: KTC is unreachable there, so every offline O-Score is N/A and both
+  land as no-ops. Same limitation the Phase-13 startup-order fix hit.
+
 ## Phase 15 — TBD: OLD LEAGUES
 - [ ] **TBD.** Placeholder for integrating other historical/old leagues' data (e.g. the
   separate ESPN leagues seen in the 2020 emails — UChicago '24 = leagueId 57687541, UChi
