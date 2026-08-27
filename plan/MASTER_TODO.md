@@ -549,7 +549,19 @@ on-field return were graded alike.
   - `data/audit/schema_baseline.json` still pinned `picks`, so the first
     Wednesday health email would have gone red on "sheet missing" + two unpinned
     sheets. Re-pinned.
-- [ ] **3-part audit round 2** — re-run against the post-fix CI build.
+- [x] **3-part audit round 2 — runs 481 and 482.** Round 2 caught a fifth defect
+  the local suite structurally could not: pointing all of
+  `test_startup_draft_order` at `non_rookie_picks` broke the one test in it that
+  guards ROOKIE picks (the 5.0X draft-day FAAB buys), which found zero of them
+  and tripped its own "the guard would be vacuous" assertion. Locally every test
+  in that file SKIPS, because the committed `exports/` still predates the split —
+  only CI can see this class of break until the first refresh commit lands.
+  Fixed to read both sheets. Run 482: **280 passed, 0 failed**, sanity 0/0,
+  `picks.csv` retired out of the artifact AND out of `LOTG_Exports.zip`, the ref
+  index written (548 refs, rebuilding the pre-split frame order exactly against
+  run 479), the schema pin matching both sheets, and **every shipped sheet
+  byte-identical to runs 481 and 480** — the fixes moved no data, which is
+  exactly what retiring a stale file and emitting a map should do.
 
 ## Phase 15 — TBD: OLD LEAGUES
 - [ ] **TBD.** Placeholder for integrating other historical/old leagues' data (e.g. the
