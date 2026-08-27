@@ -492,7 +492,8 @@ on-field return were graded alike.
   pick-links land on a row whose pick Number matches the label).
 - [x] **Non-rookie O-Score de-trended for draft slot**, after it is computed:
   `expected = a + b·ln(overall position)` with `b` clamped ≤ 0 (monotone), each
-  score moved HALF the way off its expectation, clamped to 0-100. Startup + vet
+  score moved HALF the way off its expectation, clamped to 0-100 (raised to
+  THREE QUARTERS in the follow-up below). Startup + vet
   are ONE sequence (vet continues after the startup's last pick), matching the
   pick-adjustment window's own ordering. Centred on the fitted curve's own mean,
   so the pool's mean O-Score is unchanged and a clamped slope is a true no-op.
@@ -562,6 +563,29 @@ on-field return were graded alike.
   run 479), the schema pin matching both sheets, and **every shipped sheet
   byte-identical to runs 481 and 480** — the fixes moved no data, which is
   exactly what retiring a stale file and emitting a map should do.
+
+### Phase 14.5 follow-up — de-trend to 0.75, and length in the pick addition value
+Both asked for after reading the round-2 boards; both are re-gradings, not fixes.
+
+- [x] **`NONROOKIE_OSCORE_LAMBDA` 0.5 -> 0.75.** Half read the right way and the
+  only question was how hard to lean. At 0.75 the startup's worst first-rounders
+  (Michael Thomas 1.07, Ezekiel Elliott 1.03, Clyde Edwards-Helaire 1.08) all sit
+  inside the bottom nine, and the deep darts get their relief (Josh Doctson 19.07
+  4th-worst -> 10th, Bryce Love 19.06 6th -> 12th). Still short of 1.0 on the
+  original reasoning. Non-rookie only — the rookie board cannot move on this.
+- [x] **Pick `Player addition value` gains `x (1 + starts before next transaction
+  / 170)`.** Its two % terms are RATES, so the same start rate graded alike over
+  one season and six. 170 is roughly a decade of starts, keeping the factor
+  inside ~1.0-1.2. Scales the PPG term only; the handcuff bonus lands after.
+  BOTH pick sheets; the add_drops / trades / player_additions versions of the
+  column are deliberately untouched.
+- [x] Predicted from the committed build before shipping (a simulator that
+  reproduced all 353 published O-Scores exactly): non-rookie max shift 7.8 /
+  mean 1.46, rookie max 4.7 / mean 0.47 and no lambda component at all. One
+  entry changes hands in each sheet's top 20 (McCaffrey 1.01 out for Jared Goff
+  19.05; Jayden Daniels out for James Cook) and one in each bottom 20 (Matt
+  Breida out for DeVante Parker; Jaydon Blue out for Terrace Marshall).
+- [ ] **3-part audit round 3** + a formulas sweep.
 
 ## Phase 15 — TBD: OLD LEAGUES
 - [ ] **TBD.** Placeholder for integrating other historical/old leagues' data (e.g. the

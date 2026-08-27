@@ -7,8 +7,9 @@ Covers the four things the split has to get right:
      sheets this change must not touch);
   2. overall draft position reads the pick NUMBER as draft ORDER — including the
      snake startup — and continues the vet draft after the startup's last pick;
-  3. the de-trend is monotone, half-strength, bounded, and touches ONLY the
-     non-rookie rows;
+  3. the de-trend is monotone, linear in lambda, bounded, and touches ONLY the
+     non-rookie rows — and the starts term in Player addition value rewards the
+     LENGTH of a run rather than adding a third rate;
   4. the half-season gate is one predicate, shared by the withheld rookie
      O-Score and the pick-adjustment reference pools;
   5. `PH#N` survives the split — the frame's own row order is written out as
@@ -163,7 +164,9 @@ def check_detrend_lifts_late_picks_and_lowers_early_ones():
     return ok
 
 
-def check_lambda_is_half_strength_and_zero_is_a_no_op():
+def check_lambda_scales_the_shift_and_zero_is_a_no_op():
+    """lambda is a dial, not a switch: the shift must be linear in it, and the
+    shipped setting must be strictly between "do nothing" and "remove it all"."""
     df0, nr = _sloped_frame()
     base = pd.to_numeric(df0["O-Score"], errors="coerce").copy()
 
@@ -172,16 +175,49 @@ def check_lambda_is_half_strength_and_zero_is_a_no_op():
     ok = _ok("lambda=0 leaves the O-Score exactly as computed",
              base.equals(pd.to_numeric(noop["O-Score"], errors="coerce")))
 
-    half, full = df0.copy(), df0.copy()
-    PH.detrend_non_rookie_oscore(half, nr, lam=0.5)
-    PH.detrend_non_rookie_oscore(full, nr, lam=1.0)
-    h = (pd.to_numeric(half["O-Score"], errors="coerce") - base)[nr]
-    f = (pd.to_numeric(full["O-Score"], errors="coerce") - base)[nr]
-    ok &= _ok("the shipped lambda is 0.5", PH.NONROOKIE_OSCORE_LAMBDA == 0.5,
+    def shift(lam):
+        d = df0.copy()
+        PH.detrend_non_rookie_oscore(d, nr, lam=lam)
+        return (pd.to_numeric(d["O-Score"], errors="coerce") - base)[nr]
+
+    full = shift(1.0)
+    ok &= _ok("the shipped lambda is 0.75", PH.NONROOKIE_OSCORE_LAMBDA == 0.75,
               PH.NONROOKIE_OSCORE_LAMBDA)
-    ok &= _ok("half moves each pick half as far as full",
-              bool(np.allclose(h.to_numpy(), f.to_numpy() / 2.0, atol=0.06)),
-              f"max gap {float(np.abs(h - f / 2.0).max()):.3f}")
+    ok &= _ok("and it is a partial de-trend, not a full one",
+              0.0 < PH.NONROOKIE_OSCORE_LAMBDA < 1.0)
+    for lam in (0.25, 0.5, 0.75):
+        got = shift(lam)
+        ok &= _ok(f"lambda={lam} moves each pick {lam:g}x as far as lambda=1",
+                  bool(np.allclose(got.to_numpy(), full.to_numpy() * lam, atol=0.06)),
+                  f"max gap {float(np.abs(got - full * lam).max()):.3f}")
+    ok &= _ok("0.75 moves further than the 0.5 this used to ship at",
+              float(shift(0.75).abs().max()) > float(shift(0.5).abs().max()))
+    return ok
+
+
+def check_the_starts_term_rewards_length_not_rate():
+    """Player addition value's two % terms are RATES. The starts term is what
+    separates a six-year starter from a one-year one at the same clip."""
+    d = PH.STARTS_TENURE_DIVISOR
+    ok = _ok("the divisor is 170 (about a decade of starts)", d == 170.0, d)
+
+    def value(ppg, starts, pct=0.5, ipct=0.5, cuff=0.0):
+        return ppg * (1.0 + starts / d) * (1.0 + pct) * (1.0 + ipct) + cuff
+
+    ok &= _ok("no starts -> the term is exactly 1, so nothing changes",
+              value(10.0, 0) == 10.0 * 1.5 * 1.5)
+    ok &= _ok("same rate, longer run -> a higher grade",
+              value(10.0, 100) > value(10.0, 20))
+    ok &= _ok("and the factor stays gentle across a real career",
+              1.0 < (1.0 + 100 / d) < 1.6, f"{1.0 + 100 / d:.3f}")
+    # It scales the MAIN variable only: the handcuff bonus must not inflate.
+    plain, cuffed = value(10.0, 100), value(10.0, 100, cuff=5.0)
+    ok &= _ok("the handcuff bonus is added after, unscaled",
+              abs((cuffed - plain) - 5.0) < 1e-9, cuffed - plain)
+    # A negative on-team PPG must get MORE negative, not less: the term is a
+    # magnitude scaler, and a long bad run is worse than a short one.
+    ok &= _ok("a longer bad run grades worse, not better",
+              value(-4.0, 100) < value(-4.0, 0))
     return ok
 
 
@@ -396,7 +432,8 @@ def run_all() -> bool:
               check_positions_read_number_as_draft_order_and_append_the_vet,
               check_detrend_only_touches_non_rookie_rows,
               check_detrend_lifts_late_picks_and_lowers_early_ones,
-              check_lambda_is_half_strength_and_zero_is_a_no_op,
+              check_lambda_scales_the_shift_and_zero_is_a_no_op,
+              check_the_starts_term_rewards_length_not_rate,
               check_the_fitted_curve_is_never_upward_sloping,
               check_detrend_never_fails_a_build,
               check_the_week_8_gate_is_one_predicate,

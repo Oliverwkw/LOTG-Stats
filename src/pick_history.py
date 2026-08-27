@@ -34,11 +34,28 @@ FRAME_KEY = "pick_history"  # internal context key shared by both output sheets
 # expected to return more than a 19th-round flier, so an early bust and a late
 # bust with the same on-field return do not deserve the same grade. `LAMBDA`
 # says how much of that trend to remove — 0.0 leaves the O-Score exactly as
-# computed, 1.0 removes the fitted trend entirely. HALF (0.5) is deliberate:
-# fully neutralising the slot would say a late-round dart that missed is
-# blameless, which the data contradicts (deep startup rounds returned real
-# value), while leaving it in blames the 1.07 bust no more than the 19.07 one.
-NONROOKIE_OSCORE_LAMBDA = 0.5
+# computed, 1.0 removes the fitted trend entirely.
+#
+# THREE QUARTERS (0.75), raised from the 0.5 this first shipped at. Half already
+# read the right way and the only question was how hard to lean: at 0.75 the
+# startup's worst first-rounders — Michael Thomas 1.07, Ezekiel Elliott 1.03,
+# Clyde Edwards-Helaire 1.08 — all sit inside the bottom nine, and the deep
+# darts that missed get the relief they are owed (Josh Doctson 19.07 moves from
+# 4th-worst to 10th, Bryce Love 19.06 from 6th to 12th). It stays deliberately
+# short of 1.0: removing the slope entirely would call a 19th-round miss
+# blameless, and the data contradicts that — deep startup rounds returned real
+# value. Whole draft regions shift; two picks at the same slot never reorder.
+NONROOKIE_OSCORE_LAMBDA = 0.75
+
+# --- Player addition value: the tenure-length term -------------------------
+# The pick sheets' `Player addition value` multiplies on-team position-adjusted
+# PPG by how OFTEN the player started. That is a RATE, so a player who started
+# at a given clip for one season and one who held it for six graded alike. This
+# term adds the length of the run: `1 + starts / 170`, where 170 is roughly a
+# decade of starts, so the factor stays inside ~1.0-1.2 and reads as a tilt
+# toward longevity rather than a second rate term. It multiplies the main
+# variable only — the handcuff bonus is added after it, unscaled.
+STARTS_TENURE_DIVISOR = 170.0
 
 # Slots per round. The startup and the vet draft are both 8-team drafts, and
 # this mirrors the `_rsize` the build's own pick-adjustment window uses.

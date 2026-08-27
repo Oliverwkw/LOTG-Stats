@@ -628,8 +628,10 @@ list is here so an answer written by hand does not walk into them.
 - **The picks sheet is TWO sheets, and their O-Scores are not comparable.**
   `non_rookie_picks` (the 2020 startup + the 2021 vet draft) and `rookie_picks`
   (every rookie draft) are ranked in separate percentile universes, and only the
-  non-rookie one is de-trended for draft slot (each score moved half the way off
-  a fitted `a + b·ln(overall pick)` expectation). So a 61 on one sheet does not
+  non-rookie one is de-trended for draft slot (each score moved three quarters of
+  the way off a fitted `a + b·ln(overall pick)` expectation). Their `Player
+  addition value` also carries a starts-length term the other sheets' versions
+  do not. So a 61 on one sheet does not
   mean what a 61 on the other does — never pool the two and rank O-Score across
   them. `Q.load_sheet("picks")` still works and returns the two CONCATENATED,
   which is right for anything except O-Score comparisons; ask for the sheet by

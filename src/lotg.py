@@ -10860,8 +10860,15 @@ def build_all(repo_root: Path) -> None:
                         _otadj_f = None
                     if _otadj_f is not None:
                         _cuffb = _PICK_CUFF_BONUS if _cuff else 0.0
+                        # `_pct` / `_ipct` are RATES: they say how often the
+                        # player started, not for how long. The starts term adds
+                        # the length of the run so a six-year starter outgrades a
+                        # one-year one at the same clip (see
+                        # pick_history.STARTS_TENURE_DIVISOR). It scales the main
+                        # variable only; the handcuff bonus lands after it.
+                        _tenure = 1.0 + (_st / pick_history.STARTS_TENURE_DIVISOR)
                         ph.at[_i, "Player addition value"] = round(
-                            _otadj_f * (1.0 + _pct) * (1.0 + _ipct) + _cuffb, 4)
+                            _otadj_f * _tenure * (1.0 + _pct) * (1.0 + _ipct) + _cuffb, 4)
         except Exception as e:
             _log_exc(debug, "picks_usage_8e", e)
 
@@ -18999,8 +19006,9 @@ def build_all(repo_root: Path) -> None:
         # ranked in its own percentile universe, but WITHIN that universe an
         # early pick is still expected to return more than a 19th-round flier,
         # so an early bust and a late bust with the same on-field return score
-        # alike. Move each non-rookie score HALF the way off its slot's fitted
-        # expectation (see pick_history.detrend_non_rookie_oscore for why half).
+        # alike. Move each non-rookie score THREE QUARTERS of the way off its
+        # slot's fitted expectation (pick_history.NONROOKIE_OSCORE_LAMBDA says
+        # why that and not all of it).
         # Runs after the withholding so the two can't fight, and BEFORE the
         # manager-skill aggregation below, which reads the O-Score column — the
         # de-trended value is the O-Score, so Drafting skill sees exactly what
