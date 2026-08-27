@@ -630,8 +630,10 @@ list is here so an answer written by hand does not walk into them.
   (every rookie draft) are ranked in separate percentile universes, and only the
   non-rookie one is de-trended for draft slot (each score moved three quarters of
   the way off a fitted `a + b·ln(overall pick)` expectation). Their `Player
-  addition value` also carries a starts-length term the other sheets' versions
-  do not. So a 61 on one sheet does not
+  addition value` also carries a starts-length term — as does
+  `player_additions`', which is the cross-channel comparable. `add_drops` and
+  `trades` do NOT: their addition value is a difference against a dropped/sent
+  side, not a one-sided level, so length would say something different there. So a 61 on one sheet does not
   mean what a 61 on the other does — never pool the two and rank O-Score across
   them. `Q.load_sheet("picks")` still works and returns the two CONCATENATED,
   which is right for anything except O-Score comparisons; ask for the sheet by

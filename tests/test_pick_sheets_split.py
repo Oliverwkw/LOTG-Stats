@@ -9,7 +9,8 @@ Covers the four things the split has to get right:
      snake startup — and continues the vet draft after the startup's last pick;
   3. the de-trend is monotone, linear in lambda, bounded, and touches ONLY the
      non-rookie rows — and the starts term in Player addition value rewards the
-     LENGTH of a run rather than adding a third rate;
+     LENGTH of a run rather than adding a third rate — on the pick sheets and on
+     player_additions, the cross-channel comparable, alike;
   4. the half-season gate is one predicate, shared by the withheld rookie
      O-Score and the pick-adjustment reference pools;
   5. `PH#N` survives the split — the frame's own row order is written out as
@@ -21,7 +22,9 @@ Run: PYTHONPATH=src:lib python tests/test_pick_sheets_split.py
 from __future__ import annotations
 
 import importlib.util
+import json
 import math
+import subprocess
 import sys
 from pathlib import Path
 
@@ -41,6 +44,33 @@ _spec = importlib.util.spec_from_file_location("lotg", _ROOT / "src" / "lotg.py"
 lotg = importlib.util.module_from_spec(_spec)
 sys.modules["lotg"] = lotg
 _spec.loader.exec_module(lotg)
+
+
+def _exports_are_current() -> bool:
+    """Were the exports on disk built by the code that is checked out NOW?
+
+    The committed exports/ is a replay cache that lags main by up to a week, so
+    a data check written alongside a formula change would fail on every local
+    run until the next refresh commit lands. The build stamps the commit it ran
+    at into the snapshot meta (the same stamp audit_weekly reads to decide
+    whether a diff is "the fix working" or a regression); when it does not match
+    HEAD, these exports are simply not a build of this code.
+
+    Deliberately NOT "skip when the value looks old" — that would make a
+    regression that DELETED the term indistinguishable from a stale cache, and
+    silently skip exactly when it mattered. Tied to the commit instead, so a
+    fresh build (CI always rebuilds before running the suite) asserts hard.
+    """
+    meta = _ROOT / "exports" / "snapshot" / "_snapshot_meta.json"
+    if not meta.exists():
+        return False
+    try:
+        built = json.loads(meta.read_text()).get("built_from_commit")
+        head = subprocess.run(["git", "rev-parse", "HEAD"], cwd=str(_ROOT),
+                              capture_output=True, text=True, timeout=15).stdout.strip()
+    except Exception:
+        return False
+    return bool(built) and bool(head) and str(built) == head
 
 
 def _ok(name, cond, detail=""):
@@ -425,6 +455,53 @@ def check_the_retired_picks_csv_is_deleted_not_left_behind():
     return ok
 
 
+def check_the_starts_term_reaches_player_additions():
+    """The same term, on the cross-channel comparable, reproduced from the build.
+
+    player_additions is where a draft, a trade and a waiver claim are meant to
+    be read side by side, so the term has to be there too — and applied
+    IDENTICALLY to every channel, which is that column's contract. Rebuilt from
+    the sheet's own columns: value = adj points added x (1 + starts/170) x
+    (1 + % of starts). Tolerance is 0.02 because the sheet rounds its inputs to
+    2 decimals while the build multiplies the unrounded ones (measured max
+    reproduction error on a real build: 0.0099)."""
+    import lotg_support.inquiry as Q
+    if not _exports_are_current():
+        print("  [SKIP] exports/ was built by older code — CI rebuilds before it runs")
+        return True
+    try:
+        pa = Q.load_sheet("player_additions")
+    except FileNotFoundError:
+        print("  [SKIP] no exports/ — data check skipped")
+        return True
+    need = ["Avg points added adjusted by position", "Starts on team",
+            "% of starts made while rostered", "Player addition value"]
+    if pa.empty or any(c not in pa.columns for c in need):
+        print("  [SKIP] player_additions missing a needed column")
+        return True
+    num = lambda c: pd.to_numeric(pa[c], errors="coerce")
+    adj, starts = num(need[0]), num(need[1]).fillna(0.0)
+    pct, have = num(need[2]).fillna(0.0), num(need[3])
+    want = (adj * (1.0 + starts / PH.STARTS_TENURE_DIVISOR) * (1.0 + pct)).round(4)
+    m = want.notna() & have.notna()
+    err = (want[m] - have[m]).abs()
+    ok = _ok("the shipped column carries the starts term",
+             bool(m.any()) and float(err.max()) <= 0.02,
+             f"n={int(m.sum())} max err {float(err.max()):.4f}" if m.any() else "no rows")
+    # Without the term it would NOT reconcile — otherwise this proves nothing.
+    stale = (adj * (1.0 + pct)).round(4)
+    moved = m & (starts > 0) & ((stale - have).abs() > 0.02)
+    ok &= _ok("and dropping it stops reconciling, so the check has teeth",
+              int(moved.sum()) > 0, f"{int(moved.sum())} rows disagree without it")
+    ok &= _ok("a row with no starts is untouched by it",
+              bool((starts[m] == 0).any())
+              and float((want[m & (starts == 0)] - have[m & (starts == 0)]).abs().max()) <= 0.02)
+    ok &= _ok("every channel gets it, none exempt",
+              set(pa.loc[moved, "Addition type"].unique()) >= {"Draft", "Trade"},
+              sorted(pa.loc[moved, "Addition type"].unique()))
+    return ok
+
+
 def run_all() -> bool:
     all_ok = True
     for t in (check_split_is_exhaustive_disjoint_and_index_preserving,
@@ -434,6 +511,7 @@ def run_all() -> bool:
               check_detrend_lifts_late_picks_and_lowers_early_ones,
               check_lambda_scales_the_shift_and_zero_is_a_no_op,
               check_the_starts_term_rewards_length_not_rate,
+              check_the_starts_term_reaches_player_additions,
               check_the_fitted_curve_is_never_upward_sloping,
               check_detrend_never_fails_a_build,
               check_the_week_8_gate_is_one_predicate,

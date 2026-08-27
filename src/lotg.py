@@ -19723,8 +19723,19 @@ def build_all(repo_root: Path) -> None:
             out["PPG of 5 games before pickup"] = (
                 round(sum(e["pts"] for e in last5) / len(last5), 2) if last5 else None)
             pct = out["% of starts made while rostered"]
+            # Same tenure-length term the pick sheets carry: `% of starts` is a
+            # RATE, so without it a player who started at a given clip for one
+            # season graded like one who held the job for six. Applied here too
+            # because this sheet is the CROSS-CHANNEL comparable — a draft, a
+            # trade and a waiver claim are meant to be read side by side, and
+            # scoring longevity on the pick sheets but not here would have made
+            # the same acquisition say two different things. Uniform across
+            # channels, which is this column's whole contract. A no-op by
+            # arithmetic on the 1,214 zero-start rows (they score 0.0 flat).
+            _tenure = 1.0 + (n_start / pick_history.STARTS_TENURE_DIVISOR)
             out["Player addition value"] = (
-                round(avg_add_adj * (1 + (pct or 0.0)), 4) if avg_add_adj is not None else None)
+                round(avg_add_adj * _tenure * (1 + (pct or 0.0)), 4)
+                if avg_add_adj is not None else None)
             out["_first_start_date"] = st["first_start_ed"]
             out["_n_ros"] = n_ros
             out["_weeks_before_start"] = st["weeks_before_start"]

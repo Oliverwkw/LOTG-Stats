@@ -596,6 +596,26 @@ Both asked for after reading the round-2 boards; both are re-gradings, not fixes
   McCaffrey -> Jared Goff (top 20), Matt Breida -> DeVante Parker (bottom 20),
   Jayden Daniels -> James Cook, Jaydon Blue -> Terrace Marshall, at the predicted
   boundary values (80.4 / 20.8 / McCaffrey 74.9).
+- [x] **The starts term extended to `player_additions` only.** That sheet is the
+  cross-channel comparable, its main variable is a one-sided level (like the pick
+  sheets'), and it already carried `Starts on team` — so the term goes in
+  unchanged and stays uniform across channels, which is the column's contract.
+  Scoring longevity on the pick sheets but not here would have made the same
+  drafted player say two different things in two places (321 rows overlap,
+  corr 0.911). Deliberately NOT extended to `add_drops` or `trades`: their
+  addition value is a DIFFERENCE against a dropped/sent side, so length there
+  claims a small edge held long beats a big edge held briefly — a different
+  claim; and `trades` has no starts column at all, plus an additive pick term
+  that would leave pick-only hauls stuck at factor 1.0 while player hauls scale
+  to ~1.5. Predicted: 705 of 1,932 rows move (36%), max delta +20.28 (Josh Allen
+  36.29 -> 56.57), mean 1.54 on the movers; by channel Draft 221/388, Trade
+  230/465, Free agency 139/616, Waiver 114/457. One column, no O-Score on this
+  sheet and no skill metric downstream.
+  - [ ] **Open question — the flat divisor has a cohort bias.** 170 is elapsed
+    starts, so it partly measures how long ago the move happened: rookie classes
+    average 12.0 starts (2021) down to 2.4 (2025), and percentiles pool the
+    classes. A cohort-relative divisor (starts / starts AVAILABLE since the
+    move) would fix it on every sheet that carries the term. Not done here.
 - [x] **Formulas sweep.** Coverage clean (0 undocumented columns, 0 plan-vs-catalog
   drift). Verified against the build's own numbers: O-Score inside 0-100 on all
   four sheets, the pure-drop 0-50 ceiling (max 47.7), the Drafting-skill shrink
