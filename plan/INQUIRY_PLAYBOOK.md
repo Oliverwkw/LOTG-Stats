@@ -112,7 +112,7 @@ the answer, not a silent choice.
 
 | Tool | For |
 |---|---|
-| `scripts/inquire.py` (`lotg_support.inquiry`) | finding, filtering and ranking anything in the twelve export sheets, and reading the raw Sleeper snapshot |
+| `scripts/inquire.py` (`lotg_support.inquiry`) | finding, filtering and ranking anything in the fourteen export sheets, and reading the raw Sleeper snapshot |
 | `scripts/whatif.py` (`lotg_support.replay`) | counterfactual seasons: rewind a trade — or a whole sequence of them — or move a player, replay every week, re-seed, re-run the bracket |
 | `lotg_support.analysis` (via `inquire.py group/stacks/compare/compare-all/correlate/stretch/timeline/ownership/scarcity/spend/age`) | the joins and comparisons a judgement question needs: position attached to any sheet, roster-group depth, lineup composition, cohort tests with FDR control, arbitrary time windows, entity timelines, who owned whom and in what order, positional scarcity, spend vs return, roster age (including the in-progress season) |
 | `scripts/draft_capital.py` (`lotg_support.draft_capital`) | what a draft slot returns across *all* rounds, who gets which slot under each era's ordering rule, and what moving up the order costs in roster ceiling |
@@ -125,7 +125,7 @@ any workflow.
 ## Start here, not with a script
 
 ```bash
-# 1. Which sheet and column holds the concept? (~1,000 columns across 12 sheets;
+# 1. Which sheet and column holds the concept? (~1,000 columns across 14 sheets;
 #    column names AND their documented notes are searched)
 python scripts/inquire.py columns 'efficien|max pf'
 python scripts/inquire.py describe team_week Efficiency
@@ -625,6 +625,20 @@ list is here so an answer written by hand does not walk into them.
   followed a career year. Any "did X change after Y" question about a player
   selected *on* his prior performance needs the matched-control shape in
   `contracts.study()`, not a paired before/after.
+- **The picks sheet is TWO sheets, and their O-Scores are not comparable.**
+  `non_rookie_picks` (the 2020 startup + the 2021 vet draft) and `rookie_picks`
+  (every rookie draft) are ranked in separate percentile universes, and only the
+  non-rookie one is de-trended for draft slot (each score moved three quarters of
+  the way off a fitted `a + b·ln(overall pick)` expectation). Their `Player
+  addition value` also carries a starts-length term — as does
+  `player_additions`', which is the cross-channel comparable. `add_drops` and
+  `trades` do NOT: their addition value is a difference against a dropped/sent
+  side, not a one-sided level, so length would say something different there. So a 61 on one sheet does not
+  mean what a 61 on the other does — never pool the two and rank O-Score across
+  them. `Q.load_sheet("picks")` still works and returns the two CONCATENATED,
+  which is right for anything except O-Score comparisons; ask for the sheet by
+  name when the distinction matters. Drafting skill weighs a non-rookie pick
+  0.5 against a rookie pick's 1.0.
 - **`picks` cannot price a pick that was traded, and `Points added` is
   cumulative.** Every return column on `picks` stops at the pick's *next
   transaction*, so a pick flipped before its player suited up scores 0 no matter

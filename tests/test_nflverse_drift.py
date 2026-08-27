@@ -357,7 +357,7 @@ def check_season_pool_columns_are_scoped_to_their_season(tmp):
     cur_d, base_d = tmp / "sc", tmp / "sb"
     for d, pk in ((cur_d, cur_pk), (base_d, base_pk)):
         d.mkdir(parents=True, exist_ok=True)
-        pk.to_csv(d / "picks.csv", index=False)
+        pk.to_csv(d / "rookie_picks.csv", index=False)
         pw.to_csv(d / "player_week.csv", index=False)
     cur = {n: A._read(cur_d, n) for n in A.SHEETS}
     base = {n: A._read(base_d, n) for n in A.SHEETS}
@@ -502,7 +502,7 @@ def check_pick_year_labels_that_are_not_years_resolve(tmp):
     cur_d, base_d = tmp / "lc", tmp / "lb"
     for d, pk in ((cur_d, cur), (base_d, base)):
         d.mkdir(parents=True, exist_ok=True)
-        pk.to_csv(d / "picks.csv", index=False)
+        pk.to_csv(d / "rookie_picks.csv", index=False)
         pw.to_csv(d / "player_week.csv", index=False)
     c = {n: A._read(cur_d, n) for n in A.SHEETS}
     b = {n: A._read(base_d, n) for n in A.SHEETS}

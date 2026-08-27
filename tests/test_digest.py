@@ -249,7 +249,7 @@ def check_event_highlights():
         "Player Picked": ["P1", "P2", "P3", "P4"],
         "O-Score": [50, 60, 90, 10.0],   # P3 best ever, P4 worst ever
     })
-    ev = D.board_highlights(picks, "picks", window=3)
+    ev = D.board_highlights(picks, "rookie_picks", window=3)
     got = [(e.label, e.column, e.end, e.rank) for e in ev]
     ok = _ok("best pick ever flagged highest",
              ("2025 pick 1.03 (P3)", "O-Score", "high", 1) in got, f"got {got}")
@@ -308,7 +308,7 @@ def check_event_board_diff():
         })
 
     def board(oscores):
-        return D.board_highlights(picks_with(oscores), "picks", window=3)
+        return D.board_highlights(picks_with(oscores), "rookie_picks", window=3)
 
     base = board([50, 60, 90, 10.0])          # high: P3 1st, P2 2nd, P1 3rd; low: P4 1st
     prior = D.event_board(base)
@@ -393,14 +393,14 @@ def check_event_diff_flags_new_rows():
     prior_rows = [(2024, "1.01", "P1", 50), (2024, "1.02", "P2", 60),
                   (2025, "1.03", "P3", 90), (2025, "1.04", "P4", 10.0),
                   (2025, "1.05", "P5", 55)]
-    prior_keys = D.all_row_keys({"picks": picks(prior_rows)})
-    prior = D.event_board(D.board_highlights(picks(prior_rows), "picks", window=3))
+    prior_keys = D.all_row_keys({"rookie_picks": picks(prior_rows)})
+    prior = D.event_board(D.board_highlights(picks(prior_rows), "rookie_picks", window=3))
     # Now: P5 (old, was off the board) is re-valued and climbs to 1st; a genuinely
     # new 2026 pick also lands high; P1 is re-valued upward.
     cur = D.board_highlights(picks([
         (2024, "1.01", "P1", 92), (2024, "1.02", "P2", 60),
         (2025, "1.03", "P3", 90), (2025, "1.04", "P4", 10.0),
-        (2025, "1.05", "P5", 99), (2026, "1.06", "NEW", 95)]), "picks", window=3)
+        (2025, "1.05", "P5", 99), (2026, "1.06", "NEW", 95)]), "rookie_picks", window=3)
     by = {c.label: c for c in D.diff_events(prior, cur, prior_row_keys=prior_keys)}
     new = by.get("2026 pick 1.06 (NEW)")
     climber = by.get("2025 pick 1.05 (P5)")
@@ -653,12 +653,12 @@ def check_tie_joins_are_said_to_be_ties():
     IS a shared value. Saying "passes X for lowest" while X is still standing on
     it states the opposite of what happened."""
     def hl(key, label, rank, value):
-        return D.EventHighlight(sheet="picks", label=label, column="KTC",
+        return D.EventHighlight(sheet="rookie_picks", label=label, column="KTC",
                                 end="low", rank=rank, value=value, key=key)
 
-    prior = [{"sheet": "picks", "key": "k06", "label": "pick 4.06",
+    prior = [{"sheet": "rookie_picks", "key": "k06", "label": "pick 4.06",
               "column": "KTC", "end": "low", "rank": 1, "value": 0.0},
-             {"sheet": "picks", "key": "k07", "label": "pick 4.07",
+             {"sheet": "rookie_picks", "key": "k07", "label": "pick 4.07",
               "column": "KTC", "end": "low", "rank": 2, "value": 5.0}]
     # 4.07 is re-valued down to 0 and lands ON 4.06's place rather than below it.
     joined = [hl("k06", "pick 4.06", 1, 0.0), hl("k07", "pick 4.07", 1, 0.0)]
@@ -713,7 +713,7 @@ def check_section_reading_order():
     """Inside a section: every 1st place before every 2nd, and within one place
     the stats the league argues about before the diagnostics."""
     def mv(label, col, rank):
-        return D.EventCrossing(sheet="picks", label=label, passed=("X",), column=col,
+        return D.EventCrossing(sheet="rookie_picks", label=label, passed=("X",), column=col,
                                end="low", rank=rank, value=1.0)
 
     items = [mv("first_diagnostic", "Pick-adjusted Difference in KTC", 1),
@@ -737,7 +737,7 @@ def check_bullet_groups_stay_together_at_their_best_place():
     else's would spend exactly that. So it stays whole and takes the position of
     its BEST item — and orders internally by the same rule."""
     def mv(label, col, rank):
-        return D.EventCrossing(sheet="picks", label=label, passed=("X",), column=col,
+        return D.EventCrossing(sheet="rookie_picks", label=label, passed=("X",), column=col,
                                end="low", rank=rank, value=1.0)
 
     items = [mv("solo", "O-Score", 2),
@@ -766,7 +766,7 @@ def check_records_are_first_places():
     ok = _ok("a record carries a place", rec.rank == 1, rec.rank)
     ok &= _ok("and sorts as one", D._order_key(rec)[0] == 1)
 
-    fifth = D.EventCrossing(sheet="picks", label="z", passed=("X",), column="O-Score",
+    fifth = D.EventCrossing(sheet="rookie_picks", label="z", passed=("X",), column="O-Score",
                             end="low", rank=5, value=1.0)
     html = D._grouped_section_html("T", [fifth, rec])
     ok &= _ok("so it leads a 5th place it shares a section with",
@@ -794,7 +794,7 @@ def check_order_is_stable():
     """Equal items must not reshuffle between builds: the audit diffs this email's
     inputs, and a cosmetic reshuffle would read as movement."""
     def mv(label):
-        return D.EventCrossing(sheet="picks", label=label, passed=("X",), column="O-Score",
+        return D.EventCrossing(sheet="rookie_picks", label=label, passed=("X",), column="O-Score",
                                end="low", rank=1, value=1.0)
 
     items = [mv("a"), mv("b"), mv("c")]

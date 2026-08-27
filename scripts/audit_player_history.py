@@ -44,7 +44,7 @@ def load_history_comments(xlsx_path: Path) -> dict[str, str]:
 
     wb = openpyxl.load_workbook(xlsx_path, read_only=False)
     out: dict[str, str] = {}
-    for sheet in ("player_all_time", "picks"):
+    for sheet in ("player_all_time", "non_rookie_picks", "rookie_picks"):
         if sheet not in wb.sheetnames:
             continue
         ws = wb[sheet]
@@ -116,7 +116,7 @@ def main() -> int:
             seen_player[name] = v
     for k, v in comments.items():
         sheet, name = k.split(":", 1)
-        if sheet == "picks":
+        if sheet in ("non_rookie_picks", "rookie_picks"):
             seen_player.setdefault(name, v)
 
     all_breaks = []

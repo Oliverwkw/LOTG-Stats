@@ -10,17 +10,25 @@ same-round picks originally its own (e.g. BROsenzweig's 2025 5.02/5.03/5.06, or 
 collapse into one bucket, so a pick linked to a sibling instead of its own trade.
 
 Reads built CSVs (default <repo>/exports or $LOTG_EXPORTS); SKIPS when absent.
+
+A "PH#N" ref is the picks FRAME's positional index, and the frame ships as two
+interleaved sheets, so the frame is rebuilt in build order from
+`raw/pick_ref_index.csv` before any of the row numbers below mean anything.
 """
 from __future__ import annotations
 
 import csv
 import os
 import re
+import sys
 from pathlib import Path
 
 import pytest
 
 _ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(_ROOT / "lib"))
+
+from lotg_support import pick_index  # noqa: E402
 
 
 def _exports_dir() -> Path:
@@ -37,13 +45,20 @@ def _refs(v):
             if r.strip() and re.match(r"(PH#|T#|#)\d+$", r.strip())]
 
 
-@pytest.mark.skipif(not (_exports_dir() / "picks.csv").exists(),
+@pytest.mark.skipif(not (_exports_dir() / "non_rookie_picks.csv").exists(),
                     reason="no build present")
 def test_pick_chain_link_integrity():
     d = _exports_dir()
     tx = _rows(d / "add_drops.csv")
     tr = _rows(d / "trades.csv")
-    ph = _rows(d / "picks.csv")
+    # The picks frame in BUILD order — NOT the two sheets concatenated, which is
+    # a different order and would point every PH# ref at the wrong row. A build
+    # that stopped emitting the map fails here rather than quietly skipping:
+    # this is the only committed guard on the PH# invariant.
+    ph = pick_index.order_rows(d, {s: _rows(d / f"{s}.csv") for s in pick_index.SHEETS})
+    assert ph is not None, (
+        f"no usable {pick_index.RAW_SUBDIR}/{pick_index.FILE_NAME} under {d} — "
+        "PH# refs cannot be resolved, so this guard cannot run")
     maxn = {"#": len(tx), "T#": len(tr), "PH#": len(ph)}
 
     def inrange(ref):
@@ -62,6 +77,8 @@ def test_pick_chain_link_integrity():
                    "Link to previous transaction per asset"],
         "picks": ["Link to next transaction", "Link to previous transaction"],
     }
+    # "picks" here names the rebuilt FRAME, which is what PH#N counts through —
+    # the rows come from both sheets.
     for sheet, rows in (("add_drops", tx), ("trades", tr), ("picks", ph)):
         for i, row in enumerate(rows):
             for c in link_cols[sheet]:

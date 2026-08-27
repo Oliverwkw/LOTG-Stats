@@ -29,7 +29,8 @@ _SHEETS = [
     "player_week", "player_year", "player_all_time",
     "team_week", "team_year", "team_all_time",
     "league_week", "league_year", "league_all_time",
-    "add_drops", "player_additions", "trades", "picks",
+    "add_drops", "player_additions", "trades",
+    "non_rookie_picks", "rookie_picks",
 ]
 
 # Columns that can legitimately be negative — never range-check them as counts.

@@ -45,4 +45,5 @@ These tables match the column lists in your plan:
 - `league_all_time.csv`
 - `transactions.csv`
 - `trades.csv`
-- `picks.csv`
+- `non_rookie_picks.csv` — the 2020 startup draft + the 2021 supplemental veteran draft
+- `rookie_picks.csv` — every rookie draft
