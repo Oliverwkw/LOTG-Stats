@@ -5971,8 +5971,11 @@ def build_all(repo_root: Path) -> None:
                         # is the PRIMARY source — it's the historical, per-week
                         # snapshot of Sleeper's own diagnoses, so it DECIDES this
                         # (player, season, week) outright: it sets the flags when
-                        # Sleeper says Out / IR / PUP / Sus, and clears the
-                        # nflverse/meta guesses above when it doesn't. Covers
+                        # Sleeper carries a designation that guarantees he did
+                        # not play (a game-day inactive, or a reserve list he is
+                        # ineligible to play from — see injury_tracker's
+                        # _INJURY_TOKENS), and clears the nflverse/meta guesses
+                        # above when it doesn't. Covers
                         # injury, suspension AND bye (bye via the captured NFL
                         # team vs the fixed schedule, so traded players get the
                         # right bye). Empty until 2026 wk1 -> a no-op on

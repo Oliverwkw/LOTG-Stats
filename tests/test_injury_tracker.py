@@ -6,8 +6,10 @@ path the build uses — Sleeper snapshot -> capture_rows -> CSV -> load_status_i
 -> apply_overlay — with a fixture NFL schedule in nflverse's own spelling, and
 asserts the two rules the sheet has to get right:
 
-  * only Sleeper's Out / IR / PUP / Sus flag a week (not Questionable, Doubtful,
-    COV, NFI or a bare 0.00), and
+  * only a designation that GUARANTEES he did not play flags a week — a game-day
+    inactive (Out, Sus) or a reserve list he is ineligible to play from (IR, PUP,
+    NFI, COV, DNR) — and not Questionable, Doubtful, Practice Squad or a bare
+    0.00, and
   * a player who TOOK THE FIELD is never flagged, however the week ended for him.
 
 The named case is Xavier Worthy, 2025 week 1: hurt on the opening drive, 1
@@ -109,10 +111,18 @@ WEEK = [
      (False, False, False), "Questionable is a game-time label, not a miss"),
     ("doubtful", "Doubtful Sort", "WR", "BUF", "Doubtful", "Active", False, 0.0,
      (False, False, False), "Doubtful alone does not flag"),
-    ("covid", "Covid List", "TE", "MIN", "COV", "COV", False, 0.0,
-     (False, False, False), "COV excluded by spec"),
+    ("covid", "Covid List", "TE", "MIN", "COV", "Inactive", False, 0.0,
+     (True, False, False), "COV reserve list: ineligible to play"),
     ("nfi", "Non Football", "RB", "NO", "", "Non Football Injury", False, 0.0,
-     (False, False, False), "NFI excluded by spec"),
+     (True, False, False), "NFI reserve list: ineligible to play"),
+    ("dnr", "Did Not Report", "WR", "LV", "DNR", "Active", False, 0.0,
+     (True, False, False), "DNR: on the did-not-report list, cannot play"),
+    ("na_tag", "Ambiguous NA", "TE", "IND", "NA", "Active", False, 0.0,
+     (False, False, False), "NA guarantees nothing — 26 carry it while Active"),
+    ("prac_squad", "Practice Squad", "QB", "ATL", "", "Practice Squad", False, 0.0,
+     (False, False, False), "practice squad can be elevated and play"),
+    ("no_nfl_team", "Cut Loose", "RB", "JAX", "", "Inactive", False, 0.0,
+     (False, False, False), "roster status, not a game-day inactive"),
     ("healthy_bench", "Healthy Backup", "QB", "PHI", "", "Active", False, 0.0,
      (False, False, False), "healthy scratch: the old default-to-injury guess"),
     ("rams_star", "Rams Starter", "WR", "LAR", "", "Active", True, 12.4,
@@ -228,13 +238,19 @@ def test_nflverse_fallback_clears_when_sleeper_has_no_participation():
 
 
 def test_designations():
+    # Guarantees he did not play: a game-day inactive, or a reserve list he is
+    # ineligible to play from.
     for s in ("out", "ir", "ir-r", "pup", "injured reserve", "physically unable to perform",
-              "out inactive", "ir injured reserve"):
+              "out inactive", "ir injured reserve", "cov", "cov inactive", "covid",
+              "reserve/covid-19", "nfi", "non football injury", "dnr", "did not report"):
         assert it.designation(s) == "injury", s
     for s in ("sus", "susp inactive", "suspended"):
         assert it.designation(s) == "suspension", s
+    # Guarantees nothing: game-time labels, an elevatable practice squad, a
+    # roster status, and Sleeper's ambiguous NA.
     for s in ("", "active", "questionable", "questionable active", "doubtful",
-              "cov", "na", "dnr", "inactive", "non football injury", "practice squad"):
+              "doubtful active", "na", "na active", "inactive", "practice squad",
+              "practice squad na"):
         assert it.designation(s) is None, s
 
 

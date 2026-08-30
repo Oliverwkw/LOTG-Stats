@@ -14,10 +14,13 @@ Sleeper-meta logic — i.e. a no-op on all historical data.
 
 WHAT COUNTS AS A MISSED WEEK (the two rules this module enforces)
 ----------------------------------------------------------------
-1. ONLY Sleeper's Out / IR / PUP / Sus designations flag a week. Questionable
-   and Doubtful are *game-time* labels that most often end with the player
-   suiting up, so they no longer flag anything; neither do the residual
-   COV / DNR / NA / Inactive markers.
+1. ONLY a designation that GUARANTEES the player did not play flags a week — a
+   game-day inactive (Out, Sus) or a reserve list he is ineligible to play from
+   (IR, PUP, NFI, COV, DNR). Questionable and Doubtful are *game-time* labels
+   that most often end with the player suiting up, so they flag nothing; nor
+   does Practice Squad (elevatable), Sleeper's roster-level "Inactive", or the
+   ambiguous "NA". The full vocabulary and the reasoning per value is at
+   `_INJURY_TOKENS` below.
 2. A player who TOOK THE FIELD is never flagged, even at 0.00 points. The
    snapshot is taken after the week's games, so a player hurt DURING a game
    carries the injury label that the injury happened in — Xavier Worthy, 2025
@@ -66,11 +69,37 @@ _TEAM_ALIASES = {
     "GNB": "GB", "JAC": "JAX", "CLV": "CLE", "BLT": "BAL", "HST": "HOU",
 }
 
-# Sleeper designations that mean the player MISSED the week. Deliberately short:
-# Out / IR / PUP for injury, Sus for suspension. Matched as whole tokens (plus
-# the two long-form `status` spellings) so "ir" can never match inside a word.
-_INJURY_TOKENS = {"out", "ir", "pup"}
-_INJURY_PHRASES = ("injured reserve", "physically unable")
+# Sleeper designations that GUARANTEE the player did not play. The full
+# vocabulary Sleeper emits, counted over the committed 12,225-player snapshot
+# (exports/snapshot/sleeper_players_nfl.json):
+#
+#   status:         Active · Inactive · Injured Reserve · Physically Unable to
+#                   Perform · Practice Squad · Non Football Injury
+#   injury_status:  Questionable · IR · NA · PUP · Sus · Out · DNR · COV · Doubtful
+#
+# FLAGGED — each one is a game-day inactive or a reserve list, and a player on a
+# reserve list is ineligible to play, so absence is certain:
+#   Out · IR (+IR-R, "Injured Reserve") · PUP ("Physically Unable to Perform")
+#   NFI ("Non Football Injury") · COV (reserve/COVID) · DNR ("Did Not Report")
+#   Sus (the suspension bucket)
+#
+# NOT FLAGGED, and why:
+#   Questionable / Doubtful — game-time labels; the player usually suits up.
+#   Practice Squad — can be elevated for the week and play.
+#   Inactive — Sleeper's roster status (3,430 of 12,225 players: free agents, cut
+#     and retired players), not a game-day inactive. It says nothing about a
+#     given week, and the build's own team/bye logic already routes players with
+#     no NFL team to Bye? — which is the audit fix that stopped retired
+#     meme-pickups (Brady '24/'25, Brees '24) counting as injuries.
+#   NA — genuinely ambiguous: 92 players carry it, 26 of them alongside status
+#     "Active", so it cannot simply mean "not on a roster". It guarantees
+#     nothing we can defend, so it decides nothing.
+#
+# Matched as whole tokens (plus the long-form `status` spellings as phrases) so
+# "ir" can never match inside a word.
+_INJURY_TOKENS = {"out", "ir", "pup", "nfi", "cov", "covid", "dnr"}
+_INJURY_PHRASES = ("injured reserve", "physically unable", "non football injury",
+                   "did not report", "reserve covid")
 _SUSPENSION_TOKENS = {"sus", "susp", "suspended", "suspension"}
 
 # Sleeper stat keys that only carry a value when the player was on the field.
@@ -88,7 +117,9 @@ def normalize_team(team: Any) -> str:
 def designation(status: Optional[str]) -> Optional[str]:
     """'suspension' | 'injury' | None for a combined injury_status+status string.
 
-    ONLY Out / IR / PUP / Sus qualify — see rule 1 in the module docstring."""
+    Only a designation that guarantees the player did not play qualifies — see
+    rule 1 in the module docstring and the per-value reasoning at
+    `_INJURY_TOKENS`."""
     words = [w for w in re.split(r"[^a-z0-9]+", str(status or "").lower()) if w]
     if not words:
         return None
