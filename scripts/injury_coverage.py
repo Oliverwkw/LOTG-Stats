@@ -40,19 +40,19 @@ import pandas as pd
 _ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(_ROOT / "lib"))
 
-from lotg_support.injury_tracker import _INJURY_TERMS, tracker_path  # noqa: E402
+from lotg_support.injury_tracker import designation, tracker_path  # noqa: E402
 
 
 def _classify(injury_status: str, status: str) -> str:
-    """Bucket a captured Sleeper status the way the build's overlay reads it."""
+    """Bucket a captured Sleeper status the way the build's overlay reads it.
+
+    Shares the build's own classifier, so "injury" here means exactly what gets
+    flagged in the sheet: Out / IR / PUP (and Sus for suspension). A player
+    carrying only Questionable or Doubtful counts as healthy — which is what the
+    overlay does with him — so this report cannot quietly disagree with the
+    build about what the capture said."""
     s = (str(injury_status or "") + " " + str(status or "")).strip().lower()
-    if not s:
-        return "healthy"
-    if "sus" in s:
-        return "suspension"
-    if any(t in s for t in _INJURY_TERMS):
-        return "injury"
-    return "healthy"
+    return designation(s) or "healthy"
 
 
 def load_captures(root: Path) -> List[dict]:

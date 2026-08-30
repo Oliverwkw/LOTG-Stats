@@ -110,8 +110,8 @@ if str(SUPPORT_ROOT) not in sys.path:
 from lotg_support.utils import HttpConfig, safe_div, clean_name, safe_bool
 from lotg_support.sleeper import SleeperClient
 from lotg_support.injury_tracker import (
+    apply_overlay as _apply_injury_overlay,
     load_status_index as _load_injury_tracker,
-    resolve_injury_flags as _resolve_injury_flags,
 )
 from lotg_support.external import (
     ExternalConfig,
@@ -5969,25 +5969,31 @@ def build_all(repo_root: Path) -> None:
 
                         # PR E fix B: the in-house weekly Sleeper injury tracker
                         # is the PRIMARY source — it's the historical, per-week
-                        # snapshot of Sleeper's own diagnoses, so it overrides the
-                        # nflverse/meta inference above when it has this exact
-                        # (player, season, week). Covers injury, suspension AND
-                        # bye (bye via the captured NFL team vs the fixed
-                        # schedule, so traded players get the right bye). Empty
-                        # until 2026 wk1 -> a no-op on historical data.
+                        # snapshot of Sleeper's own diagnoses, so it DECIDES this
+                        # (player, season, week) outright: it sets the flags when
+                        # Sleeper says Out / IR / PUP / Sus, and clears the
+                        # nflverse/meta guesses above when it doesn't. Covers
+                        # injury, suspension AND bye (bye via the captured NFL
+                        # team vs the fixed schedule, so traded players get the
+                        # right bye). Empty until 2026 wk1 -> a no-op on
+                        # historical data.
+                        #
+                        # A player who took the field is never flagged, however
+                        # the week ended for him. `played` prefers Sleeper's own
+                        # participation capture (live, frozen into the tracker
+                        # the night of the games) and falls back to nflverse's
+                        # played set — which is authoritative but lands ~2-3 days
+                        # later, so on the Tuesday build the week may not be in
+                        # it at all. Absent week => None (unknown), NOT "didn't
+                        # play": guessing "didn't play" there is what would turn
+                        # a hurt-in-game 0.0 into a phantom injury week.
                         _trk = injury_tracker_idx.get((str(pid), int(season), int(wk)))
                         if _trk:
-                            _ov = _resolve_injury_flags(_trk.get("status"), _trk.get("bye"), pts)
-                            if _ov is not None:
-                                _oi, _os, _ob = _ov
-                                if _ob is True:
-                                    bye = True
-                                    inj = False
-                                    susp = False
-                                elif bye is not True:
-                                    # Don't override a real bye with injury/suspension.
-                                    inj = _oi
-                                    susp = _os
+                            _played = True if _trk.get("played") is True else None
+                            if _played is None and gsis and int(wk) in played_players_by_week:
+                                _played = str(gsis) in played_players_by_week[int(wk)]
+                            inj, susp, bye = _apply_injury_overlay(
+                                _trk, pts, _played, inj, susp, bye)
 
                         if inj is None:
                             inj = False
