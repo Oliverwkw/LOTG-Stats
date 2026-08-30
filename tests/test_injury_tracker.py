@@ -300,6 +300,186 @@ def test_season_from_date():
     assert it.season_from_date(datetime(2027, 1, 5).date()) == 2026   # week 18 tail
 
 
+def test_a_curated_flag_is_never_cleared_or_reclassified():
+    """data/suspensions.csv and data/injuries.csv are hand-written because no
+    feed reports the fact — nflverse's game-status report does not list suspended
+    players at all, and Sleeper carries "Sus" for ten players league-wide and only
+    while it is current. So an all-clear tracker week must leave a curated week
+    exactly as the human wrote it, or the next commissioner-added suspension
+    silently stops existing the moment the tracker covers its weeks."""
+    clear = {"status": "active", "bye": False, "played": None}
+    # Rashee Rice 2025 wks 1-6 is the live shape: curated suspension, Sleeper Active.
+    assert it.apply_overlay(clear, 0.0, None, False, True, False, curated=True) == (False, True, False)
+    assert it.apply_overlay(clear, 0.0, None, True, False, False, curated=True) == (True, False, False)
+    # ...and the tracker may not RECLASSIFY it either (curated suspension, Sleeper IR).
+    ir = {"status": "ir injured reserve", "bye": False, "played": None}
+    assert it.apply_overlay(ir, 0.0, None, False, True, False, curated=True) == (False, True, False)
+    # Uncurated is unchanged: the tracker still decides those outright.
+    assert it.apply_overlay(clear, 0.0, None, True, False, False, curated=False) == (False, False, False)
+    assert it.apply_overlay(clear, 0.0, None, False, True, False, curated=False) == (False, False, False)
+    # A bye still outranks a curated week, exactly as it does everywhere else.
+    on_bye = {"status": "active", "bye": True, "played": None}
+    assert it.apply_overlay(on_bye, 0.0, None, False, True, False, curated=True) == (False, False, True)
+    # A player who took the field is still not flagged, curated or not — but the
+    # curated week is left alone rather than overwritten with a guess.
+    assert it.apply_overlay(clear, 0.0, True, False, True, False, curated=True) == (False, True, False)
+    # curated defaults to False, so every existing caller keeps its behaviour.
+    assert it.apply_overlay(clear, 0.0, None, True, False, False) == (False, False, False)
+
+
+def test_the_tracker_is_forward_only():
+    """2025 and earlier were built by the nflverse/meta process and keep its
+    flags. A row for one of those seasons is dropped on load, so no capture — a
+    mistaken `--season 2024`, a hand-edited CSV — can reach back into a season
+    that is already published."""
+    sc = _MockSleeper(WEEK)
+    with _fixture_nfl_schedule(), tempfile.TemporaryDirectory() as d:
+        root = Path(d)
+        rows = it.capture_rows(sc, 2026, 1)
+        old = [dict(r, season=2025) for r in rows] + [dict(r, season=2020) for r in rows]
+        it.merge_into_csv(root, old + rows)
+        idx = it.load_status_index(root)
+        assert {k[1] for k in idx} == {2026}, sorted({k[1] for k in idx})
+        assert len(idx) == len(WEEK)
+    assert it.TRACKER_FIRST_SEASON == 2026
+
+
+def test_the_schedule_stops_at_the_regular_season():
+    """games.csv carries the postseason as weeks 19-22 (WC/DIV/CON/SB). Filing
+    those would put four junk blocks a season in the CSV — and `on_bye` for a
+    playoff week marks every eliminated team as being on a bye."""
+    import types
+    csv_text = (
+        "season,game_type,week,gameday,away_team,home_team\n"
+        "2026,REG,1,2026-09-10,LA,SEA\n"
+        "2026,REG,18,2027-01-10,SEA,LA\n"
+        "2026,WC,19,2027-01-16,LA,SEA\n"
+        "2026,DIV,20,2027-01-23,LA,SEA\n"
+        "2026,CON,21,2027-01-30,LA,SEA\n"
+        "2026,SB,22,2027-02-13,LA,SEA\n"
+    )
+    fake = types.SimpleNamespace(
+        get=lambda url, timeout=30: types.SimpleNamespace(
+            text=csv_text, raise_for_status=lambda: None))
+    saved_mod, saved_cache = sys.modules.get("requests"), dict(it._SCHEDULE_CACHE)
+    sys.modules["requests"] = fake
+    it._SCHEDULE_CACHE.clear()
+    try:
+        sched = it._fetch_schedule(2026)
+        assert sorted(sched) == [1, 18], sorted(sched)
+        # Read off _fetch_schedule's own return rather than the module-global
+        # teams_playing, which another test module is free to have replaced.
+        assert sched[1]["teams"] == {"LAR", "SEA"}   # nflverse "LA" normalised
+        # January, after week 18: the week does not creep into the playoffs.
+        assert it.week_from_schedule(2026, datetime(2027, 1, 12, 5, 0, tzinfo=UTC)) == 18
+        assert it.week_from_schedule(2026, datetime(2027, 1, 19, 5, 0, tzinfo=UTC)) == 18
+        assert it.week_from_schedule(2026, datetime(2027, 2, 2, 5, 0, tzinfo=UTC)) == 18
+    finally:
+        it._SCHEDULE_CACHE.clear()
+        it._SCHEDULE_CACHE.update(saved_cache)
+        if saved_mod is None:
+            sys.modules.pop("requests", None)
+        else:
+            sys.modules["requests"] = saved_mod
+
+
+def test_sleeper_state_only_shouts_at_a_real_disagreement():
+    """Sleeper's state rolls to the next week some time after the Monday night
+    game, so on a Tuesday capture it is normally one ahead. Warning on that every
+    week would train us to ignore the one week it means something."""
+    assert it.state_week_drift(5, 5) == "agree"
+    assert it.state_week_drift(6, 5) == "rolled"     # the ordinary Tuesday picture
+    assert it.state_week_drift(4, 5) == "drift"      # lagging: real
+    assert it.state_week_drift(7, 5) == "drift"      # two ahead: real
+    assert it.state_week_drift(None, 5) == "unknown"
+    assert it.state_week_drift(5, None) == "unknown"
+
+
+def test_sleepers_empty_roster_slot_is_not_a_player():
+    """Sleeper pads `starters` with the string "0" for an unfilled slot (9 of them
+    across the 2026 rosters). Capturing it writes a nameless, teamless row."""
+    class _WithSentinel(_MockSleeper):
+        def rosters(self):
+            return [{"players": list(self.spec) + ["0"], "starters": ["0", "0"],
+                     "taxi": [], "reserve": [None, ""]}]
+    with _fixture_nfl_schedule():
+        rows = it.capture_rows(_WithSentinel(WEEK), 2026, 1)
+    assert {r["player_id"] for r in rows} == set(p[0] for p in WEEK)
+    assert len(rows) == len(WEEK)
+
+
+def test_the_committed_tracker_header_matches_the_schema():
+    """The seed file is what the first capture merges into; a header that has
+    drifted from TRACKER_COLUMNS is a schema disagreement sitting in the repo."""
+    path = it.tracker_path(_ROOT)
+    if not path.exists():
+        return
+    assert path.open().readline().strip().split(",") == it.TRACKER_COLUMNS
+
+
+def _load_capture_script():
+    import importlib.util
+    spec = importlib.util.spec_from_file_location(
+        "_cap_under_test", _ROOT / "scripts" / "capture_injuries.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+class _Args:
+    def __init__(self, **kw):
+        self.season = kw.get("season"); self.week = kw.get("week")
+        self.force = kw.get("force", False); self.dry_run = kw.get("dry_run", False)
+
+
+def test_capture_script_refuses_to_overwrite_or_reach_backwards():
+    """main()'s three refusal paths. The scheduled one matters most: once the
+    regular season is over the schedule keeps resolving to week 18, so every
+    remaining January Tuesday would otherwise replace week 18's real snapshot
+    with a mid-playoffs one."""
+    cap = _load_capture_script()
+    sc = _MockSleeper(WEEK)
+
+    with _fixture_nfl_schedule(), tempfile.TemporaryDirectory() as d:
+        root = Path(d)
+        (root / "config").mkdir()
+        (root / "config" / "league.yaml").write_text("league_id: '1'\n")
+        saved = (cap.ROOT, cap.SleeperClient, cap.week_from_schedule,
+                 cap.capture_rows, cap.played_index)
+        cap.ROOT = root
+        cap.SleeperClient = lambda *a, **k: sc
+        cap.week_from_schedule = lambda season, timeout=30: 1
+        cap.capture_rows = lambda _sc, season, week, played=None: it.capture_rows(sc, season, week)
+        cap.played_index = lambda *a, **k: {}
+        try:
+            argv = sys.argv
+            sys.argv = ["capture_injuries.py"]
+            try:
+                assert cap.main() == 0                       # fresh capture
+                assert it.weeks_present(root, 2026) == {1}
+                first = it.tracker_path(root).read_text()
+
+                assert cap.main() == 0                       # scheduled re-run: SKIP
+                assert it.tracker_path(root).read_text() == first, \
+                    "a scheduled re-run overwrote an existing block"
+
+                sys.argv = ["capture_injuries.py", "--week", "1"]
+                assert cap.main() == 1                       # explicit --week: REFUSE
+
+                sys.argv = ["capture_injuries.py", "--season", "2024", "--week", "3"]
+                assert cap.main() == 1                       # before TRACKER_FIRST_SEASON
+                assert it.weeks_present(root, 2024) == set()
+
+                sys.argv = ["capture_injuries.py", "--week", "1", "--force", "--dry-run"]
+                assert cap.main() == 0                       # --force + --dry-run writes nothing
+                assert it.tracker_path(root).read_text() == first
+            finally:
+                sys.argv = argv
+        finally:
+            (cap.ROOT, cap.SleeperClient, cap.week_from_schedule,
+             cap.capture_rows, cap.played_index) = saved
+
+
 # --------------------------------------------------------------------------
 def _render():
     """Print the synthetic week as the sheet would see it."""

@@ -35,6 +35,15 @@ Consequently a tracked week is decided ENTIRELY here: when Sleeper carries no
 qualifying designation the overlay actively CLEARS the flags rather than leaving
 the build's "rostered, scored 0, therefore injured" guess standing. That guess is
 what used to stamp Injury? on healthy bench players.
+
+TWO THINGS THE OVERLAY IS NOT ALLOWED TO TOUCH
+----------------------------------------------
+* A season before TRACKER_FIRST_SEASON. The tracker is forward-only: 2025 and
+  earlier were built by the nflverse/meta process and keep the flags it gave
+  them, so no capture — however it got into the CSV — can reach back into a
+  season that is already published. load_status_index() drops those rows.
+* A week whose flags a human wrote down by hand, in data/suspensions.csv or
+  data/injuries.csv. See the `curated` argument of apply_overlay().
 """
 from __future__ import annotations
 
@@ -55,6 +64,25 @@ TRACKER_COLUMNS = [
 # NOT the lagging weekly stats feed.
 _SCHEDULE_URL = "https://github.com/nflverse/nflverse-data/releases/download/schedules/games.csv"
 
+# The schedule file carries the POSTSEASON too, as weeks 19-22 (WC/DIV/CON/SB).
+# Only REG rows are kept, so a captured week is always a week the fantasy league
+# actually plays. Without this the January cron — which fires on every Tuesday of
+# the month — filed weeks 19, 20 and 21 every season (22, the Super Bowl, falls
+# in February, when the cron does not fire), and `on_bye` for a playoff week
+# marks all 20-28 teams whose season is over as being on a bye.
+_REGULAR_SEASON_GAME_TYPE = "REG"
+
+# The tracker's first capture. Rows before this are refused by
+# load_status_index(), so the overlay can never reach a season that was built
+# under the nflverse/meta process — history stays on the process that produced
+# it, whatever ends up in the CSV.
+TRACKER_FIRST_SEASON = 2026
+
+# Sleeper pads a roster's `starters` list with the string "0" for an empty slot.
+# It is not a player, and capturing it writes one nameless, teamless row per
+# capture (9 such slots across the 2026 rosters).
+_ROSTER_SENTINEL_PIDS = {"0"}
+
 # nflverse and Sleeper do not spell every franchise the same way. The Rams are
 # "LA" in nflverse's schedule and "LAR" on Sleeper, so a raw string compare put
 # every Rams player on a bye every week of the season. Both sides of every team
@@ -74,7 +102,8 @@ _TEAM_ALIASES = {
 # (exports/snapshot/sleeper_players_nfl.json):
 #
 #   status:         Active · Inactive · Injured Reserve · Physically Unable to
-#                   Perform · Practice Squad · Non Football Injury
+#                   Perform · Practice Squad · Non Football Injury · "" (45
+#                   players carry no status at all, including all 32 team DSTs)
 #   injury_status:  Questionable · IR · NA · PUP · Sus · Out · DNR · COV · Doubtful
 #
 # FLAGGED — each one is a game-day inactive or a reserve list, and a player on a
@@ -170,12 +199,22 @@ def resolve_injury_flags(status: Optional[str], tracker_bye: Optional[bool],
 
 def apply_overlay(entry: Optional[Dict[str, Any]], points: float,
                   played: Optional[bool], injury: Any, suspension: Any,
-                  bye: Any) -> Tuple[Any, Any, Any]:
+                  bye: Any, curated: bool = False) -> Tuple[Any, Any, Any]:
     """Fold the tracker's verdict into the build's (injury, suspension, bye).
 
     The build calls exactly this, so the whole decision is testable end to end.
     A bye the build derived independently is never overwritten by an
-    injury/suspension — only the tracker's own bye can set one."""
+    injury/suspension — only the tracker's own bye can set one.
+
+    `curated` says the build's flags for this (player, season, week) came from a
+    HAND-WRITTEN file — data/suspensions.csv or data/injuries.csv. Those exist
+    precisely because no feed reports the fact: nflverse's game-status report
+    does not list suspended players at all, and a player on season-ending IR
+    drops off it entirely. Sleeper's dictionary is no better — it carries "Sus"
+    for ten players league-wide at any moment, and only for as long as the
+    suspension is current. So a curated week is left exactly as the human wrote
+    it: the tracker may not clear it, and may not reclassify it. Only a bye
+    outranks it, which is what the build already does everywhere else."""
     if not entry:
         return (injury, suspension, bye)
     ov = resolve_injury_flags(entry.get("status"), entry.get("bye"), points, played)
@@ -185,6 +224,8 @@ def apply_overlay(entry: Optional[Dict[str, Any]], points: float,
     if ov_bye is True:
         return (False, False, True)
     if bye is True:
+        return (injury, suspension, bye)
+    if curated:
         return (injury, suspension, bye)
     return (ov_injury, ov_susp, bye)
 
@@ -216,6 +257,9 @@ def _fetch_schedule(season: int, timeout: int = 30) -> Dict[int, Dict[str, Any]]
         for row in csv.DictReader(io.StringIO(r.text)):
             try:
                 if int(row.get("season")) != season:
+                    continue
+                # Regular season only — see _REGULAR_SEASON_GAME_TYPE.
+                if str(row.get("game_type") or "").strip().upper() != _REGULAR_SEASON_GAME_TYPE:
                     continue
                 wk = int(row.get("week"))
             except Exception:
@@ -271,6 +315,26 @@ def week_from_schedule(season: int, now: Optional[datetime] = None,
     return max(started) if started else None
 
 
+def state_week_drift(state_week: Optional[int], sched_week: Optional[int]) -> str:
+    """'unknown' | 'agree' | 'rolled' | 'drift' for Sleeper's week vs the schedule's.
+
+    Sleeper's /state/nfl points at the week to be PLAYED NEXT and rolls some time
+    after the Monday night game, so by the Tuesday 05:00 UTC capture it has
+    usually already advanced: state == schedule + 1 is the ORDINARY state of the
+    world ('rolled'), not a fault. Warning on it every week would train us to
+    ignore the one week it means something. Anything else — the state lagging
+    behind, or running two or more weeks ahead — is a real disagreement
+    ('drift')."""
+    if state_week is None or sched_week is None:
+        return "unknown"
+    delta = int(state_week) - int(sched_week)
+    if delta == 0:
+        return "agree"
+    if delta == 1:
+        return "rolled"
+    return "drift"
+
+
 def season_from_date(day: Optional[date] = None) -> int:
     """NFL season a date belongs to (Jan/Feb belong to the previous season)."""
     d = day or datetime.now(timezone.utc).date()
@@ -281,12 +345,14 @@ def season_from_date(day: Optional[date] = None) -> int:
 # Capture
 # ---------------------------------------------------------------------------
 def _rostered_pids(sc) -> set:
-    """Every player on any roster slot this week (active + taxi + IR/reserve)."""
+    """Every player on any roster slot this week (active + taxi + IR/reserve).
+
+    Sleeper's empty-slot sentinel ("0") is dropped — see _ROSTER_SENTINEL_PIDS."""
     pids: set = set()
     for r in (sc.rosters() or []):
         for key in ("players", "starters", "taxi", "reserve"):
             for p in (r.get(key) or []):
-                if p:
+                if p and str(p) not in _ROSTER_SENTINEL_PIDS:
                     pids.add(str(p))
     return pids
 
@@ -454,7 +520,13 @@ def load_status_index(repo_root: Path) -> Dict[Tuple[str, int, int], Dict[str, A
     """(player_id, season, week) -> {"status": <combined lowercased injury_status+
     status>, "bye": True/False/None, "played": True/None, "nfl_team": <abbr>} for
     the build's primary injury/suspension/bye overlay. Empty dict when the
-    tracker is absent/empty."""
+    tracker is absent/empty.
+
+    Rows for a season before TRACKER_FIRST_SEASON are dropped. The tracker is
+    forward-only by design — 2025 and earlier were built by the nflverse/meta
+    process and must keep the flags that process gave them — and this is what
+    enforces it, rather than leaving it to depend on nobody ever running
+    `capture_injuries.py --season 2024`."""
     path = tracker_path(repo_root)
     idx: Dict[Tuple[str, int, int], Dict[str, Any]] = {}
     if not path.exists():
@@ -466,6 +538,8 @@ def load_status_index(repo_root: Path) -> Dict[Tuple[str, int, int], Dict[str, A
                     key = (str(r["player_id"]), int(r["season"]), int(r["week"]))
                 except Exception:
                     continue
+                if key[1] < TRACKER_FIRST_SEASON:
+                    continue   # forward-only; see the docstring
                 status = (str(r.get("injury_status") or "") + " "
                           + str(r.get("status") or "")).strip().lower()
                 _b = str(r.get("on_bye") or "").strip().lower()

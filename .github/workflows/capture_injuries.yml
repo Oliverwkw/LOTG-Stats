@@ -9,10 +9,13 @@ name: Capture weekly injuries
 # and still 3 hours before the build's Tuesday 08:00 UTC "week is final" cutoff,
 # so every week reaches the Tuesday 14:00 build with its snapshot in place.
 #
-# The cron fires on every Tuesday in September, including the ones BEFORE
-# kickoff; the script derives its week from the fixed NFL schedule and exits
-# cleanly when no regular-season week has started yet, so a pre-season run
-# cannot file camp PUP/NFI designations as week 1. First real capture: 2026 wk1.
+# The cron fires on every Tuesday in September AND January, including the ones
+# before kickoff and the ones after week 18. The script derives its week from the
+# REGULAR-SEASON rows of the fixed NFL schedule, so a pre-season run exits
+# cleanly (no week has started, no camp PUP/NFI filed as week 1) and a January
+# run after week 18 exits cleanly too (the schedule stops advancing, and a week
+# that already has a block is skipped rather than overwritten with a
+# mid-playoffs snapshot). First real capture: 2026 wk1.
 on:
   schedule:
     - cron: "0 5 * 9-12 2"   # Tuesdays 05:00 UTC, Sep–Dec
@@ -57,13 +60,26 @@ jobs:
         run: pip install --no-cache-dir pyyaml requests
 
       - name: Capture injury snapshot
+        # The dispatch inputs go through the environment, not through string
+        # interpolation into the script body: a `${{ }}` expansion is pasted in
+        # as shell source before bash ever sees it, so an input is a command in
+        # waiting. Quoted "$VAR" expansions cannot be.
+        env:
+          IN_SEASON: ${{ github.event.inputs.season }}
+          IN_WEEK: ${{ github.event.inputs.week }}
+          IN_FORCE: ${{ github.event.inputs.force }}
+          IN_DRY_RUN: ${{ github.event.inputs.dry_run }}
         run: |
-          ARGS=""
-          if [ -n "${{ github.event.inputs.season }}" ]; then ARGS="$ARGS --season ${{ github.event.inputs.season }}"; fi
-          if [ -n "${{ github.event.inputs.week }}" ]; then ARGS="$ARGS --week ${{ github.event.inputs.week }}"; fi
-          if [ "${{ github.event.inputs.force }}" = "true" ]; then ARGS="$ARGS --force"; fi
-          if [ "${{ github.event.inputs.dry_run }}" = "true" ]; then ARGS="$ARGS --dry-run"; fi
-          python scripts/capture_injuries.py $ARGS
+          set -euo pipefail
+          # Seeded with the command itself so it is never empty: expanding an
+          # empty array under `set -u` is an error before bash 4.4, and every
+          # cron run takes exactly that path.
+          CMD=(python scripts/capture_injuries.py)
+          if [ -n "${IN_SEASON:-}" ]; then CMD+=(--season "$IN_SEASON"); fi
+          if [ -n "${IN_WEEK:-}" ]; then CMD+=(--week "$IN_WEEK"); fi
+          if [ "${IN_FORCE:-}" = "true" ]; then CMD+=(--force); fi
+          if [ "${IN_DRY_RUN:-}" = "true" ]; then CMD+=(--dry-run); fi
+          "${CMD[@]}"
 
       - name: Commit snapshot
         # A week's injury picture exists only while Sleeper is showing it, so a

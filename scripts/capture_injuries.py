@@ -1,11 +1,21 @@
 #!/usr/bin/env python3
 """Weekly Sleeper injury snapshot (PR E fix B).
 
-Run by .github/workflows/capture_injuries.yml every Monday night during the
-NFL season. Pulls Sleeper's current injury_status/status for every rostered
+Run by .github/workflows/capture_injuries.yml on Tuesdays at 05:00 UTC during
+the NFL season. Pulls Sleeper's current injury_status/status for every rostered
 player in the league — plus Sleeper's live participation index for the week —
 and appends a (season, week) block to data/injury_tracker.csv, which the main
 build reads as its primary injury/suspension source.
+
+Three things it will REFUSE to do, because each writes a block that is worse
+than the gap it fills:
+  * capture a season before injury_tracker.TRACKER_FIRST_SEASON — those seasons
+    were built by the nflverse/meta process and keep its flags;
+  * re-capture a week that already has a block (the cron keeps firing every
+    January Tuesday after week 18, and the schedule keeps resolving to 18);
+  * write anything at all under --dry-run.
+Both re-capture refusals are lifted by --force, which writes TODAY's statuses
+over that week's real ones.
 
 Uses an UNCACHED Sleeper client so it always reads live data.
 
@@ -31,8 +41,9 @@ sys.path.insert(0, str(ROOT / "lib"))
 from lotg_support.utils import HttpConfig  # noqa: E402
 from lotg_support.sleeper import SleeperClient  # noqa: E402
 from lotg_support.injury_tracker import (  # noqa: E402
-    capture_rows, merge_into_csv, missing_weeks, played_index, season_from_date,
-    state_info, weeks_present, week_from_schedule,
+    TRACKER_FIRST_SEASON, capture_rows, merge_into_csv, missing_weeks,
+    played_index, season_from_date, state_info, state_week_drift, weeks_present,
+    week_from_schedule,
 )
 
 
@@ -51,11 +62,29 @@ def resolve_week(sc, season: int, args) -> tuple:
 
     if sched_week is not None:
         notes.append(f"Schedule says the most recently started week is {sched_week}.")
-        if st["week"] is not None and int(st["week"]) != int(sched_week):
+        # Only a REAL disagreement is escalated to a GitHub annotation (so it
+        # lands in the run summary rather than scrolling past in the log). The
+        # Tuesday roll-forward is not one — see state_week_drift().
+        drift = state_week_drift(st["week"], sched_week)
+        if drift == "agree":
+            notes.append("Sleeper's state agrees with the schedule.")
+        elif drift == "rolled":
             notes.append(
-                f"WARNING: Sleeper's state week ({st['week']}) disagrees with the "
-                f"schedule ({sched_week}). Filing under {sched_week} — the schedule "
-                f"is fixed, Sleeper's state rolls on its own clock.")
+                f"Sleeper's state has already rolled to week {st['week']} "
+                f"(the ordinary Tuesday picture); filing under {sched_week}.")
+        elif drift == "drift":
+            notes.append(
+                f"::warning::Sleeper's state week ({st['week']}) is "
+                f"{int(st['week']) - int(sched_week):+d} weeks from the schedule "
+                f"({sched_week}) — neither agreement nor the usual Tuesday "
+                f"roll-forward. Filing under {sched_week}, because the schedule is "
+                f"fixed and Sleeper's state rolls on its own clock, but check that "
+                f"block.")
+        if st["season_type"] not in (None, "regular"):
+            notes.append(
+                f"::warning::Sleeper says season_type={st['season_type']} while the "
+                f"schedule says regular-season week {sched_week} has started. "
+                f"Filing under {sched_week}.")
         return int(sched_week), notes
 
     # No schedule (fetch failed, or the season has not kicked off yet).
@@ -98,14 +127,31 @@ def main() -> int:
         return 0
 
     season, week = int(season), int(week)
+    if season < TRACKER_FIRST_SEASON:
+        print(f"REFUSING: {season} is before the tracker's first season "
+              f"({TRACKER_FIRST_SEASON}). Seasons up to {TRACKER_FIRST_SEASON - 1} "
+              f"were built by the nflverse/meta process and keep its flags; "
+              f"load_status_index() drops rows before {TRACKER_FIRST_SEASON}, so "
+              f"capturing one would write a block nothing ever reads.")
+        return 1
+
     if week in weeks_present(ROOT, season):
-        if args.week is not None and not args.force:
-            print(f"REFUSING: {season} week {week} already has a captured block and "
-                  f"--week was given explicitly. A re-capture writes TODAY's "
-                  f"statuses over that week's real ones. Pass --force if that is "
-                  f"genuinely what you want.")
-            return 1
-        print(f"Note: replacing the existing {season} week {week} block.")
+        if not args.force:
+            if args.week is not None:
+                print(f"REFUSING: {season} week {week} already has a captured block "
+                      f"and --week was given explicitly. A re-capture writes TODAY's "
+                      f"statuses over that week's real ones. Pass --force if that is "
+                      f"genuinely what you want.")
+                return 1
+            # The routine case, and the reason this is a skip rather than an
+            # overwrite: once the regular season is over the schedule keeps
+            # resolving to week 18, so every remaining January Tuesday would
+            # otherwise replace week 18's real snapshot with a mid-playoffs one.
+            print(f"Nothing to do: {season} week {week} already has a captured "
+                  f"block, and the schedule has not moved on to a new week. "
+                  f"(Pass --force to re-capture it with TODAY's statuses.)")
+            return 0
+        print(f"Note: --force given — replacing the existing {season} week {week} block.")
 
     played = played_index(sc, season, week)
     if not played:
