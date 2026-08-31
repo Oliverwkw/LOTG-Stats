@@ -110,8 +110,8 @@ if str(SUPPORT_ROOT) not in sys.path:
 from lotg_support.utils import HttpConfig, safe_div, clean_name, safe_bool
 from lotg_support.sleeper import SleeperClient
 from lotg_support.injury_tracker import (
+    apply_overlay as _apply_injury_overlay,
     load_status_index as _load_injury_tracker,
-    resolve_injury_flags as _resolve_injury_flags,
 )
 from lotg_support.external import (
     ExternalConfig,
@@ -4133,6 +4133,11 @@ def build_all(repo_root: Path) -> None:
 
             # placeholder to anchor following logic (keep in scope)
         injuries_by_gsis_week: Dict[Tuple[str, int], Tuple[Optional[bool], Optional[bool]]] = {}
+        # (gsis, season, week) keys whose flags come from a HAND-WRITTEN file
+        # (data/suspensions.csv, data/injuries.csv) rather than from a feed. The
+        # Sleeper injury tracker's overlay is not allowed to clear or reclassify
+        # these — see the `curated` argument of injury_tracker.apply_overlay.
+        curated_flag_keys: set = set()
         if not injuries.empty and "gsis_id" in injuries.columns:
             try:
                 inj_df = injuries.copy()
@@ -4179,6 +4184,7 @@ def build_all(repo_root: Path) -> None:
                         continue
                     for wk_n in range(wks, wke + 1):
                         injuries_by_gsis_week[(g, int(season), int(wk_n))] = (False, True)
+                        curated_flag_keys.add((g, int(season), int(wk_n)))
         except Exception as e:
             _log_exc(debug, f"suspensions_overlay_{season}", e)
 
@@ -4212,6 +4218,7 @@ def build_all(repo_root: Path) -> None:
                         if existing is not None and existing[1] is True:
                             continue
                         injuries_by_gsis_week[(g, int(season), int(wk_n))] = (True, False)
+                        curated_flag_keys.add((g, int(season), int(wk_n)))
         except Exception as e:
             _log_exc(debug, f"injuries_overlay_{season}", e)
 
@@ -5969,25 +5976,42 @@ def build_all(repo_root: Path) -> None:
 
                         # PR E fix B: the in-house weekly Sleeper injury tracker
                         # is the PRIMARY source — it's the historical, per-week
-                        # snapshot of Sleeper's own diagnoses, so it overrides the
-                        # nflverse/meta inference above when it has this exact
-                        # (player, season, week). Covers injury, suspension AND
-                        # bye (bye via the captured NFL team vs the fixed
-                        # schedule, so traded players get the right bye). Empty
-                        # until 2026 wk1 -> a no-op on historical data.
+                        # snapshot of Sleeper's own diagnoses, so it DECIDES this
+                        # (player, season, week) outright: it sets the flags when
+                        # Sleeper carries a designation that guarantees he did
+                        # not play (a game-day inactive, or a reserve list he is
+                        # ineligible to play from — see injury_tracker's
+                        # _INJURY_TOKENS), and clears the nflverse/meta guesses
+                        # above when it doesn't. Covers
+                        # injury, suspension AND bye (bye via the captured NFL
+                        # team vs the fixed schedule, so traded players get the
+                        # right bye). Empty until 2026 wk1 -> a no-op on
+                        # historical data.
+                        #
+                        # A player who took the field is never flagged, however
+                        # the week ended for him. `played` prefers Sleeper's own
+                        # participation capture (live, frozen into the tracker
+                        # the night of the games) and falls back to nflverse's
+                        # played set — which is authoritative but lands ~2-3 days
+                        # later, so on the Tuesday build the week may not be in
+                        # it at all. Absent week => None (unknown), NOT "didn't
+                        # play": guessing "didn't play" there is what would turn
+                        # a hurt-in-game 0.0 into a phantom injury week.
                         _trk = injury_tracker_idx.get((str(pid), int(season), int(wk)))
                         if _trk:
-                            _ov = _resolve_injury_flags(_trk.get("status"), _trk.get("bye"), pts)
-                            if _ov is not None:
-                                _oi, _os, _ob = _ov
-                                if _ob is True:
-                                    bye = True
-                                    inj = False
-                                    susp = False
-                                elif bye is not True:
-                                    # Don't override a real bye with injury/suspension.
-                                    inj = _oi
-                                    susp = _os
+                            _played = True if _trk.get("played") is True else None
+                            if _played is None and gsis and int(wk) in played_players_by_week:
+                                _played = str(gsis) in played_players_by_week[int(wk)]
+                            # A week whose flags a human wrote down by hand
+                            # (data/suspensions.csv, data/injuries.csv) is left
+                            # alone: Sleeper carries "Sus" for ten players
+                            # league-wide and only while it is current, so an
+                            # all-clear snapshot would silently erase a curated
+                            # suspension the moment the tracker covered the week.
+                            _curated = bool(gsis) and (
+                                (str(gsis), int(season), int(wk)) in curated_flag_keys)
+                            inj, susp, bye = _apply_injury_overlay(
+                                _trk, pts, _played, inj, susp, bye, curated=_curated)
 
                         if inj is None:
                             inj = False
