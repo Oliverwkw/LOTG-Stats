@@ -580,6 +580,16 @@ class TrackerUnreadable(RuntimeError):
     not recoverable at all."""
 
 
+def _header_is_sane(fieldnames) -> bool:
+    """Does this parse look like the tracker's own header?
+
+    The key columns are what every reader and writer addresses rows by, so a
+    header without them cannot be a tracker file no matter how cleanly it
+    parsed."""
+    got = {str(c or "").strip().lower() for c in (fieldnames or [])}
+    return {"season", "week", "player_id"} <= got
+
+
 def _read_existing(path: Path) -> Tuple[List[Dict[str, Any]], Optional[str]]:
     """Rows already in the tracker, salvaging what a damaged file allows.
 
@@ -593,7 +603,17 @@ def _read_existing(path: Path) -> Tuple[List[Dict[str, Any]], Optional[str]]:
         return [], None
     try:
         with path.open(newline="") as f:
-            return list(csv.DictReader(f)), None
+            reader = csv.DictReader(f)
+            rows = list(reader)
+        # A clean parse is only trustworthy if what came back is a TRACKER file.
+        # csv stopped refusing NUL bytes in Python 3.11 (it raised through 3.10),
+        # and the workflows pin 3.11 — so the file this whole function exists for,
+        # a truncated write full of NULs, parses "successfully" into a garbage
+        # header and zero rows. Taking that as an empty tracker is exactly the
+        # write that replaces the season's history with one capture, so the
+        # header, not the absence of an exception, is what decides.
+        if _header_is_sane(reader.fieldnames):
+            return rows, None
     except Exception:
         pass
     raw = b""
@@ -603,8 +623,9 @@ def _read_existing(path: Path) -> Tuple[List[Dict[str, Any]], Optional[str]]:
         raise TrackerUnreadable(f"{path} could not be read at all: {e}")
     # NUL bytes (a truncated or interrupted write) are what csv refuses outright.
     text = raw.decode("utf-8", errors="replace").replace("\x00", "")
-    rows: List[Dict[str, Any]] = []
+    rows = []
     dropped = 0
+    header_ok = False
     try:
         import io as _io
         reader = csv.DictReader(_io.StringIO(text))
@@ -617,13 +638,19 @@ def _read_existing(path: Path) -> Tuple[List[Dict[str, Any]], Optional[str]]:
                 dropped += 1
                 if dropped > 100000:
                     break
+        header_ok = _header_is_sane(reader.fieldnames)
     except Exception:
         pass
-    if not rows and raw.strip():
+    # An intact header is the whole test. A header-only tracker is the normal
+    # starting state, not damage, so zero rows cannot be the trigger; and a file
+    # whose header is NOT the tracker's is not ours to rewrite however cleanly
+    # its rows happened to parse.
+    if raw.strip() and not header_ok:
         raise TrackerUnreadable(
-            f"{path} holds {len(raw)} bytes and no row survived parsing. Refusing to "
-            f"write, because writing would replace the whole tracker with this one "
-            f"capture. Fix or restore the file (git checkout) and re-run.")
+            f"{path} holds {len(raw)} bytes and no tracker header survived parsing "
+            f"({len(rows)} row(s) recovered). Refusing to write, because writing "
+            f"would replace the whole tracker with this one capture. Fix or restore "
+            f"the file (git checkout) and re-run.")
     return rows, (f"::warning::{path} was damaged: recovered {len(rows)} row(s), "
                   f"dropped {dropped}. The capture below is merged into what was "
                   f"recovered." if (dropped or rows) else None)

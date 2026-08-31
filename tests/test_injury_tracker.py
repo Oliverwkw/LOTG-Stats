@@ -596,6 +596,46 @@ def test_a_midweek_nfl_trade_cannot_invent_a_bye():
     assert _week("LAR", "LAR", played=False)[1] == (False, False, True)
 
 
+def test_an_empty_tracker_is_a_starting_state_not_damage():
+    """The committed tracker is header-only until the first capture ever runs, so
+    "no rows" must stay ordinary — it is what week 1 writes into.
+
+    This is the other side of the NUL guard: that guard cannot key on "parsed to
+    zero rows", because the real file does exactly that. It keys on the HEADER,
+    which is also why csv no longer raising on NUL bytes (Python 3.11 dropped
+    that error, and the workflows pin 3.11) does not put a truncated file back
+    on the accepted path."""
+    new = {c: "" for c in it.TRACKER_COLUMNS}
+    new.update({"season": 2026, "week": 1, "player_id": "p1", "captures": 1,
+                "captured_at_utc": "t", "status": "Active"})
+    with tempfile.TemporaryDirectory() as d:
+        root = Path(d)
+        it.tracker_path(root).parent.mkdir(parents=True)
+        # 1. no file at all
+        assert it._read_existing(it.tracker_path(root)) == ([], None)
+        # 2. header only, exactly as committed
+        it.tracker_path(root).write_text(",".join(it.TRACKER_COLUMNS) + "\n")
+        rows, note = it._read_existing(it.tracker_path(root))
+        assert rows == [] and note is None, (rows, note)
+        it.merge_capture(root, [new], final=True)               # must not refuse
+        assert ("p1", 2026, 1) in it.load_status_index(root)
+        # 3. a completely empty file is not damage either
+        it.tracker_path(root).write_text("")
+        it.merge_capture(root, [new], final=True)
+
+    # 4. a file that parses cleanly but is not a tracker must NOT be written over
+    with tempfile.TemporaryDirectory() as d:
+        root = Path(d)
+        it.tracker_path(root).parent.mkdir(parents=True)
+        it.tracker_path(root).write_text("some,other,csv\n1,2,3\n")
+        try:
+            it.merge_capture(root, [new], final=True)
+        except it.TrackerUnreadable:
+            pass
+        else:
+            raise AssertionError("wrote over a file that is not the tracker")
+
+
 def test_a_damaged_csv_costs_its_damaged_lines_and_nothing_else():
     """The readers degrade to empty on a corrupt file, which is right for them —
     a build with no overlay is still a build. The WRITERS cannot: every writer
