@@ -359,6 +359,19 @@ def gameday_week(season: int, now: Optional[datetime] = None,
     return None
 
 
+def schedule_available(season: int, timeout: int = 30) -> bool:
+    """Could the fixed schedule be read for `season` at all?
+
+    week_from_schedule() and gameday_week() both return None for two completely
+    different reasons — the schedule says no week has started / no game is on
+    today, or the schedule could not be fetched. A caller that cannot tell those
+    apart will treat the pre-season as an outage, which is the one moment
+    Sleeper's /state/nfl is actively misleading: it reports season_type=regular
+    week=1 from before the opener (verified live on 2026-08-31, nine days out).
+    So the two Nones are separated here rather than guessed at."""
+    return bool(_fetch_schedule(season, timeout))
+
+
 def week_from_schedule(season: int, now: Optional[datetime] = None,
                        timeout: int = 30) -> Optional[int]:
     """The most recently STARTED week of `season` as of `now` (UTC).

@@ -62,9 +62,9 @@ from lotg_support.utils import HttpConfig  # noqa: E402
 from lotg_support.sleeper import SleeperClient  # noqa: E402
 from lotg_support.injury_tracker import (  # noqa: E402
     TRACKER_FIRST_SEASON, capture_rows, gameday, gameday_week, merge_capture,
-    sweep_counts,
-    merge_into_csv, missing_weeks, played_index, season_from_date, state_info,
-    state_week_drift, weeks_finalized, week_from_schedule,
+    merge_into_csv, missing_weeks, played_index, schedule_available,
+    season_from_date, state_info, state_week_drift, sweep_counts,
+    weeks_finalized, weeks_present, week_from_schedule,
 )
 
 
@@ -77,6 +77,12 @@ def resolve_week(sc, season: int, args) -> tuple:
         if args.week is not None:
             notes.append(f"Using --week {args.week} (explicit override).")
             return int(args.week), notes
+        if not schedule_available(season):
+            notes.append("::warning::the fixed NFL schedule could not be read, so "
+                         "whether there is a game today is unknown. Skipping — a "
+                         "sweep filed under a guessed week is worse than a missed "
+                         "sweep, which the next gameday's sweep covers anyway.")
+            return None, notes
         wk = gameday_week(season)
         if wk is None:
             notes.append(f"No NFL game on {gameday()} — nothing to sweep.")
@@ -85,7 +91,8 @@ def resolve_week(sc, season: int, args) -> tuple:
                      f"({gameday()}).")
         return int(wk), notes
 
-    sched_week = week_from_schedule(season)
+    have_schedule = schedule_available(season)
+    sched_week = week_from_schedule(season) if have_schedule else None
     if st["week"] is not None:
         notes.append(f"Sleeper /state/nfl: season={st['season']} week={st['week']} "
                      f"season_type={st['season_type']}")
@@ -121,14 +128,38 @@ def resolve_week(sc, season: int, args) -> tuple:
                 f"Filing under {sched_week}.")
         return int(sched_week), notes
 
-    # No schedule (fetch failed, or the season has not kicked off yet).
-    if st["season_type"] == "regular" and st["week"]:
-        notes.append("WARNING: schedule unavailable; falling back to Sleeper's "
-                     f"state week ({st['week']}). Verify this block's week.")
+    # sched_week is None for two entirely different reasons, and conflating them
+    # is a week-1 bug: before the opener the schedule reads fine and simply has no
+    # started week, while Sleeper's /state/nfl already says season_type=regular
+    # week=1 (verified live nine days before the 2026 opener). Falling through to
+    # Sleeper there files the PRE-SEASON injury picture — camp PUP/NFI tags — as
+    # week 1, and then weeks_finalized() says week 1 is done, so the real capture
+    # is skipped. season_type does not save us; it already says "regular".
+    if have_schedule:
+        notes.append(f"The {season} regular season has not started yet — the "
+                     f"schedule read fine and no week has kicked off. Nothing to "
+                     f"capture.")
+        if st["week"] and st["season_type"] == "regular":
+            notes.append(f"(Sleeper's /state/nfl already claims regular-season week "
+                         f"{st['week']}; it rolls before the opener. This is why the "
+                         f"week comes from the schedule.)")
+        return None, notes
+
+    # The schedule really is unreachable. Sleeper's week is only worth trusting
+    # once we can see for ourselves that the season has started, and the tracker
+    # itself is that evidence: a block already captured for an earlier week.
+    if st["season_type"] == "regular" and st["week"] and weeks_present(ROOT, season):
+        notes.append("::warning::the fixed NFL schedule could not be read. Falling "
+                     f"back to Sleeper's state week ({st['week']}) because this "
+                     f"season already has captured blocks, so it has demonstrably "
+                     f"started. Verify this block's week.")
         return int(st["week"]), notes
 
-    notes.append(f"No regular-season week has started yet (season_type="
-                 f"{st['season_type']}). Nothing to capture.")
+    notes.append("::warning::the fixed NFL schedule could not be read, and nothing "
+                 f"has been captured for {season} yet, so there is no way to tell a "
+                 f"pre-season run from an in-season one. Skipping rather than "
+                 f"guessing — Sleeper says season_type={st['season_type']} "
+                 f"week={st['week']}, which it also says before kickoff.")
     return None, notes
 
 

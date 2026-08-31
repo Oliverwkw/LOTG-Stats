@@ -664,6 +664,75 @@ class _Args:
     def __init__(self, **kw):
         self.season = kw.get("season"); self.week = kw.get("week")
         self.force = kw.get("force", False); self.dry_run = kw.get("dry_run", False)
+        self.mode = kw.get("mode", "final")
+
+
+class _State:
+    """Just /state/nfl, which is all resolve_week reads off the client."""
+    def __init__(self, **kw):
+        self.state = kw
+
+    def get(self, path):
+        return self.state if "/state/nfl" in str(path) else None
+
+
+def test_the_two_reasons_the_schedule_gives_no_week_are_not_the_same():
+    """week_from_schedule() returns None both before the opener and when the
+    fetch failed, and conflating them is a WEEK-1 bug.
+
+    Verified live on 2026-08-31, nine days before the opener: Sleeper's
+    /state/nfl already reported season_type='regular', week=1. So the pre-season
+    Tuesdays the cron fires on look exactly like a schedule outage, `season_type`
+    does not tell them apart, and falling through to Sleeper's week files the
+    camp PUP/NFI picture as week 1 — after which weeks_finalized() reports week 1
+    done and the real capture is skipped."""
+    cap = _load_capture_script()
+    saved = (cap.schedule_available, cap.week_from_schedule, cap.gameday_week, cap.ROOT)
+    try:
+        live = _State(season="2026", week=1, season_type="regular",
+                      season_start_date="2026-09-09")
+
+        # 1. Schedule readable, no week started yet -> SKIP, never Sleeper's week 1.
+        cap.schedule_available = lambda season, timeout=30: True
+        cap.week_from_schedule = lambda season, timeout=30: None
+        wk, notes = cap.resolve_week(live, 2026, _Args())
+        assert wk is None, f"filed week {wk} before the season started"
+        assert any("not started" in n for n in notes), notes
+        assert not any("::warning::" in n for n in notes), notes
+
+        # 2. Schedule readable and a week has started -> that week.
+        cap.week_from_schedule = lambda season, timeout=30: 3
+        assert cap.resolve_week(live, 2026, _Args())[0] == 3
+
+        # 3. Schedule genuinely unreachable and NOTHING captured yet: there is no
+        #    way to tell pre-season from in-season, so skip and shout.
+        cap.schedule_available = lambda season, timeout=30: False
+        cap.week_from_schedule = lambda season, timeout=30: None
+        with tempfile.TemporaryDirectory() as d:
+            cap.ROOT = Path(d)
+            wk, notes = cap.resolve_week(live, 2026, _Args())
+            assert wk is None, f"guessed week {wk} with no schedule and no history"
+            assert any("::warning::" in n for n in notes), notes
+
+            # 4. Same outage, but the season has demonstrably started because we
+            #    already captured a block. NOW Sleeper's week is worth trusting.
+            rows = [{**{c: "" for c in it.TRACKER_COLUMNS}, "season": 2026, "week": 1,
+                     "player_id": "x", "captures": 1, "captured_at_utc": "t"}]
+            it.merge_capture(cap.ROOT, rows, final=True)
+            live2 = _State(season="2026", week=4, season_type="regular")
+            wk, notes = cap.resolve_week(live2, 2026, _Args())
+            assert wk == 4, (wk, notes)
+            assert any("::warning::" in n for n in notes), notes
+
+        # 5. A sweep never guesses either: no schedule means no sweep.
+        cap.gameday_week = lambda season, now=None, timeout=30: 9
+        cap.schedule_available = lambda season, timeout=30: False
+        wk, notes = cap.resolve_week(live, 2026, _Args(mode="sweep"))
+        assert wk is None and any("::warning::" in n for n in notes), (wk, notes)
+        cap.schedule_available = lambda season, timeout=30: True
+        assert cap.resolve_week(live, 2026, _Args(mode="sweep"))[0] == 9
+    finally:
+        (cap.schedule_available, cap.week_from_schedule, cap.gameday_week, cap.ROOT) = saved
 
 
 def test_capture_script_refuses_to_overwrite_or_reach_backwards():
