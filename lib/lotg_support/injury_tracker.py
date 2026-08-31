@@ -3,10 +3,22 @@
 nflverse's weekly stats/injury feeds lag ~2-3 days, which makes a mid-season
 build mis-flag players who actually played as injured. Sleeper, by contrast,
 carries a LIVE `injury_status` per player — but only for *right now*, and it
-changes every week as diagnoses update. So we snapshot it ourselves every week
-(a scheduled Monday-night job, see .github/workflows/capture_injuries.yml) and
-append to a committed CSV (data/injury_tracker.csv). The main build then reads
-that history as the PRIMARY injury/suspension source, with nflverse as backup.
+changes every week as diagnoses update. So we snapshot it ourselves and append
+to a committed CSV (data/injury_tracker.csv). The main build then reads that
+history as the PRIMARY injury/suspension source, with nflverse as backup.
+
+Each week is snapshotted more than once, because one read cannot answer both
+halves of the question:
+  * a GAMEDAY SWEEP (sweep_injuries.yml, daily 16:00 UTC, exiting in seconds
+    unless the schedule says there is a game today) catches the designations
+    the teams actually played under — a tag the team clears on the Monday, a
+    21-day IR window opening, a suspension ending, is gone by Tuesday, and the
+    week would read as a played 0.00 instead of a miss;
+  * the FINAL CAPTURE (capture_injuries.yml, Tue 05:00 UTC) carries
+    participation, which Sleeper's weekly stats only have once the games are
+    over, and which is what stops a man hurt DURING a game from being recorded
+    as having missed it.
+They merge into one row per player-week — see merge_capture().
 
 The tracker starts empty (first capture = 2026 week 1), so until it has rows for
 a given (season, week) the build simply falls back to the existing nflverse /
@@ -56,8 +68,26 @@ from typing import Any, Dict, List, Optional, Tuple
 TRACKER_COLUMNS = [
     "season", "week", "player_id", "full_name", "position", "nfl_team",
     "injury_status", "injury_body_part", "status", "on_bye", "played",
-    "captured_at_utc",
+    "captures", "captured_at_utc", "finalized_at_utc",
 ]
+
+# A week is captured more than once — see merge_capture(). Which capture each
+# merged column comes from:
+#   injury_status / injury_body_part / status  the STRONGEST designation any
+#       capture saw (suspension > injury > clear); ties keep the earliest, which
+#       is the one nearest kickoff
+#   captured_at_utc                            when THAT capture ran
+#   full_name / position / nfl_team            the newest capture (a player
+#       traded mid-week ends the week on his new team)
+#   on_bye                                     newest non-blank (schedule-derived,
+#       so every capture of a week agrees anyway)
+#   played                                     true if ANY capture saw him play
+#   captures                                   how many captures are folded in
+#   finalized_at_utc                           when the post-week capture ran,
+#       blank until it does
+_DESIGNATION_COLUMNS = ("injury_status", "injury_body_part", "status")
+_IDENTITY_COLUMNS = ("full_name", "position", "nfl_team")
+_DESIGNATION_RANK = {None: 0, "injury": 1, "suspension": 2}
 
 # Fixed NFL schedule (published pre-season, does NOT lag in-season). Used to
 # derive each captured week's bye teams AND which week a capture belongs to —
@@ -264,7 +294,8 @@ def _fetch_schedule(season: int, timeout: int = 30) -> Dict[int, Dict[str, Any]]
                 wk = int(row.get("week"))
             except Exception:
                 continue
-            info = weeks.setdefault(wk, {"teams": set(), "first": None, "last": None})
+            info = weeks.setdefault(wk, {"teams": set(), "days": set(),
+                                        "first": None, "last": None})
             for k in ("home_team", "away_team"):
                 t = normalize_team(row.get(k))
                 if t:
@@ -274,6 +305,7 @@ def _fetch_schedule(season: int, timeout: int = 30) -> Dict[int, Dict[str, Any]]
             except Exception:
                 d = None
             if d:
+                info["days"].add(d)
                 info["first"] = d if info["first"] is None else min(info["first"], d)
                 info["last"] = d if info["last"] is None else max(info["last"], d)
         if not weeks:
@@ -290,6 +322,34 @@ def teams_playing(season: int, week: int, timeout: int = 30) -> set:
     failure (bye left unknown)."""
     info = _fetch_schedule(season, timeout).get(int(week))
     return set(info["teams"]) if info else set()
+
+
+# UTC -> "which NFL gameday is this". ET is UTC-4/-5, and a night game runs past
+# midnight UTC, so shifting back 6 hours puts every kick-off and every whistle on
+# the gameday it belongs to.
+_GAMEDAY_SHIFT = timedelta(hours=6)
+
+
+def gameday(now: Optional[datetime] = None) -> date:
+    """The NFL gameday `now` falls on (see _GAMEDAY_SHIFT)."""
+    return ((now or datetime.now(timezone.utc)) - _GAMEDAY_SHIFT).date()
+
+
+def gameday_week(season: int, now: Optional[datetime] = None,
+                 timeout: int = 30) -> Optional[int]:
+    """The week that has a game TODAY, or None on a day with no NFL game.
+
+    This is what a gameday sweep files under, and what tells it whether to run at
+    all. It reads the real schedule rather than the calendar because NFL gamedays
+    are not a fixed weekday set: across 2024-2026 they land on Wednesday,
+    Thursday, Friday, Saturday, Sunday and Monday — 2026 opens on a WEDNESDAY —
+    and a game has been moved to a Tuesday before (2021 week 15). A weekday cron
+    would have to be edited for each of those; this does not."""
+    day = gameday(now)
+    for wk, info in sorted(_fetch_schedule(season, timeout).items()):
+        if day in (info.get("days") or set()):
+            return wk
+    return None
 
 
 def week_from_schedule(season: int, now: Optional[datetime] = None,
@@ -309,7 +369,7 @@ def week_from_schedule(season: int, now: Optional[datetime] = None,
     sched = _fetch_schedule(season, timeout)
     if not sched:
         return None
-    ref = ((now or datetime.now(timezone.utc)) - timedelta(hours=6)).date()
+    ref = gameday(now)
     started = [wk for wk, info in sched.items()
                if info.get("first") and info["first"] <= ref]
     return max(started) if started else None
@@ -455,7 +515,9 @@ def capture_rows(sc, season: int, week: int,
             "status": m.get("status") or "",
             "on_bye": on_bye,
             "played": "true" if played.get(str(pid)) else "",
+            "captures": 1,
             "captured_at_utc": now,
+            "finalized_at_utc": "",
         })
     return rows
 
@@ -488,20 +550,7 @@ def missing_weeks(repo_root: Path, season: int, through_week: int) -> List[int]:
     return [wk for wk in range(1, int(through_week) + 1) if wk not in have]
 
 
-def merge_into_csv(repo_root: Path, rows: List[Dict[str, Any]]) -> Path:
-    """Append `rows` to the tracker CSV, replacing any prior rows for the same
-    (season, week) so a re-run overwrites rather than duplicates."""
-    path = tracker_path(repo_root)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    existing: List[Dict[str, Any]] = []
-    if path.exists():
-        with path.open(newline="") as f:
-            existing = list(csv.DictReader(f))
-    new_keys = {(str(r["season"]), str(r["week"])) for r in rows}
-    kept = [r for r in existing
-            if (str(r.get("season")), str(r.get("week"))) not in new_keys]
-    allrows = kept + rows
-
+def _write_rows(path: Path, allrows: List[Dict[str, Any]]) -> Path:
     def _sk(r):
         try:
             return (int(r["season"]), int(r["week"]), str(r["player_id"]))
@@ -514,6 +563,151 @@ def merge_into_csv(repo_root: Path, rows: List[Dict[str, Any]]) -> Path:
         for r in allrows:
             w.writerow({k: r.get(k, "") for k in TRACKER_COLUMNS})
     return path
+
+
+def merge_into_csv(repo_root: Path, rows: List[Dict[str, Any]]) -> Path:
+    """REPLACE any prior rows for the same (season, week) with `rows`.
+
+    The deliberate overwrite behind `--force`. Routine captures go through
+    merge_capture(), which accumulates."""
+    path = tracker_path(repo_root)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    existing: List[Dict[str, Any]] = []
+    if path.exists():
+        with path.open(newline="") as f:
+            existing = list(csv.DictReader(f))
+    new_keys = {(str(r["season"]), str(r["week"])) for r in rows}
+    kept = [r for r in existing
+            if (str(r.get("season")), str(r.get("week"))) not in new_keys]
+    return _write_rows(path, kept + list(rows))
+
+
+def _row_rank(row: Dict[str, Any]) -> int:
+    combined = (str(row.get("injury_status") or "") + " "
+                + str(row.get("status") or "")).strip().lower()
+    return _DESIGNATION_RANK[designation(combined)]
+
+
+def _merge_row(old: Dict[str, Any], new: Dict[str, Any], final: bool) -> Dict[str, Any]:
+    """Fold one capture of a player-week into what earlier captures already said.
+
+    See the column table at _DESIGNATION_COLUMNS. The rule that matters is the
+    designation: the STRONGEST any capture saw wins, because a designation that
+    was on him at kick-off answers the sheet's question — did something keep him
+    off the field this week — even if the team had cleared it by Tuesday. That
+    cannot invent an injury, because `played` is what clears a flag and it only
+    ever accumulates True: a man who took the field is still not flagged, however
+    the week ended for him."""
+    out = dict(old)
+    for c in _IDENTITY_COLUMNS:
+        if new.get(c) not in (None, ""):
+            out[c] = new[c]
+    if str(new.get("on_bye") or "").strip() != "":
+        out["on_bye"] = new["on_bye"]
+    if str(new.get("played") or "").strip().lower() in ("true", "1", "yes"):
+        out["played"] = "true"
+    # Strictly stronger wins; a tie keeps the earlier capture, which is the one
+    # nearest kick-off.
+    if _row_rank(new) > _row_rank(old):
+        for c in _DESIGNATION_COLUMNS:
+            out[c] = new.get(c, "")
+        out["captured_at_utc"] = new.get("captured_at_utc", "")
+    try:
+        out["captures"] = int(old.get("captures") or 1) + 1
+    except (TypeError, ValueError):
+        out["captures"] = 2
+    if final:
+        out["finalized_at_utc"] = new.get("captured_at_utc", "")
+    return out
+
+
+def merge_capture(repo_root: Path, rows: List[Dict[str, Any]],
+                  final: bool = True) -> Path:
+    """Fold one capture of a (season, week) into the tracker, PER PLAYER.
+
+    A week is captured several times — a sweep on each of its gamedays, then the
+    post-week capture that settles participation — so this accumulates rather
+    than replacing. Replacing would be actively destructive in both directions: a
+    gameday sweep runs before the games and would wipe the `played` evidence the
+    final capture is for, and the final capture runs after the team has had two
+    days to clear a designation and would wipe what the sweep saw at kick-off.
+
+    Use merge_into_csv() for the deliberate `--force` overwrite of a whole block.
+    Players any capture saw are kept, so a mid-week waiver add or drop does not
+    lose the other captures' rows."""
+    path = tracker_path(repo_root)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    existing: List[Dict[str, Any]] = []
+    if path.exists():
+        with path.open(newline="") as f:
+            existing = list(csv.DictReader(f))
+    blocks = {(str(r["season"]), str(r["week"])) for r in rows}
+    kept = [r for r in existing
+            if (str(r.get("season")), str(r.get("week"))) not in blocks]
+    prior = {(str(r.get("season")), str(r.get("week")), str(r.get("player_id"))): r
+             for r in existing
+             if (str(r.get("season")), str(r.get("week"))) in blocks}
+    merged: List[Dict[str, Any]] = []
+    for r in rows:
+        key = (str(r["season"]), str(r["week"]), str(r["player_id"]))
+        old = prior.pop(key, None)
+        if old is None:
+            row = dict(r)
+            row["finalized_at_utc"] = r.get("captured_at_utc", "") if final else ""
+            merged.append(row)
+        else:
+            merged.append(_merge_row(old, r, final))
+    # Players an earlier capture of this week saw and this one did not (dropped
+    # mid-week). Their designation stands; only the capture count is untouched.
+    merged.extend(prior.values())
+    return _write_rows(path, kept + merged)
+
+
+def sweep_counts(repo_root: Path, season: int, week: int) -> List[int]:
+    """Per-player capture counts for one (season, week).
+
+    max() == 1 means the week has only its final capture behind it: nobody swept
+    a gameday, so its designations are whatever Sleeper happened to be showing on
+    Tuesday, two days after the games."""
+    path = tracker_path(repo_root)
+    out: List[int] = []
+    if not path.exists():
+        return out
+    try:
+        with path.open(newline="") as f:
+            for r in csv.DictReader(f):
+                try:
+                    if int(r.get("season")) == int(season) and int(r.get("week")) == int(week):
+                        out.append(int(r.get("captures") or 1))
+                except Exception:
+                    continue
+    except Exception:
+        return out
+    return out
+
+
+def weeks_finalized(repo_root: Path, season: int) -> set:
+    """Weeks of `season` whose POST-WEEK capture has run.
+
+    Not the same as weeks_present(): a week with only gameday sweeps in it has
+    rows but no participation picture, and still needs its final capture."""
+    path = tracker_path(repo_root)
+    out: set = set()
+    if not path.exists():
+        return out
+    try:
+        with path.open(newline="") as f:
+            for r in csv.DictReader(f):
+                try:
+                    if int(r.get("season")) != int(season):
+                        continue
+                    if str(r.get("finalized_at_utc") or "").strip():
+                        out.add(int(r.get("week")))
+                except Exception:
+                    continue
+    except Exception:
+        return out
+    return out
 
 
 def load_status_index(repo_root: Path) -> Dict[Tuple[str, int, int], Dict[str, Any]]:

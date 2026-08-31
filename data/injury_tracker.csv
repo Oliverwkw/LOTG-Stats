@@ -1,1 +1,1 @@
-season,week,player_id,full_name,position,nfl_team,injury_status,injury_body_part,status,on_bye,played,captured_at_utc
+season,week,player_id,full_name,position,nfl_team,injury_status,injury_body_part,status,on_bye,played,captures,captured_at_utc,finalized_at_utc

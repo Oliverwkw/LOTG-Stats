@@ -83,7 +83,14 @@ def capture_summary(rows: List[dict]) -> Dict[Tuple[int, int], dict]:
         buckets = defaultdict(int)
         bye = defaultdict(int)
         positions = set()
+        captures = []
+        finalized = ""
         for r in rs:
+            try:
+                captures.append(int(r.get("captures") or 1))
+            except (TypeError, ValueError):
+                captures.append(1)
+            finalized = max(finalized, str(r.get("finalized_at_utc") or ""))
             buckets[_classify(r.get("injury_status"), r.get("status"))] += 1
             b = str(r.get("on_bye") or "").strip().lower()
             bye["true" if b in ("true", "1", "yes")
@@ -92,6 +99,11 @@ def capture_summary(rows: List[dict]) -> Dict[Tuple[int, int], dict]:
                 positions.add(r["position"])
         by_week[key] = {
             "players": len(rs),
+            # A week captured once is a week nobody swept a gameday of: its
+            # designations are only what Sleeper showed on Tuesday, two days
+            # after the games. See scripts/capture_injuries.py --mode sweep.
+            "captures": max(captures) if captures else 1,
+            "finalized": bool(finalized),
             "injury": buckets["injury"], "suspension": buckets["suspension"],
             "healthy": buckets["healthy"],
             "bye_true": bye["true"], "bye_false": bye["false"], "bye_unknown": bye["unknown"],
@@ -185,17 +197,28 @@ def render_report(captures: List[dict], summary: Dict[Tuple[int, int], dict],
 
     # Per-week capture health + build cross-check.
     lines.append("## Capture health by week\n")
-    lines.append("| Season | Week | Players | Injury | Suspension | Bye (Y/N/?) | "
-                 "Build inj/sus/bye |")
-    lines.append("|---|---|---|---|---|---|---|")
+    lines.append("| Season | Week | Players | Captures | Injury | Suspension | "
+                 "Bye (Y/N/?) | Build inj/sus/bye |")
+    lines.append("|---|---|---|---|---|---|---|---|")
+    thin = []
     for key in sorted(summary):
         s, w = key
         v = summary[key]
         f = flags.get(key, {})
         fb = f"{f.get('injury', '–')}/{f.get('suspension', '–')}/{f.get('bye', '–')}" if f else "–"
-        lines.append(f"| {s} | {w} | {v['players']} | {v['injury']} | {v['suspension']} | "
+        cap = f"{v.get('captures', 1)}" + ("" if v.get("finalized", True) else " (not final)")
+        if v.get("captures", 1) <= 1 and v.get("finalized", True):
+            cap += " ⚠️"
+            thin.append(f"{s} wk {w}")
+        lines.append(f"| {s} | {w} | {v['players']} | {cap} | {v['injury']} | {v['suspension']} | "
                      f"{v['bye_true']}/{v['bye_false']}/{v['bye_unknown']} | {fb} |")
     lines.append("")
+    if thin:
+        lines.append(f"- ⚠️ Finalized with no gameday sweep behind them: "
+                     f"**{', '.join(thin)}**. Their designations are only what "
+                     f"Sleeper was showing on Tuesday, two days after the games — "
+                     f"a tag the team cleared on Monday is not in those weeks.")
+        lines.append("")
 
     n_gap_weeks = sum(len(v) for v in gaps.values())
     one_line = (f"injury coverage: {len(summary)} week(s) captured, "

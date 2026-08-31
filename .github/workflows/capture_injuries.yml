@@ -1,7 +1,10 @@
 name: Capture weekly injuries
 
-# Snapshots Sleeper's live injury_status (and live participation) for every
-# rostered player and commits it to data/injury_tracker.csv (PR E fix B).
+# The week's FINAL injury capture: Sleeper's live injury_status and live
+# participation for every rostered player, committed to data/injury_tracker.csv
+# (PR E fix B). Merged with that week's gameday sweeps (sweep_injuries.yml) into
+# one row per player-week — the strongest designation any capture saw, with
+# participation from this one.
 #
 # Runs Tuesdays 05:00 UTC (~1am ET) during the NFL season: comfortably after the
 # week's Monday Night game — which can run past 03:30 UTC, so the old 04:00 slot
@@ -40,8 +43,10 @@ on:
 permissions:
   contents: write
 
+# Shared with sweep_injuries.yml: both write data/injury_tracker.csv, so they
+# must never run at the same time.
 concurrency:
-  group: capture-injuries
+  group: injury-tracker-write
   cancel-in-progress: false
 
 jobs:

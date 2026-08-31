@@ -51,10 +51,13 @@ _ALL_TEAMS = [
 ]
 _BYE_WK11 = {"NE", "GB", "ATL", "CLE", "LA", "SEA"}
 
+# Week 1's real 2026 gamedays: a WEDNESDAY opener, then Thu / Sun / Mon.
 _SCHEDULE = {
     1: {"teams": {it.normalize_team(t) for t in _ALL_TEAMS},
+        "days": {datetime(2026, 9, d).date() for d in (9, 10, 13, 14)},
         "first": datetime(2026, 9, 9).date(), "last": datetime(2026, 9, 14).date()},
     11: {"teams": {it.normalize_team(t) for t in _ALL_TEAMS if t not in _BYE_WK11},
+         "days": {datetime(2026, 11, d).date() for d in (19, 22, 23)},
          "first": datetime(2026, 11, 19).date(), "last": datetime(2026, 11, 23).date()},
 }
 
@@ -173,7 +176,7 @@ def _run_week(week_spec, week_no):
         root = Path(d)
         rows = it.capture_rows(sc, 2026, week_no)
         it.merge_into_csv(root, rows)
-        it.merge_into_csv(root, rows)   # a re-run must replace, not duplicate
+        it.merge_into_csv(root, rows)   # a --force re-run must replace, not duplicate
         idx = it.load_status_index(root)
         out = []
         for spec in week_spec:
@@ -367,6 +370,7 @@ def test_the_schedule_stops_at_the_regular_season():
     try:
         sched = it._fetch_schedule(2026)
         assert sorted(sched) == [1, 18], sorted(sched)
+        assert sched[1]["days"] == {datetime(2026, 9, 10).date()}
         # Read off _fetch_schedule's own return rather than the module-global
         # teams_playing, which another test module is free to have replaced.
         assert sched[1]["teams"] == {"LAR", "SEA"}   # nflverse "LA" normalised
@@ -417,6 +421,111 @@ def test_the_committed_tracker_header_matches_the_schema():
     assert path.open().readline().strip().split(",") == it.TRACKER_COLUMNS
 
 
+def test_a_gameday_sweep_merges_with_the_final_capture():
+    """The J2 case, end to end. A player is Out for Sunday's game and the team
+    clears the tag on Monday; the Tuesday capture sees nothing. The sweep taken on
+    the gameday keeps the designation, and the final capture keeps participation —
+    neither is allowed to wipe the other."""
+    sunday = [("cleared_mon", "Cleared Monday", "RB", "DEN", "Out", "Inactive", False, 0.0,
+               (True, False, False), "Out at kick-off, tag gone by Tuesday")]
+    tuesday = [("cleared_mon", "Cleared Monday", "RB", "DEN", "", "Active", False, 0.0,
+                (True, False, False), "Sleeper shows him Active two days later")]
+    with _fixture_nfl_schedule(), tempfile.TemporaryDirectory() as d:
+        root = Path(d)
+        it.merge_capture(root, it.capture_rows(_MockSleeper(sunday), 2026, 1), final=False)
+        idx = it.load_status_index(root)
+        assert it.designation(idx[("cleared_mon", 2026, 1)]["status"]) == "injury"
+
+        it.merge_capture(root, it.capture_rows(_MockSleeper(tuesday), 2026, 1), final=True)
+        entry = it.load_status_index(root)[("cleared_mon", 2026, 1)]
+        # The designation the sweep saw survives the final capture...
+        assert it.designation(entry["status"]) == "injury", entry
+        assert it.apply_overlay(entry, 0.0, entry["played"], False, False, False) \
+            == (True, False, False)
+        # ...and the week is recorded as finalized, with both captures folded in.
+        assert it.weeks_finalized(root, 2026) == {1}
+        assert max(it.sweep_counts(root, 2026, 1)) == 2
+
+
+def test_the_merge_never_lets_one_capture_wipe_another():
+    """Column by column: designation from the strongest capture, participation
+    from any capture that saw him play, identity from the newest."""
+    # A sweep runs BEFORE the games, so its `played` is empty. Merging must not
+    # let it erase the final capture's participation, or fix #1 stops working.
+    played_final = [("worthy", "Xavier Worthy", "WR", "KC", "Out", "Active", True, 0.0,
+                     (False, False, False), "")]
+    sweep_only = [("worthy", "Xavier Worthy", "WR", "KC", "Out", "Active", False, 0.0,
+                   (False, False, False), "")]
+    with _fixture_nfl_schedule(), tempfile.TemporaryDirectory() as d:
+        root = Path(d)
+        it.merge_capture(root, it.capture_rows(_MockSleeper(sweep_only), 2026, 1), final=False)
+        it.merge_capture(root, it.capture_rows(_MockSleeper(played_final), 2026, 1), final=True)
+        e = it.load_status_index(root)[("worthy", 2026, 1)]
+        assert e["played"] is True, "the sweep wiped the final capture's participation"
+        # Worthy: Out on the sheet AND played -> still not flagged.
+        assert it.apply_overlay(e, 0.0, e["played"], True, False, False) == (False, False, False)
+
+    # ...and the reverse: a final capture that lost the participation feed must
+    # not erase a `played` an in-game sweep did see.
+    with _fixture_nfl_schedule(), tempfile.TemporaryDirectory() as d:
+        root = Path(d)
+        it.merge_capture(root, it.capture_rows(_MockSleeper(played_final), 2026, 1), final=False)
+        it.merge_capture(root, it.capture_rows(_MockSleeper(sweep_only), 2026, 1), final=True)
+        assert it.load_status_index(root)[("worthy", 2026, 1)]["played"] is True
+
+    # Suspension outranks injury outranks clear, whichever order they arrive in.
+    def _one(inj_st, st):
+        return [("p", "P", "RB", "KC", inj_st, st, False, 0.0, (False, False, False), "")]
+    for first, second, want in ((("", "Active"), ("Sus", "Active"), "suspension"),
+                                (("Sus", "Active"), ("", "Active"), "suspension"),
+                                (("Out", "Active"), ("", "Active"), "injury"),
+                                (("", "Active"), ("Out", "Active"), "injury"),
+                                (("Out", "Active"), ("Sus", "Active"), "suspension"),
+                                (("Sus", "Active"), ("Out", "Active"), "suspension"),
+                                (("", "Active"), ("", "Active"), None)):
+        with _fixture_nfl_schedule(), tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            it.merge_capture(root, it.capture_rows(_MockSleeper(_one(*first)), 2026, 1), final=False)
+            it.merge_capture(root, it.capture_rows(_MockSleeper(_one(*second)), 2026, 1), final=True)
+            got = it.designation(it.load_status_index(root)[("p", 2026, 1)]["status"])
+            assert got == want, f"{first} then {second}: expected {want}, got {got}"
+
+    # A player dropped mid-week is still in the week the sweep saw him in, and a
+    # player added mid-week is added rather than replacing the block.
+    with _fixture_nfl_schedule(), tempfile.TemporaryDirectory() as d:
+        root = Path(d)
+        it.merge_capture(root, it.capture_rows(_MockSleeper(_one("Out", "Inactive")), 2026, 1), final=False)
+        later = [("q", "Q", "WR", "SF", "", "Active", False, 0.0, (False, False, False), "")]
+        it.merge_capture(root, it.capture_rows(_MockSleeper(later), 2026, 1), final=True)
+        idx = it.load_status_index(root)
+        assert {k[0] for k in idx} == {"p", "q"}, sorted(idx)
+        assert it.designation(idx[("p", 2026, 1)]["status"]) == "injury"
+
+    # --force still REPLACES, discarding what the sweeps saw. That is the point.
+    with _fixture_nfl_schedule(), tempfile.TemporaryDirectory() as d:
+        root = Path(d)
+        it.merge_capture(root, it.capture_rows(_MockSleeper(_one("Out", "Inactive")), 2026, 1), final=False)
+        it.merge_into_csv(root, it.capture_rows(_MockSleeper(_one("", "Active")), 2026, 1))
+        assert it.designation(it.load_status_index(root)[("p", 2026, 1)]["status"]) is None
+
+
+def test_a_sweep_runs_only_on_a_gameday():
+    """The whole cost argument. The cron fires daily and the script decides, so
+    the Wednesday opener and a rescheduled Tuesday game need no cron edit."""
+    with _fixture_nfl_schedule():
+        # The fixture's week 1 gamedays.
+        assert it.gameday_week(2026, datetime(2026, 9, 10, 16, 0, tzinfo=UTC)) == 1
+        assert it.gameday_week(2026, datetime(2026, 9, 13, 16, 0, tzinfo=UTC)) == 1
+        # A Tuesday, and the week's off days: nothing to sweep.
+        assert it.gameday_week(2026, datetime(2026, 9, 15, 16, 0, tzinfo=UTC)) is None
+        assert it.gameday_week(2026, datetime(2026, 9, 16, 16, 0, tzinfo=UTC)) is None
+        assert it.gameday_week(2026, datetime(2026, 11, 19, 16, 0, tzinfo=UTC)) == 11
+        assert it.gameday_week(2027, datetime(2027, 9, 12, 16, 0, tzinfo=UTC)) is None
+        # A night game that runs past midnight UTC belongs to its own gameday.
+        assert it.gameday(datetime(2026, 9, 15, 3, 30, tzinfo=UTC)) == datetime(2026, 9, 14).date()
+        assert it.gameday(datetime(2026, 9, 14, 16, 0, tzinfo=UTC)) == datetime(2026, 9, 14).date()
+
+
 def _load_capture_script():
     import importlib.util
     spec = importlib.util.spec_from_file_location(
@@ -445,12 +554,13 @@ def test_capture_script_refuses_to_overwrite_or_reach_backwards():
         (root / "config").mkdir()
         (root / "config" / "league.yaml").write_text("league_id: '1'\n")
         saved = (cap.ROOT, cap.SleeperClient, cap.week_from_schedule,
-                 cap.capture_rows, cap.played_index)
+                 cap.capture_rows, cap.played_index, cap.gameday_week)
         cap.ROOT = root
         cap.SleeperClient = lambda *a, **k: sc
         cap.week_from_schedule = lambda season, timeout=30: 1
         cap.capture_rows = lambda _sc, season, week, played=None: it.capture_rows(sc, season, week)
         cap.played_index = lambda *a, **k: {}
+        cap.gameday_week = lambda season, now=None, timeout=30: None   # no game today
         try:
             argv = sys.argv
             sys.argv = ["capture_injuries.py"]
@@ -473,11 +583,25 @@ def test_capture_script_refuses_to_overwrite_or_reach_backwards():
                 sys.argv = ["capture_injuries.py", "--week", "1", "--force", "--dry-run"]
                 assert cap.main() == 0                       # --force + --dry-run writes nothing
                 assert it.tracker_path(root).read_text() == first
+
+                # --- sweep mode ---
+                # No game today: exits clean, writes nothing, costs one schedule read.
+                sys.argv = ["capture_injuries.py", "--mode", "sweep"]
+                assert cap.main() == 0
+                assert it.tracker_path(root).read_text() == first
+
+                # A gameday: sweeps, and MERGES into the already-finalized week
+                # instead of being refused the way a second final capture is.
+                cap.gameday_week = lambda season, now=None, timeout=30: 1
+                assert cap.main() == 0
+                assert max(it.sweep_counts(root, 2026, 1)) == 2, "the sweep did not merge"
+                assert it.weeks_finalized(root, 2026) == {1}, "a sweep must not finalize"
+                assert set(it.load_status_index(root)) == {(p[0], 2026, 1) for p in WEEK}
             finally:
                 sys.argv = argv
         finally:
             (cap.ROOT, cap.SleeperClient, cap.week_from_schedule,
-             cap.capture_rows, cap.played_index) = saved
+             cap.capture_rows, cap.played_index, cap.gameday_week) = saved
 
 
 # --------------------------------------------------------------------------
