@@ -526,6 +526,131 @@ def test_a_sweep_runs_only_on_a_gameday():
         assert it.gameday(datetime(2026, 9, 14, 16, 0, tzinfo=UTC)) == datetime(2026, 9, 14).date()
 
 
+def test_a_midweek_nfl_trade_cannot_invent_a_bye():
+    """on_bye is the one column the merge takes from the EARLIEST capture.
+
+    A bye belongs to the team the player was on when the games were played. Every
+    other column takes the newest capture, and this one must not: a trade landing
+    between two captures of the same week makes the newest name the wrong team,
+    and a bye is an outright override — it beats the build's own (correct)
+    answer, and it drops the week from the played-week denominators, so the week
+    does not read wrong, it disappears."""
+    playing = {"KC", "SF", "BUF"}
+
+    def _sched(season, timeout=30):
+        return {5: {"teams": set(playing), "days": set(), "first": None, "last": None}}
+
+    def _teams(season, week, timeout=30):
+        return set(playing)
+
+    class _Trade:
+        def __init__(self, team, played=False, tag=("", "Active")):
+            self.team, self.played, self.tag = team, played, tag
+
+        def players_nfl(self):
+            return {"x": {"full_name": "Traded Man", "position": "WR", "team": self.team,
+                          "injury_status": self.tag[0], "status": self.tag[1]}}
+
+        def rosters(self):
+            return [{"players": ["x"], "starters": [], "taxi": [], "reserve": []}]
+
+        def get(self, path):
+            return {"x": {"gp": 1}} if ("/stats/nfl/" in str(path) and self.played) else None
+
+    def _week(kickoff_team, tuesday_team, played, tag=("", "Active")):
+        saved = (it._fetch_schedule, it.teams_playing)
+        it._fetch_schedule, it.teams_playing = _sched, _teams
+        try:
+            with tempfile.TemporaryDirectory() as d:
+                root = Path(d)
+                it.merge_capture(root, it.capture_rows(_Trade(kickoff_team, tag=tag), 2026, 5),
+                                 final=False)
+                it.merge_capture(root, it.capture_rows(
+                    _Trade(tuesday_team, played=played, tag=tag), 2026, 5), final=True)
+                entry = it.load_status_index(root)[("x", 2026, 5)]
+        finally:
+            it._fetch_schedule, it.teams_playing = saved
+        build_bye = kickoff_team not in playing        # the build reads the kick-off team
+        pl = True if entry["played"] is True else None
+        return entry, it.apply_overlay(entry, 0.0, pl, False, False, build_bye)
+
+    # Traded FROM a team that was idle TO one that played: he really was on a bye,
+    # and the tracker says so on its own rather than leaning on the build.
+    e, got = _week("LAR", "KC", played=False)
+    assert e["bye"] is True and got == (False, False, True), (e, got)
+
+    # Traded the other way: he PLAYED for the old team, and the Tuesday capture
+    # names a team that was idle. This must not become a bye.
+    e, got = _week("KC", "LAR", played=False)
+    assert e["bye"] is False, e
+    assert got == (False, False, False), got
+    # ...and with a designation on him, the (correct) injury must survive too.
+    e, got = _week("KC", "LAR", played=False, tag=("Out", "Inactive"))
+    assert got == (True, False, False), got
+    # Participation clears it either way.
+    _e, got = _week("KC", "LAR", played=True)
+    assert got == (False, False, False), got
+
+    # No trade: both directions unchanged.
+    assert _week("KC", "KC", played=False)[1] == (False, False, False)
+    assert _week("LAR", "LAR", played=False)[1] == (False, False, True)
+
+
+def test_a_damaged_csv_costs_its_damaged_lines_and_nothing_else():
+    """The readers degrade to empty on a corrupt file, which is right for them —
+    a build with no overlay is still a build. The WRITERS cannot: every writer
+    rewrites the whole file, so "no rows" would replace the season's history with
+    the one week being captured. Nor can they simply propagate the error, because
+    Sleeper keeps no injury history and a failed capture is a permanent gap."""
+    good = ",".join(it.TRACKER_COLUMNS) + "\n" + "\n".join(
+        f"2026,{w},keep{i},N,WR,KC,Out,,Inactive,false,,1,t,t"
+        for w in (1, 2) for i in range(5)) + "\n"
+    new = {c: "" for c in it.TRACKER_COLUMNS}
+    new.update({"season": 2026, "week": 9, "player_id": "fresh", "captures": 1,
+                "captured_at_utc": "t", "status": "Active"})
+
+    # A NUL byte — a truncated or interrupted write — is what csv refuses outright.
+    with tempfile.TemporaryDirectory() as d:
+        root = Path(d)
+        it.tracker_path(root).parent.mkdir(parents=True)
+        it.tracker_path(root).write_text(good + "\x00\x01 broken\n")
+        for fn, args in ((it.load_status_index, (root,)), (it.weeks_present, (root, 2026)),
+                         (it.weeks_finalized, (root, 2026)), (it.sweep_counts, (root, 2026, 1))):
+            fn(*args)          # readers must not raise
+        it.merge_capture(root, [new], final=True)
+        idx = it.load_status_index(root)
+        assert len(idx) == 11, sorted(idx)                  # 10 recovered + the new one
+        assert ("fresh", 2026, 9) in idx
+        assert ("keep0", 2026, 1) in idx, "history was dropped instead of salvaged"
+        it.merge_into_csv(root, [new])                      # the --force path too
+
+    # A file with nothing recoverable in it must REFUSE, not truncate.
+    with tempfile.TemporaryDirectory() as d:
+        root = Path(d)
+        it.tracker_path(root).parent.mkdir(parents=True)
+        it.tracker_path(root).write_bytes(b"\x00" * 2048)
+        for writer in (lambda: it.merge_capture(root, [new], final=True),
+                       lambda: it.merge_into_csv(root, [new])):
+            try:
+                writer()
+            except it.TrackerUnreadable:
+                pass
+            else:
+                raise AssertionError("wrote over an unreadable tracker instead of refusing")
+
+    # An absent or empty file is not damaged — it is the normal first run.
+    with tempfile.TemporaryDirectory() as d:
+        root = Path(d)
+        it.merge_capture(root, [new], final=True)
+        assert len(it.load_status_index(root)) == 1
+    with tempfile.TemporaryDirectory() as d:
+        root = Path(d)
+        it.tracker_path(root).parent.mkdir(parents=True)
+        it.tracker_path(root).write_text("")
+        it.merge_capture(root, [new], final=True)
+        assert len(it.load_status_index(root)) == 1
+
+
 def _load_capture_script():
     import importlib.util
     spec = importlib.util.spec_from_file_location(

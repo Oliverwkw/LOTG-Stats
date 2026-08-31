@@ -79,8 +79,15 @@ TRACKER_COLUMNS = [
 #   captured_at_utc                            when THAT capture ran
 #   full_name / position / nfl_team            the newest capture (a player
 #       traded mid-week ends the week on his new team)
-#   on_bye                                     newest non-blank (schedule-derived,
-#       so every capture of a week agrees anyway)
+#   on_bye                                     the EARLIEST non-blank, i.e. the
+#       capture nearest kick-off. Every other column takes the newest, and this
+#       one must not: a bye belongs to the team the player was on when the games
+#       were played, and an NFL trade landing between two captures of the same
+#       week makes the newest capture name the wrong team. That is the one place
+#       a wrong team becomes a wrong WEEK, because a bye is an outright override
+#       (resolve_injury_flags returns it as a verdict, not as advice) and a bye
+#       drops the week from the played-week denominators — so the week does not
+#       read wrong, it silently disappears
 #   played                                     true if ANY capture saw him play
 #   captures                                   how many captures are folded in
 #   finalized_at_utc                           when the post-week capture ran,
@@ -550,6 +557,65 @@ def missing_weeks(repo_root: Path, season: int, through_week: int) -> List[int]:
     return [wk for wk in range(1, int(through_week) + 1) if wk not in have]
 
 
+class TrackerUnreadable(RuntimeError):
+    """The committed CSV exists, holds data, and none of it could be recovered.
+
+    Raised INSTEAD of writing, because the alternative is worse: every writer
+    rewrites the whole file, so treating an unreadable file as "no rows" would
+    silently replace the season's history with the one week being captured. One
+    lost week is a gap the coverage report shouts about; a truncated tracker is
+    not recoverable at all."""
+
+
+def _read_existing(path: Path) -> Tuple[List[Dict[str, Any]], Optional[str]]:
+    """Rows already in the tracker, salvaging what a damaged file allows.
+
+    The readers (load_status_index and friends) degrade to empty on a corrupt
+    file, which is right for them — a build with no overlay is a build. The
+    WRITERS cannot do that, and they also cannot simply propagate the error: a
+    csv.Error out of here kills the weekly capture, and Sleeper keeps no injury
+    history, so that week is gone for good. So a damaged file costs us its
+    damaged lines and nothing else, loudly."""
+    if not path.exists() or not path.is_file():
+        return [], None
+    try:
+        with path.open(newline="") as f:
+            return list(csv.DictReader(f)), None
+    except Exception:
+        pass
+    raw = b""
+    try:
+        raw = path.read_bytes()
+    except Exception as e:
+        raise TrackerUnreadable(f"{path} could not be read at all: {e}")
+    # NUL bytes (a truncated or interrupted write) are what csv refuses outright.
+    text = raw.decode("utf-8", errors="replace").replace("\x00", "")
+    rows: List[Dict[str, Any]] = []
+    dropped = 0
+    try:
+        import io as _io
+        reader = csv.DictReader(_io.StringIO(text))
+        while True:
+            try:
+                rows.append(next(reader))
+            except StopIteration:
+                break
+            except Exception:
+                dropped += 1
+                if dropped > 100000:
+                    break
+    except Exception:
+        pass
+    if not rows and raw.strip():
+        raise TrackerUnreadable(
+            f"{path} holds {len(raw)} bytes and no row survived parsing. Refusing to "
+            f"write, because writing would replace the whole tracker with this one "
+            f"capture. Fix or restore the file (git checkout) and re-run.")
+    return rows, (f"::warning::{path} was damaged: recovered {len(rows)} row(s), "
+                  f"dropped {dropped}. The capture below is merged into what was "
+                  f"recovered." if (dropped or rows) else None)
+
+
 def _write_rows(path: Path, allrows: List[Dict[str, Any]]) -> Path:
     def _sk(r):
         try:
@@ -572,10 +638,9 @@ def merge_into_csv(repo_root: Path, rows: List[Dict[str, Any]]) -> Path:
     merge_capture(), which accumulates."""
     path = tracker_path(repo_root)
     path.parent.mkdir(parents=True, exist_ok=True)
-    existing: List[Dict[str, Any]] = []
-    if path.exists():
-        with path.open(newline="") as f:
-            existing = list(csv.DictReader(f))
+    existing, note = _read_existing(path)
+    if note:
+        print(note)
     new_keys = {(str(r["season"]), str(r["week"])) for r in rows}
     kept = [r for r in existing
             if (str(r.get("season")), str(r.get("week"))) not in new_keys]
@@ -602,8 +667,11 @@ def _merge_row(old: Dict[str, Any], new: Dict[str, Any], final: bool) -> Dict[st
     for c in _IDENTITY_COLUMNS:
         if new.get(c) not in (None, ""):
             out[c] = new[c]
-    if str(new.get("on_bye") or "").strip() != "":
-        out["on_bye"] = new["on_bye"]
+    # on_bye keeps the EARLIEST non-blank — see the column table above. A player
+    # traded on the Monday from a team that played to one that was idle is not
+    # retrospectively on a bye.
+    if str(old.get("on_bye") or "").strip() == "":
+        out["on_bye"] = new.get("on_bye", "")
     if str(new.get("played") or "").strip().lower() in ("true", "1", "yes"):
         out["played"] = "true"
     # Strictly stronger wins; a tie keeps the earlier capture, which is the one
@@ -637,10 +705,9 @@ def merge_capture(repo_root: Path, rows: List[Dict[str, Any]],
     lose the other captures' rows."""
     path = tracker_path(repo_root)
     path.parent.mkdir(parents=True, exist_ok=True)
-    existing: List[Dict[str, Any]] = []
-    if path.exists():
-        with path.open(newline="") as f:
-            existing = list(csv.DictReader(f))
+    existing, note = _read_existing(path)
+    if note:
+        print(note)
     blocks = {(str(r["season"]), str(r["week"])) for r in rows}
     kept = [r for r in existing
             if (str(r.get("season")), str(r.get("week"))) not in blocks]
