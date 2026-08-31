@@ -27,10 +27,16 @@ def _ok(name, cond, detail=""):
 
 def check_classify():
     ok = _ok("Out → injury", C._classify("Out", "Active") == "injury")
-    ok &= _ok("Questionable → injury", C._classify("Questionable", "") == "injury")
+    ok &= _ok("IR → injury", C._classify("IR", "Injured Reserve") == "injury")
+    ok &= _ok("PUP → injury", C._classify("PUP", "") == "injury")
     ok &= _ok("Suspended → suspension", C._classify("", "Suspended") == "suspension")
     ok &= _ok("empty → healthy", C._classify("", "") == "healthy")
     ok &= _ok("Active only → healthy", C._classify("", "Active") == "healthy")
+    # Only Out / IR / PUP / Sus flag a week in the sheet, so only those count as
+    # an injury here — a game-time label the player usually suits up with is not
+    # a missed week, and this report has to say what the build says.
+    ok &= _ok("Questionable → healthy", C._classify("Questionable", "") == "healthy")
+    ok &= _ok("Doubtful → healthy", C._classify("Doubtful", "") == "healthy")
     return ok
 
 

@@ -1,14 +1,28 @@
 name: Capture weekly injuries
 
-# Snapshots Sleeper's live injury_status for every rostered player and commits
-# it to data/injury_tracker.csv (PR E fix B). Runs Monday ~11pm ET (Tue 04:00
-# UTC) during the NFL season — late enough to catch the week's final injury
-# picture, before Sleeper rolls the statuses to the next week. Also runnable
-# on demand. First real capture: 2026 week 1.
+# The week's FINAL injury capture: Sleeper's live injury_status and live
+# participation for every rostered player, committed to data/injury_tracker.csv
+# (PR E fix B). Merged with that week's gameday sweeps (sweep_injuries.yml) into
+# one row per player-week — the strongest designation any capture saw, with
+# participation from this one.
+#
+# Runs Tuesdays 05:00 UTC (~1am ET) during the NFL season: comfortably after the
+# week's Monday Night game — which can run past 03:30 UTC, so the old 04:00 slot
+# had ~30 minutes of margin and a long game would have been captured mid-flight —
+# and still 3 hours before the build's Tuesday 08:00 UTC "week is final" cutoff,
+# so every week reaches the Tuesday 14:00 build with its snapshot in place.
+#
+# The cron fires on every Tuesday in September AND January, including the ones
+# before kickoff and the ones after week 18. The script derives its week from the
+# REGULAR-SEASON rows of the fixed NFL schedule, so a pre-season run exits
+# cleanly (no week has started, no camp PUP/NFI filed as week 1) and a January
+# run after week 18 exits cleanly too (the schedule stops advancing, and a week
+# that already has a block is skipped rather than overwritten with a
+# mid-playoffs snapshot). First real capture: 2026 wk1.
 on:
   schedule:
-    - cron: "0 4 * 9-12 2"   # Tuesdays 04:00 UTC, Sep–Dec
-    - cron: "0 4 * 1 2"      # Tuesdays 04:00 UTC, January (week 18 tail)
+    - cron: "0 5 * 9-12 2"   # Tuesdays 05:00 UTC, Sep–Dec
+    - cron: "0 5 * 1 2"      # Tuesdays 05:00 UTC, January (week 18 tail)
   workflow_dispatch:
     inputs:
       season:
@@ -17,12 +31,22 @@ on:
       week:
         description: "Override week (optional)"
         required: false
+      force:
+        description: "Replace an existing block for that week (needed with an explicit week)"
+        type: boolean
+        default: false
+      dry_run:
+        description: "Fetch and summarise only — do not write the CSV"
+        type: boolean
+        default: false
 
 permissions:
   contents: write
 
+# Shared with sweep_injuries.yml: both write data/injury_tracker.csv, so they
+# must never run at the same time.
 concurrency:
-  group: capture-injuries
+  group: injury-tracker-write
   cancel-in-progress: false
 
 jobs:
@@ -41,20 +65,49 @@ jobs:
         run: pip install --no-cache-dir pyyaml requests
 
       - name: Capture injury snapshot
+        # The dispatch inputs go through the environment, not through string
+        # interpolation into the script body: a `${{ }}` expansion is pasted in
+        # as shell source before bash ever sees it, so an input is a command in
+        # waiting. Quoted "$VAR" expansions cannot be.
+        env:
+          IN_SEASON: ${{ github.event.inputs.season }}
+          IN_WEEK: ${{ github.event.inputs.week }}
+          IN_FORCE: ${{ github.event.inputs.force }}
+          IN_DRY_RUN: ${{ github.event.inputs.dry_run }}
         run: |
-          ARGS=""
-          if [ -n "${{ github.event.inputs.season }}" ]; then ARGS="$ARGS --season ${{ github.event.inputs.season }}"; fi
-          if [ -n "${{ github.event.inputs.week }}" ]; then ARGS="$ARGS --week ${{ github.event.inputs.week }}"; fi
-          python scripts/capture_injuries.py $ARGS
+          set -euo pipefail
+          # Seeded with the command itself so it is never empty: expanding an
+          # empty array under `set -u` is an error before bash 4.4, and every
+          # cron run takes exactly that path.
+          CMD=(python scripts/capture_injuries.py)
+          if [ -n "${IN_SEASON:-}" ]; then CMD+=(--season "$IN_SEASON"); fi
+          if [ -n "${IN_WEEK:-}" ]; then CMD+=(--week "$IN_WEEK"); fi
+          if [ "${IN_FORCE:-}" = "true" ]; then CMD+=(--force); fi
+          if [ "${IN_DRY_RUN:-}" = "true" ]; then CMD+=(--dry-run); fi
+          "${CMD[@]}"
 
       - name: Commit snapshot
+        # A week's injury picture exists only while Sleeper is showing it, so a
+        # push lost to a race is a week lost for good. Same reconcile-and-retry
+        # shape as the build's export commit: rebase onto whatever landed while
+        # we were fetching, then try again.
         run: |
           git config user.name "lotg-injury-bot"
           git config user.email "noreply@anthropic.com"
           git add data/injury_tracker.csv
           if git diff --cached --quiet; then
             echo "No change to injury_tracker.csv"
-          else
-            git commit -m "Weekly Sleeper injury snapshot [skip ci]"
-            git push
+            exit 0
+          fi
+          git commit -m "Weekly Sleeper injury snapshot [skip ci]"
+          push_ok=0
+          for attempt in 1 2 3 4; do
+            if git push; then push_ok=1; break; fi
+            echo "Push failed (attempt $attempt) — reconciling with origin and retrying."
+            git pull --rebase origin "${GITHUB_REF_NAME}" || true
+            sleep $((2 ** attempt))
+          done
+          if [ "$push_ok" != "1" ]; then
+            echo "::error::Could not push the injury snapshot for this week."
+            exit 1
           fi

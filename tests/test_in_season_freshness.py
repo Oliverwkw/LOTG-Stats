@@ -93,16 +93,24 @@ class _MockSC:
 
 
 def _capture_to_index(tmp: Path, monkeypatch_teams_playing=None):
+    # The patch is undone on the way out. Left in place it becomes THIS module's
+    # schedule for every test that runs after it in the same pytest process,
+    # which is how a sibling test ended up asserting against a fixture it never
+    # asked for.
+    saved = it.teams_playing
     if monkeypatch_teams_playing is not None:
         it.teams_playing = monkeypatch_teams_playing
-    sc = _MockSC()
-    season, week = it.current_state(sc)
-    rows = it.capture_rows(sc, season, week)
-    (tmp / "data").mkdir(exist_ok=True)
-    (tmp / "data" / "injury_tracker.csv").write_text(",".join(it.TRACKER_COLUMNS) + "\n")
-    it.merge_into_csv(tmp, rows)
-    it.merge_into_csv(tmp, rows)  # re-run same week must NOT duplicate
-    return rows, it.load_status_index(tmp)
+    try:
+        sc = _MockSC()
+        season, week = it.current_state(sc)
+        rows = it.capture_rows(sc, season, week)
+        (tmp / "data").mkdir(exist_ok=True)
+        (tmp / "data" / "injury_tracker.csv").write_text(",".join(it.TRACKER_COLUMNS) + "\n")
+        it.merge_into_csv(tmp, rows)
+        it.merge_into_csv(tmp, rows)  # re-run same week must NOT duplicate
+        return rows, it.load_status_index(tmp)
+    finally:
+        it.teams_playing = saved
 
 
 # BUF is on bye in week 1 of this synthetic season; everyone else plays.

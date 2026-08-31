@@ -1,0 +1,90 @@
+name: Sweep gameday injuries
+
+# A gameday capture of Sleeper's injury designations, taken while they are still
+# the ones the teams played under, and merged into the same week's row as the
+# Tuesday final capture (see scripts/capture_injuries.py --mode sweep).
+#
+# WHY, given the Tuesday capture already exists: the Tuesday snapshot is a single
+# point-in-time read taken two days after the games. A designation the team
+# clears on Monday — a 21-day IR window opening, a suspension ending, a tag
+# dropped early — is gone by then, and the week reads as a played 0.00 instead of
+# a miss, which pollutes the same played-week denominators Bye? protects. A
+# sweep sees it while it is still there. It also means a failed Tuesday run is no
+# longer a permanently lost week.
+#
+# COST: this fires once a day, and the script exits in seconds unless the fixed
+# NFL schedule says there is a game today. ~153 runs a season, ~58 of which do
+# any work. It reads the schedule rather than the calendar on purpose: across
+# 2024-2026 NFL gamedays land on Wednesday, Thursday, Friday, Saturday, Sunday
+# AND Monday — 2026 opens on a Wednesday — and a game has been moved to a Tuesday
+# before (2021 week 15). A weekday-restricted cron would need editing for each of
+# those; this needs none.
+#
+# WHY 16:00 UTC (noon ET): after the inactive report for the early Sunday window
+# (90 minutes before a 1pm ET kick-off = 15:30 UTC) and before it kicks off, and
+# after the final practice report for every other window. Night games (Thu/Sun/Mon
+# 00:15-00:20 UTC) are swept on their own gameday, hours before their inactives
+# land — so those carry the practice-report designation, not the game-time one.
+on:
+  schedule:
+    - cron: "0 16 * 9-12,1 *"   # daily 16:00 UTC, Sep-Jan
+  workflow_dispatch:
+    inputs:
+      week:
+        description: "Override week (optional; normally read from the schedule)"
+        required: false
+
+permissions:
+  contents: write
+
+# Shared with capture_injuries.yml: both write data/injury_tracker.csv, so they
+# must never run at the same time.
+concurrency:
+  group: injury-tracker-write
+  cancel-in-progress: false
+
+jobs:
+  sweep:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v7
+
+      - name: Setup Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+
+      - name: Install minimal deps
+        run: pip install --no-cache-dir pyyaml requests
+
+      - name: Sweep
+        env:
+          IN_WEEK: ${{ github.event.inputs.week }}
+        run: |
+          set -euo pipefail
+          CMD=(python scripts/capture_injuries.py --mode sweep)
+          if [ -n "${IN_WEEK:-}" ]; then CMD+=(--week "$IN_WEEK"); fi
+          "${CMD[@]}"
+
+      - name: Commit sweep
+        run: |
+          git config user.name "lotg-injury-bot"
+          git config user.email "noreply@anthropic.com"
+          git add data/injury_tracker.csv
+          if git diff --cached --quiet; then
+            echo "No game today, or no change to injury_tracker.csv"
+            exit 0
+          fi
+          git commit -m "Gameday Sleeper injury sweep [skip ci]"
+          push_ok=0
+          for attempt in 1 2 3 4; do
+            if git push; then push_ok=1; break; fi
+            echo "Push failed (attempt $attempt) — reconciling with origin and retrying."
+            git pull --rebase origin "${GITHUB_REF_NAME}" || true
+            sleep $((2 ** attempt))
+          done
+          if [ "$push_ok" != "1" ]; then
+            echo "::error::Could not push the gameday injury sweep."
+            exit 1
+          fi
