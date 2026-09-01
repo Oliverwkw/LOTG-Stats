@@ -46,7 +46,11 @@ name: Weekly dataset-health email
 # run well over the cache-warm build's time. It is weekly; that is the trade.
 on:
   schedule:
-    - cron: "0 15 * * 3"   # Wednesday 15:00 UTC (~11:00 ET), after Tue build + nflverse
+    # Off the top of the hour: GitHub's schedule queue peaks at :00 and this
+    # repo's runs are ~80 minutes late on median. Read-only report — a late or
+    # dropped one costs a week's email and nothing else, so it takes the minute
+    # move but no catch-up fire.
+    - cron: "37 14 * * 3"   # Wednesday 14:37 UTC (~10:37 ET), after Tue build + nflverse
   workflow_dispatch:
 
 permissions:
