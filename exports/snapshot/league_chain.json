@@ -706,10 +706,10 @@
     "avatar": "bacf626c72ab39f35077ce4a4f99a149",
     "company_id": null,
     "last_message_id": "1312101554618109952",
-    "sport": "nfl",
-    "season_type": "regular",
-    "season": "2025",
     "shard": 926,
+    "season": "2025",
+    "season_type": "regular",
+    "sport": "nfl",
     "scoring_settings": {
       "sack": 1.0,
       "fgm_40_49": 4.0,
@@ -756,6 +756,7 @@
       "pts_allow_7_13": 4.0,
       "st_ff": 0.0
     },
+    "draft_id": "1192931349575991297",
     "last_author_avatar": "7ee196d29d33b131f9a27e07191766bd",
     "last_author_display_name": "Shmuel256",
     "last_author_id": "651904773355806720",
@@ -765,7 +766,6 @@
     "last_message_time": 1767191897590,
     "last_pinned_message_id": "1268363867671502848",
     "last_read_id": null,
-    "draft_id": "1192931349575991297",
     "league_id": "1192931349575991296",
     "previous_league_id": "1048362220767301632",
     "roster_positions": [
@@ -796,9 +796,9 @@
       "BN",
       "BN"
     ],
-    "group_id": null,
     "bracket_id": 1306906995424522240,
     "bracket_overrides_id": null,
+    "group_id": null,
     "loser_bracket_id": 1306906995428716544,
     "loser_bracket_overrides_id": null,
     "total_rosters": 8
@@ -868,7 +868,7 @@
     "season_type": "regular",
     "season": "2026",
     "shard": 213,
-    "last_message_id": "1400540033596817408",
+    "last_message_id": "1400594162650206208",
     "scoring_settings": {
       "sack": 1.0,
       "fgm_40_49": 4.0,
@@ -915,19 +915,18 @@
       "pts_allow_7_13": 4.0,
       "st_ff": 0.0
     },
-    "draft_id": "1312101511668449280",
-    "last_author_avatar": "5380fd4a6e4f3624b30b2297b7e77410",
-    "last_author_display_name": "AceMatthew",
-    "last_author_id": "620863288632233984",
+    "last_author_avatar": "e36a6748fbd53ab64ceb5f669bc6e27c",
+    "last_author_display_name": "plehv79",
+    "last_author_id": "603426191780679680",
     "last_author_is_bot": false,
     "last_message_attachment": null,
     "last_message_text_map": null,
-    "last_message_time": 1788277274087,
+    "last_message_time": 1788290179459,
     "last_pinned_message_id": "1377154772225773568",
+    "draft_id": "1312101511668449280",
     "last_read_id": null,
     "league_id": "1312101511651655680",
     "previous_league_id": "1192931349575991296",
-    "group_id": null,
     "roster_positions": [
       "QB",
       "RB",
@@ -956,6 +955,7 @@
       "BN",
       "BN"
     ],
+    "group_id": null,
     "bracket_id": null,
     "bracket_overrides_id": null,
     "loser_bracket_id": null,

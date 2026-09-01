@@ -440,4 +440,4 @@ tests/test_contracts.py::test_the_contracts_file_is_the_maintained_one
 =========================== short test summary info ============================
 FAILED tests/test_forecast.py::test_preseason_injury_flags_are_stale_and_are_not_believed - AssertionError: only 50% of 2026 flags trace to late 2025 injuries — the staleness argument may no longer hold
 assert 0.5 > 0.5
-============ 1 failed, 347 passed, 6 warnings in 211.76s (0:03:31) =============
+============ 1 failed, 347 passed, 6 warnings in 237.80s (0:03:57) =============
