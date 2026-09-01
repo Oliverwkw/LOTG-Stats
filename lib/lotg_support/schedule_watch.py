@@ -139,6 +139,64 @@ def last_expected_fire(now: datetime, fires: Sequence[Tuple[int, int]], dow: str
     return None
 
 
+def primary_fire_on(day_of: datetime, fires: Sequence[Tuple[int, int]]) -> Optional[datetime]:
+    """The earliest scheduled instant on `day_of`'s calendar day, in UTC."""
+    if not fires:
+        return None
+    hour, minute = min(fires)
+    d = day_of.astimezone(UTC)
+    return datetime(d.year, d.month, d.day, hour, minute, tzinfo=UTC)
+
+
+def should_skip_run(repo_root: Path, schedule: Optional[str],
+                    now: Optional[datetime] = None,
+                    workflow: str = "build.yml", dow: str = "2") -> bool:
+    """Is this fire a catch-up whose primary already did the work?
+
+    The catch-up cron exists for the Tuesdays GitHub never dispatches. On every
+    other Tuesday it reruns a ~25-minute build with nothing to do and commits
+    exports/ a second time, so it asks this first.
+
+    `schedule` is `github.event.schedule` — the cron string that fired. Which one
+    is the PRIMARY is derived from the workflow's own `on.schedule` (the earliest
+    Tuesday fire), never passed in: restating a cron string outside `on.schedule`
+    is the bug this PR opened by removing.
+
+    The evidence is the digest snapshot stamp, written by the LAST step of the
+    build, after the email has gone out — so "fresh" means the whole chain ran,
+    not that a workflow started. It is deliberately the same stamp the health
+    email's missed-run alarm reads, so the catch-up skips exactly when that alarm
+    says clear, and the two can never disagree about whether a week ran.
+
+    FAILS OPEN. Every unknown — a manual dispatch, an unrecognised cron, no
+    stamp, an unreadable stamp, any exception — returns False, i.e. RUN. A guard
+    that fails closed silently deletes the catch-up and restores the single point
+    of failure it exists to remove, and a wrongly-skipped job is indistinguishable
+    from a correctly-skipped one.
+    """
+    try:
+        if not schedule:
+            return False                      # workflow_dispatch, or push
+        fires = cron_fires(Path(repo_root), workflow, dow)
+        if len(fires) < 2:
+            return False                      # no catch-up configured
+        parts = str(schedule).split()
+        if len(parts) != 5 or parts[4] != dow:
+            return False                      # a different day's cron
+        this = (int(parts[1]), int(parts[0]))
+        if this not in fires or this == min(fires):
+            return False                      # the primary itself, or unknown
+        now = (now or datetime.now(UTC)).astimezone(UTC)
+        primary = primary_fire_on(now, fires)
+        if primary is None:
+            return False
+        stamp = _read_stamp(Path(repo_root) / "data" / "digest" / "ranks_snapshot.json",
+                            "meta", "captured_at")
+        return stamp is not None and stamp >= primary
+    except Exception:
+        return False
+
+
 def _read_stamp(path: Path, *keys: str) -> Optional[datetime]:
     try:
         blob = json.loads(path.read_text())
@@ -194,4 +252,60 @@ def missed_runs(repo_root: Path, now: Optional[datetime] = None,
             cycles=max(cycles, 1),
             detail=detail,
         ))
+    return out
+
+
+# ---------------------------------------------------------------------------
+# The injury tracker's own scheduled runs (PR #415)
+# ---------------------------------------------------------------------------
+@dataclass
+class InjuryGap:
+    kind: str          # "unfinalized" | "unswept"
+    season: int
+    week: int
+    detail: str
+
+    def label(self) -> str:
+        return f"{self.season} week {self.week}"
+
+
+def injury_capture_health(summary: dict) -> List[InjuryGap]:
+    """Weeks whose injury capture is INCOMPLETE, as opposed to absent.
+
+    `injury_coverage.week_gaps` — the one thing the health email already reports —
+    only sees a played week with NO rows at all. Both of the tracker's scheduled
+    workflows can fail while still leaving rows behind, and neither shows up
+    there:
+
+      * UNFINALIZED. The week has gameday sweeps but no post-week capture, so
+        `capture_injuries.yml`'s Tuesday run never landed. The week has rows, so
+        week_gaps() is silent, but nothing in it carries the participation
+        picture the overlay uses to tell a missed week from a played 0.00.
+      * UNSWEPT. The week is finalized with `captures` still at 1, so no gameday
+        sweep ran for it. Its designations are only what Sleeper happened to be
+        showing on Tuesday, two days after the games — a tag the team cleared on
+        the Monday is not in that week. #415's ablation put this class at 171
+        missed->played errors across a season.
+
+    Both were already computed by injury_coverage.render_report(), which prints
+    them to a markdown report on the workflow's stdout that nobody reads. This
+    returns them so the Wednesday email can carry them instead.
+    """
+    out: List[InjuryGap] = []
+    for (season, week) in sorted(summary):
+        v = summary[(season, week)] or {}
+        if not v.get("finalized", True):
+            out.append(InjuryGap(
+                "unfinalized", int(season), int(week),
+                "has gameday sweeps but no post-week capture — the Tuesday "
+                "capture run never landed, so the week carries designations "
+                "without the participation that tells a missed week from a "
+                "played 0.00."))
+        elif int(v.get("captures", 1) or 1) <= 1:
+            out.append(InjuryGap(
+                "unswept", int(season), int(week),
+                "was finalized with no gameday sweep behind it — its "
+                "designations are only what Sleeper was showing on Tuesday, two "
+                "days after the games, so a tag the team cleared on the Monday "
+                "is not in this week."))
     return out

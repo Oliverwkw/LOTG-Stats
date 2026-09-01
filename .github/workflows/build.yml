@@ -8,8 +8,11 @@ on:
     #   * Thursday 15:47 UTC (~11:47 ET) — a pregame refresh (fresh rosters /
     #     stats before TNF). Builds the digest preview but does NOT email and
     #     does NOT rotate the digest baseline snapshot.
-    # Each has a catch-up fire 4 hours later for the weeks GitHub drops the
-    # first one entirely; both are safe to run twice (see the email gate below).
+    # TUESDAY has a catch-up fire 4 hours behind it for the weeks GitHub drops
+    # the first one entirely; it is guarded (see the `guard` job) so it only does
+    # work when the primary genuinely did not. THURSDAY has none on purpose:
+    # nothing unrecoverable rides on a pregame refresh, so a dropped one costs a
+    # fresher roster until Tuesday and nothing else.
     # The digest EMAIL + snapshot rotation are gated to the Tuesday crons only,
     # so consecutive emails diff cleanly week-to-week. build_digest now runs
     # year-round (offseason leaderboards still drift + gain picks/trades/txns);
@@ -25,7 +28,6 @@ on:
     - cron: "47 13 * * 2"   # Tuesday  13:47 UTC — weekly build + digest EMAIL
     - cron: "47 17 * * 2"   # Tuesday  17:47 UTC — catch-up if the 13:47 never fired
     - cron: "47 15 * * 4"   # Thursday 15:47 UTC — pregame refresh (no email)
-    - cron: "47 19 * * 4"   # Thursday 19:47 UTC — catch-up for the pregame refresh
   workflow_dispatch:
     inputs:
       force_refresh_cache:
@@ -57,7 +59,59 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # Does this fire have anything to do? Only ever answers "no" for the Tuesday
+  # CATCH-UP cron, and only when the 13:47 primary already completed the weekly
+  # cycle end to end. Everything else — the primary, Thursday, every manual
+  # dispatch — runs untouched.
+  #
+  # It is a separate job because a job-level `if:` cannot read a file: the
+  # evidence lives in the repo (data/digest/ranks_snapshot.json, written by the
+  # LAST step of the build, after the email has gone out), so something has to
+  # check out first. The build then renders as SKIPPED rather than failed or
+  # cancelled — a cancelled run shows as a grey ✗ that is indistinguishable from
+  # a real cancellation, which would make a genuinely broken week harder to spot.
+  #
+  # Sequencing is safe by construction. The workflow-level `concurrency` group
+  # holds a queued run BEFORE any of its steps execute, so even a badly delayed
+  # primary that is still building when the catch-up is dispatched finishes and
+  # pushes first; the guard's checkout then sees the fresh stamp. Without that
+  # group this would race on the checkout.
+  #
+  # It FAILS OPEN — see scripts/schedule_guard.py. Any unknown runs the build.
+  guard:
+    runs-on: ubuntu-latest
+    outputs:
+      should_run: ${{ steps.decide.outputs.should_run }}
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v7
+
+      - name: Setup Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+
+      - name: Install minimal deps
+        run: pip install --no-cache-dir pyyaml
+
+      - name: Decide whether this fire has work to do
+        id: decide
+        env:
+          # Through the environment, not `${{ }}` interpolation into the script
+          # body: an expansion is pasted in as shell source before bash sees it.
+          SCHEDULE: ${{ github.event.schedule }}
+        run: |
+          set -uo pipefail
+          answer="$(python scripts/schedule_guard.py --schedule "${SCHEDULE:-}" || echo true)"
+          case "${answer}" in true|false) ;; *) answer=true ;; esac
+          echo "should_run=${answer}" >> "$GITHUB_OUTPUT"
+          if [ "${answer}" = "false" ]; then
+            echo "::notice::Today's primary build already completed the weekly cycle; this catch-up has nothing to do."
+          fi
+
   build:
+    needs: guard
+    if: ${{ needs.guard.outputs.should_run == 'true' }}
     runs-on: ubuntu-latest
 
     steps:

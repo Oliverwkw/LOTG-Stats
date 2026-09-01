@@ -58,7 +58,8 @@ def _repo(digest_at=None, exports_at=None):
 def test_the_schedule_is_read_from_the_workflow_not_restated():
     fires = SW.cron_fires(_ROOT, "build.yml", "2")
     assert fires == [(13, 47), (17, 47)], fires
-    assert SW.cron_fires(_ROOT, "build.yml", "4") == [(15, 47), (19, 47)]
+    # Thursday has no catch-up: nothing unrecoverable rides on a pregame refresh.
+    assert SW.cron_fires(_ROOT, "build.yml", "4") == [(15, 47)]
 
 
 def test_the_most_recent_fire_is_judged_once_it_has_had_time():
@@ -151,6 +152,110 @@ def test_the_email_carries_the_section_and_counts_it_in_the_subject():
     assert "✅ Every scheduled weekly run" in clean_html
 
 
+
+# ---------------------------------------------------------------------------
+# The catch-up guard
+# ---------------------------------------------------------------------------
+PRIMARY, CATCH_UP = "47 13 * * 2", "47 17 * * 2"
+
+
+def test_the_catch_up_skips_once_the_primary_has_done_the_work():
+    root = _repo(digest_at=TUE_FIRE + timedelta(minutes=28))
+    assert SW.should_skip_run(root, CATCH_UP, now=TUE_FIRE + timedelta(hours=4)) is True
+
+
+def test_the_primary_itself_is_never_skipped():
+    root = _repo(digest_at=TUE_FIRE + timedelta(minutes=28))
+    assert SW.should_skip_run(root, PRIMARY, now=TUE_FIRE + timedelta(hours=4)) is False
+
+
+def test_the_catch_up_runs_when_the_primary_did_not():
+    """The whole point: a dropped primary leaves last week's stamp behind."""
+    root = _repo(digest_at=TUE_FIRE - timedelta(days=7))
+    assert SW.should_skip_run(root, CATCH_UP, now=TUE_FIRE + timedelta(hours=4)) is False
+
+
+def test_a_primary_that_died_before_rotating_does_not_suppress_the_catch_up():
+    """Rotation is the LAST step, after the email — a stale stamp means the
+    chain did not finish, however far the run got."""
+    root = _repo(digest_at=TUE_FIRE - timedelta(days=7), exports_at=TUE_FIRE)
+    assert SW.should_skip_run(root, CATCH_UP, now=TUE_FIRE + timedelta(hours=4)) is False
+
+
+def test_the_guard_fails_open_on_every_unknown():
+    fresh = TUE_FIRE + timedelta(minutes=28)
+    now = TUE_FIRE + timedelta(hours=4)
+    # no stamp at all
+    assert SW.should_skip_run(_repo(digest_at=None), CATCH_UP, now=now) is False
+    # unreadable stamp
+    root = _repo(digest_at=fresh)
+    (root / "data" / "digest" / "ranks_snapshot.json").write_text("{not json")
+    assert SW.should_skip_run(root, CATCH_UP, now=now) is False
+    # a manual dispatch carries no schedule
+    assert SW.should_skip_run(_repo(digest_at=fresh), "", now=now) is False
+    assert SW.should_skip_run(_repo(digest_at=fresh), None, now=now) is False
+    # a cron from another day, and an unrecognised one
+    assert SW.should_skip_run(_repo(digest_at=fresh), "47 15 * * 4", now=now) is False
+    assert SW.should_skip_run(_repo(digest_at=fresh), "0 3 * * 2", now=now) is False
+    assert SW.should_skip_run(_repo(digest_at=fresh), "garbage", now=now) is False
+    # a repo with no workflow to read
+    import tempfile as _tf
+    assert SW.should_skip_run(Path(_tf.mkdtemp()), CATCH_UP, now=now) is False
+
+
+def test_the_cli_prints_a_bare_boolean_and_never_raises():
+    import subprocess
+    root = _repo(digest_at=TUE_FIRE + timedelta(minutes=28))
+    for sched in (CATCH_UP, PRIMARY, "", "garbage"):
+        r = subprocess.run(
+            [sys.executable, str(_ROOT / "scripts" / "schedule_guard.py"),
+             "--schedule", sched, "--root", str(root)],
+            capture_output=True, text=True)
+        assert r.returncode == 0, r.stderr
+        assert r.stdout.strip() in ("true", "false"), r.stdout
+
+
+# ---------------------------------------------------------------------------
+# The injury tracker's own scheduled runs (PR #415)
+# ---------------------------------------------------------------------------
+def test_an_unswept_week_is_a_finding():
+    """sweep_injuries.yml never ran for that week; Sleeper keeps no history."""
+    got = SW.injury_capture_health({(2026, 4): {"finalized": True, "captures": 1}})
+    assert [(g.kind, g.week) for g in got] == [("unswept", 4)]
+
+
+def test_an_unfinalized_week_is_a_finding():
+    """capture_injuries.yml's Tuesday run never landed — but the week HAS rows,
+    so injury_coverage.week_gaps() is silent about it."""
+    got = SW.injury_capture_health({(2026, 4): {"finalized": False, "captures": 2}})
+    assert [(g.kind, g.week) for g in got] == [("unfinalized", 4)]
+
+
+def test_a_healthy_injury_week_is_not_a_finding():
+    assert SW.injury_capture_health({(2026, 4): {"finalized": True, "captures": 3}}) == []
+    assert SW.injury_capture_health({}) == []
+
+
+def test_an_unfinalized_week_is_reported_as_that_not_as_unswept():
+    """A week with sweeps but no final capture has captures > 1 already; the
+    missing FINAL is the bigger fact and must not be masked by it."""
+    got = SW.injury_capture_health({(2026, 4): {"finalized": False, "captures": 1}})
+    assert [g.kind for g in got] == ["unfinalized"]
+
+
+def test_incomplete_injury_weeks_reach_the_email():
+    sys.path.insert(0, str(_ROOT / "scripts"))
+    import send_audit_email as E
+    inc = SW.injury_capture_health({(2026, 4): {"finalized": True, "captures": 1},
+                                    (2026, 5): {"finalized": False, "captures": 2}})
+    subject, html, has_issues = E.render_email(
+        [], {}, True, drift=None, now=WED, injury_incomplete=inc)
+    assert has_issues, "an incomplete injury week must not render as all clear"
+    assert "2 incomplete injury weeks" in subject, subject
+    assert "no gameday sweep" in html and "no post-week capture" in html
+    assert "2026 week 4" in html and "2026 week 5" in html
+
+
 TESTS = [test_the_schedule_is_read_from_the_workflow_not_restated,
          test_the_most_recent_fire_is_judged_once_it_has_had_time,
          test_a_fire_still_inside_the_grace_window_is_not_judged,
@@ -161,7 +266,18 @@ TESTS = [test_the_schedule_is_read_from_the_workflow_not_restated,
          test_several_skipped_weeks_are_counted_not_just_flagged,
          test_a_thursday_commit_cannot_clear_the_digest_finding,
          test_a_missing_or_corrupt_stamp_is_reported_not_crashed_on,
-         test_the_email_carries_the_section_and_counts_it_in_the_subject]
+         test_the_email_carries_the_section_and_counts_it_in_the_subject,
+         test_the_catch_up_skips_once_the_primary_has_done_the_work,
+         test_the_primary_itself_is_never_skipped,
+         test_the_catch_up_runs_when_the_primary_did_not,
+         test_a_primary_that_died_before_rotating_does_not_suppress_the_catch_up,
+         test_the_guard_fails_open_on_every_unknown,
+         test_the_cli_prints_a_bare_boolean_and_never_raises,
+         test_an_unswept_week_is_a_finding,
+         test_an_unfinalized_week_is_a_finding,
+         test_a_healthy_injury_week_is_not_a_finding,
+         test_an_unfinalized_week_is_reported_as_that_not_as_unswept,
+         test_incomplete_injury_weeks_reach_the_email]
 
 if __name__ == "__main__":
     bad = 0

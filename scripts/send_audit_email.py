@@ -159,15 +159,31 @@ def _nflverse_html(drift, attributed: int, sheets=None, columns=None,
     return f'<p style="margin:0;color:#5a4a00;">ℹ️ {summary}{tail}</p>' 
 
 
-def _injury_html(gaps: dict, captures_present: bool) -> str:
+def _injury_html(gaps: dict, captures_present: bool, incomplete=()) -> str:
+    """Missing weeks, AND weeks whose capture landed but is incomplete.
+
+    A week with no rows at all is what `week_gaps` sees. Both of the tracker's
+    scheduled workflows can fail while still leaving rows behind — a week with
+    sweeps but no Tuesday capture, or a finalized week no gameday sweep ran for —
+    and neither of those appears in `gaps`. Sleeper keeps no injury history, so
+    both are permanent the moment they happen; they belong in the email, not in a
+    markdown report on a workflow's stdout.
+    """
+    incomplete = list(incomplete)
     if not captures_present:
         return ('<p style="color:#666;margin:0;">The Sleeper injury tracker has no '
                 'captures yet (first capture is 2026 week 1), so there are no missed '
                 'weeks to report and the build uses the nflverse fallback throughout.</p>')
-    if not gaps:
+    if not gaps and not incomplete:
         return ('<p style="color:#137333;margin:0;">✅ Every played in-season week '
-                'since the tracker began has an injury capture.</p>')
+                'since the tracker began has an injury capture, each finalized and '
+                'with at least one gameday sweep behind it.</p>')
     items = []
+    for g in incomplete:
+        what = ("no post-week capture" if g.kind == "unfinalized"
+                else "no gameday sweep")
+        items.append(f'<li style="margin:4px 0;"><b>{_esc(g.label())}</b> — '
+                     f'{_esc(what)}: {_esc(g.detail)}</li>')
     for season in sorted(gaps):
         wl = ", ".join(str(w) for w in gaps[season])
         items.append(f'<li style="margin:4px 0;"><b>{season}</b>: weeks {_esc(wl)} were '
@@ -235,14 +251,16 @@ def _lede_html(intro: str) -> str:
 
 def render_email(flags, gaps: dict, captures_present: bool, drift=None,
                  attributed: int = 0, attributed_sheets=None, attributed_columns=None,
-                 attributed_cells: int = 0, missed=(), now=None):
+                 attributed_cells: int = 0, missed=(), now=None, injury_incomplete=()):
     """Return (subject, html, has_issues)."""
     n_break = len(flags)
     n_gap = sum(len(v) for v in gaps.values())
     missed = list(missed)
     n_missed = sum(m.cycles for m in missed)
+    injury_incomplete = list(injury_incomplete)
+    n_inc = len(injury_incomplete)
     now = now or datetime.now(timezone.utc)
-    has_issues = bool(n_break or n_gap or n_missed)
+    has_issues = bool(n_break or n_gap or n_missed or n_inc)
     today = date.today().isoformat()
 
     # Nothing flagged, no missed weeks, and upstream drift actually measured:
@@ -263,6 +281,8 @@ def render_email(flags, gaps: dict, captures_present: bool, drift=None,
             bits.append(f"{n_break} breakage{'s' if n_break != 1 else ''}")
         if n_gap:
             bits.append(f"{n_gap} missed injury week{'s' if n_gap != 1 else ''}")
+        if n_inc:
+            bits.append(f"{n_inc} incomplete injury week{'s' if n_inc != 1 else ''}")
         if n_missed:
             # First in the subject when it is the only thing wrong: a skipped run
             # means the rest of this email is describing a stale week.
@@ -288,12 +308,12 @@ def render_email(flags, gaps: dict, captures_present: bool, drift=None,
   <h2 style="font:600 17px/1.3 system-ui,sans-serif;color:#1a2b3c;margin:22px 0 6px;">NFLverse changes</h2>
   {_nflverse_html(drift, attributed, attributed_sheets, attributed_columns, n_break)}
   <h2 style="font:600 17px/1.3 system-ui,sans-serif;color:#1a2b3c;margin:22px 0 6px;">Missed injuries</h2>
-  {_injury_html(gaps, captures_present)}
+  {_injury_html(gaps, captures_present, injury_incomplete)}
   <h2 style="font:600 17px/1.3 system-ui,sans-serif;color:#1a2b3c;margin:22px 0 6px;">Missed scheduled runs</h2>
   {_missed_runs_html(missed, now)}
   <p style="color:#999;font-size:12px;margin-top:22px;">Automated weekly dataset-health check
   (audit: completed-season immutability, schema, build errors; NFLverse: upstream revisions since
-  the committed exports were built; injuries: tracker week gaps; scheduled runs: weekly cycles with no completion stamp).</p>
+  the committed exports were built; injuries: tracker week gaps, unfinalized and unswept weeks; scheduled runs: weekly cycles with no completion stamp).</p>
 </div>"""
     return subject, html, has_issues
 
@@ -354,10 +374,18 @@ def main(argv=None) -> int:
         print(f"::warning::[audit-email] {m.what}: {m.cycles} scheduled run(s) did not "
               f"complete (expected by {m.expected_at:%Y-%m-%d %H:%M} UTC)")
 
+    # The tracker's own scheduled runs can fail while still leaving rows behind:
+    # a week with sweeps but no Tuesday capture, or a finalized week nobody swept
+    # a gameday of. week_gaps() sees neither — it only sees a week with no rows
+    # at all — and Sleeper keeps no history, so both are permanent.
+    injury_incomplete = SW.injury_capture_health(summary)
+    for g in injury_incomplete:
+        print(f"::warning::[audit-email] injury tracker {g.label()}: {g.kind}")
+
     subject, html, has_issues = render_email(
         flags, gaps, bool(captures), rep.drift, rep.nflverse_attributed,
         rep.attributed_sheets, rep.attributed_columns, rep.attributed_cells,
-        missed=missed, now=now)
+        missed=missed, now=now, injury_incomplete=injury_incomplete)
     print(f"[audit-email] {subject}")
     if args.out:
         Path(args.out).parent.mkdir(parents=True, exist_ok=True)

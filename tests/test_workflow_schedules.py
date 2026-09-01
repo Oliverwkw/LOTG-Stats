@@ -156,6 +156,31 @@ def test_unrecoverable_work_has_a_catch_up_fire():
     assert len(sep_dec) >= 2, "the weekly injury capture has no catch-up fire"
 
 
+def test_recoverable_work_does_not_get_one():
+    """A catch-up is not free — it is a second full build and a second commit.
+
+    Thursday is the pregame refresh: a dropped one costs a fresher roster until
+    Tuesday and nothing else, so it does not get a catch-up. Adding one here
+    would double the Thursday build for no recovered data.
+    """
+    thursdays = [c for c in _crons("build.yml") if _fields(c)[4] == "4"]
+    assert len(thursdays) == 1, thursdays
+
+
+def test_the_catch_up_is_guarded_and_the_guard_can_only_gate_the_build():
+    doc = _load("build.yml")
+    assert "guard" in doc["jobs"], "the Tuesday catch-up runs unguarded"
+    build = doc["jobs"]["build"]
+    assert build.get("needs") == "guard" or "guard" in (build.get("needs") or [])
+    assert "needs.guard.outputs.should_run" in str(build.get("if", "")), build.get("if")
+    # The guard decides from the workflow's own crons, never a restated string.
+    body = (WF / "build.yml").read_text()
+    guard = body.split("guard:", 1)[1].split("\n  build:", 1)[0]
+    assert "schedule_guard.py" in guard
+    for c in _crons("build.yml"):
+        assert c not in guard, f"the guard step restates the cron {c!r}"
+
+
 TESTS = [test_no_cron_fires_on_the_hour,
          test_tuesday_send_list_matches_the_tuesday_crons,
          test_no_gate_hardcodes_a_cron_string,
@@ -163,7 +188,9 @@ TESTS = [test_no_cron_fires_on_the_hour,
          test_injury_capture_lands_between_the_monday_game_and_the_build,
          test_every_sweep_sits_in_an_inactive_report_window,
          test_the_sweep_is_redundant_and_has_delay_headroom,
-         test_unrecoverable_work_has_a_catch_up_fire]
+         test_unrecoverable_work_has_a_catch_up_fire,
+         test_recoverable_work_does_not_get_one,
+         test_the_catch_up_is_guarded_and_the_guard_can_only_gate_the_build]
 
 if __name__ == "__main__":
     bad = 0
