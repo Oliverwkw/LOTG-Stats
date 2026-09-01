@@ -9,6 +9,16 @@ name: Weekly dataset-health email
 #       column, or a real (non-transient, non-current-season) build error.
 #   * MISSED INJURIES — played in-season weeks with no capture in the Sleeper
 #       injury tracker (scripts/injury_coverage.py).
+#   * MISSED SCHEDULED RUNS — a weekly cycle that never completed
+#       (lib/lotg_support/schedule_watch.py). This is the only failure in the
+#       pipeline with NO artifact of its own: a late run is visible in the
+#       Actions list and a broken one is a red X, but a run GitHub never
+#       dispatched (2026-07-07) leaves nothing at all — while every other
+#       section of this email goes on describing a week-old dataset as if it
+#       were current. Read off the two committed completion stamps
+#       (data/digest/ranks_snapshot.json, exports/snapshot/_snapshot_meta.json),
+#       not the Actions API, because the question is whether the weekly CYCLE
+#       finished, not whether a workflow object exists.
 # It's a weekly heartbeat (sends even on a clean week), so a silent inbox means
 # the check didn't run. Needs the DIGEST_KEY secret (same one the digest uses);
 # a safe no-op (logged, green) when it's absent.

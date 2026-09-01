@@ -53,7 +53,7 @@ from __future__ import annotations
 
 import argparse
 import sys
-from datetime import date
+from datetime import date, datetime, timezone
 from pathlib import Path
 
 import pandas as pd
@@ -66,6 +66,7 @@ sys.path.insert(0, str(_ROOT / "lib"))
 import audit_weekly as A                       # noqa: E402
 import injury_coverage as C                    # noqa: E402
 from lotg_support import email_summary as ES   # noqa: E402
+from lotg_support import schedule_watch as SW  # noqa: E402
 from lotg_support import mailer                # noqa: E402
 
 _CREDS_ENC = _ROOT / "config" / "digest_credentials.enc"
@@ -176,6 +177,26 @@ def _injury_html(gaps: dict, captures_present: bool) -> str:
             + "".join(items) + "</ul>")
 
 
+def _missed_runs_html(missed, now) -> str:
+    """A scheduled run that never happened leaves no failed workflow to notice."""
+    if not missed:
+        return ('<p style="color:#137333;margin:0;">✅ Every scheduled weekly run '
+                'since the last check completed and left its stamp.</p>')
+    items = []
+    for m in missed:
+        age = m.age_days(now)
+        seen = (f'last stamped {age:.1f} days ago ({m.captured_at:%Y-%m-%d %H:%M} UTC)'
+                if age is not None else 'never stamped')
+        items.append(
+            f'<li style="margin:6px 0;"><b>{_esc(m.what)}</b> — '
+            f'{m.cycles} scheduled run{"s" if m.cycles != 1 else ""} did not complete. '
+            f'Expected by {m.expected_at:%Y-%m-%d %H:%M} UTC; {_esc(seen)} '
+            f'(<code>{_esc(m.stamp_path)}</code>).<br>'
+            f'<span style="color:#666;">{_esc(m.detail)}</span></li>')
+    return ('<ul style="margin:0;padding-left:20px;color:#8a5a00;">'
+            + "".join(items) + "</ul>")
+
+
 def _upstream_only_html(drift, attributed_cells: int) -> str:
     """The whole email, on a week that is nothing but upstream drift.
 
@@ -214,11 +235,14 @@ def _lede_html(intro: str) -> str:
 
 def render_email(flags, gaps: dict, captures_present: bool, drift=None,
                  attributed: int = 0, attributed_sheets=None, attributed_columns=None,
-                 attributed_cells: int = 0):
+                 attributed_cells: int = 0, missed=(), now=None):
     """Return (subject, html, has_issues)."""
     n_break = len(flags)
     n_gap = sum(len(v) for v in gaps.values())
-    has_issues = bool(n_break or n_gap)
+    missed = list(missed)
+    n_missed = sum(m.cycles for m in missed)
+    now = now or datetime.now(timezone.utc)
+    has_issues = bool(n_break or n_gap or n_missed)
     today = date.today().isoformat()
 
     # Nothing flagged, no missed weeks, and upstream drift actually measured:
@@ -239,6 +263,10 @@ def render_email(flags, gaps: dict, captures_present: bool, drift=None,
             bits.append(f"{n_break} breakage{'s' if n_break != 1 else ''}")
         if n_gap:
             bits.append(f"{n_gap} missed injury week{'s' if n_gap != 1 else ''}")
+        if n_missed:
+            # First in the subject when it is the only thing wrong: a skipped run
+            # means the rest of this email is describing a stale week.
+            bits.append(f"{n_missed} missed scheduled run{'s' if n_missed != 1 else ''}")
         subject = f"⚠️ LOTG dataset health — {', '.join(bits)} ({today})"
         banner_bg, banner = "#fdecea", "⚠️ Issues need a look"
     else:
@@ -261,9 +289,11 @@ def render_email(flags, gaps: dict, captures_present: bool, drift=None,
   {_nflverse_html(drift, attributed, attributed_sheets, attributed_columns, n_break)}
   <h2 style="font:600 17px/1.3 system-ui,sans-serif;color:#1a2b3c;margin:22px 0 6px;">Missed injuries</h2>
   {_injury_html(gaps, captures_present)}
+  <h2 style="font:600 17px/1.3 system-ui,sans-serif;color:#1a2b3c;margin:22px 0 6px;">Missed scheduled runs</h2>
+  {_missed_runs_html(missed, now)}
   <p style="color:#999;font-size:12px;margin-top:22px;">Automated weekly dataset-health check
   (audit: completed-season immutability, schema, build errors; NFLverse: upstream revisions since
-  the committed exports were built; injuries: tracker week gaps).</p>
+  the committed exports were built; injuries: tracker week gaps; scheduled runs: weekly cycles with no completion stamp).</p>
 </div>"""
     return subject, html, has_issues
 
@@ -311,9 +341,23 @@ def main(argv=None) -> int:
     summary = C.capture_summary(captures)
     gaps = C.week_gaps(summary, C.played_weeks(_read_csv(exports, "team_week")))
 
+    # A scheduled run that never happened leaves no failed workflow behind, so
+    # nothing else in this email would mention it — and every other section would
+    # quietly be describing a week-old dataset as if it were current.
+    now = datetime.now(timezone.utc)
+    try:
+        missed = SW.missed_runs(Path(args.root), now=now)
+    except Exception as e:                       # never let the watch stop the email
+        print(f"[audit-email] schedule watch unavailable: {type(e).__name__}: {e}")
+        missed = []
+    for m in missed:
+        print(f"::warning::[audit-email] {m.what}: {m.cycles} scheduled run(s) did not "
+              f"complete (expected by {m.expected_at:%Y-%m-%d %H:%M} UTC)")
+
     subject, html, has_issues = render_email(
         flags, gaps, bool(captures), rep.drift, rep.nflverse_attributed,
-        rep.attributed_sheets, rep.attributed_columns, rep.attributed_cells)
+        rep.attributed_sheets, rep.attributed_columns, rep.attributed_cells,
+        missed=missed, now=now)
     print(f"[audit-email] {subject}")
     if args.out:
         Path(args.out).parent.mkdir(parents=True, exist_ok=True)
