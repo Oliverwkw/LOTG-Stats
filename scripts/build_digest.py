@@ -49,6 +49,59 @@ def _read(exports: Path, name: str) -> pd.DataFrame:
     return pd.read_csv(p, low_memory=False) if p.exists() else pd.DataFrame()
 
 
+# How many missed weeks a single digest will make up before it gives up and just
+# says so. Four is already an unusual email; beyond that the gap is an incident,
+# not a hiccup, and silently pasting two months of records into one send helps
+# nobody. Whatever is dropped is NAMED, never dropped quietly.
+_MAX_GAP_WEEKS = 4
+
+
+def _weeks_to_cover(prior, meta, team_week):
+    """Which completed weeks this digest should report single-week records for.
+
+    Normally exactly one — the latest — which is what the section has always
+    done. More only when the PRIOR SNAPSHOT proves weeks went unreported: its
+    `weeks_completed` is the count the last successful digest saw, so a jump of
+    more than one means that many runs never happened.
+
+    Anchored on latest_completed_week(), NOT on meta["weeks_completed"]: the
+    former is the max week number, the latter is the COUNT of distinct weeks.
+    They agree only while the weeks run 1..N unbroken, and driving the section
+    off the count would quietly move the normal single-week digest onto the
+    wrong week the first time a week is missing from team_week.
+    """
+    season = meta.get("season")
+    if season is None:
+        return [], None
+    latest = D.latest_completed_week(team_week, season)
+    if not latest:
+        return [], None
+    if prior is None:
+        return [latest], None
+    pmeta = prior.get("meta", {}) or {}
+    if pmeta.get("season") != season:
+        # A new season's week 1 is not "five weeks late" on last season's week 17.
+        return [latest], None
+    gap = int(meta.get("weeks_completed") or 0) - int(pmeta.get("weeks_completed") or 0)
+    if gap <= 1:
+        return [latest], None
+
+    yrs = pd.to_numeric(team_week["Year"], errors="coerce")
+    wks = pd.to_numeric(team_week.loc[yrs == season, "Week"], errors="coerce").dropna()
+    have = sorted({int(w) for w in wks.tolist() if int(w) <= latest})
+    wanted = have[-gap:] if gap <= len(have) else have
+    dropped = wanted[:-_MAX_GAP_WEEKS] if len(wanted) > _MAX_GAP_WEEKS else []
+    covered = wanted[-_MAX_GAP_WEEKS:]
+    note = (f"::warning::[digest] the prior snapshot is {gap} weeks behind — "
+            f"{gap - 1} weekly run(s) never happened. Single-week records do not "
+            f"survive a missed week (every other section diffs state and does), so "
+            f"this digest covers week(s) {', '.join(str(w) for w in covered)}.")
+    if dropped:
+        note += (f" NOT covered, beyond the {_MAX_GAP_WEEKS}-week limit: "
+                 f"{', '.join(str(w) for w in dropped)}.")
+    return covered, note
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description="Build the LOTG weekly digest.")
     ap.add_argument("--exports", default=str(_ROOT / "exports"))
@@ -134,10 +187,36 @@ def main(argv=None) -> int:
         frames["league_year"], frames["team_week"],
     )
     current["yearly_records"] = D.record_value_map(records)
-    highlights = D.weekly_highlights(
-        frames["player_week"], frames["team_week"],
-        frames["league_week"], frames["team_year"],
-    )
+    # SINGLE-WEEK HIGHLIGHTS ARE THE ONE PART OF THIS DIGEST THAT A MISSED RUN
+    # LOSES FOR GOOD, so they are the one part that has to look backwards.
+    #
+    # Everything else here is a STATE diff against the prior snapshot —
+    # diff_snapshots compares an entity's previous VALUE to its current one,
+    # diff_records/diff_pace/diff_events likewise — so a week with no run just
+    # means the next snapshot is two weeks old and the next digest reports the
+    # two-week move whole. Nothing is dropped.
+    #
+    # A single-week performance is not a state. It belongs to its week, the
+    # section only ever asked for latest_completed_week(), and once that week's
+    # digest is skipped it is never mentioned again. GitHub drops scheduled runs
+    # outright (2026-07-07), so this is reachable, and it is silent when it
+    # happens. Cover every week the prior snapshot never reported instead.
+    prior = D.load_snapshot(snap_path)
+    covered, gap_note = _weeks_to_cover(prior, meta, frames["team_week"])
+    if gap_note:
+        print(gap_note)
+    highlights = []
+    for wk in covered:
+        highlights += D.weekly_highlights(
+            frames["player_week"], frames["team_week"],
+            frames["league_week"], frames["team_year"],
+            season=meta["season"], week=wk,
+        )
+    if len(covered) > 1:
+        # Say the week out loud on every row; otherwise two weeks of records sit
+        # in one list with no way to tell them apart.
+        for h in highlights:
+            h.show_week = True
     # The boards cover EVERY numeric column of EVERY row-level sheet, over every
     # row ever — a season, a week, a pick, a trade, a transaction. A recompute
     # that re-values history reshuffles an all-time top/bottom 5, and that
@@ -149,7 +228,6 @@ def main(argv=None) -> int:
     # climbed onto a board. Stored here; consumed as `prior_row_keys` next run.
     current["row_keys"] = D.all_row_keys(frames)
 
-    prior = D.load_snapshot(snap_path)
     if prior is None:
         print("[digest] no prior snapshot — baselining this week (no diff yet).")
         crossings, proj_changes, milestones, record_changes, event_changes = [], [], [], [], []
