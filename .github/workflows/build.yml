@@ -3,18 +3,31 @@ name: Build LOTG Stats
 on:
   schedule:
     # Phase 14 owns the canonical weekly pipeline run. Two cadences:
-    #   * Tuesday 14:00 UTC (~10:00 ET) — the weekly build + digest EMAIL. Also
+    #   * Tuesday 13:47 UTC (~9:47 ET) — the weekly build + digest EMAIL. Also
     #     the weekly exports refresh (replaces the old 12:00 bootstrap).
-    #   * Thursday 16:00 UTC (~12:00 ET) — a pregame refresh (fresh rosters /
+    #   * Thursday 15:47 UTC (~11:47 ET) — a pregame refresh (fresh rosters /
     #     stats before TNF). Builds the digest preview but does NOT email and
     #     does NOT rotate the digest baseline snapshot.
-    # The digest EMAIL + snapshot rotation are gated to the Tuesday cron only,
+    # TUESDAY has a catch-up fire 4 hours behind it for the weeks GitHub drops
+    # the first one entirely; it is guarded (see the `guard` job) so it only does
+    # work when the primary genuinely did not. THURSDAY has none on purpose:
+    # nothing unrecoverable rides on a pregame refresh, so a dropped one costs a
+    # fresher roster until Tuesday and nothing else.
+    # The digest EMAIL + snapshot rotation are gated to the Tuesday crons only,
     # so consecutive emails diff cleanly week-to-week. build_digest now runs
     # year-round (offseason leaderboards still drift + gain picks/trades/txns);
     # a week with no movement renders an empty digest that --skip-empty drops,
     # so a quiet offseason week still sends no email.
-    - cron: "0 14 * * 2"
-    - cron: "0 16 * * 4"
+    # TIMES ARE OFF THE TOP OF THE HOUR ON PURPOSE. GitHub queues `schedule`
+    # events on a shared, best-effort pool and defers them under load, and load
+    # peaks at :00. Every scheduled run this repo has ever had started LATE —
+    # never early, never on time — median ~80 minutes, tail to 8h47m (the Thu
+    # 2026-08-27 run landed 00:47 UTC Friday), and 2026-07-07 was dropped
+    # outright. Minute :47 is the mitigation; the CATCH-UP crons below are the
+    # backstop for the fires GitHub drops entirely.
+    - cron: "47 13 * * 2"   # Tuesday  13:47 UTC — weekly build + digest EMAIL
+    - cron: "47 17 * * 2"   # Tuesday  17:47 UTC — catch-up if the 13:47 never fired
+    - cron: "47 15 * * 4"   # Thursday 15:47 UTC — pregame refresh (no email)
   workflow_dispatch:
     inputs:
       force_refresh_cache:
@@ -26,6 +39,16 @@ on:
         type: boolean
         default: false
 
+# The Tuesday crons — the 13:47 primary and its 17:47 catch-up — are BOTH "the
+# weekly send run". Defining that once here is the point: the digest email gate,
+# the snapshot rotation gate and the commit-reason branch all used to carry their
+# own copy of the literal "0 14 * * 2", so editing the cron would have left the
+# Tuesday build running, building its digest, and silently never mailing or
+# rotating it. tests/test_workflow_schedules.py asserts this list is exactly the
+# Tuesday entries in `on.schedule` above.
+env:
+  TUESDAY_SEND: ${{ contains(fromJSON('["47 13 * * 2","47 17 * * 2"]'), github.event.schedule) }}
+
 # Needed for the "Refresh committed exports" step to push back to main.
 permissions:
   contents: write
@@ -36,7 +59,59 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # Does this fire have anything to do? Only ever answers "no" for the Tuesday
+  # CATCH-UP cron, and only when the 13:47 primary already completed the weekly
+  # cycle end to end. Everything else — the primary, Thursday, every manual
+  # dispatch — runs untouched.
+  #
+  # It is a separate job because a job-level `if:` cannot read a file: the
+  # evidence lives in the repo (data/digest/ranks_snapshot.json, written by the
+  # LAST step of the build, after the email has gone out), so something has to
+  # check out first. The build then renders as SKIPPED rather than failed or
+  # cancelled — a cancelled run shows as a grey ✗ that is indistinguishable from
+  # a real cancellation, which would make a genuinely broken week harder to spot.
+  #
+  # Sequencing is safe by construction. The workflow-level `concurrency` group
+  # holds a queued run BEFORE any of its steps execute, so even a badly delayed
+  # primary that is still building when the catch-up is dispatched finishes and
+  # pushes first; the guard's checkout then sees the fresh stamp. Without that
+  # group this would race on the checkout.
+  #
+  # It FAILS OPEN — see scripts/schedule_guard.py. Any unknown runs the build.
+  guard:
+    runs-on: ubuntu-latest
+    outputs:
+      should_run: ${{ steps.decide.outputs.should_run }}
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v7
+
+      - name: Setup Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+
+      - name: Install minimal deps
+        run: pip install --no-cache-dir pyyaml
+
+      - name: Decide whether this fire has work to do
+        id: decide
+        env:
+          # Through the environment, not `${{ }}` interpolation into the script
+          # body: an expansion is pasted in as shell source before bash sees it.
+          SCHEDULE: ${{ github.event.schedule }}
+        run: |
+          set -uo pipefail
+          answer="$(python scripts/schedule_guard.py --schedule "${SCHEDULE:-}" || echo true)"
+          case "${answer}" in true|false) ;; *) answer=true ;; esac
+          echo "should_run=${answer}" >> "$GITHUB_OUTPUT"
+          if [ "${answer}" = "false" ]; then
+            echo "::notice::Today's primary build already completed the weekly cycle; this catch-up has nothing to do."
+          fi
+
   build:
+    needs: guard
+    if: ${{ needs.guard.outputs.should_run == 'true' }}
     runs-on: ubuntu-latest
 
     steps:
@@ -250,11 +325,11 @@ jobs:
           # read-only cold-rebuild audit diffs against — so its output must be
           # what the repo ships. The 6-day cadence rule alone did NOT guarantee
           # that: in-season the Thursday pregame run commits on any roster move,
-          # and Thu 16:00 UTC -> Tue 14:00 UTC is only 4 days, so the cadence
+          # and Thu 15:47 UTC -> Tue 13:47 UTC is only 4 days, so the cadence
           # test failed and a quiet waiver week left Tuesday's build uncommitted.
           if [ "${{ github.event.inputs.force_refresh_cache }}" = "true" ]; then
             reason="cache regeneration (full refresh)"
-          elif [ "${{ github.event.schedule }}" = "0 14 * * 2" ]; then
+          elif [ "${TUESDAY_SEND:-}" = "true" ]; then
             reason="Tuesday weekly run"
           # Did the live current-season roster or traded picks change?
           elif git diff --cached --name-only \
@@ -322,7 +397,20 @@ jobs:
         # silently dropping that week's crossings from every future digest. An
         # SMTP failure here fails the job, so the rotation step is skipped and
         # the baseline survives for a re-run. (Audit finding F3.)
-        if: ${{ github.ref == 'refs/heads/main' && (github.event.schedule == '0 14 * * 2' || (github.event_name == 'workflow_dispatch' && github.event.inputs.send_email == 'true')) }}
+        #
+        # WHY A SECOND TUESDAY CRON CANNOT DOUBLE-SEND. Both Tuesday fires reach
+        # this gate, so on paper a delayed 13:47 that lands next to the 17:47
+        # catch-up could mail the league twice. It cannot, by construction:
+        #   * `concurrency: build-lotg-exports` (cancel-in-progress: false)
+        #     serialises the two runs, so the second one CHECKS OUT after the
+        #     first has pushed its rotated snapshot; and
+        #   * the digest diffs against that snapshot, so the second run finds no
+        #     movement, renders the empty "No leaderboard changes this week."
+        #     digest, and --skip-empty drops it before SMTP.
+        # The one uncovered case is a first run that sent and then FAILED before
+        # rotating — but the F3 ordering below means a send failure fails the job
+        # before the rotation, so nothing was mailed in that case either.
+        if: ${{ github.ref == 'refs/heads/main' && (env.TUESDAY_SEND == 'true' || (github.event_name == 'workflow_dispatch' && github.event.inputs.send_email == 'true')) }}
         env:
           DIGEST_KEY: ${{ secrets.DIGEST_KEY }}
           DIGEST_RECIPIENTS: ${{ secrets.DIGEST_RECIPIENTS }}
@@ -349,7 +437,7 @@ jobs:
         # Separate from the exports commit above (which never touches data/digest).
         # Also persists the just-sent digest as data/digest/last_digest.html so the
         # test-email button always replays the most recent real digest.
-        if: ${{ github.ref == 'refs/heads/main' && github.event.schedule == '0 14 * * 2' }}
+        if: ${{ github.ref == 'refs/heads/main' && env.TUESDAY_SEND == 'true' }}
         run: |
           set -euo pipefail
           if [ ! -f data/digest/ranks_snapshot.json ]; then

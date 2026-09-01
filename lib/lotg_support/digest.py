@@ -813,12 +813,23 @@ class WeeklyHighlight:
     end: str            # "high" | "low"
     rank: int           # among every DISTINCT single-week value on record
     value: float
+    # Which week this performance is FROM. Normally the digest's own week, so it
+    # goes unsaid. It is said out loud only when a digest is covering more than
+    # one week — i.e. when a previous week's run never happened and this one is
+    # making up the gap (see build_digest.py). Highlights are the one part of the
+    # digest that is NOT self-healing across a missed week: the crossing/record/
+    # pace/event diffs all compare STATE against the prior snapshot and so report
+    # a two-week move whole, but a single-week performance belongs to its week and
+    # is simply never mentioned again once that week's digest is skipped.
+    week: Optional[int] = None
+    show_week: bool = False
 
     def group(self) -> str:
         return "The league" if self.section == "league" else self.entity
 
     def detail(self) -> str:
-        return f"{self.column} ({_fmt(self.value)}) — {_place(self.rank, self.end)} ever"
+        wk = f" [week {self.week}]" if self.show_week and self.week else ""
+        return f"{self.column} ({_fmt(self.value)}) — {_place(self.rank, self.end)} ever{wk}"
 
     def sentence(self) -> str:
         return (f"{self.group()}'s {self.column} this week ({_fmt(self.value)}) is the "
@@ -888,9 +899,11 @@ def _highlights_for_frame(section: str, wk_df: pd.DataFrame, entity_col: str,
                 continue
             entity = str(r[entity_col]) if has_entity else "The league"
             if high_rank[v] <= window:
-                out.append(WeeklyHighlight(section, entity, col, "high", high_rank[v], v))
+                out.append(WeeklyHighlight(section, entity, col, "high", high_rank[v], v,
+                                           week=int(week)))
             elif low_rank[v] <= window:
-                out.append(WeeklyHighlight(section, entity, col, "low", low_rank[v], v))
+                out.append(WeeklyHighlight(section, entity, col, "low", low_rank[v], v,
+                                           week=int(week)))
     return out
 
 
@@ -1673,8 +1686,12 @@ def digest_sections(
     yr_final = any(getattr(p, "final", False) for p in projections)
     yr_title = "Season-long results" if yr_final else "On pace this season"
 
+    hl_weeks = sorted({h.week for h in highlights if h.week})
+    hl_title = ("Single-week records (this week)" if len(hl_weeks) <= 1
+                else f"Single-week records (weeks {hl_weeks[0]}-{hl_weeks[-1]})")
+
     out: List[Tuple[str, bool, list]] = [
-        ("Single-week records (this week)", True, list(highlights)),
+        (hl_title, True, list(highlights)),
         ("All-time leaderboard moves — players", True,
          [c for c in crossings if c.section == "players"]),
         ("All-time leaderboard moves — teams", True,

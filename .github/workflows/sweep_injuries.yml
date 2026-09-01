@@ -20,14 +20,43 @@ name: Sweep gameday injuries
 # before (2021 week 15). A weekday-restricted cron would need editing for each of
 # those; this needs none.
 #
-# WHY 16:00 UTC (noon ET): after the inactive report for the early Sunday window
-# (90 minutes before a 1pm ET kick-off = 15:30 UTC) and before it kicks off, and
-# after the final practice report for every other window. Night games (Thu/Sun/Mon
-# 00:15-00:20 UTC) are swept on their own gameday, hours before their inactives
-# land — so those carry the practice-report designation, not the game-time one.
+# WHY THESE TIMES: after the inactive report for a Sunday window (90 minutes
+# before kick-off) and before it kicks off, and after the final practice report
+# for every other window. Night games (Thu/Sun/Mon 00:15-00:20 UTC) are still
+# swept on their own gameday, hours before their inactives land — so those carry
+# the practice-report designation, not the game-time one; the final capture
+# settles them.
+#
+# DELAY IS THE REAL HAZARD HERE, and it is the one place in the tracker where a
+# late run costs data outright. The sweep has a NINETY-MINUTE design window —
+# after the early-window inactive report (15:30 UTC) and before that window
+# kicks off (17:00 UTC) — and GitHub's schedule queue has never delivered a run
+# in this repo on time: median ~80 minutes late, tail to 8h47m. A single 16:00
+# fire therefore lands after kickoff more often than not, which is precisely the
+# case PR #415 built the sweep to avoid. #415's ablation measured NO sweeps (171
+# missed->played errors); it never modelled LATE ones.
+#
+# A late sweep cannot corrupt anything — the merge takes the STRONGEST
+# designation, `played` only ever accumulates True, and `on_bye` keeps the
+# earliest non-blank — so the failure mode is silent LOSS, not damage. The fix is
+# therefore redundancy, not a different single time:
+#
+#   * 15:35 UTC — five minutes after the early-window inactive report, so a run
+#     delayed up to 85 minutes still lands before the 1pm ET kickoff. This is the
+#     old 16:00 slot moved earlier INSIDE its window, which is as early as it can
+#     legally go; before 15:30 it would read a practice report, not inactives.
+#   * 19:35 UTC — after the late-window inactive reports (90 minutes before the
+#     4:05/4:25pm ET kicks = 18:35/18:55 UTC) and before those games start. A
+#     second shot at any day the first one missed, and genuine new coverage of a
+#     window the single noon-ET sweep never saw.
+#
+# NOTE this raises the season's sweep count from ~153 runs to ~306 and gives a
+# swept gameday a higher `captures` value. Both are intended; sweep_counts() only
+# ever asks whether max() > 1.
 on:
   schedule:
-    - cron: "0 16 * 9-12,1 *"   # daily 16:00 UTC, Sep-Jan
+    - cron: "35 15 * 9-12,1 *"   # daily 15:35 UTC (early-window inactives), Sep-Jan
+    - cron: "35 19 * 9-12,1 *"   # daily 19:35 UTC (late-window inactives), Sep-Jan
   workflow_dispatch:
     inputs:
       week:

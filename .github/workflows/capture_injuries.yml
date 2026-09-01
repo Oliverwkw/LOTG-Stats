@@ -6,11 +6,11 @@ name: Capture weekly injuries
 # one row per player-week — the strongest designation any capture saw, with
 # participation from this one.
 #
-# Runs Tuesdays 05:00 UTC (~1am ET) during the NFL season: comfortably after the
+# Runs Tuesdays 05:23 UTC (~1:23am ET) during the NFL season: comfortably after the
 # week's Monday Night game — which can run past 03:30 UTC, so the old 04:00 slot
 # had ~30 minutes of margin and a long game would have been captured mid-flight —
-# and still 3 hours before the build's Tuesday 08:00 UTC "week is final" cutoff,
-# so every week reaches the Tuesday 14:00 build with its snapshot in place.
+# and still hours before the build's Tuesday 08:00 UTC "week is final" cutoff,
+# so every week reaches the Tuesday 13:47 build with its snapshot in place.
 #
 # The cron fires on every Tuesday in September AND January, including the ones
 # before kickoff and the ones after week 18. The script derives its week from the
@@ -19,10 +19,32 @@ name: Capture weekly injuries
 # run after week 18 exits cleanly too (the schedule stops advancing, and a week
 # that already has a block is skipped rather than overwritten with a
 # mid-playoffs snapshot). First real capture: 2026 wk1.
+#
+# DELAY. GitHub defers `schedule` events under load and drops some outright; this
+# repo has never had one fire on time, median ~80 minutes late. That is survivable
+# HERE and unrecoverable THERE, and the two cases pull in opposite directions:
+#
+#   * A LATE capture is cheap. The overlay is recomputed from the CSV on every
+#     build, so a capture that lands after the 13:47 build simply lands in the
+#     NEXT build instead. Nothing is lost.
+#   * A DROPPED capture is permanent. Sleeper keeps no injury history, so the
+#     week's participation picture is gone for good — missing_weeks() can only
+#     shout about it. Hence the catch-up fire below.
+#
+# So this cron moves LATER off the hour (05:23), not earlier. Moving it earlier
+# would walk back the exact margin PR #415 bought when it went 04:00 -> 05:00 to
+# clear a Monday night game that can run past 03:30 UTC.
+#
+# Running twice is a no-op by design, not by luck: a final capture on a week that
+# weeks_finalized() already contains, with no explicit --week, prints "Nothing to
+# do" and exits 0 (scripts/capture_injuries.py). The catch-up only does work when
+# the primary genuinely never ran.
 on:
   schedule:
-    - cron: "0 5 * 9-12 2"   # Tuesdays 05:00 UTC, Sep–Dec
-    - cron: "0 5 * 1 2"      # Tuesdays 05:00 UTC, January (week 18 tail)
+    - cron: "23 5 * 9-12 2"   # Tuesdays 05:23 UTC, Sep–Dec
+    - cron: "23 5 * 1 2"      # Tuesdays 05:23 UTC, January (week 18 tail)
+    - cron: "23 9 * 9-12 2"   # catch-up, still ahead of the 13:47 build
+    - cron: "23 9 * 1 2"      # catch-up (January)
   workflow_dispatch:
     inputs:
       season:
