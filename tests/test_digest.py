@@ -463,7 +463,8 @@ def check_mirrored_columns():
     ok = _ok("margin detected as mirrored", "Margin" in mirrored, f"got {mirrored}")
     ok &= _ok("PF not detected as mirrored", "PF" not in mirrored, f"got {mirrored}")
     ok &= _ok("mirrored pool keeps only the positive side",
-              sorted(D.rankable_series(tw, "Margin", True).tolist()) == [2, 5, 10, 30, 50])
+              sorted(D.rankable_series(tw, "Margin", True, "team_week").tolist())
+              == [2, 5, 10, 30, 50])
     ok &= _ok("an unmirrored column keeps every value",
               len(D.rankable_series(tw, "PF", False)) == 10)
 
@@ -487,6 +488,63 @@ def check_mirrored_columns():
             if e.column == "Change from previous week" and e.end == "low"]
     ok &= _ok("so its biggest DROP is still a record",
               any(e.value == -9 for e in lows), f"got {[(e.label, e.value) for e in lows]}")
+    return ok
+
+
+def check_even_events_stay_on_the_board():
+    # A dead-even event — a tied game, a trade of exactly equal value — reads 0
+    # on BOTH of its rows, so a strictly-positive reduction drops it entirely and
+    # the board calls the closest NON-even event the most even one ever. Zero is
+    # the record at that end: the event is kept, once, from one side.
+    tw = pd.DataFrame({
+        "Team":     ["A", "B", "C", "D", "E", "F", "G", "H"],
+        "Opponent": ["B", "A", "D", "C", "F", "E", "H", "G"],
+        "Year":     [2025] * 8,
+        "Week":     [1, 1, 1, 1, 2, 2, 2, 2],
+        "Margin":   [30, -30, 5, -5, 50, -50, 0, 0],
+        "PF":       [120, 90, 100, 95, 140, 90, 100, 100],
+    })
+    ok = _ok("a tied game is still detected as mirrored",
+             "Margin" in D.mirrored_columns(tw, "team_week"))
+    pool = sorted(D.rankable_series(tw, "Margin", True, "team_week").tolist())
+    ok &= _ok("the tie is in the pool exactly once", pool == [0, 5, 30, 50], f"got {pool}")
+    margins = [(e.label, e.end, e.rank, e.value)
+               for e in D.board_highlights(tw, "team_week", window=3) if e.column == "Margin"]
+    ok &= _ok("the tie is the closest game ever, not the 5-point win",
+              ("G 2025 week 2", "low", 1, 0.0) in margins, f"got {margins}")
+    ok &= _ok("and it is named from one side only",
+              not any(lbl.startswith("H ") for lbl, *_ in margins), f"got {margins}")
+
+    # The same on the trades sheet, where it actually bit: two picks swapped at
+    # identical KTC is a 0 difference for both sides — the most even trade there
+    # can be, and it belongs at the low end of the board ahead of every non-even
+    # deal. Competition ranks: the two-way tie takes 1st and 2nd, next value 3rd.
+    sides = list("ABCDEFGHIJKL")
+    tr = pd.DataFrame({
+        "Team":                  sides,
+        "Team's traded with 1":  [sides[i ^ 1] for i in range(len(sides))],
+        "Date":                  [d for d in ("2024-07-13 18:27:36", "2024-07-13 18:51:36",
+                                              "2024-08-25 00:14:23", "2023-10-22 23:36:43",
+                                              "2022-07-24 13:37:22", "2022-08-21 19:10:32")
+                                  for _ in (0, 1)],
+        "Season":                [2024, 2024, 2024, 2024, 2024, 2024,
+                                  2023, 2023, 2022, 2022, 2022, 2022],
+        "Assets received":       list("abcdefghijkl"),
+        # Two dead-even pick swaps, then four deals with a winning side.
+        "KTC value difference at deal time": [0, 0, 0, 0, 7.5, -7.5,
+                                              9, -9, 40, -40, 60, -60],
+    })
+    col = "KTC value difference at deal time"
+    ok &= _ok("an even trade is detected as mirrored", col in D.mirrored_columns(tr, "trades"))
+    lows = sorted(((e.rank, e.value, e.label)
+                   for e in D.board_highlights(tr, "trades", window=3)
+                   if e.column == col and e.end == "low"))
+    # Competition ranks: the two even trades take 1st and 2nd, so 7.5 is 3rd —
+    # not the "lowest KTC value difference at deal time" the email once called it.
+    ok &= _ok("both even trades are lowest, once each, pushing 7.5 to 3rd",
+              [(r, v) for r, v, _ in lows] == [(1, 0.0), (1, 0.0), (3, 7.5)], f"got {lows}")
+    ok &= _ok("each even trade is named from one side only",
+              sorted(lbl[0] for _, _, lbl in lows) == ["A", "C", "E"], f"got {lows}")
     return ok
 
 
@@ -915,6 +973,7 @@ def run_all() -> bool:
         check_league_sections_drop_the_redundant_label,
         check_event_labels,
         check_mirrored_columns,
+        check_even_events_stay_on_the_board,
         check_replica_minimal,
         check_league_window,
         check_league_milestones,
