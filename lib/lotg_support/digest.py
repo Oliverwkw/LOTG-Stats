@@ -226,6 +226,13 @@ def discover_numeric_columns(df: pd.DataFrame, entity_col: str,
 # Margin" is the biggest blowout, "lowest Margin" the closest game, each named
 # once, from the side that came out ahead.
 #
+# With ONE exception: a dead-even event — a trade of exactly equal KTC value, a
+# tied game — is 0 on both of its rows, so a strictly-positive reduction drops it
+# entirely and the board reports the closest NON-even event as the most even one
+# ever. Zero is the record at that end, not a missing value, so one row per even
+# event is kept (`_even_event_rows`), from the side that sorts first, there being
+# no side that came out ahead.
+#
 # Detected STRUCTURALLY (two_sided_columns), from rows that pair up through a
 # counterpart column — not from the shape of the distribution. A distribution
 # test would also catch `Change from previous week`, which is symmetric because
@@ -258,10 +265,46 @@ def numeric_series(df: pd.DataFrame, column: str) -> "pd.Series":
     return pd.to_numeric(col.map(_to_float), errors="coerce").dropna()
 
 
-def rankable_series(df: pd.DataFrame, column: str, mirrored: bool = False) -> "pd.Series":
-    """`numeric_series`, reduced to the positive side when the column mirrors."""
+def _even_event_rows(df: pd.DataFrame, sheet: str, s: "pd.Series") -> set:
+    """One representative row index per event whose mirrored value is exactly 0.
+
+    An even event has no winning side, so both its rows read 0 and a positive-only
+    pool would lose the event altogether — the most even trade in league history
+    would be missing from "lowest KTC value difference". Its two rows are the same
+    fact, so exactly one is kept: the side whose name sorts first, a choice that
+    does not move build to build. A row with no counterpart named (an unpaired
+    row on a sheet that mostly pairs) is its own event and is kept as it is.
+
+    Returns an empty set for a sheet with no mirror pairing configured — the
+    caller could not have detected the column as mirrored either."""
+    pair = _MIRROR_PAIRS.get(sheet)
+    if not pair:
+        return set()
+    entity_col, opp_col, id_cols = pair
+    if entity_col not in df.columns or opp_col not in df.columns:
+        return set()
+    groups: Dict[tuple, list] = {}
+    keep = set()
+    for idx, r in df.loc[list(s.index[s == 0])].iterrows():
+        a, b = str(r[entity_col]), str(r.get(opp_col) or "")
+        if not b:
+            keep.add(idx)
+            continue
+        key = tuple(str(r.get(c, "")) for c in id_cols) + tuple(sorted([a, b]))
+        groups.setdefault(key, []).append((a, idx))
+    for members in groups.values():
+        keep.add(sorted(members)[0][1])
+    return keep
+
+
+def rankable_series(df: pd.DataFrame, column: str, mirrored: bool = False,
+                    sheet: str = "") -> "pd.Series":
+    """`numeric_series`, reduced to one row per event when the column mirrors:
+    the positive side, plus one row of every dead-even (0) event."""
     s = numeric_series(df, column)
-    return s[s > 0] if mirrored else s
+    if not mirrored:
+        return s
+    return s[(s > 0) | s.index.isin(_even_event_rows(df, sheet, s))]
 
 
 # ---------------------------------------------------------------------------
@@ -878,9 +921,11 @@ def _highlights_for_frame(section: str, wk_df: pd.DataFrame, entity_col: str,
     mirrored = mirrored_columns(wk_df, sheet)
     out: List[WeeklyHighlight] = []
     for col in discover_numeric_columns(wk_df, entity_col):
-        all_vals = rankable_series(wk_df, col, col in mirrored).tolist()
+        pool = rankable_series(wk_df, col, col in mirrored, sheet)
+        all_vals = pool.tolist()
         if len(all_vals) < window:
             continue
+        ranked_rows = set(pool.index)
         # Both ends (some stats go negative, so "lowest ever" is meaningful).
         # Rank by DISTINCT value so ties share a rank; the ONLY exclusion is a
         # value shared by more than _MAX_HIGHLIGHT_TIES rows (that's how booleans
@@ -892,10 +937,11 @@ def _highlights_for_frame(section: str, wk_df: pd.DataFrame, entity_col: str,
         low_rank = competition_ranks(all_vals, "low")
         for _, r in this_week.iterrows():
             v = _to_float(r[col])
-            # `v not in counts` covers the losing half of a mirrored column: the
-            # pool holds only the positive side, so the loser's -M isn't ranked
-            # (the same fact is already reported from the winner's row).
-            if v is None or v not in counts or counts[v] > _MAX_HIGHLIGHT_TIES:
+            # The row test covers the unranked half of a mirrored column: the
+            # pool holds one row per event, so the loser's -M isn't ranked (the
+            # same fact is already reported from the winner's row) and neither is
+            # the second row of a tie, whose 0 the kept row already carries.
+            if v is None or r.name not in ranked_rows or counts[v] > _MAX_HIGHLIGHT_TIES:
                 continue
             entity = str(r[entity_col]) if has_entity else "The league"
             if high_rank[v] <= window:
@@ -1104,7 +1150,7 @@ def board_highlights(df: pd.DataFrame, sheet: str, window: int = WINDOW,
     mirrored = mirrored_columns(df, sheet)
     out: List[EventHighlight] = []
     for col in discover_numeric_columns(df, cfg["entity"]):
-        s = rankable_series(df, col, col in mirrored)
+        s = rankable_series(df, col, col in mirrored, sheet)
         if len(s) < window:
             continue
         counts = s.value_counts()
@@ -1435,7 +1481,8 @@ def phrasing_catalog(
             return
         mirrored = mirrored_columns(df, sheet)
         for col in discover_numeric_columns(df, _BOARD_SHEETS[sheet]["entity"]):
-            note = " — mirrored, ranked on its positive side only" if col in mirrored else ""
+            note = (" — mirrored, ranked once per event: the positive side, plus "
+                    "one row of every dead-even one") if col in mirrored else ""
             _add(sheet, col, f"all-time board (top/bottom 5 of every row ever{note})", "n/a",
                  f"<row> passes <other> for <N>th-highest {col} (<value>).",
                  f"<row> passes <other> for <N>th-lowest {col} (<value>).")
@@ -1446,7 +1493,7 @@ def phrasing_catalog(
         mirrored = mirrored_columns(df, sheet)
         for col in discover_numeric_columns(df, entity_col):
             if col in mirrored:
-                _add(sheet, col, "single-week record (mirrored: positive side only)", "n/a",
+                _add(sheet, col, "single-week record (mirrored: one row per event)", "n/a",
                      f"{who}'s {col} this week (<value>) is the <N>th-highest single week ever.",
                      f"{who}'s {col} this week (<value>) is the <N>th-closest to zero ever.")
                 continue
