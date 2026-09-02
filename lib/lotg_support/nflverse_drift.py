@@ -7,12 +7,20 @@ position labels. Those are upstream data corrections, not our build failing to
 reproduce — so the weekly health email must not report them as dataset
 breakages. It should say what NFLverse changed and move on.
 
-This module answers that by diffing the NFLverse cache files themselves: the
-committed `.cache/nflverse_*.csv` (snapshotted before the audit build) against
-the freshly downloaded ones (the audit build sets LOTG_REFRESH_EXTERNAL=1, so
-every season re-downloads). The result carries both a human summary — "NFLverse
-made N changes" — and the (player, season, week) coordinates of the revisions,
-which `audit_weekly` uses to attribute its own Part 1 diffs.
+This module answers that by diffing the NFLverse cache files themselves:
+`.cache/nflverse_*.csv` as the audit job starts (the Tuesday build's own cache,
+restored read-only and snapshotted before the rebuild) against the freshly
+downloaded ones (the audit build sets LOTG_REFRESH_EXTERNAL=1, so every season
+re-downloads). The result carries both a human summary — "NFLverse made N
+changes" — and the (player, season, week) coordinates of the revisions, which
+`audit_weekly` uses to attribute its own Part 1 diffs.
+
+`baseline_age` dates that BEFORE side and the summary leads with it, because the
+number is only readable next to the window it covers. This used to baseline on
+the hand-committed `.cache`, which nothing refreshed: on 2026-09-02 it reported
+"25,045 values" over a 65-day vintage gap in a section headed "since the
+committed exports were built", and the same 157 of our rows were attributed to
+it week after week.
 
 Significance. Ordinary stat touch-ups are noise and stay informational. A
 change is escalated to a real flag when it is STRUCTURAL (rows or columns
@@ -243,6 +251,15 @@ class Drift:
     # `pools_disturbed` instead.
     pool_seasons: Set[int] = field(default_factory=set)
     compared: bool = False          # False when there was nothing to diff
+    # How old the BEFORE side is, e.g. "2026-06-29 (65 days)". The diff is
+    # "live NFLverse vs the committed .cache", and the committed cache is only
+    # rewritten when someone refreshes it — the weekly build force-refreshes
+    # the in-progress season alone, so completed seasons can sit on a months-old
+    # vintage. Without this the headline number reads as a week of upstream
+    # churn when it is really a standing vintage gap that reappears, identical,
+    # every week (the 2026-08-26 and 2026-09-02 runs attributed the same 157
+    # trade rows, to the same values). Set by the caller; None when unknown.
+    baseline_age: Optional[str] = None
 
     @property
     def changed_cells(self) -> int:
@@ -265,7 +282,13 @@ class Drift:
         if not self.compared:
             return "No NFLverse snapshot to compare — upstream drift not measured this run."
         if not self.any_change:
-            return "NFLverse made no changes to the data this build reads."
+            # The age matters MOST here. "No changes" is reassuring against a
+            # cache refreshed on Tuesday and alarming against one refreshed in
+            # June — that is the difference between upstream being quiet and our
+            # loaders having quietly stopped fetching.
+            return ("NFLverse made no changes to the data this build reads"
+                    + (f" since the committed cache was last refreshed, {self.baseline_age}."
+                       if self.baseline_age else "."))
         bits = []
         if self.changed_cells:
             bits.append(f"{self.changed_cells} value(s) across {self.changed_rows} row(s)")
@@ -286,8 +309,11 @@ class Drift:
         if self.missing_files:
             bits.append(f"{len(self.missing_files)} file(s) gone")
         n_files = len([f for f in self.files if f.changed_cells or f.structural])
+        vintage = (f" since the committed cache was last refreshed, {self.baseline_age}"
+                   if self.baseline_age else "")
         return (f"NFLverse made {', '.join(bits)}"
-                + (f" across {n_files} file(s)." if n_files else "."))
+                + (f" across {n_files} file(s){vintage}." if n_files
+                   else f"{vintage}."))
 
     def detail_lines(self, limit: int = 8) -> List[str]:
         rows = sorted((f for f in self.files if f.changed_cells or f.structural),
