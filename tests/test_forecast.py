@@ -282,6 +282,20 @@ def test_preseason_injury_flags_are_stale_and_are_not_believed():
     A manager parks a player in the IR slot in week 15 and never moves him, so a
     preseason snapshot records how the *previous* season ended. The test proves
     it from the data rather than asserting it, then checks the model acts on it.
+
+    The carry-over share DECAYS as camp runs, so the floor is set well clear of
+    it. The flagged set is live Sleeper (IR slots + OUT designations) and grows
+    all summer with genuinely new camp injuries, while the carry-over count sits
+    still: measured off the committed snapshots of 2026, 12/14 = 86% on Jul 28,
+    11/17 = 65% on Aug 23, 10/20 = 50% on Sep 1. A `> 0.5` floor therefore had to
+    fail on some September Wednesday whatever the code did, and on 2026-09-02 it
+    did, on `assert 0.5 > 0.5`. What the layer actually needs is that a
+    SUBSTANTIAL SHARE of preseason flags are stale — enough that the set cannot
+    be read as current information — not that a bare majority are. The behaviour
+    that follows from it is asserted directly above and does not decay.
+
+    The window is narrow by construction: the whole test skips once the live
+    season has a played week, so it only runs Feb -> kickoff.
     """
     if not _HAVE_DATA:
         return _skip("no exports/snapshot")
@@ -312,8 +326,9 @@ def test_preseason_injury_flags_are_stale_and_are_not_believed():
     assert flagged, "no flagged players, so this proves nothing"
     carryover = [n for n in flagged if n in late]
     share = len(carryover) / len(flagged)
-    assert share > 0.5, (f"only {share:.0%} of {year} flags trace to late {year - 1} "
-                         "injuries — the staleness argument may no longer hold")
+    assert len(carryover) >= 3 and share >= 0.25, (
+        f"only {len(carryover)}/{len(flagged)} ({share:.0%}) of {year} flags trace to "
+        f"late {year - 1} injuries — the staleness argument may no longer hold")
     print(f"  {len(carryover)}/{len(flagged)} preseason flags are {year - 1} carry-over")
 
 

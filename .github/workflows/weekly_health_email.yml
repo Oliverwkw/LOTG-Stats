@@ -27,22 +27,24 @@ name: Weekly dataset-health email
 # committed CSVs against an older committed version — it runs a complete build
 # FROM SCRATCH and audits that against what is committed. Deliberately:
 #
-#   * No `actions/cache/restore` step, so the Actions NFLverse / KTC caches are
-#     not layered over the checkout. On its own that is NOT enough to re-fetch
-#     anything: `.cache` is committed to the repo, and the loaders only download
-#     when a file is missing/empty or `force_refresh` is set — which the build
-#     sets for the in-progress season only. Skipping the restore therefore used
-#     to leave this job reading the COMMITTED cache for every completed season
-#     while the Tuesday build read the (newer, restore-key-rolled) Actions cache
-#     — two different upstream vintages, whose differences Part 1 then reported
-#     as historical-immutability breakages that no code change could fix.
-#     LOTG_REFRESH_EXTERNAL=1 below closes that gap: every season re-downloads,
-#     so the diff really is "committed exports vs a rebuild from live upstream".
-#     That is the only way to catch upstream data that changed underneath us, a
-#     source that has started 403ing, or a value that simply does not reproduce —
-#     none of which a cache-warm build can see. Each loader still falls back to
-#     the committed copy if its download fails, so a flaky source degrades to
-#     today's behaviour instead of failing the run.
+#   * LOTG_REFRESH_EXTERNAL=1 below re-downloads every season, so the diff is
+#     "committed exports vs a rebuild from live upstream". That is the only way
+#     to catch upstream data that changed underneath us, a source that has
+#     started 403ing, or a value that simply does not reproduce — none of which
+#     a cache-warm build can see. Each loader still falls back to the copy on
+#     disk if its download fails, so a flaky source degrades instead of failing
+#     the run.
+#   * The NFLverse cache IS restored (read-only) before the baseline snapshot,
+#     because that snapshot is the BEFORE side of the upstream-drift diff and it
+#     has to be the vintage the Tuesday build actually read. This job used to
+#     skip the restore and snapshot the COMMITTED `.cache` instead — which was
+#     hand-written and, by 2026-09-02, 65 days old, so the "NFLverse changed
+#     25,045 values" line was reporting a two-month vintage gap as if it were a
+#     week of upstream churn (the 08-26 and 09-02 runs attributed the identical
+#     157 trades rows, to the identical values). The loaders now keep every file
+#     under a week old on their own (lotg_support.external.cache_is_stale), so
+#     restoring the build's cache is what makes this section mean "what did
+#     upstream change since Tuesday?".
 #   * The baseline is the exports/ committed at HEAD, snapshotted BEFORE the
 #     build overwrites the working tree. So Part 1 answers a sharper question
 #     than it used to: "does a from-scratch rebuild still reproduce the data we
@@ -79,6 +81,20 @@ jobs:
         with:
           python-version: "3.11"
 
+      - name: Restore the build's NFLverse cache (read-only baseline)
+        # Same key and restore-keys as build.yml, so this lands the cache the
+        # most recent Tuesday build SAVED. Restore only — there is no matching
+        # save step, and `permissions: contents: read` means nothing this job
+        # fetches can become the source of truth. A miss is harmless: the
+        # checkout's committed `.cache` is then the baseline, exactly as before.
+        continue-on-error: true
+        uses: actions/cache/restore@v6
+        with:
+          path: .cache
+          key: nflverse-cache-${{ hashFiles('lib/lotg_support/external.py') }}-${{ github.run_number }}
+          restore-keys: |
+            nflverse-cache-${{ hashFiles('lib/lotg_support/external.py') }}-
+
       - name: Snapshot the committed exports (reproducibility baseline)
         # Must happen BEFORE the build below rewrites exports/ in place. These
         # are the CSVs the repo is currently shipping; the fresh build is diffed
@@ -88,8 +104,18 @@ jobs:
           BASE="$RUNNER_TEMP/baseline_exports"
           mkdir -p "$BASE"
           cp exports/*.csv "$BASE"/
+          # `PH#N` indexes ONE frame written as two sheets, so the map that
+          # resolves it lives beside the CSVs rather than in them
+          # (lib/lotg_support/pick_index.py). Without it in the baseline every
+          # PH# ref is unreadable, `_resolve_refs` returns None for the whole
+          # cell, and a pointer cell that was merely RENUMBERED gets reported as
+          # a diff even when its T# half resolves to the identical trade — 9 such
+          # rows on the 2026-09-02 run.
+          mkdir -p "$BASE/raw"
+          cp exports/raw/pick_ref_index.csv "$BASE"/raw/ 2>/dev/null || \
+            echo "note: no exports/raw/pick_ref_index.csv — PH# link deltas will be reported, not stripped"
           echo "BASELINE_DIR=$BASE" >> "$GITHUB_ENV"
-          echo "Snapshotted $(ls "$BASE" | wc -l) committed CSVs into $BASE"
+          echo "Snapshotted $(ls "$BASE"/*.csv | wc -l) committed CSVs into $BASE"
           # Same idea for the NFLverse cache: these are the upstream files the
           # committed exports were built from. The build below re-downloads them
           # (LOTG_REFRESH_EXTERNAL=1), so diffing this snapshot against .cache
@@ -97,6 +123,10 @@ jobs:
           NV="$RUNNER_TEMP/baseline_nflverse"
           mkdir -p "$NV"
           cp .cache/nflverse_*.csv "$NV"/ 2>/dev/null || true
+          # The fetch log travels with them: it is what dates the BEFORE side,
+          # and the report leads with the oldest stamp in it so a file that
+          # stopped refreshing is visible rather than averaged away.
+          cp .cache/_fetch_log.json "$NV"/ 2>/dev/null || true
           echo "NFLVERSE_BEFORE=$NV" >> "$GITHUB_ENV"
           echo "Snapshotted $(ls "$NV" | wc -l) NFLverse cache files into $NV"
 
@@ -171,6 +201,7 @@ jobs:
           name: weekly-health-${{ github.run_number }}
           path: |
             exports/*.csv
+            exports/raw/pick_ref_index.csv
             exports/raw/build_debug.log
             exports/raw/runner.log
             exports/raw/pytest.log

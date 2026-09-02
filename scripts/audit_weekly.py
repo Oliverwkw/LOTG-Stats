@@ -88,6 +88,7 @@ import re
 import subprocess
 import sys
 from collections import Counter, defaultdict
+from datetime import date
 from pathlib import Path
 from typing import Dict, List, Optional, Sequence, Set, Tuple
 
@@ -152,6 +153,7 @@ _MAX_SUMMARY_COLS = 8  # cap the per-sheet "columns that moved" roll-up
 # any more. Classifying a column as "expected to drift" and then not comparing it
 # is how a real regression in that column goes unreported; the audit now compares
 # everything and lets the per-sheet roll-up carry the explanation instead.
+from lotg_support.external import read_fetch_log  # noqa: E402
 from lotg_support.snapshot import snapshot_built_from_commit  # noqa: E402
 from lotg_support.nflverse_drift import (  # noqa: E402
     Drift, diff_nflverse_cache, name_variants, normalize_name,
@@ -667,6 +669,7 @@ def run_audit(current_dir: Path, baseline_dir: Optional[Path],
     season = _current_season(cur)
     rep = Report()
     drift = diff_nflverse_cache(nflverse_before, nflverse_after)
+    drift.baseline_age = nflverse_cache_age(nflverse_before)
     attrib = NflverseAttribution(drift, cur)
     code_changes = code_changes_since(snapshot_built_from_commit(_ROOT))
     attributed = audit_diffs(cur, base, season, rep, attrib, code_changes)
@@ -906,6 +909,42 @@ def strip_stable_links(changed: List[tuple], base_frames: Dict[str, pd.DataFrame
 #
 # Once the exports are rebuilt at the same commit (the next Tuesday build), this
 # stops applying and any residual movement flags normally.
+def nflverse_cache_age(before_dir: Optional[Path] = None) -> Optional[str]:
+    """How stale the OLDEST file on the drift's BEFORE side is, as
+    "YYYY-MM-DD (N days ago)".
+
+    The loaders keep every cache file under `external.CACHE_MAX_AGE_DAYS` on
+    their own, so this line is the check on that promise as much as it is
+    context for the drift number: if a file stops refreshing — a source that
+    started 403ing, a rename upstream, a fetch log that is not travelling with
+    the cache — the oldest stamp is where it shows, and averaging or reporting
+    the newest would hide exactly the case worth seeing.
+
+    Falls back to the git date of `.cache` when the baseline carries no fetch
+    log, which is the cold-start case (a cache restore miss, or an `exports/`
+    from before the log existed)."""
+    stamp = None
+    if before_dir is not None:
+        log = read_fetch_log(Path(before_dir))
+        present = {p.name for p in Path(before_dir).glob("*.csv")}
+        stamps = sorted(v for k, v in log.items() if k in present)
+        if stamps:
+            stamp = stamps[0][:10]
+    if stamp is None:
+        try:
+            out = subprocess.run(
+                ["git", "log", "-1", "--format=%cs", "--", ".cache"],
+                capture_output=True, text=True, timeout=15, cwd=str(_ROOT))
+            stamp = (out.stdout or "").strip()
+        except Exception:
+            return None
+    try:
+        days = (date.today() - date.fromisoformat(stamp)).days
+    except ValueError:
+        return None
+    return f"{stamp} ({days} days ago)"
+
+
 def code_changes_since(commit: Optional[str]) -> List[Tuple[str, str]]:
     """(sha, subject) for each commit between the exports' build and HEAD."""
     if not commit:
@@ -947,7 +986,13 @@ _EVENT_COLUMNS = (
     "number of trades", "total trades", "offseason trades", "number of add/drops",
     "total transactions", "number of waiver adds", "number of free agency adds",
     "number of pure drops",
-    "number of teams", "last team", "drafting skill", "trading skill",
+    # "Top team" sits beside "Last team" deliberately: both are the SAME
+    # per-FY tenure computation (lotg.py `tenure_inseason_time_team_fy` /
+    # `tenure_last_event_fy`), they move on the same rows, and a player
+    # changing hands is exactly what they are supposed to record. Listing only
+    # one of the pair is what let the 2026-09-02 run report five Top Team moves
+    # while silently accepting the identical five Last team moves.
+    "number of teams", "last team", "top team", "drafting skill", "trading skill",
     "add/drop skill", "o-score", "trade impact score", "future draft capital",
     "assets retained now", "assets traded away", "assets dropped to fa",
     "return from trades", "additional assets traded away in those deals",

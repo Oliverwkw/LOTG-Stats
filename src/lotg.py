@@ -115,6 +115,8 @@ from lotg_support.injury_tracker import (
 )
 from lotg_support.external import (
     ExternalConfig,
+    cache_is_stale,
+    record_fetch,
     load_dynastyprocess_playerids,
     load_dynastyprocess_values_players,
     load_dynastyprocess_values_picks,
@@ -657,11 +659,17 @@ def _norm_team(t: Any) -> Optional[str]:
 def _download_csv_best_effort(urls: List[str], path: Path, timeout: int = 120, debug: Optional[Path]=None) -> pd.DataFrame:
     import requests
     path.parent.mkdir(parents=True, exist_ok=True)
-    if path.exists() and path.stat().st_size > 0:
+    # Same freshness rule as every lotg_support.external loader: a present file
+    # is reused only while it is inside the staleness horizon. This one carries
+    # the NFL schedule that decides byes, and under the old absent-or-empty gate
+    # it was never re-fetched at all — the committed copy was 77 days old, and
+    # nothing in the repo could have refreshed it.
+    if path.exists() and path.stat().st_size > 0 and not cache_is_stale(path):
         try:
             return pd.read_csv(path)
         except Exception:
             pass
+    _had = path.exists() and path.stat().st_size > 0
 
     last_err = None
     for url in urls:
@@ -675,7 +683,17 @@ def _download_csv_best_effort(urls: List[str], path: Path, timeout: int = 120, d
                     kwargs["proxies"] = {"http": None, "https": None}
                 r = session.get(url, **kwargs)
                 if r.status_code == 200 and r.content:
-                    path.write_bytes(r.content)
+                    # Temp-then-rename: a refresh now overwrites a file that is
+                    # already good, so a truncated body must not be able to
+                    # replace it (see external._download).
+                    _tmp = path.with_name(path.name + ".part")
+                    try:
+                        _tmp.write_bytes(r.content)
+                        os.replace(_tmp, path)
+                    finally:
+                        if _tmp.exists():
+                            _tmp.unlink()
+                    record_fetch(path)
                     fetched = True
                     break
                 last_err = f"{r.status_code} {url} trust_env={trust_env}"
@@ -690,6 +708,15 @@ def _download_csv_best_effort(urls: List[str], path: Path, timeout: int = 120, d
 
     if debug:
         _log(debug, f"[{_now_iso()}] WARN csv download failed: {last_err}")
+    if _had:
+        # A stale copy beats no schedule at all: an empty frame here silently
+        # drops every bye. Not stamped, so the next build retries.
+        if debug:
+            _log(debug, f"[{_now_iso()}] WARN keeping stale cached {path.name}")
+        try:
+            return pd.read_csv(path)
+        except Exception:
+            return pd.DataFrame()
     return pd.DataFrame()
 
 
@@ -3807,10 +3834,14 @@ def build_all(repo_root: Path) -> None:
     ]
     _earliest_lotg = min(_lotg_seasons_for_backfill) if _lotg_seasons_for_backfill else None
     # The current (most-recent) LOTG season is the one whose NFLverse stats
-    # are still updating week-to-week — force a re-download for it so the
-    # CI cache restore (which would otherwise return last week's file)
-    # doesn't pin in-progress data. Historical seasons are immutable, so
-    # they read straight from cache.
+    # are still updating week-to-week — force a re-download for it EVERY build,
+    # so the CI cache restore can never pin in-progress data even mid-week.
+    # Completed seasons are not exempt from refreshing, they are just not
+    # FORCED: `external.cache_is_stale` re-downloads them once they pass the
+    # staleness horizon, which the Tuesday build crosses weekly. (They used to
+    # be exempt outright, on the premise that "historical seasons are
+    # immutable" — true of our build, false of NFLverse, which back-corrected
+    # 25,045 values in the 65 days the committed cache went untouched.)
     _current_lotg_season = max(_lotg_seasons_for_backfill) if _lotg_seasons_for_backfill else None
     # LOTG_REFRESH_EXTERNAL=1 forces that re-download for EVERY season, not just
     # the in-progress one. "Historical seasons are immutable" is true of our
@@ -13727,6 +13758,62 @@ def build_all(repo_root: Path) -> None:
             datetime(_fy + 1, 2, 1, tzinfo=_tz_for_window),
         )
 
+    # ---- Did this player actually PLAY a week in this season? ----------
+    # Top team switches from full-FY tenure to IN-SEASON tenure, and that switch
+    # used to be a bare `or` on two dicts: the instant the in-season window
+    # opened (Sept 1) with ANY time in it, months of full-FY ownership were
+    # discarded. On 2026-09-02 that made the team holding Mason Taylor for 1.8 of
+    # 248 days his 2026 "Top Team", and flipped 25 rows in a day — every one of
+    # them a season with no games played yet.
+    #
+    # So the in-season ledger is used only once there is a season to measure:
+    # the player has a week he was rostered for AND actually played. `_played`
+    # is the build's own predicate (see the player_year block) — rostered, and
+    # not out for injury, suspension or a bye — so a player rostered through
+    # August and dropped before kickoff has no played week and keeps full-FY
+    # tenure, which is the only ownership fact that exists for him that year.
+    # None = "could not be determined", which falls back to the PREVIOUS
+    # behaviour (in-season wins) rather than silently re-ranking every Top Team
+    # in the dataset off an empty set.
+    _played_pid_years: Optional[Set[Tuple[str, int]]] = None
+    try:
+        _pl_flags = ["Injury?", "Suspension?", "Bye?"]
+        if not pw.empty and {"Player ID", "Year", *_pl_flags}.issubset(pw.columns):
+            # Character-for-character the `_played` expression the player_year
+            # block uses, so "played" cannot come to mean two things in one
+            # build. Deliberately no `.astype(bool)`: on an object column of
+            # strings that would score "False" as True and hand back an empty
+            # set, silently re-ranking every Top Team in the dataset.
+            _out = pw[_pl_flags].fillna(False).any(axis=1)
+            _pl_yr = pd.to_numeric(pw["Year"], errors="coerce")
+            _pl_ok = (~_out) & _pl_yr.notna()
+            _cand = {
+                (str(a), int(b))
+                for a, b in zip(pw.loc[_pl_ok, "Player ID"].astype(str), _pl_yr[_pl_ok])
+            }
+            # Sanity floor. Almost every rostered player-season contains a week
+            # the player actually played — 1601 of 1671 in the 2026-09-02
+            # exports. A near-empty set here means the flags did not parse the
+            # way this assumes, and acting on it would rewrite the column
+            # wholesale; stay on the old behaviour and say so instead.
+            _n_py = pw.groupby(["Player ID", "Year"], sort=False).ngroups if len(pw) else 0
+            if _n_py and len(_cand) >= 0.5 * _n_py:
+                _played_pid_years = _cand
+            else:
+                _log(debug, f"[{_now_iso()}] WARN played-week set implausible "
+                            f"({len(_cand)} of {_n_py} player-seasons) — Top team "
+                            f"keeps the in-season ledger")
+    except Exception as e:
+        _log_exc(debug, "played_pid_years", e)
+
+    def _has_played_week(_pid: Any, _fy: Any) -> bool:
+        if _played_pid_years is None:
+            return True
+        try:
+            return (str(_pid), int(_fy)) in _played_pid_years
+        except (TypeError, ValueError):
+            return False
+
     tenure_teams_all: Dict[str, Set[str]] = defaultdict(set)
     tenure_time_team_all: Dict[str, Dict[str, float]] = defaultdict(lambda: defaultdict(float))
     tenure_time_team_fy: Dict[Tuple[str, int], Dict[str, float]] = defaultdict(lambda: defaultdict(float))
@@ -13772,7 +13859,15 @@ def build_all(repo_root: Path) -> None:
                 if _is_ovl_e > _is_ovl_s:
                     _is_secs = (_is_ovl_e - _is_ovl_s).total_seconds()
                     tenure_inseason_time_team_fy[(_pid, _fy)][str(tm)] += _is_secs
-                    tenure_inseason_time_team_all[_pid][str(tm)] += _is_secs
+                    # The ALL-TIME in-season ledger only counts seasons the
+                    # player actually played. Without this, the day the live
+                    # season's window opens adds hours to whoever holds him now
+                    # and settles all-time races that were within a day of each
+                    # other: on 2026-09-02 that flipped four (Tyreek Hill 306 vs
+                    # 307 in-season days, Waddle 306/307, Adonai Mitchell and
+                    # Ben Sinnott 153/154).
+                    if _has_played_week(_pid, _fy):
+                        tenure_inseason_time_team_all[_pid][str(tm)] += _is_secs
                     # Last team per FY — gated to IN-SEASON only.
                     # An offseason trade in March/April would otherwise
                     # outrank a championship-week event for "Last team
@@ -13843,8 +13938,16 @@ def build_all(repo_root: Path) -> None:
     tenure_top_team_all: Dict[str, str] = {}
     tenure_last_team_all: Dict[str, str] = {}
     for (_pid, _fy), team_secs in tenure_inseason_time_team_fy.items():
-        if team_secs:
-            tenure_top_team_by_year[(_pid, _fy)] = max(team_secs.items(), key=lambda kv: kv[1])[0]
+        if not team_secs:
+            continue
+        # No played week that season -> the in-season window holds ownership
+        # time but no football, so rank on the full FY instead. Same key set as
+        # before, so this changes VALUES only; a (pid, fy) with no in-season
+        # tenure at all still falls through to the pw-derived top team.
+        _ledger = team_secs
+        if not _has_played_week(_pid, _fy):
+            _ledger = tenure_time_team_fy.get((_pid, _fy)) or team_secs
+        tenure_top_team_by_year[(_pid, _fy)] = max(_ledger.items(), key=lambda kv: kv[1])[0]
     for (_pid, _fy), (_dt, _team) in tenure_last_event_fy.items():
         tenure_last_team_by_year[(_pid, _fy)] = _team
     for _pid, team_secs in tenure_inseason_time_team_all.items():
@@ -14574,6 +14677,12 @@ def build_all(repo_root: Path) -> None:
                     _tx_nteams = 0
                     if tenure_team_secs_full:
                         tenure_team_secs_is = tenure_inseason_time_team_fy.get((str(sid), int(yr)), {})
+                        # Same rule as the per-FY map above. This is the live
+                        # season's ONLY path — a year with no player_week rows
+                        # produces nothing but pad rows — so it is where the
+                        # Sept 1 handover actually bit.
+                        if not _has_played_week(str(sid), int(yr)):
+                            tenure_team_secs_is = {}
                         tenure_team_secs = tenure_team_secs_is or tenure_team_secs_full
                         last_event = tenure_last_event_fy.get((str(sid), int(yr)))
                     else:

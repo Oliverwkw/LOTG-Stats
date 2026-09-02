@@ -1,9 +1,98 @@
 from __future__ import annotations
+import json
+import os
 from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Optional
+from typing import Dict, Optional
 import pandas as pd
 import requests
+
+# ---------------------------------------------------------------------------
+# Cache freshness
+# ---------------------------------------------------------------------------
+# Every loader below used to download only when its file was ABSENT or EMPTY.
+# Combined with `force_refresh` being set for the in-progress season alone, that
+# meant a completed season's file, once present, was never fetched again — and
+# the committed `.cache` is only rewritten by hand, so the shipped exports sat on
+# a 2026-06-29 vintage of NFLverse for 65 days while upstream back-corrected
+# 25,045 values underneath them. The player-id bridge and the bye schedule were
+# worse: no `force_refresh` parameter at all, so nothing in the repo could
+# refresh them.
+#
+# So freshness is now the loaders' own job, and it applies to EVERY file: past
+# the age below, the next build re-downloads. The Tuesday build therefore keeps
+# the whole cache under a week old on its own, with no workflow step to forget
+# and no cache key to bust.
+#
+# Age is read from a sidecar log, not from mtime: `actions/checkout` stamps every
+# file with the checkout time (git stores no mtimes), so an mtime test would call
+# a two-month-old committed file "fetched seconds ago" on exactly the runs that
+# matter. The log records when each file was last successfully DOWNLOADED,
+# travels with the cache (it lives inside `cache_dir`), and is committed
+# alongside `.cache` so a cold checkout knows how old its files really are. An
+# unlisted file is treated as infinitely stale, which is the safe direction.
+CACHE_MAX_AGE_DAYS = 6.0
+FETCH_LOG_NAME = "_fetch_log.json"
+
+
+def cache_max_age_days() -> float:
+    """Staleness horizon in days. `LOTG_CACHE_MAX_AGE_DAYS` overrides; <= 0
+    forces every file to re-download."""
+    raw = str(os.environ.get("LOTG_CACHE_MAX_AGE_DAYS", "")).strip()
+    if not raw:
+        return CACHE_MAX_AGE_DAYS
+    try:
+        return float(raw)
+    except ValueError:
+        return CACHE_MAX_AGE_DAYS
+
+
+def _fetch_log_path(cache_dir: Path) -> Path:
+    return Path(cache_dir) / FETCH_LOG_NAME
+
+
+def read_fetch_log(cache_dir: Path) -> Dict[str, str]:
+    """{filename: ISO-8601 timestamp of last successful download}."""
+    try:
+        blob = json.loads(_fetch_log_path(cache_dir).read_text())
+    except (OSError, ValueError):
+        return {}
+    return {str(k): str(v) for k, v in blob.items()} if isinstance(blob, dict) else {}
+
+
+def record_fetch(path: Path, when: Optional[datetime] = None) -> None:
+    """Stamp `path` as downloaded now. Best-effort: a read-only cache dir must
+    not fail a build, it just means the file reads stale again next time."""
+    path = Path(path)
+    log = read_fetch_log(path.parent)
+    log[path.name] = (when or datetime.now(timezone.utc)).isoformat()
+    try:
+        _fetch_log_path(path.parent).write_text(json.dumps(log, indent=1, sort_keys=True))
+    except OSError:
+        pass
+
+
+def cache_is_stale(path: Path, max_age_days: Optional[float] = None) -> bool:
+    """True when `path` should be re-downloaded: missing, empty, never recorded
+    as fetched, or fetched longer ago than the horizon."""
+    path = Path(path)
+    if (not path.exists()) or path.stat().st_size == 0:
+        return True
+    age = cache_max_age_days() if max_age_days is None else max_age_days
+    if age <= 0:
+        return True
+    stamp = read_fetch_log(path.parent).get(path.name)
+    if not stamp:
+        return True                      # unknown vintage -> assume stale
+    try:
+        fetched = datetime.fromisoformat(stamp)
+    except ValueError:
+        return True
+    if fetched.tzinfo is None:
+        fetched = fetched.replace(tzinfo=timezone.utc)
+    return (datetime.now(timezone.utc) - fetched) > timedelta(days=age)
+
 
 @dataclass
 class ExternalConfig:
@@ -24,7 +113,18 @@ def _download(url: str, out: Path, timeout: int) -> None:
                 kwargs["proxies"] = {"http": None, "https": None}
             r = session.get(url, **kwargs)
             r.raise_for_status()
-            out.write_bytes(r.content)
+            # Write beside the target and rename over it. Now that a refresh
+            # overwrites files that are ALREADY GOOD, a half-written body would
+            # destroy the very copy the fallback below depends on; os.replace is
+            # atomic within a filesystem, so the cached file is either the old
+            # one or the whole new one.
+            tmp = out.with_name(out.name + ".part")
+            try:
+                tmp.write_bytes(r.content)
+                os.replace(tmp, out)
+            finally:
+                if tmp.exists():
+                    tmp.unlink(missing_ok=True)
             return
         except Exception as e:
             last_err = e
@@ -46,6 +146,27 @@ def _download_best_effort(urls: list[str], out: Path, timeout: int) -> None:
             continue
     if last_err is not None:
         raise last_err
+
+
+def _ensure(cfg: "ExternalConfig", path: Path, urls: list[str],
+            force_refresh: bool = False) -> None:
+    """Download `path` if it is missing, empty, stale, or forced.
+
+    A source that is down or rate-limiting must never cost us a file we already
+    have: on failure with a usable copy on disk we keep it and say nothing, and
+    deliberately do NOT stamp the fetch log — so the file stays stale and the
+    next build tries again rather than waiting out another whole horizon.
+    """
+    have = path.exists() and path.stat().st_size > 0
+    if not (force_refresh or cache_is_stale(path)):
+        return
+    try:
+        _download_best_effort(urls, path, cfg.timeout_seconds)
+    except Exception:
+        if not have:
+            raise
+        return
+    record_fetch(path)
 
 # ---------------------------------------------------------------------------
 # Fantasy-position pins
@@ -127,8 +248,7 @@ def load_dynastyprocess_playerids(cfg: ExternalConfig) -> pd.DataFrame:
         "https://raw.githubusercontent.com/DynastyProcess/data/master/files/playerids.csv",
     ]
     path = cfg.cache_dir / "dynastyprocess_playerids.csv"
-    if (not path.exists()) or path.stat().st_size == 0:
-        _download_best_effort(urls, path, cfg.timeout_seconds)
+    _ensure(cfg, path, urls)
     return pd.read_csv(path)
 
 def load_dynastyprocess_values_players(cfg: ExternalConfig) -> pd.DataFrame:
@@ -137,8 +257,7 @@ def load_dynastyprocess_values_players(cfg: ExternalConfig) -> pd.DataFrame:
         "https://raw.githubusercontent.com/DynastyProcess/data/master/files/values-players.csv",
     ]
     path = cfg.cache_dir / "dynastyprocess_values_players.csv"
-    if (not path.exists()) or path.stat().st_size == 0:
-        _download_best_effort(urls, path, cfg.timeout_seconds)
+    _ensure(cfg, path, urls)
     return pd.read_csv(path)
 
 def load_dynastyprocess_values_picks(cfg: ExternalConfig) -> pd.DataFrame:
@@ -147,8 +266,7 @@ def load_dynastyprocess_values_picks(cfg: ExternalConfig) -> pd.DataFrame:
         "https://raw.githubusercontent.com/DynastyProcess/data/master/files/values-picks.csv",
     ]
     path = cfg.cache_dir / "dynastyprocess_values_picks.csv"
-    if (not path.exists()) or path.stat().st_size == 0:
-        _download_best_effort(urls, path, cfg.timeout_seconds)
+    _ensure(cfg, path, urls)
     return pd.read_csv(path)
 
 def load_nflverse_injuries(cfg: ExternalConfig, season: int, force_refresh: bool = False) -> pd.DataFrame:
@@ -159,13 +277,7 @@ def load_nflverse_injuries(cfg: ExternalConfig, season: int, force_refresh: bool
         f"https://raw.githubusercontent.com/nflverse/nflverse-data/master/data/injuries/injuries_{season}.csv",
     ]
     path = cfg.cache_dir / f"nflverse_injuries_{season}.csv"
-    if force_refresh or (not path.exists()) or path.stat().st_size == 0:
-        try:
-            _download_best_effort(urls, path, cfg.timeout_seconds)
-        except Exception:
-            # On a forced refresh, fall back to the cached copy if download fails.
-            if not path.exists() or path.stat().st_size == 0:
-                raise
+    _ensure(cfg, path, urls, force_refresh=force_refresh)
     return pd.read_csv(path)
 
 
@@ -184,8 +296,7 @@ def load_nflverse_player_ids(cfg: ExternalConfig) -> pd.DataFrame:
         "https://raw.githubusercontent.com/nflverse/nflverse-data/master/data/player_ids.csv",
     ]
     path = cfg.cache_dir / "nflverse_player_ids.csv"
-    if (not path.exists()) or path.stat().st_size == 0:
-        _download_best_effort(urls, path, cfg.timeout_seconds)
+    _ensure(cfg, path, urls)
     return apply_position_pins(pd.read_csv(path))
 
 def load_nflverse_stats_player_week(cfg: ExternalConfig, season: int, force_refresh: bool = False) -> pd.DataFrame:
@@ -204,13 +315,7 @@ def load_nflverse_stats_player_week(cfg: ExternalConfig, season: int, force_refr
         f"https://raw.githubusercontent.com/nflverse/nflverse-data/master/data/player_stats/stats_player_week_{season}.csv.gz",
     ]
     path = cfg.cache_dir / f"nflverse_stats_player_week_{season}.csv"
-    if force_refresh or (not path.exists()) or path.stat().st_size == 0:
-        try:
-            _download_best_effort(urls, path, cfg.timeout_seconds)
-        except Exception:
-            # On forced refresh, fall back to cached copy if download fails.
-            if not path.exists() or path.stat().st_size == 0:
-                raise
+    _ensure(cfg, path, urls, force_refresh=force_refresh)
     # handle possible gz without relying on pandas compression inference
     try:
         df = pd.read_csv(path, low_memory=False)
@@ -230,12 +335,7 @@ def load_nflverse_weekly_rosters(cfg: ExternalConfig, season: int, force_refresh
         f"https://raw.githubusercontent.com/nflverse/nflverse-data/master/data/weekly_rosters/roster_weekly_{season}.csv",
     ]
     path = cfg.cache_dir / f"nflverse_weekly_rosters_{season}.csv"
-    if force_refresh or (not path.exists()) or path.stat().st_size == 0:
-        try:
-            _download_best_effort(urls, path, cfg.timeout_seconds)
-        except Exception:
-            if not path.exists() or path.stat().st_size == 0:
-                raise
+    _ensure(cfg, path, urls, force_refresh=force_refresh)
     try:
         df = pd.read_csv(path, low_memory=False)
     except Exception:

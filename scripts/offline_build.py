@@ -80,6 +80,12 @@ if __name__ == "__main__":
     # Replay the committed snapshot as-is; never let the staleness guard try to
     # refresh it over the (unavailable) network.
     os.environ["LOTG_SNAPSHOT_MAX_AGE_DAYS"] = "0"
+    # Same for the external cache. The loaders now re-download anything past
+    # `external.CACHE_MAX_AGE_DAYS`, which is what keeps the Tuesday build under
+    # a week old — but this harness is the offline one, and the committed
+    # `.cache` is its whole point. Pin the horizon open so it replays rather
+    # than reaching for ~156MB of nflverse the sandbox may not have.
+    os.environ.setdefault("LOTG_CACHE_MAX_AGE_DAYS", "36500")
     try:
         lotg.main()
     finally:

@@ -140,8 +140,19 @@ jobs:
         # NO bare `nflverse-cache-` fallback: it matched across hashes and
         # silently resurrected the very files an external.py fix meant to
         # evict (the stale-cache trap behind the 401/403 audit-diff noise).
+        #
+        # Freshness is NOT this step's job any more. The loaders re-download
+        # anything past `external.CACHE_MAX_AGE_DAYS` (6 days), so whatever this
+        # restores, the build leaves the whole cache under a week old and saves
+        # that below — no workflow step to forget, no key to bust. Before that,
+        # a restored file was kept forever: the loaders' own gate was
+        # absent-or-empty and `force_refresh` covered the in-progress season
+        # alone, so the shipped exports ran on a 2026-06-29 vintage for 65 days.
+        #
         # Manual escape hatch: run with force_refresh_cache=true to skip the
-        # restore and rebuild from the committed .cache baseline.
+        # restore and rebuild from the committed .cache baseline — which now
+        # genuinely re-downloads, because those committed files carry June
+        # stamps in .cache/_fetch_log.json and so read stale.
         if: ${{ github.event.inputs.force_refresh_cache != 'true' }}
         uses: actions/cache/restore@v6
         with:
