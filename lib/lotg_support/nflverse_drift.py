@@ -243,6 +243,15 @@ class Drift:
     # `pools_disturbed` instead.
     pool_seasons: Set[int] = field(default_factory=set)
     compared: bool = False          # False when there was nothing to diff
+    # How old the BEFORE side is, e.g. "2026-06-29 (65 days)". The diff is
+    # "live NFLverse vs the committed .cache", and the committed cache is only
+    # rewritten when someone refreshes it — the weekly build force-refreshes
+    # the in-progress season alone, so completed seasons can sit on a months-old
+    # vintage. Without this the headline number reads as a week of upstream
+    # churn when it is really a standing vintage gap that reappears, identical,
+    # every week (the 2026-08-26 and 2026-09-02 runs attributed the same 157
+    # trade rows, to the same values). Set by the caller; None when unknown.
+    baseline_age: Optional[str] = None
 
     @property
     def changed_cells(self) -> int:
@@ -286,8 +295,11 @@ class Drift:
         if self.missing_files:
             bits.append(f"{len(self.missing_files)} file(s) gone")
         n_files = len([f for f in self.files if f.changed_cells or f.structural])
+        vintage = (f" since the committed cache was last refreshed, {self.baseline_age}"
+                   if self.baseline_age else "")
         return (f"NFLverse made {', '.join(bits)}"
-                + (f" across {n_files} file(s)." if n_files else "."))
+                + (f" across {n_files} file(s){vintage}." if n_files
+                   else f"{vintage}."))
 
     def detail_lines(self, limit: int = 8) -> List[str]:
         rows = sorted((f for f in self.files if f.changed_cells or f.structural),

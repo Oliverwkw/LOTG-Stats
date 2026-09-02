@@ -88,8 +88,18 @@ jobs:
           BASE="$RUNNER_TEMP/baseline_exports"
           mkdir -p "$BASE"
           cp exports/*.csv "$BASE"/
+          # `PH#N` indexes ONE frame written as two sheets, so the map that
+          # resolves it lives beside the CSVs rather than in them
+          # (lib/lotg_support/pick_index.py). Without it in the baseline every
+          # PH# ref is unreadable, `_resolve_refs` returns None for the whole
+          # cell, and a pointer cell that was merely RENUMBERED gets reported as
+          # a diff even when its T# half resolves to the identical trade — 9 such
+          # rows on the 2026-09-02 run.
+          mkdir -p "$BASE/raw"
+          cp exports/raw/pick_ref_index.csv "$BASE"/raw/ 2>/dev/null || \
+            echo "note: no exports/raw/pick_ref_index.csv — PH# link deltas will be reported, not stripped"
           echo "BASELINE_DIR=$BASE" >> "$GITHUB_ENV"
-          echo "Snapshotted $(ls "$BASE" | wc -l) committed CSVs into $BASE"
+          echo "Snapshotted $(ls "$BASE"/*.csv | wc -l) committed CSVs into $BASE"
           # Same idea for the NFLverse cache: these are the upstream files the
           # committed exports were built from. The build below re-downloads them
           # (LOTG_REFRESH_EXTERNAL=1), so diffing this snapshot against .cache
@@ -171,6 +181,7 @@ jobs:
           name: weekly-health-${{ github.run_number }}
           path: |
             exports/*.csv
+            exports/raw/pick_ref_index.csv
             exports/raw/build_debug.log
             exports/raw/runner.log
             exports/raw/pytest.log

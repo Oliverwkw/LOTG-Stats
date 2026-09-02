@@ -88,6 +88,7 @@ import re
 import subprocess
 import sys
 from collections import Counter, defaultdict
+from datetime import date
 from pathlib import Path
 from typing import Dict, List, Optional, Sequence, Set, Tuple
 
@@ -667,6 +668,7 @@ def run_audit(current_dir: Path, baseline_dir: Optional[Path],
     season = _current_season(cur)
     rep = Report()
     drift = diff_nflverse_cache(nflverse_before, nflverse_after)
+    drift.baseline_age = nflverse_cache_age()
     attrib = NflverseAttribution(drift, cur)
     code_changes = code_changes_since(snapshot_built_from_commit(_ROOT))
     attributed = audit_diffs(cur, base, season, rep, attrib, code_changes)
@@ -906,6 +908,28 @@ def strip_stable_links(changed: List[tuple], base_frames: Dict[str, pd.DataFrame
 #
 # Once the exports are rebuilt at the same commit (the next Tuesday build), this
 # stops applying and any residual movement flags normally.
+def nflverse_cache_age() -> Optional[str]:
+    """How stale the committed NFLverse cache is, as "YYYY-MM-DD (N days)".
+
+    The drift number is measured against `.cache/nflverse_*.csv` as checked out,
+    and that copy only moves when someone refreshes it — the weekly build sets
+    `force_refresh` for the in-progress season alone, so completed seasons can
+    ride a months-old vintage indefinitely. Naming the date stops a standing
+    vintage gap being read as a week of upstream churn."""
+    try:
+        out = subprocess.run(
+            ["git", "log", "-1", "--format=%cs", "--", ".cache"],
+            capture_output=True, text=True, timeout=15, cwd=str(_ROOT))
+    except Exception:
+        return None
+    stamp = (out.stdout or "").strip()
+    try:
+        days = (date.today() - date.fromisoformat(stamp)).days
+    except ValueError:
+        return None
+    return f"{stamp} ({days} days ago)"
+
+
 def code_changes_since(commit: Optional[str]) -> List[Tuple[str, str]]:
     """(sha, subject) for each commit between the exports' build and HEAD."""
     if not commit:
@@ -947,7 +971,13 @@ _EVENT_COLUMNS = (
     "number of trades", "total trades", "offseason trades", "number of add/drops",
     "total transactions", "number of waiver adds", "number of free agency adds",
     "number of pure drops",
-    "number of teams", "last team", "drafting skill", "trading skill",
+    # "Top team" sits beside "Last team" deliberately: both are the SAME
+    # per-FY tenure computation (lotg.py `tenure_inseason_time_team_fy` /
+    # `tenure_last_event_fy`), they move on the same rows, and a player
+    # changing hands is exactly what they are supposed to record. Listing only
+    # one of the pair is what let the 2026-09-02 run report five Top Team moves
+    # while silently accepting the identical five Last team moves.
+    "number of teams", "last team", "top team", "drafting skill", "trading skill",
     "add/drop skill", "o-score", "trade impact score", "future draft capital",
     "assets retained now", "assets traded away", "assets dropped to fa",
     "return from trades", "additional assets traded away in those deals",
