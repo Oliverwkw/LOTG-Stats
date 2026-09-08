@@ -861,10 +861,15 @@
       "leg": 1,
       "reserve_slots": 3,
       "reserve_allow_cov": 1,
-      "daily_waivers_last_ran": 7
+      "daily_waivers_last_ran": 8
     },
     "avatar": "bacf626c72ab39f35077ce4a4f99a149",
     "company_id": null,
+    "shard": 213,
+    "season": "2026",
+    "season_type": "regular",
+    "sport": "nfl",
+    "last_message_id": "1403178790464589824",
     "scoring_settings": {
       "sack": 1.0,
       "fgm_40_49": 4.0,
@@ -911,23 +916,23 @@
       "pts_allow_7_13": 4.0,
       "st_ff": 0.0
     },
-    "season": "2026",
-    "season_type": "regular",
-    "shard": 213,
-    "sport": "nfl",
-    "last_message_id": "1403088626216136704",
+    "draft_id": "1312101511668449280",
     "last_author_avatar": "b319fdf8b7b5b0359d3c78622ba4d70c",
     "last_author_display_name": "BROsenzweig",
     "last_author_id": "736278591884656640",
     "last_author_is_bot": false,
     "last_message_attachment": null,
     "last_message_text_map": null,
-    "last_message_time": 1788884905918,
+    "last_message_time": 1788906402749,
     "last_pinned_message_id": "1377154772225773568",
-    "draft_id": "1312101511668449280",
     "last_read_id": null,
     "league_id": "1312101511651655680",
     "previous_league_id": "1192931349575991296",
+    "bracket_id": null,
+    "bracket_overrides_id": null,
+    "group_id": null,
+    "loser_bracket_id": null,
+    "loser_bracket_overrides_id": null,
     "roster_positions": [
       "QB",
       "RB",
@@ -956,11 +961,6 @@
       "BN",
       "BN"
     ],
-    "bracket_id": null,
-    "bracket_overrides_id": null,
-    "group_id": null,
-    "loser_bracket_id": null,
-    "loser_bracket_overrides_id": null,
     "total_rosters": 8
   }
 ]
