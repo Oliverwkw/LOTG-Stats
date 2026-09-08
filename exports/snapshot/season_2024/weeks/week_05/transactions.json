@@ -21,13 +21,13 @@
     "adds": {
       "5185": 8
     },
+    "drops": {
+      "5185": 4
+    },
     "consenter_ids": [
       4,
       8
     ],
-    "drops": {
-      "5185": 4
-    },
     "roster_ids": [
       4,
       8
@@ -54,13 +54,13 @@
     "adds": {
       "9482": 4
     },
+    "drops": {
+      "9482": 1
+    },
     "consenter_ids": [
       1,
       4
     ],
-    "drops": {
-      "9482": 1
-    },
     "roster_ids": [
       1,
       4
@@ -92,10 +92,10 @@
     "adds": {
       "8117": 4
     },
+    "drops": null,
     "consenter_ids": [
       4
     ],
-    "drops": null,
     "roster_ids": [
       4
     ],
@@ -113,12 +113,12 @@
     "creator": "736278591884656640",
     "transaction_id": "1147745500762988544",
     "adds": null,
-    "consenter_ids": [
-      4
-    ],
     "drops": {
       "8117": 4
     },
+    "consenter_ids": [
+      4
+    ],
     "roster_ids": [
       4
     ],
@@ -139,14 +139,14 @@
       "11650": 6,
       "4943": 4
     },
-    "consenter_ids": [
-      4,
-      6
-    ],
     "drops": {
       "11650": 4,
       "4943": 6
     },
+    "consenter_ids": [
+      4,
+      6
+    ],
     "roster_ids": [
       4,
       6
@@ -172,10 +172,10 @@
     "adds": {
       "11834": 6
     },
+    "drops": null,
     "consenter_ids": [
       6
     ],
-    "drops": null,
     "roster_ids": [
       6
     ],
@@ -200,10 +200,10 @@
     "adds": {
       "5374": 6
     },
+    "drops": null,
     "consenter_ids": [
       6
     ],
-    "drops": null,
     "roster_ids": [
       6
     ],
@@ -221,12 +221,12 @@
     "creator": "676958464056066048",
     "transaction_id": "1147174183000965120",
     "adds": null,
-    "consenter_ids": [
-      2
-    ],
     "drops": {
       "3257": 2
     },
+    "consenter_ids": [
+      2
+    ],
     "roster_ids": [
       2
     ],
@@ -251,10 +251,10 @@
     "adds": {
       "3257": 2
     },
+    "drops": null,
     "consenter_ids": [
       2
     ],
-    "drops": null,
     "roster_ids": [
       2
     ],
@@ -272,12 +272,12 @@
     "creator": "603426191780679680",
     "transaction_id": "1146919180810162176",
     "adds": null,
-    "consenter_ids": [
-      5
-    ],
     "drops": {
       "1234": 5
     },
+    "consenter_ids": [
+      5
+    ],
     "roster_ids": [
       5
     ],
@@ -306,13 +306,13 @@
     "adds": {
       "4098": 5
     },
+    "drops": {
+      "4098": 6
+    },
     "consenter_ids": [
       5,
       6
     ],
-    "drops": {
-      "4098": 6
-    },
     "roster_ids": [
       5,
       6
@@ -339,13 +339,13 @@
     "adds": {
       "11567": 7
     },
+    "drops": {
+      "11567": 1
+    },
     "consenter_ids": [
       1,
       7
     ],
-    "drops": {
-      "11567": 1
-    },
     "roster_ids": [
       1,
       7
@@ -377,12 +377,12 @@
     "adds": {
       "7593": 3
     },
-    "consenter_ids": [
-      3
-    ],
     "drops": {
       "5133": 3
     },
+    "consenter_ids": [
+      3
+    ],
     "roster_ids": [
       3
     ],
@@ -407,10 +407,10 @@
     "adds": {
       "7593": 3
     },
+    "drops": null,
     "consenter_ids": [
       3
     ],
-    "drops": null,
     "roster_ids": [
       3
     ],
@@ -435,10 +435,10 @@
     "adds": {
       "19": 3
     },
+    "drops": null,
     "consenter_ids": [
       3
     ],
-    "drops": null,
     "roster_ids": [
       3
     ],
@@ -463,10 +463,10 @@
     "adds": {
       "6865": 7
     },
+    "drops": null,
     "consenter_ids": [
       7
     ],
-    "drops": null,
     "roster_ids": [
       7
     ],

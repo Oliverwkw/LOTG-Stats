@@ -16,10 +16,10 @@
     "adds": {
       "5131": 7
     },
+    "drops": null,
     "consenter_ids": [
       7
     ],
-    "drops": null,
     "roster_ids": [
       7
     ],
@@ -43,12 +43,12 @@
     "adds": {
       "2382": 7
     },
-    "consenter_ids": [
-      7
-    ],
     "drops": {
       "5536": 7
     },
+    "consenter_ids": [
+      7
+    ],
     "roster_ids": [
       7
     ],
@@ -72,12 +72,12 @@
     "adds": {
       "6960": 6
     },
-    "consenter_ids": [
-      6
-    ],
     "drops": {
       "7729": 6
     },
+    "consenter_ids": [
+      6
+    ],
     "roster_ids": [
       6
     ],
@@ -97,12 +97,12 @@
     "adds": {
       "7729": 6
     },
-    "consenter_ids": [
-      6
-    ],
     "drops": {
       "7720": 6
     },
+    "consenter_ids": [
+      6
+    ],
     "roster_ids": [
       6
     ],
@@ -122,12 +122,12 @@
     "adds": {
       "7720": 6
     },
-    "consenter_ids": [
-      6
-    ],
     "drops": {
       "7496": 6
     },
+    "consenter_ids": [
+      6
+    ],
     "roster_ids": [
       6
     ],
