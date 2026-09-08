@@ -161,10 +161,12 @@ class _Move:
     """Shaped like an EventCrossing — the attributes the scorer reads."""
 
     def __init__(self, label, column, rank, end="low", sheet="picks", tied=False,
-                 joined=False, is_new=False):
+                 joined=False, is_new=False, value=None, prev_value=None):
         self.label, self.column, self.rank = label, column, rank
         self.end, self.sheet, self.tied, self.joined = end, sheet, tied, joined
         self.is_new = is_new
+        # Last week's value and this week's, as a real Crossing carries them.
+        self.value, self.prev_value = value, prev_value
 
     def sentence(self):
         w = "ties" if (self.tied or self.joined) else "passes"
@@ -300,6 +302,52 @@ def check_reasoned_offseason_activity_is_new_data():
     ok &= _ok("the summary counts offseason activity as new data",
               "reflect new data" in out or "active week" in out
               or "new results" in out, out)
+    return ok
+
+
+def check_an_all_time_count_that_grew_is_new_data():
+    """An ALL-TIME event count that went UP is the league doing something.
+
+    The 2026-09-08 digest said "only 1 reflect new data" on a week with two
+    trades and 28 add/drops in it. The classifier reads the season off the row's
+    LABEL, and an all-time row is labelled "shmuel256" — no year, so the
+    current-season gate can never pass and every one of them was filed as
+    re-valued history. A count of events cannot rise unless events happened, so
+    judge those on the evidence: the mover's own value grew.
+    """
+    grew = _Move("shmuel256", "Total trades", 1, end="high", sheet="team_all_time",
+                 value=102.0, prev_value=100.0)
+    secs = [("All-time leaderboard moves — teams", "moved", [grew]
+             + [_Move(f"pick {i}", "KTC at end of rookie year", 3, sheet="picks")
+                for i in range(8)])]
+    ok = _ok("_provenance calls a grown all-time count live",
+             DS._provenance(DS._Cand(grew, "teams"), 2026, in_season=False) == "live",
+             DS._provenance(DS._Cand(grew, "teams"), 2026, in_season=False))
+    out = DS.reasoned_summary(secs, season=2026, weeks_completed=0)
+    ok &= _ok("so it leads the lede instead of being folded into the recompute bulk",
+              out.startswith("shmuel256"), out)
+    ok &= _ok("and it is excluded from the re-valued count (8 others, not 9)",
+              "8 of the 8 other moves re-value settled history" in out, out)
+
+    # The counterpart: a count that did NOT move (the board re-ranked around it)
+    # is exactly what "re-valued history" is for, and must not be promoted.
+    flat = _Move("BROsenzweig", "Trading skill", 2, end="high", sheet="team_all_time",
+                 value=47.4, prev_value=47.4)
+    ok &= _ok("a skill that never moved is still a recompute",
+              DS._provenance(DS._Cand(flat, "teams"), 2026, in_season=False) == "recompute")
+    # ...and so is a count with no previous value to compare (an older snapshot).
+    unknown = _Move("shmuel256", "Total trades", 1, end="high", sheet="team_all_time",
+                    value=102.0, prev_value=None)
+    ok &= _ok("no prior value -> no claim, so it stays a recompute",
+              DS._provenance(DS._Cand(unknown, "teams"), 2026, in_season=False) == "recompute")
+
+    # And a SKILL is not an event count even when it does move: it is a mean of
+    # O-Scores and re-ranks on any recompute.
+    moved_skill = _Move("AceMatthew", "Trading skill", 5, end="high",
+                        sheet="team_all_time", value=45.5, prev_value=45.4)
+    ok &= _ok("a skill that moved is not counted as an event",
+              not DS._is_event_count(moved_skill.column))
+    ok &= _ok("a trade count is", DS._is_event_count("Total trades"))
     return ok
 
 
@@ -660,6 +708,7 @@ def run_all() -> bool:
         check_reasoned_folds_the_bulk_into_one_clause,
         check_reasoned_preseason_production_is_recompute,
         check_reasoned_offseason_activity_is_new_data,
+        check_an_all_time_count_that_grew_is_new_data,
         check_reasoned_tenure_and_ktc_are_new_data,
         check_reasoned_new_transactions_are_new_data,
         check_reasoned_broad_week_is_not_one_story,

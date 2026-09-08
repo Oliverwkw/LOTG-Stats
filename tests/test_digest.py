@@ -940,6 +940,88 @@ def check_league_sections_drop_the_redundant_label():
     return ok
 
 
+def check_an_invisible_overtake_is_not_reported():
+    """An overtake whose two numbers PRINT the same is not news.
+
+    The 2026-09-08 digest led on "2026 pick 4.07 (Darnell Mooney) passes 2026
+    pick 3.02 (Chig Okonkwo) for 2nd-lowest Tanking (-0.0)". The margin was
+    0.0006 — four decimals below what the sentence shows — on a season with no
+    played weeks, and it outranked every other line in the email.
+    """
+    prev = {"teams": {"Tanking": [{"entity": "A", "value": -0.0034},
+                                  {"entity": "B", "value": -0.0033},
+                                  {"entity": "C", "value": 5.0},
+                                  {"entity": "D", "value": 9.0}]}}
+    curr = {"teams": {"Tanking": [{"entity": "A", "value": -0.0041},
+                                  {"entity": "B", "value": -0.0047},
+                                  {"entity": "C", "value": 5.0},
+                                  {"entity": "D", "value": 9.0}]}}
+    got = [c.sentence() for c in D.diff_snapshots(prev, curr)]
+    ok = _ok("B overtaking A on an invisible margin is dropped", got == [], f"got {got}")
+
+    # The same rule on the event boards, where that line actually appeared.
+    board = [{"sheet": "rookie_picks", "key": "k_a", "label": "pick A", "column": "Tanking",
+              "end": "low", "rank": 1, "value": -0.0034},
+             {"sheet": "rookie_picks", "key": "k_b", "label": "pick B", "column": "Tanking",
+              "end": "low", "rank": 2, "value": -0.0033}]
+    events = [D.EventHighlight("rookie_picks", "pick B", "Tanking", "low", 1, -0.0047, "k_b"),
+              D.EventHighlight("rookie_picks", "pick A", "Tanking", "low", 2, -0.0041, "k_a")]
+    got = [c.sentence() for c in D.diff_events(board, events)]
+    ok &= _ok("and on the event board", got == [], f"got {got}")
+
+    # A move the reader CAN see survives — the rule is about visibility, not
+    # about small numbers.
+    prev2 = {"teams": {"PF": [{"entity": "A", "value": 100.0}, {"entity": "B", "value": 90.0},
+                              {"entity": "C", "value": 50.0}]}}
+    curr2 = {"teams": {"PF": [{"entity": "A", "value": 100.0}, {"entity": "B", "value": 140.0},
+                              {"entity": "C", "value": 50.0}]}}
+    got = [c.sentence() for c in D.diff_snapshots(prev2, curr2)]
+    ok &= _ok("a visible overtake is still reported",
+              any("B passes A" in s for s in got), f"got {got}")
+    ok &= _ok("a tiny negative renders unsigned, not as '-0.0'",
+              D._fmt(-0.0047) == "0.0", f"got {D._fmt(-0.0047)!r}")
+    return ok
+
+
+def check_a_tie_join_is_never_suppressed():
+    """Equal values are the POINT of a join, so the visibility rule must not eat
+    it — otherwise "joins a tie with X for highest" disappears exactly when it is
+    most true."""
+    prev = {"teams": {"Total trades": [{"entity": "A", "value": 102.0},
+                                       {"entity": "B", "value": 100.0},
+                                       {"entity": "C", "value": 5.0}]}}
+    curr = {"teams": {"Total trades": [{"entity": "A", "value": 102.0},
+                                       {"entity": "B", "value": 102.0},
+                                       {"entity": "C", "value": 5.0}]}}
+    got = [c.sentence() for c in D.diff_snapshots(prev, curr)]
+    return _ok("B joining A's tie is reported even though both print 102",
+               any("joins a tie with A" in s for s in got), f"got {got}")
+
+
+def check_crossings_carry_last_weeks_value():
+    """The lede needs the mover's OWN previous value to tell "the league did
+    something" from "the board moved around a row that never budged"."""
+    prev = {"teams": {"Total trades": [{"entity": "A", "value": 102.0},
+                                       {"entity": "B", "value": 100.0},
+                                       {"entity": "C", "value": 5.0}]}}
+    curr = {"teams": {"Total trades": [{"entity": "A", "value": 102.0},
+                                       {"entity": "B", "value": 102.0},
+                                       {"entity": "C", "value": 5.0}]}}
+    cx = D.diff_snapshots(prev, curr)
+    ok = _ok("an all-time crossing carries prev_value",
+             [c.prev_value for c in cx] == [100.0], f"got {[c.prev_value for c in cx]}")
+    board = [{"sheet": "trades", "key": "k_a", "label": "trade A", "column": "O-Score",
+              "end": "low", "rank": 4, "value": 7.8},
+             {"sheet": "trades", "key": "k_b", "label": "trade B", "column": "O-Score",
+              "end": "low", "rank": 5, "value": 7.9}]
+    events = [D.EventHighlight("trades", "trade B", "O-Score", "low", 4, 7.8, "k_b"),
+              D.EventHighlight("trades", "trade A", "O-Score", "low", 4, 7.8, "k_a")]
+    ex = D.diff_events(board, events)
+    ok &= _ok("an event crossing carries the value it held on the prior board",
+              [c.prev_value for c in ex] == [7.9], f"got {[c.prev_value for c in ex]}")
+    return ok
+
+
 def run_all() -> bool:
     tests = [
         check_discovery_drops_non_numeric,
@@ -982,6 +1064,9 @@ def run_all() -> bool:
         check_phrasing_catalog,
         check_render_html_smoke,
         check_digest_title,
+        check_an_invisible_overtake_is_not_reported,
+        check_a_tie_join_is_never_suppressed,
+        check_crossings_carry_last_weeks_value,
         check_real_exports_smoke,
     ]
     all_ok = True

@@ -267,6 +267,43 @@ def derive_player_name_id(full_name: str, position: str) -> Optional[str]:
     return n + pos
 
 
+# The positions dynasty-daddy actually ranks. A label outside this set means the
+# slug we compose cannot match anything they serve, however well-formed it looks.
+_FANTASY_POSITIONS = ("qb", "rb", "wr", "te")
+
+
+def player_name_id_candidates(full_name: str, position: str) -> List[str]:
+    """The slugs to try for one player, best first.
+
+    The slug is name + position, so a player's KTC history is only reachable
+    while upstream agrees with us about his position. When it does not, the slug
+    silently addresses nothing and `load_history` returns [] — which is not an
+    error anywhere, so every KTC checkpoint on that player quietly reads 0.
+
+    That is not hypothetical. Sleeper relabelled Travis Hunter WR -> DB on
+    2026-09-08; `travishunterdb` has no history, so his 2025 rookie-pick row lost
+    all three populated KTC checkpoints (5,641 / 4,658 / 3,325 -> 0) in one
+    build, and because "Pick-adjusted Difference in KTC" measures 1.01-1.04
+    against a POOLED slot mean, the hole moved every other top pick with it
+    (Marvin Harrison and Ashton Jeanty both by an identical +564.1).
+
+    The position pin in external.py fixes that player. This is the general net
+    under it: when the label we hold is not one dynasty-daddy ranks, fall back
+    through the fantasy positions rather than accepting the empty answer. A
+    player whose label IS a fantasy position gets exactly one candidate, so the
+    normal path costs nothing — no extra request, no behaviour change.
+    """
+    primary = derive_player_name_id(full_name, position)
+    out = [primary] if primary else []
+    if str(position).strip().lower() in _FANTASY_POSITIONS:
+        return out
+    for alt in _FANTASY_POSITIONS:
+        cand = derive_player_name_id(full_name, alt)
+        if cand and cand not in out:
+            out.append(cand)
+    return out
+
+
 # League size. Our picks (an 8-team draft) map onto KTC's 12-team Early/Mid/Late
 # quarters by OVERALL draft position, so e.g. 2.01 (overall 9) is a "Late 1st",
 # not an "Early 2nd". (KTC convention: Early = picks 1-4, Mid = 5-8, Late = 9-12.)
@@ -406,14 +443,21 @@ def build_index(
     wanted_sids = {str(s) for s in sleeper_ids if s}
     for sid in sorted(wanted_sids):
         nm = sid_to_name.get(sid)
+        cands = [nm] if nm else []
         if not nm and sid_to_meta:
             meta = sid_to_meta.get(sid) or {}
-            nm = derive_player_name_id(meta.get("full_name") or "", meta.get("pos") or "")
-        if not nm:
-            continue
-        hist = load_history(repo_root, nm)
-        if hist:
-            idx.add_player(sid, hist, value_col)
+            # Not one derived slug but the candidate list: a player upstream has
+            # relabelled to a non-fantasy position (Travis Hunter, WR -> DB)
+            # composes a slug that addresses nothing, and an empty history is
+            # indistinguishable from a real zero everywhere downstream. See
+            # player_name_id_candidates.
+            cands = player_name_id_candidates(meta.get("full_name") or "",
+                                              meta.get("pos") or "")
+        for cand in cands:
+            hist = load_history(repo_root, cand)
+            if hist:
+                idx.add_player(sid, hist, value_col)
+                break
 
     # Merge the one-time KTC.com / Wayback backfill (data/ktc_backfill/
     # <sleeper_id>.json = [{"date","sf_trade_value"}]). dynasty-daddy only goes

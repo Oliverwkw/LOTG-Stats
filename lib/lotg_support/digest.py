@@ -144,7 +144,33 @@ def _fmt(value: float) -> str:
     """Compact number render: ints as grouped ints, else 1 decimal."""
     if abs(value - round(value)) < 1e-9:
         return f"{int(round(value)):,}"
-    return f"{value:,.1f}"
+    out = f"{value:,.1f}"
+    # A tiny negative renders "-0.0", which reads as a signed zero rather than a
+    # small number. The sign carries no information once the magnitude has
+    # rounded away, so drop it.
+    return out[1:] if out in ("-0.0", "-0") else out
+
+
+def _indistinguishable(value: float, others: Sequence[float]) -> bool:
+    """True when `value` renders exactly like every one of `others`.
+
+    A crossing is real in the data and unreportable in the email when the mover
+    and everyone it overtook print the same number: "2026 pick 4.07 (Darnell
+    Mooney) passes 2026 pick 3.02 (Chig Okonkwo) for 2nd-lowest Tanking (-0.0)"
+    was decided by 0.0006, four decimal places below what the sentence shows, and
+    led the 2026-09-08 digest. The reader is asked to accept an overtake between
+    two numbers that are, as printed, the same number.
+
+    Deliberately phrased against the RENDERED string rather than an absolute
+    epsilon: the threshold that matters is what the email can actually show, and
+    it stays correct if the formatting ever changes. Empty `others` (nobody to be
+    indistinguishable from) is False — the move stands.
+    """
+    others = [o for o in others if o is not None]
+    if not others:
+        return False
+    shown = _fmt(value)
+    return all(_fmt(o) == shown for o in others)
 
 
 def is_rate_stat(column: str) -> bool:
@@ -464,6 +490,11 @@ class Crossing:
     joined: bool = False
     others: tuple = ()          # co-holders at the mover's value, when joined
     passed: tuple = ()          # entities overtaken, when not joined
+    # The mover's own value LAST week. The lede needs it to tell an all-time
+    # count that grew because the league did something (a trade was made, a
+    # player was dropped) from one that merely re-ranked around a mover that
+    # never moved — which is most of them. None when unknown.
+    prev_value: Optional[float] = None
 
     def group(self) -> str:
         return self.mover
@@ -522,7 +553,8 @@ def _column_crossings(section: str, column: str,
                 if len(others) >= _MAX_JOIN_TIE:
                     continue
                 out.append(Crossing(section, column, end, new_rank, mover, v,
-                                    joined=True, others=tuple(sorted(others))))
+                                    joined=True, others=tuple(sorted(others)),
+                                    prev_value=prev_val[mover]))
                 continue
             # Landed alone: everyone that was ahead of the mover and is now behind
             # it got overtaken (a whole tie counts as several).
@@ -532,8 +564,13 @@ def _column_crossings(section: str, column: str,
                       and curr_rank[curr_val[x]] > new_rank]
             if not passed:
                 continue
+            # An overtake nobody can see is not news — see _indistinguishable.
+            # A tie-join is exempt: equal values are the POINT of that sentence.
+            if _indistinguishable(v, [curr_val[x] for x in passed]):
+                continue
             out.append(Crossing(section, column, end, new_rank, mover, v,
-                                joined=False, passed=tuple(sorted(passed))))
+                                joined=False, passed=tuple(sorted(passed)),
+                                prev_value=prev_val[mover]))
     return out
 
 
@@ -1276,6 +1313,9 @@ class EventCrossing:
     #                             pick), not a re-valued or re-ranked old one. A
     #                             renumber does NOT set this: the slot key already
     #                             existed, it just held a different player.
+    # The row's own value last week, when it held a place on this board. None
+    # when it arrived from off the board (most re-valuations) — see Crossing.
+    prev_value: Optional[float] = None
 
     def group(self) -> str:
         return self.label
@@ -1311,9 +1351,13 @@ def _prior_board(prior_board) -> Optional[Dict[tuple, dict]]:
             return None
         try:
             slot = out.setdefault((d["sheet"], d["column"], d["end"]),
-                                  {"by_rank": {}, "by_key": {}})
+                                  {"by_rank": {}, "by_key": {}, "val_by_key": {}})
             rank = int(d["rank"])
             slot["by_key"][d["key"]] = rank
+            # Last week's value, for the lede's live-vs-recompute split. Absent
+            # in an older snapshot, which simply leaves prev_value None.
+            if d.get("value") is not None:
+                slot["val_by_key"][d["key"]] = d["value"]
             # Every holder of a rank last week, so overtaking a whole tie names
             # all of them (Change 4).
             slot["by_rank"].setdefault(rank, []).append(d.get("label", d["key"]))
@@ -1358,6 +1402,9 @@ def diff_events(prior_board, events: Sequence[EventHighlight],
     for e in events:
         co.setdefault((e.sheet, e.column, e.end), {}).setdefault(e.rank, []).append(e.key)
     label_of = {(e.sheet, e.column, e.end, e.key): e.label for e in events}
+    # The value each label holds on the board NOW, so an overtake can be tested
+    # for whether the reader could see it at all (_indistinguishable).
+    value_of_label = {(e.sheet, e.column, e.end, e.label): e.value for e in events}
     out: List[EventCrossing] = []
     for e in events:
         slot = prior.get((e.sheet, e.column, e.end))
@@ -1380,15 +1427,26 @@ def diff_events(prior_board, events: Sequence[EventHighlight],
                 continue
             out.append(EventCrossing(e.sheet, e.label, e.column, e.end, e.rank,
                                      e.value, joined=True, others=tuple(others),
-                                     is_new=_is_new(e)))
+                                     is_new=_is_new(e),
+                                     prev_value=slot["val_by_key"].get(e.key)))
             continue
         # Landed alone: overtook every prior holder of the slot it now occupies.
         passed = [lbl for lbl in slot["by_rank"].get(e.rank, []) if lbl != e.label]
         if not passed:
             continue
+        # An overtake nobody can see is not news — see _indistinguishable. Only
+        # the passed rows still ON the board have a current value to compare; a
+        # row pushed off entirely is not evidence either way, so it keeps the
+        # move (the conservative direction: report rather than swallow).
+        _passed_vals = [value_of_label.get((e.sheet, e.column, e.end, lbl))
+                        for lbl in passed]
+        if (e.value is not None and all(v is not None for v in _passed_vals)
+                and _indistinguishable(e.value, _passed_vals)):
+            continue
         out.append(EventCrossing(e.sheet, e.label, e.column, e.end, e.rank,
                                  e.value, joined=False, passed=tuple(sorted(passed)),
-                                 is_new=_is_new(e)))
+                                 is_new=_is_new(e),
+                                 prev_value=slot["val_by_key"].get(e.key)))
     return out
 
 

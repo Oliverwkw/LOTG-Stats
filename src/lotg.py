@@ -116,6 +116,7 @@ from lotg_support.injury_tracker import (
 from lotg_support.external import (
     ExternalConfig,
     cache_is_stale,
+    pin_sleeper_positions,
     record_fetch,
     load_dynastyprocess_playerids,
     load_dynastyprocess_values_players,
@@ -2629,6 +2630,40 @@ def build_all(repo_root: Path) -> None:
                         f"{_meta_added} player-meta backfilled)")
     except Exception as e:
         _log_exc(debug, "espn_2020_inject", e)
+
+    # ------------- Fantasy-position pins on the SLEEPER map -------------
+    # external.apply_position_pins fixes the position label on every NFLVERSE
+    # file we read. `pid_pos` / `pid_meta["pos"]` do not come from there — they
+    # are Sleeper's live /players/nfl dictionary (built above) — so the pin never
+    # reached them, and Sleeper is a second, independent source of the same
+    # relabel. On 2026-09-08 it flipped Travis Hunter from WR to DB, four weeks
+    # after NFLverse did, and the consequences were worse here than upstream
+    # because this map is CURRENT-ONLY and applied to ALL of history:
+    #
+    #   * team_week's `Points from WRs` and `Number of WR started/rostered`
+    #     bucket on pid_pos, so 23.9 WR points and 17 rostered weeks left
+    #     Oliverwkw's SETTLED 2025 season overnight — while the year/all-time
+    #     distinct counts, which read player_week's as-of-week Position instead,
+    #     kept him. One season, two answers (see check_position_sources_agree).
+    #   * the Starter/Rostered ceiling-floor-consistency percentiles group by
+    #     pid_pos, so he became a DB pool of ONE and all six read 100.0.
+    #   * ktc.derive_player_name_id composes dynasty-daddy's slug as
+    #     name + position, so `travishunterwr` became `travishunterdb`, which has
+    #     no history: every KTC checkpoint on his rookie-pick row went to 0, and
+    #     that dragged the pooled 1.01-1.04 slot baseline every other top pick is
+    #     measured against.
+    #
+    # Applied by gsis_id, the same key and the same registry external.py uses, so
+    # there is one place to add a player. Sleeper's own gsis_id is missing or
+    # wrong for a slice of players, so the DP/NFLverse bridges are consulted too
+    # — the same chain the enrichment above uses.
+    try:
+        for _pid, _nm, _was, _now in pin_sleeper_positions(
+                pid_meta, pid_pos, dp_sleeper_to_gsis, sleeper_to_gsis):
+            _log(debug, f"[{_now_iso()}] INFO position_pin sid={_pid} name={_nm!r} "
+                        f"{_was!r} -> {_now!r} (Sleeper map)")
+    except Exception as e:
+        _log_exc(debug, "position_pins_sleeper", e)
 
     raw_dir = repo_root / "exports" / "raw"
     raw_dir.mkdir(parents=True, exist_ok=True)

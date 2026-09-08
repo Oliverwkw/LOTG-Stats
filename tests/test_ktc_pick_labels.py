@@ -28,8 +28,35 @@ sys.path.insert(0, str(_ROOT / "lib"))
 from lotg_support.ktc import (  # noqa: E402
     ValueIndex,
     asset_value_at,
+    derive_player_name_id,
     pick_label_candidates as plc,
+    player_name_id_candidates as pnc,
 )
+
+
+def test_a_fantasy_position_yields_exactly_one_slug():
+    """The normal path must not grow extra lookups: a WR is a WR."""
+    assert pnc("Ja'Marr Chase", "WR") == ["jamarrchasewr"]
+    assert pnc("Tom Brady", "QB") == ["tombradyqb"]
+
+
+def test_a_non_fantasy_label_falls_back_through_the_fantasy_positions():
+    """Sleeper relabelled Travis Hunter WR -> DB on 2026-09-08. The slug is
+    name + position, so `travishunterdb` addressed nothing and every KTC
+    checkpoint on his rookie-pick row read 0 — which is not distinguishable from
+    a real zero anywhere downstream."""
+    got = pnc("Travis Hunter", "DB")
+    assert got[0] == "travishunterdb", got          # what upstream says, tried first
+    assert "travishunterwr" in got, got             # and the label we roster him at
+    assert got[1:] == ["travishunterqb", "travishunterrb",
+                       "travishunterwr", "travishunterte"], got
+
+
+def test_no_name_or_no_position_still_yields_nothing():
+    assert pnc("", "DB") == []
+    assert pnc("Travis Hunter", "") == ["travishunterqb", "travishunterrb",
+                                        "travishunterwr", "travishunterte"]
+    assert derive_player_name_id("", "WR") is None
 
 
 def test_clean_slot_labels():

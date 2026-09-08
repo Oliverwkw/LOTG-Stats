@@ -173,6 +173,71 @@ def check_a_player_keeps_one_position_per_season() -> bool:
                split.empty, f"split across pools: {dict(split)}")
 
 
+def check_the_pin_is_applied_to_the_sleeper_map_too() -> bool:
+    """The build reads position from TWO upstreams, and the pin has to reach both.
+
+    `apply_position_pins` covers the NFLverse files. `pid_pos` / `pid_meta["pos"]`
+    come from Sleeper's live /players/nfl dictionary, which is a second,
+    independent source of the same relabel — and it flipped Hunter WR -> DB on
+    2026-09-08, a month after NFLverse did. That map is current-only and applied
+    to ALL of history, so it took 23.9 WR points and 17 rostered weeks out of a
+    SETTLED 2025 season, made him a percentile pool of one, and (via the
+    name+position KTC slug) zeroed every KTC checkpoint on his rookie-pick row.
+
+    Pure — no exports needed.
+    """
+    meta = {
+        "12530": {"full_name": "Travis Hunter", "pos": "DB", "gsis_id": "00-0040718"},
+        "99991": {"full_name": "A Receiver", "pos": "WR", "gsis_id": "00-0022222"},
+        "99992": {"full_name": "Some Corner", "pos": "CB", "gsis_id": "00-0011111"},
+    }
+    pos = {k: (v["pos"] or "").upper() for k, v in meta.items()}
+    changed = E.pin_sleeper_positions(meta, pos)
+    ok = _ok("the pinned player's Sleeper position is rewritten",
+             meta["12530"]["pos"] == "WR" and pos["12530"] == "WR", f"{pos}")
+    ok &= _ok("a genuine cornerback is left alone", pos["99992"] == "CB")
+    ok &= _ok("an unrelated receiver is left alone", pos["99991"] == "WR")
+    ok &= _ok("it reports what it moved, for the build log",
+              changed == [("12530", "Travis Hunter", "DB", "WR")], f"{changed}")
+    ok &= _ok("re-running is a no-op (already pinned -> nothing reported)",
+              E.pin_sleeper_positions(meta, pos) == [])
+
+    # Sleeper's own gsis_id is missing or transposed for a slice of players, so
+    # the DP / NFLverse bridges have to be able to supply it.
+    meta2 = {"12530": {"full_name": "Travis Hunter", "pos": "DB", "gsis_id": None}}
+    pos2 = {"12530": "DB"}
+    E.pin_sleeper_positions(meta2, pos2, {}, {"12530": "00-0040718"})
+    ok &= _ok("a missing Sleeper gsis is recovered from a bridge",
+              pos2["12530"] == "WR", f"{pos2}")
+
+    # And a player nobody can key stays exactly as upstream left him.
+    meta3 = {"77777": {"full_name": "Nobody", "pos": "DB", "gsis_id": None}}
+    pos3 = {"77777": "DB"}
+    E.pin_sleeper_positions(meta3, pos3, {}, {})
+    ok &= _ok("an unkeyable player is untouched, not guessed", pos3["77777"] == "DB")
+    return ok
+
+
+def check_position_sources_agree() -> bool:
+    """team_week's positional counts and player_week's own Position column must
+    describe the same roster.
+
+    They are computed from the two different sources above — team_week from the
+    current-only Sleeper map, the year/all-time distinct counts from
+    player_week.Position — so a divergence means one shipped sheet contradicts
+    another. On the 2026-09-08 build it did: Oliverwkw's 2025 read 747.5 points
+    from WRs while the 9 distinct WRs it counted still included the player those
+    points were taken from.
+    """
+    if not _HAVE_EXPORTS:
+        return _skip("no exports")
+    sys.path.insert(0, str(_ROOT / "lib"))
+    from lotg_support import analysis as A  # noqa: E402
+    problems = A.check_position_sources_agree()
+    return _ok("team_week and player_week agree on every positional count",
+               not problems, "; ".join(problems))
+
+
 def run_all() -> bool:
     ok = True
     for t in (check_pin_rewrites_only_the_pinned_player,
@@ -180,8 +245,10 @@ def run_all() -> bool:
               check_pin_accepts_either_id_column,
               check_pin_survives_an_all_empty_position_column,
               check_pin_is_a_noop_on_unrelated_frames,
+              check_the_pin_is_applied_to_the_sleeper_map_too,
               check_no_position_pool_of_one,
-              check_a_player_keeps_one_position_per_season):
+              check_a_player_keeps_one_position_per_season,
+              check_position_sources_agree):
         print(f"\n{t.__name__}:")
         ok &= bool(t())
     print("\n" + ("ALL PASS" if ok else "SOME FAILED"))
