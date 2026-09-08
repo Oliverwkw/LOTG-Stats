@@ -262,16 +262,20 @@ jobs:
         # So: annotate the run and write the names into the job summary, where a
         # failure is visible from the Actions list without opening a log.
         #
-        # Deliberately NOT `exit 1`. Two of run 490's five are brittle rather
-        # than broken: one pins "the oldest roster is BROsenzweig", which every
-        # waiver claim can falsify, and one fails when it finds NO unsigned
-        # players — i.e. when there is nothing left to test. (Both are named in
-        # plan/notes/DIGEST_2026_09_08_THIRTY_FIVE_MOVES.md; naming the second
-        # here would trip the guard that keeps this workflow free of inquiry-only
-        # modules.) Failing the build on those would gate the league's digest
-        # send on an assertion about which manager happens to be oldest. Settle
-        # them first; then this step becomes a hard failure and the guards mean
-        # what they say.
+        # Deliberately NOT `exit 1` — for one more build, and then it should be.
+        #
+        # Of run 490's five, three are now fixed in this PR (two brittle
+        # assertions rewritten to test their property instead of last week's
+        # data, and a cache check that could only ever pass outside CI). The
+        # remaining two — the position pool-of-one and the positional-share
+        # reconciliation — are the Travis Hunter bug itself, and they assert
+        # against the COMMITTED exports/, so they can only clear once this
+        # merges and the Tuesday build rewrites them with the pin applied.
+        #
+        # Flipping to `exit 1` before that would gate the league's digest send on
+        # a failure this PR is already fixing. Once the post-merge build comes
+        # back clean, change the `exit 0` at the end of the failure branch to
+        # `exit 1` and the guards mean what they say.
         if: always()
         run: |
           set -uo pipefail
