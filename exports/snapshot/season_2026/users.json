@@ -23,7 +23,7 @@
       "transaction_free_agent": "off",
       "transaction_trade": "on",
       "transaction_waiver": "off",
-      "user_message_pn": "on"
+      "user_message_pn": "off"
     },
     "settings": null,
     "user_id": "603426191780679680"
