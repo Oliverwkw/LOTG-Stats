@@ -389,12 +389,50 @@ _ACTIVITY_COL_MARKERS = (
 )
 
 
+# A count that only moves when an EVENT is recorded — trades made, drops made,
+# FAAB spent. Distinct from the skills beside them in _ACTIVITY_COL_MARKERS,
+# which are means of O-Scores and re-rank on every recompute without anything
+# happening in the league.
+_EVENT_COUNT_MARKERS = (
+    "pure drop", "number of trades", "offseason trades", "total trades",
+    "total transactions", "number of transactions", "number of adds",
+    "number of drops", "number of add/drops", "faab",
+)
+
+
+def _is_event_count(column: str) -> bool:
+    return any(m in str(column).lower() for m in _EVENT_COUNT_MARKERS)
+
+
+def _grew(cand: "_Cand") -> bool:
+    """The mover's own value went UP since last week.
+
+    On an event count that is proof an event was recorded, which is the fact the
+    lede is trying to state. Without it the lede can only ask "is this row dated
+    in the current season", and an ALL-TIME row is dated nowhere — so
+    `shmuel256 ... highest Total trades (102)`, which moved because the league
+    made two trades this week, was being filed as re-valued history.
+    """
+    prev = getattr(cand.item, "prev_value", None)
+    now = getattr(cand.item, "value", None)
+    try:
+        return prev is not None and now is not None and float(now) > float(prev)
+    except (TypeError, ValueError):
+        return False
+
+
 def _is_offseason_activity(cand: "_Cand", season: Optional[int],
                            year: Optional[int]) -> bool:
     """True when the move is real current-season transaction activity — a made or
     traded add/drop/trade/pick, or a count/skill that aggregates them. New data
     even in the offseason; a PAST-season row on the same sheet is a re-valuation,
     which the season gate below leaves as a recompute."""
+    # An ALL-TIME row carries no season in its label ("shmuel256"), so the gate
+    # below can never pass for one. That is right for a value that is merely
+    # recomputed and wrong for a COUNT of events, which cannot rise unless the
+    # league did something. Judge those on the evidence instead: the count grew.
+    if year is None and _is_event_count(cand.column) and _grew(cand):
+        return True
     if not (season and year and year >= season):
         return False
     if cand.sheet in _ACTIVITY_SHEETS:

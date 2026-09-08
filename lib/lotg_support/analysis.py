@@ -1548,9 +1548,94 @@ def placement_report(sheet: str, name_column: str, season_column: str) -> Dict[s
     }
 
 
+# ---------------------------------------------------------------------------
+# The two position sources, reconciled
+# ---------------------------------------------------------------------------
+# The build reads a player's position from TWO places and they are not the same
+# thing:
+#
+#   * `pid_pos` — Sleeper's live /players/nfl dictionary. ONE label per player,
+#     applied to every season he ever played. team_week's `Number of X
+#     started/rostered` and all four `Points from Xs` bucket on this.
+#   * `player_week.Position` — the AS-OF-WEEK label, nflverse's weekly position
+#     for that game with the Sleeper dictionary only as a fallback. The
+#     year/all-time DISTINCT counts (`_build_unique_position_counts`) read this.
+#
+# While the two agree the split is invisible. When they diverge, one sheet
+# contradicts another inside a single shipped build — and because pid_pos is
+# current-only, the divergence rewrites SETTLED seasons. Travis Hunter is the
+# worked example: Sleeper flipped him WR -> DB on 2026-09-08, so team_week
+# dropped 23.9 WR points and 17 rostered weeks out of Oliverwkw's finished 2025
+# while team_year kept the "9 distinct WRs started" that still counted him. The
+# 747.5 excluded a player the 9 included.
+#
+# `position_source_disagreements` states that as a checkable property. It is
+# deliberately NOT a fix: choosing a winner moves build output on a question
+# that deserves an explicit decision (as-of-week is the historically correct
+# label; current-only is what the weekly counts have always used), and picking
+# one silently is the same class of mistake as the drift itself.
+_POSITION_BUCKETS = ("QB", "WR", "RB", "TE")
+
+
+def position_source_disagreements(buckets: Sequence[str] = _POSITION_BUCKETS) -> pd.DataFrame:
+    """Team-weeks where team_week's positional counts and player_week's own
+    Position column do not describe the same roster.
+
+    Returns one row per (Team, Year, Week, position, kind) mismatch with both
+    numbers; empty means the two sources agree everywhere, which is the property
+    worth holding. `kind` is "started" or "rostered".
+    """
+    pw, tw = Q.load_sheet("player_week"), Q.load_sheet("team_week")
+    need_pw = {"Team", "Year", "Week", "Position", "Starter/Bench", "Player"}
+    if not need_pw.issubset(pw.columns) or tw.empty:
+        return pd.DataFrame(columns=["Team", "Year", "Week", "Position", "kind",
+                                     "player_week", "team_week"])
+    pw = pw.dropna(subset=["Position"]).copy()
+    pw["_pos"] = pw["Position"].astype(str).str.upper().str.strip()
+    pw["_starter"] = pw["Starter/Bench"].astype(str).str.lower().eq("starter")
+    keys = ["Team", "Year", "Week"]
+    for frame in (pw, tw):
+        for col in ("Year", "Week"):
+            frame[col] = pd.to_numeric(frame[col], errors="coerce")
+    rows = []
+    for pos in buckets:
+        sub = pw[pw["_pos"] == pos]
+        for kind, pool in (("rostered", sub), ("started", sub[sub["_starter"]])):
+            col = f"Number of {pos} {kind}"
+            if col not in tw.columns:
+                continue
+            derived = (pool.groupby(keys)["Player"].nunique()
+                       .rename("player_week").reset_index())
+            merged = tw[keys + [col]].merge(derived, on=keys, how="left")
+            merged["player_week"] = merged["player_week"].fillna(0)
+            merged["team_week"] = pd.to_numeric(merged[col], errors="coerce").fillna(0)
+            bad = merged[(merged["player_week"] - merged["team_week"]).abs() > 1e-9]
+            for _, r in bad.iterrows():
+                rows.append({"Team": r["Team"], "Year": int(r["Year"]),
+                             "Week": int(r["Week"]), "Position": pos, "kind": kind,
+                             "player_week": int(r["player_week"]),
+                             "team_week": int(r["team_week"])})
+    return pd.DataFrame(rows, columns=["Team", "Year", "Week", "Position", "kind",
+                                       "player_week", "team_week"])
+
+
+def check_position_sources_agree() -> List[str]:
+    """Guard form of `position_source_disagreements` — empty when they reconcile."""
+    bad = position_source_disagreements()
+    if bad.empty:
+        return []
+    head = "; ".join(
+        f"{r.Team} {r.Year} wk{r.Week} {r.Position} {r.kind}: "
+        f"player_week={r.player_week} team_week={r.team_week}"
+        for r in bad.head(5).itertuples())
+    return [f"{len(bad)} team-week positional count(s) disagree between "
+            f"player_week.Position and team_week — e.g. {head}"]
+
+
 def validate(season: int) -> List[str]:
     """Every guard for one season; empty means the analysis layer reconciles."""
     return (check_starter_points_reconcile(season)
             + check_stack_counts_match_build(season)
             + check_roster_age_matches_build(season)
-            + check_positions_are_placed())
+            + check_positions_are_placed()
+            + check_position_sources_agree())

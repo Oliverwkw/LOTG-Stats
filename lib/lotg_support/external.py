@@ -238,6 +238,45 @@ def apply_position_pins(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
+def pin_sleeper_positions(pid_meta: dict, pid_pos: dict, *bridges: dict) -> list:
+    """Apply the same pins to Sleeper's player map. Returns what was rewritten.
+
+    `apply_position_pins` covers the NFLverse FILES. Sleeper's /players/nfl
+    dictionary is a second, independent source of the same label — and the worse
+    one to get wrong, because the build keeps exactly one position per player
+    from it and applies that to every season he ever played. When Sleeper flipped
+    Travis Hunter WR -> DB on 2026-09-08 it took 23.9 WR points and 17 rostered
+    weeks out of a settled 2025 season, made him a percentile pool of one, and
+    (the slug being name + position) zeroed every KTC checkpoint on his rookie
+    pick.
+
+    Keyed by gsis_id like the registry it reads, so one entry covers both
+    upstreams. Sleeper's own gsis_id is missing or transposed for a slice of
+    players, so `bridges` (sleeper_id -> gsis_id maps, best first) are consulted
+    in order. Mutates both dicts; returns [(sleeper_id, name, was, now), ...] so
+    the caller can log what moved.
+    """
+    changed = []
+    if not FANTASY_POSITION_PINS or not isinstance(pid_meta, dict):
+        return changed
+    for pid, meta in pid_meta.items():
+        if not isinstance(meta, dict):
+            continue
+        gsis = meta.get("gsis_id")
+        for bridge in bridges:
+            if gsis:
+                break
+            gsis = (bridge or {}).get(str(pid))
+        want = FANTASY_POSITION_PINS.get(str(gsis)) if gsis else None
+        was = (meta.get("pos") or "")
+        if not want or was.upper() == want.upper():
+            continue
+        meta["pos"] = want
+        pid_pos[str(pid)] = want.upper()
+        changed.append((str(pid), meta.get("full_name") or str(pid), was, want))
+    return changed
+
+
 def load_dynastyprocess_playerids(cfg: ExternalConfig) -> pd.DataFrame:
     # Official DynastyProcess data repo includes player id mappings (incl sleeper_id).
     # File was renamed from playerids.csv to db_playerids.csv; keep legacy as fallback.
