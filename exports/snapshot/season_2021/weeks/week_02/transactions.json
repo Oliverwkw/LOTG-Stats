@@ -16,10 +16,10 @@
     "adds": {
       "7066": 8
     },
-    "drops": null,
     "consenter_ids": [
       8
     ],
+    "drops": null,
     "roster_ids": [
       8
     ],
@@ -43,10 +43,10 @@
     "adds": {
       "1535": 8
     },
-    "drops": null,
     "consenter_ids": [
       8
     ],
+    "drops": null,
     "roster_ids": [
       8
     ],
@@ -70,12 +70,12 @@
     "adds": {
       "4962": 6
     },
-    "drops": {
-      "2168": 6
-    },
     "consenter_ids": [
       6
     ],
+    "drops": {
+      "2168": 6
+    },
     "roster_ids": [
       6
     ],
@@ -95,12 +95,12 @@
     "adds": {
       "2168": 6
     },
-    "drops": {
-      "1408": 6
-    },
     "consenter_ids": [
       6
     ],
+    "drops": {
+      "1408": 6
+    },
     "roster_ids": [
       6
     ],
@@ -120,12 +120,12 @@
     "adds": {
       "1817": 6
     },
-    "drops": {
-      "5026": 6
-    },
     "consenter_ids": [
       6
     ],
+    "drops": {
+      "5026": 6
+    },
     "roster_ids": [
       6
     ],
@@ -145,12 +145,12 @@
     "adds": {
       "6943": 1
     },
-    "drops": {
-      "4962": 1
-    },
     "consenter_ids": [
       1
     ],
+    "drops": {
+      "4962": 1
+    },
     "roster_ids": [
       1
     ],
@@ -170,10 +170,10 @@
     "adds": {
       "6853": 1
     },
-    "drops": null,
     "consenter_ids": [
       1
     ],
+    "drops": null,
     "roster_ids": [
       1
     ],
@@ -193,12 +193,12 @@
     "adds": {
       "5347": 8
     },
-    "drops": {
-      "5170": 8
-    },
     "consenter_ids": [
       8
     ],
+    "drops": {
+      "5170": 8
+    },
     "roster_ids": [
       8
     ],
@@ -218,12 +218,12 @@
     "adds": {
       "6826": 8
     },
-    "drops": {
-      "138": 8
-    },
     "consenter_ids": [
       8
     ],
+    "drops": {
+      "138": 8
+    },
     "roster_ids": [
       8
     ],
@@ -243,10 +243,10 @@
     "adds": {
       "7002": 7
     },
-    "drops": null,
     "consenter_ids": [
       7
     ],
+    "drops": null,
     "roster_ids": [
       7
     ],

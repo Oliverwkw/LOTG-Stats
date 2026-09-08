@@ -26,7 +26,7 @@ tests/test_analysis.py::test_best_stretch_labels_are_clean_and_span_shows_gaps P
 tests/test_analysis.py::test_timeline_merges_three_sheets_in_date_order PASSED [  5%]
 tests/test_analysis.py::test_roster_age_reproduces_the_builds_column PASSED [  5%]
 tests/test_analysis.py::test_pick_and_player_ages_use_the_builds_arithmetic PASSED [  6%]
-tests/test_analysis.py::test_current_rosters_can_be_aged_and_the_ranking_survives_the_pool PASSED [  6%]
+tests/test_analysis.py::test_current_rosters_can_be_aged_and_the_ranking_survives_the_pool FAILED [  6%]
 tests/test_analysis.py::test_reads_are_pure PASSED                       [  6%]
 tests/test_audit_weekly.py::test_audit_weekly PASSED                     [  6%]
 tests/test_build_digest.py::test_build_digest PASSED                     [  7%]
@@ -53,7 +53,7 @@ tests/test_contracts.py::test_the_permutation_p_is_deterministic_and_two_sided P
 tests/test_contracts.py::test_big_signings_join_to_real_seasons PASSED   [ 13%]
 tests/test_contracts.py::test_matched_cohorts_start_level PASSED         [ 13%]
 tests/test_contracts.py::test_the_contracts_file_is_the_maintained_one PASSED [ 13%]
-tests/test_cross_sheet_reconciliation.py::test_cross_sheet_reconciliation PASSED [ 14%]
+tests/test_cross_sheet_reconciliation.py::test_cross_sheet_reconciliation FAILED [ 14%]
 tests/test_cross_source_and_pad.py::test_cross_source_and_pad PASSED     [ 14%]
 tests/test_digest.py::test_digest_engine PASSED                          [ 14%]
 tests/test_digest_missed_week.py::test_the_ordinary_week_is_untouched PASSED [ 14%]
@@ -112,7 +112,7 @@ tests/test_forecast.py::test_preseason_injury_flags_are_stale_and_are_not_believ
 tests/test_forecast.py::test_the_backtest_may_not_see_the_present PASSED [ 30%]
 tests/test_forecast.py::test_the_research_file_is_sourced_dated_and_lands_on_real_players PASSED [ 30%]
 tests/test_forecast.py::test_research_moves_the_players_it_names PASSED  [ 30%]
-tests/test_forecast.py::test_an_unsigned_player_cannot_score PASSED      [ 30%]
+tests/test_forecast.py::test_an_unsigned_player_cannot_score FAILED      [ 30%]
 tests/test_forecast.py::test_every_roster_gets_a_projection_and_unplaced_players_are_counted PASSED [ 31%]
 tests/test_forecast.py::test_calibration_says_the_projection_beats_a_coin_flip PASSED [ 31%]
 tests/test_forecast.py::test_a_league_of_identical_teams_comes_out_uniform PASSED [ 31%]
@@ -246,7 +246,7 @@ tests/test_ownership.py::test_reads_are_pure PASSED                      [ 68%]
 tests/test_pick_chain_links.py::test_pick_chain_link_integrity PASSED    [ 68%]
 tests/test_pick_sheets_split.py::test_pick_sheets_split PASSED           [ 68%]
 tests/test_player_history_continuity.py::test_no_player_history_continuity_breaks PASSED [ 69%]
-tests/test_position_pins.py::test_position_pins PASSED                   [ 69%]
+tests/test_position_pins.py::test_position_pins FAILED                   [ 69%]
 tests/test_pre_season_blanking.py::test_manager_skills_blank_not_zero_when_no_moves PASSED [ 69%]
 tests/test_pre_season_blanking.py::test_blanks_not_started_game_stats PASSED [ 69%]
 tests/test_pre_season_blanking.py::test_completed_season_untouched PASSED [ 70%]
@@ -356,6 +356,122 @@ tests/test_workflow_schedules.py::test_recoverable_work_does_not_get_one PASSED 
 tests/test_workflow_schedules.py::test_the_catch_up_is_guarded_and_the_guard_can_only_gate_the_build PASSED [100%]
 
 =================================== FAILURES ===================================
+______ test_current_rosters_can_be_aged_and_the_ranking_survives_the_pool ______
+
+    def test_current_rosters_can_be_aged_and_the_ranking_survives_the_pool():
+        if not _HAVE_EXPORTS:
+            return _skip("no exports")
+        seasons = Q.snapshot_seasons()
+        if not seasons:
+            return _skip("no snapshot")
+        season = max(seasons)
+        frame = A.roster_ages(season)
+        assert len(frame) == len(Q.teams(season)), frame
+        # Ranked oldest first, and every roster is fully aged or says how many
+        # players it could not age.
+        assert list(frame["avg_age"]) == sorted(frame["avg_age"], reverse=True)
+        assert (frame["aged"] + frame["missing"] == frame["players"]).all()
+        assert (frame["youngest"] <= frame["avg_age"]).all()
+        assert (frame["oldest"] >= frame["avg_age"]).all()
+        # Roster sizes differ, so the pool is an assumption — the top and bottom
+        # of the ranking must not depend on which one is chosen.
+        active = A.roster_ages(season, pool="active")
+        starters = A.roster_ages(season, pool="starters")
+        for other in (active, starters):
+>           assert other.iloc[0]["Team"] == frame.iloc[0]["Team"], other
+E           AssertionError:               Team  players  aged  ...  oldest  youngest_player     oldest_player
+E             0        shmuel256       10    10  ...   38.58       Puka Nacua  Matthew Stafford
+E             1       AceMatthew       10    10  ...   33.71     Brock Bowers     Davante Adams
+E             2      BROsenzweig       10    10  ...   30.30     Malik Nabers        Josh Allen
+E             3       stevenb123       10    10  ...   32.68     Jahmyr Gibbs     Derrick Henry
+E             4        Oliverwkw       10    10  ...   27.47    Harold Fannin      Nico Collins
+E             5  JacobRosenzweig       10    10  ...   31.90    Ashton Jeanty        Jared Goff
+E             6          plehv79       10    10  ...   30.98   Jeremiyah Love   Patrick Mahomes
+E             7          LWebs53       10    10  ...   28.02     Carnell Tate    Rashid Shaheed
+E             
+E             [8 rows x 10 columns]
+E           assert 'shmuel256' == 'BROsenzweig'
+E             
+E             - BROsenzweig
+E             + shmuel256
+
+tests/test_analysis.py:362: AssertionError
+_______________________ test_cross_sheet_reconciliation ________________________
+
+    def test_cross_sheet_reconciliation():
+        frames = _load(_exports_dir())
+        if frames is None:
+            import pytest  # type: ignore
+            pytest.skip("no built exports present")
+        results = reconcile(frames)
+        hard_fail = [name for (name, ok, _d, known) in results if not ok and not known]
+>       assert not hard_fail, "reconciliation broken: " + "; ".join(hard_fail)
+E       AssertionError: reconciliation broken: team_week Σ positional starter points = PF (± semifinal bonus); team_week positional shares sum to 1
+E       assert not ['team_week Σ positional starter points = PF (± semifinal bonus)', 'team_week positional shares sum to 1']
+
+tests/test_cross_sheet_reconciliation.py:133: AssertionError
+_____________________ test_an_unsigned_player_cannot_score _____________________
+
+    def test_an_unsigned_player_cannot_score():
+        if not _HAVE_DATA:
+            return _skip("no exports/snapshot")
+        year = _live_season()
+        if year is None:
+            return _skip("no live season")
+        avail = dataclasses.replace(F.AvailabilityModel(), draws=400, research=False)
+        capped = F.fielded_distribution(year, availability=avail)
+        free = F.fielded_distribution(year, availability=dataclasses.replace(
+            avail, unsigned_availability=1.0))
+>       assert any(capped.unsigned.values()), "no unsigned players found on any roster"
+E       AssertionError: no unsigned players found on any roster
+E       assert False
+E        +  where False = any(dict_values([0, 0, 0, 0, 0, 0, 0, 0]))
+E        +    where dict_values([0, 0, 0, 0, 0, 0, 0, 0]) = <built-in method values of dict object at 0x7fcc48531400>()
+E        +      where <built-in method values of dict object at 0x7fcc48531400> = {1: 0, 2: 0, 3: 0, 4: 0, ...}.values
+E        +        where {1: 0, 2: 0, 3: 0, 4: 0, ...} = FieldedDistribution(year=2026, teams={1: 'stevenb123', 2: 'JacobRosenzweig', 3: 'AceMatthew', 4: 'BROsenzweig', 5: 'plehv79', 6: 'LWebs53', 7: 'Oliverwkw', 8: 'shmuel256'}, mean={1: 146.95243503842815, 2: 132.37099362270638, 3: 141.5270097881682, 4: 142.35867095070822, 5: 112.48793432637434, 6: 115.58669639118682, 7: 139.0266530858353, 8: 145.31731938306956}, sd={1: 2.751001984182887, 2: 2.344012967261389, 3: 3.32328130510982, 4: 2.9130537433000554, 5: 4.779810069370946, 6: 6.55282384414913, 7: 2.5924390196975935, 8: 5.559754142232959}, samples={1: array([145.44846558, 148.41898955, 143.49866135, 142.95317122,\n       149.1206536 , 140.84315914, 147.79872889, 145.03985632,\n       149.1206536 , 149.1206536 , 148.41898955, 149.1206536 ,\n       146.72462822, 149.1206536 , 147.13143656, 148.85707539,\n       148.15541134, 149.1206536 , 148.04156867, 148.04156867,\n       147.79872889, 142.90242488, 149.1206536 , 141.89416612,\n       148.85707539, 148.41898955, 147.53515068, 149.1206536 ,\n       145.03985632, 148.04156867, 148.15541134, 143.69628877,\n       147.0339685 , 149.1206536 , 142.20077842, 147.09000132,\n       149.1206536 , 149.1206536 , 149.1206536 , 147.53515068,\n       144.27...       135.84398558, 147.80663621, 151.77056862, 149.7346887 ,\n       147.86409578, 144.53433311, 140.75908579, 144.53433311,\n       137.63125932, 145.17307352, 151.77056862, 138.99478513,\n       148.16021659, 151.77056862, 145.17307352, 131.91066429,\n       148.3899634 , 151.4314914 , 151.77056862, 144.53433311,\n       145.17307352, 135.70193272, 151.77056862, 147.22943463,\n       143.1371936 , 144.53433311, 142.49253769, 145.17307352,\n       144.12021155, 151.77056862, 150.26096787, 146.90210064,\n       138.36183414, 142.74114387, 151.4314914 , 148.3899634 ])}, healthy={1: 149.1206535986922, 2: 134.69874533871817, 3: 144.59291603958496, 4: 145.34962042918613, 5: 116.82779216621121, 6: 122.79631068229523, 7: 141.9441395911354, 8: 151.77056862254292}, rookies={1: 0, 2: 3, 3: 1, 4: 0, 5: 4, 6: 9, 7: 1, 8: 2}, sidelined={1: 0, 2: 0, 3: 0, 4: 0, 5: 0, 6: 0, 7: 0, 8: 0}, unsigned={1: 0, 2: 0, 3: 0, 4: 0, 5: 0, 6: 0, 7: 0, 8: 0}, researched={1: 0, 2: 0, 3: 0, 4: 0, 5: 0, 6: 0, 7: 0, 8: 0}, unplaced={1: 0, 2: 0, 3: 0, 4: 0, 5: 0, 6: 1, 7: 0, 8: 0}, warnings=['LWebs53: 1 rostered player(s) with no history in this league and no 2026 draft slot — projected at the undrafted prior (3 ppg)']).unsigned
+
+tests/test_forecast.py:391: AssertionError
+______________________________ test_position_pins ______________________________
+
+    def test_position_pins():
+>       assert run_all()
+E       assert False
+E        +  where False = run_all()
+
+tests/test_position_pins.py:192: AssertionError
+----------------------------- Captured stdout call -----------------------------
+
+check_pin_rewrites_only_the_pinned_player:
+  [PASS] pinned player's position is rewritten
+  [PASS] every position column moves together, not just `position`
+  [PASS] a real cornerback is untouched
+  [PASS] an unrelated receiver is untouched
+
+check_pin_matches_on_gsis_id_not_name:
+  [PASS] the id matches even when the name is spelled differently
+  [PASS] a same-NAME different-id player is not pinned
+
+check_pin_accepts_either_id_column:
+  [PASS] gsis_id-keyed files are pinned too
+
+check_pin_survives_an_all_empty_position_column:
+  [PASS] all-empty position column is float64 before pinning
+  [PASS] the pinned player gets his label without a TypeError
+  [PASS] a non-pinned row stays empty (not coerced to a bogus label)
+
+check_pin_is_a_noop_on_unrelated_frames:
+  [PASS] no position column -> unchanged
+  [PASS] no id column -> unchanged
+  [PASS] empty frame -> unchanged
+  [PASS] frame naming no pinned player -> unchanged
+
+check_no_position_pool_of_one:
+  [FAIL] no season/position pool has a single player — pools of one: {('2025', 'DB'): np.int64(1)}
+
+check_a_player_keeps_one_position_per_season:
+  [FAIL] each player has one position per season — split across pools: {('Travis Hunter', '2025'): np.int64(2)}
+
+SOME FAILED
 ____________________________ test_refresh_external _____________________________
 
     def test_refresh_external():
@@ -423,7 +539,7 @@ check_the_suite_is_hermetic:
 check_the_committed_cache_is_dated:
   [PASS] committed fetch log exists
   [PASS] every committed cache CSV is dated
-  [FAIL] the committed seed reads stale (so it refreshes on first build) — 0/24
+  [FAIL] the committed seed reads stale (so it refreshes on first build) — 0/25
 
 check_build_reads_the_env_flag:
   [PASS] build reads LOTG_REFRESH_EXTERNAL
@@ -472,6 +588,31 @@ tests/test_contracts.py::test_the_contracts_file_is_the_maintained_one
 
 -- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
 =========================== short test summary info ============================
+FAILED tests/test_analysis.py::test_current_rosters_can_be_aged_and_the_ranking_survives_the_pool - AssertionError:               Team  players  aged  ...  oldest  youngest_player     oldest_player
+  0        shmuel256       10    10  ...   38.58       Puka Nacua  Matthew Stafford
+  1       AceMatthew       10    10  ...   33.71     Brock Bowers     Davante Adams
+  2      BROsenzweig       10    10  ...   30.30     Malik Nabers        Josh Allen
+  3       stevenb123       10    10  ...   32.68     Jahmyr Gibbs     Derrick Henry
+  4        Oliverwkw       10    10  ...   27.47    Harold Fannin      Nico Collins
+  5  JacobRosenzweig       10    10  ...   31.90    Ashton Jeanty        Jared Goff
+  6          plehv79       10    10  ...   30.98   Jeremiyah Love   Patrick Mahomes
+  7          LWebs53       10    10  ...   28.02     Carnell Tate    Rashid Shaheed
+  
+  [8 rows x 10 columns]
+assert 'shmuel256' == 'BROsenzweig'
+  
+  - BROsenzweig
+  + shmuel256
+FAILED tests/test_cross_sheet_reconciliation.py::test_cross_sheet_reconciliation - AssertionError: reconciliation broken: team_week Σ positional starter points = PF (± semifinal bonus); team_week positional shares sum to 1
+assert not ['team_week Σ positional starter points = PF (± semifinal bonus)', 'team_week positional shares sum to 1']
+FAILED tests/test_forecast.py::test_an_unsigned_player_cannot_score - AssertionError: no unsigned players found on any roster
+assert False
+ +  where False = any(dict_values([0, 0, 0, 0, 0, 0, 0, 0]))
+ +    where dict_values([0, 0, 0, 0, 0, 0, 0, 0]) = <built-in method values of dict object at 0x7fcc48531400>()
+ +      where <built-in method values of dict object at 0x7fcc48531400> = {1: 0, 2: 0, 3: 0, 4: 0, ...}.values
+ +        where {1: 0, 2: 0, 3: 0, 4: 0, ...} = FieldedDistribution(year=2026, teams={1: 'stevenb123', 2: 'JacobRosenzweig', 3: 'AceMatthew', 4: 'BROsenzweig', 5: 'plehv79', 6: 'LWebs53', 7: 'Oliverwkw', 8: 'shmuel256'}, mean={1: 146.95243503842815, 2: 132.37099362270638, 3: 141.5270097881682, 4: 142.35867095070822, 5: 112.48793432637434, 6: 115.58669639118682, 7: 139.0266530858353, 8: 145.31731938306956}, sd={1: 2.751001984182887, 2: 2.344012967261389, 3: 3.32328130510982, 4: 2.9130537433000554, 5: 4.779810069370946, 6: 6.55282384414913, 7: 2.5924390196975935, 8: 5.559754142232959}, samples={1: array([145.44846558, 148.41898955, 143.49866135, 142.95317122,\n       149.1206536 , 140.84315914, 147.79872889, 145.03985632,\n       149.1206536 , 149.1206536 , 148.41898955, 149.1206536 ,\n       146.72462822, 149.1206536 , 147.13143656, 148.85707539,\n       148.15541134, 149.1206536 , 148.04156867, 148.04156867,\n       147.79872889, 142.90242488, 149.1206536 , 141.89416612,\n       148.85707539, 148.41898955, 147.53515068, 149.1206536 ,\n       145.03985632, 148.04156867, 148.15541134, 143.69628877,\n       147.0339685 , 149.1206536 , 142.20077842, 147.09000132,\n       149.1206536 , 149.1206536 , 149.1206536 , 147.53515068,\n       144.27...       135.84398558, 147.80663621, 151.77056862, 149.7346887 ,\n       147.86409578, 144.53433311, 140.75908579, 144.53433311,\n       137.63125932, 145.17307352, 151.77056862, 138.99478513,\n       148.16021659, 151.77056862, 145.17307352, 131.91066429,\n       148.3899634 , 151.4314914 , 151.77056862, 144.53433311,\n       145.17307352, 135.70193272, 151.77056862, 147.22943463,\n       143.1371936 , 144.53433311, 142.49253769, 145.17307352,\n       144.12021155, 151.77056862, 150.26096787, 146.90210064,\n       138.36183414, 142.74114387, 151.4314914 , 148.3899634 ])}, healthy={1: 149.1206535986922, 2: 134.69874533871817, 3: 144.59291603958496, 4: 145.34962042918613, 5: 116.82779216621121, 6: 122.79631068229523, 7: 141.9441395911354, 8: 151.77056862254292}, rookies={1: 0, 2: 3, 3: 1, 4: 0, 5: 4, 6: 9, 7: 1, 8: 2}, sidelined={1: 0, 2: 0, 3: 0, 4: 0, 5: 0, 6: 0, 7: 0, 8: 0}, unsigned={1: 0, 2: 0, 3: 0, 4: 0, 5: 0, 6: 0, 7: 0, 8: 0}, researched={1: 0, 2: 0, 3: 0, 4: 0, 5: 0, 6: 0, 7: 0, 8: 0}, unplaced={1: 0, 2: 0, 3: 0, 4: 0, 5: 0, 6: 1, 7: 0, 8: 0}, warnings=['LWebs53: 1 rostered player(s) with no history in this league and no 2026 draft slot — projected at the undrafted prior (3 ppg)']).unsigned
+FAILED tests/test_position_pins.py::test_position_pins - assert False
+ +  where False = run_all()
 FAILED tests/test_refresh_external.py::test_refresh_external - assert False
  +  where False = run_all()
-============ 1 failed, 348 passed, 6 warnings in 170.81s (0:02:50) =============
+============ 5 failed, 344 passed, 6 warnings in 212.10s (0:03:32) =============
