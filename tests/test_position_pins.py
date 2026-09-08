@@ -218,6 +218,49 @@ def check_the_pin_is_applied_to_the_sleeper_map_too() -> bool:
     return ok
 
 
+def check_the_pin_reaches_the_read_layer_too() -> bool:
+    """Every consumer of a fantasy position must see the same label.
+
+    There are three, and the first fix reached only two. `apply_position_pins`
+    covers the NFLverse files and `pin_sleeper_positions` covers the map the
+    build holds in memory — but `inquiry.players()` reads the COMMITTED snapshot
+    JSON, which deliberately stays a faithful copy of what Sleeper published and
+    therefore still said DB.
+
+    That is not cosmetic: `replay.check_max_pf` builds its ceiling from
+    `players().positions()`, so it left Hunter out of the optimal lineup and
+    computed 167.14 for Oliverwkw 2025 week 1 against the 168.04 the build had
+    written with him in it. Four guards failed on one disagreement about one
+    label, and the mandatory post-merge audit is what surfaced it.
+    """
+    if not _HAVE_EXPORTS:
+        return _skip("no exports")
+    sys.path.insert(0, str(_ROOT / "lib"))
+    from lotg_support import inquiry as Q  # noqa: E402
+    pos = Q.players().positions()
+    blob = Q._load_json_cached("exports/snapshot/sleeper_players_nfl.json", str(Q.repo_root()))
+    bridge = Q._sleeper_to_gsis()
+    ok = True
+    seen = 0
+    for pid, rec in (blob or {}).items():
+        gsis = str(((rec or {}).get("gsis_id") or "")).strip() or bridge.get(str(pid), "")
+        want = E.FANTASY_POSITION_PINS.get(gsis)
+        if not want:
+            continue
+        seen += 1
+        ok &= _ok(f"the read layer reports {want} for {rec.get('full_name')!r}",
+                  pos.get(str(pid)) == want.upper(), f"got {pos.get(str(pid))!r}")
+    ok &= _ok("every pinned player was reachable from the committed snapshot",
+              seen == len(E.FANTASY_POSITION_PINS),
+              f"{seen}/{len(E.FANTASY_POSITION_PINS)} — a pin nobody can key is a silent no-op")
+    # The snapshot itself must NOT be rewritten: it is the record of what
+    # Sleeper actually published, and the weekly audit's drift diff reads it.
+    hits = [p for p, r in (blob or {}).items()
+            if (r or {}).get("position") == "DB" and (r or {}).get("full_name") == "Travis Hunter"]
+    ok &= _ok("the committed snapshot still records upstream's own label", bool(hits))
+    return ok
+
+
 def check_position_sources_agree() -> bool:
     """team_week's positional counts and player_week's own Position column must
     describe the same roster.
@@ -246,6 +289,7 @@ def run_all() -> bool:
               check_pin_survives_an_all_empty_position_column,
               check_pin_is_a_noop_on_unrelated_frames,
               check_the_pin_is_applied_to_the_sleeper_map_too,
+              check_the_pin_reaches_the_read_layer_too,
               check_no_position_pool_of_one,
               check_a_player_keeps_one_position_per_season,
               check_position_sources_agree):

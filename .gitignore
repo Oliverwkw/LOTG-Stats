@@ -6,3 +6,11 @@ data/ktc_cache/
 # Python bytecode caches
 __pycache__/
 *.pyc
+
+# Built every run and uploaded with the LOTG_outputs artifact, but NOT committed.
+# It is a zip of the CSVs sitting beside it — the same bytes twice — and being
+# already-compressed, git can neither zlib nor delta it: every rebuild stored a
+# fresh ~9.4 MB blob. Measured 2026-09-08, it was 122 MB of a 210 MB repo, 58% of
+# everything, for data the repo already had. The CSVs are the source of truth;
+# grab the zip from the run artifact when you want one file.
+exports/LOTG_Exports.zip

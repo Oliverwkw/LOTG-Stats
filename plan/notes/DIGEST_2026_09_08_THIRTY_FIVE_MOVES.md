@@ -157,7 +157,67 @@ cache it read, so next time this is a two-commit diff.
 6. **A failing guard is visible.** The Tuesday build annotates the run and writes
    the failing test names into the job summary. Still non-gating — see below.
 
+## The 3-part audit (#419, run 490 -> run 492)
+
+Run 492 is the post-merge build on `b4ab92d`; it committed its exports as
+`cd2d029`, so the audit diffs committed CSVs rather than artifacts.
+
+**Part 2 — nine cases, written from the spec before the build ran. All pass**,
+every predicted value exact: Hunter's 2025 weeks all read WR; Oliverwkw's
+`Points from WRs` back to 44.0 / 38.9 / 47.2 weekly, 771.40 yearly, 4,836.48
+all-time; `check_position_sources_agree()` empty (was 10); no pool of one; the
+six percentiles back to 17.0 / 97.6 / 82.3 / 53.7 / 36.0 / 88.6; KTC back to
+5,641 / 4,658 / 3,325; MHJ and Jeanty both down by the same 564.1; Nabers 2025
+back to 0.9.
+
+**Part 3 — diff sweep.** 8,153 changed cells, all accounted for:
+
+* the pin — `player_week.Position` on exactly 10 rows (Hunter 2025 wks 8-17),
+  the Oliverwkw WR columns, the percentile pools re-seating (95 `player_year`
+  rostered-consistency rows, as predicted), the pick-adjusted KTC family;
+* live churn from the roster moves that same evening — 9 new add/drops, `Tanking`
+  (roster age), `Luck`, the link renumbering, `O-Score` and the skills.
+
+**Nothing in a completed season moved that should not have.** No `Points`,
+`Avg points`, `PF`, record or win% cell changed anywhere in 2020-2025.
+
+**Part 1 — and the finding.** The four guards that were red before the merge went
+green; **four different ones went red**, all Max PF: three in
+`test_draft_capital` and `replay.check_max_pf`, on one row —
+`2025 week 1 Oliverwkw: Max PF 167.14 != 168.04`.
+
+There are **three** consumers of a fantasy position and the first fix reached
+two. `apply_position_pins` covers the NFLverse files; `pin_sleeper_positions`
+covers the map the build holds in memory — and the build was right, starting
+Hunter for a ceiling of 168.04 (up from 167.14). But `inquiry.players()` reads
+the COMMITTED snapshot JSON, which deliberately stays a faithful copy of what
+Sleeper published and still said DB, so every model built on that layer left him
+out. Sleeper carries `gsis_id: null` for him, so the read layer now bridges
+through the committed DynastyProcess map, exactly as the build's enrichment does.
+
+The lesson generalises past this player: **a pin has to reach every reader, and
+"the snapshot is the record of what upstream said" and "the code should act on
+the corrected label" are both right** — which is why the correction belongs at
+each read, never in the stored file.
+
 ## Open, needing a decision
+
+* **Next Tuesday's digest will report the fix as news.** Run 492 was a manual
+  dispatch, and the snapshot rotation is gated to the Tuesday cron, so the
+  committed baseline is still run 490's — it records Travis Hunter's Ceiling
+  percentile as **100.0** where the corrected exports say **17.0**. On 2026-09-15
+  the digest diffs corrected-against-buggy and surfaces the ~15 Hunter reversals
+  as fresh leaderboard moves in the league's email.
+
+  Re-baselining now (regenerating `data/digest/ranks_snapshot.json` from the
+  committed exports) removes them — verified reproducible, a local run over the
+  committed exports emits run 492's lede word for word and the same 39 moves.
+  But it would ALSO swallow this week's ~24 genuine moves (the Cyrus Allen FAAB
+  pickup and the rest), which the league should hear about. Left alone
+  deliberately: the lede now classifies the reversals correctly as "a recompute,
+  not a results week", so the noise is labelled rather than hidden, and no real
+  news is lost. Flip it only if the phantom moves are judged worse than the
+  silence.
 
 * **Which position source wins** for the year/all-time distinct counts.
   As-of-week is the historically correct label; current-only is what the weekly
