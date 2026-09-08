@@ -389,15 +389,27 @@ jobs:
           # published `fantasy_points_ppr` column. With the cache committed
           # weekly, that is a two-commit diff instead of an investigation.
           #
-          # COST, measured, so this is a decision and not a surprise: every
-          # tracked cache file is rewritten weekly and upstream touches enough of
-          # each (a changed headshot_url alone dirties all six stats files) that
-          # git stores a new blob for most of them. ~20 MB of new objects per
-          # week — roughly 1 GB/year against a 210 MB repo. If that becomes the
-          # problem it looks like, the cheap trim is to narrow the `git add`
-          # below to the small files that actually get read for attribution
-          # (stats + games + _fetch_log.json, ~7 MB/wk) and leave the
-          # nflverse_weekly_rosters_*.csv (15 MB each) to the Actions cache.
+          # COST, measured against live upstream over the 2026-06-29 -> 09-08
+          # window, so this is a decision and not a surprise. Raw file size is
+          # the wrong unit twice over — git stores blobs zlib'd AND deltas them
+          # against the previous version:
+          #
+          #   * nflverse_weekly_rosters_*.csv look like the problem at 14 MB
+          #     each. They are not: they compress ~20:1 (0.7 MB) and 2021 and
+          #     2025 came back byte-IDENTICAL to the committed copy, so they cost
+          #     nothing. Only the in-progress season's will move, at 0.3 MB.
+          #   * nflverse_stats_player_week_*.csv are the real cost: all eight
+          #     differ (a changed headshot_url alone dirties every one), 1.1 MB
+          #     zlib'd, and measured at ~0.5 MB once git deltas them.
+          #   * player_ids (~1 MB delta'd), games, the DP map and injuries make
+          #     up the rest.
+          #
+          # ~6 MB of new objects per week (~300 MB/year against a 210 MB repo),
+          # plus a one-time ~17 MB for the first commit. There is NO cheap trim
+          # that keeps the point of this: the expensive files ARE the attribution
+          # files. Dropping the rosters — the obvious-looking cut — saves ~0.
+          # If the size does become a problem the honest lever is cadence (commit
+          # monthly, or only when an investigation needs it), not file selection.
           if [ "${TUESDAY_SEND:-}" = "true" ] || [ "${{ github.event.inputs.force_refresh_cache }}" = "true" ]; then
             COMMIT_CACHE=1
             git add -A .cache

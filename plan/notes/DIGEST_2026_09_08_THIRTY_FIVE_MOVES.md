@@ -171,7 +171,22 @@ cache it read, so next time this is a two-commit diff.
   fails when it finds NO unsigned players, i.e. when there is nothing to test.
   Both are the `assert 0.5 > 0.5` shape #418 already fixed once. Settle them and
   the new step can become a hard failure.
-* **`.cache` in git costs ~20 MB/week** (~1 GB/year on a 210 MB repo) now that
-  the Tuesday build commits it. The cheap trim, if that bites, is to narrow the
-  `git add` to stats + games + `_fetch_log.json` (~7 MB/wk) and leave
-  `nflverse_weekly_rosters_*.csv` to the Actions cache.
+* **`.cache` in git costs ~6 MB/week** (~300 MB/year on a 210 MB repo), plus a
+  one-time ~17 MB for the first commit, now that the Tuesday build commits it.
+
+  Measured against live upstream over the 2026-06-29 → 09-08 window. Raw file
+  size misleads twice: git stores blobs zlib'd *and* deltas them against the
+  previous version.
+
+  | file group | raw | zlib | actually differs? | delta cost/wk |
+  |---|---|---|---|---|
+  | `weekly_rosters_*` (7) | 14 MB ea | 0.7 MB ea | **no** — 2021 and 2025 byte-identical | ~0 |
+  | `stats_player_week_*` (8) | 6-7 MB ea | 1.1 MB ea | yes, all 8 | ~0.5 MB ea |
+  | `player_ids` | 6.9 MB | 2.4 MB | yes | ~1 MB |
+  | `games`, DP map, injuries | small | small | yes | ~1 MB total |
+
+  **There is no cheap trim that keeps the point of this** — the expensive files
+  are the attribution files. Dropping the roster files, which look like the
+  problem at 14 MB each, saves approximately nothing. If the size does bite, the
+  honest lever is *cadence* (commit monthly, or only when an investigation needs
+  it), not file selection.

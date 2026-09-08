@@ -255,9 +255,36 @@ def check_the_committed_cache_is_dated():
     csvs = {p.name for p in (_ROOT / ".cache").glob("*.csv")}
     missing = sorted(csvs - set(log))
     ok &= _ok("every committed cache CSV is dated", not missing, f"missing={missing[:4]}")
-    stale = [n for n in csvs if X.cache_is_stale(_ROOT / ".cache" / n, max_age_days=6.0)]
-    ok &= _ok("the committed seed reads stale (so it refreshes on first build)",
-              len(stale) == len(csvs), f"{len(stale)}/{len(csvs)}")
+    # "The seed must read STALE" was right for exactly one build: #418's, where
+    # the committed cache was a hand-written cold-start seed and the point was
+    # that the first build after it refreshed everything. It has been failing in
+    # CI ever since regardless — pytest runs AFTER the build step, which restores
+    # the Actions cache over the committed one and then refreshes it, so by the
+    # time this check runs every stamp is today's and it reads 0/25. It could
+    # only ever pass on a fresh checkout with no build, i.e. locally.
+    #
+    # The Tuesday build now commits the cache it read, so a FRESH seed is the
+    # correct steady state and that assertion is not merely unrunnable in CI, it
+    # is backwards. What still matters is the direction of each failure mode: an
+    # undated file must read stale (safe — it refreshes), and a FUTURE-dated one
+    # must never read fresh forever (the dangerous direction, and the only way
+    # this mechanism can silently stop refreshing).
+    now = datetime.now(timezone.utc)
+    future = []
+    for name, stamp in log.items():
+        try:
+            fetched = datetime.fromisoformat(str(stamp))
+        except (TypeError, ValueError):
+            continue          # unparseable -> cache_is_stale already treats it stale
+        if fetched.tzinfo is None:
+            fetched = fetched.replace(tzinfo=timezone.utc)
+        if fetched > now + timedelta(days=1):
+            future.append(name)
+    ok &= _ok("no committed stamp is dated in the future (which would never expire)",
+              not future, f"future-dated={future[:4]}")
+    ok &= _ok("an unstamped file reads stale, whatever the log says",
+              X.cache_is_stale(_ROOT / ".cache" / "definitely-not-a-real-file.csv",
+                               max_age_days=6.0))
     return ok
 
 
