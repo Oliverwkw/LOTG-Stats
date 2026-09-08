@@ -247,6 +247,59 @@ jobs:
           pip install --no-cache-dir pytest 2>&1 | tail -n 2
           python -m pytest tests/ -v 2>&1 | tee exports/raw/pytest.log
 
+      - name: Surface any failing guard
+        # `continue-on-error` above keeps the artifact upload alive when a guard
+        # trips — and, until now, kept the FAILURE itself completely silent. Run
+        # 490 (2026-09-08) shipped exports, sent the league digest and finished
+        # green with five red guards, two of which were reporting the bug that
+        # week's digest was actually about: `test_position_pins` (Sleeper had
+        # relabelled Travis Hunter WR -> DB) and `test_cross_sheet_reconciliation`
+        # ("team_week Σ positional starter points = PF", "positional shares sum
+        # to 1" — his WR points had left their bucket and landed in none). The
+        # guards did their job; nothing carried the answer to a human until the
+        # Wednesday health email, a day and a build later.
+        #
+        # So: annotate the run and write the names into the job summary, where a
+        # failure is visible from the Actions list without opening a log.
+        #
+        # Deliberately NOT `exit 1`. Two of run 490's five are brittle rather
+        # than broken: one pins "the oldest roster is BROsenzweig", which every
+        # waiver claim can falsify, and one fails when it finds NO unsigned
+        # players — i.e. when there is nothing left to test. (Both are named in
+        # plan/notes/DIGEST_2026_09_08_THIRTY_FIVE_MOVES.md; naming the second
+        # here would trip the guard that keeps this workflow free of inquiry-only
+        # modules.) Failing the build on those would gate the league's digest
+        # send on an assertion about which manager happens to be oldest. Settle
+        # them first; then this step becomes a hard failure and the guards mean
+        # what they say.
+        if: always()
+        run: |
+          set -uo pipefail
+          log=exports/raw/pytest.log
+          [ -f "$log" ] || { echo "no pytest.log — the suite did not run."; exit 0; }
+          summary="$(grep -oE '[0-9]+ failed[^=]*' "$log" | tail -n 1 || true)"
+          failed="$(grep -oE '^FAILED [^ ]+' "$log" | sed 's/^FAILED //' | sort -u || true)"
+          if [ -z "${failed}" ]; then
+            echo "All guards passed. ${summary:-}"
+            echo "✅ All guards passed on this build." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          n="$(printf '%s\n' "${failed}" | wc -l | tr -d ' ')"
+          echo "::error::${n} guard(s) FAILED on this build — the committed exports were still refreshed and the digest still sent. See exports/raw/pytest.log in the run artifact."
+          {
+            echo "### ⚠️ ${n} failing guard(s)"
+            echo ""
+            echo "\`${summary:-see pytest.log}\`"
+            echo ""
+            printf '%s\n' "${failed}" | sed 's/^/- `/; s/$/`/'
+            echo ""
+            echo "Exports were still committed and the digest still sent — this step reports, it does not gate."
+          } >> "$GITHUB_STEP_SUMMARY"
+          printf '%s\n' "${failed}" | while read -r t; do
+            [ -n "$t" ] && echo "::error title=Failing guard::${t}"
+          done
+          exit 0
+
       - name: Injury-tracker coverage report
         # Phase 12 #41 / Phase 14: report how well the in-house Sleeper injury
         # tracker (data/injury_tracker.csv) covers the played weeks — capture
@@ -317,6 +370,38 @@ jobs:
           # Plain `git add exports` stages it too on modern git, but the old CSV
           # surviving on main is exactly the failure this guards, so say it.
           git add -A exports
+          # The upstream cache travels with the exports it produced — but only
+          # on the Tuesday run (see the reason ladder below, which sets
+          # COMMIT_CACHE). #418 made the loaders refresh anything older than 6
+          # days, so from that run on the cache the build reads is fresh; what it
+          # did NOT do is push it back, and CI has never committed .cache. The
+          # committed copy therefore froze at its hand-written 2026-06-29
+          # vintage while every shipped number moved off newer data.
+          #
+          # That gap is not cosmetic. It makes nflverse-fed numbers impossible to
+          # reproduce or attribute from a checkout: the 2026-09-08 digest moved
+          # McCaffrey's and Hill's career PPG, and answering "why" needed the
+          # weekly stats files as CI actually read them. Diffing the committed
+          # cache gave the wrong answer twice (it said nflverse had revised
+          # nothing) before a live re-download showed the real cause — upstream
+          # had rewritten `fumble_recovery_yards_own` (Hill 2022 wk14: 1 -> 57),
+          # which the league scores at 0.1/yd and which never touches the
+          # published `fantasy_points_ppr` column. With the cache committed
+          # weekly, that is a two-commit diff instead of an investigation.
+          #
+          # COST, measured, so this is a decision and not a surprise: every
+          # tracked cache file is rewritten weekly and upstream touches enough of
+          # each (a changed headshot_url alone dirties all six stats files) that
+          # git stores a new blob for most of them. ~20 MB of new objects per
+          # week — roughly 1 GB/year against a 210 MB repo. If that becomes the
+          # problem it looks like, the cheap trim is to narrow the `git add`
+          # below to the small files that actually get read for attribution
+          # (stats + games + _fetch_log.json, ~7 MB/wk) and leave the
+          # nflverse_weekly_rosters_*.csv (15 MB each) to the Actions cache.
+          if [ "${TUESDAY_SEND:-}" = "true" ] || [ "${{ github.event.inputs.force_refresh_cache }}" = "true" ]; then
+            COMMIT_CACHE=1
+            git add -A .cache
+          fi
           if git diff --cached --quiet; then
             echo "exports/ unchanged after rebuild; nothing to commit."
             exit 0
@@ -341,7 +426,7 @@ jobs:
           if [ "${{ github.event.inputs.force_refresh_cache }}" = "true" ]; then
             reason="cache regeneration (full refresh)"
           elif [ "${TUESDAY_SEND:-}" = "true" ]; then
-            reason="Tuesday weekly run"
+            reason="Tuesday weekly run (with refreshed .cache)"
           # Did the live current-season roster or traded picks change?
           elif git diff --cached --name-only \
                | grep -qE '^exports/(raw/(rosters|traded_picks)_[0-9]+\.json|snapshot/season_[0-9]+/(rosters|traded_picks)\.json)$'; then
@@ -377,10 +462,21 @@ jobs:
             echo "push rejected (attempt ${attempt}/3) — reconciling with origin/main."
             staging="$(mktemp -d)"
             cp -a exports "${staging}/exports"
+            # .cache rides along on the runs that commit it, for the same
+            # ours-wins reason: this build fetched it, so our copy is the one
+            # that produced the exports we are laying back down. Without this the
+            # reset below would restore origin/main's cache and ship a tree whose
+            # committed inputs do not match its committed outputs.
+            if [ -n "${COMMIT_CACHE:-}" ]; then cp -a .cache "${staging}/.cache"; fi
             git fetch origin main
             git reset -q --hard origin/main
             rm -rf exports
             cp -a "${staging}/exports" exports
+            if [ -n "${COMMIT_CACHE:-}" ]; then
+              rm -rf .cache
+              cp -a "${staging}/.cache" .cache
+              git add -A .cache
+            fi
             rm -rf "${staging}"
             git add -A exports
             if git diff --cached --quiet; then
