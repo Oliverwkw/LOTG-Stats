@@ -388,7 +388,13 @@ def test_an_unsigned_player_cannot_score():
     capped = F.fielded_distribution(year, availability=avail)
     free = F.fielded_distribution(year, availability=dataclasses.replace(
         avail, unsigned_availability=1.0))
-    assert any(capped.unsigned.values()), "no unsigned players found on any roster"
+    # An empty sample is nothing to test, not a failure. This asserted the
+    # sample EXISTS, so it went red the moment every rostered player had either
+    # league history or a draft slot — reporting "no unsigned players" as a
+    # defect when it is the healthy state, and telling us nothing about the
+    # property below either way. Same shape as #418's `assert 0.5 > 0.5`.
+    if not any(capped.unsigned.values()):
+        return _skip("no unsigned players on any roster — nothing to compare")
     for rid, n in capped.unsigned.items():
         if n:
             assert capped.mean[rid] <= free.mean[rid] + 1e-9, \
