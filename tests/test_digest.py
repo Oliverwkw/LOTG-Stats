@@ -445,6 +445,73 @@ def check_event_labels():
     return ok
 
 
+def check_an_acquisition_never_reads_as_a_disposal():
+    """Every player_additions row is a player ARRIVING, so the preposition has to
+    say so. "trade of X" said the opposite — the board line
+    "AceMatthew's 2025-06-18 trade of Bijan Robinson: KTC at end of season of
+    9713 — 1st-highest" reads as trading Bijan away, which is the reverse of what
+    that row records."""
+    def lab(kind, who="Bijan Robinson"):
+        return D._board_label("player_additions", pd.DataFrame(
+            [{"Team": "T", "Date": "2025-06-18 12:00:00",
+              "Addition type": kind, "Player": who}]).iloc[0])
+
+    ok = _ok("a trade acquisition reads as arriving",
+             lab("Trade") == "T's 2025-06-18 trade for Bijan Robinson", f"got {lab('Trade')}")
+    ok &= _ok("never the disposal reading", " trade of " not in lab("Trade"))
+    # The rest are acquisitions too; they only needed the noun the old label
+    # dropped. A draft already takes "of".
+    for kind, want in (("Waiver", "T's 2025-06-18 waiver pickup of Bijan Robinson"),
+                       ("Free agency", "T's 2025-06-18 free agency pickup of Bijan Robinson"),
+                       ("Commissioner", "T's 2025-06-18 commissioner pickup of Bijan Robinson"),
+                       ("Draft", "T's 2025-06-18 draft of Bijan Robinson"),
+                       ("", "T's 2025-06-18 pickup of Bijan Robinson")):
+        ok &= _ok(f"{kind or '(blank)'} reads naturally", lab(kind) == want, f"got {lab(kind)}")
+    return ok
+
+
+def check_the_rename_does_not_desync_the_baseline():
+    """A crossing is decided by KEY, so a rename cannot invent or silence a line.
+    What it CAN do is desync every label-keyed lookup in `_prior_board` —
+    `by_rank`, which supplies the names in "passes …"/"joins a tie with …", and
+    `val_by_label`, which is how `_nobody_moved` asks whether the row a mover
+    overtook actually moved. `migrate_board_label` reads an old baseline in
+    today's spelling so both keep matching."""
+    ok = _ok("the legacy trade label migrates",
+             D.migrate_board_label("player_additions", "T's 2025-06-18 trade of Bijan Robinson")
+             == "T's 2025-06-18 trade for Bijan Robinson")
+    ok &= _ok("and the legacy pickup labels",
+              D.migrate_board_label("player_additions", "T's 2025-06-18 waiver of X")
+              == "T's 2025-06-18 waiver pickup of X")
+    # Idempotent: it runs on every read, including of a snapshot already written
+    # in the new spelling.
+    once = D.migrate_board_label("player_additions", "T's 2025-06-18 trade for X")
+    ok &= _ok("idempotent on an already-migrated label",
+              once == "T's 2025-06-18 trade for X" and
+              D.migrate_board_label("player_additions", once) == once, f"got {once}")
+    ok &= _ok("a draft label is left alone",
+              D.migrate_board_label("player_additions", "T's 2025-06-18 draft of X")
+              == "T's 2025-06-18 draft of X")
+    # Scoped to this sheet: add_drops' own "drop of"/"move for" must not be touched.
+    for other in ("add_drops", "trades", "team_week"):
+        ok &= _ok(f"{other} labels are untouched",
+                  D.migrate_board_label(other, "T's 2025-09-01 drop of X")
+                  == "T's 2025-09-01 drop of X")
+    # And the baseline reader actually applies it, which is the part that matters.
+    prior = [{"sheet": "player_additions", "column": "KTC at pickup", "end": "high",
+              "key": "player_additions|X|T|2025-06-18|Trade", "rank": 1,
+              "label": "T's 2025-06-18 trade of X", "value": 100.0}]
+    slot = D._prior_board(prior)[("player_additions", "KTC at pickup", "high")]
+    ok &= _ok("_prior_board stores the migrated name in by_rank",
+              slot["by_rank"][1] == ["T's 2025-06-18 trade for X"], f"got {slot['by_rank']}")
+    ok &= _ok("and keys val_by_label by it too",
+              slot.get("val_by_label", {}).get("T's 2025-06-18 trade for X") == 100.0,
+              f"got {slot.get('val_by_label')}")
+    ok &= _ok("the row key is untouched by any of this",
+              slot["by_key"] == {"player_additions|X|T|2025-06-18|Trade": 1})
+    return ok
+
+
 def check_mirrored_columns():
     # A matchup's margin is +M / -M for the two teams: one fact, not two records.
     # Mirrored columns are detected structurally (rows that pair through an
@@ -1213,6 +1280,8 @@ def run_all() -> bool:
         check_group_label_is_the_bare_entity,
         check_league_sections_drop_the_redundant_label,
         check_event_labels,
+        check_an_acquisition_never_reads_as_a_disposal,
+        check_the_rename_does_not_desync_the_baseline,
         check_mirrored_columns,
         check_even_events_stay_on_the_board,
         check_replica_minimal,
