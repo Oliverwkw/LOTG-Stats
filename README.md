@@ -27,8 +27,13 @@ When it finishes, download the artifact named **LOTG_outputs**.
 
 It contains:
 - `exports/LOTG_Stats.xlsx` (one tab per output table)
-- `exports/LOTG_Exports.zip` (all CSVs)
+- `exports/LOTG_Exports.zip` (all CSVs in one file — **artifact only**, not committed
+  to the repo: it is a second copy of the CSVs below and, being already compressed,
+  cost 58% of the repo's history to store)
 - the individual CSVs (so you can import to Sheets/Excel/PowerBI later)
+
+The CSVs and the xlsx are also committed under `exports/` if you would rather read
+them in the browser than download a run artifact.
 
 ## Outputs
 
