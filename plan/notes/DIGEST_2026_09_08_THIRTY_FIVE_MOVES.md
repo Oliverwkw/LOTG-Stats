@@ -200,6 +200,52 @@ The lesson generalises past this player: **a pin has to reach every reader, and
 the corrected label" are both right** — which is why the correction belongs at
 each read, never in the stored file.
 
+## The cascade rule (added after the run-492 digest)
+
+Run 492's digest — corrected build against the run-490 baseline — carried 39
+moves, **23 of them on the pick sheets, and not one of those 23 had its own value
+change.** They were the fix unwinding. Restoring Hunter's KTC took his 2025 pick
+1.02 off five boards at once, each of which he had held 1st place on:
+
+| board | he held | now |
+|---|---|---|
+| lowest `KTC on draft day` | 0.0 | 5,641 → off |
+| lowest `KTC at end of rookie year` | 0.0 | 4,658 → off |
+| lowest `KTC 1 year after draft day` | 0.0 | 3,325 → off |
+| lowest `Pick-adj Diff in KTC on draft day` | −6,034.4 | off |
+| lowest `Pick-adj Diff in KTC at end of rookie yr` | −6,244.9 | off |
+
+Five vacated first places, and everyone behind each stepped up one — which is
+why they all read "3rd-lowest / 4th-lowest / 5th-lowest". On the HIGH end the
+same thing via the pooled 1.01–1.04 baseline: Marvin Harrison's inflated 1,877.8
+fell to 1,313.7, dropping him 1st → 4th, so Lance, Fields and Mac Jones each
+gained a place without moving.
+
+`digest._nobody_moved` is the rule: **a crossing survives only if at least one of
+the entities it NAMES actually moved.** A mover that stood still, passing rows
+that also stood still, is a cascade and is dropped.
+
+Two subtleties, both learned from the data:
+
+* **The rival counts.** "A.T. Perry passes Travis Hunter" has an unchanged mover
+  and is still news — Hunter is the one who moved, and dropping the line hides
+  the only thing that happened. Only when *neither* side moved is it noise. (On
+  a ranking over values an overtake always implies somebody moved, so the pure
+  cascade in the all-time sections is the TIE-JOIN, where two unchanged entities
+  are promoted a rank because a third fell past them.)
+* **Off the board is ambiguous**, and the prior board's worst place settles it. A
+  row absent last week and present now either climbed past that cutoff or was
+  carried in when the board shortened. Strictly worse than the cutoff = carried
+  in = dropped; at or better = it climbed = kept. The boundary matters: reading
+  it the other way lost `2025 week 4 joins a tie for 5th-highest Number of WR
+  rostered (100)`, whose count really did go 99 → 100.
+
+Effect on that digest: **39 → 16.** Six lines name Hunter, five are his knock-on
+effects (the WR points, Nabers' percentile, the week-4 count, and the two picks
+whose values moved with the pooled baseline), five are genuine league activity
+(the Cyrus Allen adds, FAAB, a skill, an O-Score). **Zero pure-cascade lines
+remain, down from 23.**
+
 ## Open, needing a decision
 
 * **Next Tuesday's digest will report the fix as news.** Run 492 was a manual
