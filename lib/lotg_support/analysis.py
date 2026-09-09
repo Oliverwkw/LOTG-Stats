@@ -1619,6 +1619,83 @@ def position_source_disagreements(buckets: Sequence[str] = _POSITION_BUCKETS) ->
                                        "player_week", "team_week"])
 
 
+def position_label_conflicts() -> pd.DataFrame:
+    """Players whose as-of-week label disagrees with the one the build buckets on.
+
+    `position_source_disagreements` says WHICH team-weeks stopped reconciling.
+    This says WHO, which is what a decision needs: the build reads one label per
+    player from Sleeper and applies it to all of history, while `player_week`
+    keeps the label the player actually carried that week, and when those differ
+    the two sheets describe different rosters.
+
+    Deliberately does NOT pick a winner. Both readings are defensible — as-of-week
+    is the historically true label, current-only is what the weekly counts have
+    always used — and choosing silently would rewrite settled values, which is
+    the same class of mistake as the drift itself. So this reports, and a human
+    settles it in one direction by pinning the player in
+    `external.FANTASY_POSITION_PINS`.
+
+    One row per conflicted player: the label the build buckets on, the
+    as-of-week labels seen, how many player-weeks disagree, which seasons, the
+    ids needed to write the pin, and whether the disagreement actually moves a
+    counted bucket (`affects_counts`) — reported rather than filtered, per the
+    over-inclusive rule, so a QB/FB-style relabel that changes no published
+    number is still visible but reads as lower priority than a WR/DB one.
+
+    Two known blind spots, both deliberate: a `player_week` name that matches
+    several Sleeper players is skipped (there is no id column on that sheet, so
+    attributing the conflict would be a guess, and a guess is what would then be
+    hardcoded), and a player Sleeper gives no position at all is skipped (a pin
+    needs something to disagree with).
+    """
+    cols = ["Player", "build_label", "as_of_week", "weeks", "seasons",
+            "affects_counts", "sleeper_id", "gsis_id"]
+    empty = pd.DataFrame(columns=cols)
+    pw = Q.load_sheet("player_week")
+    if pw.empty or not {"Player", "Position", "Year"}.issubset(pw.columns):
+        return empty
+    people = Q.players()
+    bridge = Q._sleeper_to_gsis()
+
+    def _bucket(label: str) -> Optional[str]:
+        return label if label in _POSITION_BUCKETS else None
+
+    rows = []
+    for name, grp in pw.groupby("Player"):
+        labels = grp["Position"].astype(str).str.upper().str.strip()
+        labels = labels[labels != ""]
+        if labels.empty:
+            continue
+        try:
+            pid = people.resolve(str(name))
+        except Exception:
+            continue                      # ambiguous / unknown -> nothing to pin
+        build = (people.position(pid) or "").upper()
+        if not build:
+            continue
+        off = sorted(set(labels) - {build})
+        if not off:
+            continue
+        bad = labels != build
+        rows.append({
+            "Player": str(name),
+            "build_label": build,
+            "as_of_week": ", ".join(off),
+            "weeks": int(bad.sum()),
+            "seasons": ", ".join(str(y) for y in sorted(set(
+                pd.to_numeric(grp.loc[bad.index[bad], "Year"], errors="coerce")
+                .dropna().astype(int)))),
+            "affects_counts": any(_bucket(lab) != _bucket(build) for lab in off),
+            "sleeper_id": str(pid),
+            "gsis_id": str(bridge.get(str(pid), "") or ""),
+        })
+    if not rows:
+        return empty
+    return (pd.DataFrame(rows, columns=cols)
+            .sort_values(["affects_counts", "weeks"], ascending=False,
+                         ignore_index=True))
+
+
 def check_position_sources_agree() -> List[str]:
     """Guard form of `position_source_disagreements` — empty when they reconcile."""
     bad = position_source_disagreements()

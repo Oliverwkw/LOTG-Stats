@@ -262,30 +262,39 @@ jobs:
         # So: annotate the run and write the names into the job summary, where a
         # failure is visible from the Actions list without opening a log.
         #
-        # Deliberately NOT `exit 1` — for one more build, and then it should be.
+        # Deliberately NOT `exit 1`, and that is now a SETTLED DECISION rather
+        # than a wait. An earlier revision of this comment said to flip it once a
+        # post-merge build came back clean; run 493 did (352 passed, 0 failed)
+        # and the answer is still no. Do not flip it.
         #
-        # Of run 490's five, three are now fixed in this PR (two brittle
-        # assertions rewritten to test their property instead of last week's
-        # data, and a cache check that could only ever pass outside CI). The
-        # remaining two — the position pool-of-one and the positional-share
-        # reconciliation — are the Travis Hunter bug itself, and they assert
-        # against the COMMITTED exports/, so they can only clear once this
-        # merges and the Tuesday build rewrites them with the pin applied.
+        # The reason is what this step gates. Failing here would abort the job
+        # before the league's weekly digest goes out, so a red guard would cost
+        # eight people their email — and the guards that trip are usually
+        # reporting a data-quality finding about ONE player, not a reason to
+        # withhold the whole week. Run 490 is the case in point: five guards red,
+        # all of them describing a single Sleeper relabel, and the right response
+        # was a fix on Wednesday, not a silent Tuesday.
         #
-        # Flipping to `exit 1` before that would gate the league's digest send on
-        # a failure this PR is already fixing. Once the post-merge build comes
-        # back clean, change the `exit 0` at the end of the failure branch to
-        # `exit 1` and the guards mean what they say.
+        # So this step is loud and non-blocking by design: an ::error:: on the
+        # run, the failing names in the job summary, and the Wednesday
+        # dataset-health email carrying the same failures as its Part 3. That is
+        # three places a human sees them, none of which costs the league a digest.
         if: always()
         run: |
           set -uo pipefail
           log=exports/raw/pytest.log
           [ -f "$log" ] || { echo "no pytest.log — the suite did not run."; exit 0; }
+          # Two greps, because the pass and fail lines look different: a red run
+          # ends "N failed, M passed in ...", a green one only ever says
+          # "M passed in ...". Reading the failing shape on a clean run left
+          # `summary` empty and printed "All guards passed. " with a dangling
+          # space, throwing away the count that is the whole point of the line.
           summary="$(grep -oE '[0-9]+ failed[^=]*' "$log" | tail -n 1 || true)"
+          passed="$(grep -oE '[0-9]+ passed[^=]*' "$log" | tail -n 1 || true)"
           failed="$(grep -oE '^FAILED [^ ]+' "$log" | sed 's/^FAILED //' | sort -u || true)"
           if [ -z "${failed}" ]; then
-            echo "All guards passed. ${summary:-}"
-            echo "✅ All guards passed on this build." >> "$GITHUB_STEP_SUMMARY"
+            echo "All guards passed — ${passed:-see pytest.log}"
+            echo "✅ All guards passed on this build — \`${passed:-see pytest.log}\`." >> "$GITHUB_STEP_SUMMARY"
             exit 0
           fi
           n="$(printf '%s\n' "${failed}" | wc -l | tr -d ' ')"

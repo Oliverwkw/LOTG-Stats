@@ -3560,17 +3560,28 @@ def build_all(repo_root: Path) -> None:
     _tr_by_team_season: Dict[Tuple[str, int], int] = defaultdict(int)
     _faab_by_team_season: Dict[Tuple[str, int], float] = defaultdict(float)
     # Add/Drop breakdown (waiver adds / free-agency adds / pure drops), per team
-    # per season and per team-season-week. Populated from the final
-    # transactions_rows in the same rebuild pass that fixes _tx_by_team_season, so
-    # they reconcile with "Number of Add/Drops" row-for-row (minus commissioner
-    # adds, which are deliberately left out of the free-agency bucket). Their sum
-    # is Add/Drops minus commissioner adds, not Add/Drops itself — by design.
+    # per season and per team-season-week, plus the TOTAL they must add up to.
+    # All four are populated from the final transactions_rows in the same rebuild
+    # pass that fixes _tx_by_team_season, off one week clock (`_season_week_of`),
+    # so on every frame that carries them:
+    #
+    #     waiver adds + free agency adds + pure drops == Number of Add/Drops
+    #
+    # holds by construction. It did not before: the breakdown skipped Sleeper's
+    # `commissioner` add type entirely (6 rows), and the WEEKLY total came from a
+    # different clock again — Sleeper's own `leg` on the transaction, which files
+    # every preseason move under week 1 and disagrees with `_season_week_of` at
+    # the week boundary — so team_week/league_week were over by 199 across the
+    # league's history, 160 of it piled into the week 1 rows. `_addrop_by_tsw` is
+    # the weekly total on the same clock as the parts; `tests/test_add_drop_breakdown.py`
+    # holds the identity.
     _waiver_add_by_ts: Dict[Tuple[str, int], int] = defaultdict(int)
     _fa_add_by_ts: Dict[Tuple[str, int], int] = defaultdict(int)
     _puredrop_by_ts: Dict[Tuple[str, int], int] = defaultdict(int)
     _waiver_add_by_tsw: Dict[Tuple[str, int, int], int] = defaultdict(int)
     _fa_add_by_tsw: Dict[Tuple[str, int, int], int] = defaultdict(int)
     _puredrop_by_tsw: Dict[Tuple[str, int, int], int] = defaultdict(int)
+    _addrop_by_tsw: Dict[Tuple[str, int, int], int] = defaultdict(int)
 
     # season -> championship Monday, filled in as each league season is walked.
     # A move dated on or before the PREVIOUS season's entry was made while that
@@ -8767,6 +8778,7 @@ def build_all(repo_root: Path) -> None:
                 _faab_by_team_season.clear()
                 _waiver_add_by_ts.clear(); _fa_add_by_ts.clear(); _puredrop_by_ts.clear()
                 _waiver_add_by_tsw.clear(); _fa_add_by_tsw.clear(); _puredrop_by_tsw.clear()
+                _addrop_by_tsw.clear()
                 for _adr in add_drop_rows:
                     _t = str(_adr.get("Team") or "")
                     try:
@@ -8779,10 +8791,24 @@ def build_all(repo_root: Path) -> None:
                     _f = _to_float(_adr.get("Faab"), 0.0) or 0.0
                     if _f:
                         _faab_by_team_season[(_t, _s)] += float(_f)
-                    # Add/Drop breakdown. A row is a "pure drop" when it has a
-                    # dropped player and no added player. Otherwise it is an add,
-                    # split by claim type; commissioner adds are counted in none
-                    # of the three buckets (they are neither waiver nor FA).
+                    # Add/Drop breakdown. The three buckets PARTITION the rows:
+                    # a row with a dropped player and no added player is a "pure
+                    # drop"; every other row is an add, and an add is a waiver
+                    # claim or it isn't.
+                    #
+                    # That "or it isn't" is the fix. These three used to test
+                    # `_ttype == "free_agent"` and so dropped Sleeper's third add
+                    # type — `commissioner` — on the floor: 6 rows across the
+                    # league's history sat in "Number of Add/Drops" and in none
+                    # of the three buckets, so waiver + FA + drops came up 6
+                    # short of Add/Drops on every season and all-time frame and
+                    # the columns could not be read as a breakdown of anything.
+                    # A commissioner add is an acquisition that was not won on
+                    # waivers, which is what the FA bucket counts, so it lands
+                    # there. (The 3 commissioner rows that are drop-only were
+                    # already counted, as pure drops; only adds moved.) If the
+                    # league ever wants them told apart, that is a fourth
+                    # column, not a hole in these three.
                     _ttype = str(_adr.get("type of add/drop (waiver/free agency)") or "")
                     _added = _adr.get("Player Added")
                     _has_add = _added is not None and str(_added).strip() not in ("", "nan", "None")
@@ -8791,15 +8817,20 @@ def build_all(repo_root: Path) -> None:
                     _adbucket = None
                     if not _has_add and _has_drop:
                         _adbucket = "drop"
-                    elif _has_add and _ttype == "waiver":
-                        _adbucket = "waiver"
-                    elif _has_add and _ttype == "free_agent":
-                        _adbucket = "fa"
+                    elif _has_add:
+                        _adbucket = "waiver" if _ttype == "waiver" else "fa"
+                    # ONE clock for the weekly bucket, shared by the total and
+                    # the breakdown. `_addrop_by_tsw` is counted from every row
+                    # here (not only bucketed ones) so that a row landing in no
+                    # bucket would show up as a broken identity rather than
+                    # silently balancing.
+                    _w = None
+                    _dday = _league_day(_aware(_adr.get("Date")))
+                    if _dday is not None:
+                        _w = _season_week_of(_dday, _s)
+                    if _w:
+                        _addrop_by_tsw[(_t, _s, int(_w))] += 1
                     if _adbucket is not None:
-                        _w = None
-                        _dday = _league_day(_aware(_adr.get("Date")))
-                        if _dday is not None:
-                            _w = _season_week_of(_dday, _s)
                         if _adbucket == "waiver":
                             _waiver_add_by_ts[(_t, _s)] += 1
                             if _w:
@@ -8826,43 +8857,56 @@ def build_all(repo_root: Path) -> None:
             except Exception as e:
                 _log_exc(debug, "team_tx_counter_rebuild", e)
 
-            # And the WEEKLY table, for the same rows. The season totals above
-            # now hold them; team_week still would not, so a synthesized row
-            # made in-season would sit in a season total with no week under it.
-            # A synthesized row has no Sleeper leg to read — it never existed on
-            # the platform — so its week comes from its own date, on the same
-            # league clock its Season does. A row in the deep offseason gets
-            # week 0, which is the build's "no weekly bucket" convention and
-            # correct: offseason has no week.
+            # And the WEEKLY table, for the same rows, from the same dict.
+            #
+            # team_week's "Number of Add/Drops" used to be ACCUMULATED as the
+            # weekly loop walked Sleeper's transactions, bucketed by the `leg`
+            # Sleeper filed each one under, and then patched twice more — once
+            # for the manually merged moves, once for the synthesized rows the
+            # loop never saw. Three writers, and none of them on the clock the
+            # breakdown columns use, so the weekly numbers were both internally
+            # inconsistent (waiver + FA + drops came up 199 short of the total
+            # across the league's history) and wrong against add_drops.csv,
+            # which is the row-level source of truth these all describe:
+            #
+            #   * Sleeper's `leg` files every PRESEASON move under week 1, while
+            #     the build's rule (`_season_week_of`, Phase 5C item 9) gives a
+            #     week only to a move within 7 days of kickoff and 0 — no weekly
+            #     bucket — to anything earlier. 160 of the 199 were preseason
+            #     moves piled into a week 1 row that team_year correctly counted
+            #     as offseason.
+            #   * The rest is week-boundary drift: `leg` and the Thursday anchor
+            #     disagree by a day or two either way, so moves landed one week
+            #     off in both directions (which is why the yearly totals looked
+            #     roughly right while individual weeks did not).
+            #
+            # So it is now written ONCE, here, from `_addrop_by_tsw` — the same
+            # rows, the same clock, and the same pass that builds the breakdown
+            # — which makes the weekly frames reconcile with add_drops.csv and
+            # with their own three parts by construction. This runs after the
+            # manual merge and after the synthesized rows are appended, so it
+            # supersedes all three of the old writers rather than adding a
+            # fourth; the two +1 patches they used to apply are already in
+            # add_drop_rows and are counted here like any other row.
             try:
-                _synth_wk_credited = 0
-                for _adr in add_drop_rows:
-                    if not _adr.get("_synthesized"):
-                        continue
-                    _t = str(_adr.get("Team") or "")
-                    try:
-                        _s = int(_adr.get("Season"))
-                    except (TypeError, ValueError):
-                        continue
-                    _day = _league_day(_aware(_adr.get("Date")))
-                    if not _t or _day is None:
-                        continue
-                    _wk = _season_week_of(_day, _s)
-                    if not _wk:
-                        continue  # deep offseason: no weekly bucket, by design
-                    _m = (tw["Team"] == _t) & (tw["Year"] == _s) & (tw["Week"] == _wk)
-                    _hit = tw[_m]
-                    if _hit.empty:
-                        continue
-                    _i = _hit.index[0]
-                    _cur = pd.to_numeric(tw.at[_i, "Number of Add/Drops"], errors="coerce")
-                    tw.at[_i, "Number of Add/Drops"] = int((0 if pd.isna(_cur) else _cur) + 1)
-                    _synth_wk_credited += 1
-                if _synth_wk_credited:
-                    _log(debug, f"[{_now_iso()}] INFO credited {_synth_wk_credited} synthesized "
-                                f"transaction rows to their team_week bucket")
+                if isinstance(tw, pd.DataFrame) and not tw.empty:
+                    _t_ser = tw["Team"].astype(str)
+                    _y_ser = pd.to_numeric(tw["Year"], errors="coerce")
+                    _w_ser = pd.to_numeric(tw["Week"], errors="coerce")
+                    _before = int(pd.to_numeric(
+                        tw["Number of Add/Drops"], errors="coerce").fillna(0).sum())
+                    tw["Number of Add/Drops"] = [
+                        int(_addrop_by_tsw.get((t, int(y), int(w)), 0))
+                        if pd.notna(y) and pd.notna(w) else 0
+                        for t, y, w in zip(_t_ser, _y_ser, _w_ser)
+                    ]
+                    _after = int(pd.to_numeric(
+                        tw["Number of Add/Drops"], errors="coerce").fillna(0).sum())
+                    _log(debug, f"[{_now_iso()}] INFO team_week Number of Add/Drops rebuilt "
+                                f"from add_drop_rows on the league week clock: "
+                                f"{_before} -> {_after}")
             except Exception as e:
-                _log_exc(debug, "team_week_synth_credit", e)
+                _log_exc(debug, "team_week_addrop_rebuild", e)
 
             if _synth_rows or _synth_add_rows:
                 for k in event_log:
@@ -19563,9 +19607,11 @@ def build_all(repo_root: Path) -> None:
     # Add/Drop breakdown (Change 1) + Total transactions (Change 3).
     # Derived centrally here, where every team/league frame is final, from the
     # authoritative per-(team,season[,week]) breakdown dicts built alongside
-    # "Number of Add/Drops". The three breakdown counts exclude commissioner
-    # adds by design, so they sum to Add/Drops minus commissioner adds, not to
-    # Add/Drops. "Total transactions" = "Number of Add/Drops" + the frame's
+    # "Number of Add/Drops". The three breakdown counts PARTITION the add/drop
+    # rows — waiver add, non-waiver add, pure drop — so they sum to Add/Drops
+    # exactly, on every frame that carries all four (see the dicts' declaration,
+    # and tests/test_add_drop_breakdown.py, for what that took).
+    # "Total transactions" = "Number of Add/Drops" + the frame's
     # trade count ("Total trades" on season/all-time frames, "Number of trades"
     # on the weekly frames) — i.e. every move of either kind.
     try:

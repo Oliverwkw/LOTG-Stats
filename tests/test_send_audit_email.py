@@ -315,6 +315,111 @@ def check_lede_cannot_stop_the_email():
     return ok
 
 
+_CONFLICT = [{"Player": "Travis Hunter", "build_label": "DB", "as_of_week": "WR",
+              "weeks": 17, "seasons": "2025", "affects_counts": True,
+              "sleeper_id": "12530", "gsis_id": "00-0040718"}]
+
+
+def check_a_position_conflict_reaches_the_top_of_the_email():
+    """The whole point of the block: it must not be swallowed by a clean week.
+
+    A week whose ONLY finding is a position conflict used to take the clean-week
+    early return and collapse to one line about NFLverse — hiding the one thing
+    in this email that needs a decision.
+    """
+    from lotg_support import nflverse_drift as N
+
+    drift = N.Drift(compared=True)           # measured, and otherwise a clean week
+    subject, html, issues = E.render_email(flags=[], gaps={}, captures_present=True,
+                                           drift=drift, position_conflicts=_CONFLICT)
+    ok = _ok("a conflict counts as an issue", issues is True)
+    ok &= _ok("so the one-line clean email is not taken",
+              "Dataset breakages" in html, subject)
+    ok &= _ok("it leads the subject", "1 position conflict" in subject
+              and subject.index("position conflict") < len(subject), subject)
+    ok &= _ok("the player is named", "Travis Hunter" in html)
+    ok &= _ok("both labels are shown, neither chosen",
+              "<b>DB</b>" in html and "<b>WR</b>" in html)
+    ok &= _ok("it says a decision is wanted", "needs a\ndecision" in html
+              or "needs a decision" in html.replace("\n", " "))
+    ok &= _ok("it prints the pin line to paste",
+              '"00-0040718": "DB"' in html and "FANTASY_POSITION_PINS" in html)
+    # Above the lede, and above every section heading.
+    ok &= _ok("rendered above the lede and the sections",
+              html.index("Position sources disagree")
+              < min(html.index("Dataset breakages"), html.index("NFLverse changes")))
+    return ok
+
+
+def check_no_conflict_changes_nothing():
+    """Zero is the normal state; the block must be invisible when it is empty,
+    including for the callers that pass nothing at all."""
+    import pandas as pd
+
+    ok = True
+    for label, arg in (("None", None), ("empty list", []),
+                       ("empty frame", pd.DataFrame(columns=["Player"]))):
+        subject, html, issues = E.render_email(flags=[], gaps={}, captures_present=True,
+                                               position_conflicts=arg)
+        ok &= _ok(f"{label}: no block", "Position sources disagree" not in html)
+        ok &= _ok(f"{label}: still a clean week", issues is False and subject.startswith("✅"))
+    return ok
+
+
+def check_a_conflict_with_no_gsis_says_so_rather_than_half_a_pin():
+    """A pin is keyed by gsis_id. Without one there is nothing to paste, and
+    printing `"": "WR"` would be a line that silently pins nobody."""
+    row = dict(_CONFLICT[0], gsis_id="", affects_counts=False)
+    _, html, _ = E.render_email(flags=[], gaps={}, captures_present=True,
+                                position_conflicts=[row])
+    ok = _ok("says the id is missing", "no gsis_id on file" in html)
+    ok &= _ok("does not print an empty pin", '"": "' not in html)
+    ok &= _ok("still classifies the impact",
+              "does not move a counted bucket" in html)
+    return ok
+
+
+def check_the_detector_finds_the_conflict_it_exists_for():
+    """Against the committed exports: zero today (Hunter is pinned), and exactly
+    Hunter the moment the pin is taken away. A detector that cannot be shown to
+    fire is not evidence of anything when it reports zero."""
+    try:
+        import pandas  # noqa: F401
+        from lotg_support import analysis, inquiry
+    except Exception as e:                       # pragma: no cover - env without deps
+        print(f"  [SKIP] analysis unavailable ({type(e).__name__})")
+        return True
+    if not (_ROOT / "exports" / "player_week.csv").exists():
+        print("  [SKIP] no exports/ in this checkout")
+        return True
+    if not (_ROOT / "exports" / "snapshot" / "sleeper_players_nfl.json").exists():
+        print("  [SKIP] no committed Sleeper snapshot in this checkout")
+        return True
+    ok = _ok("clean against the shipped exports",
+             analysis.position_label_conflicts().empty)
+    pins, cache = inquiry._POSITION_PINS, inquiry._players_cached
+    inquiry._POSITION_PINS = {}
+    inquiry._players_cached.cache_clear()
+    try:
+        unpinned = analysis.position_label_conflicts()
+    finally:
+        inquiry._POSITION_PINS = pins
+        cache.cache_clear()
+    if not pins:
+        print("  [SKIP] no position pins configured — nothing to remove")
+        return ok
+    ok &= _ok("fires when the pin is removed", not unpinned.empty,
+              f"{len(unpinned)} row(s)")
+    if not unpinned.empty:
+        ok &= _ok("and names the pinned player",
+                  bool(set(unpinned["Player"]) & {"Travis Hunter"}),
+                  ", ".join(unpinned["Player"].astype(str)))
+        ok &= _ok("with the gsis_id the pin is keyed by",
+                  set(unpinned["gsis_id"].astype(str)) >= set(pins),
+                  ", ".join(unpinned["gsis_id"].astype(str)))
+    return ok
+
+
 def run_all() -> bool:
     all_ok = True
     for t in (check_recipients, check_clean_email, check_issues_email,
@@ -324,7 +429,11 @@ def run_all() -> bool:
               check_audit_lede_leads_with_the_likely_bug,
               check_audit_lede_separates_drift_from_defect,
               check_audit_lede_is_bounded_and_cannot_raise,
-              check_lede_cannot_stop_the_email):
+              check_lede_cannot_stop_the_email,
+              check_a_position_conflict_reaches_the_top_of_the_email,
+              check_no_conflict_changes_nothing,
+              check_a_conflict_with_no_gsis_says_so_rather_than_half_a_pin,
+              check_the_detector_finds_the_conflict_it_exists_for):
         print(f"\n{t.__name__}:")
         all_ok &= bool(t())
     print("\n" + ("ALL PASS" if all_ok else "SOME FAILED"))
