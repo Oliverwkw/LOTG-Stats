@@ -16,6 +16,12 @@ alerts on two things:
   * MISSED INJURIES — played in-season weeks that have NO capture in the in-house
     Sleeper injury tracker (scripts/injury_coverage.py), so the build fell back to
     the lagging nflverse feed for them.
+  * POSITION CONFLICTS — players whose Sleeper (current-only) fantasy position
+    disagrees with the as-of-week label in `player_week`, so two shipped sheets
+    describe different rosters. Rendered FIRST, above the lede, because it is the
+    only finding that asks the maintainer to DECIDE something: nothing is chosen
+    automatically, both labels stay as they are, and the block prints the exact
+    `FANTASY_POSITION_PINS` line to paste to settle it in one direction.
 
 It's a weekly heartbeat: it sends every week so a silent inbox means "the check
 didn't run", not "nothing's wrong". Pass --skip-clean to suppress the email on a
@@ -32,7 +38,8 @@ gets no lede — that email is already one sentence.
 
 HOW MUCH IT SAYS depends entirely on whether anything needs a decision:
 
-  * NOTHING FLAGGED, no missed weeks, upstream drift measured — the email is its
+  * NOTHING FLAGGED, no missed weeks, no position conflict, upstream drift
+    measured — the email is its
     title and one line: "NFLverse changed N values, which in turn changed M
     cells". No sections, no all-clear notes for the parts with nothing to say,
     no per-file breakdown. Upstream revising completed seasons and our exports
@@ -231,6 +238,69 @@ def _upstream_only_html(drift, attributed_cells: int) -> str:
 
 
 # ---------------------------------------------------------------------------
+# Position-label conflicts — the one block that sits ABOVE the lede
+# ---------------------------------------------------------------------------
+# The build reads ONE fantasy position per player from Sleeper's current-only
+# dictionary and buckets all of history on it; `player_week.Position` keeps the
+# label the player actually carried that week. While they agree the split is
+# invisible. When they diverge, one shipped sheet contradicts another and — because
+# the Sleeper label is current-only — the divergence rewrites SETTLED seasons
+# (Travis Hunter, flipped WR -> DB on 2026-09-08, moved 23.9 WR points out of a
+# finished 2025 that team_year still counted him in).
+#
+# Neither source is written over. Both readings are defensible — as-of-week is
+# the historically true label, current-only is what the weekly counts have always
+# used — so the pipeline reports the disagreement and a human settles it in one
+# direction by pinning the player in `external.FANTASY_POSITION_PINS`. That is
+# what this block is for, and why it is FIRST: it is the only section of this
+# email that asks for a decision rather than reporting a fact, and a decision
+# deferred a week is a week of exports built on the wrong label.
+#
+# It counts toward has_issues. Without that a week whose ONLY finding is a
+# conflict would take the clean-week early return and collapse to its one line,
+# hiding the exact thing this exists to surface.
+def _position_conflicts_html(conflicts) -> str:
+    rows = _conflict_rows(conflicts)
+    if not rows:
+        return ""
+    items = []
+    for r in rows:
+        who = _esc(r.get("Player", "?"))
+        build, asof = _esc(r.get("build_label", "")), _esc(r.get("as_of_week", ""))
+        weeks, seasons = r.get("weeks", ""), _esc(r.get("seasons", ""))
+        gsis = str(r.get("gsis_id", "") or "").strip()
+        # The pin is keyed by gsis_id. Print the literal line to paste, or say
+        # plainly that there is nothing to paste — a half-written pin is worse
+        # than none.
+        pin = (f'<code>"{_esc(gsis)}": "{build}"</code> (or <code>"{asof}"</code>)'
+               if gsis else "<em>no gsis_id on file — pin by hand</em>")
+        items.append(
+            f'<li style="margin:6px 0;"><b>{who}</b>: the build buckets him as '
+            f'<b>{build}</b>, <code>player_week</code> has <b>{asof}</b> '
+            f'({weeks} player-week(s), {seasons or "season unknown"}) — '
+            f'{"changes published positional counts" if r.get("affects_counts") else "does not move a counted bucket"}.'
+            f'<br><span style="color:#555;">Pin one direction in '
+            f'<code>lib/lotg_support/external.py</code> → '
+            f'<code>FANTASY_POSITION_PINS</code>: {pin}</span></li>')
+    return ('<div style="margin:0 0 16px;padding:12px 14px;background:#fff4e5;'
+            'border-left:3px solid #b26a00;border-radius:4px;color:#5c3b00;">'
+            '<p style="margin:0 0 4px;"><b>⚑ Position sources disagree — needs a '
+            'decision from you.</b> Nothing has been chosen automatically; both '
+            'labels are still being carried, so until one is pinned the sheets '
+            'below contradict each other for these players.</p>'
+            f'<ul style="margin:4px 0 0;padding-left:20px;">{"".join(items)}</ul></div>')
+
+
+def _conflict_rows(conflicts) -> list:
+    """Normalise the detector's output (DataFrame, rows, or None) to dicts."""
+    if conflicts is None:
+        return []
+    if hasattr(conflicts, "to_dict"):                      # a DataFrame
+        return [] if conflicts.empty else conflicts.to_dict("records")
+    return list(conflicts)
+
+
+# ---------------------------------------------------------------------------
 # The lede
 # ---------------------------------------------------------------------------
 # A week with findings is a wall: a flag per sheet, a dozen detail lines under
@@ -251,7 +321,8 @@ def _lede_html(intro: str) -> str:
 
 def render_email(flags, gaps: dict, captures_present: bool, drift=None,
                  attributed: int = 0, attributed_sheets=None, attributed_columns=None,
-                 attributed_cells: int = 0, missed=(), now=None, injury_incomplete=()):
+                 attributed_cells: int = 0, missed=(), now=None, injury_incomplete=(),
+                 position_conflicts=None):
     """Return (subject, html, has_issues)."""
     n_break = len(flags)
     n_gap = sum(len(v) for v in gaps.values())
@@ -259,8 +330,10 @@ def render_email(flags, gaps: dict, captures_present: bool, drift=None,
     n_missed = sum(m.cycles for m in missed)
     injury_incomplete = list(injury_incomplete)
     n_inc = len(injury_incomplete)
+    conflicts = _conflict_rows(position_conflicts)
+    n_conf = len(conflicts)
     now = now or datetime.now(timezone.utc)
-    has_issues = bool(n_break or n_gap or n_missed or n_inc)
+    has_issues = bool(n_break or n_gap or n_missed or n_inc or n_conf)
     today = date.today().isoformat()
 
     # Nothing flagged, no missed weeks, and upstream drift actually measured:
@@ -277,6 +350,10 @@ def render_email(flags, gaps: dict, captures_present: bool, drift=None,
 
     if has_issues:
         bits = []
+        # First in the subject: it is the only finding that needs a decision
+        # rather than a look, and it does not clear itself.
+        if n_conf:
+            bits.append(f"{n_conf} position conflict{'s' if n_conf != 1 else ''}")
         if n_break:
             bits.append(f"{n_break} breakage{'s' if n_break != 1 else ''}")
         if n_gap:
@@ -302,6 +379,7 @@ def render_email(flags, gaps: dict, captures_present: bool, drift=None,
     <h1 style="font:700 20px/1.3 system-ui,sans-serif;color:#0b2545;margin:0;">LOTG dataset health — {today}</h1>
     <p style="margin:4px 0 0;color:#0b2545;">{banner}</p>
   </div>
+  {_position_conflicts_html(conflicts)}
   {_lede_html(intro)}
   <h2 style="font:600 17px/1.3 system-ui,sans-serif;color:#1a2b3c;margin:18px 0 6px;">Dataset breakages</h2>
   {_breakage_html(flags)}
@@ -324,6 +402,25 @@ def render_email(flags, gaps: dict, captures_present: bool, drift=None,
 def _read_csv(exports: Path, name: str) -> pd.DataFrame:
     p = exports / f"{name}.csv"
     return pd.read_csv(p, low_memory=False) if p.exists() else pd.DataFrame()
+
+
+def _position_conflicts(exports: Path):
+    """The position-source disagreements, or [] if they cannot be computed.
+
+    Read-only, and it must never be able to stop the email: the detector reads
+    the committed exports through `lotg_support.inquiry`, which needs the Sleeper
+    snapshot alongside them, and a run without that snapshot should still get its
+    breakage and injury sections. A failure is printed, not raised.
+    """
+    try:
+        from lotg_support import analysis, inquiry
+        # `inquiry` is rooted at a checkout, not an exports dir; --exports may
+        # point somewhere else entirely (a baseline copy, a test fixture).
+        inquiry.set_root(Path(exports).resolve().parent)
+        return analysis.position_label_conflicts()
+    except Exception as e:
+        print(f"[audit-email] position-conflict check unavailable: {type(e).__name__}: {e}")
+        return []
 
 
 def main(argv=None) -> int:
@@ -382,10 +479,13 @@ def main(argv=None) -> int:
     for g in injury_incomplete:
         print(f"::warning::[audit-email] injury tracker {g.label()}: {g.kind}")
 
+    conflicts = _position_conflicts(exports)
+
     subject, html, has_issues = render_email(
         flags, gaps, bool(captures), rep.drift, rep.nflverse_attributed,
         rep.attributed_sheets, rep.attributed_columns, rep.attributed_cells,
-        missed=missed, now=now, injury_incomplete=injury_incomplete)
+        missed=missed, now=now, injury_incomplete=injury_incomplete,
+        position_conflicts=conflicts)
     print(f"[audit-email] {subject}")
     if args.out:
         Path(args.out).parent.mkdir(parents=True, exist_ok=True)
