@@ -65,6 +65,15 @@ import pandas as pd
 # "1,234" and the build's blank sentinels). Shared with the digest so an
 # inquiry and the weekly email never disagree about what a cell means.
 from lotg_support.digest import _to_float as to_number  # noqa: F401
+
+# One registry for every consumer of a fantasy position — see Players.__init__.
+# Guarded because `external` pulls the download stack: a reader that only wants
+# to look at CSVs should not fail to import over it, and an empty map simply
+# means this layer reports exactly what Sleeper published.
+try:                                                    # pragma: no cover
+    from lotg_support.external import FANTASY_POSITION_PINS as _POSITION_PINS
+except Exception:                                       # pragma: no cover
+    _POSITION_PINS: Dict[str, str] = {}
 from lotg_support import pick_index
 
 
@@ -769,12 +778,40 @@ class Players:
     def __init__(self, blob: Dict[str, dict]):
         self._by_id: Dict[str, PlayerMeta] = {}
         self._by_norm: Dict[str, List[str]] = {}
+        # The build does not read this dictionary raw — `external.FANTASY_POSITION_PINS`
+        # overrides a fantasy position upstream has relabelled, on the NFLverse
+        # files and on the Sleeper map the build holds in memory. The pin is
+        # never written back into the committed snapshot (deliberately: it stays
+        # a faithful copy of what Sleeper published), so a reader that takes the
+        # raw JSON disagrees with the exports it is being compared against.
+        #
+        # That is not hypothetical either. `replay.check_max_pf` builds its
+        # ceiling from `players().positions()`; with Travis Hunter still reading
+        # DB here it left him out of the optimal lineup and computed 167.14 for
+        # Oliverwkw 2025 week 1, against the 168.04 the build had written with
+        # him in it — four failing guards (three in test_draft_capital, one in
+        # test_replay) for a disagreement about one label.
+        #
+        # Applied here, at the one place the dictionary is turned into metadata,
+        # so every consumer of this layer sees what the build saw.
+        # Keyed by gsis_id, like the registry. Sleeper's own gsis_id is null for
+        # a slice of players — Travis Hunter, the player the registry exists for,
+        # is one of them — so the committed DynastyProcess map is consulted
+        # behind it, the same chain the build's enrichment uses.
+        pins = {}
+        if _POSITION_PINS:
+            bridge = _sleeper_to_gsis()
+            for pid, rec in blob.items():
+                gsis = str(((rec or {}).get("gsis_id") or "")).strip() or bridge.get(str(pid), "")
+                want = _POSITION_PINS.get(gsis)
+                if want:
+                    pins[str(pid)] = want.upper()
         for pid, rec in blob.items():
             rec = rec or {}
             name = rec.get("full_name") or " ".join(
                 x for x in (rec.get("first_name"), rec.get("last_name")) if x) or str(pid)
-            meta = PlayerMeta(str(pid), name, (rec.get("position") or "").upper(),
-                              rec.get("team") or "")
+            position = pins.get(str(pid)) or (rec.get("position") or "").upper()
+            meta = PlayerMeta(str(pid), name, position, rec.get("team") or "")
             self._by_id[str(pid)] = meta
             self._by_norm.setdefault(_normalize(name), []).append(str(pid))
 
@@ -827,6 +864,36 @@ class Players:
             + ", ".join(f"{self.meta(p).name} [{p}] {self.meta(p).position}"
                         for p in sorted(candidates)[:12])
             + " — pass the id instead")
+
+
+@functools.lru_cache(maxsize=None)
+def _sleeper_to_gsis_cached(root: str) -> Dict[str, str]:
+    """sleeper_id -> gsis_id from the committed DynastyProcess map.
+
+    Only the position pins need it, so a missing or unreadable file is an empty
+    bridge rather than an error: the pins then apply to whoever Sleeper does
+    carry a gsis_id for, and everyone else reads exactly what Sleeper published.
+    """
+    path = Path(root) / "exports" / "snapshot" / "dynastyprocess_playerids.csv"
+    if not path.exists():
+        return {}
+    try:
+        df = pd.read_csv(path, low_memory=False, usecols=["sleeper_id", "gsis_id"])
+    except Exception:
+        return {}
+    out: Dict[str, str] = {}
+    for sid, gsis in zip(df["sleeper_id"], df["gsis_id"]):
+        s = str(sid).strip()
+        if s.endswith(".0"):
+            s = s[:-2]
+        g = str(gsis).strip()
+        if s and g and s.lower() != "nan" and g.lower() != "nan":
+            out[s] = g
+    return out
+
+
+def _sleeper_to_gsis() -> Dict[str, str]:
+    return _sleeper_to_gsis_cached(str(repo_root()))
 
 
 @functools.lru_cache(maxsize=None)

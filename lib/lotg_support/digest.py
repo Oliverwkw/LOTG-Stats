@@ -552,6 +552,12 @@ def _column_crossings(section: str, column: str,
                 # Joined a tie. Suppress once it exceeds five holders total.
                 if len(others) >= _MAX_JOIN_TIE:
                     continue
+                # A tie nobody moved into is not news — see _nobody_moved. The
+                # all-time sections carry every entity's value, so `cutoff` is
+                # never needed here: prev_val has the mover either way.
+                if _nobody_moved(prev_val[mover], v, end, None,
+                                 [(prev_val.get(x), curr_val.get(x)) for x in others]):
+                    continue
                 out.append(Crossing(section, column, end, new_rank, mover, v,
                                     joined=True, others=tuple(sorted(others)),
                                     prev_value=prev_val[mover]))
@@ -567,6 +573,10 @@ def _column_crossings(section: str, column: str,
             # An overtake nobody can see is not news — see _indistinguishable.
             # A tie-join is exempt: equal values are the POINT of that sentence.
             if _indistinguishable(v, [curr_val[x] for x in passed]):
+                continue
+            # Nor is one in which neither side moved — see _nobody_moved.
+            if _nobody_moved(prev_val[mover], v, end, None,
+                             [(prev_val.get(x), curr_val.get(x)) for x in passed]):
                 continue
             out.append(Crossing(section, column, end, new_rank, mover, v,
                                 joined=False, passed=tuple(sorted(passed)),
@@ -1361,9 +1371,75 @@ def _prior_board(prior_board) -> Optional[Dict[tuple, dict]]:
             # Every holder of a rank last week, so overtaking a whole tie names
             # all of them (Change 4).
             slot["by_rank"].setdefault(rank, []).append(d.get("label", d["key"]))
+            # By LABEL too, because `passed` names labels, not keys — needed to
+            # ask whether the row a mover overtook actually moved.
+            if d.get("value") is not None and d.get("label"):
+                slot.setdefault("val_by_label", {})[d["label"]] = d["value"]
         except (KeyError, TypeError, ValueError):
             return None
+    # The worst place each board held last week. A row that was NOT on the board
+    # and is now got there one of two ways: its own value improved past this
+    # cutoff, or the board shortened above it and it was carried in without
+    # moving. Only the first is news. See `_nobody_moved`.
+    for slot in out.values():
+        vals = list(slot["val_by_key"].values())
+        slot["cutoff"] = None
+        if vals and slot["by_key"]:
+            worst_rank = max(slot["by_key"].values())
+            worst = [slot["val_by_key"][k] for k, r in slot["by_key"].items()
+                     if r == worst_rank and k in slot["val_by_key"]]
+            if worst:
+                slot["cutoff"] = worst[0]
     return out
+
+
+def _improved(value: float, other: float, end: str) -> bool:
+    """True when `value` is nearer the watched end than `other`."""
+    return value > other if end == "high" else value < other
+
+
+def _nobody_moved(mover_prev: Optional[float], mover_now: float, end: str,
+                  cutoff: Optional[float], rivals: Sequence[tuple]) -> bool:
+    """True when this crossing reports an order change in which NOTHING moved.
+
+    A leaderboard re-ranks for two different reasons and the email says the same
+    sentence for both. Either an entity's value changed — real news — or an
+    entity ABOVE it changed and everyone underneath was carried up a place
+    without doing anything. The second is a cascade, and it multiplies: on
+    2026-09-08 one pick's KTC being restored vacated 1st place on five boards at
+    once and the digest reported 23 pick "moves", not one of which had its own
+    value change. `2021 pick 3.01 (Mac Jones) passes 2021 pick 2.01 (Justin
+    Fields) for 3rd-highest ...` — both numbers identical to last week's, both
+    men simply standing still while somebody else fell past them.
+
+    So a crossing survives only if at least one of the entities it NAMES actually
+    moved. `rivals` is (prev, now) for each entity passed or tied; an unpriceable
+    rival counts as moved, which keeps the line (report rather than swallow).
+
+    A mover with no prior value was off the board. That is the ambiguous case —
+    it either improved its way on, or the board shortened above it — and
+    `cutoff`, the worst place the board held last week, settles it: better than
+    the cutoff means it climbed on under its own power.
+    """
+    if mover_prev is None:
+        if cutoff is None:
+            return False                      # unknown vintage -> report
+        # Only a value STRICTLY worse than last week's cutoff proves the row did
+        # not move: it could not have held a place at that value either, so the
+        # board must have shortened above it. Landing exactly ON the cutoff is
+        # the opposite — competition ranks put a row tied with the last place ON
+        # the board, so a row arriving at that value had to climb to it. Reading
+        # the boundary the other way lost `2025 week 4 joins a tie for
+        # 5th-highest Number of WR rostered (100)`, whose count really did go
+        # 99 -> 100 when the pinned player rejoined the WR pool.
+        if not _improved(cutoff, mover_now, end):
+            return False                      # at or past last week's cutoff
+    elif abs(mover_prev - mover_now) > 1e-9:
+        return False                          # the mover's own value changed
+    for prev, now in rivals:
+        if prev is None or now is None or abs(prev - now) > 1e-9:
+            return False                      # a named rival moved (or is unknown)
+    return True
 
 
 def diff_events(prior_board, events: Sequence[EventHighlight],
@@ -1425,6 +1501,11 @@ def diff_events(prior_board, events: Sequence[EventHighlight],
                 # A different row of the SAME entity already held the place; that
                 # is not news about the entity.
                 continue
+            if not _is_new(e) and _nobody_moved(
+                    slot["val_by_key"].get(e.key), e.value, e.end, slot.get("cutoff"),
+                    [(slot.get("val_by_label", {}).get(lbl),
+                      value_of_label.get((e.sheet, e.column, e.end, lbl))) for lbl in others]):
+                continue
             out.append(EventCrossing(e.sheet, e.label, e.column, e.end, e.rank,
                                      e.value, joined=True, others=tuple(others),
                                      is_new=_is_new(e),
@@ -1442,6 +1523,13 @@ def diff_events(prior_board, events: Sequence[EventHighlight],
                         for lbl in passed]
         if (e.value is not None and all(v is not None for v in _passed_vals)
                 and _indistinguishable(e.value, _passed_vals)):
+            continue
+        # An overtake in which neither side moved is a cascade, not news — see
+        # _nobody_moved. A brand-new row is exempt: it is new data by definition.
+        if not _is_new(e) and _nobody_moved(
+                slot["val_by_key"].get(e.key), e.value, e.end, slot.get("cutoff"),
+                [(slot.get("val_by_label", {}).get(lbl), cur)
+                 for lbl, cur in zip(passed, _passed_vals)]):
             continue
         out.append(EventCrossing(e.sheet, e.label, e.column, e.end, e.rank,
                                  e.value, joined=False, passed=tuple(sorted(passed)),

@@ -998,6 +998,165 @@ def check_a_tie_join_is_never_suppressed():
                any("joins a tie with A" in s for s in got), f"got {got}")
 
 
+def check_a_cascade_where_nobody_moved_is_not_reported():
+    """A leaderboard re-ranks for two reasons and says the same sentence for both.
+
+    Either something moved, or something ABOVE it moved and everyone underneath
+    was carried up a place standing still. The 2026-09-08 fix vacated 1st place
+    on five KTC boards at once and the next digest reported 23 pick "moves", not
+    one of which had its own value change — `Mac Jones passes Justin Fields for
+    3rd-highest ...` with both numbers identical to last week's.
+    """
+    # On a ranking over VALUES an overtake always means somebody moved: two
+    # entities that both stand still cannot swap order. So the pure cascade on
+    # the all-time sections is the TIE-JOIN — B and C sit unchanged on the same
+    # value and are promoted a rank only because A fell past them.
+    prev = {"teams": {"KTC": [{"entity": "A", "value": 50.0}, {"entity": "B", "value": 30.0},
+                              {"entity": "C", "value": 30.0}, {"entity": "D", "value": 10.0}]}}
+    curr = {"teams": {"KTC": [{"entity": "A", "value": 5.0}, {"entity": "B", "value": 30.0},
+                              {"entity": "C", "value": 30.0}, {"entity": "D", "value": 10.0}]}}
+    got = [c.sentence() for c in D.diff_snapshots(prev, curr)]
+    ok = _ok("B and C, tied and unchanged, are not reported as joining anything",
+             not any(s.startswith(("B joins", "C joins")) for s in got), f"got {got}")
+    # D, by contrast, DID overtake A — and A really fell — so that one stands.
+    # It is the same shape as "A.T. Perry passes Travis Hunter": the mover stood
+    # still, but the entity it passed is the one that moved, and dropping the
+    # line would hide the only thing that actually happened.
+    ok &= _ok("D overtaking the entity that fell is still reported",
+              any(s.startswith("D passes A") for s in got), f"got {got}")
+
+    # The MOVER moved -> real, reported.
+    prev2 = {"teams": {"X": [{"entity": "P", "value": 10.0}, {"entity": "Q", "value": 5.0},
+                             {"entity": "R", "value": 1.0}]}}
+    curr2 = {"teams": {"X": [{"entity": "P", "value": 10.0}, {"entity": "Q", "value": 99.0},
+                             {"entity": "R", "value": 1.0}]}}
+    got = [c.sentence() for c in D.diff_snapshots(prev2, curr2)]
+    ok &= _ok("a mover whose own value rose is reported",
+              any(s.startswith("Q passes P") for s in got), f"got {got}")
+
+    # The RIVAL moved -> also real: this is the shape of every line that names
+    # the player whose re-valuation caused the shuffle ("A.T. Perry passes Travis
+    # Hunter"), and losing it would hide the one entity that actually changed.
+    prev3 = {"teams": {"Y": [{"entity": "S", "value": 90.0}, {"entity": "T", "value": 80.0},
+                             {"entity": "U", "value": 1.0}]}}
+    curr3 = {"teams": {"Y": [{"entity": "S", "value": 2.0}, {"entity": "T", "value": 80.0},
+                             {"entity": "U", "value": 1.0}]}}
+    got = [c.sentence() for c in D.diff_snapshots(prev3, curr3)]
+    ok &= _ok("a mover the rival fell past IS reported",
+              any(s.startswith("T passes S") for s in got), f"got {got}")
+    return ok
+
+
+def check_arriving_from_off_the_board_is_judged_on_the_cutoff():
+    """A row that was not on the board and is now either climbed on or was
+    carried on when the board shortened above it. The prior board's worst place
+    is what tells them apart."""
+    board = [{"sheet": "rookie_picks", "key": "k_hi", "label": "hi", "column": "KTC",
+              "end": "low", "rank": 1, "value": 0.0},
+             {"sheet": "rookie_picks", "key": "k_mid", "label": "mid", "column": "KTC",
+              "end": "low", "rank": 2, "value": 100.0}]
+    # `out` was off the board at 200 (worse than the 100 cutoff) and is on it now
+    # only because k_hi left. Nothing about `out` changed.
+    events = [D.EventHighlight("rookie_picks", "mid", "KTC", "low", 1, 100.0, "k_mid"),
+              D.EventHighlight("rookie_picks", "out", "KTC", "low", 2, 200.0, "k_out")]
+    known = ["rookie_picks|k_hi", "k_hi", "k_mid", "k_out", "k_in", "k_tie"]
+    got = [c.sentence() for c in D.diff_events(board, events, prior_row_keys=known)]
+    ok = _ok("a row carried onto the board by a vacancy is not reported",
+             not any(s.startswith("out ") for s in got), f"got {got}")
+
+    # Same board, but the arrival is BETTER than last week's cutoff: it climbed
+    # on under its own power, which is news.
+    events2 = [D.EventHighlight("rookie_picks", "mid", "KTC", "low", 2, 100.0, "k_mid"),
+               D.EventHighlight("rookie_picks", "in", "KTC", "low", 1, 50.0, "k_in")]
+    got = [c.sentence() for c in D.diff_events(board, events2, prior_row_keys=known)]
+    ok &= _ok("a row that climbed past the cutoff is reported",
+              any(s.startswith("in ") for s in got), f"got {got}")
+
+    # Landing exactly ON the cutoff counts as climbing: competition ranks would
+    # have put it on the board already if it had held that value last week.
+    events3 = [D.EventHighlight("rookie_picks", "mid", "KTC", "low", 1, 100.0, "k_mid"),
+               D.EventHighlight("rookie_picks", "tie", "KTC", "low", 1, 100.0, "k_tie")]
+    got = [c.sentence() for c in D.diff_events(board, events3, prior_row_keys=known)]
+    ok &= _ok("arriving exactly at the cutoff is reported",
+              any(s.startswith("tie ") for s in got), f"got {got}")
+
+    # A brand-new row is new data by definition and never suppressed.
+    events4 = [D.EventHighlight("rookie_picks", "mid", "KTC", "low", 1, 100.0, "k_mid"),
+               D.EventHighlight("rookie_picks", "fresh", "KTC", "low", 2, 200.0, "k_fresh")]
+    got = [c.sentence() for c in D.diff_events(board, events4, prior_row_keys=known)]
+    ok &= _ok("a brand-new row is reported even at the tail",
+              any(s.startswith("fresh ") for s in got), f"got {got}")
+
+    # An older snapshot carries no values at all: nothing can be priced, so the
+    # week re-baselines loudly rather than silently swallowing every move.
+    bare = [{"sheet": "rookie_picks", "key": "k_mid", "label": "mid", "column": "KTC",
+             "end": "low", "rank": 1}]
+    events5 = [D.EventHighlight("rookie_picks", "mid", "KTC", "low", 2, 100.0, "k_mid"),
+               D.EventHighlight("rookie_picks", "other", "KTC", "low", 1, 50.0, "k_other")]
+    got = [c.sentence() for c in D.diff_events(bare, events5, prior_row_keys=known + ["k_other"])]
+    ok &= _ok("a valueless prior snapshot suppresses nothing",
+              any(s.startswith("other ") for s in got), f"got {got}")
+    return ok
+
+
+def check_an_arrival_at_first_reports_once_however_the_board_below_it_moves():
+    """A new leader displaces everyone by one place. That is ONE piece of news.
+
+    The rows it pushes down never become candidates — `diff_events` only reports
+    a row whose rank IMPROVED — so the suppression rule only has to get the
+    newcomer right, and it must not drop it just because it has no prior value
+    on this board.
+    """
+    def board(rows):
+        return [{"sheet": "rookie_picks", "key": f"k_{n}", "label": n, "column": "KTC",
+                 "end": "high", "rank": r, "value": v} for n, r, v in rows]
+
+    def ev(rows):
+        return [D.EventHighlight("rookie_picks", n, "KTC", "high", r, v, f"k_{n}")
+                for n, r, v in rows]
+    known = ["k_A", "k_B", "k_C", "k_D", "k_E", "k_N"]
+    prior = board([("A", 1, 100.), ("B", 2, 90.), ("C", 3, 80.),
+                   ("D", 4, 70.), ("E", 5, 60.)])
+
+    # The case asked about: everyone below is RE-VALUED but keeps relative order.
+    got = [c.sentence() for c in D.diff_events(
+        prior, ev([("N", 1, 200.), ("A", 2, 99.), ("B", 3, 89.),
+                   ("C", 4, 79.), ("D", 5, 69.)]), prior_row_keys=known)]
+    ok = _ok("re-valued but order-stable board below -> exactly one line",
+             got == ["N passes A for highest KTC (200)."], f"got {got}")
+
+    # Pure displacement: nobody below changes at all.
+    got = [c.sentence() for c in D.diff_events(
+        prior, ev([("N", 1, 200.), ("A", 2, 100.), ("B", 3, 90.),
+                   ("C", 4, 80.), ("D", 5, 70.)]), prior_row_keys=known)]
+    ok &= _ok("unchanged board below -> still exactly one line",
+              got == ["N passes A for highest KTC (200)."], f"got {got}")
+
+    # A new leader whose value is WORSE than last week's cutoff — the whole board
+    # collapsed. The cutoff test alone would call that "didn't move"; the rival
+    # check is what keeps it, because the incumbent really did fall.
+    got = [c.sentence() for c in D.diff_events(
+        prior, ev([("N", 1, 10.), ("A", 2, 5.), ("B", 3, 4.),
+                   ("C", 4, 3.), ("D", 5, 2.)]), prior_row_keys=known)]
+    ok &= _ok("a collapsed board's new leader is still reported once",
+              got == ["N passes A for highest KTC (10)."], f"got {got}")
+
+    # Tying for first is one line too.
+    got = [c.sentence() for c in D.diff_events(
+        prior, ev([("N", 1, 100.), ("A", 1, 100.), ("B", 3, 89.),
+                   ("C", 4, 79.), ("D", 5, 69.)]), prior_row_keys=known)]
+    ok &= _ok("tying for first -> one line",
+              got == ["N joins a tie with A for highest KTC (100)."], f"got {got}")
+
+    # And a real leapfrog underneath is separate news, so that week reports both.
+    got = sorted(c.sentence() for c in D.diff_events(
+        prior, ev([("N", 1, 200.), ("C", 2, 95.), ("A", 3, 94.),
+                   ("B", 4, 89.), ("D", 5, 69.)]), prior_row_keys=known))
+    ok &= _ok("a genuine leapfrog below the newcomer is reported as well",
+              len(got) == 2 and got[0].startswith("C passes"), f"got {got}")
+    return ok
+
+
 def check_crossings_carry_last_weeks_value():
     """The lede needs the mover's OWN previous value to tell "the league did
     something" from "the board moved around a row that never budged"."""
@@ -1066,6 +1225,9 @@ def run_all() -> bool:
         check_digest_title,
         check_an_invisible_overtake_is_not_reported,
         check_a_tie_join_is_never_suppressed,
+        check_a_cascade_where_nobody_moved_is_not_reported,
+        check_arriving_from_off_the_board_is_judged_on_the_cutoff,
+        check_an_arrival_at_first_reports_once_however_the_board_below_it_moves,
         check_crossings_carry_last_weeks_value,
         check_real_exports_smoke,
     ]
