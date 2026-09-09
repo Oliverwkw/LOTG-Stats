@@ -35,6 +35,7 @@ from pathlib import Path
 from typing import Dict, List, Optional, Sequence, Tuple
 import json
 import math
+import re
 
 import pandas as pd
 
@@ -1123,10 +1124,63 @@ def _board_label(sheet: str, row) -> str:
             return f"{head} move for {added}".strip()
         return f"{head} drop of {dropped}".strip() if dropped else f"{head} move"
     if sheet == "player_additions":
-        # "<Team>'s <date> <Waiver|Trade|Draft…> pickup of <Player>"
-        kind = (g("Addition type") or "").lower() or "pickup"
-        return f"{g('Team')}'s {day('Date')} {kind} of {g('Player')}".strip()
+        # Every row of this sheet is an ACQUISITION, so the preposition has to
+        # say the player arrived. "<Team>'s <date> trade of <Player>" said the
+        # opposite — it reads as trading him away — which on a board line like
+        # "AceMatthew's 2025-06-18 trade of Bijan Robinson: KTC at end of season
+        # of 9713 — 1st-highest" told the league the exact reverse of what
+        # happened. A trade is the one type where the wrong preposition is not
+        # merely awkward but false, so it gets "for".
+        #
+        # The rest read as an acquisition once the noun the comment always
+        # promised is actually there: "waiver of X" is not English, "waiver
+        # pickup of X" is. A draft is already a noun that takes "of", so it is
+        # left alone rather than made into a "draft pickup".
+        kind = (g("Addition type") or "").lower()
+        who = g("Player")
+        if kind == "trade":
+            return f"{g('Team')}'s {day('Date')} trade for {who}".strip()
+        noun = "draft" if kind == "draft" else f"{kind} pickup".strip()
+        return f"{g('Team')}'s {day('Date')} {noun or 'pickup'} of {who}".strip()
     return sheet
+
+
+# The same rename, applied to a label written by an OLDER build.
+#
+# A crossing is decided by KEY (`by_key`), and the key holds no label
+# ("player_additions|Tom Brady|stevenb123|2025-12-16|Waiver"), so a rename cannot
+# by itself invent or silence a line. What the label decides is everything the
+# line SAYS about the other rows: `by_rank` supplies the names in "passes …" and
+# "joins a tie with …", and `val_by_label` is how `_nobody_moved` asks whether
+# the row a mover overtook actually moved. On the live baseline the rename
+# rewrites 107 stored labels and all 107 sit in that pool, so without a migration
+# two things follow: a sentence names the passed row in last week's spelling
+# while the mover carries this week's — the same event under two names, and
+# capable of reading as passing itself — and the cascade rule's lookup for those
+# rows misses, so a line it should have suppressed prints instead.
+#
+# Migrating the baseline is therefore part of the rename, not a follow-up. It is
+# done on READ, in `_prior_board`, rather than by rewriting the committed
+# snapshot: it is idempotent, it costs nothing once the snapshot rotates into the
+# new spelling, and it keeps working if an older snapshot is ever replayed. Only
+# the spelling of `label` changes; keys, ranks and values are untouched, so the
+# diff sees exactly the events it saw before under their new names.
+_LEGACY_ADDITION_LABEL = re.compile(
+    r"^(?P<head>.+?'s \d{4}-\d{2}-\d{2}) (?P<kind>trade|waiver|free agency|commissioner) of "
+    r"(?P<who>.+)$")
+
+
+def migrate_board_label(sheet: str, label: str) -> str:
+    """An old player_additions label in today's spelling (idempotent)."""
+    if sheet != "player_additions" or not isinstance(label, str):
+        return label
+    m = _LEGACY_ADDITION_LABEL.match(label)
+    if not m:
+        return label                      # already migrated, or a draft label
+    head, kind, who = m.group("head"), m.group("kind"), m.group("who")
+    if kind == "trade":
+        return f"{head} trade for {who}"
+    return f"{head} {kind} pickup of {who}"
 
 
 # The board's row identity. NOT the label — a label is written for a human and
@@ -1370,11 +1424,16 @@ def _prior_board(prior_board) -> Optional[Dict[tuple, dict]]:
                 slot["val_by_key"][d["key"]] = d["value"]
             # Every holder of a rank last week, so overtaking a whole tie names
             # all of them (Change 4).
-            slot["by_rank"].setdefault(rank, []).append(d.get("label", d["key"]))
+            # Both label lookups read the stored label through the rename, so a
+            # baseline written by an older build lines up with this week's
+            # spelling instead of looking like a different row. See
+            # `migrate_board_label`.
+            _label = migrate_board_label(d["sheet"], d.get("label", d["key"]))
+            slot["by_rank"].setdefault(rank, []).append(_label)
             # By LABEL too, because `passed` names labels, not keys — needed to
             # ask whether the row a mover overtook actually moved.
             if d.get("value") is not None and d.get("label"):
-                slot.setdefault("val_by_label", {})[d["label"]] = d["value"]
+                slot.setdefault("val_by_label", {})[_label] = d["value"]
         except (KeyError, TypeError, ValueError):
             return None
     # The worst place each board held last week. A row that was NOT on the board
