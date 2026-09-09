@@ -1099,6 +1099,64 @@ def check_arriving_from_off_the_board_is_judged_on_the_cutoff():
     return ok
 
 
+def check_an_arrival_at_first_reports_once_however_the_board_below_it_moves():
+    """A new leader displaces everyone by one place. That is ONE piece of news.
+
+    The rows it pushes down never become candidates — `diff_events` only reports
+    a row whose rank IMPROVED — so the suppression rule only has to get the
+    newcomer right, and it must not drop it just because it has no prior value
+    on this board.
+    """
+    def board(rows):
+        return [{"sheet": "rookie_picks", "key": f"k_{n}", "label": n, "column": "KTC",
+                 "end": "high", "rank": r, "value": v} for n, r, v in rows]
+
+    def ev(rows):
+        return [D.EventHighlight("rookie_picks", n, "KTC", "high", r, v, f"k_{n}")
+                for n, r, v in rows]
+    known = ["k_A", "k_B", "k_C", "k_D", "k_E", "k_N"]
+    prior = board([("A", 1, 100.), ("B", 2, 90.), ("C", 3, 80.),
+                   ("D", 4, 70.), ("E", 5, 60.)])
+
+    # The case asked about: everyone below is RE-VALUED but keeps relative order.
+    got = [c.sentence() for c in D.diff_events(
+        prior, ev([("N", 1, 200.), ("A", 2, 99.), ("B", 3, 89.),
+                   ("C", 4, 79.), ("D", 5, 69.)]), prior_row_keys=known)]
+    ok = _ok("re-valued but order-stable board below -> exactly one line",
+             got == ["N passes A for highest KTC (200)."], f"got {got}")
+
+    # Pure displacement: nobody below changes at all.
+    got = [c.sentence() for c in D.diff_events(
+        prior, ev([("N", 1, 200.), ("A", 2, 100.), ("B", 3, 90.),
+                   ("C", 4, 80.), ("D", 5, 70.)]), prior_row_keys=known)]
+    ok &= _ok("unchanged board below -> still exactly one line",
+              got == ["N passes A for highest KTC (200)."], f"got {got}")
+
+    # A new leader whose value is WORSE than last week's cutoff — the whole board
+    # collapsed. The cutoff test alone would call that "didn't move"; the rival
+    # check is what keeps it, because the incumbent really did fall.
+    got = [c.sentence() for c in D.diff_events(
+        prior, ev([("N", 1, 10.), ("A", 2, 5.), ("B", 3, 4.),
+                   ("C", 4, 3.), ("D", 5, 2.)]), prior_row_keys=known)]
+    ok &= _ok("a collapsed board's new leader is still reported once",
+              got == ["N passes A for highest KTC (10)."], f"got {got}")
+
+    # Tying for first is one line too.
+    got = [c.sentence() for c in D.diff_events(
+        prior, ev([("N", 1, 100.), ("A", 1, 100.), ("B", 3, 89.),
+                   ("C", 4, 79.), ("D", 5, 69.)]), prior_row_keys=known)]
+    ok &= _ok("tying for first -> one line",
+              got == ["N joins a tie with A for highest KTC (100)."], f"got {got}")
+
+    # And a real leapfrog underneath is separate news, so that week reports both.
+    got = sorted(c.sentence() for c in D.diff_events(
+        prior, ev([("N", 1, 200.), ("C", 2, 95.), ("A", 3, 94.),
+                   ("B", 4, 89.), ("D", 5, 69.)]), prior_row_keys=known))
+    ok &= _ok("a genuine leapfrog below the newcomer is reported as well",
+              len(got) == 2 and got[0].startswith("C passes"), f"got {got}")
+    return ok
+
+
 def check_crossings_carry_last_weeks_value():
     """The lede needs the mover's OWN previous value to tell "the league did
     something" from "the board moved around a row that never budged"."""
@@ -1169,6 +1227,7 @@ def run_all() -> bool:
         check_a_tie_join_is_never_suppressed,
         check_a_cascade_where_nobody_moved_is_not_reported,
         check_arriving_from_off_the_board_is_judged_on_the_cutoff,
+        check_an_arrival_at_first_reports_once_however_the_board_below_it_moves,
         check_crossings_carry_last_weeks_value,
         check_real_exports_smoke,
     ]
