@@ -3123,3 +3123,51 @@ requests.exceptions.HTTPError: 404 Client Error: Not Found for url: https://raw.
 [2026-09-09T11:57:36.563299+00:00] INFO bolded comment verbs in cell history popups
 [2026-09-09T11:57:37.169826+00:00] ===== Build end =====
 [2026-09-09T11:57:39.901584+00:00] INFO data-quality sanity: 0 ERROR, 0 WARN across 0 findings
+[2026-09-10T18:43:40.145105+00:00] INFO snapshot: mode=both captured_at=2026-09-10T18:43:40.135261+00:00 age=0.00d auto_refreshed=False
+
+[2026-09-10T18:43:40.145927+00:00] ===== Build start =====
+formulas coverage: all non-obvious columns documented
+injury tracker rows loaded: 244
+[2026-09-10T18:43:41.909024+00:00] INFO gsis_correction sid=5133 name='Tyler Conklin' sleeper_gsis=00-0034439 -> 00-0034270
+[2026-09-10T18:43:41.923660+00:00] INFO gsis_correction sid=5094 name='Ryan Izzo' sleeper_gsis=00-0034270 -> 00-0034439
+[2026-09-10T18:43:42.243301+00:00] INFO Phase 13: injected ESPN 2020 season (8 teams, 152 draft picks, 222 transactions; 0 player-meta backfilled)
+[2026-09-10T18:43:42.248894+00:00] INFO position_pin sid=12530 name='Travis Hunter' 'DB' -> 'WR' (Sleeper map)
+[2026-09-10T18:43:42.692966+00:00] INFO commissioner pick-trade overlay: 51 pick-hops loaded
+INFO league scoring settings changed in 2021: {'pass_int': (None, -2.0), 'rec': (None, 1.0), 'fum': (None, -1.0), 'pass_yd': (None, 0.04), 'xpmiss': (None, -1.0), 'fum_lost': (None, -1.0), 'rush_yd': (None, 0.1), 'rec_td': (None, 6.0), 'fum_rec_td': (None, 6.0), 'fgm_40_49': (None, 4.0), 'ff': (None, 1.0), 'def_td': (None, 6.0), 'int': (None, 2.0), 'sack': (None, 1.0), 'fgmiss': (None, -1.0), 'rec_2pt': (None, 2.0), 'pass_td': (None, 4.0), 'fum_rec': (None, 2.0), 'safe': (None, 2.0), 'fgm_50p': (None, 5.0), 'rec_yd': (None, 0.1), 'fgm_20_29': (None, 3.0), 'fgm_0_19': (None, 3.0), 'xpm': (None, 1.0), 'st_td': (None, 0.0), 'rush_2pt': (None, 2.0), 'pass_2pt': (None, 2.0), 'fgm_30_39': (None, 3.0), 'rush_td': (None, 6.0)}
+[2026-09-10T18:43:47.997732+00:00] INFO merged the 2021 phantom Carter/Stevenson player swap into the pick trade
+INFO league scoring settings changed in 2022: {'st_td': (0.0, 6.0), 'fum_ret_yd': (None, 0.1)}
+[2026-09-10T18:43:50.891054+00:00] INFO commissioner-wash 2022: excluded 11 no-op txns
+[2026-09-10T18:43:53.733350+00:00] INFO commissioner-wash 2023: excluded 1 no-op txns
+[2026-09-10T18:43:56.747486+00:00] INFO commissioner-wash 2024: excluded 3 no-op txns
+[2026-09-10T18:43:56.748354+00:00] INFO draft-day synthetic picks 2024: 1 commish-add(s) -> picks, removed from transactions
+[2026-09-10T18:43:59.693475+00:00] INFO draft-day synthetic picks 2025: 8 commish-add(s) -> picks, removed from transactions
+[2026-09-10T18:44:06.175633+00:00] INFO season 2026: preseason — scanning offseason transactions only
+[2026-09-10T18:44:06.316433+00:00] INFO commissioner-wash 2026: excluded 6 no-op txns
+[2026-09-10T18:44:06.317229+00:00] INFO draft-day synthetic picks 2026: 3 commish-add(s) -> picks, removed from transactions
+[2026-09-10T18:44:06.335075+00:00] INFO commissioner pick-trade overlay: all 51 pick-hops injected
+[2026-09-10T18:44:06.354306+00:00] INFO 2020 startup draft: emitted 152 picks into pick_history
+[2026-09-10T18:44:06.943651+00:00] INFO merged 1 manual transaction(s) from data/manual_transactions.csv
+[2026-09-10T18:44:07.038742+00:00] INFO synthesized 2 terminal roster-diff departures (dead-end cuts, never re-acquired)
+[2026-09-10T18:44:07.068935+00:00] INFO synthesized 1 terminal roster-diff arrivals (snapshot-only pickups, no recorded add)
+[2026-09-10T18:44:07.579135+00:00] INFO commissioner-correction cleanup: removed 8 rows (5 commissioner corrections + 3 fully-reverted mistakes), cancelled 5 mistake leg(s) (commissioner add/drop reverses a same-player move within 24h)
+[2026-09-10T18:44:08.117829+00:00] INFO team_week Number of Add/Drops rebuilt from add_drop_rows on the league week clock: 1423 -> 1268
+[2026-09-10T18:44:08.119110+00:00] INFO synthesized 66 missing departures + 25 missing arrivals as transactions rows to close orphaned roster lineage
+[2026-09-10T18:44:12.317009+00:00] INFO ktc value column: sf_trade_value (superflex, always)
+[2026-09-10T19:04:00.307009+00:00] INFO KTC per $1 FAAB = 100 (fixed; data-derived median 297.0 from 74 FAAB-for-asset trades)
+[2026-09-10T19:04:00.931087+00:00] WARN ktc fetch: info: merged KTC backfill for 373 players
+[2026-09-10T19:04:01.565655+00:00] INFO pick-adjustment: holding 35 current-class picks out of the reference pools until week 8
+[2026-09-10T19:04:02.185691+00:00] INFO KTC win-impact lookups: 1/1268 empty (0.1%)
+[2026-09-10T19:04:28.837870+00:00] INFO seeded 303 player_year rows for tx-only player×year combos
+[2026-09-10T19:04:29.094379+00:00] INFO seeded 46 player_all_time rows for tx-only players
+[2026-09-10T19:04:30.388506+00:00] INFO seeded 8 team_year placeholder rows for in-progress season(s) [2026]
+[2026-09-10T19:04:37.057741+00:00] INFO built asset history: 548 picks, 694 players
+[2026-09-10T19:04:37.622956+00:00] INFO non-rookie O-Score de-trend: {'rows': 184, 'lambda': 0.75, 'intercept': 74.4165, 'slope': -6.029, 'mean_expected': 48.8891, 'max_abs_shift': 19.1}
+[2026-09-10T19:04:37.635285+00:00] INFO pure-drop O-Score: 490 drop-only txns detected (cols: _added_pid=True, Player Added=True)
+[2026-09-10T19:04:37.639596+00:00] INFO pure-drop O-Score: scored 490 drop-only transactions (ceiling 50)
+[2026-09-10T19:04:37.793157+00:00] INFO 2020 startup picks: relabeled Year='startup' on 152 rows
+[2026-09-10T19:04:38.944526+00:00] INFO player_additions: 1960 addition events (477 trade, 388 draft, 1095 add/drop)
+[2026-09-10T19:04:38.987263+00:00] ktc provenance: 23318 lookups -> {'mirror': 18247, 'off-rolls': 3067, 'backfill-carry': 1973, 'trailing-edge-carry': 31}
+[2026-09-10T19:04:43.645321+00:00] INFO pick ref index: 548 PH# refs -> raw/pick_ref_index.csv
+[2026-09-10T19:06:30.253898+00:00] INFO bolded comment verbs in cell history popups
+[2026-09-10T19:06:30.837805+00:00] ===== Build end =====
+[2026-09-10T19:06:33.400268+00:00] INFO data-quality sanity: 0 ERROR, 0 WARN across 0 findings
