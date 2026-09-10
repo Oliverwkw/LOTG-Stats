@@ -420,6 +420,35 @@ def check_the_detector_finds_the_conflict_it_exists_for():
     return ok
 
 
+def check_ktc_repricing_is_reported_but_never_flagged():
+    """The whole point of attribution over suppression: these rows stay visible
+    and countable, they just stop being called breakages."""
+    from collections import Counter
+    from lotg_support import nflverse_drift as N
+
+    sheets = {"add_drops": 26, "player_additions": 5, "team_all_time": 1}
+    cols = Counter({"O-Score": 23, "KTC value of player dropped 1 year later": 4})
+    subject, html, issues = E.render_email(
+        flags=[], gaps={}, captures_present=True, drift=N.Drift(compared=True),
+        ktc_attributed=32, ktc_sheets=sheets, ktc_columns=cols)
+    ok = _ok("KTC re-pricing is not an issue week", issues is False, subject)
+    ok &= _ok("and does not reach the subject", "breakage" not in subject, subject)
+    ok &= _ok("but it IS reported", "KTC mirror re-priced 32 row(s)" in html)
+    ok &= _ok("with the sheets it touched", "add_drops (26)" in html)
+    ok &= _ok("and the columns", "O-Score (23)" in html)
+    ok &= _ok("said plainly to be not a breakage", "Not a breakage" in html)
+    # Reported on a CLEAN week too — that email collapses to one line, and
+    # dropping the rows there would turn "reported, not flagged" into "hidden".
+    ok &= _ok("survives the clean-week collapse", "Dataset breakages" not in html
+              and "KTC mirror re-priced" in html)
+    # Zero is silent.
+    _, quiet, _ = E.render_email(flags=[], gaps={}, captures_present=True,
+                                 drift=N.Drift(compared=True), ktc_attributed=0)
+    ok &= _ok("nothing rendered when nothing was re-priced",
+              "KTC mirror re-priced" not in quiet)
+    return ok
+
+
 def run_all() -> bool:
     all_ok = True
     for t in (check_recipients, check_clean_email, check_issues_email,
@@ -433,7 +462,8 @@ def run_all() -> bool:
               check_a_position_conflict_reaches_the_top_of_the_email,
               check_no_conflict_changes_nothing,
               check_a_conflict_with_no_gsis_says_so_rather_than_half_a_pin,
-              check_the_detector_finds_the_conflict_it_exists_for):
+              check_the_detector_finds_the_conflict_it_exists_for,
+              check_ktc_repricing_is_reported_but_never_flagged):
         print(f"\n{t.__name__}:")
         all_ok &= bool(t())
     print("\n" + ("ALL PASS" if all_ok else "SOME FAILED"))

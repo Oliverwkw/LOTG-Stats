@@ -613,6 +613,7 @@ def run_all() -> bool:
         check_a_404_for_a_played_past_season_always_flags,
         check_a_traceback_echo_is_not_counted_twice,
         check_real_exports_smoke,
+        check_ktc_attribution_absorbs_a_carry_and_nothing_else,
     ]
     for t in tests:
         name = getattr(t, "__name__", "check_schema_break_detection")
@@ -621,6 +622,81 @@ def run_all() -> bool:
             all_ok &= bool(t(Path(d)))
     print("\n" + ("ALL PASS" if all_ok else "SOME FAILED"))
     return all_ok
+
+
+def check_ktc_attribution_absorbs_a_carry_and_nothing_else(tmp):
+    """The KTC mirror moves completed seasons every week without our build
+    changing, and the audit has to tell that from a defect that looks identical.
+
+    The separator is PROVENANCE, not appearance. `trailing-edge-carry` is the
+    baseline build's own record that the mirror had not covered the checkpoint
+    date, so it read the value from an earlier one — provisional by construction,
+    superseded the moment the mirror advances. Everything else is a settled
+    reading and still flags, which is what keeps the #419 shape catchable: a slug
+    regression zeroed Travis Hunter's whole KTC row and this audit is how it was
+    found.
+    """
+    raw = tmp / "raw"
+    raw.mkdir(parents=True, exist_ok=True)
+    pd.DataFrame([
+        # Carried: the mirror had not reached 2026-09-09 yet.
+        {"asset": "2374", "target_date": "2026-09-09", "quote_date_used": "2026-07-28",
+         "source": "trailing-edge-carry", "value": "485.0"},
+        # Settled readings on the same day — must NOT be absorbed.
+        {"asset": "9999", "target_date": "2026-09-09", "quote_date_used": "2026-09-09",
+         "source": "mirror", "value": "1200.0"},
+        {"asset": "8888", "target_date": "2026-09-09", "quote_date_used": "",
+         "source": "off-rolls", "value": "0.0"},
+    ]).to_csv(raw / "ktc_provenance.csv", index=False)
+    players = {"2374": {"full_name": "Tyler Lockett"},
+               "9999": {"full_name": "Justin Jefferson"},
+               "8888": {"full_name": "Travis Hunter"}}
+
+    k = A.KtcAttribution(tmp, players)
+    ok = _ok("only the carried asset is loaded", k.assets == {"2374"}, f"got {k.assets}")
+    ok &= _ok("and it is active", k.active is True)
+
+    ID = ["Team", "Player Added", "Player Dropped", "Date"]
+
+    def cover(row, moved):
+        return k.covers_columns("add_drops", ID, tuple(row.get(c, "") for c in ID), row, moved)
+
+    carried = {"Team": "BROsenzweig", "Player Added": "Joshua Palmer",
+               "Player Dropped": "Tyler Lockett", "Date": "2025-09-09 18:01:14"}
+    ok &= _ok("a KTC column on the carried player is absorbed",
+              cover(carried, ["KTC value of player dropped 1 year later"]) == "pool")
+    ok &= _ok("so is the Net built straight off it",
+              cover(carried, ["KTC value of player dropped 1 year later",
+                              "Net KTC value 1 year later"]) == "pool")
+    # O-Score is a mean of percentiles across the whole sheet, so one re-priced
+    # checkpoint re-seats rows that name nobody involved. Swept as pool fan-out,
+    # exactly as the NFLverse path sweeps the same columns.
+    unrelated = {"Team": "AceMatthew", "Player Added": "",
+                 "Player Dropped": "Cam Newton", "Date": "2020-12-31 19:00:00"}
+    ok &= _ok("a re-ranked O-Score alone is fan-out, not a breakage",
+              cover(unrelated, ["O-Score"]) == "pool")
+
+    # The three that must still flag.
+    ok &= _ok("a KTC move on a player that was NOT carried still flags",
+              cover({"Team": "X", "Player Added": "", "Player Dropped": "Justin Jefferson",
+                     "Date": "2022-01-01 00:00:00"},
+                    ["KTC value of player dropped 1 year later"]) is None)
+    ok &= _ok("the #419 shape — a settled off-rolls zero — still flags",
+              cover({"Team": "X", "Player Added": "Travis Hunter", "Player Dropped": "",
+                     "Date": "2025-09-01 00:00:00"},
+                    ["KTC value of player added at deal time"]) is None)
+    ok &= _ok("one unexplained column fails the whole row",
+              cover(carried, ["KTC value of player dropped 1 year later",
+                              "Points Added"]) is None)
+    ok &= _ok("no coordinate match is ever claimed",
+              k.covers("add_drops", ID, tuple(carried[c] for c in ID), carried) is False)
+
+    # No provenance file at all -> inert, never a crash.
+    empty = A.KtcAttribution(tmp / "nope", players)
+    ok &= _ok("a baseline with no provenance is inert",
+              empty.active is False and
+              empty.covers_columns("add_drops", ID, ("a", "b", "c", "d"), {}, ["KTC x"]) is None)
+    return ok
 
 
 def test_audit_weekly():

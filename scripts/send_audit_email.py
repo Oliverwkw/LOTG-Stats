@@ -13,6 +13,13 @@ alerts on two things:
     for that reason are NOT breakages; they're reported here as "NFLverse made N
     changes" and only escalate to a breakage when the drift is structural or has
     moved an unreasonable share of our exports.
+  * KTC RE-PRICING — rows that moved because a dynasty-daddy checkpoint the
+    committed build had to CARRY FORWARD (the mirror had not covered that date
+    yet) is now quoted on its own date. Same standing as the NFLverse line and
+    for the same reason: our build reproduced itself, the price moved. Absorbed
+    only on the provenance the baseline itself recorded, never on appearance —
+    the symptom is shared with a real defect (#419 zeroed a whole KTC row via a
+    slug regression, and this audit is how it was caught).
   * MISSED INJURIES — played in-season weeks that have NO capture in the in-house
     Sleeper injury tracker (scripts/injury_coverage.py), so the build fell back to
     the lagging nflverse feed for them.
@@ -164,6 +171,40 @@ def _nflverse_html(drift, attributed: int, sheets=None, columns=None,
         tail = (f' It accounts for {attributed} changed row(s) in our exports, '
                 'which are therefore not flagged as breakages.')
     return f'<p style="margin:0;color:#5a4a00;">ℹ️ {summary}{tail}</p>' 
+
+
+def _ktc_html(n_rows: int, sheets=None, columns=None) -> str:
+    """The rows the KTC mirror re-priced. Reported, never flagged.
+
+    Same standing as the NFLverse line above it and for the same reason: our
+    build reproduced itself exactly, and the numbers moved because a dynasty-daddy
+    quote the previous build had to CARRY FORWARD (the mirror had not covered the
+    checkpoint date yet) was superseded once it did. The Wednesday health build
+    re-fetches KTC from cold while the committed exports come from a build that
+    may reuse a cache for up to 24h, so the two price the same checkpoints against
+    different mirror vintages every week.
+
+    It stays visible rather than being filtered out, because the SYMPTOM is
+    shared with a real defect — #419 was a slug regression zeroing a whole KTC
+    row, and the audit is how it was caught. What separates them is provenance,
+    not appearance: only a value the baseline itself recorded as
+    `trailing-edge-carry` is absorbed here. See audit_weekly.KtcAttribution.
+    """
+    if not n_rows:
+        return ""
+    where = ""
+    if sheets:
+        where = " in " + ", ".join(f"{_esc(s)} ({n})" for s, n in
+                                   sorted(sheets.items(), key=lambda kv: -kv[1])[:4])
+    cols = ""
+    if columns:
+        top = columns.most_common(3) if hasattr(columns, "most_common") else list(columns)[:3]
+        if top:
+            cols = " Columns: " + ", ".join(f"{_esc(c)} ({n})" for c, n in top) + "."
+    return (f'<p style="margin:8px 0 0;color:#5a4a00;">ℹ️ The KTC mirror re-priced '
+            f'{n_rows} row(s){where} — checkpoints the committed build had to carry '
+            f'forward from an earlier quote, now quoted on their own date. Not a '
+            f'breakage: our build reproduced itself, the price moved.{cols}</p>')
 
 
 def _injury_html(gaps: dict, captures_present: bool, incomplete=()) -> str:
@@ -322,7 +363,8 @@ def _lede_html(intro: str) -> str:
 def render_email(flags, gaps: dict, captures_present: bool, drift=None,
                  attributed: int = 0, attributed_sheets=None, attributed_columns=None,
                  attributed_cells: int = 0, missed=(), now=None, injury_incomplete=(),
-                 position_conflicts=None):
+                 position_conflicts=None, ktc_attributed: int = 0,
+                 ktc_sheets=None, ktc_columns=None):
     """Return (subject, html, has_issues)."""
     n_break = len(flags)
     n_gap = sum(len(v) for v in gaps.values())
@@ -345,6 +387,7 @@ def render_email(flags, gaps: dict, captures_present: bool, drift=None,
     <h1 style="font:700 20px/1.3 system-ui,sans-serif;color:#0b2545;margin:0;">LOTG dataset health — {today}</h1>
   </div>
   {_upstream_only_html(drift, attributed_cells)}
+  {_ktc_html(ktc_attributed, ktc_sheets, ktc_columns)}
 </div>"""
         return f"✅ LOTG dataset health — all clear ({today})", html, False
 
@@ -385,6 +428,7 @@ def render_email(flags, gaps: dict, captures_present: bool, drift=None,
   {_breakage_html(flags)}
   <h2 style="font:600 17px/1.3 system-ui,sans-serif;color:#1a2b3c;margin:22px 0 6px;">NFLverse changes</h2>
   {_nflverse_html(drift, attributed, attributed_sheets, attributed_columns, n_break)}
+  {_ktc_html(ktc_attributed, ktc_sheets, ktc_columns)}
   <h2 style="font:600 17px/1.3 system-ui,sans-serif;color:#1a2b3c;margin:22px 0 6px;">Missed injuries</h2>
   {_injury_html(gaps, captures_present, injury_incomplete)}
   <h2 style="font:600 17px/1.3 system-ui,sans-serif;color:#1a2b3c;margin:22px 0 6px;">Missed scheduled runs</h2>
@@ -485,7 +529,8 @@ def main(argv=None) -> int:
         flags, gaps, bool(captures), rep.drift, rep.nflverse_attributed,
         rep.attributed_sheets, rep.attributed_columns, rep.attributed_cells,
         missed=missed, now=now, injury_incomplete=injury_incomplete,
-        position_conflicts=conflicts)
+        position_conflicts=conflicts, ktc_attributed=rep.ktc_attributed,
+        ktc_sheets=rep.ktc_sheets, ktc_columns=rep.ktc_columns)
     print(f"[audit-email] {subject}")
     if args.out:
         Path(args.out).parent.mkdir(parents=True, exist_ok=True)

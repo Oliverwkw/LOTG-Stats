@@ -10092,28 +10092,6 @@ def build_all(repo_root: Path) -> None:
     except Exception:
         pass
 
-    # KTC PROVENANCE. Where every resolved value came from, one row per lookup:
-    # a quote published on the target date itself (`mirror`), an absence on a day
-    # the mirror did cover (`off-rolls` -> 0), or one of the two places a value is
-    # still read from a different date (`trailing-edge-carry`, `backfill-carry`).
-    # Written to exports/raw/, NOT as a column on any sheet — it is a diagnostic
-    # for the weekly audit, and four more columns on picks / trades / transactions
-    # would be noise for every human reading them. A summary line goes to the
-    # build log so a shift in the mix is visible without opening the file.
-    try:
-        from lotg_support.ktc import get_provenance
-        _prov = get_provenance()
-        if _prov:
-            _pdf = pd.DataFrame(_prov, columns=["asset", "target_date",
-                                                "quote_date_used", "source", "value"])
-            _praw = repo_root / "exports" / "raw"
-            _praw.mkdir(parents=True, exist_ok=True)
-            _pdf.to_csv(_praw / "ktc_provenance.csv", index=False)
-            _mix = _pdf["source"].value_counts().to_dict()
-            _log(debug, f"[{_now_iso()}] ktc provenance: {len(_pdf)} lookups -> {_mix}")
-    except Exception as e:
-        _log_exc(debug, "ktc_provenance", e)
-
     add_drops_df = pd.DataFrame(add_drop_rows)
     tr = pd.DataFrame(trades_rows)
     ph = pd.DataFrame(pick_rows)
@@ -20146,6 +20124,37 @@ def build_all(repo_root: Path) -> None:
                     f"{sum(1 for r in _pa_rows if r['Addition type'] in ('Waiver','Free agency','Commissioner'))} add/drop)")
     except Exception as e:
         _log_exc(debug, "player_additions", e)
+
+    # KTC PROVENANCE. Where every resolved value came from, one row per lookup:
+    # a quote published on the target date itself (`mirror`), an absence on a day
+    # the mirror did cover (`off-rolls` -> 0), or one of the two places a value is
+    # still read from a different date (`trailing-edge-carry`, `backfill-carry`).
+    # Written to exports/raw/, NOT as a column on any sheet — it is a diagnostic
+    # for the weekly audit, and four more columns on picks / trades / transactions
+    # would be noise for every human reading them. A summary line goes to the
+    # build log so a shift in the mix is visible without opening the file.
+    #
+    # WRITTEN HERE, at the end, because `_PROVENANCE` accumulates as values are
+    # resolved and this dump is a snapshot of it. It used to run right after the
+    # KTC fetch-error log — before player_additions existed — so every lookup that
+    # sheet makes was missing from the file. That was invisible until the audit
+    # started reading it: Jared Goff's "KTC 4 years after pickup" moved on the
+    # 2026-09-09 health run with no provenance row to explain it, while the four
+    # add_drops rows beside it had one. `audit_weekly.KtcAttribution` needs the
+    # whole build's lookups, so the dump has to be the last thing that touches it.
+    try:
+        from lotg_support.ktc import get_provenance
+        _prov = get_provenance()
+        if _prov:
+            _pdf = pd.DataFrame(_prov, columns=["asset", "target_date",
+                                                "quote_date_used", "source", "value"])
+            _praw = repo_root / "exports" / "raw"
+            _praw.mkdir(parents=True, exist_ok=True)
+            _pdf.to_csv(_praw / "ktc_provenance.csv", index=False)
+            _mix = _pdf["source"].value_counts().to_dict()
+            _log(debug, f"[{_now_iso()}] ktc provenance: {len(_pdf)} lookups -> {_mix}")
+    except Exception as e:
+        _log_exc(debug, "ktc_provenance", e)
 
     context = {
         "player_week": pw,

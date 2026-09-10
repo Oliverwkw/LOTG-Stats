@@ -114,6 +114,14 @@ jobs:
           mkdir -p "$BASE/raw"
           cp exports/raw/pick_ref_index.csv "$BASE"/raw/ 2>/dev/null || \
             echo "note: no exports/raw/pick_ref_index.csv — PH# link deltas will be reported, not stripped"
+          # And the KTC provenance, which is what lets the audit tell "the mirror
+          # advanced past a carried quote" from "a KTC value broke". It has to be
+          # the BASELINE's copy: the carry is the committed build's own record
+          # that the value was provisional. Without it KtcAttribution is inert
+          # and every re-priced checkpoint reads as a breakage again — silently,
+          # which is why tests/test_workflow_schedules.py pins this line.
+          cp exports/raw/ktc_provenance.csv "$BASE"/raw/ 2>/dev/null || \
+            echo "note: no exports/raw/ktc_provenance.csv — KTC re-pricing will be reported as breakages"
           echo "BASELINE_DIR=$BASE" >> "$GITHUB_ENV"
           echo "Snapshotted $(ls "$BASE"/*.csv | wc -l) committed CSVs into $BASE"
           # Same idea for the NFLverse cache: these are the upstream files the
