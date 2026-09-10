@@ -181,6 +181,36 @@ def test_the_catch_up_is_guarded_and_the_guard_can_only_gate_the_build():
         assert c not in guard, f"the guard step restates the cron {c!r}"
 
 
+def test_the_health_baseline_carries_what_the_audit_reads_from_it():
+    """Part 1 diffs the fresh build against a SNAPSHOT of the committed exports,
+    and two of the audit's explanations are read out of that snapshot's `raw/`
+    rather than its CSVs. The snapshot step copies `exports/*.csv` and then names
+    each raw file individually, so a new reader is inert unless someone remembers
+    to add a line — inert SILENTLY, which is the whole problem:
+
+      * `pick_ref_index.csv` — without it a merely renumbered PH# pointer reads
+        as a diff (9 rows on the 2026-09-02 run).
+      * `ktc_provenance.csv` — without it `audit_weekly.KtcAttribution` finds no
+        `trailing-edge-carry` records, cannot tell the mirror advancing past a
+        carried quote from a KTC value breaking, and every re-priced checkpoint
+        is a breakage again (32 rows on the 2026-09-09 run).
+
+    This pins both by name against the step that copies them.
+    """
+    step = ""
+    for job in (_load("weekly_health_email.yml").get("jobs") or {}).values():
+        for s in job.get("steps") or []:
+            if "Snapshot the committed exports" in str(s.get("name", "")):
+                step = str(s.get("run", ""))
+    assert step, "no 'Snapshot the committed exports' step in weekly_health_email.yml"
+    for needed in ("pick_ref_index.csv", "ktc_provenance.csv"):
+        assert needed in step, (
+            f"the baseline snapshot does not copy exports/raw/{needed}; the audit "
+            f"reads it from the BASELINE and goes silently inert without it")
+    assert "cp exports/*.csv" in step, "the baseline no longer copies the sheets"
+
+
+
 TESTS = [test_no_cron_fires_on_the_hour,
          test_tuesday_send_list_matches_the_tuesday_crons,
          test_no_gate_hardcodes_a_cron_string,
@@ -190,7 +220,8 @@ TESTS = [test_no_cron_fires_on_the_hour,
          test_the_sweep_is_redundant_and_has_delay_headroom,
          test_unrecoverable_work_has_a_catch_up_fire,
          test_recoverable_work_does_not_get_one,
-         test_the_catch_up_is_guarded_and_the_guard_can_only_gate_the_build]
+         test_the_catch_up_is_guarded_and_the_guard_can_only_gate_the_build,
+         test_the_health_baseline_carries_what_the_audit_reads_from_it]
 
 if __name__ == "__main__":
     bad = 0

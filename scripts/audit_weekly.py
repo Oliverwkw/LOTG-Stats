@@ -267,6 +267,137 @@ def _matches(column: str, needles) -> bool:
     return any(n in c for n in needles)
 
 
+# KTC CHECKPOINT COLUMNS. Every column whose value is one dynasty-daddy quote
+# resolved at a date — the deal-day / end-of-season / N-years-later prices and
+# the nets and differences built straight off them.
+_KTC_COLUMNS = ("ktc",)
+
+
+class KtcAttribution:
+    """Rows that moved because the KTC mirror advanced, not because we did.
+
+    The Wednesday health build restores no KTC cache and re-fetches ~1k player
+    histories; the committed exports come from a Tuesday build that reuses one
+    for up to 24h (`ktc._HISTORY_MAX_AGE_H`). So the two sides price the same
+    checkpoints against different mirror vintages, and Part 1 sees completed
+    seasons move.
+
+    That is not guesswork to detect. `asset_value_at` records where each value
+    came from, and `exports/raw/ktc_provenance.csv` on the BASELINE side names
+    the ones that were always going to move: `trailing-edge-carry` means the
+    mirror had not yet covered the target date, so the value was read from an
+    earlier one and is superseded the moment it does. On the 2026-09-09 run that
+    was 8 lookups, all dated that day — Tyler Lockett (last quoted 43 days
+    earlier) and Kareem Hunt (15) had already left the rolls, so a fresh mirror
+    priced them 0 where the carry still showed 485 and 463; the other six were
+    quoted the previous day and drifted a few points.
+
+    ONLY that set. A value that came through `mirror`, `off-rolls` or
+    `backfill-carry` in the baseline is a settled reading, and if it moves this
+    still flags — which is what keeps the #419 shape visible, where a slug
+    regression zeroed Travis Hunter's whole KTC row and the audit was how it got
+    caught.
+
+    Deliberately permissive in one place, like `NflverseAttribution`: it matches
+    on the asset, not on the asset AND the exact checkpoint date, because a
+    checkpoint's date is re-derived per sheet and column and that is a lot of
+    machinery for a set this small. A carried asset therefore covers any KTC
+    column on a row naming it. Attributed rows stay reported with their counts
+    and columns, so the absorption is visible.
+    """
+
+    def __init__(self, baseline_dir: Optional[Path], players: Optional[dict] = None):
+        self.assets: Set[str] = set()
+        self.names: Set[str] = set()
+        if baseline_dir is not None:
+            self._load(Path(baseline_dir), players)
+        self.active = bool(self.assets)
+
+    def _load(self, baseline_dir: Path, players: Optional[dict]) -> None:
+        path = baseline_dir / "raw" / "ktc_provenance.csv"
+        if not path.exists():
+            return
+        try:
+            prov = pd.read_csv(path, dtype=str, keep_default_na=False)
+        except Exception:
+            return
+        if "source" not in prov.columns or "asset" not in prov.columns:
+            return
+        carried = prov[prov["source"].str.strip() == "trailing-edge-carry"]
+        self.assets = {str(a).strip() for a in carried["asset"] if str(a).strip()}
+        # The sheets name players, the provenance names Sleeper ids, so the
+        # dictionary the build shipped alongside these exports is the bridge.
+        if players is None:
+            players = _sleeper_players(baseline_dir)
+        for sid in self.assets:
+            rec = (players or {}).get(sid)
+            full = (rec or {}).get("full_name") if isinstance(rec, dict) else None
+            if full:
+                self.names |= name_variants(full)
+
+    def covers(self, sheet: str, idcols: List[str], key: tuple,
+               row: Dict[str, str]) -> bool:
+        """No coordinate match: a re-priced asset is not a revised (player, week),
+        so KTC only ever attributes through the column channel below."""
+        return False
+
+    def covers_columns(self, sheet: str, idcols: List[str], key: tuple,
+                       row: Dict[str, str], moved: Sequence[str]) -> Optional[str]:
+        """"pool" when every moved column is KTC-derived on a re-priced row."""
+        if not self.active or not moved:
+            return None
+        players: Optional[Set[str]] = None
+        for col in moved:
+            if _matches(col, _KTC_COLUMNS):
+                if players is None:
+                    players = _row_names(sheet, dict(zip(idcols, key)), row)
+                if players & self.names:
+                    continue
+                return None
+            # O-Score and the manager skills are means over PERCENTILES taken
+            # across the whole sheet, so one re-priced checkpoint anywhere
+            # re-seats every row it passes — the 2026-09-09 run moved 23 of them
+            # by 0.1 off two players' values. Swept without a name match, exactly
+            # as the NFLverse path sweeps the same columns off `pools_disturbed`:
+            # asking a re-ranked row to name the player who caused it is asking
+            # the wrong question.
+            #
+            # Containment is the same too, and it is in the INPUTS. A row whose
+            # O-Score moved AND whose own KTC column moved unexplainably fails on
+            # that column above and stays flagged; only a row whose O-Score moved
+            # ALONE is swept, which is the definition of pure re-ranking.
+            if _matches(col, _SHEET_RANK_COLUMNS):
+                continue
+            return None
+        return "pool"
+
+
+def _row_names(sheet: str, kv: Dict[str, str], row: Dict[str, str]) -> Set[str]:
+    """Folded player names a row is about (module-level twin of the method on
+    NflverseAttribution, so the KTC source can use it without one)."""
+    out: Set[str] = set()
+    for col in PLAYER_NAME_COLS.get(sheet, []):
+        val = kv.get(col, row.get(col))
+        if not val:
+            continue
+        for part in str(val).split(";"):
+            out |= name_variants(part)
+            for inner in _PAREN.findall(part):
+                out |= name_variants(inner)
+    return out
+
+
+def _sleeper_players(exports_dir: Path) -> dict:
+    path = Path(exports_dir) / "snapshot" / "sleeper_players_nfl.json"
+    if not path.exists():
+        return {}
+    try:
+        import json as _json
+        return _json.loads(path.read_text())
+    except Exception:
+        return {}
+
+
 # The player a draft pick became, as our asset lists write it: "2024 4.06(K. Vidal)".
 _PAREN = re.compile(r"\(([^)]*)\)")
 class NflverseAttribution:
@@ -604,6 +735,14 @@ class Report:
         self.attributed_cells = 0
         self.attributed_sheets: Dict[str, int] = {}
         self.attributed_columns: List[Tuple[str, int]] = []
+        # Rows withheld because the KTC mirror re-priced a checkpoint the
+        # baseline had carried forward — see KtcAttribution. A separate tally on
+        # purpose: it is OUR cache going stale between two builds, not upstream
+        # revising anything, so it belongs in neither the breakage count nor the
+        # NFLverse volume check.
+        self.ktc_attributed = 0
+        self.ktc_sheets: Dict[str, int] = {}
+        self.ktc_columns: Counter = Counter()
 
     def head(self, text: str) -> None:
         self._section = text
@@ -671,8 +810,14 @@ def run_audit(current_dir: Path, baseline_dir: Optional[Path],
     drift = diff_nflverse_cache(nflverse_before, nflverse_after)
     drift.baseline_age = nflverse_cache_age(nflverse_before)
     attrib = NflverseAttribution(drift, cur)
+    # The KTC mirror is the second thing that moves completed seasons without our
+    # build changing — see KtcAttribution. Read from the BASELINE side: it is the
+    # build that carried a value forward, so it is the one that declared the value
+    # provisional.
+    ktc_attrib = KtcAttribution(baseline_dir, _sleeper_players(current_dir))
     code_changes = code_changes_since(snapshot_built_from_commit(_ROOT))
-    attributed = audit_diffs(cur, base, season, rep, attrib, code_changes)
+    attributed = audit_diffs(cur, base, season, rep, attrib, code_changes,
+                             ktc_attrib=ktc_attrib)
     rep.drift, rep.nflverse_attributed = drift, attributed
     # The volume threshold is judged on the DIRECT attributions only: pooled
     # fan-out scales with how league-relative our stats are, not with how much
@@ -1171,9 +1316,14 @@ def classify_diff(shared: List[str], idcols: List[str],
 def audit_diffs(cur: Dict[str, pd.DataFrame], base: Dict[str, pd.DataFrame],
                 current_season: Optional[int], rep: Report,
                 attrib: Optional[NflverseAttribution] = None,
-                code_changes: Sequence[Tuple[str, str]] = ()) -> int:
+                code_changes: Sequence[Tuple[str, str]] = (),
+                ktc_attrib: "Optional[KtcAttribution]" = None) -> int:
     """Report past-season rows that moved. Returns the number of rows withheld
-    from the flags because an NFLverse revision accounts for them."""
+    from the flags because an NFLverse revision accounts for them.
+
+    `ktc_attrib` withholds a second, disjoint class — rows the KTC mirror
+    re-priced — counted separately in `rep.ktc_attributed` so it never inflates
+    the NFLverse volume check."""
     rep.head("Part 1 — unexpected diffs (every sheet, every column, every row)")
     if not base or all(df.empty for df in base.values()):
         rep.note("No baseline exports supplied — skipping the diff "
@@ -1270,27 +1420,46 @@ def audit_diffs(cur: Dict[str, pd.DataFrame], base: Dict[str, pd.DataFrame],
         # reproduce it — measured on the 2026-08-12 run that is 2,935 of our rows
         # in one week, and calling those bugs would bury every real finding. They
         # are counted and their columns reported under the NFLverse section.
-        if attrib is not None and attrib.active:
+        # Each source peels off the rows it can account for, in turn, and what no
+        # source claims is what gets flagged. Kept as one loop over sources rather
+        # than a copy per source so a third one is a list entry, not a paste — and
+        # so the ORDER is explicit: NFLverse first, because a row it can explain
+        # directly should be counted against the upstream volume check rather
+        # than absorbed as KTC fan-out.
+        for _src, _bucket in ((attrib, None), (ktc_attrib, "ktc")):
+            if _src is None or not _src.active or not changed:
+                continue
             kept, taken = [], []
             for item in changed:
                 k, deltas, row_tup = item
                 row = dict(zip(shared, row_tup))
                 cols = [c for c, _o, _n in deltas]
-                if attrib.covers(name, idcols, k, row):
+                if _src.covers(name, idcols, k, row):
                     channel = "direct"
                 else:
-                    channel = attrib.covers_columns(name, idcols, k, row, cols)
+                    channel = _src.covers_columns(name, idcols, k, row, cols)
                 if channel is None:
                     kept.append(item)
                     continue
                 taken.append(item)
-                if channel == "pool":
+                if channel == "pool" and _bucket is None:
                     pool_swept += 1
             if taken:
-                attributed[name] = attributed.get(name, 0) + len(taken)
-                for _, deltas, _ in taken:
-                    for col, _o, _n in deltas:
-                        attributed_cols[col] += 1
+                if _bucket == "ktc":
+                    # Counted apart from the NFLverse tallies all the way through:
+                    # these rows are reported under their own heading and must not
+                    # reach `Drift.is_significant`, which is a judgement about how
+                    # much UPSTREAM moved.
+                    rep.ktc_attributed += len(taken)
+                    rep.ktc_sheets[name] = rep.ktc_sheets.get(name, 0) + len(taken)
+                    for _, deltas, _ in taken:
+                        for col, _o, _n in deltas:
+                            rep.ktc_columns[col] += 1
+                else:
+                    attributed[name] = attributed.get(name, 0) + len(taken)
+                    for _, deltas, _ in taken:
+                        for col, _o, _n in deltas:
+                            attributed_cols[col] += 1
             changed = kept
         if not changed and not added and not removed:
             continue
