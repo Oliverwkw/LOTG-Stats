@@ -875,6 +875,22 @@ list is here so an answer written by hand does not walk into them.
   `Injury?`, `Hardship` or `Luck` number taken from a build before that fix is
   wrong by roughly that much, so say which build a historical injury figure
   came from.
+- **A player can dress and never take a snap, and 2020-2025 knows it by hand.**
+  After the snap union, 215 `Injury?` weeks were left on players with no snap
+  and no reserve-list status — mostly backup quarterbacks (Riley Leonard 2025,
+  Russell Wilson 2025 wks 5-9, Jake Browning 2024 wks 1-7, Desmond Ridder
+  2022). Each was looked up in the team's own inactive list;
+  `data/game_day_status.csv` records the answer and its source. 208 dressed and
+  sat and are **not** injured; 7 stay injured (inactive, reserve list, or Rome
+  Odunze 2025 wk15, active but ruled out in pregame warmups). An emergency third
+  quarterback is on the inactive list, so he counts as Out. The same change
+  bridges snap counts through DynastyProcess's `pfr_id` where the weekly rosters
+  leave it blank, clearing 31 more weeks of players who did play (Trey McBride
+  2022 wks 2-9). Weekly-roster `ACT` cannot make this call on its own — it covers
+  game-day inactives too — and Sleeper's `gms_active` is wrong for reserve-list
+  players (Jeff Wilson 2021 on PUP reads as active). From 2026 the tracker's
+  live participation capture decides instead, and the file may not hold those
+  seasons.
 - **Join nflverse on `gsis_id`, never on name.** A suffix
   (`Marvin Harrison Jr.`, `Deebo Samuel Sr.`) reads as 21 false disagreements
   against the tracker. `snap_counts` is the exception — it has no gsis at all,

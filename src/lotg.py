@@ -114,6 +114,7 @@ from lotg_support.injury_tracker import (
     load_status_index as _load_injury_tracker,
     looks_like_gsis as _looks_like_gsis,
 )
+from lotg_support.game_day_status import dressed_by_week as _game_day_dressed
 from lotg_support.external import (
     ExternalConfig,
     cache_is_stale,
@@ -4268,6 +4269,22 @@ def build_all(repo_root: Path) -> None:
         except Exception as e:
             _log_exc(debug, f"load_nflverse_weekly_rosters_{season}", e)
 
+        # The weekly rosters leave pfr_id blank for some players, and their snaps
+        # then bridge to nobody: 31 weeks of players who took the field kept an
+        # injury flag in 2021-2024 (Trey McBride 2022 wks 2-9 at 11-32 snaps,
+        # Khalil Shakir 2022, Jalen Tolbert 2022, Josh Gordon 2021). The
+        # DynastyProcess id table carries both ids for them. It only FILLS a gap
+        # — a roster mapping is kept where one exists (the two agree on every
+        # pfr_id they share) — and placeholder gsis tokens are refused.
+        try:
+            if not dp_ids.empty and {"pfr_id", "gsis_id"}.issubset(dp_ids.columns):
+                for _r in dp_ids[["pfr_id", "gsis_id"]].itertuples(index=False):
+                    _pf, _gs = str(_r.pfr_id).strip(), str(_r.gsis_id).strip()
+                    if _pf and _pf.lower() != "nan" and _looks_like_gsis(_gs):
+                        pfr_to_gsis.setdefault(_pf, _gs)
+        except Exception as e:
+            _log_exc(debug, f"dp_pfr_bridge_{season}", e)
+
         # nflverse SNAP COUNTS — the appearance half of "did he play".
         #
         # WHY THIS EXISTS. `played_players_by_week` was built from
@@ -4428,6 +4445,24 @@ def build_all(repo_root: Path) -> None:
                         curated_flag_keys.add((g, int(season), int(wk_n)))
         except Exception as e:
             _log_exc(debug, f"injuries_overlay_{season}", e)
+
+        # Game-day status researched by hand (data/game_day_status.csv) for the
+        # 2020-2025 weeks a player on an ACTIVE roster took no snap. Dressing
+        # and never getting on the field — a backup quarterback, a depth back —
+        # is not an injury, and no feed separates it from a game-day inactive:
+        # weekly-roster ACT covers both. Only `active` rows are read; inactive,
+        # emergency third QB, reserve and ruled-out-in-warmups rows stay
+        # injured. Empty from TRACKER_FIRST_SEASON on, where the tracker's
+        # live participation capture decides instead. See game_day_status.py.
+        game_day_dressed: Dict[int, set] = {}
+        try:
+            game_day_dressed = _game_day_dressed(
+                repo_root / "data" / "game_day_status.csv", int(season))
+            _log(debug, f"[{_now_iso()}] INFO game_day_status season={season} "
+                        f"dressed={sum(len(v) for v in game_day_dressed.values())} "
+                        f"player-weeks read as active-did-not-play")
+        except Exception as e:
+            _log_exc(debug, f"game_day_status_{season}", e)
 
         # Gap-fill heuristic: for every player who has at least one nflverse
         # weekly stats row this season AND every week between the season's first
@@ -6140,13 +6175,17 @@ def build_all(repo_root: Path) -> None:
                             played = bool(gsis) and (str(gsis) in played_players)
                         except Exception:
                             played = False
+                        dressed = bool(gsis) and (
+                            str(gsis) in game_day_dressed.get(int(wk), ()))
                         # bye may be None when we couldn't compute it (no NFL team
                         # resolvable + player never had stats this season — e.g.
                         # career-ending injury cases like Gus Edwards 2021, Tarik
                         # Cohen 2021). Treat None like False so we still consider
                         # the player injured when they have pts=0 and no
                         # contradicting suspension entry.
-                        if ((pts or 0.0) == 0.0) and (bye is not True) and (not played) and gsis:
+                        # `dressed` is a researched game-day active who never
+                        # took a snap (data/game_day_status.csv): not a miss.
+                        if ((pts or 0.0) == 0.0) and (bye is not True) and (not played) and (not dressed) and gsis:
                             existing = injuries_by_gsis_week.get((str(gsis), season, int(wk)))
                             if existing is not None and existing[1] is True:
                                 # Confirmed suspension wins.
