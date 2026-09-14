@@ -8,6 +8,9 @@ from typing import Dict, Optional
 import pandas as pd
 import requests
 
+from .position_pins import FANTASY_POSITION_PINS as _FANTASY_POSITION_PINS
+from .position_pins import pinned_position  # noqa: F401  (re-exported)
+
 # ---------------------------------------------------------------------------
 # Cache freshness
 # ---------------------------------------------------------------------------
@@ -188,16 +191,15 @@ def _ensure(cfg: "ExternalConfig", path: Path, urls: list[str],
 # fall back to Sleeper's dictionary, so they stayed WR — splitting one player
 # across two position pools inside a single season.
 #
-# Keyed by gsis_id, never by name: names collide and upstream re-spells them.
 # Applied on READ rather than to the cached file, so `.cache` stays a faithful
 # copy of what NFLverse published and the weekly audit's drift diff still sees
 # the relabel for what it is.
 #
-# This is a pin, not a mapping table to grow by default: add a player only when
-# his fantasy position here is genuinely unambiguous and upstream disagrees.
-FANTASY_POSITION_PINS: dict[str, str] = {
-    "00-0040718": "WR",   # Travis Hunter (JAX) — two-way WR/CB, rostered as a WR
-}
+# The registry itself lives in `position_pins`, which imports nothing, so the
+# injury capture (pandas-free by necessity — see that module) pins the same
+# player from the same one place. Re-exported here because every existing reader
+# addresses it as `external.FANTASY_POSITION_PINS`.
+FANTASY_POSITION_PINS = _FANTASY_POSITION_PINS
 
 # The columns that carry a position label in the NFLverse files we read, and the
 # columns those files use for the GSIS player id.

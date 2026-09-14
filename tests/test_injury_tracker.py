@@ -120,8 +120,8 @@ WEEK = [
      (True, False, False), "NFI reserve list: ineligible to play"),
     ("dnr", "Did Not Report", "WR", "LV", "DNR", "Active", False, 0.0,
      (True, False, False), "DNR: on the did-not-report list, cannot play"),
-    ("na_tag", "Ambiguous NA", "TE", "IND", "NA", "Active", False, 0.0,
-     (False, False, False), "NA guarantees nothing — 26 carry it while Active"),
+    ("na_tag", "Exempt List", "TE", "IND", "NA", "Active", False, 0.0,
+     (False, True, False), "NA is the commissioner exempt list: a suspension"),
     ("prac_squad", "Practice Squad", "QB", "ATL", "", "Practice Squad", False, 0.0,
      (False, False, False), "practice squad can be elevated and play"),
     ("no_nfl_team", "Cut Loose", "RB", "JAX", "", "Inactive", False, 0.0,
@@ -247,14 +247,67 @@ def test_designations():
               "out inactive", "ir injured reserve", "cov", "cov inactive", "covid",
               "reserve/covid-19", "nfi", "non football injury", "dnr", "did not report"):
         assert it.designation(s) == "injury", s
-    for s in ("sus", "susp inactive", "suspended"):
+    # Not allowed to play: a suspension, or the commissioner exempt list (NA).
+    # NA decides whatever roster status accompanies it — there is no "NA unless
+    # Inactive" carve-out, because the teamless case it would protect is already
+    # protected by the bye outranking a suspension (see the test below).
+    for s in ("sus", "susp inactive", "suspended",
+              "na", "na active", "na inactive", "practice squad na"):
         assert it.designation(s) == "suspension", s
-    # Guarantees nothing: game-time labels, an elevatable practice squad, a
-    # roster status, and Sleeper's ambiguous NA.
+    # NA is the LEAST specific thing Sleeper says, so an explicit designation
+    # beside it decides instead. Sam Webb (CB NYG) carried NA while on Injured
+    # Reserve in the 2026-08-18 snapshot: he is hurt, not exempt.
+    for s in ("na injured reserve", "ir na", "out na", "na pup"):
+        assert it.designation(s) == "injury", s
+    # An explicit suspension still outranks everything.
+    for s in ("na sus", "sus na"):
+        assert it.designation(s) == "suspension", s
+    # Guarantees nothing: game-time labels, an elevatable practice squad, and a
+    # bare roster status.
     for s in ("", "active", "questionable", "questionable active", "doubtful",
-              "doubtful active", "na", "na active", "inactive", "practice squad",
-              "practice squad na"):
+              "doubtful active", "inactive", "practice squad"):
         assert it.designation(s) is None, s
+    # "na" is matched as a whole token, so it cannot fire inside a word.
+    for s in ("nate active", "hernandez", "nashville"):
+        assert it.designation(s) is None, s
+
+
+def test_a_teamless_na_pickup_is_a_bye_not_a_suspension():
+    """The precedence that lets NA be unconditional.
+
+    65 of the 96 players carrying NA in the committed Sleeper dictionary are
+    also "Inactive" with no NFL team — retired and unsigned men (BenJarvus
+    Green-Ellis, Peyton Hillis) where NA is stale junk, not an exempt-list
+    ruling. Nothing in designation() filters them, so what keeps a retired
+    meme-pickup out of the suspension counts is this: the build routes a
+    rostered player with no NFL team to Bye?, and a bye outranks everything.
+    If that precedence is ever relaxed, NA needs a team test to go with it."""
+    entry = {"status": "na inactive", "bye": None, "played": None}
+    # The build derived the bye itself (no NFL team) -> bye wins outright.
+    assert it.apply_overlay(entry, 0.0, None, False, False, True) == (False, False, True)
+    # The tracker's own captured bye wins too.
+    entry2 = {"status": "na inactive", "bye": True, "played": None}
+    assert it.apply_overlay(entry2, 0.0, None, False, False, False) == (False, False, True)
+    # And a man who took the field is not suspended, however he is labelled now.
+    entry3 = {"status": "na active", "bye": False, "played": True}
+    assert it.apply_overlay(entry3, 0.0, True, False, False, False) == (False, False, False)
+
+
+def test_an_exempt_list_week_is_a_suspension_not_an_injury():
+    """Josh Jacobs, 2026 week 1 — the case that settled NA.
+
+    0.00 points, Sleeper carrying NA + Active, no participation from Sleeper and
+    no nflverse stat line (Green Bay's week-1 carries went to MarShawn Lloyd and
+    Chris Brooks). Under the old reading NA decided nothing, so the overlay
+    returned all-False and the week was recorded as a PLAYED 0.00 — the exact
+    pollution this module exists to prevent, with no feed in the repo able to
+    contradict it."""
+    entry = {"status": "na active", "bye": False, "played": None}
+    assert it.apply_overlay(entry, 0.0, None, False, False, False) == (False, True, False)
+    # Suspension outranks injury when both could apply, and in the merge's
+    # strongest-wins rule, which is what "exempt" means: not hurt, not allowed.
+    assert it._row_rank({"injury_status": "NA", "status": "Active"}) > \
+           it._row_rank({"injury_status": "Out", "status": "Active"})
 
 
 def test_a_real_bye_survives_an_injury_designation():
@@ -410,6 +463,192 @@ def test_sleepers_empty_roster_slot_is_not_a_player():
         rows = it.capture_rows(_WithSentinel(WEEK), 2026, 1)
     assert {r["player_id"] for r in rows} == set(p[0] for p in WEEK)
     assert len(rows) == len(WEEK)
+
+
+def _capture_one(pid, name, pos, team, inj="", body="", status="Active",
+                 gsis=None, played=False, repo_root=None):
+    """One rostered player through the real capture_rows, nothing mocked but
+    Sleeper. Returns the captured row."""
+    meta = {"full_name": name, "position": pos, "team": team,
+            "injury_status": inj, "injury_body_part": body, "status": status}
+    if gsis is not None:
+        meta["gsis_id"] = gsis
+
+    class _One:
+        def players_nfl(self):
+            return {pid: meta}
+
+        def rosters(self):
+            return [{"players": [pid], "starters": [], "taxi": [], "reserve": []}]
+
+        def get(self, path):
+            if "/stats/nfl/" in str(path):
+                return {pid: {"gp": 1}} if played else {}
+            return {"season": "2026", "week": 1, "season_type": "regular"}
+
+    with _fixture_nfl_schedule():
+        rows = it.capture_rows(_One(), 2026, 1, repo_root=repo_root)
+    return rows[0]
+
+
+def test_a_coachs_decision_inactive_is_an_injury_miss():
+    """A healthy scratch that was declared Out is a MISS, and it is flagged.
+
+    13 of the 33 flags 2026 week 1 will carry are "Out" with an
+    injury_body_part of "Coach's Decision" — mostly backup and rookie
+    quarterbacks. They are not hurt, and they are still flagged, because the
+    column's question is "did something keep him off the field", not "was he
+    injured": `Injury?` is documented (exports/formulas.csv) as TRUE when the
+    player was rostered, scored 0, didn't play, and it wasn't a bye or a
+    suspension. This is the league's decision, pinned here so a future reading
+    of `injury_body_part` cannot quietly reclassify those weeks.
+
+    What makes it recoverable rather than lossy is that the reason is CAPTURED:
+    anyone who wants a medical-only rate can filter on the body part."""
+    row = _capture_one("scratch", "Backup Passer", "QB", "PIT",
+                       inj="Out", body="Coach's Decision")
+    assert row["injury_body_part"] == "Coach's Decision", "the reason must survive"
+    assert it.designation("out active") == "injury"
+    entry = {"status": "out active", "bye": False, "played": None}
+    assert it.apply_overlay(entry, 0.0, None, False, False, False) == (True, False, False)
+
+
+def test_the_capture_resolves_a_gsis_id():
+    """Sleeper's own gsis_id first (stripped), then the committed bridge.
+
+    Sleeper pads its ids — ' 00-0035700' for Josh Jacobs — and carries one at
+    all for only 40 of the 247 players on this league's 2026 rosters, which is
+    why a reader that trusted the raw field answered for 16% of the roster and
+    silently missed the rest."""
+    padded = _capture_one("5850", "Josh Jacobs", "RB", "GB", gsis=" 00-0035700 ")
+    assert padded["gsis_id"] == "00-0035700", padded["gsis_id"]
+    # No gsis on Sleeper, and no bridge passed -> blank, never a guess.
+    assert _capture_one("12530", "Travis Hunter", "DB", "JAX")["gsis_id"] == ""
+    # Sleeper's junk values are not ids either.
+    assert _capture_one("x", "Nan Id", "WR", "SF", gsis="nan")["gsis_id"] == ""
+
+
+def test_the_committed_bridge_closes_the_gap_sleeper_leaves():
+    """The DynastyProcess table, read with the stdlib, takes 40/247 to 246/247.
+
+    Read from exports/snapshot/ on purpose: both capture workflows install
+    pyyaml and requests only, so the bridge cannot come from pandas or a
+    download. Skips when the snapshot is absent."""
+    if not (_ROOT / "exports" / "snapshot" / "dynastyprocess_playerids.csv").exists():
+        return
+    bridge = it.sleeper_gsis_bridge(_ROOT)
+    assert len(bridge) > 5000, f"bridge has only {len(bridge)} entries"
+    # Ids are stored as floats in that file ("13269.0"); a key with a .0 on it
+    # matches no Sleeper player id.
+    assert not [k for k in bridge if k.endswith(".0")]
+    assert bridge.get("12530") == "00-0040718"   # Travis Hunter
+    # A missing or unreadable file is a blank column, not an exception.
+    assert it.sleeper_gsis_bridge(_ROOT / "does" / "not" / "exist") == {}
+
+
+def test_the_capture_pins_a_relabelled_position():
+    """Travis Hunter is a WR in every sheet; the capture must not say DB.
+
+    Sleeper's dictionary is current-only and flipped him WR -> DB on
+    2026-09-08, so the committed tracker held a `DB` for a player the build
+    pins to WR (external.FANTASY_POSITION_PINS). The pin is applied at capture
+    time now, keyed by the gsis the bridge resolves — which is the only key that
+    works here, since Sleeper carries no gsis_id for him at all."""
+    if not (_ROOT / "exports" / "snapshot" / "dynastyprocess_playerids.csv").exists():
+        return
+    row = _capture_one("12530", "Travis Hunter", "DB", "JAX", repo_root=_ROOT)
+    assert row["gsis_id"] == "00-0040718"
+    assert row["position"] == "WR", row["position"]
+    # Nobody else is touched, including a genuine defensive back.
+    other = _capture_one("9999", "Real Corner", "DB", "NYJ", repo_root=_ROOT)
+    assert other["position"] == "DB"
+
+
+def test_the_committed_tracker_agrees_with_the_pin():
+    """No row in the shipped tracker may carry a position the build overrides."""
+    path = it.tracker_path(_ROOT)
+    if not path.exists():
+        return
+    import csv as _csv
+    from lotg_support.position_pins import FANTASY_POSITION_PINS, pinned_position
+    with path.open(newline="") as f:
+        rows = list(_csv.DictReader(f))
+    bad = [(r["full_name"], r["position"], FANTASY_POSITION_PINS[r["gsis_id"].strip()])
+           for r in rows
+           if r.get("gsis_id", "").strip() in FANTASY_POSITION_PINS
+           and r["position"] != pinned_position(r["gsis_id"], r["position"])]
+    assert not bad, f"tracker rows disagree with the position pin: {bad}"
+
+
+# The shape of the NA population when the exempt-list reading was adopted,
+# measured over all 14 committed snapshots of Sleeper's dictionary
+# (2026-08-18 .. 2026-09-14). The rule is safe BECAUSE of this shape: a static
+# set of teamless retired players (bye-protected) plus a handful of live cases.
+# These ceilings carry ~4x headroom on the observed maxima, so they do not fire
+# on ordinary movement — they fire if Sleeper starts using NA broadly, which is
+# the one thing that would turn "NA means exempt" into an overcount.
+_NA_ONTEAM_CEILING = 15      # observed max across all 14 snapshots: 4
+_NA_SHARE_CEILING = 0.02     # observed: 96 / 12,227 = 0.0079
+
+
+def test_the_na_population_is_still_small_and_mostly_teamless():
+    """The overcount alarm for reading NA as the commissioner exempt list.
+
+    NA is only defensible as "not allowed to play" while it stays rare among
+    players who are actually ON an NFL roster. Of the 96 players carrying it,
+    92 carried it in every snapshot and have no NFL team at all — stale junk on
+    men who are out of the league, which a bye outranks. Only four have a team.
+
+    If Sleeper ever broadens NA, this fails and the reading needs revisiting
+    before the next capture writes suspensions against it. Skips when the
+    snapshot is absent."""
+    import json as _json
+    path = _ROOT / "exports" / "snapshot" / "sleeper_players_nfl.json"
+    if not path.exists():
+        return
+    players = _json.loads(path.read_text())
+    na = [m for m in players.values()
+          if str(m.get("injury_status") or "").strip().upper() == "NA"]
+    assert na, "no NA players at all — has Sleeper changed the vocabulary?"
+    share = len(na) / max(1, len(players))
+    assert share <= _NA_SHARE_CEILING, (
+        f"{len(na)} of {len(players)} players carry NA ({share:.2%}); it was "
+        f"0.79% when NA was read as the exempt list. Re-check that reading.")
+    on_team = [m for m in na if str(m.get("team") or "").strip()]
+    assert len(on_team) <= _NA_ONTEAM_CEILING, (
+        f"{len(on_team)} NA players are on an NFL roster (was 4): "
+        f"{sorted(str(m.get('full_name')) for m in on_team)}. NA reads as a "
+        "suspension, so a broad on-roster NA is a broad overcount.")
+    # And every NA suspension it can write needs a 0.00 and no participation:
+    # the designation alone never flags a week.
+    assert it.apply_overlay({"status": "na active", "bye": False, "played": True},
+                            0.0, True, False, False, False) == (False, False, False)
+    # Points on the board: resolve_injury_flags declines to decide, and the
+    # overlay hands the build's own flags straight back untouched.
+    assert it.resolve_injury_flags("na active", False, 8.4, None) is None
+    assert it.apply_overlay({"status": "na active", "bye": False, "played": None},
+                            8.4, None, True, False, False) == (True, False, False)
+
+
+def test_the_committed_tracker_carries_few_na_weeks():
+    """Exposure, measured where it actually lands: this league's own rosters.
+
+    One captured player-week of 247 in 2026 wk1. A season that ends up with a
+    large share of its player-weeks flagged this way is not a league with many
+    exempt players, it is a misreading of NA."""
+    path = it.tracker_path(_ROOT)
+    if not path.exists():
+        return
+    import csv as _csv
+    with path.open(newline="") as f:
+        rows = list(_csv.DictReader(f))
+    if not rows:
+        return
+    na = [r for r in rows
+          if str(r.get("injury_status") or "").strip().upper() == "NA"]
+    assert len(na) / len(rows) <= 0.05, (
+        f"{len(na)} of {len(rows)} captured player-weeks carry NA "
+        f"({len(na) / len(rows):.1%}): {[r['full_name'] for r in na][:20]}")
 
 
 def test_the_committed_tracker_header_matches_the_schema():
@@ -792,7 +1031,10 @@ def test_capture_script_refuses_to_overwrite_or_reach_backwards():
         cap.ROOT = root
         cap.SleeperClient = lambda *a, **k: sc
         cap.week_from_schedule = lambda season, timeout=30: 1
-        cap.capture_rows = lambda _sc, season, week, played=None: it.capture_rows(sc, season, week)
+        # repo_root is accepted and dropped: this stub feeds the mock Sleeper,
+        # and the gsis bridge / position pin are covered on their own below.
+        cap.capture_rows = (lambda _sc, season, week, played=None, repo_root=None:
+                            it.capture_rows(sc, season, week))
         cap.played_index = lambda *a, **k: {}
         cap.gameday_week = lambda season, now=None, timeout=30: None   # no game today
         try:

@@ -232,7 +232,10 @@ def main() -> int:
         print("WARNING: Sleeper returned no participation data for this week — "
               "'played' will be blank and the build falls back to nflverse "
               "(which lags ~2-3 days) to tell a played week from a missed one.")
-    rows = capture_rows(sc, season, week, played=played)
+    # ROOT is passed so the row carries a resolved gsis_id and a PINNED
+    # position — see injury_tracker.capture_rows. Without it the capture
+    # records whatever Sleeper's current-only dictionary says today.
+    rows = capture_rows(sc, season, week, played=played, repo_root=ROOT)
     if not rows:
         print(f"No rostered players found for {season} week {week}; nothing written.")
         return 0

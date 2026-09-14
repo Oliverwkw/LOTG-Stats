@@ -28,35 +28,66 @@ name: Sweep gameday injuries
 # settles them.
 #
 # DELAY IS THE REAL HAZARD HERE, and it is the one place in the tracker where a
-# late run costs data outright. The sweep has a NINETY-MINUTE design window —
-# after the early-window inactive report (15:30 UTC) and before that window
-# kicks off (17:00 UTC) — and GitHub's schedule queue has never delivered a run
-# in this repo on time: median ~80 minutes late, tail to 8h47m. A single 16:00
-# fire therefore lands after kickoff more often than not, which is precisely the
-# case PR #415 built the sweep to avoid. #415's ablation measured NO sweeps (171
-# missed->played errors); it never modelled LATE ones.
+# late run costs data outright. A sweep's windows are ~90 minutes wide (from the
+# inactive report to the kickoff it precedes) and GitHub's schedule queue has
+# never delivered a run in this repo on time: median ~80 minutes late, tail to
+# 8h47m.
 #
 # A late sweep cannot corrupt anything — the merge takes the STRONGEST
 # designation, `played` only ever accumulates True, and `on_bye` keeps the
-# earliest non-blank — so the failure mode is silent LOSS, not damage. The fix is
-# therefore redundancy, not a different single time:
+# earliest non-blank — so the failure mode is silent LOSS, not damage.
 #
-#   * 15:35 UTC — five minutes after the early-window inactive report, so a run
-#     delayed up to 85 minutes still lands before the 1pm ET kickoff. This is the
-#     old 16:00 slot moved earlier INSIDE its window, which is as early as it can
-#     legally go; before 15:30 it would read a practice report, not inactives.
-#   * 19:35 UTC — after the late-window inactive reports (90 minutes before the
-#     4:05/4:25pm ET kicks = 18:35/18:55 UTC) and before those games start. A
-#     second shot at any day the first one missed, and genuine new coverage of a
-#     window the single noon-ET sweep never saw.
+# WHAT 2026 WEEK 1 MEASURED. Six sweeps fired, all six delivered, none inside
+# the window it was placed in:
 #
-# NOTE this raises the season's sweep count from ~153 runs to ~306 and gives a
-# swept gameday a higher `captures` value. Both are intended; sweep_counts() only
-# ever asks whether max() > 1.
+#   cron 15:35 ->  18:47 (+3h12m), 18:37 (+3h02m), 18:17 (+2h42m)
+#   cron 19:35 ->  21:50 (+2h15m), 21:45 (+2h10m), 21:34 (+1h59m)
+#
+# So the 15:35 slot, whose whole purpose was to leave 85 minutes of headroom
+# before the 17:00 kickoff, landed AFTER that kickoff three times out of three.
+# Its 85-minute budget is not a budget this scheduler can be held to, and 15:30
+# is a hard floor (any earlier reads a practice report, not an inactive list),
+# so there is no version of "one fire, slightly earlier" that works.
+#
+# THE FIX IS AN ANTICIPATORY FIRE PER WINDOW, placed so that the whole measured
+# delay band [+1h59m, +3h12m] lands inside the window:
+#
+#   13:39 -> 15:38 .. 16:51   inside (15:30 inactives .. 17:00 kick)
+#   16:43 -> 18:42 .. 19:55   inside (18:35 inactives .. 20:05 kick)
+#   20:53 -> 22:52 .. 00:05   inside (22:45 inactives .. 00:15 kick)
+#
+# and the existing 15:35 / 19:35 are KEPT as the fast-queue case: if the queue
+# ever delivers on time, they are the fires that land in the window and the
+# anticipatory ones read a practice report instead.
+#
+# NIGHT GAMES ARE NEW COVERAGE, not redundancy. Thursday, Sunday and Monday
+# night games kick at 00:15-00:20 UTC, so their inactives land ~22:45 UTC —
+# after every fire this workflow used to have. Those windows had NO fire at all:
+# the designation the teams played a night game under was only ever settled by
+# the Tuesday final capture, two days later, which is exactly the "a played 0.00
+# instead of a miss" case the sweep exists to prevent. 2026 opened on a
+# Wednesday night and closed week 1 on a Monday night, so that is two of week
+# 1's sixteen games. The 20:53 anticipatory fire and the 22:53 on-time fire
+# cover it.
+#
+# THE COST, stated plainly. Six fires a day instead of two: ~918 runs a season,
+# of which ~58 do any work (the script reads the fixed schedule and exits in
+# seconds when there is no game today). And the anticipatory fires widen one
+# existing exposure rather than adding a new kind: a designation seen EARLIER in
+# the week is more likely to be one the team later cleared, and the merge keeps
+# the strongest. That is already true of every sweep — it is the deliberate
+# trade behind strongest-wins — and `played` is still the corrective, so the
+# residue is a player who was cleared before kickoff, dressed, and recorded no
+# statistic. A swept gameday also gets a higher `captures` value; sweep_counts()
+# only ever asks whether max() > 1.
 on:
   schedule:
-    - cron: "35 15 * 9-12,1 *"   # daily 15:35 UTC (early-window inactives), Sep-Jan
-    - cron: "35 19 * 9-12,1 *"   # daily 19:35 UTC (late-window inactives), Sep-Jan
+    - cron: "39 13 * 9-12,1 *"   # anticipatory: early-window inactives (15:30)
+    - cron: "35 15 * 9-12,1 *"   # on-time:     early-window inactives (15:30)
+    - cron: "43 16 * 9-12,1 *"   # anticipatory: late-window inactives (18:35)
+    - cron: "35 19 * 9-12,1 *"   # on-time:     late-window inactives (18:35)
+    - cron: "53 20 * 9-12,1 *"   # anticipatory: night-game inactives (22:45)
+    - cron: "53 22 * 9-12,1 *"   # on-time:     night-game inactives (22:45)
   workflow_dispatch:
     inputs:
       week:

@@ -219,6 +219,32 @@ def _nfl_kickoff_thursday(season: int) -> date:
     return labor_day + timedelta(days=3)
 
 
+def _season_opener(week_start: Dict[Tuple[int, int], str], season: Any) -> Optional[date]:
+    """The day a season's week 1 actually STARTS, per the NFL schedule.
+
+    `_nfl_kickoff_thursday` computes the Thursday after Labor Day. That WAS the
+    real opener in every season 2020-2025, and it is a day LATE in 2026, whose
+    week 1 opened Wednesday Sept 9 (NE at SEA, 20:20 ET) with the Thursday game
+    a day behind it. Anything anchored on the computed Thursday therefore reads
+    Sept 9 2026 as offseason while week 1 was being played.
+
+    `week_start` is {(season, week): 'YYYY-MM-DD'} of each week's FIRST game.
+    Returns None when it cannot say — a season the schedule does not cover, or
+    no schedule at all — so the caller keeps the Thursday anchor rather than
+    inventing a boundary.
+    """
+    _s = _to_int(season, None)
+    if _s is None:
+        return None
+    _d = (week_start or {}).get((_s, 1))
+    if not _d:
+        return None
+    try:
+        return date.fromisoformat(str(_d)[:10])
+    except Exception:
+        return None
+
+
 def _week_thursday(season: int, week: int) -> date:
     """Date fantasy `week` of `season` opens — its Thursday night game.
 
@@ -2437,17 +2463,27 @@ def build_all(repo_root: Path) -> None:
     # opener — so a player picked up on a game day is credited the starts they
     # actually made that week.
     _week_end_date: Dict[Tuple[int, int], str] = {}
+    _week_start_date: Dict[Tuple[int, int], str] = {}
     try:
         if isinstance(games, pd.DataFrame) and not games.empty and \
                 {"season", "week", "gameday"}.issubset(games.columns):
             _g = games.dropna(subset=["season", "week"]).copy()
+            if "game_type" in _g.columns:
+                # REG only. The postseason rides weeks 19-22 in this file, and a
+                # playoff date is not the fantasy week-1 opener.
+                _g = _g[_g["game_type"].astype(str).str.upper() == "REG"]
             _g["_gd"] = _g["gameday"].astype(str).str[:10]
             for (_s, _w), _gg in _g.groupby(["season", "week"]):
                 _dates = [d for d in _gg["_gd"].tolist() if d[:4].isdigit()]
                 if _dates:
                     _week_end_date[(int(_s), int(_w))] = max(_dates)
+                    _week_start_date[(int(_s), int(_w))] = min(_dates)
     except Exception as e:
         _log_exc(debug, "week_end_date_map", e)
+
+    def _first_game_date(_season: Any) -> Optional[date]:
+        """This build's week-1 opener lookup — see module-level _season_opener."""
+        return _season_opener(_week_start_date, _season)
 
     def _last_game_date(_season: Any, _week: Any) -> Optional[str]:
         """Date of the LAST game of (season, week) — the week's closing edge
@@ -13570,7 +13606,11 @@ def build_all(repo_root: Path) -> None:
         whether it reads offseason can never drift apart: a row is in-season
         exactly when its own date falls inside its own season's window.
         """
-        return (_nfl_kickoff_thursday(int(season)),
+        # The schedule's own week-1 opener, falling back to the computed
+        # Thursday when the schedule cannot say. In 2026 these differ by a day
+        # (Wed Sept 9 vs Thu Sept 10) and the earlier one is the truthful
+        # boundary; in 2020-2025 they are identical, so no shipped row moves.
+        return (_first_game_date(season) or _nfl_kickoff_thursday(int(season)),
                 _season_end_monday(int(season), playoff_start_by_season.get(int(season))))
 
     def _trade_is_offseason(dt_str, season) -> Optional[bool]:

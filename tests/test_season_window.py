@@ -8,6 +8,12 @@ is wrong at both ends and by a moving amount:
     everything in the Sept 7-10 gap as in-season, which is what filed the 2020
     startup slot swap — struck the evening before the draft finished — as an
     in-season trade.
+  * **And week 1 does not always open on that Thursday.** 2026 opened on
+    WEDNESDAY Sept 9 (NE at SEA, 20:20 ET), a day ahead of its computed
+    Thursday, so the Thursday anchor reads Sept 9 2026 as offseason while week 1
+    is being played. The boundary is now the schedule's own week-1 opener
+    (`_season_opener`), with the Thursday as the fallback when the schedule
+    cannot say. In 2020-2025 the two are identical, so no shipped row moves.
   * **The far end was missing entirely.** A season ends at its championship, not
     at New Year, so a deal made after the title game counted as in-season until
     the calendar rolled over.
@@ -84,6 +90,81 @@ def test_kickoff_actually_moves():
     days = {d.day for d in _KICKOFFS.values()}
     assert len(days) > 1, "a fixed anchor would be fine if kickoff never moved"
     assert min(days) <= 5 and max(days) >= 10, sorted(days)
+
+
+def _schedule_openers():
+    """{season: date of the first REG week-1 game}, from whichever copy of
+    nflverse's games.csv this checkout has. None when neither exists."""
+    for cand in (_ROOT / ".cache" / "nfldata_games.csv",
+                 _ROOT / "exports" / "snapshot" / "nfldata_games.csv"):
+        if not cand.exists():
+            continue
+        out = {}
+        with cand.open(newline="") as f:
+            for r in csv.DictReader(f):
+                if r.get("game_type") != "REG" or r.get("week") != "1":
+                    continue
+                try:
+                    season = int(r["season"])
+                except (KeyError, TypeError, ValueError):
+                    continue
+                day = str(r.get("gameday") or "")[:10]
+                if len(day) == 10 and (season not in out or day < out[season]):
+                    out[season] = day
+        return out
+    return None
+
+
+def test_the_opener_lookup_reads_week_one_and_nothing_else():
+    """Pure, no schedule needed: week 1 only, and no invented boundary."""
+    m = {(2026, 1): "2026-09-09", (2026, 2): "2026-09-17",
+         (2025, 1): "2025-09-04T20:20"}
+    assert lotg._season_opener(m, 2026) == date(2026, 9, 9)
+    assert lotg._season_opener(m, "2026") == date(2026, 9, 9)
+    assert lotg._season_opener(m, 2025) == date(2025, 9, 4)   # timestamp tolerated
+    # Nothing to say is None, never a guess — the caller keeps the Thursday.
+    assert lotg._season_opener(m, 2024) is None
+    assert lotg._season_opener({}, 2026) is None
+    assert lotg._season_opener(m, None) is None
+    assert lotg._season_opener({(2026, 1): "not-a-date"}, 2026) is None
+
+
+def test_the_opener_only_moves_the_season_that_opened_early():
+    """The safety property: 2020-2025 are untouched, 2026 moves by one day.
+
+    If this ever fails for a completed season, the change stopped being
+    additive — that season's Offseason/Inseason split would move in the
+    shipped sheets."""
+    openers = _schedule_openers()
+    if not openers:
+        return _skip("no nflverse games.csv in this checkout")
+    for season in range(2020, 2026):
+        if season not in openers:
+            continue
+        assert date.fromisoformat(openers[season]) == lotg._nfl_kickoff_thursday(season), (
+            f"{season} opened {openers[season]}, not its computed Thursday "
+            f"{lotg._nfl_kickoff_thursday(season)} — the anchor change is no "
+            "longer a no-op for a completed season")
+    if 2026 in openers:
+        assert date.fromisoformat(openers[2026]) == date(2026, 9, 9)
+        assert lotg._nfl_kickoff_thursday(2026) == date(2026, 9, 10)
+
+
+def test_the_2026_opener_is_the_boundary_the_build_uses():
+    """A move made on Sept 9 2026 must not read as offseason.
+
+    Nothing is misfiled today — the one Sept 9 trade was struck 17:23 ET and
+    the waivers processed 18:04 ET, all before the 20:20 kickoff — so this
+    guards the case rather than restating a correction."""
+    openers = _schedule_openers()
+    if not openers or 2026 not in openers:
+        return _skip("no 2026 schedule in this checkout")
+    opener = lotg._season_opener({(2026, 1): openers[2026]}, 2026)
+    assert opener == date(2026, 9, 9)
+    # The build's rule is `d < kick` -> offseason. Under the Thursday anchor a
+    # Sept 9 move is offseason; under the opener it is not.
+    assert date(2026, 9, 9) < lotg._nfl_kickoff_thursday(2026)
+    assert not (date(2026, 9, 9) < opener)
 
 
 def test_the_swap_predates_its_seasons_kickoff():
