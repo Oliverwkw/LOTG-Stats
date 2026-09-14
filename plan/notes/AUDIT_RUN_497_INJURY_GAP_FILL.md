@@ -130,3 +130,39 @@ opener change and one cascade.
    `test_injury_gap_fill` docstring, and `plan/INQUIRY_PLAYBOOK.md`. That means
    262 → 275, "Gabe Davis 2024 wk11" → 2023 wk 11, and the corrected per-season
    table.
+
+## Round 2 — run 498 (head `08a76f4`) and a second pass over the branch
+
+Run 498 is results pending. A second pass looked at what round 1 had not:
+
+- **The digest the merge will send.** Run 497's digest, against the committed
+  ranks snapshot, has 178 board moves and 40 crossings. Run 496's had 81 and 12.
+  The extra moves are the injury flips re-valuing settled history: new boards for
+  Hardship, Weeks of injuries, Most injured?, donuts and under-10s, and the lede
+  already calls the week "a recompute". Every direction and value was checked
+  against the diff (e.g. LWebs53 at 458 passing Oliverwkw at 454 on Weeks of
+  injuries). One line was **wrong**: "the 2023.0 season passes the 2022.0
+  season". `league_year` has no text column, so a row taken from it is a float64
+  Series and the label printed the float. It is older than this PR, and it had
+  never reached a committed digest, because no league-season board had moved
+  since the label was written. This PR is what moves one, so the merge would
+  have put it in the league email. **Fixed**: `_board_label` renders the year
+  whole, and `migrate_board_label` reads an old baseline's "the YYYY.0 season"
+  in the new spelling. The row key keeps its stored spelling
+  (`league_year|2023.0`). Verified by rebuilding the digest on run 497's exports
+  and the committed snapshot with and without the fix: 40 crossings and 178
+  board moves both times, identical board and row keys, and exactly the 3 float
+  labels changed. The new check in `test_digest` fails against the unfixed code.
+- **Merge timing, needs-human-judgment.** The Tuesday 2026-09-15 13:47 UTC build
+  sends week 1's email. If this PR is merged before that build, the ~100
+  recompute moves above ride along with the first results week. Merged after,
+  they arrive in week 2's.
+- **Night-game sweeps, by-design.** `gameday()` shifts UTC back 6 hours, so the
+  20:53 anticipatory fire's latest measured landing (00:05 UTC) still resolves
+  to the Monday gameday; the margin is 3h52m inside the measured delay band.
+  `test_injury_tracker` pins a 03:30 UTC → previous-day case. A fire later than
+  06:00 UTC lands on a no-game day and exits, which is a loss, not a
+  corruption.
+- **Merge state.** GitHub reports the PR mergeable and CLEAN, no checks are
+  required, and `main` has had no commit since the fork, so the tracker-CSV
+  rewrite has nothing to conflict with yet.

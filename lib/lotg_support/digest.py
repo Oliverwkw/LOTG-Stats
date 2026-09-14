@@ -1087,6 +1087,11 @@ def _asset_summary(raw: str) -> str:
     return f"{shown} +{extra} more" if extra > 0 else shown
 
 
+def _whole(text: str) -> str:
+    """'2023.0' -> '2023'; anything else unchanged."""
+    return text[:-2] if re.fullmatch(r"-?\d+\.0", text or "") else text
+
+
 def _board_label(sheet: str, row) -> str:
     """How a row is named in the email. Season / week rows are named by entity and
     when; event rows name what actually moved (the assets)."""
@@ -1100,7 +1105,13 @@ def _board_label(sheet: str, row) -> str:
     if sheet == "team_year":
         return f"{g('Team')} {g('Year')}".strip()
     if sheet == "league_year":
-        return f"the {g('Year')} season".strip()
+        # league_year has no text column, so a row taken from it is a float64
+        # Series and Year arrives as "2023.0" — which the email printed ("the
+        # 2023.0 season passes the 2022.0 season", run 497). Only the LABEL is
+        # cleaned: the row KEY keeps the stored spelling ("league_year|2023.0",
+        # _board_row_key) so a committed baseline still lines up, and an old
+        # baseline's labels are read through migrate_board_label.
+        return f"the {_whole(g('Year'))} season".strip()
     if sheet == "player_week":
         return f"{g('Player')} {g('Year')} week {g('Week')}".strip()
     if sheet == "team_week":
@@ -1168,11 +1179,18 @@ def _board_label(sheet: str, row) -> str:
 _LEGACY_ADDITION_LABEL = re.compile(
     r"^(?P<head>.+?'s \d{4}-\d{2}-\d{2}) (?P<kind>trade|waiver|free agency|commissioner) of "
     r"(?P<who>.+)$")
+# league_year's float year ("the 2023.0 season") — see _board_label.
+_LEGACY_SEASON_LABEL = re.compile(r"^the (-?\d+)\.0 season$")
 
 
 def migrate_board_label(sheet: str, label: str) -> str:
-    """An old player_additions label in today's spelling (idempotent)."""
-    if sheet != "player_additions" or not isinstance(label, str):
+    """An old label in today's spelling (idempotent): player_additions'
+    acquisition wording, and league_year's float year."""
+    if not isinstance(label, str):
+        return label
+    if sheet == "league_year":
+        return _LEGACY_SEASON_LABEL.sub(r"the \1 season", label)
+    if sheet != "player_additions":
         return label
     m = _LEGACY_ADDITION_LABEL.match(label)
     if not m:
