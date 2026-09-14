@@ -124,6 +124,7 @@ from lotg_support.external import (
     load_dynastyprocess_values_picks,
     load_nflverse_injuries,
     load_nflverse_player_ids,
+    load_nflverse_snap_counts,
     load_nflverse_stats_player_week,
     load_nflverse_weekly_rosters,
 )
@@ -4128,7 +4129,13 @@ def build_all(repo_root: Path) -> None:
         # instead of the 'NFL' free-agent sentinel.
         roster_team_by_week: Dict[Tuple[str, int, int], str] = {}
         roster_team_by_season: Dict[Tuple[str, int], str] = {}
+        # APPEARANCE, not events. `played_players_by_week` starts from
+        # stats_player_week (an EVENT list) and is then unioned with the
+        # snap-count appearance set below, because a player who took the field
+        # and recorded nothing is absent from the event file. Every consumer
+        # asks it "did he play", so the union is what makes those answers true.
         played_players_by_week: Dict[int, set] = {}
+        pfr_to_gsis: Dict[str, str] = {}
         try:
             spw = _safe_df(load_nflverse_stats_player_week(
                 ext, season,
@@ -4236,6 +4243,13 @@ def build_all(repo_root: Path) -> None:
             wr = _safe_df(load_nflverse_weekly_rosters(
                 ext, season, force_refresh=_force_refresh_season(season),
             ))
+            # Snap counts key on pfr_player_id and carry no gsis, so this is
+            # the only bridge to them. Captured before the frame is narrowed.
+            if not wr.empty and {"pfr_id", "gsis_id"}.issubset(wr.columns):
+                for _r in wr[["pfr_id", "gsis_id"]].dropna().itertuples(index=False):
+                    _pf, _gs = str(_r.pfr_id).strip(), str(_r.gsis_id).strip()
+                    if _pf and _pf != "nan" and _looks_like_gsis(_gs):
+                        pfr_to_gsis.setdefault(_pf, _gs)
             if not wr.empty and "gsis_id" in wr.columns and "team" in wr.columns and "week" in wr.columns:
                 wr = wr[["gsis_id", "week", "team"]].dropna()
                 wr["week"] = pd.to_numeric(wr["week"], errors="coerce").astype("Int64")
@@ -4253,6 +4267,64 @@ def build_all(repo_root: Path) -> None:
                     pass
         except Exception as e:
             _log_exc(debug, f"load_nflverse_weekly_rosters_{season}", e)
+
+        # nflverse SNAP COUNTS — the appearance half of "did he play".
+        #
+        # WHY THIS EXISTS. `played_players_by_week` was built from
+        # stats_player_week alone, which lists players who recorded a countable
+        # EVENT, not players who appeared: 31-40 rows per team per week against
+        # the ~47 who dress, and 248 of 379 active-roster WRs absent in a
+        # sampled week. A man who plays eight snaps untargeted records nothing.
+        #
+        # The injury gap-fill below reads "no row this week" as "did not play"
+        # and writes an injury, so that gap became 262 of the 3,826 `Injury?`
+        # flags across 2020-2025 — players who were on the field. 2.4-3.1% in
+        # 2020-2022, rising to ~10% from 2023. The worst are full-game
+        # starters: Gabe Davis 2024 wk11 at 67 snaps, Cole Kmet 66, Cade Otton
+        # 66, Courtland Sutton 57, each with 0.00 points and an injury flag.
+        # It inflated Hardship, and through it Luck and Loss from hardship?,
+        # and dropped those weeks out of played-week denominators.
+        #
+        # Unioning the appearance set in is what fixes it, and on this league's
+        # rosters the union is purely SUBTRACTIVE: it only ever adds weeks a
+        # player is now known to have played, which can only veto a fill. The
+        # single rostered player it newly admits to the gap-fill population
+        # (Roman Wilson 2024, snaps in week 6 only) was already flagged for 16
+        # of 17 weeks by the injury report, and the union CORRECTS his week 6.
+        #
+        # A snap total of 0 is not an appearance: the file carries zero rows for
+        # players who dressed and never took the field, and treating those as
+        # played would re-open the hole from the other side.
+        try:
+            snaps = _safe_df(load_nflverse_snap_counts(
+                ext, season, force_refresh=_force_refresh_season(season),
+            ))
+            if not snaps.empty and {"pfr_player_id", "week"}.issubset(snaps.columns):
+                if "game_type" in snaps.columns:
+                    snaps = snaps[snaps["game_type"].astype(str).str.upper() == "REG"]
+                snaps = snaps.copy()
+                snaps["week"] = pd.to_numeric(snaps["week"], errors="coerce").astype("Int64")
+                _snap_cols = [c for c in ("offense_snaps", "defense_snaps", "st_snaps")
+                              if c in snaps.columns]
+                if _snap_cols:
+                    _tot = sum(pd.to_numeric(snaps[c], errors="coerce").fillna(0)
+                               for c in _snap_cols)
+                    snaps = snaps[_tot > 0]
+                _added = 0
+                for _r in snaps[["pfr_player_id", "week"]].dropna().itertuples(index=False):
+                    _gs = pfr_to_gsis.get(str(_r.pfr_player_id).strip())
+                    if not _gs:
+                        continue
+                    _wk = int(_r.week)
+                    _bucket = played_players_by_week.setdefault(_wk, set())
+                    if _gs not in _bucket:
+                        _bucket.add(_gs)
+                        _added += 1
+                _log(debug, f"[{_now_iso()}] INFO snap_appearances season={season} "
+                            f"added={_added} player-weeks the event file did not carry "
+                            f"(bridge={len(pfr_to_gsis)} pfr->gsis)")
+        except Exception as e:
+            _log_exc(debug, f"load_nflverse_snap_counts_{season}", e)
 
         # nflverse injuries (optional; used as secondary signal)
         try:
@@ -4362,10 +4434,17 @@ def build_all(repo_root: Path) -> None:
         # 2024 wks 4-9) AND end-of-season IRs (Travis Hunter 2025 wks 10-17,
         # Michael Penix Jr 2025 wks 12-17) in one pass.
         #
-        # Conservative: only fires for players who played at least one nflverse
-        # game in the season (so we never invent injuries for never-active
-        # backups), and never overwrites an existing key (so the curated
-        # suspensions / injuries overlays and nflverse Out reports still win).
+        # Conservative: only fires for players who APPEARED at least once in the
+        # season (so we never invent injuries for never-active backups), and
+        # never overwrites an existing key (so the curated suspensions /
+        # injuries overlays and nflverse Out reports still win).
+        #
+        # "Appeared" is the union of the event file and the snap counts, built
+        # above. It used to be the event file alone, and that is what made this
+        # block write 262 false injuries across 2020-2025 — a week with no
+        # countable statistic is not a week off the field. Anything reading
+        # played_players_by_week as an appearance list is only correct because
+        # of that union; do not narrow it back to stats_player_week.
         played_by_gsis_season: Dict[str, set] = defaultdict(set)
         try:
             if played_players_by_week:
@@ -6048,7 +6127,10 @@ def build_all(repo_root: Path) -> None:
 
                         # Flags (platform primary, nflverse secondary)
                         # Injury/suspension (new approach): authoritative nflverse injuries, keyed by gsis_id (via player_ids mapping).
-                        # Only mark if the player did NOT play that week (no stats row) and it is not a bye.
+                        # Only mark if the player did NOT APPEAR that week and it
+                        # is not a bye. "Appear" is played_players_by_week, which
+                        # is the event file UNIONED with the snap counts — a
+                        # scoreless week on the field is not an absence.
                         inj = False
                         susp = False
                         try:
@@ -6125,11 +6207,19 @@ def build_all(repo_root: Path) -> None:
                         # the week ended for him. `played` prefers Sleeper's own
                         # participation capture (live, frozen into the tracker
                         # the night of the games) and falls back to nflverse's
-                        # played set — which is authoritative but lands ~2-3 days
-                        # later, so on the Tuesday build the week may not be in
-                        # it at all. Absent week => None (unknown), NOT "didn't
-                        # play": guessing "didn't play" there is what would turn
-                        # a hurt-in-game 0.0 into a phantom injury week.
+                        # played set, which lands ~2-3 days later, so on the
+                        # Tuesday build the week may not be in it at all. Absent
+                        # week => None (unknown), NOT "didn't play": guessing
+                        # "didn't play" there is what would turn a hurt-in-game
+                        # 0.0 into a phantom injury week.
+                        #
+                        # Sleeper's capture is preferred on coverage, not just
+                        # latency: it is a SUPERSET of nflverse's event file (no
+                        # player with a stat line is ever missing from it) and it
+                        # sees the man who dressed, played and recorded nothing.
+                        # nflverse's side only matches that once the snap counts
+                        # are folded in, which is what played_players_by_week
+                        # now carries.
                         _trk = injury_tracker_idx.get((str(pid), int(season), int(wk)))
                         if _trk:
                             _played = True if _trk.get("played") is True else None

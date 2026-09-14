@@ -31,7 +31,7 @@ _ROOT = Path(__file__).resolve().parent.parent
 # Per-family REQUIRED seasons = FINALIZED seasons whose data must be committed.
 # Floors are fixed league-history facts (earliest season each feed is needed):
 #   stats_player_week -> 2018 (earliest NFL season of a rostered player)
-#   weekly_rosters / injuries -> 2020 (start of the tracked league era)
+#   weekly_rosters / injuries / snap_counts -> 2020 (start of the tracked era)
 # Ceiling = last FINALIZED NFL season. Bump each family's upper bound by one
 # when a season ends and its data is committed. (range() is exclusive, so
 # range(2018, 2026) == 2018..2025.)
@@ -39,6 +39,13 @@ _REQUIRED_SEASONS = {
     "nflverse_stats_player_week": range(2018, 2026),  # 2018..2025
     "nflverse_weekly_rosters": range(2020, 2026),     # 2020..2025
     "nflverse_injuries": range(2020, 2026),           # 2020..2025
+    # snap_counts is the APPEARANCE list the injury gap-fill depends on. It has
+    # to be committed for the same reason as the rest: the offline / audit
+    # build never re-downloads a historical season, so a missing file here does
+    # not error — it silently reverts that season's Injury? flags to the
+    # event-list reading this family was added to fix, which would reappear as
+    # a phantom diff in exactly the way PR #319's did.
+    "nflverse_snap_counts": range(2020, 2026),        # 2020..2025
 }
 
 # Non-seasonal feeds that must always be committed.

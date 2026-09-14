@@ -365,6 +365,36 @@ def load_nflverse_stats_player_week(cfg: ExternalConfig, season: int, force_refr
     return apply_position_pins(df)
 
 
+def load_nflverse_snap_counts(cfg: ExternalConfig, season: int, force_refresh: bool = False) -> pd.DataFrame:
+    """Load nflverse SNAP COUNTS for a season — the only true APPEARANCE list
+    nflverse publishes.
+
+    `stats_player_week` is an EVENT list: it carries a row only for a player
+    who recorded a countable statistic, 31-40 per team per week against the ~47
+    who dress. A receiver who plays eight snaps and is not targeted is simply
+    absent from it. Reading that absence as "did not play" is what made the
+    build's injury gap-fill flag 262 of its 3,826 `Injury?` weeks on players
+    who were on the field (Gabe Davis 2024 wk11, 67 snaps; Cade Otton 66).
+
+    This file answers "did he take the field": `offense_snaps`,
+    `defense_snaps`, `st_snaps`. Note it carries NO gsis_id — only
+    `pfr_player_id` — so callers must bridge through
+    `load_nflverse_weekly_rosters`' `pfr_id` column. Columns of interest:
+    season, week, game_type, pfr_player_id, offense_snaps, defense_snaps,
+    st_snaps."""
+    urls = [
+        f"https://github.com/nflverse/nflverse-data/releases/download/snap_counts/snap_counts_{season}.csv",
+        f"https://github.com/nflverse/nflverse-data/releases/download/snap_counts/snap_counts_{season}.csv.gz",
+        f"https://raw.githubusercontent.com/nflverse/nflverse-data/master/data/snap_counts/snap_counts_{season}.csv",
+    ]
+    path = cfg.cache_dir / f"nflverse_snap_counts_{season}.csv"
+    _ensure(cfg, path, urls, force_refresh=force_refresh)
+    try:
+        return pd.read_csv(path, low_memory=False)
+    except Exception:
+        return pd.read_csv(path, compression="gzip", low_memory=False)
+
+
 def load_nflverse_weekly_rosters(cfg: ExternalConfig, season: int, force_refresh: bool = False) -> pd.DataFrame:
     """Load nflverse WEEKLY rosters for a season (every player on a team that
     week, including IR / suspended / PUP — players who never accumulate stats).

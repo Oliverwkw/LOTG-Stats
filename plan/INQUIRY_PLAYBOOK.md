@@ -857,17 +857,21 @@ list is here so an answer written by hand does not walk into them.
   (`offense_snaps` / `defense_snaps` / `st_snaps`), or Sleeper's own
   participation capture in `data/injury_tracker.csv`, which is a SUPERSET of
   the event list (no player with a stat line is ever missing from it).
-- **`Injury?` in 2020-2025 over-flags, because the build's injury gap-fill made
-  exactly that mistake.** `src/lotg.py`'s gap-fill writes an injury for every
-  week a player has no `stats_player_week` row in, so a man who dressed, played
-  and recorded nothing reads as injured: **262 of the 3,826 `Injury?` flags
-  (6.8%) are players with SNAPS that week**, confirmed against `snap_counts` —
-  2.4-3.1% in 2020-2022 rising to ~10% in 2023-2025. The worst are full-game
-  starters (Gabe Davis wk11 2024, 67 snaps; Cole Kmet 66; Cade Otton 66;
-  Courtland Sutton 57). It inflates `Hardship`, and therefore `Luck` and
-  `Loss from hardship?`, and it wrongly drops those weeks out of played-week
-  denominators like `Adjusted Avg`. Do not read an injury RATE off `Injury?`
-  without this in mind.
+- **`Injury?` before the snap-count fix over-flagged, and any figure quoted
+  from an older build still carries it.** The build's injury gap-fill writes an
+  injury for every week a player did not appear in, and "appear" used to mean
+  "has a `stats_player_week` row" — so a man who dressed, played and recorded
+  nothing read as injured. That was **262 of the 3,826 `Injury?` flags (6.8%)
+  in 2020-2025**, 2.4-3.1% in 2020-2022 rising to ~10% from 2023, the worst
+  being full-game starters (Gabe Davis 2024 wk11 at 67 snaps; Cole Kmet 66;
+  Cade Otton 66; Courtland Sutton 57). It inflated `Hardship`, and through it
+  `Luck` and `Loss from hardship?`, and dropped those weeks out of played-week
+  denominators like `Adjusted Avg`. `played_players_by_week` is now the event
+  list UNIONED with `snap_counts`, and
+  `test_no_injury_flag_coincides_with_snaps_played` holds it — but an
+  `Injury?`, `Hardship` or `Luck` number taken from a build before that fix is
+  wrong by roughly that much, so say which build a historical injury figure
+  came from.
 - **Join nflverse on `gsis_id`, never on name.** A suffix
   (`Marvin Harrison Jr.`, `Deebo Samuel Sr.`) reads as 21 false disagreements
   against the tracker. `snap_counts` is the exception — it has no gsis at all,
