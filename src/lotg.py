@@ -4277,11 +4277,13 @@ def build_all(repo_root: Path) -> None:
         # sampled week. A man who plays eight snaps untargeted records nothing.
         #
         # The injury gap-fill below reads "no row this week" as "did not play"
-        # and writes an injury, so that gap became 262 of the 3,826 `Injury?`
-        # flags across 2020-2025 — players who were on the field. 2.4-3.1% in
-        # 2020-2022, rising to ~10% from 2023. The worst are full-game
-        # starters: Gabe Davis 2024 wk11 at 67 snaps, Cole Kmet 66, Cade Otton
-        # 66, Courtland Sutton 57, each with 0.00 points and an injury flag.
+        # and writes an injury, so that gap became 275 of the 3,826 `Injury?`
+        # flags across 2020-2025 — players who were on the field (measured as
+        # the actual export diff of run 34873813049 against run 496). 2.4-3.6%
+        # in 2020-2022, rising to ~10.5% from 2023. The worst played near-full
+        # games: Gabe Davis 2023 wk11 at 67 snaps, Cole Kmet 2024 wk9 66, Cade
+        # Otton 2025 wk3 66, Courtland Sutton 2024 wk7 57, each with 0.00 points
+        # and an injury flag.
         # It inflated Hardship, and through it Luck and Loss from hardship?,
         # and dropped those weeks out of played-week denominators.
         #
@@ -4441,7 +4443,7 @@ def build_all(repo_root: Path) -> None:
         #
         # "Appeared" is the union of the event file and the snap counts, built
         # above. It used to be the event file alone, and that is what made this
-        # block write 262 false injuries across 2020-2025 — a week with no
+        # block write 275 false injuries across 2020-2025 — a week with no
         # countable statistic is not a week off the field. Anything reading
         # played_players_by_week as an appearance list is only correct because
         # of that union; do not narrow it back to stats_player_week.

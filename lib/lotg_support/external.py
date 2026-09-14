@@ -373,8 +373,8 @@ def load_nflverse_snap_counts(cfg: ExternalConfig, season: int, force_refresh: b
     who recorded a countable statistic, 31-40 per team per week against the ~47
     who dress. A receiver who plays eight snaps and is not targeted is simply
     absent from it. Reading that absence as "did not play" is what made the
-    build's injury gap-fill flag 262 of its 3,826 `Injury?` weeks on players
-    who were on the field (Gabe Davis 2024 wk11, 67 snaps; Cade Otton 66).
+    build's injury gap-fill flag 275 of its 3,826 `Injury?` weeks on players
+    who were on the field (Gabe Davis 2023 wk11, 67 snaps; Cade Otton 2025 wk3, 66).
 
     This file answers "did he take the field": `offense_snaps`,
     `defense_snaps`, `st_snaps`. Note it carries NO gsis_id — only

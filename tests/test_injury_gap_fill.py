@@ -9,28 +9,39 @@ What it got wrong was "appear". It read `stats_player_week`, which is an EVENT
 list: a row per player who recorded a countable statistic, 31-40 per team per
 week against the ~47 who dress. A receiver who plays eight snaps and is not
 targeted records nothing and is simply absent from it. Reading that absence as
-an absence from the field flagged **262 of the 3,826 `Injury?` weeks in
-2020-2025** on players who were playing:
+an absence from the field flagged **275 of the 3,826 `Injury?` weeks in
+2020-2025** on players who were playing — every one of them flipped True ->
+False in the export diff of the first build with the fix (run 34873813049 vs
+run 496), and nothing else flipped:
 
-    2020   11/394 ( 2.8%)        2023   58/561 (10.3%)
-    2021   21/685 ( 3.1%)        2024   79/779 (10.1%)
-    2022   14/587 ( 2.4%)        2025   79/820 ( 9.6%)
+    2020   14/394 ( 3.6%)        2023   59/561 (10.5%)
+    2021   22/685 ( 3.2%)        2024   80/779 (10.3%)
+    2022   14/587 ( 2.4%)        2025   86/820 (10.5%)
 
-Worst cases were full-game starters, each with 0.00 points and an injury flag:
-Gabe Davis 2024 wk11 (67 snaps), Cole Kmet (66), Cade Otton (66), Justin Watson
-(63), Courtland Sutton (57). Ben Sinnott had seven such weeks. It inflated
-Hardship, and through it Luck and `Loss from hardship?`, and dropped those weeks
-out of played-week denominators like `Adjusted Avg`.
+(An earlier count of 262 bridged players to snap counts by NAME. That missed 16
+real cases spelt differently upstream — A.J. Dillon, D.J. Chark, Dont'e
+Thornton Jr. — and wrongly counted 3 weeks where Michael Carter the RB, who was
+hurt, borrowed the snaps of Michael Carter II the CB. The build joins on ids and
+was right both times; see `_pfr_by_name_and_position` for how this guard
+avoids the same trap.)
+
+Worst cases played near-full games, each with 0.00 points and an injury flag:
+Gabe Davis 2023 wk11 (67 snaps), Cole Kmet 2024 wk9 (66), Cade Otton 2025 wk3
+(66), Justin Watson 2024 wk5 (63), Courtland Sutton 2024 wk7 (57). Ben Sinnott
+had sixteen such weeks across 2024-2025. It inflated Hardship, and through it
+Luck and `Loss from hardship?`, and dropped those weeks out of played-week
+denominators like `Adjusted Avg`.
 
 The fix unions nflverse's `snap_counts` release — a true appearance list — into
 `played_players_by_week`. The alternative considered and rejected was gating on
-the weekly-roster status: it kills the same 262 but also ~253 flags that are
+the weekly-roster status: it kills the same false flags but also ~253 that are
 genuine game-day inactives, because `ACT` covers those too.
 
 Run: PYTHONPATH=src:lib python tests/test_injury_gap_fill.py
 """
 from __future__ import annotations
 
+import re
 import sys
 from pathlib import Path
 
@@ -58,6 +69,44 @@ def _skip(reason: str) -> bool:
 def _snap_seasons():
     return sorted(int(p.stem.rsplit("_", 1)[1])
                   for p in _CACHE.glob("nflverse_snap_counts_*.csv"))
+
+
+_NAME_SUFFIXES = {"jr", "sr", "ii", "iii", "iv", "v"}
+# nflverse roster position -> the fantasy position player_week carries.
+_FANTASY_POSITION = {"QB": "QB", "RB": "RB", "FB": "RB", "WR": "WR", "TE": "TE", "K": "K"}
+
+
+def _norm_name(name) -> str:
+    """'A.J. Dillon' == 'AJ Dillon', "Dont'e Thornton Jr." == "Dont'e Thornton"."""
+    words = re.sub(r"[^a-z ]", "", str(name).lower()).split()
+    return "".join(w for w in words if w not in _NAME_SUFFIXES)
+
+
+def _pfr_by_name_and_position(wr) -> dict:
+    """{(normalized name, fantasy position): pfr_id} from one season's weekly
+    rosters, keeping ONLY keys that resolve to a single player.
+
+    player_week carries no id, so the bridge has to go through the name — and a
+    bare name is not an identity. Keyed on the name alone, Michael Carter the
+    NYJ running back (CartMi03, 0 snaps in 2021 wks 12-13, genuinely hurt)
+    borrowed the snaps of Michael Carter II, the NYJ corner (CartMi02, listed
+    as "Michael Carter" in the same file), and this guard failed run 34873813049
+    on three correct flags. The position splits them; a key two fantasy-eligible
+    players still share is dropped rather than guessed. Pinned positions win, so
+    a two-way player is read at the position the sheets give him."""
+    from lotg_support.position_pins import FANTASY_POSITION_PINS
+
+    seen: dict = {}
+    for r in wr.itertuples():
+        pfr = getattr(r, "pfr_id", None)
+        if not isinstance(pfr, str) or not pfr.strip():
+            continue
+        gsis = str(getattr(r, "gsis_id", "") or "").strip()
+        pos = FANTASY_POSITION_PINS.get(gsis) or _FANTASY_POSITION.get(str(r.position))
+        if not pos:
+            continue
+        seen.setdefault((_norm_name(r.full_name), pos), set()).add(pfr.strip())
+    return {k: next(iter(v)) for k, v in seen.items() if len(v) == 1}
 
 
 def _exports_built_with_the_fix() -> bool:
@@ -129,11 +178,7 @@ def test_no_injury_flag_coincides_with_snaps_played():
         wr_path = _CACHE / f"nflverse_weekly_rosters_{season}.csv"
         if not wr_path.exists():
             continue
-        wr = pd.read_csv(wr_path, low_memory=False)
-        pfr_of = {}
-        for r in wr.itertuples():
-            if isinstance(getattr(r, "pfr_id", None), str):
-                pfr_of.setdefault(str(r.full_name), r.pfr_id)
+        pfr_of = _pfr_by_name_and_position(pd.read_csv(wr_path, low_memory=False))
         sn = pd.read_csv(_CACHE / f"nflverse_snap_counts_{season}.csv", low_memory=False)
         if "game_type" in sn.columns:
             sn = sn[sn["game_type"].astype(str).str.upper() == "REG"]
@@ -148,9 +193,9 @@ def test_no_injury_flag_coincides_with_snaps_played():
                 snaps[k] = max(snaps.get(k, 0), tot)
         inj = pw[(pw["Year"] == season) & (pw["Injury?"] == True)]  # noqa: E712
         for r in inj.itertuples():
-            p = pfr_of.get(str(r.Player))
+            p = pfr_of.get((_norm_name(r.Player), str(r.Position)))
             if not p:
-                continue      # unbridgeable by name; not this test's business
+                continue      # unbridgeable or ambiguous; not this test's business
             s = snaps.get((p, int(r.Week)))
             if s and s > 0:
                 offenders.append((int(season), str(r.Player), int(r.Week), int(s)))

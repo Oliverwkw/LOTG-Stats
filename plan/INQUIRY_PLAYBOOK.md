@@ -861,10 +861,13 @@ list is here so an answer written by hand does not walk into them.
   from an older build still carries it.** The build's injury gap-fill writes an
   injury for every week a player did not appear in, and "appear" used to mean
   "has a `stats_player_week` row" — so a man who dressed, played and recorded
-  nothing read as injured. That was **262 of the 3,826 `Injury?` flags (6.8%)
-  in 2020-2025**, 2.4-3.1% in 2020-2022 rising to ~10% from 2023, the worst
-  being full-game starters (Gabe Davis 2024 wk11 at 67 snaps; Cole Kmet 66;
-  Cade Otton 66; Courtland Sutton 57). It inflated `Hardship`, and through it
+  nothing read as injured. That was **275 of the 3,826 `Injury?` flags (7.2%)
+  in 2020-2025** (the measured export diff, run 34873813049 vs run 496),
+  2.4-3.6% in 2020-2022 rising to ~10.5% from 2023, the worst played near-full
+  games (Gabe Davis 2023 wk11 at 67 snaps; Cole Kmet 2024 wk9 66; Cade Otton
+  2025 wk3 66; Courtland Sutton 2024 wk7 57). A name-matched recount gets 262 —
+  it misses A.J./AJ-style spellings and lends Michael Carter II's snaps to
+  Michael Carter the RB — which is the name-join trap below in miniature. It inflated `Hardship`, and through it
   `Luck` and `Loss from hardship?`, and dropped those weeks out of played-week
   denominators like `Adjusted Avg`. `played_players_by_week` is now the event
   list UNIONED with `snap_counts`, and

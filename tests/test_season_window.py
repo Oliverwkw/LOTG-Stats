@@ -228,16 +228,34 @@ def test_no_trade_is_filed_against_the_wrong_side_of_a_boundary():
         return _skip("no exports/trades.csv")
     from collections import defaultdict
     finals_week = {2020: 16, 2021: 17, 2022: 17, 2023: 17, 2024: 17, 2025: 17, 2026: 17}
+    # The near edge is the schedule's week-1 opener, the Thursday only when the
+    # schedule cannot say — the same rule as the build's _season_window. Reading
+    # the Thursday alone here filed the 2026-09-09 BROsenzweig/JacobRosenzweig
+    # trade (2026 opened Wednesday Sept 9) as offseason and failed run
+    # 34873813049 against a build that was right. The far edge still counts
+    # from the Thursday: the finals Monday does not move with the opener.
+    #
+    # COMPLETED seasons only, like every data-dependent guard here. The
+    # in-progress season's split depends on which build wrote the exports: the
+    # committed ones predating the opener change file that same trade the other
+    # way, so asserting 2026 fails on one vintage or the other. The 2026
+    # boundary itself is held by test_the_2026_opener_is_the_boundary_the_build_uses.
+    openers = _schedule_openers() or {}
     counts = defaultdict(lambda: {"off": set(), "in": set()})
     for r in _rows("trades.csv"):
         season = int(r["Season"])
+        if not lotg._season_is_complete(season):
+            continue
         when = date.fromisoformat(str(r["Date"])[:10])
-        kick = lotg._nfl_kickoff_thursday(season)
-        end = kick + __import__("datetime").timedelta(days=4 + 7 * (finals_week[season] - 1))
+        thursday = lotg._nfl_kickoff_thursday(season)
+        kick = date.fromisoformat(openers[season]) if season in openers else thursday
+        end = thursday + __import__("datetime").timedelta(days=4 + 7 * (finals_week[season] - 1))
         bucket = "off" if (when < kick or when > end) else "in"
         counts[(r["Team"], season)][bucket].add(str(r["Date"]))
     for row in _rows("team_year.csv"):
         key = (row["Team"], int(row["Year"]))
+        if not lotg._season_is_complete(key[1]):
+            continue
         off, ins = _num(row["Offseason trades"]), _num(row["Inseason trades"])
         if off is None or ins is None:
             continue
