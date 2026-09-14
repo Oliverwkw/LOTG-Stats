@@ -34,4 +34,4 @@ INFO team_week: missing={'PF': 0, 'Max PF': 0, 'Efficiency': 0}
 /home/runner/work/LOTG-Stats/LOTG-Stats/src/lotg.py:19605: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`
   frame["Total transactions"] = (
 [lotg] refreshed live current-season roster snapshot
-[injury-coverage] injury coverage: 1 week(s) captured, 244 snapshots, 0 played-week gap(s) -> exports/raw/injury_coverage.md
+[injury-coverage] injury coverage: 1 week(s) captured, 247 snapshots, 0 played-week gap(s) -> exports/raw/injury_coverage.md

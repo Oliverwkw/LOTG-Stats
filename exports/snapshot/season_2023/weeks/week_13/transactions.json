@@ -115,8 +115,8 @@
     "waiver_budget": [
       {
         "amount": 15,
-        "receiver": 7,
-        "sender": 4
+        "sender": 4,
+        "receiver": 7
       }
     ]
   },
