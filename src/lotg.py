@@ -112,6 +112,7 @@ from lotg_support.sleeper import SleeperClient
 from lotg_support.injury_tracker import (
     apply_overlay as _apply_injury_overlay,
     load_status_index as _load_injury_tracker,
+    looks_like_gsis as _looks_like_gsis,
 )
 from lotg_support.external import (
     ExternalConfig,
@@ -2396,6 +2397,8 @@ def build_all(repo_root: Path) -> None:
             nfl_ids = nfl_ids.dropna(subset=["sleeper_id", "gsis_id"]).copy()
             nfl_ids["sleeper_id"] = nfl_ids["sleeper_id"].astype(str)
             nfl_ids["gsis_id"] = nfl_ids["gsis_id"].astype(str)
+            # Placeholders only — see the note on dp_sleeper_to_gsis below.
+            nfl_ids = nfl_ids[nfl_ids["gsis_id"].map(_looks_like_gsis)]
             sleeper_to_gsis = dict(zip(nfl_ids["sleeper_id"], nfl_ids["gsis_id"]))
     except Exception as e:
         _log_exc(debug, "load_nflverse_player_ids", e)
@@ -2433,7 +2436,24 @@ def build_all(repo_root: Path) -> None:
             m["gsis_id"] = m["gsis_id"].astype(str).map(lambda v: str(v).strip())
             # Drop rows whose ids degenerated to empty/nan strings after coercion.
             m = m[(m["sleeper_id"] != "") & (m["sleeper_id"].str.lower() != "nan")]
-            m = m[(m["gsis_id"] != "") & (m["gsis_id"].str.lower() != "nan")]
+            # And rows whose gsis_id is a PLACEHOLDER rather than an id. Upstream
+            # has started filling players who have no gsis yet with an
+            # `AAA######` token derived from the surname — 182 of the 6,147
+            # sleeper-mapped rows in the current cached copy of this table,
+            # against 2 in the committed snapshot copy, so it is growing. 41 of
+            # this league's 247 rostered players (all 2026 rookies) would be
+            # assigned one, because the backfill below takes DP's value
+            # unvalidated whenever Sleeper has no gsis of its own.
+            #
+            # It is INERT today, and this is a guard rather than a fix: a
+            # placeholder matches no nflverse row, and every site treats
+            # "no match" exactly as it treats "no id" — `_infer_flags_from_nflverse`
+            # returns (None, None) either way, the enrichment loop does
+            # `continue` either way, and played=None vs played=False changes no
+            # verdict in resolve_injury_flags. What it is not is SAFE: it is an
+            # id-shaped value that is not an id, sitting on a sixth of the
+            # roster, one `if gsis:` away from asserting something false.
+            m = m[m["gsis_id"].map(_looks_like_gsis)]
             dp_sleeper_to_gsis = dict(zip(m["sleeper_id"], m["gsis_id"]))
         except Exception:
             dp_sleeper_to_gsis = {}

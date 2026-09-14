@@ -213,6 +213,31 @@ _INJURY_TOKENS = {"out", "ir", "pup", "nfi", "cov", "covid", "dnr"}
 _INJURY_PHRASES = ("injured reserve", "physically unable", "non football injury",
                    "did not report", "reserve covid")
 _SUSPENSION_TOKENS = {"sus", "susp", "suspended", "suspension"}
+
+# Sleeper (injury_status, status) pairs that deliberately DECIDE NOTHING, with
+# the reason each is safe to leave undecided. This is the allowlist behind
+# `test_every_sleeper_status_pair_is_classified`: a pair that is neither
+# designated nor listed here fails that test, so a new value Sleeper starts
+# emitting has to be classified by a human instead of silently meaning "he
+# played". NA is on this list's history, not its contents — it sat undecided
+# for a season and cost a player-week; the guard exists so the next one cannot.
+UNDECIDED_STATUS_PAIRS = {
+    ("", "Active"): "the general population: 830 of 1,506 judgeable ones played 2026 wk1",
+    ("", ""): "45 players carry no status at all, including all 32 team DSTs",
+    ("Questionable", "Active"): "game-time label; 19 of 28 judgeable ones played",
+    ("Doubtful", "Active"): "game-time label, same as Questionable",
+    ("", "Practice Squad"): "can be elevated for the week and play",
+    # The two Inactive pairs read as 'nobody played' on the 2026 wk1 evidence,
+    # and STILL decide nothing, because the players carrying them are not
+    # scratched — they are out of the league. All 41 on-team cases are retired
+    # or former players whose `team` field Sleeper never cleared (Eric Weddle,
+    # years_exp 15; Bryan Bulaga, 12; Brandon Brooks, 10) plus 8 "Duplicate
+    # Player" records. Zero of them are on this league's rosters, and every
+    # rostered player who carries status Inactive also carries an explicit
+    # injury_status (IR), so he is designated on that instead.
+    ("", "Inactive"): "Sleeper roster status on retired/unsigned players, not a game-day inactive",
+    ("Questionable", "Inactive"): "same stale-roster population as ('', 'Inactive')",
+}
 # "na" is the exempt list (above), and it is read LAST — after both explicit
 # vocabularies — because it is the least specific thing Sleeper can say. Sleeper
 # does emit it alongside a real designation: Sam Webb (CB NYG) carried NA while

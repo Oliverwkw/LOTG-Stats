@@ -685,6 +685,110 @@ def test_the_committed_tracker_carries_few_na_weeks():
         f"({len(na) / len(rows):.1%}): {[r['full_name'] for r in na][:20]}")
 
 
+def test_the_build_bridges_reject_placeholder_ids_too():
+    """src/lotg.py builds the same two sleeper->gsis bridges and takes DP's
+    value unvalidated when Sleeper has no gsis, so the placeholder hole was
+    build-side as well as tracker-side. Both are filtered through
+    looks_like_gsis now. Asserted on the source because the bridges are built
+    inside build_all() and need the whole external-data chain to reach."""
+    src = (_ROOT / "src" / "lotg.py").read_text()
+    assert "looks_like_gsis as _looks_like_gsis" in src, \
+        "src/lotg.py no longer imports the id-shape guard"
+    for bridge in ('nfl_ids["gsis_id"].map(_looks_like_gsis)',
+                   'm["gsis_id"].map(_looks_like_gsis)'):
+        assert bridge in src, f"an unguarded id bridge is back: {bridge}"
+
+
+def test_every_sleeper_status_pair_is_classified():
+    """The guard that makes the NA failure unrepeatable.
+
+    NA sat undecided for a season because nobody enumerated Sleeper's
+    vocabulary and asked what each value meant. So: every
+    (injury_status, status) pair in the committed dictionary must either
+    DESIGNATE something, or be listed in UNDECIDED_STATUS_PAIRS with a written
+    reason. A value Sleeper starts emitting tomorrow fails this test rather
+    than silently meaning "he played".
+
+    Skips when the snapshot is absent."""
+    import json as _json
+    path = _ROOT / "exports" / "snapshot" / "sleeper_players_nfl.json"
+    if not path.exists():
+        return
+    players = _json.loads(path.read_text())
+    seen = {}
+    for m in players.values():
+        key = (str(m.get("injury_status") or "").strip(),
+               str(m.get("status") or "").strip())
+        seen[key] = seen.get(key, 0) + 1
+    unclassified = {
+        k: n for k, n in seen.items()
+        if it.designation(f"{k[0]} {k[1]}".strip().lower()) is None
+        and k not in it.UNDECIDED_STATUS_PAIRS
+    }
+    assert not unclassified, (
+        "Sleeper status pairs that decide nothing and are not documented as "
+        f"deliberately undecided: {unclassified}. Classify each one — check "
+        "whether the players carrying it actually played — then either give it "
+        "a token in designation() or an entry in UNDECIDED_STATUS_PAIRS.")
+    # And the allowlist may not quietly contain something we DO designate,
+    # which would make its documented reason a lie.
+    contradictions = [k for k in it.UNDECIDED_STATUS_PAIRS
+                      if it.designation(f"{k[0]} {k[1]}".strip().lower()) is not None]
+    assert not contradictions, contradictions
+
+
+def test_no_rostered_player_carries_unpinned_position_drift():
+    """The general net for the next Travis Hunter.
+
+    Sleeper's dictionary is current-only and re-labels two-way players; it
+    flipped Hunter WR -> DB on 2026-09-08, which put him in a 2025 percentile
+    pool of one. The drift ORIGINATES in Sleeper, so that is what this compares
+    against nflverse — comparing the tracker's own (already pinned) column to
+    nflverse would agree with itself and catch nothing, which is exactly how a
+    first draft of this test passed while the bug was live.
+
+    One disagreement is expected (Hunter) and it must be pinned. Any UNPINNED
+    disagreement reaches the sheets. Skips without the snapshot or the cached
+    weekly rosters."""
+    import csv as _csv
+    import json as _json
+    snap = _ROOT / "exports" / "snapshot" / "sleeper_players_nfl.json"
+    rosters = _ROOT / ".cache" / "nflverse_weekly_rosters_2026.csv"
+    tracker = it.tracker_path(_ROOT)
+    if not (snap.exists() and rosters.exists() and tracker.exists()):
+        return
+    from lotg_support.position_pins import FANTASY_POSITION_PINS
+    players = _json.loads(snap.read_text())
+    with rosters.open(newline="") as f:
+        nvpos = {str(r["gsis_id"]).strip(): str(r["position"]).strip()
+                 for r in _csv.DictReader(f) if str(r.get("gsis_id") or "").strip()}
+    synonym = {"FB": "RB"}
+
+    def grp(p):
+        return synonym.get(p, p)
+
+    with tracker.open(newline="") as f:
+        rows = list(_csv.DictReader(f))
+    drift = []
+    for r in rows:
+        gs = str(r.get("gsis_id") or "").strip()
+        if not it.looks_like_gsis(gs) or gs not in nvpos:
+            continue
+        sleeper_pos = str((players.get(r["player_id"]) or {}).get("position") or "").strip()
+        if grp(sleeper_pos) != grp(nvpos[gs]):
+            drift.append((r["full_name"], gs, sleeper_pos, nvpos[gs]))
+    unpinned = [d for d in drift if d[1] not in FANTASY_POSITION_PINS]
+    assert not unpinned, (
+        "rostered players whose Sleeper position disagrees with nflverse and who "
+        f"are NOT pinned: {unpinned}. Each one is a percentile pool of one "
+        "waiting to happen — add a FANTASY_POSITION_PINS entry once his fantasy "
+        "position is unambiguous.")
+    # The test must be able to SEE the case it exists for.
+    assert any(d[1] in FANTASY_POSITION_PINS for d in drift) or not FANTASY_POSITION_PINS, (
+        "no pinned player shows drift any more — either upstream agreed with us "
+        "(the pin can go) or this test stopped comparing the right two columns")
+
+
 def test_the_committed_tracker_header_matches_the_schema():
     """The seed file is what the first capture merges into; a header that has
     drifted from TRACKER_COLUMNS is a schema disagreement sitting in the repo."""
