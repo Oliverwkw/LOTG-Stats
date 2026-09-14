@@ -166,3 +166,155 @@ Run 498 is results pending. A second pass looked at what round 1 had not:
 - **Merge state.** GitHub reports the PR mergeable and CLEAN, no checks are
   required, and `main` has had no commit since the fork, so the tracker-CSV
   rewrite has nothing to conflict with yet.
+
+## Round 3 — researched game-day statuses and the DP snap bridge, run 34905661501 (head `150e71d`)
+
+**What changed** (`eb41593`, plus a tracker merge `b68bb0b` and research notes
+`150e71d`).
+
+*The research.* After the snap union, 215 `Injury?` weeks in 2020-2025 were on
+players with no snap and no reserve-list status: the 173 on an `ACT` weekly
+roster, plus 42 backup-QB weeks with no roster row (Ridder 2022, Pickett 2022,
+Willis 2022, Browning 2024 wks 1-7). Each week was looked up in the team's
+inactive list or a game report. `data/game_day_status.csv` records every one
+with its source.
+
+| Status | Weeks | Flag | Examples |
+|---|---|---|---|
+| active (dressed, never played) | 208 | cleared | mostly backup QBs |
+| inactive | 3 | kept | Jordan Love 2020 wk1 healthy scratch; Jeff Wilson 2022 wk15; Nyheim Hines 2022 wk6 |
+| reserve list | 3 | kept | Jeff Wilson 2021 wks 3-4 on PUP; Jameis Winston 2020 wk15 on COVID-19 |
+| ruled out in pregame warmups | 1 | kept | Rome Odunze 2025 wk15, needs-human-judgment |
+
+An emergency third QB is on the inactive list, so he counts as Out. Sleeper's
+`gms_active` agrees with the research on 212 of 215. The three disagreements are
+Jeff Wilson's two PUP weeks, where Sleeper is unreliable for reserve-list
+players, and Odunze.
+
+*The 44 thinnest of the 275.* These are the round-1 flips on 1-56 snaps, often
+Questionable or Doubtful. Every one appears on 1-58 plays of its game in
+nflverse's play-level participation data. A web source was found for 35 of
+them. 9 were hurt during the game (Tank Dell 2023 wk13, JuJu Smith-Schuster
+2024 wk7, Ja'Tavion Sanders 2025 wk17…), which is a played week by design. None
+was ruled out before kickoff. The per-row log is in
+`AUDIT_RUN_497_thin_row_research.csv`.
+
+*The bridge.* Weekly rosters leave `pfr_id` blank for some players, so their snap
+counts matched nobody. That kept 31 injury weeks on players who took the field
+(Trey McBride 2022 wks 2-9, Khalil Shakir 2022, Jalen Tolbert 2022, Josh Gordon
+2021). DynastyProcess's id table now fills those gaps.
+
+### Part 1 — code-based
+
+- `lotg_support/game_day_status.py`: `validate()` refuses a season at or after
+  `TRACKER_FIRST_SEASON`, an unknown status, a missing source, a duplicate key
+  or a non-gsis id. `dressed_by_week()` returns only `active` rows, and nothing
+  for a tracker season.
+- `src/lotg.py`, the veto: `(not dressed)` is added to the per-row
+  "rostered, scored 0, did not appear" default and nowhere else.
+  - The gap-fill's `injuries_by_gsis_week` writes are read back only for the
+    suspension check, so they cannot re-flag a dressed week.
+  - The tracker overlay starts in 2026.
+- `src/lotg.py`, the bridge: DP `pfr_id → gsis_id` is added with `setdefault`
+  after the weekly-roster bridge, so a roster mapping always wins. Placeholder
+  gsis tokens are refused.
+  - The DP table and the rosters disagree on 2 pfr ids (Ryan Izzo, Byron
+    Young). The roster mapping is kept for both, and neither player is rostered
+    in LOTG.
+  - Simulated on the cached snap counts, the bridge adds appearances that hit
+    exactly the 31 flags and no others.
+- `tests/test_game_day_status.py` has 5 tests. The export guard fails on run
+  499's exports, reporting all 208 disagreements.
+
+### Part 2 — results-based
+
+- **Tests:** 411 passed, 0 failed. Both injury guards actually asserted rather
+  than skipping, which I confirmed by re-running them on the downloaded
+  artifact.
+- **Build log:** `game_day_status dressed=` reads 12/27/50/16/64/39 = 208, with 0
+  exception lines. The pfr→gsis bridge grew from 1,320-2,196 ids per season to
+  about 7,801.
+- **`Injury?`:** **exactly 239 True → False** (208 + 31): 0 missing, 0 extra, 0
+  the other way. By season: 2020 12, 2021 29, 2022 76, 2023 17, 2024 66, 2025
+  39.
+- **Totals:** league_year weeks missed moved −239. team_all_time Weeks of
+  injuries moved −239: AceMatthew −33, BROsenzweig −18, JacobRosenzweig −46,
+  LWebs53 −51, Oliverwkw −29, plehv79 −23, shmuel256 −19, stevenb123 −20.
+- **Unchanged:** `Points`, `Bye?`, `Suspension?`, `NFL team` and `Position` on
+  every row, and 0 changed rows in 2026 on any sheet.
+- **Cumulative:** with the snap union, **514 of the original 3,826** 2020-2025
+  injury weeks (13.4%) are cleared.
+
+### Part 3 — diff sweep (run 499 → this run), every change classified
+
+- **Positional scoring percentile (4,608 cells), by-design.**
+  - 239 are the flipped rows, which now get a percentile; it is blank on injury
+    weeks.
+  - The other 4,369 moved **up** by at most 0.1, on WR and RB only, and 0 moved
+    down. The cause: the 3 flipped weeks that were starts (Donovan Peoples-Jones
+    2021 wk7, Khalil Shakir 2022 wk9, Ronnie Rivers 2022 wk9) join the all-time
+    WR/RB starter pools as zeros.
+- **Streaks (239 per streak column, plus extras), by-design.**
+  - Flipped rows now carry a streak value.
+  - Every other changed streak row is the same player's later week (on any
+    team), or the last week before his next played week, where that week is a
+    flip. Streaks skip injury weeks; Minshew 2021 wk13 → wk15 is an example.
+  - 0 unexplained.
+- **Best/worst startables and Cuff adjusted difference (586/587), by-design.**
+  - 561 are on or after a same-team flip that season.
+  - The rest reach an earlier flip through a player's trailing 5 played games.
+    Sample: shmuel256 2023 wk13, through Juwan Johnson's flipped 2023 wk4 on
+    AceMatthew.
+- **Activated Cuff? (1), correction.** Jalen Hurts 2020 wk14 goes 1 → 0 because
+  Carson Wentz that week was the active backup, not injured.
+- **player_year Top Team (3), correction.** Israel Abanikanda 2024 → shmuel256,
+  James Robinson 2023 → Oliverwkw, Sam Howell 2024 → BROsenzweig. Each now names
+  the only manager who had him in-season; his flagged weeks had not counted as
+  time rostered.
+- **Team and league aggregates, by-design.** Hardship, Starter-adjusted
+  Hardship, Luck (703 team-weeks; Luck compares every team's hardship that
+  week), Number of Injuries, Most injured?, cuffs, and Weeks of injuries.
+  Donuts and under-10s also move, because a benched injury week is excluded
+  but a benched played 0 counts.
+- **Drafting skill (±0.1, 5 team-years), addition value and O-Score (add_drops,
+  trades, picks), Injury-adjusted % of starts, by-design.** Re-valued by the
+  injury-adjusted starts.
+- **formulas (1), intended.** The `Injury?` note now describes the file.
+
+### The digest this merge will send (needs-human-judgment)
+
+Rendered from both builds against `main`'s committed snapshot: 40 → **48
+crossings** and 178 → **197 board moves**. The lede still calls it a recompute:
+218 of 242 moves re-value settled history.
+
+First-place lines this round adds:
+- Oliverwkw passes JacobRosenzweig for most Times Most injured? (28).
+- plehv79 passes AceMatthew and JacobRosenzweig for most Weeks of starter
+  injuries (274).
+- JacobRosenzweig 2021 wk16 passes LWebs53 2023 wk15 for highest single-week
+  Hardship (128.7).
+- AceMatthew 2020 ties JacobRosenzweig 2022 for most Times Most injured? in a
+  season (9).
+- Zamir White 2023 wk6 takes the highest Rostered bust streak (19).
+- 2024 wk2 passes 2025 wk1 for most players under 10 in a week (128).
+
+Lines this round removes:
+- "shmuel256 2024 passes BROsenzweig 2021 for highest Hardship". shmuel256 2024
+  falls to 3rd, and BROsenzweig 2021 keeps the season record at 1,231.3.
+- "2022 pick 1.04 (Treylon Burks) … lowest Pick-adjusted Difference in Player
+  addition value".
+- "Oliverwkw joins a tie for 3rd-highest Losses from byes". This is not a data
+  change: that board is identical in both builds' snapshots, and the line no
+  longer displays.
+
+### Merge state and open items
+
+- **Merge state:** `main`'s 9080fc8 sweep is merged. The resolved tracker
+  differs from main only in `gsis_id` and Travis Hunter's WR pin, and from the
+  branch only in `captures`. GitHub reports the PR mergeable and CLEAN, with 0
+  main commits missing.
+- **Needs-human-judgment:**
+  - Odunze 2025 wk15 is kept injured.
+  - 25 practice-squad (DEV) weeks are still flagged. They are outside the 215
+    and unchanged.
+  - Merge timing against the Tuesday 2026-09-15 13:47 UTC week-1 email.
