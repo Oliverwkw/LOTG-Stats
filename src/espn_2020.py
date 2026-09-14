@@ -25,7 +25,7 @@ import json
 import os
 import re
 from collections import Counter, defaultdict
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 LEAGUE_ID = 34086
 SEASON = 2020
@@ -568,15 +568,42 @@ def load_espn_2020(raw_dir: str = RAW_DIR_DEFAULT, dp_path: str = DP_IDS_DEFAULT
 # untouched. Emitted roster_id is the manager's stable SLEEPER roster_id (see
 # ESPN_TO_SLEEPER_RID); player ids == sleeper_id strings.
 # --------------------------------------------------------------------------- #
-ESPN_START_SLOT_TO_SLEEPER = {0: "QB", 2: "RB", 4: "WR", 6: "TE", 7: "SUPER_FLEX", 23: "FLEX"}
+# The starting slots this league fields, in the order `_roster_positions` emits
+# them — QB, RB, RB, WR, WR, WR, TE, FLEX, SUPER_FLEX. The order is load-bearing
+# twice over: it is the `roster_positions` the build reads, and it is the order a
+# week's `starters` array has to come out in (see `_slot_ordered`).
+START_SLOT_ORDER: Tuple[Tuple[int, str], ...] = (
+    (0, "QB"), (2, "RB"), (4, "WR"), (6, "TE"), (23, "FLEX"), (7, "SUPER_FLEX"),
+)
+ESPN_START_SLOT_TO_SLEEPER = dict(START_SLOT_ORDER)
+_SLOT_EMIT_RANK = {slot: i for i, (slot, _) in enumerate(START_SLOT_ORDER)}
 SLEEPER_LEAGUE_ID = "espn_2020"
+
+
+def _slot_ordered(starters: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """One week's starters in `roster_positions` order.
+
+    Sleeper publishes a lineup's `starters` in slot order, and lotg.py labels a
+    starter's slot by ZIPPING that array against `roster_positions` — so the
+    backfill has to hand it the same shape. ESPN hands back a week's entries in
+    its own order, which is not slot order, so emitting them as they arrive
+    filed 2020's `Position started in (if starter)` against whoever happened to
+    sit in that index: Dalvin Cook read as a QB and Derek Carr as a TE, and 781
+    of 1,071 comparable starter rows disagreed with ESPN's own `lineupSlotId`.
+
+    Stable, so a repeated slot (RB/RB, WR/WR/WR) keeps ESPN's own order — the
+    RB1/RB2 split within a slot is arbitrary either way. A lineup slot outside
+    the template sorts last rather than displacing a known one; 2020 uses none.
+    """
+    return sorted(starters,
+                  key=lambda rec: _SLOT_EMIT_RANK.get(rec.get("lineup_slot"),
+                                                      len(_SLOT_EMIT_RANK)))
 
 
 def _roster_positions(raw: Dict[str, Any]) -> List[str]:
     counts = raw["settings"].get("rosterSettings", {}).get("lineupSlotCounts", {})
-    order = [(0, "QB"), (2, "RB"), (4, "WR"), (6, "TE"), (23, "FLEX"), (7, "SUPER_FLEX")]
     pos = []
-    for slot, name in order:
+    for slot, name in START_SLOT_ORDER:
         pos += [name] * int(counts.get(str(slot), 0))
     pos += ["BN"] * int(counts.get("20", 0))
     pos += ["IR"] * int(counts.get("21", 0))
@@ -630,7 +657,8 @@ def emit_sleeper_2020(loaded: Dict[str, Any]) -> Dict[str, Any]:
                 "roster_id": _rid(r["team_id"]),
                 "matchup_id": mid_by_team.get(r["team_id"]),
                 "points": r["pf"],
-                "starters": [sid(p["espn_player_id"]) for p in r["starters"] if sid(p["espn_player_id"])],
+                "starters": [sid(p["espn_player_id"]) for p in _slot_ordered(r["starters"])
+                             if sid(p["espn_player_id"])],
                 "players": [sid(p["espn_player_id"]) for p in r["starters"] + r["bench"] if sid(p["espn_player_id"])],
                 "players_points": pts,
             })
