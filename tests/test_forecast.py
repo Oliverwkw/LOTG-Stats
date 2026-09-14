@@ -430,12 +430,26 @@ def test_calibration_says_the_projection_beats_a_coin_flip():
 # The simulation
 # ---------------------------------------------------------------------------
 def test_a_league_of_identical_teams_comes_out_uniform():
+    """The no-information floor: identical teams, identical odds.
+
+    Rewound to `as_of_week=0` deliberately. Identical STRENGTH does not mean
+    identical odds once a week has been played: `uniform` sets every prior to 0
+    and `sd_true` to 0, so played weeks cannot move strength — but their results
+    are already banked, and a team that won week 1 is likelier to be seeded and
+    to survive the bracket no matter how even the talent is. Run against the
+    live clock in week 2 of 2026 this read 3.90pp off on the championship and
+    14.42pp off on the playoff odds, and would drift further every week; at
+    `as_of_week=0` the same call reads 0.53pp and 0.98pp. The property is about
+    the model, not about the calendar, so the clock is pinned rather than the
+    tolerance widened — and the check now means something in January too.
+    """
     if not _HAVE_DATA:
         return _skip("no exports/snapshot")
     year = _live_season()
     if year is None:
         return _skip("no live season to simulate")
-    fc = F.forecast(year, sims=6000, strength_model="uniform")
+    fc = F.forecast(year, sims=6000, strength_model="uniform", as_of_week=0)
+    assert not fc.played_weeks, fc.played_weeks
     n = len(fc.odds)
     for o in fc.odds:
         assert abs(o.champion - 100.0 / n) < 2.0, f"{o.team} {o.champion:.2f}% in a uniform league"
