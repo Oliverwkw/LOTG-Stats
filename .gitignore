@@ -14,3 +14,8 @@ __pycache__/
 # everything, for data the repo already had. The CSVs are the source of truth;
 # grab the zip from the run artifact when you want one file.
 exports/LOTG_Exports.zip
+
+# nflverse SEASON totals, pulled on demand by `lotg_support.scoring_events` for
+# career questions. Inquiry-only: the build never reads them, they are not part
+# of the committed cold-start baseline, and there are 27 of them.
+.cache/seasons/
