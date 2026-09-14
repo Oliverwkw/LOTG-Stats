@@ -184,15 +184,18 @@ _TEAM_ALIASES = {
 #         (DL DEN), Terrion Arnold (DB SEA) and Josh Jacobs (RB GB), all three
 #         acquiring it on the same day (2026-09-01); Joe Forson (WR KC,
 #         practice squad); and Sam Webb (CB NYG, IR) who lost it on 08-20.
-#       * PRECISION, on the two whose teams have since played: neither Jacobs
-#         (GB, Sunday) nor Arnold (SEA, Wednesday) has a row in nflverse's
-#         2026 week-1 stat file, which does carry defensive players (212 DB/CB
-#         rows) and 34 other Seahawks. 2 of 2 on-team NA players did not
-#         appear. Cooper and Forson play Monday night; not yet evidence.
-#     So the population this can fire on is small, and where it is checkable it
-#     has been right. The sample is two players — if a future NA player plays a
-#     week he was flagged for, `played` clears it and this comment needs the
-#     counter-example added.
+#       * on the two whose teams have since played, neither Jacobs (GB, Sunday)
+#         nor Arnold (SEA, Wednesday) RECORDED A STATISTICAL EVENT in nflverse's
+#         2026 week-1 file. Read that as weak support, not proof: that file is
+#         an event list, not an appearance list (31-40 rows per team against
+#         ~47 dressed), so a man can play and be absent from it. What actually
+#         backs Jacobs is the league's own ruling that he is on the exempt
+#         list, plus Green Bay's week-1 carries going to MarShawn Lloyd (13)
+#         and Chris Brooks (7) while its lead back took none.
+#     So the population this can fire on is small. The evidence that it is the
+#     RIGHT call is the league's ruling; the data here only fails to contradict
+#     it. If a future NA player turns out to have played a week he was flagged
+#     for, `played` clears it and this comment needs the counter-example added.
 #
 #     The 92 teamless ones are NOT filtered here, because they cannot reach a
 #     suspension flag: a rostered player with no NFL team is already routed to
@@ -222,9 +225,9 @@ _SUSPENSION_TOKENS = {"sus", "susp", "suspended", "suspension"}
 # played". NA is on this list's history, not its contents — it sat undecided
 # for a season and cost a player-week; the guard exists so the next one cannot.
 UNDECIDED_STATUS_PAIRS = {
-    ("", "Active"): "the general population: 830 of 1,506 judgeable ones played 2026 wk1",
+    ("", "Active"): "the general population: 830 of 1,506 judgeable ones recorded a 2026 wk1 stat",
     ("", ""): "45 players carry no status at all, including all 32 team DSTs",
-    ("Questionable", "Active"): "game-time label; 19 of 28 judgeable ones played",
+    ("Questionable", "Active"): "game-time label; 19 of 28 judgeable ones recorded a stat",
     ("Doubtful", "Active"): "game-time label, same as Questionable",
     ("", "Practice Squad"): "can be elevated for the week and play",
     # The two Inactive pairs read as 'nobody played' on the 2026 wk1 evidence,

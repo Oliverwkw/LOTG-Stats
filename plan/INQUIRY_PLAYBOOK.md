@@ -844,11 +844,34 @@ list is here so an answer written by hand does not walk into them.
   cross-check.** 2026 week 1's `nflverse_injuries.csv` has 139 rows for the
   whole league, 131 of them with a BLANK `report_status` (they are
   practice-participation rows) and 5 "Out". The player it most needed to name,
-  Josh Jacobs, is not in it at all. Its `stats_player_week` file is the usable
-  signal in-week — it lists players who appeared, scoreless ones included, so
-  an absence there IS evidence — but join it on `gsis_id`, never on name: a
-  suffix (`Marvin Harrison Jr.`, `Deebo Samuel Sr.`) reads as 21 false
-  disagreements against the tracker.
+  Josh Jacobs, is not in it at all.
+- **`stats_player_week` is an EVENT list, not an appearance list, so absence
+  from it is NOT evidence that a player did not play.** This one cost real
+  time and shipped a wrong conclusion before being caught. It carries 31-40
+  rows per team against the ~47 that dress, 1,040 of its 1,041 rows have at
+  least one non-zero stat, and 248 of 379 active-roster WRs have no row in
+  2026 week 1 at all. A receiver who plays eight snaps and is not targeted
+  records nothing and simply is not in the file — De'Zhaun Stribling and every
+  other backup on the 2026 week-1 rosters. **For "did he take the field", use
+  nflverse's `snap_counts` release**, which is a true appearance list
+  (`offense_snaps` / `defense_snaps` / `st_snaps`), or Sleeper's own
+  participation capture in `data/injury_tracker.csv`, which is a SUPERSET of
+  the event list (no player with a stat line is ever missing from it).
+- **`Injury?` in 2020-2025 over-flags, because the build's injury gap-fill made
+  exactly that mistake.** `src/lotg.py`'s gap-fill writes an injury for every
+  week a player has no `stats_player_week` row in, so a man who dressed, played
+  and recorded nothing reads as injured: **262 of the 3,826 `Injury?` flags
+  (6.8%) are players with SNAPS that week**, confirmed against `snap_counts` —
+  2.4-3.1% in 2020-2022 rising to ~10% in 2023-2025. The worst are full-game
+  starters (Gabe Davis wk11 2024, 67 snaps; Cole Kmet 66; Cade Otton 66;
+  Courtland Sutton 57). It inflates `Hardship`, and therefore `Luck` and
+  `Loss from hardship?`, and it wrongly drops those weeks out of played-week
+  denominators like `Adjusted Avg`. Do not read an injury RATE off `Injury?`
+  without this in mind.
+- **Join nflverse on `gsis_id`, never on name.** A suffix
+  (`Marvin Harrison Jr.`, `Deebo Samuel Sr.`) reads as 21 false disagreements
+  against the tracker. `snap_counts` is the exception — it has no gsis at all,
+  only `pfr_player_id`, so bridge through `nflverse_weekly_rosters.pfr_id`.
 - **The regular season is not always a round-robin.** 2026's fourteen weeks are
   a clean double round-robin (every pair twice, so no strength-of-schedule edge
   can exist); 2021-2025 ran fifteen, where some pairs met three times and some
