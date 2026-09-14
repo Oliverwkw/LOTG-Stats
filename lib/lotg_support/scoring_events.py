@@ -24,6 +24,13 @@ Three pieces:
     written for: team-weeks in which nobody outside the quarterback slot reached
     the end zone.
 
+  * **Careers.** `career_totals()` and `starter_careers()` answer the other
+    shape of stat-line question — not what a starter did that week but what he
+    had ever done. Every starter-week comes back with two career numbers for any
+    nflverse stat: `career_to_date`, what he had entering that game (the résumé
+    the manager was looking at), and `career_total`, the whole career including
+    everything after. `lowest_careers()` ranks them.
+
 `check_touchdown_join()` is the guard. There is no touchdown column anywhere in
 `exports/` to reconcile against, so it ties the *join* rather than the count:
 re-scoring each matched stat line with the league's settings (`contracts.
@@ -64,6 +71,21 @@ this, and it writes nothing outside the nflverse cache.
   week 17 game was abandoned and struck from nflverse; Sleeper kept the partial
   fantasy points. Three starter-weeks in this league land there, and they come
   back `resolved=False` rather than as a confident zero.
+* **A seasonal file carries three kinds of row**: `REG`, `POST` and `REG+POST`,
+  the last being the sum of the other two. Summing the column without choosing
+  rows double-counts every career. `CAREER_BASES` picks the rows; nothing here
+  ever reads a `REG+POST` row.
+* **The newest seasons have no seasonal file.** `career_totals()` falls back to
+  aggregating the weekly file for those, which is why a career total is current
+  to the last week played rather than the last finished season — and why the two
+  sources have to agree (`check_career_sources_agree`). It reaches the
+  in-progress season through the BUILD's loader, so that season's weekly file
+  lands in `.cache/` and its stamp in `_fetch_log.json`. Keep the two together:
+  reverting the log while leaving the file is what makes `test_refresh_external`
+  report an undated cache file, and
+  `test_the_season_cache_stays_out_of_the_builds_freshness_gate` will say so.
+* **"Years in the league" has three readings and they change answers.** See
+  `YEARS_RULES`: a player's tenure as of a start is not his career length.
 * **2020 has no snapshot**, so its rows are matched by name, and its `slot`
   comes from the export column — which was only correct from the build that
   carried the `espn_2020._slot_ordered` fix. `qb_rule="slot"` on 2020 against
@@ -74,7 +96,7 @@ from __future__ import annotations
 import csv
 import functools
 from pathlib import Path
-from typing import Dict, List, Optional, Sequence, Tuple
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 import pandas as pd
 
@@ -405,3 +427,432 @@ def check_2020_coverage() -> List[str]:
         return ["2020: no starter rows in player_week"]
     unmatched = sorted({str(r["Player"]) for _, r in rows.iterrows() if not r["gsis_id"]})
     return [f"2020: {len(unmatched)} starter name(s) reach no gsis_id: {unmatched[:8]}"] if unmatched else []
+
+
+# ---------------------------------------------------------------------------
+# Careers: what a starter had already done, and what he ended up doing
+# ---------------------------------------------------------------------------
+#: nflverse's earliest season. Nothing before this can be counted, which is
+#: safe here only because no player ever started in this league debuted before
+#: 2000 (`check_career_window_covers_starters` is what says so).
+FIRST_NFLVERSE_SEASON = 1999
+
+#: Season totals, one file per season. The release tag differs from the weekly
+#: one, and the newest seasons have no seasonal file at all — see `_seasonal`.
+SEASONAL_URLS = (
+    "https://github.com/nflverse/nflverse-data/releases/download/player_stats/player_stats_season_{season}.csv",
+    "https://github.com/nflverse/nflverse-data/releases/download/stats_player/stats_player_season_{season}.csv",
+)
+#: They live in a SUBDIRECTORY of the cache, deliberately. `.cache/*.csv` is the
+#: build's freshness-gated baseline: every file directly in there is expected to
+#: carry a stamp in `_fetch_log.json` (`test_refresh_external` asserts it), and
+#: these are pulled by `_download_best_effort`, which does not stamp. Dropping
+#: them beside the build's files fails that guard — which is exactly what
+#: happened the first time this was written.
+SEASONAL_DIR = "seasons"
+SEASONAL_FILE = "nflverse_stats_player_season_{season}.csv"
+
+
+def seasonal_path(season: int) -> Path:
+    """Where one season-totals file is cached (never directly in `.cache/`)."""
+    return (Q.repo_root() / ".cache" / SEASONAL_DIR
+            / SEASONAL_FILE.format(season=int(season)))
+
+#: Which games count toward a career. The fantasy season ends before the NFL
+#: playoffs, so `"reg"` is the default; `"reg_post"` is the sensitivity run.
+CAREER_BASES: Tuple[str, ...] = ("reg", "reg_post")
+
+#: How long a player has been "in the league". `"roster"` counts league years
+#: over his whole career (last season on a roster minus rookie season), so a
+#: year lost to injury still counts; `"played"` counts only seasons with a stat
+#: line; `"at_start"` counts league years AS OF the start being ranked, which is
+#: the only one that answers "he had been around N years when they started him".
+#: They disagree often enough to change an answer: Jahan Dotson was a 2022
+#: rookie started in 2023 — two years in at the time, four by `"roster"`.
+YEARS_RULES: Tuple[str, ...] = ("roster", "played", "at_start")
+
+#: Which tenure rule fits which career measure, when the caller names neither.
+DEFAULT_YEARS_RULE = {"career_total": "roster", "career_to_date": "at_start"}
+
+
+@functools.lru_cache(maxsize=64)
+def _seasonal(season: int, root: str) -> Optional[pd.DataFrame]:
+    """nflverse season totals for one season, or None where none is published.
+
+    Downloaded once and never refreshed: a finished season's totals do move
+    (nflverse back-corrects), but not enough to re-pull 27 files per question,
+    and `check_career_sources_agree()` measures the drift that is left. The
+    current and in-progress seasons have no seasonal file — `career_totals()`
+    aggregates those from the weekly file instead.
+    """
+    path = (Path(root) / ".cache" / SEASONAL_DIR
+            / SEASONAL_FILE.format(season=season))
+    if not (path.exists() and path.stat().st_size > 0):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        urls = [u.format(season=season) for u in SEASONAL_URLS]
+        try:
+            X._download_best_effort(urls, path, _config().timeout_seconds)
+        except Exception:
+            return None
+    try:
+        df = pd.read_csv(path, low_memory=False)
+    except Exception:
+        return None
+    if "season_type" not in df.columns or "player_id" not in df.columns:
+        return None
+    df["player_id"] = df["player_id"].astype(str)
+    df["season_type"] = df["season_type"].astype(str).str.upper()
+    return df
+
+
+def _basis_types(basis: str) -> Tuple[str, ...]:
+    # A seasonal file carries THREE kinds of row per player: REG, POST and
+    # REG+POST — the last being the sum of the other two. Adding them all up
+    # double-counts every career, so a basis names the rows it wants and never
+    # touches "REG+POST".
+    if basis not in CAREER_BASES:
+        raise ValueError(f"basis must be one of {CAREER_BASES}, got {basis!r}")
+    return ("REG",) if basis == "reg" else ("REG", "POST")
+
+
+@functools.lru_cache(maxsize=16)
+def _season_values_cached(stat: str, basis: str, through: int, root: str
+                          ) -> Tuple[Dict[Tuple[str, int], float], Tuple[str, ...]]:
+    """{(gsis_id, season): stat} for every season up to `through`, plus warnings."""
+    types = _basis_types(basis)
+    out: Dict[Tuple[str, int], float] = {}
+    warnings: List[str] = []
+    for season in range(FIRST_NFLVERSE_SEASON, through + 1):
+        frame = _seasonal(season, root)
+        if frame is not None:
+            if stat not in frame.columns:
+                warnings.append(f"{season}: seasonal file has no column {stat!r}")
+                continue
+            rows = frame[frame["season_type"].isin(types)]
+            values = pd.to_numeric(rows[stat], errors="coerce").fillna(0.0)
+            for pid, value in zip(rows["player_id"], values):
+                out[(str(pid), season)] = out.get((str(pid), season), 0.0) + float(value)
+            continue
+        # No seasonal file: aggregate the weekly one, which exists from 2018.
+        try:
+            weekly = _weekly_all(season, root)
+        except Exception:
+            warnings.append(f"{season}: no seasonal file and no weekly file — "
+                            f"careers spanning it are understated")
+            continue
+        if stat not in weekly.columns:
+            warnings.append(f"{season}: weekly file has no column {stat!r}")
+            continue
+        rows = weekly[weekly["season_type"].astype(str).str.upper().isin(types)]
+        grouped = pd.to_numeric(rows[stat], errors="coerce").fillna(0.0).groupby(
+            rows["player_id"].astype(str)).sum()
+        for pid, value in grouped.items():
+            out[(str(pid), season)] = float(value)
+    return out, tuple(warnings)
+
+
+@functools.lru_cache(maxsize=8)
+def _weekly_all(season: int, root: str) -> pd.DataFrame:
+    """The weekly file with POST rows kept — `_weekly_cached` drops them."""
+    df = X.load_nflverse_stats_player_week(_config(), season)
+    df = df.copy()
+    df["player_id"] = df["player_id"].astype(str)
+    df["week"] = pd.to_numeric(df["week"], errors="coerce").astype("Int64")
+    return df
+
+
+def career_totals(stat: str = "rushing_yards", basis: str = "reg",
+                  through: Optional[int] = None) -> Dict[str, float]:
+    """Lifetime `stat` per `gsis_id`, everything nflverse has through `through`.
+
+    `through` defaults to the newest season with any data, so an in-progress
+    season counts the weeks already played — a career total is as of today, not
+    as of last January.
+    """
+    through = int(through) if through is not None else max(snapshot_or_export_seasons())
+    values, _ = _season_values_cached(stat, basis, int(through), str(Q.repo_root()))
+    out: Dict[str, float] = {}
+    for (pid, _season), value in values.items():
+        out[pid] = out.get(pid, 0.0) + value
+    return out
+
+
+def snapshot_or_export_seasons() -> List[int]:
+    """Every season this league has data for, in-progress one included."""
+    return sorted(set(Q.export_seasons()) | set(Q.snapshot_seasons()))
+
+
+@functools.lru_cache(maxsize=1)
+def _service_cached(root: str) -> Dict[str, Dict[str, Any]]:
+    ids = X.load_nflverse_player_ids(_config())
+    out: Dict[str, Dict[str, Any]] = {}
+    for row in ids.itertuples(index=False):
+        gsis = getattr(row, "gsis_id", None)
+        if not isinstance(gsis, str) or not gsis:
+            continue
+        rookie = getattr(row, "rookie_season", None)
+        last = getattr(row, "last_season", None)
+        out[gsis] = {
+            "rookie_season": None if pd.isna(rookie) else int(rookie),
+            "last_season": None if pd.isna(last) else int(last),
+        }
+    return out
+
+
+def service(gsis_id: str) -> Dict[str, Any]:
+    """`rookie_season` / `last_season` for one player, from nflverse's own file."""
+    return dict(_service_cached(str(Q.repo_root())).get(str(gsis_id), {}))
+
+
+def starter_careers(stat: str = "rushing_yards", basis: str = "reg",
+                    seasons: Optional[Sequence[int]] = None,
+                    through: Optional[int] = None) -> pd.DataFrame:
+    """Every starter-week with the player's career in `stat` beside it.
+
+    Two career numbers, because they answer different questions and get mixed
+    up: `career_to_date` is what he had done *entering that game* (prior
+    seasons plus earlier weeks of the same one) — the résumé the manager was
+    looking at; `career_total` is the whole career, including everything he did
+    afterwards. `years_in_league` and `seasons_played` are the two readings of
+    tenure (`YEARS_RULES`), so a filter like "3+ years" can be taken either way.
+
+    Joined on `gsis_id` throughout: nflverse renames players between vintages
+    (John Metchie is "John Metchie III" in 2023 and "John Metchie" in 2024), so
+    a name join silently loses seasons.
+    """
+    years = tuple(seasons) if seasons is not None else tuple(Q.export_seasons())
+    root = str(Q.repo_root())
+    through = int(through) if through is not None else max(snapshot_or_export_seasons())
+    return _starter_careers_cached(stat, basis, years, through, root).copy()
+
+
+@functools.lru_cache(maxsize=8)
+def _starter_careers_cached(stat: str, basis: str, years: Tuple[int, ...],
+                            through: int, root: str) -> pd.DataFrame:
+    per_season, _ = _season_values_cached(stat, basis, through, root)
+    lifetime = career_totals(stat, basis, through)
+    types = _basis_types(basis)
+    played: Dict[str, set] = {}
+    for (pid, season) in per_season:
+        played.setdefault(pid, set()).add(season)
+
+    rows: List[dict] = []
+    for season in years:
+        starters = starter_touchdowns(season)
+        if starters.empty:
+            continue
+        weekly = _weekly_all(season, root)
+        weekly = weekly[weekly["season_type"].astype(str).str.upper().isin(types)]
+        values = pd.to_numeric(weekly.get(stat), errors="coerce").fillna(0.0)
+        by_player_week: Dict[Tuple[str, int], float] = {}
+        for pid, week, value in zip(weekly["player_id"], weekly["week"], values):
+            if pd.isna(week):
+                continue
+            key = (str(pid), int(week))
+            by_player_week[key] = by_player_week.get(key, 0.0) + float(value)
+        prior: Dict[str, float] = {}
+        for (pid, yr), value in per_season.items():
+            if yr < season:
+                prior[pid] = prior.get(pid, 0.0) + value
+        for _, row in starters.iterrows():
+            gsis = row["gsis_id"]
+            if row["empty_slot"] or not isinstance(gsis, str) or not gsis:
+                continue
+            week = int(row["Week"])
+            same = sum(v for (pid, wk), v in by_player_week.items()
+                       if pid == gsis and wk < week)
+            svc = _service_cached(root).get(gsis, {})
+            rookie, last = svc.get("rookie_season"), svc.get("last_season")
+            rows.append(dict(
+                Year=season, Week=week, Team=row["Team"], Player=row["Player"],
+                Position=row["Position"], slot=row["slot"], gsis_id=gsis,
+                Points=row["Points"],
+                career_to_date=round(prior.get(gsis, 0.0) + same, 2),
+                career_total=round(lifetime.get(gsis, 0.0), 2),
+                rookie_season=rookie, last_season=last,
+                years_in_league=(last - rookie + 1) if rookie and last else None,
+                years_at_start=(season - rookie + 1) if rookie else None,
+                seasons_played=len({y for y in played.get(gsis, ()) if y <= season}),
+                seasons_played_career=len(played.get(gsis, ())),
+            ))
+    return pd.DataFrame(rows)
+
+
+def lowest_careers(stat: str = "rushing_yards", basis: str = "reg",
+                   measure: str = "career_total", min_years: int = 3,
+                   years_rule: Optional[str] = None, positions: Sequence[str] = (),
+                   n: int = 5, seasons: Optional[Sequence[int]] = None) -> pd.DataFrame:
+    """The starters with the least career `stat`, one row per player.
+
+    `measure` picks which career: `"career_total"` (the whole career) or
+    `"career_to_date"` (what he had when he was started, i.e. his thinnest
+    qualifying start). `min_years` drops players too new for the question to
+    mean anything, counted by `years_rule` — left unset it follows
+    `DEFAULT_YEARS_RULE`, pairing a career-to-date question with the tenure the
+    player actually had at that start rather than the one he ended up with.
+
+    Among equal values the EARLIEST start is the one reported, so a player whose
+    career sat still across several starts always shows the first of them. Ties
+    at the cutoff are kept, not broken: asking for 5 can return 6 rows.
+    """
+    if measure not in ("career_total", "career_to_date"):
+        raise ValueError(f"measure must be career_total or career_to_date, got {measure!r}")
+    years_rule = years_rule or DEFAULT_YEARS_RULE[measure]
+    if years_rule not in YEARS_RULES:
+        raise ValueError(f"years_rule must be one of {YEARS_RULES}, got {years_rule!r}")
+    frame = starter_careers(stat=stat, basis=basis, seasons=seasons)
+    if frame.empty:
+        return frame
+    column = {"roster": "years_in_league", "played": "seasons_played_career",
+              "at_start": "years_at_start"}[years_rule]
+    frame = frame[frame[column].fillna(0) >= int(min_years)]
+    if positions:
+        wanted = {p.upper() for p in positions}
+        frame = frame[frame["Position"].astype(str).str.upper().isin(wanted)]
+    if frame.empty:
+        return frame
+    # one row per player: the earliest start that shows the measure at its lowest
+    best = (frame.sort_values([measure, "Year", "Week"])
+            .groupby("Player", as_index=False).first())
+    best = best.sort_values([measure, "Player"])
+    if n and len(best) > n:
+        cutoff = best.iloc[n - 1][measure]
+        best = best[best[measure] <= cutoff]      # keep ties at the boundary
+    # how many of his starts the tenure filter kept — not his career total,
+    # which is why the name says so.
+    kept = frame.groupby("Player")["Week"].count()
+    best["qualifying_starts"] = [int(kept.get(p, 0)) for p in best["Player"]]
+    return best.reset_index(drop=True)
+
+
+def check_career_sources_agree(seasons: Optional[Sequence[int]] = None,
+                               stat: str = "rushing_yards",
+                               max_mismatch_rate: float = 0.01) -> List[str]:
+    """The seasonal files and the weekly files must tell the same story.
+
+    A career mixes the two — seasonal totals for past seasons, the weekly file
+    for the one a start sits in — so they have to agree where they overlap
+    (2018 on). They very nearly do: nflverse revises a season after publishing
+    its totals, which left 12 of 4,328 player-seasons apart when this was
+    written (0.3%). The floor catches a real breakage — a units change, a
+    double-counted REG+POST row — rather than that drift.
+    """
+    root = str(Q.repo_root())
+    years = list(seasons) if seasons is not None else [
+        y for y in range(2018, max(snapshot_or_export_seasons()) + 1)]
+    problems: List[str] = []
+    compared = mismatched = 0
+    for season in years:
+        frame = _seasonal(season, root)
+        if frame is None or stat not in frame.columns:
+            continue
+        try:
+            weekly = _weekly_all(season, root)
+        except Exception:
+            continue
+        reg = frame[frame["season_type"] == "REG"]
+        want = dict(zip(reg["player_id"].astype(str),
+                        pd.to_numeric(reg[stat], errors="coerce").fillna(0.0)))
+        wk = weekly[weekly["season_type"].astype(str).str.upper() == "REG"]
+        got = pd.to_numeric(wk[stat], errors="coerce").fillna(0.0).groupby(
+            wk["player_id"].astype(str)).sum().to_dict()
+        for pid, value in want.items():
+            if pid not in got:
+                continue
+            compared += 1
+            if abs(float(value) - float(got[pid])) > 0.5:
+                mismatched += 1
+    if compared and mismatched / compared > max_mismatch_rate:
+        problems.append(f"seasonal vs weekly {stat}: {mismatched} of {compared} "
+                        f"player-seasons disagree "
+                        f"({mismatched / compared:.3f} > {max_mismatch_rate})")
+    if not compared:
+        problems.append(f"no overlapping player-seasons to compare for {stat}")
+    return problems
+
+
+def check_career_window_covers_starters() -> List[str]:
+    """No starter may have debuted before nflverse's first season.
+
+    A career is only a career if it is whole: a player who took his first snap
+    in 1998 would come back missing a year, silently. Nobody started in this
+    league did — the earliest is a 2000 rookie — and this is what keeps that
+    true if an older player is ever acquired.
+    """
+    problems: List[str] = []
+    for season in Q.export_seasons():
+        starters = starter_touchdowns(season)
+        if starters.empty:
+            continue
+        for gsis in {g for g in starters["gsis_id"] if isinstance(g, str) and g}:
+            rookie = service(gsis).get("rookie_season")
+            if rookie is not None and rookie < FIRST_NFLVERSE_SEASON:
+                problems.append(f"{gsis} debuted in {rookie}, before nflverse's "
+                                f"{FIRST_NFLVERSE_SEASON} — career totals are truncated")
+    return problems
+
+
+def check_career_to_date_arithmetic(stat: str = "rushing_yards",
+                                   basis: str = "reg",
+                                   max_player_rate: float = 0.05) -> List[str]:
+    """The mixed-source career must match the single-source one where both exist.
+
+    `career_to_date` adds seasonal totals for past seasons to weekly rows for
+    the season a start sits in. For a player whose whole career is inside the
+    weekly files (a 2018-or-later rookie) the same number can be rebuilt from
+    weekly rows alone, and the two should agree.
+
+    It is a rate, not an identity, for the reason `check_career_sources_agree`
+    exists: nflverse revises a season after publishing its totals, so a few
+    player-seasons differ between the two files and every start after one of
+    them inherits the gap (Kyler Murray's 2019 rushing yards are 539 in the
+    seasonal file and 544 in the weekly one). What this actually guards is the
+    SEAM — an off-by-one week, a dropped season, a double-counted `REG+POST`
+    row would put most players wrong, not a handful. So the floor is on the
+    share of PLAYERS affected.
+    """
+    root = str(Q.repo_root())
+    types = _basis_types(basis)
+    frame = starter_careers(stat=stat, basis=basis)
+    if frame.empty:
+        return ["no starter-weeks to check"]
+    by_week: Dict[int, Dict[Tuple[str, int], float]] = {}
+
+    def index(season: int) -> Dict[Tuple[str, int], float]:
+        if season not in by_week:
+            df = _weekly_all(season, root)
+            df = df[df["season_type"].astype(str).str.upper().isin(types)]
+            values = pd.to_numeric(df.get(stat), errors="coerce").fillna(0.0)
+            table: Dict[Tuple[str, int], float] = {}
+            for pid, week, value in zip(df["player_id"], df["week"], values):
+                if pd.isna(week):
+                    continue
+                key = (str(pid), int(week))
+                table[key] = table.get(key, 0.0) + float(value)
+            by_week[season] = table
+        return by_week[season]
+
+    checked: set = set()
+    off: Dict[str, str] = {}
+    for row in frame.itertuples(index=False):
+        rookie = row.rookie_season
+        if rookie is None or rookie < 2018:
+            continue
+        total = 0.0
+        for season in range(int(rookie), int(row.Year) + 1):
+            limit = int(row.Week) if season == int(row.Year) else 99
+            total += sum(v for (pid, wk), v in index(season).items()
+                         if pid == row.gsis_id and wk < limit)
+        checked.add(row.gsis_id)
+        if abs(total - float(row.career_to_date)) > 0.5 and row.gsis_id not in off:
+            off[row.gsis_id] = (f"{row.Player} {row.Year} wk{row.Week}: "
+                                f"{row.career_to_date} vs weekly-only {total:.1f}")
+    if not checked:
+        return ["no 2018-or-later rookie start to cross-check"]
+    rate = len(off) / len(checked)
+    if rate > max_player_rate:
+        listed = "; ".join(list(off.values())[:5])
+        return [f"career_to_date disagrees with a weekly-only rebuild for "
+                f"{len(off)} of {len(checked)} players ({rate:.3f} > "
+                f"{max_player_rate}) — the seam, not upstream drift: {listed}"]
+    return []

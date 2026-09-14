@@ -14,11 +14,14 @@ Run: python tests/test_scoring_events.py
 """
 from __future__ import annotations
 
+import json
 import sys
 from pathlib import Path
 
 _ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(_ROOT / "lib"))
+
+import pandas as pd  # noqa: E402
 
 from lotg_support import inquiry as Q  # noqa: E402
 from lotg_support import scoring_events as SE  # noqa: E402
@@ -175,6 +178,168 @@ def test_2020_rows_come_from_the_sheet_and_snapshot_seasons_do_not():
         assert set(SE.starter_touchdowns(seasons[-1])["source"]) == {"snapshot"}
 
 
+# --------------------------------------------------------------------------- #
+# careers
+# --------------------------------------------------------------------------- #
+def _seasonal_file(season: int):
+    return _ROOT / ".cache" / SE.SEASONAL_DIR / SE.SEASONAL_FILE.format(season=season)
+
+
+#: One finished season, fetched if it is not cached (~400KB), so the structural
+#: career checks are real in CI rather than permanently skipped. The guards that
+#: need the whole 1999-> history stay skip-if-absent, like test_contracts.py.
+_PROBE_SEASON = 2015
+
+
+def _have_seasonal() -> int:
+    """A cached seasonal season to test against, fetching the probe if needed."""
+    for season in range(2015, 2025):
+        if _seasonal_file(season).exists() and _seasonal_file(season).stat().st_size > 0:
+            return season
+    try:
+        if SE._seasonal(_PROBE_SEASON, str(_ROOT)) is not None:
+            return _PROBE_SEASON
+    except Exception:
+        pass
+    return 0
+
+
+def _have_full_seasonal_history() -> bool:
+    """Every season a career can span is cached — the whole-history guards."""
+    return all((_seasonal_file(y).exists() and _seasonal_file(y).stat().st_size > 0)
+               for y in range(SE.FIRST_NFLVERSE_SEASON, 2025))
+
+
+def test_basis_measure_and_years_rule_reject_junk():
+    for call in (lambda: SE.career_totals(basis="everything"),
+                 lambda: SE.lowest_careers(measure="whatever"),
+                 lambda: SE.lowest_careers(years_rule="vibes")):
+        try:
+            call()
+        except ValueError:
+            continue
+        raise AssertionError("an unknown option should raise, not be guessed at")
+
+
+def test_the_default_tenure_rule_follows_the_career_measure():
+    # A career-to-date question is about the tenure he HAD at that start; a
+    # lifetime question is about the career he ended up with. Getting this
+    # backwards silently changes who qualifies.
+    assert SE.DEFAULT_YEARS_RULE["career_to_date"] == "at_start"
+    assert SE.DEFAULT_YEARS_RULE["career_total"] == "roster"
+    assert set(SE.DEFAULT_YEARS_RULE) == {"career_total", "career_to_date"}
+
+
+def test_a_seasonal_file_carries_reg_post_rows_and_they_are_never_summed():
+    season = _have_seasonal()
+    if not season:
+        return _skip("no cached nflverse seasonal file")
+    frame = SE._seasonal(season, str(_ROOT))
+    assert frame is not None
+    kinds = set(frame["season_type"])
+    assert "REG+POST" in kinds, kinds     # the trap this guards
+    assert SE._basis_types("reg") == ("REG",)
+    assert SE._basis_types("reg_post") == ("REG", "POST")
+    assert "REG+POST" not in SE._basis_types("reg_post")
+
+
+def test_career_totals_equal_the_rows_the_basis_names():
+    season = _have_seasonal()
+    if not season or not _have_cache(2020):
+        return _skip("no cached seasonal file")
+    frame = SE._seasonal(season, str(_ROOT))
+    reg = frame[frame["season_type"] == "REG"]
+    # rebuild one season's contribution independently and require the module's
+    # per-season table to match it exactly
+    want = {}
+    for pid, value in zip(reg["player_id"].astype(str),
+                          pd.to_numeric(reg["rushing_yards"], errors="coerce").fillna(0.0)):
+        want[pid] = want.get(pid, 0.0) + float(value)
+    got, _ = SE._season_values_cached("rushing_yards", "reg", season, str(_ROOT))
+    for pid, value in want.items():
+        assert abs(got.get((pid, season), 0.0) - value) < 0.001, (pid, season, value)
+    # and the postseason basis must be at least as large in aggregate
+    assert (sum(SE.career_totals("rushing_yards", basis="reg_post").values())
+            >= sum(SE.career_totals("rushing_yards", basis="reg").values()))
+
+
+def test_career_to_date_never_exceeds_the_lifetime_total():
+    # Only true for a stat that cannot go backwards — rushing YARDS can (that is
+    # the whole reason the negative-career answers exist), touchdowns cannot.
+    if not _seasons():
+        return _skip("no completed season with a cached nflverse file")
+    frame = SE.starter_careers(stat="rushing_tds")
+    if frame.empty:
+        return _skip("no starter rows")
+    bad = frame[frame["career_to_date"] > frame["career_total"] + 0.001]
+    assert bad.empty, bad.head().to_string()
+    assert (frame["career_to_date"] >= -0.001).all()
+
+
+def test_lowest_careers_is_sorted_and_keeps_ties_at_the_cutoff():
+    if not _seasons():
+        return _skip("no completed season with a cached nflverse file")
+    rows = SE.lowest_careers(measure="career_to_date", n=5)
+    if rows.empty:
+        return _skip("no qualifying players")
+    values = list(rows["career_to_date"])
+    assert values == sorted(values), values
+    assert len(rows) >= 5
+    # anything beyond the fifth row is there only because it ties the fifth
+    for extra in values[5:]:
+        assert extra == values[4], (extra, values)
+
+
+def test_lowest_careers_reports_the_earliest_of_equal_starts():
+    if not _seasons():
+        return _skip("no completed season with a cached nflverse file")
+    rows = SE.lowest_careers(measure="career_to_date", n=8)
+    frame = SE.starter_careers()
+    for row in rows.itertuples(index=False):
+        mine = frame[(frame["Player"] == row.Player)
+                     & (frame["years_at_start"].fillna(0) >= 3)
+                     & (frame["career_to_date"] == row.career_to_date)]
+        first = mine.sort_values(["Year", "Week"]).iloc[0]
+        assert (int(first["Year"]), int(first["Week"])) == (int(row.Year), int(row.Week)), \
+            (row.Player, row.Year, row.Week, first["Year"], first["Week"])
+
+
+def test_the_career_guards_pass_on_real_data():
+    if not _seasons() or not _have_full_seasonal_history():
+        return _skip("seasonal history not fully cached")
+    assert SE.check_career_window_covers_starters() == []
+    assert SE.check_career_sources_agree() == []
+    assert SE.check_career_to_date_arithmetic() == []
+
+
+def test_the_season_cache_stays_out_of_the_builds_freshness_gate():
+    """`.cache/*.csv` is the build's baseline and every file there must be
+    stamped in `_fetch_log.json` — `test_refresh_external` asserts exactly that.
+    These files are fetched by a path that does not stamp, so they live in a
+    subdirectory. Writing them beside the build's own broke that guard once.
+    """
+    season = _have_seasonal()
+    if not season:
+        return _skip("no cached nflverse seasonal file")
+    assert _seasonal_file(season).parent.name == SE.SEASONAL_DIR
+    loose = [p.name for p in (_ROOT / ".cache").glob("*.csv")
+             if p.name.startswith("nflverse_stats_player_season_")]
+    assert loose == [], loose
+    log = _ROOT / ".cache" / "_fetch_log.json"
+    if log.exists():
+        stamped = set(json.loads(log.read_text()))
+        unstamped = sorted({p.name for p in (_ROOT / ".cache").glob("*.csv")} - stamped)
+        assert unstamped == [], unstamped
+
+
+def test_the_seam_guard_can_fail():
+    # A guard that cannot fail is decoration: at a zero tolerance the known
+    # upstream drift must surface.
+    if not _seasons() or not _have_full_seasonal_history():
+        return _skip("seasonal history not fully cached")
+    assert SE.check_career_to_date_arithmetic(max_player_rate=0.0) != []
+
+
 if __name__ == "__main__":
     for fn in (
         test_a_passing_touchdown_is_not_a_scored_one,
@@ -189,6 +354,16 @@ if __name__ == "__main__":
         test_the_scan_finds_only_lineups_that_really_scored_nothing,
         test_every_2020_starter_name_reaches_a_gsis_id,
         test_2020_rows_come_from_the_sheet_and_snapshot_seasons_do_not,
+        test_basis_measure_and_years_rule_reject_junk,
+        test_the_default_tenure_rule_follows_the_career_measure,
+        test_a_seasonal_file_carries_reg_post_rows_and_they_are_never_summed,
+        test_career_totals_equal_the_rows_the_basis_names,
+        test_career_to_date_never_exceeds_the_lifetime_total,
+        test_lowest_careers_is_sorted_and_keeps_ties_at_the_cutoff,
+        test_lowest_careers_reports_the_earliest_of_equal_starts,
+        test_the_season_cache_stays_out_of_the_builds_freshness_gate,
+        test_the_career_guards_pass_on_real_data,
+        test_the_seam_guard_can_fail,
     ):
         fn()
         print(f"ok: {fn.__name__}")

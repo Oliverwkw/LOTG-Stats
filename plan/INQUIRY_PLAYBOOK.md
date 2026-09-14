@@ -118,7 +118,7 @@ the answer, not a silent choice.
 | `scripts/draft_capital.py` (`lotg_support.draft_capital`) | what a draft slot returns across *all* rounds, who gets which slot under each era's ordering rule, and what moving up the order costs in roster ceiling |
 | `scripts/contract_study.py` (`lotg_support.contracts`) | the *real world* side: what an NFL contract predicts about fantasy production — signings ranked inside their position's market, matched against comparable players who did not get paid |
 | `scripts/forecast.py` (`lotg_support.forecast`) | the season that has not happened yet: project rosters (rates, ageing, market-priced rookies, availability and depth), calibrate against completed seasons, simulate championship / playoff / seeding odds |
-| `scripts/touchdowns.py` (`lotg_support.scoring_events`) | what a player actually DID under a lineup rather than what he was worth: nflverse's weekly stat lines joined onto this league's starters — touchdowns scored (and thrown) per starter-week, and the scan for lineups that reached the end zone with nobody |
+| `scripts/touchdowns.py` (`lotg_support.scoring_events`) | what a player actually DID rather than what he was worth: nflverse's stat lines joined onto this league's starters — touchdowns scored (and thrown) per starter-week, the scan for lineups that reached the end zone with nobody, and career totals in any nflverse stat, both as of a start and lifetime |
 
 All of them are additive and read-only. None is imported by the build or run by
 any workflow.
@@ -244,7 +244,17 @@ python scripts/touchdowns.py drought --qb-rule slot      # the superflex QB coun
 # one lineup, player by player; a season's scorers
 python scripts/touchdowns.py lineup --season 2025 --week 12 --team Oliverwkw
 python scripts/touchdowns.py scorers --season 2025
+# the thinnest careers anyone ever started, lifetime or as of the start
+python scripts/touchdowns.py career --position RB
+python scripts/touchdowns.py career --measure career_to_date --min-years 3
 ```
+
+For a career question the two numbers are `career_total` (the whole career,
+including everything after) and `career_to_date` (what he had entering that
+game — the résumé the manager was looking at), over any nflverse column:
+`--stat receiving_yards`, `--stat carries`, whatever the question needs. They
+rank differently and the tenure filter that belongs with each differs too, which
+is what `DEFAULT_YEARS_RULE` encodes.
 
 A passing touchdown is thrown, not scored, so it rides in its own column and is
 never counted in `touchdowns`; `qb_rule` decides whether "non-QB" means the
@@ -562,6 +572,31 @@ list is here so an answer written by hand does not walk into them.
   McBride — inside the ~1.3% of rows that re-score to anything but the build's
   own number. Fine for a rate; an answer that turns on one player should be read
   against both sources.
+- **An nflverse SEASON file holds three rows per player**: `REG`, `POST` and
+  `REG+POST`, the last being the sum of the first two. Summing a column across
+  the file double-counts every career. `scoring_events.CAREER_BASES` picks the
+  rows; nothing reads a `REG+POST` row.
+- **"Years in the league" has three readings, and they change the answer.** A
+  player's tenure AS OF a start is not his career length: Jahan Dotson was a
+  2022 rookie started in 2023 — two years in at the time, four counting the
+  career he went on to have. `scoring_events.YEARS_RULES` names all three
+  (`at_start` / `roster` / `played`) rather than picking one silently.
+- **nflverse renames players between vintages.** John Metchie is
+  "John Metchie III" in the 2023 files and "John Metchie" in 2024, so a
+  career assembled by NAME loses seasons without erroring. Join on `gsis_id`;
+  `gsis_bridge()` and the 2020 name fallback exist for exactly that.
+- **An inquiry that touches the in-progress season pulls its file into
+  `.cache/` and stamps `_fetch_log.json`.** That is the build's own loader doing
+  its job; the pair is consistent. Reverting the log to keep `git status` clean
+  while leaving the file behind is not — `test_refresh_external` then reports an
+  undated cache file. Drop both or keep both.
+- **The newest seasons have no season-totals file**, so a career total is
+  stitched from seasonal files plus the weekly file for the rest — and the two
+  sources drift, because nflverse revises a season after publishing its totals
+  (12 of 4,328 overlapping player-seasons when this was written; Kyler Murray's
+  2019 rushing yards are 539 in one and 544 in the other). Both
+  `check_career_sources_agree` and `check_career_to_date_arithmetic` measure the
+  rate rather than asserting an identity.
 - **A cancelled game leaves fantasy points with no stat line.** The 2022
   Bills-Bengals week 17 game was abandoned and struck from nflverse while
   Sleeper kept the partial points — five starter-weeks in this league, which is

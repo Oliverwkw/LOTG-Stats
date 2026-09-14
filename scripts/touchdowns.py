@@ -17,6 +17,11 @@ cache under `.cache/`.
     # a season's scorers, most touchdowns first
     python scripts/touchdowns.py scorers --season 2025
 
+    # thinnest careers ever started: lifetime, or as of the start itself
+    python scripts/touchdowns.py career --stat rushing_yards --position RB
+    python scripts/touchdowns.py career --measure career_to_date --min-years 3
+    python scripts/touchdowns.py career --stat receiving_yards --basis reg_post -n 10
+
     # the guards that tie the join to numbers the build already published
     python scripts/touchdowns.py validate
 """
@@ -70,6 +75,25 @@ def cmd_scorers(args):
     print(ranked.head(args.n).to_string(index=False))
 
 
+def cmd_career(args):
+    """Starters with the least career production in one nflverse stat."""
+    rows = SE.lowest_careers(stat=args.stat, basis=args.basis, measure=args.measure,
+                             min_years=args.min_years, years_rule=args.years_rule,
+                             positions=tuple(args.position or ()), n=args.n,
+                             seasons=_seasons(args))
+    if rows.empty:
+        print("no qualifying player")
+        return
+    cols = ["Player", "Position", "career_to_date", "career_total", "Year", "Week",
+            "Team", "years_at_start", "years_in_league", "seasons_played_career",
+            "qualifying_starts"]
+    print(rows[[c for c in cols if c in rows.columns]].to_string(index=False))
+    rule = args.years_rule or SE.DEFAULT_YEARS_RULE[args.measure]
+    print(f"\nranked on {args.measure} of {args.stat} ({args.basis}); "
+          f"{args.min_years}+ years by the {rule!r} rule. "
+          f"Ties at the cutoff are all shown.")
+
+
 def cmd_validate(args):
     """Run the module's guards."""
     problems = []
@@ -79,6 +103,9 @@ def cmd_validate(args):
     for season in seasons:
         problems += SE.check_touchdown_join(season)
     problems += SE.check_2020_coverage()
+    problems += SE.check_career_window_covers_starters()
+    problems += SE.check_career_sources_agree()
+    problems += SE.check_career_to_date_arithmetic()
     for line in problems:
         print(f"FAIL {line}")
     print("all checks passed" if not problems else f"{len(problems)} problem(s)")
@@ -94,12 +121,26 @@ def main(argv=None):
     common.add_argument("--team", help="lineup: which team")
     common.add_argument("--qb-rule", choices=SE.QB_RULES, default="position",
                         help="drought: what counts as a quarterback (default: position)")
-    common.add_argument("-n", type=int, default=25, help="scorers: how many rows")
+    common.add_argument("-n", type=int, default=25, help="scorers/career: how many rows")
+    common.add_argument("--stat", default="rushing_yards",
+                        help="career: which nflverse stat column")
+    common.add_argument("--basis", choices=SE.CAREER_BASES, default="reg",
+                        help="career: regular season only, or with the postseason")
+    common.add_argument("--measure", choices=("career_total", "career_to_date"),
+                        default="career_total",
+                        help="career: the whole career, or what he had at the start")
+    common.add_argument("--min-years", type=int, default=3,
+                        help="career: drop players with fewer years in the league")
+    common.add_argument("--years-rule", choices=SE.YEARS_RULES, default=None,
+                        help="career: how to count those years (default fits --measure)")
+    common.add_argument("--position", action="append",
+                        help="career: restrict to a position (repeatable)")
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0],
                                      parents=[common])
     sub = parser.add_subparsers(dest="command", required=True)
     for name, fn in (("drought", cmd_drought), ("lineup", cmd_lineup),
-                     ("scorers", cmd_scorers), ("validate", cmd_validate)):
+                     ("scorers", cmd_scorers), ("career", cmd_career),
+                     ("validate", cmd_validate)):
         sub.add_parser(name, help=fn.__doc__, parents=[common]).set_defaults(func=fn)
     args = parser.parse_args(argv)
     pd.set_option("display.width", 200)
