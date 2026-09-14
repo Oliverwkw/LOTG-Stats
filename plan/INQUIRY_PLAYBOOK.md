@@ -656,7 +656,11 @@ list is here so an answer written by hand does not walk into them.
   anything filters them — see `injury_tracker._SUSPENSION_TOKENS`.
 - **The tracker's gsis bridge is not Sleeper's `gsis_id` field.** Sleeper
   carries one for 40 of the 247 players on the 2026 rosters and pads them with
-  whitespace (`' 00-0035700'`); the DynastyProcess table closes the gap to 246.
+  whitespace (`' 00-0035700'`); the DynastyProcess table closes the gap to 245,
+  and it stocks five `AAA######` PLACEHOLDERS (`WAS569019`) that look like ids
+  and join to nothing — `looks_like_gsis()` rejects them. The two blanks are
+  Jack Strand and Mike Washington, undrafted 2026 rookies whom nflverse has a
+  real id for but carries no `sleeper_id` against.
   `injury_tracker.resolve_gsis()` / `sleeper_gsis_bridge()`, and
   `data/injury_tracker.csv` now carries the resolved id per row, so a
   participation cross-check against nflverse needs no id chasing. Its

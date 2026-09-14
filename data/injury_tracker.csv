@@ -100,7 +100,7 @@ season,week,player_id,gsis_id,full_name,position,nfl_team,injury_status,injury_b
 2026,1,13298,00-0041547,KC Concepcion,WR,CLE,,,Active,false,true,6,2026-09-09T18:47:33.095331+00:00,
 2026,1,13301,00-0041040,Antonio Williams,WR,WAS,,,Active,false,true,6,2026-09-09T18:47:33.095331+00:00,
 2026,1,13302,00-0040888,Adam Randall,RB,BAL,IR,Undisclosed,Inactive,false,,6,2026-09-09T18:47:33.095331+00:00,
-2026,1,13305,WAS569019,Mike Washington,RB,LV,,,Active,false,true,6,2026-09-09T18:47:33.095331+00:00,
+2026,1,13305,,Mike Washington,RB,LV,,,Active,false,true,6,2026-09-09T18:47:33.095331+00:00,
 2026,1,13306,00-0041092,Taylen Green,QB,CLE,Out,Coach's Decision,Active,false,,4,2026-09-13T18:17:37.991878+00:00,
 2026,1,13311,00-0041525,Chris Bell,WR,MIA,,,Active,false,true,6,2026-09-09T18:47:33.095331+00:00,
 2026,1,13317,00-0041048,Ted Hurst,WR,TB,,,Active,false,true,6,2026-09-09T18:47:33.095331+00:00,

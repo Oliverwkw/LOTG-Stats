@@ -528,6 +528,40 @@ def test_the_capture_resolves_a_gsis_id():
     assert _capture_one("x", "Nan Id", "WR", "SF", gsis="nan")["gsis_id"] == ""
 
 
+def test_a_placeholder_id_is_not_recorded_as_a_gsis():
+    """DynastyProcess stocks five `AAA######` placeholders for players with no
+    real gsis yet, and one reached this league: 'WAS569019' for Mike Washington
+    Jr. A placeholder is worse than a blank — it looks joinable and silently
+    matches nothing — so it is discarded at both the bridge and the resolver.
+
+    The shape is exact, not a heuristic: every gsis_id nflverse publishes is
+    `00-00NNNNN` (142,969 of 142,969 across the cached weekly-roster files,
+    2021-2026)."""
+    assert it.looks_like_gsis("00-0035700")
+    assert it.looks_like_gsis("  00-0035700  ")
+    for junk in ("WAS569019", "BAI173035", "nan", "", None, "00-0035700x", "0035700"):
+        assert not it.looks_like_gsis(junk), junk
+    # Rejected wherever it comes from: Sleeper's own field, or the bridge.
+    assert it.resolve_gsis({"gsis_id": "WAS569019"}, "13305", {}) == ""
+    assert it.resolve_gsis({}, "13305", {"13305": "WAS569019"}) == ""
+    # And the bridge does not stock them in the first place.
+    if (_ROOT / "exports" / "snapshot" / "dynastyprocess_playerids.csv").exists():
+        bridge = it.sleeper_gsis_bridge(_ROOT)
+        assert all(it.looks_like_gsis(v) for v in bridge.values())
+
+
+def test_every_id_in_the_committed_tracker_is_gsis_shaped():
+    """A blank is a legitimate cell; a malformed id never is."""
+    path = it.tracker_path(_ROOT)
+    if not path.exists():
+        return
+    import csv as _csv
+    with path.open(newline="") as f:
+        bad = [(r["full_name"], r["gsis_id"]) for r in _csv.DictReader(f)
+               if r.get("gsis_id") and not it.looks_like_gsis(r["gsis_id"])]
+    assert not bad, f"malformed gsis ids in the shipped tracker: {bad}"
+
+
 def test_the_committed_bridge_closes_the_gap_sleeper_leaves():
     """The DynastyProcess table, read with the stdlib, takes 40/247 to 246/247.
 

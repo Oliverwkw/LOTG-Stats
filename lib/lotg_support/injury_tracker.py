@@ -242,7 +242,7 @@ def sleeper_gsis_bridge(repo_root: Path) -> Dict[str, str]:
     padded with whitespace (' 00-0035700' for Josh Jacobs), so a raw string
     compare against nflverse misses them too. The build already closes that gap
     with this table (src/lotg.py, `dp_sleeper_to_gsis`) and it takes the
-    coverage to 246 of 247 — but it closed it only INSIDE the build, so anything
+    coverage to 245 of 247 — but it closed it only INSIDE the build, so anything
     reading the tracker CSV afterwards had to rediscover the whole chain, and
     the obvious reading (Sleeper's raw field) silently answers for 16% of the
     roster. Capturing the resolved id is what stops that.
@@ -260,7 +260,7 @@ def sleeper_gsis_bridge(repo_root: Path) -> Dict[str, str]:
             for r in csv.DictReader(f):
                 sid = str(r.get("sleeper_id") or "").strip()
                 gsis = str(r.get("gsis_id") or "").strip()
-                if not sid or not gsis or gsis.lower() == "nan":
+                if not sid or not looks_like_gsis(gsis):
                     continue
                 # The table stores ids as floats ("13269.0").
                 if sid.endswith(".0"):
@@ -273,18 +273,42 @@ def sleeper_gsis_bridge(repo_root: Path) -> Dict[str, str]:
     return out
 
 
+# Every gsis_id nflverse publishes has this shape — 142,969 of 142,969 across
+# the cached weekly-roster files, 2021 through 2026. Anything else cannot join
+# to an nflverse row, so it is not an id for our purposes. The DynastyProcess
+# table carries five PLACEHOLDERS in `AAA######` form for players who have no
+# real gsis yet ('WAS569019' for Mike Washington Jr.), and one of them reached
+# this league's rosters. A placeholder is worse than a blank: a blank says "no
+# id", while a placeholder looks joinable and silently matches nothing.
+_GSIS_RE = re.compile(r"00-00\d{5}")
+
+
+def looks_like_gsis(value: Any) -> bool:
+    """Is this an nflverse gsis_id, rather than a placeholder or junk?"""
+    return bool(_GSIS_RE.fullmatch(str(value or "").strip()))
+
+
 def resolve_gsis(meta: Optional[Dict[str, Any]], pid: Any,
                  bridge: Optional[Dict[str, str]] = None) -> str:
     """A player's gsis_id: Sleeper's own (stripped) first, then the bridge.
 
     Same order and same stripping as the build (src/lotg.py ~2481), so the
-    tracker and the sheets resolve a player to the same nflverse row. '' when
-    neither source knows him — which is one player of the 247 on the 2026
-    rosters, and is a blank cell, never a guess."""
+    tracker and the sheets resolve a player to the same nflverse row. Anything
+    that is not gsis-SHAPED is discarded rather than recorded (see _GSIS_RE).
+
+    '' when no source knows him. That is two players of the 247 on the 2026
+    rosters — Jack Strand (ATL) and Mike Washington (LV), both undrafted 2026
+    rookies. nflverse has a real id for each (00-0041194, 00-0040878) but
+    carries no `sleeper_id` on those rows, and neither does DynastyProcess, so
+    nothing LINKS their Sleeper ids to them. Resolving them would take a
+    name+team match, which is the join this repo has been burned by (upstream
+    re-spells: 'Mike Washington' vs 'Mike Washington Jr.'), so the cell stays
+    blank until an id table carries the mapping."""
     raw = str((meta or {}).get("gsis_id") or "").strip()
-    if raw and raw.lower() != "nan":
+    if looks_like_gsis(raw):
         return raw
-    return str((bridge or {}).get(str(pid)) or "").strip()
+    cand = str((bridge or {}).get(str(pid)) or "").strip()
+    return cand if looks_like_gsis(cand) else ""
 
 
 def designation(status: Optional[str]) -> Optional[str]:
