@@ -136,6 +136,27 @@ def check_open_ended_stats_on_past_rows():
     return ok
 
 
+def check_a_settled_streak_is_not_new_data():
+    """Streaks are terminal-encoded, so only the run still open can change — the
+    last one, from last season. Three 2020-2024 Quiet streak rows moved on the
+    2026-09-09 Add/Drop week-attribution change and read as news because their
+    teams had made 2026 moves; a 2026 move cannot touch a 2020 week."""
+    title = "All-time leaderboard moves — team weeks"
+    traded = _week_one(new_weeks=(), weeks_completed=0, players=(), teams=(),
+                       tx_teams={"JacobRosenzweig", "Oliverwkw"})
+    old = _ev("team_week", "JacobRosenzweig 2020 week 8", "Quiet streak", rank=4,
+              value=6.0, joined=True, others=("BROsenzweig 2020 week 13",), passed=())
+    ok = _ok("a 2020 Quiet streak of a team that just traded -> edit",
+             _tag(old, traded, title) == "edit")
+    ok &= _ok("same row in a week with games -> still an edit",
+              _tag(old, _week_one(teams={"JacobRosenzweig"}), title) == "edit")
+    open_run = _ev("team_week", "Oliverwkw 2025 week 17", "Quiet streak", rank=4,
+                   value=6.0, passed=("plehv79 2025 week 17",))
+    ok &= _ok("last season's final week, whose run can still be open -> news",
+              _tag(open_run, traded, title) == "new")
+    return ok
+
+
 def check_pooled_stats_take_in_any_new_week():
     pooled = _ev("player_year", "Retired Guy 2020", "Rostered consistency percentile",
                  value=100.0, passed=("Other Guy 2021",))
@@ -334,6 +355,7 @@ def run_all() -> bool:
         check_both_stays_with_the_news,
         check_open_ended_stats_on_past_rows,
         check_pooled_stats_take_in_any_new_week,
+        check_a_settled_streak_is_not_new_data,
         check_renumber_is_an_edit_even_in_season,
         check_current_period_items_are_new_data,
         check_new_transactions_count_as_new_data,

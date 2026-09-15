@@ -505,7 +505,7 @@ _POOL_MARKERS = ("percentile", "boom", "bust", "quartile", "middle 50%")
 # streak still open.
 _FORWARD_MARKERS = (
     "career", "addition value", "o-score", "skill", "on team", "after", "later",
-    "tenure", "streak", "over same time", "difference of averages",
+    "tenure", "over same time", "difference of averages",
     "number of teams", "games played", "dropped avg", "dropped total",
     "return from", "top team", "last team",
 )
@@ -622,6 +622,13 @@ def _new_data_reaches(cand: "_Cand", yr: Optional[int], season: Optional[int],
         return False
     if yr is None or (season and yr >= season):
         return True
+    if "streak" in col:
+        # Streaks are terminal-encoded: a past row only changes while its run is
+        # still open, and the only run that can still be open is the last one,
+        # carried in from last season. A 2020 week's Quiet streak is settled —
+        # a 2026 add cannot move it, so if it moved an edit did (the 2026-09-09
+        # Add/Drop week attribution change moved three of them).
+        return bool(season) and yr >= season - 1
     return any(m in col for m in _FORWARD_MARKERS)
 
 
