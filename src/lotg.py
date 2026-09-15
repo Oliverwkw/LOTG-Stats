@@ -1208,6 +1208,29 @@ def _startup_remaining_count(sids_by_team, roster_by_tw, team, year, week):
         return None
 
 
+def _startup_league_remaining(sids_by_team, roster_by_tw) -> Dict[Tuple[int, int], int]:
+    """League 'Startup draft players remaining' per (year, week): how many of the
+    2020 startup draft's players are on ANY roster that week, whoever holds them.
+
+    The team columns count only a team's OWN picks, so summing them left out every
+    startup player who has since changed hands (Tua on Oliverwkw, Tony Pollard on
+    stevenb123) and read a trade as a player leaving the league."""
+    everyone = set().union(*sids_by_team.values()) if sids_by_team else set()
+    rostered: Dict[Tuple[int, int], set] = defaultdict(set)
+    for (_t, y, w), pids in roster_by_tw.items():
+        rostered[(int(y), int(w))] |= pids
+    return {yw: len(everyone & pids) for yw, pids in rostered.items()}
+
+
+def _startup_league_season_end(league_by_yw: Dict[Tuple[int, int], int]) -> Dict[int, int]:
+    """{year: league count at that year's last scored week} — the season-end read
+    league_year carries. A year with no scored week is absent (N/A)."""
+    last: Dict[int, int] = {}
+    for (y, w) in league_by_yw:
+        last[y] = max(last.get(y, w), w)
+    return {y: league_by_yw[(y, w)] for y, w in last.items()}
+
+
 def _append_team_vs_columns(frame: pd.DataFrame, cols: List[str], plan_key: str = "team-year") -> List[str]:
     if frame.empty or "Team" not in frame.columns:
         return cols
@@ -3660,6 +3683,11 @@ def build_all(repo_root: Path) -> None:
     _fa_add_by_tsw: Dict[Tuple[str, int, int], int] = defaultdict(int)
     _puredrop_by_tsw: Dict[Tuple[str, int, int], int] = defaultdict(int)
     _addrop_by_tsw: Dict[Tuple[str, int, int], int] = defaultdict(int)
+    # FAAB on the same rows and the same clock. team_week's "Amount of FAAB
+    # spent" used to be credited by Sleeper's `leg`, which files every offseason
+    # move under week 1: January waivers sat in the week 1 row (2026: AceMatthew
+    # +$1, stevenb123 +$3) beside an Add/Drops count that correctly left them out.
+    _faab_by_tsw: Dict[Tuple[str, int, int], float] = defaultdict(float)
     _trade_by_tsw: Dict[Tuple[str, int, int], int] = defaultdict(int)
 
     # season -> championship Monday, filled in as each league season is walked.
@@ -8987,6 +9015,7 @@ def build_all(repo_root: Path) -> None:
                 _waiver_add_by_ts.clear(); _fa_add_by_ts.clear(); _puredrop_by_ts.clear()
                 _waiver_add_by_tsw.clear(); _fa_add_by_tsw.clear(); _puredrop_by_tsw.clear()
                 _addrop_by_tsw.clear()
+                _faab_by_tsw.clear()
                 for _adr in add_drop_rows:
                     _t = str(_adr.get("Team") or "")
                     try:
@@ -9038,6 +9067,7 @@ def build_all(repo_root: Path) -> None:
                         _w = _season_week_of(_dday, _s)
                     if _w:
                         _addrop_by_tsw[(_t, _s, int(_w))] += 1
+                        _faab_by_tsw[(_t, _s, int(_w))] += _to_float(_adr.get("Faab"), 0.0) or 0.0
                     if _adbucket is not None:
                         if _adbucket == "waiver":
                             _waiver_add_by_ts[(_t, _s)] += 1
@@ -9119,6 +9149,24 @@ def build_all(repo_root: Path) -> None:
                     _log(debug, f"[{_now_iso()}] INFO team_week Number of Add/Drops rebuilt "
                                 f"from add_drop_rows on the Tuesday-Monday league week: "
                                 f"{_before} -> {_after}")
+                    # FAAB, from the same rows on the same week (see `_faab_by_tsw`):
+                    # an offseason claim gets no week, as its Add/Drop does, and a
+                    # claim add_drops no longer carries (a commissioner-reversed
+                    # one) is no longer counted. No FAAB before 2022: N/A, not $0.
+                    if "Amount of FAAB spent" in tw.columns:
+                        _f_before = float(pd.to_numeric(
+                            tw["Amount of FAAB spent"], errors="coerce").fillna(0).sum())
+                        tw["Amount of FAAB spent"] = [
+                            (round(float(_faab_by_tsw.get((t, int(y), int(w)), 0.0)), 2)
+                             if int(y) >= 2022 else None)
+                            if pd.notna(y) and pd.notna(w) else None
+                            for t, y, w in zip(_t_ser, _y_ser, _w_ser)
+                        ]
+                        _f_after = float(pd.to_numeric(
+                            tw["Amount of FAAB spent"], errors="coerce").fillna(0).sum())
+                        _log(debug, f"[{_now_iso()}] INFO team_week Amount of FAAB spent rebuilt "
+                                    f"from add_drop_rows on the Tuesday-Monday league week: "
+                                    f"${_f_before:,.0f} -> ${_f_after:,.0f}")
                     # Trades, on the same week. They were still credited by
                     # Sleeper's `leg`, which rolls over partway through a
                     # Wednesday, so a Tuesday or Wednesday trade could sit a week
@@ -17712,6 +17760,17 @@ def build_all(repo_root: Path) -> None:
                 }
             )
             league_week = league_week.merge(agg_lw, how="left", on=["Year","Week"])
+            # Startup draft players remaining (league) = every startup player on
+            # ANY roster that week, not the sum above of each team's own picks.
+            try:
+                if "Startup draft players remaining" in league_week.columns:
+                    _sl = _startup_league_remaining(*_startup_remaining_maps(pick_rows, pw)[:2])
+                    league_week["Startup draft players remaining"] = [
+                        (_sl.get((int(_y), int(_w))) if (pd.notna(_y) and pd.notna(_w)) else None)
+                        for _y, _w in zip(league_week["Year"], league_week["Week"])
+                    ]
+            except Exception as e:
+                _log_exc(debug, "league_week_startup_remaining", e)
             league_week["Amount of FAAB spent"] = league_week.apply(
                 lambda r: (
                     float(pd.to_numeric(r.get("Amount of FAAB spent"), errors="coerce") or 0.0)
@@ -17844,14 +17903,14 @@ def build_all(repo_root: Path) -> None:
                 ),
                 axis=1,
             )
-            # Startup players remaining (league, per year) = season-END total =
-            # sum across teams of each team's last-week count (the agg above would
-            # sum over all team-weeks and over-count).
-            if "Startup draft players remaining" in league_year.columns and not team_year.empty:
-                _suy = (team_year.assign(_v=pd.to_numeric(team_year.get("Startup draft players remaining"), errors="coerce"))
-                        .groupby("Year")["_v"].sum())
+            # Startup players remaining (league, per year) = season-END count of
+            # startup players on ANY roster at the year's last scored week (not
+            # the sum of team counts, which drops every one that changed hands).
+            if "Startup draft players remaining" in league_year.columns:
+                _suy = _startup_league_season_end(
+                    _startup_league_remaining(*_startup_remaining_maps(pick_rows, pw)[:2]))
                 league_year["Startup draft players remaining"] = [
-                    (float(_suy.get(int(y))) if pd.notna(y) and int(y) in _suy.index else None)
+                    (float(_suy[int(y)]) if pd.notna(y) and int(y) in _suy else None)
                     for y in league_year["Year"]
                 ]
         except Exception as e:
@@ -18028,13 +18087,15 @@ def build_all(repo_root: Path) -> None:
             # player-week sum.
             league_all["Number of cuffs rostered"] = int(unique_cuffs_league_all.get("Number of cuffs rostered", 0))
             league_all["Number of cuffs started"] = int(unique_cuffs_league_all.get("Number of cuffs started", 0))
-            # League-wide startup players still rostered NOW = sum across teams of
-            # each team's current count (team_all_time), not a max over team-weeks.
-            league_all["Startup draft players remaining"] = (
-                float(pd.to_numeric(team_all.get("Startup draft players remaining"), errors="coerce").sum())
-                if (isinstance(team_all, pd.DataFrame) and "Startup draft players remaining" in team_all.columns)
-                else None
-            )
+            # League-wide startup players still rostered NOW = startup players on
+            # ANY roster at the latest scored week (whoever holds them), not the
+            # sum of team counts, which drops every one that changed hands.
+            try:
+                _sla = _startup_league_remaining(*_startup_remaining_maps(pick_rows, pw)[:2])
+                league_all["Startup draft players remaining"] = (
+                    float(_sla[max(_sla)]) if _sla else None)
+            except Exception as e:
+                _log_exc(debug, "league_all_startup_remaining", e)
             # FAAB rolls up from team_year like the counts beside it. This used
             # to re-sum team_week here, which undid the season-scoped total set
             # above: a bid placed in a season's offseason sits in no week.
@@ -19760,11 +19821,11 @@ def build_all(repo_root: Path) -> None:
                 for _t, _y in zip(team_year["Team"], team_year["Year"])
             ]
             if isinstance(league_year, pd.DataFrame) and _COL_SR in league_year.columns and "Year" in league_year.columns:
-                _suy_fin = (team_year.assign(_v=pd.to_numeric(team_year.get(_COL_SR), errors="coerce"))
-                            .groupby("Year")["_v"].sum(min_count=1))
+                # League = startup players on ANY roster at the year's last scored
+                # week, not the sum of team counts (see _startup_league_remaining).
+                _suy_fin = _startup_league_season_end(_startup_league_remaining(_sr_s, _sr_r))
                 league_year[_COL_SR] = [
-                    (float(_suy_fin.get(int(_y))) if (pd.notna(_y) and int(_y) in _suy_fin.index
-                                                      and pd.notna(_suy_fin.get(int(_y)))) else None)
+                    (float(_suy_fin[int(_y)]) if (pd.notna(_y) and int(_y) in _suy_fin) else None)
                     for _y in league_year["Year"]
                 ]
     except Exception as e:

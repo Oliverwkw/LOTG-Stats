@@ -144,7 +144,15 @@ def check_projection_gate_scale_and_weekly_exclusion():
     weeks = [w for y in seasons[:-1] for w in range(1, 15)] + [1, 2]
     yrs = [y for y in seasons[:-1] for _ in range(14)] + [2026, 2026]
     early = D.project_on_pace(py, team_year, ly, pd.DataFrame({"Year": yrs, "Week": weeks}))
-    ok = _ok("no yearly items before week 3", early == [], f"got {len(early)}")
+    ok = _ok("no yearly items before week 5", early == [], f"got {len(early)}")
+    yrs4 = [y for y in seasons[:-1] for _ in range(14)] + [2026] * 4
+    wk4 = [w for _ in seasons[:-1] for w in range(1, 15)] + [1, 2, 3, 4]
+    ok &= _ok("still none at week 4",
+              D.project_on_pace(py, team_year, ly, pd.DataFrame({"Year": yrs4, "Week": wk4})) == [])
+    yrs5 = [y for y in seasons[:-1] for _ in range(14)] + [2026] * 5
+    wk5 = [w for _ in seasons[:-1] for w in range(1, 15)] + [1, 2, 3, 4, 5]
+    ok &= _ok("on-pace starts at week 5",
+              D.project_on_pace(py, team_year, ly, pd.DataFrame({"Year": yrs5, "Week": wk5})) != [])
 
     yrs7 = [y for y in seasons[:-1] for _ in range(14)] + [2026] * 7
     wk7 = [w for _ in seasons[:-1] for w in range(1, 15)] + list(range(1, 8))
@@ -198,9 +206,14 @@ def check_yearly_records_for_weekly_stats():
     ok = _ok("weekly-counting record detected", ("A", "Times One-man army?", 6.0) in cols, f"got {cols}")
     ok &= _ok("boolean flag never a record", not any(r.column == "Rostered by champion?" for r in recs))
     ok &= _ok("on-pace stat not a record here", not any(r.column == "Hardship" for r in recs))
-    # No record before week 3.
+    # A record is the HIGH end of a count — real the week it happens, so it does
+    # not wait for week 5 the way on-pace does. Only the preseason has none.
     tw2 = pd.DataFrame({"Year": [2023] * 14 + [2026] * 2, "Week": list(range(1, 15)) + [1, 2]})
-    ok &= _ok("no records before week 3", D.yearly_records(py, ty, ly, tw2) == [])
+    ok &= _ok("a record set by week 2 is reported (no week-5 wait)",
+              any(r.column == "Times One-man army?" for r in D.yearly_records(py, ty, ly, tw2)))
+    tw0 = pd.DataFrame({"Year": [2023] * 14, "Week": list(range(1, 15))})
+    ok &= _ok("no records before the season's first week",
+              D.yearly_records(py, ty, ly, tw0) == [])
     # Diff: unchanged record suppressed, grown/new record reported.
     prior = D.record_value_map([D.YearlyRecord("teams", "A", "Times One-man army?", 6.0)])
     ok &= _ok("unchanged record suppressed", D.diff_records(prior, recs) == [])
@@ -1326,6 +1339,17 @@ def run_all() -> bool:
         check_arriving_from_off_the_board_is_judged_on_the_cutoff,
         check_an_arrival_at_first_reports_once_however_the_board_below_it_moves,
         check_crossings_carry_last_weeks_value,
+        check_counting_stat_classification,
+        check_percent_columns_print_as_percent,
+        check_single_week_ties_say_tie_and_skip_running_totals,
+        check_in_progress_season_rows_only_on_counting_high_end,
+        check_young_moves_only_on_counting_high_end,
+        check_offseason_move_joins_at_week_5,
+        check_week_rows_season_to_date_and_new_stint_wait,
+        check_a_running_total_passing_its_own_row_is_not_news,
+        check_a_stationary_tie_join_is_not_news,
+        check_release_lead_counts_what_the_gate_let_go,
+        check_rookie_oscore_week_matches_the_build,
         check_real_exports_smoke,
     ]
     all_ok = True
@@ -1334,6 +1358,307 @@ def run_all() -> bool:
         all_ok &= bool(t())
     print("\n" + ("ALL PASS" if all_ok else "SOME FAILED"))
     return all_ok
+
+
+# ---------------------------------------------------------------------------
+# Week-5 gates, ties, percentages, running totals (2026-09-15 review of week 1)
+# ---------------------------------------------------------------------------
+def _labels(hl, column=None, end=None):
+    return {h.label for h in hl if (column is None or h.column == column)
+            and (end is None or h.end == end)}
+
+
+def _weeks(**season_weeks):
+    """team_week with Year/Week only: _weeks(y2025=17, y2026=3)."""
+    yrs, wks = [], []
+    for k, n in season_weeks.items():
+        yrs += [int(k[1:])] * n
+        wks += list(range(1, n + 1))
+    return pd.DataFrame({"Year": yrs, "Week": wks})
+
+
+def check_counting_stat_classification():
+    ok = True
+    for col in ("PF", "Points added", "Faab", "Number of pure drops", "Luck",
+                "Times Most injured?", "Total points as team starter", "Games played on team"):
+        ok &= _ok(f"'{col}' counts", D.is_counting_stat(col))
+    for col in ("Win %", "All-play win % minus Win %", "Avg points", "PPG as team starter",
+                "Player addition value", "O-Score", "KTC at pickup", "Trade impact score",
+                "Change in points from previous season", "Tanking", "Number", "Season"):
+        ok &= _ok(f"'{col}' does not", not D.is_counting_stat(col))
+    return ok
+
+
+def check_percent_columns_print_as_percent():
+    frames = {
+        "team_year": pd.DataFrame({"Team": ["A", "B"], "% of points from WRs": [0.104, 0.52],
+                                   "% of starters boom": [17.5, 9.0], "Win %": [0.5, 1.0]}),
+        "team_all_time": pd.DataFrame({"Team": ["A", "B"], "Win %": [0.45, 0.61]}),
+    }
+    got = D.note_percent_columns(frames)
+    ok = _ok("0-1 '%' columns are found", {"% of points from WRs", "Win %"} <= got, got)
+    ok &= _ok("a 0-100 '%' column is not", "% of starters boom" not in got, got)
+    ok &= _ok("a fraction prints as a percent",
+              D._fmt_stat("% of points from WRs", 0.104) == "10.4%",
+              D._fmt_stat("% of points from WRs", 0.104))
+    ok &= _ok("a whole fraction prints without decimals", D._fmt_stat("Win %", 1.0) == "100%")
+    ok &= _ok("a 0-100 column is left alone", D._fmt_stat("% of starters boom", 17.5) == "17.5")
+    line = D.WeeklyHighlight("teams", "A", "% of points from WRs", "low", 2, 0.104).line()
+    ok &= _ok("and the email line says 10.4%", "(10.4%)" in line, line)
+    two = D._indistinguishable(0.104, [0.096], "% of points from WRs")
+    ok &= _ok("10.4% vs 9.6% is visible (both were '0.1')", not two)
+    D.note_percent_columns({})
+    return ok
+
+
+def check_single_week_ties_say_tie_and_skip_running_totals():
+    tw = pd.DataFrame({
+        "Team": ["A", "B", "C", "A", "B", "C"],
+        "Year": [2025, 2025, 2025, 2026, 2026, 2026], "Week": [1, 1, 1, 1, 1, 1],
+        "PF": [100.0, 150.0, 120.0, 150.0, 90.0, 130.0],
+        # terminal-encoded running count: its value hops onto the newest row
+        "Bottom half streak": ["In Progress", 0, 4, 5, 0, 0],
+        "Number of weeks on team": [30, 40, 50, 31, 41, 51],
+    })
+    ty = pd.DataFrame({"Team": ["A"], "Year": [2026]})
+    hl = D.weekly_highlights(pd.DataFrame(), tw, pd.DataFrame(), ty, window=3,
+                             season=2026, week=1)
+    a_pf = [h for h in hl if h.entity == "A" and h.column == "PF"]
+    ok = _ok("A's 150 ties B's 2025 week for highest PF", a_pf and a_pf[0].tied, a_pf)
+    ok &= _ok("the bullet ends '(tie)'", a_pf and a_pf[0].detail().endswith("highest ever (tie)"),
+              a_pf and a_pf[0].detail())
+    ok &= _ok("the sentence says so too", a_pf and a_pf[0].sentence().endswith("ever (tie)."),
+              a_pf and a_pf[0].sentence())
+    c_pf = [h for h in hl if h.entity == "C" and h.column == "PF"]
+    ok &= _ok("an untied place has no '(tie)'", c_pf and "(tie)" not in c_pf[0].detail(), c_pf)
+    cols = {h.column for h in hl}
+    ok &= _ok("a terminal-encoded streak is not a single-week record",
+              "Bottom half streak" not in cols, cols)
+    ok &= _ok("nor is a running count like weeks on team",
+              "Number of weeks on team" not in cols, cols)
+    return ok
+
+
+def _season_frames(played_2026):
+    ty = pd.DataFrame({
+        "Team": ["T1", "T2", "T3", "T4", "T5", "Hi", "Lo"],
+        "Year": [2021, 2022, 2023, 2024, 2025, 2026, 2026],
+        "PF": [1000.0, 1100, 1200, 1300, 1400, 9999, 5],
+        "Win %": [0.5, 0.6, 0.4, 0.55, 0.45, 1.0, 0.0],
+    })
+    tw = _weeks(y2021=14, y2022=14, y2023=14, y2024=14, y2025=14, y2026=played_2026)
+    return {"team_year": ty, "team_week": tw}
+
+
+def check_in_progress_season_rows_only_on_counting_high_end():
+    fr = _season_frames(2)
+    hl = D.board_highlights(fr["team_year"], "team_year", window=3, gate=D.BoardGate(fr))
+    ok = _ok("this season's high end of a count stands (highest PF)",
+             "Hi 2026" in _labels(hl, "PF", "high"), _labels(hl, "PF"))
+    ok &= _ok("its low end of a count waits (lowest PF after 2 weeks)",
+              "Lo 2026" not in _labels(hl, "PF", "low"), _labels(hl, "PF", "low"))
+    ok &= _ok("a rate waits at both ends (Win % 1.0 / 0.0)",
+              not {"Hi 2026", "Lo 2026"} & _labels(hl, "Win %"), _labels(hl, "Win %"))
+    ok &= _ok("completed seasons fill the places instead",
+              "T2 2022" in _labels(hl, "Win %", "high"), _labels(hl, "Win %"))
+    ok &= _ok("still waiting at week 5 (the board is for finished seasons)",
+              "Lo 2026" not in _labels(D.board_highlights(
+                  fr["team_year"], "team_year", window=3,
+                  gate=D.BoardGate(_season_frames(5))), "PF", "low"))
+    done = _season_frames(14)
+    hl2 = D.board_highlights(done["team_year"], "team_year", window=3, gate=D.BoardGate(done))
+    ok &= _ok("once the season is complete everything stands",
+              "Lo 2026" in _labels(hl2, "PF", "low") and "Hi 2026" in _labels(hl2, "Win %", "high"),
+              _labels(hl2))
+    nogate = D.board_highlights(fr["team_year"], "team_year", window=3)
+    ok &= _ok("no gate -> the board is unchanged", "Lo 2026" in _labels(nogate, "PF", "low"))
+    ok &= _ok("nothing names a year: 2027 gates the same way",
+              D.BoardGate({"team_year": pd.DataFrame({"Team": ["A"], "Year": [2027]}),
+                           "team_week": _weeks(y2026=17, y2027=1)}).season_open)
+    return ok
+
+
+def _trades(extra_date):
+    rows = [("T1", "2021-10-05", 2021, 10.0, 30.0, 5.0), ("T2", "2022-10-05", 2022, 11.0, 40.0, 6.0),
+            ("T3", "2023-10-05", 2023, 12.0, 50.0, 7.0), ("T4", "2024-10-05", 2024, 13.0, 60.0, 8.0),
+            ("T5", "2025-10-05", 2025, 14.0, 70.0, 9.0), ("New", extra_date, 2026, 40.0, 99.0, -50.0)]
+    return pd.DataFrame(rows, columns=["Team", "Date", "Season",
+                                       "Avg PPG of received players on team", "Points added",
+                                       "Trade addition value"]).assign(
+        **{"Team's traded with 1": "Z", "Assets received": "Somebody"})
+
+
+def check_young_moves_only_on_counting_high_end():
+    tr = _trades("2026-09-16")            # a week-2 trade (Tue-Mon weeks)
+    young = {"trades": tr, "team_week": _weeks(y2025=17, y2026=3)}
+    hl = D.board_highlights(tr, "trades", window=3, gate=D.BoardGate(young))
+    new = {(h.column, h.end) for h in hl if h.label.startswith("New's")}
+    ok = _ok("its counting stat's high end stands (Points added)",
+             ("Points added", "high") in new, new)
+    ok &= _ok("its average waits (Avg PPG on team)",
+              not any(c.startswith("Avg PPG") for c, _e in new), new)
+    ok &= _ok("its value waits (lowest Trade addition value)",
+              ("Trade addition value", "low") not in new, new)
+    aged = {"trades": tr, "team_week": _weeks(y2025=17, y2026=6)}   # weeks 2-6 played
+    new2 = {(h.column, h.end) for h in D.board_highlights(tr, "trades", window=3,
+                                                          gate=D.BoardGate(aged))
+            if h.label.startswith("New's")}
+    ok &= _ok("five NFL weeks after the move, all of it stands",
+              ("Avg PPG of received players on team", "high") in new2
+              and ("Trade addition value", "low") in new2, new2)
+    return ok
+
+
+def check_offseason_move_joins_at_week_5():
+    last = {2025: 17}
+    ok = _ok("an offseason move is for week 1", D.event_start_week("2026-07-10", last) == (2026, 1))
+    ok &= _ok("Monday night belongs to the week just played",
+              D.event_start_week("2026-09-14 23:00:00", last) == (2026, 1))
+    ok &= _ok("Tuesday starts the next fantasy week",
+              D.event_start_week("2026-09-15 10:00:00", last) == (2026, 2))
+    ok &= _ok("a January move after a 17-week season is offseason",
+              D.event_start_week("2026-01-03", last) == (2026, 1))
+    ok &= _ok("...but inside an 18-week season it is that season's week 18",
+              D.event_start_week("2026-01-03", {2025: 18}) == (2025, 18))
+    ok &= _ok("an unreadable date gates nothing", D.event_start_week("n/a", last) is None)
+    tr = _trades("2026-07-10")
+    for played, want in ((4, False), (5, True)):
+        fr = {"trades": tr, "team_week": _weeks(y2025=17, y2026=played)}
+        stands = any(h.label.startswith("New's") and h.column.startswith("Avg PPG")
+                     for h in D.board_highlights(tr, "trades", window=3, gate=D.BoardGate(fr)))
+        ok &= _ok(f"week {played}: the offseason trade's average {'stands' if want else 'waits'}",
+                  stands == want)
+    picks = pd.DataFrame({"Year": [2022, 2023, 2024, 2025, 2026], "Number": ["1.01"] * 5,
+                          "Player Picked": list("ABCDE"),
+                          "Avg PPG on team": [5.0, 6, 7, 8, 30]})
+    for played, want in ((4, False), (5, True)):
+        fr = {"rookie_picks": picks, "team_week": _weeks(y2025=17, y2026=played)}
+        stands = "2026 pick 1.01 (E)" in _labels(D.board_highlights(
+            picks, "rookie_picks", window=3, gate=D.BoardGate(fr)), "Avg PPG on team")
+        ok &= _ok(f"week {played}: this year's rookie pick {'stands' if want else 'waits'}",
+                  stands == want)
+    return ok
+
+
+def check_week_rows_season_to_date_and_new_stint_wait():
+    rows = [(f"P{i}", "X", 2025, 17, 20.0 + i, 15.0 + i, 30) for i in range(4)]
+    rows += [("New", "Y", 2026, 1, 40.0, 40.0, 1), ("Vet", "Z", 2026, 1, 39.0, 39.0, 50)]
+    pw = pd.DataFrame(rows, columns=["Player", "Team", "Year", "Week",
+                                     "PPG as team starter this season", "PPG as team starter",
+                                     "Number of weeks on team"])
+    ty = pd.DataFrame({"Team": ["X"], "Year": [2026]})
+
+    def board(played):
+        fr = {"player_week": pw, "team_year": ty, "team_week": _weeks(y2025=17, y2026=played)}
+        return D.board_highlights(pw, "player_week", window=3, gate=D.BoardGate(fr))
+
+    b1 = board(1)
+    ok = _ok("week 1: no season-to-date average from this season",
+             not {"New 2026 week 1", "Vet 2026 week 1"} & _labels(b1, "PPG as team starter this season"),
+             _labels(b1, "PPG as team starter this season"))
+    ok &= _ok("week 1: a one-week-old stint's PPG on team waits",
+              "New 2026 week 1" not in _labels(b1, "PPG as team starter"),
+              _labels(b1, "PPG as team starter"))
+    ok &= _ok("week 1: a long stint's PPG on team stands",
+              "Vet 2026 week 1" in _labels(b1, "PPG as team starter"),
+              _labels(b1, "PPG as team starter"))
+    b5 = board(5)
+    ok &= _ok("week 5: this season's week rows join, week 1 included",
+              "New 2026 week 1" in _labels(b5, "PPG as team starter this season"),
+              _labels(b5, "PPG as team starter this season"))
+    ok &= _ok("week 5: the stint is five weeks old and joins",
+              "New 2026 week 1" in _labels(b5, "PPG as team starter"),
+              _labels(b5, "PPG as team starter"))
+    return ok
+
+
+def _place(sheet, key, label, col, rank, value, end="high"):
+    return {"sheet": sheet, "key": key, "label": label, "column": col,
+            "end": end, "rank": rank, "value": value}
+
+
+def check_a_running_total_passing_its_own_row_is_not_news():
+    col = "Weeks rostered by this team"
+
+    def ev(key, label, rank, value):
+        return D.EventHighlight("player_week", label, col, "high", rank, value, key=key,
+                                running=True)
+
+    prior = [_place("player_week", "ja25", "Josh Allen 2025 week 17", col, 1, 101.0),
+             _place("player_week", "dp25", "Dak Prescott 2025 week 17", col, 1, 101.0),
+             _place("player_week", "jj25", "Justin Jefferson 2025 week 17", col, 3, 90.0)]
+    now = [ev("ja26", "Josh Allen 2026 week 1", 1, 102.0),
+           ev("dp26", "Dak Prescott 2026 week 1", 1, 102.0),
+           ev("jj26", "Justin Jefferson 2026 week 1", 3, 91.0)]
+    got = [c.sentence() for c in D.diff_events(prior, now)]
+    ok = _ok("four players ticking up a week in the same order is not news", got == [], got)
+
+    prior2 = [_place("player_week", "a25", "Alpha 2025 week 17", "Bottom half streak", 1, 10.0),
+              _place("player_week", "b25", "Beta 2025 week 17", "Bottom half streak", 2, 9.0)]
+    now2 = [D.EventHighlight("player_week", "Beta 2026 week 1", "Bottom half streak", "high",
+                             1, 11.0, key="b26", running=True),
+            D.EventHighlight("player_week", "Alpha 2025 week 17", "Bottom half streak", "high",
+                             2, 10.0, key="a25", running=True)]
+    got2 = [c.sentence() for c in D.diff_events(prior2, now2)]
+    ok &= _ok("climbing past ANOTHER player is news, named without its own old row",
+              got2 == ["Beta 2026 week 1 passes Alpha 2025 week 17 for highest Bottom half streak (11)."],
+              got2)
+    return ok
+
+
+def check_a_stationary_tie_join_is_not_news():
+    prev = {"teams": {"Startup draft players remaining": [
+        {"entity": "A", "value": 3.0}, {"entity": "B", "value": 1.0},
+        {"entity": "C", "value": 0.0}, {"entity": "D", "value": 0.0}]}}
+    curr = {"teams": {"Startup draft players remaining": [
+        {"entity": "A", "value": 3.0}, {"entity": "B", "value": 0.0},
+        {"entity": "C", "value": 0.0}, {"entity": "D", "value": 0.0}]}}
+    got = [c.sentence() for c in D.diff_snapshots(prev, curr)]
+    ok = _ok("teams long at 0 do not 'join a tie' because another team fell to 0",
+             not any(s.startswith(("C joins", "D joins")) for s in got), got)
+
+    col = "KTC"
+    prior = [_place("rookie_picks", "kA", "pick A", col, 1, 10.0),
+             _place("rookie_picks", "kB", "pick B", col, 2, 8.0),
+             _place("rookie_picks", "kC", "pick C", col, 2, 8.0)]
+    now = [D.EventHighlight("rookie_picks", lbl, col, "high", 1, 8.0, key=k)
+           for k, lbl in (("kA", "pick A"), ("kB", "pick B"), ("kC", "pick C"))]
+    got2 = [c.sentence() for c in D.diff_events(prior, now)]
+    ok &= _ok("nor on an event board, when the row above fell to them", got2 == [], got2)
+    return ok
+
+
+def check_release_lead_counts_what_the_gate_let_go():
+    tr = _trades("2026-07-10")
+    lagged = {"trades": tr, "team_week": _weeks(y2025=17, y2026=4)}
+    now = {"trades": tr, "team_week": _weeks(y2025=17, y2026=5)}
+    prior = D.event_board(D.all_board_highlights(lagged, window=3, gate=D.BoardGate(lagged)))
+    events = D.all_board_highlights(now, window=3, gate=D.BoardGate(now))
+    changes = D.diff_events(prior, events)
+    released = [c for c in changes if c.label.startswith("New's")]
+    ok = _ok("week 5 releases the offseason trade's averages onto the board", released,
+             [c.sentence() for c in changes])
+    secs = D.digest_sections(events=changes)
+    meta = {"season": 2026, "weeks_completed": 5}
+    nd = D.NewData(season=2026, weeks_completed=5, new_weeks={(2026, 5)})
+    lead = D.release_lead(now, meta, nd, [], changes, secs, window=3)
+    total = sum(len(i) for _t, _g, i in secs)
+    ok &= _ok("the week-5 lede counts them", lead.startswith("Week 5 is when")
+              and f"{len(released)} of the {total}" in lead
+              or (len(released) == total and f"all {total}" in lead), lead)
+    nd6 = D.NewData(season=2026, weeks_completed=6, new_weeks={(2026, 6)})
+    ok &= _ok("week 6 has no release line",
+              D.release_lead(now, {"season": 2026, "weeks_completed": 6}, nd6, [], changes, secs,
+                             window=3) == "")
+    return ok
+
+
+def check_rookie_oscore_week_matches_the_build():
+    import re as _re
+    src = (_ROOT / "src" / "lotg.py").read_text()
+    m = _re.search(r"^_ROOKIE_OSCORE_MIN_WEEK\s*=\s*(\d+)", src, _re.M)
+    return _ok("digest's ROOKIE_OSCORE_WEEK == the build's _ROOKIE_OSCORE_MIN_WEEK",
+               m and int(m.group(1)) == D.ROOKIE_OSCORE_WEEK, m and m.group(0))
 
 
 def test_digest_engine():
