@@ -260,19 +260,39 @@ def _week_thursday(season: int, week: int) -> date:
     return _nfl_kickoff_thursday(int(season)) + timedelta(days=7 * (int(week) - 1))
 
 
+def _week_tuesday(season: int, week: int) -> date:
+    """The day fantasy `week` of `season` BEGINS: the Tuesday after the previous
+    week's Monday night game, two days before the week's Thursday kickoff.
+
+    The league's week runs Tuesday-Monday. Waivers and most roster moves land on
+    the Tuesday and Wednesday between one week's last game and the next week's
+    first, and they are made FOR the coming week: 2026 week 2 begins Tuesday
+    Sept 15, the day after week 1's Monday night game."""
+    return _week_thursday(int(season), int(week)) - timedelta(days=2)
+
+
 def _season_week_of(d: date, season: int, max_week: int = 17) -> int:
-    """Fantasy week a date falls in, 0 for the deep offseason.
+    """Fantasy week a date falls in, 0 for the deep offseason. Weeks run
+    Tuesday-Monday (see `_week_tuesday`).
+
+    This used to count weeks from the Thursday kickoff, which filed every
+    Tuesday and Wednesday move under the week just PLAYED: 596 of 1,588
+    add/drops and 99 of 566 trade rows sat a week early, and so did every
+    Quiet streak built on them.
 
     An offseason move rolls into week 1's WEEKLY bucket only if it lands within
     7 days of kickoff (Phase 5C item 9); anything earlier gets 0 and no weekly
     bucket. Season/all-time totals count from the distinct move list, so those
     still include it. Four near-identical copies of this rule used to sit in
-    lotg.py and espn_2020.py, each with its own flat Sept 7 — one place now.
+    lotg.py and espn_2020.py, each with its own flat Sept 7 — one place now,
+    plus the copy espn_2020.py keeps because it cannot import this module (keep
+    the two in step).
     """
     kick = _nfl_kickoff_thursday(int(season))
-    if d < kick:
+    start = kick - timedelta(days=2)
+    if d < start:
         return 1 if (kick - d).days <= 7 else 0
-    return max(1, min(int(max_week), (d - kick).days // 7 + 1))
+    return max(1, min(int(max_week), (d - start).days // 7 + 1))
 
 
 def _season_end_monday(season: int, playoff_start: Optional[int]) -> Optional[date]:
@@ -3640,6 +3660,7 @@ def build_all(repo_root: Path) -> None:
     _fa_add_by_tsw: Dict[Tuple[str, int, int], int] = defaultdict(int)
     _puredrop_by_tsw: Dict[Tuple[str, int, int], int] = defaultdict(int)
     _addrop_by_tsw: Dict[Tuple[str, int, int], int] = defaultdict(int)
+    _trade_by_tsw: Dict[Tuple[str, int, int], int] = defaultdict(int)
 
     # season -> championship Monday, filled in as each league season is walked.
     # A move dated on or before the PREVIOUS season's entry was made while that
@@ -9041,6 +9062,12 @@ def build_all(repo_root: Path) -> None:
                     _tr_by_team_season[(_t, _s)] += 1
                     # A trade is not an add/drop: it stays out of the add/drop
                     # counter and reaches "Total transactions" via the trade tally.
+                    # Its WEEK comes off the same Tuesday-Monday clock as the
+                    # add/drops, for the team_week rebuild below.
+                    _trday = _league_day(_aware(_trr.get("Date")))
+                    _trw = _season_week_of(_trday, _s) if _trday is not None else 0
+                    if _trw:
+                        _trade_by_tsw[(_t, _s, int(_trw))] += 1
             except Exception as e:
                 _log_exc(debug, "team_tx_counter_rebuild", e)
 
@@ -9090,8 +9117,27 @@ def build_all(repo_root: Path) -> None:
                     _after = int(pd.to_numeric(
                         tw["Number of Add/Drops"], errors="coerce").fillna(0).sum())
                     _log(debug, f"[{_now_iso()}] INFO team_week Number of Add/Drops rebuilt "
-                                f"from add_drop_rows on the league week clock: "
+                                f"from add_drop_rows on the Tuesday-Monday league week: "
                                 f"{_before} -> {_after}")
+                    # Trades, on the same week. They were still credited by
+                    # Sleeper's `leg`, which rolls over partway through a
+                    # Wednesday, so a Tuesday or Wednesday trade could sit a week
+                    # away from the add/drops made beside it (98 team-weeks
+                    # disagreed with the trade dates) — and Quiet streak reads
+                    # both. league_week already counted trades by date.
+                    if "Number of trades" in tw.columns:
+                        _tr_before = int(pd.to_numeric(
+                            tw["Number of trades"], errors="coerce").fillna(0).sum())
+                        tw["Number of trades"] = [
+                            int(_trade_by_tsw.get((t, int(y), int(w)), 0))
+                            if pd.notna(y) and pd.notna(w) else 0
+                            for t, y, w in zip(_t_ser, _y_ser, _w_ser)
+                        ]
+                        _tr_after = int(pd.to_numeric(
+                            tw["Number of trades"], errors="coerce").fillna(0).sum())
+                        _log(debug, f"[{_now_iso()}] INFO team_week Number of trades rebuilt "
+                                    f"from trades_rows on the Tuesday-Monday league week: "
+                                    f"{_tr_before} -> {_tr_after}")
             except Exception as e:
                 _log_exc(debug, "team_week_addrop_rebuild", e)
 

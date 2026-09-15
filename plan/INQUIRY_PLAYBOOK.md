@@ -786,6 +786,14 @@ list is here so an answer written by hand does not walk into them.
   what hid the 2020 startup slot swap in the in-season bucket. Note the weekly
   bucket is a *different* rule: an offseason trade within 7 days of kickoff still
   rolls into week 1 by design, so "offseason" and "week 1" legitimately co-occur.
+- **A fantasy week runs Tuesday-Monday.** 2026 week 2 begins Tuesday Sept 15,
+  the day after week 1's Monday night game. Tuesday and Wednesday moves (most
+  waivers) belong to the COMING week. `_season_week_of()` / `_week_tuesday()`
+  are the rule. Until 2026-09-15 the build counted weeks from the Thursday
+  kickoff, which filed 596 of 1,588 add/drops and 99 of 566 trade rows a week
+  early. team_week's trade count also took Sleeper's `leg`, which rolls over
+  partway through a Wednesday. So any weekly transaction count, or Quiet streak,
+  quoted from an older build is off at the week boundaries.
 - **Past seasons' snapshots have no `drafts.json`.** Like `traded_picks.json`,
   only the current season carries it, so the record of who owned a slot in an
   earlier draft is `picks."Original Team"`, not the snapshot.

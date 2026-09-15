@@ -86,6 +86,40 @@ def test_kickoff_matches_the_real_nfl_week_one():
         assert lotg._nfl_kickoff_thursday(season) == expected, season
 
 
+def test_a_fantasy_week_runs_tuesday_to_monday():
+    """The league's week runs Tuesday-Monday: 2026 week 2 begins Tuesday Sept 15,
+    the day after week 1's Monday night game, so a Tuesday or Wednesday waiver
+    belongs to the week being set up. The build used to count from the Thursday
+    kickoff and filed those moves a week early."""
+    wk, td = lotg._season_week_of, lotg.timedelta
+    assert wk(date(2026, 9, 8), 2026) == 1       # week 1's Tuesday
+    assert wk(date(2026, 9, 14), 2026) == 1      # Monday night: still week 1
+    assert wk(date(2026, 9, 15), 2026) == 2      # Tuesday: week 2
+    assert wk(date(2026, 9, 16), 2026) == 2      # Wednesday waivers: week 2
+    assert wk(date(2024, 10, 21), 2024) == 7     # a Monday
+    assert wk(date(2024, 10, 22), 2024) == 8     # the Tuesday after it
+    assert wk(date(2022, 12, 7), 2022) == 14     # the Wednesday after week 13's MNF
+    # The deep-offseason rule is unchanged: week 1 only within 7 days of kickoff.
+    assert wk(date(2026, 9, 3), 2026) == 1
+    assert wk(date(2026, 9, 2), 2026) == 0
+    for season in range(2020, 2027):
+        first = lotg._week_tuesday(season, 1)
+        assert first.weekday() == 1, (season, first)
+        assert first == lotg._nfl_kickoff_thursday(season) - td(days=2), season
+        for w in (2, 9, 17):
+            start = lotg._week_tuesday(season, w)
+            assert wk(start, season) == w, (season, w)
+            assert wk(start - td(days=1), season) == w - 1, (season, w)
+            assert wk(start + td(days=6), season) == w, (season, w)
+
+
+def test_the_2020_backfill_counts_weeks_the_same_way():
+    """espn_2020.py cannot import lotg, so it keeps its own copy of the week rule."""
+    src = (_ROOT / "src" / "espn_2020.py").read_text()
+    assert "week1_tuesday = ss - _dt.timedelta(days=2)" in src
+    assert "(d - week1_tuesday).days // 7 + 1" in src
+
+
 def test_kickoff_actually_moves():
     days = {d.day for d in _KICKOFFS.values()}
     assert len(days) > 1, "a fixed anchor would be fine if kickoff never moved"
