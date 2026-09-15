@@ -196,3 +196,46 @@ is no leg to read.
 `_league_day()` came out of `_move_season` for this, so the season a move
 belongs to and the week it sits in are read off the same clock. Deriving one
 from UTC and the other from league time is precisely how the seam above opened.
+
+
+## Weeks run Tuesday-Monday (2026-09-15)
+
+The league's week runs **Tuesday-Monday**. 2026 week 2 begins Tuesday Sept 15,
+the day after week 1's Monday night game. Waivers and most roster moves land on
+the Tuesday and Wednesday between one week's last game and the next week's
+first, and they are made for the coming week.
+
+The date rule above counted weeks from the Thursday kickoff. That filed every
+Tuesday and Wednesday move under the week just played:
+- 596 of 1,588 add/drops were a week early.
+- 99 of 566 trade rows were a week early.
+- Every Quiet streak built on those counts was off too.
+
+The per-week counts reached that clock by two routes:
+- **Add/drops:** #421 moved team_week's add/drop count onto the date clock.
+- **Trades:** team_week's trade count still took Sleeper's `leg`, which rolls
+  over partway through a Wednesday (2022-12-07 08:04 UTC is leg 13; 2022-11-30
+  13:25 UTC is already leg 13), and once filed the same Tuesday waiver run under
+  two legs (2024-10-15). So 98 team-weeks disagreed with the trade dates, and
+  Quiet streak read two clocks at once.
+
+Now:
+- `_week_tuesday(season, week)` is the day a week begins.
+- `_season_week_of` counts from it.
+- team_week's trade count is rebuilt from `trades_rows` on that week, beside the
+  add/drop rebuild.
+- `espn_2020.py`'s copy of the rule follows it.
+
+The deep-offseason rule is unchanged: a move within 7 days of kickoff still rolls
+into week 1.
+
+What stays on Thursday, deliberately: dates that stand for a week's GAMES rather
+than a move's week.
+- sort dates, and the synthesized departure/arrival anchors (Thursday of the
+  following week, Friday of the first week), all of which fall inside the right
+  Tuesday-Monday week anyway;
+- the "real departure at/after the last scored week" gate, where a
+  Tuesday/Wednesday departure would come BEFORE that week's games and so cannot
+  close a stint the player then scored in;
+- championship Monday and the Tuesday 08:00 UTC week-complete cutoff, which were
+  already Monday/Tuesday.

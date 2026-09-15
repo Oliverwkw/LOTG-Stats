@@ -78,6 +78,19 @@ def _label(frame: pd.DataFrame, i) -> str:
     return "/".join(bits) or f"row {i}"
 
 
+# The line the build logs once team_week's weekly counts are on the
+# Tuesday-Monday week. Exports without it were built on the old Thursday clock,
+# so the weekly checks below would fail for the right reason at the wrong time.
+_TUESDAY_WEEK_MARKER = "on the Tuesday-Monday league week"
+
+
+def _built_on_the_tuesday_week(d: Path) -> bool:
+    try:
+        return _TUESDAY_WEEK_MARKER in (d / "raw" / "build_debug.log").read_text(errors="replace")
+    except Exception:
+        return False
+
+
 def check_the_parts_add_up_to_the_total() -> bool:
     d = _exports()
     ok = True
@@ -142,6 +155,10 @@ def check_the_totals_match_the_detail_sheet() -> bool:
         ok &= _ok(f"{name} counts the add_drops rows it reaches ({reach})",
                   got == want, f"{got} vs {want}")
 
+    if not _built_on_the_tuesday_week(d):
+        print("  [SKIP] team_week: these exports predate the Tuesday-Monday week "
+              f"(no {_TUESDAY_WEEK_MARKER!r} in raw/build_debug.log)")
+        return ok
     tw_path, ad_ok = d / "team_week.csv", "Date" in ad.columns
     if not tw_path.exists() or not ad_ok:
         print("  [SKIP] no team_week.csv / no Date column")
@@ -201,6 +218,47 @@ def check_every_detail_row_lands_in_exactly_one_bucket() -> bool:
     return ok
 
 
+def check_team_week_trades_match_the_trades_sheet() -> bool:
+    """team_week's trade count is the trades.csv rows dated into that week, on the
+    same Tuesday-Monday week as the add/drops beside it. It used to come from
+    Sleeper's `leg`, which rolls over partway through a Wednesday: 98 team-weeks
+    disagreed with the trade dates, and Quiet streak read two clocks at once."""
+    d = _exports()
+    tw_path, tr_path = d / "team_week.csv", d / "trades.csv"
+    if not tw_path.exists() or not tr_path.exists():
+        print("  [SKIP] no team_week.csv / trades.csv")
+        return True
+    if not _built_on_the_tuesday_week(d):
+        print("  [SKIP] these exports predate the Tuesday-Monday week")
+        return True
+    tw = pd.read_csv(tw_path, low_memory=False)
+    tr = pd.read_csv(tr_path, low_memory=False)
+    if "Number of trades" not in tw.columns or not {"Date", "Season", "Team"} <= set(tr.columns):
+        print("  [SKIP] no Number of trades / trade Date")
+        return True
+    tw["Year"] = pd.to_numeric(tw["Year"], errors="coerce")
+    tw["Week"] = pd.to_numeric(tw["Week"], errors="coerce")
+    keys = set(zip(tw["Team"].astype(str), tw["Year"], tw["Week"]))
+    when = pd.to_datetime(tr["Date"], errors="coerce")
+    season = pd.to_numeric(tr["Season"], errors="coerce")
+    expect: dict = {}
+    for team, w, s in zip(tr["Team"].astype(str), when, season):
+        if pd.isna(w) or pd.isna(s):
+            continue
+        wk = lotg._season_week_of(w.date(), int(s))
+        if not wk:
+            continue
+        key = (team, float(s), float(wk))
+        if key in keys:
+            expect[key] = expect.get(key, 0) + 1
+    got = {(str(t), y, w): int(v) for t, y, w, v in
+           zip(tw["Team"], tw["Year"], tw["Week"], _num(tw["Number of trades"])) if v}
+    diff = {k for k in set(got) | set(expect) if got.get(k) != expect.get(k)}
+    return _ok("team_week trades equal the trades.csv rows dated into each week",
+               not diff, f"{sum(got.values())} credited vs {sum(expect.values())} expected; "
+               f"{len(diff)} team-week(s) differ: {sorted(diff)[:6]}")
+
+
 def run_all() -> bool:
     if not (_exports() / "team_year.csv").exists():
         print("no exports/ — SKIP")
@@ -208,7 +266,8 @@ def run_all() -> bool:
     all_ok = True
     for t in (check_the_parts_add_up_to_the_total,
               check_the_totals_match_the_detail_sheet,
-              check_every_detail_row_lands_in_exactly_one_bucket):
+              check_every_detail_row_lands_in_exactly_one_bucket,
+              check_team_week_trades_match_the_trades_sheet):
         print(f"\n{t.__name__}:")
         all_ok &= bool(t())
     print("\n" + ("ALL PASS" if all_ok else "SOME FAILED"))

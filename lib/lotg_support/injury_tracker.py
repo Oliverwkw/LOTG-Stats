@@ -65,8 +65,10 @@ from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
+from .position_pins import pinned_position
+
 TRACKER_COLUMNS = [
-    "season", "week", "player_id", "full_name", "position", "nfl_team",
+    "season", "week", "player_id", "gsis_id", "full_name", "position", "nfl_team",
     "injury_status", "injury_body_part", "status", "on_bye", "played",
     "captures", "captured_at_utc", "finalized_at_utc",
 ]
@@ -93,7 +95,7 @@ TRACKER_COLUMNS = [
 #   finalized_at_utc                           when the post-week capture ran,
 #       blank until it does
 _DESIGNATION_COLUMNS = ("injury_status", "injury_body_part", "status")
-_IDENTITY_COLUMNS = ("full_name", "position", "nfl_team")
+_IDENTITY_COLUMNS = ("gsis_id", "full_name", "position", "nfl_team")
 _DESIGNATION_RANK = {None: 0, "injury": 1, "suspension": 2}
 
 # Fixed NFL schedule (published pre-season, does NOT lag in-season). Used to
@@ -147,7 +149,7 @@ _TEAM_ALIASES = {
 # reserve list is ineligible to play, so absence is certain:
 #   Out · IR (+IR-R, "Injured Reserve") · PUP ("Physically Unable to Perform")
 #   NFI ("Non Football Injury") · COV (reserve/COVID) · DNR ("Did Not Report")
-#   Sus (the suspension bucket)
+#   Sus · NA (the suspension bucket — NA is the commissioner exempt list)
 #
 # NOT FLAGGED, and why:
 #   Questionable / Doubtful — game-time labels; the player usually suits up.
@@ -157,9 +159,56 @@ _TEAM_ALIASES = {
 #     given week, and the build's own team/bye logic already routes players with
 #     no NFL team to Bye? — which is the audit fix that stopped retired
 #     meme-pickups (Brady '24/'25, Brees '24) counting as injuries.
-#   NA — genuinely ambiguous: 92 players carry it, 26 of them alongside status
-#     "Active", so it cannot simply mean "not on a roster". It guarantees
-#     nothing we can defend, so it decides nothing.
+#   NA — the COMMISSIONER EXEMPT LIST, and therefore a suspension. This is a
+#     league ruling, not a reading of the data: the owner settled it after Josh
+#     Jacobs carried NA through 2026 week 1 (see below). It used to decide
+#     nothing, on the grounds that NA is ambiguous, and the cost of that was
+#     exactly the pollution this module exists to prevent — an exempt player
+#     recorded as a played 0.00, with no feed in the repo able to contradict it
+#     (nflverse's week-1 game-status report carried 139 rows and 5 "Out", none
+#     of them his, and its stat file had no row for him at all).
+#
+#     THIS CANNOT REACH A COMPLETED SEASON. Sleeper keeps no injury_status
+#     history and the tracker's first capture is 2026 wk1, so there is no way to
+#     replay NA over 2020-2025 — and no need to: load_status_index() refuses
+#     every season before TRACKER_FIRST_SEASON, so the overlay (and therefore
+#     this token) is structurally incapable of moving a shipped historical row.
+#     `test_the_tracker_is_forward_only` is that guarantee.
+#
+#     BREADTH, measured over all 14 committed snapshots of Sleeper's dictionary
+#     (2026-08-18 .. 2026-09-14 — the whole history this repo has of it):
+#       * 96 players carry NA now; 92 of them carried it in EVERY snapshot and
+#         have no NFL team — retired and unsigned men (BenJarvus Green-Ellis,
+#         Peyton Hillis) where NA is stale junk, not a ruling. A static set.
+#       * only FIVE players with an NFL team ever carried it: Jonathon Cooper
+#         (DL DEN), Terrion Arnold (DB SEA) and Josh Jacobs (RB GB), all three
+#         acquiring it on the same day (2026-09-01); Joe Forson (WR KC,
+#         practice squad); and Sam Webb (CB NYG, IR) who lost it on 08-20.
+#       * on the two whose teams have since played, neither Jacobs (GB, Sunday)
+#         nor Arnold (SEA, Wednesday) RECORDED A STATISTICAL EVENT in nflverse's
+#         2026 week-1 file. Read that as weak support, not proof: that file is
+#         an event list, not an appearance list (31-40 rows per team against
+#         ~47 dressed), so a man can play and be absent from it. What actually
+#         backs Jacobs is the league's own ruling that he is on the exempt
+#         list, plus Green Bay's week-1 carries going to MarShawn Lloyd (13)
+#         and Chris Brooks (7) while its lead back took none.
+#     So the population this can fire on is small. The evidence that it is the
+#     RIGHT call is the league's ruling; the data here only fails to contradict
+#     it. If a future NA player turns out to have played a week he was flagged
+#     for, `played` clears it and this comment needs the counter-example added.
+#
+#     The 92 teamless ones are NOT filtered here, because they cannot reach a
+#     suspension flag: a rostered player with no NFL team is already routed to
+#     Bye? by the build, and a bye outranks a suspension in apply_overlay().
+#     `test_a_teamless_na_pickup_is_a_bye_not_a_suspension` is what holds that
+#     precedence in place, since it is the whole reason this token can be
+#     unconditional.
+#
+#     AND IT COUNTS IN HARDSHIP. The missed-week test is `points == 0 and
+#     (injury or suspension) and not bye`, so a week this token flags adds the
+#     player's expected-if-healthy points to his team's Hardship (and to Luck)
+#     where the old reading added nothing. That is the intended effect — a real
+#     absence is a real loss — but it is a numeric change, not just a relabel.
 #
 # Matched as whole tokens (plus the long-form `status` spellings as phrases) so
 # "ir" can never match inside a word.
@@ -167,6 +216,39 @@ _INJURY_TOKENS = {"out", "ir", "pup", "nfi", "cov", "covid", "dnr"}
 _INJURY_PHRASES = ("injured reserve", "physically unable", "non football injury",
                    "did not report", "reserve covid")
 _SUSPENSION_TOKENS = {"sus", "susp", "suspended", "suspension"}
+
+# Sleeper (injury_status, status) pairs that deliberately DECIDE NOTHING, with
+# the reason each is safe to leave undecided. This is the allowlist behind
+# `test_every_sleeper_status_pair_is_classified`: a pair that is neither
+# designated nor listed here fails that test, so a new value Sleeper starts
+# emitting has to be classified by a human instead of silently meaning "he
+# played". NA is on this list's history, not its contents — it sat undecided
+# for a season and cost a player-week; the guard exists so the next one cannot.
+UNDECIDED_STATUS_PAIRS = {
+    ("", "Active"): "the general population: 830 of 1,506 judgeable ones recorded a 2026 wk1 stat",
+    ("", ""): "45 players carry no status at all, including all 32 team DSTs",
+    ("Questionable", "Active"): "game-time label; 19 of 28 judgeable ones recorded a stat",
+    ("Doubtful", "Active"): "game-time label, same as Questionable",
+    ("", "Practice Squad"): "can be elevated for the week and play",
+    # The two Inactive pairs read as 'nobody played' on the 2026 wk1 evidence,
+    # and STILL decide nothing, because the players carrying them are not
+    # scratched — they are out of the league. All 41 on-team cases are retired
+    # or former players whose `team` field Sleeper never cleared (Eric Weddle,
+    # years_exp 15; Bryan Bulaga, 12; Brandon Brooks, 10) plus 8 "Duplicate
+    # Player" records. Zero of them are on this league's rosters, and every
+    # rostered player who carries status Inactive also carries an explicit
+    # injury_status (IR), so he is designated on that instead.
+    ("", "Inactive"): "Sleeper roster status on retired/unsigned players, not a game-day inactive",
+    ("Questionable", "Inactive"): "same stale-roster population as ('', 'Inactive')",
+}
+# "na" is the exempt list (above), and it is read LAST — after both explicit
+# vocabularies — because it is the least specific thing Sleeper can say. Sleeper
+# does emit it alongside a real designation: Sam Webb (CB NYG) carried NA while
+# on Injured Reserve in the 2026-08-18 snapshot. A man on IR is hurt, whatever
+# else is tagged on him, so the explicit designation decides and NA only ever
+# breaks a tie against nothing. (Either way the week is a miss and Hardship
+# counts it identically; what moves is which column it lands in.)
+_EXEMPT_TOKENS = {"na"}
 
 # Sleeper stat keys that only carry a value when the player was on the field.
 # Team-level keys (tm_off_snp & friends) are deliberately excluded: they are
@@ -178,6 +260,83 @@ def normalize_team(team: Any) -> str:
     """Canonical (Sleeper-style) NFL team abbreviation; '' when unknown."""
     s = str(team or "").strip().upper()
     return _TEAM_ALIASES.get(s, s)
+
+
+def sleeper_gsis_bridge(repo_root: Path) -> Dict[str, str]:
+    """{sleeper_id: gsis_id} from the COMMITTED DynastyProcess id table.
+
+    Sleeper's own dictionary is a poor bridge to nflverse: of the 247 players on
+    this league's 2026 rosters it carries a gsis_id for 40, and 11 of those are
+    padded with whitespace (' 00-0035700' for Josh Jacobs), so a raw string
+    compare against nflverse misses them too. The build already closes that gap
+    with this table (src/lotg.py, `dp_sleeper_to_gsis`) and it takes the
+    coverage to 245 of 247 — but it closed it only INSIDE the build, so anything
+    reading the tracker CSV afterwards had to rediscover the whole chain, and
+    the obvious reading (Sleeper's raw field) silently answers for 16% of the
+    roster. Capturing the resolved id is what stops that.
+
+    Read from `exports/snapshot/` rather than `.cache/`, with the stdlib csv
+    module rather than pandas: the two capture workflows install `pyyaml` and
+    `requests` only, and the snapshot copy is committed, so this needs neither a
+    download nor a cache. Empty dict when the file is missing or unreadable —
+    a capture with no gsis_id is still a capture.
+    """
+    path = Path(repo_root) / "exports" / "snapshot" / "dynastyprocess_playerids.csv"
+    out: Dict[str, str] = {}
+    try:
+        with path.open(newline="") as f:
+            for r in csv.DictReader(f):
+                sid = str(r.get("sleeper_id") or "").strip()
+                gsis = str(r.get("gsis_id") or "").strip()
+                if not sid or not looks_like_gsis(gsis):
+                    continue
+                # The table stores ids as floats ("13269.0").
+                if sid.endswith(".0"):
+                    sid = sid[:-2]
+                if sid.lower() == "nan":
+                    continue
+                out.setdefault(sid, gsis)
+    except Exception:
+        return {}
+    return out
+
+
+# Every gsis_id nflverse publishes has this shape — 142,969 of 142,969 across
+# the cached weekly-roster files, 2021 through 2026. Anything else cannot join
+# to an nflverse row, so it is not an id for our purposes. The DynastyProcess
+# table carries five PLACEHOLDERS in `AAA######` form for players who have no
+# real gsis yet ('WAS569019' for Mike Washington Jr.), and one of them reached
+# this league's rosters. A placeholder is worse than a blank: a blank says "no
+# id", while a placeholder looks joinable and silently matches nothing.
+_GSIS_RE = re.compile(r"00-00\d{5}")
+
+
+def looks_like_gsis(value: Any) -> bool:
+    """Is this an nflverse gsis_id, rather than a placeholder or junk?"""
+    return bool(_GSIS_RE.fullmatch(str(value or "").strip()))
+
+
+def resolve_gsis(meta: Optional[Dict[str, Any]], pid: Any,
+                 bridge: Optional[Dict[str, str]] = None) -> str:
+    """A player's gsis_id: Sleeper's own (stripped) first, then the bridge.
+
+    Same order and same stripping as the build (src/lotg.py ~2481), so the
+    tracker and the sheets resolve a player to the same nflverse row. Anything
+    that is not gsis-SHAPED is discarded rather than recorded (see _GSIS_RE).
+
+    '' when no source knows him. That is two players of the 247 on the 2026
+    rosters — Jack Strand (ATL) and Mike Washington (LV), both undrafted 2026
+    rookies. nflverse has a real id for each (00-0041194, 00-0040878) but
+    carries no `sleeper_id` on those rows, and neither does DynastyProcess, so
+    nothing LINKS their Sleeper ids to them. Resolving them would take a
+    name+team match, which is the join this repo has been burned by (upstream
+    re-spells: 'Mike Washington' vs 'Mike Washington Jr.'), so the cell stays
+    blank until an id table carries the mapping."""
+    raw = str((meta or {}).get("gsis_id") or "").strip()
+    if looks_like_gsis(raw):
+        return raw
+    cand = str((bridge or {}).get(str(pid)) or "").strip()
+    return cand if looks_like_gsis(cand) else ""
 
 
 def designation(status: Optional[str]) -> Optional[str]:
@@ -195,6 +354,8 @@ def designation(status: Optional[str]) -> Optional[str]:
         return "suspension"
     if (toks & _INJURY_TOKENS) or any(p in joined for p in _INJURY_PHRASES):
         return "injury"
+    if toks & _EXEMPT_TOKENS:
+        return "suspension"
     return None
 
 
@@ -493,7 +654,8 @@ def played_index(sc, season: int, week: int, season_type: str = "regular") -> Di
 
 
 def capture_rows(sc, season: int, week: int,
-                 played: Optional[Dict[str, bool]] = None) -> List[Dict[str, Any]]:
+                 played: Optional[Dict[str, bool]] = None,
+                 repo_root: Optional[Path] = None) -> List[Dict[str, Any]]:
     """Snapshot Sleeper's current injury/status fields for every rostered player.
 
     Captures the player's CURRENT NFL team each week, so a player traded between
@@ -505,12 +667,20 @@ def capture_rows(sc, season: int, week: int,
     `played` is Sleeper's live participation index for the week (see
     played_index); pass None to fetch it here. Written as "true" or blank —
     never "false", because Sleeper's stats confirm participation and never
-    refute it."""
+    refute it.
+
+    `repo_root` supplies the committed gsis bridge (sleeper_gsis_bridge) and is
+    what lets the row carry a `gsis_id` and a PINNED `position`. Pass it. Left
+    None the capture still works, but it records Sleeper's raw position, and
+    Sleeper's dictionary is current-only: it flipped Travis Hunter WR -> DB on
+    2026-09-08, which is how the committed tracker came to hold a `DB` for a
+    player every shipped sheet calls a WR."""
     players = sc.players_nfl() or {}
     rostered = _rostered_pids(sc)
     playing = teams_playing(int(season), int(week))
     if played is None:
         played = played_index(sc, int(season), int(week))
+    bridge = sleeper_gsis_bridge(repo_root) if repo_root is not None else {}
     now = datetime.now(timezone.utc).isoformat()
     rows: List[Dict[str, Any]] = []
     for pid in sorted(rostered):
@@ -523,12 +693,14 @@ def capture_rows(sc, season: int, week: int,
             on_bye = "true" if normalize_team(team) not in playing else "false"
         else:
             on_bye = ""  # unknown (schedule unavailable, or no NFL team / FA)
+        gsis = resolve_gsis(m, pid, bridge)
         rows.append({
             "season": int(season),
             "week": int(week),
             "player_id": str(pid),
+            "gsis_id": gsis,
             "full_name": name or "",
-            "position": m.get("position") or "",
+            "position": pinned_position(gsis, m.get("position")),
             "nfl_team": team,
             "injury_status": m.get("injury_status") or "",
             "injury_body_part": m.get("injury_body_part") or "",

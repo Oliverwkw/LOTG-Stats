@@ -706,9 +706,14 @@ def emit_sleeper_2020(loaded: Dict[str, Any]) -> Dict[str, Any]:
             # every 2020 trade up to three days deep into the wrong week.
             _sep1 = _dt.date(SEASON, 9, 1)
             ss = _sep1 + _dt.timedelta(days=(0 - _sep1.weekday()) % 7) + _dt.timedelta(days=3)
-            if d < ss:
+            # Weeks run Tuesday-Monday, as in lotg._season_week_of (which this
+            # module cannot import — keep the two in step): a Tuesday or
+            # Wednesday trade belongs to the week being set up, not the one
+            # just played.
+            week1_tuesday = ss - _dt.timedelta(days=2)
+            if d < week1_tuesday:
                 return 1 if (ss - d).days <= 7 else 0
-            return max(1, min(17, (d - ss).days // 7 + 1))
+            return max(1, min(17, (d - week1_tuesday).days // 7 + 1))
         except Exception:
             return 1
     team_by_mgr = {mgr: _rid(tid) for tid, mgr in TEAM_TO_MANAGER.items()}

@@ -112,7 +112,9 @@ from lotg_support.sleeper import SleeperClient
 from lotg_support.injury_tracker import (
     apply_overlay as _apply_injury_overlay,
     load_status_index as _load_injury_tracker,
+    looks_like_gsis as _looks_like_gsis,
 )
+from lotg_support.game_day_status import dressed_by_week as _game_day_dressed
 from lotg_support.external import (
     ExternalConfig,
     cache_is_stale,
@@ -123,6 +125,7 @@ from lotg_support.external import (
     load_dynastyprocess_values_picks,
     load_nflverse_injuries,
     load_nflverse_player_ids,
+    load_nflverse_snap_counts,
     load_nflverse_stats_player_week,
     load_nflverse_weekly_rosters,
 )
@@ -219,6 +222,32 @@ def _nfl_kickoff_thursday(season: int) -> date:
     return labor_day + timedelta(days=3)
 
 
+def _season_opener(week_start: Dict[Tuple[int, int], str], season: Any) -> Optional[date]:
+    """The day a season's week 1 actually STARTS, per the NFL schedule.
+
+    `_nfl_kickoff_thursday` computes the Thursday after Labor Day. That WAS the
+    real opener in every season 2020-2025, and it is a day LATE in 2026, whose
+    week 1 opened Wednesday Sept 9 (NE at SEA, 20:20 ET) with the Thursday game
+    a day behind it. Anything anchored on the computed Thursday therefore reads
+    Sept 9 2026 as offseason while week 1 was being played.
+
+    `week_start` is {(season, week): 'YYYY-MM-DD'} of each week's FIRST game.
+    Returns None when it cannot say — a season the schedule does not cover, or
+    no schedule at all — so the caller keeps the Thursday anchor rather than
+    inventing a boundary.
+    """
+    _s = _to_int(season, None)
+    if _s is None:
+        return None
+    _d = (week_start or {}).get((_s, 1))
+    if not _d:
+        return None
+    try:
+        return date.fromisoformat(str(_d)[:10])
+    except Exception:
+        return None
+
+
 def _week_thursday(season: int, week: int) -> date:
     """Date fantasy `week` of `season` opens — its Thursday night game.
 
@@ -231,19 +260,39 @@ def _week_thursday(season: int, week: int) -> date:
     return _nfl_kickoff_thursday(int(season)) + timedelta(days=7 * (int(week) - 1))
 
 
+def _week_tuesday(season: int, week: int) -> date:
+    """The day fantasy `week` of `season` BEGINS: the Tuesday after the previous
+    week's Monday night game, two days before the week's Thursday kickoff.
+
+    The league's week runs Tuesday-Monday. Waivers and most roster moves land on
+    the Tuesday and Wednesday between one week's last game and the next week's
+    first, and they are made FOR the coming week: 2026 week 2 begins Tuesday
+    Sept 15, the day after week 1's Monday night game."""
+    return _week_thursday(int(season), int(week)) - timedelta(days=2)
+
+
 def _season_week_of(d: date, season: int, max_week: int = 17) -> int:
-    """Fantasy week a date falls in, 0 for the deep offseason.
+    """Fantasy week a date falls in, 0 for the deep offseason. Weeks run
+    Tuesday-Monday (see `_week_tuesday`).
+
+    This used to count weeks from the Thursday kickoff, which filed every
+    Tuesday and Wednesday move under the week just PLAYED: 596 of 1,588
+    add/drops and 99 of 566 trade rows sat a week early, and so did every
+    Quiet streak built on them.
 
     An offseason move rolls into week 1's WEEKLY bucket only if it lands within
     7 days of kickoff (Phase 5C item 9); anything earlier gets 0 and no weekly
     bucket. Season/all-time totals count from the distinct move list, so those
     still include it. Four near-identical copies of this rule used to sit in
-    lotg.py and espn_2020.py, each with its own flat Sept 7 — one place now.
+    lotg.py and espn_2020.py, each with its own flat Sept 7 — one place now,
+    plus the copy espn_2020.py keeps because it cannot import this module (keep
+    the two in step).
     """
     kick = _nfl_kickoff_thursday(int(season))
-    if d < kick:
+    start = kick - timedelta(days=2)
+    if d < start:
         return 1 if (kick - d).days <= 7 else 0
-    return max(1, min(int(max_week), (d - kick).days // 7 + 1))
+    return max(1, min(int(max_week), (d - start).days // 7 + 1))
 
 
 def _season_end_monday(season: int, playoff_start: Optional[int]) -> Optional[date]:
@@ -2370,6 +2419,8 @@ def build_all(repo_root: Path) -> None:
             nfl_ids = nfl_ids.dropna(subset=["sleeper_id", "gsis_id"]).copy()
             nfl_ids["sleeper_id"] = nfl_ids["sleeper_id"].astype(str)
             nfl_ids["gsis_id"] = nfl_ids["gsis_id"].astype(str)
+            # Placeholders only — see the note on dp_sleeper_to_gsis below.
+            nfl_ids = nfl_ids[nfl_ids["gsis_id"].map(_looks_like_gsis)]
             sleeper_to_gsis = dict(zip(nfl_ids["sleeper_id"], nfl_ids["gsis_id"]))
     except Exception as e:
         _log_exc(debug, "load_nflverse_player_ids", e)
@@ -2407,7 +2458,24 @@ def build_all(repo_root: Path) -> None:
             m["gsis_id"] = m["gsis_id"].astype(str).map(lambda v: str(v).strip())
             # Drop rows whose ids degenerated to empty/nan strings after coercion.
             m = m[(m["sleeper_id"] != "") & (m["sleeper_id"].str.lower() != "nan")]
-            m = m[(m["gsis_id"] != "") & (m["gsis_id"].str.lower() != "nan")]
+            # And rows whose gsis_id is a PLACEHOLDER rather than an id. Upstream
+            # has started filling players who have no gsis yet with an
+            # `AAA######` token derived from the surname — 182 of the 6,147
+            # sleeper-mapped rows in the current cached copy of this table,
+            # against 2 in the committed snapshot copy, so it is growing. 41 of
+            # this league's 247 rostered players (all 2026 rookies) would be
+            # assigned one, because the backfill below takes DP's value
+            # unvalidated whenever Sleeper has no gsis of its own.
+            #
+            # It is INERT today, and this is a guard rather than a fix: a
+            # placeholder matches no nflverse row, and every site treats
+            # "no match" exactly as it treats "no id" — `_infer_flags_from_nflverse`
+            # returns (None, None) either way, the enrichment loop does
+            # `continue` either way, and played=None vs played=False changes no
+            # verdict in resolve_injury_flags. What it is not is SAFE: it is an
+            # id-shaped value that is not an id, sitting on a sixth of the
+            # roster, one `if gsis:` away from asserting something false.
+            m = m[m["gsis_id"].map(_looks_like_gsis)]
             dp_sleeper_to_gsis = dict(zip(m["sleeper_id"], m["gsis_id"]))
         except Exception:
             dp_sleeper_to_gsis = {}
@@ -2437,17 +2505,27 @@ def build_all(repo_root: Path) -> None:
     # opener — so a player picked up on a game day is credited the starts they
     # actually made that week.
     _week_end_date: Dict[Tuple[int, int], str] = {}
+    _week_start_date: Dict[Tuple[int, int], str] = {}
     try:
         if isinstance(games, pd.DataFrame) and not games.empty and \
                 {"season", "week", "gameday"}.issubset(games.columns):
             _g = games.dropna(subset=["season", "week"]).copy()
+            if "game_type" in _g.columns:
+                # REG only. The postseason rides weeks 19-22 in this file, and a
+                # playoff date is not the fantasy week-1 opener.
+                _g = _g[_g["game_type"].astype(str).str.upper() == "REG"]
             _g["_gd"] = _g["gameday"].astype(str).str[:10]
             for (_s, _w), _gg in _g.groupby(["season", "week"]):
                 _dates = [d for d in _gg["_gd"].tolist() if d[:4].isdigit()]
                 if _dates:
                     _week_end_date[(int(_s), int(_w))] = max(_dates)
+                    _week_start_date[(int(_s), int(_w))] = min(_dates)
     except Exception as e:
         _log_exc(debug, "week_end_date_map", e)
+
+    def _first_game_date(_season: Any) -> Optional[date]:
+        """This build's week-1 opener lookup — see module-level _season_opener."""
+        return _season_opener(_week_start_date, _season)
 
     def _last_game_date(_season: Any, _week: Any) -> Optional[str]:
         """Date of the LAST game of (season, week) — the week's closing edge
@@ -3582,6 +3660,7 @@ def build_all(repo_root: Path) -> None:
     _fa_add_by_tsw: Dict[Tuple[str, int, int], int] = defaultdict(int)
     _puredrop_by_tsw: Dict[Tuple[str, int, int], int] = defaultdict(int)
     _addrop_by_tsw: Dict[Tuple[str, int, int], int] = defaultdict(int)
+    _trade_by_tsw: Dict[Tuple[str, int, int], int] = defaultdict(int)
 
     # season -> championship Monday, filled in as each league season is walked.
     # A move dated on or before the PREVIOUS season's entry was made while that
@@ -4072,7 +4151,13 @@ def build_all(repo_root: Path) -> None:
         # instead of the 'NFL' free-agent sentinel.
         roster_team_by_week: Dict[Tuple[str, int, int], str] = {}
         roster_team_by_season: Dict[Tuple[str, int], str] = {}
+        # APPEARANCE, not events. `played_players_by_week` starts from
+        # stats_player_week (an EVENT list) and is then unioned with the
+        # snap-count appearance set below, because a player who took the field
+        # and recorded nothing is absent from the event file. Every consumer
+        # asks it "did he play", so the union is what makes those answers true.
         played_players_by_week: Dict[int, set] = {}
+        pfr_to_gsis: Dict[str, str] = {}
         try:
             spw = _safe_df(load_nflverse_stats_player_week(
                 ext, season,
@@ -4180,6 +4265,13 @@ def build_all(repo_root: Path) -> None:
             wr = _safe_df(load_nflverse_weekly_rosters(
                 ext, season, force_refresh=_force_refresh_season(season),
             ))
+            # Snap counts key on pfr_player_id and carry no gsis, so this is
+            # the only bridge to them. Captured before the frame is narrowed.
+            if not wr.empty and {"pfr_id", "gsis_id"}.issubset(wr.columns):
+                for _r in wr[["pfr_id", "gsis_id"]].dropna().itertuples(index=False):
+                    _pf, _gs = str(_r.pfr_id).strip(), str(_r.gsis_id).strip()
+                    if _pf and _pf != "nan" and _looks_like_gsis(_gs):
+                        pfr_to_gsis.setdefault(_pf, _gs)
             if not wr.empty and "gsis_id" in wr.columns and "team" in wr.columns and "week" in wr.columns:
                 wr = wr[["gsis_id", "week", "team"]].dropna()
                 wr["week"] = pd.to_numeric(wr["week"], errors="coerce").astype("Int64")
@@ -4197,6 +4289,82 @@ def build_all(repo_root: Path) -> None:
                     pass
         except Exception as e:
             _log_exc(debug, f"load_nflverse_weekly_rosters_{season}", e)
+
+        # The weekly rosters leave pfr_id blank for some players, and their snaps
+        # then bridge to nobody: 31 weeks of players who took the field kept an
+        # injury flag in 2021-2024 (Trey McBride 2022 wks 2-9 at 11-32 snaps,
+        # Khalil Shakir 2022, Jalen Tolbert 2022, Josh Gordon 2021). The
+        # DynastyProcess id table carries both ids for them. It only FILLS a gap
+        # — a roster mapping is kept where one exists (the two agree on every
+        # pfr_id they share) — and placeholder gsis tokens are refused.
+        try:
+            if not dp_ids.empty and {"pfr_id", "gsis_id"}.issubset(dp_ids.columns):
+                for _r in dp_ids[["pfr_id", "gsis_id"]].itertuples(index=False):
+                    _pf, _gs = str(_r.pfr_id).strip(), str(_r.gsis_id).strip()
+                    if _pf and _pf.lower() != "nan" and _looks_like_gsis(_gs):
+                        pfr_to_gsis.setdefault(_pf, _gs)
+        except Exception as e:
+            _log_exc(debug, f"dp_pfr_bridge_{season}", e)
+
+        # nflverse SNAP COUNTS — the appearance half of "did he play".
+        #
+        # WHY THIS EXISTS. `played_players_by_week` was built from
+        # stats_player_week alone, which lists players who recorded a countable
+        # EVENT, not players who appeared: 31-40 rows per team per week against
+        # the ~47 who dress, and 248 of 379 active-roster WRs absent in a
+        # sampled week. A man who plays eight snaps untargeted records nothing.
+        #
+        # The injury gap-fill below reads "no row this week" as "did not play"
+        # and writes an injury, so that gap became 275 of the 3,826 `Injury?`
+        # flags across 2020-2025 — players who were on the field (measured as
+        # the actual export diff of run 34873813049 against run 496). 2.4-3.6%
+        # in 2020-2022, rising to ~10.5% from 2023. The worst played near-full
+        # games: Gabe Davis 2023 wk11 at 67 snaps, Cole Kmet 2024 wk9 66, Cade
+        # Otton 2025 wk3 66, Courtland Sutton 2024 wk7 57, each with 0.00 points
+        # and an injury flag.
+        # It inflated Hardship, and through it Luck and Loss from hardship?,
+        # and dropped those weeks out of played-week denominators.
+        #
+        # Unioning the appearance set in is what fixes it, and on this league's
+        # rosters the union is purely SUBTRACTIVE: it only ever adds weeks a
+        # player is now known to have played, which can only veto a fill. The
+        # single rostered player it newly admits to the gap-fill population
+        # (Roman Wilson 2024, snaps in week 6 only) was already flagged for 16
+        # of 17 weeks by the injury report, and the union CORRECTS his week 6.
+        #
+        # A snap total of 0 is not an appearance: the file carries zero rows for
+        # players who dressed and never took the field, and treating those as
+        # played would re-open the hole from the other side.
+        try:
+            snaps = _safe_df(load_nflverse_snap_counts(
+                ext, season, force_refresh=_force_refresh_season(season),
+            ))
+            if not snaps.empty and {"pfr_player_id", "week"}.issubset(snaps.columns):
+                if "game_type" in snaps.columns:
+                    snaps = snaps[snaps["game_type"].astype(str).str.upper() == "REG"]
+                snaps = snaps.copy()
+                snaps["week"] = pd.to_numeric(snaps["week"], errors="coerce").astype("Int64")
+                _snap_cols = [c for c in ("offense_snaps", "defense_snaps", "st_snaps")
+                              if c in snaps.columns]
+                if _snap_cols:
+                    _tot = sum(pd.to_numeric(snaps[c], errors="coerce").fillna(0)
+                               for c in _snap_cols)
+                    snaps = snaps[_tot > 0]
+                _added = 0
+                for _r in snaps[["pfr_player_id", "week"]].dropna().itertuples(index=False):
+                    _gs = pfr_to_gsis.get(str(_r.pfr_player_id).strip())
+                    if not _gs:
+                        continue
+                    _wk = int(_r.week)
+                    _bucket = played_players_by_week.setdefault(_wk, set())
+                    if _gs not in _bucket:
+                        _bucket.add(_gs)
+                        _added += 1
+                _log(debug, f"[{_now_iso()}] INFO snap_appearances season={season} "
+                            f"added={_added} player-weeks the event file did not carry "
+                            f"(bridge={len(pfr_to_gsis)} pfr->gsis)")
+        except Exception as e:
+            _log_exc(debug, f"load_nflverse_snap_counts_{season}", e)
 
         # nflverse injuries (optional; used as secondary signal)
         try:
@@ -4299,6 +4467,24 @@ def build_all(repo_root: Path) -> None:
         except Exception as e:
             _log_exc(debug, f"injuries_overlay_{season}", e)
 
+        # Game-day status researched by hand (data/game_day_status.csv) for the
+        # 2020-2025 weeks a player on an ACTIVE roster took no snap. Dressing
+        # and never getting on the field — a backup quarterback, a depth back —
+        # is not an injury, and no feed separates it from a game-day inactive:
+        # weekly-roster ACT covers both. Only `active` rows are read; inactive,
+        # emergency third QB, reserve and ruled-out-in-warmups rows stay
+        # injured. Empty from TRACKER_FIRST_SEASON on, where the tracker's
+        # live participation capture decides instead. See game_day_status.py.
+        game_day_dressed: Dict[int, set] = {}
+        try:
+            game_day_dressed = _game_day_dressed(
+                repo_root / "data" / "game_day_status.csv", int(season))
+            _log(debug, f"[{_now_iso()}] INFO game_day_status season={season} "
+                        f"dressed={sum(len(v) for v in game_day_dressed.values())} "
+                        f"player-weeks read as active-did-not-play")
+        except Exception as e:
+            _log_exc(debug, f"game_day_status_{season}", e)
+
         # Gap-fill heuristic: for every player who has at least one nflverse
         # weekly stats row this season AND every week between the season's first
         # and last played week, mark Injury?=True for the missing weeks.
@@ -4306,10 +4492,17 @@ def build_all(repo_root: Path) -> None:
         # 2024 wks 4-9) AND end-of-season IRs (Travis Hunter 2025 wks 10-17,
         # Michael Penix Jr 2025 wks 12-17) in one pass.
         #
-        # Conservative: only fires for players who played at least one nflverse
-        # game in the season (so we never invent injuries for never-active
-        # backups), and never overwrites an existing key (so the curated
-        # suspensions / injuries overlays and nflverse Out reports still win).
+        # Conservative: only fires for players who APPEARED at least once in the
+        # season (so we never invent injuries for never-active backups), and
+        # never overwrites an existing key (so the curated suspensions /
+        # injuries overlays and nflverse Out reports still win).
+        #
+        # "Appeared" is the union of the event file and the snap counts, built
+        # above. It used to be the event file alone, and that is what made this
+        # block write 275 false injuries across 2020-2025 — a week with no
+        # countable statistic is not a week off the field. Anything reading
+        # played_players_by_week as an appearance list is only correct because
+        # of that union; do not narrow it back to stats_player_week.
         played_by_gsis_season: Dict[str, set] = defaultdict(set)
         try:
             if played_players_by_week:
@@ -5992,7 +6185,10 @@ def build_all(repo_root: Path) -> None:
 
                         # Flags (platform primary, nflverse secondary)
                         # Injury/suspension (new approach): authoritative nflverse injuries, keyed by gsis_id (via player_ids mapping).
-                        # Only mark if the player did NOT play that week (no stats row) and it is not a bye.
+                        # Only mark if the player did NOT APPEAR that week and it
+                        # is not a bye. "Appear" is played_players_by_week, which
+                        # is the event file UNIONED with the snap counts — a
+                        # scoreless week on the field is not an absence.
                         inj = False
                         susp = False
                         try:
@@ -6000,13 +6196,17 @@ def build_all(repo_root: Path) -> None:
                             played = bool(gsis) and (str(gsis) in played_players)
                         except Exception:
                             played = False
+                        dressed = bool(gsis) and (
+                            str(gsis) in game_day_dressed.get(int(wk), ()))
                         # bye may be None when we couldn't compute it (no NFL team
                         # resolvable + player never had stats this season — e.g.
                         # career-ending injury cases like Gus Edwards 2021, Tarik
                         # Cohen 2021). Treat None like False so we still consider
                         # the player injured when they have pts=0 and no
                         # contradicting suspension entry.
-                        if ((pts or 0.0) == 0.0) and (bye is not True) and (not played) and gsis:
+                        # `dressed` is a researched game-day active who never
+                        # took a snap (data/game_day_status.csv): not a miss.
+                        if ((pts or 0.0) == 0.0) and (bye is not True) and (not played) and (not dressed) and gsis:
                             existing = injuries_by_gsis_week.get((str(gsis), season, int(wk)))
                             if existing is not None and existing[1] is True:
                                 # Confirmed suspension wins.
@@ -6069,11 +6269,19 @@ def build_all(repo_root: Path) -> None:
                         # the week ended for him. `played` prefers Sleeper's own
                         # participation capture (live, frozen into the tracker
                         # the night of the games) and falls back to nflverse's
-                        # played set — which is authoritative but lands ~2-3 days
-                        # later, so on the Tuesday build the week may not be in
-                        # it at all. Absent week => None (unknown), NOT "didn't
-                        # play": guessing "didn't play" there is what would turn
-                        # a hurt-in-game 0.0 into a phantom injury week.
+                        # played set, which lands ~2-3 days later, so on the
+                        # Tuesday build the week may not be in it at all. Absent
+                        # week => None (unknown), NOT "didn't play": guessing
+                        # "didn't play" there is what would turn a hurt-in-game
+                        # 0.0 into a phantom injury week.
+                        #
+                        # Sleeper's capture is preferred on coverage, not just
+                        # latency: it is a SUPERSET of nflverse's event file (no
+                        # player with a stat line is ever missing from it) and it
+                        # sees the man who dressed, played and recorded nothing.
+                        # nflverse's side only matches that once the snap counts
+                        # are folded in, which is what played_players_by_week
+                        # now carries.
                         _trk = injury_tracker_idx.get((str(pid), int(season), int(wk)))
                         if _trk:
                             _played = True if _trk.get("played") is True else None
@@ -8854,6 +9062,12 @@ def build_all(repo_root: Path) -> None:
                     _tr_by_team_season[(_t, _s)] += 1
                     # A trade is not an add/drop: it stays out of the add/drop
                     # counter and reaches "Total transactions" via the trade tally.
+                    # Its WEEK comes off the same Tuesday-Monday clock as the
+                    # add/drops, for the team_week rebuild below.
+                    _trday = _league_day(_aware(_trr.get("Date")))
+                    _trw = _season_week_of(_trday, _s) if _trday is not None else 0
+                    if _trw:
+                        _trade_by_tsw[(_t, _s, int(_trw))] += 1
             except Exception as e:
                 _log_exc(debug, "team_tx_counter_rebuild", e)
 
@@ -8903,8 +9117,27 @@ def build_all(repo_root: Path) -> None:
                     _after = int(pd.to_numeric(
                         tw["Number of Add/Drops"], errors="coerce").fillna(0).sum())
                     _log(debug, f"[{_now_iso()}] INFO team_week Number of Add/Drops rebuilt "
-                                f"from add_drop_rows on the league week clock: "
+                                f"from add_drop_rows on the Tuesday-Monday league week: "
                                 f"{_before} -> {_after}")
+                    # Trades, on the same week. They were still credited by
+                    # Sleeper's `leg`, which rolls over partway through a
+                    # Wednesday, so a Tuesday or Wednesday trade could sit a week
+                    # away from the add/drops made beside it (98 team-weeks
+                    # disagreed with the trade dates) — and Quiet streak reads
+                    # both. league_week already counted trades by date.
+                    if "Number of trades" in tw.columns:
+                        _tr_before = int(pd.to_numeric(
+                            tw["Number of trades"], errors="coerce").fillna(0).sum())
+                        tw["Number of trades"] = [
+                            int(_trade_by_tsw.get((t, int(y), int(w)), 0))
+                            if pd.notna(y) and pd.notna(w) else 0
+                            for t, y, w in zip(_t_ser, _y_ser, _w_ser)
+                        ]
+                        _tr_after = int(pd.to_numeric(
+                            tw["Number of trades"], errors="coerce").fillna(0).sum())
+                        _log(debug, f"[{_now_iso()}] INFO team_week Number of trades rebuilt "
+                                    f"from trades_rows on the Tuesday-Monday league week: "
+                                    f"{_tr_before} -> {_tr_after}")
             except Exception as e:
                 _log_exc(debug, "team_week_addrop_rebuild", e)
 
@@ -13570,7 +13803,11 @@ def build_all(repo_root: Path) -> None:
         whether it reads offseason can never drift apart: a row is in-season
         exactly when its own date falls inside its own season's window.
         """
-        return (_nfl_kickoff_thursday(int(season)),
+        # The schedule's own week-1 opener, falling back to the computed
+        # Thursday when the schedule cannot say. In 2026 these differ by a day
+        # (Wed Sept 9 vs Thu Sept 10) and the earlier one is the truthful
+        # boundary; in 2020-2025 they are identical, so no shipped row moves.
+        return (_first_game_date(season) or _nfl_kickoff_thursday(int(season)),
                 _season_end_monday(int(season), playoff_start_by_season.get(int(season))))
 
     def _trade_is_offseason(dt_str, season) -> Optional[bool]:

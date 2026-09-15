@@ -1,0 +1,45 @@
+Player,gsis_id,Year,Week,nflverse_game_id,nflverse_snaps,nflverse_participation_plays,web_verdict,detail,source
+Bryan Edwards,00-0036365,2020,9,2020_09_LV_LAC,1,1,played,Returned from ankle injury in Week 9 in a depth role; pbp participation 1 play,https://en.wikipedia.org/wiki/Bryan_Edwards_(American_football)
+Cam Akers,00-0036414,2020,6,2020_06_LA_SF,1,1,played,Back from rib injury since wk5 (no game-specific article); pbp participation 1 play,https://www.therams.com/news/cam-akers-makes-most-of-return-from-rib-injury
+Cam Akers,00-0036414,2020,7,2020_07_CHI_LA,3,3,played,Three offensive snaps; lone carry negated by penalty,https://www.cbssports.com/fantasy/football/news/rams-cam-akers-hardly-plays-against-bears/
+Jonnu Smith,00-0033858,2020,12,2020_12_TEN_IND,56,58,played,No target in Week 12 at IND (Titans threw 22 passes); 56 snaps,https://www.cbssports.com/fantasy/football/news/titans-jonnu-smith-uninvolved-against-colts/
+KJ Hamler,00-0036412,2020,4,2020_04_DEN_NYJ,14,15,played_hurt_in_game,"NFL debut; hamstring injury, no first-half catch, ruled out at start of Q3",https://www.cbssports.com/fantasy/football/news/broncos-kj-hamler-wont-return-thursday/
+Leonard Fournette,00-0033856,2020,5,2020_05_TB_CHI,1,1,played,"Researched earlier in session: active (Doubtful), 1 snap; pbp participation 1 play",
+Mark Ingram,00-0027966,2020,14,2020_14_BAL_CLE,1,1,played,"Active; one snap, a called pass that ended in a sack",https://russellstreetreport.com/2020/12/15/report-card/lamar-jackson-flushes-the-browns-on-mnf/
+Travis Fulgham,00-0035592,2020,14,2020_14_NO_PHI,12,14,played,"No web detail found; pbp participation 14 plays, 12 snaps",
+Dyami Brown,00-0036626,2021,10,2021_10_TB_WAS,9,10,played,"Questionable (knee) but active; 8 offensive snaps, no targets",https://www.si.com/nfl/washingtonfootball/news/washington-football-team-tampa-bay-buccaneers-inactives-sam-cosmi-dyami-brown-chris-godwin-ryan-fitzpatrick-wft-nfl-news
+Gabe Davis,00-0036196,2021,2,2021_02_BUF_MIA,21,22,played,"Questionable, active (all six Bills WRs active)",https://www.buffalobills.com/news/gabriel-davis-star-lotulelei-active-efe-obada-inactive-bills-at-dolphins
+Trey Sermon,00-0036984,2021,12,2021_12_MIN_SF,4,4,played_hurt_in_game,"Active; right ankle injury on a Q2 special-teams play, did not return; IR after",https://www.49erswebzone.com/articles/152985-49ers-vikings-injury-updates-trey-sermon-greenlaw-exit-game/
+Albert Okwuegbunam,00-0036423,2022,4,2022_04_DEN_LV,1,1,played,No web detail found; pbp participation 1 play,
+KJ Hamler,00-0036412,2022,3,2022_03_SF_DEN,19,19,played,"Questionable (knee, hip), active for SNF",https://www.draftsharks.com/fantasy-football-news/kj-hamler/10604
+Tee Higgins,00-0036410,2022,5,2022_05_CIN_BAL,10,10,played_hurt_in_game,"Rolled up early, re-aggravated ankle; handful of snaps, 0 catches",https://sports.yahoo.com/tee-higgins-limited-during-bengals-015445658.html
+Tee Higgins,00-0036410,2022,14,2022_14_CLE_CIN,1,1,played_hurt_in_game,Played one snap before leaving with a hamstring injury,https://www.cbssports.com/fantasy/football/news/bengals-tee-higgins-exits-game-with-hamstring-injury/
+Tyler Higbee,00-0033110,2022,12,2022_12_LA_KC,33,34,played,"Questionable (knee), active, played through it; 33 snaps",https://thehuddle.com/2022/11/27/gameday-inactives-injuries-and-weather-week12/
+Cole Kmet,00-0036290,2023,17,2023_17_ATL_CHI,13,13,played,"Questionable (knee), active; 13 offensive snaps, not targeted",https://chicago.suntimes.com/bears/2023/12/31/24020678/bears-falcons-inactives-cole-kmet-play-knee-injury-ironman-streak-lucas-patrick-darnell-mooney-nfl
+Deuce Vaughn,00-0038622,2023,3,2023_03_DAL_ARI,1,1,played,"Active; no offensive snap, one special-teams snap",https://www.bloggingtheboys.com/2023/9/26/23889168/2023-cowboys-rookie-report-no-show-cardinals-mazi-smith-luke-schoonmaker-deuce-vaughn-tj-bass
+Eric Gray,00-0038396,2023,12,2023_12_NE_NYG,4,4,played,"Activated off IR the day before; Giants inactives Corbin, Owens, Basham, E. Neal, Lawrence",https://www.giants.com/news/nfl-week-12-inactives-injury-report-darius-slayton-status-new-england-patriots
+Josh Reynolds,00-0033943,2023,3,2023_03_ATL_DET,54,54,played,"Questionable (groin), officially active; 54 snaps",https://www.fantasypros.com/nfl/news/415782/josh-reynolds-officially-active-week-3.php
+Marquise Brown,00-0035662,2023,15,2023_15_SF_ARI,24,24,played_hurt_in_game,"Questionable, played; aggravated heel, exited Q3 with 0 targets",https://arizonasports.com/story/3539983/cardinals-marquise-brown-questionable-to-return-vs-49ers-with-heel-issue/
+Tank Bigsby,00-0038555,2023,16,2023_16_JAX_TB,2,2,played,No web detail found; pbp participation 2 plays,
+Tank Dell,00-0038977,2023,13,2023_13_DEN_HOU,9,10,played_hurt_in_game,"Fractured fibula blocking on a 1st-quarter TD run, carted off",https://www.houstontexans.com/news/tank-dell-exits-game-with-ankle-injury-texans-vs-broncos
+Treylon Burks,00-0037742,2023,13,2023_13_IND_TEN,10,10,played,Active for Week 13 after concussion; 10 snaps,https://www.cbssports.com/nfl/news/nfl-week-13-inactives-treylon-burks-active-for-titans-minkah-fitzpatrick-returns-for-steelers/live/
+Zach Evans,00-0039136,2023,14,2023_14_LA_BAL,2,2,played,No web detail found; pbp participation 2 plays,
+Javon Baker,00-0039853,2024,13,2024_13_IND_NE,2,2,played,Played two snaps in the Week 13 loss to IND,https://fantasyfootballcalculator.com/players/javon-baker/news
+Jaylen Wright,00-0039874,2024,13,2024_13_MIA_GB,1,1,played,No web detail found; pbp participation 1 play,
+Jaylen Wright,00-0039874,2024,17,2024_17_MIA_CLE,2,2,played,"Active after two healthy scratches; took offensive snaps, no carry or target",https://www.cbssports.com/nfl/players/26698774/jaylen-wright/fantasy/
+Jermaine Burton,00-0039810,2024,5,2024_05_BAL_CIN,1,2,played,No web detail found; pbp participation 2 plays,
+Jordan Whittington,00-0039751,2024,7,2024_07_LV_LA,10,10,played,"Questionable (shoulder), played a few snaps, mostly run blocking, no target",https://sports.yahoo.com/everyone-wants-know-why-jordan-003746002.html
+JuJu Smith-Schuster,00-0033857,2024,7,2024_07_KC_SF,7,7,played_hurt_in_game,"Questionable, active; re-aggravated hamstring on 2nd drive, downgraded to out",https://www.arrowheadpride.com/2024/10/20/24275198/chiefs-49ers-injuries-juju-smith-schuster-questionable-hamstring
+Malachi Corley,00-0039920,2024,1,2024_01_NYJ_SF,1,1,played,3 offensive snaps across Jets' first four games (no game-specific article); pbp participation 1 play,https://jetsxfactor.com/2024/10/01/ny-jets-robert-saleh-explains-malachi-corleys-lack-of-snaps/
+Malachi Corley,00-0039920,2024,3,2024_03_NE_NYJ,1,1,played,One special-teams snap; pbp participation 1 play,https://jetsxfactor.com/2024/10/01/ny-jets-robert-saleh-explains-malachi-corleys-lack-of-snaps/
+Trey Benson,00-0039921,2024,7,2024_07_LAC_ARI,4,5,played,"Active, off the injury report; 4 snaps (a search summary's 8-37-TD line was a different game)",https://burncitysports.com/2024/10/21/cardinals-chargers-week-7-inactives/
+Cedric Tillman,00-0038979,2025,15,2025_15_CLE_CHI,7,8,played,"Questionable (concussion, rib), active; limited snaps",https://www.cbssports.com/fantasy/football/news/browns-cedric-tillman-limited-snap-count-in-loss/
+DJ Giddens,00-0040179,2025,6,2025_06_ARI_IND,2,2,played,"Two offensive snaps, no touch",https://fantasyfootballcalculator.com/players/dj-giddens/news
+DJ Giddens,00-0040179,2025,17,2025_17_JAX_IND,1,1,played,No web detail found; pbp participation 1 play,
+Dont'e Thornton,00-0040581,2025,6,2025_06_TEN_LV,2,2,played,No web detail found; pbp participation 2 plays,
+Isaiah Likely,00-0037838,2025,4,2025_04_BAL_KC,25,26,played,"Season debut, active; 25 offensive snaps, no target",https://www.baltimoreravens.com/news/isaiah-likely-active-debut-ronnie-stanley-travis-jones-kyle-van-noy-jaire-alexander-inactive-week-4
+Ja'Tavion Sanders,00-0039356,2025,17,2025_17_SEA_CAR,2,2,played_hurt_in_game,"Broke ankle on the game's first play, carted off",https://www.panthers.com/news/tight-end-plan-took-a-hit-with-ja-tavion-sanders-injury-broken-ankle-mitchell-evans-sneak
+Jarquez Hunter,00-0040692,2025,5,2025_05_SF_LA,2,2,played,Special teams in five of the Rams' first six games; 2 ST snaps,https://www.therams.com/news/newcomer-update-jarquez-hunter
+Jarquez Hunter,00-0040692,2025,6,2025_06_LA_BAL,1,1,played,Special teams in five of the Rams' first six games; 1 ST snap,https://www.therams.com/news/newcomer-update-jarquez-hunter
+Kalel Mullings,00-0040205,2025,1,2025_01_TEN_DEN,3,3,played_hurt_in_game,Active; injured ankle on special teams in the Week 1 loss,https://www.nbcsports.com/nfl/profootballtalk/rumor-mill/news/titans-place-rb-kalel-mullings-on-injured-reserve
+Kalel Mullings,00-0040205,2025,3,2025_03_IND_TEN,8,8,played,"Questionable, active; played through ankle, 8 special-teams snaps",https://fantasyfootballcalculator.com/players/kalel-mullings/news

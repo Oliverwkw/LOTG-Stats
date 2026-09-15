@@ -8,6 +8,9 @@ from typing import Dict, Optional
 import pandas as pd
 import requests
 
+from .position_pins import FANTASY_POSITION_PINS as _FANTASY_POSITION_PINS
+from .position_pins import pinned_position  # noqa: F401  (re-exported)
+
 # ---------------------------------------------------------------------------
 # Cache freshness
 # ---------------------------------------------------------------------------
@@ -188,16 +191,15 @@ def _ensure(cfg: "ExternalConfig", path: Path, urls: list[str],
 # fall back to Sleeper's dictionary, so they stayed WR — splitting one player
 # across two position pools inside a single season.
 #
-# Keyed by gsis_id, never by name: names collide and upstream re-spells them.
 # Applied on READ rather than to the cached file, so `.cache` stays a faithful
 # copy of what NFLverse published and the weekly audit's drift diff still sees
 # the relabel for what it is.
 #
-# This is a pin, not a mapping table to grow by default: add a player only when
-# his fantasy position here is genuinely unambiguous and upstream disagrees.
-FANTASY_POSITION_PINS: dict[str, str] = {
-    "00-0040718": "WR",   # Travis Hunter (JAX) — two-way WR/CB, rostered as a WR
-}
+# The registry itself lives in `position_pins`, which imports nothing, so the
+# injury capture (pandas-free by necessity — see that module) pins the same
+# player from the same one place. Re-exported here because every existing reader
+# addresses it as `external.FANTASY_POSITION_PINS`.
+FANTASY_POSITION_PINS = _FANTASY_POSITION_PINS
 
 # The columns that carry a position label in the NFLverse files we read, and the
 # columns those files use for the GSIS player id.
@@ -361,6 +363,36 @@ def load_nflverse_stats_player_week(cfg: ExternalConfig, season: int, force_refr
     except Exception:
         df = pd.read_csv(path, compression='gzip', low_memory=False)
     return apply_position_pins(df)
+
+
+def load_nflverse_snap_counts(cfg: ExternalConfig, season: int, force_refresh: bool = False) -> pd.DataFrame:
+    """Load nflverse SNAP COUNTS for a season — the only true APPEARANCE list
+    nflverse publishes.
+
+    `stats_player_week` is an EVENT list: it carries a row only for a player
+    who recorded a countable statistic, 31-40 per team per week against the ~47
+    who dress. A receiver who plays eight snaps and is not targeted is simply
+    absent from it. Reading that absence as "did not play" is what made the
+    build's injury gap-fill flag 275 of its 3,826 `Injury?` weeks on players
+    who were on the field (Gabe Davis 2023 wk11, 67 snaps; Cade Otton 2025 wk3, 66).
+
+    This file answers "did he take the field": `offense_snaps`,
+    `defense_snaps`, `st_snaps`. Note it carries NO gsis_id — only
+    `pfr_player_id` — so callers must bridge through
+    `load_nflverse_weekly_rosters`' `pfr_id` column. Columns of interest:
+    season, week, game_type, pfr_player_id, offense_snaps, defense_snaps,
+    st_snaps."""
+    urls = [
+        f"https://github.com/nflverse/nflverse-data/releases/download/snap_counts/snap_counts_{season}.csv",
+        f"https://github.com/nflverse/nflverse-data/releases/download/snap_counts/snap_counts_{season}.csv.gz",
+        f"https://raw.githubusercontent.com/nflverse/nflverse-data/master/data/snap_counts/snap_counts_{season}.csv",
+    ]
+    path = cfg.cache_dir / f"nflverse_snap_counts_{season}.csv"
+    _ensure(cfg, path, urls, force_refresh=force_refresh)
+    try:
+        return pd.read_csv(path, low_memory=False)
+    except Exception:
+        return pd.read_csv(path, compression="gzip", low_memory=False)
 
 
 def load_nflverse_weekly_rosters(cfg: ExternalConfig, season: int, force_refresh: bool = False) -> pd.DataFrame:

@@ -509,6 +509,34 @@ def check_the_rename_does_not_desync_the_baseline():
               f"got {slot.get('val_by_label')}")
     ok &= _ok("the row key is untouched by any of this",
               slot["by_key"] == {"player_additions|X|T|2025-06-18|Trade": 1})
+
+    # league_year: the sheet has no text column, so its row is a float Series and
+    # the email printed "the 2023.0 season passes the 2022.0 season" (run 497).
+    # The label drops the ".0"; the KEY must not, or every stored place stops
+    # matching; and an old baseline's labels are read in the new spelling.
+    # A float column is what upcasts the row, exactly as on the real sheet
+    # (Avg PF, Efficiency …); an all-int fixture would keep Year an int and pass
+    # against the unfixed label.
+    ly = pd.DataFrame([{"Year": 2023, "Number of donuts": 130, "Avg PF": 131.5}]).iloc[0]
+    ok &= _ok("an all-numeric league_year row still reads as a year",
+              D._board_label("league_year", ly) == "the 2023 season",
+              f"got {D._board_label('league_year', ly)}")
+    ok &= _ok("its key keeps the stored spelling",
+              D._board_row_key("league_year", ly) == "league_year|2023.0",
+              f"got {D._board_row_key('league_year', ly)}")
+    ok &= _ok("the float-year label migrates, idempotently",
+              D.migrate_board_label("league_year", "the 2023.0 season") == "the 2023 season"
+              and D.migrate_board_label("league_year", "the 2023 season") == "the 2023 season")
+    ok &= _ok("other sheets' labels are not rewritten by it",
+              D.migrate_board_label("team_year", "the 2023.0 season") == "the 2023.0 season")
+    prior = [{"sheet": "league_year", "column": "Number of donuts", "end": "high",
+              "key": "league_year|2022.0", "rank": 3, "label": "the 2022.0 season",
+              "value": 98.0}]
+    slot = D._prior_board(prior)[("league_year", "Number of donuts", "high")]
+    ok &= _ok("_prior_board names an old league season in the new spelling",
+              slot["by_rank"][3] == ["the 2022 season"]
+              and slot.get("val_by_label", {}).get("the 2022 season") == 98.0,
+              f"got {slot['by_rank']} / {slot.get('val_by_label')}")
     return ok
 
 

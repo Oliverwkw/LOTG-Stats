@@ -295,8 +295,12 @@ def check_build_reads_the_env_flag():
     ok = _ok("build reads LOTG_REFRESH_EXTERNAL", "LOTG_REFRESH_EXTERNAL" in src)
     ok &= _ok("no call site still hardcodes the current-season-only rule",
               "force_refresh=(season == _current_lotg_season)" not in src)
+    # An exact count on purpose: a NEW loader call that forgot the helper would
+    # otherwise pass unnoticed, so adding one is meant to land here. 4 -> 5 when
+    # load_nflverse_snap_counts joined (the appearance list the injury gap-fill
+    # reads); bump it again the same way, never loosen it to >=.
     ok &= _ok("every nflverse loader call goes through the helper",
-              src.count("force_refresh=_force_refresh_season(") == 4,
+              src.count("force_refresh=_force_refresh_season(") == 5,
               f"count={src.count('force_refresh=_force_refresh_season(')}")
     wf = (_ROOT / ".github" / "workflows" / "weekly_health_email.yml").read_text()
     ok &= _ok("the health workflow sets it", 'LOTG_REFRESH_EXTERNAL: "1"' in wf)
