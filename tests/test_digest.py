@@ -1350,6 +1350,10 @@ def run_all() -> bool:
         check_a_stationary_tie_join_is_not_news,
         check_release_lead_counts_what_the_gate_let_go,
         check_rookie_oscore_week_matches_the_build,
+        check_a_season_streak_passing_its_own_season_is_not_news,
+        check_a_repeat_pickup_passing_its_own_pickup_is_not_news,
+        check_a_head_to_head_streak_is_its_own_rivalry,
+        check_an_old_snapshot_without_entities_still_compares_entities,
         check_real_exports_smoke,
     ]
     all_ok = True
@@ -1531,7 +1535,8 @@ def check_offseason_move_joins_at_week_5():
     picks = pd.DataFrame({"Year": [2022, 2023, 2024, 2025, 2026], "Number": ["1.01"] * 5,
                           "Player Picked": list("ABCDE"),
                           "Avg PPG on team": [5.0, 6, 7, 8, 30]})
-    for played, want in ((4, False), (5, True)):
+    # The rookie class waits longer: until week 8, when the build grades it.
+    for played, want in ((5, False), (7, False), (8, True)):
         fr = {"rookie_picks": picks, "team_week": _weeks(y2025=17, y2026=played)}
         stands = "2026 pick 1.01 (E)" in _labels(D.board_highlights(
             picks, "rookie_picks", window=3, gate=D.BoardGate(fr)), "Avg PPG on team")
@@ -1650,6 +1655,120 @@ def check_release_lead_counts_what_the_gate_let_go():
     ok &= _ok("week 6 has no release line",
               D.release_lead(now, {"season": 2026, "weeks_completed": 6}, nd6, [], changes, secs,
                              window=3) == "")
+    return ok
+
+
+def _diff_boards(sheet, before, after, window=3):
+    prior = D.event_board(D.board_highlights(before, sheet, window=window))
+    return [c.sentence() for c in D.diff_events(prior, D.board_highlights(after, sheet, window=window))]
+
+
+def check_a_season_streak_passing_its_own_season_is_not_news():
+    """A season streak is terminal-encoded like a week one: extending it moves the
+    total onto the new season's row. "A 2025 passes A 2024 for 2nd-highest
+    Winning season streak" is one team's streak growing, told as two."""
+    col = "Winning season streak"
+
+    def ty(a_rows):
+        rows = [("D", 2020, 5), ("C", 2021, 1), ("B", 2022, 2)] + a_rows
+        return pd.DataFrame(rows, columns=["Team", "Year", col]).astype({col: object})
+
+    before = ty([("A", 2023, "In Progress"), ("A", 2024, 3)])
+    after = ty([("A", 2023, "In Progress"), ("A", 2024, "In Progress"), ("A", 2025, 4)])
+    got = _diff_boards("team_year", before, after)
+    ok = _ok("A 2025 extending the streak A 2024 held is not news", got == [], got)
+    record = ty([("A", 2023, "In Progress"), ("A", 2024, "In Progress"), ("A", 2025, 6)])
+    got2 = _diff_boards("team_year", before, record)
+    ok &= _ok("extending it past ANOTHER team's streak is, naming only them",
+              got2 == ["A 2025 passes D 2020 for highest Winning season streak (6)."], got2)
+    return ok
+
+
+def check_a_repeat_pickup_passing_its_own_pickup_is_not_news():
+    """"Number of times picked up by this team" counts one team's pickups of one
+    player, so each new pickup row is the same tally one higher."""
+    col = "Number of times picked up by this team"
+    base = [("V", "R", "2020-10-01", 5), ("W", "S", "2020-11-01", 1),
+            ("T", "P", "2021-10-01", 1), ("T", "P", "2022-10-01", 2)]
+
+    def ad(rows):
+        return pd.DataFrame(rows, columns=["Team", "Player Added", "Date", col]).assign(
+            **{"Player Dropped": "", "Season": 2022})
+
+    got = _diff_boards("add_drops", ad(base), ad(base + [("T", "P", "2023-10-01", 3)]), window=2)
+    ok = _ok("T picking P up a 3rd time does not pass T's 2nd pickup of P", got == [], got)
+    got2 = _diff_boards("add_drops", ad(base), ad(base + [("T", "P", "2023-10-01", 6)]), window=2)
+    ok &= _ok("a tally that passes another team's record still reports, naming only it",
+              len(got2) == 1 and "passes V's 2020-10-01 move for R" in got2[0], got2)
+    return ok
+
+
+def check_a_head_to_head_streak_is_its_own_rivalry():
+    """"Win streak vs this opponent" belongs to a team AND an opponent: A's streak
+    over B growing is not news against its own last row, but passing A's streak
+    over C is a different rivalry."""
+    col = "Win streak vs this opponent"
+
+    def tw(rows):
+        return pd.DataFrame(rows, columns=["Team", "Opponent", "Year", "Week", col]).astype({col: object})
+
+    base = [("A", "C", 2024, 3, 6), ("X", "Y", 2020, 1, 3), ("A", "B", 2025, 1, 4)]
+    grown = base[:2] + [("A", "B", 2025, 1, "In Progress"), ("A", "B", 2026, 1, 5)]
+    got = _diff_boards("team_week", tw(base), tw(grown))
+    ok = _ok("A over B growing a week is not news against A over B's last row", got == [], got)
+    past = base[:2] + [("A", "B", 2025, 1, "In Progress"), ("A", "B", 2026, 1, 7)]
+    got2 = _diff_boards("team_week", tw(base), tw(past))
+    ok &= _ok("passing A's streak over C is news",
+              got2 == ["A 2026 week 1 passes A 2024 week 3 for highest Win streak vs this opponent (7)."],
+              got2)
+    return ok
+
+
+def check_an_old_snapshot_without_entities_still_compares_entities():
+    col = "Total points as team starter"
+    prior = [_place("player_week", "ja25", "Josh Allen 2025 week 17", col, 1, 2200.0)]
+    now = [D.EventHighlight("player_week", "Josh Allen 2026 week 1", col, "high", 1, 2250.9,
+                            key="ja26", running=True, entity="Josh Allen")]
+    got = [c.sentence() for c in D.diff_events(prior, now)]
+    ok = _ok("a baseline written before entities were stored falls back to the label", got == [], got)
+    board = D.event_board(now)
+    ok &= _ok("and the snapshot now stores each place's entity",
+              bool(board) and board[0].get("entity") == "Josh Allen", board)
+    return ok
+
+
+def check_a_season_streak_held_back_keeps_its_run_on_the_board():
+    """A season streak running on into the in-progress season moves its total onto
+    that (held) row and leaves "In Progress" behind it. Without its completed run
+    put back, the run vanishes and the rows below climb a place standing still."""
+    col = "Winning season streak"
+    ones = [("B", 2022, 1), ("C", 2023, 1), ("D", 2024, 1), ("E", 2024, 1), ("F", 2023, 1)]
+
+    def ty(tail):
+        return pd.DataFrame([("A", 2021, 4)] + ones + tail,
+                            columns=["Team", "Year", col]).astype({col: object})
+
+    before = ty([("S", 2024, "In Progress"), ("S", 2025, 2), ("S", 2026, None),
+                 ("T", 2025, 1), ("T", 2026, None)])
+    after = ty([("S", 2024, "In Progress"), ("S", 2025, "In Progress"), ("S", 2026, 3),
+                ("T", 2025, "In Progress"), ("T", 2026, 2)])
+    seasons = dict(y2021=14, y2022=14, y2023=14, y2024=14, y2025=14)
+    g0 = D.BoardGate({"team_year": before, "team_week": _weeks(**seasons)})
+    g1 = D.BoardGate({"team_year": after, "team_week": _weeks(**seasons, y2026=1)})
+    b0 = D.board_highlights(before, "team_year", window=5, gate=g0)
+    b1 = D.board_highlights(after, "team_year", window=5, gate=g1)
+    ok = _ok("S's run stays on the board as S 2025 (2) while 2026 is held",
+             any(h.label == "S 2025" and h.value == 2.0 for h in b1)
+             and "S 2026" not in _labels(b1), [(h.label, h.value) for h in b1])
+    got = [c.sentence() for c in D.diff_events(D.event_board(b0), b1)]
+    ok &= _ok("nothing below climbs because two runs carried on into 2026", got == [], got)
+    done = D.BoardGate({"team_year": after, "team_week": _weeks(**seasons, y2026=14)})
+    b2 = D.board_highlights(after, "team_year", window=5, gate=done)
+    ok &= _ok("once 2026 is complete the run shows on its own row",
+              "S 2026" in _labels(b2) and "S 2025" not in _labels(b2), _labels(b2))
+    got2 = [c.sentence() for c in D.diff_events(D.event_board(b1), b2)]
+    ok &= _ok("...and moving onto it is not 'S 2026 passes S 2025'",
+              not any("passes S 2025" in s or "with S 2025" in s for s in got2), got2)
     return ok
 
 

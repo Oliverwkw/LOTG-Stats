@@ -633,7 +633,17 @@ def _new_data_reaches(cand: "_Cand", yr: Optional[int], season: Optional[int],
     it in: an all-time total or this season's row always can; a past row only on
     a stat that keeps accruing after its own period."""
     col = cand.column.lower()
-    if new_data.new_games and any(m in col for m in _POOL_MARKERS):
+    # A pooled tier stat (boom / bust / quartile / percentile) is re-cut by every
+    # new week — but only by a hair on a settled row: one week of ~80 starter
+    # scores against an all-time pool barely moves p10-p90. What does move a past
+    # week's tier shares is an edit that changes the pool itself: on 2026-09-15
+    # "2021 week 8 joins a tie for highest % of starters lower quartile" came from
+    # #426 flipping three bench players' Injury? flags (the only rows of that week
+    # that changed), yet read as news. So the pool reaches this season's rows and
+    # all-time rows; a past week or season on a pooled stat is judged like any
+    # other past row (a still-open streak aside).
+    if new_data.new_games and any(m in col for m in _POOL_MARKERS) \
+            and (yr is None or (season and yr >= season)):
         return True
     named = _entities(cand.item)
     played = set(new_data.players) | set(new_data.teams)
@@ -899,8 +909,8 @@ def release_sentence(week: int, released: int, total: int,
                 f"weeks 1-{week - 1} catching up rather than this week's news.")
     if week == ROOKIE_OSCORE_WEEK:
         cls = f"the {season} rookie class" if season else "this year's rookie class"
-        return (f"Week {week} is when {cls} gets its first O-Scores, so {of} "
-                f"moves below are debut grades rather than new results.")
+        return (f"Week {week} is when {cls} joins the boards and gets its first "
+                f"O-Scores, so {of} moves below are its debut rather than new results.")
     return ""
 
 

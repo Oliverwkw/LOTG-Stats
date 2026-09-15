@@ -1171,9 +1171,11 @@ class EventHighlight:
     rank: int
     value: float
     key: str = ""       # stable row identity (see _event_row_key); NOT the label
-    # A running-total column on a week sheet (see `running_columns`): the row that
-    # carries the total changes every week, so the diff compares entities.
+    # A running-total column (see `running_columns`): the row that carries the
+    # total changes as the run grows, so the diff compares `entity` — whose run
+    # it is (`_row_entity`) — rather than the row.
     running: bool = False
+    entity: str = ""
 
     def group(self) -> str:
         return self.label
@@ -1387,20 +1389,49 @@ _RUNNING_COLUMNS = {"Number of weeks on team", "Age", "Startup draft players rem
 
 
 def running_columns(df: pd.DataFrame) -> set:
-    """A week sheet's running-total columns — a value carried forward with time
-    rather than one week's own result: every terminal-encoded column (a run's
-    total sits on its latest row, every earlier row reads "In Progress"), every
-    streak, and the plain running counts in `_RUNNING_COLUMNS`."""
+    """A sheet's running-total columns — a value carried forward from one row of
+    the same entity to its next rather than describing its own row: every
+    terminal-encoded column (a run's total sits on its latest row, every earlier
+    row reads "In Progress"), every streak (a week's, a season's "Winning season
+    streak"), every "number of times" tally of one team and one player
+    ("Number of times picked up by this team"), and the plain running counts in
+    `_RUNNING_COLUMNS`. A new row of such a column is the SAME run, so the board
+    diff compares it entity to entity (`_row_entity`)."""
     if df is None or df.empty:
         return set()
     out = set()
     for c in df.columns:
         name = str(c)
-        if name in _RUNNING_COLUMNS or "streak" in name.lower():
+        low = name.lower()
+        if name in _RUNNING_COLUMNS or "streak" in low or "number of times" in low:
             out.add(name)
         elif df[c].dtype == object and (df[c] == "In Progress").any():
             out.add(name)
     return out
+
+
+def _row_entity(sheet: str, column: str, row) -> str:
+    """Whose run a board row belongs to, for `running_columns`: the player or team
+    (a week or season row), the team AND opponent for a head-to-head streak, the
+    team AND player for a per-player tally on the transaction sheets, and "" for
+    the league."""
+    def g(c):
+        return _event_cell(row, c)
+    low = column.lower()
+    if sheet in ("player_week", "player_year"):
+        return g("Player")
+    if sheet in ("team_week", "team_year"):
+        return f"{g('Team')}|{g('Opponent')}" if "opponent" in low else g("Team")
+    if sheet == "add_drops":
+        who = g("Player Dropped") if "dropped" in low else g("Player Added")
+        return f"{g('Team')}|{who}"
+    if sheet == "player_additions":
+        return f"{g('Team')}|{g('Player')}"
+    if sheet in _PICK_SHEETS:
+        return g("Player Picked")
+    if sheet == "trades":
+        return g("Team")
+    return ""
 
 
 def _kickoff_tuesday(season: int) -> date:
@@ -1491,7 +1522,8 @@ class BoardGate:
             return None
         return pd.to_numeric(df["Year"], errors="coerce") == self.season
 
-    def _young_events(self, df: pd.DataFrame) -> Optional["pd.Series"]:
+    def _young_events(self, df: pd.DataFrame,
+                      min_weeks: int = EVENT_MIN_WEEKS) -> Optional["pd.Series"]:
         if not self.weeks:
             return None
         if "Date" in df.columns:
@@ -1503,7 +1535,7 @@ class BoardGate:
                 starts.append((int(yv), 1) if yv is not None else None)
         else:
             return None
-        return pd.Series([s is not None and self.elapsed_since(s) < EVENT_MIN_WEEKS
+        return pd.Series([s is not None and self.elapsed_since(s) < min_weeks
                           for s in starts], index=df.index)
 
     def _young_stints(self, df: pd.DataFrame) -> Optional["pd.Series"]:
@@ -1540,11 +1572,50 @@ class BoardGate:
                 return None
         else:
             return None
-        key = (id(df), kind)
+        # This year's rookie class waits for the week the build first grades it
+        # (its O-Score, `ROOKIE_OSCORE_WEEK`), not the five weeks a trade or
+        # pickup does: week 1 of 2026 put ten picks on the boards off one game.
+        weeks = ROOKIE_OSCORE_WEEK if sheet == "rookie_picks" else EVENT_MIN_WEEKS
+        key = (id(df), kind, weeks)
         if key not in self._memo:
-            self._memo[key] = {"season": self._this_season, "event": self._young_events,
-                               "stint": self._young_stints}[kind](df)
+            if kind == "event":
+                self._memo[key] = self._young_events(df, weeks)
+            else:
+                self._memo[key] = {"season": self._this_season,
+                                   "stint": self._young_stints}[kind](df)
         return self._memo[key]
+
+
+def _carry_held_runs(df: pd.DataFrame, column: str, s: "pd.Series",
+                     held: "pd.Series") -> "pd.Series":
+    """Keep a season streak's completed run on the board while the season it has
+    run on into is held back.
+
+    A streak that continues into the in-progress season moves its total onto that
+    season's row and leaves "In Progress" on the season before. Holding the new
+    row back (`BoardGate`) would therefore take the whole run off the board, and
+    every row below it would climb a place standing still — on week 1 of 2026,
+    "plehv79 2020 joins a tie for 5th-highest Winning season streak (1)". So the
+    run's completed length — the held row's value less the one season it adds —
+    goes back on the row before, as it read before the season began."""
+    ent_col = next((c for c in ("Team", "Player") if c in df.columns), None)
+    if ent_col is None or "Year" not in df.columns:
+        return s
+    held = held.reindex(df.index, fill_value=False).astype(bool)
+    held_idx = [i for i in df.index[held] if i in s.index]
+    if not held_idx:
+        return s
+    years = pd.to_numeric(df["Year"], errors="coerce")
+    row_of = {(str(e), int(y)): i for i, e, y in zip(df.index, df[ent_col], years) if pd.notna(y)}
+    extra = {}
+    for i in held_idx:
+        if s[i] < 1:
+            continue
+        prev = row_of.get((str(df.at[i, ent_col]), int(years[i]) - 1))
+        if prev is not None and prev not in s.index \
+                and str(df.at[prev, column]).strip() == "In Progress":
+            extra[prev] = float(s[i]) - 1
+    return pd.concat([s, pd.Series(extra, dtype=float)]) if extra else s
 
 
 def _board_places(pool: "pd.Series", end: str, window: int,
@@ -1577,13 +1648,15 @@ def board_highlights(df: pd.DataFrame, sheet: str, window: int = WINDOW,
     if cfg is None or df is None or df.empty:
         return []
     mirrored = mirrored_columns(df, sheet)
-    running = running_columns(df) if sheet in _WEEK_SHEETS else set()
+    running = running_columns(df)
     out: List[EventHighlight] = []
     for col in discover_numeric_columns(df, cfg["entity"]):
         s = rankable_series(df, col, col in mirrored, sheet)
         if len(s) < window:
             continue
         held = gate.restricted(df, sheet, col) if gate is not None else None
+        if held is not None and col in running and sheet in _YEARLY_SHEETS:
+            s = _carry_held_runs(df, col, s, held)
         lo_s = s
         if held is not None:
             held = held.reindex(s.index, fill_value=False).astype(bool)
@@ -1611,10 +1684,12 @@ def board_highlights(df: pd.DataFrame, sheet: str, window: int = WINDOW,
         for idx, value in s[s.index.isin(list(place))].items():
             row = df.loc[idx]
             end, rank = place[idx]
+            is_run = col in running
             out.append(EventHighlight(sheet, _board_label(sheet, row), col,
                                       end, rank, float(value),
                                       _board_row_key(sheet, row),
-                                      running=col in running))
+                                      running=is_run,
+                                      entity=_row_entity(sheet, col, row) if is_run else ""))
     return out
 
 
@@ -1847,7 +1922,10 @@ def event_board(events: Sequence[EventHighlight]) -> list:
     a stable order so the committed snapshot diffs cleanly week to week."""
     return sorted(
         ({"sheet": e.sheet, "key": e.key, "label": e.label, "column": e.column,
-          "end": e.end, "rank": e.rank, "value": e.value} for e in events),
+          "end": e.end, "rank": e.rank, "value": e.value,
+          # Whose run a running-total place is, so next week's diff can tell a
+          # run's new row from a rival (`running_columns`).
+          **({"entity": e.entity} if e.running else {})} for e in events),
         key=lambda d: (d["sheet"], d["column"], d["end"], d["rank"], d["key"]))
 
 
@@ -1884,6 +1962,10 @@ def _prior_board(prior_board) -> Optional[Dict[tuple, dict]]:
             # ask whether the row a mover overtook actually moved.
             if d.get("value") is not None and d.get("label"):
                 slot.setdefault("val_by_label", {})[_label] = d["value"]
+            # Whose run a running-total place was (absent in an older snapshot,
+            # where the diff reads it off the label instead).
+            if d.get("entity") is not None:
+                slot.setdefault("entity_by_label", {})[_label] = d["entity"]
         except (KeyError, TypeError, ValueError):
             return None
     # The worst place each board held last week. A row that was NOT on the board
@@ -1987,6 +2069,9 @@ def diff_events(prior_board, events: Sequence[EventHighlight],
     for e in events:
         co.setdefault((e.sheet, e.column, e.end), {}).setdefault(e.rank, []).append(e.key)
     label_of = {(e.sheet, e.column, e.end, e.key): e.label for e in events}
+    # Whose run each running-total place on the board NOW is (see `running_columns`).
+    entity_now = {(e.sheet, e.column, e.label): (e.entity or _label_entity(e.sheet, e.label))
+                  for e in events if e.running}
     # The value each label holds on the board NOW, so an overtake can be tested
     # for whether the reader could see it at all (_indistinguishable).
     value_of_label = {(e.sheet, e.column, e.end, e.label): e.value for e in events}
@@ -2002,8 +2087,18 @@ def diff_events(prior_board, events: Sequence[EventHighlight],
         # entity's best place last week, and never name its own old rows.
         own = None
         if e.running:
-            ent = _week_row_entity(e.label)
-            own = lambda lbl, ent=ent: _week_row_entity(lbl) == ent  # noqa: E731
+            ent = e.entity or _label_entity(e.sheet, e.label)
+
+            def own(lbl, ent=ent, col=e.column, sheet=e.sheet, slot=slot):
+                # Whose run `lbl` is: this week's board says, else last week's
+                # snapshot, else (a snapshot older than stored entities) its label.
+                known = entity_now.get((sheet, col, lbl))
+                if known is None:
+                    known = slot.get("entity_by_label", {}).get(lbl)
+                if known is None:
+                    known = _label_entity(sheet, lbl)
+                return known == ent
+
             mine = [r for r, labels in slot["by_rank"].items() if any(own(x) for x in labels)]
             if mine:
                 was = min(mine) if was is None else min(was, min(mine))
@@ -2072,11 +2167,28 @@ def diff_events(prior_board, events: Sequence[EventHighlight],
 
 
 _WEEK_ROW_SUFFIX = re.compile(r"\s*\b\d{4} week \d+$")
+_SEASON_ROW_SUFFIX = re.compile(r"\s*\b\d{4}$")
+_MOVE_LABEL = re.compile(r"^(?P<team>.+?)'s \d{4}-\d{2}-\d{2} .*?\b(?:for|of) (?P<who>.+)$")
 
 
-def _week_row_entity(label: str) -> str:
-    """"Josh Allen 2026 week 1" -> "Josh Allen"; a league week -> ""."""
-    return _WEEK_ROW_SUFFIX.sub("", str(label or ""))
+def _label_entity(sheet: str, label: str) -> str:
+    """Whose run a board label names, read off the label alone — the fallback
+    for a snapshot written before places stored their `entity` (`_row_entity`
+    is the source of truth). "Josh Allen 2026 week 1" -> "Josh Allen";
+    "stevenb123 2026" -> "stevenb123"; a league row -> ""; "T's 2023-10-01
+    move for P" -> "T|P". A head-to-head streak's label does not name the
+    opponent, so on that one column the fallback reads the team alone."""
+    s = str(label or "")
+    if sheet in _WEEK_SHEETS:
+        return _WEEK_ROW_SUFFIX.sub("", s)
+    if sheet == "league_year":
+        return ""
+    if sheet in _YEARLY_SHEETS:
+        return _SEASON_ROW_SUFFIX.sub("", s)
+    m = _MOVE_LABEL.match(s)
+    if m:
+        return f"{m.group('team')}|{m.group('who')}"
+    return s
 
 
 def release_lead(frames: dict, meta: dict, new_data: Optional[NewData],
@@ -2109,9 +2221,10 @@ def release_lead(frames: dict, meta: dict, new_data: Optional[NewData],
                        if (c.sheet, c.column, c.end, c.key) not in before)
         return release_sentence(MIN_YEARLY_WEEK, released + len(projections), total)
     if ROOKIE_OSCORE_WEEK in weeks:
+        # The class joins every rookie-pick board this week (`BoardGate` holds it
+        # to week 8), O-Score included, so every one of its lines is the debut.
         released = sum(1 for c in event_changes
-                       if c.sheet == "rookie_picks" and "o-score" in c.column.lower()
-                       and c.label.startswith(f"{season} pick"))
+                       if c.sheet == "rookie_picks" and c.label.startswith(f"{season} pick"))
         return release_sentence(ROOKIE_OSCORE_WEEK, released, total, season=season)
     return ""
 
