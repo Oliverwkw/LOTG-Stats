@@ -44,6 +44,19 @@ from lotg_support import email_summary as DS
 _ROOT = Path(__file__).resolve().parent.parent
 
 
+def _inputs_fingerprint() -> "str | None":
+    """The committed build inputs' fingerprint (see digest.edit_fingerprint), or
+    None when git can't answer — which only means next week can't prove whether
+    an edit landed, and attributes as if one might have."""
+    import subprocess
+    try:
+        out = subprocess.run(["git", "ls-tree", "-r", "-z", "HEAD"], cwd=_ROOT,
+                             capture_output=True, check=True, timeout=60).stdout
+    except Exception:                      # noqa: BLE001 — never fail the digest
+        return None
+    return D.edit_fingerprint(out.decode("utf-8", "replace").split("\0"))
+
+
 def _read(exports: Path, name: str) -> pd.DataFrame:
     p = exports / f"{name}.csv"
     return pd.read_csv(p, low_memory=False) if p.exists() else pd.DataFrame()
@@ -159,11 +172,14 @@ def main(argv=None) -> int:
     snap_path = Path(args.snapshot)
     out_path = Path(args.out) if args.out else exports / "raw" / "weekly_digest.html"
 
+    fingerprint = _inputs_fingerprint()
+    print(f"[digest] build-inputs fingerprint: {fingerprint}")
     current = D.build_snapshot(
         frames["player_all_time"], frames["team_all_time"],
         frames["team_year"], frames["team_week"],
         league_all_time=frames["league_all_time"],
         captured_at=datetime.now(timezone.utc),
+        inputs_fingerprint=fingerprint,
     )
     meta = current["meta"]
     print(f"[digest] season={meta['season']} weeks_completed={meta['weeks_completed']}")
@@ -267,14 +283,28 @@ def main(argv=None) -> int:
     # lotg_support/email_summary.
     sections = D.digest_sections(crossings, proj_changes, milestones,
                                  record_changes, highlights, event_changes)
+    # What arrived since the prior snapshot, and whether an edit landed: the
+    # evidence that sends a move only an edit explains to its own section at the
+    # bottom of the email (and that the lede's "re-valued history" counts).
+    new_data = D.new_data_since(prior, meta, frames, fingerprint)
+    if new_data is not None:
+        _top, _edits = D.split_sections(sections, new_data)
+        print(f"[digest] new data: {len(new_data.new_weeks)} new week(s), "
+              f"{len(new_data.players)} player(s) / {len(new_data.teams)} team(s) in them, "
+              f"{len(new_data.tx_players)} player(s) / {len(new_data.tx_teams)} team(s) "
+              f"in new transactions; "
+              f"edit landed: {new_data.edit_landed} -> "
+              f"{sum(len(i) for _t, _g, i in _top)} item(s) with the news, "
+              f"{sum(len(i) for _t, _g, i in _edits)} under edits")
     intro = DS.build_intro(sections, D.digest_title(meta),
-                           weeks_completed=meta.get("weeks_completed"))
+                           weeks_completed=meta.get("weeks_completed"),
+                           new_data=new_data)
     if intro:
         print(f"[digest] lede: {intro}")
 
     html = D.render_digest_html(crossings, proj_changes, meta, milestones,
                                 record_changes, highlights, intro=intro,
-                                events=event_changes)
+                                events=event_changes, new_data=new_data)
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(html)
     print(f"[digest] {len(highlights)} single-week highlight(s), {len(crossings)} crossing(s), "

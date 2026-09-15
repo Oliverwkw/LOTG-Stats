@@ -639,6 +639,33 @@ list is here so an answer written by hand does not walk into them.
   `lineup.compute_optimal_lineup` is deliberately left alone.)
 - **Sleeper writes `"0"` for an empty start slot** (`inquiry.EMPTY_SLOT`) — a
   legal lineup, not a bug.
+- **`Injury?` means "missed the week, and it was not a bye or a suspension" —
+  not "was hurt".** It is the residual bucket, per its own note in
+  `formulas.csv`, so a healthy scratch that was declared Out lands in it: 13 of
+  the 33 flags 2026 week 1 carries are `Out` with an `injury_body_part` of
+  "Coach's Decision", mostly backup and rookie quarterbacks. That is the
+  league's decision, not a defect — but an injury RATE taken off `Injury?`
+  overstates by that share, and the reason is recoverable, because
+  `data/injury_tracker.csv` captures `injury_body_part` alongside the flag.
+- **Sleeper's `injury_status = "NA"` is the commissioner exempt list, and this
+  league counts it as a suspension.** It used to decide nothing, on the grounds
+  that NA is ambiguous (96 players carry it, 65 of them teamless and
+  "Inactive"), and the cost was Josh Jacobs's 2026 week 1: 0.00 points, no
+  participation, no nflverse stat line, recorded as a played 0.00. The teamless
+  NA players are still safe because a bye outranks a suspension, not because
+  anything filters them — see `injury_tracker._SUSPENSION_TOKENS`.
+- **The tracker's gsis bridge is not Sleeper's `gsis_id` field.** Sleeper
+  carries one for 40 of the 247 players on the 2026 rosters and pads them with
+  whitespace (`' 00-0035700'`); the DynastyProcess table closes the gap to 245,
+  and it stocks five `AAA######` PLACEHOLDERS (`WAS569019`) that look like ids
+  and join to nothing — `looks_like_gsis()` rejects them. The two blanks are
+  Jack Strand and Mike Washington, undrafted 2026 rookies whom nflverse has a
+  real id for but carries no `sleeper_id` against.
+  `injury_tracker.resolve_gsis()` / `sleeper_gsis_bridge()`, and
+  `data/injury_tracker.csv` now carries the resolved id per row, so a
+  participation cross-check against nflverse needs no id chasing. Its
+  `position` column is pinned at capture time too — Sleeper flipped Travis
+  Hunter to `DB` on 2026-09-08 and the raw label disagrees with every sheet.
 - **Offseason trades live in `week_01`** of the season they precede. The
   Herbert deal is dated 2025-08-07 and sits in `season_2025/weeks/week_01`.
 - **An asset cell holds three kinds of thing, and only one is a player.**
@@ -747,14 +774,26 @@ list is here so an answer written by hand does not walk into them.
   comparison that leaves it in files it under the playoff teams and inflates the
   gap (+416 becomes +440). `draft_capital.hauls()` drops and counts it.
 - **A season's in-season window moves every year, at both ends.** Offseason /
-  Inseason is split on (that season's week-1 Thursday .. its championship
-  Monday), not a fixed date: kickoff is the Thursday after Labor Day and ranges
-  Sept 4 (2025) to Sept 10 (2020, 2026), and the season stops at the title game,
-  not at New Year. `_nfl_kickoff_thursday(season)` + `_finals_weeks()`. Anything
+  Inseason is split on (that season's week-1 OPENER .. its championship
+  Monday), not a fixed date: the opener is normally the Thursday after Labor Day
+  and ranges Sept 4 (2025) to Sept 10 (2020), and the season stops at the title
+  game, not at New Year. `_season_opener()` (schedule-derived, the Thursday as
+  fallback) + `_finals_weeks()`. **2026 is the season that broke the Thursday
+  assumption**: week 1 opened WEDNESDAY Sept 9 (NE at SEA), a day ahead of its
+  computed Thursday, so anything still anchored on `_nfl_kickoff_thursday`
+  reads Sept 9 2026 as offseason while week 1 was being played. Anything
   hand-rolling "before Sept 7" will file a preseason deal as in-season — that is
   what hid the 2020 startup slot swap in the in-season bucket. Note the weekly
   bucket is a *different* rule: an offseason trade within 7 days of kickoff still
   rolls into week 1 by design, so "offseason" and "week 1" legitimately co-occur.
+- **A fantasy week runs Tuesday-Monday.** 2026 week 2 begins Tuesday Sept 15,
+  the day after week 1's Monday night game. Tuesday and Wednesday moves (most
+  waivers) belong to the COMING week. `_season_week_of()` / `_week_tuesday()`
+  are the rule. Until 2026-09-15 the build counted weeks from the Thursday
+  kickoff, which filed 596 of 1,588 add/drops and 99 of 566 trade rows a week
+  early. team_week's trade count also took Sleeper's `leg`, which rolls over
+  partway through a Wednesday. So any weekly transaction count, or Quiet streak,
+  quoted from an older build is off at the week boundaries.
 - **Past seasons' snapshots have no `drafts.json`.** Like `traded_picks.json`,
   only the current season carries it, so the record of who owned a slot in an
   earlier draft is `picks."Original Team"`, not the snapshot.
@@ -809,6 +848,61 @@ list is here so an answer written by hand does not walk into them.
   directions (three fully healthy, one an unsigned free agent). The season's
   `nflverse_injuries.csv` is empty until games are played. Believe the flags
   only in season; before that, use dated outside reporting.
+- **nflverse's game-status report is thin in the week it covers, so it is not a
+  cross-check.** 2026 week 1's `nflverse_injuries.csv` has 139 rows for the
+  whole league, 131 of them with a BLANK `report_status` (they are
+  practice-participation rows) and 5 "Out". The player it most needed to name,
+  Josh Jacobs, is not in it at all.
+- **`stats_player_week` is an EVENT list, not an appearance list, so absence
+  from it is NOT evidence that a player did not play.** This one cost real
+  time and shipped a wrong conclusion before being caught. It carries 31-40
+  rows per team against the ~47 that dress, 1,040 of its 1,041 rows have at
+  least one non-zero stat, and 248 of 379 active-roster WRs have no row in
+  2026 week 1 at all. A receiver who plays eight snaps and is not targeted
+  records nothing and simply is not in the file — De'Zhaun Stribling and every
+  other backup on the 2026 week-1 rosters. **For "did he take the field", use
+  nflverse's `snap_counts` release**, which is a true appearance list
+  (`offense_snaps` / `defense_snaps` / `st_snaps`), or Sleeper's own
+  participation capture in `data/injury_tracker.csv`, which is a SUPERSET of
+  the event list (no player with a stat line is ever missing from it).
+- **`Injury?` before the snap-count fix over-flagged, and any figure quoted
+  from an older build still carries it.** The build's injury gap-fill writes an
+  injury for every week a player did not appear in, and "appear" used to mean
+  "has a `stats_player_week` row" — so a man who dressed, played and recorded
+  nothing read as injured. That was **275 of the 3,826 `Injury?` flags (7.2%)
+  in 2020-2025** (the measured export diff, run 34873813049 vs run 496),
+  2.4-3.6% in 2020-2022 rising to ~10.5% from 2023, the worst played near-full
+  games (Gabe Davis 2023 wk11 at 67 snaps; Cole Kmet 2024 wk9 66; Cade Otton
+  2025 wk3 66; Courtland Sutton 2024 wk7 57). A name-matched recount gets 262 —
+  it misses A.J./AJ-style spellings and lends Michael Carter II's snaps to
+  Michael Carter the RB — which is the name-join trap below in miniature. It inflated `Hardship`, and through it
+  `Luck` and `Loss from hardship?`, and dropped those weeks out of played-week
+  denominators like `Adjusted Avg`. `played_players_by_week` is now the event
+  list UNIONED with `snap_counts`, and
+  `test_no_injury_flag_coincides_with_snaps_played` holds it — but an
+  `Injury?`, `Hardship` or `Luck` number taken from a build before that fix is
+  wrong by roughly that much, so say which build a historical injury figure
+  came from.
+- **A player can dress and never take a snap, and 2020-2025 knows it by hand.**
+  After the snap union, 215 `Injury?` weeks were left on players with no snap
+  and no reserve-list status — mostly backup quarterbacks (Riley Leonard 2025,
+  Russell Wilson 2025 wks 5-9, Jake Browning 2024 wks 1-7, Desmond Ridder
+  2022). Each was looked up in the team's own inactive list;
+  `data/game_day_status.csv` records the answer and its source. 208 dressed and
+  sat and are **not** injured; 7 stay injured (inactive, reserve list, or Rome
+  Odunze 2025 wk15, active but ruled out in pregame warmups). An emergency third
+  quarterback is on the inactive list, so he counts as Out. The same change
+  bridges snap counts through DynastyProcess's `pfr_id` where the weekly rosters
+  leave it blank, clearing 31 more weeks of players who did play (Trey McBride
+  2022 wks 2-9). Weekly-roster `ACT` cannot make this call on its own — it covers
+  game-day inactives too — and Sleeper's `gms_active` is wrong for reserve-list
+  players (Jeff Wilson 2021 on PUP reads as active). From 2026 the tracker's
+  live participation capture decides instead, and the file may not hold those
+  seasons.
+- **Join nflverse on `gsis_id`, never on name.** A suffix
+  (`Marvin Harrison Jr.`, `Deebo Samuel Sr.`) reads as 21 false disagreements
+  against the tracker. `snap_counts` is the exception — it has no gsis at all,
+  only `pfr_player_id`, so bridge through `nflverse_weekly_rosters.pfr_id`.
 - **The regular season is not always a round-robin.** 2026's fourteen weeks are
   a clean double round-robin (every pair twice, so no strength-of-schedule edge
   can exist); 2021-2025 ran fifteen, where some pairs met three times and some

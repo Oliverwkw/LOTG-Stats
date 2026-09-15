@@ -42,6 +42,25 @@ EARLY_INACTIVES = 15 * 60 + 30    # 90 min before a 1pm ET kick
 EARLY_KICK = 17 * 60
 LATE_INACTIVES = 18 * 60 + 35     # 90 min before a 4:05pm ET kick
 LATE_KICK = 20 * 60 + 5
+NIGHT_INACTIVES = 22 * 60 + 45    # 90 min before an 8:15pm ET kick (Thu/Sun/Mon night)
+NIGHT_KICK = 24 * 60 + 15         # 00:15 UTC the NEXT day, kept on one axis
+
+# Every inactive-report -> kickoff window a sweep can be aimed at. The night one
+# had no fire at all until 2026 wk1 showed what that costs: a night game's
+# designation was only ever settled by the Tuesday capture, two days later.
+SWEEP_WINDOWS = {
+    "early": (EARLY_INACTIVES, EARLY_KICK),
+    "late": (LATE_INACTIVES, LATE_KICK),
+    "night": (NIGHT_INACTIVES, NIGHT_KICK),
+}
+
+# The delay band MEASURED on this repo's six 2026 week-1 sweeps: every one
+# delivered, none inside its window, +1h59m at best and +3h12m at worst. A fire
+# is only useful if it lands in a window under one of the two regimes — on time
+# (the fast-queue case) or anywhere in this band (the case that actually
+# happens). Widen these only against fresh run history, never to pass a test.
+QUEUE_DELAY_MIN = 119
+QUEUE_DELAY_MAX = 192
 
 
 def _load(name: str) -> dict:
@@ -125,14 +144,62 @@ def test_injury_capture_lands_between_the_monday_game_and_the_build():
         "the primary capture has drifted so early it loses PR #415's MNF margin")
 
 
-def test_every_sweep_sits_in_an_inactive_report_window():
-    """A sweep before the inactive report reads a practice report instead."""
-    windows = [(EARLY_INACTIVES, EARLY_KICK), (LATE_INACTIVES, LATE_KICK)]
+def _windows_hit(t: int) -> dict:
+    """{window: regime} for every window this fire time can land inside.
+
+    "on_time" is the fire time itself sitting in the window; "delayed" is the
+    whole measured delay band sitting in it. A fire that hits nothing under
+    either regime reads a practice report and nothing else, whenever it runs."""
+    hit = {}
+    for name, (lo, hi) in SWEEP_WINDOWS.items():
+        if lo <= t < hi:
+            hit[name] = "on_time"
+        elif lo <= t + QUEUE_DELAY_MIN and t + QUEUE_DELAY_MAX <= hi:
+            hit[name] = "delayed"
+    return hit
+
+
+def test_every_sweep_can_reach_an_inactive_report_window():
+    """A sweep that cannot land in a window is a run that reads nothing new.
+
+    This used to demand the cron ITSELF sit in a window, which is the placement
+    2026 wk1 disproved: all three 15:35 fires arrived 2h42m-3h12m late, i.e.
+    after the 17:00 kickoff, every time. An ANTICIPATORY fire — placed so the
+    measured delay band lands in the window — is the only shape that survives
+    this scheduler, so both regimes count."""
     for c in _crons("sweep_injuries.yml"):
         t = _at(c)
-        assert any(lo <= t < hi for lo, hi in windows), (
-            f"sweep {c} ({t // 60:02d}:{t % 60:02d} UTC) is outside every "
-            "inactive-report -> kickoff window")
+        assert _windows_hit(t), (
+            f"sweep {c} ({t // 60:02d}:{t % 60:02d} UTC) cannot reach any "
+            "inactive-report -> kickoff window, on time or at the measured delay")
+
+
+def test_every_window_has_a_fire_that_survives_the_delay():
+    """The property the schedule exists for, per window.
+
+    A window covered only by an on-time fire is a window this scheduler loses:
+    that is precisely what happened to the early window in 2026 wk1. Each one
+    needs a fire whose DELAYED landing is inside it."""
+    hits = [(_at(c), _windows_hit(_at(c))) for c in _crons("sweep_injuries.yml")]
+    for name in SWEEP_WINDOWS:
+        delayed = [t for t, h in hits if h.get(name) == "delayed"]
+        assert delayed, (
+            f"the {name} inactive window has no anticipatory fire — every fire "
+            "aimed at it only lands there if GitHub delivers on time, which it "
+            "has never done in this repo")
+
+
+def test_the_night_game_window_is_swept():
+    """Thu/Sun/Mon night inactives land ~22:45 UTC, after every daytime fire.
+
+    Named separately because it is not redundancy but coverage that did not
+    exist: 2026's week 1 opened on a Wednesday night and closed on a Monday
+    night, and neither game's game-time designation was ever swept."""
+    covered = [c for c in _crons("sweep_injuries.yml")
+               if "night" in _windows_hit(_at(c))]
+    assert len(covered) >= 2, (
+        f"night games have {len(covered)} sweep fire(s); they need an "
+        "anticipatory one and an on-time one like every other window")
 
 
 def test_the_sweep_is_redundant_and_has_delay_headroom():
@@ -216,7 +283,9 @@ TESTS = [test_no_cron_fires_on_the_hour,
          test_no_gate_hardcodes_a_cron_string,
          test_the_send_and_rotation_gates_use_the_shared_flag,
          test_injury_capture_lands_between_the_monday_game_and_the_build,
-         test_every_sweep_sits_in_an_inactive_report_window,
+         test_every_sweep_can_reach_an_inactive_report_window,
+         test_every_window_has_a_fire_that_survives_the_delay,
+         test_the_night_game_window_is_swept,
          test_the_sweep_is_redundant_and_has_delay_headroom,
          test_unrecoverable_work_has_a_catch_up_fire,
          test_recoverable_work_does_not_get_one,

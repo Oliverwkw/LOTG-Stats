@@ -48,6 +48,20 @@ _KEYS = (
     ("gsis_id", "season"),
     ("player_id",),
     ("gsis_id",),
+    # snap_counts is the one family with NEITHER id: it keys on
+    # pfr_player_id. Appended rather than inserted so every existing family
+    # still picks the same key it always did (weekly_rosters carries a pfr_id
+    # too, and must keep matching on gsis_id). Without these it reports
+    # `unkeyed` — row counts only, no cell diff.
+    #
+    # ATTRIBUTION still cannot bridge it: `_player_ids_of` would hand back pfr
+    # ids, and the audit's attribution spans are keyed by gsis, so a snap-count
+    # revision that moves `Injury?` surfaces as an UNATTRIBUTED export diff.
+    # That is the safe direction — an unexplained diff is flagged, never
+    # excused — but it is why a snap revision reads noisier than a stats one.
+    ("pfr_player_id", "season", "week"),
+    ("pfr_player_id", "season"),
+    ("pfr_player_id",),
 )
 # Where a file keeps the player's display name, best first.
 _NAME_COLS = ("player_display_name", "full_name", "player_name", "display_name")
