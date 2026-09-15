@@ -5,6 +5,7 @@
     "league_id": "1312101511651655680",
     "metadata": {
       "p_nick_12545": "Charles III",
+      "record": "W",
       "p_nick_12481": "Geroge III",
       "p_nick_6904": "Elizabeth II",
       "p_nick_2505": "George IV",
@@ -30,6 +31,7 @@
       "p_nick_11567": "Lamech",
       "p_nick_5995": "John Bedford",
       "p_nick_6789": "Killer Speed",
+      "streak": "1W",
       "p_nick_9753": "Prince Harry",
       "p_nick_96": "Methuselah",
       "p_nick_9221": "Edward III",
@@ -82,14 +84,18 @@
     ],
     "roster_id": 1,
     "settings": {
-      "fpts": 0,
-      "fpts_decimal": 0,
+      "fpts": 211,
+      "fpts_against": 140,
+      "fpts_against_decimal": 14,
+      "fpts_decimal": 58,
       "losses": 0,
+      "ppts": 237,
+      "ppts_decimal": 70,
       "ties": 0,
       "total_moves": 0,
       "waiver_budget_used": 9897,
       "waiver_position": 4,
-      "wins": 0
+      "wins": 1
     },
     "starters": [
       "11560",
@@ -140,7 +146,9 @@
       "p_nick_8167": "Peaked as a rookie",
       "p_nick_9229": "Please be good",
       "p_nick_9500": "There's still hope",
-      "p_nick_9758": "My future"
+      "p_nick_9758": "My future",
+      "record": "W",
+      "streak": "1W"
     },
     "owner_id": "676958464056066048",
     "player_map": null,
@@ -182,14 +190,18 @@
     ],
     "roster_id": 2,
     "settings": {
-      "fpts": 0,
-      "fpts_decimal": 0,
+      "fpts": 154,
+      "fpts_against": 98,
+      "fpts_against_decimal": 86,
+      "fpts_decimal": 54,
       "losses": 0,
+      "ppts": 212,
+      "ppts_decimal": 6,
       "ties": 0,
       "total_moves": 0,
       "waiver_budget_used": 9900,
       "waiver_position": 1,
-      "wins": 0
+      "wins": 1
     },
     "starters": [
       "12508",
@@ -219,6 +231,7 @@
       "p_nick_9997": "Travis Benjamin",
       "p_nick_10236": "Zach Ertz",
       "p_nick_8144": "Terry McLaurin",
+      "record": "W",
       "p_nick_1479": "Jordy Nelson",
       "p_nick_5892": "Kareem Hunt",
       "p_nick_9756": "Tyler Lockett",
@@ -259,6 +272,7 @@
       "p_nick_3294": "Brett Hundley",
       "p_nick_4068": "Plaxico Burress",
       "p_nick_7605": "Brady\u2019s Career Backup",
+      "streak": "1W",
       "p_nick_6870": "Learned who he was today",
       "p_nick_4098": "4th Round Pick",
       "p_nick_8230": "Tykevious",
@@ -332,14 +346,18 @@
     ],
     "roster_id": 3,
     "settings": {
-      "fpts": 0,
-      "fpts_decimal": 0,
+      "fpts": 171,
+      "fpts_against": 147,
+      "fpts_against_decimal": 80,
+      "fpts_decimal": 88,
       "losses": 0,
+      "ppts": 211,
+      "ppts_decimal": 60,
       "ties": 0,
       "total_moves": 0,
-      "waiver_budget_used": 9965,
+      "waiver_budget_used": 9917,
       "waiver_position": 7,
-      "wins": 0
+      "wins": 1
     },
     "starters": [
       "11564",
@@ -371,7 +389,9 @@
       "p_nick_6943": "Lukashenko",
       "p_nick_7610": "Lukashenko",
       "p_nick_8111": "Nada",
-      "p_nick_8160": "Leonid Brezhnev"
+      "p_nick_8160": "Leonid Brezhnev",
+      "record": "L",
+      "streak": "1L"
     },
     "owner_id": "736278591884656640",
     "player_map": null,
@@ -406,15 +426,21 @@
       "9484",
       "96"
     ],
-    "reserve": null,
+    "reserve": [
+      "5859"
+    ],
     "roster_id": 4,
     "settings": {
-      "fpts": 0,
-      "fpts_decimal": 0,
-      "losses": 0,
+      "fpts": 147,
+      "fpts_against": 171,
+      "fpts_against_decimal": 88,
+      "fpts_decimal": 80,
+      "losses": 1,
+      "ppts": 208,
+      "ppts_decimal": 54,
       "ties": 0,
       "total_moves": 0,
-      "waiver_budget_used": 9906,
+      "waiver_budget_used": 9897,
       "waiver_position": 5,
       "wins": 0
     },
@@ -424,10 +450,10 @@
       "7588",
       "7564",
       "8144",
-      "5859",
+      "6801",
       "9484",
       "11632",
-      "6801",
+      "8151",
       "4892"
     ],
     "taxi": [
@@ -441,6 +467,7 @@
     "keepers": null,
     "league_id": "1312101511651655680",
     "metadata": {
+      "record": "L",
       "p_nick_11579": "Faab",
       "p_nick_4037": "Tbd",
       "allow_pn_player_injury_status": "on",
@@ -473,6 +500,7 @@
       "p_nick_12497": "Horton\u2019s Ice Cream",
       "p_nick_9502": "Rocky Road",
       "allow_pn_inactive_starters": "on",
+      "streak": "1L",
       "p_nick_4098": "Faab",
       "p_nick_1234": "Waste",
       "p_nick_12493": "Brown Sugar Maple Cookie",
@@ -534,9 +562,13 @@
     ],
     "roster_id": 5,
     "settings": {
-      "fpts": 0,
-      "fpts_decimal": 0,
-      "losses": 0,
+      "fpts": 130,
+      "fpts_against": 166,
+      "fpts_against_decimal": 56,
+      "fpts_decimal": 62,
+      "losses": 1,
+      "ppts": 141,
+      "ppts_decimal": 22,
       "ties": 0,
       "total_moves": 0,
       "waiver_budget_used": 9968,
@@ -569,6 +601,7 @@
       "p_nick_8140": "The Justyce League",
       "p_nick_12545": "Bad Luck Shuck",
       "p_nick_8144": "To All The Saints I\u2019ve Olaved Before",
+      "record": "L",
       "p_nick_7607": "Mikal the CartAngel",
       "p_nick_1479": "Allen Man mk.2",
       "p_nick_5848": "Once Upon A Time In HollywoodBrown",
@@ -681,6 +714,7 @@
       "p_nick_7538": "Superbad",
       "p_nick_8147": "The Fault In Our Superstars",
       "p_nick_9227": "ABANIKANDA DONT WANT NONE UNLESS YOU GOT RUNS HUN!",
+      "streak": "1L",
       "p_nick_6870": "A Bry for a Bry",
       "p_nick_6804": "Love, Jordan",
       "p_nick_12505": "KCno Royal",
@@ -805,9 +839,13 @@
     ],
     "roster_id": 6,
     "settings": {
-      "fpts": 0,
-      "fpts_decimal": 0,
-      "losses": 0,
+      "fpts": 98,
+      "fpts_against": 154,
+      "fpts_against_decimal": 54,
+      "fpts_decimal": 86,
+      "losses": 1,
+      "ppts": 129,
+      "ppts_decimal": 26,
       "ties": 0,
       "total_moves": 0,
       "waiver_budget_used": 9993,
@@ -841,6 +879,7 @@
       "p_nick_6943": "Super Sale - Limited Time Only",
       "p_nick_5849": "You can have him",
       "p_nick_9997": "Judkins & Deebo",
+      "record": "L",
       "p_nick_1535": "Age is just a number",
       "p_nick_6149": "5 FAAB",
       "p_nick_1992": "Golden Tate",
@@ -932,6 +971,7 @@
       "p_nick_4273": "Fumbles-when-healthy",
       "p_nick_6789": "Free",
       "p_nick_13602": "Free",
+      "streak": "1L",
       "p_nick_6845": "I somehow won this trade",
       "p_nick_4351": "Tim",
       "p_nick_8143": "3 FAAB",
@@ -1016,28 +1056,32 @@
     ],
     "reserve": [
       "11559",
-      "12529",
-      "6768"
+      "4035",
+      "4943"
     ],
     "roster_id": 7,
     "settings": {
-      "fpts": 0,
-      "fpts_decimal": 0,
-      "losses": 0,
+      "fpts": 140,
+      "fpts_against": 211,
+      "fpts_against_decimal": 58,
+      "fpts_decimal": 14,
+      "losses": 1,
+      "ppts": 185,
+      "ppts_decimal": 70,
       "ties": 0,
       "total_moves": 0,
-      "waiver_budget_used": 9939,
+      "waiver_budget_used": 9922,
       "waiver_position": 8,
       "wins": 0
     },
     "starters": [
       "8183",
-      "7611",
+      "8155",
       "9224",
       "7569",
       "9997",
       "12526",
-      "12506",
+      "8131",
       "9226",
       "10229",
       "11563"
@@ -1057,6 +1101,7 @@
       "p_nick_5849": "Artemis",
       "p_nick_2374": "Thoth",
       "p_nick_5133": "Not worth a nickname hes a shitty cuff for CMC",
+      "record": "W",
       "p_nick_7607": "Edward VIII",
       "p_nick_1535": "2 2nds or eq",
       "p_nick_1992": "Wr1 on the pats next year",
@@ -1139,6 +1184,7 @@
       "p_nick_8188": "Flyer",
       "p_nick_7538": "Oedipus",
       "p_nick_9227": "Phobetor",
+      "streak": "1W",
       "p_nick_12499": "Cadmus",
       "p_nick_6870": "Mr. Clutch",
       "p_nick_6845": "Vidar",
@@ -1222,21 +1268,27 @@
       "9508"
     ],
     "reserve": [
-      "11638"
+      "11638",
+      "12469",
+      "5849"
     ],
     "roster_id": 8,
     "settings": {
-      "fpts": 0,
-      "fpts_decimal": 0,
+      "fpts": 166,
+      "fpts_against": 130,
+      "fpts_against_decimal": 62,
+      "fpts_decimal": 56,
       "losses": 0,
+      "ppts": 204,
+      "ppts_decimal": 26,
       "ties": 0,
       "total_moves": 0,
-      "waiver_budget_used": 9920,
+      "waiver_budget_used": 9910,
       "waiver_position": 3,
-      "wins": 0
+      "wins": 1
     },
     "starters": [
-      "421",
+      "4881",
       "8150",
       "4034",
       "9493",
@@ -1245,7 +1297,7 @@
       "5012",
       "8138",
       "6790",
-      "4881"
+      "11834"
     ],
     "taxi": [
       "13272",
