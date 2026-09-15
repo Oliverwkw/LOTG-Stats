@@ -393,3 +393,102 @@ unchanged fingerprint gets no edits section at all.
 **Needs-human-judgment:** in a week with games, an all-time total for a team
 that played stays with the news even when an edit also moved it. That is the
 "both" rule as requested.
+
+
+## Round 5 — the Tuesday-Monday week: runs 34927594744 (`e9f5150`) and 34928210851 (`74a7ed7`)
+
+Requested on the PR: a fantasy week runs **Tuesday-Monday**, so 2026 week 2
+begins Tuesday Sept 15. The build counted weeks from the Thursday kickoff. That
+filed every Tuesday and Wednesday move under the week just played: 596 of 1,588
+add/drops and 99 of 566 trade rows. team_week's trade count also still took
+Sleeper's `leg`, which rolls over partway through a Wednesday, so Quiet streak
+read two clocks.
+
+Two open questions were kept as-is by user decision:
+- a Quiet streak runs across an offseason even when offseason moves happened
+  (AceMatthew 2022→2023);
+- a move within 7 days of kickoff still rolls into week 1.
+
+### Part 1 — code-based
+
+- **`src/lotg.py`.**
+  - `_week_tuesday(season, week)` returns the day a week begins, and
+    `_season_week_of` counts from it. Every date→week site goes through it: the
+    weekly add/drop and trade buckets, manual rows, rolled-back moves and
+    tanking.
+  - team_week "Number of trades" is rebuilt from `trades_rows` on the same week,
+    beside #421's add/drop rebuild. Both rebuilds log a line containing "on the
+    Tuesday-Monday league week".
+- **`src/espn_2020.py`**'s copy of the rule follows it.
+- **Deliberately unchanged:**
+  - the in-season/offseason split (the schedule's opener);
+  - the Thursday dates that stand for a week's games (sort dates, synthesized
+    row anchors, the last-scored-week departure gate).
+- **Digest attribution (`74a7ed7`).**
+  - A week of games cannot move a transaction-only stat (Tanking, the add/drop,
+    trade and transaction counts, FAAB, Quiet streak). Those take new data only
+    from a team or player in a new transaction.
+  - A streak on a past row counts as new data only on last season's final week.
+- **Tests.**
+  - `test_season_window` pins the week edges for 2020-2026 and checks the ESPN
+    copy.
+  - `test_add_drop_breakdown` gains a check that team_week trades equal the
+    trades.csv rows dated into each week. Its weekly checks skip on exports
+    without the log line.
+  - `test_digest_attribution` gains 2 checks (89 assertions).
+
+### Part 2 — results-based (run 34927594744)
+
+- **Build:** 414 tests passed. Both rebuild lines were logged: add/drops 1,268
+  bucketed, trades 256 → 256. Re-run on the downloaded outputs, the breakdown
+  guard passes all 14 checks. That includes team_week add/drops (1,268 vs 1,268)
+  and team_week trades (256 vs 256), so the weekly checks actually ran.
+- **Cases, checked against the transaction dates:**
+
+| Team | Move | Week now | Quiet streak |
+|---|---|---|---|
+| JacobRosenzweig 2020 | Wed Sept 23 (Goff) | 3 | |
+| JacobRosenzweig 2020 | Wed Nov 11 (McKissic) | 10 | week 9 = 6 |
+| Oliverwkw 2024 | Tue Sept 24, Wed Sept 25 | 4 (2 moves) | |
+| Oliverwkw 2024 | Tue Oct 15 | 7 | |
+| Oliverwkw 2024 | Tue Oct 22 | 8 | week 13 = 5 |
+| AceMatthew 2022 | Wed Nov 30 | 13 | |
+| AceMatthew 2022 | Wed Dec 7 | 14 | |
+| AceMatthew 2023 | | | week 2 = 5 |
+
+- **Unchanged:** team-season sums of both counts, and every 2026 row.
+
+### Part 3 — diff
+
+**Run 34925494188 → 34927594744.**
+
+| Sheet | Changed | Class |
+|---|---|---|
+| team_week | Number of Add/Drops 412, Number of trades 67 | intended |
+| team_week | waiver adds 273, free agency adds 170, pure drops 177, Total transactions 425, Quiet streak 173 | by-design cascade |
+| league_week | the same counts, 100 rows | by-design cascade |
+| player_week | Number of trades 181 | by-design cascade |
+| add_drops / trades / player_additions | Tanking 265 / 83 / 244 (weekly roster age) | by-design cascade |
+| formulas | 3 notes | intended |
+
+Every season and all-time sheet, and both pick sheets, are unchanged.
+
+**Run 34927594744 → 34928210851:** 0 export changes, as a digest-only commit
+should give. The inputs fingerprint is also unchanged (`544796f0f0c5bc75`),
+because the digest modules are excluded from it.
+
+### The digest
+
+- **Isolated test.** A baseline built from run 34925494188's exports makes the
+  week change the only edit. It produces 46 moves: team-week and league-week
+  counts, and 2 Quiet streaks. **0 go with the news, 46 under edits**, in all
+  three contexts:
+  - as of this build;
+  - a week-1 week where every team played;
+  - the worst case, where every team and every 2026 player also made a move.
+- **CI's own digest** (vs main's Sept 8 snapshot): 46 with the news, 221 under
+  edits. 48 of the edits lines are on week-clock columns. Two lines on those
+  columns sit with the news, and both are all-time totals that grew on real 2026
+  moves. The week change did not touch any all-time total:
+  - AceMatthew Number of waiver adds: Sept 8 snapshot 74 -> now 77; identical before and after the week change (77)
+  - shmuel256 Number of free agency adds: Sept 8 snapshot 52 -> now 53; identical before and after the week change (53)
