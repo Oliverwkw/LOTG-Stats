@@ -39,7 +39,7 @@ import re
 
 import pandas as pd
 
-from .email_summary import stat_relevance
+from .email_summary import NewData, attribute, stat_relevance
 
 
 
@@ -443,6 +443,7 @@ def build_snapshot(
     team_week: pd.DataFrame,
     league_all_time: Optional[pd.DataFrame] = None,
     captured_at: Optional[datetime] = None,
+    inputs_fingerprint: Optional[str] = None,
 ) -> dict:
     captured_at = captured_at or datetime.now(timezone.utc)
     season = current_season(team_year)
@@ -456,12 +457,18 @@ def build_snapshot(
     # question is "did a frozen historical value move", which is a different one.
     p_cols = discover_numeric_columns(player_all_time, "Player")
     t_cols = discover_numeric_columns(team_all_time, "Team")
+    meta = {
+        "captured_at": captured_at.isoformat(),
+        "season": season,
+        "weeks_completed": weeks,
+    }
+    if inputs_fingerprint:
+        # What this build was made FROM (code + curated data). Next week's digest
+        # compares it to tell a week with an edit from one without — see
+        # `edit_fingerprint` and `new_data_since`.
+        meta["inputs_fingerprint"] = inputs_fingerprint
     return {
-        "meta": {
-            "captured_at": captured_at.isoformat(),
-            "season": season,
-            "weeks_completed": weeks,
-        },
+        "meta": meta,
         "players": _rankings_for(player_all_time, "Player", p_cols),
         "teams": _rankings_for(team_all_time, "Team", t_cols),
         "league_milestones": league_milestone_values(
@@ -1318,6 +1325,113 @@ def all_board_highlights(frames: dict, window: int = WINDOW) -> List[EventHighli
 _NEW_ROW_SHEETS = _PICK_SHEETS + ("trades", "add_drops", "player_additions")
 
 
+# ---------------------------------------------------------------------------
+# New data vs edits
+# ---------------------------------------------------------------------------
+# The email puts every move an EDIT alone explains — a code or curated-data
+# change re-valuing settled history — in its own section at the bottom, and
+# everything new data could explain (including a move both touched) where it has
+# always been. Two pieces of evidence decide it, both gathered here:
+#
+#   did an edit land at all?   `edit_fingerprint` hashes the build's inputs as
+#       committed (git's blob ids for src/, lib/, data/, config/league.yaml), so
+#       the next digest can compare. Paths that bots commit every week are left
+#       out — the gameday injury sweeps, the digest's own snapshot, the audit
+#       baseline — and so are the digest-rendering modules, which change the
+#       email but not a single exported value.
+#   what arrived since the last digest?   `new_data_since`: the weeks completed
+#       since then, the players and teams in them, and — kept apart — the players
+#       and teams in brand-new transaction rows.
+EDIT_INPUT_ROOTS = ("src/", "lib/", "data/", "config/league.yaml")
+EDIT_INPUT_EXCLUDES = (
+    "data/injury_tracker.csv", "data/digest/", "data/audit/",
+    "lib/lotg_support/digest.py", "lib/lotg_support/email_summary.py",
+    "lib/lotg_support/mailer.py",
+)
+_TRANSACTION_TEAM_COLS = ("Team", "Original Team", "Team's traded with 1",
+                          "Team's traded with 2", "Team's traded with 3",
+                          "Team's traded with 4")
+_TRANSACTION_PLAYER_COLS = ("Player", "Player Added", "Player Dropped",
+                            "Player Picked")
+
+
+def edit_fingerprint(tree_entries: Sequence[str]) -> Optional[str]:
+    """A short hash of the build's inputs from `git ls-tree -r` entries
+    ("<mode> <type> <sha>\t<path>"). Changes when a tracked input changes and
+    for no other reason; None when there are no inputs to hash."""
+    import hashlib
+    parts = []
+    for entry in tree_entries:
+        head, _tab, path = str(entry).partition("\t")
+        if not path or not path.startswith(EDIT_INPUT_ROOTS) \
+                or path.startswith(EDIT_INPUT_EXCLUDES):
+            continue
+        bits = head.split()
+        if len(bits) >= 3:
+            parts.append(f"{path} {bits[2]}")
+    if not parts:
+        return None
+    return hashlib.sha256("\n".join(sorted(parts)).encode()).hexdigest()[:16]
+
+
+def new_data_since(prior: Optional[dict], meta: dict, frames: dict,
+                   fingerprint: Optional[str] = None) -> Optional[NewData]:
+    """What reached the league between the prior snapshot and this build — None
+    with no prior snapshot, when there is nothing to diff at all.
+
+    Weeks count the same way `_weeks_to_cover` does: `weeks_completed` is a COUNT
+    of distinct weeks, so the new ones are this season's weeks past the prior
+    count (all of them when the season rolled over)."""
+    if prior is None:
+        return None
+    season = meta.get("season")
+    pmeta = prior.get("meta", {}) or {}
+    new_weeks: set = set()
+    tw = frames.get("team_week")
+    if season is not None and tw is not None and not tw.empty \
+            and {"Year", "Week"} <= set(tw.columns):
+        yrs = pd.to_numeric(tw["Year"], errors="coerce")
+        have = sorted({int(w) for w in pd.to_numeric(
+            tw.loc[yrs == season, "Week"], errors="coerce").dropna()})
+        done = (int(pmeta.get("weeks_completed") or 0)
+                if pmeta.get("season") == season else 0)
+        new_weeks = {(int(season), w) for w in have[done:]}
+    players: set = set()
+    teams: set = set()
+    tx_players: set = set()
+    tx_teams: set = set()
+    wk_nums = {w for _s, w in new_weeks}
+    for sheet, col, bucket in (("player_week", "Player", players),
+                               ("team_week", "Team", teams)):
+        df = frames.get(sheet)
+        if not wk_nums or df is None or df.empty \
+                or not {col, "Year", "Week"} <= set(df.columns):
+            continue
+        sel = ((pd.to_numeric(df["Year"], errors="coerce") == season)
+               & pd.to_numeric(df["Week"], errors="coerce").isin(wk_nums))
+        bucket.update(str(x) for x in df.loc[sel, col].dropna())
+    prior_keys = prior.get("row_keys")
+    if prior_keys:
+        known = set(prior_keys)
+        for sheet in _NEW_ROW_SHEETS:
+            df = frames.get(sheet)
+            if df is None or getattr(df, "empty", True):
+                continue
+            for _idx, row in df.iterrows():
+                if _board_row_key(sheet, row) in known:
+                    continue
+                tx_teams.update(v for v in (_event_cell(row, c)
+                                            for c in _TRANSACTION_TEAM_COLS) if v)
+                tx_players.update(v for v in (_event_cell(row, c)
+                                              for c in _TRANSACTION_PLAYER_COLS) if v)
+    before = pmeta.get("inputs_fingerprint")
+    edit_landed = (before != fingerprint) if (before and fingerprint) else None
+    return NewData(season=season, weeks_completed=meta.get("weeks_completed"),
+                   new_weeks=new_weeks, players=players, teams=teams,
+                   edit_landed=edit_landed, tx_players=tx_players,
+                   tx_teams=tx_teams)
+
+
 def all_row_keys(frames: dict) -> List[str]:
     """Every row key on the transaction/pick sheets — the full set, not just the
     ranked places the event board keeps. Stored in the snapshot so next week's
@@ -1791,14 +1905,21 @@ def write_phrasing_csv(path: Path, rows: Sequence[dict]) -> None:
 # ---------------------------------------------------------------------------
 # HTML render
 # ---------------------------------------------------------------------------
-def _section_html(title: str, lines: Sequence[str]) -> str:
+def _heading(title: str, level: int = 2) -> str:
+    if level >= 3:
+        return (f'  <h3 style="font:600 16px/1.3 system-ui,sans-serif;'
+                f'margin:16px 0 6px;color:#1a2b3c;">{title}</h3>\n')
+    return (f'  <h2 style="font:600 18px/1.3 system-ui,sans-serif;'
+            f'margin:24px 0 8px;color:#1a2b3c;">{title}</h2>\n')
+
+
+def _section_html(title: str, lines: Sequence[str], level: int = 2) -> str:
     if not lines:
         return ""
     items = "\n".join(f"      <li>{ln}</li>" for ln in lines)
     return (
-        f'  <h2 style="font:600 18px/1.3 system-ui,sans-serif;'
-        f'margin:24px 0 8px;color:#1a2b3c;">{title}</h2>\n'
-        f'    <ul style="margin:0;padding-left:20px;'
+        _heading(title, level)
+        + f'    <ul style="margin:0;padding-left:20px;'
         f'font:15px/1.5 system-ui,sans-serif;color:#333;">\n{items}\n    </ul>\n'
     )
 
@@ -1856,7 +1977,7 @@ def _label_is_the_header(title: str, group: str) -> bool:
     return bool(suffix) and suffix == name
 
 
-def _grouped_section_html(title: str, items: Sequence) -> str:
+def _grouped_section_html(title: str, items: Sequence, level: int = 2) -> str:
     """Group items by their .group() so one entity's many items read as
     "<entity>:" + an indented sub-list, instead of an endless flat list. A group
     with a single item stays inline (its full line()).
@@ -1895,7 +2016,7 @@ def _grouped_section_html(title: str, items: Sequence) -> str:
             lines.append(
                 f'{g}:'
                 f'<ul style="margin:2px 0 6px;padding-left:20px;color:#555;">{sub}</ul>')
-    return _section_html(title, lines)
+    return _section_html(title, lines, level)
 
 
 def _proj_lines(projections: Sequence[Projection], section: str) -> List[str]:
@@ -1979,6 +2100,47 @@ def digest_sections(
     return [(t, g, items) for t, g, items in out if items]
 
 
+# The edits section: a header, one sentence of what it means, then the same
+# sections the email already has, in the same order, one level down.
+EDIT_SECTION_TITLE = "Changes from edits, not new data"
+EDIT_SECTION_NOTE = (
+    "Everything below moved only because LOTG changed how it computes or records "
+    "its history (a code or data fix), not because of anything that happened in "
+    "the league since the last digest. A move new data could also explain is "
+    "listed above instead.")
+_EDIT_HEADER_HTML = (
+    '  <h2 style="font:600 18px/1.3 system-ui,sans-serif;margin:32px 0 4px;'
+    'padding-top:16px;border-top:2px solid #d0d7de;color:#1a2b3c;">'
+    f'{EDIT_SECTION_TITLE}</h2>\n'
+    '  <p style="font:14px/1.5 system-ui,sans-serif;color:#555;margin:0 0 8px;">'
+    f'{EDIT_SECTION_NOTE}</p>')
+
+
+def split_sections(sections: Sequence[Tuple[str, bool, list]],
+                   new_data: Optional[NewData]
+                   ) -> Tuple[List[Tuple[str, bool, list]], List[Tuple[str, bool, list]]]:
+    """(new-data sections, edit sections): each section's items split by
+    `attribute`, empty halves dropped, order kept. With no `new_data` the edits
+    half is always empty and the email is exactly what it was."""
+    top, edits = [], []
+    for title, grouped, items in sections:
+        tags = [attribute(i, title, new_data) for i in items]
+        new = [i for i, t in zip(items, tags) if t == "new"]
+        old = [i for i, t in zip(items, tags) if t != "new"]
+        if new:
+            top.append((title, grouped, new))
+        if old:
+            edits.append((title, grouped, old))
+    return top, edits
+
+
+def _section_block(title: str, grouped: bool, items: Sequence, level: int = 2) -> str:
+    if grouped:
+        return _grouped_section_html(title, items, level)
+    return _section_html(title, [_line_of(i) for i in sorted(items, key=_order_key)],
+                         level)
+
+
 def render_digest_html(
     crossings: Sequence[Crossing],
     projections: Sequence[Projection],
@@ -1989,6 +2151,7 @@ def render_digest_html(
     header: Optional[str] = None,
     intro: str = "",
     events: Sequence["EventCrossing"] = (),
+    new_data: Optional[NewData] = None,
 ) -> str:
     if header is None:
         header = digest_title(meta)
@@ -2002,11 +2165,17 @@ def render_digest_html(
          f'border-left:3px solid #0b2545;border-radius:4px;">{intro}</p>'
          if intro else ""),
     ]
-    for title, grouped, items in digest_sections(
-            crossings, projections, milestones, records, highlights, events):
-        body.append(_grouped_section_html(title, items) if grouped
-                    else _section_html(title, [_line_of(i)
-                                               for i in sorted(items, key=_order_key)]))
+    # New data first, exactly as it has always read; then, only if there are
+    # any, the moves an edit alone explains, under their own header at the
+    # bottom (see `attribute`).
+    top, edits = split_sections(digest_sections(
+        crossings, projections, milestones, records, highlights, events), new_data)
+    for title, grouped, items in top:
+        body.append(_section_block(title, grouped, items))
+    if edits:
+        body.append(_EDIT_HEADER_HTML)
+        for title, grouped, items in edits:
+            body.append(_section_block(title, grouped, items, level=3))
     if not any([highlights, crossings, records, milestones, projections, events]):
         body.append('  <p style="font:15px system-ui,sans-serif;color:#666;">'
                      'No leaderboard changes this week.</p>')

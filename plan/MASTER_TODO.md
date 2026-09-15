@@ -446,6 +446,20 @@ Surfaced by an inquiry ("what % of Oliverwkw's points is Nick Chubb?"), full wri
 - All yearly ranking (on-pace + records) is vs completed single seasons across ALL years, not just the current one.
 - **Single-week records** (weekly sheets player_week/team_week/league_week): the just-completed week's values ranked vs EVERY week ever, top/bottom 5 both ends. "shmuel256's PF this week (201) is the 2nd-highest single week ever." Values shared by >5 week-rows (0-piles, tied maxes) skipped. This is how the weekly sheets are directly involved.
 - **Only changes** are reported — on-pace standings + records diffed week-over-week, so a still-3rd team / standing record is silent (keeps the digest to ~dozens of lines).
+- **New data first, edits at the bottom** (PR #426). Every move is attributed by `email_summary.attribute`, using `digest.new_data_since` as its evidence.
+  - A move new data could explain reads where it always has. That covers a completed week's games, a brand-new transaction, and KTC/tenure drift. A move that both new data and an edit could explain also stays here.
+  - A move only an edit explains goes under **"Changes from edits, not new data"** at the end of the email, under the same section titles one level down.
+  - **Evidence:**
+    - which weeks completed since the prior snapshot, and who played in them;
+    - who is in new transaction rows. A transaction reaches only transaction stats (`_TX_MARKERS`).
+    - pooled stats (percentiles, tiers) move with any new week;
+    - a past row counts as new data only on a stat that keeps accruing (`_FORWARD_MARKERS`).
+  - **Was there an edit at all?** The snapshot stores `meta.inputs_fingerprint`, `digest.edit_fingerprint` over the committed `src/`, `lib/`, `data/` and `config/league.yaml`.
+    - It excludes bot-written paths (the tracker, `data/digest/`, `data/audit/`) and the digest-rendering modules.
+    - If the fingerprint is unchanged, there is no edits section.
+    - If either snapshot lacks one, the email splits as if an edit may have landed.
+  - The lede's "re-valued history" count uses the same test, so it equals the size of the edits section.
+  - Tests: `tests/test_digest_attribution.py`.
 - **Test email button**: `.github/workflows/digest_test_email.yml` (Actions → "Send test digest email" → Run workflow) + `send_digest.py --test`. Appears in the Actions UI once merged to main.
 
 **Implementation outline** (progress; full design in `plan/PHASE14_DIGEST_PLAN.md`):

@@ -476,8 +476,158 @@ def _row_season(label: str) -> Optional[int]:
     return int(m.group(1)) if m else None
 
 
+# ---------------------------------------------------------------------------
+# What arrived since the last digest — the evidence for NEW DATA vs an EDIT
+# ---------------------------------------------------------------------------
+# A row's own date is all `_provenance` had, and on its own it misfiles two kinds
+# of in-season news as re-valued history:
+#
+#   ALL-TIME TOTALS   "Oliverwkw" carries no season, so a team whose all-time
+#                     Points moved because it played this week read as a
+#                     recompute. It took in new games.
+#   OPEN-ENDED STATS  a 2023 pick's Player addition value keeps accruing while
+#                     the player keeps producing; a percentile over every week
+#                     ever shifts whenever a new week joins the pool.
+#
+# `NewData` is what the digest can SEE arrived since the prior snapshot: the
+# weeks completed since then, the players and teams in them, the players and
+# teams in brand-new transaction rows, and whether the build's own inputs (code,
+# curated data) changed at all. With it, a move reads as new data whenever new
+# data could have produced it — including a move an edit ALSO touched, which
+# belongs with the news, not under the edits. See `attribute`.
+LEAGUE = "the league"
+
+# Stats ranked against a pool of EVERY row ever (the scoring tiers are pooled
+# all-time): any new week of games shifts them, whoever the row belongs to.
+_POOL_MARKERS = ("percentile", "boom", "bust", "quartile", "middle 50%")
+# Stats on a past row that keep accruing after that row's own period — what a
+# player did for the team after the pick, trade or add; a career to date; a
+# streak still open.
+_FORWARD_MARKERS = (
+    "career", "addition value", "o-score", "skill", "on team", "after", "later",
+    "tenure", "streak", "over same time", "difference of averages",
+    "number of teams", "games played", "dropped avg", "dropped total",
+    "return from", "top team", "last team",
+)
+# What a TRANSACTION can move. A week of games reaches every stat of the players
+# and teams in it; a trade, add or drop reaches only the stats built from
+# transactions — so an offseason trade does not make a team's all-time Weeks of
+# starter injuries "new data".
+_TX_MARKERS = (
+    "trade", "transaction", "add/drop", "adds", "drops", "faab", "waiver",
+    "free agency", "pickup", "skill", "tenure", "number of teams",
+    "addition value", "o-score", "quiet streak", "roster", "draft", "pick",
+)
+# Items that exist only for the current period by construction: this week's
+# single-week records, the in-progress season's records and on-pace standings.
+_CURRENT_PERIOD_ITEMS = {"WeeklyHighlight", "YearlyRecord", "Projection"}
+
+
+class NewData:
+    """What reached the league since the prior digest's snapshot.
+
+    `new_weeks` are the (season, week) pairs completed since then; `players` and
+    `teams` are everyone in those weeks, and `tx_players` / `tx_teams` everyone in
+    a brand-new transaction row — kept apart because a transaction reaches far
+    fewer stats than a game does (see `_TX_MARKERS`). `edit_landed` says whether the build's inputs changed: True or False
+    when both snapshots carry a fingerprint, None when either doesn't (an older
+    snapshot) — and None is treated as "an edit may have landed"."""
+
+    def __init__(self, season: Optional[int] = None,
+                 weeks_completed: Optional[int] = None,
+                 new_weeks=(), players=(), teams=(),
+                 edit_landed: Optional[bool] = None,
+                 tx_players=(), tx_teams=()):
+        self.season = season
+        self.in_season = weeks_completed is None or int(weeks_completed) > 0
+        self.new_weeks = frozenset(new_weeks)
+        self.players = frozenset(str(p) for p in players)
+        self.teams = frozenset(str(t) for t in teams)
+        self.tx_players = frozenset(str(p) for p in tx_players)
+        self.tx_teams = frozenset(str(t) for t in tx_teams)
+        self.edit_landed = edit_landed
+
+    @property
+    def new_games(self) -> bool:
+        return bool(self.new_weeks)
+
+
+_POSSESSIVE = re.compile(r"^(?P<team>.+?)'s \d{4}-\d{2}-\d{2}\b\s*(?P<rest>.*)$")
+_ACQUIRED = re.compile(r"\b(?:for|of)\s+(?P<who>.+)$")
+_ROW_SUFFIX = re.compile(r"\s+\d{4}(?:\s+week\s+\d+)?$")
+_LEAGUE_ROW = re.compile(r"^(?:the\s+)?\d{4}(?:\s+season|\s+week\s+\d+)$", re.I)
+
+
+def _label_entities(label: str) -> set:
+    """The players and teams a board label names.
+
+    "Team's 2024-10-01 move for X" -> {Team, X}; "2023 pick 1.02 (X)" -> {X};
+    "X 2024 week 3" -> {X}; a league season or week -> {LEAGUE}; an all-time
+    row's bare name -> itself."""
+    s = str(label or "").strip()
+    if not s:
+        return set()
+    if _LEAGUE_ROW.match(s) or s.lower() == LEAGUE:
+        return {LEAGUE}
+    out = set()
+    m = _POSSESSIVE.match(s)
+    if m:
+        out.add(m.group("team").strip())
+        got = _ACQUIRED.search(m.group("rest"))
+        if got:
+            for part in got.group("who").split(","):
+                part = re.sub(r"\s*\+\d+ more$", "", part).strip()
+                if part:
+                    out.add(part)
+        return out
+    if _paren(s):
+        out.add(_paren(s))
+    out.add(_ROW_SUFFIX.sub("", _PAREN.sub("", s)).strip())
+    return {x for x in out if x}
+
+
+def _entities(item) -> set:
+    """Everyone a line names: the mover, and whoever it passed or tied."""
+    names = [getattr(item, "label", None) or getattr(item, "mover", None)
+             or getattr(item, "entity", None) or ""]
+    names += list(getattr(item, "passed", ()) or ()) + \
+        list(getattr(item, "others", ()) or ())
+    out: set = set()
+    for n in names:
+        out |= _label_entities(n)
+    return out
+
+
+def _new_data_reaches(cand: "_Cand", yr: Optional[int], season: Optional[int],
+                      new_data: "NewData") -> bool:
+    """Could something that arrived since the last digest have moved this row?
+
+    Yes for a pooled stat whenever a week of games was added. Otherwise only if
+    the line names a player or team that took in new data — any stat for one who
+    played, a transaction stat for one who only transacted — AND the row can take
+    it in: an all-time total or this season's row always can; a past row only on
+    a stat that keeps accruing after its own period."""
+    col = cand.column.lower()
+    if new_data.new_games and any(m in col for m in _POOL_MARKERS):
+        return True
+    named = _entities(cand.item)
+    played = set(new_data.players) | set(new_data.teams)
+    if new_data.new_games:
+        played.add(LEAGUE)
+    traded = set(new_data.tx_players) | set(new_data.tx_teams)
+    if new_data.tx_teams:
+        traded.add(LEAGUE)
+    if not (named & played) and not (
+            named & traded and any(m in col for m in _TX_MARKERS)):
+        return False
+    if yr is None or (season and yr >= season):
+        return True
+    return any(m in col for m in _FORWARD_MARKERS)
+
+
 def _provenance(cand: "_Cand", season: Optional[int],
-                in_season: bool = True) -> str:
+                in_season: bool = True,
+                new_data: Optional["NewData"] = None) -> str:
     """"drift" | "live" | "recompute" — why this row moved. `recompute` is the
     catch-all: a settled-history row, a self-reference (renumbered key), or one
     whose season can't be read (an all-time total, which only moves by
@@ -497,6 +647,13 @@ def _provenance(cand: "_Cand", season: Optional[int],
         return "recompute"
     if _is_new_data_family(cand.column, cand.family):
         return "drift"
+    if new_data is not None:
+        kind = type(cand.item).__name__
+        if kind in _CURRENT_PERIOD_ITEMS:
+            return "live"
+        if kind == "Milestone":
+            # A league all-time total: it took in whatever the league did.
+            return "live" if (new_data.new_games or new_data.tx_teams) else "recompute"
     yr = _row_season(getattr(cand.item, "label", "") or
                      getattr(cand.item, "mover", "") or cand.section)
     # A brand-new row in the current period is a real new transaction/pick — new
@@ -511,7 +668,34 @@ def _provenance(cand: "_Cand", season: Optional[int],
         return "live"
     if in_season and season and yr and yr >= season:
         return "live"
+    # With the evidence of what arrived since the last digest, a row new data
+    # could have reached is new data too — whatever else also touched it.
+    if new_data is not None and _new_data_reaches(cand, yr, season, new_data):
+        return "live"
     return "recompute"
+
+
+def attribute(item, title: str, new_data: Optional["NewData"]) -> str:
+    """"new" or "edit" — which part of the digest email an item belongs in.
+
+    EDIT is a move only an edit can explain: the same test the lede uses for
+    re-valued history (`_provenance` == "recompute"), with the evidence of what
+    arrived since the last digest. Anything new data could ALSO explain is
+    "new", so a move that is both reads with the news.
+
+    Everything is "new" when there is nothing to attribute against — no context
+    (a caller that doesn't supply one, such as the replica), no season, or a
+    fingerprint proving the build's inputs did not change since the last digest,
+    in which case historical rows that moved did so on upstream data, not on an
+    edit. Cannot raise: an item it can't classify stays with the news."""
+    if new_data is None or new_data.edit_landed is False or not new_data.season:
+        return "new"
+    try:
+        prov = _provenance(_Cand(item, title), new_data.season,
+                           new_data.in_season, new_data)
+    except Exception:                      # noqa: BLE001 — never lose a line
+        return "new"
+    return "edit" if prov == "recompute" else "new"
 
 
 def _prov_phrase(recomp: int, drift: int, live: int) -> str:
@@ -528,7 +712,8 @@ def _prov_phrase(recomp: int, drift: int, live: int) -> str:
 
 
 def _bulk_story(rest: List["_Cand"], season: Optional[int],
-                have_named: bool = True, in_season: bool = True) -> List[str]:
+                have_named: bool = True, in_season: bool = True,
+                new_data: Optional["NewData"] = None) -> List[str]:
     """The heart of the lede: one or two sentences that say what KIND of week
     this was, framed by the dominant provenance of everything not already named.
 
@@ -543,7 +728,7 @@ def _bulk_story(rest: List["_Cand"], season: Optional[int],
     others_word = "other moves" if have_named else "moves"
     prov = {"recompute": 0, "drift": 0, "live": 0}
     for c in rest:
-        prov[_provenance(c, season, in_season)] += 1
+        prov[_provenance(c, season, in_season, new_data)] += 1
     recomp, drift, live = prov["recompute"], prov["drift"], prov["live"]
     sheets: dict = {}
     for c in rest:
@@ -655,7 +840,8 @@ def _texture(cands: Sequence["_Cand"], rest: Sequence["_Cand"], total: int) -> L
 
 def reasoned_summary(sections: Sequence[Tuple[str, str, list]],
                      season: Optional[int] = None,
-                     weeks_completed: Optional[int] = None) -> str:
+                     weeks_completed: Optional[int] = None,
+                     new_data: Optional["NewData"] = None) -> str:
     """The deterministic lede: up to three standout lines, then one or two
     sentences that say what KIND of week it was.
 
@@ -693,7 +879,8 @@ def reasoned_summary(sections: Sequence[Tuple[str, str, list]],
     # judge by, provenance is unknowable, so every line stays eligible and the old
     # behaviour holds — but the digest always supplies one.)
     eligible = [c for c in ranked
-                if season is None or _provenance(c, season, in_season) != "recompute"]
+                if season is None
+                or _provenance(c, season, in_season, new_data) != "recompute"]
     named_lines: List[str] = []
     words = 0
     named: set = set()
@@ -742,7 +929,7 @@ def reasoned_summary(sections: Sequence[Tuple[str, str, list]],
     parts: List[str] = []
     if named_lines:
         parts.append(named_lines[0])
-    parts += _bulk_story(rest, season, bool(named), in_season)
+    parts += _bulk_story(rest, season, bool(named), in_season, new_data)
     if len(named_lines) > 1:
         reel = _reel(named_lines[1:])
         if reel:
@@ -805,7 +992,8 @@ def sentence_count(text: str) -> int:
 # ---------------------------------------------------------------------------
 def build_intro(sections: Sequence[Tuple[str, str, list]], title: str = "",
                 fallback: Optional[str] = None,
-                weeks_completed: Optional[int] = None) -> str:
+                weeks_completed: Optional[int] = None,
+                new_data: Optional["NewData"] = None) -> str:
     """The digest's lede: the reasoned read of the board moves, the counts as a
     floor beneath it, "" when there is nothing to summarise.
 
@@ -826,7 +1014,9 @@ def build_intro(sections: Sequence[Tuple[str, str, list]], title: str = "",
         # unparseable, provenance leans "recompute" — the neutral read.
         m = _YEAR.search(title or "")
         season = int(m.group(1)) if m else None
-        return (reasoned_summary(sections, season, weeks_completed)
+        # `new_data` is the same evidence the email splits its sections on, so
+        # the lede's "re-valued history" is exactly the edits section below it.
+        return (reasoned_summary(sections, season, weeks_completed, new_data)
                 or counted_summary(sections))
     except Exception as exc:                      # noqa: BLE001 — never fail the email
         print(f"[lede] summary skipped ({type(exc).__name__}: {exc}).")
