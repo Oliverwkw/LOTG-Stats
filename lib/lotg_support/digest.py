@@ -1424,12 +1424,17 @@ def new_data_since(prior: Optional[dict], meta: dict, frames: dict,
                                             for c in _TRANSACTION_TEAM_COLS) if v)
                 tx_players.update(v for v in (_event_cell(row, c)
                                               for c in _TRANSACTION_PLAYER_COLS) if v)
+    last_weeks: Dict[int, int] = {}
+    if tw is not None and not tw.empty and {"Year", "Week"} <= set(tw.columns):
+        _lw = pd.DataFrame({"y": pd.to_numeric(tw["Year"], errors="coerce"),
+                            "w": pd.to_numeric(tw["Week"], errors="coerce")}).dropna()
+        last_weeks = {int(y): int(w) for y, w in _lw.groupby("y")["w"].max().items()}
     before = pmeta.get("inputs_fingerprint")
     edit_landed = (before != fingerprint) if (before and fingerprint) else None
     return NewData(season=season, weeks_completed=meta.get("weeks_completed"),
                    new_weeks=new_weeks, players=players, teams=teams,
                    edit_landed=edit_landed, tx_players=tx_players,
-                   tx_teams=tx_teams)
+                   tx_teams=tx_teams, last_weeks=last_weeks)
 
 
 def all_row_keys(frames: dict) -> List[str]:

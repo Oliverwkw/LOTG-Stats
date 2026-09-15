@@ -518,6 +518,28 @@ _TX_MARKERS = (
     "free agency", "pickup", "skill", "tenure", "number of teams",
     "addition value", "o-score", "quiet streak", "roster", "draft", "pick",
 )
+# Stats built ONLY from transactions. A week of games reaches every stat of the
+# players and teams in it except these: Tanking, the add/drop / trade /
+# transaction counts, FAAB, Quiet streak. Without this, the week a manager plays
+# is a week every edit to how moves are dated or counted (the Tuesday-Monday
+# week, 2026-09-15) reads as news on his all-time Tanking. A column that also
+# carries production (a skill, an addition value, a return) is not one of them.
+_TX_ONLY_MARKERS = ("tanking", "add/drop", "adds", "drops", "trades",
+                    "transactions", "faab", "waiver", "free agency", "pickup",
+                    "quiet streak")
+_GAME_MARKERS = ("skill", "value", "points", "ppg", "return", "o-score", "avg",
+                 "score", "impact")
+
+
+def _transaction_only(col: str) -> bool:
+    low = str(col).lower()
+    return (any(m in low for m in _TX_ONLY_MARKERS)
+            and not any(m in low for m in _GAME_MARKERS))
+
+
+_ROW_WEEK = re.compile(r"\bweek\s+(\d+)\b", re.I)
+
+
 # Items that exist only for the current period by construction: this week's
 # single-week records, the in-progress season's records and on-pace standings.
 _CURRENT_PERIOD_ITEMS = {"WeeklyHighlight", "YearlyRecord", "Projection"}
@@ -537,7 +559,7 @@ class NewData:
                  weeks_completed: Optional[int] = None,
                  new_weeks=(), players=(), teams=(),
                  edit_landed: Optional[bool] = None,
-                 tx_players=(), tx_teams=()):
+                 tx_players=(), tx_teams=(), last_weeks=None):
         self.season = season
         self.in_season = weeks_completed is None or int(weeks_completed) > 0
         self.new_weeks = frozenset(new_weeks)
@@ -545,6 +567,9 @@ class NewData:
         self.teams = frozenset(str(t) for t in teams)
         self.tx_players = frozenset(str(p) for p in tx_players)
         self.tx_teams = frozenset(str(t) for t in tx_teams)
+        # {season: its last week} — which past week row can still hold an open
+        # streak (see `_new_data_reaches`).
+        self.last_weeks = dict(last_weeks or {})
         self.edit_landed = edit_landed
 
     @property
@@ -617,18 +642,28 @@ def _new_data_reaches(cand: "_Cand", yr: Optional[int], season: Optional[int],
     traded = set(new_data.tx_players) | set(new_data.tx_teams)
     if new_data.tx_teams:
         traded.add(LEAGUE)
-    if not (named & played) and not (
-            named & traded and any(m in col for m in _TX_MARKERS)):
+    if _transaction_only(col):
+        reached = bool(named & traded)
+    else:
+        reached = bool(named & played) or bool(
+            named & traded and any(m in col for m in _TX_MARKERS))
+    if not reached:
         return False
     if yr is None or (season and yr >= season):
         return True
     if "streak" in col:
         # Streaks are terminal-encoded: a past row only changes while its run is
-        # still open, and the only run that can still be open is the last one,
-        # carried in from last season. A 2020 week's Quiet streak is settled —
-        # a 2026 add cannot move it, so if it moved an edit did (the 2026-09-09
-        # Add/Drop week attribution change moved three of them).
-        return bool(season) and yr >= season - 1
+        # still open, and the only run that can still be open is the one that
+        # ended last season's final week, carried into this one. A 2020 week's
+        # Quiet streak, or a 2025 week 10's, is settled — a 2026 move cannot
+        # touch it, so if it moved an edit did (the Add/Drop week rebuild and the
+        # Tuesday-Monday week both moved such rows).
+        if not season or yr != season - 1:
+            return False
+        label = getattr(cand.item, "label", None) or getattr(cand.item, "mover", "") or ""
+        m = _ROW_WEEK.search(str(label))
+        last = new_data.last_weeks.get(yr)
+        return m is None or last is None or int(m.group(1)) >= int(last)
     return any(m in col for m in _FORWARD_MARKERS)
 
 

@@ -154,6 +154,40 @@ def check_a_settled_streak_is_not_new_data():
                    value=6.0, passed=("plehv79 2025 week 17",))
     ok &= _ok("last season's final week, whose run can still be open -> news",
               _tag(open_run, traded, title) == "new")
+    with_last = _week_one(new_weeks=(), weeks_completed=0, players=(), teams=(),
+                          tx_teams={"Oliverwkw"}, last_weeks={2025: 17})
+    ok &= _ok("...and still news when the last week is known",
+              _tag(open_run, with_last, title) == "new")
+    mid = _ev("team_week", "Oliverwkw 2025 week 10", "Quiet streak", rank=4,
+              value=6.0, passed=("plehv79 2025 week 9",))
+    ok &= _ok("a mid-season week of last season is settled -> edit",
+              _tag(mid, with_last, title) == "edit")
+    return ok
+
+
+def check_a_game_cannot_move_a_transaction_only_stat():
+    """A week of games reaches everything about the teams that played it except
+    the stats built only from transactions. The Tuesday-Monday week re-dated
+    moves and so moved all-time Tanking; in week 1 every team played, and
+    without this those edits would have read as news."""
+    title = "All-time leaderboard moves — teams"
+    games = _week_one()                                   # teams played, no moves
+    moves = _week_one(tx_teams={"Oliverwkw"})
+    tank = D.Crossing("teams", "Tanking", "high", 1, "Oliverwkw", 12.0,
+                      passed=("AceMatthew",))
+    ok = _ok("all-time Tanking of a team that only played -> edit",
+             _tag(tank, games, title) == "edit")
+    ok &= _ok("...of a team that made a move -> news", _tag(tank, moves, title) == "new")
+    for col in ("Number of Add/Drops", "Total transactions", "Amount of FAAB spent",
+                "Number of waiver adds", "Offseason trades", "Quiet streak"):
+        ok &= _ok(f"{col} is transaction-only", DS._transaction_only(col))
+    for col in ("Add/Drop skill", "Trade addition value", "Return from trades",
+                "Hardship", "Points", "Dropped avg points"):
+        ok &= _ok(f"{col} is not", not DS._transaction_only(col))
+    both = D.Crossing("teams", "Add/Drop skill", "high", 1, "Oliverwkw", 50.0,
+                      passed=("AceMatthew",))
+    ok &= _ok("a skill (production too) of a team that played -> news",
+              _tag(both, games, title) == "new")
     return ok
 
 
@@ -283,6 +317,7 @@ def check_new_data_since():
     rollover = {"meta": {"season": 2025, "weeks_completed": 17}}
     ok &= _ok("a new season's weeks are all new",
               D.new_data_since(rollover, meta, frames).new_weeks == {(2026, 1), (2026, 2)})
+    ok &= _ok("each season's last week is known", nd.last_weeks == {2026: 2}, nd.last_weeks)
     ok &= _ok("no prior snapshot -> nothing to attribute",
               D.new_data_since(None, meta, frames) is None)
     return ok
@@ -356,6 +391,7 @@ def run_all() -> bool:
         check_open_ended_stats_on_past_rows,
         check_pooled_stats_take_in_any_new_week,
         check_a_settled_streak_is_not_new_data,
+        check_a_game_cannot_move_a_transaction_only_stat,
         check_renumber_is_an_edit_even_in_season,
         check_current_period_items_are_new_data,
         check_new_transactions_count_as_new_data,
