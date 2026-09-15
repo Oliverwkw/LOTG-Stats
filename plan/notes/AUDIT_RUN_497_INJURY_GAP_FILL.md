@@ -318,3 +318,78 @@ Lines this round removes:
   - 25 practice-squad (DEV) weeks are still flagged. They are outside the 215
     and unchanged.
   - Merge timing against the Tuesday 2026-09-15 13:47 UTC week-1 email.
+
+## Round 4 — the digest split, run 34925494188 (head `9a30c56`)
+
+Requested on the PR: every move only an edit explains goes in its own labelled
+section at the bottom of the weekly email. Everything new data could explain
+stays where it was, and a move both could explain stays with the news.
+
+### Part 1 — code-based
+
+- **`email_summary.attribute` and `NewData`.**
+  - `_provenance` now takes the new-data evidence into account: all-time totals,
+    pooled stats and accruing past rows can count as new data, as can
+    current-period items (single-week and single-season records, on-pace).
+  - The lede uses the same test. That fixes an in-season misread: an all-time
+    total or a single-week record could never headline.
+- **`digest.py`.**
+  - `new_data_since` gathers the evidence. New weeks and the players/teams in
+    them are kept apart from new-transaction players/teams, because a
+    transaction reaches only `_TX_MARKERS` stats.
+  - `edit_fingerprint` hashes the build's inputs. It excludes bot-written paths
+    and the digest-rendering modules.
+  - `split_sections` does the split. The edits header renders last, with its
+    sections as h3.
+  - `build_snapshot` stores `meta.inputs_fingerprint`.
+  - With no context there is no split, so the replica and older callers render
+    exactly as before.
+- **`scripts/build_digest.py`** takes the fingerprint from `git ls-tree -r -z
+  HEAD` and logs both the fingerprint and the split.
+- **Tests.** `tests/test_digest_attribution.py` adds 15 checks (68 assertions).
+  test_digest (202), test_email_summary (100) and test_send_audit_email (91)
+  still pass unchanged.
+
+### Part 2 — results-based (this run's digest vs the committed snapshot)
+
+- **Build:** 412 tests passed. The digest step logged fingerprint
+  `307cc8e19a7932f7`, the same hash computed locally, so CI's checkout sees the
+  same inputs.
+- **Split:** 49 moves stay with the news and 197 go under "Changes from edits,
+  not new data". There is one edits header, all 11 edit subsections sit below
+  it, and no top-level section follows it.
+- **New transactions stay on top:** LWebs53's 2026-09-08 move for Cyrus Allen,
+  and BROsenzweig's 2026-09-09 trade for Javonte Williams.
+- **Both goes on top:** Oliverwkw's 4th-highest Trading skill. Oliverwkw has
+  transacted since the prior snapshot, and a transaction can move a skill.
+- **Edit-only goes under edits:**
+  - plehv79 highest Weeks of starter injuries (274);
+  - Oliverwkw highest Times Most injured? (28);
+  - all 13 Hardship lines;
+  - all 7 Number of Injuries lines.
+- **Lede:** "197 of the 243 other moves re-value settled history", which is
+  exactly the edits section.
+- **Same facts:** the split email carries exactly the facts of an unsplit render
+  of the same data. The only differences are the lede and regrouping: a team
+  whose lines fall on both sides loses its shared "Team:" label on one side.
+- **Not exercised:** week 1 was not final at 03:42 UTC (`weeks_completed` 0), so
+  this run did not test the new-games path. It is covered by the tests and by a
+  week-1 simulation on run 501, which put 126 moves with the news and 119 under
+  edits.
+
+### Part 3 — diff (run 34905661501 → this run)
+
+- **Unchanged:** the week, all-time and league sheets, and player_year.
+- **Clock and market drift, by-design:** the rest.
+  - Tenure (days) 247, and Length of tenure on team 137.
+  - O-Score ±0.1 on 61 settled add/drops, and Add/Drop skill ±0.1-0.2 on 2
+    team-years.
+  - 9 KTC N-years-after windows.
+- The digest change touches no export.
+
+That O-Score drift, on settled rows with no edit, is why a week with an
+unchanged fingerprint gets no edits section at all.
+
+**Needs-human-judgment:** in a week with games, an all-time total for a team
+that played stays with the news even when an edit also moved it. That is the
+"both" rule as requested.
