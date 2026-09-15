@@ -96,7 +96,15 @@ def _weeks_to_cover(prior, meta, team_week):
         # A new season's week 1 is not "five weeks late" on last season's week 17.
         return [latest], None
     gap = int(meta.get("weeks_completed") or 0) - int(pmeta.get("weeks_completed") or 0)
-    if gap <= 1:
+    if gap <= 0:
+        # The prior snapshot already counted this week, so the digest that wrote
+        # it reported these single-week records. A rebuild with no new week — the
+        # catch-up cron after the primary rotated, a mid-week build, a legacy
+        # snapshot re-baselining — must not print them again: it renders the empty
+        # digest --skip-empty drops. (Run 507's CI guard caught the reprint: a
+        # no-movement rebuild of week 1 carried all 79 records.)
+        return [], None
+    if gap == 1:
         return [latest], None
 
     yrs = pd.to_numeric(team_week["Year"], errors="coerce")
