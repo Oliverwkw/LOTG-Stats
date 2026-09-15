@@ -1159,6 +1159,89 @@ def _col_number_format(col: str) -> Optional[str]:
     return "0.00"
 
 
+def _prune_duplicate_tx(txs: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Collapse Sleeper's duplicate emissions of ONE transaction.
+
+    The transaction_id check upstream catches verbatim duplicates only. Sleeper
+    also emits two distinct ids for what is logically the same event:
+      (a) Duplicate waiver claim — same creator, same adds set, within 60
+          seconds; one carries the real drop and the other is bare. Keep the row
+          with the drop, discard the bare one.
+      (b) Inverted commissioner swap — same timestamp, two rows with adds/drops
+          mirrored. Keep the one whose smallest-added-pid sorts first.
+
+    (a) never discards a COMPLETE row in favour of one that is not. Sleeper files
+    every waiver bid as its own transaction — one complete winner, a failed row
+    per losing bid — so a manager who resubmits a claim ends up with losing twins
+    of his own winner. On 2025-08-31 AceMatthew's three $8 claims for Spencer
+    Rattler were exactly that: the winner (seq 27) carried no drop, and his two
+    superseded resubmissions (failed) each carried one. The merge read "same
+    manager, same add, one has a drop", replaced the winner with a loser, and the
+    failed-status filter then deleted it — losing the claim, its $8, and
+    Rattler's arrival on the roster (the build synthesized a phantom free-agent
+    pickup two months later, dated the day before he was dropped). It is the only
+    such loss in the league's history, verified across every cached feed, and the
+    guard keeps it that way.
+
+    Returns a new list ordered by `created`. Non-complete rows are left in — they
+    are real losing bids, which the caller counts before dropping them.
+    """
+    def _ts(t: Dict[str, Any]) -> int:
+        try:
+            return int(t.get("created") or 0)
+        except Exception:
+            return 0
+
+    def _pids(t: Dict[str, Any], side: str) -> Tuple[str, ...]:
+        v = t.get(side) or {}
+        return tuple(sorted(str(k) for k in v.keys())) if isinstance(v, dict) else tuple()
+
+    def _done(t: Dict[str, Any]) -> bool:
+        return (t.get("status") or "complete") == "complete"
+
+    ordered = sorted(txs, key=lambda t: (_ts(t), t.get("transaction_id") or ""))
+    pruned: List[Dict[str, Any]] = []
+    for t in ordered:
+        t_ts, t_adds, t_drops = _ts(t), _pids(t, "adds"), _pids(t, "drops")
+        t_creator = str(t.get("creator") or "")
+        replaced = False
+        drop_self = False
+        for idx in range(len(pruned) - 1, -1, -1):
+            p = pruned[idx]
+            p_ts = _ts(p)
+            if t_ts and p_ts and abs(t_ts - p_ts) > 60_000:
+                break  # outside 60-second window
+            p_adds, p_drops = _pids(p, "adds"), _pids(p, "drops")
+            p_creator = str(p.get("creator") or "")
+            # Case (a): same creator, same adds, drops differ by one side being
+            # empty — unless the row that would be dropped is the only complete
+            # one (a winner and its own failed resubmission, not a duplicate).
+            if (
+                t_creator and p_creator and t_creator == p_creator
+                and t_adds == p_adds
+            ):
+                if not p_drops and t_drops and not (_done(p) and not _done(t)):
+                    pruned[idx] = t
+                    replaced = True
+                    break
+                if not t_drops and p_drops and not (_done(t) and not _done(p)):
+                    drop_self = True
+                    break
+            # Case (b): identical timestamp, inverted swap.
+            if t_ts and p_ts and t_ts == p_ts:
+                if t_adds == p_drops and t_drops == p_adds and t_adds and t_drops:
+                    # Inverted view of one event. Keep the alphabetically-earlier
+                    # adds tuple.
+                    if t_adds < p_adds:
+                        pruned[idx] = t
+                    drop_self = True
+                    break
+        if replaced or drop_self:
+            continue
+        pruned.append(t)
+    return pruned
+
+
 def _startup_remaining_maps(pick_rows, pw):
     """Support for the 'Startup draft players remaining' column = how many of a
     team's OWN 2020-startup picks it still rosters at a point in time.
@@ -5024,78 +5107,15 @@ def build_all(repo_root: Path) -> None:
                     seen_tx_ids.add(tx_id_str)
                     deduped_tx.append(t)
 
-                # Sleeper-data quirk dedup. The transaction_id check above
-                # catches verbatim duplicates only — Sleeper sometimes emits
-                # two distinct transaction_ids for what's logically the same
-                # event:
-                #   (a) Duplicate waiver claim — same creator, same adds set,
-                #       within 60 seconds; one has Player Dropped=None and
-                #       the other carries the real drop. Keep the row with
-                #       the drop, discard the bare one.
-                #   (b) Inverted commissioner swap — same timestamp, two
-                #       rows with adds/drops mirrored. Keep the one whose
-                #       smallest-added-pid is alphabetically first.
-                # Doing this here (before the per-week tx_count / faab
-                # counters consume the list) keeps team_week / team_year
-                # FAAB consistent with transactions.csv.
-                def _tx_ts(t: Dict[str, Any]) -> int:
-                    try:
-                        return int(t.get("created") or 0)
-                    except Exception:
-                        return 0
-                def _tx_adds(t: Dict[str, Any]) -> Tuple[str, ...]:
-                    a = t.get("adds") or {}
-                    if not isinstance(a, dict):
-                        return tuple()
-                    return tuple(sorted(str(k) for k in a.keys()))
-                def _tx_drops(t: Dict[str, Any]) -> Tuple[str, ...]:
-                    d = t.get("drops") or {}
-                    if not isinstance(d, dict):
-                        return tuple()
-                    return tuple(sorted(str(k) for k in d.keys()))
-
-                deduped_tx.sort(key=lambda t: (_tx_ts(t), t.get("transaction_id") or ""))
-                pruned: List[Dict[str, Any]] = []
-                for t in deduped_tx:
-                    t_ts = _tx_ts(t)
-                    t_adds = _tx_adds(t)
-                    t_drops = _tx_drops(t)
-                    t_creator = str(t.get("creator") or "")
-                    replaced = False
-                    drop_self = False
-                    for idx in range(len(pruned) - 1, -1, -1):
-                        p = pruned[idx]
-                        p_ts = _tx_ts(p)
-                        if t_ts and p_ts and abs(t_ts - p_ts) > 60_000:
-                            break  # outside 60-second window
-                        p_adds = _tx_adds(p)
-                        p_drops = _tx_drops(p)
-                        p_creator = str(p.get("creator") or "")
-                        # Case (a): same creator, same adds, drops differ by
-                        # one side being empty.
-                        if (
-                            t_creator and p_creator and t_creator == p_creator
-                            and t_adds == p_adds
-                        ):
-                            if not p_drops and t_drops:
-                                pruned[idx] = t
-                                replaced = True
-                                break
-                            if not t_drops and p_drops:
-                                drop_self = True
-                                break
-                        # Case (b): identical timestamp, inverted swap.
-                        if t_ts and p_ts and t_ts == p_ts:
-                            if t_adds == p_drops and t_drops == p_adds and t_adds and t_drops:
-                                # Inverted view of one event. Keep the
-                                # alphabetically-earlier adds tuple.
-                                if t_adds < p_adds:
-                                    pruned[idx] = t
-                                drop_self = True
-                                break
-                    if replaced or drop_self:
-                        continue
-                    pruned.append(t)
+                # Sleeper-data quirk dedup (`_prune_duplicate_tx`): two
+                # transaction_ids for one event — a duplicate waiver claim (bare
+                # + the copy carrying its drop) or an inverted commissioner swap.
+                # A losing bid never displaces the winning claim there; see the
+                # 2025-08-31 Spencer Rattler loss in that docstring.
+                # Doing this here (before the per-week tx_count / faab counters
+                # consume the list) keeps team_week / team_year FAAB consistent
+                # with transactions.csv.
+                pruned: List[Dict[str, Any]] = _prune_duplicate_tx(deduped_tx)
 
                 # Count waiver attempts per player BEFORE filtering out the
                 # failed claims. Sleeper returns every team's waiver bid as
