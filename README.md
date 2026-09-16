@@ -26,14 +26,17 @@ CSV + Excel tabs, using the column schema in:
 When it finishes, download the artifact named **LOTG_outputs**.
 
 It contains:
-- `exports/LOTG_Stats.xlsx` (one tab per output table)
+- `exports/LOTG_Stats.xlsx` (one tab per output table — **artifact only**, not
+  committed to the repo: an xlsx is a zip, so git stored a fresh ~6.8 MB blob on
+  every rebuild, 32% of the repo's history)
 - `exports/LOTG_Exports.zip` (all CSVs in one file — **artifact only**, not committed
   to the repo: it is a second copy of the CSVs below and, being already compressed,
   cost 58% of the repo's history to store)
 - the individual CSVs (so you can import to Sheets/Excel/PowerBI later)
 
-The CSVs and the xlsx are also committed under `exports/` if you would rather read
-them in the browser than download a run artifact.
+The CSVs are also committed under `exports/` if you would rather read them in the
+browser than download a run artifact. The workbook and the zip are not — both are
+rebuilt from those same CSVs on every run, so take them from the artifact.
 
 ## Outputs
 

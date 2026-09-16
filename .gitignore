@@ -15,6 +15,20 @@ __pycache__/
 # grab the zip from the run artifact when you want one file.
 exports/LOTG_Exports.zip
 
+# The other half of the same bill. An .xlsx IS a zip, so git can neither zlib nor
+# delta this one either: 40 versions cost 273 MB of on-disk history — 32% of
+# everything reachable from main — at ~6.8 MB per rebuild. Every NUMBER in it is
+# in the CSVs beside it; what is workbook-only is presentation (tab order,
+# conditional formatting, the hover-comment histories, the PH# hyperlinks). Built
+# every run and uploaded with the LOTG_outputs artifact — grab it there.
+#
+# Two readers take a workbook when one is on disk: scripts/audit_player_history.py
+# and tests/test_player_history_continuity.py. CI builds one before pytest, so both
+# still run there exactly as before. Against a bare checkout the test now SKIPS
+# instead of auditing the committed copy — which is the honest outcome, since that
+# copy was a build artifact of whatever run last refreshed it.
+exports/LOTG_Stats.xlsx
+
 # nflverse SEASON totals, pulled on demand by `lotg_support.scoring_events` for
 # career questions. Inquiry-only: the build never reads them, they are not part
 # of the committed cold-start baseline, and there are 27 of them.
