@@ -10,6 +10,11 @@ lotg.py.
 This test reuses the same reconstruction as scripts/audit_player_history.py and
 asserts the freshly built workbook has no continuity breaks. It is skipped when
 no workbook is present (e.g. a CSV-only check), so it never fails a partial run.
+
+The workbook is a build output and is no longer committed (see .gitignore), so
+a bare checkout skips this. That costs nothing in CI, which is where the guard
+has to hold: build.yml builds before it runs pytest, with LOTG_EXPORTS=exports,
+so the workbook is on disk and this asserts against it exactly as before.
 """
 from __future__ import annotations
 
@@ -27,9 +32,9 @@ def _xlsx_path() -> Path:
 
 def _is_fixera_build() -> bool:
     # The roster-lineage reconciliation logs this marker on every fix-era build.
-    # Its absence means the workbook predates the fix (e.g. a stale committed
-    # snapshot); skip rather than assert against pre-fix histories. CI builds
-    # fresh before pytest, so the marker is present and the test runs.
+    # Its absence means the workbook predates the fix; skip rather than assert
+    # against pre-fix histories. CI builds fresh before pytest, so the marker is
+    # present and the test runs.
     log = Path(os.environ.get("LOTG_EXPORTS", REPO / "exports")) / "raw" / "build_debug.log"
     try:
         return "orphaned roster lineage" in log.read_text(errors="ignore")
