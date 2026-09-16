@@ -94,7 +94,7 @@
       "ties": 0,
       "total_moves": 0,
       "waiver_budget_used": 9897,
-      "waiver_position": 4,
+      "waiver_position": 3,
       "wins": 1
     },
     "starters": [
@@ -356,20 +356,20 @@
       "ties": 0,
       "total_moves": 0,
       "waiver_budget_used": 9917,
-      "waiver_position": 7,
+      "waiver_position": 5,
       "wins": 1
     },
     "starters": [
-      "11564",
+      "6770",
       "9509",
       "7543",
-      "7525",
+      "4983",
       "6794",
-      "2133",
-      "7002",
-      "5892",
       "6786",
-      "6770"
+      "10236",
+      "5892",
+      "2133",
+      "3294"
     ],
     "taxi": [
       "12485",
@@ -424,6 +424,7 @@
       "8151",
       "8228",
       "9484",
+      "9486",
       "96"
     ],
     "reserve": [
@@ -440,8 +441,8 @@
       "ppts_decimal": 54,
       "ties": 0,
       "total_moves": 0,
-      "waiver_budget_used": 9897,
-      "waiver_position": 5,
+      "waiver_budget_used": 9927,
+      "waiver_position": 7,
       "wins": 0
     },
     "starters": [
@@ -572,7 +573,7 @@
       "ties": 0,
       "total_moves": 0,
       "waiver_budget_used": 9968,
-      "waiver_position": 6,
+      "waiver_position": 4,
       "wins": 0
     },
     "starters": [
@@ -583,7 +584,7 @@
       "11646",
       "10222",
       "12517",
-      "9482",
+      "13294",
       "9500",
       "4046"
     ],
@@ -1071,7 +1072,7 @@
       "ties": 0,
       "total_moves": 0,
       "waiver_budget_used": 9922,
-      "waiver_position": 8,
+      "waiver_position": 6,
       "wins": 0
     },
     "starters": [
@@ -1164,6 +1165,7 @@
       "p_nick_6963": "Ikelos",
       "p_nick_6794": "Sacrificed to the Sun God",
       "p_nick_4981": "Dolus",
+      "p_nick_3161": "Cardea",
       "p_nick_11655": "Hypnos",
       "p_nick_12539": "Harpokrates",
       "p_nick_9754": "Narfi",
@@ -1211,6 +1213,7 @@
       "p_nick_6938": "Mehmed II",
       "p_nick_1166": "Kronos",
       "p_nick_1373": "Khonsu",
+      "p_nick_13420": "Vediovus",
       "p_nick_13275": "Horus",
       "p_nick_4111": "Cincinattus",
       "p_nick_2216": "Atlas",
@@ -1247,10 +1250,12 @@
       "13275",
       "13301",
       "13405",
+      "13420",
       "13434",
       "1373",
       "2216",
       "2449",
+      "3161",
       "4034",
       "4037",
       "421",
@@ -1283,8 +1288,8 @@
       "ppts_decimal": 26,
       "ties": 0,
       "total_moves": 0,
-      "waiver_budget_used": 9910,
-      "waiver_position": 3,
+      "waiver_budget_used": 9919,
+      "waiver_position": 8,
       "wins": 1
     },
     "starters": [
@@ -1297,7 +1302,7 @@
       "5012",
       "8138",
       "6790",
-      "11834"
+      "421"
     ],
     "taxi": [
       "13272",

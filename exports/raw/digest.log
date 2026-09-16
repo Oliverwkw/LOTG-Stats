@@ -1,6 +1,7 @@
-[digest] build-inputs fingerprint: 544796f0f0c5bc75
+[digest] 42 percent column(s) stored as 0-1 fractions
+[digest] build-inputs fingerprint: a9178b9a6ee18431
 [digest] season=2026 weeks_completed=1
-[digest] new data: 1 new week(s), 246 player(s) / 8 team(s) in them, 28 player(s) / 8 team(s) in new transactions; edit landed: None -> 748 item(s) with the news, 114 under edits
-[digest] lede: LWebs53's Number of RB rostered this week (4) is the lowest single week ever. It was an active week — 744 of the 858 other moves are new results (283 on team seasons and 84 on teams); 114 re-valued history besides. The league's Startup draft players remaining this week (6) is the lowest single week ever; the 2026 season passes the 2023 season for lowest PF (1,222.0); AceMatthew passes JacobRosenzweig for highest Points against (14,503.7). 293 of the 862 were ties rather than overtakes.
-[digest] 79 single-week highlight(s), 110 crossing(s), 0 record(s), 673 board move(s), 0 milestone(s), 0 on-pace change(s) -> exports/raw/weekly_digest.html
+[digest] new data: 0 new week(s), 0 player(s) / 0 team(s) in them, 1 player(s) / 1 team(s) in new transactions; edit landed: True -> 1 item(s) with the news, 15 under edits
+[digest] lede: LWebs53's 2026-09-08 move for Cyrus Allen passes AceMatthew's 2024-09-03 move for Jordan Mason for 5th-highest Total FAAB bid (105). This is a recompute, not a results week: 15 of the 15 other moves re-value settled history (9 on add/drops and 5 on league weeks). The biggest threads are 5 Amount of FAAB and 5 Number of bids moves; 10 of the 16 were ties rather than overtakes.
+[digest] 0 single-week highlight(s), 0 crossing(s), 0 record(s), 16 board move(s), 0 milestone(s), 0 on-pace change(s) -> exports/raw/weekly_digest.html
 [digest] snapshot saved -> data/digest/ranks_snapshot.json
