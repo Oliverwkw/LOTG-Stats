@@ -1159,6 +1159,68 @@ def _col_number_format(col: str) -> Optional[str]:
     return "0.00"
 
 
+# A losing waiver claim whose note says it could never have been honoured: the
+# roster would have been over its limit, the budget was short, or a player it
+# would have dropped had already played. Those never stood as offers, so they are
+# not part of the auction (they are still real transactions everywhere else).
+_BID_NEVER_STOOD = ("too many players", "over the budget", "already started playing")
+
+
+def _bid_never_stood(t: Dict[str, Any]) -> bool:
+    """True for a failed waiver claim that could not have been honoured at any
+    price — see `_BID_NEVER_STOOD`. A claim that simply lost ("This player was
+    claimed by another owner") is real competition and is not one of these."""
+    if (t.get("status") or "complete") == "complete":
+        return False
+    meta = t.get("metadata") or {}
+    note = str(meta.get("notes") or "").lower() if isinstance(meta, dict) else ""
+    return any(m in note for m in _BID_NEVER_STOOD)
+
+
+def _standing_waiver_bids(txs: List[Dict[str, Any]]) -> Dict[str, List[Tuple[float, bool]]]:
+    """The bids that actually stood in each player's waiver auction this week:
+    {player id: [(amount, won), ...]} with ONE entry per roster.
+
+    Sleeper files every attempt as its own transaction, so a manager who edits or
+    resubmits a claim leaves several rows for one offer. Only one of them stood
+    when waivers ran: the claim that WON if that roster won the player, else the
+    roster's final (latest) claim — the others were superseded. Counting them all
+    made a manager bid against himself: AceMatthew's three $8 claims for Spencer
+    Rattler read as an auction with two bids in it, and 59 player-weeks across the
+    league's history were inflated the same way (19 of them also overstating
+    'Total FAAB bid', because the superseded amounts differed).
+
+    Feed it the week's transactions BEFORE the failed ones are filtered out — a
+    losing bid is exactly what makes a win contested.
+    """
+    by_player: Dict[str, Dict[Any, Tuple[int, float, bool]]] = {}
+    for t in sorted(txs, key=lambda x: (int(x.get("created") or 0),
+                                        str(x.get("transaction_id") or ""))):
+        if t.get("type") != "waiver" or _bid_never_stood(t):
+            continue
+        adds = t.get("adds") or {}
+        if not isinstance(adds, dict) or not adds:
+            continue
+        settings = t.get("settings") or {}
+        try:
+            amount = float(settings.get("waiver_bid") or 0) if isinstance(settings, dict) else 0.0
+        except Exception:
+            amount = 0.0
+        won = (t.get("status") or "complete") == "complete"
+        roster = (t.get("roster_ids") or [None])[0]
+        who = roster if roster is not None else str(t.get("creator") or id(t))
+        when = int(t.get("created") or 0)
+        for pid in adds:
+            slot = by_player.setdefault(str(pid), {})
+            prev = slot.get(who)
+            if prev is None or (not prev[2] and (won or when >= prev[0])):
+                # A winning claim is the bid that stood; failing that, the last
+                # one submitted supersedes whatever came before it.
+                slot[who] = (when, amount, won)
+    return {pid: [(amt, won) for _when, amt, won in slot.values()]
+            for pid, slot in by_player.items()}
+
+
 def _prune_duplicate_tx(txs: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     """Collapse Sleeper's duplicate emissions of ONE transaction.
 
@@ -5117,31 +5179,17 @@ def build_all(repo_root: Path) -> None:
                 # with transactions.csv.
                 pruned: List[Dict[str, Any]] = _prune_duplicate_tx(deduped_tx)
 
-                # Count waiver attempts per player BEFORE filtering out the
-                # failed claims. Sleeper returns every team's waiver bid as
-                # its own transaction (one status=complete winner, plus
-                # status=failed for each losing bid). The losing bids never
-                # actually moved the player and shouldn't pollute tx_count,
-                # FAAB-spent, or transactions.csv — but we want the count
-                # of contested bids on the winning row.
-                for t in pruned:
-                    if t.get("type") != "waiver":
-                        continue
-                    adds_for_count = t.get("adds") or {}
-                    if not isinstance(adds_for_count, dict):
-                        continue
-                    bid_settings = t.get("settings") or {}
-                    bid_amt = 0.0
-                    if isinstance(bid_settings, dict):
-                        try:
-                            bid_amt = float(bid_settings.get("waiver_bid") or 0)
-                        except Exception:
-                            bid_amt = 0.0
-                    for pid_key in adds_for_count.keys():
-                        key = (int(season), int(wk), str(pid_key))
-                        bids_per_player_week[key] += 1
-                        total_bids_amount_per_player_week[key] += bid_amt
-                        bid_amounts_per_player_week[key].append(float(bid_amt))
+                # The AUCTION behind each player added on waivers this week —
+                # one standing bid per roster (`_standing_waiver_bids`), tallied
+                # BEFORE the failed claims are filtered out, because a losing bid
+                # is what makes a win contested. A manager's own superseded
+                # resubmissions are not rival bids, and a claim that could never
+                # have been honoured was never in the auction at all.
+                for _pid_key, _bids in _standing_waiver_bids(pruned).items():
+                    key = (int(season), int(wk), str(_pid_key))
+                    bids_per_player_week[key] += len(_bids)
+                    total_bids_amount_per_player_week[key] += sum(a for a, _w in _bids)
+                    bid_amounts_per_player_week[key].extend(float(a) for a, _w in _bids)
 
                 # Drop failed transactions. Sleeper's status taxonomy:
                 #   complete -> the move actually happened
@@ -6920,19 +6968,23 @@ def build_all(repo_root: Path) -> None:
                             except ValueError:
                                 pass
                             competing = [b for b in competing if b <= winner_bid_val]
-                            if competing:
-                                second = max(competing)
-                                row_faab_diff_2nd = round(winner_bid_val - second, 2)
-                                # FAAB premium % (Phase 6A): the winning bid's
-                                # margin over the runner-up as a share of the
-                                # WINNING bid — normalized by bid size so it's
-                                # comparable across big and small auctions
-                                # ($50 over $40 reads the same 20% as $5 over
-                                # $4). Bounded 0–100; defined whenever the
-                                # winning bid > 0 (premium = 100% vs a $0
-                                # runner-up).
-                                if winner_bid_val > 0:
-                                    row_faab_pct_2nd = round((winner_bid_val - second) / winner_bid_val * 100.0, 2)
+                            # 3) An UNCONTESTED claim beat nobody, so the runner-up
+                            #    is $0 and the margin is the whole winning bid —
+                            #    the most decisive an auction gets. It used to read
+                            #    N/A, which hid that behind "unknown" on the many
+                            #    claims nobody else bid on.
+                            second = max(competing) if competing else 0.0
+                            row_faab_diff_2nd = round(winner_bid_val - second, 2)
+                            # FAAB premium % (Phase 6A): the winning bid's
+                            # margin over the runner-up as a share of the
+                            # WINNING bid — normalized by bid size so it's
+                            # comparable across big and small auctions
+                            # ($50 over $40 reads the same 20% as $5 over
+                            # $4). Bounded 0–100; defined whenever the
+                            # winning bid > 0 (premium = 100% vs a $0
+                            # runner-up).
+                            if winner_bid_val > 0:
+                                row_faab_pct_2nd = round((winner_bid_val - second) / winner_bid_val * 100.0, 2)
 
                         # FAAB column semantics (user spec / audit fix):
                         # - 2021 and earlier: league had no FAAB; ALL faab
