@@ -17,6 +17,11 @@ embedded as cell comments in `exports/LOTG_Stats.xlsx` and reports every break:
 Exit code is non-zero when any break is found, so it can gate CI.
 
 Usage: python3 scripts/audit_player_history.py [path/to/LOTG_Stats.xlsx]
+
+The workbook is NOT committed (see .gitignore) — it is a build output. Pass the
+path to one you built yourself, or to the copy inside the LOTG_outputs artifact
+of the run you want to audit. With no argument this still looks in `exports/`,
+which is where a local `python -m lotg` puts it.
 """
 from __future__ import annotations
 
