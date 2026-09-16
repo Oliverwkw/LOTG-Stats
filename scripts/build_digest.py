@@ -2,7 +2,7 @@
 
 Reads the built `exports/` CSVs and the prior ranks snapshot, computes this
 week's rankings, diffs them for all-time leaderboard crossings, projects the
-in-progress season's on-pace ranks (from week 3), and writes:
+in-progress season's on-pace ranks (from week 5), and writes:
 
   * `data/digest/ranks_snapshot.json`  — this week's rankings (committed so next
     week diffs against it).
@@ -96,7 +96,15 @@ def _weeks_to_cover(prior, meta, team_week):
         # A new season's week 1 is not "five weeks late" on last season's week 17.
         return [latest], None
     gap = int(meta.get("weeks_completed") or 0) - int(pmeta.get("weeks_completed") or 0)
-    if gap <= 1:
+    if gap <= 0:
+        # The prior snapshot already counted this week, so the digest that wrote
+        # it reported these single-week records. A rebuild with no new week — the
+        # catch-up cron after the primary rotated, a mid-week build, a legacy
+        # snapshot re-baselining — must not print them again: it renders the empty
+        # digest --skip-empty drops. (Run 507's CI guard caught the reprint: a
+        # no-movement rebuild of week 1 carried all 79 records.)
+        return [], None
+    if gap == 1:
         return [latest], None
 
     yrs = pd.to_numeric(team_week["Year"], errors="coerce")
@@ -142,6 +150,9 @@ def main(argv=None) -> int:
     if any(frames[n].empty for n in required):
         print(f"[digest] no build found under {exports} — nothing to do.")
         return 0
+    # "% of points from WRs" is stored 0-1: print it as 10.4%, not a rounded 0.1.
+    pct = D.note_percent_columns(frames)
+    print(f"[digest] {len(pct)} percent column(s) stored as 0-1 fractions")
 
     # Phrasing catalog: standalone, no snapshot / gate needed.
     if args.phrasing_csv:
@@ -237,7 +248,10 @@ def main(argv=None) -> int:
     # row ever — a season, a week, a pick, a trade, a transaction. A recompute
     # that re-values history reshuffles an all-time top/bottom 5, and that
     # reshuffle is the thing to report, whichever sheet it lands on.
-    events = D.all_board_highlights(frames)
+    # A row still being written — this season's, or a trade/pickup/pick under five
+    # NFL weeks old — stands only on the high end of a counting stat (BoardGate).
+    gate = D.BoardGate(frames)
+    events = D.all_board_highlights(frames, gate=gate)
     current["event_board"] = D.event_board(events)
     # The full row set of the transaction/pick sheets, so next week's diff can
     # tell a brand-new row (a trade/add just made) from an old one that only just
@@ -296,9 +310,15 @@ def main(argv=None) -> int:
               f"edit landed: {new_data.edit_landed} -> "
               f"{sum(len(i) for _t, _g, i in _top)} item(s) with the news, "
               f"{sum(len(i) for _t, _g, i in _edits)} under edits")
+    # Week 5 (on-pace + this season's trades/pickups/picks join the boards) and
+    # week 8 (the rookie class's first O-Scores) release a pile at once; the lede
+    # opens by saying so, with how many of the lines below it accounts for.
+    lead = D.release_lead(frames, meta, new_data, proj_changes, event_changes, sections)
+    if lead:
+        print(f"[digest] release lede: {lead}")
     intro = DS.build_intro(sections, D.digest_title(meta),
                            weeks_completed=meta.get("weeks_completed"),
-                           new_data=new_data)
+                           new_data=new_data, lead=lead)
     if intro:
         print(f"[digest] lede: {intro}")
 

@@ -192,13 +192,30 @@ def check_a_game_cannot_move_a_transaction_only_stat():
 
 
 def check_pooled_stats_take_in_any_new_week():
-    pooled = _ev("player_year", "Retired Guy 2020", "Rostered consistency percentile",
-                 value=100.0, passed=("Other Guy 2021",))
-    ok = _ok("a percentile over every week ever moves with any new week",
-             _tag(pooled, _week_one()) == "new")
-    ok &= _ok("with no new week it is an edit",
-              _tag(pooled, _week_one(new_weeks=(), weeks_completed=0, players=(),
-                                     teams=())) == "edit")
+    """A pooled tier stat is re-cut by every new week — which reaches this
+    season's rows and all-time rows. On a SETTLED week or season one week of
+    scores barely moves the cutoffs; what moves it is an edit to the pool (on
+    2026-09-15 "2021 week 8 joins a tie for highest % of starters lower quartile"
+    came from #426's injury-flag fix, yet read as news)."""
+    nd = _week_one()
+    past_week = _ev("league_week", "2021 week 8", "% of starters lower quartile",
+                    value=27.8, passed=("2020 week 8",))
+    ok = _ok("a settled league week's tier share -> edit",
+             _tag(past_week, nd, "All-time leaderboard moves — league weeks") == "edit")
+    past_season = _ev("player_year", "Retired Guy 2020", "Rostered consistency percentile",
+                      value=100.0, passed=("Other Guy 2021",))
+    ok &= _ok("a settled season's percentile -> edit", _tag(past_season, nd) == "edit")
+    this_week = _ev("league_week", "2026 week 1", "% of starters boom",
+                    value=17.5, passed=("2024 week 17",))
+    ok &= _ok("this week's tier share -> news",
+              _tag(this_week, nd, "All-time leaderboard moves — league weeks") == "new")
+    career = D.Crossing("players", "Rostered consistency percentile", "high", 1,
+                        "Retired Guy", 100.0, passed=("Other Guy",))
+    ok &= _ok("an all-time percentile re-cut by the new week -> news",
+              _tag(career, nd, "All-time leaderboard moves — players") == "new")
+    ok &= _ok("with no new week an all-time percentile is an edit",
+              _tag(career, _week_one(new_weeks=(), weeks_completed=0, players=(), teams=()),
+                   "All-time leaderboard moves — players") == "edit")
     return ok
 
 

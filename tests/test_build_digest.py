@@ -42,13 +42,34 @@ def check_year_round_build():
         snap = Path(d) / "snap.json"
         h0, h1 = Path(d) / "d0.html", Path(d) / "d1.html"
 
-        # 1) Offseason baseline: builds (not skipped), writes a snapshot, empty digest.
+        # 1) Baseline: builds (not skipped), writes a snapshot, reports no diff.
+        #    Written for the offseason, it asserted 0 weeks and an empty digest —
+        #    and went red on run 507, the first build with a played week. The
+        #    exports are whatever season state CI last committed, so it holds the
+        #    baseline to what is true in EITHER state: the meta matches team_week,
+        #    nothing is diffed (no prior), and only a played week may add its
+        #    single-week records (`_weeks_to_cover` reports the latest week on a
+        #    baseline run).
         rc0 = B.main(["--exports", str(exports), "--snapshot", str(snap), "--out", str(h0)])
-        ok = _ok("offseason build returns 0 (not skipped)", rc0 == 0)
-        ok &= _ok("snapshot written in the offseason", snap.exists())
+        ok = _ok("baseline build returns 0 (not skipped)", rc0 == 0)
+        ok &= _ok("snapshot written", snap.exists())
         meta = json.loads(snap.read_text())["meta"]
-        ok &= _ok("offseason meta (0 weeks) confirmed", int(meta["weeks_completed"]) == 0, f"meta={meta}")
-        ok &= _ok("baseline digest is empty (would be suppressed)", _EMPTY in h0.read_text())
+        import pandas as _pd
+        from lotg_support import digest as _D
+        _tw = _pd.read_csv(exports / "team_week.csv", low_memory=False)
+        _ty = _pd.read_csv(exports / "team_year.csv", low_memory=False)
+        _season = _D.current_season(_ty)
+        ok &= _ok("meta counts the committed exports' played weeks",
+                  int(meta["weeks_completed"]) == _D.weeks_completed(_tw, _season), f"meta={meta}")
+        html0 = h0.read_text()
+        ok &= _ok("a baseline diffs nothing (no leaderboard / on-pace / record lines)",
+                  "All-time leaderboard moves —" not in html0 and "On pace this season" not in html0
+                  and "New single-season records" not in html0)
+        if int(meta["weeks_completed"]) == 0:
+            ok &= _ok("offseason baseline digest is empty (would be suppressed)", _EMPTY in html0)
+        else:
+            ok &= _ok("in-season baseline carries only this week's single-week records",
+                      "Single-week records" in html0 or _EMPTY in html0)
 
         # 2) Re-build against that snapshot, unchanged data → still empty (no movement).
         rc1 = B.main(["--exports", str(exports), "--snapshot", str(snap), "--out", str(h1)])

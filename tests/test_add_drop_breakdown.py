@@ -259,6 +259,59 @@ def check_team_week_trades_match_the_trades_sheet() -> bool:
                f"{len(diff)} team-week(s) differ: {sorted(diff)[:6]}")
 
 
+# The line the build logs once team_week's FAAB is on the Tuesday-Monday week too.
+_FAAB_WEEK_MARKER = "Amount of FAAB spent rebuilt from add_drop_rows"
+
+
+def check_team_week_faab_matches_the_add_drops_sheet() -> bool:
+    """team_week's "Amount of FAAB spent" is the Faab on the add_drops.csv rows
+    dated into that week — the same rows and week as its Add/Drops count.
+
+    It used to follow Sleeper's `leg`, which files every offseason move under week
+    1, so January waivers sat in the week 1 row (2026: AceMatthew $45 against $44
+    of week-1 bids, stevenb123 $11 against $8; six team-weeks 2023-2026) and ~160
+    team-weeks sat a week off. A claim the commissioner reversed and add_drops
+    dropped (Oliverwkw's $1 Jerome Ford, 2023-09-04) was still counted weekly."""
+    d = _exports()
+    tw_path, ad_path = d / "team_week.csv", d / "add_drops.csv"
+    if not tw_path.exists() or not ad_path.exists():
+        print("  [SKIP] no team_week.csv / add_drops.csv")
+        return True
+    try:
+        built = _FAAB_WEEK_MARKER in (d / "raw" / "build_debug.log").read_text(errors="replace")
+    except Exception:
+        built = False
+    if not built:
+        print(f"  [SKIP] these exports predate weekly FAAB on the Tuesday-Monday week "
+              f"(no {_FAAB_WEEK_MARKER!r} in raw/build_debug.log)")
+        return True
+    tw = pd.read_csv(tw_path, low_memory=False)
+    ad = pd.read_csv(ad_path, low_memory=False)
+    col = "Amount of FAAB spent"
+    tw["Year"] = pd.to_numeric(tw["Year"], errors="coerce")
+    tw["Week"] = pd.to_numeric(tw["Week"], errors="coerce")
+    keys = set(zip(tw["Team"].astype(str), tw["Year"], tw["Week"]))
+    when = pd.to_datetime(ad["Date"], errors="coerce")
+    season = pd.to_numeric(ad["Season"], errors="coerce")
+    faab = pd.to_numeric(ad["Faab"], errors="coerce").fillna(0.0)
+    expect: dict = {}
+    for team, w, s, f in zip(ad["Team"].astype(str), when, season, faab):
+        if pd.isna(w) or pd.isna(s) or not f:
+            continue
+        wk = lotg._season_week_of(w.date(), int(s))
+        key = (team, float(s), float(wk))
+        if wk and key in keys:
+            expect[key] = round(expect.get(key, 0.0) + float(f), 2)
+    got = {(str(t), y, w): round(float(v), 2) for t, y, w, v in
+           zip(tw["Team"], tw["Year"], tw["Week"], _num(tw[col])) if v}
+    diff = sorted(k for k in set(got) | set(expect)
+                  if abs(got.get(k, 0.0) - expect.get(k, 0.0)) > 1e-6)
+    return _ok("team_week FAAB equals the add_drops Faab dated into each week",
+               not diff, f"${sum(got.values()):.0f} credited vs ${sum(expect.values()):.0f} "
+               f"expected; {len(diff)} team-week(s) differ: "
+               f"{[(k, got.get(k), expect.get(k)) for k in diff[:6]]}")
+
+
 def run_all() -> bool:
     if not (_exports() / "team_year.csv").exists():
         print("no exports/ — SKIP")
@@ -267,7 +320,8 @@ def run_all() -> bool:
     for t in (check_the_parts_add_up_to_the_total,
               check_the_totals_match_the_detail_sheet,
               check_every_detail_row_lands_in_exactly_one_bucket,
-              check_team_week_trades_match_the_trades_sheet):
+              check_team_week_trades_match_the_trades_sheet,
+              check_team_week_faab_matches_the_add_drops_sheet):
         print(f"\n{t.__name__}:")
         all_ok &= bool(t())
     print("\n" + ("ALL PASS" if all_ok else "SOME FAILED"))

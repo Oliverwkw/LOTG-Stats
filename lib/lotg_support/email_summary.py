@@ -633,7 +633,17 @@ def _new_data_reaches(cand: "_Cand", yr: Optional[int], season: Optional[int],
     it in: an all-time total or this season's row always can; a past row only on
     a stat that keeps accruing after its own period."""
     col = cand.column.lower()
-    if new_data.new_games and any(m in col for m in _POOL_MARKERS):
+    # A pooled tier stat (boom / bust / quartile / percentile) is re-cut by every
+    # new week — but only by a hair on a settled row: one week of ~80 starter
+    # scores against an all-time pool barely moves p10-p90. What does move a past
+    # week's tier shares is an edit that changes the pool itself: on 2026-09-15
+    # "2021 week 8 joins a tie for highest % of starters lower quartile" came from
+    # #426 flipping three bench players' Injury? flags (the only rows of that week
+    # that changed), yet read as news. So the pool reaches this season's rows and
+    # all-time rows; a past week or season on a pooled stat is judged like any
+    # other past row (a still-open streak aside).
+    if new_data.new_games and any(m in col for m in _POOL_MARKERS) \
+            and (yr is None or (season and yr >= season)):
         return True
     named = _entities(cand.item)
     played = set(new_data.players) | set(new_data.teams)
@@ -880,12 +890,38 @@ def _texture(cands: Sequence["_Cand"], rest: Sequence["_Cand"], total: int) -> L
     return [s[0].upper() + s[1:] + "."]
 
 
+def release_sentence(week: int, released: int, total: int,
+                     season: Optional[int] = None) -> str:
+    """The lede's opening line on a week a withholding rule lets go, so a reader
+    knows why the list is suddenly long. "" on any other week.
+
+    Week 5: the in-progress season's on-pace standings begin, and its trades,
+    pickups and picks (plus its week rows' season-to-date averages) join the
+    boards, all at once. Week 8: the build grades the rookie class for the first
+    time. `released` counts the lines below that exist only because of it."""
+    from .digest import MIN_YEARLY_WEEK, ROOKIE_OSCORE_WEEK
+    if released <= 0 or total <= 0:
+        return ""
+    of = f"{released} of the {total}" if released < total else f"all {total}"
+    if week == MIN_YEARLY_WEEK:
+        return (f"Week {week} is when this season's on-pace standings begin and its "
+                f"trades, pickups and picks join the boards, so {of} moves below are "
+                f"weeks 1-{week - 1} catching up rather than this week's news.")
+    if week == ROOKIE_OSCORE_WEEK:
+        cls = f"the {season} rookie class" if season else "this year's rookie class"
+        return (f"Week {week} is when {cls} joins the boards and gets its first "
+                f"O-Scores, so {of} moves below are its debut rather than new results.")
+    return ""
+
+
 def reasoned_summary(sections: Sequence[Tuple[str, str, list]],
                      season: Optional[int] = None,
                      weeks_completed: Optional[int] = None,
-                     new_data: Optional["NewData"] = None) -> str:
+                     new_data: Optional["NewData"] = None,
+                     lead: str = "") -> str:
     """The deterministic lede: up to three standout lines, then one or two
-    sentences that say what KIND of week it was.
+    sentences that say what KIND of week it was. `lead`, when given, opens it —
+    a week a withholding rule lets go says so first (`release_sentence`).
 
     `weeks_completed` gates what can count as new results: with no week played
     yet (the preseason), nothing is live and the whole week is a recompute. When
@@ -896,10 +932,11 @@ def reasoned_summary(sections: Sequence[Tuple[str, str, list]],
     headline sentence so long that quoting it would defeat the purpose."""
     cands = [_Cand(i, title) for title, _v, items in sections for i in items
              if hasattr(i, "sentence")]
+    head_parts = [lead] if lead else []
     if not cands:
-        return ""
+        return lead
     if len(cands) == 1:
-        return _fit([cands[0].sentence()]) or counted_summary(sections)
+        return _fit(head_parts + [cands[0].sentence()]) or counted_summary(sections)
     _score(cands)
     ranked = sorted(cands, key=lambda c: -c.score)
     total = len(cands)
@@ -968,7 +1005,7 @@ def reasoned_summary(sections: Sequence[Tuple[str, str, list]],
     # biggest threads, the renumber artifacts and the ties count together. A rich
     # week thus packs four highlights plus the full analysis into five sentences;
     # a quiet one is short because it has fewer of these, not thinner ones.
-    parts: List[str] = []
+    parts: List[str] = list(head_parts)
     if named_lines:
         parts.append(named_lines[0])
     parts += _bulk_story(rest, season, bool(named), in_season, new_data)
@@ -983,9 +1020,9 @@ def reasoned_summary(sections: Sequence[Tuple[str, str, list]],
     # lone STORY sentence (a pure drift or recompute week with no headline) is
     # already a summary and stands on its own — padding it with the counts just
     # says the same thing twice.
-    if named and len(parts) == 1 and total > 1:
+    if named and len(parts) == len(head_parts) + 1 and total > 1:
         parts.append(counted_summary(sections))
-    return _fit(parts) or counted_summary(sections)
+    return _fit(parts) or " ".join(head_parts + [counted_summary(sections)]).strip()
 
 
 def _fit(parts: List[str]) -> str:
@@ -1035,7 +1072,8 @@ def sentence_count(text: str) -> int:
 def build_intro(sections: Sequence[Tuple[str, str, list]], title: str = "",
                 fallback: Optional[str] = None,
                 weeks_completed: Optional[int] = None,
-                new_data: Optional["NewData"] = None) -> str:
+                new_data: Optional["NewData"] = None,
+                lead: str = "") -> str:
     """The digest's lede: the reasoned read of the board moves, the counts as a
     floor beneath it, "" when there is nothing to summarise.
 
@@ -1048,7 +1086,7 @@ def build_intro(sections: Sequence[Tuple[str, str, list]], title: str = "",
     nothing else."""
     try:
         if not sections and fallback is None:
-            return ""
+            return lead or ""
         if fallback is not None:
             return fallback
         # The current season, read off the title ("… — 2026 season, …"), is what
@@ -1058,8 +1096,8 @@ def build_intro(sections: Sequence[Tuple[str, str, list]], title: str = "",
         season = int(m.group(1)) if m else None
         # `new_data` is the same evidence the email splits its sections on, so
         # the lede's "re-valued history" is exactly the edits section below it.
-        return (reasoned_summary(sections, season, weeks_completed, new_data)
-                or counted_summary(sections))
+        return (reasoned_summary(sections, season, weeks_completed, new_data, lead=lead)
+                or " ".join(p for p in (lead, counted_summary(sections)) if p))
     except Exception as exc:                      # noqa: BLE001 — never fail the email
         print(f"[lede] summary skipped ({type(exc).__name__}: {exc}).")
         return ""

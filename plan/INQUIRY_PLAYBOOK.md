@@ -624,9 +624,11 @@ list is here so an answer written by hand does not walk into them.
   their blank FAAB as a zero-dollar claim — there was no claim.
 - **A move's season is not its calendar year, and its week is not its date.**
   Season is the first championship not yet played (`_move_season`), read on the
-  league clock; a real move's week is Sleeper's own leg, which can differ from
-  the week its date falls in (a Wednesday waiver). Only a synthesized row, which
-  has no leg, takes its week from its date.
+  league clock. Its week is its DATE on the Tuesday-Monday league week
+  (`_season_week_of`) — for team_week's Add/Drops, trades and FAAB alike — and an
+  offseason move has no week at all (team_year still counts it). Sleeper's own
+  `leg` is NOT the week: it files every offseason move under week 1, so the raw
+  `season_YYYY/weeks/week_01/transactions.json` holds the whole offseason.
 - **The starting lineup changed.** One flex through 2023, two from 2024. Read it
   from `season_meta(year).starting_slots`, never hardcode it.
 - **The playoff calendar changed.** Weeks 16-17 through 2025; 2026 starts week

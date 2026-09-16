@@ -1159,6 +1159,163 @@ def _col_number_format(col: str) -> Optional[str]:
     return "0.00"
 
 
+# A losing waiver claim whose note says it could never have been honoured: the
+# roster would have been over its limit, the budget was short, or a player it
+# would have dropped had already played. Those never stood as offers, so they are
+# not part of the auction (they are still real transactions everywhere else).
+_BID_NEVER_STOOD = ("too many players", "over the budget", "already started playing")
+
+
+def _bid_never_stood(t: Dict[str, Any]) -> bool:
+    """True for a failed waiver claim that could not have been honoured at any
+    price — see `_BID_NEVER_STOOD`. A claim that simply lost ("This player was
+    claimed by another owner") is real competition and is not one of these."""
+    if (t.get("status") or "complete") == "complete":
+        return False
+    meta = t.get("metadata") or {}
+    note = str(meta.get("notes") or "").lower() if isinstance(meta, dict) else ""
+    return any(m in note for m in _BID_NEVER_STOOD)
+
+
+def _waiver_run_key(t: Dict[str, Any]) -> int:
+    """Which waiver RUN a claim was processed in — Sleeper stamps every claim it
+    settles together with the same `status_updated`. The auction for a player is
+    one run, not one fantasy week: a week can hold two runs, and a manager can
+    win the same player in both (LWebs53 took Nico Collins at $7 on 2023-09-04
+    and again at $11 the next day, after the commissioner reversed the first)."""
+    try:
+        return int(t.get("status_updated") or t.get("created") or 0)
+    except Exception:
+        return 0
+
+
+def _standing_waiver_bids(txs: List[Dict[str, Any]]) -> Dict[Tuple[str, int], List[Tuple[float, bool]]]:
+    """The bids that actually stood in each waiver AUCTION: {(player id, run):
+    [(amount, won), ...]} with ONE entry per roster, keyed by the run that
+    settled them (`_waiver_run_key`).
+
+    Sleeper files every attempt as its own transaction, so a manager who edits or
+    resubmits a claim leaves several rows for one offer. Only one of them stood
+    when that run processed: the claim that WON if the roster won the player,
+    else the roster's final (latest) claim — the rest were superseded. Counting
+    them all made a manager bid against himself (AceMatthew's three $8 claims for
+    Spencer Rattler read as an auction with two bids in it).
+
+    Feed it the week's transactions BEFORE the failed ones are filtered out — a
+    losing bid is exactly what makes a win contested.
+    """
+    by_auction: Dict[Tuple[str, int], Dict[Any, Tuple[int, float, bool]]] = {}
+    for t in sorted(txs, key=lambda x: (int(x.get("created") or 0),
+                                        str(x.get("transaction_id") or ""))):
+        if t.get("type") != "waiver" or _bid_never_stood(t):
+            continue
+        adds = t.get("adds") or {}
+        if not isinstance(adds, dict) or not adds:
+            continue
+        settings = t.get("settings") or {}
+        try:
+            amount = float(settings.get("waiver_bid") or 0) if isinstance(settings, dict) else 0.0
+        except Exception:
+            amount = 0.0
+        won = (t.get("status") or "complete") == "complete"
+        roster = (t.get("roster_ids") or [None])[0]
+        who = roster if roster is not None else str(t.get("creator") or id(t))
+        when = int(t.get("created") or 0)
+        run = _waiver_run_key(t)
+        for pid in adds:
+            slot = by_auction.setdefault((str(pid), run), {})
+            prev = slot.get(who)
+            if prev is None or (not prev[2] and (won or when >= prev[0])):
+                # A winning claim is the bid that stood; failing that, the last
+                # one submitted supersedes whatever came before it.
+                slot[who] = (when, amount, won)
+    return {auction: [(amt, won) for _when, amt, won in slot.values()]
+            for auction, slot in by_auction.items()}
+
+
+def _prune_duplicate_tx(txs: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Collapse Sleeper's duplicate emissions of ONE transaction.
+
+    The transaction_id check upstream catches verbatim duplicates only. Sleeper
+    also emits two distinct ids for what is logically the same event:
+      (a) Duplicate waiver claim — same creator, same adds set, within 60
+          seconds; one carries the real drop and the other is bare. Keep the row
+          with the drop, discard the bare one.
+      (b) Inverted commissioner swap — same timestamp, two rows with adds/drops
+          mirrored. Keep the one whose smallest-added-pid sorts first.
+
+    (a) never discards a COMPLETE row in favour of one that is not. Sleeper files
+    every waiver bid as its own transaction — one complete winner, a failed row
+    per losing bid — so a manager who resubmits a claim ends up with losing twins
+    of his own winner. On 2025-08-31 AceMatthew's three $8 claims for Spencer
+    Rattler were exactly that: the winner (seq 27) carried no drop, and his two
+    superseded resubmissions (failed) each carried one. The merge read "same
+    manager, same add, one has a drop", replaced the winner with a loser, and the
+    failed-status filter then deleted it — losing the claim, its $8, and
+    Rattler's arrival on the roster (the build synthesized a phantom free-agent
+    pickup two months later, dated the day before he was dropped). It is the only
+    such loss in the league's history, verified across every cached feed, and the
+    guard keeps it that way.
+
+    Returns a new list ordered by `created`. Non-complete rows are left in — they
+    are real losing bids, which the caller counts before dropping them.
+    """
+    def _ts(t: Dict[str, Any]) -> int:
+        try:
+            return int(t.get("created") or 0)
+        except Exception:
+            return 0
+
+    def _pids(t: Dict[str, Any], side: str) -> Tuple[str, ...]:
+        v = t.get(side) or {}
+        return tuple(sorted(str(k) for k in v.keys())) if isinstance(v, dict) else tuple()
+
+    def _done(t: Dict[str, Any]) -> bool:
+        return (t.get("status") or "complete") == "complete"
+
+    ordered = sorted(txs, key=lambda t: (_ts(t), t.get("transaction_id") or ""))
+    pruned: List[Dict[str, Any]] = []
+    for t in ordered:
+        t_ts, t_adds, t_drops = _ts(t), _pids(t, "adds"), _pids(t, "drops")
+        t_creator = str(t.get("creator") or "")
+        replaced = False
+        drop_self = False
+        for idx in range(len(pruned) - 1, -1, -1):
+            p = pruned[idx]
+            p_ts = _ts(p)
+            if t_ts and p_ts and abs(t_ts - p_ts) > 60_000:
+                break  # outside 60-second window
+            p_adds, p_drops = _pids(p, "adds"), _pids(p, "drops")
+            p_creator = str(p.get("creator") or "")
+            # Case (a): same creator, same adds, drops differ by one side being
+            # empty — unless the row that would be dropped is the only complete
+            # one (a winner and its own failed resubmission, not a duplicate).
+            if (
+                t_creator and p_creator and t_creator == p_creator
+                and t_adds == p_adds
+            ):
+                if not p_drops and t_drops and not (_done(p) and not _done(t)):
+                    pruned[idx] = t
+                    replaced = True
+                    break
+                if not t_drops and p_drops and not (_done(t) and not _done(p)):
+                    drop_self = True
+                    break
+            # Case (b): identical timestamp, inverted swap.
+            if t_ts and p_ts and t_ts == p_ts:
+                if t_adds == p_drops and t_drops == p_adds and t_adds and t_drops:
+                    # Inverted view of one event. Keep the alphabetically-earlier
+                    # adds tuple.
+                    if t_adds < p_adds:
+                        pruned[idx] = t
+                    drop_self = True
+                    break
+        if replaced or drop_self:
+            continue
+        pruned.append(t)
+    return pruned
+
+
 def _startup_remaining_maps(pick_rows, pw):
     """Support for the 'Startup draft players remaining' column = how many of a
     team's OWN 2020-startup picks it still rosters at a point in time.
@@ -1206,6 +1363,29 @@ def _startup_remaining_count(sids_by_team, roster_by_tw, team, year, week):
         return int(len(d & roster_by_tw.get((str(team), int(year), int(week)), set())))
     except Exception:
         return None
+
+
+def _startup_league_remaining(sids_by_team, roster_by_tw) -> Dict[Tuple[int, int], int]:
+    """League 'Startup draft players remaining' per (year, week): how many of the
+    2020 startup draft's players are on ANY roster that week, whoever holds them.
+
+    The team columns count only a team's OWN picks, so summing them left out every
+    startup player who has since changed hands (Tua on Oliverwkw, Tony Pollard on
+    stevenb123) and read a trade as a player leaving the league."""
+    everyone = set().union(*sids_by_team.values()) if sids_by_team else set()
+    rostered: Dict[Tuple[int, int], set] = defaultdict(set)
+    for (_t, y, w), pids in roster_by_tw.items():
+        rostered[(int(y), int(w))] |= pids
+    return {yw: len(everyone & pids) for yw, pids in rostered.items()}
+
+
+def _startup_league_season_end(league_by_yw: Dict[Tuple[int, int], int]) -> Dict[int, int]:
+    """{year: league count at that year's last scored week} — the season-end read
+    league_year carries. A year with no scored week is absent (N/A)."""
+    last: Dict[int, int] = {}
+    for (y, w) in league_by_yw:
+        last[y] = max(last.get(y, w), w)
+    return {y: league_by_yw[(y, w)] for y, w in last.items()}
 
 
 def _append_team_vs_columns(frame: pd.DataFrame, cols: List[str], plan_key: str = "team-year") -> List[str]:
@@ -3660,6 +3840,11 @@ def build_all(repo_root: Path) -> None:
     _fa_add_by_tsw: Dict[Tuple[str, int, int], int] = defaultdict(int)
     _puredrop_by_tsw: Dict[Tuple[str, int, int], int] = defaultdict(int)
     _addrop_by_tsw: Dict[Tuple[str, int, int], int] = defaultdict(int)
+    # FAAB on the same rows and the same clock. team_week's "Amount of FAAB
+    # spent" used to be credited by Sleeper's `leg`, which files every offseason
+    # move under week 1: January waivers sat in the week 1 row (2026: AceMatthew
+    # +$1, stevenb123 +$3) beside an Add/Drops count that correctly left them out.
+    _faab_by_tsw: Dict[Tuple[str, int, int], float] = defaultdict(float)
     _trade_by_tsw: Dict[Tuple[str, int, int], int] = defaultdict(int)
 
     # season -> championship Monday, filled in as each league season is walked.
@@ -4953,19 +5138,19 @@ def build_all(repo_root: Path) -> None:
         # waiver transactions BEFORE filtering out failed claims, so the
         # winning row can carry the contested-bid count for downstream
         # display.
-        bids_per_player_week: Dict[Tuple[int, int, str], int] = defaultdict(int)
+        bids_per_player_week: Dict[Tuple[int, int, str, int], int] = defaultdict(int)
         # total_bids_amount_per_player_week — sum of waiver_bid amounts
         # across all attempts (winner + losers) on the same player that
         # week. Surfaces on transactions.csv as 'Total FAAB bid' so the
         # context for a winning bid is visible: e.g. a 5-FAAB win that
         # beat a single 1-FAAB bid is much less impressive than a
         # 5-FAAB win that beat 4 other bids summing to 50.
-        total_bids_amount_per_player_week: Dict[Tuple[int, int, str], float] = defaultdict(float)
+        total_bids_amount_per_player_week: Dict[Tuple[int, int, str, int], float] = defaultdict(float)
         # bid_amounts_per_player_week — full sorted list of competing bid
         # amounts. Powers the 'FAAB difference over second place' and
         # 'FAAB % difference over second place' columns: how decisively
         # did the winner outbid the runner-up.
-        bid_amounts_per_player_week: Dict[Tuple[int, int, str], List[float]] = defaultdict(list)
+        bid_amounts_per_player_week: Dict[Tuple[int, int, str, int], List[float]] = defaultdict(list)
 
         for wk in range(1, min(last_week, 30) + 1):
             if not week_allowed(wk):
@@ -4996,104 +5181,27 @@ def build_all(repo_root: Path) -> None:
                     seen_tx_ids.add(tx_id_str)
                     deduped_tx.append(t)
 
-                # Sleeper-data quirk dedup. The transaction_id check above
-                # catches verbatim duplicates only — Sleeper sometimes emits
-                # two distinct transaction_ids for what's logically the same
-                # event:
-                #   (a) Duplicate waiver claim — same creator, same adds set,
-                #       within 60 seconds; one has Player Dropped=None and
-                #       the other carries the real drop. Keep the row with
-                #       the drop, discard the bare one.
-                #   (b) Inverted commissioner swap — same timestamp, two
-                #       rows with adds/drops mirrored. Keep the one whose
-                #       smallest-added-pid is alphabetically first.
-                # Doing this here (before the per-week tx_count / faab
-                # counters consume the list) keeps team_week / team_year
-                # FAAB consistent with transactions.csv.
-                def _tx_ts(t: Dict[str, Any]) -> int:
-                    try:
-                        return int(t.get("created") or 0)
-                    except Exception:
-                        return 0
-                def _tx_adds(t: Dict[str, Any]) -> Tuple[str, ...]:
-                    a = t.get("adds") or {}
-                    if not isinstance(a, dict):
-                        return tuple()
-                    return tuple(sorted(str(k) for k in a.keys()))
-                def _tx_drops(t: Dict[str, Any]) -> Tuple[str, ...]:
-                    d = t.get("drops") or {}
-                    if not isinstance(d, dict):
-                        return tuple()
-                    return tuple(sorted(str(k) for k in d.keys()))
+                # Sleeper-data quirk dedup (`_prune_duplicate_tx`): two
+                # transaction_ids for one event — a duplicate waiver claim (bare
+                # + the copy carrying its drop) or an inverted commissioner swap.
+                # A losing bid never displaces the winning claim there; see the
+                # 2025-08-31 Spencer Rattler loss in that docstring.
+                # Doing this here (before the per-week tx_count / faab counters
+                # consume the list) keeps team_week / team_year FAAB consistent
+                # with transactions.csv.
+                pruned: List[Dict[str, Any]] = _prune_duplicate_tx(deduped_tx)
 
-                deduped_tx.sort(key=lambda t: (_tx_ts(t), t.get("transaction_id") or ""))
-                pruned: List[Dict[str, Any]] = []
-                for t in deduped_tx:
-                    t_ts = _tx_ts(t)
-                    t_adds = _tx_adds(t)
-                    t_drops = _tx_drops(t)
-                    t_creator = str(t.get("creator") or "")
-                    replaced = False
-                    drop_self = False
-                    for idx in range(len(pruned) - 1, -1, -1):
-                        p = pruned[idx]
-                        p_ts = _tx_ts(p)
-                        if t_ts and p_ts and abs(t_ts - p_ts) > 60_000:
-                            break  # outside 60-second window
-                        p_adds = _tx_adds(p)
-                        p_drops = _tx_drops(p)
-                        p_creator = str(p.get("creator") or "")
-                        # Case (a): same creator, same adds, drops differ by
-                        # one side being empty.
-                        if (
-                            t_creator and p_creator and t_creator == p_creator
-                            and t_adds == p_adds
-                        ):
-                            if not p_drops and t_drops:
-                                pruned[idx] = t
-                                replaced = True
-                                break
-                            if not t_drops and p_drops:
-                                drop_self = True
-                                break
-                        # Case (b): identical timestamp, inverted swap.
-                        if t_ts and p_ts and t_ts == p_ts:
-                            if t_adds == p_drops and t_drops == p_adds and t_adds and t_drops:
-                                # Inverted view of one event. Keep the
-                                # alphabetically-earlier adds tuple.
-                                if t_adds < p_adds:
-                                    pruned[idx] = t
-                                drop_self = True
-                                break
-                    if replaced or drop_self:
-                        continue
-                    pruned.append(t)
-
-                # Count waiver attempts per player BEFORE filtering out the
-                # failed claims. Sleeper returns every team's waiver bid as
-                # its own transaction (one status=complete winner, plus
-                # status=failed for each losing bid). The losing bids never
-                # actually moved the player and shouldn't pollute tx_count,
-                # FAAB-spent, or transactions.csv — but we want the count
-                # of contested bids on the winning row.
-                for t in pruned:
-                    if t.get("type") != "waiver":
-                        continue
-                    adds_for_count = t.get("adds") or {}
-                    if not isinstance(adds_for_count, dict):
-                        continue
-                    bid_settings = t.get("settings") or {}
-                    bid_amt = 0.0
-                    if isinstance(bid_settings, dict):
-                        try:
-                            bid_amt = float(bid_settings.get("waiver_bid") or 0)
-                        except Exception:
-                            bid_amt = 0.0
-                    for pid_key in adds_for_count.keys():
-                        key = (int(season), int(wk), str(pid_key))
-                        bids_per_player_week[key] += 1
-                        total_bids_amount_per_player_week[key] += bid_amt
-                        bid_amounts_per_player_week[key].append(float(bid_amt))
+                # The AUCTION behind each player added on waivers this week —
+                # one standing bid per roster (`_standing_waiver_bids`), tallied
+                # BEFORE the failed claims are filtered out, because a losing bid
+                # is what makes a win contested. A manager's own superseded
+                # resubmissions are not rival bids, and a claim that could never
+                # have been honoured was never in the auction at all.
+                for (_pid_key, _run), _bids in _standing_waiver_bids(pruned).items():
+                    key = (int(season), int(wk), str(_pid_key), int(_run))
+                    bids_per_player_week[key] += len(_bids)
+                    total_bids_amount_per_player_week[key] += sum(a for a, _w in _bids)
+                    bid_amounts_per_player_week[key].extend(float(a) for a, _w in _bids)
 
                 # Drop failed transactions. Sleeper's status taxonomy:
                 #   complete -> the move actually happened
@@ -6828,7 +6936,7 @@ def build_all(repo_root: Path) -> None:
                         row_faab_diff_2nd = None
                         row_faab_pct_2nd = None
                         if ttype == "waiver" and int(season) != 2020:
-                            key = (int(season), int(wk), str(pid))
+                            key = (int(season), int(wk), str(pid), _waiver_run_key(t))
                             # This row is a tracked 2022+ waiver claim, so a
                             # recorded total of $0 (an uncontested $0 claim, or
                             # multiple all-$0 bids) is REAL data — "the league
@@ -6872,19 +6980,23 @@ def build_all(repo_root: Path) -> None:
                             except ValueError:
                                 pass
                             competing = [b for b in competing if b <= winner_bid_val]
-                            if competing:
-                                second = max(competing)
-                                row_faab_diff_2nd = round(winner_bid_val - second, 2)
-                                # FAAB premium % (Phase 6A): the winning bid's
-                                # margin over the runner-up as a share of the
-                                # WINNING bid — normalized by bid size so it's
-                                # comparable across big and small auctions
-                                # ($50 over $40 reads the same 20% as $5 over
-                                # $4). Bounded 0–100; defined whenever the
-                                # winning bid > 0 (premium = 100% vs a $0
-                                # runner-up).
-                                if winner_bid_val > 0:
-                                    row_faab_pct_2nd = round((winner_bid_val - second) / winner_bid_val * 100.0, 2)
+                            # 3) An UNCONTESTED claim beat nobody, so the runner-up
+                            #    is $0 and the margin is the whole winning bid —
+                            #    the most decisive an auction gets. It used to read
+                            #    N/A, which hid that behind "unknown" on the many
+                            #    claims nobody else bid on.
+                            second = max(competing) if competing else 0.0
+                            row_faab_diff_2nd = round(winner_bid_val - second, 2)
+                            # FAAB premium % (Phase 6A): the winning bid's
+                            # margin over the runner-up as a share of the
+                            # WINNING bid — normalized by bid size so it's
+                            # comparable across big and small auctions
+                            # ($50 over $40 reads the same 20% as $5 over
+                            # $4). Bounded 0–100; defined whenever the
+                            # winning bid > 0 (premium = 100% vs a $0
+                            # runner-up).
+                            if winner_bid_val > 0:
+                                row_faab_pct_2nd = round((winner_bid_val - second) / winner_bid_val * 100.0, 2)
 
                         # FAAB column semantics (user spec / audit fix):
                         # - 2021 and earlier: league had no FAAB; ALL faab
@@ -8151,8 +8263,17 @@ def build_all(repo_root: Path) -> None:
                     "type of add/drop (waiver/free agency)": str(mrow.get("Type") or "free_agent"),
                     "Faab": _to_float(mrow.get("Faab"), None),
                     "Total FAAB bid": _to_float(mrow.get("Total FAAB bid"), None),
-                    "FAAB difference over second place": None,
-                    "FAAB premium %": None,
+                    # A hand-entered row carries no per-claim bid list, so the
+                    # runner-up is only knowable when the note says there was
+                    # nobody else: one bid means the margin is the whole winning
+                    # bid (premium 100%), the same rule Sleeper-sourced rows use.
+                    # More than one and the runner-up is genuinely unknown.
+                    "FAAB difference over second place": (
+                        _to_float(mrow.get("Faab"), None)
+                        if _to_float(mrow.get("Number of bids"), None) == 1 else None),
+                    "FAAB premium %": (
+                        100.0 if (_to_float(mrow.get("Number of bids"), None) == 1
+                                  and (_to_float(mrow.get("Faab"), 0.0) or 0.0) > 0) else None),
                     "Date": str(mrow.get("Date")),
                     "Season": int(mrow.get("Season")) if pd.notna(mrow.get("Season")) else None,
                     "_added_pid": added_pid,
@@ -8987,6 +9108,7 @@ def build_all(repo_root: Path) -> None:
                 _waiver_add_by_ts.clear(); _fa_add_by_ts.clear(); _puredrop_by_ts.clear()
                 _waiver_add_by_tsw.clear(); _fa_add_by_tsw.clear(); _puredrop_by_tsw.clear()
                 _addrop_by_tsw.clear()
+                _faab_by_tsw.clear()
                 for _adr in add_drop_rows:
                     _t = str(_adr.get("Team") or "")
                     try:
@@ -9038,6 +9160,7 @@ def build_all(repo_root: Path) -> None:
                         _w = _season_week_of(_dday, _s)
                     if _w:
                         _addrop_by_tsw[(_t, _s, int(_w))] += 1
+                        _faab_by_tsw[(_t, _s, int(_w))] += _to_float(_adr.get("Faab"), 0.0) or 0.0
                     if _adbucket is not None:
                         if _adbucket == "waiver":
                             _waiver_add_by_ts[(_t, _s)] += 1
@@ -9119,6 +9242,24 @@ def build_all(repo_root: Path) -> None:
                     _log(debug, f"[{_now_iso()}] INFO team_week Number of Add/Drops rebuilt "
                                 f"from add_drop_rows on the Tuesday-Monday league week: "
                                 f"{_before} -> {_after}")
+                    # FAAB, from the same rows on the same week (see `_faab_by_tsw`):
+                    # an offseason claim gets no week, as its Add/Drop does, and a
+                    # claim add_drops no longer carries (a commissioner-reversed
+                    # one) is no longer counted. No FAAB before 2022: N/A, not $0.
+                    if "Amount of FAAB spent" in tw.columns:
+                        _f_before = float(pd.to_numeric(
+                            tw["Amount of FAAB spent"], errors="coerce").fillna(0).sum())
+                        tw["Amount of FAAB spent"] = [
+                            (round(float(_faab_by_tsw.get((t, int(y), int(w)), 0.0)), 2)
+                             if int(y) >= 2022 else None)
+                            if pd.notna(y) and pd.notna(w) else None
+                            for t, y, w in zip(_t_ser, _y_ser, _w_ser)
+                        ]
+                        _f_after = float(pd.to_numeric(
+                            tw["Amount of FAAB spent"], errors="coerce").fillna(0).sum())
+                        _log(debug, f"[{_now_iso()}] INFO team_week Amount of FAAB spent rebuilt "
+                                    f"from add_drop_rows on the Tuesday-Monday league week: "
+                                    f"${_f_before:,.0f} -> ${_f_after:,.0f}")
                     # Trades, on the same week. They were still credited by
                     # Sleeper's `leg`, which rolls over partway through a
                     # Wednesday, so a Tuesday or Wednesday trade could sit a week
@@ -17712,6 +17853,17 @@ def build_all(repo_root: Path) -> None:
                 }
             )
             league_week = league_week.merge(agg_lw, how="left", on=["Year","Week"])
+            # Startup draft players remaining (league) = every startup player on
+            # ANY roster that week, not the sum above of each team's own picks.
+            try:
+                if "Startup draft players remaining" in league_week.columns:
+                    _sl = _startup_league_remaining(*_startup_remaining_maps(pick_rows, pw)[:2])
+                    league_week["Startup draft players remaining"] = [
+                        (_sl.get((int(_y), int(_w))) if (pd.notna(_y) and pd.notna(_w)) else None)
+                        for _y, _w in zip(league_week["Year"], league_week["Week"])
+                    ]
+            except Exception as e:
+                _log_exc(debug, "league_week_startup_remaining", e)
             league_week["Amount of FAAB spent"] = league_week.apply(
                 lambda r: (
                     float(pd.to_numeric(r.get("Amount of FAAB spent"), errors="coerce") or 0.0)
@@ -17844,14 +17996,14 @@ def build_all(repo_root: Path) -> None:
                 ),
                 axis=1,
             )
-            # Startup players remaining (league, per year) = season-END total =
-            # sum across teams of each team's last-week count (the agg above would
-            # sum over all team-weeks and over-count).
-            if "Startup draft players remaining" in league_year.columns and not team_year.empty:
-                _suy = (team_year.assign(_v=pd.to_numeric(team_year.get("Startup draft players remaining"), errors="coerce"))
-                        .groupby("Year")["_v"].sum())
+            # Startup players remaining (league, per year) = season-END count of
+            # startup players on ANY roster at the year's last scored week (not
+            # the sum of team counts, which drops every one that changed hands).
+            if "Startup draft players remaining" in league_year.columns:
+                _suy = _startup_league_season_end(
+                    _startup_league_remaining(*_startup_remaining_maps(pick_rows, pw)[:2]))
                 league_year["Startup draft players remaining"] = [
-                    (float(_suy.get(int(y))) if pd.notna(y) and int(y) in _suy.index else None)
+                    (float(_suy[int(y)]) if pd.notna(y) and int(y) in _suy else None)
                     for y in league_year["Year"]
                 ]
         except Exception as e:
@@ -18028,13 +18180,15 @@ def build_all(repo_root: Path) -> None:
             # player-week sum.
             league_all["Number of cuffs rostered"] = int(unique_cuffs_league_all.get("Number of cuffs rostered", 0))
             league_all["Number of cuffs started"] = int(unique_cuffs_league_all.get("Number of cuffs started", 0))
-            # League-wide startup players still rostered NOW = sum across teams of
-            # each team's current count (team_all_time), not a max over team-weeks.
-            league_all["Startup draft players remaining"] = (
-                float(pd.to_numeric(team_all.get("Startup draft players remaining"), errors="coerce").sum())
-                if (isinstance(team_all, pd.DataFrame) and "Startup draft players remaining" in team_all.columns)
-                else None
-            )
+            # League-wide startup players still rostered NOW = startup players on
+            # ANY roster at the latest scored week (whoever holds them), not the
+            # sum of team counts, which drops every one that changed hands.
+            try:
+                _sla = _startup_league_remaining(*_startup_remaining_maps(pick_rows, pw)[:2])
+                league_all["Startup draft players remaining"] = (
+                    float(_sla[max(_sla)]) if _sla else None)
+            except Exception as e:
+                _log_exc(debug, "league_all_startup_remaining", e)
             # FAAB rolls up from team_year like the counts beside it. This used
             # to re-sum team_week here, which undid the season-scoped total set
             # above: a bid placed in a season's offseason sits in no week.
@@ -19760,11 +19914,11 @@ def build_all(repo_root: Path) -> None:
                 for _t, _y in zip(team_year["Team"], team_year["Year"])
             ]
             if isinstance(league_year, pd.DataFrame) and _COL_SR in league_year.columns and "Year" in league_year.columns:
-                _suy_fin = (team_year.assign(_v=pd.to_numeric(team_year.get(_COL_SR), errors="coerce"))
-                            .groupby("Year")["_v"].sum(min_count=1))
+                # League = startup players on ANY roster at the year's last scored
+                # week, not the sum of team counts (see _startup_league_remaining).
+                _suy_fin = _startup_league_season_end(_startup_league_remaining(_sr_s, _sr_r))
                 league_year[_COL_SR] = [
-                    (float(_suy_fin.get(int(_y))) if (pd.notna(_y) and int(_y) in _suy_fin.index
-                                                      and pd.notna(_suy_fin.get(int(_y)))) else None)
+                    (float(_suy_fin[int(_y)]) if (pd.notna(_y) and int(_y) in _suy_fin) else None)
                     for _y in league_year["Year"]
                 ]
     except Exception as e:
