@@ -89,7 +89,7 @@ the ranked sheets — no hand-curated "headline" list. Per-section rules
 2. **Yearly on-pace** (`player_year`, `team_year`, `league_year`): project the
    in-progress season to full-season pace, ranked vs completed seasons.
    Cumulative stats scale by weeks played; rate/level stats carry as-is.
-   **Withheld until week 3.** Windows: players/teams top & bottom 5;
+   **Withheld until week 5.** Windows: players/teams top & bottom 5;
    **league_year `floor(#seasons/3)` capped at 5**.
 3. **New single-season records** — the **weekly-counting stats** (awards
    `Times ...`, result-flips `Wins/Losses from hardship|byes`) can't be

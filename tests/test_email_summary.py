@@ -727,6 +727,7 @@ def run_all() -> bool:
         check_sections_cover_the_whole_email,
         check_a_single_finding_lede_does_not_echo_it,
         check_a_single_finding_still_gets_what_it_does_not_say,
+        check_release_weeks_open_the_lede,
     ]
     all_ok = True
     for t in tests:
@@ -734,6 +735,31 @@ def run_all() -> bool:
         all_ok &= bool(t())
     print("\n" + ("ALL PASS" if all_ok else "SOME FAILED"))
     return all_ok
+
+
+def check_release_weeks_open_the_lede():
+    """Week 5 (on-pace begins; this season's trades, pickups and picks join the
+    boards) and week 8 (the rookie class's first O-Scores) release a pile of lines
+    at once. The lede opens by saying so — and only on those weeks."""
+    s5 = DS.release_sentence(5, 40, 120)
+    ok = _ok("week 5 says what joined and how much of the list it is",
+             s5.startswith("Week 5 is when") and "40 of the 120" in s5, s5)
+    s8 = DS.release_sentence(8, 6, 50, season=2026)
+    ok &= _ok("week 8 names the rookie class", "2026 rookie class" in s8
+              and "6 of the 50" in s8, s8)
+    ok &= _ok("any other week says nothing", DS.release_sentence(6, 40, 120) == "")
+    ok &= _ok("a week that released nothing says nothing",
+              DS.release_sentence(5, 0, 120) == "")
+    items = [_Item(f"T{i}'s move passes Y's move for highest Faab ({60 + i}).", f"T{i}")
+             for i in range(3)]
+    secs = [("All-time leaderboard moves — add/drops", True, items)]
+    out = DS.build_intro(secs, "LOTG weekly digest — 2026 season, week 5",
+                         weeks_completed=5, lead=s5)
+    ok &= _ok("the release line opens the lede", out.startswith(s5), out)
+    ok &= _ok("and the usual summary still follows it", len(out) > len(s5) + 10, out)
+    ok &= _ok("an empty week with a release still gets the line",
+              DS.build_intro([], "x", weeks_completed=5, lead=s5) == s5)
+    return ok
 
 
 def test_email_summary():

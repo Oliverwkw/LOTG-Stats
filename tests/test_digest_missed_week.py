@@ -84,6 +84,18 @@ def test_the_offseason_covers_nothing():
     assert B._weeks_to_cover(_snap(weeks=0), _meta(weeks=0), _tw([])) == ([], None)
 
 
+def test_a_rebuild_with_no_new_week_covers_nothing():
+    """The prior snapshot already counted this week, so its digest reported these
+    records. A catch-up cron after the primary rotated, a mid-week build or a
+    legacy re-baseline must render the empty digest, not reprint week 1's 79
+    single-week records (run 507's red CI guard)."""
+    tw = _tw(range(1, 2))
+    assert B._weeks_to_cover(_snap(weeks=1), _meta(weeks=1), tw) == ([], None)
+    # ...and a snapshot somehow AHEAD of the build (a re-run on stale exports)
+    # covers nothing rather than a negative span.
+    assert B._weeks_to_cover(_snap(weeks=2), _meta(weeks=1), tw) == ([], None)
+
+
 def test_the_anchor_is_the_max_week_not_the_count():
     """weeks_completed is a COUNT, latest_completed_week is a MAX.
 
@@ -140,6 +152,7 @@ TESTS = [test_the_ordinary_week_is_untouched,
          test_a_new_season_does_not_backfill_the_old_one,
          test_a_baseline_run_covers_only_the_latest_week,
          test_the_offseason_covers_nothing,
+         test_a_rebuild_with_no_new_week_covers_nothing,
          test_the_anchor_is_the_max_week_not_the_count,
          test_the_week_is_named_only_when_more_than_one_is_covered,
          test_the_section_title_names_the_span_it_covers,
