@@ -1177,23 +1177,34 @@ def _bid_never_stood(t: Dict[str, Any]) -> bool:
     return any(m in note for m in _BID_NEVER_STOOD)
 
 
-def _standing_waiver_bids(txs: List[Dict[str, Any]]) -> Dict[str, List[Tuple[float, bool]]]:
-    """The bids that actually stood in each player's waiver auction this week:
-    {player id: [(amount, won), ...]} with ONE entry per roster.
+def _waiver_run_key(t: Dict[str, Any]) -> int:
+    """Which waiver RUN a claim was processed in — Sleeper stamps every claim it
+    settles together with the same `status_updated`. The auction for a player is
+    one run, not one fantasy week: a week can hold two runs, and a manager can
+    win the same player in both (LWebs53 took Nico Collins at $7 on 2023-09-04
+    and again at $11 the next day, after the commissioner reversed the first)."""
+    try:
+        return int(t.get("status_updated") or t.get("created") or 0)
+    except Exception:
+        return 0
+
+
+def _standing_waiver_bids(txs: List[Dict[str, Any]]) -> Dict[Tuple[str, int], List[Tuple[float, bool]]]:
+    """The bids that actually stood in each waiver AUCTION: {(player id, run):
+    [(amount, won), ...]} with ONE entry per roster, keyed by the run that
+    settled them (`_waiver_run_key`).
 
     Sleeper files every attempt as its own transaction, so a manager who edits or
     resubmits a claim leaves several rows for one offer. Only one of them stood
-    when waivers ran: the claim that WON if that roster won the player, else the
-    roster's final (latest) claim — the others were superseded. Counting them all
-    made a manager bid against himself: AceMatthew's three $8 claims for Spencer
-    Rattler read as an auction with two bids in it, and 59 player-weeks across the
-    league's history were inflated the same way (19 of them also overstating
-    'Total FAAB bid', because the superseded amounts differed).
+    when that run processed: the claim that WON if the roster won the player,
+    else the roster's final (latest) claim — the rest were superseded. Counting
+    them all made a manager bid against himself (AceMatthew's three $8 claims for
+    Spencer Rattler read as an auction with two bids in it).
 
     Feed it the week's transactions BEFORE the failed ones are filtered out — a
     losing bid is exactly what makes a win contested.
     """
-    by_player: Dict[str, Dict[Any, Tuple[int, float, bool]]] = {}
+    by_auction: Dict[Tuple[str, int], Dict[Any, Tuple[int, float, bool]]] = {}
     for t in sorted(txs, key=lambda x: (int(x.get("created") or 0),
                                         str(x.get("transaction_id") or ""))):
         if t.get("type") != "waiver" or _bid_never_stood(t):
@@ -1210,15 +1221,16 @@ def _standing_waiver_bids(txs: List[Dict[str, Any]]) -> Dict[str, List[Tuple[flo
         roster = (t.get("roster_ids") or [None])[0]
         who = roster if roster is not None else str(t.get("creator") or id(t))
         when = int(t.get("created") or 0)
+        run = _waiver_run_key(t)
         for pid in adds:
-            slot = by_player.setdefault(str(pid), {})
+            slot = by_auction.setdefault((str(pid), run), {})
             prev = slot.get(who)
             if prev is None or (not prev[2] and (won or when >= prev[0])):
                 # A winning claim is the bid that stood; failing that, the last
                 # one submitted supersedes whatever came before it.
                 slot[who] = (when, amount, won)
-    return {pid: [(amt, won) for _when, amt, won in slot.values()]
-            for pid, slot in by_player.items()}
+    return {auction: [(amt, won) for _when, amt, won in slot.values()]
+            for auction, slot in by_auction.items()}
 
 
 def _prune_duplicate_tx(txs: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
@@ -5126,19 +5138,19 @@ def build_all(repo_root: Path) -> None:
         # waiver transactions BEFORE filtering out failed claims, so the
         # winning row can carry the contested-bid count for downstream
         # display.
-        bids_per_player_week: Dict[Tuple[int, int, str], int] = defaultdict(int)
+        bids_per_player_week: Dict[Tuple[int, int, str, int], int] = defaultdict(int)
         # total_bids_amount_per_player_week — sum of waiver_bid amounts
         # across all attempts (winner + losers) on the same player that
         # week. Surfaces on transactions.csv as 'Total FAAB bid' so the
         # context for a winning bid is visible: e.g. a 5-FAAB win that
         # beat a single 1-FAAB bid is much less impressive than a
         # 5-FAAB win that beat 4 other bids summing to 50.
-        total_bids_amount_per_player_week: Dict[Tuple[int, int, str], float] = defaultdict(float)
+        total_bids_amount_per_player_week: Dict[Tuple[int, int, str, int], float] = defaultdict(float)
         # bid_amounts_per_player_week — full sorted list of competing bid
         # amounts. Powers the 'FAAB difference over second place' and
         # 'FAAB % difference over second place' columns: how decisively
         # did the winner outbid the runner-up.
-        bid_amounts_per_player_week: Dict[Tuple[int, int, str], List[float]] = defaultdict(list)
+        bid_amounts_per_player_week: Dict[Tuple[int, int, str, int], List[float]] = defaultdict(list)
 
         for wk in range(1, min(last_week, 30) + 1):
             if not week_allowed(wk):
@@ -5185,8 +5197,8 @@ def build_all(repo_root: Path) -> None:
                 # is what makes a win contested. A manager's own superseded
                 # resubmissions are not rival bids, and a claim that could never
                 # have been honoured was never in the auction at all.
-                for _pid_key, _bids in _standing_waiver_bids(pruned).items():
-                    key = (int(season), int(wk), str(_pid_key))
+                for (_pid_key, _run), _bids in _standing_waiver_bids(pruned).items():
+                    key = (int(season), int(wk), str(_pid_key), int(_run))
                     bids_per_player_week[key] += len(_bids)
                     total_bids_amount_per_player_week[key] += sum(a for a, _w in _bids)
                     bid_amounts_per_player_week[key].extend(float(a) for a, _w in _bids)
@@ -6924,7 +6936,7 @@ def build_all(repo_root: Path) -> None:
                         row_faab_diff_2nd = None
                         row_faab_pct_2nd = None
                         if ttype == "waiver" and int(season) != 2020:
-                            key = (int(season), int(wk), str(pid))
+                            key = (int(season), int(wk), str(pid), _waiver_run_key(t))
                             # This row is a tracked 2022+ waiver claim, so a
                             # recorded total of $0 (an uncontested $0 claim, or
                             # multiple all-$0 bids) is REAL data — "the league
@@ -8251,8 +8263,17 @@ def build_all(repo_root: Path) -> None:
                     "type of add/drop (waiver/free agency)": str(mrow.get("Type") or "free_agent"),
                     "Faab": _to_float(mrow.get("Faab"), None),
                     "Total FAAB bid": _to_float(mrow.get("Total FAAB bid"), None),
-                    "FAAB difference over second place": None,
-                    "FAAB premium %": None,
+                    # A hand-entered row carries no per-claim bid list, so the
+                    # runner-up is only knowable when the note says there was
+                    # nobody else: one bid means the margin is the whole winning
+                    # bid (premium 100%), the same rule Sleeper-sourced rows use.
+                    # More than one and the runner-up is genuinely unknown.
+                    "FAAB difference over second place": (
+                        _to_float(mrow.get("Faab"), None)
+                        if _to_float(mrow.get("Number of bids"), None) == 1 else None),
+                    "FAAB premium %": (
+                        100.0 if (_to_float(mrow.get("Number of bids"), None) == 1
+                                  and (_to_float(mrow.get("Faab"), 0.0) or 0.0) > 0) else None),
                     "Date": str(mrow.get("Date")),
                     "Season": int(mrow.get("Season")) if pd.notna(mrow.get("Season")) else None,
                     "_added_pid": added_pid,
