@@ -706,7 +706,7 @@ _ROWS = [
      "Notes": "Each multi-team trade counts once."},
     {"Stat": "Top team", "Sheet": "player_all_time", "Columns": ["Top team"],
      "Formula": "The fantasy team (manager) that rostered the player for the most time over the period. Reconciles transaction-tenure duration with the player's rostered weeks in player_week, so a teleport (a roster carryover with no transaction, e.g. a season-boundary carry) still counts toward the team that actually held him longest.",
-     "Notes": "Manager name; links to its team_all_time row. The player_week reconciliation was added to stop an early, short tenure from outranking a long teleport tenure (Daniel Jones read shmuel256 for JacobRosenzweig)."},
+     "Notes": "Manager name; links to its team_all_time row. The player_week reconciliation was added to stop an early, short tenure from outranking a long teleport tenure (Daniel Jones read shmuel256 for JacobRosenzweig). A tenure that has not ENDED is measured to the ledger's as-of clock \u2014 the most recent fantasy week whose games are final, or the league's latest roster move when that is later \u2014 not to the moment the build ran, so an in-progress season's answer does not move between two builds that saw the same data."},
     {"Stat": "Top Team", "Sheet": "player_year", "Columns": ["Top Team"],
      "Formula": "Alias of 'Top team' (capitalised header on player_year): the manager who rostered the player longest over the season.",
      "Notes": "Same definition as 'Top team'."},
