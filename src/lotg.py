@@ -393,6 +393,70 @@ def _week_is_complete(season: int, week: int, now: Optional[datetime] = None) ->
         return True  # never block on a date we can't compute
 
 
+def _last_final_week_cutoff(now: datetime, first_season: int,
+                            max_week: int = 18) -> Optional[datetime]:
+    """The completion cutoff of the most recent fantasy week whose games are
+    final — the latest `_week_complete_cutoff` that `now` has already passed.
+
+    Pure calendar arithmetic (`_nfl_kickoff_thursday` is Labor Day plus three
+    days), so it does not move with the schedule feed and two builds inside the
+    same fantasy week get the same answer. None before the first season's week 1.
+    """
+    best: Optional[datetime] = None
+    for _s in range(int(first_season), int(now.year) + 1):
+        for _w in range(1, int(max_week) + 1):
+            try:
+                cut = _week_complete_cutoff(_s, _w)
+            except Exception:
+                continue
+            if cut <= now and (best is None or cut > best):
+                best = cut
+    return best
+
+
+def _tenure_as_of(now: Optional[datetime] = None,
+                  latest_event: Optional[datetime] = None,
+                  first_season: int = 2020) -> datetime:
+    """The instant an OPEN (still-rostered) tenure is measured to.
+
+    A tenure with no end date has to be measured to *something*, and every
+    ranking built on those durations — Top team per FY, Top team all-time — is
+    an argmax over them. Reading the literal wall clock therefore makes the
+    ANSWER a function of the minute the build happened to run: two teams within
+    a few hours of each other in a season's ownership race trade places between
+    one build and the next with no new data in between. The 2026-09-16 health
+    email was exactly that and nothing else — Ray Davis (shmuel256 -> plehv79,
+    crossing 09:01:52 UTC) and Tre Tucker (shmuel256 -> AceMatthew, 10:16:10 UTC),
+    both inside the 17 hours between the Tuesday build (run 511, 01:38 UTC) and
+    the Wednesday rebuild that audits it (18:35 UTC).
+
+    So the clock advances with the DATA instead:
+
+      * the most recent fantasy week whose games are final, which is what makes
+        "who has held him most of this season" a question about football rather
+        than about scheduling; and
+      * the latest tenure event on record when that is later — the offseason,
+        where no week has completed since January but roster moves keep
+        happening, so freezing ownership at the championship would stall every
+        offseason race.
+
+    Both are properties of the dataset, so a rebuild that learns nothing new
+    reproduces the same ranking. Neither can be ahead of `now`, and with neither
+    available (no season on the calendar yet, no dated tenure) the wall clock is
+    the fallback — the old behaviour.
+
+    `latest_event` is a LEAGUE-wide clock, not a per-player one: a move anywhere
+    advances every open tenure. Deliberately — a per-player clock would freeze a
+    player nobody has touched since August — and a week that saw a move is
+    already a week in which the audit treats the tenure columns as event-driven
+    (`audit_weekly._EVENT_COLUMNS`), so the two agree about when these may move.
+    """
+    now = now or datetime.now(timezone.utc)
+    cands = [c for c in (_last_final_week_cutoff(now, first_season), latest_event)
+             if c is not None and c <= now]
+    return max(cands) if cands else now
+
+
 def _season_is_complete(season: int, now: Optional[datetime] = None) -> bool:
     """True once the season's fantasy championship is over. Week 18's Tuesday
     cutoff is comfortably after the fantasy final (≤ NFL week 17), so we gate on
@@ -14115,7 +14179,38 @@ def build_all(repo_root: Path) -> None:
         except Exception:
             return None
 
-    _now_dt = datetime.now(timezone.utc)
+    # The tenure ledger's clock. NOT the wall clock — see `_tenure_as_of`: an
+    # open tenure measured to "right now" makes every Top-team argmax depend on
+    # the minute the build ran, which is how a rebuild with no new data in it
+    # reported two moved rows. Computed from the tenure dates themselves plus
+    # the fantasy calendar, so it only advances when the data does.
+    _wall_now = datetime.now(timezone.utc)
+    _latest_tenure_event: Optional[datetime] = None
+    _first_tenure_season: Optional[int] = None
+    try:
+        for _tlist in player_tenures.values():
+            for _t in _tlist:
+                for _k in ("start", "end"):
+                    _d = _iso_to_dt(_t.get(_k))
+                    if _d is None:
+                        continue
+                    # Tenure dates are offset-aware everywhere they are written;
+                    # a naive one would raise on the comparison below rather than
+                    # sort wrongly, so read it as UTC instead of dropping it.
+                    if _d.tzinfo is None:
+                        _d = _d.replace(tzinfo=timezone.utc)
+                    if _d <= _wall_now and (_latest_tenure_event is None
+                                            or _d > _latest_tenure_event):
+                        _latest_tenure_event = _d
+                    if _first_tenure_season is None or _d.year < _first_tenure_season:
+                        _first_tenure_season = _d.year
+    except Exception as e:
+        _log_exc(debug, "tenure_as_of_scan", e)
+        _latest_tenure_event = None
+    _as_of_dt = _tenure_as_of(_wall_now, _latest_tenure_event,
+                              _first_tenure_season or 2020)
+    _log(debug, f"[{_now_iso()}] tenure as-of clock = {_as_of_dt.isoformat()} "
+                f"(wall clock {_wall_now.isoformat()})")
 
     # Phase 3A.3 rewrite — fantasy year throughout. Calendar year is
     # never used here. Per user mandate: "we should never being using
@@ -14263,8 +14358,8 @@ def build_all(repo_root: Path) -> None:
             if not tm:
                 continue
             tenure_teams_all[_pid].add(str(tm))
-            s_dt = _iso_to_dt(t.get("start")) or _now_dt
-            e_dt = _iso_to_dt(t.get("end")) or _now_dt
+            s_dt = _iso_to_dt(t.get("start")) or _as_of_dt
+            e_dt = _iso_to_dt(t.get("end")) or _as_of_dt
             if e_dt < s_dt:
                 e_dt = s_dt
             _tz = s_dt.tzinfo or timezone.utc
@@ -15043,10 +15138,11 @@ def build_all(repo_root: Path) -> None:
                 straight from player_tenures. Bounded at Sept 1 yr so it captures
                 only the lead-in (in-season players already have an FY-yr entry +
                 a pw-derived row, so they never reach this path). For the live
-                season Sept 1 yr is in the future, so the bound is `now`.
+                season Sept 1 yr is in the future, so the bound is the
+                tenure ledger's as-of clock (`_tenure_as_of`, not the wall clock).
                 Returns (secs_by_team, last_event). Fix #1."""
                 _lead_start = datetime(int(yr), 1, 1, tzinfo=timezone.utc)
-                _lead_end = min(_now_dt, datetime(int(yr), 9, 1, tzinfo=timezone.utc))
+                _lead_end = min(_as_of_dt, datetime(int(yr), 9, 1, tzinfo=timezone.utc))
                 _secs: Dict[str, float] = defaultdict(float)
                 _last: Optional[Tuple[datetime, str]] = None
                 for t in player_tenures.get(str(sid), []):
@@ -15054,7 +15150,7 @@ def build_all(repo_root: Path) -> None:
                     if not tm:
                         continue
                     s_dt = _iso_to_dt(t.get("start"))
-                    e_dt = _iso_to_dt(t.get("end")) or _now_dt
+                    e_dt = _iso_to_dt(t.get("end")) or _as_of_dt
                     if s_dt is None:
                         continue
                     ov_s = max(s_dt, _lead_start)
