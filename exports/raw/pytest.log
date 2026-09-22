@@ -118,7 +118,7 @@ tests/test_forecast.py::test_the_age_curve_says_players_decline PASSED   [ 25%]
 tests/test_forecast.py::test_rookies_are_priced_by_the_market_and_the_fit_is_real PASSED [ 25%]
 tests/test_forecast.py::test_rookie_class_strength_compares_like_for_like PASSED [ 26%]
 tests/test_forecast.py::test_taxi_players_are_not_startable PASSED       [ 26%]
-tests/test_forecast.py::test_injuries_cost_points_and_depth_decides_how_many PASSED [ 26%]
+tests/test_forecast.py::test_injuries_cost_points_and_depth_decides_how_many FAILED [ 26%]
 tests/test_forecast.py::test_preseason_injury_flags_are_stale_and_are_not_believed PASSED [ 26%]
 tests/test_forecast.py::test_the_backtest_may_not_see_the_present PASSED [ 26%]
 tests/test_forecast.py::test_the_research_file_is_sourced_dated_and_lands_on_real_players PASSED [ 27%]
@@ -400,7 +400,7 @@ tests/test_startup_league_remaining.py::test_startup_league_remaining PASSED [ 9
 tests/test_synthesized_rows.py::test_team_year_counts_every_row_of_its_detail_sheets PASSED [ 91%]
 tests/test_synthesized_rows.py::test_the_named_case_is_counted_in_full PASSED [ 91%]
 tests/test_synthesized_rows.py::test_the_lineage_rows_are_really_there_to_be_counted PASSED [ 91%]
-tests/test_synthesized_rows.py::test_an_in_season_synthesized_row_lands_in_a_week PASSED [ 92%]
+tests/test_synthesized_rows.py::test_an_in_season_synthesized_row_lands_in_a_week FAILED [ 92%]
 tests/test_tenure_as_of_clock.py::test_the_last_final_week_is_the_one_whose_games_are_over PASSED [ 92%]
 tests/test_tenure_as_of_clock.py::test_no_week_is_final_before_the_first_season_kicks_off PASSED [ 92%]
 tests/test_tenure_as_of_clock.py::test_the_week_clock_never_runs_ahead_of_now PASSED [ 92%]
@@ -436,6 +436,72 @@ tests/test_workflow_schedules.py::test_recoverable_work_does_not_get_one PASSED 
 tests/test_workflow_schedules.py::test_the_catch_up_is_guarded_and_the_guard_can_only_gate_the_build PASSED [ 99%]
 tests/test_workflow_schedules.py::test_the_health_baseline_carries_what_the_audit_reads_from_it PASSED [100%]
 
+=================================== FAILURES ===================================
+_____________ test_injuries_cost_points_and_depth_decides_how_many _____________
+
+    def test_injuries_cost_points_and_depth_decides_how_many():
+        if not _HAVE_DATA:
+            return _skip("no exports/snapshot")
+        year = _live_season() or _seasons()[-1]
+        dist = F.fielded_distribution(year, availability=dataclasses.replace(
+            F.AvailabilityModel(), draws=400))
+        for rid in dist.mean:
+            cost = dist.depth_cost(rid)
+            assert cost > 0, f"{dist.teams[rid]} loses nothing to injuries, which cannot be right"
+            assert cost < 30, f"{dist.teams[rid]} loses {cost:.1f} pts/wk, which is not plausible"
+            assert dist.sd[rid] > 0
+        costs = {dist.teams[r]: round(dist.depth_cost(r), 1) for r in dist.mean}
+        print(f"  depth cost by team: {costs}")
+        # the cost is not the same for everyone — that is the whole point
+        assert max(costs.values()) - min(costs.values()) > 0.5, costs
+        # and a team that loses more to injuries also swings more week to week
+        order = sorted(dist.mean, key=lambda r: dist.depth_cost(r))
+        rank = lambda a: np.argsort(np.argsort(a))  # noqa: E731
+        rho = float(np.corrcoef(rank([dist.depth_cost(r) for r in order]),
+                                rank([dist.sd[r] for r in order]))[0, 1])
+>       assert rho > 0.5, f"depth cost and weekly spread should move together (rho={rho:.2f})"
+E       AssertionError: depth cost and weekly spread should move together (rho=0.40)
+E       assert 0.4047619047619048 > 0.5
+
+tests/test_forecast.py:276: AssertionError
+----------------------------- Captured stdout call -----------------------------
+  depth cost by team: {'stevenb123': 3.4, 'JacobRosenzweig': 3.5, 'AceMatthew': 3.9, 'BROsenzweig': 3.8, 'plehv79': 3.4, 'LWebs53': 7.2, 'Oliverwkw': 3.6, 'shmuel256': 9.6}
+______________ test_an_in_season_synthesized_row_lands_in_a_week _______________
+
+    def test_an_in_season_synthesized_row_lands_in_a_week():
+        """A synthesized row made during the season has a week, so it must not widen
+        the team_year / team_week gap. Only the rows with no week may — and the
+        build's rule for that is a date more than 7 days before kickoff."""
+        if not _HAVE or not (_EXPORTS / "team_week.csv").exists():
+            return _skip("no exports/")
+        from collections import defaultdict
+        weeks = defaultdict(int)
+        played = set()
+        for r in _rows("team_week.csv"):
+            played.add(int(r["Year"]))
+            v = _num(r.get("Total transactions"))
+            if v is not None:
+                weeks[(r["Team"], int(r["Year"]))] += int(v)
+        weekless = defaultdict(int)
+        for sheet in ("add_drops.csv", "trades.csv"):
+            for r in _rows(sheet):
+                season = int(r["Season"])
+                when = date.fromisoformat(str(r["Date"])[:10])
+                if not lotg._season_week_of(when, season):
+                    weekless[(r["Team"], season)] += 1
+        n = _detail_counts()
+        checked = 0
+        for key, total in n.items():
+            if key[1] not in played:
+                continue
+            checked += 1
+>           assert total - weeks[key] <= weekless[key], (
+                key, total, weeks[key], weekless[key],
+                "more moves missing from the weeks than have no week to sit in")
+E           AssertionError: (('shmuel256', 2026), 20, 9, 10, 'more moves missing from the weeks than have no week to sit in')
+E           assert (20 - 9) <= 10
+
+tests/test_synthesized_rows.py:140: AssertionError
 =============================== warnings summary ===============================
 tests/test_contracts.py::test_weekly_value_is_the_season_value_divided_by_games
   /opt/hostedtoolcache/Python/3.11.16/x64/lib/python3.11/site-packages/_pytest/python.py:171: PytestReturnNotNoneWarning: Test functions should return None, but tests/test_contracts.py::test_weekly_value_is_the_season_value_divided_by_games returned <class 'bool'>.
@@ -486,4 +552,9 @@ tests/test_forecast.py::test_an_unsigned_player_cannot_score
     warnings.warn(
 
 -- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
-================= 430 passed, 8 warnings in 220.17s (0:03:40) ==================
+=========================== short test summary info ============================
+FAILED tests/test_forecast.py::test_injuries_cost_points_and_depth_decides_how_many - AssertionError: depth cost and weekly spread should move together (rho=0.40)
+assert 0.4047619047619048 > 0.5
+FAILED tests/test_synthesized_rows.py::test_an_in_season_synthesized_row_lands_in_a_week - AssertionError: (('shmuel256', 2026), 20, 9, 10, 'more moves missing from the weeks than have no week to sit in')
+assert (20 - 9) <= 10
+============ 2 failed, 428 passed, 8 warnings in 312.51s (0:05:12) =============
