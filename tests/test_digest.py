@@ -1952,6 +1952,17 @@ def check_this_weeks_rows_are_told_once():
     tb = [h for h in out if h.entity == "Tahj Brooks"]
     ok &= _ok("a running total's move becomes a single-week line",
               tb and "passing Deshaun Watson 2024 week 17" in tb[0].detail(), tb and tb[0].detail())
+    # Old weeks keep their season and week — even last week of this season.
+    hl2 = [D.WeeklyHighlight("teams", "LWebs53", "Number of WR rostered", "high", 1, 19.0, week=2)]
+    ev2 = [D.EventCrossing("team_week", "LWebs53 2026 week 2", "Number of WR rostered", "high", 1,
+                           19.0, passed=("LWebs53 2026 week 1",)),
+           D.EventCrossing("league_week", "2026 week 2", "Number of players under 10", "high", 1,
+                           131.0, passed=("2024 week 2",))]
+    out2, _r = D.fold_week_boards(hl2, ev2, {}, [(2026, 2)])
+    lines = [h.line() for h in out2]
+    ok &= _ok("a passed row from an earlier week keeps its year and week",
+              any("passing LWebs53 2026 week 1" in x for x in lines)
+              and any("passing 2024 week 2" in x for x in lines), lines)
     ok &= _ok("nothing of this week is left on the week board",
               [e.label for e in rest] == ["Kyler Murray 2026 week 1"], [e.label for e in rest])
     secs = dict((t, i) for t, _g, i in D.digest_sections(highlights=out, events=rest))
