@@ -34,7 +34,7 @@ from __future__ import annotations
 
 from bisect import bisect_left
 from collections import Counter as _Counter
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Sequence, Tuple
@@ -207,6 +207,75 @@ def _fmt_stat(column: Optional[str], value: float) -> str:
     if column is not None and column in _PERCENT_COLUMNS:
         return f"{_fmt(value * 100)}%"
     return _fmt(value)
+
+
+# How a column is NAMED in the email, where the spreadsheet's neighbouring
+# columns are not there to explain it. Keys are (sheet, column); sheet "" applies
+# on every sheet. Display only: snapshot keys, attribution and the phrasing
+# catalog all keep the real column name.
+_PHRASING = {
+    ("trades", "Difference of averages"): "PPG difference (received − sent)",
+    ("trades", "Difference of averages adjusted by position"):
+        "position-adjusted PPG difference (received − sent)",
+    ("trades", "Points added"): "Points added by received starters",
+    ("trades", "Points lost"): "Points forgone from sent players",
+    ("trades", "Net points"): "Net points (added − forgone)",
+    ("trades", "Avg points added"): "Avg points added per week",
+    ("trades", "Avg points lost"): "Avg points forgone per week",
+    ("trades", "Avg net points"): "Avg net points per week (added − forgone)",
+    ("trades", "Avg points added adjusted by position"):
+        "position-adjusted avg points added per week",
+    ("trades", "Avg points lost adjusted by position"):
+        "position-adjusted avg points forgone per week",
+    ("trades", "Avg net points adjusted by position"):
+        "position-adjusted avg net points per week",
+    ("trades", "Asset difference in average age"): "Age change (received − sent assets)",
+    ("add_drops", "Difference of averages"): "PPG difference (added − dropped player)",
+    ("add_drops", "Difference of averages adjusted by position"):
+        "position-adjusted PPG difference (added − dropped player)",
+    ("add_drops", "Points Added"): "Points added by the added player's starts",
+    ("add_drops", "Points Lost"): "Points the dropped player scored in those weeks",
+    ("add_drops", "Net points"): "Net points (added − dropped player)",
+    ("add_drops", "Avg points added"): "Avg points added per start",
+    ("add_drops", "Avg points lost"): "Avg dropped-player points per start",
+    ("add_drops", "Avg net points"): "Avg net points per start (added − dropped player)",
+    ("add_drops", "Avg points added adjusted by position"):
+        "position-adjusted avg points added per start",
+    ("add_drops", "Avg points lost adjusted by position"):
+        "position-adjusted avg dropped-player points per start",
+    ("add_drops", "Avg net points adjusted by position"):
+        "position-adjusted avg net points per start",
+    ("add_drops", "Age difference"): "Age difference (added − dropped player)",
+    ("add_drops", "Faab"): "FAAB bid",
+    ("add_drops", "Dropped avg points"): "Dropped player's PPG after the drop (negated)",
+    ("add_drops", "Dropped total points"): "Dropped player's points after the drop (negated)",
+    ("trades", "Tanking"): "Tank-score change from the trade",
+    ("add_drops", "Tanking"): "Tank-score change from the move",
+    ("player_additions", "Tanking"): "Tank-score change from the pickup",
+    ("rookie_picks", "Tanking"): "Tank-score change from the pick",
+    ("non_rookie_picks", "Tanking"): "Tank-score change from the pick",
+    ("", "Cuff adjusted difference"): "Cuff-adjusted start/sit difference (5-game averages)",
+    ("", "UPST"): "Upset wins",
+}
+# "Number of players over 30" is points, not age: say so.
+_POINTS_THRESHOLD = re.compile(r"^(Number of (?:players|starters|games) (?:over|under|within) \d+)$")
+# Which sheet a section's crossings / highlights / projections are ranked on.
+_SECTION_SHEET = {
+    ("crossing", "players"): "player_all_time", ("crossing", "teams"): "team_all_time",
+    ("week", "players"): "player_week", ("week", "teams"): "team_week",
+    ("week", "league"): "league_week",
+    ("year", "players"): "player_year", ("year", "teams"): "team_year",
+    ("year", "league"): "league_year",
+}
+
+
+def display_column(column: str, sheet: str = "") -> str:
+    """The column as the email names it: the sheet's phrasing (`_PHRASING`), an
+    award's "?" dropped ("Times as Highest starter on team"), and "pts" on a
+    points threshold ("Number of players over 30 pts")."""
+    name = _PHRASING.get((sheet, column)) or _PHRASING.get(("", column)) or column
+    name = _POINTS_THRESHOLD.sub(r"\1 pts", name)
+    return name[:-1] if name.endswith("?") else name
 
 
 def _tie(tied: bool) -> str:
@@ -475,8 +544,20 @@ def _name_list(names: Sequence[str]) -> str:
 _MAX_JOIN_TIE = 5
 
 
+def _tie_fits(rank: int, holders: int, window: int) -> bool:
+    """A place shared by `holders` rows is a top-`window` place only if the WHOLE
+    tie fits inside the window. Competition ranks give a tie the places it takes
+    up, so a three-way tie for 4th fills 4th-6th and sits partly off a top-5
+    board: "Jalen Royals joins a tie for 4th-highest Rostered consistency
+    percentile" named a place three players cannot all hold. So a two-way tie for
+    5th, a three-way for 4th, a four-way for 3rd ... is reported nowhere, and a
+    tie for 1st still reports up to `window` holders."""
+    return rank + max(1, holders) - 1 <= window
+
+
 def _crossing_detail(joined: bool, others: Sequence[str], passed: Sequence[str],
-                     place: str, column: str, value: Optional[float]) -> str:
+                     place: str, column: str, value: Optional[float],
+                     sheet: str = "") -> str:
     """Shared phrasing for an all-time / event-board move.
 
     joined:  the mover ARRIVED at a value others already hold (a tie), rather
@@ -485,6 +566,7 @@ def _crossing_detail(joined: bool, others: Sequence[str], passed: Sequence[str],
     passed:  the entities the mover overtook (one, or several when it leapt a
              whole tie), named in full."""
     val = f" ({_fmt_stat(column, value)})" if value is not None else ""
+    column = display_column(column, sheet)
     if joined:
         if len(others) == 1:
             return f"joins a tie with {others[0]} for {place} {column}{val}"
@@ -609,7 +691,8 @@ class Crossing:
 
     def detail(self) -> str:
         return _crossing_detail(self.joined, self.others, self.passed,
-                                _place(self.rank, self.end), self.column, self.value)
+                                _place(self.rank, self.end), self.column, self.value,
+                                _SECTION_SHEET.get(("crossing", self.section), ""))
 
     def sentence(self) -> str:
         # No "all-time": the section header says it, and EventCrossing — the same
@@ -664,11 +747,19 @@ def _column_crossings(section: str, column: str,
             old_rank = n + 1 if arrived else prev_rank.get(mover_prev)
             if old_rank is None or new_rank >= old_rank:
                 continue  # not improved toward this end
+            # Nor did it climb if its own value did not move toward this end: the
+            # rows above it fell. Week 2 of 2026, Christian Watson won his first
+            # start in 39 weeks and left the bottom of Win % as starter, and "Gerald
+            # Everett passes Christian Watson for 3rd-lowest" was Everett, at the
+            # same 11.1% as last week, standing still.
+            if mover_prev is not None and not _improved(v, mover_prev, end):
+                continue
             others = [x for x, xv in curr_val.items()
                       if x != mover and xv == v]
             if others:
-                # Joined a tie. Suppress once it exceeds five holders total.
-                if len(others) >= _MAX_JOIN_TIE:
+                # Joined a tie. Suppress once it exceeds five holders total, or
+                # runs off the end of the window (`_tie_fits`).
+                if len(others) >= _MAX_JOIN_TIE or not _tie_fits(new_rank, len(others) + 1, window):
                     continue
                 # A mover whose own value did not change joined nothing: the others
                 # came to IT. On 2026-09-15 three teams long at 0 "joined a tie for
@@ -688,9 +779,14 @@ def _column_crossings(section: str, column: str,
                 continue
             # Landed alone: everyone that was ahead of the mover and is now behind
             # it got overtaken (a whole tie counts as several).
+            # Only rows that held a place on the board last week are named: the
+            # row that lost its place, not everyone the mover leapt to get there
+            # (Jaxson Dart's 18.6 -> 1.7 "passed" 58 players, 55 of whom were
+            # never on the bottom-5 board).
             passed = [x for x in curr_val
                       if x != mover and x in prev_val
                       and prev_rank.get(prev_val[x], n + 1) < old_rank
+                      and prev_rank.get(prev_val[x], n + 1) <= window
                       and curr_rank[curr_val[x]] > new_rank]
             if not passed:
                 continue
@@ -748,17 +844,20 @@ class Projection:
     def group(self) -> str:
         return "The league" if self.section == "league" else self.entity
 
+    def name(self) -> str:
+        return display_column(self.column, _SECTION_SHEET.get(("year", self.section), ""))
+
     def detail(self) -> str:
-        return (f"{_place(self.rank, self.end)} {self.column} "
+        return (f"{_place(self.rank, self.end)} {self.name()} "
                 f"({_fmt_stat(self.column, self.projected)}){_tie(self.tied)}")
 
     def sentence(self) -> str:
         val = f"{_fmt_stat(self.column, self.projected)}){_tie(self.tied)}"
         if self.final:
             return (f"{self.group()} finished with the {_place(self.rank, self.end)} "
-                    f"{self.column} of any season ({val}.")
+                    f"{self.name()} of any season ({val}.")
         return (f"{self.group()} is on pace for {_place(self.rank, self.end)} "
-                f"{self.column} this season ({val}.")
+                f"{self.name()} this season ({val}.")
 
 
 def _is_boolean(values: Sequence[float]) -> bool:
@@ -805,9 +904,9 @@ def _project_frame(
             continue
         rate = is_rate_stat(col)
         # Project each current entity, then rank ALL entity-seasons (history +
-        # this season's projections) together, by DISTINCT value, skipping any
-        # value shared by more than _MAX_HIGHLIGHT_TIES (the only exclusion — this
-        # is how 0/1 flags and heavily-tied stats fall out).
+        # this season's projections) together by competition rank, skipping any
+        # value shared by more than _MAX_HIGHLIGHT_TIES (how 0/1 flags and
+        # heavily-tied stats fall out) or tied past the window (`_tie_fits`).
         proj_by_entity = []
         for _, r in curr.iterrows():
             cur = _to_float(r[col])
@@ -819,18 +918,21 @@ def _project_frame(
             continue
         pool = hist_vals + [p for _, p in proj_by_entity]
         counts = _Counter(pool)
-        high_rank = {v: i + 1 for i, v in enumerate(sorted(counts, reverse=True))}
-        low_rank = {v: i + 1 for i, v in enumerate(sorted(counts))}
+        # Competition ranks, as every other board: a tie takes up its places.
+        high_rank = competition_ranks(pool, "high")
+        low_rank = competition_ranks(pool, "low")
         total = len(pool)
         for entity, projected in proj_by_entity:
             if counts[projected] > _MAX_HIGHLIGHT_TIES:
                 continue
             tied = counts[projected] > 1
             if high_rank[projected] <= window:
-                projections.append(Projection(section, entity, col, "high",
-                                              high_rank[projected], total, projected,
-                                              tied=tied))
-            elif low_rank[projected] <= window:
+                if _tie_fits(high_rank[projected], counts[projected], window):
+                    projections.append(Projection(section, entity, col, "high",
+                                                  high_rank[projected], total, projected,
+                                                  tied=tied))
+            elif low_rank[projected] <= window and _tie_fits(low_rank[projected],
+                                                              counts[projected], window):
                 projections.append(Projection(section, entity, col, "low",
                                               low_rank[projected], total, projected,
                                               tied=tied))
@@ -926,11 +1028,14 @@ class YearlyRecord:
     def group(self) -> str:
         return "The league" if self.section == "league" else self.entity
 
+    def name(self) -> str:
+        return display_column(self.column, _SECTION_SHEET.get(("year", self.section), ""))
+
     def detail(self) -> str:
-        return f"{self.column} ({_fmt_stat(self.column, self.value)})"
+        return f"{self.name()} ({_fmt_stat(self.column, self.value)})"
 
     def sentence(self) -> str:
-        return (f"{self.group()} sets a new single-season record for {self.column} "
+        return (f"{self.group()} sets a new single-season record for {self.name()} "
                 f"({_fmt_stat(self.column, self.value)}) — most in any season"
                 f"{_tie(self.tied)}.")
 
@@ -1051,19 +1156,42 @@ class WeeklyHighlight:
     show_week: bool = False
     # Another week on record holds the same value: "highest ever (tie)".
     tied: bool = False
+    # Who the week-board move behind this record passed or tied, named (see
+    # `fold_week_boards`): "— lowest ever, tied with Kyle Pitts".
+    others: tuple = ()
+    passed: tuple = ()
+    # This week's opponent, on a stat measured against him (`_OPPONENT_MARKERS`).
+    opponent: str = ""
 
     def group(self) -> str:
         return "The league" if self.section == "league" else self.entity
 
+    def _value(self) -> str:
+        """"75", or "75 vs LWebs53" on a stat measured against the opponent."""
+        v = _fmt_stat(self.column, self.value)
+        return f"{v} vs {self.opponent}" if self.opponent else v
+
+    def _name(self) -> str:
+        return display_column(self.column, _SECTION_SHEET.get(("week", self.section), ""))
+
+    def _against(self) -> str:
+        """", tied with X" / ", passing X and Y" — or "(tie)" when a tie is not
+        named (three or more holders)."""
+        if len(self.others) == 1:
+            return f", tied with {self.others[0]}"
+        if self.passed:
+            return f"{_tie(self.tied)}, passing {_name_list(self.passed)}"
+        return _tie(self.tied)
+
     def detail(self) -> str:
         wk = f" [week {self.week}]" if self.show_week and self.week else ""
-        return (f"{self.column} ({_fmt_stat(self.column, self.value)}) — "
-                f"{_place(self.rank, self.end)} ever{_tie(self.tied)}{wk}")
+        return (f"{self._name()} ({self._value()}) — "
+                f"{_place(self.rank, self.end)} ever{self._against()}{wk}")
 
     def sentence(self) -> str:
-        return (f"{self.group()}'s {self.column} this week "
-                f"({_fmt_stat(self.column, self.value)}) is the "
-                f"{_place(self.rank, self.end)} single week ever{_tie(self.tied)}.")
+        return (f"{self.group()}'s {self._name()} this week "
+                f"({self._value()}) is the "
+                f"{_place(self.rank, self.end)} single week ever{self._against()}.")
 
     def line(self) -> str:
         # "…'s Points this week (55) is the highest single week ever" under a
@@ -1140,9 +1268,10 @@ def _highlights_for_frame(section: str, wk_df: pd.DataFrame, entity_col: str,
             entity = str(r[entity_col]) if has_entity else "The league"
             tied = counts[v] > 1
             if high_rank[v] <= window:
-                out.append(WeeklyHighlight(section, entity, col, "high", high_rank[v], v,
-                                           week=int(week), tied=tied))
-            elif low_rank[v] <= window:
+                if _tie_fits(high_rank[v], counts[v], window):
+                    out.append(WeeklyHighlight(section, entity, col, "high", high_rank[v], v,
+                                               week=int(week), tied=tied))
+            elif low_rank[v] <= window and _tie_fits(low_rank[v], counts[v], window):
                 out.append(WeeklyHighlight(section, entity, col, "low", low_rank[v], v,
                                            week=int(week), tied=tied))
     return out
@@ -1210,11 +1339,13 @@ class EventHighlight:
         return self.label
 
     def detail(self) -> str:
-        return (f"{self.column} of {_fmt_stat(self.column, self.value)} —"
+        return (f"{display_column(self.column, self.sheet)} of "
+                f"{_fmt_stat(self.column, self.value)} —"
                 f"{_place(self.rank, self.end)} of any {self.sheet[:-1]} ever")
 
     def sentence(self) -> str:
-        return (f"{self.label}: {self.column} of {_fmt_stat(self.column, self.value)} —"
+        return (f"{self.label}: {display_column(self.column, self.sheet)} of "
+                f"{_fmt_stat(self.column, self.value)} —"
                 f"{_place(self.rank, self.end)} of any {self.sheet[:-1]} ever.")
 
 
@@ -1676,7 +1807,7 @@ def _board_places(pool: "pd.Series", end: str, window: int,
         return {}
     counts = pool.value_counts()
     return {v: r for v, r in competition_ranks(pool.tolist(), end).items()
-            if r <= window and counts[v] <= max_ties}
+            if r <= window and counts[v] <= max_ties and _tie_fits(r, counts[v], window)}
 
 
 def board_highlights(df: pd.DataFrame, sheet: str, window: int = WINDOW,
@@ -1955,16 +2086,25 @@ class EventCrossing:
     # when it arrived from off the board (most re-valuations) — see Crossing.
     prev_value: Optional[float] = None
     key: str = ""               # the row key (identity), for `release_lead`
+    # Label -> how the email names it, where that differs (an opponent added,
+    # `name_opponents`). Display only: `label` stays the identity everything
+    # else reads.
+    shown: dict = field(default_factory=dict)
+
+    def _show(self, label: str) -> str:
+        return self.shown.get(label, label)
 
     def group(self) -> str:
-        return self.label
+        return self._show(self.label)
 
     def detail(self) -> str:
-        return _crossing_detail(self.joined, self.others, self.passed,
-                                _place(self.rank, self.end), self.column, self.value)
+        return _crossing_detail(self.joined, tuple(map(self._show, self.others)),
+                                tuple(map(self._show, self.passed)),
+                                _place(self.rank, self.end), self.column, self.value,
+                                self.sheet)
 
     def sentence(self) -> str:
-        return f"{self.label} {self.detail()}."
+        return f"{self.group()} {self.detail()}."
 
 
 def event_board(events: Sequence[EventHighlight]) -> list:
@@ -2174,7 +2314,7 @@ def diff_events(prior_board, events: Sequence[EventHighlight],
             # it fell to it. That is the faller's news, told from the wrong side.
             _prev_v = slot["val_by_key"].get(e.key)
             if (not _is_new(e) and _prev_v is not None and e.value is not None
-                    and abs(_prev_v - e.value) < 1e-9):
+                    and not _improved(e.value, _prev_v, e.end)):
                 continue
             if not _is_new(e) and _nobody_moved(
                     slot["val_by_key"].get(e.key), e.value, e.end, slot.get("cutoff"),
@@ -2191,6 +2331,12 @@ def diff_events(prior_board, events: Sequence[EventHighlight],
         passed = [lbl for lbl in slot["by_rank"].get(e.rank, [])
                   if lbl != e.label and not (own is not None and own(lbl))]
         if not passed:
+            continue
+        # A row that climbed without its own value moving toward this end was
+        # carried up by a row above it falling — see `_column_crossings`.
+        _prev_v = slot["val_by_key"].get(e.key)
+        if (not _is_new(e) and _prev_v is not None and e.value is not None
+                and not _improved(e.value, _prev_v, e.end)):
             continue
         # An overtake nobody can see is not news — see _indistinguishable. Only
         # the passed rows still ON the board have a current value to compare; a
@@ -2214,6 +2360,117 @@ def diff_events(prior_board, events: Sequence[EventHighlight],
                                  prev_value=slot["val_by_key"].get(e.key),
                                  key=e.key))
     return out
+
+
+# ---------------------------------------------------------------------------
+# This week's rows, told once; opponents named
+# ---------------------------------------------------------------------------
+_WEEK_LABEL = re.compile(r"^(?P<who>.*?)\s*\b(?P<year>\d{4}) week (?P<week>\d+)$")
+_WEEK_SHEET_SECTION = {"player_week": "players", "team_week": "teams", "league_week": "league"}
+# A stat measured against the week's opponent: the email names him on every row.
+_OPPONENT_MARKERS = ("opponent",)
+
+
+def _week_of(label: str) -> Optional[Tuple[str, int, int]]:
+    """("Kyle Pitts", 2026, 2) from "Kyle Pitts 2026 week 2"; who is "" for a
+    league week ("2026 week 2")."""
+    m = _WEEK_LABEL.match(str(label))
+    return (m.group("who"), int(m.group("year")), int(m.group("week"))) if m else None
+
+
+def _opponent_map(frames: dict) -> Dict[Tuple[str, int, int], str]:
+    tw = (frames or {}).get("team_week")
+    if tw is None or tw.empty or not {"Team", "Year", "Week", "Opponent"} <= set(tw.columns):
+        return {}
+    out = {}
+    for t, y, w, o in zip(tw["Team"], pd.to_numeric(tw["Year"], errors="coerce"),
+                          pd.to_numeric(tw["Week"], errors="coerce"), tw["Opponent"]):
+        if pd.notna(y) and pd.notna(w) and isinstance(o, str) and o.strip():
+            out[(str(t), int(y), int(w))] = o.strip()
+    return out
+
+
+def _is_opponent_stat(sheet: str, column: str) -> bool:
+    return sheet == "team_week" and any(m in column.lower() for m in _OPPONENT_MARKERS)
+
+
+def _with_opponent(label: str, opponents: dict) -> str:
+    wk = _week_of(label)
+    opp = opponents.get((wk[0], wk[1], wk[2])) if wk else None
+    return f"{label} (vs {opp})" if opp else label
+
+
+def name_opponents(events: Sequence["EventCrossing"], frames: dict) -> None:
+    """Name the opponent on every row of a stat measured against him ("Win streak
+    vs this opponent", "Difference in pregame avg max PF from opponent"): the
+    mover and each row it passed or tied, which each had their own opponent.
+    Display only (`EventCrossing.shown`)."""
+    opponents = _opponent_map(frames)
+    for e in events:
+        if not _is_opponent_stat(e.sheet, e.column):
+            continue
+        for lbl in (e.label,) + tuple(e.others) + tuple(e.passed):
+            e.shown[lbl] = _with_opponent(lbl, opponents)
+
+
+def fold_week_boards(highlights: Sequence[WeeklyHighlight],
+                     events: Sequence["EventCrossing"], frames: dict,
+                     weeks: Sequence[Tuple[int, int]]
+                     ) -> Tuple[List[WeeklyHighlight], List["EventCrossing"]]:
+    """Tell each of this week's rows ONCE, in the single-week section.
+
+    A new record on a week board used to print twice: "Kaleb Johnson: Difference
+    ... (-37.3) — lowest ever (tie)" under the single-week records, then "Kaleb
+    Johnson 2026 week 2 joins a tie with Kyle Pitts 2026 week 2 for lowest ..."
+    under player weeks. The board move now rides on its record as who it tied or
+    passed; a move with no record of its own (a running total — a streak, a
+    career count) becomes a single-week line itself. This week's rows are named
+    without their week (the section says which week); earlier weeks' moves stay
+    on the week boards. `weeks`: the (season, week)s this digest covers."""
+    weeks = {(int(a), int(b)) for a, b in weeks}
+    opponents = _opponent_map(frames)
+    out = list(highlights)
+    index = {}
+    for h in out:
+        who = "" if h.section == "league" else h.entity
+        index[(h.section, who, h.column, h.end, int(h.week or 0))] = h
+    rest: List["EventCrossing"] = []
+
+    def name(lbl: str, sheet: str, column: str) -> str:
+        wk = _week_of(lbl)
+        if wk and (wk[1], wk[2]) in weeks:
+            short = wk[0] or "this week"
+            if _is_opponent_stat(sheet, column):
+                opp = opponents.get((wk[0], wk[1], wk[2]))
+                return f"{short} (vs {opp})" if opp else short
+            return short
+        return _with_opponent(lbl, opponents) if _is_opponent_stat(sheet, column) else lbl
+
+    for e in events:
+        wk = _week_of(e.label) if e.sheet in _WEEK_SHEET_SECTION else None
+        if not wk or (wk[1], wk[2]) not in weeks:
+            rest.append(e)
+            continue
+        section = _WEEK_SHEET_SECTION[e.sheet]
+        who, _y, week = wk
+        others = tuple(name(x, e.sheet, e.column) for x in e.others)
+        passed = tuple(name(x, e.sheet, e.column) for x in e.passed)
+        h = index.get((section, who, e.column, e.end, week))
+        if h is None:
+            h = WeeklyHighlight(section, who or "The league", e.column, e.end, e.rank,
+                                float(e.value), week=week, tied=e.joined)
+            out.append(h)
+            index[(section, who, e.column, e.end, week)] = h
+        h.others, h.passed = (others, ()) if e.joined else ((), passed)
+        h.tied = h.tied or e.joined
+    for h in out:
+        if h.section == "teams" and _is_opponent_stat("team_week", h.column) and h.week:
+            h.opponent = opponents.get((h.entity, _season_of(weeks, h.week), int(h.week)), "")
+    return out, rest
+
+
+def _season_of(weeks: set, week: int) -> int:
+    return next((y for y, w in weeks if w == int(week)), 0)
 
 
 _WEEK_ROW_SUFFIX = re.compile(r"\s*\b\d{4} week \d+$")
@@ -2649,7 +2906,10 @@ def digest_sections(
         (f"{yr_title} — league", True, sect("league")),
     ]
     # One section per board sheet, in _BOARD_SHEETS order.
-    out += [(f"All-time leaderboard moves — {cfg['title']}", True,
+    # This week's week-board moves ride on the single-week records
+    # (`fold_week_boards`), so what is left on a week board is an earlier week.
+    out += [(f"All-time leaderboard moves — "
+             f"{'earlier ' if sheet in _WEEK_SHEETS else ''}{cfg['title']}", True,
              [e for e in events if e.sheet == sheet])
             for sheet, cfg in _BOARD_SHEETS.items()]
     return [(t, g, items) for t, g, items in out if items]

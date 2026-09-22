@@ -292,6 +292,14 @@ def main(argv=None) -> int:
             event_changes = D.diff_events(prior_events, events,
                                           prior_row_keys=prior.get("row_keys"))
 
+    # This week's rows are told once, in the single-week section: a week-board
+    # move rides on its record as who it tied or passed, and a running total's
+    # move becomes a line of its own. Stats against an opponent name him.
+    board_moves = event_changes
+    highlights, event_changes = D.fold_week_boards(
+        highlights, event_changes, frames, [(meta["season"], w) for w in covered])
+    D.name_opponents(event_changes, frames)
+
     # The lede: up to five sentences above the list saying what actually
     # happened, because 65 one-line facts is a wall nobody reads. Computed, not
     # written — every move is scored on place, prominence and surprise, and the
@@ -315,7 +323,7 @@ def main(argv=None) -> int:
     # Week 5 (on-pace + this season's trades/pickups/picks join the boards) and
     # week 8 (the rookie class's first O-Scores) release a pile at once; the lede
     # opens by saying so, with how many of the lines below it accounts for.
-    lead = D.release_lead(frames, meta, new_data, proj_changes, event_changes, sections,
+    lead = D.release_lead(frames, meta, new_data, proj_changes, board_moves, sections,
                           crossings=crossings, prior=prior)
     if lead:
         print(f"[digest] release lede: {lead}")

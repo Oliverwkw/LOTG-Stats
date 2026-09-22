@@ -1126,12 +1126,12 @@ def check_a_cascade_where_nobody_moved_is_not_reported():
     got = [c.sentence() for c in D.diff_snapshots(prev, curr)]
     ok = _ok("B and C, tied and unchanged, are not reported as joining anything",
              not any(s.startswith(("B joins", "C joins")) for s in got), f"got {got}")
-    # D, by contrast, DID overtake A — and A really fell — so that one stands.
-    # It is the same shape as "A.T. Perry passes Travis Hunter": the mover stood
-    # still, but the entity it passed is the one that moved, and dropping the
-    # line would hide the only thing that actually happened.
-    ok &= _ok("D overtaking the entity that fell is still reported",
-              any(s.startswith("D passes A") for s in got), f"got {got}")
+    # D did not overtake A either: D stood still and A fell past it. Until
+    # 2026-09-22 that line stood (it named the entity that moved); the user ruled
+    # a row that did not move passes nobody — "Gerald Everett passes Christian
+    # Watson for 3rd-lowest Win % as starter" when Watson had just won.
+    ok &= _ok("D, standing still while A fell past it, passes nobody",
+              not any(s.startswith("D passes") for s in got), f"got {got}")
 
     # The MOVER moved -> real, reported.
     prev2 = {"teams": {"X": [{"entity": "P", "value": 10.0}, {"entity": "Q", "value": 5.0},
@@ -1142,16 +1142,14 @@ def check_a_cascade_where_nobody_moved_is_not_reported():
     ok &= _ok("a mover whose own value rose is reported",
               any(s.startswith("Q passes P") for s in got), f"got {got}")
 
-    # The RIVAL moved -> also real: this is the shape of every line that names
-    # the player whose re-valuation caused the shuffle ("A.T. Perry passes Travis
-    # Hunter"), and losing it would hide the one entity that actually changed.
+    # Only the RIVAL moved -> not reported (the same rule, on a separate shape).
     prev3 = {"teams": {"Y": [{"entity": "S", "value": 90.0}, {"entity": "T", "value": 80.0},
                              {"entity": "U", "value": 1.0}]}}
     curr3 = {"teams": {"Y": [{"entity": "S", "value": 2.0}, {"entity": "T", "value": 80.0},
                              {"entity": "U", "value": 1.0}]}}
     got = [c.sentence() for c in D.diff_snapshots(prev3, curr3)]
-    ok &= _ok("a mover the rival fell past IS reported",
-              any(s.startswith("T passes S") for s in got), f"got {got}")
+    ok &= _ok("a mover the rival fell past is NOT reported",
+              not any(s.startswith("T passes") for s in got), f"got {got}")
     return ok
 
 
@@ -1356,6 +1354,11 @@ def run_all() -> bool:
         check_an_old_snapshot_without_entities_still_compares_entities,
         check_terminal_encoding_survives_pandas3_strings,
         check_rookie_class_waits_for_week_8_on_player_boards,
+        check_columns_are_named_for_the_email,
+        check_a_tie_must_fit_inside_the_window,
+        check_passes_names_only_rows_that_held_a_place,
+        check_this_weeks_rows_are_told_once,
+        check_opponent_stats_name_the_opponent,
         check_real_exports_smoke,
     ]
     all_ok = True
@@ -1870,6 +1873,111 @@ def check_rookie_class_waits_for_week_8_on_player_boards():
     lead = D.release_lead(frames(8), curr["meta"], nd, [], [], secs,
                           crossings=cr, prior=prior)
     ok &= _ok("and the week-8 lede counts it", lead.startswith("Week 8 is when"), lead)
+    return ok
+
+
+# ---------------------------------------------------------------------------
+# 2026-09-22 review of the week-2 email
+def check_columns_are_named_for_the_email():
+    ok = _ok("an award drops its '?'",
+             D.display_column("Times as Highest starter on team?") == "Times as Highest starter on team")
+    ok &= _ok("a points threshold says pts",
+              D.display_column("Number of players over 30") == "Number of players over 30 pts"
+              and D.display_column("Number of starters under 10") == "Number of starters under 10 pts")
+    ok &= _ok("an age column does not",
+              D.display_column("Player average age") == "Player average age")
+    ok &= _ok("a trade's difference of averages says of what",
+              D.display_column("Difference of averages", "trades") == "PPG difference (received − sent)")
+    ok &= _ok("an add/drop's says of what, differently",
+              D.display_column("Difference of averages", "add_drops")
+              == "PPG difference (added − dropped player)")
+    c = D.Crossing("players", "Times as Captain?", "high", 1, "A", 3.0, passed=("B",))
+    ok &= _ok("and the sentence uses the display name", "Captain?" not in c.sentence(), c.sentence())
+    return ok
+
+
+def check_a_tie_must_fit_inside_the_window():
+    ok = _ok("a two-way tie for 5th does not fit", not D._tie_fits(5, 2, 5))
+    ok &= _ok("a three-way tie for 4th does not", not D._tie_fits(4, 3, 5))
+    ok &= _ok("a two-way tie for 4th does", D._tie_fits(4, 2, 5))
+    ok &= _ok("a five-way tie for 1st does", D._tie_fits(1, 5, 5))
+    # On a board: 10, 9, 8, then three rows at 7 (4th-6th), then 6.
+    pool = pd.Series([10.0, 9.0, 8.0, 7.0, 7.0, 7.0, 6.0, 1.0, 1.0, 0.5])
+    places = D._board_places(pool, "high", 5, 5)
+    ok &= _ok("the three-way tie for 4th holds no place", 7.0 not in places, places)
+    ok &= _ok("and still takes up its places (6 is 7th, off the board)", 6.0 not in places, places)
+    # All-time crossing: arriving into a three-way tie for 4th is not reported.
+    prev = {"players": {"X": [{"entity": e, "value": v} for e, v in
+                              [("A", 10.0), ("B", 9.0), ("C", 8.0), ("D", 7.0), ("E", 7.0),
+                               ("F", 3.0)] + [(f"Z{i}", 0.0) for i in range(6)]]}}
+    curr = {"players": {"X": [dict(e, value=7.0) if e["entity"] == "F" else e
+                              for e in prev["players"]["X"]]}}
+    got = [c.sentence() for c in D.diff_snapshots(prev, curr)]
+    ok &= _ok("F joining a three-way tie for 4th is not reported",
+              not any(s.startswith("F ") for s in got), got)
+    return ok
+
+
+def check_passes_names_only_rows_that_held_a_place():
+    # Jaxson Dart, 18.6 -> 1.7 on Consistency percentile: only the rows that held
+    # a bottom-5 place are named, not the 55 he leapt to get there.
+    vals = [("R", 0.8), ("M", 0.9), ("C", 1.6), ("F", 1.7), ("J", 1.8)] + \
+           [(f"P{i}", 2.0 + i) for i in range(20)] + [("Dart", 18.6)]
+    prev = {"players": {"Consistency percentile":
+                        [{"entity": e, "value": v} for e, v in vals]}}
+    curr = {"players": {"Consistency percentile":
+                        [{"entity": e, "value": 1.65 if e == "Dart" else v} for e, v in vals]}}
+    got = [c for c in D.diff_snapshots(prev, curr) if c.mover == "Dart"]
+    ok = _ok("Dart's move is reported", got, [c.sentence() for c in got])
+    ok &= _ok("naming only F and J, who held places",
+              got and set(got[0].passed) == {"F", "J"}, got and got[0].passed)
+    return ok
+
+
+def check_this_weeks_rows_are_told_once():
+    hl = [D.WeeklyHighlight("players", "Kaleb Johnson", "Diff", "low", 1, -37.3, week=2, tied=True)]
+    ev = [
+        D.EventCrossing("player_week", "Kaleb Johnson 2026 week 2", "Diff", "low", 1, -37.3,
+                        joined=True, others=("Kyle Pitts 2026 week 2",)),
+        D.EventCrossing("player_week", "Tahj Brooks 2026 week 2", "Rostered bust streak", "high",
+                        3, 17.0, joined=False, passed=("Deshaun Watson 2024 week 17",)),
+        D.EventCrossing("player_week", "Kyler Murray 2026 week 1", "Change", "low", 5, -19.4,
+                        passed=("Lamar Jackson 2021 week 14",)),
+    ]
+    out, rest = D.fold_week_boards(hl, ev, {}, [(2026, 2)])
+    kj = [h for h in out if h.entity == "Kaleb Johnson"]
+    ok = _ok("the record carries who it tied, without the week",
+             kj and kj[0].others == ("Kyle Pitts",) and kj[0].detail().endswith("tied with Kyle Pitts"),
+             kj and kj[0].detail())
+    tb = [h for h in out if h.entity == "Tahj Brooks"]
+    ok &= _ok("a running total's move becomes a single-week line",
+              tb and "passing Deshaun Watson 2024 week 17" in tb[0].detail(), tb and tb[0].detail())
+    ok &= _ok("nothing of this week is left on the week board",
+              [e.label for e in rest] == ["Kyler Murray 2026 week 1"], [e.label for e in rest])
+    secs = dict((t, i) for t, _g, i in D.digest_sections(highlights=out, events=rest))
+    ok &= _ok("and last week's move sits under earlier player weeks",
+              "All-time leaderboard moves — earlier player weeks" in secs, list(secs))
+    return ok
+
+
+def check_opponent_stats_name_the_opponent():
+    tw = pd.DataFrame({"Team": ["shmuel256", "LWebs53"], "Year": [2026, 2022], "Week": [2, 2],
+                       "Opponent": ["LWebs53", "stevenb123"]})
+    col = "Difference in pregame avg max PF from opponent"
+    hl = [D.WeeklyHighlight("teams", "shmuel256", col, "high", 1, 75.0, week=2)]
+    ev = [D.EventCrossing("team_week", "shmuel256 2026 week 2", col, "high", 1, 75.0,
+                          passed=("LWebs53 2022 week 2",))]
+    out, _rest = D.fold_week_boards(hl, ev, {"team_week": tw}, [(2026, 2)])
+    line = out[0].line()
+    ok = _ok("this week's row names its opponent", "(75 vs LWebs53)" in line, line)
+    ok &= _ok("and so does the row it passed", "LWebs53 2022 week 2 (vs stevenb123)" in line, line)
+    earlier = [D.EventCrossing("team_week", "LWebs53 2022 week 2", "Win streak vs this opponent",
+                               "high", 1, 9.0, passed=("shmuel256 2026 week 2",))]
+    D.name_opponents(earlier, {"team_week": tw})
+    s = earlier[0].sentence()
+    ok &= _ok("an earlier week's move names both opponents",
+              s.startswith("LWebs53 2022 week 2 (vs stevenb123) passes shmuel256 2026 week 2 (vs LWebs53)"), s)
+    ok &= _ok("without touching the label", earlier[0].label == "LWebs53 2022 week 2")
     return ok
 
 
