@@ -557,20 +557,26 @@ def _tie_fits(rank: int, holders: int, window: int) -> bool:
 
 def _crossing_detail(joined: bool, others: Sequence[str], passed: Sequence[str],
                      place: str, column: str, value: Optional[float],
-                     sheet: str = "") -> str:
-    """Shared phrasing for an all-time / event-board move.
+                     sheet: str = "", co_movers: Sequence[str] = ()) -> str:
+    """Shared phrasing for an all-time / event-board move. The subject — the
+    mover, and any `co_movers` that reached the same tie the same week — is the
+    caller's (`group()`); this is the predicate.
 
-    joined:  the mover ARRIVED at a value others already hold (a tie), rather
-             than displacing anyone. Two-way -> name the one other holder;
-             three-to-five-way -> just "joins a tie for".
-    passed:  the entities the mover overtook (one, or several when it leapt a
-             whole tie), named in full."""
+    joined:  the movers ARRIVED at a value: "joins E and F in a tie for 3rd",
+             "join F in a tie for 3rd", or, when nobody held it before them,
+             "share 3rd". Every holder is named (a tie that fits a top-5 board
+             has at most five).
+    passed:  whoever lost a board place to the move, named in full — for a tie,
+             the rows it pushed down: ", passing G and H"."""
     val = f" ({_fmt_stat(column, value)})" if value is not None else ""
     column = display_column(column, sheet)
     if joined:
-        if len(others) == 1:
-            return f"joins a tie with {others[0]} for {place} {column}{val}"
-        return f"joins a tie for {place} {column}{val}"
+        if others:
+            verb = "join" if co_movers else "joins"
+            head = f"{verb} {_name_list(others)} in a tie for {place} {column}{val}"
+        else:
+            head = f"share {place} {column}{val}"
+        return head + (f", passing {_name_list(passed)}" if passed else "")
     return f"passes {_name_list(passed)} for {place} {column}{val}"
 
 
@@ -685,20 +691,23 @@ class Crossing:
     # player was dropped) from one that merely re-ranked around a mover that
     # never moved — which is most of them. None when unknown.
     prev_value: Optional[float] = None
+    # Others who reached the same tie the same week (`merge_simultaneous_ties`).
+    co_movers: tuple = ()
 
     def group(self) -> str:
-        return self.mover
+        return _name_list((self.mover,) + tuple(self.co_movers))
 
     def detail(self) -> str:
         return _crossing_detail(self.joined, self.others, self.passed,
                                 _place(self.rank, self.end), self.column, self.value,
-                                _SECTION_SHEET.get(("crossing", self.section), ""))
+                                _SECTION_SHEET.get(("crossing", self.section), ""),
+                                self.co_movers)
 
     def sentence(self) -> str:
         # No "all-time": the section header says it, and EventCrossing — the same
         # kind of news on a different sheet — never said it. Two spellings of one
         # sentence under two identically-shaped headers was the odd part.
-        return f"{self.mover} {self.detail()}."
+        return f"{self.group()} {self.detail()}."
 
 
 def _column_crossings(section: str, column: str,
@@ -756,6 +765,16 @@ def _column_crossings(section: str, column: str,
                 continue
             others = [x for x, xv in curr_val.items()
                       if x != mover and xv == v]
+            # Who lost their place to this move: last week's holders of the
+            # places it now fills (one for an overtake; rank .. rank+k-1 for a
+            # tie of k) who now stand behind it. Not everyone it leapt: Jaxson
+            # Dart's 18.6 -> 1.7 leapt 58 players, and one of them held 4th.
+            last = new_rank + len(others)
+            passed = [x for x in curr_val
+                      if x != mover and x in prev_val and x not in others
+                      and new_rank <= prev_rank.get(prev_val[x], n + 1) <= last
+                      and prev_rank.get(prev_val[x], n + 1) < old_rank
+                      and curr_rank[curr_val[x]] > new_rank]
             if others:
                 # Joined a tie. Suppress once it exceeds five holders total, or
                 # runs off the end of the window (`_tie_fits`).
@@ -775,19 +794,19 @@ def _column_crossings(section: str, column: str,
                     continue
                 out.append(Crossing(section, column, end, new_rank, mover, v,
                                     joined=True, others=tuple(sorted(others)),
+                                    passed=tuple(sorted(passed)),
                                     prev_value=mover_prev))
                 continue
-            # Landed alone: everyone that was ahead of the mover and is now behind
-            # it got overtaken (a whole tie counts as several).
-            # Only rows that held a place on the board last week are named: the
-            # row that lost its place, not everyone the mover leapt to get there
-            # (Jaxson Dart's 18.6 -> 1.7 "passed" 58 players, 55 of whom were
-            # never on the bottom-5 board).
-            passed = [x for x in curr_val
-                      if x != mover and x in prev_val
-                      and prev_rank.get(prev_val[x], n + 1) < old_rank
-                      and prev_rank.get(prev_val[x], n + 1) <= window
-                      and curr_rank[curr_val[x]] > new_rank]
+            # Landed alone. When nobody who held the place it took is behind it
+            # now — the board shifted under it (Christian Watson left the bottom
+            # 5 and Cam Akers moved up to 4th as Jayden Reed took 5th) — it
+            # passed whoever held a board place and now stands behind it.
+            if not passed:
+                passed = [x for x in curr_val
+                          if x != mover and x in prev_val
+                          and prev_rank.get(prev_val[x], n + 1) <= window
+                          and prev_rank.get(prev_val[x], n + 1) < old_rank
+                          and curr_rank[curr_val[x]] > new_rank]
             if not passed:
                 continue
             # An overtake nobody can see is not news — see _indistinguishable.
@@ -823,7 +842,51 @@ def diff_snapshots(prev: dict, curr: dict) -> List[Crossing]:
                 **({"arrivals": held_then - held_now, "held": held_now}
                    if section == "players" else {}),
             ))
-    return crossings
+    return merge_simultaneous_ties(crossings)
+
+
+def merge_simultaneous_ties(items: Sequence) -> list:
+    """One line per tie that movers reached the same week, not one per mover.
+
+    Three rows climbing to the same value used to read as three "joins a tie
+    for 3rd" lines, though none of them joined anything that existed: "D, E and
+    F share 3rd-highest X (35), passing C, G and H". Movers that joined rows
+    already there read "D and E join F in a tie for 3rd". Any place, any size of
+    tie that fits (`_tie_fits`), on the all-time sections (`Crossing`) and every
+    board (`EventCrossing`). The first mover (sorted) stays the line's identity;
+    the rest ride as `co_movers`, and a mover never counts among the rows it tied
+    or passed."""
+    out, groups = [], {}
+    for it in items:
+        if not getattr(it, "joined", False):
+            out.append(it)
+            continue
+        where = getattr(it, "sheet", None) or getattr(it, "section", "")
+        key = (where, it.column, it.end, it.rank, round(float(it.value), 9))
+        if key not in groups:
+            groups[key] = []
+            out.append(key)
+        groups[key].append(it)
+    merged = []
+    for it in out:
+        if not isinstance(it, tuple):
+            merged.append(it)
+            continue
+        grp = groups[it]
+        ident = (lambda x: x.label) if hasattr(grp[0], "label") else (lambda x: x.mover)
+        grp.sort(key=ident)
+        movers = [ident(x) for x in grp]
+        head = grp[0]
+        head.co_movers = tuple(movers[1:])
+        head.others = tuple(sorted({o for x in grp for o in x.others} - set(movers)))
+        head.passed = tuple(sorted({p for x in grp for p in x.passed} - set(movers)))
+        if hasattr(head, "is_new"):
+            head.is_new = any(x.is_new for x in grp)
+        if hasattr(head, "shown"):
+            for x in grp[1:]:
+                head.shown.update(x.shown)
+        merged.append(head)
+    return merged
 
 
 # ---------------------------------------------------------------------------
@@ -1162,9 +1225,14 @@ class WeeklyHighlight:
     passed: tuple = ()
     # This week's opponent, on a stat measured against him (`_OPPONENT_MARKERS`).
     opponent: str = ""
+    # Others who set the same value THIS week — one line for the lot
+    # (`fold_week_boards`): "Kaleb Johnson and Kyle Pitts: ... — lowest ever (tie)".
+    co_entities: tuple = ()
 
     def group(self) -> str:
-        return "The league" if self.section == "league" else self.entity
+        if self.section == "league":
+            return "The league"
+        return _name_list((self.entity,) + tuple(self.co_entities))
 
     def _value(self) -> str:
         """"75", or "75 vs LWebs53" on a stat measured against the opponent."""
@@ -1177,11 +1245,8 @@ class WeeklyHighlight:
     def _against(self) -> str:
         """", tied with X" / ", passing X and Y" — or "(tie)" when a tie is not
         named (three or more holders)."""
-        if len(self.others) == 1:
-            return f", tied with {self.others[0]}"
-        if self.passed:
-            return f"{_tie(self.tied)}, passing {_name_list(self.passed)}"
-        return _tie(self.tied)
+        rel = f", tied with {_name_list(self.others)}" if self.others else _tie(self.tied)
+        return rel + (f", passing {_name_list(self.passed)}" if self.passed else "")
 
     def detail(self) -> str:
         wk = f" [week {self.week}]" if self.show_week and self.week else ""
@@ -1189,6 +1254,10 @@ class WeeklyHighlight:
                 f"{_place(self.rank, self.end)} ever{self._against()}{wk}")
 
     def sentence(self) -> str:
+        if self.co_entities:
+            return (f"{self.group()} share the {_place(self.rank, self.end)} "
+                    f"{self._name()} of any single week ({self._value()})"
+                    f"{self._against()}.")
         return (f"{self.group()}'s {self._name()} this week "
                 f"({self._value()}) is the "
                 f"{_place(self.rank, self.end)} single week ever{self._against()}.")
@@ -1196,6 +1265,8 @@ class WeeklyHighlight:
     def line(self) -> str:
         # "…'s Points this week (55) is the highest single week ever" under a
         # header that already reads "Single-week records (this week)".
+        if self.co_entities:
+            return f"{self.group()}: {self.detail()}."
         return f"{self.group()}'s {self.detail()}."
 
 
@@ -2090,18 +2161,20 @@ class EventCrossing:
     # `name_opponents`). Display only: `label` stays the identity everything
     # else reads.
     shown: dict = field(default_factory=dict)
+    # Other rows that reached the same tie the same week (`merge_simultaneous_ties`).
+    co_movers: tuple = ()
 
     def _show(self, label: str) -> str:
         return self.shown.get(label, label)
 
     def group(self) -> str:
-        return self._show(self.label)
+        return _name_list([self._show(x) for x in (self.label,) + tuple(self.co_movers)])
 
     def detail(self) -> str:
         return _crossing_detail(self.joined, tuple(map(self._show, self.others)),
                                 tuple(map(self._show, self.passed)),
                                 _place(self.rank, self.end), self.column, self.value,
-                                self.sheet)
+                                self.sheet, self.co_movers)
 
     def sentence(self) -> str:
         return f"{self.group()} {self.detail()}."
@@ -2265,6 +2338,7 @@ def diff_events(prior_board, events: Sequence[EventHighlight],
     # The value each label holds on the board NOW, so an overtake can be tested
     # for whether the reader could see it at all (_indistinguishable).
     value_of_label = {(e.sheet, e.column, e.end, e.label): e.value for e in events}
+    rank_of_label = {(e.sheet, e.column, e.end, e.label): e.rank for e in events}
     out: List[EventCrossing] = []
     for e in events:
         slot = prior.get((e.sheet, e.column, e.end))
@@ -2294,6 +2368,13 @@ def diff_events(prior_board, events: Sequence[EventHighlight],
                 was = min(mine) if was is None else min(was, min(mine))
         if was is not None and e.rank >= was:
             continue                       # unmoved, or pushed down by someone else
+        # A row that arrived from off the board with a value strictly worse than
+        # last week's last place did not climb on: the board shortened above it.
+        # It stood still, and a row that stood still passes nobody.
+        if (not _is_new(e) and slot["val_by_key"].get(e.key) is None and e.value is not None
+                and slot.get("cutoff") is not None and not e.running
+                and _improved(slot["cutoff"], e.value, e.end)):
+            continue
         ck = (e.sheet, e.column, e.end)
         other_keys = [k for k in co[ck][e.rank] if k != e.key]
         if other_keys:
@@ -2321,15 +2402,37 @@ def diff_events(prior_board, events: Sequence[EventHighlight],
                     [(slot.get("val_by_label", {}).get(lbl),
                       value_of_label.get((e.sheet, e.column, e.end, lbl))) for lbl in others]):
                 continue
+            # The places this tie now fills (rank .. rank+k-1) and who held them
+            # last week, now standing below the tie or off the board.
+            _was = was if was is not None else 10 ** 9
+            _last = e.rank + len(others)
+            pushed = sorted({
+                lbl for r, labels in slot["by_rank"].items()
+                if e.rank <= r <= _last and r < _was
+                for lbl in labels
+                if lbl != e.label and lbl not in others
+                and not (own is not None and own(lbl))
+                and rank_of_label.get((e.sheet, e.column, e.end, lbl), 10 ** 9) > e.rank})
             out.append(EventCrossing(e.sheet, e.label, e.column, e.end, e.rank,
                                      e.value, joined=True, others=tuple(others),
+                                     passed=tuple(pushed),
                                      is_new=_is_new(e),
                                      prev_value=slot["val_by_key"].get(e.key),
                                      key=e.key))
             continue
-        # Landed alone: overtook every prior holder of the slot it now occupies.
+        # Landed alone: overtook every prior holder of the slot it now occupies —
+        # or, when the board shifted under it and they stand ahead of it now,
+        # whoever held a board place above its old one and is now behind it.
         passed = [lbl for lbl in slot["by_rank"].get(e.rank, [])
-                  if lbl != e.label and not (own is not None and own(lbl))]
+                  if lbl != e.label and not (own is not None and own(lbl))
+                  and rank_of_label.get((e.sheet, e.column, e.end, lbl), 10 ** 9) > e.rank]
+        if not passed:
+            _was = was if was is not None else 10 ** 9
+            passed = sorted(
+                lbl for r, labels in slot["by_rank"].items() if r < _was
+                for lbl in labels
+                if lbl != e.label and not (own is not None and own(lbl))
+                and rank_of_label.get((e.sheet, e.column, e.end, lbl), 10 ** 9) > e.rank)
         if not passed:
             continue
         # A row that climbed without its own value moving toward this end was
@@ -2359,7 +2462,7 @@ def diff_events(prior_board, events: Sequence[EventHighlight],
                                  is_new=_is_new(e),
                                  prev_value=slot["val_by_key"].get(e.key),
                                  key=e.key))
-    return out
+    return merge_simultaneous_ties(out)
 
 
 # ---------------------------------------------------------------------------
@@ -2452,21 +2555,59 @@ def fold_week_boards(highlights: Sequence[WeeklyHighlight],
             rest.append(e)
             continue
         section = _WEEK_SHEET_SECTION[e.sheet]
-        who, _y, week = wk
-        others = tuple(name(x, e.sheet, e.column) for x in e.others)
+        movers = (e.label,) + tuple(e.co_movers)
         passed = tuple(name(x, e.sheet, e.column) for x in e.passed)
-        h = index.get((section, who, e.column, e.end, week))
-        if h is None:
-            h = WeeklyHighlight(section, who or "The league", e.column, e.end, e.rank,
-                                float(e.value), week=week, tied=e.joined)
-            out.append(h)
-            index[(section, who, e.column, e.end, week)] = h
-        h.others, h.passed = (others, ()) if e.joined else ((), passed)
-        h.tied = h.tied or e.joined
+        for lbl in movers:
+            who, _y, week = _week_of(lbl) or ("", 0, 0)
+            # Everyone else at this value: the rows already there, and the rest
+            # of the week's movers (merged into one line below).
+            others = tuple(name(x, e.sheet, e.column)
+                           for x in tuple(e.others) + tuple(m for m in movers if m != lbl))
+            h = index.get((section, who, e.column, e.end, week))
+            if h is None:
+                h = WeeklyHighlight(section, who or "The league", e.column, e.end, e.rank,
+                                    float(e.value), week=week, tied=e.joined)
+                out.append(h)
+                index[(section, who, e.column, e.end, week)] = h
+            h.others, h.passed = others, passed
+            h.tied = h.tied or e.joined
     for h in out:
         if h.section == "teams" and _is_opponent_stat("team_week", h.column) and h.week:
             h.opponent = opponents.get((h.entity, _season_of(weeks, h.week), int(h.week)), "")
-    return out, rest
+    return _merge_week_ties(out), rest
+
+
+def _merge_week_ties(highlights: List[WeeklyHighlight]) -> List[WeeklyHighlight]:
+    """This week's rows sharing one value on one board are ONE line, like any tie
+    reached the same week (`merge_simultaneous_ties`): "Kaleb Johnson and Kyle
+    Pitts: ... — lowest ever (tie)", not a line each naming the other."""
+    groups: Dict[tuple, List[WeeklyHighlight]] = {}
+    order: list = []
+    for h in highlights:
+        if h.section == "league":
+            order.append(h)
+            continue
+        key = (h.section, h.column, h.end, h.rank, int(h.week or 0), round(float(h.value), 9))
+        if key not in groups:
+            groups[key] = []
+            order.append(key)
+        groups[key].append(h)
+    out = []
+    for it in order:
+        if isinstance(it, WeeklyHighlight):
+            out.append(it)
+            continue
+        grp = sorted(groups[it], key=lambda h: h.entity)
+        head = grp[0]
+        if len(grp) > 1:
+            names = {h.entity for h in grp}
+            names |= {f"{h.entity} (vs {h.opponent})" for h in grp if h.opponent}
+            head.co_entities = tuple(h.entity for h in grp[1:])
+            head.others = tuple(sorted({o for h in grp for o in h.others} - names))
+            head.passed = tuple(sorted({p for h in grp for p in h.passed} - names))
+            head.tied = True
+        out.append(head)
+    return out
 
 
 def _season_of(weeks: set, week: int) -> int:

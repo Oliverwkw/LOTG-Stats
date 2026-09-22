@@ -835,7 +835,7 @@ def check_tie_joins_are_said_to_be_ties():
     ok &= _ok("naming who it is level with", bool(out) and out[0].others == ("pick 4.06",),
               out and out[0].others)
     ok &= _ok("and the sentence says so",
-              bool(out) and "joins a tie with pick 4.06 for lowest KTC" in out[0].sentence(),
+              bool(out) and "joins pick 4.06 in a tie for lowest KTC" in out[0].sentence(),
               out and out[0].sentence())
 
     # The same move, but 4.06 is pushed off the place: a real overtake.
@@ -862,7 +862,7 @@ def check_all_time_tie_joins():
     out = [c for c in D.diff_snapshots(prev, curr) if c.mover == "B"]
     ok = _ok("the riser is reported", len(out) == 1, [c.sentence() for c in out])
     ok &= _ok("as a tie-join", bool(out) and out[0].joined, out and out[0].sentence())
-    ok &= _ok("phrased 'joins a tie with'", bool(out) and "joins a tie with Q for 2nd-highest PF" in out[0].sentence(),
+    ok &= _ok("phrased 'joins Q in a tie for'", bool(out) and "joins Q in a tie for 2nd-highest PF" in out[0].sentence(),
               out and out[0].sentence())
 
     # Values that merely ROUND to the same display string are not a tie — both
@@ -1103,7 +1103,7 @@ def check_a_tie_join_is_never_suppressed():
                                        {"entity": "C", "value": 5.0}]}}
     got = [c.sentence() for c in D.diff_snapshots(prev, curr)]
     return _ok("B joining A's tie is reported even though both print 102",
-               any("joins a tie with A" in s for s in got), f"got {got}")
+               any("joins A in a tie for" in s for s in got), f"got {got}")
 
 
 def check_a_cascade_where_nobody_moved_is_not_reported():
@@ -1239,20 +1239,22 @@ def check_an_arrival_at_first_reports_once_however_the_board_below_it_moves():
               got == ["N passes A for highest KTC (200)."], f"got {got}")
 
     # A new leader whose value is WORSE than last week's cutoff — the whole board
-    # collapsed. The cutoff test alone would call that "didn't move"; the rival
-    # check is what keeps it, because the incumbent really did fall.
+    # collapsed under it. It did not climb on (it could not have held a place at
+    # that value last week), so it passes nobody: since 2026-09-22 a row that did
+    # not move is not reported, whoever fell past it.
     got = [c.sentence() for c in D.diff_events(
         prior, ev([("N", 1, 10.), ("A", 2, 5.), ("B", 3, 4.),
                    ("C", 4, 3.), ("D", 5, 2.)]), prior_row_keys=known)]
-    ok &= _ok("a collapsed board's new leader is still reported once",
-              got == ["N passes A for highest KTC (10)."], f"got {got}")
+    ok &= _ok("a collapsed board's new leader, carried there, is not reported",
+              got == [], f"got {got}")
 
     # Tying for first is one line too.
     got = [c.sentence() for c in D.diff_events(
         prior, ev([("N", 1, 100.), ("A", 1, 100.), ("B", 3, 89.),
                    ("C", 4, 79.), ("D", 5, 69.)]), prior_row_keys=known)]
-    ok &= _ok("tying for first -> one line",
-              got == ["N joins a tie with A for highest KTC (100)."], f"got {got}")
+    # B held 2nd, the place the two-way tie now fills alongside 1st.
+    ok &= _ok("tying for first -> one line, naming the place it took",
+              got == ["N joins A in a tie for highest KTC (100), passing B."], f"got {got}")
 
     # And a real leapfrog underneath is separate news, so that week reports both.
     got = sorted(c.sentence() for c in D.diff_events(
@@ -1356,9 +1358,10 @@ def run_all() -> bool:
         check_rookie_class_waits_for_week_8_on_player_boards,
         check_columns_are_named_for_the_email,
         check_a_tie_must_fit_inside_the_window,
-        check_passes_names_only_rows_that_held_a_place,
+        check_passes_names_only_the_place_taken,
         check_this_weeks_rows_are_told_once,
         check_opponent_stats_name_the_opponent,
+        check_a_tie_reached_together_is_one_line,
         check_real_exports_smoke,
     ]
     all_ok = True
@@ -1918,9 +1921,9 @@ def check_a_tie_must_fit_inside_the_window():
     return ok
 
 
-def check_passes_names_only_rows_that_held_a_place():
-    # Jaxson Dart, 18.6 -> 1.7 on Consistency percentile: only the rows that held
-    # a bottom-5 place are named, not the 55 he leapt to get there.
+def check_passes_names_only_the_place_taken():
+    # Jaxson Dart, 18.6 -> 1.7 on Consistency percentile: only the row that held
+    # the place he took is named, not the 58 he leapt to get there.
     vals = [("R", 0.8), ("M", 0.9), ("C", 1.6), ("F", 1.7), ("J", 1.8)] + \
            [(f"P{i}", 2.0 + i) for i in range(20)] + [("Dart", 18.6)]
     prev = {"players": {"Consistency percentile":
@@ -1929,8 +1932,8 @@ def check_passes_names_only_rows_that_held_a_place():
                         [{"entity": e, "value": 1.65 if e == "Dart" else v} for e, v in vals]}}
     got = [c for c in D.diff_snapshots(prev, curr) if c.mover == "Dart"]
     ok = _ok("Dart's move is reported", got, [c.sentence() for c in got])
-    ok &= _ok("naming only F and J, who held places",
-              got and set(got[0].passed) == {"F", "J"}, got and got[0].passed)
+    ok &= _ok("naming only F, who held the place he took",
+              got and got[0].passed == ("F",), got and got[0].passed)
     return ok
 
 
@@ -1989,6 +1992,60 @@ def check_opponent_stats_name_the_opponent():
     ok &= _ok("an earlier week's move names both opponents",
               s.startswith("LWebs53 2022 week 2 (vs stevenb123) passes shmuel256 2026 week 2 (vs LWebs53)"), s)
     ok &= _ok("without touching the label", earlier[0].label == "LWebs53 2022 week 2")
+    return ok
+
+
+def check_a_tie_reached_together_is_one_line():
+    def board(vals):
+        return {"players": {"X": [{"entity": e, "value": v} for e, v in vals]
+                            + [{"entity": f"z{i}", "value": 0.0} for i in range(8)]}}
+    # C (3rd) falls; D, E and F all climb to one new value: they share 3rd-5th,
+    # and C, G and H lose those places.
+    prev = board([("A", 50), ("B", 40), ("C", 30), ("G", 25), ("H", 24), ("D", 5), ("E", 6), ("F", 7)])
+    curr = board([("A", 50), ("B", 40), ("C", 10), ("G", 25), ("H", 24), ("D", 35), ("E", 35), ("F", 35)])
+    got = [c.sentence() for c in D.diff_snapshots(prev, curr)]
+    ok = _ok("three who climbed together share the place, in one line",
+             got == ["D, E and F share 3rd-highest X (35), passing C, G and H."], got)
+    # D climbs into E and F's value (they held 4th-5th): D joins them.
+    prev = board([("A", 50), ("B", 40), ("C", 30), ("E", 25), ("F", 25), ("G", 20), ("D", 5)])
+    curr = board([("A", 50), ("B", 40), ("C", 10), ("E", 25), ("F", 25), ("G", 20), ("D", 25)])
+    got = [c.sentence() for c in D.diff_snapshots(prev, curr)]
+    ok &= _ok("one who climbs into a tie joins its holders by name",
+              got == ["D joins E and F in a tie for 3rd-highest X (25), passing C."], got)
+    # Two climb into F's value at 2nd.
+    prev = board([("A", 50), ("F", 40), ("B", 30), ("C", 20), ("D", 5), ("E", 6)])
+    curr = board([("A", 50), ("F", 40), ("B", 30), ("C", 20), ("D", 40), ("E", 40)])
+    got = [c.sentence() for c in D.diff_snapshots(prev, curr)]
+    ok &= _ok("two who climb into a tie together join it in one line",
+              got == ["D and E join F in a tie for 2nd-highest X (40), passing B and C."], got)
+    # A four-way tie for 3rd does not fit a top 5: nothing.
+    prev = board([("A", 50), ("B", 40), ("C", 30), ("E", 25), ("F", 25), ("G", 25), ("D", 5)])
+    curr = board([("A", 50), ("B", 40), ("C", 10), ("E", 25), ("F", 25), ("G", 25), ("D", 25)])
+    ok &= _ok("a four-way tie for 3rd is not reported", D.diff_snapshots(prev, curr) == [])
+    # The same on an event board.
+    def ev(rows):
+        return [D.EventHighlight("trades", k, "KTC", "high", r, v, key=k) for k, r, v in rows]
+    prior = D.event_board(ev([("A", 1, 50.), ("B", 2, 40.), ("C", 3, 30.), ("G", 4, 25.), ("H", 5, 24.)]))
+    got = [c.sentence() for c in D.diff_events(
+        prior, ev([("A", 1, 50.), ("B", 2, 40.), ("D", 3, 35.), ("E", 3, 35.), ("F", 3, 35.)]),
+        prior_row_keys=["A", "B", "C", "D", "E", "F", "G", "H"])]
+    ok &= _ok("an event board says it the same way",
+              got == ["D, E and F share 3rd-highest KTC (35), passing C, G and H."], got)
+    # And this week's rows on a week board: one single-week line.
+    hl = [D.WeeklyHighlight("players", n, "Diff", "low", 1, -37.3, week=2, tied=True)
+          for n in ("Kyle Pitts", "Kaleb Johnson")]
+    evs = D.merge_simultaneous_ties([
+        D.EventCrossing("player_week", "Kaleb Johnson 2026 week 2", "Diff", "low", 1, -37.3,
+                        joined=True, others=("Kyle Pitts 2026 week 2",),
+                        passed=("Cooper Kupp 2022 week 2",)),
+        D.EventCrossing("player_week", "Kyle Pitts 2026 week 2", "Diff", "low", 1, -37.3,
+                        joined=True, others=("Kaleb Johnson 2026 week 2",),
+                        passed=("Cooper Kupp 2022 week 2",))])
+    out, _rest = D.fold_week_boards(hl, evs, {}, [(2026, 2)])
+    lines = [h.line() for h in out]
+    ok &= _ok("two of this week's rows tied with each other are one single-week line",
+              lines == ["Kaleb Johnson and Kyle Pitts: Diff (-37.3) — lowest ever (tie), "
+                        "passing Cooper Kupp 2022 week 2."], lines)
     return ok
 
 
