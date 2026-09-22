@@ -185,12 +185,17 @@ def main(argv=None) -> int:
 
     fingerprint = _inputs_fingerprint()
     print(f"[digest] build-inputs fingerprint: {fingerprint}")
+    # A row still being written — this season's, a trade/pickup/pick under five
+    # NFL weeks old, the rookie class before week 8 — stands only on the high end
+    # of a counting stat (BoardGate). The all-time player boards hold the class.
+    gate = D.BoardGate(frames)
     current = D.build_snapshot(
         frames["player_all_time"], frames["team_all_time"],
         frames["team_year"], frames["team_week"],
         league_all_time=frames["league_all_time"],
         captured_at=datetime.now(timezone.utc),
         inputs_fingerprint=fingerprint,
+        held_players=gate.held_rookies(),
     )
     meta = current["meta"]
     print(f"[digest] season={meta['season']} weeks_completed={meta['weeks_completed']}")
@@ -248,9 +253,6 @@ def main(argv=None) -> int:
     # row ever — a season, a week, a pick, a trade, a transaction. A recompute
     # that re-values history reshuffles an all-time top/bottom 5, and that
     # reshuffle is the thing to report, whichever sheet it lands on.
-    # A row still being written — this season's, or a trade/pickup/pick under five
-    # NFL weeks old — stands only on the high end of a counting stat (BoardGate).
-    gate = D.BoardGate(frames)
     events = D.all_board_highlights(frames, gate=gate)
     current["event_board"] = D.event_board(events)
     # The full row set of the transaction/pick sheets, so next week's diff can
@@ -313,7 +315,8 @@ def main(argv=None) -> int:
     # Week 5 (on-pace + this season's trades/pickups/picks join the boards) and
     # week 8 (the rookie class's first O-Scores) release a pile at once; the lede
     # opens by saying so, with how many of the lines below it accounts for.
-    lead = D.release_lead(frames, meta, new_data, proj_changes, event_changes, sections)
+    lead = D.release_lead(frames, meta, new_data, proj_changes, event_changes, sections,
+                          crossings=crossings, prior=prior)
     if lead:
         print(f"[digest] release lede: {lead}")
     intro = DS.build_intro(sections, D.digest_title(meta),

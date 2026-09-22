@@ -1354,6 +1354,8 @@ def run_all() -> bool:
         check_a_repeat_pickup_passing_its_own_pickup_is_not_news,
         check_a_head_to_head_streak_is_its_own_rivalry,
         check_an_old_snapshot_without_entities_still_compares_entities,
+        check_terminal_encoding_survives_pandas3_strings,
+        check_rookie_class_waits_for_week_8_on_player_boards,
         check_real_exports_smoke,
     ]
     all_ok = True
@@ -1388,7 +1390,8 @@ def check_counting_stat_classification():
         ok &= _ok(f"'{col}' counts", D.is_counting_stat(col))
     for col in ("Win %", "All-play win % minus Win %", "Avg points", "PPG as team starter",
                 "Player addition value", "O-Score", "KTC at pickup", "Trade impact score",
-                "Change in points from previous season", "Tanking", "Number", "Season"):
+                "Change in points from previous season", "Tanking", "Number", "Season",
+                "Increase in points from previous week"):
         ok &= _ok(f"'{col}' does not", not D.is_counting_stat(col))
     return ok
 
@@ -1778,6 +1781,96 @@ def check_rookie_oscore_week_matches_the_build():
     m = _re.search(r"^_ROOKIE_OSCORE_MIN_WEEK\s*=\s*(\d+)", src, _re.M)
     return _ok("digest's ROOKIE_OSCORE_WEEK == the build's _ROOKIE_OSCORE_MIN_WEEK",
                m and int(m.group(1)) == D.ROOKIE_OSCORE_WEEK, m and m.group(0))
+
+
+# ---------------------------------------------------------------------------
+# Run 515 (2026-09-22, week 2): the week-5 gates did not hold in CI
+def _read_csv_as_ci_does(text):
+    """read_csv under pandas 3's string inference — what CI installs (3.0.6 on run
+    515) — whichever pandas runs the test. On pandas 3 the option may be gone,
+    and the default is what we want anyway."""
+    import io
+    try:
+        with pd.option_context("future.infer_string", True):
+            return pd.read_csv(io.StringIO(text))
+    except (KeyError, pd.errors.OptionError):
+        return pd.read_csv(io.StringIO(text))
+
+
+def check_terminal_encoding_survives_pandas3_strings():
+    # The real shape: a CSV column of numbers and "In Progress", no "streak" in
+    # its name. Under pandas 3 it reads as the `str` dtype, not `object`, and the
+    # old `dtype == object` test lost it: Pat Freiermuth 2026 week 2 passed Pat
+    # Freiermuth 2026 week 1 for highest Total weeks on bench.
+    pw = _read_csv_as_ci_does(
+        "Player,Year,Week,Points,Total weeks on bench,Weeks rostered by this team\n"
+        "Pat,2026,1,1.0,In Progress,In Progress\n"
+        "Pat,2026,2,2.0,76,103\n"
+        "Bo,2025,1,30.0,70,90\n"
+        "Cy,2025,1,20.0,10,12\n"
+        "Di,2025,1,10.0,5,6\n")
+    run = D.running_columns(pw)
+    ok = _ok("a CSV-read terminal-encoded total is a running column",
+             {"Total weeks on bench", "Weeks rostered by this team"} <= run,
+             f"{run} (dtype {pw['Total weeks on bench'].dtype})")
+    ok &= _ok("a plain numeric column is not", "Points" not in run, run)
+    hl = D.weekly_highlights(pw, pd.DataFrame(), pd.DataFrame(),
+                             pd.DataFrame({"Year": [2026]}), window=3, season=2026, week=2)
+    cols = {h.column for h in hl}
+    ok &= _ok("neither prints as a single-week record",
+              not cols & {"Total weeks on bench", "Weeks rostered by this team"}, cols)
+    return ok
+
+
+def check_rookie_class_waits_for_week_8_on_player_boards():
+    # Week 2 of 2026: Denzel Boston, two games in, on three all-time rate boards.
+    def frames(played):
+        return {
+            "team_year": pd.DataFrame({"Team": ["A"], "Year": [2026]}),
+            "team_week": _weeks(y2025=17, y2026=played),
+            "player_week": pd.DataFrame({"Player": ["Rook", "Vet"], "Year": [2026, 2026],
+                                         "Week": [1, 1], "Rookie?": [True, False]}),
+        }
+
+    def pat(rook_avg, rook_pts):
+        vets = [f"V{i}" for i in range(9)]
+        return pd.DataFrame({"Player": vets + ["Rook"],
+                             "Avg points": [10.0 + i for i in range(9)] + [rook_avg],
+                             "Points": [100.0 + 10 * i for i in range(9)] + [rook_pts]})
+
+    team = pd.DataFrame({"Team": ["A", "B"], "Points": [1.0, 2.0]})
+    tw = pd.DataFrame({"Year": [], "Week": []})
+
+    def snap(played, rook_avg, rook_pts):
+        gate = D.BoardGate(frames(played))
+        return D.build_snapshot(pat(rook_avg, rook_pts), team, frames(played)["team_year"], tw,
+                                held_players=gate.held_rookies())
+
+    ok = _ok("the class is held before week 8", D.BoardGate(frames(2)).held_rookies() == {"Rook"})
+    ok &= _ok("and let go at week 8", D.BoardGate(frames(8)).held_rookies() == set())
+    # Week 1 -> 2: the rookie leaps to the top of a rate and of a count.
+    cr = D.diff_snapshots(snap(1, 5.0, 5.0), snap(2, 50.0, 500.0))
+    mine = {(c.column, c.end) for c in cr if c.mover == "Rook"}
+    ok &= _ok("a held rookie's average is not reported", ("Avg points", "high") not in mine, mine)
+    ok &= _ok("the high end of his count is", ("Points", "high") in mine, mine)
+    # A count's low end is not his to hold either (two games of points).
+    cr = D.diff_snapshots(snap(1, 5.0, 500.0), snap(2, 5.0, 1.0))
+    ok &= _ok("nor the low end of a count",
+              not [c for c in cr if c.mover == "Rook" and c.end == "low"],
+              [c.sentence() for c in cr])
+    # Week 7 -> 8: released. His average debuts on the board, from below it.
+    prior, curr = snap(7, 50.0, 500.0), snap(8, 50.0, 500.0)
+    cr = D.diff_snapshots(prior, curr)
+    debut = [c for c in cr if c.mover == "Rook" and c.column == "Avg points"]
+    ok &= _ok("week 8 reports his debut place on a rate board",
+              debut and debut[0].rank == 1 and debut[0].prev_value is None,
+              [c.sentence() for c in cr])
+    secs = D.digest_sections(crossings=cr)
+    nd = D.NewData(season=2026, weeks_completed=8, new_weeks={(2026, 8)})
+    lead = D.release_lead(frames(8), curr["meta"], nd, [], [], secs,
+                          crossings=cr, prior=prior)
+    ok &= _ok("and the week-8 lede counts it", lead.startswith("Week 8 is when"), lead)
+    return ok
 
 
 def test_digest_engine():

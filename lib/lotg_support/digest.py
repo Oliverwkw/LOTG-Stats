@@ -37,7 +37,7 @@ from collections import Counter as _Counter
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
-from typing import Dict, List, Optional, Sequence, Tuple
+from typing import Dict, Iterable, List, Optional, Sequence, Tuple
 import json
 import math
 import re
@@ -286,7 +286,11 @@ def is_yearly_counting_stat(column: str) -> bool:
 # market price, a change against another period, a slot number. One game in they
 # are as thin as an average, so they wait with the rates (see `BoardGate`).
 _LEVEL_MARKERS = (
-    "change in", "change from", "tanking", "score", "value", "ktc",
+    # "Increase in points from previous week" on a season row is the sum of its
+    # week-to-week changes, i.e. last week's PF less the first's: a change, not a
+    # tally. As a count the 2026 row held 2nd-highest after one week, then fell
+    # off in week 2 ("the 2023 season passes the 2026 season").
+    "change in", "change from", "increase in", "tanking", "score", "value", "ktc",
     "week of playoff elimination", "future draft capital", "reference player",
 )
 _LEVEL_COLUMNS = {"Number", "Season"}
@@ -489,10 +493,14 @@ def _crossing_detail(joined: bool, others: Sequence[str], passed: Sequence[str],
 
 
 def _rankings_for(df: pd.DataFrame, entity_col: str,
-                  columns: Sequence[str]) -> Dict[str, List[dict]]:
+                  columns: Sequence[str], held: frozenset = frozenset()
+                  ) -> Dict[str, List[dict]]:
+    """Every column's ranking; `held` entities rank on counting columns only."""
     out: Dict[str, List[dict]] = {}
+    sample = df[~df[entity_col].astype(str).isin(held)] \
+        if held and entity_col in df.columns else df
     for col in columns:
-        ranked = rank_column(df, entity_col, col)
+        ranked = rank_column(df if is_counting_stat(col) else sample, entity_col, col)
         if len(ranked) >= 2:
             out[col] = ranked
     return out
@@ -529,7 +537,11 @@ def build_snapshot(
     league_all_time: Optional[pd.DataFrame] = None,
     captured_at: Optional[datetime] = None,
     inputs_fingerprint: Optional[str] = None,
+    held_players: Optional[Iterable[str]] = None,
 ) -> dict:
+    """`held_players` (`BoardGate.held_rookies`) rank only on counting columns —
+    whose low end `diff_snapshots` then ignores for them — and are named in the
+    meta, so the week they are let go their places read as arrivals."""
     captured_at = captured_at or datetime.now(timezone.utc)
     season = current_season(team_year)
     weeks = weeks_completed(team_week, season) if season is not None else 0
@@ -547,6 +559,9 @@ def build_snapshot(
         "season": season,
         "weeks_completed": weeks,
     }
+    held = sorted({str(p) for p in (held_players or ())})
+    if held:
+        meta["held_players"] = held
     if inputs_fingerprint:
         # What this build was made FROM (code + curated data). Next week's digest
         # compares it to tell a week with an edit from one without — see
@@ -554,7 +569,7 @@ def build_snapshot(
         meta["inputs_fingerprint"] = inputs_fingerprint
     return {
         "meta": meta,
-        "players": _rankings_for(player_all_time, "Player", p_cols),
+        "players": _rankings_for(player_all_time, "Player", p_cols, held=set(held)),
         "teams": _rankings_for(team_all_time, "Team", t_cols),
         "league_milestones": league_milestone_values(
             league_all_time if league_all_time is not None else pd.DataFrame()),
@@ -606,7 +621,8 @@ class Crossing:
 def _column_crossings(section: str, column: str,
                       prev: Sequence[dict], curr: Sequence[dict],
                       ends: Sequence[str], window: Optional[int],
-                      cap_half: bool) -> List[Crossing]:
+                      cap_half: bool, arrivals: frozenset = frozenset(),
+                      held: frozenset = frozenset()) -> List[Crossing]:
     """Crossings within the watched end(s) of one column.
 
     Ranks are COMPETITION ranks over values (Change 4): a two-way tie for 1st
@@ -619,6 +635,11 @@ def _column_crossings(section: str, column: str,
     `window=None` watches the whole board (used for the 8-team league, "any
     movement in the 8"). When `cap_half` is set the window is capped at half the
     board so the top and bottom ends never overlap.
+
+    `arrivals` were held off last week's board (`build_snapshot`'s
+    `held_players`) and are ranked for the first time: each is treated as rising
+    from below the board, so its debut place is reported. `held` are still held
+    and stand only on the high end.
     """
     out: List[Crossing] = []
     prev_val = {e["entity"]: e["value"] for e in prev}
@@ -631,12 +652,16 @@ def _column_crossings(section: str, column: str,
         prev_rank = competition_ranks([e["value"] for e in prev], end)
         curr_rank = competition_ranks([e["value"] for e in curr], end)
         for mover, v in curr_val.items():
-            if mover not in prev_val:
+            if end == "low" and mover in held:
+                continue
+            arrived = mover not in prev_val and mover in arrivals
+            if mover not in prev_val and not arrived:
                 continue
             new_rank = curr_rank[v]
             if new_rank > window:
                 continue
-            old_rank = prev_rank.get(prev_val[mover])
+            mover_prev = None if arrived else prev_val[mover]
+            old_rank = n + 1 if arrived else prev_rank.get(mover_prev)
             if old_rank is None or new_rank >= old_rank:
                 continue  # not improved toward this end
             others = [x for x, xv in curr_val.items()
@@ -649,17 +674,17 @@ def _column_crossings(section: str, column: str,
                 # came to IT. On 2026-09-15 three teams long at 0 "joined a tie for
                 # 4th-highest Startup draft players remaining (0)" because two more
                 # teams fell to 0 — the fallers' news, told from the wrong side.
-                if abs(prev_val[mover] - v) < 1e-9:
+                if mover_prev is not None and abs(mover_prev - v) < 1e-9:
                     continue
                 # A tie nobody moved into is not news — see _nobody_moved. The
                 # all-time sections carry every entity's value, so `cutoff` is
                 # never needed here: prev_val has the mover either way.
-                if _nobody_moved(prev_val[mover], v, end, None,
+                if _nobody_moved(mover_prev, v, end, None,
                                  [(prev_val.get(x), curr_val.get(x)) for x in others]):
                     continue
                 out.append(Crossing(section, column, end, new_rank, mover, v,
                                     joined=True, others=tuple(sorted(others)),
-                                    prev_value=prev_val[mover]))
+                                    prev_value=mover_prev))
                 continue
             # Landed alone: everyone that was ahead of the mover and is now behind
             # it got overtaken (a whole tie counts as several).
@@ -674,12 +699,12 @@ def _column_crossings(section: str, column: str,
             if _indistinguishable(v, [curr_val[x] for x in passed], column):
                 continue
             # Nor is one in which neither side moved — see _nobody_moved.
-            if _nobody_moved(prev_val[mover], v, end, None,
+            if _nobody_moved(mover_prev, v, end, None,
                              [(prev_val.get(x), curr_val.get(x)) for x in passed]):
                 continue
             out.append(Crossing(section, column, end, new_rank, mover, v,
                                 joined=False, passed=tuple(sorted(passed)),
-                                prev_value=prev_val[mover]))
+                                prev_value=mover_prev))
     return out
 
 
@@ -687,6 +712,8 @@ def diff_snapshots(prev: dict, curr: dict) -> List[Crossing]:
     """All all-time leaderboard crossings between two snapshots, per the
     per-section rules in CROSSING_CONFIG (players top/bottom 5; teams any-of-8)."""
     crossings: List[Crossing] = []
+    held_now = frozenset(curr.get("meta", {}).get("held_players") or ())
+    held_then = frozenset(prev.get("meta", {}).get("held_players") or ())
     for section, cfg in CROSSING_CONFIG.items():
         prev_sec = prev.get(section, {})
         curr_sec = curr.get(section, {})
@@ -697,6 +724,8 @@ def diff_snapshots(prev: dict, curr: dict) -> List[Crossing]:
             crossings.extend(_column_crossings(
                 section, column, prev_list, curr_list,
                 cfg["ends"], cfg["window"], cfg["cap_half"],
+                **({"arrivals": held_then - held_now, "held": held_now}
+                   if section == "players" else {}),
             ))
     return crossings
 
@@ -1405,7 +1434,12 @@ def running_columns(df: pd.DataFrame) -> set:
         low = name.lower()
         if name in _RUNNING_COLUMNS or "streak" in low or "number of times" in low:
             out.add(name)
-        elif df[c].dtype == object and (df[c] == "In Progress").any():
+        # Not `dtype == object`: pandas 3 (what CI installs) reads text as the
+        # `str` dtype, which that test never matched — so on run 515 every
+        # terminal-encoded total fell out of this set and "Pat Freiermuth 2026
+        # week 2 passes Pat Freiermuth 2026 week 1" came back.
+        elif not pd.api.types.is_numeric_dtype(df[c]) \
+                and (df[c].astype(str).str.strip() == "In Progress").any():
             out.add(name)
     return out
 
@@ -1512,6 +1546,22 @@ class BoardGate:
                        if season is not None and a < season), default=None)
         self.season_open = season is not None and not (horizon and self.played >= horizon)
         self._memo: Dict[tuple, Optional["pd.Series"]] = {}
+        self._player_week = frames.get("player_week")
+
+    def held_rookies(self) -> set:
+        """The in-progress season's rookie class while it is still held (before
+        week `ROOKIE_OSCORE_WEEK`) — the players the all-time PLAYER boards keep
+        to the high end of a counting stat, as the rookie-pick boards do. Week 2
+        of 2026 put Denzel Boston, two games in, on three rate boards ("2nd-highest
+        Rostered upper quartile % (50)"). Read off player_week's `Rookie?` flag, so
+        an undrafted rookie is held too."""
+        pw = self._player_week
+        if (not self.season_open or self.played >= ROOKIE_OSCORE_WEEK or pw is None
+                or pw.empty or not {"Year", "Player", "Rookie?"} <= set(pw.columns)):
+            return set()
+        this = pw[pd.to_numeric(pw["Year"], errors="coerce") == self.season]
+        rookie = this["Rookie?"].astype(str).str.strip().str.lower().isin({"true", "1", "yes"})
+        return set(this.loc[rookie, "Player"].astype(str))
 
     def elapsed_since(self, start: Tuple[int, int]) -> int:
         """NFL weeks played from `start` (inclusive) through the latest."""
@@ -2194,7 +2244,8 @@ def _label_entity(sheet: str, label: str) -> str:
 def release_lead(frames: dict, meta: dict, new_data: Optional[NewData],
                  projections: Sequence[Projection], event_changes: Sequence[EventCrossing],
                  sections: Sequence[Tuple[str, bool, list]],
-                 window: int = WINDOW) -> str:
+                 window: int = WINDOW, crossings: Sequence[Crossing] = (),
+                 prior: Optional[dict] = None) -> str:
     """The lede's opening line on a week a withholding rule lets go, "" otherwise.
 
     Week `MIN_YEARLY_WEEK`: every on-pace line is new, and every board move that
@@ -2225,6 +2276,10 @@ def release_lead(frames: dict, meta: dict, new_data: Optional[NewData],
         # to week 8), O-Score included, so every one of its lines is the debut.
         released = sum(1 for c in event_changes
                        if c.sheet == "rookie_picks" and c.label.startswith(f"{season} pick"))
+        # ... and the all-time player boards it was held off (`held_rookies`).
+        debut = set((prior or {}).get("meta", {}).get("held_players") or ()) \
+            - set((meta or {}).get("held_players") or ())
+        released += sum(1 for c in crossings if c.section == "players" and c.mover in debut)
         return release_sentence(ROOKIE_OSCORE_WEEK, released, total, season=season)
     return ""
 
