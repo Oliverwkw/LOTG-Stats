@@ -612,11 +612,13 @@ def _label_entities(label: str) -> set:
 
 
 def _entities(item) -> set:
-    """Everyone a line names: the mover, and whoever it passed or tied."""
+    """Everyone a line names: the mover(s), and whoever they passed or tied."""
     names = [getattr(item, "label", None) or getattr(item, "mover", None)
              or getattr(item, "entity", None) or ""]
     names += list(getattr(item, "passed", ()) or ()) + \
-        list(getattr(item, "others", ()) or ())
+        list(getattr(item, "others", ()) or ()) + \
+        list(getattr(item, "co_movers", ()) or ()) + \
+        list(getattr(item, "co_entities", ()) or ())
     out: set = set()
     for n in names:
         out |= _label_entities(n)
