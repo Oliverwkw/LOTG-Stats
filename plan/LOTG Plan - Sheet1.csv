@@ -87,7 +87,7 @@ Total times lowest starter on team,,,Number of starters under 10,Number of start
 Total times lowest starter on team this season,,,Number of players over 20,Number of players under 10,Number of NFL teams among rostered players,,,,,,,,,
 Total weeks on bench,,,Number of starters over 20,Number of starters under 10,Stacks,,,,,,,,,
 Total weeks on bench this season,,,Number of players over 30,Number of players over 20,Number of rookies started,,,,,,,,,
-- Activated Cuff? (Was a player of the same nfl team/position & who averages >10 PPG more over last 5 played games injured? Only for players with avg <10 PPG),,,Number of starters over 30,Number of starters over 20,Number of rookies rostered,,,,,,,,,
+- Activated Cuff? (Did he start while a teammate he is the handcuff for was injured?),,,Number of starters over 30,Number of starters over 20,Number of rookies rostered,,,,,,,,,
 Number of Add/Drops,,,Number of players over 40,Number of players over 30,% of players drafted,,,,,,,,,
 Number of drops,,,Number of starters over 40,Number of starters over 30,% of 3rd year+ players drafted,,,,,,,,,
 Number of trades,,,Number of players over 50,Number of players over 40,Player average age,,,,,,,,,

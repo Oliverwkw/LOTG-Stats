@@ -695,7 +695,7 @@
     "Total times lowest starter on team this season",
     "Total weeks on bench",
     "Total weeks on bench this season",
-    "- Activated Cuff? (Was a player of the same nfl team/position & who averages >10 PPG more over last 5 played games injured? Only for players with avg <10 PPG)",
+    "- Activated Cuff? (Did he start while a teammate he is the handcuff for was injured?)",
     "Number of Add/Drops",
     "Number of drops",
     "Number of trades"

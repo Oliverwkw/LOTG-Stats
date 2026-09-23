@@ -11,15 +11,19 @@
 # Each row = ONE pick changing hands in ONE existing trade (a pick that moved
 # through several trades has one row per hop). The build (src/lotg.py) injects a
 # synthetic draft_pick leg into the matching source transaction — identified by
-# its exact created timestamp (UTC) — so the pick shows up in that trade's
+# its exact COMPLETION timestamp (UTC) — so the pick shows up in that trade's
 # Assets received/sent and flows into the pick lineage, chain and trade counts
 # exactly like a natively-recorded pick. Source: league-commissioner ledger
 # (Google Sheet 16WDkZ6hjwFss75qR7spHY-iu9xOS565GR0NgA7VobZs).
 #
-# trade_created_utc must equal the target transaction's `created` time, UTC,
-# formatted "YYYY-MM-DD HH:MM:SS". Owners are Sleeper display handles.
+# trade_completed_utc must equal the target trade's COMPLETION time, UTC,
+# formatted "YYYY-MM-DD HH:MM:SS" — the time the trades sheet dates it by
+# (Sleeper's status_updated; a trade sharing its completion second with an
+# earlier-proposed one is one second later per such trade; a 2020 ESPN trade's
+# is its trade-email time). Converted from the proposal (`created`) times on
+# 2026-09-23. Owners are Sleeper display handles.
 # orig_owner = the pick's original (draft-slot) owner; from/to = this hop.
-pick_year,round,orig_owner,from_owner,to_owner,trade_created_utc,deal,notes
+pick_year,round,orig_owner,from_owner,to_owner,trade_completed_utc,deal,notes
 # --- 2020 ESPN trades (picks missing from the email-parsed legs) ---
 # The startup draft-day slot swap: LWebs53 and AceMatthew exchanged their round
 # 4, 5 and 8 STARTUP slots, so six picks changed hands (two per round, one each
@@ -50,53 +54,53 @@ pick_year,round,orig_owner,from_owner,to_owner,trade_created_utc,deal,notes
 2025,1,LWebs53,LWebs53,AceMatthew,2020-11-29 23:57:04,Cook trade,
 2025,3,LWebs53,LWebs53,AceMatthew,2020-11-29 23:57:04,Cook trade,
 # --- 2021+ Sleeper trades (future picks beyond the tracking window) ---
-2027,2,AceMatthew,AceMatthew,LWebs53,2024-05-13 19:02:44,Tyreek-JJ trade,
-2028,2,AceMatthew,AceMatthew,LWebs53,2024-05-13 19:02:44,Tyreek-JJ trade,
-2028,1,AceMatthew,AceMatthew,plehv79,2025-06-18 13:59:02,Bijan trade,
-2028,2,stevenb123,stevenb123,Oliverwkw,2023-10-31 20:21:48,Burks trade,Steve 2028 2nd hop 1 of 4
-2028,2,stevenb123,Oliverwkw,shmuel256,2023-11-01 19:01:46,Doubs trade,Steve 2028 2nd hop 2 of 4
-2028,2,stevenb123,shmuel256,stevenb123,2024-07-13 22:23:03,2024 2.07 trade,Steve 2028 2nd hop 3 of 4
-2028,2,stevenb123,stevenb123,LWebs53,2024-09-28 20:54:18,Jonathan Taylor trade,Steve 2028 2nd hop 4 of 4
-2028,3,plehv79,plehv79,stevenb123,2024-12-09 00:11:48,DeAndre Hopkins trade,
-2028,3,LWebs53,LWebs53,stevenb123,2024-10-09 21:11:30,Najee trade,
-2028,3,Oliverwkw,Oliverwkw,stevenb123,2023-10-31 20:21:48,Burks trade,
-2028,4,LWebs53,LWebs53,BROsenzweig,2024-10-03 19:52:47,Darnold trade,Luke 2028 4th hop 1 of 2
-2028,4,LWebs53,BROsenzweig,Oliverwkw,2025-03-16 01:57:37,Adonai Mitchell trade,Luke 2028 4th hop 2 of 2
+2027,2,AceMatthew,AceMatthew,LWebs53,2024-05-13 19:13:25,Tyreek-JJ trade,
+2028,2,AceMatthew,AceMatthew,LWebs53,2024-05-13 19:13:25,Tyreek-JJ trade,
+2028,1,AceMatthew,AceMatthew,plehv79,2025-06-19 01:14:48,Bijan trade,
+2028,2,stevenb123,stevenb123,Oliverwkw,2023-11-01 00:53:26,Burks trade,Steve 2028 2nd hop 1 of 4
+2028,2,stevenb123,Oliverwkw,shmuel256,2023-11-03 06:13:30,Doubs trade,Steve 2028 2nd hop 2 of 4
+2028,2,stevenb123,shmuel256,stevenb123,2024-07-13 22:23:13,2024 2.07 trade,Steve 2028 2nd hop 3 of 4
+2028,2,stevenb123,stevenb123,LWebs53,2024-09-28 20:54:40,Jonathan Taylor trade,Steve 2028 2nd hop 4 of 4
+2028,3,plehv79,plehv79,stevenb123,2024-12-09 00:11:57,DeAndre Hopkins trade,
+2028,3,LWebs53,LWebs53,stevenb123,2024-10-09 21:12:26,Najee trade,
+2028,3,Oliverwkw,Oliverwkw,stevenb123,2023-11-01 00:53:26,Burks trade,
+2028,4,LWebs53,LWebs53,BROsenzweig,2024-10-03 19:53:15,Darnold trade,Luke 2028 4th hop 1 of 2
+2028,4,LWebs53,BROsenzweig,Oliverwkw,2025-03-16 01:58:25,Adonai Mitchell trade,Luke 2028 4th hop 2 of 2
 # 2024 3rd-round swap bundled into the recorded Mostert<->2022 3.08+2024 4.01 deal.
 # Each team's own 2024 3rd was also swapped (Steve's 3.01 Bo Nix -> Luke;
 # Luke's 3.08 Jermaine Burton -> Steve) but only the headline assets were logged;
 # this completes both picks' chains to their eventual owner (Oliverwkw, 2024-05-03).
-2024,3,stevenb123,stevenb123,LWebs53,2022-03-09 21:05:26,Mostert / 2024 3rd swap,Bo Nix (3.01)
-2024,3,LWebs53,LWebs53,stevenb123,2022-03-09 21:05:26,Mostert / 2024 3rd swap,Jermaine Burton (3.08)
+2024,3,stevenb123,stevenb123,LWebs53,2022-03-16 06:10:46,Mostert / 2024 3rd swap,Bo Nix (3.01)
+2024,3,LWebs53,LWebs53,stevenb123,2022-03-16 06:10:46,Mostert / 2024 3rd swap,Jermaine Burton (3.08)
 # --- 2.09 toilet-reward picks (round=209 sentinel: a DISTINCT pick from the real
 # 2nd-rounder; rendered "2.09", counted as a 2.08 only in slot-based calcs). The
 # award originates with the prior-season toilet (losers-bracket) winner, who then
 # traded it. 2026's 2.09 isn't a pick yet (2026 draft hasn't happened).
-2024,209,JacobRosenzweig,JacobRosenzweig,AceMatthew,2024-07-13 22:26:58,2.09 for a 2026 2nd,2024 toilet reward
-2025,209,Oliverwkw,Oliverwkw,shmuel256,2025-03-02 15:34:00,Deebo Samuel trade,2025 toilet reward hop 1 of 3
-2025,209,Oliverwkw,shmuel256,plehv79,2025-04-14 21:19:57,Davante Adams trade,2025 toilet reward hop 2 of 3
-2025,209,Oliverwkw,plehv79,AceMatthew,2025-07-20 22:16:32,Ray Davis trade,2025 toilet reward hop 3 of 3
-2026,209,Oliverwkw,Oliverwkw,LWebs53,2026-05-03 16:13:10,with 2.8 in trade up,2026 toilet reward (future pick; 2026 draft not yet held)
+2024,209,JacobRosenzweig,JacobRosenzweig,AceMatthew,2024-07-13 22:27:06,2.09 for a 2026 2nd,2024 toilet reward
+2025,209,Oliverwkw,Oliverwkw,shmuel256,2025-03-02 15:41:35,Deebo Samuel trade,2025 toilet reward hop 1 of 3
+2025,209,Oliverwkw,shmuel256,plehv79,2025-04-15 00:47:20,Davante Adams trade,2025 toilet reward hop 2 of 3
+2025,209,Oliverwkw,plehv79,AceMatthew,2025-07-20 22:16:38,Ray Davis trade,2025 toilet reward hop 3 of 3
+2026,209,Oliverwkw,Oliverwkw,LWebs53,2026-05-03 16:54:08,with 2.8 in trade up,2026 toilet reward (future pick; 2026 draft not yet held)
 # --- 2029 / 2030 far-future picks bundled into recorded 2025+ trades ---
-2029,2,stevenb123,stevenb123,AceMatthew,2025-07-20 21:55:01,2025 Matthew 2nd trade,Steve 2029 2nd
-2029,3,Oliverwkw,Oliverwkw,stevenb123,2025-03-16 20:12:09,Sinnott/Dowdle trade,
-2029,4,plehv79,plehv79,stevenb123,2025-07-30 15:38:33,Egbuka/Fannin trade,Peter 2029 4th hop 1 of 2
-2029,4,plehv79,stevenb123,shmuel256,2025-11-01 22:37:42,Kamara trade (most recent),Peter 2029 4th hop 2 of 2
-2030,1,LWebs53,LWebs53,BROsenzweig,2025-08-04 17:56:03,Kupp trade,
-2030,1,BROsenzweig,BROsenzweig,LWebs53,2025-08-04 17:56:03,Kupp trade,
-2029,3,LWebs53,LWebs53,BROsenzweig,2025-08-04 17:56:03,Kupp trade,
+2029,2,stevenb123,stevenb123,AceMatthew,2025-07-20 21:56:00,2025 Matthew 2nd trade,Steve 2029 2nd
+2029,3,Oliverwkw,Oliverwkw,stevenb123,2025-03-16 20:47:54,Sinnott/Dowdle trade,
+2029,4,plehv79,plehv79,stevenb123,2025-07-30 17:44:54,Egbuka/Fannin trade,Peter 2029 4th hop 1 of 2
+2029,4,plehv79,stevenb123,shmuel256,2025-11-02 16:37:36,Kamara trade (most recent),Peter 2029 4th hop 2 of 2
+2030,1,LWebs53,LWebs53,BROsenzweig,2025-08-04 17:58:38,Kupp trade,
+2030,1,BROsenzweig,BROsenzweig,LWebs53,2025-08-04 17:58:38,Kupp trade,
+2029,3,LWebs53,LWebs53,BROsenzweig,2025-08-04 17:58:38,Kupp trade,
 # NOTE (left out per ledger): a 2029 4th ("Steve/Luke" -> Sam in the most-recent
 # Kamara trade, "gets highest") is intentionally omitted pending clarification of
 # which original owner's 4th it is.
 # --- Off-platform picks in the league's first FIVE-team trade (2026-07-10) ---
 # The 2026 2.09 (Oliver -> Luke in the 2.8 trade-up) moved on to Sam here, and
 # Luke's 2029 3rd (traded to Ben in the Kupp deal) came back to Luke here.
-2026,209,Oliverwkw,LWebs53,shmuel256,2026-07-10 21:22:18,To Sam (5-team trade),2026 2.09 hop 2
-2029,3,LWebs53,BROsenzweig,LWebs53,2026-07-10 21:22:18,To Luke (5-team trade),2029 3rd away-and-back
+2026,209,Oliverwkw,LWebs53,shmuel256,2026-07-10 21:26:39,To Sam (5-team trade),2026 2.09 hop 2
+2029,3,LWebs53,BROsenzweig,LWebs53,2026-07-10 21:26:39,To Luke (5-team trade),2029 3rd away-and-back
 # --- 2026 draft-day: Luke's 2030 4th to Steve (with his recorded 2026 4.06) ---
-2030,4,LWebs53,LWebs53,stevenb123,2026-07-12 22:57:58,2026 4.06 trade,
+2030,4,LWebs53,LWebs53,stevenb123,2026-07-12 22:58:16,2026 4.06 trade,
 # --- 2026 draft-day 5.0X FAAB-buy trades (sentinel round 5NN: 501=5.01, 502=5.02) ---
 # Steve bought the 5.01 and sent it to Luke (who drafted Drew Allar) with the
 # 2026 4.06 deal; Ben bought the 5.02 and sent it to Peter (Max Klare) for 20 FAAB.
-2026,501,stevenb123,stevenb123,LWebs53,2026-07-12 22:57:58,2026 4.06 trade (5.01),
-2026,502,BROsenzweig,BROsenzweig,plehv79,2026-07-12 23:07:03,For 20 FAAB (5.02),
+2026,501,stevenb123,stevenb123,LWebs53,2026-07-12 22:58:16,2026 4.06 trade (5.01),
+2026,502,BROsenzweig,BROsenzweig,plehv79,2026-07-12 23:07:17,For 20 FAAB (5.02),
