@@ -12284,8 +12284,12 @@ def build_all(repo_root: Path) -> None:
             recv_windows: Dict[str, Tuple[str, Optional[str]]] = {}
             latest_end: Optional[str] = None
             for pid in (row.get("_recv_player_ids") or []):
-                nx = _next_out_player(team, pid, trade_iso)
-                end_iso = nx["date"][:10] if nx else None
+                # His exit: the earlier of his next trade-away and his next
+                # add/drop drop (as the pick sheets and player_additions read
+                # it) — trade-aways alone ran a waived player's tenure on into
+                # later seasons (Tyler Lockett, BROsenzweig, waived 2025-09-01).
+                _ex = _pick_tenure_end(team, str(pid), trade_iso)
+                end_iso = _ex[:10] if _ex else None
                 recv_windows[str(pid)] = (trade_prefix, end_iso)
                 if end_iso is not None:
                     latest_end = end_iso if (latest_end is None or end_iso > latest_end) else latest_end
@@ -12324,9 +12328,8 @@ def build_all(repo_root: Path) -> None:
             recv_pre5_avgs: List[float] = []
             for pid in (row.get("_recv_player_ids") or []):
                 name = _player_display(pid)
-                _nx_i = _next_out_player(team, pid, trade_iso)
-                avg_on = _rostered_ppg(name, _trade_day,
-                                       _league_day_iso(_nx_i["date"]) if _nx_i else None)
+                _ex_i = _pick_tenure_end(team, str(pid), trade_iso)
+                avg_on = _rostered_ppg(name, _trade_day, _league_day_iso(_ex_i) if _ex_i else None)
                 if avg_on is not None:
                     recv_on_team_avgs.append(avg_on)
                     pos = _player_pos(name)
@@ -12357,8 +12360,8 @@ def build_all(repo_root: Path) -> None:
                     continue  # pick was flipped before the draft
                 _dstart = _draft_anchor_iso(int(_dyear))
                 _dsid = name_to_sid_local2.get(_dpl)
-                _nxo = _next_out_player(team, _dsid, _dstart) if _dsid else None
-                _davg = _rostered_ppg(_dpl, _dstart, _league_day_iso(_nxo["date"]) if _nxo else None)
+                _nxo = _pick_tenure_end(team, _dsid, _dstart) if _dsid else None
+                _davg = _rostered_ppg(_dpl, _dstart, _league_day_iso(_nxo) if _nxo else None)
                 if _davg is not None:
                     recv_on_team_avgs.append(_davg)
                     _dpos = _player_pos(_dpl)
