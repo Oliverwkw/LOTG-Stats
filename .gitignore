@@ -38,3 +38,8 @@ exports/LOTG_Stats.xlsx
 # Fetched by CI before pytest for tests/test_contracts.py and by inquiries on
 # demand; the build never reads it. Never commit it.
 .cache/nflverse_historical_contracts.parquet
+# The same study re-scores contracts from 2011 on, so its data tests pull weekly
+# stats the build never reads (it starts at 2018). CI's Tuesday run commits
+# .cache after the test step: without this, ~63 MB of 2010-17 CSVs ride along.
+.cache/nflverse_stats_player_week_200[0-9].csv
+.cache/nflverse_stats_player_week_201[0-7].csv
