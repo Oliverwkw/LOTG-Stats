@@ -693,6 +693,17 @@ def _r5xx_to_slot(round_num: int) -> Optional[int]:
         return None
     return r - _R5XX_BASE if _R5XX_BASE < r <= _R5XX_BASE + 8 else None
 
+def _tx_effective_ms(t: Dict[str, Any]) -> Any:
+    """When a Sleeper transaction actually MOVED players: `status_updated` for a
+    waiver (the run that settled it) and for a trade (its completion — a trade
+    can sit for days after it is proposed, and the rosters follow completion:
+    Davis Mills / Josh Reynolds proposed 2022-11-03, completed 11-15); `created`
+    otherwise, or when there is no completion stamp."""
+    if str(t.get("type") or "") in ("waiver", "trade") and t.get("status_updated"):
+        return t.get("status_updated")
+    return t.get("created")
+
+
 def _epoch_ms_to_dt(ms: Any) -> Optional[datetime]:
     try:
         ms_i = int(ms)
@@ -5550,7 +5561,7 @@ def build_all(repo_root: Path) -> None:
                     for _t in _wk_txs:
                         if _t.get("type") != "trade":
                             continue
-                        _cdt = _epoch_ms_to_dt(_t.get("created"))
+                        _cdt = _epoch_ms_to_dt(_tx_effective_ms(_t))
                         if _cdt is None:
                             continue
                         _hits = _commish_overlay_by_ts.get(_cdt.strftime("%Y-%m-%d %H:%M:%S"))
@@ -5624,7 +5635,7 @@ def build_all(repo_root: Path) -> None:
             _tx_is_trade: Dict[str, bool] = {}
             for _wk_txs in tx_by_week.values():
                 for _t in _wk_txs:
-                    _dt = _epoch_ms_to_dt(_t.get("created"))
+                    _dt = _epoch_ms_to_dt(_tx_effective_ms(_t) if _t.get("type") == "trade" else _t.get("created"))
                     if _dt is None:
                         continue
                     _day = _dt.date().isoformat()
@@ -5947,9 +5958,7 @@ def build_all(repo_root: Path) -> None:
                     # differently here would let the two loops disagree about
                     # which season a move belongs to, which is the whole defect
                     # this is closing.
-                    _c_ms = t.get("status_updated") if ttype == "waiver" else None
-                    if _c_ms is None:
-                        _c_ms = t.get("created")
+                    _c_ms = _tx_effective_ms(t)
                     _mv_season = _move_season(_epoch_ms_to_dt(_c_ms), season,
                                               _season_end_by_season)
 
@@ -5990,7 +5999,7 @@ def build_all(repo_root: Path) -> None:
                         # toward this week's WEEKLY trade tally; it still appears
                         # in the season/all-time totals (which are counted from
                         # the distinct trade ledger, not the weekly sum).
-                        _tr_dt = _epoch_ms_to_dt(t.get("created"))
+                        _tr_dt = _epoch_ms_to_dt(_tx_effective_ms(t))
                         _kick = _nfl_kickoff_thursday(int(season))
                         _deep_offseason = bool(
                             _tr_dt is not None
@@ -6775,20 +6784,11 @@ def build_all(repo_root: Path) -> None:
                     # Net-zero FAAB swap (Phase 7A): joke trade, delete entirely.
                     if ttype == "trade" and _trade_is_netzero_swap(t):
                         continue
-                    # For waivers, 'created' is when the bid was
-                    # submitted but 'status_updated' is when the waiver
-                    # actually ran and the player moved. A single
-                    # submission date can be misleading when waivers
-                    # span multiple processing days — we've seen pairs
-                    # of claims submitted within minutes that actually
-                    # resolved on different days. Prefer status_updated
-                    # for waiver-type transactions; for free_agent,
-                    # commissioner, and trades the events resolve at
-                    # creation, so 'created' is correct.
-                    _t_type = t.get("type")
-                    _resolve_ms = t.get("status_updated") if _t_type == "waiver" else None
-                    if _resolve_ms is None:
-                        _resolve_ms = t.get("created")
+                    # When the players actually moved (_tx_effective_ms): a
+                    # waiver at the run that settled it, a trade at its
+                    # completion (not its proposal — rosters follow completion),
+                    # anything else at creation.
+                    _resolve_ms = _tx_effective_ms(t)
                     created_date = _epoch_ms_to_date(_resolve_ms)
                     created_dt = _epoch_ms_to_dt(_resolve_ms)
                     # Mirror the date-validity gate from Loop 1 (per-week
