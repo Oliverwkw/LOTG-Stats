@@ -3468,3 +3468,66 @@ INFO league scoring settings changed in 2022: {'fum_ret_yd': (None, 0.1), 'st_td
 [2026-09-22T17:57:40.787600+00:00] INFO bolded comment verbs in cell history popups
 [2026-09-22T17:57:41.490459+00:00] ===== Build end =====
 [2026-09-22T17:57:44.149601+00:00] INFO data-quality sanity: 0 ERROR, 0 WARN across 0 findings
+[2026-09-23T00:12:56.379641+00:00] INFO snapshot: mode=both captured_at=2026-09-23T00:12:56.369726+00:00 age=0.00d auto_refreshed=False
+
+[2026-09-23T00:12:56.380395+00:00] ===== Build start =====
+formulas coverage: all non-obvious columns documented
+injury tracker rows loaded: 500
+[2026-09-23T00:12:57.850175+00:00] INFO gsis_correction sid=5133 name='Tyler Conklin' sleeper_gsis=00-0034439 -> 00-0034270
+[2026-09-23T00:12:57.864443+00:00] INFO gsis_correction sid=5094 name='Ryan Izzo' sleeper_gsis=00-0034270 -> 00-0034439
+[2026-09-23T00:12:58.190375+00:00] INFO Phase 13: injected ESPN 2020 season (8 teams, 152 draft picks, 222 transactions; 0 player-meta backfilled)
+[2026-09-23T00:12:58.195871+00:00] INFO position_pin sid=12530 name='Travis Hunter' 'DB' -> 'WR' (Sleeper map)
+[2026-09-23T00:12:58.551166+00:00] INFO commissioner pick-trade overlay: 51 pick-hops loaded
+[2026-09-23T00:12:59.544230+00:00] INFO snap_appearances season=2020 added=3522 player-weeks the event file did not carry (bridge=7811 pfr->gsis)
+[2026-09-23T00:13:00.232600+00:00] INFO game_day_status season=2020 dressed=12 player-weeks read as active-did-not-play
+INFO league scoring settings changed in 2021: {'rec_td': (None, 6.0), 'fgm_30_39': (None, 3.0), 'fum': (None, -1.0), 'fum_lost': (None, -1.0), 'st_td': (None, 0.0), 'xpmiss': (None, -1.0), 'pass_yd': (None, 0.04), 'ff': (None, 1.0), 'rush_td': (None, 6.0), 'fgm_50p': (None, 5.0), 'rec_yd': (None, 0.1), 'fgm_40_49': (None, 4.0), 'pass_int': (None, -2.0), 'sack': (None, 1.0), 'xpm': (None, 1.0), 'fum_rec': (None, 2.0), 'fum_rec_td': (None, 6.0), 'rush_2pt': (None, 2.0), 'pass_td': (None, 4.0), 'pass_2pt': (None, 2.0), 'rush_yd': (None, 0.1), 'fgmiss': (None, -1.0), 'int': (None, 2.0), 'def_td': (None, 6.0), 'safe': (None, 2.0), 'fgm_0_19': (None, 3.0), 'rec': (None, 1.0), 'rec_2pt': (None, 2.0), 'fgm_20_29': (None, 3.0)}
+[2026-09-23T00:13:01.757287+00:00] INFO snap_appearances season=2021 added=3643 player-weeks the event file did not carry (bridge=7810 pfr->gsis)
+[2026-09-23T00:13:02.347502+00:00] INFO game_day_status season=2021 dressed=27 player-weeks read as active-did-not-play
+[2026-09-23T00:13:02.375952+00:00] INFO merged the 2021 phantom Carter/Stevenson player swap into the pick trade
+INFO league scoring settings changed in 2022: {'st_td': (0.0, 6.0), 'fum_ret_yd': (None, 0.1)}
+[2026-09-23T00:13:03.860859+00:00] INFO snap_appearances season=2022 added=3618 player-weeks the event file did not carry (bridge=7810 pfr->gsis)
+[2026-09-23T00:13:04.457832+00:00] INFO game_day_status season=2022 dressed=50 player-weeks read as active-did-not-play
+[2026-09-23T00:13:04.486995+00:00] INFO commissioner-wash 2022: excluded 11 no-op txns
+[2026-09-23T00:13:06.104210+00:00] INFO snap_appearances season=2023 added=3871 player-weeks the event file did not carry (bridge=7810 pfr->gsis)
+[2026-09-23T00:13:06.801902+00:00] INFO game_day_status season=2023 dressed=16 player-weeks read as active-did-not-play
+[2026-09-23T00:13:06.831991+00:00] INFO commissioner-wash 2023: excluded 1 no-op txns
+[2026-09-23T00:13:08.228942+00:00] INFO snap_appearances season=2024 added=3624 player-weeks the event file did not carry (bridge=7810 pfr->gsis)
+[2026-09-23T00:13:08.878269+00:00] INFO game_day_status season=2024 dressed=64 player-weeks read as active-did-not-play
+[2026-09-23T00:13:08.909677+00:00] INFO commissioner-wash 2024: excluded 3 no-op txns
+[2026-09-23T00:13:08.910410+00:00] INFO draft-day synthetic picks 2024: 1 commish-add(s) -> picks, removed from transactions
+[2026-09-23T00:13:10.448725+00:00] INFO snap_appearances season=2025 added=3092 player-weeks the event file did not carry (bridge=7812 pfr->gsis)
+[2026-09-23T00:13:11.079111+00:00] INFO game_day_status season=2025 dressed=39 player-weeks read as active-did-not-play
+[2026-09-23T00:13:11.111096+00:00] INFO draft-day synthetic picks 2025: 8 commish-add(s) -> picks, removed from transactions
+[2026-09-23T00:13:12.907702+00:00] INFO snap_appearances season=2026 added=341 player-weeks the event file did not carry (bridge=7810 pfr->gsis)
+[2026-09-23T00:13:13.198450+00:00] INFO game_day_status season=2026 dressed=0 player-weeks read as active-did-not-play
+[2026-09-23T00:13:16.340694+00:00] INFO commissioner-wash 2026: excluded 6 no-op txns
+[2026-09-23T00:13:16.341537+00:00] INFO draft-day synthetic picks 2026: 3 commish-add(s) -> picks, removed from transactions
+[2026-09-23T00:13:16.379270+00:00] INFO commissioner pick-trade overlay: all 51 pick-hops injected
+[2026-09-23T00:13:16.395083+00:00] INFO 2020 startup draft: emitted 152 picks into pick_history
+[2026-09-23T00:13:16.793822+00:00] INFO merged 1 manual transaction(s) from data/manual_transactions.csv
+[2026-09-23T00:13:16.856488+00:00] INFO synthesized 2 terminal roster-diff departures (dead-end cuts, never re-acquired)
+[2026-09-23T00:13:16.877268+00:00] INFO synthesized 1 terminal roster-diff arrivals (snapshot-only pickups, no recorded add)
+[2026-09-23T00:13:17.195134+00:00] INFO commissioner-correction cleanup: removed 8 rows (5 commissioner corrections + 3 fully-reverted mistakes), cancelled 5 mistake leg(s) (commissioner add/drop reverses a same-player move within 24h)
+[2026-09-23T00:13:17.654448+00:00] INFO team_week Number of Add/Drops rebuilt from add_drop_rows on the Tuesday-Monday league week: 1515 -> 1322
+[2026-09-23T00:13:17.656550+00:00] INFO team_week Amount of FAAB spent rebuilt from add_drop_rows on the Tuesday-Monday league week: $2,919 -> $2,893
+[2026-09-23T00:13:17.692455+00:00] INFO team_week Number of trades rebuilt from trades_rows on the Tuesday-Monday league week: 260 -> 260
+[2026-09-23T00:13:17.693692+00:00] INFO synthesized 66 missing departures + 24 missing arrivals as transactions rows to close orphaned roster lineage
+[2026-09-23T00:13:20.775505+00:00] INFO ktc value column: sf_trade_value (superflex, always)
+[2026-09-23T00:13:26.345008+00:00] INFO KTC per $1 FAAB = 100 (fixed; data-derived median 297.0 from 74 FAAB-for-asset trades)
+[2026-09-23T00:13:26.758750+00:00] WARN ktc fetch: info: merged KTC backfill for 373 players
+[2026-09-23T00:13:27.220002+00:00] INFO pick-adjustment: holding 35 current-class picks out of the reference pools until week 8
+[2026-09-23T00:13:27.670203+00:00] INFO KTC win-impact lookups: 1/1268 empty (0.1%)
+[2026-09-23T00:13:44.392110+00:00] tenure as-of clock = 2026-09-22T22:04:10.396000+00:00 (wall clock 2026-09-23T00:13:44.390893+00:00)
+[2026-09-23T00:13:45.069446+00:00] INFO seeded 249 player_year rows for tx-only player×year combos
+[2026-09-23T00:13:45.246851+00:00] INFO seeded 34 player_all_time rows for tx-only players
+[2026-09-23T00:13:51.084258+00:00] INFO built asset history: 548 picks, 699 players
+[2026-09-23T00:13:51.491096+00:00] INFO non-rookie O-Score de-trend: {'rows': 184, 'lambda': 0.75, 'intercept': 74.4334, 'slope': -6.0332, 'mean_expected': 48.888, 'max_abs_shift': 19.2}
+[2026-09-23T00:13:51.500326+00:00] INFO pure-drop O-Score: 491 drop-only txns detected (cols: _added_pid=True, Player Added=True)
+[2026-09-23T00:13:51.503523+00:00] INFO pure-drop O-Score: scored 491 drop-only transactions (ceiling 50)
+[2026-09-23T00:13:51.600526+00:00] INFO 2020 startup picks: relabeled Year='startup' on 152 rows
+[2026-09-23T00:13:52.428522+00:00] INFO player_additions: 1973 addition events (477 trade, 388 draft, 1108 add/drop)
+[2026-09-23T00:13:52.463215+00:00] ktc provenance: 23533 lookups -> {'mirror': 18379, 'off-rolls': 3158, 'backfill-carry': 1973, 'trailing-edge-carry': 23}
+[2026-09-23T00:13:55.527010+00:00] INFO pick ref index: 548 PH# refs -> raw/pick_ref_index.csv
+[2026-09-23T00:15:13.831125+00:00] INFO bolded comment verbs in cell history popups
+[2026-09-23T00:15:14.336306+00:00] ===== Build end =====
+[2026-09-23T00:15:16.023138+00:00] INFO data-quality sanity: 0 ERROR, 0 WARN across 0 findings
