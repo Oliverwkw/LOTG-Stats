@@ -9749,7 +9749,7 @@ def build_all(repo_root: Path) -> None:
                 if fn:
                     name_to_sid_local.setdefault(str(fn), str(sid))
 
-            def _player_games(player_name: Optional[str], pid: Optional[str] = None) -> List[Dict[str, Any]]:
+            def _tx_player_games(player_name: Optional[str], pid: Optional[str] = None) -> List[Dict[str, Any]]:
                 """Return the player's NFL game log: list of dicts with
                 _wk_date and Points. Prefer nflverse (covers all NFL
                 weeks regardless of fantasy roster status); fall back
@@ -9778,7 +9778,7 @@ def build_all(repo_root: Path) -> None:
                 exist on record, averages whatever's available (e.g.,
                 2 games -> mean of 2). Used for cuff detection and the
                 'PPG of 5 games before pickup' column."""
-                games = _player_games(player_name, pid)
+                games = _tx_player_games(player_name, pid)
                 played = [g for g in games if g["_wk_date"] < pickup_date_iso]
                 if not played:
                     return None
@@ -9797,7 +9797,7 @@ def build_all(repo_root: Path) -> None:
                 end of dataset. Used for the forward-looking 'Average
                 PPG on team' and 'over same time' columns: the window
                 is the time the added player was on the picking team."""
-                games = _player_games(player_name, pid)
+                games = _tx_player_games(player_name, pid)
                 in_window: List[float] = []
                 for g in games:
                     if not g["_wk_date"]:
@@ -9963,7 +9963,7 @@ def build_all(repo_root: Path) -> None:
                 # who never played again scores a real 0 (the perfect drop).
                 if _is_name(dropped):
                     _post = sorted(
-                        (g for g in _player_games(dropped, r.get("_dropped_pid"))
+                        (g for g in _tx_player_games(dropped, r.get("_dropped_pid"))
                          if g["_wk_date"] and g["_wk_date"] >= pickup_iso_prefix),
                         key=lambda g: g["_wk_date"],
                     )[:17]
@@ -11398,7 +11398,7 @@ def build_all(repo_root: Path) -> None:
                     # later year) so the horizon is a true calendar year.
                     _anchor = _draft_anchor(_yr)
 
-                    def _plus_years(_d: date, _n: int) -> date:
+                    def _pick_plus_years(_d: date, _n: int) -> date:
                         try:
                             return _d.replace(year=_d.year + _n)
                         except ValueError:      # Feb 29 -> Feb 28
@@ -11407,10 +11407,10 @@ def build_all(repo_root: Path) -> None:
                     _checkpoints = [
                         ("KTC on draft day", _anchor),
                         ("KTC at end of rookie year", date(_yr + 1, 2, 1)),
-                        ("KTC 1 year after draft day", _plus_years(_anchor, 1)),
-                        ("KTC 2 years after draft day", _plus_years(_anchor, 2)),
-                        ("KTC 3 years after draft day", _plus_years(_anchor, 3)),
-                        ("KTC 4 years after draft day", _plus_years(_anchor, 4)),
+                        ("KTC 1 year after draft day", _pick_plus_years(_anchor, 1)),
+                        ("KTC 2 years after draft day", _pick_plus_years(_anchor, 2)),
+                        ("KTC 3 years after draft day", _pick_plus_years(_anchor, 3)),
+                        ("KTC 4 years after draft day", _pick_plus_years(_anchor, 4)),
                     ]
                     for _col, _tgt in _checkpoints:
                         # A checkpoint still in the FUTURE has no KTC yet — leave
@@ -14366,7 +14366,7 @@ def build_all(repo_root: Path) -> None:
     # NFL week 1's Sunday is 6 days after the first Monday of September; the
     # championship Sunday is 16 weeks later; the snapshot Monday is the day
     # after. e.g. 2021 -> Jan 3 2022, 2023 -> Jan 1 2024, 2024 -> Dec 30 2024.
-    def _championship_monday(_yr: int) -> date:
+    def _fy_championship_monday(_yr: int) -> date:
         _sept1 = date(int(_yr), 9, 1)
         _first_monday = _sept1 + timedelta(days=(7 - _sept1.weekday()) % 7)
         _week1_sunday = _first_monday + timedelta(days=6)
@@ -14378,15 +14378,15 @@ def build_all(repo_root: Path) -> None:
         # a date before last year's championship Monday belongs to FY-1.
         _dd = _d.date() if isinstance(_d, datetime) else _d
         _y = _dd.year
-        if _dd >= _championship_monday(_y):
+        if _dd >= _fy_championship_monday(_y):
             return _y + 1
-        if _dd < _championship_monday(_y - 1):
+        if _dd < _fy_championship_monday(_y - 1):
             return _y - 1
         return _y
 
     def _fy_window(_fy: int, _tz_for_window) -> Tuple[datetime, datetime]:
-        _s = _championship_monday(_fy - 1)
-        _e = _championship_monday(_fy)
+        _s = _fy_championship_monday(_fy - 1)
+        _e = _fy_championship_monday(_fy)
         return (
             datetime(_s.year, _s.month, _s.day, tzinfo=_tz_for_window),
             datetime(_e.year, _e.month, _e.day, tzinfo=_tz_for_window),
@@ -19269,7 +19269,7 @@ def build_all(repo_root: Path) -> None:
             for _pid in (_tr.get("_recv_player_ids") or []):
                 if _pid:
                     _pl_events[str(_pid)].append((_ts, _deal))
-        def _draft_anchor(_y) -> str:
+        def _draft_day_str(_y) -> str:
             """Date (YYYY-MM-DD) the season's draft actually happened, so the draft
             EVENT sorts after the pick's pre-draft trades and before the drafted
             player's post-draft moves. Falls back to Aug 31 for not-yet-drafted
@@ -19295,7 +19295,7 @@ def build_all(repo_root: Path) -> None:
             _ply = _cl(ph.at[_pi, "Player Picked"])
             _drafted = _ply.lower() not in ("", "unknown", "n/a", "nan", "none")
             _drafted_txt = "drafted " + (f"{_ply} " if _drafted else "") + f"({_num})"
-            _draft_key = f"{_draft_anchor(_yr)} 12:00:00"          # draft (noon)
+            _draft_key = f"{_draft_day_str(_yr)} 12:00:00"          # draft (noon)
             # Commissioner moves sort SECOND, immediately after the "originally
             # …'s pick" header: they're off-platform moves that predate Sleeper's
             # recorded trades, so anywhere later reads out of order (user flag).
@@ -19327,7 +19327,7 @@ def build_all(repo_root: Path) -> None:
                 _rnd5 = (_R5XX_BASE + int(_m5.group(1))) if _m5 else None
                 _hdr = f"{_yr} {_num} — originally {_orig}'s pick (20-FAAB draft-day buy)"
                 _lines = [("0000-00-00 00:00:00", _hdr)]
-                _anchor_d = _draft_anchor(_yr)
+                _anchor_d = _draft_day_str(_yr)
                 _same_day = 0
                 _ntr5 = 0
                 for _ts, _recv, _line in sorted(_ph_hops.get((_yr, _rnd5, _orig), []) if _rnd5 else []):
@@ -19348,7 +19348,7 @@ def build_all(repo_root: Path) -> None:
                 # award itself counts 0, but each onward trade counts like any pick.
                 _hdr = f"{_yr} {_num} — originally {_orig}'s pick (toilet-bowl reward)"
                 _lines = [("0000-00-00 00:00:00", _hdr)]
-                _anchor_d = _draft_anchor(_yr)
+                _anchor_d = _draft_day_str(_yr)
                 _same_day = 0
                 _ntr209 = 0
                 for _ts, _recv, _line in sorted(_ph_hops.get((_yr, _R209, _orig), [])):
@@ -19367,7 +19367,7 @@ def build_all(repo_root: Path) -> None:
             _ntr = 0
             if _nm:
                 _key = (_yr, int(_nm.group(1)), _orig)
-                _anchor_d = _draft_anchor(_yr)
+                _anchor_d = _draft_day_str(_yr)
                 _same_day = 0
                 for _ts, _recv, _line in sorted(_ph_hops.get(_key, [])):
                     _k = _ts
@@ -20703,7 +20703,7 @@ def build_all(repo_root: Path) -> None:
                     # Use the picks sheet's own draft anchor so Tenure (days)
                     # equals its "Length of tenure on team" to the day.
                     try:
-                        _pk = _draft_anchor(_sea)
+                        _pk = _draft_day_str(_sea)
                     except Exception:
                         _pk = None
                     if _pk is None:
