@@ -3,8 +3,9 @@
 User rule (2026-09-23): every week a player sits on a team's roster
 (player_week) falls inside one of that team's tenures for him on
 player_additions (Date .. Date dropped/traded). A week counts as inside when it
-overlaps the tenure: its first game is before the exit day and its last game on
-or after the pickup day.
+overlaps the tenure: its first game is before the exit day, and the pickup was
+no later than the Wednesday after its last game (Sleeper lists a Tuesday or
+Wednesday-waiver pickup on the week that just ended).
 
 Run 531 had 166 team-weeks outside every tenure, in two families: moves across
 the 2020 ESPN -> 2021 Sleeper seam whose synthesized arrival was dated the day
@@ -57,7 +58,12 @@ def _uncovered():
             first_thu = date(y, 9, 1) + timedelta(days=(3 - date(y, 9, 1).weekday()) % 7)
             sd = (first_thu + timedelta(weeks=w - 1)).isoformat()
             ed = (first_thu + timedelta(weeks=w - 1, days=4)).isoformat()
-        if not any(s0 <= ed and e0 > sd for s0, e0 in ten.get((t, p), [])):
+        # Sleeper lists a Tuesday or Wednesday pickup (the 3am ET waiver run) on
+        # the week that just ended: Dylan Laube (LWebs53, Tue 2024-10-08) shows
+        # on week 5, Nico Collins (LWebs53, Wed 2022-10-19 03:04) on week 6. A
+        # tenure starting by that Wednesday covers the week.
+        wed = (date.fromisoformat(ed) + timedelta(days=2)).isoformat()
+        if not any(s0 <= wed and e0 > sd for s0, e0 in ten.get((t, p), [])):
             out.append((t, p, y, w))
     return out
 

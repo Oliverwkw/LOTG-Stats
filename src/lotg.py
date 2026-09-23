@@ -8928,9 +8928,9 @@ def build_all(repo_root: Path) -> None:
 
             def _arrival_at(team, pid, ts, after_ts):
                 """Just before the first week of `team`'s unbroken rostered run of
-                `pid` ending at the last week that started before `ts`; None if
-                the rosters show no such run, or it would predate `after_ts` (the
-                previous recorded event), so the old dating stands."""
+                `pid` ending at the last week that started before `ts`, counting
+                only weeks that start after `after_ts` (the previous recorded
+                event); None if there is no such run, so the old dating stands."""
                 _wks = _team_weeks.get((str(team), str(pid)))
                 _t = _aware(ts)
                 if not _wks or _t is None:
@@ -8940,13 +8940,24 @@ def build_all(repo_root: Path) -> None:
                 if not _before:
                     return None
                 _y, _w = _before[-1]
+                # Never reach back past the previous recorded event: a run that
+                # began before it (a trade the league undid, which the log still
+                # shows) belongs to him again only from the next week on.
+                _p = _aware(after_ts) if after_ts else None
+                _pday = _league_day(_p.to_pydatetime()).isoformat() if _p is not None else ""
+
+                def _starts_after(_yy, _ww):
+                    return (_first_game_day(_yy, _ww) or "") > _pday
+                if not _starts_after(_y, _w):
+                    return None
                 while True:
-                    if (_y, _w - 1) in _wks:
+                    if (_y, _w - 1) in _wks and _starts_after(_y, _w - 1):
                         _w -= 1
                         continue
                     # across an offseason: his team's last week of the prior season
                     _pl = _team_last_wk.get((str(team), _y - 1))
-                    if _w == _team_first_wk.get((str(team), _y)) and _pl and (_y - 1, _pl) in _wks:
+                    if (_w == _team_first_wk.get((str(team), _y)) and _pl and (_y - 1, _pl) in _wks
+                            and _starts_after(_y - 1, _pl)):
                         _y, _w = _y - 1, _pl
                         continue
                     break
@@ -8958,7 +8969,6 @@ def build_all(repo_root: Path) -> None:
                         return None
                     _at = pd.Timestamp(_fg, tz="UTC").isoformat()  # 00:00 UTC, the eve of week's first game
                 _a = _aware(_at)
-                _p = _aware(after_ts) if after_ts else None
                 if _a is None or (_p is not None and _a <= _p) or _a >= _t:
                     return None
                 return _a.isoformat()
