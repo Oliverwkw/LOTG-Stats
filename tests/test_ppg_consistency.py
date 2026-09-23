@@ -85,11 +85,41 @@ def check_draft_rows_match_the_pick_sheets():
     return ok
 
 
+def check_single_player_trades_match_player_additions():
+    """A trade that brought in exactly one player (no picks, no FAAB) has one
+    received tenure, so its 'Avg PPG of received players on team' is that
+    player's player_additions Trade row 'Avg PPG on team'."""
+    tr_p, pa_p = _EXPORTS / "trades.csv", _EXPORTS / "player_additions.csv"
+    if not (tr_p.exists() and pa_p.exists()):
+        print("  [SKIP] exports/ absent")
+        return True
+    tr = pd.read_csv(tr_p, dtype=str, keep_default_na=False)
+    pa = pd.read_csv(pa_p, dtype=str, keep_default_na=False)
+    one = tr[~tr["Assets received"].str.contains(";|FAAB|\\(|^\\d{4} ", regex=True)
+             & tr["Assets received"].str.strip().ne("")].copy()
+    one["day"] = one["Date"].str[:10]
+    pa = pa[pa["Addition type"] == "Trade"].copy()
+    pa["day"] = pa["Date"].str[:10]
+    one = one[~one.duplicated(["Team", "Assets received", "day"], keep=False)]
+    pa = pa[~pa.duplicated(["Team", "Player", "day"], keep=False)]
+    j = one.merge(pa, left_on=["Team", "Assets received", "day"], right_on=["Team", "Player", "day"])
+    a = pd.to_numeric(j["Avg PPG of received players on team"], errors="coerce")
+    b = pd.to_numeric(j["Avg PPG on team"], errors="coerce")
+    m = (a.isna() != b.isna()) | ((a - b).abs() > 0.011)
+    bad = j.loc[m, ["Team", "Player", "day"]].assign(trades=a[m], player_additions=b[m])
+    ok = _ok("single-player trades line up", len(j) > 50, f"{len(j)} matched")
+    ok &= _ok("received on-team PPG = the player's own Avg PPG on team", bad.empty,
+              f"{len(bad)} differ, e.g. {bad.head(4).values.tolist()}")
+    return ok
+
+
 def run_all():
     print("\ncheck_both_sheets_carry_one_number:")
     ok = check_both_sheets_carry_one_number()
     print("\ncheck_draft_rows_match_the_pick_sheets:")
     ok &= check_draft_rows_match_the_pick_sheets()
+    print("\ncheck_single_player_trades_match_player_additions:")
+    ok &= check_single_player_trades_match_player_additions()
     print("\nALL PASSED" if ok else "\nSOME FAILED")
     return ok
 
