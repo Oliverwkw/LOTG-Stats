@@ -112,15 +112,20 @@ def test_the_lineage_rows_are_really_there_to_be_counted():
 
 def test_an_in_season_synthesized_row_lands_in_a_week():
     """A synthesized row made during the season has a week, so it must not widen
-    the team_year / team_week gap. Only the rows with no week may — and the
-    build's rule for that is a date more than 7 days before kickoff."""
+    the team_year / team_week gap. Only the rows with no week ROW may: a date
+    more than 7 days before kickoff (the build's rule), or, in the season being
+    played, a week not written yet. Fantasy weeks run Tuesday-Monday, so a move
+    on the Tuesday after a week's games belongs to the NEXT week, which has no
+    team_week row until it is played (run 515's shmuel256 drop, 02:04 ET Tue)."""
     if not _HAVE or not (_EXPORTS / "team_week.csv").exists():
         return _skip("no exports/")
     from collections import defaultdict
     weeks = defaultdict(int)
     played = set()
+    last_week = defaultdict(int)
     for r in _rows("team_week.csv"):
         played.add(int(r["Year"]))
+        last_week[int(r["Year"])] = max(last_week[int(r["Year"])], int(r["Week"]))
         v = _num(r.get("Total transactions"))
         if v is not None:
             weeks[(r["Team"], int(r["Year"]))] += int(v)
@@ -129,7 +134,8 @@ def test_an_in_season_synthesized_row_lands_in_a_week():
         for r in _rows(sheet):
             season = int(r["Season"])
             when = date.fromisoformat(str(r["Date"])[:10])
-            if not lotg._season_week_of(when, season):
+            wk = lotg._season_week_of(when, season)
+            if not wk or wk > last_week[season]:
                 weekless[(r["Team"], season)] += 1
     n = _detail_counts()
     checked = 0

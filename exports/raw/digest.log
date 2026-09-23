@@ -1,7 +1,7 @@
 [digest] 42 percent column(s) stored as 0-1 fractions
-[digest] build-inputs fingerprint: 6d94ec796420fd40
+[digest] build-inputs fingerprint: b7e4fb5643105f12
 [digest] season=2026 weeks_completed=2
-[digest] new data: 1 new week(s), 251 player(s) / 8 team(s) in them, 14 player(s) / 6 team(s) in new transactions; edit landed: True -> 213 item(s) with the news, 36 under edits
-[digest] lede: plehv79's Number of TE rostered this week (9) is the highest single week ever (tie). It was an active week — 209 of the 245 other moves are new results (64 on single-week records (this week) and 44 on player weeks); 36 re-valued history besides. LWebs53's Number of WR rostered this week (19) is the highest single week ever; AceMatthew passes LWebs53 for highest Average weekly starter turnover (3.1); Oliverwkw passes BROsenzweig and plehv79 for highest Starter-adjusted Hardship (2,658.7). 81 of the 249 were ties rather than overtakes.
-[digest] 66 single-week highlight(s), 60 crossing(s), 0 record(s), 123 board move(s), 0 milestone(s), 0 on-pace change(s) -> exports/raw/weekly_digest.html
+[digest] new data: 0 new week(s), 0 player(s) / 0 team(s) in them, 2 player(s) / 1 team(s) in new transactions; edit landed: True -> 2 item(s) with the news, 117 under edits
+[digest] lede: Oliverwkw's 2023-12-21 move for Joe Flacco passes plehv79's 2025-09-01 move for Quentin Johnston for 2nd-highest Player addition value (77.5). This is a recompute, not a results week: 117 of the 117 other moves re-value settled history (44 on add/drops and 16 on player additions). Oliverwkw 2023 passes LWebs53 2023 and stevenb123 2024 for 2nd-lowest Add/Drop skill (30.2). 14 of the 119 were ties rather than overtakes.
+[digest] 0 single-week highlight(s), 3 crossing(s), 0 record(s), 116 board move(s), 0 milestone(s), 0 on-pace change(s) -> exports/raw/weekly_digest.html
 [digest] snapshot saved -> data/digest/ranks_snapshot.json

@@ -867,9 +867,9 @@ def _snapshot_trade_events(seasons: Sequence[int],
                 txn_id = str(txn.get("transaction_id"))
                 dropped_by[txn_id] = {
                     str(k): int(v) for k, v in (txn.get("drops") or {}).items()}
-                # `created`, not `status_updated`: that is the stamp the sheets
-                # print, so the two sources order consistently against each other.
-                completed_at[txn_id] = int(txn.get("created") or 0)
+                # `status_updated` (its completion) — the stamp the sheets print
+                # for a trade, so the two sources order consistently.
+                completed_at[txn_id] = int(txn.get("status_updated") or txn.get("created") or 0)
         for trade in Q.trades(season=year):
             if not include_duplicates and trade.transaction_id in DUPLICATE_TRADE_TRANSACTIONS:
                 continue
