@@ -258,7 +258,7 @@ _ROWS = [
      "Formula": "What the sent side would have given you over the same span — each sent player's mean points across the received players' collective tenure, averaged.",
      "Notes": ""},
     {"Stat": "Avg PPG of received players in 5 games before trade", "Sheet": "trades",
-     "Formula": "The received players' recent form just before the trade. Each one's mean points over his 5 most-recent NFL games before the trade date, averaged (fewer than 5 → what's available).",
+     "Formula": "The received players' recent form just before the trade. Each one's mean points over his 5 most-recent NFL games played on an earlier day than the trade (league/Eastern time; a Saturday trade does not count that Sunday's game), averaged (fewer than 5 → what's available).",
      "Notes": ""},
     {"Stat": "Difference of averages", "Sheet": "trades", "Columns": ["Difference of averages"],
      "Formula": "How much better the received side produced per game than the side given up, over the forward-looking window. Avg PPG of received players on team − Avg PPG of sent players over same time.",
