@@ -778,7 +778,7 @@ _ROWS = [
      "Notes": ""},
     {"Stat": "Reference player name", "Sheet": "player_week", "Columns": ["Reference player name"],
      "Formula": "The player the start/sit difference is measured against that week — the best startable bench player, or the worst benchable starter.",
-     "Notes": "Links to that player's player_week row for the same year and week."},
+     "Notes": "Links to that player's player_week row for the same year and week. 'Empty slot' when the team left a starting slot empty that week: it scored 0, so it is the worst starter (not linked)."},
     {"Stat": "Difference in averages of best/worst startables over previous 5 games", "Sheet": "player_week", "Columns": ["Difference in averages of best/worst startables over previous 5 games"],
      "Formula": "The same best-bench / worst-starter comparison, but on each side's average over its previous 5 regular-season NFL games (nflverse game log, league scoring; rostered or not, across seasons; a snap with no stat line counts as 0) instead of this week's single score.",
      "Notes": "Smooths out one-week noise in the start/sit signal. A rookie averages the games he has; anyone else with fewer than 5 is N/A, as is a rookie before his first game."},
