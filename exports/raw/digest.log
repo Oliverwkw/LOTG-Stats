@@ -1,7 +1,7 @@
 [digest] 42 percent column(s) stored as 0-1 fractions
-[digest] build-inputs fingerprint: 7c044539fe6ba074
+[digest] build-inputs fingerprint: 2fba3ea3ce431d43
 [digest] season=2026 weeks_completed=2
-[digest] new data: 0 new week(s), 0 player(s) / 0 team(s) in them, 124 player(s) / 8 team(s) in new transactions; edit landed: True -> 49 item(s) with the news, 248 under edits
-[digest] lede: stevenb123's 2023-03-14 trade for Trey McBride passes stevenb123's 2023-03-09 trade for Trey McBride for highest O-Score (98.6). This is mostly a recompute: 248 of the 295 other moves re-value settled history (116 on trades and 47 on add/drops), and only 47 reflect new data. stevenb123's 2021-10-08 trade for Henry Ruggs passes JacobRosenzweig's 2020-09-10 draft of Drew Brees for lowest KTC change by end of season (-3,869). 9 picks pass earlier-numbered versions of themselves; 103 of the 297 were ties rather than overtakes.
-[digest] 0 single-week highlight(s), 11 crossing(s), 0 record(s), 286 board move(s), 0 milestone(s), 0 on-pace change(s) -> exports/raw/weekly_digest.html
+[digest] new data: 0 new week(s), 0 player(s) / 0 team(s) in them, 2 player(s) / 1 team(s) in new transactions; edit landed: True -> 8 item(s) with the news, 109 under edits
+[digest] lede: stevenb123's 2021-10-08 trade for Henry Ruggs passes JacobRosenzweig's 2020-09-10 draft of Drew Brees for lowest KTC change by end of season (-3,869). This is a recompute, not a results week: 109 of the 116 other moves re-value settled history (38 on add/drops and 20 on trades), and only 7 reflect new data. The biggest single thread is 19 Difference of averages moves; 12 of the 117 were ties rather than overtakes.
+[digest] 0 single-week highlight(s), 7 crossing(s), 0 record(s), 110 board move(s), 0 milestone(s), 0 on-pace change(s) -> exports/raw/weekly_digest.html
 [digest] snapshot saved -> data/digest/ranks_snapshot.json
