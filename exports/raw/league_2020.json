@@ -35,5 +35,28 @@
     "last_scored_leg": 16,
     "leg": 16
   },
-  "scoring_settings": {}
+  "scoring_settings": {
+    "st_td": 6.0,
+    "rush_td": 6.0,
+    "fum": -2.0,
+    "rec": 1.0,
+    "rec_td": 6.0,
+    "pass_2pt": 2.0,
+    "pass_td": 4.0,
+    "pass_int": -2.0,
+    "rush_yd": 0.1,
+    "fum_rec_td": 6.0,
+    "fgm_0_19": 3.0,
+    "fgm_20_29": 3.0,
+    "fgm_30_39": 3.0,
+    "rush_2pt": 2.0,
+    "fgm_40_49": 4.0,
+    "pass_yd": 0.04,
+    "fgmiss": -1.0,
+    "xpm": 1.0,
+    "rec_yd": 0.1,
+    "xpmiss": -1.0,
+    "rec_2pt": 2.0,
+    "fgm_50p": 5.0
+  }
 }
