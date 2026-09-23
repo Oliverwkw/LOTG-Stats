@@ -1229,6 +1229,21 @@ def _col_number_format(col: str) -> Optional[str]:
 # not part of the auction (they are still real transactions everywhere else).
 _BID_NEVER_STOOD = ("too many players", "over the budget", "already started playing")
 
+# Sleeper writes "0" in a lineup's starters for a slot left empty. It scores 0,
+# so it is the worst starter a bench player is measured against; the reference
+# column names it as such instead of printing the raw id.
+_EMPTY_SLOT_PID = "0"
+_EMPTY_SLOT_LABEL = "Empty slot"
+
+
+def _reference_name(pid: Any, pid_meta: Dict[str, Dict[str, Any]]) -> Any:
+    """player_week 'Reference player name' for a start/sit reference pid."""
+    if not pid:
+        return None
+    if str(pid) == _EMPTY_SLOT_PID:
+        return _EMPTY_SLOT_LABEL
+    return pid_meta.get(pid, {}).get("full_name") or pid
+
 
 def _bid_never_stood(t: Dict[str, Any]) -> bool:
     """True for a failed waiver claim that could not have been honoured at any
@@ -6486,9 +6501,9 @@ def build_all(repo_root: Path) -> None:
                         diff_worst_starter = (pts - worst_starter_pts) if ((not started) and worst_starter_pts is not None) else None
                         ref_player = None
                         if started and best_bench_pid:
-                            ref_player = pid_meta.get(best_bench_pid, {}).get("full_name") or best_bench_pid
+                            ref_player = _reference_name(best_bench_pid, pid_meta)
                         elif (not started) and worst_starter_pid:
-                            ref_player = pid_meta.get(worst_starter_pid, {}).get("full_name") or worst_starter_pid
+                            ref_player = _reference_name(worst_starter_pid, pid_meta)
 
                         if preseason_only:
                             continue
