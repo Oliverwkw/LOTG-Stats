@@ -87,17 +87,22 @@ def check_startables_window_is_the_nfl_game_log():
     rookie = pd.Series([False, False, True, True, True, False], index=pw.index)
     avg = lotg._previous_nfl_avgs(pw, games, rookie_mask=rookie)
     ok = _ok("week 1 reaches back into last season (a 0-point game counts)",
-             avg[("Vet", 2026, 1)] == 12.0, avg[("Vet", 2026, 1)])
-    ok &= _ok("week 2 rolls week 1 in and 2025 week 13 out", avg[("Vet", 2026, 2)] == 19.4,
-              avg[("Vet", 2026, 2)])
-    ok &= _ok("a rookie has no average before his first game", avg[("Rook", 2026, 1)] is None)
-    ok &= _ok("then averages what he has (week 2: one game)", avg[("Rook", 2026, 2)] == 1.0,
-              avg[("Rook", 2026, 2)])
-    ok &= _ok("(week 4: three games)", avg[("Rook", 2026, 4)] == 2.0, avg[("Rook", 2026, 4)])
-    ok &= _ok("a non-rookie short of five has none", avg[("Soph", 2026, 2)] is None,
-              avg[("Soph", 2026, 2)])
+             avg[("v", 2026, 1)] == 12.0, avg[("v", 2026, 1)])
+    ok &= _ok("week 2 rolls week 1 in and 2025 week 13 out", avg[("v", 2026, 2)] == 19.4,
+              avg[("v", 2026, 2)])
+    ok &= _ok("a rookie has no average before his first game", avg[("r", 2026, 1)] is None)
+    ok &= _ok("then averages what he has (week 2: one game)", avg[("r", 2026, 2)] == 1.0,
+              avg[("r", 2026, 2)])
+    ok &= _ok("(week 4: three games)", avg[("r", 2026, 4)] == 2.0, avg[("r", 2026, 4)])
+    ok &= _ok("a non-rookie short of five has none", avg[("s", 2026, 2)] is None,
+              avg[("s", 2026, 2)])
     ok &= _ok("an unknown player has none",
-              lotg._previous_nfl_avgs(pw.assign(**{"Player ID": "x"}), games)[("Vet", 2026, 1)] is None)
+              lotg._previous_nfl_avgs(pw.assign(**{"Player ID": "x"}), games)[("x", 2026, 1)] is None)
+    twins = pd.DataFrame({"Player": ["Mike Williams", "Mike Williams"], "Player ID": ["v", "s"],
+                          "Year": [2026, 2026], "Week": [2, 2]})
+    t = lotg._previous_nfl_avgs(twins, games)
+    ok &= _ok("two players sharing a name keep their own averages (keyed by id)",
+              t[("v", 2026, 2)] == 19.4 and t[("s", 2026, 2)] is None, t)
     return ok
 
 
@@ -129,12 +134,28 @@ def check_exports_hold_both_windows():
     return ok
 
 
+def check_no_two_players_share_a_name_in_a_week():
+    """The window is keyed by id, so a shared name cannot mix two averages any
+    more; but the workbook links 'Reference player name' to a row by name. Red
+    here means two different players share a name in one week — fix the link
+    (key it by id) rather than this guard."""
+    pw_p = _EXPORTS / "player_week.csv"
+    if not pw_p.exists():
+        print("  [SKIP] exports/ absent")
+        return True
+    pw = pd.read_csv(pw_p, dtype=str, keep_default_na=False, usecols=["Player", "Year", "Week"])
+    dup = pw[pw.duplicated(["Player", "Year", "Week"], keep=False)]
+    return _ok("no two player_week rows share a name in one week", dup.empty,
+               dup.head(6).values.tolist())
+
+
 def run_all():
     tests = [
         check_pregame_average_waits_for_week_4,
         check_startables_window_is_the_nfl_game_log,
         check_upst_is_na_early_and_renders_whole,
         check_exports_hold_both_windows,
+        check_no_two_players_share_a_name_in_a_week,
     ]
     all_ok = True
     for t in tests:

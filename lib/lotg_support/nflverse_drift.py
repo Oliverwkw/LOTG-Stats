@@ -90,14 +90,11 @@ _SCORING_COLS = frozenset({
     "rushing_yards", "rushing_tds", "rushing_2pt_conversions", "rushing_first_downs",
     "receptions", "receiving_yards", "receiving_tds",
     "receiving_2pt_conversions", "receiving_first_downs",
-    "sack_fumbles", "rushing_fumbles", "receiving_fumbles",
-    "sack_fumbles_lost", "rushing_fumbles_lost", "receiving_fumbles_lost",
-    "fumble_recovery_opp", "fumble_recovery_tds",
-    "fumble_recovery_yards_own", "fumble_recovery_yards_opp",
+    "fumbles_total", "fumbles_lost_total",
+    "fumble_recovery_tds", "fumble_recovery_yards_opp",
     "special_teams_tds",
     "fg_made_0_19", "fg_made_20_29", "fg_made_30_39", "fg_made_40_49",
     "fg_made_50_59", "fg_made_60_", "fg_missed", "pat_made", "pat_missed",
-    "def_tds", "def_interceptions", "def_sacks", "def_fumbles_forced", "def_safeties",
 })
 POOL_COLUMNS = _POSITION_COLS | _SCORING_COLS
 

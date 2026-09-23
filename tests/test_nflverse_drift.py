@@ -742,6 +742,10 @@ def check_pool_columns_track_the_builds_scoring_inputs(_tmp):
                 scoring.add(col)
     missing = sorted(scoring - N.POOL_COLUMNS)
     ok = _ok("every scoring input is pool-relevant", not missing, f"missing={missing}")
+    # and nothing the build no longer scores is: a revision to a column that
+    # moves no score (the old split fumble counts) re-seats no pool
+    stale = sorted(N._SCORING_COLS - scoring)
+    ok &= _ok("no column the build no longer scores is counted as one", not stale, f"stale={stale}")
     ok &= _ok("so is the position label", {"position", "position_group"} <= N.POOL_COLUMNS)
     return ok
 

@@ -600,6 +600,42 @@ def _slot_ordered(starters: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
                                                       len(_SLOT_EMIT_RANK)))
 
 
+# ESPN scoring stat id -> the Sleeper scoring key for the same stat, for the
+# stats an offensive player can score. Verified against the league's own 2020
+# points: with these, re-scoring nflverse's 2020 stat lines reproduces ESPN's
+# per-player points on 2,084 of 2,085 rostered weeks. Note 68 is ANY fumble (-2),
+# not a lost one: read as lost-only, 141 of those weeks come out 2 points high.
+# ESPN's team-defense and kick-return-by-a-defense items (93, 95, 96, 98, 99,
+# 103, 104, 206, 209) have no offensive counterpart and are left out.
+ESPN_STAT_TO_SLEEPER = {
+    3: "pass_yd", 4: "pass_td", 19: "pass_2pt", 20: "pass_int",
+    24: "rush_yd", 25: "rush_td", 26: "rush_2pt",
+    42: "rec_yd", 43: "rec_td", 44: "rec_2pt", 53: "rec",
+    63: "fum_rec_td", 68: "fum", 72: "fum_lost",
+    101: "st_td", 102: "st_td",
+    74: "fgm_50p", 77: "fgm_40_49", 80: ("fgm_0_19", "fgm_20_29", "fgm_30_39"),
+    198: "fgm_50p", 201: "fgm_50p", 85: "fgmiss", 86: "xpm", 88: "xpmiss",
+}
+
+
+def scoring_settings(raw_settings: Dict[str, Any]) -> Dict[str, float]:
+    """The 2020 league's scoring, as Sleeper-style scoring_settings.
+
+    ESPN keeps it as `scoringSettings.scoringItems` ({statId, points,
+    pointsOverrides}); translate the items `ESPN_STAT_TO_SLEEPER` knows, using the
+    base `points` (the overrides are per-lineup-slot, and only slot 16, D/ST,
+    carries any)."""
+    out: Dict[str, float] = {}
+    items = (raw_settings.get("scoringSettings") or {}).get("scoringItems") or []
+    for it in items:
+        keys = ESPN_STAT_TO_SLEEPER.get(it.get("statId"))
+        if keys is None or it.get("points") is None:
+            continue
+        for k in (keys if isinstance(keys, tuple) else (keys,)):
+            out[k] = float(it["points"])
+    return out
+
+
 def _roster_positions(raw: Dict[str, Any]) -> List[str]:
     counts = raw["settings"].get("rosterSettings", {}).get("lineupSlotCounts", {})
     pos = []
@@ -622,9 +658,10 @@ def emit_sleeper_2020(loaded: Dict[str, Any]) -> Dict[str, Any]:
         "total_rosters": len(TEAM_TO_MANAGER), "roster_positions": _roster_positions(raw),
         "settings": {"playoff_week_start": 15, "playoff_teams": 4, "num_teams": 8,
                      "last_scored_leg": 16, "leg": 16},
-        # 2020 scoring is supplied as actual per-player points on each matchup
-        # (players_points), so the build's re-score path has nothing to recompute.
-        "scoring_settings": {},
+        # 2020's actual per-player points ride on each matchup (players_points);
+        # these settings are for re-scoring nflverse games the league never
+        # rostered (the start/sit window, full-season points, pre-pickup PPG).
+        "scoring_settings": scoring_settings(raw["settings"]),
     }
     users = [{"user_id": owners.get(tid), "display_name": mgr,
               "metadata": {"team_name": mgr}} for tid, mgr in TEAM_TO_MANAGER.items()]
