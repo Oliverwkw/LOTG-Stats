@@ -8881,14 +8881,87 @@ def build_all(repo_root: Path) -> None:
                                     "_dropped_pid": str(pid),
                                     "Date": _ad.isoformat() if _ad is not None else str(ts)})
 
-            def _synth_add(team, pid, ts):
+            def _synth_add(team, pid, ts, at=None):
+                # `at`: the exact instant, when the rosters say when he arrived;
+                # otherwise the day before the event that proves he was held.
                 _key = ("add", team, str(pid), ts)
                 _nm = _pname(pid)
                 if _key in _synth_seen or not _nm:
                     return
                 _synth_seen.add(_key)
                 _synth_add_rows.append({"Team": team, "Player Added": _nm,
-                                        "_added_pid": str(pid), "Date": _day_before(ts)})
+                                        "_added_pid": str(pid),
+                                        "Date": at if at is not None else _day_before(ts)})
+
+            # When did a player the log never shows arriving REALLY join a team?
+            # The weekly rosters know: he is on it for an unbroken run of weeks
+            # up to the departure that proves the holding. Date the synthesized
+            # arrival (and the previous holder's unrecorded exit) just before
+            # that run's first week — not the day before the departure, which
+            # left every week in between belonging to nobody (Darrell Henderson
+            # on Oliverwkw 2021-22, Devin Singletary on JacobRosenzweig 2021-23,
+            # K.J. Osborn / Hunter Henry after 2024's undone trades). A run that
+            # opens the 2021 season crossed the ESPN->Sleeper seam: date it at
+            # the seam (the day before the 2021 rookie draft).
+            _team_weeks: Dict[Tuple[str, str], set] = defaultdict(set)
+            _team_first_wk: Dict[Tuple[str, int], int] = {}
+            _team_last_wk: Dict[Tuple[str, int], int] = {}
+            try:
+                if not pw.empty and {"Team", "Player ID", "Year", "Week"}.issubset(pw.columns):
+                    for _t, _pp, _y, _w in zip(pw["Team"], pw["Player ID"], pw["Year"], pw["Week"]):
+                        if _pp is None or (isinstance(_pp, float) and pd.isna(_pp)):
+                            continue
+                        try:
+                            _yi, _wi = int(_y), int(_w)
+                        except Exception:
+                            continue
+                        _team_weeks[(str(_t), str(_pp))].add((_yi, _wi))
+                        _tk = (str(_t), _yi)
+                        _team_first_wk[_tk] = min(_team_first_wk.get(_tk, _wi), _wi)
+                        _team_last_wk[_tk] = max(_team_last_wk.get(_tk, _wi), _wi)
+            except Exception as e:
+                _log_exc(debug, "coverage_team_weeks", e)
+            _seam_days = sorted(rookie_draft_dates_by_season.get(2021, set())
+                                or draft_dates_by_season.get(2021, set()) or set())
+            _seam_iso = (_day_before(pd.Timestamp(_seam_days[0], tz="UTC").isoformat())
+                         if _seam_days else None)
+
+            def _arrival_at(team, pid, ts, after_ts):
+                """Just before the first week of `team`'s unbroken rostered run of
+                `pid` ending at the last week that started before `ts`; None if
+                the rosters show no such run, or it would predate `after_ts` (the
+                previous recorded event), so the old dating stands."""
+                _wks = _team_weeks.get((str(team), str(pid)))
+                _t = _aware(ts)
+                if not _wks or _t is None:
+                    return None
+                _day = _league_day(_t.to_pydatetime()).isoformat()
+                _before = sorted(w for w in _wks if (_first_game_day(*w) or "9999") < _day)
+                if not _before:
+                    return None
+                _y, _w = _before[-1]
+                while True:
+                    if (_y, _w - 1) in _wks:
+                        _w -= 1
+                        continue
+                    # across an offseason: his team's last week of the prior season
+                    _pl = _team_last_wk.get((str(team), _y - 1))
+                    if _w == _team_first_wk.get((str(team), _y)) and _pl and (_y - 1, _pl) in _wks:
+                        _y, _w = _y - 1, _pl
+                        continue
+                    break
+                if _y == 2021 and _w == _team_first_wk.get((str(team), 2021)) and _seam_iso:
+                    _at = _seam_iso
+                else:
+                    _fg = _first_game_day(_y, _w)
+                    if not _fg:
+                        return None
+                    _at = pd.Timestamp(_fg, tz="UTC").isoformat()  # 00:00 UTC, the eve of week's first game
+                _a = _aware(_at)
+                _p = _aware(after_ts) if after_ts else None
+                if _a is None or (_p is not None and _a <= _p) or _a >= _t:
+                    return None
+                return _a.isoformat()
 
             _synth_seen: set = set()
             _synth_rows: List[Dict[str, Any]] = []       # missing departures
@@ -8907,6 +8980,7 @@ def build_all(repo_root: Path) -> None:
             for _pid_h, _evs in _holder_events.items():
                 _holder = None
                 _crossed_2021 = False
+                _prev_ts = None
                 for _ts, _rank, _kind, _tm in sorted(_evs, key=lambda e: (e[0], e[1])):
                     if not _crossed_2021 and str(_ts)[:4] >= "2021":
                         _holder_2020_end[_pid_h] = _holder
@@ -8933,12 +9007,14 @@ def build_all(repo_root: Path) -> None:
                         # acquisition went unrecorded (a player who sat un-transacted
                         # for a season then surfaced on a new team, e.g. Darrell
                         # Henderson, Kenyan Drake) — synth both, just before the drop.
+                        _at = _arrival_at(_tm, _pid_h, _ts, _prev_ts) if _holder != _tm else None
                         if _holder is None:
-                            _synth_add(_tm, _pid_h, _ts)
+                            _synth_add(_tm, _pid_h, _ts, at=_at)
                         elif _holder != _tm:
-                            _synth_drop(_holder, _pid_h, _day_before(_ts))
-                            _synth_add(_tm, _pid_h, _ts)
+                            _synth_drop(_holder, _pid_h, _at or _day_before(_ts))
+                            _synth_add(_tm, _pid_h, _ts, at=_at)
                         _holder = None
+                    _prev_ts = _ts
                 if not _crossed_2021:
                     _holder_2020_end[_pid_h] = _holder
                 _final_holder[_pid_h] = _holder
