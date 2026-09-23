@@ -4090,6 +4090,10 @@ def build_all(repo_root: Path) -> None:
     # moves at "day before the rookie draft" rather than the earliest draft of the
     # year (which, in 2021, is the 15-round startup).
     rookie_draft_dates_by_season: Dict[int, Set] = {}
+    # When each season's draft FINISHED (UTC), to the second. The day sets above
+    # drop the time; a UTC day is the wrong one for a draft that ended in a
+    # league evening (2020: 23:30 ET on 9/9 = 03:30 UTC on 9/10).
+    draft_end_by_season: Dict[int, datetime] = {}
     draft_day_commish_adds: Dict[int, List[Tuple[int, int, str, str]]] = {}
     toilet_winner_by_season: Dict[int, Optional[int]] = {}
 
@@ -5148,6 +5152,9 @@ def build_all(repo_root: Path) -> None:
                             _rdd.add(_x.date())
             draft_dates_by_season[int(season)] = _dd
             rookie_draft_dates_by_season[int(season)] = _rdd
+            _ends = [x for x in (_epoch_ms_to_dt(_dr.get("last_picked")) for _dr in drafts or []) if x]
+            if _ends:
+                draft_end_by_season[int(season)] = max(_ends)
         except Exception as e:
             _log_exc(debug, f"draft_dates_{season}", e)
         # Losers-bracket champion (p=1 winner) = the toilet-bracket winner, who
@@ -20618,14 +20625,17 @@ def build_all(repo_root: Path) -> None:
 
         _pa_rows: List[Dict[str, Any]] = []
 
-        def _emit(team, name, atype, pickup_raw, season, ref, next_link, tanking=None):
+        def _emit(team, name, atype, pickup_raw, season, ref, next_link, tanking=None,
+                  depart_after=None):
             if not _pa_is_player(name) or not team:
                 return
             pickup_dt = _pa_to_date(pickup_raw)
             pid = _pa_name_to_pid.get(str(name))
             # Departure detection uses the FULL pickup timestamp so a same-day
-            # drop closes this tenure (see _pa_next_drop).
-            drop = _pa_next_drop(team, name, pickup_raw) if pickup_raw else None
+            # drop closes this tenure (see _pa_next_drop); a draft passes the
+            # instant it ended, in league time (`depart_after`).
+            _after = depart_after or pickup_raw
+            drop = _pa_next_drop(team, name, _after) if _after else None
             pos = (pid_meta.get(str(pid), {}) or {}).get("pos") if pid else None
             sc = _pa_scoring(team, name, pickup_dt, drop, season, pid, pos)
             tenure_days = None
@@ -20793,7 +20803,20 @@ def build_all(repo_root: Path) -> None:
                 if _pk is not None:
                     _pk_raw = _pk.isoformat() if hasattr(_pk, "isoformat") else str(_pk)
                 _pk_tank = ph.at[_i, "Tanking"] if "Tanking" in ph.columns else None
-                _emit(_tm, str(_pl), "Draft", _pk_raw, _sea, f"PH#{int(_i) + 1}", _nl, _pk_tank)
+                # The departure search starts when the draft ENDED, on the Date
+                # column's (league) clock: a player cut minutes after the 2020
+                # startup (Josh Doctson, 23:33 ET 9/9) was otherwise "before" a
+                # 9/10 UTC draft day, and his tenure ran to a drop two years on.
+                _end = draft_end_by_season.get(int(_sea)) if _sea is not None else None
+                _dep = (_to_eastern_display(pd.Series([_end.isoformat()])).iloc[0]
+                        if _end is not None else None)
+                # Only ever EARLIER than the displayed pickup day: a season with
+                # two drafts (2021's vet + rookie) ends at the later one, which
+                # must not skip a drop between them.
+                if _dep and _pk_raw and str(_dep) > str(_pk_raw):
+                    _dep = None
+                _emit(_tm, str(_pl), "Draft", _pk_raw, _sea, f"PH#{int(_i) + 1}", _nl, _pk_tank,
+                      depart_after=_dep)
 
         if _pa_rows:
             player_additions = pd.DataFrame(_pa_rows)
