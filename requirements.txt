@@ -1,4 +1,7 @@
-pandas>=2.2.2
+# Pinned to what CI resolved on run 515. Unpinned (>=2.2.2) it floated to pandas 3,
+# whose `str` text dtype silently broke the digest's running-total test (PR #431)
+# while every local check, on pandas 2, looked right. Bump deliberately.
+pandas==3.0.6
 requests>=2.31.0
 pyyaml>=6.0.2
 python-dateutil>=2.9.0

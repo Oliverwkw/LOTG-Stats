@@ -104,6 +104,9 @@ the answer, not a silent choice.
 - **`pandas` is not installed.** It is the *only* dependency the inquiry layer
   needs: `pip install pandas`, a few seconds. Do **not** `pip install -r
   requirements.txt` for an inquiry — it drags in ortools and takes minutes.
+  CI runs the pinned pandas 3.0.6 (Python 3.11); a pandas 2 laptop reads the
+  exports' text columns as `object` where CI reads `str`. For anything
+  dtype-sensitive, reproduce CI with `pd.options.future.infer_string = True`.
 - **You do not have to read this whole file to answer.** Skim the tool table and
   the trap list; come back for the section you actually need. Reading 400 lines
   before running one command is most of the way to blowing the 3-minute budget.
