@@ -12276,15 +12276,20 @@ def build_all(repo_root: Path) -> None:
             )
 
             # ----- (c) Forward-looking tenure window + PPG averages -----
-            # For each received player, find their next drop/trade-out
-            # by THIS team. Build per-player [trade_date, drop_date)
-            # windows. The collective window for the dropped side is
-            # [trade_date, latest_drop_among_received].
+            # The SENT side is measured over [trade_date, latest exit among the
+            # received players) on the nflverse game log (a counterfactual: they
+            # were not on this roster). The received side is its own tenures,
+            # on rostered league points (_rostered_ppg below).
+            # recv_windows also feeds the received players' start rates below.
             recv_windows: Dict[str, Tuple[str, Optional[str]]] = {}
             latest_end: Optional[str] = None
             for pid in (row.get("_recv_player_ids") or []):
-                nx = _next_out_player(team, pid, trade_iso)
-                end_iso = nx["date"][:10] if nx else None
+                # His exit: the earlier of his next trade-away and his next
+                # add/drop drop (as the pick sheets and player_additions read
+                # it) — trade-aways alone ran a waived player's tenure on into
+                # later seasons (Tyler Lockett, BROsenzweig, waived 2025-09-01).
+                _ex = _pick_tenure_end(team, str(pid), trade_iso)
+                end_iso = _ex[:10] if _ex else None
                 recv_windows[str(pid)] = (trade_prefix, end_iso)
                 if end_iso is not None:
                     latest_end = end_iso if (latest_end is None or end_iso > latest_end) else latest_end
@@ -12304,13 +12309,27 @@ def build_all(repo_root: Path) -> None:
                 window = games[:5]
                 return sum(p for _, p in window) / len(window)
 
+            def _rostered_ppg(name: str, start_day: str, exit_day: Optional[str]) -> Optional[float]:
+                """"On team", as every sheet reads it: the LEAGUE's own points
+                per game played while rostered here — weeks that ended on/after
+                `start_day` and started before `exit_day` (league days); a bye
+                or a missed week is not a game. None if never rostered a week
+                here, 0 if rostered but never played."""
+                if not any(_wkd >= start_day and (not exit_day or _sd < exit_day)
+                           for (_wkd, _sd) in _pw_rostered_idx.get((str(team), str(name)), [])):
+                    return None
+                _g = [_p for (_yy, _ww, _p, _d, _sd) in _pw_played_idx.get((str(team), str(name)), [])
+                      if _d >= start_day and (not exit_day or _sd < exit_day)]
+                return (sum(_g) / len(_g)) if _g else 0.0
+
+            _trade_day = _league_day_iso(trade_iso) or trade_prefix
             recv_on_team_avgs: List[float] = []
             recv_adj_on_team_avgs: List[float] = []
             recv_pre5_avgs: List[float] = []
             for pid in (row.get("_recv_player_ids") or []):
                 name = _player_display(pid)
-                start_i, end_i = recv_windows.get(str(pid), (trade_prefix, None))
-                avg_on = _avg_ppg_window(name, start_i, end_i)
+                _ex_i = _pick_tenure_end(team, str(pid), trade_iso)
+                avg_on = _rostered_ppg(name, _trade_day, _league_day_iso(_ex_i) if _ex_i else None)
                 if avg_on is not None:
                     recv_on_team_avgs.append(avg_on)
                     pos = _player_pos(name)
@@ -12325,9 +12344,9 @@ def build_all(repo_root: Path) -> None:
             # actually made the selection (Final Team == team) — a pick flipped
             # again before the draft never became a player here. Undrafted
             # future picks contribute nothing. The drafted player's window
-            # starts at the draft (late August of the pick year) and ends at
-            # their next exit from this team; injured/bye/suspended weeks are
-            # already absent from the nflverse game log the avg is built on.
+            # starts at the draft and ends at their next exit from this team,
+            # on the same rostered-league-points basis as the received players
+            # (and as the pick sheets' own "Avg PPG on team").
             for _pm in (row.get("_recv_pick_meta") or []):
                 try:
                     _pk = (int(_pm[0]), int(_pm[1]), _norm_team_name(_pm[2]))
@@ -12341,11 +12360,8 @@ def build_all(repo_root: Path) -> None:
                     continue  # pick was flipped before the draft
                 _dstart = _draft_anchor_iso(int(_dyear))
                 _dsid = name_to_sid_local2.get(_dpl)
-                _dend = None
-                if _dsid:
-                    _nxo = _next_out_player(team, _dsid, _dstart)
-                    _dend = _nxo["date"][:10] if _nxo else None
-                _davg = _avg_ppg_window(_dpl, _dstart, _dend)
+                _nxo = _pick_tenure_end(team, _dsid, _dstart) if _dsid else None
+                _davg = _rostered_ppg(_dpl, _dstart, _league_day_iso(_nxo) if _nxo else None)
                 if _davg is not None:
                     recv_on_team_avgs.append(_davg)
                     _dpos = _player_pos(_dpl)
