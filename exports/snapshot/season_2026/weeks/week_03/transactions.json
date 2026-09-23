@@ -1,1 +1,114 @@
-[]
+[
+  {
+    "status": "failed",
+    "type": "waiver",
+    "metadata": {
+      "notes": "This player was claimed by another owner."
+    },
+    "created": 1790114617758,
+    "settings": {
+      "seq": 3,
+      "waiver_bid": 0
+    },
+    "leg": 3,
+    "draft_picks": [],
+    "creator": "603431474020032512",
+    "transaction_id": "1408246411509714944",
+    "adds": {
+      "7571": 1
+    },
+    "drops": null,
+    "consenter_ids": [
+      1
+    ],
+    "roster_ids": [
+      1
+    ],
+    "status_updated": 1790114650396,
+    "waiver_budget": []
+  },
+  {
+    "status": "complete",
+    "type": "waiver",
+    "metadata": {
+      "notes": "Your waiver claim was processed successfully!"
+    },
+    "created": 1790097913749,
+    "settings": {
+      "seq": 1,
+      "waiver_bid": 3
+    },
+    "leg": 3,
+    "draft_picks": [],
+    "creator": "620863288632233984",
+    "transaction_id": "1408176349813698560",
+    "adds": {
+      "11435": 3
+    },
+    "drops": null,
+    "consenter_ids": [
+      3
+    ],
+    "roster_ids": [
+      3
+    ],
+    "status_updated": 1790114650396,
+    "waiver_budget": []
+  },
+  {
+    "status": "failed",
+    "type": "waiver",
+    "metadata": {
+      "notes": "Unfortunately, your roster will have too many players after this transaction."
+    },
+    "created": 1790097844933,
+    "settings": {
+      "seq": 4,
+      "waiver_bid": 0
+    },
+    "leg": 3,
+    "draft_picks": [],
+    "creator": "620863288632233984",
+    "transaction_id": "1408176061178486784",
+    "adds": {
+      "5854": 3
+    },
+    "drops": null,
+    "consenter_ids": [
+      3
+    ],
+    "roster_ids": [
+      3
+    ],
+    "status_updated": 1790114650396,
+    "waiver_budget": []
+  },
+  {
+    "status": "failed",
+    "type": "waiver",
+    "metadata": {
+      "notes": "Unfortunately, your roster will have too many players after this transaction."
+    },
+    "created": 1790097774827,
+    "settings": {
+      "seq": 2,
+      "waiver_bid": 1
+    },
+    "leg": 3,
+    "draft_picks": [],
+    "creator": "620863288632233984",
+    "transaction_id": "1408175767132606464",
+    "adds": {
+      "11256": 3
+    },
+    "drops": null,
+    "consenter_ids": [
+      3
+    ],
+    "roster_ids": [
+      3
+    ],
+    "status_updated": 1790114650396,
+    "waiver_budget": []
+  }
+]
