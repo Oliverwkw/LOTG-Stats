@@ -512,7 +512,9 @@ def _format_pick_number(round_no: Optional[int], pick_in_round: Optional[int]) -
 # rostered "Points" (which use Sleeper scoring). Offensive scoring only —
 # nflverse stats_player_week is offense; the league rosters no K/DST. Each
 # season uses its OWN scoring_settings, so a settings change is handled
-# automatically (a build-time log flags when they differ year-to-year).
+# automatically (a build-time log flags when they differ year-to-year). 2020's
+# come from the ESPN league's own settings (espn_2020.scoring_settings), and the
+# years before the league use its first season's.
 _LEAGUE_SCORE_MAP = {
     # Passing
     "pass_yd": ("passing_yards",),
@@ -532,13 +534,16 @@ _LEAGUE_SCORE_MAP = {
     "rec_2pt": ("receiving_2pt_conversions",),
     "rec_fd": ("receiving_first_downs",),
     # Fumbles. The league scores 'fum' (ANY fumble) on TOP of 'fum_lost', so a
-    # lost fumble is fum + fum_lost. 'fum_rec' is opponent-fumble recovery
-    # (recovering your OWN fumble is not awarded — verified vs Sleeper).
-    "fum": ("sack_fumbles", "rushing_fumbles", "receiving_fumbles"),
-    "fum_lost": ("sack_fumbles_lost", "rushing_fumbles_lost", "receiving_fumbles_lost"),
-    "fum_rec": ("fumble_recovery_opp",),
+    # lost fumble is fum + fum_lost. ANY means every fumble nflverse charges the
+    # player with, the TOTALS: a botched snap or a return fumble counts, and the
+    # sack/rush/receiving split misses those (479 player-weeks of 2021-26 read a
+    # point high, mostly quarterbacks). Return yards count on an OPPONENT's
+    # fumble only — recovering your own is not a return (329 player-weeks
+    # carried own-recovery yards Sleeper does not score).
+    "fum": ("fumbles_total",),
+    "fum_lost": ("fumbles_lost_total",),
     "fum_rec_td": ("fumble_recovery_tds",),
-    "fum_ret_yd": ("fumble_recovery_yards_own", "fumble_recovery_yards_opp"),
+    "fum_ret_yd": ("fumble_recovery_yards_opp",),
     # Special teams (returners)
     "st_td": ("special_teams_tds",),
     # Kicking (future-proof — scored if a kicker is ever rostered)
@@ -550,12 +555,11 @@ _LEAGUE_SCORE_MAP = {
     "fgmiss": ("fg_missed",),
     "xpm": ("pat_made",),
     "xpmiss": ("pat_missed",),
-    # Individual defense (IDP) — future-proof
-    "def_td": ("def_tds",),
-    "int": ("def_interceptions",),
-    "sack": ("def_sacks",),
-    "ff": ("def_fumbles_forced",),
-    "safe": ("def_safeties",),
+    # No defense. Sleeper's 'int', 'sack', 'ff', 'safe', 'def_td' and 'fum_rec'
+    # are TEAM-defense keys (individual defense is 'idp_*', which this league
+    # does not score), so nflverse's def_* columns and opponent-fumble
+    # recoveries never score for a player here — not for a receiver who
+    # recovers a muff, and not for Travis Hunter's cornerback snaps either.
 }
 _LEAGUE_SCORE_BONUS = (  # (scoring_key, stat_col, threshold)
     ("bonus_pass_yd_300", "passing_yards", 300), ("bonus_pass_yd_400", "passing_yards", 400),
@@ -565,7 +569,11 @@ _LEAGUE_SCORE_BONUS = (  # (scoring_key, stat_col, threshold)
 
 
 def _league_score(stats: Dict[str, Any], scoring: Dict[str, Any], position: Optional[str] = None) -> float:
-    """Fantasy points for one nflverse stat row under `scoring` (Sleeper)."""
+    """Fantasy points for one nflverse stat row under `scoring` (Sleeper).
+
+    Matches Sleeper's own points on 99.94% of 2021-26 rostered player-weeks and
+    ESPN's on 2,084 of 2,085 in 2020; the rest are stat corrections one source
+    took and the other did not. `position` is the league's (Sleeper's) label."""
     pts = 0.0
     for key, cols in _LEAGUE_SCORE_MAP.items():
         mult = scoring.get(key)
@@ -2585,7 +2593,7 @@ def _pregame_avg_max_pf(tw: pd.DataFrame) -> pd.Series:
 
 def _previous_nfl_avgs(pw: pd.DataFrame, games_by_sid: Dict[str, Dict[Tuple[int, int], float]],
                        window: int = 5, rookie_mask: Optional[pd.Series] = None) -> dict:
-    """(player name, year, week) -> the player's average over his last `window`
+    """(Sleeper id, year, week) -> the player's average over his last `window`
     REGULAR-SEASON NFL games before that week — every game he played, rostered
     or not, across seasons (`games_by_sid`: Sleeper id -> {(season, week):
     points}; nflverse's game log, a snap without a stat line as 0).
@@ -2594,12 +2602,16 @@ def _previous_nfl_avgs(pw: pd.DataFrame, games_by_sid: Dict[str, Dict[Tuple[int,
     so week 2 of 2026 compared one-game "averages" and filled the all-time
     bottom 5 of the best/worst startables difference. Fewer than `window` games
     behind him is None, except on a ROOKIE's row (`rookie_mask`), which averages
-    the games he has. `pw` needs Player, Player ID, Year, Week."""
+    the games he has. `pw` needs Player ID, Year, Week.
+
+    Keyed by id, not name: two players who share a name in the same week (a
+    Mike Williams on each of two rosters) would otherwise overwrite each
+    other's average."""
     out = {}
     ordered: Dict[str, List[Tuple[int, int]]] = {}
-    for idx, name, sid, y, w in zip(pw.index, pw["Player"], pw["Player ID"],
-                                    pd.to_numeric(pw["Year"], errors="coerce"),
-                                    pd.to_numeric(pw["Week"], errors="coerce")):
+    for idx, sid, y, w in zip(pw.index, pw["Player ID"],
+                              pd.to_numeric(pw["Year"], errors="coerce"),
+                              pd.to_numeric(pw["Week"], errors="coerce")):
         if pd.isna(y) or pd.isna(w):
             continue
         sid = str(sid)
@@ -2610,7 +2622,7 @@ def _previous_nfl_avgs(pw: pd.DataFrame, games_by_sid: Dict[str, Dict[Tuple[int,
         prev = keys[:bisect_left(keys, (int(y), int(w)))][-window:]
         rookie = rookie_mask is not None and bool(rookie_mask.get(idx, False))
         full = len(prev) == window or (rookie and len(prev) > 0)
-        out[(str(name), int(y), int(w))] = \
+        out[(sid, int(y), int(w))] = \
             float(np.mean([games[k] for k in prev])) if full else None
     return out
 
@@ -4334,6 +4346,9 @@ def build_all(repo_root: Path) -> None:
         list(range(_earliest_lotg - 2, _earliest_lotg))
         if _earliest_lotg is not None else []
     )
+    _earliest_scoring = next(
+        (_lg.get("scoring_settings") or {} for _lg in leagues
+         if _to_int(_lg.get("season"), None) == _earliest_lotg), {})
     for _bk_yr in _nflverse_backfill_yrs:
         try:
             _bk_spw = _safe_df(load_nflverse_stats_player_week(
@@ -4351,10 +4366,21 @@ def build_all(repo_root: Path) -> None:
             _pts_col = "fantasy_points_ppr" if "fantasy_points_ppr" in _bk_spw.columns else (
                 "fantasy_points" if "fantasy_points" in _bk_spw.columns else None
             )
-            if not _gsis_to_sid or not _pts_col:
+            # Score a year before the league with its FIRST season's table (the
+            # league did not exist, so its earliest rules are the closest);
+            # nflverse's own PPR total only if that table or the stat columns
+            # are missing.
+            _bk_score_cols = [c for cols in _LEAGUE_SCORE_MAP.values()
+                              for c in cols if c in _bk_spw.columns]
+            _bk_use_league = bool(_earliest_scoring) and bool(_bk_score_cols)
+            if not _bk_use_league:
+                _log(debug, f"[{_now_iso()}] WARN nflverse backfill {_bk_yr}: no league scoring "
+                            f"table for {_earliest_lotg} (or no stat columns) — scoring nflverse PPR")
+            if not _gsis_to_sid or not (_pts_col or _bk_use_league):
                 continue
-            _bk_cols = ["player_id", "week", _pts_col] + (
-                ["season_type"] if "season_type" in _bk_spw.columns else [])
+            _bk_cols = list(dict.fromkeys(
+                ["player_id", "week"] + ([_pts_col] if _pts_col else []) + _bk_score_cols
+                + [c for c in ("season_type", "position") if c in _bk_spw.columns]))
             for r in _bk_spw[_bk_cols].dropna(subset=["player_id", "week"]).itertuples(index=False):
                 _gsis = str(r.player_id)
                 _sid_bk = _gsis_to_sid.get(_gsis)
@@ -4362,7 +4388,14 @@ def build_all(repo_root: Path) -> None:
                     continue
                 try:
                     _wk_bk = int(r.week)
-                    _pts_bk = float(getattr(r, _pts_col))
+                    if _bk_use_league:
+                        _pts_bk = _league_score(
+                            {c: getattr(r, c, None) for c in _bk_score_cols},
+                            _earliest_scoring,
+                            (pid_meta.get(_sid_bk, {}) or {}).get("position")
+                            or getattr(r, "position", None))
+                    else:
+                        _pts_bk = float(getattr(r, _pts_col))
                 except Exception:
                     continue
                 if str(getattr(r, "season_type", "REG")).upper() == "REG":
@@ -4584,7 +4617,9 @@ def build_all(repo_root: Path) -> None:
                                     continue
                                 if _use_league:
                                     _stats = {c: getattr(r, c, None) for c in _score_cols}
-                                    _pos = getattr(r, _pos_col, None) if _pos_col else (pid_meta.get(sid, {}) or {}).get("position")
+                                    # The league scores its own (Sleeper) player; nflverse's label only as a fallback.
+                                    _pos = (pid_meta.get(sid, {}) or {}).get("position") or (
+                                        getattr(r, _pos_col, None) if _pos_col else None)
                                     pts = _league_score(_stats, scoring_settings, _pos)
                                 else:
                                     try:
@@ -6628,6 +6663,10 @@ def build_all(repo_root: Path) -> None:
                             "Difference from best startable bench (if starter)": round(diff_best_bench, 2) if diff_best_bench is not None else None,
                             "Difference from worst benchable starter (if bench)": round(diff_worst_starter, 2) if diff_worst_starter is not None else None,
                             "Reference player name": ref_player,
+                            # Internal (dropped by _ensure_plan_columns): the
+                            # reference's id, so the window below joins on it.
+                            "Reference player ID": (best_bench_pid if started else worst_starter_pid)
+                                                   if ref_player is not None else None,
                             "Difference in averages of best/worst startables over previous 5 games": None,
                             "Cuff adjusted difference": None,
                             "Rookie?": 1 if rookie else 0,
@@ -13776,19 +13815,19 @@ def build_all(repo_root: Path) -> None:
                 lambda v: safe_bool(v, default=False))
             rolling_avg = _previous_nfl_avgs(pw, nfl_games_by_sid, rookie_mask=rookie_mask)
 
-            def get_avg(p,yr,wk):
-                return rolling_avg.get((str(p),int(yr),int(wk)))
+            def get_avg(sid,yr,wk):
+                return rolling_avg.get((str(sid),int(yr),int(wk)))
 
             diffs=[]
             cuff_adj=[]
             for _, r in pw.iterrows():
-                ref=r.get("Reference player name")
-                if not isinstance(ref,str) or ref.strip()=="":
+                ref=r.get("Reference player ID")
+                if ref is None or pd.isna(ref) or str(ref).strip()=="":
                     diffs.append(None); cuff_adj.append(None); continue
-                yr=r.get("Year"); wk=r.get("Week"); player=r.get("Player")
+                yr=r.get("Year"); wk=r.get("Week")
                 if pd.isna(yr) or pd.isna(wk):
                     diffs.append(None); cuff_adj.append(None); continue
-                avg_p=get_avg(player,yr,wk)
+                avg_p=get_avg(r.get("Player ID"),yr,wk)
                 avg_r=get_avg(ref,yr,wk)
                 if (avg_p is None) or (avg_r is None):
                     diffs.append(None); cuff_adj.append(None); continue

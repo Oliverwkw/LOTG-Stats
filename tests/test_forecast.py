@@ -268,12 +268,23 @@ def test_injuries_cost_points_and_depth_decides_how_many():
     print(f"  depth cost by team: {costs}")
     # the cost is not the same for everyone — that is the whole point
     assert max(costs.values()) - min(costs.values()) > 0.5, costs
-    # and a team that loses more to injuries also swings more week to week
-    order = sorted(dist.mean, key=lambda r: dist.depth_cost(r))
+    # and a team that loses more to injuries also swings more week to week.
+    # Rank-correlated over several seeds: one seed's 400 draws is too noisy to
+    # hold a 0.5 floor. Once the live season's injury flags are in, most teams
+    # sit within half a point of each other on depth cost, so their order is
+    # largely noise — on 2026 week 2's rosters seed 12026 alone read 0.40 while
+    # seeds 1-4 read 0.64-0.74 (true value ~0.6, measured at 3000 draws).
     rank = lambda a: np.argsort(np.argsort(a))  # noqa: E731
-    rho = float(np.corrcoef(rank([dist.depth_cost(r) for r in order]),
-                            rank([dist.sd[r] for r in order]))[0, 1])
-    assert rho > 0.5, f"depth cost and weekly spread should move together (rho={rho:.2f})"
+    rhos = []
+    for seed in (12026, 1, 2, 3, 4):
+        d = dist if seed == 12026 else F.fielded_distribution(
+            year, availability=dataclasses.replace(F.AvailabilityModel(), draws=400), seed=seed)
+        rids = list(d.mean)
+        rhos.append(float(np.corrcoef(rank([d.depth_cost(r) for r in rids]),
+                                      rank([d.sd[r] for r in rids]))[0, 1]))
+    rho = float(np.mean(rhos))
+    assert rho > 0.5, (f"depth cost and weekly spread should move together "
+                       f"(mean rho={rho:.2f} over seeds: {[round(x, 2) for x in rhos]})")
 
 
 def test_preseason_injury_flags_are_stale_and_are_not_believed():
