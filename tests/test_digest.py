@@ -1150,6 +1150,12 @@ def check_a_cascade_where_nobody_moved_is_not_reported():
     got = [c.sentence() for c in D.diff_snapshots(prev3, curr3)]
     ok &= _ok("a mover the rival fell past is NOT reported",
               not any(s.startswith("T passes") for s in got), f"got {got}")
+    # ...but the fall is news, told from the faller's side (user rule 2026-09-23).
+    ok &= _ok("the rival that fell 'was passed by' the row that stood still",
+              "S was passed by T for highest Y (80), falling to 2." in got, f"got {got}")
+    got = [c.sentence() for c in D.diff_snapshots(prev, curr)]
+    ok &= _ok("a faller is passed by every stand-still row now ahead of it, ties too",
+              "A was passed by B, C and D for highest KTC (30), falling to 5." in got, f"got {got}")
     return ok
 
 
@@ -2021,7 +2027,10 @@ def check_a_tie_reached_together_is_one_line():
     # A four-way tie for 3rd does not fit a top 5: nothing.
     prev = board([("A", 50), ("B", 40), ("C", 30), ("E", 25), ("F", 25), ("G", 25), ("D", 5)])
     curr = board([("A", 50), ("B", 40), ("C", 10), ("E", 25), ("F", 25), ("G", 25), ("D", 25)])
-    ok &= _ok("a four-way tie for 3rd is not reported", D.diff_snapshots(prev, curr) == [])
+    got = [c.sentence() for c in D.diff_snapshots(prev, curr)]
+    # C's fall past the tie is still news, told from C's side (2026-09-23).
+    ok &= _ok("a four-way tie for 3rd is not reported",
+              got == ["C was passed by E, F and G for 3rd-highest X (25), falling to 10."], got)
     # The same on an event board.
     def ev(rows):
         return [D.EventHighlight("trades", k, "KTC", "high", r, v, key=k) for k, r, v in rows]
@@ -2081,3 +2090,27 @@ def test_redated_rows_carry_their_snapshot_across():
     assert snap["event_board"][0]["key"] == k_new
     assert snap["event_board"][0]["label"] == D._board_label("trades", new["trades"].iloc[0])
     assert D._board_row_key("trades", new["trades"].iloc[2]) not in snap["row_keys"]   # still new
+
+
+def test_a_faller_on_an_event_board_was_passed_by_the_row_that_stood_still():
+    """Week 2 of 2026: the open Jalen Hurts pickup's Difference of averages fell
+    21.069 -> 21.017 below the closed Jeff Wilson move's frozen 21.067. Wilson
+    did not pass anyone — Hurts fell — so the line is Hurts's: "was passed by"."""
+    from lotg_support import digest as D
+    col = "Difference of averages"
+    board = [{"sheet": "add_drops", "key": "k_h", "label": "Hurts move", "column": col,
+              "end": "high", "rank": 1, "value": 21.069},
+             {"sheet": "add_drops", "key": "k_w", "label": "Wilson move", "column": col,
+              "end": "high", "rank": 2, "value": 21.067}]
+    events = [D.EventHighlight("add_drops", "Wilson move", col, "high", 1, 21.067, "k_w"),
+              D.EventHighlight("add_drops", "Hurts move", col, "high", 2, 21.017, "k_h")]
+    got = [c.sentence() for c in D.diff_events(board, events, prior_row_keys=["k_h", "k_w"])]
+    assert not any(s.startswith("Wilson move passes") for s in got), got
+    assert any(s.startswith("Hurts move was passed by Wilson move for highest")
+               and s.endswith("falling to 21.0.") for s in got), got
+    # A row that ROSE past the faller keeps the active line; nobody is told twice.
+    events2 = [D.EventHighlight("add_drops", "Wilson move", col, "high", 1, 21.5, "k_w"),
+               D.EventHighlight("add_drops", "Hurts move", col, "high", 2, 21.017, "k_h")]
+    got = [c.sentence() for c in D.diff_events(board, events2, prior_row_keys=["k_h", "k_w"])]
+    assert any(s.startswith("Wilson move passes Hurts move") for s in got), got
+    assert not any("was passed by" in s for s in got), got

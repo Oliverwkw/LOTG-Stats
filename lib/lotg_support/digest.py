@@ -580,6 +580,19 @@ def _crossing_detail(joined: bool, others: Sequence[str], passed: Sequence[str],
     return f"passes {_name_list(passed)} for {place} {column}{val}"
 
 
+def _passed_by_detail(passers: Sequence[str], place: str, column: str,
+                      by_value: Optional[float], value: Optional[float],
+                      sheet: str = "") -> str:
+    """The faller's side of an overtake by rows that stood still: "was passed by
+    X for 2nd-highest Difference of averages (21.1), falling to 21.0". The rows
+    that passed it did not move — it fell below them — so they are not the
+    subject (user rule, 2026-09-23; `_column_crossings`)."""
+    by = f" ({_fmt_stat(column, by_value)})" if by_value is not None else ""
+    fell = f", falling to {_fmt_stat(column, value)}" if value is not None else ""
+    return (f"was passed by {_name_list(passers)} for {place} "
+            f"{display_column(column, sheet)}{by}{fell}")
+
+
 def _rankings_for(df: pd.DataFrame, entity_col: str,
                   columns: Sequence[str], held: frozenset = frozenset()
                   ) -> Dict[str, List[dict]]:
@@ -693,11 +706,20 @@ class Crossing:
     prev_value: Optional[float] = None
     # Others who reached the same tie the same week (`merge_simultaneous_ties`).
     co_movers: tuple = ()
+    # The faller's side (`_passed_by_detail`): `mover` is the row that FELL,
+    # `passed` the rows that stood still and now stand ahead of it, `rank` the
+    # place they took, `by_value` the best of their values.
+    passed_by: bool = False
+    by_value: Optional[float] = None
 
     def group(self) -> str:
         return _name_list((self.mover,) + tuple(self.co_movers))
 
     def detail(self) -> str:
+        if self.passed_by:
+            return _passed_by_detail(self.passed, _place(self.rank, self.end), self.column,
+                                     self.by_value, self.value,
+                                     _SECTION_SHEET.get(("crossing", self.section), ""))
         return _crossing_detail(self.joined, self.others, self.passed,
                                 _place(self.rank, self.end), self.column, self.value,
                                 _SECTION_SHEET.get(("crossing", self.section), ""),
@@ -734,6 +756,8 @@ def _column_crossings(section: str, column: str,
     and stand only on the high end.
     """
     out: List[Crossing] = []
+    # (end, faller) -> the stand-still rows that passed it (`_passed_by_detail`).
+    fell: Dict[tuple, List[tuple]] = {}
     prev_val = {e["entity"]: e["value"] for e in prev}
     curr_val = {e["entity"]: e["value"] for e in curr}
     n = len(curr)
@@ -760,9 +784,10 @@ def _column_crossings(section: str, column: str,
             # rows above it fell. Week 2 of 2026, Christian Watson won his first
             # start in 39 weeks and left the bottom of Win % as starter, and "Gerald
             # Everett passes Christian Watson for 3rd-lowest" was Everett, at the
-            # same 11.1% as last week, standing still.
-            if mover_prev is not None and not _improved(v, mover_prev, end):
-                continue
+            # same 11.1% as last week, standing still. That is the faller's news,
+            # told from its side below ("was passed by"); a tie it "joined" this
+            # way is the faller's join, reported where the faller is the mover.
+            stood_still = mover_prev is not None and not _improved(v, mover_prev, end)
             others = [x for x, xv in curr_val.items()
                       if x != mover and xv == v]
             # Who lost their place to this move: last week's holders of the
@@ -775,6 +800,18 @@ def _column_crossings(section: str, column: str,
                       and new_rank <= prev_rank.get(prev_val[x], n + 1) <= last
                       and prev_rank.get(prev_val[x], n + 1) < old_rank
                       and curr_rank[curr_val[x]] > new_rank]
+
+            def faller_side():
+                # Only rows whose own value moved away from this end lost the
+                # place; each is told as "X was passed by <this row>".
+                for x in passed:
+                    if (_improved(prev_val[x], curr_val[x], end)
+                            and not _indistinguishable(v, [curr_val[x]], column)):
+                        fell.setdefault((end, x), []).append((new_rank, mover, v))
+
+            if stood_still and others:
+                faller_side()      # reaching a tie that way passes a faller all the same
+                continue
             if others:
                 # Joined a tie. Suppress once it exceeds five holders total, or
                 # runs off the end of the window (`_tie_fits`).
@@ -809,6 +846,9 @@ def _column_crossings(section: str, column: str,
                           and curr_rank[curr_val[x]] > new_rank]
             if not passed:
                 continue
+            if stood_still:
+                faller_side()
+                continue
             # An overtake nobody can see is not news — see _indistinguishable.
             # A tie-join is exempt: equal values are the POINT of that sentence.
             if _indistinguishable(v, [curr_val[x] for x in passed], column):
@@ -820,6 +860,17 @@ def _column_crossings(section: str, column: str,
             out.append(Crossing(section, column, end, new_rank, mover, v,
                                 joined=False, passed=tuple(sorted(passed)),
                                 prev_value=mover_prev))
+    # A faller an active line already names ("D joins E and F ..., passing C")
+    # is told there; it is not told twice.
+    told = {(c.end, x) for c in out for x in c.passed}
+    for (end, faller), by in sorted(fell.items()):
+        if (end, faller) in told:
+            continue
+        by.sort()
+        out.append(Crossing(section, column, end, by[0][0], faller, curr_val[faller],
+                            passed=tuple(sorted({m for _r, m, _v in by})),
+                            prev_value=prev_val[faller], passed_by=True,
+                            by_value=by[0][2]))
     return out
 
 
@@ -2163,6 +2214,9 @@ class EventCrossing:
     shown: dict = field(default_factory=dict)
     # Other rows that reached the same tie the same week (`merge_simultaneous_ties`).
     co_movers: tuple = ()
+    # The faller's side — see `Crossing.passed_by`. `label` is the row that fell.
+    passed_by: bool = False
+    by_value: Optional[float] = None
 
     def _show(self, label: str) -> str:
         return self.shown.get(label, label)
@@ -2171,6 +2225,10 @@ class EventCrossing:
         return _name_list([self._show(x) for x in (self.label,) + tuple(self.co_movers)])
 
     def detail(self) -> str:
+        if self.passed_by:
+            return _passed_by_detail(tuple(map(self._show, self.passed)),
+                                     _place(self.rank, self.end), self.column,
+                                     self.by_value, self.value, self.sheet)
         return _crossing_detail(self.joined, tuple(map(self._show, self.others)),
                                 tuple(map(self._show, self.passed)),
                                 _place(self.rank, self.end), self.column, self.value,
@@ -2339,7 +2397,22 @@ def diff_events(prior_board, events: Sequence[EventHighlight],
     # for whether the reader could see it at all (_indistinguishable).
     value_of_label = {(e.sheet, e.column, e.end, e.label): e.value for e in events}
     rank_of_label = {(e.sheet, e.column, e.end, e.label): e.rank for e in events}
+    key_of_label = {(e.sheet, e.column, e.end, e.label): e.key for e in events}
     out: List[EventCrossing] = []
+    # (sheet, column, end, faller label) -> stand-still rows that passed it.
+    fell: Dict[tuple, List[tuple]] = {}
+
+    def faller_side(e, passed):
+        """`e` stood still and `passed` fell below it: each whose own value fell
+        (and is still on the board to say by how much) "was passed by" `e`."""
+        was_by_label = prior[(e.sheet, e.column, e.end)].get("val_by_label", {})
+        for lbl in passed:
+            was_v = was_by_label.get(lbl)
+            now_v = value_of_label.get((e.sheet, e.column, e.end, lbl))
+            if (was_v is not None and now_v is not None and _improved(was_v, now_v, e.end)
+                    and not _indistinguishable(e.value, [now_v], e.column)):
+                fell.setdefault((e.sheet, e.column, e.end, lbl), []).append(
+                    (e.rank, e.label, e.value))
     for e in events:
         slot = prior.get((e.sheet, e.column, e.end))
         if not slot:
@@ -2391,17 +2464,6 @@ def diff_events(prior_board, events: Sequence[EventHighlight],
                 others = [o for o in others if not own(o)]
                 if not others:
                     continue
-            # A row whose own value did not change joined nothing: the row above
-            # it fell to it. That is the faller's news, told from the wrong side.
-            _prev_v = slot["val_by_key"].get(e.key)
-            if (not _is_new(e) and _prev_v is not None and e.value is not None
-                    and not _improved(e.value, _prev_v, e.end)):
-                continue
-            if not _is_new(e) and _nobody_moved(
-                    slot["val_by_key"].get(e.key), e.value, e.end, slot.get("cutoff"),
-                    [(slot.get("val_by_label", {}).get(lbl),
-                      value_of_label.get((e.sheet, e.column, e.end, lbl))) for lbl in others]):
-                continue
             # The places this tie now fills (rank .. rank+k-1) and who held them
             # last week, now standing below the tie or off the board.
             _was = was if was is not None else 10 ** 9
@@ -2413,6 +2475,18 @@ def diff_events(prior_board, events: Sequence[EventHighlight],
                 if lbl != e.label and lbl not in others
                 and not (own is not None and own(lbl))
                 and rank_of_label.get((e.sheet, e.column, e.end, lbl), 10 ** 9) > e.rank})
+            # A row whose own value did not change joined nothing: the row above
+            # it fell to it. That is the faller's news, told from its side.
+            _prev_v = slot["val_by_key"].get(e.key)
+            if (not _is_new(e) and _prev_v is not None and e.value is not None
+                    and not _improved(e.value, _prev_v, e.end)):
+                faller_side(e, pushed)
+                continue
+            if not _is_new(e) and _nobody_moved(
+                    slot["val_by_key"].get(e.key), e.value, e.end, slot.get("cutoff"),
+                    [(slot.get("val_by_label", {}).get(lbl),
+                      value_of_label.get((e.sheet, e.column, e.end, lbl))) for lbl in others]):
+                continue
             out.append(EventCrossing(e.sheet, e.label, e.column, e.end, e.rank,
                                      e.value, joined=True, others=tuple(others),
                                      passed=tuple(pushed),
@@ -2436,10 +2510,13 @@ def diff_events(prior_board, events: Sequence[EventHighlight],
         if not passed:
             continue
         # A row that climbed without its own value moving toward this end was
-        # carried up by a row above it falling — see `_column_crossings`.
+        # carried up by a row above it falling — see `_column_crossings`. Told
+        # from the faller's side: each passed row whose own value fell (and is
+        # still on the board to say by how much) "was passed by" this one.
         _prev_v = slot["val_by_key"].get(e.key)
         if (not _is_new(e) and _prev_v is not None and e.value is not None
                 and not _improved(e.value, _prev_v, e.end)):
+            faller_side(e, passed)
             continue
         # An overtake nobody can see is not news — see _indistinguishable. Only
         # the passed rows still ON the board have a current value to compare; a
@@ -2462,6 +2539,17 @@ def diff_events(prior_board, events: Sequence[EventHighlight],
                                  is_new=_is_new(e),
                                  prev_value=slot["val_by_key"].get(e.key),
                                  key=e.key))
+    told = {(c.sheet, c.column, c.end, x) for c in out for x in c.passed}
+    for (sheet, column, end, lbl), by in sorted(fell.items()):
+        if (sheet, column, end, lbl) in told:
+            continue       # an active line already names it (`_column_crossings`)
+        by.sort()
+        out.append(EventCrossing(
+            sheet, lbl, column, end, by[0][0], value_of_label[(sheet, column, end, lbl)],
+            passed=tuple(sorted({m for _r, m, _v in by})),
+            prev_value=prior[(sheet, column, end)].get("val_by_label", {}).get(lbl),
+            key=key_of_label.get((sheet, column, end, lbl), ""),
+            passed_by=True, by_value=by[0][2]))
     return merge_simultaneous_ties(out)
 
 
@@ -2551,7 +2639,7 @@ def fold_week_boards(highlights: Sequence[WeeklyHighlight],
 
     for e in events:
         wk = _week_of(e.label) if e.sheet in _WEEK_SHEET_SECTION else None
-        if not wk or (wk[1], wk[2]) not in weeks:
+        if not wk or (wk[1], wk[2]) not in weeks or e.passed_by:
             rest.append(e)
             continue
         section = _WEEK_SHEET_SECTION[e.sheet]
