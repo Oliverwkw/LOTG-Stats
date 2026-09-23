@@ -9782,8 +9782,11 @@ def build_all(repo_root: Path) -> None:
         already rendered in league time (player_additions runs after that)."""
         if x is None or (isinstance(x, float) and pd.isna(x)):
             return None
+        # Whole seconds: Sleeper stamps to the millisecond but the Date column
+        # (what player_additions reads) keeps seconds, and a move must land on
+        # the same instant on both sheets, or its own drop reads as not yet made.
         if isinstance(x, datetime):
-            return x if x.tzinfo else x.replace(tzinfo=timezone.utc)
+            return (x if x.tzinfo else x.replace(tzinfo=timezone.utc)).replace(microsecond=0)
         try:
             t = pd.Timestamp(str(x).strip())
         except Exception:
@@ -9792,7 +9795,7 @@ def build_all(repo_root: Path) -> None:
             return None
         if t.tzinfo is None:
             t = t.tz_localize("America/New_York" if eastern else "UTC")
-        return t.tz_convert("UTC").to_pydatetime()
+        return t.tz_convert("UTC").to_pydatetime().replace(microsecond=0)
 
     def _cuff_build() -> Dict[str, Any]:
         if _cuff_cache:
