@@ -52,17 +52,44 @@ def check_both_sheets_carry_one_number():
     for a_col, p_col in _PAIRS:
         a = pd.to_numeric(j[a_col if a_col != p_col else a_col + "_ad"], errors="coerce")
         p = pd.to_numeric(j[p_col if a_col != p_col else p_col + "_pa"], errors="coerce")
-        blank = a.isna() != p.isna()
-        diff = (a - p).abs() > 0.011
-        bad = j.loc[blank | diff, ["Team", "Player", "day"]].assign(add_drops=a, player_additions=p)
+        m = (a.isna() != p.isna()) | ((a - p).abs() > 0.011)
+        # Assign the MASKED values: .assign() onto an empty frame adopts the
+        # assigned Series' index, which turned "nothing differs" into every row.
+        bad = j.loc[m, ["Team", "Player", "day"]].assign(add_drops=a[m], player_additions=p[m])
         ok &= _ok(f"{p_col}: same value (or both blank) on every pickup", bad.empty,
                   f"{len(bad)} differ, e.g. {bad.head(4).values.tolist()}")
+    return ok
+
+
+def check_draft_rows_match_the_pick_sheets():
+    """A drafted player's tenure on the drafting team is one tenure on both
+    sheets, so player_additions' Draft row and the pick sheet agree on it."""
+    files = [_EXPORTS / f for f in ("player_additions.csv", "rookie_picks.csv", "non_rookie_picks.csv")]
+    if not all(f.exists() for f in files):
+        print("  [SKIP] exports/ absent")
+        return True
+    pa = pd.read_csv(files[0], dtype=str, keep_default_na=False)
+    pa = pa[pa["Addition type"] == "Draft"]
+    pk = pd.concat([pd.read_csv(f, dtype=str, keep_default_na=False) for f in files[1:]])
+    pk = pk.rename(columns={"Player Picked": "Player"})     # Team = the drafting team
+    key = ["Player", "Team"]
+    pa, pk = pa[~pa.duplicated(key, keep=False)], pk[~pk.duplicated(key, keep=False)]
+    j = pa.merge(pk, on=key, suffixes=("_pa", "_pk"))
+    a = pd.to_numeric(j["Avg PPG on team_pa"], errors="coerce")
+    b = pd.to_numeric(j["Avg PPG on team_pk"], errors="coerce")
+    m = (a.isna() != b.isna()) | ((a - b).abs() > 0.011)
+    bad = j.loc[m, key].assign(player_additions=a[m], picks=b[m])
+    ok = _ok("draft rows line up", len(j) > 300, f"{len(j)} matched")
+    ok &= _ok("Avg PPG on team: same value (or both blank) on every drafted tenure", bad.empty,
+              f"{len(bad)} differ, e.g. {bad.head(4).values.tolist()}")
     return ok
 
 
 def run_all():
     print("\ncheck_both_sheets_carry_one_number:")
     ok = check_both_sheets_carry_one_number()
+    print("\ncheck_draft_rows_match_the_pick_sheets:")
+    ok &= check_draft_rows_match_the_pick_sheets()
     print("\nALL PASSED" if ok else "\nSOME FAILED")
     return ok
 
