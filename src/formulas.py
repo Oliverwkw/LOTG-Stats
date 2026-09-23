@@ -42,7 +42,7 @@ _ROWS = [
      "Formula": "The dropped player's points per game over that same window — what you'd have gotten by keeping him. Mean nflverse points from pickup to the added player's next drop/trade.",
      "Notes": "Blank with no dropped player or no games in the window."},
     {"Stat": "PPG of 5 games before pickup", "Sheet": "add_drops / player_additions",
-     "Formula": "The added player's recent form just before you got him. Mean points over his 5 most-recent PLAYED NFL games before the pickup, from the nflverse game log (re-scored with the league's scoring for that season), on any team or none (fewer than 5 → averages what exists).",
+     "Formula": "The added player's recent form just before you got him. Mean points over his 5 most-recent PLAYED NFL games before the pickup, from the nflverse game log (re-scored with the league's scoring for that season), on any team or none (fewer than 5 → averages what exists). 'Before' means played on an earlier day than the pickup, in league (Eastern) time: a Saturday pickup does not count that Sunday's game.",
      "Notes": ""},
     {"Stat": "Difference of averages", "Sheet": "add_drops",
      "Formula": "How much more the added player scored than the dropped one over the added player's tenure. Average PPG on team − Average PPG of dropped player over same time.",

@@ -331,6 +331,22 @@ def _league_day(when: Optional[datetime]) -> Optional[date]:
     return local.date() if hasattr(local, "date") else local
 
 
+def _league_day_iso(ts: Any) -> str:
+    """'YYYY-MM-DD' of a UTC timestamp string in LEAGUE time (see _league_day);
+    '' for a blank. The day a move is compared against game days on, the same
+    day the sheet shows."""
+    t = str(ts or "").strip()
+    if not t or t.lower() in ("nan", "none", "n/a", "nat"):
+        return ""
+    try:
+        parsed = pd.to_datetime(t, utc=True)
+    except Exception:
+        return t[:10]
+    if pd.isna(parsed):
+        return t[:10]
+    return _league_day(parsed.to_pydatetime()).isoformat()
+
+
 def _move_season(when: Optional[datetime], fallback_season: int,
                  season_end: Optional[Dict[int, Optional[date]]] = None) -> int:
     """Fantasy season a dated roster move belongs to.
@@ -2076,6 +2092,10 @@ def _preserve_na(col: str) -> bool:
         return True
     if col_l in {
         "average ppg on team",
+        # player_additions' / the pick sheets' name for the same number: blank
+        # when never rostered a week here, like add_drops' (a 0 would claim he
+        # played and scored nothing).
+        "avg ppg on team", "avg ppg on team adjusted by position",
         "average ppg of dropped player over same time",
         "ppg of 5 games before pickup",
         "avg ppg of received players on team",
@@ -2845,6 +2865,21 @@ def build_all(repo_root: Path) -> None:
     # week's last game to its OWN last game (Sun/Mon) — never the Thursday
     # opener — so a player picked up on a game day is credited the starts they
     # actually made that week.
+    # (season, week, NFL team) -> the day that team played that week, every game
+    # type. The nflverse game log dates a game by it, so "before the pickup"
+    # means a game actually played before the pickup day, not one whose week's
+    # Thursday was (a Saturday pickup used to count that Sunday's game).
+    _team_game_day: Dict[Tuple[int, int, str], str] = {}
+    try:
+        if isinstance(games, pd.DataFrame) and not games.empty and \
+                {"season", "week", "gameday", "home_team", "away_team"}.issubset(games.columns):
+            for _s, _w, _gd, _h, _a in games[["season", "week", "gameday", "home_team", "away_team"]] \
+                    .dropna(subset=["season", "week", "gameday"]).itertuples(index=False):
+                for _tm in (_h, _a):
+                    if isinstance(_tm, str) and _tm:
+                        _team_game_day[(int(_s), int(_w), _tm)] = str(_gd)[:10]
+    except Exception as e:
+        _log_exc(debug, "team_game_day_map", e)
     _week_end_date: Dict[Tuple[int, int], str] = {}
     _week_start_date: Dict[Tuple[int, int], str] = {}
     try:
@@ -4380,7 +4415,7 @@ def build_all(repo_root: Path) -> None:
                 continue
             _bk_cols = list(dict.fromkeys(
                 ["player_id", "week"] + ([_pts_col] if _pts_col else []) + _bk_score_cols
-                + [c for c in ("season_type", "position") if c in _bk_spw.columns]))
+                + [c for c in ("season_type", "position", "recent_team", "team") if c in _bk_spw.columns]))
             for r in _bk_spw[_bk_cols].dropna(subset=["player_id", "week"]).itertuples(index=False):
                 _gsis = str(r.player_id)
                 _sid_bk = _gsis_to_sid.get(_gsis)
@@ -4410,6 +4445,8 @@ def build_all(repo_root: Path) -> None:
                     "week": _wk_bk,
                     "points": _pts_bk,
                     "_wk_date": _wk_iso,
+                    "_game_date": _team_game_day.get(
+                        (int(_bk_yr), _wk_bk, str(getattr(r, "recent_team", None) or getattr(r, "team", None) or ""))),
                 })
         except Exception as e:
             _log_exc(debug, f"nflverse_backfill_{_bk_yr}", e)
@@ -4601,7 +4638,8 @@ def build_all(repo_root: Path) -> None:
                         )
                         _read_cols = list(dict.fromkeys(
                             [c for c in (["player_id", "week", _pos_col, _ppr_col] + _score_cols
-                                         + (["season_type"] if "season_type" in spw.columns else []))
+                                         + (["season_type"] if "season_type" in spw.columns else [])
+                                         + ([team_col] if team_col else []))
                              if c]
                         ))
                         _use_league = bool(scoring_settings) and bool(_score_cols)
@@ -4637,6 +4675,8 @@ def build_all(repo_root: Path) -> None:
                                     "week": wk,
                                     "points": pts,
                                     "_wk_date": wk_iso,
+                                    "_game_date": _team_game_day.get(
+                                        (int(season), wk, str(getattr(r, team_col, "") or ""))) if team_col else None,
                                 })
                                 if str(getattr(r, "season_type", "REG")).upper() == "REG":
                                     nfl_games_by_sid[sid][(int(season), wk)] = float(pts)
@@ -9764,8 +9804,11 @@ def build_all(repo_root: Path) -> None:
                 games: List[Dict[str, Any]] = []
                 if sid:
                     for entry in nfl_log_by_sid.get(sid, []):
-                        if entry["_wk_date"]:
-                            games.append({"_wk_date": entry["_wk_date"], "Points": entry["points"]})
+                        # The day his team played; the week's Thursday only when
+                        # the schedule has no row for it.
+                        _gday = entry.get("_game_date") or entry["_wk_date"]
+                        if _gday:
+                            games.append({"_wk_date": _gday, "Points": entry["points"]})
                 if not games and player_name:
                     for r in pw_by_player.get(player_name, []):
                         if r["_wk_date"] and not r["Bye?"] and not r["Injury?"] and not r.get("Suspension?"):
@@ -9858,17 +9901,22 @@ def build_all(repo_root: Path) -> None:
                     _avg_ppg_in_window(added, pickup_iso_prefix, drop_after_prefix, r.get("_added_pid"))
                     if added else None
                 )
+                # Game-log windows compare LEAGUE days (the day the sheet
+                # shows, the one player_additions uses) with the day each
+                # game was played.
+                _pk_day = _league_day_iso(pickup_iso) or pickup_iso_prefix
+                _dr_day = _league_day_iso(drop_after_iso) or None
                 dropped_same_window = (
-                    _avg_ppg_in_window(dropped, pickup_iso_prefix, drop_after_prefix, r.get("_dropped_pid"))
+                    _avg_ppg_in_window(dropped, _pk_day, _dr_day, r.get("_dropped_pid"))
                     if dropped else None
                 )
                 # Pre-pickup snapshot: trailing 5-game average. Useful
                 # for evaluating the pickup decision (what did the
                 # market know about this guy at the time).
-                added_pre5 = _avg_ppg_last5_before(added, pickup_iso_prefix, r.get("_added_pid")) if added else None
+                added_pre5 = _avg_ppg_last5_before(added, _pk_day, r.get("_added_pid")) if added else None
                 # Pre-pickup average for the dropped player too (used
                 # in the cuff comparison; still computed once).
-                dropped_pre5 = _avg_ppg_last5_before(dropped, pickup_iso_prefix, r.get("_dropped_pid")) if dropped else None
+                dropped_pre5 = _avg_ppg_last5_before(dropped, _pk_day, r.get("_dropped_pid")) if dropped else None
 
                 if added_on_team is not None:
                     r["Average PPG on team"] = added_on_team
@@ -19678,7 +19726,8 @@ def build_all(repo_root: Path) -> None:
                 _dr = str(add_drops_df.at[_i, "Date dropped/traded"]) if "Date dropped/traded" in add_drops_df.columns else ""
                 if _dr.strip().lower() in ("nan", "none", "n/a", ""):
                     _dr = ""
-                _st = _tenure_stats(_tm, str(_add), _pk, _dr)
+                # League days, as player_additions sees the same tenure.
+                _st = _tenure_stats(_tm, str(_add), _league_day_iso(_pk), _league_day_iso(_dr))
                 # Average PPG on team: the league's own points while rostered
                 # here (the same number player_additions carries), replacing the
                 # nflverse window the first pass used; the dropped side stays on
