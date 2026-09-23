@@ -699,6 +699,8 @@ def _tx_effective_ms(t: Dict[str, Any]) -> Any:
     can sit for days after it is proposed, and the rosters follow completion:
     Davis Mills / Josh Reynolds proposed 2022-11-03, completed 11-15); `created`
     otherwise, or when there is no completion stamp."""
+    if str(t.get("type") or "") == "trade" and t.get("_effective_ms"):
+        return t["_effective_ms"]           # completion, batch ties broken (see build_all)
     if str(t.get("type") or "") in ("waiver", "trade") and t.get("status_updated"):
         return t.get("status_updated")
     return t.get("created")
@@ -5546,6 +5548,25 @@ def build_all(repo_root: Path) -> None:
             except Exception as e:
                 _log_exc(debug, "merge_2021_phantom_trade", e)
 
+        # A trade is dated at its COMPLETION (_tx_effective_ms), and Sleeper
+        # completes trades in batches: up to three distinct trades share one
+        # completion second (2022-09-22 02:10:27). Date keys a deal everywhere
+        # (its mirror rows, counterparty links), so give each extra trade in a
+        # shared second one more second, in proposal order — deterministic,
+        # and never more than a couple of seconds off.
+        try:
+            _by_sec: Dict[int, List[Dict[str, Any]]] = defaultdict(list)
+            for _wk_txs in tx_by_week.values():
+                for _t in _wk_txs:
+                    if _t.get("type") == "trade" and _t.get("status_updated"):
+                        _by_sec[int(_t["status_updated"]) // 1000].append(_t)
+            for _sec, _ts in _by_sec.items():
+                for _k, _t in enumerate(sorted(_ts, key=lambda x: (int(x.get("created") or 0),
+                                                                    str(x.get("transaction_id") or "")))):
+                    _t["_effective_ms"] = int(_t["status_updated"]) + 1000 * _k
+        except Exception as e:
+            _log_exc(debug, "trade_completion_tiebreak", e)
+
         # ------------- Commissioner-moved pick trades (manual overlay) -------------
         # Inject the off-platform pick legs into the EXISTING trade each one was
         # part of, matched by the transaction's exact created timestamp (UTC).
@@ -5561,7 +5582,8 @@ def build_all(repo_root: Path) -> None:
                     for _t in _wk_txs:
                         if _t.get("type") != "trade":
                             continue
-                        _cdt = _epoch_ms_to_dt(_tx_effective_ms(_t))
+                        # matched by the PROPOSAL stamp the overlay CSV records
+                        _cdt = _epoch_ms_to_dt(_t.get("created"))
                         if _cdt is None:
                             continue
                         _hits = _commish_overlay_by_ts.get(_cdt.strftime("%Y-%m-%d %H:%M:%S"))
@@ -8961,6 +8983,16 @@ def build_all(repo_root: Path) -> None:
                         _y, _w = _y - 1, _pl
                         continue
                     break
+                # Only when the old dating (the day before the departure) would
+                # leave a rostered week with no arrival: Sleeper lists a Tuesday
+                # pickup or a Wednesday waiver claim on the week just ended, so
+                # an arrival by that Wednesday already covers the run's first
+                # week (Dylan Laube, LWebs53, 2024 week 5) — keep it.
+                _old = _aware(_day_before(ts))
+                _wed = (date.fromisoformat(_last_game_date(_y, _w) or "9999-12-31")
+                        + timedelta(days=2)).isoformat() if _last_game_date(_y, _w) else None
+                if _old is not None and _wed and _league_day(_old.to_pydatetime()).isoformat() <= _wed:
+                    return None
                 if _y == 2021 and _w == _team_first_wk.get((str(team), 2021)) and _seam_iso:
                     _at = _seam_iso
                 else:
