@@ -9839,6 +9839,20 @@ def build_all(repo_root: Path) -> None:
                 tx[str(_r.get("Team"))].append((_when, _day, -1, str(_pid)))
             for _pid in _r.get("_recv_player_ids") or []:
                 tx[str(_r.get("Team"))].append((_when, _day, +1, str(_pid)))
+        # Draft picks join the roster too — they are not transactions, so a
+        # player drafted in the spring was invisible until his first week ended
+        # (Trey Lance on shmuel256 when it added Garoppolo hours later).
+        _draft_sets = [(int(_yy), _pk, str(_pk.get("draft_id")))
+                       for _yy, _picks in season_draft_picks_all.items() for _pk in (_picks or [])]
+        _draft_sets += [(2020, _pk, "espn_2020_draft") for _pk in _startup_draft_picks]
+        for _yy, _pk, _did in _draft_sets:
+            _st, _en = _draft_times_by_did.get(_did, (None, None))
+            _when = _en or _st
+            _tm = (season_roster_to_team.get(_yy) or {}).get(_to_int(_pk.get("roster_id"), -1))
+            if _when is None or not _tm or not _valid_pid(_pk.get("player_id")):
+                continue
+            _when = _when.replace(microsecond=0)
+            tx[str(_tm)].append((_when, _league_day(_when).isoformat(), +1, str(_pk["player_id"])))
         for _t in tx:
             tx[_t].sort(key=lambda e: (e[0], e[2]))     # a drop before an add at one instant
         # season -> (when its rookie draft ended, its top-12 picks)
