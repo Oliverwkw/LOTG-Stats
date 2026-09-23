@@ -4094,6 +4094,9 @@ def build_all(repo_root: Path) -> None:
     # drop the time; a UTC day is the wrong one for a draft that ended in a
     # league evening (2020: 23:30 ET on 9/9 = 03:30 UTC on 9/10).
     draft_end_by_season: Dict[int, datetime] = {}
+    # draft_id -> (start, end) as UTC datetimes; the handcuff test is judged at
+    # the moment a pick is made, against the most recent rookie draft.
+    _draft_times_by_did: Dict[str, Tuple[Optional[datetime], Optional[datetime]]] = {}
     draft_day_commish_adds: Dict[int, List[Tuple[int, int, str, str]]] = {}
     toilet_winner_by_season: Dict[int, Optional[int]] = {}
 
@@ -4464,6 +4467,7 @@ def build_all(repo_root: Path) -> None:
                     "year": int(_bk_yr),
                     "week": _wk_bk,
                     "points": _pts_bk,
+                    "_team": str(getattr(r, "recent_team", None) or getattr(r, "team", None) or "") or None,
                     "_wk_date": _wk_iso,
                     "_game_date": _team_game_day.get(
                         (int(_bk_yr), _wk_bk, str(getattr(r, "recent_team", None) or getattr(r, "team", None) or ""))),
@@ -4694,6 +4698,7 @@ def build_all(repo_root: Path) -> None:
                                     "year": int(season),
                                     "week": wk,
                                     "points": pts,
+                                    "_team": (str(getattr(r, team_col, "") or "") or None) if team_col else None,
                                     "_wk_date": wk_iso,
                                     "_game_date": _team_game_day.get(
                                         (int(season), wk, str(getattr(r, team_col, "") or ""))) if team_col else None,
@@ -5208,6 +5213,8 @@ def build_all(repo_root: Path) -> None:
                         slot_map[int(kk)] = int(vv)
             if slot_map:
                 draft_slot_to_roster_by_did[did] = slot_map
+            _draft_times_by_did[str(did)] = (_epoch_ms_to_dt(d.get("start_time")),
+                                             _epoch_ms_to_dt(d.get("last_picked")))
             try:
                 picks = sc.draft_picks(did)
             except Exception as e:
@@ -9749,6 +9756,261 @@ def build_all(repo_root: Path) -> None:
         _pa = (_pos_avg_by_season.get(_yi) or {}).get((pos or "").upper(), 0.0)
         return (_la / _pa) if (_pa and _la) else 1.0
 
+    # ------------------------------------------------------------------
+    # Handcuff — ONE definition for add_drops, trades, the pick sheets and
+    # player_additions (user rule, 2026-09-22). The added player is a cuff when
+    # the adding team, at that moment, rosters another player on the SAME NFL
+    # team and position (the reference) who
+    #   * averages 10+ PPG more than the added player, or
+    #   * averages 13+ PPG as a TE, or the position-adjusted equivalent
+    #     (reference PPG x position factor >= 13 x the TE factor), or
+    #   * was a top-12 pick in THAT season's rookie draft (the move's league
+    #     season, _move_season) — only once that draft has happened; before it,
+    #     there is no draft test at all.
+    # Both averages are the reference's last 8 PLAYED NFL games (nflverse, league
+    # scoring, dated by game day, before the move's league day). 8 is a hard
+    # cutoff: fewer than 8 and not a top-12 pick -> that reference cannot make
+    # the player a cuff. The added player's own average is his last (up to) 8.
+    # player_week's "Activated Cuff?" / "Number of cuffs rostered|started" are a
+    # DIFFERENT, weekly signal (an injured stud teammate) and do not use this.
+    # ------------------------------------------------------------------
+    _CUFF_GAMES, _CUFF_MARGIN, _CUFF_TE_PPG, _CUFF_TOP_PICKS = 8, 10.0, 13.0, 12
+    _cuff_cache: Dict[str, Any] = {}
+
+    def _cuff_utc(x: Any, eastern: bool = False) -> Optional[datetime]:
+        """A move's instant as an aware UTC datetime. `eastern` for a string
+        already rendered in league time (player_additions runs after that)."""
+        if x is None or (isinstance(x, float) and pd.isna(x)):
+            return None
+        # Whole seconds: Sleeper stamps to the millisecond but the Date column
+        # (what player_additions reads) keeps seconds, and a move must land on
+        # the same instant on both sheets, or its own drop reads as not yet made.
+        if isinstance(x, datetime):
+            return (x if x.tzinfo else x.replace(tzinfo=timezone.utc)).replace(microsecond=0)
+        try:
+            t = pd.Timestamp(str(x).strip())
+        except Exception:
+            return None
+        if pd.isna(t):
+            return None
+        if t.tzinfo is None:
+            t = t.tz_localize("America/New_York" if eastern else "UTC")
+        return t.tz_convert("UTC").to_pydatetime().replace(microsecond=0)
+
+    def _cuff_build() -> Dict[str, Any]:
+        if _cuff_cache:
+            return _cuff_cache
+        games: Dict[str, List[Tuple[str, float, Optional[str], int]]] = {}
+        for _sid, _ents in nfl_log_by_sid.items():
+            _g = [((e.get("_game_date") or e.get("_wk_date")), float(e.get("points") or 0.0),
+                   e.get("_team"), int(e.get("year") or 0))
+                  for e in _ents if (e.get("_game_date") or e.get("_wk_date"))]
+            games[str(_sid)] = sorted(_g)
+        rosters: Dict[str, List[Tuple[str, frozenset]]] = defaultdict(list)
+        if isinstance(pw, pd.DataFrame) and not pw.empty and \
+                {"Team", "Player ID", "Year", "Week"}.issubset(pw.columns):
+            _wk: Dict[Tuple[str, int, int], set] = defaultdict(set)
+            for _t, _p, _y, _w in pw[["Team", "Player ID", "Year", "Week"]].itertuples(index=False):
+                if _p is None or pd.isna(_p) or pd.isna(_y) or pd.isna(_w):
+                    continue
+                _wk[(str(_t), int(_y), int(_w))].add(str(_p))
+            for (_t, _y, _w), _ps in _wk.items():
+                _ed = _last_game_date(_y, _w)
+                if _ed:
+                    rosters[_t].append((_ed, frozenset(_ps)))
+            for _t in rosters:
+                rosters[_t].sort()
+        tx: Dict[str, List[Tuple[datetime, str, int, str]]] = defaultdict(list)
+        for _r in add_drop_rows or []:
+            _when = _cuff_utc(_r.get("Date"))
+            if _when is None:
+                continue
+            _day = _league_day(_when).isoformat()
+            if _r.get("_dropped_pid"):
+                tx[str(_r.get("Team"))].append((_when, _day, -1, str(_r["_dropped_pid"])))
+            if _r.get("_added_pid"):
+                tx[str(_r.get("Team"))].append((_when, _day, +1, str(_r["_added_pid"])))
+        for _r in trades_rows or []:
+            _when = _cuff_utc(_r.get("Date"))
+            if _when is None:
+                continue
+            _day = _league_day(_when).isoformat()
+            for _pid in _r.get("_drop_player_ids") or []:
+                tx[str(_r.get("Team"))].append((_when, _day, -1, str(_pid)))
+            for _pid in _r.get("_recv_player_ids") or []:
+                tx[str(_r.get("Team"))].append((_when, _day, +1, str(_pid)))
+        # Draft picks join the roster too — they are not transactions, so a
+        # player drafted in the spring was invisible until his first week ended
+        # (Trey Lance on shmuel256 when it added Garoppolo hours later).
+        _draft_sets = [(int(_yy), _pk, str(_pk.get("draft_id")))
+                       for _yy, _picks in season_draft_picks_all.items() for _pk in (_picks or [])]
+        _draft_sets += [(2020, _pk, "espn_2020_draft") for _pk in _startup_draft_picks]
+        for _yy, _pk, _did in _draft_sets:
+            _st, _en = _draft_times_by_did.get(_did, (None, None))
+            _when = _en or _st
+            _tm = (season_roster_to_team.get(_yy) or {}).get(_to_int(_pk.get("roster_id"), -1))
+            if _when is None or not _tm or not _valid_pid(_pk.get("player_id")):
+                continue
+            _when = _when.replace(microsecond=0)
+            tx[str(_tm)].append((_when, _league_day(_when).isoformat(), +1, str(_pk["player_id"])))
+        for _t in tx:
+            tx[_t].sort(key=lambda e: (e[0], e[2]))     # a drop before an add at one instant
+        # season -> (when its rookie draft ended, its top-12 picks)
+        rookie_drafts: Dict[int, Tuple[datetime, frozenset]] = {}
+        _by_did: Dict[str, List[Dict[str, Any]]] = defaultdict(list)
+        for _yy, _picks in season_draft_picks_all.items():
+            for _pk in _picks or []:
+                if not _pk.get("_is_vet_draft"):
+                    _by_did[str(_pk.get("draft_id"))].append(_pk)
+        for _did, _picks in _by_did.items():
+            _st, _en = _draft_times_by_did.get(_did, (None, None))
+            _when = _en or _st
+            if _when is None:
+                continue
+            _top = frozenset(str(_pk.get("player_id")) for _pk in _picks
+                             if _valid_pid(_pk.get("player_id"))
+                             and (_to_int(_pk.get("pick_no"), 999) or 999) <= _CUFF_TOP_PICKS)
+            _dsea = _to_int(_picks[0].get("draft_season"), None) if _picks else None
+            if _dsea is not None and (_dsea not in rookie_drafts or _when > rookie_drafts[_dsea][0]):
+                rookie_drafts[int(_dsea)] = (_when, _top)
+        # 2020 had no rookie draft, only the startup: its "top 12" is the first
+        # 12 NFL ROOKIES taken there (user rule), not its first 12 picks.
+        _st, _en = _draft_times_by_did.get("espn_2020_draft", (None, None))
+        if (_en or _st) is not None and 2020 not in rookie_drafts:
+            rookie_drafts[2020] = (_en or _st, _startup_rookie_top())
+        _cuff_cache.update(games=games, rosters=rosters, tx=tx, rookie_drafts=rookie_drafts)
+        return _cuff_cache
+
+    def _startup_rookie_top() -> frozenset:
+        """The first _CUFF_TOP_PICKS NFL rookies taken in the 2020 startup."""
+        _ord = sorted((p for p in _startup_draft_picks if _valid_pid(p.get("player_id"))),
+                      key=lambda p: _to_int(p.get("pick_no"), 10 ** 6) or 10 ** 6)
+        return frozenset([str(p["player_id"]) for p in _ord
+                          if is_rookie_pid(p.get("player_id"), 2020)][:_CUFF_TOP_PICKS])
+
+    def _cuff_roster_at(team: str, when: datetime, day: str) -> set:
+        """The team's players at `when`: its roster at the end of the last week
+        that finished before the move's day, then every add/drop/trade after
+        that week up to the move (including what the move itself sends away)."""
+        c = _cuff_build()
+        base_end, roster = "", set()
+        for _ed, _ps in c["rosters"].get(str(team), []):
+            if _ed < day:
+                base_end, roster = _ed, set(_ps)
+            else:
+                break
+        for _when, _d, _sign, _pid in c["tx"].get(str(team), []):
+            if _when > when:
+                break
+            # The move itself: a player it drops or trades away is gone once it
+            # completes (add Y / drop the stud leaves no stud to cuff).
+            if _when == when and _sign > 0:
+                continue
+            if _d <= base_end:
+                continue
+            if _sign > 0:
+                roster.add(_pid)
+            else:
+                roster.discard(_pid)
+        return roster
+
+    def _cuff_nfl_team(sid: str, day: str) -> Optional[str]:
+        """His NFL team at the move: his last game before it, else his first
+        game after it (a rookie drafted in the spring), else Sleeper's team."""
+        g = _cuff_build()["games"].get(str(sid), [])
+        before = [e for e in g if e[0] < day and e[2]]
+        if before:
+            return before[-1][2]
+        after = [e for e in g if e[0] >= day and e[2]]
+        if after:
+            return after[0][2]
+        return ((pid_meta.get(str(sid)) or {}).get("team") or None)
+
+    def _cuff_last8(sid: str, day: str) -> List[Tuple[str, float, Optional[str], int]]:
+        g = _cuff_build()["games"].get(str(sid), [])
+        return [e for e in g if e[0] < day][-_CUFF_GAMES:]
+
+    def _is_cuff(team: Any, pid: Any, when: Any, eastern: bool = False,
+                 draft_roster: Optional[set] = None, draft_top: Optional[frozenset] = None) -> bool:
+        """The handcuff test above for `pid` joining `team` at `when`. A draft
+        pick passes the team's picks made earlier in the SAME draft
+        (`draft_roster`) and, for a rookie draft, that draft's earlier top-12
+        picks (`draft_top`) — it is that season's draft, happening now."""
+        if not team or not pid:
+            return False
+        _when = _cuff_utc(when, eastern)
+        if _when is None:
+            return False
+        day = _league_day(_when).isoformat()
+        sid = str(pid)
+        pos = (pid_pos.get(sid) or "").upper()
+        nfl = _cuff_nfl_team(sid, day)
+        if not pos or not nfl:
+            return False
+        roster = _cuff_roster_at(str(team), _when, day) | set(draft_roster or ())
+        roster.discard(sid)
+        if draft_top is None:
+            _rd = _cuff_build()["rookie_drafts"].get(
+                _move_season(_when, _league_day(_when).year, _season_end_by_season))
+            top = _rd[1] if (_rd and _rd[0] <= _when) else frozenset()
+        else:
+            top = draft_top
+        own = _cuff_last8(sid, day)
+        own_avg = (sum(e[1] for e in own) / len(own)) if own else 0.0
+        for ref in roster:
+            if (pid_pos.get(ref) or "").upper() != pos or _cuff_nfl_team(ref, day) != nfl:
+                continue
+            if ref in top:
+                return True
+            last8 = _cuff_last8(ref, day)
+            if len(last8) < _CUFF_GAMES:
+                continue
+            avg = sum(e[1] for e in last8) / _CUFF_GAMES
+            if avg >= own_avg + _CUFF_MARGIN:
+                return True
+            _season = last8[-1][3]
+            if avg * _pos_factor(_season, pos) >= _CUFF_TE_PPG * _pos_factor(_season, "TE"):
+                return True
+        return False
+
+    def _pick_order_no(number: Any) -> Optional[int]:
+        """Overall position of a pick labelled 'round.pick' in an 8-team draft."""
+        m = re.match(r"\s*(\d+)\.(\d+)", str(number or ""))
+        return (int(m.group(1)) - 1) * 8 + int(m.group(2)) if m else None
+
+    def _cuff_draft_key(row: Any) -> Tuple[str, str]:
+        """Which draft a pick-history row was made in: (season, kind)."""
+        _y = str(row.get("Year") or "")
+        _yy = (re.match(r"\s*(\d{4})", _y) or [None, ""])[1]
+        if _su_row(row.get("_is_startup")):
+            return (_yy, "startup")
+        return (_yy, "vet" if "vet" in _y.lower() else "rookie")
+
+    def _cuff_draft_ctx() -> Dict[Tuple[str, str], Dict[str, Any]]:
+        """Per draft: when it opened, whether it is a rookie draft, and its picks
+        in order as (overall, drafting team, player id)."""
+        if "drafts" in _cuff_cache:
+            return _cuff_cache["drafts"]
+        out: Dict[Tuple[str, str], Dict[str, Any]] = {}
+        for _yy, _picks in season_draft_picks_all.items():
+            for _pk in _picks or []:
+                _k = (str(_yy), "vet" if _pk.get("_is_vet_draft") else "rookie")
+                _st, _en = _draft_times_by_did.get(str(_pk.get("draft_id")), (None, None))
+                out.setdefault(_k, {"start": _st or _en, "rookie": _k[1] == "rookie", "order": []})
+        _st, _en = _draft_times_by_did.get("espn_2020_draft", (None, None))
+        out.setdefault(("2020", "startup"), {"start": _st or _en, "rookie": False, "order": []})
+        if isinstance(ph, pd.DataFrame) and not ph.empty:
+            for _, _r in ph.iterrows():
+                _k = _cuff_draft_key(_r)
+                _n = _pick_order_no(_r.get("Number"))
+                if _k in out and _n is not None:
+                    out[_k]["order"].append((_n, str(_r.get("Final Team") or ""),
+                                             str(_r.get("_player_id")) if _r.get("_player_id") else None))
+        for _v in out.values():
+            _v["order"].sort()
+        _cuff_cache["drafts"] = out
+        return out
+
     try:
         if add_drop_rows and not pw.empty:
             from datetime import date as _date_cls
@@ -10101,61 +10363,9 @@ def build_all(repo_root: Path) -> None:
                 r["_tank_sent_n"] = 1 if dropped_age is not None else 0
                 r["_tank_fcap_delta"] = 0.0
 
-                # --- Cuff at time of pickup? ---
-                # Identify the pickup's NFL Year+Week (best effort) so
-                # we can look at the picking team's roster that week.
-                # The pw _wk_date approximation gives us a 7-day bucket
-                # we can match against the pickup_iso.
-                cuff = False
-                if added and team and added_nfl and added_pos:
-                    # Find the team's pw rows for the same week
-                    candidate_team_rows: List[Dict[str, Any]] = []
-                    for r2 in pw_by_team_week.values():
-                        for entry in r2:
-                            if entry["Team"] != team:
-                                continue
-                            # Pickup must fall within ~7 days of this week
-                            if entry["_wk_date"] and entry["_wk_date"] <= pickup_iso_prefix:
-                                if not candidate_team_rows or entry["_wk_date"] > candidate_team_rows[0]["_wk_date"]:
-                                    candidate_team_rows = [entry]
-                                elif entry["_wk_date"] == candidate_team_rows[0]["_wk_date"]:
-                                    candidate_team_rows.append(entry)
-                    # Item 11 (relaxed): the qualifying teammate need only have
-                    # been a STARTER at some point in the previous 3 weeks — the
-                    # pickup week and the two before it — not necessarily the
-                    # exact pickup week. Catches handcuffs added right after the
-                    # starter they back up goes down.
-                    if candidate_team_rows:
-                        yr = candidate_team_rows[0]["Year"]
-                        wk = candidate_team_rows[0]["Week"]
-                        # The reference (handcuff) player must STILL be rostered
-                        # by the team at the pickup week — a teammate who was a
-                        # starter two weeks ago but has since been dropped is no
-                        # longer insurance you hold (Item 8).
-                        pickup_roster = {
-                            m["Player"] for m in pw_by_team_week.get((team, yr, wk), [])
-                        }
-                        for _w in (wk, wk - 1, wk - 2):
-                            if _w is None or _w < 1:
-                                continue
-                            for mate in pw_by_team_week.get((team, yr, _w), []):
-                                if mate["Player"] == added:
-                                    continue
-                                if mate["Player"] not in pickup_roster:
-                                    continue
-                                if mate["Starter/Bench"] != "Starter":
-                                    continue
-                                if mate["NFL team"] != added_nfl:
-                                    continue
-                                if mate["Position"] != added_pos:
-                                    continue
-                                # Check mate's last-5 PPG > added's last-5 PPG + 10
-                                mate_avg = _avg_ppg_last5_before(mate["Player"], pickup_iso_prefix)
-                                if mate_avg is not None and (added_avg or 0.0) + 10 <= mate_avg:
-                                    cuff = True
-                                    break
-                            if cuff:
-                                break
+                # --- Cuff at time of pickup? --- the shared handcuff test
+                # (_is_cuff), judged at the moment of the pickup.
+                cuff = bool(added) and _is_cuff(team, r.get("_added_pid"), r.get("Date"))
                 r["Cuff at time of pickup?"] = bool(cuff)
 
                 # --- Start-rate metrics after the pickup ---
@@ -11214,17 +11424,12 @@ def build_all(repo_root: Path) -> None:
                 _pw_played_idx[(str(_t), str(_p))].append(
                     (_yi, _wi, _ptf, _wkd, _first_game_day(_yi, _wi) or _wkd))
 
-        # ---- Item 7E indexes (V2 Trade addition value: leverage + cuff) ----
+        # ---- Item 7E index (V2 Trade addition value: leverage) ----
         # (fantasy team, player) -> per-week roster rows with starter + injury
         # flags, so we can compute a received player's % of starts made while
         # rostered (and the injury-adjusted variant) exactly like the
         # transaction "Player addition value" leverage multipliers.
         _pwfull_idx: Dict[Tuple[str, str], List[Dict[str, Any]]] = defaultdict(list)
-        # (fantasy team, year, week) -> teammates that week (for cuff teammate
-        # scan) and player -> (wk_date, NFL team, position) (for a received
-        # player's own NFL team/position near the trade).
-        _twk_idx: Dict[Tuple[str, int, int], List[Dict[str, Any]]] = defaultdict(list)
-        _player_nflpos_idx: Dict[str, List[Tuple[str, str, str]]] = defaultdict(list)
         _fcols = ["Team", "Player", "Year", "Week", "Starter/Bench",
                   "NFL team", "Position", "Injury?", "Bye?"]
         if not pw.empty and set(_fcols).issubset(pw.columns):
@@ -11238,15 +11443,9 @@ def build_all(repo_root: Path) -> None:
                 _wkd = _last_game_date(_yi, _wi) or _week_thursday(_yi, _wi).isoformat()
                 _is_starter = str(_sb) == "Starter"
                 _inj_free = (not bool(_inj)) and (not bool(_bye))
-                _nflt = str(_nt or "")
-                _posu = str(_ps or "").upper()
                 _pname = str(_p)
                 _pwfull_idx[(str(_t), _pname)].append(
                     {"wkd": _wkd, "starter": _is_starter, "inj_free": _inj_free})
-                _twk_idx[(str(_t), _yi, _wi)].append(
-                    {"Player": _pname, "starter": _is_starter, "nfl": _nflt,
-                     "pos": _posu, "wkd": _wkd})
-                _player_nflpos_idx[_pname].append((_wkd, _nflt, _posu))
 
         _TRADE_CUFF_BONUS = 5.0  # mirror the transaction CUFF_BONUS
         # Item 7E (pick value): future draft picks received/sent are valued with
@@ -11257,56 +11456,6 @@ def build_all(repo_root: Path) -> None:
         # bonus). TUNABLE — adjust to taste.
         _TRADE_PICK_COEFF = 20.0
 
-        def _recv_is_cuff(name: str, team: str, at_prefix: str) -> bool:
-            """A received player is a cuff (mirrors 'Cuff at time of pickup?'):
-            at the trade the team already rosters a STARTER on the SAME NFL
-            team + position whose last-5 PPG is 10+ above the received player's
-            last-5, and that teammate is still rostered at the trade week."""
-            if not name or not at_prefix:
-                return False
-            # received player's own NFL team + position near the trade
-            _own = [e for e in _player_nflpos_idx.get(name, []) if e[0] <= at_prefix]
-            if _own:
-                _own.sort(key=lambda e: e[0])
-                _nflt, _pos = _own[-1][1], _own[-1][2]
-            else:
-                _nflt, _pos = "", (_player_pos(name) or "")
-            if not _nflt or not _pos:
-                return False
-
-            def _pre5(_nm: str) -> Optional[float]:
-                _g = [(d, p) for d, p in _player_games_by_day(_nm) if d < at_prefix]
-                if not _g:
-                    return None
-                _g.sort(key=lambda kv: kv[0], reverse=True)
-                _win = _g[:5]
-                return sum(p for _, p in _win) / len(_win)
-
-            # latest roster week for THIS team at/just before the trade
-            _cand = None
-            for (_t, _yi, _wi), _ents in _twk_idx.items():
-                if _t != team:
-                    continue
-                _wkd = _ents[0]["wkd"]
-                if _wkd <= at_prefix and (_cand is None or _wkd > _cand[0]):
-                    _cand = (_wkd, _yi, _wi)
-            if _cand is None:
-                return False
-            _, _yr, _wk = _cand
-            _rostered = {m["Player"] for m in _twk_idx.get((team, _yr, _wk), [])}
-            _added_avg = _pre5(name) or 0.0
-            for _w in (_wk, _wk - 1, _wk - 2):
-                if _w < 1:
-                    continue
-                for mate in _twk_idx.get((team, _yr, _w), []):
-                    if mate["Player"] == name or mate["Player"] not in _rostered:
-                        continue
-                    if (not mate["starter"]) or mate["nfl"] != _nflt or mate["pos"] != _pos:
-                        continue
-                    _mavg = _pre5(mate["Player"])
-                    if _mavg is not None and _added_avg + 10 <= _mavg:
-                        return True
-            return False
 
         def _nfl_wk_pts(sid=None, name=None) -> Dict[Tuple[int, int], float]:
             """A player's real NFL fantasy points keyed by (year, week)."""
@@ -11582,18 +11731,29 @@ def build_all(repo_root: Path) -> None:
                         _e for _e in _pwfull_idx.get((_ft, _ply), [])
                         if _e["wkd"] >= _draft_iso and (not _end_iso or _e["wkd"] < _end_iso)
                     ]
-                    # Cuff when drafted? — the handcuff test evaluated at the
-                    # player's FIRST week on the drafting team's roster (per
-                    # user), not the draft date: at the draft a rookie's NFL
-                    # team/position isn't known yet, but by their first rostered
-                    # week it is. False if never rostered here.
+                    # Cuff when drafted? — the shared handcuff test (_is_cuff) at
+                    # the moment of the pick: the roster as the draft opened plus
+                    # this team's earlier picks in it; a rookie draft IS that
+                    # season's draft, so its earlier top-12 picks count. (A
+                    # rookie's NFL team comes from his first NFL game.)
                     _cuff = False
-                    if _ents:
-                        _first_roster_wkd = min(_e["wkd"] for _e in _ents)
-                        try:
-                            _cuff = bool(_recv_is_cuff(_ply, _ft, _first_roster_wkd))
-                        except Exception:
-                            _cuff = False
+                    try:
+                        _dk = _cuff_draft_key(_pr)
+                        _ctx = _cuff_draft_ctx().get(_dk, {})
+                        _order = _ctx.get("order", [])
+                        _me = _pick_order_no(_pr.get("Number"))
+                        _earlier = [(_n, _t, _p) for (_n, _t, _p) in _order if _me is not None and _n < _me]
+                        _cuff = bool(_is_cuff(
+                            _ft, _sid, _ctx.get("start"),
+                            draft_roster={_p for (_n, _t, _p) in _earlier if _t == _ft and _p},
+                            draft_top=(frozenset(_p for (_n, _t, _p) in _earlier
+                                                 if _n <= _CUFF_TOP_PICKS and _p)
+                                       if _ctx.get("rookie")
+                                       else (_startup_rookie_top() & {_p for (_n, _t, _p) in _earlier})
+                                       if _dk[1] == "startup" else None)))
+                    except Exception as _ce:
+                        _log_exc(debug, "pick_cuff", _ce)
+                        _cuff = False
                     if _cuff:
                         ph.at[_i, "Cuff when drafted?"] = True
                     _wk = len(_ents)
@@ -12136,7 +12296,7 @@ def build_all(repo_root: Path) -> None:
                 _pct_starts = (sum(_pct_list) / len(_pct_list)) if _pct_list else 0.0
                 _pct_inj = (sum(_pinj_list) / len(_pinj_list)) if _pinj_list else 0.0
                 _cuff_hit = any(
-                    _recv_is_cuff(_player_display(_rpid), team, _league_day_iso(trade_iso) or trade_prefix)
+                    _is_cuff(team, _rpid, trade_iso)      # the shared handcuff test
                     for _rpid in (row.get("_recv_player_ids") or [])
                     if _player_display(_rpid)
                 )
@@ -20638,7 +20798,7 @@ def build_all(repo_root: Path) -> None:
         _pa_rows: List[Dict[str, Any]] = []
 
         def _emit(team, name, atype, pickup_raw, season, ref, next_link, tanking=None,
-                  depart_after=None):
+                  depart_after=None, draft_cuff=None):
             if not _pa_is_player(name) or not team:
                 return
             pickup_dt = _pa_to_date(pickup_raw)
@@ -20662,8 +20822,10 @@ def build_all(repo_root: Path) -> None:
             # Cuff — always a real True/False (the handcuff test at pickup),
             # computed the same way for every channel so it is never N/A.
             try:
-                cuff = bool(_recv_is_cuff(str(name), str(team),
-                                          str(pickup_raw)[:10] if pickup_raw else ""))
+                # The shared handcuff test at the move (the Date here is
+                # already league time); a Draft row carries its pick's flag.
+                cuff = (bool(draft_cuff) if draft_cuff is not None
+                        else bool(_is_cuff(str(team), pid, pickup_raw, eastern=True)))
             except Exception:
                 cuff = False
             # Tanking — the acquiring team's tank value AT the move (from the
@@ -20828,7 +20990,8 @@ def build_all(repo_root: Path) -> None:
                 if _dep and _pk_raw and str(_dep) > str(_pk_raw):
                     _dep = None
                 _emit(_tm, str(_pl), "Draft", _pk_raw, _sea, f"PH#{int(_i) + 1}", _nl, _pk_tank,
-                      depart_after=_dep)
+                      depart_after=_dep,
+                      draft_cuff=(str(_cuff).strip().lower() in ("true", "1", "yes")) if _cuff is not None else None)
 
         if _pa_rows:
             player_additions = pd.DataFrame(_pa_rows)
