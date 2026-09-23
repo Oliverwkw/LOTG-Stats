@@ -9894,6 +9894,11 @@ def build_all(repo_root: Path) -> None:
                 if added_adj is not None or dropped_adj is not None:
                     adj_diff = round((added_adj or 0.0) - (dropped_adj or 0.0), 4)
                     r["Difference of averages adjusted by position"] = adj_diff
+                # Internal (dropped by _ensure_plan_columns): the final pass
+                # re-derives the added side from the league's rostered points.
+                r["_added_pos"] = added_pos
+                r["_tx_season"] = _tx_season
+                r["_dropped_adj"] = dropped_adj
 
                 # --- Points Added / Lost / Net (+ per-week averages) ---
                 # Points Added: the added player's fantasy points in the weeks
@@ -11103,17 +11108,10 @@ def build_all(repo_root: Path) -> None:
                 _wkd = _last_game_date(_yi, _wi) or _week_thursday(_yi, _wi).isoformat()
                 _pw_rostered_idx[(str(_t), str(_p))].append(_wkd)
 
-        # 2020 was the ESPN season — nflverse's 2020 weekly log is generic PPR and
-        # misses some players, so "Avg PPG on team" mis-scored 2020 weeks. Two
-        # player_week-derived indexes fix that with the LEAGUE's own 2020 points:
-        #   _lg_pts_idx: (team, player, year, week) -> league points. Lets us keep
-        #     nflverse's clean games-PLAYED week set but swap each 2020 week's value
-        #     to what the league actually scored (ESPN-actual, non-PPR).
-        #   _pw_played_idx: (team, player) -> [(year, week, pts, wk_date)] for weeks
-        #     the player PLAYED while rostered here (not a bye, not a scoreless
-        #     injury/suspension DNP). Fallback for players nflverse's 2020 log omits
-        #     entirely — then there's no nflverse week set to value, so we use this.
-        _lg_pts_idx: Dict[Tuple[str, str, int, int], float] = {}
+        # _pw_played_idx: (team, player) -> [(year, week, pts, wk_date)] for weeks
+        # the player PLAYED while rostered here (not a bye, not a scoreless
+        # injury/suspension DNP), valued at the league's own points. "Avg PPG on
+        # team" is the mean of these over the drafting team's tenure.
         _pw_played_idx: Dict[Tuple[str, str], List[Tuple[int, int, float, str]]] = defaultdict(list)
         _pcols = ["Team", "Player", "Year", "Week", "Points", "Bye?", "Injury?", "Suspension?"]
         if not pw.empty and set(_pcols).issubset(pw.columns):
@@ -11125,7 +11123,6 @@ def build_all(repo_root: Path) -> None:
                     _ptf = float(_pt or 0.0)
                 except Exception:
                     continue
-                _lg_pts_idx[(str(_t), str(_p), _yi, _wi)] = _ptf
                 if str(_by) == "True":
                     continue  # NFL bye / no game that week
                 if _ptf == 0.0 and (str(_in) == "True" or str(_su) == "True"):
@@ -11305,35 +11302,16 @@ def build_all(repo_root: Path) -> None:
                         for _e in nfl_log_by_sid.get(_sid, [])
                         if _e.get("_wk_date") and _e.get("year") is not None and _e.get("week") is not None
                     ]
-                    # Avg PPG on team: PPG over the games the player PLAYED while on
-                    # the drafting team (draft → next exit). Use nflverse's clean
-                    # games-played week set; but 2020 was the ESPN season, where
-                    # nflverse is generic PPR, so swap each 2020 week's value to what
-                    # the LEAGUE actually scored (player_week, ESPN-actual non-PPR).
-                    # 2021+ nflverse is already league-scored -> kept as-is. If a
-                    # player is absent from nflverse's 2020 log entirely (it omits
-                    # some), there's no week set to value, so fall back to that
-                    # player's played weeks straight from player_week. N/A ONLY if
-                    # never rostered an NFL week here (cut before week 1); rostered
-                    # but no games -> 0, not N/A.
-                    _win = [
-                        (_yy, _ww, _pp) for (_d, _yy, _ww, _pp) in _all_games
+                    # Avg PPG on team: the LEAGUE's own points (player_week) per
+                    # game he played while rostered by the drafting team (draft ->
+                    # next exit) — the definition add_drops and player_additions
+                    # share. A bye or a missed (injury/suspension) week is not a
+                    # game. N/A only if never rostered an NFL week here; rostered
+                    # but no games -> 0.
+                    _on_team = [
+                        _p for (_yy, _ww, _p, _d) in _pw_played_idx.get((_ft, _ply), [])
                         if _d >= _draft_iso and (not _end_iso or _d < _end_iso)
                     ]
-                    _on_team = []
-                    for _yy, _ww, _pp in _win:
-                        if _yy == 2020:
-                            _lg = _lg_pts_idx.get((_ft, _ply, 2020, _ww))
-                            _on_team.append(_lg if _lg is not None else _pp)
-                        else:
-                            _on_team.append(_pp)
-                    # nflverse omits this player's 2020 log -> value their 2020 games
-                    # from player_week directly (issue: 5 startup / 6 vet were N/A).
-                    if not any(_yy == 2020 for _yy, _, _ in _win):
-                        _on_team += [
-                            _p for (_yy, _ww, _p, _d) in _pw_played_idx.get((_ft, _ply), [])
-                            if _yy == 2020 and _d >= _draft_iso and (not _end_iso or _d < _end_iso)
-                        ]
                     _rostered_wk = [
                         _wkd for _wkd in _pw_rostered_idx.get((_ft, _ply), [])
                         if _wkd >= _draft_iso and (not _end_iso or _wkd < _end_iso)
@@ -19622,7 +19600,8 @@ def build_all(repo_root: Path) -> None:
         if isinstance(pw, pd.DataFrame) and not pw.empty and \
                 {"Team", "Player", "Year", "Week", "Points", "Starter/Bench"}.issubset(pw.columns):
             _hv = [c for c in ("Team", "Player", "Year", "Week", "Points",
-                               "Starter/Bench", "Position", "Injury?", "Bye?") if c in pw.columns]
+                               "Starter/Bench", "Position", "Injury?", "Suspension?", "Bye?")
+                   if c in pw.columns]
             for _row in pw[_hv].itertuples(index=False, name=None):
                 _r = dict(zip(_hv, _row))
                 _ed = _last_game_date(_r.get("Year"), _r.get("Week"))
@@ -19635,7 +19614,10 @@ def build_all(repo_root: Path) -> None:
                 _pw_ten[(str(_r.get("Team")), str(_r.get("Player")))].append({
                     "ed": _ed,
                     "starter": str(_r.get("Starter/Bench")).strip().lower() == "starter",
-                    "inj": str(_r.get("Injury?")).strip().lower() in ("true", "1", "yes"),
+                    # A MISSED week, injury or suspension ("Games played on
+                    # team" excludes both, as its formula says).
+                    "inj": any(str(_r.get(_f)).strip().lower() in ("true", "1", "yes")
+                               for _f in ("Injury?", "Suspension?")),
                     "bye": str(_r.get("Bye?")).strip().lower() in ("true", "1", "yes"),
                     "pts": _pts,
                     "pos": str(_r.get("Position") or "").upper(),
@@ -19650,8 +19632,8 @@ def build_all(repo_root: Path) -> None:
         LAST GAME falls in [pickup, drop). Dates compared day-granular, which is
         tz-robust (the boundary is Sun/Mon, never the same day as a Thu pickup)."""
         out = {"weeks": 0, "starts": 0, "inj_weeks": 0, "inj_starts": 0,
-               "points_started": 0.0, "sum_pts": 0.0, "first_start_ed": None,
-               "weeks_before_start": None, "pos": ""}
+               "points_started": 0.0, "sum_pts": 0.0, "games_pts": 0.0, "ppg": None,
+               "first_start_ed": None, "weeks_before_start": None, "pos": ""}
         _pk = str(_pickup)[:10] if _pickup else ""
         if not _pk:
             return out
@@ -19665,6 +19647,13 @@ def build_all(repo_root: Path) -> None:
         out["inj_starts"] = sum(1 for e in _weeks if e["starter"] and not e["bye"] and not e["inj"])
         out["points_started"] = sum(e["pts"] for e in _starts)
         out["sum_pts"] = sum(e["pts"] for e in _weeks)
+        out["games_pts"] = sum(e["pts"] for e in _weeks if not e["bye"] and not e["inj"])
+        # "Avg PPG on team", the one definition every sheet uses: the LEAGUE's
+        # own points (player_week) per game played while rostered here — a bye
+        # or a missed week is not a game. None if never rostered a week here;
+        # 0 if rostered but never played.
+        if out["weeks"]:
+            out["ppg"] = (out["games_pts"] / out["inj_weeks"]) if out["inj_weeks"] else 0.0
         if _starts:
             out["first_start_ed"] = _starts[0]["ed"]
             out["weeks_before_start"] = sum(1 for e in _weeks if e["ed"] < _starts[0]["ed"])
@@ -19690,6 +19679,26 @@ def build_all(repo_root: Path) -> None:
                 if _dr.strip().lower() in ("nan", "none", "n/a", ""):
                     _dr = ""
                 _st = _tenure_stats(_tm, str(_add), _pk, _dr)
+                # Average PPG on team: the league's own points while rostered
+                # here (the same number player_additions carries), replacing the
+                # nflverse window the first pass used; the dropped side stays on
+                # the nflverse log, he was not on this roster. Then everything
+                # built on it.
+                _on = _st["ppg"]
+                add_drops_df.at[_i, "Average PPG on team"] = round(_on, 4) if _on is not None else None
+                _dsw = pd.to_numeric(pd.Series([add_drops_df.at[_i, "Average PPG of dropped player over same time"]]
+                                               if "Average PPG of dropped player over same time" in add_drops_df.columns
+                                               else [None]), errors="coerce").iloc[0]
+                _dsw = None if pd.isna(_dsw) else float(_dsw)
+                if _on is not None or _dsw is not None:
+                    add_drops_df.at[_i, "Difference of averages"] = round((_on or 0.0) - (_dsw or 0.0), 4)
+                    _apos = add_drops_df.at[_i, "_added_pos"] if "_added_pos" in add_drops_df.columns else None
+                    _aa = (_on * _pos_factor(add_drops_df.at[_i, "_tx_season"], _apos)
+                           if _on is not None and isinstance(_apos, str) and _apos else _on)
+                    _da = add_drops_df.at[_i, "_dropped_adj"] if "_dropped_adj" in add_drops_df.columns else None
+                    _da = None if _da is None or pd.isna(_da) else float(_da)
+                    if _aa is not None or _da is not None:
+                        add_drops_df.at[_i, _adj_col] = round((_aa or 0.0) - (_da or 0.0), 4)
                 add_drops_df.at[_i, "Number of starts before next drop"] = int(_st["starts"])
                 _pct = _pinj = None
                 if _st["weeks"] > 0:
@@ -20348,30 +20357,6 @@ def build_all(repo_root: Path) -> None:
             if _fn and _fn not in _pa_name_to_pid:
                 _pa_name_to_pid[_fn] = str(_pid)
 
-        # player_week index by player name (all teams), each week dated to its
-        # last game — for the pre-pickup 5-game form snapshot. Tenure-limited
-        # TEAM stats come from the shared _pw_ten via _tenure_stats.
-        _pa_by_name: Dict[str, List[Dict[str, Any]]] = defaultdict(list)
-        if not pw.empty and {"Player", "Year", "Week", "Points"}.issubset(pw.columns):
-            _cols = ["Player", "Year", "Week", "Points", "Injury?", "Bye?"]
-            _have = [c for c in _cols if c in pw.columns]
-            for _row in pw[_have].itertuples(index=False, name=None):
-                _rec = dict(zip(_have, _row))
-                _ed = _last_game_date(_rec.get("Year"), _rec.get("Week"))
-                if not _ed:
-                    continue
-                try:
-                    _pts = float(_rec.get("Points")) if _rec.get("Points") not in (None, "") else 0.0
-                except Exception:
-                    _pts = 0.0
-                _pa_by_name[str(_rec.get("Player"))].append({
-                    "date": _ed, "pts": _pts,
-                    "inj": str(_rec.get("Injury?")).strip().lower() in ("true", "1", "yes"),
-                    "bye": str(_rec.get("Bye?")).strip().lower() in ("true", "1", "yes"),
-                })
-        for _k in _pa_by_name:
-            _pa_by_name[_k].sort(key=lambda e: e["date"])
-
         # Tanking per (team, season) from team_year.
         # Tanking per (team, season) from team_year (absolute value); used as the
         # draft-row fallback only. (The Tanking DELTA rework — a before-minus-after
@@ -20516,7 +20501,7 @@ def build_all(repo_root: Path) -> None:
             out["% of starts made while rostered"] = round(n_start / n_ros, 4) if n_ros else None
             out["Injury adjusted % of starts made while rostered"] = (
                 round(st["inj_starts"] / st["inj_weeks"], 4) if st["inj_weeks"] else None)
-            avg_ppg = (st["sum_pts"] / n_ros) if n_ros else None
+            avg_ppg = st["ppg"]
             out["Avg PPG on team"] = round(avg_ppg, 2) if avg_ppg is not None else None
             out["Avg PPG on team adjusted by position"] = (
                 round(avg_ppg * fac, 2) if avg_ppg is not None else None)
@@ -20526,13 +20511,16 @@ def build_all(repo_root: Path) -> None:
             avg_add_adj = (pts_added * fac / n_start) if n_start else None
             out["Avg points added adjusted by position"] = (
                 round(avg_add_adj, 2) if avg_add_adj is not None else None)
-            # last 5 played games before pickup, any team
+            # Last 5 NFL games before pickup, any team: the nflverse game log,
+            # through the same helper add_drops uses, so the two sheets carry
+            # one number (the roster-only version missed every game he played
+            # for nobody in this league).
             _pk = str(_pickup)[:10]
-            before = [e for e in _pa_by_name.get(str(_name), [])
-                      if e["date"] and e["date"] < _pk and not e["bye"] and not e["inj"]]
-            last5 = before[-5:]
-            out["PPG of 5 games before pickup"] = (
-                round(sum(e["pts"] for e in last5) / len(last5), 2) if last5 else None)
+            try:
+                _pre5 = _avg_ppg_last5_before(str(_name), _pk, _pid)
+            except NameError:      # the add_drops block never ran
+                _pre5 = None
+            out["PPG of 5 games before pickup"] = round(_pre5, 2) if _pre5 is not None else None
             pct = out["% of starts made while rostered"]
             # Same tenure-length term the pick sheets carry: `% of starts` is a
             # RATE, so without it a player who started at a given clip for one
