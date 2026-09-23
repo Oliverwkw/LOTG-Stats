@@ -9874,7 +9874,7 @@ def build_all(repo_root: Path) -> None:
     def _cuff_roster_at(team: str, when: datetime, day: str) -> set:
         """The team's players at `when`: its roster at the end of the last week
         that finished before the move's day, then every add/drop/trade after
-        that week and before the move."""
+        that week up to the move (including what the move itself sends away)."""
         c = _cuff_build()
         base_end, roster = "", set()
         for _ed, _ps in c["rosters"].get(str(team), []):
@@ -9883,8 +9883,12 @@ def build_all(repo_root: Path) -> None:
             else:
                 break
         for _when, _d, _sign, _pid in c["tx"].get(str(team), []):
-            if _when >= when:
+            if _when > when:
                 break
+            # The move itself: a player it drops or trades away is gone once it
+            # completes (add Y / drop the stud leaves no stud to cuff).
+            if _when == when and _sign > 0:
+                continue
             if _d <= base_end:
                 continue
             if _sign > 0:
