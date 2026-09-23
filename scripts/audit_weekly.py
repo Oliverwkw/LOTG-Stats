@@ -743,6 +743,8 @@ class Report:
         self.ktc_attributed = 0
         self.ktc_sheets: Dict[str, int] = {}
         self.ktc_columns: Counter = Counter()
+        # parse_test_log() of the suite's log, for the email's test section.
+        self.tests: Optional[dict] = None
 
     def head(self, text: str) -> None:
         self._section = text
@@ -825,7 +827,9 @@ def run_audit(current_dir: Path, baseline_dir: Optional[Path],
     # line no matter how small the revision behind it.
     audit_nflverse(drift, rep.attributed_direct, rep, season, attributed)
     audit_schema(cur, rep)
-    audit_build_log(current_dir / "raw", season, rep, cur)
+    # The health run always runs the suite first, so a missing log is itself a
+    # finding there; the unit tests call audit_build_log on bare log dirs.
+    audit_build_log(current_dir / "raw", season, rep, cur, expect_tests=True)
     return rep
 
 
@@ -1672,7 +1676,8 @@ def _dedupe_traceback_echo(lines: Sequence[str]) -> List[str]:
 
 
 def audit_build_log(logs_dir: Path, current_season: Optional[int], rep: Report,
-                    cur: Optional[Dict[str, pd.DataFrame]] = None) -> None:
+                    cur: Optional[Dict[str, pd.DataFrame]] = None,
+                    expect_tests: bool = False) -> None:
     # `current_season` is accepted for call compatibility and deliberately unused:
     # a log line is no longer written off because it mentions the in-progress year.
     rep.head("Part 3 — build errors (every ERROR line in the last build)")
@@ -1705,14 +1710,148 @@ def audit_build_log(logs_dir: Path, current_season: Optional[int], rep: Report,
         else:
             rep.ok("No ERROR lines in the last build.")
 
-    pytest_log = logs_dir / "pytest.log"
-    if pytest_log.exists():
-        tail = pytest_log.read_text(errors="replace")
-        m = re.search(r"(\d+) failed", tail)
-        if m and int(m.group(1)) > 0:
-            rep.flag(f"the test suite reports {m.group(1)} failing test(s).")
-        elif re.search(r"\bpassed\b", tail):
-            rep.ok("the test suite passes.")
+    audit_test_log(logs_dir / "pytest.log", rep, expect_tests=expect_tests)
+    audit_code_warnings(logs_dir, rep)
+
+
+# ---------------------------------------------------------------------------
+# Part 3 — the test suite and our own deprecation warnings
+# ---------------------------------------------------------------------------
+# Until 2026-09-23 this read one number, "N failed", and said nothing at all
+# when the log was missing or its summary line did not parse. It could not see
+# a guard that stopped RUNNING: that week six contracts data tests had never
+# once run in CI (no contracts file cached) and reported PASSED through a skip
+# helper that returned True. Skips are now real pytest skips (tests/conftest.py)
+# and each one is read here, with its reason.
+#
+# A skip listed below is a data condition the test's own docstring calls
+# healthy — it is reported, as a note, every week. Any other skip in a full CI
+# build is a guard that did not run, and is flagged.
+EXPECTED_SKIPS: Tuple[Tuple[str, str, str], ...] = (
+    ("test_forecast.py::test_preseason_injury_flags_are_stale_and_are_not_believed",
+     "no un-started live season",
+     "runs only between February and kickoff, by design"),
+    ("test_forecast.py::test_an_unsigned_player_cannot_score",
+     "no unsigned players on any roster",
+     "an empty sample is the healthy state, by design"),
+)
+_TEST_LINE = re.compile(
+    r"^(?P<test>\S+\.py::\S+)\s+(?P<status>PASSED|FAILED|ERROR|SKIPPED|XFAIL|XPASS)"
+    r"(?:\s+\((?P<reason>.*)\))?\s+\[\s*\d+%\]\s*$")
+_TEST_SUMMARY = re.compile(r"^=+ (?P<body>.*\d+ (?:passed|failed|error|errors|skipped)\b.*) in [\d.]+s\b.*=+\s*$")
+# `path.py:123: SomeWarning: message` — Python's own warning format, as the
+# build's runner.log and pytest's warnings summary both print it.
+_CODE_WARNING = re.compile(r"(?:^|/)(?P<where>(?:src|lib|scripts|tests)/[\w/]+\.py:\d+): (?P<kind>\w*Warning): (?P<msg>.*)$")
+
+
+def _expected_skip(test: str, reason: str) -> Optional[str]:
+    for name, needle, why in EXPECTED_SKIPS:
+        if test.endswith(name) and needle in (reason or ""):
+            return why
+    return None
+
+
+def parse_test_log(text: str) -> dict:
+    """{'summary': str|None, 'counts': {status: n}, 'tests': [(test, status, reason)]}"""
+    tests = []
+    for ln in text.splitlines():
+        m = _TEST_LINE.match(ln.strip())
+        if m:
+            tests.append((m["test"], m["status"], (m["reason"] or "").strip()))
+    summary, counts = None, {}
+    for ln in text.splitlines():
+        m = _TEST_SUMMARY.match(ln.strip())
+        if m:
+            summary = m["body"].strip()
+    if summary:
+        for n, what in re.findall(r"(\d+) (passed|failed|errors?|skipped|xfailed|xpassed|warnings?)", summary):
+            counts[what.rstrip("s") if what.startswith(("error", "warning")) else what] = int(n)
+    return {"summary": summary, "counts": counts, "tests": tests}
+
+
+def read_test_results(path: Path) -> Optional[dict]:
+    """The suite's own record (tests/conftest.py, LOTG_TEST_RESULTS) in the
+    shape parse_test_log returns, or None when there is no complete record."""
+    try:
+        blob = json.loads(path.read_text())
+    except (OSError, ValueError):
+        return None
+    if not isinstance(blob, dict) or not blob.get("complete"):
+        return None
+    status = {"passed": "PASSED", "failed": "FAILED", "error": "ERROR", "skipped": "SKIPPED"}
+    tests = [(r.get("test", "?"), status.get(r.get("outcome"), str(r.get("outcome")).upper()),
+              r.get("reason", "")) for r in blob.get("results", [])]
+    counts = Counter({"PASSED": "passed", "FAILED": "failed", "ERROR": "error",
+                      "SKIPPED": "skipped"}.get(st, st.lower()) for _, st, _ in tests)
+    summary = ", ".join(f"{counts[k]} {k}" for k in ("failed", "error", "passed", "skipped")
+                        if counts.get(k))
+    return {"summary": summary or "no tests collected", "counts": dict(counts), "tests": tests}
+
+
+def audit_test_log(path: Path, rep: Report, expect_tests: bool = False) -> None:
+    """Report the suite: failures and errors by name, every skip with its reason.
+
+    Reads the suite's own JSON record beside the log when there is one (see
+    tests/conftest.py); pytest's console text is the fallback, and a log whose
+    outcome cannot be read at all is itself flagged rather than passed over."""
+    parsed = read_test_results(path.with_name("pytest_results.json"))
+    if parsed is None:
+        if not path.exists():
+            if expect_tests:
+                rep.flag(f"no test results ({path.name} / pytest_results.json) — the "
+                         "test suite did not run, so none of its guards were checked.")
+            return
+        parsed = parse_test_log(path.read_text(errors="replace"))
+        if expect_tests and parsed["summary"] is not None:
+            rep.note("the suite's results file is missing; read pytest's console "
+                     "log instead, which does not carry skip reasons.")
+    rep.tests = parsed
+    if parsed["summary"] is None:
+        rep.flag("the test log has no final pytest summary line — the suite crashed "
+                 "or was cut off, so its results are unknown.")
+        return
+    counts = parsed["counts"]
+    bad = [(t, st) for t, st, _ in parsed["tests"] if st in ("FAILED", "ERROR")]
+    n_bad = counts.get("failed", 0) + counts.get("error", 0)
+    if n_bad:
+        rep.flag(f"the test suite reports {n_bad} failing test(s).")
+        for t, st in bad[:_MAX_REPORT]:
+            rep.raw(f"    - {t} ({st.lower()})")
+    skips = [(t, r) for t, st, r in parsed["tests"] if st == "SKIPPED"]
+    unexpected = [(t, r) for t, r in skips if not _expected_skip(t, r)]
+    expected = [(t, r, _expected_skip(t, r)) for t, r in skips if _expected_skip(t, r)]
+    if unexpected:
+        rep.flag(f"{len(unexpected)} test(s) SKIPPED — guards that did not run this week:")
+        for t, r in unexpected[:_MAX_REPORT]:
+            rep.raw(f"    - {t} — {r or 'no reason given'}")
+    unlisted = counts.get("skipped", 0) - len(skips)
+    if unlisted > 0:
+        rep.note(f"{unlisted} skip(s) in the summary could not be matched to a test "
+                 "line (the log was not run with -v).")
+    for t, r, why in expected:
+        rep.note(f"skipped as expected: {t} — {r} ({why}).")
+    if not n_bad and not unexpected:
+        rep.ok(f"the test suite passes ({parsed['summary']}).")
+
+
+def audit_code_warnings(logs_dir: Path, rep: Report) -> None:
+    """Flag warnings raised from OUR code (src/, lib/, scripts/, tests/) in the
+    build and test logs — a deprecation today is next year's broken build. A
+    warning from a third-party package's own code is not ours to fix and is left
+    out; one it raises about how WE call it is attributed to our line and kept."""
+    seen: Dict[Tuple[str, str], str] = {}
+    for name in ("runner.log", "pytest.log"):
+        p = logs_dir / name
+        if not p.exists():
+            continue
+        for ln in p.read_text(errors="replace").splitlines():
+            m = _CODE_WARNING.search(ln.strip())
+            if m:
+                seen.setdefault((m["where"], m["kind"]), m["msg"].strip()[:160])
+    if seen:
+        rep.flag(f"{len(seen)} warning(s) raised from our own code:")
+        for (where, kind), msg in sorted(seen.items())[:_MAX_REPORT]:
+            rep.raw(f"    - {where}: {kind}: {msg}")
 
 
 # ---------------------------------------------------------------------------

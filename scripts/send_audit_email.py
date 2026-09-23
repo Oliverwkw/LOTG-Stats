@@ -137,6 +137,35 @@ def _breakage_html(flags) -> str:
             + "".join(items) + "</ul>")
 
 
+def _tests_html(tests) -> str:
+    """The suite at a glance, every week — including the skips that are fine.
+
+    Failures and unexpected skips are breakages and are listed above with their
+    names; this section is the count, plus the expected skips named with why
+    they are expected, so a guard that stops running is visible here even on a
+    week when its skip is by design. Nothing to read means nothing ran: say so.
+    (The clean-week collapse shows it only when there are results: a week with
+    none carries a Part 3 flag, so it never collapses.)"""
+    if not tests:
+        return ('<p style="color:#8a1c1c;margin:0;">❌ No test results were read — '
+                'see Dataset breakages.</p>')
+    counts = tests.get("counts") or {}
+    bad = counts.get("failed", 0) + counts.get("error", 0)
+    skips = [(t, r) for t, st, r in tests.get("tests", []) if st == "SKIPPED"]
+    expected = [(t, r, A._expected_skip(t, r)) for t, r in skips if A._expected_skip(t, r)]
+    unexpected = len(skips) - len(expected)
+    ok = not bad and not unexpected
+    head = (f'<p style="color:{"#137333" if ok else "#8a1c1c"};margin:0;">'
+            f'{"✅" if ok else "❌"} {_esc(tests.get("summary") or "")}'
+            + ("" if ok else " — the failures and unexpected skips are listed under Dataset breakages")
+            + ".</p>")
+    if not expected:
+        return head
+    lis = "".join(f'<li style="margin:0;">{_esc(t.split("::")[-1])} — skipped: '
+                  f'{_esc(r)} ({_esc(why)})</li>' for t, r, why in expected)
+    return head + f'<ul style="margin:2px 0 6px;padding-left:18px;color:#555;">{lis}</ul>'
+
+
 def _nflverse_html(drift, attributed: int, sheets=None, columns=None,
                    breakages: int = 0) -> str:
     """The 'NFLverse made N changes' line. Upstream back-corrects completed
@@ -364,7 +393,7 @@ def render_email(flags, gaps: dict, captures_present: bool, drift=None,
                  attributed: int = 0, attributed_sheets=None, attributed_columns=None,
                  attributed_cells: int = 0, missed=(), now=None, injury_incomplete=(),
                  position_conflicts=None, ktc_attributed: int = 0,
-                 ktc_sheets=None, ktc_columns=None):
+                 ktc_sheets=None, ktc_columns=None, tests=None):
     """Return (subject, html, has_issues)."""
     n_break = len(flags)
     n_gap = sum(len(v) for v in gaps.values())
@@ -388,6 +417,7 @@ def render_email(flags, gaps: dict, captures_present: bool, drift=None,
   </div>
   {_upstream_only_html(drift, attributed_cells)}
   {_ktc_html(ktc_attributed, ktc_sheets, ktc_columns)}
+  {_tests_html(tests) if tests else ""}
 </div>"""
         return f"✅ LOTG dataset health — all clear ({today})", html, False
 
@@ -426,6 +456,8 @@ def render_email(flags, gaps: dict, captures_present: bool, drift=None,
   {_lede_html(intro)}
   <h2 style="font:600 17px/1.3 system-ui,sans-serif;color:#1a2b3c;margin:18px 0 6px;">Dataset breakages</h2>
   {_breakage_html(flags)}
+  <h2 style="font:600 17px/1.3 system-ui,sans-serif;color:#1a2b3c;margin:22px 0 6px;">Test suite</h2>
+  {_tests_html(tests)}
   <h2 style="font:600 17px/1.3 system-ui,sans-serif;color:#1a2b3c;margin:22px 0 6px;">NFLverse changes</h2>
   {_nflverse_html(drift, attributed, attributed_sheets, attributed_columns, n_break)}
   {_ktc_html(ktc_attributed, ktc_sheets, ktc_columns)}
@@ -434,7 +466,7 @@ def render_email(flags, gaps: dict, captures_present: bool, drift=None,
   <h2 style="font:600 17px/1.3 system-ui,sans-serif;color:#1a2b3c;margin:22px 0 6px;">Missed scheduled runs</h2>
   {_missed_runs_html(missed, now)}
   <p style="color:#999;font-size:12px;margin-top:22px;">Automated weekly dataset-health check
-  (audit: completed-season immutability, schema, build errors; NFLverse: upstream revisions since
+  (audit: completed-season immutability, schema, build errors, test failures and skips, warnings from our code; NFLverse: upstream revisions since
   the committed exports were built; injuries: tracker week gaps, unfinalized and unswept weeks; scheduled runs: weekly cycles with no completion stamp).</p>
 </div>"""
     return subject, html, has_issues
@@ -530,7 +562,7 @@ def main(argv=None) -> int:
         rep.attributed_sheets, rep.attributed_columns, rep.attributed_cells,
         missed=missed, now=now, injury_incomplete=injury_incomplete,
         position_conflicts=conflicts, ktc_attributed=rep.ktc_attributed,
-        ktc_sheets=rep.ktc_sheets, ktc_columns=rep.ktc_columns)
+        ktc_sheets=rep.ktc_sheets, ktc_columns=rep.ktc_columns, tests=rep.tests)
     print(f"[audit-email] {subject}")
     if args.out:
         Path(args.out).parent.mkdir(parents=True, exist_ok=True)

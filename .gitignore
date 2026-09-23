@@ -33,3 +33,8 @@ exports/LOTG_Stats.xlsx
 # career questions. Inquiry-only: the build never reads them, they are not part
 # of the committed cold-start baseline, and there are 27 of them.
 .cache/seasons/
+
+# Over The Cap contract history (parquet — already compressed, so undeltable).
+# Fetched by CI before pytest for tests/test_contracts.py and by inquiries on
+# demand; the build never reads it. Never commit it.
+.cache/nflverse_historical_contracts.parquet
