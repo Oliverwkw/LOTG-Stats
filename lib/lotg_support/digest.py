@@ -3196,3 +3196,80 @@ def load_snapshot(path: Path) -> Optional[dict]:
 def save_snapshot(path: Path, snapshot: dict) -> None:
     Path(path).parent.mkdir(parents=True, exist_ok=True)
     Path(path).write_text(json.dumps(snapshot, separators=(",", ":"), sort_keys=True))
+
+
+# ---------------------------------------------------------------------------
+# Re-dated rows (a key migration for the snapshot)
+# ---------------------------------------------------------------------------
+# A transaction-sheet row's key includes its Date. When the BUILD re-dates rows
+# that already existed — trades now dated by completion, not proposal; a
+# synthesized arrival dated from the rosters (PR #439) — every such row would
+# read as a NEW transaction next week (and a re-dated trade could pass itself
+# on a board: "the 2023-03-14 trade for Trey McBride passes the 2023-03-09 trade
+# for Trey McBride"). Map each vanished key to the same row's new key, pairing
+# on the row's identity WITHOUT its date and taking the nearest date, and carry
+# the snapshot across. A row with no vanished counterpart stays genuinely new.
+_REDATE_IDENTITY = {
+    "trades": ("Team", "Team's traded with 1", "Assets received", "Assets sent"),
+    "add_drops": ("Team", "Player Added", "Player Dropped"),
+    "player_additions": ("Player", "Team", "Addition type"),
+}
+
+
+def redate_key_map(old_frames: dict, new_frames: dict) -> Dict[str, str]:
+    """old row key -> new row key, for rows the build re-dated between two
+    exports (see above). Only keys present in `old` and absent from `new` are
+    mapped, each to the nearest-dated unmatched new row of the same identity."""
+    out: Dict[str, str] = {}
+    for sheet, ident in _REDATE_IDENTITY.items():
+        old, new = old_frames.get(sheet), new_frames.get(sheet)
+        if old is None or new is None or old.empty or new.empty:
+            continue
+        if not set(ident) <= set(old.columns) or not set(ident) <= set(new.columns):
+            continue
+        new_keys = {_board_row_key(sheet, r) for _, r in new.iterrows()}
+        old_keys = {_board_row_key(sheet, r) for _, r in old.iterrows()}
+        gone: Dict[tuple, List[Tuple[str, str]]] = {}
+        for _, r in old.iterrows():
+            k = _board_row_key(sheet, r)
+            if k not in new_keys:
+                gone.setdefault(tuple(_event_cell(r, c) for c in ident), []).append(
+                    (str(_event_cell(r, "Date"))[:19], k))
+        for _, r in new.iterrows():
+            k = _board_row_key(sheet, r)
+            if k in old_keys:
+                continue
+            cands = gone.get(tuple(_event_cell(r, c) for c in ident))
+            if not cands:
+                continue
+            d = str(_event_cell(r, "Date"))[:19]
+            best = min(range(len(cands)), key=lambda i: abs(
+                (pd.Timestamp(cands[i][0]) - pd.Timestamp(d)).total_seconds())
+                if cands[i][0] and d else 0)
+            out[cands.pop(best)[1]] = k
+    return out
+
+
+def apply_key_map(snapshot: dict, key_map: Dict[str, str], new_frames: dict) -> dict:
+    """Carry `snapshot` across a re-dating: rewrite `row_keys` and each board
+    entry's key (and its dated label, from the row it now names)."""
+    if not key_map:
+        return snapshot
+    labels: Dict[str, str] = {}
+    targets = set(key_map.values())
+    for sheet in _REDATE_IDENTITY:
+        df = new_frames.get(sheet)
+        if df is None or df.empty:
+            continue
+        for _, r in df.iterrows():
+            k = _board_row_key(sheet, r)
+            if k in targets:
+                labels[k] = _board_label(sheet, r)
+    snapshot["row_keys"] = sorted({key_map.get(k, k) for k in snapshot.get("row_keys") or []})
+    for e in snapshot.get("event_board") or []:
+        nk = key_map.get(e.get("key"))
+        if nk:
+            e["key"] = nk
+            if nk in labels:
+                e["label"] = labels[nk]
+    return snapshot

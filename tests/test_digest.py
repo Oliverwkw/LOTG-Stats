@@ -2055,3 +2055,29 @@ def test_digest_engine():
 
 if __name__ == "__main__":
     sys.exit(0 if run_all() else 1)
+
+
+def test_redated_rows_carry_their_snapshot_across():
+    """A build that re-dates existing rows (trades dated by completion, a
+    synthesized arrival dated from the rosters) must not make them read as NEW
+    transactions, nor let a row pass itself on a board under its new date."""
+    import pandas as pd
+    from lotg_support import digest as D
+    cols = ["Team", "Team's traded with 1", "Assets received", "Assets sent", "Date", "Season"]
+    old = {"trades": pd.DataFrame([["A", "B", "X", "Y", "2023-03-09 10:00:00", 2023],
+                                   ["A", "C", "Z", "W", "2023-05-01 10:00:00", 2023]], columns=cols)}
+    new = {"trades": pd.DataFrame([["A", "B", "X", "Y", "2023-03-14 02:10:27", 2023],   # re-dated
+                                   ["A", "C", "Z", "W", "2023-05-01 10:00:00", 2023],   # untouched
+                                   ["A", "B", "X", "Y", "2024-01-01 12:00:00", 2024]],  # genuinely new
+                                  columns=cols)}
+    km = D.redate_key_map(old, new)
+    k_old = D._board_row_key("trades", old["trades"].iloc[0])
+    k_new = D._board_row_key("trades", new["trades"].iloc[0])
+    assert km == {k_old: k_new}, km
+    snap = {"row_keys": [k_old, D._board_row_key("trades", old["trades"].iloc[1])],
+            "event_board": [{"sheet": "trades", "key": k_old, "label": "old label"}]}
+    snap = D.apply_key_map(snap, km, new)
+    assert k_new in snap["row_keys"] and k_old not in snap["row_keys"]
+    assert snap["event_board"][0]["key"] == k_new
+    assert snap["event_board"][0]["label"] == D._board_label("trades", new["trades"].iloc[0])
+    assert D._board_row_key("trades", new["trades"].iloc[2]) not in snap["row_keys"]   # still new
