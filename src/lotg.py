@@ -2903,6 +2903,22 @@ def build_all(repo_root: Path) -> None:
         """This build's week-1 opener lookup — see module-level _season_opener."""
         return _season_opener(_week_start_date, _season)
 
+    def _first_game_day(_season: Any, _week: Any) -> Optional[str]:
+        """Date of the FIRST game of (season, week) — the week's opening edge;
+        its Thursday when the schedule has no row. A tenure owns a rostered week
+        that ended on/after the pickup day and STARTED before the exit day: a
+        Monday-night trade leaves that week, already played, with the old team."""
+        _s = _to_int(_season, None); _w = _to_int(_week, None)
+        if _s is None or _w is None:
+            return None
+        _d = _week_start_date.get((_s, _w))
+        if _d:
+            return _d
+        try:
+            return _week_thursday(_s, _w).isoformat()
+        except Exception:
+            return None
+
     def _last_game_date(_season: Any, _week: Any) -> Optional[str]:
         """Date of the LAST game of (season, week) — the week's closing edge
         (Sun/Mon), never its Thursday opener. Falls back to the Monday after the
@@ -11143,7 +11159,7 @@ def build_all(repo_root: Path) -> None:
         # for that team in ANY NFL week (starter OR bench). Lets the picks pass
         # tell "cut after the draft before week 1" (never rostered → on-team PPG
         # N/A) apart from "rostered but no game production" (→ 0).
-        _pw_rostered_idx: Dict[Tuple[str, str], List[str]] = defaultdict(list)
+        _pw_rostered_idx: Dict[Tuple[str, str], List[Tuple[str, str]]] = defaultdict(list)
         _rcols = ["Team", "Player", "Year", "Week"]
         if not pw.empty and set(_rcols).issubset(pw.columns):
             for _t, _p, _y, _w in zip(*[pw[c] for c in _rcols]):
@@ -11154,13 +11170,14 @@ def build_all(repo_root: Path) -> None:
                 except Exception:
                     continue
                 _wkd = _last_game_date(_yi, _wi) or _week_thursday(_yi, _wi).isoformat()
-                _pw_rostered_idx[(str(_t), str(_p))].append(_wkd)
+                _pw_rostered_idx[(str(_t), str(_p))].append(
+                    (_wkd, _first_game_day(_yi, _wi) or _wkd))
 
-        # _pw_played_idx: (team, player) -> [(year, week, pts, wk_date)] for weeks
+        # _pw_played_idx: (team, player) -> [(year, week, pts, end, start)] for weeks
         # the player PLAYED while rostered here (not a bye, not a scoreless
         # injury/suspension DNP), valued at the league's own points. "Avg PPG on
         # team" is the mean of these over the drafting team's tenure.
-        _pw_played_idx: Dict[Tuple[str, str], List[Tuple[int, int, float, str]]] = defaultdict(list)
+        _pw_played_idx: Dict[Tuple[str, str], List[Tuple[int, int, float, str, str]]] = defaultdict(list)
         _pcols = ["Team", "Player", "Year", "Week", "Points", "Bye?", "Injury?", "Suspension?"]
         if not pw.empty and set(_pcols).issubset(pw.columns):
             for _t, _p, _y, _w, _pt, _by, _in, _su in zip(*[pw[c] for c in _pcols]):
@@ -11176,7 +11193,8 @@ def build_all(repo_root: Path) -> None:
                 if _ptf == 0.0 and (str(_in) == "True" or str(_su) == "True"):
                     continue  # scoreless injury/suspension DNP -> not a game played
                 _wkd = _last_game_date(_yi, _wi) or _week_thursday(_yi, _wi).isoformat()
-                _pw_played_idx[(str(_t), str(_p))].append((_yi, _wi, _ptf, _wkd))
+                _pw_played_idx[(str(_t), str(_p))].append(
+                    (_yi, _wi, _ptf, _wkd, _first_game_day(_yi, _wi) or _wkd))
 
         # ---- Item 7E indexes (V2 Trade addition value: leverage + cuff) ----
         # (fantasy team, player) -> per-week roster rows with starter + injury
@@ -11356,13 +11374,17 @@ def build_all(repo_root: Path) -> None:
                     # share. A bye or a missed (injury/suspension) week is not a
                     # game. N/A only if never rostered an NFL week here; rostered
                     # but no games -> 0.
+                    # The tenure as player_additions and add_drops read it: weeks
+                    # that ended on/after the draft day and started before the
+                    # exit, in league days.
+                    _exit_day = _league_day_iso(_pick_tenure_end(_ft, _sid, _draft_iso))
                     _on_team = [
-                        _p for (_yy, _ww, _p, _d) in _pw_played_idx.get((_ft, _ply), [])
-                        if _d >= _draft_iso and (not _end_iso or _d < _end_iso)
+                        _p for (_yy, _ww, _p, _d, _sd) in _pw_played_idx.get((_ft, _ply), [])
+                        if _d >= _draft_iso and (not _exit_day or _sd < _exit_day)
                     ]
                     _rostered_wk = [
-                        _wkd for _wkd in _pw_rostered_idx.get((_ft, _ply), [])
-                        if _wkd >= _draft_iso and (not _end_iso or _wkd < _end_iso)
+                        _wkd for (_wkd, _sd) in _pw_rostered_idx.get((_ft, _ply), [])
+                        if _wkd >= _draft_iso and (not _exit_day or _sd < _exit_day)
                     ]
                     # ROSTER PRESENCE GATES FIRST. If the player was never on the
                     # drafting team's roster for an NFL week, on-team PPG is N/A —
@@ -19661,6 +19683,7 @@ def build_all(repo_root: Path) -> None:
                     _pts = 0.0
                 _pw_ten[(str(_r.get("Team")), str(_r.get("Player")))].append({
                     "ed": _ed,
+                    "sd": _first_game_day(_r.get("Year"), _r.get("Week")) or _ed,
                     "starter": str(_r.get("Starter/Bench")).strip().lower() == "starter",
                     # A MISSED week, injury or suspension ("Games played on
                     # team" excludes both, as its formula says).
@@ -19676,9 +19699,9 @@ def build_all(repo_root: Path) -> None:
         _log_exc(debug, "pw_tenure_index", e)
 
     def _tenure_stats(_team: Any, _name: Any, _pickup: Any, _drop: Any) -> Dict[str, Any]:
-        """Tenure-limited aggregates from the FINAL player_week: the weeks whose
-        LAST GAME falls in [pickup, drop). Dates compared day-granular, which is
-        tz-robust (the boundary is Sun/Mon, never the same day as a Thu pickup)."""
+        """Tenure-limited aggregates from the FINAL player_week: the team's
+        rostered weeks that ended on/after the pickup day and started before the
+        drop day, compared as league days (callers pass them)."""
         out = {"weeks": 0, "starts": 0, "inj_weeks": 0, "inj_starts": 0,
                "points_started": 0.0, "sum_pts": 0.0, "games_pts": 0.0, "ppg": None,
                "first_start_ed": None, "weeks_before_start": None, "pos": ""}
@@ -19686,8 +19709,12 @@ def build_all(repo_root: Path) -> None:
         if not _pk:
             return out
         _dr = str(_drop)[:10] if _drop else ""
+        # A week ended on/after the pickup day and started before the exit day.
+        # (Comparing the exit to the week's END lost a Monday-night trade's
+        # week, played for the old team, from its tenure: Jonathon Brooks'
+        # 2024 wk14 for stevenb123.)
         _weeks = [e for e in _pw_ten.get((str(_team), str(_name)), [])
-                  if e["ed"] >= _pk and (not _dr or e["ed"] < _dr)]
+                  if e["ed"] >= _pk and (not _dr or e["sd"] < _dr)]
         out["weeks"] = len(_weeks)
         _starts = [e for e in _weeks if e["starter"]]
         out["starts"] = len(_starts)

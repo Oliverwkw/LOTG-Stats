@@ -52,9 +52,10 @@ def check_both_sheets_carry_one_number():
     for a_col, p_col in _PAIRS:
         a = pd.to_numeric(j[a_col if a_col != p_col else a_col + "_ad"], errors="coerce")
         p = pd.to_numeric(j[p_col if a_col != p_col else p_col + "_pa"], errors="coerce")
-        blank = a.isna() != p.isna()
-        diff = (a - p).abs() > 0.011
-        bad = j.loc[blank | diff, ["Team", "Player", "day"]].assign(add_drops=a, player_additions=p)
+        m = (a.isna() != p.isna()) | ((a - p).abs() > 0.011)
+        # Assign the MASKED values: .assign() onto an empty frame adopts the
+        # assigned Series' index, which turned "nothing differs" into every row.
+        bad = j.loc[m, ["Team", "Player", "day"]].assign(add_drops=a[m], player_additions=p[m])
         ok &= _ok(f"{p_col}: same value (or both blank) on every pickup", bad.empty,
                   f"{len(bad)} differ, e.g. {bad.head(4).values.tolist()}")
     return ok
