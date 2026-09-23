@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Dict, List, Any, Tuple, Optional, Set
 from datetime import datetime, timezone, timedelta, date
 from zoneinfo import ZoneInfo
+from bisect import bisect_left
 from collections import Counter, deque, defaultdict
 import json
 import math
@@ -1904,6 +1905,16 @@ def _preserve_na(col: str) -> bool:
                  "starter turnover from previous week",
                  "difference in pregame avg max pf from opponent"}:
         return True
+    # Start/sit difference on 5-game averages: N/A until both players have five
+    # played games behind them. Filled, the 3,455 rows with no window read 0.00 —
+    # "the call was a wash" — every player's week 1 among them.
+    if col_l in {"difference in averages of best/worst startables over previous 5 games",
+                 "cuff adjusted difference"}:
+        return True
+    # UPST: N/A before week 4, when there is no pregame average to call an
+    # upset against (and on a league row whose weeks are all N/A).
+    if col_l == "upst":
+        return True
     # Clutch index (team_all_time): playoff-vs-regular PF / win% delta. N/A when
     # the team never reached the winners'-bracket playoffs (no delta to take).
     if col_l in {"playoff pf minus regular-season pf",
@@ -2115,7 +2126,8 @@ def _fill_missing_values(df: pd.DataFrame, cols: List[str]) -> pd.DataFrame:
             # First-occurrence values stay as NaN and render as 'N/A' in CSV.
             num = pd.to_numeric(df[col], errors="coerce")
             if str(col).strip().lower() in {
-                "offseason starter turnover", "offseason roster turnover", "offseason trades"
+                "offseason starter turnover", "offseason roster turnover", "offseason trades",
+                "upst",
             }:
                 # Integer COUNTS that carry N/A for the earliest season (which
                 # makes the column float dtype). Render whole numbers as ints so
@@ -2528,6 +2540,64 @@ class _Espn2020Client:
     def __getattr__(self, name):
         # Anything not overridden (players_nfl, draft, round, get, ...) -> real client.
         return getattr(self._real, name)
+
+
+# team_week "Difference in pregame avg max PF from opponent" (and the UPST flag
+# built on it) is blank before this week: the trailing Max PF average needs three
+# games behind it before it says anything about a roster.
+_PREGAME_MIN_WEEK = 4
+
+
+def _upst_total(s) -> Optional[int]:
+    """A league row's upset count: the sum of its team-weeks' UPST, or None when
+    every one is N/A (weeks 1-3, a season still inside them)."""
+    v = pd.to_numeric(s, errors="coerce") if s is not None else pd.Series(dtype=float)
+    return int(v.sum()) if v.notna().any() else None
+
+
+def _pregame_avg_max_pf(tw: pd.DataFrame) -> pd.Series:
+    """Each team-week's average Max PF over its EARLIER weeks of the same season,
+    blank before week `_PREGAME_MIN_WEEK`. A week-2 "average" is one game: 2026
+    week 2 put shmuel256's +75 at the top of the all-time board. Blank on both
+    sides leaves the opponent difference N/A, and the UPST flag built on it N/A.
+    `tw` must be sorted by Team, Year, Week."""
+    avg = tw.groupby(["Team", "Year"])["Max PF"].apply(
+        lambda s: s.shift(1).expanding().mean()
+    ).reset_index(level=[0, 1], drop=True)
+    early = pd.to_numeric(tw["Week"], errors="coerce") < _PREGAME_MIN_WEEK
+    return avg.where(~early.reindex(avg.index, fill_value=False))
+
+
+def _previous_nfl_avgs(pw: pd.DataFrame, games_by_sid: Dict[str, Dict[Tuple[int, int], float]],
+                       window: int = 5, rookie_mask: Optional[pd.Series] = None) -> dict:
+    """(player name, year, week) -> the player's average over his last `window`
+    REGULAR-SEASON NFL games before that week — every game he played, rostered
+    or not, across seasons (`games_by_sid`: Sleeper id -> {(season, week):
+    points}; nflverse's game log, a snap without a stat line as 0).
+
+    Read off player_week it only ever saw ROSTERED weeks, and reset each season,
+    so week 2 of 2026 compared one-game "averages" and filled the all-time
+    bottom 5 of the best/worst startables difference. Fewer than `window` games
+    behind him is None, except on a ROOKIE's row (`rookie_mask`), which averages
+    the games he has. `pw` needs Player, Player ID, Year, Week."""
+    out = {}
+    ordered: Dict[str, List[Tuple[int, int]]] = {}
+    for idx, name, sid, y, w in zip(pw.index, pw["Player"], pw["Player ID"],
+                                    pd.to_numeric(pw["Year"], errors="coerce"),
+                                    pd.to_numeric(pw["Week"], errors="coerce")):
+        if pd.isna(y) or pd.isna(w):
+            continue
+        sid = str(sid)
+        games = games_by_sid.get(sid) or {}
+        if sid not in ordered:
+            ordered[sid] = sorted(games)
+        keys = ordered[sid]
+        prev = keys[:bisect_left(keys, (int(y), int(w)))][-window:]
+        rookie = rookie_mask is not None and bool(rookie_mask.get(idx, False))
+        full = len(prev) == window or (rookie and len(prev) > 0)
+        out[(str(name), int(y), int(w))] = \
+            float(np.mean([games[k] for k in prev])) if full else None
+    return out
 
 
 _ROOKIE_OSCORE_MIN_WEEK = 8
@@ -3849,6 +3919,11 @@ def build_all(repo_root: Path) -> None:
     # (most leagues are 0.5-PPR or full PPR; rankings are stable
     # between the two for trend purposes).
     nfl_log_by_sid: Dict[str, List[Dict[str, Any]]] = defaultdict(list)
+    # The same games as {(season, week): points}, REGULAR SEASON only, plus
+    # every snap-count appearance that recorded no stat (a 0, not a missing
+    # game). The player_week start/sit window reads the last five of these
+    # before each row's week (`_previous_nfl_avgs`).
+    nfl_games_by_sid: Dict[str, Dict[Tuple[int, int], float]] = defaultdict(dict)
     trades_rows: List[Dict[str, Any]] = []
     # Orphan drops: a player dropped without a corresponding add in the same
     # transaction (pure waiver-to-FA). These don't get a transactions.csv row
@@ -4235,6 +4310,11 @@ def build_all(repo_root: Path) -> None:
     def _force_refresh_season(season: Optional[int]) -> bool:
         return _refresh_all_external or (season == _current_lotg_season)
 
+    _sid_by_gsis = {
+        str((meta or {}).get("gsis_id") or "").strip(): str(sid)
+        for sid, meta in pid_meta.items() if (meta or {}).get("gsis_id")
+    }
+    _sid_by_gsis.pop("", None)
     _nflverse_backfill_yrs = (
         list(range(_earliest_lotg - 2, _earliest_lotg))
         if _earliest_lotg is not None else []
@@ -4258,7 +4338,9 @@ def build_all(repo_root: Path) -> None:
             )
             if not _gsis_to_sid or not _pts_col:
                 continue
-            for r in _bk_spw[["player_id", "week", _pts_col]].dropna(subset=["player_id", "week"]).itertuples(index=False):
+            _bk_cols = ["player_id", "week", _pts_col] + (
+                ["season_type"] if "season_type" in _bk_spw.columns else [])
+            for r in _bk_spw[_bk_cols].dropna(subset=["player_id", "week"]).itertuples(index=False):
                 _gsis = str(r.player_id)
                 _sid_bk = _gsis_to_sid.get(_gsis)
                 if not _sid_bk:
@@ -4268,6 +4350,8 @@ def build_all(repo_root: Path) -> None:
                     _pts_bk = float(getattr(r, _pts_col))
                 except Exception:
                     continue
+                if str(getattr(r, "season_type", "REG")).upper() == "REG":
+                    nfl_games_by_sid[_sid_bk][(int(_bk_yr), _wk_bk)] = _pts_bk
                 try:
                     _wk_d = _week_thursday(int(_bk_yr), _wk_bk)
                     _wk_iso = _wk_d.isoformat()
@@ -4468,7 +4552,9 @@ def build_all(repo_root: Path) -> None:
                             "fantasy_points" if "fantasy_points" in spw.columns else None
                         )
                         _read_cols = list(dict.fromkeys(
-                            [c for c in (["player_id", "week", _pos_col, _ppr_col] + _score_cols) if c]
+                            [c for c in (["player_id", "week", _pos_col, _ppr_col] + _score_cols
+                                         + (["season_type"] if "season_type" in spw.columns else []))
+                             if c]
                         ))
                         _use_league = bool(scoring_settings) and bool(_score_cols)
                         if _use_league or _ppr_col:
@@ -4502,6 +4588,8 @@ def build_all(repo_root: Path) -> None:
                                     "points": pts,
                                     "_wk_date": wk_iso,
                                 })
+                                if str(getattr(r, "season_type", "REG")).upper() == "REG":
+                                    nfl_games_by_sid[sid][(int(season), wk)] = float(pts)
                 except Exception as e:
                     _log_exc(debug, f"nfl_log_by_sid_{season}", e)
         except Exception as e:
@@ -4609,6 +4697,10 @@ def build_all(repo_root: Path) -> None:
                     if _gs not in _bucket:
                         _bucket.add(_gs)
                         _added += 1
+                    # A REG snap with no stat line is a game he played for 0.
+                    _sid_snap = _sid_by_gsis.get(_gs)
+                    if _sid_snap:
+                        nfl_games_by_sid[_sid_snap].setdefault((int(season), _wk), 0.0)
                 _log(debug, f"[{_now_iso()}] INFO snap_appearances season={season} "
                             f"added={_added} player-weeks the event file did not carry "
                             f"(bridge={len(pfr_to_gsis)} pfr->gsis)")
@@ -13599,9 +13691,7 @@ def build_all(repo_root: Path) -> None:
         tw["Max PF"] = pd.to_numeric(tw["Max PF"], errors="coerce")
 
         # Own pregame average Max PF (season-to-date, excluding current week)
-        tw["Pregame avg MaxPF"] = tw.groupby(["Team", "Year"])["Max PF"].apply(
-            lambda s: s.shift(1).expanding().mean()
-        ).reset_index(level=[0, 1], drop=True)
+        tw["Pregame avg MaxPF"] = _pregame_avg_max_pf(tw)
 
         # Opponent-aware difference where matchup mapping is available.
         tw["Difference in pregame avg max PF from opponent"] = None
@@ -13645,6 +13735,9 @@ def build_all(repo_root: Path) -> None:
             (pd.to_numeric(tw.get("Win?"), errors="coerce") == 1)
             & (pd.to_numeric(tw.get("Difference in pregame avg max PF from opponent"), errors="coerce") < 0)
         ).astype(int)
+        # No pregame average, no upset to judge: N/A, not "not an upset".
+        tw["UPST"] = tw["UPST"].astype(float).where(
+            pd.to_numeric(tw["Week"], errors="coerce") >= _PREGAME_MIN_WEEK)
 
         tw.drop(columns=["Pregame avg MaxPF"], inplace=True, errors="ignore")
 
@@ -13659,29 +13752,14 @@ def build_all(repo_root: Path) -> None:
             pw["Week"] = pd.to_numeric(pw["Week"], errors="coerce").astype("Int64")
             pw["Points"] = pd.to_numeric(pw["Points"], errors="coerce").fillna(0.0)
 
-            # "played games" exclude injury/susp/bye
-            played_mask = ~pw[["Injury?", "Suspension?", "Bye?"]].fillna(False).any(axis=1)
-
-            pw_sorted = pw.sort_values(["Player", "Year", "Week"]).reset_index()
-            # map (player,year,week)-> rolling avg last5 played (including current if played)
-            rolling_avg = {}
+            # (player, year, week) -> his average over his previous 5 NFL games.
             # NOTE: do NOT import deque inside this function.
             # An inner import would make `deque` a local variable for the entire
             # enclosing scope, which breaks earlier lambdas that reference the
             # global `deque` (CI failure: cannot access free variable 'deque').
-            hist = defaultdict(lambda: deque(maxlen=5))
-            for _, r in pw_sorted.iterrows():
-                p=str(r["Player"]); yr=int(r["Year"]) if pd.notna(r["Year"]) else None; wk=int(r["Week"]) if pd.notna(r["Week"]) else None
-                if yr is None or wk is None:
-                    continue
-                key=(p,yr,wk)
-                # compute avg of previous played games (last5) BEFORE adding current
-                prev=list(hist[(p,yr)])
-                avg_prev=float(np.mean(prev)) if prev else None
-                # if played, include current for future
-                if bool(played_mask.loc[r["index"]]):
-                    hist[(p,yr)].append(float(r["Points"]))
-                rolling_avg[key]=avg_prev
+            rookie_mask = pw.get("Rookie?", pd.Series(False, index=pw.index)).map(
+                lambda v: safe_bool(v, default=False))
+            rolling_avg = _previous_nfl_avgs(pw, nfl_games_by_sid, rookie_mask=rookie_mask)
 
             def get_avg(p,yr,wk):
                 return rolling_avg.get((str(p),int(yr),int(wk)))
@@ -17872,7 +17950,7 @@ def build_all(repo_root: Path) -> None:
                 # League weekly starter turnover = league-wide TOTAL (sum of
                 # every team's turnover that week), not the average.
                 "Starter turnover from previous week": _sum_or_na(g.get("Starter turnover from previous week")),
-                "UPST": int(pd.to_numeric(g.get("UPST"), errors="coerce").fillna(0.0).sum()),
+                "UPST": _upst_total(g.get("UPST")),
                 "Hardship": float(pd.to_numeric(g.get("Hardship"), errors="coerce").fillna(0.0).sum()),
                 "Starter-adjusted Hardship": round(float(pd.to_numeric(g.get("Starter-adjusted Hardship"), errors="coerce").fillna(0.0).sum()), 4),
                 # League-week Tanking = mean across teams. Per-team
@@ -18025,7 +18103,7 @@ def build_all(repo_root: Path) -> None:
                 "Offseason starter turnover": 0,  # filled from team_year below
                 "Inseason roster turnover": 0,    # filled from team_year below
                 "Offseason roster turnover": 0,   # filled from team_year below
-                "UPST": int(pd.to_numeric(g.get("UPST"), errors="coerce").fillna(0.0).sum()),
+                "UPST": _upst_total(g.get("UPST")),
                 # League-year Tanking = mean of weekly league Tanking.
                 "Tanking": float(pd.to_numeric(g.get("Tanking"), errors="coerce").dropna().mean() or 0.0),
                 "Luck": float(pd.to_numeric(g.get("Luck"), errors="coerce").fillna(0.0).sum()),
@@ -18208,7 +18286,7 @@ def build_all(repo_root: Path) -> None:
             "Efficiency": float(pd.to_numeric(g_week["Efficiency"], errors="coerce").dropna().mean()) if g_week["Efficiency"].notna().any() else None,
             "Number of weeks missed due to injury": int(pd.to_numeric(g_week.get("Number of Injuries"), errors="coerce").fillna(0.0).sum()),
             "Number of weeks missed due to suspensions": int(pd.to_numeric(g_week.get("Number of suspensions"), errors="coerce").fillna(0.0).sum()),
-            "UPST": int(pd.to_numeric(g_week.get("UPST"), errors="coerce").fillna(0.0).sum()),
+            "UPST": _upst_total(g_week.get("UPST")),
             # League-all-time Tanking = mean across all weeks.
             "Tanking": float(pd.to_numeric(g_week.get("Tanking"), errors="coerce").dropna().mean() or 0.0),
             "Luck": float(pd.to_numeric(g_week.get("Luck"), errors="coerce").fillna(0.0).sum()),
