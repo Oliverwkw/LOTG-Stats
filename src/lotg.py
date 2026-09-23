@@ -11098,6 +11098,17 @@ def build_all(repo_root: Path) -> None:
                         out.append((entry["_wk_date"], float(entry["points"])))
             return out
 
+        def _player_games_by_day(name: Optional[str]) -> List[Tuple[str, float]]:
+            """Like _player_games, but each game dated by the day his team played
+            it (the week's Thursday only without a schedule row). For "the 5
+            games before the trade": a Saturday trade must not count that
+            Sunday's game, the same rule add_drops and player_additions use."""
+            if not name:
+                return []
+            sid = name_to_sid_local2.get(name)
+            return [((e.get("_game_date") or e["_wk_date"]), float(e["points"]))
+                    for e in nfl_log_by_sid.get(sid, []) if sid and (e.get("_game_date") or e.get("_wk_date"))]
+
         def _player_age_at(name: Optional[str], at_iso: str) -> Optional[float]:
             if not name:
                 return None
@@ -11264,7 +11275,7 @@ def build_all(repo_root: Path) -> None:
                 return False
 
             def _pre5(_nm: str) -> Optional[float]:
-                _g = [(d, p) for d, p in _player_games(_nm) if d < at_prefix]
+                _g = [(d, p) for d, p in _player_games_by_day(_nm) if d < at_prefix]
                 if not _g:
                     return None
                 _g.sort(key=lambda kv: kv[0], reverse=True)
@@ -11981,7 +11992,7 @@ def build_all(repo_root: Path) -> None:
                 return sum(pts) / len(pts)
 
             def _avg_ppg_pre5(name: str, before: str) -> Optional[float]:
-                games = [(d, p) for d, p in _player_games(name) if d < before]
+                games = [(d, p) for d, p in _player_games_by_day(name) if d < before]
                 if not games:
                     return None
                 games.sort(key=lambda kv: kv[0], reverse=True)
@@ -11999,7 +12010,8 @@ def build_all(repo_root: Path) -> None:
                     recv_on_team_avgs.append(avg_on)
                     pos = _player_pos(name)
                     recv_adj_on_team_avgs.append(avg_on * _pos_factor(row.get("Season"), pos))
-                pre5 = _avg_ppg_pre5(name, trade_prefix)
+                # Compared on the league day the trade shows, not its UTC day.
+                pre5 = _avg_ppg_pre5(name, _league_day_iso(trade_iso) or trade_prefix)
                 if pre5 is not None:
                     recv_pre5_avgs.append(pre5)
 
@@ -12124,7 +12136,7 @@ def build_all(repo_root: Path) -> None:
                 _pct_starts = (sum(_pct_list) / len(_pct_list)) if _pct_list else 0.0
                 _pct_inj = (sum(_pinj_list) / len(_pinj_list)) if _pinj_list else 0.0
                 _cuff_hit = any(
-                    _recv_is_cuff(_player_display(_rpid), team, trade_prefix)
+                    _recv_is_cuff(_player_display(_rpid), team, _league_day_iso(trade_iso) or trade_prefix)
                     for _rpid in (row.get("_recv_player_ids") or [])
                     if _player_display(_rpid)
                 )
