@@ -62,6 +62,16 @@ def collect_findings(exports_dir) -> List[Finding]:
         except Exception as e:  # pragma: no cover
             out.append(Finding("ERROR", sheet, "", f"unreadable: {e}"))
             continue
+        # A player is on one roster a week, so two player_week rows with one
+        # name in one week are two players who share it. The build keys its own
+        # joins by id, but the workbook links 'Reference player name' to a row
+        # by name, and would point one of them at the other.
+        if sheet == "player_week" and {"Player", "Year", "Week"} <= set(df.columns):
+            dup = df[df.duplicated(["Player", "Year", "Week"], keep=False)]
+            if not dup.empty:
+                ex = sorted({(r.Player, r.Year, r.Week) for r in dup.itertuples()})[:5]
+                out.append(Finding("WARN", sheet, "Player",
+                                   f"same-name players in one week: {len(dup)} rows, e.g. {ex}"))
         for col in df.columns:
             cl = col.lower()
             vals = _num(df[col]).dropna()
