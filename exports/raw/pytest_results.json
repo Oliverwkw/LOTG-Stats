@@ -1513,6 +1513,11 @@
    "reason": ""
   },
   {
+   "test": "tests/test_player_history_coverage.py::test_no_two_tenures_claim_the_same_weeks",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
    "test": "tests/test_position_pins.py::test_position_pins",
    "outcome": "passed",
    "reason": ""
