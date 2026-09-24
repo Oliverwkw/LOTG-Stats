@@ -8882,7 +8882,21 @@ def build_all(repo_root: Path) -> None:
                 # Anchor the draft at the START of its season (tz-aware) — before
                 # that season's in-season moves, after the prior season's — to
                 # mirror the asset-history builder's year-aware draft clamp.
-                _holder_events[str(_ppid)].append((f"{_ym.group(1)}-01-01T00:00:00+00:00", 1, "draft", _final))
+                # Jan 1 was too early: an offseason drop between Jan 1 and the
+                # draft then "closed" the drafted holding, and his next drop
+                # synthesized a second arrival for the same stint (Allen Lazard,
+                # LWebs53, 2022: dropped Feb 9, re-drafted 2.08 in August). Use
+                # the draft's own day (the vet draft's for a "(vet)" pick), at
+                # league midnight; Jan 1 only when the season's draft is unknown.
+                _dy = int(_ym.group(1))
+                _all_d = sorted(draft_dates_by_season.get(_dy, set()) or set())
+                _rk_d = sorted(rookie_draft_dates_by_season.get(_dy, set()) or set())
+                _vet_d = [d for d in _all_d if d not in set(_rk_d)]
+                _dday = ((_vet_d or _all_d) if "vet" in str(_prow.get("Year") or "").lower()
+                         else (_rk_d or _all_d))
+                _danchor = (pd.Timestamp(str(_dday[0])[:10] + " 04:00", tz="UTC").isoformat()
+                            if _dday else f"{_dy}-01-01T00:00:00+00:00")
+                _holder_events[str(_ppid)].append((_danchor, 1, "draft", _final))
 
             def _aware(_x):
                 # parse to a tz-aware (UTC) Timestamp; synthesized dates MUST
@@ -9022,6 +9036,44 @@ def build_all(repo_root: Path) -> None:
                     return None
                 return _a.isoformat()
 
+            # The ESPN->Sleeper switch, as the transfer-drop step below dates it:
+            # the day before the 2021 rookie draft.
+            _switch_days = sorted(rookie_draft_dates_by_season.get(2021, set())
+                                  or draft_dates_by_season.get(2021, set()) or set())
+            _switch_iso = (_day_before(pd.Timestamp(_switch_days[0], tz="UTC").isoformat())
+                           if _switch_days else None)
+            _seam_closed: set = set()  # (team, pid) whose 2020 stint closed at the switch
+
+            def _reacq_drop_at(team, pid, prev_ts, ts):
+                """When did `team` let go of a player it re-acquires at `ts`, with no
+                recorded drop since `prev_ts`? A stint that crosses the ESPN->Sleeper
+                switch ends AT the switch (user rule 2026-09-24: dropped and picked
+                up again => end at the switch). Otherwise at the first week he was
+                off the roster in between; failing that, the day before `ts`."""
+                _p, _t = _aware(prev_ts), _aware(ts)
+                if _p is None or _t is None or not _p < _t:
+                    return None
+                _cands = []
+                if str(prev_ts)[:4] < "2021" <= str(ts)[:4] and _switch_iso:
+                    _cands.append(_aware(_switch_iso))
+                else:
+                    _pday = _league_day(_p.to_pydatetime()).isoformat()
+                    _tday = _league_day(_t.to_pydatetime()).isoformat()
+                    _run = sorted(w for w in _team_weeks.get((str(team), str(pid)), ())
+                                  if (_last_game_date(*w) or "") >= _pday
+                                  and (_first_game_day(*w) or "9999") < _tday)
+                    for (_y, _w), _nx in zip(_run, _run[1:] + [None]):
+                        if _nx != (_y, _w + 1) and _last_game_date(_y, _w + 1):
+                            _gap = _first_game_day(_y, _w + 1)
+                            if _gap and _gap < _tday:
+                                _cands.append(pd.Timestamp(_gap, tz="UTC"))
+                            break
+                _cands.append(_aware(_day_before(ts)))
+                for _c in _cands:
+                    if _c is not None and _p < _c < _t:
+                        return _c.isoformat()
+                return None
+
             _synth_seen: set = set()
             _synth_rows: List[Dict[str, Any]] = []       # missing departures
             _synth_add_rows: List[Dict[str, Any]] = []   # missing arrivals
@@ -9048,11 +9100,26 @@ def build_all(repo_root: Path) -> None:
                         _has_2021_arrival[_pid_h] = True
                         if _pid_h not in _arrival_2021_team:
                             _arrival_2021_team[_pid_h] = _tm
-                    if _kind in ("add_fa", "draft"):
-                        # FA/waiver pickup or draft while another team still holds
-                        # the player => that team's drop went unrecorded.
+                    if _kind in ("add_fa", "add_other", "draft"):
+                        # FA/waiver pickup, commissioner add or draft while another
+                        # team still holds the player => that team's drop went
+                        # unrecorded. (A commissioner add holds the player like any
+                        # other: leaving it out left the holding empty, so the
+                        # team's next drop synthesized a second arrival for the
+                        # same stint — Taysom Hill / Ryan Tannehill, 2021-12-05.)
                         if _holder is not None and _holder != _tm:
                             _synth_drop(_holder, _pid_h, _ts)
+                        elif _holder == _tm:
+                            # The SAME team acquiring a player it still holds: its
+                            # drop in between went unrecorded (the 2020->2021 switch,
+                            # or an ESPN 2020 gap). Without it both stints stay open
+                            # and claim the same weeks (Melvin Gordon, Mitchell
+                            # Trubisky 2020).
+                            _rd = _reacq_drop_at(_tm, _pid_h, _prev_ts, _ts)
+                            if _rd:
+                                _synth_drop(_tm, _pid_h, _rd)
+                                if str(_ts)[:4] >= "2021" and str(_prev_ts or "")[:4] < "2021":
+                                    _seam_closed.add((_tm, _pid_h))
                         _holder = _tm
                     elif _kind == "trade_in":
                         _holder = _tm
@@ -9137,6 +9204,8 @@ def build_all(repo_root: Path) -> None:
                         # Pollard returned to BROsenzweig in 2025).
                         if _holder_2020_end.get(str(_pid2020)) != _tm2020:
                             continue
+                        if (_tm2020, str(_pid2020)) in _seam_closed:
+                            continue  # already closed at the switch on re-acquisition
                         # Skip anyone RE-ACQUIRED in 2021+ by a recorded event (vet
                         # re-draft, add, or trade): the general reconciliation
                         # already closed that holding at the re-acquisition, so a
@@ -20037,6 +20106,28 @@ def build_all(repo_root: Path) -> None:
     except Exception as e:
         _log_exc(debug, "pw_tenure_index", e)
 
+    _team_acq_cache: Dict[Tuple[str, str], List[str]] = {}
+
+    def _team_acq_days() -> Dict[Tuple[str, str], List[str]]:
+        """(team, player) -> league days of every acquisition (add, commissioner
+        add or trade-in), so _tenure_stats can hand a re-entry week to the later
+        stint. Built once, on first use (the event lists are final by then)."""
+        if not _team_acq_cache:
+            _acc: Dict[Tuple[str, str], List[str]] = defaultdict(list)
+            for _r in add_drop_rows or []:
+                _a = _r.get("Player Added")
+                if _r.get("Team") and _a and str(_a).strip().lower() not in ("nan", "none", "n/a"):
+                    _acc[(str(_r["Team"]), str(_a))].append(_league_day_iso(_r.get("Date")))
+            for _r in trades_rows or []:
+                for _a in str(_r.get("Assets received") or "").split(";"):
+                    _a = _a.strip()
+                    if (_r.get("Team") and _a and _a not in ("0.0", "None", "N/A")
+                            and not re.match(r"^\d{4}\b", _a) and not _a.endswith("FAAB")):
+                        _acc[(str(_r["Team"]), _a)].append(_league_day_iso(_r.get("Date")))
+            _team_acq_cache.update({k: sorted(v) for k, v in _acc.items()})
+            _team_acq_cache.setdefault(("", ""), [])  # mark built even if empty
+        return _team_acq_cache
+
     def _tenure_stats(_team: Any, _name: Any, _pickup: Any, _drop: Any) -> Dict[str, Any]:
         """Tenure-limited aggregates from the FINAL player_week: the team's
         rostered weeks that ended on/after the pickup day and started before the
@@ -20055,6 +20146,17 @@ def build_all(repo_root: Path) -> None:
         # 2024 wk14 for stevenb123.)
         _weeks = [e for e in _pw_ten.get((str(_team), str(_name)), [])
                   if e["ed"] >= _pk and (not _dr or e["sd"] < _dr)]
+        # A week belongs to ONE stint — the one holding him when it was played
+        # (user rule 2026-09-24). If this team re-acquired him on/after this
+        # exit and before the week's last game, the later stint owns the week
+        # (Duke Johnson, LWebs53 2020 wk14: dropped Sat, re-added Sun).
+        if _dr:
+            _re = list(_team_acq_days().get((str(_team), str(_name)), []))
+            if _pk in _re:
+                _re.remove(_pk)  # this stint's own arrival
+            _re = [a for a in _re if a >= _dr]
+            if _re:
+                _weeks = [e for e in _weeks if not any(a <= e["ed"] for a in _re)]
         out["weeks"] = len(_weeks)
         _starts = [e for e in _weeks if e["starter"]]
         out["starts"] = len(_starts)
