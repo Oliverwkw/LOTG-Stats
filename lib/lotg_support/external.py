@@ -1,4 +1,5 @@
 from __future__ import annotations
+import gzip
 import json
 import os
 from dataclasses import dataclass
@@ -102,6 +103,35 @@ class ExternalConfig:
     cache_dir: Path
     timeout_seconds: int = 60
 
+
+_GZIP_MAGIC = b"\x1f\x8b"
+
+
+def _as_cached_bytes(content: bytes, out: Path) -> bytes:
+    """The bytes to store at `out`: a gzip body is inflated unless `out` is a .gz.
+
+    Several loaders list a `.csv.gz` mirror after the plain `.csv`, and all of
+    them cache to a `.csv` name. When the plain asset blipped, the gzip body
+    used to land under that name verbatim: the loaders' own gzip fallback read
+    it, but every other reader of `.cache` did not — the 2026-09-23 health run
+    lost its snap-count injury guard to a UnicodeDecodeError, the NFLverse drift
+    diff silently skipped the file, and the Tuesday build (which commits
+    `.cache`) would have committed an undeltable blob. Sniffing the magic bytes
+    rather than the URL also covers a server that answers a `.csv` URL with gzip.
+    """
+    if content[:2] == _GZIP_MAGIC and out.suffix != ".gz":
+        return gzip.decompress(content)
+    return content
+
+
+def read_cached_csv(path: Path, **kwargs) -> pd.DataFrame:
+    """`pd.read_csv` for a cache file that may predate `_as_cached_bytes` and
+    still hold a gzip body under a `.csv` name."""
+    with open(path, "rb") as fh:
+        gz = fh.read(2) == _GZIP_MAGIC
+    return pd.read_csv(path, compression="gzip" if gz else "infer", **kwargs)
+
+
 def _download(url: str, out: Path, timeout: int) -> None:
     out.parent.mkdir(parents=True, exist_ok=True)
 
@@ -116,6 +146,7 @@ def _download(url: str, out: Path, timeout: int) -> None:
                 kwargs["proxies"] = {"http": None, "https": None}
             r = session.get(url, **kwargs)
             r.raise_for_status()
+            body = _as_cached_bytes(r.content, out)
             # Write beside the target and rename over it. Now that a refresh
             # overwrites files that are ALREADY GOOD, a half-written body would
             # destroy the very copy the fallback below depends on; os.replace is
@@ -123,7 +154,7 @@ def _download(url: str, out: Path, timeout: int) -> None:
             # one or the whole new one.
             tmp = out.with_name(out.name + ".part")
             try:
-                tmp.write_bytes(r.content)
+                tmp.write_bytes(body)
                 os.replace(tmp, out)
             finally:
                 if tmp.exists():
@@ -357,12 +388,7 @@ def load_nflverse_stats_player_week(cfg: ExternalConfig, season: int, force_refr
     ]
     path = cfg.cache_dir / f"nflverse_stats_player_week_{season}.csv"
     _ensure(cfg, path, urls, force_refresh=force_refresh)
-    # handle possible gz without relying on pandas compression inference
-    try:
-        df = pd.read_csv(path, low_memory=False)
-    except Exception:
-        df = pd.read_csv(path, compression='gzip', low_memory=False)
-    return apply_position_pins(df)
+    return apply_position_pins(read_cached_csv(path, low_memory=False))
 
 
 def load_nflverse_snap_counts(cfg: ExternalConfig, season: int, force_refresh: bool = False) -> pd.DataFrame:
@@ -389,10 +415,7 @@ def load_nflverse_snap_counts(cfg: ExternalConfig, season: int, force_refresh: b
     ]
     path = cfg.cache_dir / f"nflverse_snap_counts_{season}.csv"
     _ensure(cfg, path, urls, force_refresh=force_refresh)
-    try:
-        return pd.read_csv(path, low_memory=False)
-    except Exception:
-        return pd.read_csv(path, compression="gzip", low_memory=False)
+    return read_cached_csv(path, low_memory=False)
 
 
 def load_nflverse_weekly_rosters(cfg: ExternalConfig, season: int, force_refresh: bool = False) -> pd.DataFrame:
@@ -407,8 +430,4 @@ def load_nflverse_weekly_rosters(cfg: ExternalConfig, season: int, force_refresh
     ]
     path = cfg.cache_dir / f"nflverse_weekly_rosters_{season}.csv"
     _ensure(cfg, path, urls, force_refresh=force_refresh)
-    try:
-        df = pd.read_csv(path, low_memory=False)
-    except Exception:
-        df = pd.read_csv(path, compression='gzip', low_memory=False)
-    return apply_position_pins(df)
+    return apply_position_pins(read_cached_csv(path, low_memory=False))

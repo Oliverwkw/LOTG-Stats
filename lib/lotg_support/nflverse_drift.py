@@ -38,6 +38,8 @@ from typing import Dict, List, Optional, Set, Tuple
 
 import pandas as pd
 
+from .external import read_cached_csv
+
 # Candidate primary keys, most specific first. NFLverse files disagree on
 # whether the player column is player_id (stats) or gsis_id (injuries), and
 # whether rows are per-week or per-season.
@@ -242,6 +244,11 @@ class Drift:
     files: List[FileDrift] = field(default_factory=list)
     missing_files: List[str] = field(default_factory=list)
     new_files: List[str] = field(default_factory=list)
+    # Files present on both sides that could not be read, as "name (why)". These
+    # used to be skipped with a bare `continue`, so an unreadable file read as
+    # "no changes" — on 2026-09-23 a gzip body cached under a .csv name dropped
+    # the 2025 snap counts out of the comparison without a word.
+    unreadable_files: List[str] = field(default_factory=list)
     # Coordinates of the revised rows, for attributing our own diffs.
     player_weeks: Set[Tuple[str, int, int]] = field(default_factory=set)
     player_seasons: Set[Tuple[str, int]] = field(default_factory=set)
@@ -282,7 +289,8 @@ class Drift:
 
     @property
     def structural(self) -> bool:
-        return bool(self.missing_files) or any(f.structural for f in self.files)
+        return (bool(self.missing_files) or bool(self.unreadable_files)
+                or any(f.structural for f in self.files))
 
     @property
     def any_change(self) -> bool:
@@ -319,6 +327,8 @@ class Drift:
             bits.append(f"{len(self.new_files)} new file(s)")
         if self.missing_files:
             bits.append(f"{len(self.missing_files)} file(s) gone")
+        if self.unreadable_files:
+            bits.append(f"{len(self.unreadable_files)} file(s) unreadable")
         n_files = len([f for f in self.files if f.changed_cells or f.structural])
         vintage = (f" since the committed cache was last refreshed, {self.baseline_age}"
                    if self.baseline_age else "")
@@ -349,6 +359,8 @@ class Drift:
             out.append(f"… and {len(rows) - limit} more file(s)")
         for n in self.missing_files[:limit]:
             out.append(f"{n}: file is gone from the fresh build")
+        for n in self.unreadable_files[:limit]:
+            out.append(f"{n}: could not be read, so it was not compared")
         return out
 
     def is_significant(self, attributed_rows: int,
@@ -359,6 +371,10 @@ class Drift:
         if self.missing_files:
             return (f"{len(self.missing_files)} NFLverse file(s) disappeared: "
                     f"{', '.join(self.missing_files[:4])}")
+        if self.unreadable_files:
+            return (f"{len(self.unreadable_files)} NFLverse file(s) could not be read, "
+                    f"so upstream drift in them was not measured: "
+                    f"{', '.join(self.unreadable_files[:4])}")
         dropped = [c for f in self.files for c in f.columns_removed]
         if dropped:
             return (f"NFLverse dropped {len(dropped)} column(s) the build may read: "
@@ -573,9 +589,10 @@ def diff_nflverse_cache(before_dir: Optional[Path], after_dir: Optional[Path],
     aliases = load_name_aliases(after_dir)
     for name in sorted(set(before) & set(after)):
         try:
-            b = pd.read_csv(before[name], low_memory=False)
-            a = pd.read_csv(after[name], low_memory=False)
-        except Exception:
+            b = read_cached_csv(before[name], low_memory=False)
+            a = read_cached_csv(after[name], low_memory=False)
+        except Exception as e:
+            drift.unreadable_files.append(f"{name} ({type(e).__name__})")
             continue
         drift.files.append(_diff_one(name, b, a, drift, aliases))
     return drift
