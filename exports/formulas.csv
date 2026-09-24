@@ -469,7 +469,7 @@ Pick-adjusted Difference in KTC 4 years after draft day,non_rookie_picks / rooki
 Addition type,player_additions,"How the player was gained: Waiver, Free agency, Commissioner (all add/drops), Trade, or Draft.",The whole point of the sheet — compare the same tenure-limited stats across acquisition channels.
 Link to addition,player_additions,"Clickable jump to the source row this addition came from: '#N' = add_drops row, 'T#N' = trades row, 'PH#N' = pick row (non_rookie_picks or rookie_picks — the ref counts through the two as one frame, in build order).",
 Number of times added by this team,player_additions,"How many times this team had gained this player (any channel), counting up to and including this addition.",
-Tenure (days),player_additions,Calendar days from this addition to the player's next departure from the team (drop or trade away). Blank while the tenure is still open.,
+Tenure (days),player_additions,"Calendar days from this addition to the player's next departure from the team (drop or trade away). While he is still on the team, counts to the day the sheet was built.","An open tenure grows by one each day, like add_drops' 'Length of tenure on team'."
 Tenure (NFL weeks),player_additions,Number of NFL weeks the player was on this team's roster during the tenure this addition started.,
 Games played on team,player_additions,Rostered weeks in the tenure that were not a bye or a missed (injury/suspension) week.,
 Injured weeks on team,player_additions,"Rostered weeks in the tenure flagged Injury? (missed the week, not a bye or a suspension).",Tenure (NFL weeks) = Games played on team + Injured weeks on team + suspension weeks + byes. The per-tenure version of player_year's 'Weeks missed due to injury'.
