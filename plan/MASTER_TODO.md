@@ -665,6 +665,42 @@ Both asked for after reading the round-2 boards; both are re-gradings, not fixes
   - `PH#N` prose still read "= picks row"; it now names the two sheets and says
     the ref counts through them as one frame.
 
+## Bench / healthy-week columns (from the Pat Freiermuth inquiry)
+The inquiry ("how unique is Freiermuth's time on JacobRosenzweig": 75 healthy
+games, 11 starts) had to derive "games held without starting" by hand. Asked for
+on player_year, player_all_time and player_additions: starts, weeks on bench,
+healthy weeks on bench, bench points, total healthy weeks, start %, healthy
+start %, injured weeks — "insofar as they do not already exist", no duplicates,
+all in the weekly email.
+
+- [x] **Already present, not duplicated.** player_year / player_all_time: starts
+  (`Weeks as starter`), `Weeks on bench`, start % (`% of starts`), injured weeks
+  (`Weeks missed due to injury`). player_additions: `Starts on team`, healthy
+  weeks (`Games played on team`), start % (`% of starts made while rostered`),
+  healthy start % (`Injury adjusted % of starts made while rostered` — already
+  healthy starts / healthy weeks, Freiermuth 11/75 = 0.1467).
+- [x] **Added to player_year + player_all_time**: `Healthy weeks on bench`,
+  `Healthy weeks rostered`, `Healthy % of starts`, `Total points on bench`.
+  "Healthy" = not a bye, injury or suspension week — the `_played` flag the
+  Adjusted averages already divide by, so no new definition.
+- [x] **Added to player_additions**: `Bench weeks on team`, `Healthy bench weeks
+  on team`, `Injured weeks on team`, `Bench points on team` — from the same
+  `_tenure_stats` window as `Starts on team` / `Games played on team`.
+- [x] Plan CSV + `stats_catalog.json` + Formulas entries + schema pin
+  (`data/audit/schema_baseline.json`) + phrasing reference rows. The digest
+  needs no change: `discover_numeric_columns` picks up every numeric column,
+  `Healthy % of starts` projects as a rate ("%"), the rest scale as counts, and
+  the player_additions names carry "on team" so they read as forward-accruing.
+- [x] Guard: `tests/test_bench_health_columns.py` recomputes all eight from
+  player_week (skips on pre-merge exports; fails on a partial set).
+- [ ] **3-part audit** (code / results / diff) on the first post-merge build.
+  Expected diff: the 12 new columns on the three sheets + their Formulas rows,
+  nothing else. Results cases to check: Freiermuth's JacobRosenzweig row (bench
+  weeks 76, healthy bench 64, injured 7, bench points 532.2 as of 2026 wk 2);
+  Bryce Young's stevenb123 row (healthy bench = games played, 0 starts); a
+  player with a start in an injury week (24 such starter-weeks exist) so
+  healthy starts < starts; a 2020 row; a zero-rostered-week padded row.
+
 ## Phase 15 — TBD: OLD LEAGUES
 - [ ] **TBD.** Placeholder for integrating other historical/old leagues' data (e.g. the
   separate ESPN leagues seen in the 2020 emails — UChicago '24 = leagueId 57687541, UChi
