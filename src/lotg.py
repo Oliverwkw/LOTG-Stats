@@ -131,6 +131,7 @@ from lotg_support.external import (
     load_nflverse_weekly_rosters,
 )
 from lotg_support.lineup import compute_optimal_lineup
+from lotg_support.late_listing import undo_late_listings
 from lotg_support.plan import load_plan_catalog, require_columns
 from lotg_support.history import reconcile_top_team, reconcile_last_team
 from lotg_support import pick_index
@@ -5520,6 +5521,34 @@ def build_all(repo_root: Path) -> None:
                 tx_by_week[wk] = []
                 _log_exc(debug, f"transactions_{season}_wk{wk}", e)
 
+        # ------------- Sleeper late-listing quirk -------------
+        # A move completed after a week's last game shows on that finished
+        # week's matchup roster (Sleeper updates it until the leg rolls). Undo
+        # it — the week belongs to whoever held him when it was played (user
+        # rule 2026-09-24). See lotg_support.late_listing; the inquiry
+        # toolkit's week() applies the same correction.
+        if int(season) >= 2021:
+            try:
+                for _lwk, _lmu in list(matchups_by_week.items()):
+                    _lend = _last_game_date(season, _lwk)
+                    if not _lend:
+                        continue
+
+                    def _lfallback(_p, _y=int(season), _w=int(_lwk)):
+                        # his nflverse week, scored by this season's rules
+                        return next((e.get("points") for e in nfl_log_by_sid.get(str(_p), [])
+                                     if _to_int(e.get("year"), None) == _y
+                                     and _to_int(e.get("week"), None) == _w), None)
+                    _lmu2, _lchg = undo_late_listings(
+                        _lmu, tx_by_week.get(_lwk, []) or [], _lend,
+                        when=_tx_effective_ms, day_of=_league_day, points_fallback=_lfallback)
+                    if _lchg:
+                        matchups_by_week[_lwk] = _lmu2
+                        _log(debug, f"[{_now_iso()}] INFO late-listing {season} wk{_lwk}: "
+                                    f"undid moves completed after the week ({', '.join(_lchg)})")
+            except Exception as e:
+                _log_exc(debug, f"late_listing_{season}", e)
+
         # ------------- Manual 2021 botched-trade merge -------------
         # Sleeper split ONE draft-day pick trade (shmuel256's 2021 2.08 for
         # LWebs53's 3.06 + a 2022 4th + a 2023 4.08) into a pick swap PLUS a
@@ -9001,14 +9030,14 @@ def build_all(repo_root: Path) -> None:
                         continue
                     break
                 # Only when the old dating (the day before the departure) would
-                # leave a rostered week with no arrival: Sleeper lists a Tuesday
-                # pickup or a Wednesday waiver claim on the week just ended, so
-                # an arrival by that Wednesday already covers the run's first
-                # week (Dylan Laube, LWebs53, 2024 week 5) — keep it.
+                # leave a rostered week with no arrival. (It used to let a
+                # Tuesday/Wednesday arrival "cover" the week just ended, because
+                # Sleeper lists those on it; the late-listing fix now takes such
+                # moves off that week, so a roster listing with no recorded move
+                # to explain it is trusted: Dylan Laube, LWebs53, 2024 week 5.)
                 _old = _aware(_day_before(ts))
-                _wed = (date.fromisoformat(_last_game_date(_y, _w) or "9999-12-31")
-                        + timedelta(days=2)).isoformat() if _last_game_date(_y, _w) else None
-                if _old is not None and _wed and _league_day(_old.to_pydatetime()).isoformat() <= _wed:
+                _lg = _last_game_date(_y, _w)
+                if _old is not None and _lg and _league_day(_old.to_pydatetime()).isoformat() <= _lg:
                     return None
                 if _y == 2021 and _w == _team_first_wk.get((str(team), 2021)) and _seam_iso:
                     _at = _seam_iso

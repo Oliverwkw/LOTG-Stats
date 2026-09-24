@@ -75,6 +75,7 @@ try:                                                    # pragma: no cover
 except Exception:                                       # pragma: no cover
     _POSITION_PINS: Dict[str, str] = {}
 from lotg_support import pick_index
+from lotg_support.late_listing import undo_late_listings
 
 
 # ---------------------------------------------------------------------------
@@ -267,6 +268,7 @@ def clear_caches() -> None:
     """Drop every cached read (call after the exports/snapshot change on disk)."""
     _load_sheet_cached.cache_clear()
     _load_json_cached.cache_clear()
+    _week_last_game_days.cache_clear()
     _players_cached.cache_clear()
     _season_meta_cached.cache_clear()
     _formula_index.cache_clear()
@@ -966,11 +968,36 @@ class WeekRow:
         return tuple(p for p in self.players if p not in started)
 
 
-def week(year: int, wk: int) -> Dict[int, WeekRow]:
-    """{roster_id: WeekRow} for one week of one season."""
-    raw = _snap(f"season_{int(year)}/weeks/week_{int(wk):02d}/matchups.json")
+@functools.lru_cache(maxsize=None)
+def _week_last_game_days(root: str) -> Dict[Tuple[int, int], str]:
+    """(season, week) -> the day of its last regular-season game, from the
+    schedule the build caches (the build's `_last_game_date`); {} without it."""
+    path = Path(root) / ".cache" / "nfldata_games.csv"
+    if not path.exists():
+        return {}
+    games = pd.read_csv(path, usecols=["season", "week", "game_type", "gameday"], low_memory=False)
+    games = games[games["game_type"].astype(str).str.upper() == "REG"].dropna(subset=["gameday"])
+    games = games.assign(day=games["gameday"].astype(str).str[:10])
+    return {(int(s), int(w)): str(d) for (s, w), d in games.groupby(["season", "week"])["day"].max().items()}
+
+
+def week(year: int, wk: int, raw: bool = False) -> Dict[int, WeekRow]:
+    """{roster_id: WeekRow} for one week of one season.
+
+    Corrected for Sleeper's late listings, as the build is (see
+    `lotg_support.late_listing`): a move completed after the week's last game
+    is taken back off it. `raw=True` returns Sleeper's rows untouched."""
+    raw_rows = _snap(f"season_{int(year)}/weeks/week_{int(wk):02d}/matchups.json")
+    if not raw and int(year) >= 2021:
+        end = _week_last_game_days(str(repo_root())).get((int(year), int(wk)))
+        if end:
+            try:
+                tx = _snap(f"season_{int(year)}/weeks/week_{int(wk):02d}/transactions.json")
+            except FileNotFoundError:
+                tx = []
+            raw_rows, _ = undo_late_listings(raw_rows, tx, end)
     out: Dict[int, WeekRow] = {}
-    for row in raw:
+    for row in raw_rows:
         out[row["roster_id"]] = WeekRow(
             roster_id=row["roster_id"],
             matchup_id=row.get("matchup_id"),

@@ -4,8 +4,9 @@ User rule (2026-09-23): every week a player sits on a team's roster
 (player_week) falls inside one of that team's tenures for him on
 player_additions (Date .. Date dropped/traded). A week counts as inside when it
 overlaps the tenure: its first game is before the exit day, and the pickup was
-no later than the Wednesday after its last game (Sleeper lists a Tuesday or
-Wednesday-waiver pickup on the week that just ended).
+no later than its last game day. (Sleeper lists a move completed on the Tuesday
+or Wednesday after a week on that finished week; the build takes those moves back
+off it — the late-listing fix — so no allowance is needed.)
 
 Run 531 had 166 team-weeks outside every tenure, in two families: moves across
 the 2020 ESPN -> 2021 Sleeper seam whose synthesized arrival was dated the day
@@ -58,12 +59,7 @@ def _uncovered():
             first_thu = date(y, 9, 1) + timedelta(days=(3 - date(y, 9, 1).weekday()) % 7)
             sd = (first_thu + timedelta(weeks=w - 1)).isoformat()
             ed = (first_thu + timedelta(weeks=w - 1, days=4)).isoformat()
-        # Sleeper lists a Tuesday or Wednesday pickup (the 3am ET waiver run) on
-        # the week that just ended: Dylan Laube (LWebs53, Tue 2024-10-08) shows
-        # on week 5, Nico Collins (LWebs53, Wed 2022-10-19 03:04) on week 6. A
-        # tenure starting by that Wednesday covers the week.
-        wed = (date.fromisoformat(ed) + timedelta(days=2)).isoformat()
-        if not any(s0 <= wed and e0 > sd for s0, e0 in ten.get((t, p), [])):
+        if not any(s0 <= ed and e0 > sd for s0, e0 in ten.get((t, p), [])):
             out.append((t, p, y, w))
     return out
 
@@ -104,14 +100,30 @@ def test_no_two_tenures_claim_the_same_weeks():
             if not e0 or d1[:10] < e0[:10]:
                 overlap.append((t, p, d0, e0 or "open", d1))
     assert not overlap, f"{len(overlap)} stints still open when the next began, e.g. {overlap[:6]}"
-    # 2. Weeks: a pair's stints never count more weeks than it was rostered.
+    # 2. Weeks: a pair's stints count exactly the weeks it was rostered — no
+    #    week twice, none left out (the Wednesday late-listing weeks included:
+    #    Nico Collins, Josh Doctson, Odell Beckham, Rachaad White, Dylan Laube).
     ten = pa.assign(n=pd.to_numeric(pa["Tenure (NFL weeks)"], errors="coerce").fillna(0)) \
             .groupby(["Team", "Player"])["n"].sum()
     ros = pw.drop_duplicates().groupby(["Team", "Player"]).size()
     j = pd.concat([ten, ros.rename("ros")], axis=1, join="inner")
-    over = j[j["n"] > j["ros"]]
-    assert over.empty, (f"{len(over)} team/player pairs count more tenure weeks than rostered weeks, "
-                        f"e.g. {over.head(8).to_dict('index')}")
+    off = j[j["n"] != j["ros"]]
+    assert off.empty, (f"{len(off)} team/player pairs whose tenure weeks != rostered weeks, "
+                       f"e.g. {off.head(8).to_dict('index')}")
+
+
+
+def test_no_player_on_two_rosters_in_one_week():
+    """Undoing Sleeper's late listings (a move completed after the week, shown
+    on it) must hand a week back to the old team, never add a second copy."""
+    if not (_EXPORTS / "player_week.csv").exists():
+        print("  SKIP — exports/ absent")
+        return
+    pw = pd.read_csv(_EXPORTS / "player_week.csv", dtype=str, keep_default_na=False,
+                     usecols=["Team", "Player", "Year", "Week"])
+    n = pw.groupby(["Player", "Year", "Week"])["Team"].nunique()
+    two = n[n > 1]
+    assert two.empty, f"{len(two)} player-weeks on two rosters, e.g. {list(two.index[:6])}"
 
 
 if __name__ == "__main__":
@@ -119,3 +131,5 @@ if __name__ == "__main__":
     print("ok: every rostered week sits inside a player_additions tenure")
     test_no_two_tenures_claim_the_same_weeks()
     print("ok: no week sits inside two tenures")
+    test_no_player_on_two_rosters_in_one_week()
+    print("ok: no player on two rosters in one week")
