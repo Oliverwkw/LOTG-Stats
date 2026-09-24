@@ -464,4 +464,4 @@ tests/test_workflow_schedules.py::test_the_health_baseline_carries_what_the_audi
 =========================== short test summary info ============================
 SKIPPED [1] tests/conftest.py:53: no un-started live season to check
 SKIPPED [1] tests/conftest.py:53: no unsigned players on any roster — nothing to compare
-================== 453 passed, 2 skipped in 354.98s (0:05:54) ==================
+================== 453 passed, 2 skipped in 380.58s (0:06:20) ==================
