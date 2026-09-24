@@ -8,6 +8,7 @@ from datetime import datetime, timezone, timedelta, date
 from zoneinfo import ZoneInfo
 from bisect import bisect_left
 from collections import Counter, deque, defaultdict
+import copy
 import json
 import math
 import re
@@ -5520,6 +5521,73 @@ def build_all(repo_root: Path) -> None:
                 tx_by_week[wk] = []
                 _log_exc(debug, f"transactions_{season}_wk{wk}", e)
 
+        # ------------- Sleeper late-listing quirk -------------
+        # Sleeper keeps updating a finished week's matchup roster until its leg
+        # rolls over, so a move that completed AFTER the week's last game (a
+        # Tuesday trade, the Wednesday 3am waiver run) lands on the week it did
+        # not play in: the incoming player joins that week's list (Nico Collins,
+        # LWebs53 2022 wk6; Josh Doctson, BROsenzweig 2022 wk7; Odell Beckham,
+        # Oliverwkw 2022 wk9), and a player traded away leaves his old team's
+        # list (Rachaad White, LWebs53 2023 wk5). A dropped player stays listed
+        # from 2022 on; in 2021 he left the list too (Jamison Crowder, r1 wk6).
+        # Undo those moves, latest first, on a copy of the week: the incoming
+        # player comes off the list; a player sent away goes back on as bench,
+        # with the points Sleeper scored him that week on whichever list holds
+        # him. (User rule 2026-09-24: a week belongs to whoever held him when it
+        # was played.)
+        if int(season) >= 2021:
+            try:
+                for _lwk, _lmu in list(matchups_by_week.items()):
+                    _lend = _last_game_date(season, _lwk)
+                    if not _lend:
+                        continue
+                    _late = []
+                    for _lt in tx_by_week.get(_lwk, []) or []:
+                        _ldt = _epoch_ms_to_dt(_tx_effective_ms(_lt))
+                        if _ldt is not None and _league_day(_ldt).isoformat() > _lend:
+                            _late.append((_ldt, _lt))
+                    if not _late:
+                        continue
+                    _lmu2 = copy.deepcopy(_lmu)
+                    _lby = {_to_int(_m.get("roster_id"), None): _m for _m in _lmu2}
+                    _lpts = {str(_p): _v for _m in _lmu2
+                             for _p, _v in ((_m.get("players_points") or {}).items())}
+                    _lchg = []
+                    for _ldt, _lt in sorted(_late, key=lambda e: e[0], reverse=True):
+                        for _p, _r in ((_lt.get("adds") or {}).items()):
+                            _m = _lby.get(_to_int(_r, None))
+                            _pl = (_m or {}).get("players") or []
+                            if _m is not None and str(_p) in [str(x) for x in _pl] \
+                                    and str(_p) not in [str(x) for x in (_m.get("starters") or [])]:
+                                _m["players"] = [x for x in _pl if str(x) != str(_p)]
+                                (_m.get("players_points") or {}).pop(str(_p), None)
+                                _lchg.append(f"-{_p}@r{_r}")
+                        for _p, _r in ((_lt.get("drops") or {}).items()):
+                            _m = _lby.get(_to_int(_r, None))
+                            if _m is None:
+                                continue
+                            _pl = [str(x) for x in (_m.get("players") or [])]
+                            if str(_p) not in _pl:
+                                _m["players"] = list(_m.get("players") or []) + [str(_p)]
+                                if isinstance(_m.get("players_points"), dict):
+                                    # Sleeper's own score if another list has him
+                                    # (a trade's receiver), else his nflverse
+                                    # week scored by this season's rules, else 0
+                                    # (2021's late drops were all bye weeks).
+                                    _lv = _lpts.get(str(_p))
+                                    if _lv is None:
+                                        _lv = next((e.get("points") for e in nfl_log_by_sid.get(str(_p), [])
+                                                    if _to_int(e.get("year"), None) == int(season)
+                                                    and _to_int(e.get("week"), None) == int(_lwk)), None)
+                                    _m["players_points"][str(_p)] = float(_lv or 0.0)
+                                _lchg.append(f"+{_p}@r{_r}")
+                    if _lchg:
+                        matchups_by_week[_lwk] = _lmu2
+                        _log(debug, f"[{_now_iso()}] INFO late-listing {season} wk{_lwk}: "
+                                    f"undid moves completed after the week ({', '.join(_lchg)})")
+            except Exception as e:
+                _log_exc(debug, f"late_listing_{season}", e)
+
         # ------------- Manual 2021 botched-trade merge -------------
         # Sleeper split ONE draft-day pick trade (shmuel256's 2021 2.08 for
         # LWebs53's 3.06 + a 2022 4th + a 2023 4.08) into a pick swap PLUS a
@@ -9001,14 +9069,14 @@ def build_all(repo_root: Path) -> None:
                         continue
                     break
                 # Only when the old dating (the day before the departure) would
-                # leave a rostered week with no arrival: Sleeper lists a Tuesday
-                # pickup or a Wednesday waiver claim on the week just ended, so
-                # an arrival by that Wednesday already covers the run's first
-                # week (Dylan Laube, LWebs53, 2024 week 5) — keep it.
+                # leave a rostered week with no arrival. (It used to let a
+                # Tuesday/Wednesday arrival "cover" the week just ended, because
+                # Sleeper lists those on it; the late-listing fix now takes such
+                # moves off that week, so a roster listing with no recorded move
+                # to explain it is trusted: Dylan Laube, LWebs53, 2024 week 5.)
                 _old = _aware(_day_before(ts))
-                _wed = (date.fromisoformat(_last_game_date(_y, _w) or "9999-12-31")
-                        + timedelta(days=2)).isoformat() if _last_game_date(_y, _w) else None
-                if _old is not None and _wed and _league_day(_old.to_pydatetime()).isoformat() <= _wed:
+                _lg = _last_game_date(_y, _w)
+                if _old is not None and _lg and _league_day(_old.to_pydatetime()).isoformat() <= _lg:
                     return None
                 if _y == 2021 and _w == _team_first_wk.get((str(team), 2021)) and _seam_iso:
                     _at = _seam_iso
