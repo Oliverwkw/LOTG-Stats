@@ -675,7 +675,7 @@ all in the weekly email.
 
 - [x] **Already present, not duplicated.** player_year / player_all_time: starts
   (`Weeks as starter`), `Weeks on bench`, start % (`% of starts`), injured weeks
-  (`Weeks missed due to injury`). player_additions: `Starts on team`, healthy
+  (`Weeks missed due to injury`). player_additions: starts (`Number of starts before next drop`), healthy
   weeks (`Games played on team`), start % (`% of starts made while rostered`),
   healthy start % (`Injury adjusted % of starts made while rostered` — already
   healthy starts / healthy weeks, Freiermuth 11/75 = 0.1467).
@@ -685,7 +685,15 @@ all in the weekly email.
   Adjusted averages already divide by, so no new definition.
 - [x] **Added to player_additions**: `Bench weeks on team`, `Healthy bench weeks
   on team`, `Injured weeks on team`, `Bench points on team` — from the same
-  `_tenure_stats` window as `Starts on team` / `Games played on team`.
+  `_tenure_stats` window as the starts / `Games played on team`.
+- [x] **Removed player_additions `Starts on team`** [per user: "keep the old
+  duplicate starts column, delete the new one"]. It was identical to `Number of
+  starts before next drop` on every row (both `_tenure_stats["starts"]`); that
+  one is older (add_drops since 2025; both reached player_additions in #409), so
+  it stays. Its readers — the Player addition value formula text and
+  `test_pick_sheets_split`'s starts-term check — now name the kept column; the
+  xlsx/digest have no hard reference. The digest's prior board slots for the
+  removed column simply produce no events.
 - [x] Plan CSV + `stats_catalog.json` + Formulas entries + schema pin
   (`data/audit/schema_baseline.json`) + phrasing reference rows. The digest
   needs no change: `discover_numeric_columns` picks up every numeric column,
@@ -694,8 +702,11 @@ all in the weekly email.
 - [x] Guard: `tests/test_bench_health_columns.py` recomputes all eight from
   player_week (skips on pre-merge exports; fails on a partial set).
 - [ ] **3-part audit** (code / results / diff) on the first post-merge build.
-  Expected diff: the 12 new columns on the three sheets + their Formulas rows,
-  nothing else. Results cases to check: Freiermuth's JacobRosenzweig row (bench
+  Expected diff: the 12 new columns on the three sheets, `Starts on team` gone
+  from player_additions, their Formulas rows, nothing else. The first Tuesday
+  digest after merge will list the new player_year columns' on-pace standings
+  once (`diff_pace` treats a column absent from the prior snapshot as newly
+  entered); the all-time and event boards stay silent on them for one week. Results cases to check: Freiermuth's JacobRosenzweig row (bench
   weeks 76, healthy bench 64, injured 7, bench points 532.2 as of 2026 wk 2);
   Bryce Young's stevenb123 row (healthy bench = games played, 0 starts); a
   player with a start in an injury week (24 such starter-weeks exist) so

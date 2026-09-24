@@ -10,16 +10,18 @@ JacobRosenzweig, 11 starts):
     Healthy % of starts      healthy starts / healthy weeks rostered
     Total points on bench    points scored in benched weeks
   player_additions (per tenure)
-    Bench weeks on team          Tenure (NFL weeks) - Starts on team
+    Bench weeks on team          Tenure (NFL weeks) - Number of starts before next drop
     Healthy bench weeks on team  benched healthy weeks in the tenure
     Injured weeks on team        Injury?-flagged weeks in the tenure
     Bench points on team         points scored in benched weeks in the tenure
 
 The rest of the request already existed and is NOT duplicated: starts
-("Weeks as starter" / "Starts on team"), weeks on bench, start % ("% of starts"
+("Weeks as starter" / "Number of starts before next drop"), weeks on bench, start % ("% of starts"
 / "% of starts made while rostered"), injured weeks ("Weeks missed due to
 injury"), and on player_additions healthy weeks ("Games played on team") and
 healthy start % ("Injury adjusted % of starts made while rostered").
+player_additions' "Starts on team" was dropped as an exact duplicate of
+"Number of starts before next drop".
 
 Everything here is recomputed from player_week, so nothing is pinned to a value
 that moves. The season recompute runs on seasons before the latest one in
@@ -164,7 +166,7 @@ def test_player_additions_reconcile():
     if got is None:
         return _skip(why)
     pw, pa = got
-    ten, starts = _num(pa["Tenure (NFL weeks)"]), _num(pa["Starts on team"])
+    ten, starts = _num(pa["Tenure (NFL weeks)"]), _num(pa["Number of starts before next drop"])
     games = _num(pa["Games played on team"])
     bench, hbench = _num(pa["Bench weeks on team"]), _num(pa["Healthy bench weeks on team"])
     inj = _num(pa["Injured weeks on team"])

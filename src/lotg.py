@@ -20914,10 +20914,10 @@ def build_all(repo_root: Path) -> None:
             pos = (_pos or st["pos"]) or ""
             fac = _pos_factor(_season, pos) if pos else 1.0
             out["Games played on team"] = st["inj_weeks"]
-            out["Starts on team"] = n_start
-            # The bench side of the same tenure. "Healthy" = the weeks "Games
-            # played on team" counts (not a bye, injury or suspension), so
-            # Healthy bench weeks = Games played - healthy starts.
+            # The bench side of the same tenure (starts = "Number of starts
+            # before next drop"). "Healthy" = the weeks "Games played on team"
+            # counts (not a bye, injury or suspension), so Healthy bench weeks
+            # = Games played - healthy starts.
             out["Bench weeks on team"] = n_ros - n_start
             out["Healthy bench weeks on team"] = st["inj_weeks"] - st["inj_starts"]
             out["Injured weeks on team"] = st["injured_weeks"]
@@ -21037,7 +21037,6 @@ def build_all(repo_root: Path) -> None:
                 "Tenure (days)": tenure_days,
                 "Tenure (NFL weeks)": sc.get("_n_ros"),
                 "Games played on team": sc.get("Games played on team"),
-                "Starts on team": sc.get("Starts on team"),
                 "Bench weeks on team": sc.get("Bench weeks on team"),
                 "Healthy bench weeks on team": sc.get("Healthy bench weeks on team"),
                 "Injured weeks on team": sc.get("Injured weeks on team"),
