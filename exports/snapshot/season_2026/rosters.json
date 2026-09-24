@@ -62,6 +62,7 @@
       "5927",
       "5947",
       "5967",
+      "6149",
       "6813",
       "6904",
       "7526",
@@ -71,7 +72,6 @@
       "8130",
       "8142",
       "8146",
-      "8205",
       "9221",
       "9228",
       "9480",
@@ -93,8 +93,8 @@
       "ppts_decimal": 56,
       "ties": 0,
       "total_moves": 0,
-      "waiver_budget_used": 9900,
-      "waiver_position": 6,
+      "waiver_budget_used": 9901,
+      "waiver_position": 8,
       "wins": 1
     },
     "starters": [
@@ -102,7 +102,7 @@
       "9221",
       "3198",
       "7526",
-      "12514",
+      "8112",
       "8146",
       "8130",
       "6813",
@@ -359,7 +359,7 @@
       "ties": 0,
       "total_moves": 0,
       "waiver_budget_used": 9914,
-      "waiver_position": 8,
+      "waiver_position": 6,
       "wins": 2
     },
     "starters": [
@@ -439,6 +439,7 @@
       "12533",
       "13319",
       "1466",
+      "2306",
       "4199",
       "4866",
       "4892",
@@ -458,8 +459,7 @@
       "8151",
       "8228",
       "9484",
-      "9486",
-      "96"
+      "9486"
     ],
     "reserve": [
       "5859"
@@ -475,8 +475,8 @@
       "ppts_decimal": 46,
       "ties": 0,
       "total_moves": 0,
-      "waiver_budget_used": 9916,
-      "waiver_position": 3,
+      "waiver_budget_used": 9918,
+      "waiver_position": 7,
       "wins": 1
     },
     "starters": [
@@ -887,7 +887,7 @@
       "ties": 0,
       "total_moves": 0,
       "waiver_budget_used": 9993,
-      "waiver_position": 5,
+      "waiver_position": 4,
       "wins": 0
     },
     "starters": [
@@ -996,6 +996,7 @@
       "p_nick_19": "David Robertson",
       "p_nick_11583": "J Burton 3.05, and a 3",
       "p_nick_11567": "7 FAAB",
+      "p_nick_7571": "5 Faab",
       "p_nick_5995": "Goddammit I wanted Josh Kelley",
       "p_nick_7021": "1/3 of Ben Sinnott",
       "p_nick_7565": "Ben\u2019s Boy",
@@ -1064,7 +1065,6 @@
       "11563",
       "11565",
       "11576",
-      "11597",
       "11643",
       "12495",
       "12501",
@@ -1094,7 +1094,6 @@
     ],
     "reserve": [
       "4943",
-      "6768",
       "7569"
     ],
     "roster_id": 7,
@@ -1109,7 +1108,7 @@
       "ties": 0,
       "total_moves": 0,
       "waiver_budget_used": 9929,
-      "waiver_position": 7,
+      "waiver_position": 5,
       "wins": 0
     },
     "starters": [
@@ -1324,7 +1323,7 @@
       "ties": 0,
       "total_moves": 0,
       "waiver_budget_used": 9919,
-      "waiver_position": 4,
+      "waiver_position": 3,
       "wins": 2
     },
     "starters": [
