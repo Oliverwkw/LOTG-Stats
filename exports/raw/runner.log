@@ -1,4 +1,4 @@
-INFO player_week: shape=(21873, 49)
+INFO player_week: shape=(21874, 49)
 INFO player_week: missing={'Points': 0, 'Injury?': 0, 'Suspension?': 0, 'Bye?': 0}
 INFO team_week: rows=824 zero_max_pf=0
 INFO team_week: shape=(824, 98)

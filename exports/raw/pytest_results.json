@@ -1323,6 +1323,36 @@
    "reason": ""
   },
   {
+   "test": "tests/test_late_listing.py::test_a_wednesday_waiver_pickup_comes_off_the_week_just_ended",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_late_listing.py::test_a_tuesday_trade_gives_the_week_back_to_the_old_team",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_late_listing.py::test_a_restored_player_with_no_listed_score_uses_the_fallback",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_late_listing.py::test_moves_inside_the_week_are_left_alone",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_late_listing.py::test_failed_moves_and_frozen_starters_do_not_change_anything",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_late_listing.py::test_the_input_is_never_mutated",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
    "test": "tests/test_league_scoring.py::test_league_scoring",
    "outcome": "passed",
    "reason": ""
@@ -1514,6 +1544,11 @@
   },
   {
    "test": "tests/test_player_history_coverage.py::test_no_two_tenures_claim_the_same_weeks",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_player_history_coverage.py::test_no_player_on_two_rosters_in_one_week",
    "outcome": "passed",
    "reason": ""
   },
