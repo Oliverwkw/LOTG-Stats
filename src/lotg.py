@@ -8882,21 +8882,7 @@ def build_all(repo_root: Path) -> None:
                 # Anchor the draft at the START of its season (tz-aware) — before
                 # that season's in-season moves, after the prior season's — to
                 # mirror the asset-history builder's year-aware draft clamp.
-                # Jan 1 was too early: an offseason drop between Jan 1 and the
-                # draft then "closed" the drafted holding, and his next drop
-                # synthesized a second arrival for the same stint (Allen Lazard,
-                # LWebs53, 2022: dropped Feb 9, re-drafted 2.08 in August). Use
-                # the draft's own day (the vet draft's for a "(vet)" pick), at
-                # league midnight; Jan 1 only when the season's draft is unknown.
-                _dy = int(_ym.group(1))
-                _all_d = sorted(draft_dates_by_season.get(_dy, set()) or set())
-                _rk_d = sorted(rookie_draft_dates_by_season.get(_dy, set()) or set())
-                _vet_d = [d for d in _all_d if d not in set(_rk_d)]
-                _dday = ((_vet_d or _all_d) if "vet" in str(_prow.get("Year") or "").lower()
-                         else (_rk_d or _all_d))
-                _danchor = (pd.Timestamp(str(_dday[0])[:10] + " 04:00", tz="UTC").isoformat()
-                            if _dday else f"{_dy}-01-01T00:00:00+00:00")
-                _holder_events[str(_ppid)].append((_danchor, 1, "draft", _final))
+                _holder_events[str(_ppid)].append((f"{_ym.group(1)}-01-01T00:00:00+00:00", 1, "draft", _final))
 
             def _aware(_x):
                 # parse to a tz-aware (UTC) Timestamp; synthesized dates MUST
@@ -9036,12 +9022,26 @@ def build_all(repo_root: Path) -> None:
                     return None
                 return _a.isoformat()
 
-            # The ESPN->Sleeper switch, as the transfer-drop step below dates it:
-            # the day before the 2021 rookie draft.
-            _switch_days = sorted(rookie_draft_dates_by_season.get(2021, set())
-                                  or draft_dates_by_season.get(2021, set()) or set())
+            # The ESPN->Sleeper switch: the day before the Sleeper league's first
+            # event, the 2021 startup (>5-round) draft that imported the rosters
+            # (2021-08-24). The transfer-drop step below keeps its own, later
+            # anchor (the day before the rookie draft); that one falls AFTER the
+            # 08-24 commissioner re-adds this closes stints ahead of. A day
+            # clear of them, too: the commissioner-correction cleanup reads a
+            # same-team drop within 24h of a commissioner add as an undone
+            # mistake and deletes both (Myles Gaskin, 2021-08-24).
+            _switch_days = sorted(
+                (draft_dates_by_season.get(2021, set()) or set())
+                - (rookie_draft_dates_by_season.get(2021, set()) or set())
+                or rookie_draft_dates_by_season.get(2021, set())
+                or draft_dates_by_season.get(2021, set()) or set())
             _switch_iso = (_day_before(pd.Timestamp(_switch_days[0], tz="UTC").isoformat())
                            if _switch_days else None)
+            # ...but the build's usual switch date, the transfer step's (the day
+            # before the 2021 rookie draft), whenever the re-acquisition is later.
+            _rk_switch = sorted(rookie_draft_dates_by_season.get(2021, set()) or set())
+            _switch_late_iso = (_day_before(pd.Timestamp(_rk_switch[0], tz="UTC").isoformat())
+                                if _rk_switch else None)
             _seam_closed: set = set()  # (team, pid) whose 2020 stint closed at the switch
 
             def _reacq_drop_at(team, pid, prev_ts, ts):
@@ -9054,8 +9054,8 @@ def build_all(repo_root: Path) -> None:
                 if _p is None or _t is None or not _p < _t:
                     return None
                 _cands = []
-                if str(prev_ts)[:4] < "2021" <= str(ts)[:4] and _switch_iso:
-                    _cands.append(_aware(_switch_iso))
+                if str(prev_ts)[:4] < "2021" <= str(ts)[:4]:
+                    _cands += [_aware(x) for x in (_switch_late_iso, _switch_iso) if x]
                 else:
                     _pday = _league_day(_p.to_pydatetime()).isoformat()
                     _tday = _league_day(_t.to_pydatetime()).isoformat()
@@ -9109,12 +9109,16 @@ def build_all(repo_root: Path) -> None:
                         # same stint — Taysom Hill / Ryan Tannehill, 2021-12-05.)
                         if _holder is not None and _holder != _tm:
                             _synth_drop(_holder, _pid_h, _ts)
-                        elif _holder == _tm:
+                        elif _holder == _tm and (_kind != "draft" or (
+                                str(_ts)[:4] >= "2021" and str(_prev_ts or "")[:4] < "2021")):
                             # The SAME team acquiring a player it still holds: its
                             # drop in between went unrecorded (the 2020->2021 switch,
                             # or an ESPN 2020 gap). Without it both stints stay open
                             # and claim the same weeks (Melvin Gordon, Mitchell
-                            # Trubisky 2020).
+                            # Trubisky 2020). A draft only counts across the switch:
+                            # it is dated Jan 1, ahead of that offseason's real drops
+                            # (Allen Lazard, dropped 2022-02-09, re-drafted in
+                            # August; that duplicate is removed on player_additions).
                             _rd = _reacq_drop_at(_tm, _pid_h, _prev_ts, _ts)
                             if _rd:
                                 _synth_drop(_tm, _pid_h, _rd)
@@ -21267,6 +21271,29 @@ def build_all(repo_root: Path) -> None:
                 _emit(_tm, str(_pl), "Draft", _pk_raw, _sea, f"PH#{int(_i) + 1}", _nl, _pk_tank,
                       depart_after=_dep,
                       draft_cuff=(str(_cuff).strip().lower() in ("true", "1", "yes")) if _cuff is not None else None)
+
+        # One stint per departure: two rows of a (team, player) that end at the
+        # SAME departure are one stint, so the later-starting row is a
+        # duplicate arrival. The reconciliation dates a draft at the start of
+        # its season (as the history comment does), so an offseason drop before
+        # the draft leaves the drafted stint without a recorded arrival and it
+        # synthesizes one (Allen Lazard, LWebs53: 2022 pick 2.08 drafted Aug 27,
+        # a synthesized add Sep 7, both to the 2023-06-11 trade — 17 weeks
+        # counted twice). The add_drops row stays; it keeps the history whole.
+        if _pa_rows:
+            _pa_first: Dict[Tuple[str, str, str], Dict[str, Any]] = {}
+            _pa_keep: List[Dict[str, Any]] = []
+            for _r in sorted(_pa_rows, key=lambda r: str(r.get("Date") or "")):
+                _k = (str(_r.get("Team")), str(_r.get("Player")), str(_r.get("Date dropped/traded")))
+                if _k in _pa_first:
+                    continue
+                _pa_first[_k] = _r
+                _pa_keep.append(_r)
+            if len(_pa_keep) != len(_pa_rows):
+                _log(debug, f"[{_now_iso()}] INFO player_additions: dropped "
+                            f"{len(_pa_rows) - len(_pa_keep)} duplicate arrival(s) "
+                            f"sharing an earlier stint's departure")
+            _pa_rows[:] = _pa_keep
 
         if _pa_rows:
             player_additions = pd.DataFrame(_pa_rows)
