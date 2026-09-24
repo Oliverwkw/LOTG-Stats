@@ -1124,6 +1124,12 @@ _TOPIC_IDENTITY = {
 }
 
 
+# Whole-number count columns whose names do not open with the "weeks " /
+# "number of " / "times " prefixes the three count rules below key on: the
+# bench / healthy-week counts on the player sheets and player_additions.
+_EXTRA_COUNT_PREFIXES = ("healthy weeks ", "healthy bench weeks ", "bench weeks ", "injured weeks ")
+
+
 def _col_topic(col: str) -> str:
     """Topic group for header color-banding — mirrors the 11C-1 reorder classifier."""
     n = re.sub(r"\s+", " ", str(col).strip().lower())
@@ -1228,6 +1234,7 @@ def _col_number_format(col: str) -> Optional[str]:
     # Whole-number columns: counts, aggregates, streaks.
     if (n.startswith("number of ") or n.startswith("times ") or n.startswith("times as ")
             or n.startswith("most number of ") or n.startswith("weeks ")
+            or n.startswith(_EXTRA_COUNT_PREFIXES)
             or n.endswith("streak") or n == "championships" or n == "upst"
             or "number of teams" in n
             or n.startswith("total weeks as team starter")
@@ -1681,7 +1688,8 @@ def _column_kind(col: str) -> str:
     # "Times X of the week?" / "Times Top half of league?" etc. are aggregate
     # counts in player_year/team_year — they end in '?' but are integers.
     # Numeric kind first prevents boolean coercion of summed counts.
-    if col_l.startswith("times ") or col_l.startswith("number of ") or col_l.startswith("weeks "):
+    if (col_l.startswith("times ") or col_l.startswith("number of ") or col_l.startswith("weeks ")
+            or col_l.startswith(_EXTRA_COUNT_PREFIXES)):
         return "numeric"
 
     if col_l in bool_exact or col_l.endswith("?"):
@@ -3247,7 +3255,8 @@ def build_all(repo_root: Path) -> None:
                                 _cl0 = str(c).strip().lower()
                                 if ((any(_cl0.startswith(p) for p in (
                                         "number of", "most number of", "times ",
-                                        "weeks ", "total number")) or _cl0 == "stacks"
+                                        "weeks ", "total number") + _EXTRA_COUNT_PREFIXES)
+                                        or _cl0 == "stacks"
                                         or _cl0.startswith("championships "))
                                         and rounded.dropna().mod(1).eq(0).all()):
                                     rounded = rounded.astype("Int64")
@@ -15190,6 +15199,15 @@ def build_all(repo_root: Path) -> None:
         py_base["Weeks on bench"] = py_base["Weeks_as_bench"]
         py_base["Weeks rostered"] = _ros_y
         py_base["% of starts"] = (py_base["Weeks_as_starter"] / _ros_y.replace(0, np.nan)).round(4)
+        # The same three, over HEALTHY weeks only: a rostered week that was not
+        # a bye, an injury or a suspension (the `_played` flag the Adjusted
+        # averages use). Healthy weeks rostered = healthy starts + healthy
+        # bench weeks, so the rate reads "how often he started when he could".
+        py_base["Healthy weeks on bench"] = py_base["Played_bench_weeks"]
+        py_base["Healthy weeks rostered"] = py_base["Played_weeks"]
+        py_base["Healthy % of starts"] = (
+            py_base["Played_starter_weeks"] / py_base["Played_weeks"].replace(0, np.nan)
+        ).round(4)
         # Win % of the fantasy teams over the player's started / rostered weeks.
         # Requires a minimum of _MIN_WINPCT_WEEKS qualifying (scored) weeks so a
         # tiny sample (e.g. a 2-week hot stretch) doesn't post a 100% rate; below
@@ -15207,6 +15225,7 @@ def build_all(repo_root: Path) -> None:
             errors="ignore",
         )
         py_base["Total points as starter"] = py_base["Starter_points_sum"].round(2)
+        py_base["Total points on bench"] = py_base["Bench_points_sum"].round(2)
         py_base["% of league points"] = (
             py_base["Starter_points_sum"] / py_base["Year"].map(_league_spts_yr).replace(0, np.nan)
         ).round(4)
@@ -15849,6 +15868,12 @@ def build_all(repo_root: Path) -> None:
         pa["Weeks on bench"] = pa["Weeks_as_bench"]
         pa["Weeks rostered"] = _ros_a
         pa["% of starts"] = (pa["Weeks_as_starter"] / _ros_a.replace(0, np.nan)).round(4)
+        # Healthy-week versions, as in player_year (bye/injury/suspension out).
+        pa["Healthy weeks on bench"] = pa["Played_bench_weeks"]
+        pa["Healthy weeks rostered"] = pa["Played_weeks"]
+        pa["Healthy % of starts"] = (
+            pa["Played_starter_weeks"] / pa["Played_weeks"].replace(0, np.nan)
+        ).round(4)
         # Win % of the fantasy teams over the player's started / rostered weeks
         # (all-time). Requires >= _MIN_WINPCT_WEEKS qualifying weeks, else N/A.
         pa["Win % as starter"] = (
@@ -15860,6 +15885,7 @@ def build_all(repo_root: Path) -> None:
             / pa["Ros_games"].where(pa["Ros_games"] >= _MIN_WINPCT_WEEKS)
         ).round(4)
         pa["Total points as starter"] = pa["Starter_points_sum"].round(2)
+        pa["Total points on bench"] = pa["Bench_points_sum"].round(2)
         pa["% of league points"] = (
             (pa["Starter_points_sum"] / _league_spts_all).round(4) if _league_spts_all else None
         )
@@ -20001,6 +20027,8 @@ def build_all(repo_root: Path) -> None:
                     "inj": any(str(_r.get(_f)).strip().lower() in ("true", "1", "yes")
                                for _f in ("Injury?", "Suspension?")),
                     "bye": str(_r.get("Bye?")).strip().lower() in ("true", "1", "yes"),
+                    # Injury alone (not suspension), for "Injured weeks on team".
+                    "injury": str(_r.get("Injury?")).strip().lower() in ("true", "1", "yes"),
                     "pts": _pts,
                     "pos": str(_r.get("Position") or "").upper(),
                 })
@@ -20014,6 +20042,7 @@ def build_all(repo_root: Path) -> None:
         rostered weeks that ended on/after the pickup day and started before the
         drop day, compared as league days (callers pass them)."""
         out = {"weeks": 0, "starts": 0, "inj_weeks": 0, "inj_starts": 0,
+               "injured_weeks": 0, "points_benched": 0.0,
                "points_started": 0.0, "sum_pts": 0.0, "games_pts": 0.0, "ppg": None,
                "first_start_ed": None, "weeks_before_start": None, "pos": ""}
         _pk = str(_pickup)[:10] if _pickup else ""
@@ -20032,6 +20061,8 @@ def build_all(repo_root: Path) -> None:
         out["inj_weeks"] = sum(1 for e in _weeks if not e["bye"] and not e["inj"])
         out["inj_starts"] = sum(1 for e in _weeks if e["starter"] and not e["bye"] and not e["inj"])
         out["points_started"] = sum(e["pts"] for e in _starts)
+        out["points_benched"] = sum(e["pts"] for e in _weeks if not e["starter"])
+        out["injured_weeks"] = sum(1 for e in _weeks if e.get("injury"))
         out["sum_pts"] = sum(e["pts"] for e in _weeks)
         out["games_pts"] = sum(e["pts"] for e in _weeks if not e["bye"] and not e["inj"])
         # "Avg PPG on team", the one definition every sheet uses: the LEAGUE's
@@ -20883,7 +20914,14 @@ def build_all(repo_root: Path) -> None:
             pos = (_pos or st["pos"]) or ""
             fac = _pos_factor(_season, pos) if pos else 1.0
             out["Games played on team"] = st["inj_weeks"]
-            out["Starts on team"] = n_start
+            # The bench side of the same tenure (starts = "Number of starts
+            # before next drop"). "Healthy" = the weeks "Games played on team"
+            # counts (not a bye, injury or suspension), so Healthy bench weeks
+            # = Games played - healthy starts.
+            out["Bench weeks on team"] = n_ros - n_start
+            out["Healthy bench weeks on team"] = st["inj_weeks"] - st["inj_starts"]
+            out["Injured weeks on team"] = st["injured_weeks"]
+            out["Bench points on team"] = round(st["points_benched"], 2)
             out["Number of starts before next drop"] = n_start
             out["% of starts made while rostered"] = round(n_start / n_ros, 4) if n_ros else None
             out["Injury adjusted % of starts made while rostered"] = (
@@ -20999,7 +21037,10 @@ def build_all(repo_root: Path) -> None:
                 "Tenure (days)": tenure_days,
                 "Tenure (NFL weeks)": sc.get("_n_ros"),
                 "Games played on team": sc.get("Games played on team"),
-                "Starts on team": sc.get("Starts on team"),
+                "Bench weeks on team": sc.get("Bench weeks on team"),
+                "Healthy bench weeks on team": sc.get("Healthy bench weeks on team"),
+                "Injured weeks on team": sc.get("Injured weeks on team"),
+                "Bench points on team": sc.get("Bench points on team"),
                 "% of starts made while rostered": sc.get("% of starts made while rostered"),
                 "Injury adjusted % of starts made while rostered":
                     sc.get("Injury adjusted % of starts made while rostered"),
