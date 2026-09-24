@@ -78,6 +78,44 @@ def test_every_rostered_week_has_a_player_additions_tenure():
                      f"({len(seasons)} team/player/seasons), e.g. {seasons[:8]}")
 
 
+
+def test_no_two_tenures_claim_the_same_weeks():
+    """...and no week sits in TWO of them (user rule 2026-09-24: a week belongs
+    to the stint holding him when it was played). Run 550 had 10 (team, player)
+    pairs whose stints overlapped, counting 48 tenure weeks twice: a commissioner
+    add that never held the player (Taysom Hill / Ryan Tannehill 2021-12-05), a
+    2020 stint never closed at the ESPN -> Sleeper switch (Melvin Gordon, Myles
+    Gaskin, Zack Moss), a draft dated Jan 1 ahead of an offseason drop (Allen
+    Lazard 2022), an ESPN re-add with no drop between (Mitchell Trubisky 2020),
+    and a drop and re-add inside one week (Duke Johnson, Demaryius Thomas, Jared
+    Cook)."""
+    if not ((_EXPORTS / "player_week.csv").exists() and (_EXPORTS / "player_additions.csv").exists()):
+        print("  SKIP — exports/ absent")
+        return
+    pw = pd.read_csv(_EXPORTS / "player_week.csv", dtype=str, keep_default_na=False,
+                     usecols=["Team", "Player", "Year", "Week"])
+    pa = pd.read_csv(_EXPORTS / "player_additions.csv", dtype=str, keep_default_na=False)
+    # 1. Dates: each stint ends before the team's next stint of him begins.
+    overlap = []
+    for (t, p), g in pa.groupby(["Team", "Player"]):
+        spans = sorted(zip(g["Date"], g["Date dropped/traded"]))
+        for (d0, e0), (d1, _) in zip(spans, spans[1:]):
+            # Date is a day; a drop and re-add on one day is two stints, not one.
+            if not e0 or d1[:10] < e0[:10]:
+                overlap.append((t, p, d0, e0 or "open", d1))
+    assert not overlap, f"{len(overlap)} stints still open when the next began, e.g. {overlap[:6]}"
+    # 2. Weeks: a pair's stints never count more weeks than it was rostered.
+    ten = pa.assign(n=pd.to_numeric(pa["Tenure (NFL weeks)"], errors="coerce").fillna(0)) \
+            .groupby(["Team", "Player"])["n"].sum()
+    ros = pw.drop_duplicates().groupby(["Team", "Player"]).size()
+    j = pd.concat([ten, ros.rename("ros")], axis=1, join="inner")
+    over = j[j["n"] > j["ros"]]
+    assert over.empty, (f"{len(over)} team/player pairs count more tenure weeks than rostered weeks, "
+                        f"e.g. {over.head(8).to_dict('index')}")
+
+
 if __name__ == "__main__":
     test_every_rostered_week_has_a_player_additions_tenure()
     print("ok: every rostered week sits inside a player_additions tenure")
+    test_no_two_tenures_claim_the_same_weeks()
+    print("ok: no week sits inside two tenures")
