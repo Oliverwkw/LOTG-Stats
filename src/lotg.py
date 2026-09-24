@@ -1124,6 +1124,12 @@ _TOPIC_IDENTITY = {
 }
 
 
+# Whole-number count columns whose names do not open with the "weeks " /
+# "number of " / "times " prefixes the three count rules below key on: the
+# bench / healthy-week counts on the player sheets and player_additions.
+_EXTRA_COUNT_PREFIXES = ("healthy weeks ", "healthy bench weeks ", "bench weeks ", "injured weeks ")
+
+
 def _col_topic(col: str) -> str:
     """Topic group for header color-banding — mirrors the 11C-1 reorder classifier."""
     n = re.sub(r"\s+", " ", str(col).strip().lower())
@@ -1228,6 +1234,7 @@ def _col_number_format(col: str) -> Optional[str]:
     # Whole-number columns: counts, aggregates, streaks.
     if (n.startswith("number of ") or n.startswith("times ") or n.startswith("times as ")
             or n.startswith("most number of ") or n.startswith("weeks ")
+            or n.startswith(_EXTRA_COUNT_PREFIXES)
             or n.endswith("streak") or n == "championships" or n == "upst"
             or "number of teams" in n
             or n.startswith("total weeks as team starter")
@@ -1681,7 +1688,8 @@ def _column_kind(col: str) -> str:
     # "Times X of the week?" / "Times Top half of league?" etc. are aggregate
     # counts in player_year/team_year — they end in '?' but are integers.
     # Numeric kind first prevents boolean coercion of summed counts.
-    if col_l.startswith("times ") or col_l.startswith("number of ") or col_l.startswith("weeks "):
+    if (col_l.startswith("times ") or col_l.startswith("number of ") or col_l.startswith("weeks ")
+            or col_l.startswith(_EXTRA_COUNT_PREFIXES)):
         return "numeric"
 
     if col_l in bool_exact or col_l.endswith("?"):
@@ -3247,7 +3255,8 @@ def build_all(repo_root: Path) -> None:
                                 _cl0 = str(c).strip().lower()
                                 if ((any(_cl0.startswith(p) for p in (
                                         "number of", "most number of", "times ",
-                                        "weeks ", "total number")) or _cl0 == "stacks"
+                                        "weeks ", "total number") + _EXTRA_COUNT_PREFIXES)
+                                        or _cl0 == "stacks"
                                         or _cl0.startswith("championships "))
                                         and rounded.dropna().mod(1).eq(0).all()):
                                     rounded = rounded.astype("Int64")

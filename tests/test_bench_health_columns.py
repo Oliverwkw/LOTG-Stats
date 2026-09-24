@@ -126,11 +126,18 @@ def test_player_year_internal_identities():
         hw, hb = _num(df["Healthy weeks rostered"]), _num(df["Healthy weeks on bench"])
         starts, inj = _num(df["Weeks as starter"]), _num(df["Weeks missed due to injury"])
         sus = _num(df["Weeks missed due to suspension"])
+        pct = _num(df["Healthy % of starts"])
+        # A new column is blank exactly where its existing sibling is (a row the
+        # build leaves unfilled — the offline harness's out-of-range season).
+        for new, old in ((hb, bench), (hw, ros), (pct, _num(df["% of starts"]))):
+            assert (new.isna() == old.isna()).all(), f"{name}: blank cells disagree with the gross column"
+        k = ros.notna()
+        ros, bench, hw, hb, starts, inj, sus, pct = (
+            x[k] for x in (ros, bench, hw, hb, starts, inj, sus, pct))
         assert (hb <= bench).all() and (hw <= ros).all(), f"{name}: healthy exceeds gross"
         # Healthy + injured + suspended never exceeds rostered (byes are the gap).
         assert (hw + inj + sus <= ros).all(), f"{name}: healthy + injured + suspended > rostered"
         assert ((hw - hb) <= starts).all(), f"{name}: healthy starts exceed starts"
-        pct = _num(df["Healthy % of starts"])
         assert pct.between(0, 1).all(), f"{name}: Healthy % of starts outside 0-1"
 
 
