@@ -279,7 +279,9 @@ def signings(first_year: int = FIRST_SIGNING_YEAR, last_year: Optional[int] = No
 # ---------------------------------------------------------------------------
 # What a player actually cost, season by season
 # ---------------------------------------------------------------------------
-# A contract row's `cols` is not that contract's schedule — it is the player's
+# A contract row's season history (`season_history`; `cols` before nflverse
+# renamed it — the maintained parquet had dropped `cols` by 2026-09, found only
+# once these tests first ran in CI) is not that contract's schedule — it is the player's
 # whole career cap table, scraped from his Over The Cap page and repeated on
 # every one of his contract rows. Exploding the column without deduplicating
 # first counts each of his seasons once per contract he ever signed.
@@ -298,9 +300,14 @@ def _explode_cost(contracts: pd.DataFrame, first_year: int, last_year: int) -> p
     # One row per player before exploding — see the note above.
     newest = (contracts.sort_values("year_signed")
               .drop_duplicates("gsis_id", keep="last"))
+    history = "season_history" if "season_history" in newest.columns else "cols"
+    if history not in newest.columns:
+        raise ValueError("contracts file has neither `season_history` nor `cols` — "
+                         f"nflverse changed its schema again: {list(newest.columns)}")
     rows: List[Dict[str, object]] = []
     for r in newest.itertuples():
-        for season in (r.cols if r.cols is not None else ()):
+        seasons = getattr(r, history)
+        for season in (seasons if seasons is not None else ()):
             year = str(season.get("year"))
             if not year.isdigit():      # the trailing 'Total' row
                 continue

@@ -25,3 +25,9 @@ py-modules = [
     "trades",
     "pick_history",
 ]
+
+[tool.pytest.ini_options]
+# -rfEs: the short summary names every failure, error AND skip with its reason.
+# The weekly health email (scripts/audit_weekly.py, Part 3) reads the skip lines
+# out of exports/raw/pytest.log, so a guard that quietly stopped running shows up.
+addopts = "-rfEs"

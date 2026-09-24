@@ -176,9 +176,24 @@ jobs:
         env:
           PYTHONPATH: src:lib
           LOTG_EXPORTS: exports
+          # The suite's own outcome record — every test, every skip's reason.
+          # scripts/audit_weekly.py (Part 3) reads it; see tests/conftest.py.
+          LOTG_TEST_RESULTS: exports/raw/pytest_results.json
         run: |
           set -o pipefail
-          pip install --no-cache-dir pytest 2>&1 | tail -n 2
+          # Pinned for the same reason pandas is: the health email reads what
+          # the suite reports, so its tooling moves only when we move it.
+          # pyarrow reads the contracts parquet below.
+          pip install --no-cache-dir pytest==9.1.1 pyarrow==25.0.1 2>&1 | tail -n 2
+          # test_contracts.py's data tests need Over The Cap's contract history,
+          # which the build never fetches — without this they have skipped on
+          # every CI run. Best-effort: a failed download leaves them skipping,
+          # and the health email flags each skip by name. Gitignored.
+          python -c "from lotg_support import contracts as C; C.load_contracts(); print('contracts cached')" \
+            || echo "::warning::contracts file unavailable — test_contracts data tests will skip"
+          # A results file committed by an earlier run must never stand in for
+          # this one: if pytest dies before writing, the audit sees nothing.
+          rm -f exports/raw/pytest_results.json
           python -m pytest tests/ -v 2>&1 | tee exports/raw/pytest.log
 
       - name: Injury-tracker coverage report
@@ -213,6 +228,7 @@ jobs:
             exports/raw/build_debug.log
             exports/raw/runner.log
             exports/raw/pytest.log
+            exports/raw/pytest_results.json
             ${{ runner.temp }}/health_email.html
           retention-days: 14
           if-no-files-found: warn

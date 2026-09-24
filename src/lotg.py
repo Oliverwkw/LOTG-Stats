@@ -1851,7 +1851,9 @@ def _encode_player_streaks(df: pd.DataFrame, group_col: str, order_cols: List[st
     n = len(df)
     import numpy as _np
     played = _np.asarray(played, dtype=bool)
-    groups = df.groupby([group_col], sort=False).groups
+    # A scalar key, not [group_col]: a one-element list makes pandas 4 key
+    # `groups` by 1-tuples (Pandas4Warning on every build). The keys are unused.
+    groups = df.groupby(group_col, sort=False).groups
     for out_col, qual in specs.items():
         qual = _np.asarray(qual, dtype=bool)
         vals: List[Any] = [0] * n

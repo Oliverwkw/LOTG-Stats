@@ -33,3 +33,13 @@ exports/LOTG_Stats.xlsx
 # career questions. Inquiry-only: the build never reads them, they are not part
 # of the committed cold-start baseline, and there are 27 of them.
 .cache/seasons/
+
+# Over The Cap contract history (parquet — already compressed, so undeltable).
+# Fetched by CI before pytest for tests/test_contracts.py and by inquiries on
+# demand; the build never reads it. Never commit it.
+.cache/nflverse_historical_contracts.parquet
+# The same study re-scores contracts from 2011 on, so its data tests pull weekly
+# stats the build never reads (it starts at 2018). CI's Tuesday run commits
+# .cache after the test step: without this, ~63 MB of 2010-17 CSVs ride along.
+.cache/nflverse_stats_player_week_200[0-9].csv
+.cache/nflverse_stats_player_week_201[0-7].csv

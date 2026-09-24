@@ -170,16 +170,27 @@ def test_no_injury_flag_coincides_with_snaps_played():
                      "this asserts from the first post-merge build onward")
 
     import lotg
+    from lotg_support.external import read_cached_csv
     pw = pd.read_csv(pw_path, low_memory=False)
-    offenders = []
-    for season in seasons:
-        if not lotg._season_is_complete(int(season)):
-            continue          # never assert against an in-progress season
-        wr_path = _CACHE / f"nflverse_weekly_rosters_{season}.csv"
-        if not wr_path.exists():
+    # EVERY completed season the sheet carries, not just the ones whose cache
+    # files happen to be present and parse: this loop used to `continue` past a
+    # missing roster file and crash on an unreadable snap file, and the
+    # 2026-09-23 health run lost 2025 that way (a gzip body under a .csv name)
+    # while reporting only a UnicodeDecodeError. A season that cannot be
+    # checked is now named in the failure, after every other season has been.
+    years = sorted({int(y) for y in pd.to_numeric(pw["Year"], errors="coerce").dropna()})
+    completed = [y for y in years if lotg._season_is_complete(y)]
+    offenders, unchecked, checked = [], [], []
+    for season in completed:
+        try:
+            pfr_of = _pfr_by_name_and_position(read_cached_csv(
+                _CACHE / f"nflverse_weekly_rosters_{season}.csv", low_memory=False))
+            sn = read_cached_csv(_CACHE / f"nflverse_snap_counts_{season}.csv",
+                                 low_memory=False)
+        except Exception as e:  # noqa: BLE001 — reported below, never swallowed
+            unchecked.append(f"{season}: {type(e).__name__}: {e}"[:200])
             continue
-        pfr_of = _pfr_by_name_and_position(pd.read_csv(wr_path, low_memory=False))
-        sn = pd.read_csv(_CACHE / f"nflverse_snap_counts_{season}.csv", low_memory=False)
+        checked.append(season)
         if "game_type" in sn.columns:
             sn = sn[sn["game_type"].astype(str).str.upper() == "REG"]
         snaps = {}
@@ -200,7 +211,12 @@ def test_no_injury_flag_coincides_with_snaps_played():
             if s and s > 0:
                 offenders.append((int(season), str(r.Player), int(r.Week), int(s)))
 
+    print(f"  checked {checked} (completed seasons in player_week: {completed})")
     worst = sorted(offenders, key=lambda o: -o[3])[:12]
+    assert not unchecked, (
+        f"{len(unchecked)} completed season(s) could not be checked: {unchecked}"
+        + (f". Separately, {len(offenders)} flagged-while-playing week(s) in the "
+           f"seasons that were: {worst}" if offenders else ""))
     assert not offenders, (
         f"{len(offenders)} player-week(s) are flagged Injury? while nflverse "
         f"records snaps played. Worst: {worst}. The gap-fill has gone back to "
