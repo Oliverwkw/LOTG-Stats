@@ -8,7 +8,6 @@ from datetime import datetime, timezone, timedelta, date
 from zoneinfo import ZoneInfo
 from bisect import bisect_left
 from collections import Counter, deque, defaultdict
-import copy
 import json
 import math
 import re
@@ -132,6 +131,7 @@ from lotg_support.external import (
     load_nflverse_weekly_rosters,
 )
 from lotg_support.lineup import compute_optimal_lineup
+from lotg_support.late_listing import undo_late_listings
 from lotg_support.plan import load_plan_catalog, require_columns
 from lotg_support.history import reconcile_top_team, reconcile_last_team
 from lotg_support import pick_index
@@ -5522,65 +5522,26 @@ def build_all(repo_root: Path) -> None:
                 _log_exc(debug, f"transactions_{season}_wk{wk}", e)
 
         # ------------- Sleeper late-listing quirk -------------
-        # Sleeper keeps updating a finished week's matchup roster until its leg
-        # rolls over, so a move that completed AFTER the week's last game (a
-        # Tuesday trade, the Wednesday 3am waiver run) lands on the week it did
-        # not play in: the incoming player joins that week's list (Nico Collins,
-        # LWebs53 2022 wk6; Josh Doctson, BROsenzweig 2022 wk7; Odell Beckham,
-        # Oliverwkw 2022 wk9), and a player traded away leaves his old team's
-        # list (Rachaad White, LWebs53 2023 wk5). A dropped player stays listed
-        # from 2022 on; in 2021 he left the list too (Jamison Crowder, r1 wk6).
-        # Undo those moves, latest first, on a copy of the week: the incoming
-        # player comes off the list; a player sent away goes back on as bench,
-        # with the points Sleeper scored him that week on whichever list holds
-        # him. (User rule 2026-09-24: a week belongs to whoever held him when it
-        # was played.)
+        # A move completed after a week's last game shows on that finished
+        # week's matchup roster (Sleeper updates it until the leg rolls). Undo
+        # it — the week belongs to whoever held him when it was played (user
+        # rule 2026-09-24). See lotg_support.late_listing; the inquiry
+        # toolkit's week() applies the same correction.
         if int(season) >= 2021:
             try:
                 for _lwk, _lmu in list(matchups_by_week.items()):
                     _lend = _last_game_date(season, _lwk)
                     if not _lend:
                         continue
-                    _late = []
-                    for _lt in tx_by_week.get(_lwk, []) or []:
-                        _ldt = _epoch_ms_to_dt(_tx_effective_ms(_lt))
-                        if _ldt is not None and _league_day(_ldt).isoformat() > _lend:
-                            _late.append((_ldt, _lt))
-                    if not _late:
-                        continue
-                    _lmu2 = copy.deepcopy(_lmu)
-                    _lby = {_to_int(_m.get("roster_id"), None): _m for _m in _lmu2}
-                    _lpts = {str(_p): _v for _m in _lmu2
-                             for _p, _v in ((_m.get("players_points") or {}).items())}
-                    _lchg = []
-                    for _ldt, _lt in sorted(_late, key=lambda e: e[0], reverse=True):
-                        for _p, _r in ((_lt.get("adds") or {}).items()):
-                            _m = _lby.get(_to_int(_r, None))
-                            _pl = (_m or {}).get("players") or []
-                            if _m is not None and str(_p) in [str(x) for x in _pl] \
-                                    and str(_p) not in [str(x) for x in (_m.get("starters") or [])]:
-                                _m["players"] = [x for x in _pl if str(x) != str(_p)]
-                                (_m.get("players_points") or {}).pop(str(_p), None)
-                                _lchg.append(f"-{_p}@r{_r}")
-                        for _p, _r in ((_lt.get("drops") or {}).items()):
-                            _m = _lby.get(_to_int(_r, None))
-                            if _m is None:
-                                continue
-                            _pl = [str(x) for x in (_m.get("players") or [])]
-                            if str(_p) not in _pl:
-                                _m["players"] = list(_m.get("players") or []) + [str(_p)]
-                                if isinstance(_m.get("players_points"), dict):
-                                    # Sleeper's own score if another list has him
-                                    # (a trade's receiver), else his nflverse
-                                    # week scored by this season's rules, else 0
-                                    # (2021's late drops were all bye weeks).
-                                    _lv = _lpts.get(str(_p))
-                                    if _lv is None:
-                                        _lv = next((e.get("points") for e in nfl_log_by_sid.get(str(_p), [])
-                                                    if _to_int(e.get("year"), None) == int(season)
-                                                    and _to_int(e.get("week"), None) == int(_lwk)), None)
-                                    _m["players_points"][str(_p)] = float(_lv or 0.0)
-                                _lchg.append(f"+{_p}@r{_r}")
+
+                    def _lfallback(_p, _y=int(season), _w=int(_lwk)):
+                        # his nflverse week, scored by this season's rules
+                        return next((e.get("points") for e in nfl_log_by_sid.get(str(_p), [])
+                                     if _to_int(e.get("year"), None) == _y
+                                     and _to_int(e.get("week"), None) == _w), None)
+                    _lmu2, _lchg = undo_late_listings(
+                        _lmu, tx_by_week.get(_lwk, []) or [], _lend,
+                        when=_tx_effective_ms, day_of=_league_day, points_fallback=_lfallback)
                     if _lchg:
                         matchups_by_week[_lwk] = _lmu2
                         _log(debug, f"[{_now_iso()}] INFO late-listing {season} wk{_lwk}: "
