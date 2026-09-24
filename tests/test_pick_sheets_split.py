@@ -481,7 +481,7 @@ def check_the_starts_term_reaches_player_additions():
     except FileNotFoundError:
         print("  [SKIP] no exports/ — data check skipped")
         return True
-    need = ["Avg points added adjusted by position", "Starts on team",
+    need = ["Avg points added adjusted by position", "Number of starts before next drop",
             "% of starts made while rostered", "Player addition value"]
     if pa.empty or any(c not in pa.columns for c in need):
         print("  [SKIP] player_additions missing a needed column")
