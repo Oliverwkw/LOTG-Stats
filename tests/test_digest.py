@@ -764,7 +764,8 @@ def check_render_html_smoke():
 def check_records_and_leaderboard_changes_are_two_parts():
     """New data renders as two visually distinct parts (user rule 2026-09-26):
     "Records" — every first-place move, on any board — then "Leaderboard
-    changes" — everything else, milestones included. Each keeps the usual
+    changes" — everything else, milestones and the whole on-pace section (its
+    1sts included: a projection is not a record yet) included. Each keeps the usual
     sections, in the usual order."""
     first = D.Crossing("teams", "Max PF", "high", 1, "BRO", 305.0, passed=("shmuel",))
     third = D.Crossing("teams", "PF", "high", 3, "AceMatthew", 900.0, passed=("plehv79",))
@@ -780,14 +781,15 @@ def check_records_and_leaderboard_changes_are_two_parts():
     recs, boards = html[r0:b0], html[b0:]
     ok &= _ok("1st-place moves at either end sit under Records",
               "BRO" in recs and "LWebs53" in recs and "most in any season" in recs)
-    ok &= _ok("an on-pace 1st is a first-place move too", "Hardship" in recs)
+    ok &= _ok("an on-pace 1st stays in the pace section, under Leaderboard changes",
+              "Hardship" in boards and "Hardship" not in recs and "On pace" not in recs)
     ok &= _ok("everything else is a leaderboard change",
               "AceMatthew" in boards and "Luck" in boards and "passes 50,000" in boards
               and "AceMatthew" not in recs and "passes 50,000" not in recs)
     ok &= _ok("sections keep their titles and order inside a part",
               recs.index("All-time leaderboard moves — teams") < recs.index("New single-season records")
-              < recs.index("On pace this season — teams")
-              and boards.index("All-time leaderboard moves — teams") < boards.index("League milestones"))
+              and boards.index("All-time leaderboard moves — teams") < boards.index("League milestones")
+              < boards.index("On pace this season — teams"))
     ok &= _ok("the parts look different",
               html.rfind("border-left:4px solid #c9a227", 0, r0) >= 0
               and r0 < html.rfind("border-left:4px solid #0b2545", 0, b0))

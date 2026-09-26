@@ -3185,8 +3185,9 @@ def split_sections(sections: Sequence[Tuple[str, bool, list]],
 
 # The new-data half of the email in two visually distinct parts (user rule,
 # 2026-09-26): RECORDS — every first-place move (rank 1 at either end, on any
-# board, single-season records and on-pace 1sts included) — then LEADERBOARD
-# CHANGES, everything else. Inside each part the sections keep the email's usual
+# board, single-season records included) — then LEADERBOARD CHANGES, everything
+# else. The on-pace section stays whole under LEADERBOARD CHANGES, its 1sts
+# included: a projection is not a record yet (user, 2026-09-26). Inside each part the sections keep the email's usual
 # order and grouping, one heading level down. Each part is a tinted block with a
 # coloured rule so the two read apart at a glance, in mail clients too (inline
 # styles only).
@@ -3199,8 +3200,11 @@ _PART_STYLE = {
 
 
 def is_record(item) -> bool:
-    """A first-place move: the item holds rank 1 on its board (a milestone has
-    no place and is never one)."""
+    """A first-place move: the item holds rank 1 on its board. A milestone has
+    no place and is never one; an on-pace projection is never one either — the
+    pace section stays together under Leaderboard changes (user, 2026-09-26)."""
+    if isinstance(item, Projection):
+        return False
     rank = getattr(item, "rank", None)
     return isinstance(rank, int) and rank == 1
 
