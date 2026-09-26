@@ -551,7 +551,8 @@ def main(argv=None) -> int:
     # a week with sweeps but no Tuesday capture, or a finalized week nobody swept
     # a gameday of. week_gaps() sees neither — it only sees a week with no rows
     # at all — and Sleeper keeps no history, so both are permanent.
-    injury_incomplete = SW.injury_capture_health(summary)
+    injury_incomplete = SW.injury_capture_health(
+        summary, C.played_weeks(_read_csv(exports, "team_week")))
     for g in injury_incomplete:
         print(f"::warning::[audit-email] injury tracker {g.label()}: {g.kind}")
 

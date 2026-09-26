@@ -885,7 +885,9 @@ PF mixes every position, so the per-position factor means nothing there);
   plan/LUCK_REWORK.md updated. Guards in tests/test_ppg_position_adjusted.py:
   the clutch index recomputed from team_week, and no `isin` mask in src/lotg.py
   naming 3rd Place beside Semifinal/Final.
-- [ ] **3-part audit** on the first post-merge build. Expected diff: the 64 new
+- [x] **3-part audit** on the first post-merge build — CLEAN, see
+  `plan/AUDIT_ROUND14_446_AND_9PART.md` (runs 561/563 branch vs 562 same-time
+  main; post-merge run 564 cell-identical to 563). Expected diff: the 64 new
   columns on seven sheets (the two total differences dropped, the two start
   counts added), their Formulas rows (and the four corrected ones), the
   3 stale-difference add_drops rows, the 6 fantasy-season add_drops rows (+ a

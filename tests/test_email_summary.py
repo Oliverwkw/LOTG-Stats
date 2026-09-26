@@ -381,6 +381,15 @@ def check_reasoned_tenure_and_ktc_are_new_data():
     ok &= _ok("a DATED KTC checkpoint is recompute, not highlighted",
               "startup pick 3.02 (Chk)" not in checkpoint
               and checkpoint.startswith("This is a recompute"), checkpoint)
+    # Every checkpoint spelling the build writes, not only the pick sheets':
+    # player_additions "KTC at pickup" / "KTC change by end of season" and the
+    # add_drops / trades "… at deal time" columns are dated history too.
+    for col in ("KTC at pickup", "KTC change by end of season", "KTC at end of season",
+                "KTC value difference at deal time", "Net KTC value at deal time",
+                "KTC value of player added at deal time", "KTC change 1 year after pickup"):
+        ok &= _ok(f"{col!r} is a dated checkpoint, not live KTC",
+                  not DS._is_new_data_family(col, "ktc"))
+    ok &= _ok("a bare current KTC is still live", DS._is_new_data_family("KTC", "ktc"))
     return ok
 
 

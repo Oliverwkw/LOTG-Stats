@@ -361,7 +361,12 @@ _STORY_RESERVE = 50
 # date and is fixed, so when it moves it is a backfill correction or a renumber —
 # a recompute, not the market. And "Pick-adjusted Difference in KTC …" is a
 # recompute diagnostic (family "Pick-adjusted Difference"), never drift.
-_KTC_CHECKPOINT = re.compile(r"after|at end|on draft|rookie|year")
+# Every KTC column the build writes is one of these dated checkpoints; only a
+# bare current "KTC" would be the live market. "at pickup", "at deal time" and
+# "by end of season" were missing, so a 2021 trade re-dated by #445 ("KTC change
+# by end of season", -3,606 -> -3,869) read as live KTC and led the league email
+# as news (audit 2026-09-26).
+_KTC_CHECKPOINT = re.compile(r"after|at end|by end|on draft|rookie|year|at pickup|at deal")
 
 
 def _is_new_data_family(column: str, family: str) -> bool:
