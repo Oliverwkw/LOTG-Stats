@@ -837,6 +837,29 @@ PF mixes every position, so the per-position factor means nothing there);
   negative and track regular-season volume; the Formulas notes say so and point
   to the per-game columns. Additive only (offline build: 6 new columns, 6
   Formulas rows, nothing else).
+- [x] **Position factor: previous season's until week 5** [per user, from the
+  "no baseline before kickoff" note]: a season with fewer than 5 weeks played
+  (the season in progress through week 4, and moves filed under it before
+  kickoff) uses the PREVIOUS season's factor; once its week 5 is in, the whole
+  season switches to its own — retroactively, as every build recomputes. A
+  season past every one on record uses the latest (was: no baseline -> 1.0).
+  5 = `digest.MIN_YEARLY_WEEK`, so an adjusted number settles the week the email
+  first reports it; a test keeps the two equal. Moved to
+  `lotg_support.position_factor` (unit-tested on synthetic seasons in
+  `tests/test_position_factor.py` — the offline harness stops at 2025, where
+  every season is complete, so it cannot see the rule). Reaches EVERY
+  `_pos_factor` caller, including existing columns and the handcuff test's
+  TE-equivalent threshold, but only for the season in progress: on the committed
+  exports 2026 (2 weeks) now uses 2025's factors (TE 1.232 instead of a
+  two-week 1.356). Completed seasons are untouched.
+- [x] **Email: "Records" and "Leaderboard changes"** [per user]: the new-data
+  half of the digest is two visually distinct parts — a gold-ruled "Records"
+  block (every first-place move: rank 1 at either end, any board, single-season
+  records and on-pace 1sts included) then a navy-ruled "Leaderboard changes"
+  block (everything else, milestones included). Inside each, the usual sections
+  in the usual order and grouping, one heading level down
+  (`digest.split_records` / `_part_html`). The lede and the edits section are
+  unchanged. Guard: `check_records_and_leaderboard_changes_are_two_parts`.
 - [ ] **3-part audit** on the first post-merge build. Expected diff: the 64 new
   columns on seven sheets, their Formulas rows (and the four corrected ones), the
   3 stale-difference add_drops rows, the 6 fantasy-season add_drops rows (+ a
@@ -851,3 +874,10 @@ PF mixes every position, so the per-position factor means nothing there);
   Fantasy = 54022297 — and any earlier seasons). Scope, sources, and whether they belong in
   this dataset at all to be decided later. Reuse the Phase-13 ESPN dump script + loader
   pattern where applicable.
+- **Design note (2026-09-26, per user): redraft data only affects the "Records" part
+  of the weekly email.** Whatever old-league / redraft data Phase 15 brings in may
+  set or break FIRST-PLACE marks (the digest's "Records" block — `digest.is_record`,
+  rank 1 at either end), but it must not reach the "Leaderboard changes" block: no
+  2nd-5th place moves, on-pace standings, event-board shuffles or milestones driven
+  by redraft rows. Design the integration (which boards redraft rows enter, how
+  they are keyed in the rank snapshot) so that holds.

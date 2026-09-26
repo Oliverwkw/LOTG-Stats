@@ -761,6 +761,42 @@ def check_render_html_smoke():
     return ok
 
 
+def check_records_and_leaderboard_changes_are_two_parts():
+    """New data renders as two visually distinct parts (user rule 2026-09-26):
+    "Records" — every first-place move, on any board — then "Leaderboard
+    changes" — everything else, milestones included. Each keeps the usual
+    sections, in the usual order."""
+    first = D.Crossing("teams", "Max PF", "high", 1, "BRO", 305.0, passed=("shmuel",))
+    third = D.Crossing("teams", "PF", "high", 3, "AceMatthew", 900.0, passed=("plehv79",))
+    low1 = D.Crossing("teams", "Points against", "low", 1, "LWebs53", 80.0, passed=("x",))
+    pace1 = D.Projection("teams", "A", "Hardship", "high", 1, 3, 110.0)
+    pace4 = D.Projection("teams", "B", "Luck", "high", 4, 3, 2.0)
+    m = D.Milestone("PF", 51000.0, 50000.0)
+    rec = D.YearlyRecord("teams", "BRO", "Times One-man army?", 9.0)
+    html = D.render_digest_html([first, third, low1], [pace1, pace4],
+                                {"season": 2026, "weeks_completed": 7}, [m], [rec])
+    r0, b0 = html.find(">Records</h2>"), html.find(">Leaderboard changes</h2>")
+    ok = _ok("both parts present, Records first", 0 < r0 < b0, f"{r0} {b0}")
+    recs, boards = html[r0:b0], html[b0:]
+    ok &= _ok("1st-place moves at either end sit under Records",
+              "BRO" in recs and "LWebs53" in recs and "most in any season" in recs)
+    ok &= _ok("an on-pace 1st is a first-place move too", "Hardship" in recs)
+    ok &= _ok("everything else is a leaderboard change",
+              "AceMatthew" in boards and "Luck" in boards and "passes 50,000" in boards
+              and "AceMatthew" not in recs and "passes 50,000" not in recs)
+    ok &= _ok("sections keep their titles and order inside a part",
+              recs.index("All-time leaderboard moves — teams") < recs.index("New single-season records")
+              < recs.index("On pace this season — teams")
+              and boards.index("All-time leaderboard moves — teams") < boards.index("League milestones"))
+    ok &= _ok("the parts look different",
+              html.rfind("border-left:4px solid #c9a227", 0, r0) >= 0
+              and r0 < html.rfind("border-left:4px solid #0b2545", 0, b0))
+    only_boards = D.render_digest_html([third], [], {"season": 2026, "weeks_completed": 7})
+    ok &= _ok("no first-place move -> no Records part", ">Records</h2>" not in only_boards
+              and ">Leaderboard changes</h2>" in only_boards)
+    return ok
+
+
 def check_digest_title():
     """In-season names the week (and never says "through"); the offseason names
     the build date instead of the meaningless "week 0"."""
@@ -1338,6 +1374,7 @@ def run_all() -> bool:
         check_rate_and_weekly_classification,
         check_phrasing_catalog,
         check_render_html_smoke,
+        check_records_and_leaderboard_changes_are_two_parts,
         check_digest_title,
         check_an_invisible_overtake_is_not_reported,
         check_a_tie_join_is_never_suppressed,

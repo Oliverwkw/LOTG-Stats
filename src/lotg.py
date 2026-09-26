@@ -135,6 +135,7 @@ from lotg_support.late_listing import undo_late_listings
 from lotg_support.plan import load_plan_catalog, require_columns
 from lotg_support.history import reconcile_top_team, reconcile_last_team
 from lotg_support import pick_index
+from lotg_support import position_factor
 
 import league_all_time
 import league_week
@@ -10047,29 +10048,26 @@ def build_all(repo_root: Path) -> None:
     # shared via _pos_factor(season, pos).
     _starter_avg_by_season: Dict[int, float] = {}
     _pos_avg_by_season: Dict[int, Dict[str, float]] = {}
+    _pos_baselines: position_factor.Baselines = ({}, {}, {})
     try:
         if not pw.empty and "Starter/Bench" in pw.columns and "Position" in pw.columns:
-            _stp = pw[pw["Starter/Bench"].astype(str).str.lower() == "starter"].copy()
-            _stp["_Y"] = pd.to_numeric(_stp["Year"], errors="coerce")
-            _stp["_P"] = pd.to_numeric(_stp["Points"], errors="coerce")
-            for _yr, _g in _stp.groupby("_Y"):
-                if pd.isna(_yr):
-                    continue
-                _yi = int(_yr)
-                _starter_avg_by_season[_yi] = float(_g["_P"].mean() or 0.0)
-                _pos_avg_by_season[_yi] = {
-                    str(_pp).upper(): float(_gg["_P"].mean() or 0.0)
-                    for _pp, _gg in _g.groupby(_g["Position"].astype(str).str.upper())
-                }
+            # lotg_support.position_factor: each season's own baseline, or the
+            # previous season's until it has played MIN_WEEKS weeks (user rule
+            # 2026-09-26; retroactive, as every build recomputes).
+            _pos_baselines = position_factor.season_baselines(
+                pw[pw["Starter/Bench"].astype(str).str.lower() == "starter"])
+            _starter_avg_by_season, _pos_avg_by_season, _pos_src = _pos_baselines
+            for _yi, _src in sorted(_pos_src.items()):
+                if _src != _yi:
+                    _log(debug, f"[{_now_iso()}] INFO position baseline {_yi}: fewer than "
+                                f"{position_factor.MIN_WEEKS} weeks played, using {_src}'s")
     except Exception as e:
         _log_exc(debug, "per_season_pos_baseline", e)
 
     def _pos_factor(season: Any, pos: Optional[str]) -> float:
-        """league-starter-avg / position-avg, computed within `season` only."""
-        _yi = _to_int(season, None)
-        _la = _starter_avg_by_season.get(_yi, 0.0)
-        _pa = (_pos_avg_by_season.get(_yi) or {}).get((pos or "").upper(), 0.0)
-        return (_la / _pa) if (_pa and _la) else 1.0
+        """league-starter-avg / position-avg for `season`'s baseline (see
+        lotg_support.position_factor)."""
+        return position_factor.factor(_pos_baselines, season, pos)
 
     # ------------------------------------------------------------------
     # Handcuff — ONE definition for add_drops, trades, the pick sheets and

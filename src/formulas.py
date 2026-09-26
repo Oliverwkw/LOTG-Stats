@@ -49,7 +49,7 @@ _ROWS = [
      "Notes": "A missing side counts as 0; blank when both sides are blank."},
     {"Stat": "Difference of averages adjusted by position", "Sheet": "add_drops",
      "Formula": "Same added-minus-dropped PPG gap, but each side scaled for its position so a 12-PPG TE isn't judged like a 12-PPG QB. Each PPG × (league starter avg / position avg).",
-     "Notes": "Position averages are that season's starter averages from player_week (per-season baselines, so one scoring era never shifts another's). Blank when both sides are blank."},
+     "Notes": "Position averages are that season's starter averages from player_week (per-season baselines, so one scoring era never shifts another's; the season in progress uses the previous season's until it has 5 weeks played, then switches retroactively). Blank when both sides are blank."},
     {"Stat": "Age difference", "Sheet": "add_drops",
      "Formula": "Age gap between the added and dropped players. added age − dropped age in decimal years, at the pickup date.",
      "Notes": "Negative = the team got younger."},
@@ -1529,6 +1529,9 @@ _ROWS = [
     {"Stat": "Adjusted PPG bench on team", "Sheet": "player_additions", "Columns": ["Adjusted PPG bench on team"],
      "Formula": "Bench points in healthy weeks / Healthy bench weeks on team.",
      "Notes": "Blank with no healthy bench week."},
+    {"Stat": "Position factor (every 'adjusted by position' column)", "Sheet": "all player / move sheets",
+     "Formula": "league starter avg / position starter avg, both over one season's STARTED player_week rows — each value x the factor of the season it belongs to. A season with fewer than 5 weeks played (the season in progress through week 4, and moves filed under it before kickoff) uses the PREVIOUS season's factor; once its week 5 is in, the whole season switches to its own, retroactively. A season past every one on record uses the latest.",
+     "Notes": "5 = the week the weekly email starts showing a season's averages, so an adjusted number settles the week it is first reported. The handcuff test's TE-equivalent threshold uses the same factor. lotg_support.position_factor."},
     # --- player_all_time playoff split (championship bracket only).
     {"Stat": "Regular-season PPG starter", "Sheet": "player_all_time", "Columns": ["Regular-season PPG starter"],
      "Formula": "PPG starter over his regular-season starts only (weeks named 'Week N'), career.",
@@ -1570,7 +1573,9 @@ _ROWS = [
 # factor; each twin names its base and how the factor is applied on its sheet.
 _POS_FACTOR_TEXT = ("x the position factor = league starter avg / position starter avg, "
                     "both over that season's STARTED weeks in player_week, so a 12-PPG TE "
-                    "isn't judged like a 12-PPG QB")
+                    "isn't judged like a 12-PPG QB; a season with fewer than 5 weeks played "
+                    "uses the previous season's factor until its week 5 is in, then all of "
+                    "it switches")
 _POS_TWINS = [
     # (base column, sheet, how the factor is applied, blank/zero note)
     ("Avg points", "player_year / player_all_time", "each week's points x that season's factor, then averaged", ""),

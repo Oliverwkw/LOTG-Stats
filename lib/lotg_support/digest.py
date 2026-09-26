@@ -3183,6 +3183,54 @@ def split_sections(sections: Sequence[Tuple[str, bool, list]],
     return top, edits
 
 
+# The new-data half of the email in two visually distinct parts (user rule,
+# 2026-09-26): RECORDS — every first-place move (rank 1 at either end, on any
+# board, single-season records and on-pace 1sts included) — then LEADERBOARD
+# CHANGES, everything else. Inside each part the sections keep the email's usual
+# order and grouping, one heading level down. Each part is a tinted block with a
+# coloured rule so the two read apart at a glance, in mail clients too (inline
+# styles only).
+RECORDS_TITLE = "Records"
+BOARDS_TITLE = "Leaderboard changes"
+_PART_STYLE = {
+    RECORDS_TITLE: ("#fbf6e6", "#c9a227"),   # (background, left rule)
+    BOARDS_TITLE: ("#f4f7fb", "#0b2545"),
+}
+
+
+def is_record(item) -> bool:
+    """A first-place move: the item holds rank 1 on its board (a milestone has
+    no place and is never one)."""
+    rank = getattr(item, "rank", None)
+    return isinstance(rank, int) and rank == 1
+
+
+def split_records(sections: Sequence[Tuple[str, bool, list]]
+                  ) -> Tuple[List[Tuple[str, bool, list]], List[Tuple[str, bool, list]]]:
+    """(records sections, leaderboard-change sections): each section's items
+    split by `is_record`, empty halves dropped, section order kept."""
+    recs, boards = [], []
+    for title, grouped, items in sections:
+        r = [i for i in items if is_record(i)]
+        o = [i for i in items if not is_record(i)]
+        if r:
+            recs.append((title, grouped, r))
+        if o:
+            boards.append((title, grouped, o))
+    return recs, boards
+
+
+def _part_html(title: str, sections: Sequence[Tuple[str, bool, list]]) -> str:
+    if not sections:
+        return ""
+    bg, rule = _PART_STYLE[title]
+    inner = "".join(_section_block(t, g, i, level=3) for t, g, i in sections)
+    return (f'  <div style="margin:20px 0 0;padding:4px 14px 12px;background:{bg};'
+            f'border-left:4px solid {rule};border-radius:4px;">\n'
+            f'  <h2 style="font:700 19px/1.3 system-ui,sans-serif;margin:12px 0 4px;'
+            f'color:#1a2b3c;">{title}</h2>\n{inner}  </div>')
+
+
 def _section_block(title: str, grouped: bool, items: Sequence, level: int = 2) -> str:
     if grouped:
         return _grouped_section_html(title, items, level)
@@ -3214,13 +3262,15 @@ def render_digest_html(
          f'border-left:3px solid #0b2545;border-radius:4px;">{intro}</p>'
          if intro else ""),
     ]
-    # New data first, exactly as it has always read; then, only if there are
+    # New data first — its first-place moves under "Records", everything else
+    # under "Leaderboard changes" (`split_records`); then, only if there are
     # any, the moves an edit alone explains, under their own header at the
     # bottom (see `attribute`).
     top, edits = split_sections(digest_sections(
         crossings, projections, milestones, records, highlights, events), new_data)
-    for title, grouped, items in top:
-        body.append(_section_block(title, grouped, items))
+    rec_part, board_part = split_records(top)
+    body.append(_part_html(RECORDS_TITLE, rec_part))
+    body.append(_part_html(BOARDS_TITLE, board_part))
     if edits:
         body.append(_EDIT_HEADER_HTML)
         for title, grouped, items in edits:

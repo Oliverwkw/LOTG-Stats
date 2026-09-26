@@ -115,11 +115,18 @@ def _weekly(pw: pd.DataFrame) -> pd.DataFrame:
 
 
 def _factors(w: pd.DataFrame) -> dict:
-    """{(season, position): league starter avg / position starter avg}."""
+    """{(season, position): league starter avg / position starter avg}, each
+    season on its own baseline — or the previous season's while it has played
+    fewer than MIN_WEEKS weeks (lotg_support.position_factor, unit-tested in
+    tests/test_position_factor.py)."""
+    import sys
+    sys.path.insert(0, str(_ROOT / "lib"))
+    from lotg_support import position_factor as PF  # noqa: E402
     st = w[w["start"]]
-    league = st.groupby("Year")["Points"].mean()
-    pos = st.groupby(["Year", "Position"])["Points"].mean()
-    return {(int(y), p): float(league[y] / v) for (y, p), v in pos.items() if v and league.get(y)}
+    b = PF.season_baselines(st[["Year", "Week", "Position", "Points"]])
+    return {(int(y), p): PF.factor(b, y, p)
+            for y, p in st[["Year", "Position"]].drop_duplicates().itertuples(index=False)
+            if pd.notna(y)}
 
 
 def _close(a, b, tol):
