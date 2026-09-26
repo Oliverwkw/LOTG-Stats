@@ -328,7 +328,7 @@ def _unique_names(d: Path) -> set:
     """Player names that are one player (player_week carries no Player ID, so a
     shared name cannot be told apart and is left out)."""
     pa = pd.read_csv(d / "player_all_time.csv", low_memory=False)
-    n = pa["Player"].astype(str)
+    n = pa["Player"].fillna("").astype(str)
     return set(n[~n.duplicated(keep=False)])
 
 
@@ -372,7 +372,7 @@ def check_player_week_moves_match_the_add_drops_sheet() -> bool:
     ok = True
     for col, expect in (("Number of Add/Drops", moves), ("Number of drops", drops)):
         bad = []
-        for p, y, w, v in zip(pw["Player"].astype(str), pd.to_numeric(pw["Year"], errors="coerce"),
+        for p, y, w, v in zip(pw["Player"].fillna("").astype(str), pd.to_numeric(pw["Year"], errors="coerce"),
                               pd.to_numeric(pw["Week"], errors="coerce"), _num(pw[col])):
             if p not in names or pd.isna(y) or pd.isna(w):
                 continue
@@ -402,7 +402,8 @@ def check_player_week_trades_match_the_trades_sheet() -> bool:
     when = pd.to_datetime(tr["Date"], errors="coerce")
     season = pd.to_numeric(tr["Season"], errors="coerce")
     expect: dict = {}
-    for recv, w, s in zip(tr["Assets received"].astype(str), when, season):
+    # fillna first: under pandas 3 (CI) astype(str) leaves a missing cell NaN.
+    for recv, w, s in zip(tr["Assets received"].fillna("").astype(str), when, season):
         if pd.isna(w) or pd.isna(s):
             continue
         wk = lotg._season_week_of(w.date(), int(s))
@@ -414,7 +415,7 @@ def check_player_week_trades_match_the_trades_sheet() -> bool:
             k = (a, int(s), int(wk))
             expect[k] = expect.get(k, 0) + 1
     bad = []
-    for p, y, w, v in zip(pw["Player"].astype(str), pd.to_numeric(pw["Year"], errors="coerce"),
+    for p, y, w, v in zip(pw["Player"].fillna("").astype(str), pd.to_numeric(pw["Year"], errors="coerce"),
                           pd.to_numeric(pw["Week"], errors="coerce"), _num(pw["Number of trades"])):
         if p not in names or pd.isna(y) or pd.isna(w):
             continue
@@ -443,7 +444,7 @@ def check_league_week_trades_are_the_distinct_trades_that_week() -> bool:
     when = pd.to_datetime(tr["Date"], errors="coerce")
     season = pd.to_numeric(tr["Season"], errors="coerce")
     per: dict = {}
-    for raw, w, s in zip(tr["Date"].astype(str), when, season):
+    for raw, w, s in zip(tr["Date"].fillna("").astype(str), when, season):
         if pd.isna(w) or pd.isna(s):
             continue
         wk = lotg._season_week_of(w.date(), int(s))
