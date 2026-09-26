@@ -712,6 +712,66 @@ all in the weekly email.
   player with a start in an injury week (24 such starter-weeks exist) so
   healthy starts < starts; a 2020 row; a zero-rostered-week padded row.
 
+## PPG grid + a position-adjusted twin of every player PPG column
+From the "which starting / rostered / healthy PPG combinations are missing"
+inquiry. Asked for: fill every gap in the grid on player_year, player_all_time
+and player_additions (player_week excluded), then give EVERY player PPG column a
+position-adjusted version, all treated like the other averages in the weekly
+email. Scope decisions [per user]: team / league averages are left out (a team's
+PF mixes every position, so the per-position factor means nothing there);
+"anything that makes statistical sense" among the derived per-game columns.
+
+- [x] **The grid.** "Healthy" points equal gross points (all 4,671 bye / injury /
+  suspension rows in player_week score exactly 0), so the grid is starter /
+  rostered / bench points over started / rostered / healthy weeks. New where
+  missing: player_year + player_all_time `PPG starter per rostered week`,
+  `Adjusted PPG starter per rostered week`; player_additions `Adjusted Avg points
+  added`, `Avg points added per rostered week`, `Adjusted Avg points added per
+  rostered week`, `Avg points per rostered week on team`, `PPG bench on team`,
+  `Adjusted PPG bench on team`. Rostered points / started weeks deliberately not
+  built (mixes two week sets; measures nothing).
+- [x] **Twins** (`<column> adjusted by position`), one factor (`_pos_factor`:
+  that season's league starter avg / position starter avg):
+  player_year (13: Avg points, Adjusted Avg points, PPG starter / bench and their
+  Adjusted and per-rostered-week forms, PPG starter vs bench diff, Starter PAR
+  per game, Avg points (full season), both Change in avg points columns);
+  player_all_time (11, full career instead of the season/change columns);
+  player_additions (6 grid twins + PPG of 5 games before pickup); add_drops (4:
+  Average PPG on team, dropped player's PPG over same time, PPG of 5 games before
+  pickup, Dropped avg points); trades (3: received on team, sent over same time,
+  received 5 games before); player_week (4: PPG as team starter + its "this
+  season" form, the 5-game start/sit difference and its cuff-adjusted form).
+  Multi-season averages scale each WEEK (or nflverse season) by its own season's
+  factor before averaging; the two nflverse backfill seasons borrow the first
+  league season's factor (they are scored with its rules). add_drops / trades /
+  player_additions keep their sheet's existing convention (the move's season).
+- [x] **Deliberately NOT twinned** (classified): team/league averages (by design,
+  per user); player_week `Change from previous week / previous 5 weeks avg /
+  career average to that point / overall career average` (a single week's points
+  minus a baseline, not an average); `Positional scoring percentile` and the
+  tier %s (already within-position); pick sheets (every PPG column there already
+  has a twin).
+- [x] **Doc fixes found on the way** (defects, doc-only): `PPG starter vs bench
+  diff` said PPG starter − PPG bench; the code (since Phase 1C) uses the Adjusted
+  pair and reads a missing side as 0 — 747 of 1,058 two-sided player_year rows
+  differ from the documented formula. `Difference of averages adjusted by
+  position` said "all-time" position averages; they are per-season.
+- [x] Plan CSV + `stats_catalog.json` + Formulas entries + schema pin +
+  `_preserve_na` (a twin is blank exactly where its base is) + a `_column_kind`
+  override for the trades pre-trade twin (the "trade " text marker would catch
+  it). Digest: every new name carries a rate marker ("avg" / "ppg" / "diff"), so
+  it projects as-is and waits on the rate gates like its base; "adjusted by
+  position" makes the twins derived (lower prominence) exactly like the existing
+  twins; two display phrasings added. No existing column's kind, N/A rule or
+  number format moved (checked over every catalog column).
+- [x] Guard: `tests/test_ppg_position_adjusted.py` recomputes the grid and the
+  factor from player_week and checks every twin against it.
+- [ ] **3-part audit** on the first post-merge build. Expected diff: the 52 new
+  columns on six sheets, their Formulas rows (and the two corrected ones),
+  nothing else. The first Tuesday digest after merge lists the new player_year
+  columns' on-pace standings once; boards stay silent on them for a week (new
+  slots are absent from the prior snapshot).
+
 ## Phase 15 — TBD: OLD LEAGUES
 - [ ] **TBD.** Placeholder for integrating other historical/old leagues' data (e.g. the
   separate ESPN leagues seen in the 2020 emails — UChicago '24 = leagueId 57687541, UChi

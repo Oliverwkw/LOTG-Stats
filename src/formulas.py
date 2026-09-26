@@ -49,7 +49,7 @@ _ROWS = [
      "Notes": "A missing side counts as 0."},
     {"Stat": "Difference of averages adjusted by position", "Sheet": "add_drops",
      "Formula": "Same added-minus-dropped PPG gap, but each side scaled for its position so a 12-PPG TE isn't judged like a 12-PPG QB. Each PPG × (league starter avg / position avg).",
-     "Notes": "Position averages are all-time starter averages from player_week."},
+     "Notes": "Position averages are that season's starter averages from player_week (per-season baselines, so one scoring era never shifts another's)."},
     {"Stat": "Age difference", "Sheet": "add_drops",
      "Formula": "Age gap between the added and dropped players. added age − dropped age in decimal years, at the pickup date.",
      "Notes": "Negative = the team got younger."},
@@ -924,8 +924,8 @@ _ROWS = [
      "Formula": "PPG bench counting only played weeks (bye/injury/suspension dropped).",
      "Notes": "Blank if he never benched."},
     {"Stat": "PPG starter vs bench diff", "Sheet": "player_year / player_all_time", "Columns": ["PPG starter vs bench diff"],
-     "Formula": "How much better the player scored when started vs benched. PPG starter − PPG bench.",
-     "Notes": "Blank when he never started or never benched."},
+     "Formula": "How much better the player scored when started vs benched, over PLAYED weeks: Adjusted PPG starter − Adjusted PPG bench.",
+     "Notes": "A missing side counts as 0 (a player never benched reads his whole Adjusted PPG starter); blank only when he has no played week at all."},
     {"Stat": "Number of teams", "Sheet": "player_year / player_all_time", "Columns": ["Number of teams"],
      "Formula": "How many different managers rostered the player during the season / career.",
      "Notes": "Counts every team that held him at any point, even partial weeks."},
@@ -1499,7 +1499,98 @@ _ROWS = [
                  "KTC change 4 years after pickup"],
      "Formula": "How the player's KTC superflex value has moved since pickup: (KTC at the checkpoint) − (KTC at pickup). Positive = gained value since acquired.",
      "Notes": "Blank whenever either endpoint is blank (including a future checkpoint that never pulls forward)."},
+    # --- The per-week PPG grid: starter / rostered points over rostered /
+    # healthy weeks where a sheet did not already carry the combination.
+    {"Stat": "PPG starter per rostered week", "Sheet": "player_year / player_all_time",
+     "Columns": ["PPG starter per rostered week"],
+     "Formula": "What his starts put up per week he was held: Total points as starter / Weeks rostered (started + benched weeks, byes/injuries/suspensions included). 'PPG starter' divides the same points by the starts alone.",
+     "Notes": "Blank with no rostered week."},
+    {"Stat": "Adjusted PPG starter per rostered week", "Sheet": "player_year / player_all_time",
+     "Columns": ["Adjusted PPG starter per rostered week"],
+     "Formula": "Starter points in his healthy weeks / Healthy weeks rostered — 'PPG starter per rostered week' over the weeks he was available (not a bye, an injury or a suspension week).",
+     "Notes": "Blank with no healthy rostered week. A missed week scores 0, so the numerator equals Total points as starter."},
+    {"Stat": "Adjusted Avg points added", "Sheet": "player_additions", "Columns": ["Adjusted Avg points added"],
+     "Formula": "Points added per HEALTHY start: started points in weeks that were not a bye, an injury or a suspension / those starts. 'Avg points added' counts every start, a start in a missed week (0 points) included.",
+     "Notes": "0 with no healthy start, like 'Avg points added'."},
+    {"Stat": "Avg points added per rostered week", "Sheet": "player_additions", "Columns": ["Avg points added per rostered week"],
+     "Formula": "Points added (his started-week points) / Tenure (NFL weeks) — what his starts put up per week he was held.",
+     "Notes": "0 with no rostered week, like 'Avg points added'."},
+    {"Stat": "Adjusted Avg points added per rostered week", "Sheet": "player_additions",
+     "Columns": ["Adjusted Avg points added per rostered week"],
+     "Formula": "Started points in healthy weeks / Games played on team (rostered weeks that were not a bye or a missed week).",
+     "Notes": "0 with no game played, like 'Avg points added'."},
+    {"Stat": "Avg points per rostered week on team", "Sheet": "player_additions",
+     "Columns": ["Avg points per rostered week on team"],
+     "Formula": "Every point he scored while rostered here (started + benched) / Tenure (NFL weeks). 'Avg PPG on team' is the same points over the games played only.",
+     "Notes": "Blank if never rostered a week here."},
+    {"Stat": "PPG bench on team", "Sheet": "player_additions", "Columns": ["PPG bench on team"],
+     "Formula": "Bench points on team / Bench weeks on team.",
+     "Notes": "Blank if never benched in the tenure."},
+    {"Stat": "Adjusted PPG bench on team", "Sheet": "player_additions", "Columns": ["Adjusted PPG bench on team"],
+     "Formula": "Bench points in healthy weeks / Healthy bench weeks on team.",
+     "Notes": "Blank with no healthy bench week."},
 ]
+
+
+# --- Position-adjusted twins -------------------------------------------------
+# Every player PPG column has a "<column> adjusted by position" twin (team and
+# league averages mix every position, so they have none). One definition of the
+# factor; each twin names its base and how the factor is applied on its sheet.
+_POS_FACTOR_TEXT = ("x the position factor = league starter avg / position starter avg, "
+                    "both over that season's STARTED weeks in player_week, so a 12-PPG TE "
+                    "isn't judged like a 12-PPG QB")
+_POS_TWINS = [
+    # (base column, sheet, how the factor is applied, blank/zero note)
+    ("Avg points", "player_year / player_all_time", "each week's points x that season's factor, then averaged", ""),
+    ("Adjusted Avg points", "player_year / player_all_time", "each played week's points x that season's factor, then averaged", ""),
+    ("PPG starter", "player_year / player_all_time", "each started week's points x that season's factor, then averaged", ""),
+    ("Adjusted PPG starter", "player_year / player_all_time", "each played started week x that season's factor, then averaged", ""),
+    ("PPG bench", "player_year / player_all_time", "each benched week x that season's factor, then averaged", ""),
+    ("Adjusted PPG bench", "player_year / player_all_time", "each played benched week x that season's factor, then averaged", ""),
+    ("PPG starter per rostered week", "player_year / player_all_time", "each started week x that season's factor, summed, / Weeks rostered", ""),
+    ("Adjusted PPG starter per rostered week", "player_year / player_all_time", "each played started week x that season's factor, summed, / Healthy weeks rostered", ""),
+    ("PPG starter vs bench diff", "player_year / player_all_time",
+     "Adjusted PPG starter adjusted by position − Adjusted PPG bench adjusted by position (a missing side counts as 0, as in the base)", ""),
+    ("Starter PAR per game", "player_year / player_all_time", "each started week's PAR x that season's factor, then averaged", ""),
+    ("Avg points (full season)", "player_year", "the nflverse season points x that season's factor / games", ""),
+    ("Avg points (full career)", "player_all_time",
+     "each career season's nflverse points x that season's factor, summed, / career games",
+     "The two nflverse backfill seasons before the league's first (re-scored with its rules) use the first league season's factor."),
+    ("Change in avg points from previous season", "player_year",
+     "Avg points (full season) adjusted by position − the prior player_year row's", ""),
+    ("Change in avg points from career", "player_year",
+     "Avg points (full season) adjusted by position − the prior career's per-game average with each season's points x its own factor",
+     "Same 2-game guard as the base; backfill seasons use the first league season's factor."),
+    ("PPG as team starter", "player_week", "each started week x that season's factor, summed over the tenure, / starts", "Terminal-encoded like its base."),
+    ("PPG as team starter this season", "player_week", "each started week x the season's factor, summed, / starts", "Named 'PPG as team starter adjusted by position this season'."),
+    ("Difference in averages of best/worst startables over previous 5 games", "player_week",
+     "each side's 5-game average x its OWN position's factor for the row's season, then differenced as in the base", "Cross-position start/sit calls (flex) compare on one scale."),
+    ("Cuff adjusted difference", "player_week", "the adjusted 5-game difference, halved when '- Activated Cuff?' is TRUE", ""),
+    ("Average PPG on team", "add_drops", "x the added player's factor in the move's season", "The added-side term of 'Difference of averages adjusted by position'."),
+    ("Average PPG of dropped player over same time", "add_drops", "x the dropped player's factor in the move's season", "The dropped-side term of 'Difference of averages adjusted by position'."),
+    ("PPG of 5 games before pickup", "add_drops / player_additions", "x the added player's factor in the move's season", ""),
+    ("Dropped avg points", "add_drops", "x the dropped player's factor in the move's season (still negated)", ""),
+    ("Avg PPG of received players on team", "trades",
+     "each received player's (or drafted-with-a-received-pick player's) on-team PPG x his factor, then averaged",
+     "The received-side term of 'Difference of averages adjusted by position'."),
+    ("Avg PPG of sent players over same time", "trades", "each sent player's PPG x his factor in the trade season, then averaged",
+     "The sent-side term of 'Difference of averages adjusted by position'."),
+    ("Avg PPG of received players in 5 games before trade", "trades", "each received player's 5-game average x his factor in the trade season, then averaged", ""),
+    ("Adjusted Avg points added", "player_additions", "x the player's factor in the addition's season", ""),
+    ("Avg points added per rostered week", "player_additions", "x the player's factor in the addition's season", ""),
+    ("Adjusted Avg points added per rostered week", "player_additions", "x the player's factor in the addition's season", ""),
+    ("Avg points per rostered week on team", "player_additions", "x the player's factor in the addition's season", ""),
+    ("PPG bench on team", "player_additions", "x the player's factor in the addition's season", ""),
+    ("Adjusted PPG bench on team", "player_additions", "x the player's factor in the addition's season", ""),
+]
+for _base, _sheet, _how, _note in _POS_TWINS:
+    _col = ("PPG as team starter adjusted by position this season" if _base == "PPG as team starter this season"
+            else f"{_base} adjusted by position")
+    _ROWS.append({
+        "Stat": _col, "Sheet": _sheet, "Columns": [_col],
+        "Formula": f"'{_base}', position-adjusted: {_how} ({_POS_FACTOR_TEXT}).",
+        "Notes": " ".join(x for x in (_note, "Blank exactly where the base is blank.") if x),
+    })
 
 
 # Output columns of the Formulas sheet (in order). "Columns" is INTERNAL

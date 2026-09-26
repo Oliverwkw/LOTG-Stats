@@ -248,6 +248,8 @@ _PHRASING = {
     ("add_drops", "Age difference"): "Age difference (added − dropped player)",
     ("add_drops", "Faab"): "FAAB bid",
     ("add_drops", "Dropped avg points"): "Dropped player's PPG after the drop (negated)",
+    ("add_drops", "Dropped avg points adjusted by position"):
+        "Dropped player's position-adjusted PPG after the drop (negated)",
     ("add_drops", "Dropped total points"): "Dropped player's points after the drop (negated)",
     ("trades", "Tanking"): "Tank-score change from the trade",
     ("add_drops", "Tanking"): "Tank-score change from the move",
@@ -255,6 +257,8 @@ _PHRASING = {
     ("rookie_picks", "Tanking"): "Tank-score change from the pick",
     ("non_rookie_picks", "Tanking"): "Tank-score change from the pick",
     ("", "Cuff adjusted difference"): "Cuff-adjusted start/sit difference (5-game averages)",
+    ("", "Cuff adjusted difference adjusted by position"):
+        "Cuff-adjusted start/sit difference (5-game averages, position-adjusted)",
     ("", "UPST"): "Upset wins",
 }
 # "Number of players over 30" is points, not age: say so.
