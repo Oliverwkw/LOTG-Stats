@@ -1128,7 +1128,10 @@ _TOPIC_IDENTITY = {
 # Whole-number count columns whose names do not open with the "weeks " /
 # "number of " / "times " prefixes the three count rules below key on: the
 # bench / healthy-week counts on the player sheets and player_additions.
-_EXTRA_COUNT_PREFIXES = ("healthy weeks ", "healthy bench weeks ", "bench weeks ", "injured weeks ")
+_EXTRA_COUNT_PREFIXES = ("healthy weeks ", "healthy bench weeks ", "bench weeks ", "injured weeks ",
+                         # the donut / points-threshold counts on the team and
+                         # league sheets: "Donuts (roster)", "Players over 30 pts (starters)"
+                         "donuts (", "players under ", "players over ")
 
 
 def _col_topic(col: str) -> str:
@@ -6336,12 +6339,12 @@ def build_all(repo_root: Path) -> None:
                     # Exclude empty/placeholder lineup slots (Sleeper fills an
                     # unset starter slot with "0"); otherwise an empty starter
                     # slot counts as a starter "donut" but not a roster donut,
-                    # which made "Number of starter donuts" exceed "Number of
-                    # donuts" in championship weeks with unfilled lineups
+                    # which made "Donuts (starters)" exceed "Donuts (roster)"
+                    # in championship weeks with unfilled lineups
                     # (e.g. plehv79 2022 wk16).
                     starter_points = [ppts.get(pid, 0.0) for pid in starters if _valid_pid(pid)]
-                    # "Number of players ..." count ALL rostered players (item 6);
-                    # "Number of starters ..." are the starter-only companions.
+                    # The "(roster)" counts cover ALL rostered players (item 6);
+                    # the "(starters)" ones are the starter-only companions.
                     roster_points = [ppts.get(pid, 0.0) for pid in players if _valid_pid(pid)]
                     donuts = sum(1 for x in roster_points if float(x) == 0.0)
                     under10 = sum(1 for x in roster_points if float(x) < 10.0)
@@ -6523,18 +6526,18 @@ def build_all(repo_root: Path) -> None:
                         "Win Variance": round(luck_raw, 4) if luck_raw is not None else None,
                         "Brosenzweig": None,
                         "Sisenzweig": None,
-                        "Number of donuts": donuts,
-                        "Number of starter donuts": s_donuts,
-                        "Number of players under 10": under10,
-                        "Number of starters under 10": s_under10,
-                        "Number of players over 20": over20,
-                        "Number of starters over 20": s_over20,
-                        "Number of players over 30": over30,
-                        "Number of starters over 30": s_over30,
-                        "Number of players over 40": over40,
-                        "Number of starters over 40": s_over40,
-                        "Number of players over 50": over50,
-                        "Number of starters over 50": s_over50,
+                        "Donuts (roster)": donuts,
+                        "Donuts (starters)": s_donuts,
+                        "Players under 10 pts (roster)": under10,
+                        "Players under 10 pts (starters)": s_under10,
+                        "Players over 20 pts (roster)": over20,
+                        "Players over 20 pts (starters)": s_over20,
+                        "Players over 30 pts (roster)": over30,
+                        "Players over 30 pts (starters)": s_over30,
+                        "Players over 40 pts (roster)": over40,
+                        "Players over 40 pts (starters)": s_over40,
+                        "Players over 50 pts (roster)": over50,
+                        "Players over 50 pts (starters)": s_over50,
                         "Number of QB started": qb_s,
                         "Number of WR started": wr_s,
                         "Number of RB started": rb_s,
@@ -10553,7 +10556,18 @@ def build_all(repo_root: Path) -> None:
                 # 'adjust adjusted averages to match this').
                 added_pos, added_nfl = _player_pos_nfl_team_at(added, pickup_iso_prefix)
                 dropped_pos, dropped_nfl = _player_pos_nfl_team_at(dropped, pickup_iso_prefix)
-                _tx_season = _to_int(str(pickup_iso_prefix)[:4], None)
+                # The move's FANTASY season (its "Season" column, _move_season:
+                # league time, bounded by championships) — not the calendar year
+                # of its UTC timestamp, which put a New Year's Eve evening move
+                # (2021-12-31 22:36 ET) and every Jan-Aug offseason move under the
+                # wrong season's position baseline.
+                _tx_season = _to_int(r.get("Season"), None)
+                if _tx_season is None:
+                    try:
+                        _tx_season = _move_season(pd.to_datetime(pickup_iso, utc=True).to_pydatetime(),
+                                                  _to_int(pickup_iso_prefix[:4], None), _season_end_by_season)
+                    except Exception:
+                        _tx_season = None
                 added_adj = _pos_adjust(added_on_team, added_pos, _tx_season)
                 dropped_adj = _pos_adjust(dropped_same_window, dropped_pos, _tx_season)
                 adj_diff = None
@@ -14090,11 +14104,11 @@ def build_all(repo_root: Path) -> None:
         # which swept in bye/injury/suspension zeros) with the played-only
         # recompute. All donut rollups (team_year / all_time / league_*) sum
         # these team_week source columns, so the correction propagates upward.
-        tw["Number of donuts"] = tw["Number_of_donuts"].round(0).astype(int)
-        tw["Number of starter donuts"] = tw["Number_of_starter_donuts"].round(0).astype(int)
+        tw["Donuts (roster)"] = tw["Number_of_donuts"].round(0).astype(int)
+        tw["Donuts (starters)"] = tw["Number_of_starter_donuts"].round(0).astype(int)
         # Same played-only correction for the "under 10" family.
-        tw["Number of players under 10"] = tw["Number_of_players_under10"].round(0).astype(int)
-        tw["Number of starters under 10"] = tw["Number_of_starters_under10"].round(0).astype(int)
+        tw["Players under 10 pts (roster)"] = tw["Number_of_players_under10"].round(0).astype(int)
+        tw["Players under 10 pts (starters)"] = tw["Number_of_starters_under10"].round(0).astype(int)
 
         tw.drop(columns=[
             "Hardship_Points_Lost",
@@ -17750,18 +17764,18 @@ def build_all(repo_root: Path) -> None:
                     "Player average age": ("Player average age", "mean"),
                     "Team age including picks": ("Team age including picks", "mean"),
                     "Difference between highest and lowest starters": ("Difference between highest and lowest starters", "max"),
-                    "Number of donuts": ("Number of donuts", "sum"),
-                    "Number of starter donuts": ("Number of starter donuts", "sum"),
-                    "Number of players under 10": ("Number of players under 10", "sum"),
-                    "Number of starters under 10": ("Number of starters under 10", "sum"),
-                    "Number of players over 20": ("Number of players over 20", "sum"),
-                    "Number of starters over 20": ("Number of starters over 20", "sum"),
-                    "Number of players over 30": ("Number of players over 30", "sum"),
-                    "Number of starters over 30": ("Number of starters over 30", "sum"),
-                    "Number of players over 40": ("Number of players over 40", "sum"),
-                    "Number of starters over 40": ("Number of starters over 40", "sum"),
-                    "Number of players over 50": ("Number of players over 50", "sum"),
-                    "Number of starters over 50": ("Number of starters over 50", "sum"),
+                    "Donuts (roster)": ("Donuts (roster)", "sum"),
+                    "Donuts (starters)": ("Donuts (starters)", "sum"),
+                    "Players under 10 pts (roster)": ("Players under 10 pts (roster)", "sum"),
+                    "Players under 10 pts (starters)": ("Players under 10 pts (starters)", "sum"),
+                    "Players over 20 pts (roster)": ("Players over 20 pts (roster)", "sum"),
+                    "Players over 20 pts (starters)": ("Players over 20 pts (starters)", "sum"),
+                    "Players over 30 pts (roster)": ("Players over 30 pts (roster)", "sum"),
+                    "Players over 30 pts (starters)": ("Players over 30 pts (starters)", "sum"),
+                    "Players over 40 pts (roster)": ("Players over 40 pts (roster)", "sum"),
+                    "Players over 40 pts (starters)": ("Players over 40 pts (starters)", "sum"),
+                    "Players over 50 pts (roster)": ("Players over 50 pts (roster)", "sum"),
+                    "Players over 50 pts (starters)": ("Players over 50 pts (starters)", "sum"),
                     "Number of cuffs rostered": ("Number of cuffs rostered", "sum"),
                     "Number of cuffs started": ("Number of cuffs started", "sum"),
                     "Weeks of starter injuries": ("Number of starter injuries", "sum"),
@@ -18170,18 +18184,18 @@ def build_all(repo_root: Path) -> None:
                     "Team age including picks": ("Team age including picks", "mean"),
                     "Difference between highest and lowest starters": ("Difference between highest and lowest starters", "max"),
                     "Combined matchup score": ("Combined matchup score", "max"),
-                    "Number of donuts": ("Number of donuts", "sum"),
-                    "Number of starter donuts": ("Number of starter donuts", "sum"),
-                    "Number of players under 10": ("Number of players under 10", "sum"),
-                    "Number of starters under 10": ("Number of starters under 10", "sum"),
-                    "Number of players over 20": ("Number of players over 20", "sum"),
-                    "Number of starters over 20": ("Number of starters over 20", "sum"),
-                    "Number of players over 30": ("Number of players over 30", "sum"),
-                    "Number of starters over 30": ("Number of starters over 30", "sum"),
-                    "Number of players over 40": ("Number of players over 40", "sum"),
-                    "Number of starters over 40": ("Number of starters over 40", "sum"),
-                    "Number of players over 50": ("Number of players over 50", "sum"),
-                    "Number of starters over 50": ("Number of starters over 50", "sum"),
+                    "Donuts (roster)": ("Donuts (roster)", "sum"),
+                    "Donuts (starters)": ("Donuts (starters)", "sum"),
+                    "Players under 10 pts (roster)": ("Players under 10 pts (roster)", "sum"),
+                    "Players under 10 pts (starters)": ("Players under 10 pts (starters)", "sum"),
+                    "Players over 20 pts (roster)": ("Players over 20 pts (roster)", "sum"),
+                    "Players over 20 pts (starters)": ("Players over 20 pts (starters)", "sum"),
+                    "Players over 30 pts (roster)": ("Players over 30 pts (roster)", "sum"),
+                    "Players over 30 pts (starters)": ("Players over 30 pts (starters)", "sum"),
+                    "Players over 40 pts (roster)": ("Players over 40 pts (roster)", "sum"),
+                    "Players over 40 pts (starters)": ("Players over 40 pts (starters)", "sum"),
+                    "Players over 50 pts (roster)": ("Players over 50 pts (roster)", "sum"),
+                    "Players over 50 pts (starters)": ("Players over 50 pts (starters)", "sum"),
                     "Number of cuffs rostered": ("Number of cuffs rostered", "sum"),
                     "Number of cuffs started": ("Number of cuffs started", "sum"),
                     "Weeks of starter injuries": ("Number of starter injuries", "sum"),
@@ -18828,13 +18842,13 @@ def build_all(repo_root: Path) -> None:
                     "Player average age": ("Player average age", "mean"),
                     "Team age including picks": ("Team age including picks", "mean"),
                     "Difference between highest and lowest starters": ("Difference between highest and lowest starters", "max"),
-                    "Number of donuts": ("Number of donuts", "sum"),
-                    "Number of starting donuts": ("Number of starter donuts", "sum"),
-                    "Number of players under 10": ("Number of players under 10", "sum"),
-                    "Number of players over 20": ("Number of players over 20", "sum"),
-                    "Number of players over 30": ("Number of players over 30", "sum"),
-                    "Number of players over 40": ("Number of players over 40", "sum"),
-                    "Number of players over 50": ("Number of players over 50", "sum"),
+                    "Donuts (roster)": ("Donuts (roster)", "sum"),
+                    "Donuts (starters)": ("Donuts (starters)", "sum"),
+                    "Players under 10 pts (roster)": ("Players under 10 pts (roster)", "sum"),
+                    "Players over 20 pts (roster)": ("Players over 20 pts (roster)", "sum"),
+                    "Players over 30 pts (roster)": ("Players over 30 pts (roster)", "sum"),
+                    "Players over 40 pts (roster)": ("Players over 40 pts (roster)", "sum"),
+                    "Players over 50 pts (roster)": ("Players over 50 pts (roster)", "sum"),
                     "Number of cuffs rostered": ("Number of cuffs rostered", "sum"),
                     "Number of cuffs started": ("Number of cuffs started", "sum"),
                     # Total startup players still rostered league-wide that week =
@@ -18966,13 +18980,13 @@ def build_all(repo_root: Path) -> None:
                     "Player average age": ("Player average age", "mean"),
                     "Team age including picks": ("Team age including picks", "mean"),
                     "Difference between highest and lowest starters": ("Difference between highest and lowest starters", "max"),
-                    "Number of donuts": ("Number of donuts", "sum"),
-                    "Number of starting donuts": ("Number of starter donuts", "sum"),
-                    "Number of players under 10": ("Number of players under 10", "sum"),
-                    "Number of players over 20": ("Number of players over 20", "sum"),
-                    "Number of players over 30": ("Number of players over 30", "sum"),
-                    "Number of players over 40": ("Number of players over 40", "sum"),
-                    "Number of players over 50": ("Number of players over 50", "sum"),
+                    "Donuts (roster)": ("Donuts (roster)", "sum"),
+                    "Donuts (starters)": ("Donuts (starters)", "sum"),
+                    "Players under 10 pts (roster)": ("Players under 10 pts (roster)", "sum"),
+                    "Players over 20 pts (roster)": ("Players over 20 pts (roster)", "sum"),
+                    "Players over 30 pts (roster)": ("Players over 30 pts (roster)", "sum"),
+                    "Players over 40 pts (roster)": ("Players over 40 pts (roster)", "sum"),
+                    "Players over 50 pts (roster)": ("Players over 50 pts (roster)", "sum"),
                     "Number of cuffs rostered": ("Number of cuffs rostered", "sum"),
                     "Number of cuffs started": ("Number of cuffs started", "sum"),
                     "Startup draft players remaining": ("Startup draft players remaining", "max"),
@@ -19159,13 +19173,13 @@ def build_all(repo_root: Path) -> None:
             league_all["Difference between highest and lowest starters"] = (
                 float(_star_hi_all - _star_lo_all) if (_star_hi_all is not None and _star_lo_all is not None) else None
             )
-            league_all["Number of donuts"] = float(pd.to_numeric(g_week.get("Number of donuts"), errors="coerce").sum())
-            league_all["Number of starting donuts"] = float(pd.to_numeric(g_week.get("Number of starter donuts"), errors="coerce").sum())
-            league_all["Number of players under 10"] = float(pd.to_numeric(g_week.get("Number of players under 10"), errors="coerce").sum())
-            league_all["Number of players over 20"] = float(pd.to_numeric(g_week.get("Number of players over 20"), errors="coerce").sum())
-            league_all["Number of players over 30"] = float(pd.to_numeric(g_week.get("Number of players over 30"), errors="coerce").sum())
-            league_all["Number of players over 40"] = float(pd.to_numeric(g_week.get("Number of players over 40"), errors="coerce").sum())
-            league_all["Number of players over 50"] = float(pd.to_numeric(g_week.get("Number of players over 50"), errors="coerce").sum())
+            league_all["Donuts (roster)"] = float(pd.to_numeric(g_week.get("Donuts (roster)"), errors="coerce").sum())
+            league_all["Donuts (starters)"] = float(pd.to_numeric(g_week.get("Donuts (starters)"), errors="coerce").sum())
+            league_all["Players under 10 pts (roster)"] = float(pd.to_numeric(g_week.get("Players under 10 pts (roster)"), errors="coerce").sum())
+            league_all["Players over 20 pts (roster)"] = float(pd.to_numeric(g_week.get("Players over 20 pts (roster)"), errors="coerce").sum())
+            league_all["Players over 30 pts (roster)"] = float(pd.to_numeric(g_week.get("Players over 30 pts (roster)"), errors="coerce").sum())
+            league_all["Players over 40 pts (roster)"] = float(pd.to_numeric(g_week.get("Players over 40 pts (roster)"), errors="coerce").sum())
+            league_all["Players over 50 pts (roster)"] = float(pd.to_numeric(g_week.get("Players over 50 pts (roster)"), errors="coerce").sum())
             # UNIQUE cuff players league-wide all-time (item 9), overriding the
             # player-week sum.
             league_all["Number of cuffs rostered"] = int(unique_cuffs_league_all.get("Number of cuffs rostered", 0))

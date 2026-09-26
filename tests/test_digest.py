@@ -530,7 +530,7 @@ def check_the_rename_does_not_desync_the_baseline():
     # A float column is what upcasts the row, exactly as on the real sheet
     # (Avg PF, Efficiency …); an all-int fixture would keep Year an int and pass
     # against the unfixed label.
-    ly = pd.DataFrame([{"Year": 2023, "Number of donuts": 130, "Avg PF": 131.5}]).iloc[0]
+    ly = pd.DataFrame([{"Year": 2023, "Donuts (roster)": 130, "Avg PF": 131.5}]).iloc[0]
     ok &= _ok("an all-numeric league_year row still reads as a year",
               D._board_label("league_year", ly) == "the 2023 season",
               f"got {D._board_label('league_year', ly)}")
@@ -542,10 +542,10 @@ def check_the_rename_does_not_desync_the_baseline():
               and D.migrate_board_label("league_year", "the 2023 season") == "the 2023 season")
     ok &= _ok("other sheets' labels are not rewritten by it",
               D.migrate_board_label("team_year", "the 2023.0 season") == "the 2023.0 season")
-    prior = [{"sheet": "league_year", "column": "Number of donuts", "end": "high",
+    prior = [{"sheet": "league_year", "column": "Donuts (roster)", "end": "high",
               "key": "league_year|2022.0", "rank": 3, "label": "the 2022.0 season",
               "value": 98.0}]
-    slot = D._prior_board(prior)[("league_year", "Number of donuts", "high")]
+    slot = D._prior_board(prior)[("league_year", "Donuts (roster)", "high")]
     ok &= _ok("_prior_board names an old league season in the new spelling",
               slot["by_rank"][3] == ["the 2022 season"]
               and slot.get("val_by_label", {}).get("the 2022 season") == 98.0,
@@ -716,7 +716,7 @@ def check_rate_and_weekly_classification():
                   ["Times as Captain?", "Times One-man army?", "Wins from byes",
                    "Losses from hardship (2-sided)", "Losses from byes"]))
     ok &= _ok("normal counts not weekly-counting",
-              not any(D.is_weekly_counting_stat(c) for c in ["Number of donuts", "Points", "Total trades"]))
+              not any(D.is_weekly_counting_stat(c) for c in ["Donuts (roster)", "Points", "Total trades"]))
     # Audit finding F2: "Most number of X from same NFL team" is a season MAX
     # capped by roster size, not a running total. Scaling it by weeks-remaining
     # produced impossible values (6 -> 12.8 at week 8, vs an all-time high of 7)
@@ -1890,9 +1890,10 @@ def check_rookie_class_waits_for_week_8_on_player_boards():
 def check_columns_are_named_for_the_email():
     ok = _ok("an award drops its '?'",
              D.display_column("Times as Highest starter on team?") == "Times as Highest starter on team")
-    ok &= _ok("a points threshold says pts",
-              D.display_column("Number of players over 30") == "Number of players over 30 pts"
-              and D.display_column("Number of starters under 10") == "Number of starters under 10 pts")
+    ok &= _ok("a points threshold says pts (once)",
+              D.display_column("Players over 30 pts (roster)") == "Players over 30 pts (roster)"
+              and D.display_column("Players under 10 pts (starters)") == "Players under 10 pts (starters)"
+              and D.display_column("Number of games within 10") == "Number of games within 10 pts")
     ok &= _ok("an age column does not",
               D.display_column("Player average age") == "Player average age")
     ok &= _ok("a trade's difference of averages says of what",
@@ -1965,7 +1966,7 @@ def check_this_weeks_rows_are_told_once():
     hl2 = [D.WeeklyHighlight("teams", "LWebs53", "Number of WR rostered", "high", 1, 19.0, week=2)]
     ev2 = [D.EventCrossing("team_week", "LWebs53 2026 week 2", "Number of WR rostered", "high", 1,
                            19.0, passed=("LWebs53 2026 week 1",)),
-           D.EventCrossing("league_week", "2026 week 2", "Number of players under 10", "high", 1,
+           D.EventCrossing("league_week", "2026 week 2", "Players under 10 pts (roster)", "high", 1,
                            131.0, passed=("2024 week 2",))]
     out2, _r = D.fold_week_boards(hl2, ev2, {}, [(2026, 2)])
     lines = [h.line() for h in out2]

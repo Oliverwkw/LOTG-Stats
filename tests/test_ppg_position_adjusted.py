@@ -302,18 +302,15 @@ def test_difference_columns_split_into_their_twins():
 
 def test_add_drops_twins_use_each_players_factor():
     """add_drops scales each side by its own player's position in the move's
-    season — the sheet's existing convention for 'Difference of averages
-    adjusted by position': the calendar year of the move in UTC (the Date
-    column shows league/Eastern time, so a New Year's Eve evening move is the
-    next year's)."""
+    FANTASY season — the row's own Season column (league time, bounded by the
+    championships), never the calendar year of its timestamp."""
     ad, pw = _sheet("add_drops"), _read("player_week")
     if ad is None or pw is None:
         return True
     w = _weekly(pw)
     fac = _factors(w)
     pos = w.groupby("Player")["Position"].first()
-    yr = (pd.to_datetime(ad["Date"], errors="coerce").dt.tz_localize(
-        "America/New_York", ambiguous="NaT", nonexistent="NaT").dt.tz_convert("UTC").dt.year)
+    yr = _num(ad["Season"])
     checked = 0
     for side, cols in (("Player Added", ("Average PPG on team", "PPG of 5 games before pickup")),
                        ("Player Dropped", ("Average PPG of dropped player over same time", "Dropped avg points"))):

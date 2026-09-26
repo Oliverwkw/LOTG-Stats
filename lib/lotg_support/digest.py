@@ -261,8 +261,9 @@ _PHRASING = {
         "Cuff-adjusted start/sit difference (5-game averages, position-adjusted)",
     ("", "UPST"): "Upset wins",
 }
-# "Number of players over 30" is points, not age: say so.
-_POINTS_THRESHOLD = re.compile(r"^(Number of (?:players|starters|games) (?:over|under|within) \d+)$")
+# "Number of games within 10" is points, not anything else: say so. (The player
+# thresholds carry "pts" in their own names: "Players over 30 pts (roster)".)
+_POINTS_THRESHOLD = re.compile(r"^(Number of games (?:over|under|within) \d+)$")
 # Which sheet a section's crossings / highlights / projections are ranked on.
 _SECTION_SHEET = {
     ("crossing", "players"): "player_all_time", ("crossing", "teams"): "team_all_time",
@@ -276,7 +277,7 @@ _SECTION_SHEET = {
 def display_column(column: str, sheet: str = "") -> str:
     """The column as the email names it: the sheet's phrasing (`_PHRASING`), an
     award's "?" dropped ("Times as Highest starter on team"), and "pts" on a
-    points threshold ("Number of players over 30 pts")."""
+    points threshold ("Number of games within 10 pts")."""
     name = _PHRASING.get((sheet, column)) or _PHRASING.get(("", column)) or column
     name = _POINTS_THRESHOLD.sub(r"\1 pts", name)
     return name[:-1] if name.endswith("?") else name

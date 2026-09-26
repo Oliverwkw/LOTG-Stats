@@ -795,11 +795,39 @@ PF mixes every position, so the per-position factor means nothing there);
   `Number of donuts` (not a milestone stat). Guard:
   `tests/test_phrasing_reference.py` fails on a row naming a sheet or column
   that no longer exists (it fails on the old file).
+- [x] **add_drops position factor keyed to the FANTASY season** [per user:
+  "use FFB year like everything else — calendar year should pretty much never
+  be used"] (defect): `_tx_season` was the calendar year of the move's UTC
+  timestamp; it is now the row's own `Season` (`_move_season`: league time,
+  bounded by championships), as trades / player_additions / picks already did.
+  Swept every `_pos_factor` caller: this was the only calendar-year one. Offline
+  build: exactly the 6 of 1,503 rows whose Season differs from that year move
+  (late-December-after-the-final / early-January-before-it moves), plus a ±0.1
+  O-Score percentile ripple on 7 others. Note (by design of per-season
+  baselines, unchanged): a move filed under a season with no starts yet (e.g.
+  an August pickup before week 1) has no baseline and scales by 1.0.
+- [x] **Team + league count labels** [per user: clear "(starters)" vs
+  "(roster)" in the spreadsheet and the email]: `Number of donuts` -> `Donuts
+  (roster)`, `Number of starter donuts` / league `Number of starting donuts` ->
+  `Donuts (starters)`, `Number of players under 10 / over 20..50` -> `Players
+  under 10 pts (roster)` / `Players over N pts (roster)`, `Number of starters
+  …` -> `Players … pts (starters)`, on team_week/year/all_time and
+  league_week/year/all_time. `Number of games within 5/10` (games, not players)
+  unchanged. Kind, N/A rule, number format, header topic and every digest
+  classification checked identical old -> new; `_EXTRA_COUNT_PREFIXES` gains
+  the new prefixes so they still render as integers; the digest's " pts" suffix
+  now only applies to the games columns (the player names carry "pts"
+  themselves). Values unchanged (offline build, renamed columns compared cell by
+  cell). The first Tuesday digest after merge is blind to these columns'
+  all-time boards for one week (its snapshot is keyed by column name) and lists
+  their on-pace standings once.
 - [ ] **3-part audit** on the first post-merge build. Expected diff: the 58 new
   columns on six sheets, their Formulas rows (and the four corrected ones), the
-  3 add_drops rows above, nothing else. The first Tuesday digest after merge lists the new player_year
-  columns' on-pace standings once; boards stay silent on them for a week (new
-  slots are absent from the prior snapshot).
+  3 stale-difference add_drops rows, the 6 fantasy-season add_drops rows (+ a
+  ±0.1 O-Score ripple), the donut / points-threshold renames on the team and
+  league sheets, nothing else. The first Tuesday digest after merge lists the
+  new player_year columns' on-pace standings once; boards stay silent on them
+  for a week (new slots are absent from the prior snapshot).
 
 ## Phase 15 — TBD: OLD LEAGUES
 - [ ] **TBD.** Placeholder for integrating other historical/old leagues' data (e.g. the
