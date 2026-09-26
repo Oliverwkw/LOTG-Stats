@@ -250,7 +250,7 @@ def check_all_time_sheets_are_diffed(tmp):
     for d, pf, donuts in ((base_dir, "100", "7"), (cur_dir, "101", "9")):
         _write(d, "team_all_time", pd.DataFrame({"Team": ["A", "B"], "PF": [pf, "200"]}))
         _write(d, "player_all_time", pd.DataFrame({"Player": ["p", "q"], "Points": ["10", "20"]}))
-        _write(d, "league_all_time", pd.DataFrame({"Number of donuts": [donuts]}))
+        _write(d, "league_all_time", pd.DataFrame({"Donuts (roster)": [donuts]}))
     curf = {n: A._read(cur_dir, n) for n in A.SHEETS}
     basef = {n: A._read(base_dir, n) for n in A.SHEETS}
     rep = A.Report()

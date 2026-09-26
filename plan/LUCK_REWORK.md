@@ -201,7 +201,7 @@ ADV   = z_wk(  Hardship + Starter-adjusted Hardship + 3·(Number of players on b
 EFF   = z_wk(  Efficiency )
 CLOSE = sign(Margin) · max(0, 1 − |Margin|/8)          # nail-biter bonus to winner / penalty to loser
 GATE  = 1 / (1 + |Margin|/15)                           # scoring-variance only counts when it decided a close game
-POST  = 1 if Week Name ∈ {Final, Semifinal, 3rd Place} else 0
+POST  = 1 if Week Name ∈ {Final, Semifinal} else 0   (3rd Place dropped 2026-09-26: playoff = Semifinal + Final on every sheet)
 SIS   = Sisenzweig (0/1)     BROS = Brosenzweig (0/1)
 ```
 
