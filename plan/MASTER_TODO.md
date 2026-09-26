@@ -821,8 +821,24 @@ PF mixes every position, so the per-position factor means nothing there);
   cell). The first Tuesday digest after merge is blind to these columns'
   all-time boards for one week (its snapshot is keyed by column name) and lists
   their on-pace standings once.
-- [ ] **3-part audit** on the first post-merge build. Expected diff: the 58 new
-  columns on six sheets, their Formulas rows (and the four corrected ones), the
+- [x] **Playoff points as counts** [per user: "playoff points, regular season
+  points, playoff − regular season", player_all_time + team sheets where
+  missing]: player_all_time `Regular-season points as starter`, `Playoff points
+  as starter`, `Playoff minus regular-season points as starter` (the counts
+  behind the PPG split: same Semifinal + Final definition, 0 with no start in a
+  phase); team_all_time `Regular-season points`, `Playoff points`, `Playoff
+  minus regular-season points` (team PF; the "Playoff record" games — Semifinal
+  + Final — so a higher seed's semifinal carries the +5). team_all_time had
+  only the per-game clutch index (`Playoff PF minus regular-season PF`, which
+  also counts the 3rd Place game — left as is). Not added to team_year: a
+  season's playoff total is 0 until the playoffs, so the email's on-pace
+  projection would scale that 0 by weeks played and report noise every week of
+  the regular season. The differences are of TOTALS, so they are always
+  negative and track regular-season volume; the Formulas notes say so and point
+  to the per-game columns. Additive only (offline build: 6 new columns, 6
+  Formulas rows, nothing else).
+- [ ] **3-part audit** on the first post-merge build. Expected diff: the 64 new
+  columns on seven sheets, their Formulas rows (and the four corrected ones), the
   3 stale-difference add_drops rows, the 6 fantasy-season add_drops rows (+ a
   ±0.1 O-Score ripple), the donut / points-threshold renames on the team and
   league sheets, nothing else. The first Tuesday digest after merge lists the

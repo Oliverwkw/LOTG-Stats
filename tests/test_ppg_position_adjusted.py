@@ -50,7 +50,10 @@ _NEW = {
     "player_all_time": (["PPG starter per rostered week", "Adjusted PPG starter per rostered week"]
                         + [b + _A for b in _PLAYER_BASES + ["Avg points (full career)"]]
                         + [c for b in ("Regular-season PPG starter", "Playoff PPG starter",
-                                       "Playoff minus regular-season PPG starter") for c in (b, b + _A)]),
+                                       "Playoff minus regular-season PPG starter") for c in (b, b + _A)]
+                        + ["Regular-season points as starter", "Playoff points as starter",
+                           "Playoff minus regular-season points as starter"]),
+    "team_all_time": ["Regular-season points", "Playoff points", "Playoff minus regular-season points"],
     "player_additions": [c for b in ("Adjusted Avg points added", "Avg points added per rostered week",
                                      "Adjusted Avg points added per rostered week",
                                      "Avg points per rostered week on team", "PPG bench on team",
@@ -354,9 +357,37 @@ def test_playoff_split_recomputes_from_player_week():
     for col, v in want.items():
         bad = ~_close(m[col], v, 3e-4)
         assert not bad.any(), f"{col}: {int(bad.sum())} players disagree with player_week"
+    # The counts behind the split: a phase with no start is 0 points.
+    t = st.groupby(["Player", "ph"])["Points"].sum().unstack("ph").reindex(m.index).fillna(0.0)
+    for col, v in (("Regular-season points as starter", t.get("reg")),
+                   ("Playoff points as starter", t.get("po")),
+                   ("Playoff minus regular-season points as starter", t.get("po") - t.get("reg"))):
+        bad = ~_close(m[col], v, 0.011)
+        assert not bad.any(), f"{col}: {int(bad.sum())} players disagree with player_week"
     n_po = int(_num(m["Playoff PPG starter"]).notna().sum())
     assert n_po > 50, f"only {n_po} players with a Semifinal/Final start"
     print(f"  {len(m)} players reconcile ({n_po} with a Semifinal/Final start)")
+
+
+def test_team_playoff_points_recompute_from_team_week():
+    """team_all_time: total PF in "Week N" games and in Semifinal + Final games
+    (3rd Place and the toilet bracket are neither), and playoff minus regular."""
+    ta, tw = _sheet("team_all_time"), _read("team_week")
+    if ta is None or tw is None:
+        return True
+    wn = tw["Week Name"].astype(str).str.strip()
+    pf = _num(tw["PF"]).fillna(0.0)
+    reg = pf[wn.str.startswith("Week ")].groupby(tw["Team"]).sum()
+    po = pf[wn.isin(["Semifinal", "Final"])].groupby(tw["Team"]).sum()
+    m = ta.set_index("Team")
+    reg, po = reg.reindex(m.index).fillna(0.0), po.reindex(m.index).fillna(0.0)
+    for col, v in (("Regular-season points", reg), ("Playoff points", po),
+                   ("Playoff minus regular-season points", po - reg)):
+        bad = ~_close(m[col], v, 0.011)
+        assert not bad.any(), f"team_all_time {col}: {int(bad.sum())} teams disagree with team_week"
+    # Regular-season + every bracket game = all-time Points.
+    assert (_num(m["Regular-season points"]) <= _num(m["Points"]) + 0.011).all(), "regular-season points exceed Points"
+    print(f"  {len(m)} teams reconcile")
 
 
 def test_player_week_twins():
@@ -403,7 +434,7 @@ if __name__ == "__main__":
                test_all_time_pools_the_seasons, test_blank_exactly_where_base_is,
                test_player_additions_grid, test_difference_columns_split_into_their_twins,
                test_add_drops_twins_use_each_players_factor, test_playoff_split_recomputes_from_player_week,
-               test_player_week_twins):
+               test_team_playoff_points_recompute_from_team_week, test_player_week_twins):
         print(fn.__name__)
         fn()
     print("ok")

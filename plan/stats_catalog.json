@@ -283,7 +283,10 @@
     "Playoff PPG starter",
     "Playoff PPG starter adjusted by position",
     "Playoff minus regular-season PPG starter",
-    "Playoff minus regular-season PPG starter adjusted by position"
+    "Playoff minus regular-season PPG starter adjusted by position",
+    "Regular-season points as starter",
+    "Playoff points as starter",
+    "Playoff minus regular-season points as starter"
   ],
   "team-week": [
     "Team",
@@ -572,6 +575,9 @@
     "All-play win % minus Win %",
     "Playoff PF minus regular-season PF",
     "Playoff win % minus regular-season win %",
+    "Regular-season points",
+    "Playoff points",
+    "Playoff minus regular-season points",
     "Highest Win % vs a team",
     "Team for highest Win %",
     "Lowest Win % vs a team",
