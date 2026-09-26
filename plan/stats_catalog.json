@@ -277,7 +277,13 @@
     "Adjusted PPG bench",
     "Adjusted PPG bench adjusted by position",
     "PPG starter vs bench diff",
-    "PPG starter vs bench diff adjusted by position"
+    "PPG starter vs bench diff adjusted by position",
+    "Regular-season PPG starter",
+    "Regular-season PPG starter adjusted by position",
+    "Playoff PPG starter",
+    "Playoff PPG starter adjusted by position",
+    "Playoff minus regular-season PPG starter",
+    "Playoff minus regular-season PPG starter adjusted by position"
   ],
   "team-week": [
     "Team",

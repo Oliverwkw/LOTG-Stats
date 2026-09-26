@@ -2051,7 +2051,11 @@ def _preserve_na(col: str) -> bool:
     # player never started / never benched / never played that period.
     if col_l in {"ppg starter", "ppg bench", "adjusted ppg starter", "adjusted ppg bench",
                  "adjusted avg points", "ppg starter vs bench diff",
-                 "ppg starter per rostered week", "adjusted ppg starter per rostered week"}:
+                 "ppg starter per rostered week", "adjusted ppg starter per rostered week",
+                 # player_all_time's playoff split: blank with no regular-season
+                 # / no Semifinal-or-Final start (the gap: either side missing).
+                 "regular-season ppg starter", "playoff ppg starter",
+                 "playoff minus regular-season ppg starter"}:
         return True
     # Player win % as starter / while rostered (player_year / player_all_time):
     # N/A when the player has no qualifying (scored) started / rostered weeks in
@@ -16260,6 +16264,34 @@ def build_all(repo_root: Path) -> None:
             return round(float(0 if st_na else st) - float(0 if bn_na else bn), 4)
         pa["PPG starter vs bench diff"] = pa.apply(_pa_ppg_diff, axis=1)
         pa = _add_ppg_split_columns(pa)
+        # Playoff split (all-time only, per user): PPG starter in the regular
+        # season ("Week N") vs the championship bracket's Semifinal and Final
+        # weeks — 3rd Place and the toilet bracket are neither — and the gap, a
+        # player's own clutch index. Every start counts, as in "PPG starter".
+        # Each has a position-adjusted twin (each week x its season's factor).
+        try:
+            _wn = pw_work["Week Name"].astype(str).str.strip()
+            _is_st = pd.to_numeric(pw_work["Starter?"], errors="coerce").fillna(0) == 1
+            _phase = pd.Series(None, index=pw_work.index, dtype=object)
+            _phase[_wn.str.startswith("Week ")] = "reg"
+            _phase[_wn.isin(("Semifinal", "Final"))] = "po"
+            _sp = pw_work.loc[_is_st & _phase.notna(), ["Player ID"]].assign(
+                _ph=_phase[_is_st & _phase.notna()],
+                _p=pd.to_numeric(pw_work["Points"], errors="coerce"),
+                _pf=pd.to_numeric(pw_work["Points_posadj"], errors="coerce"))
+            _g = _sp.groupby(["Player ID", "_ph"]).agg(n=("_p", "size"), p=("_p", "sum"), pf=("_pf", "sum"))
+            _ppg = {(str(k[0]), k[1]): (r["p"] / r["n"], r["pf"] / r["n"]) for k, r in _g.iterrows() if r["n"]}
+            for _lbl, _ph in (("Regular-season PPG starter", "reg"), ("Playoff PPG starter", "po")):
+                for _j, _sfx in ((0, ""), (1, " adjusted by position")):
+                    pa[_lbl + _sfx] = [
+                        round(_ppg[(str(p), _ph)][_j], 4) if (str(p), _ph) in _ppg else None
+                        for p in pa["Player ID"]]
+            for _sfx in ("", " adjusted by position"):
+                _po_v = pd.to_numeric(pa["Playoff PPG starter" + _sfx], errors="coerce")
+                _rs_v = pd.to_numeric(pa["Regular-season PPG starter" + _sfx], errors="coerce")
+                pa["Playoff minus regular-season PPG starter" + _sfx] = (_po_v - _rs_v).round(4)
+        except Exception as e:
+            _log_exc(debug, "player_all_playoff_ppg_split", e)
         pa = pa.drop(columns=[
             "Starter_points_sum", "Bench_points_sum", "Weeks_as_bench",
             "Played_points", "Played_weeks",
@@ -20507,6 +20539,15 @@ def build_all(repo_root: Path) -> None:
                     # scaled for the added player's position.
                     add_drops_df.at[_i, "Average PPG on team adjusted by position"] = (
                         round(_aa, 4) if _aa is not None else None)
+                else:
+                    # Neither side left on the sheet (never rostered a week here,
+                    # and no dropped-player window): the first pass's difference —
+                    # built on the nflverse window this pass replaced — no longer
+                    # describes anything shown. Blank it, and grade the pickup as
+                    # the Formulas sheet says for a player never rostered a week.
+                    add_drops_df.at[_i, "Difference of averages"] = None
+                    add_drops_df.at[_i, _adj_col] = None
+                    add_drops_df.at[_i, "Player addition value"] = 0.0
                 add_drops_df.at[_i, "Number of starts before next drop"] = int(_st["starts"])
                 _pct = _pinj = None
                 if _st["weeks"] > 0:

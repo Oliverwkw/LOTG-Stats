@@ -751,7 +751,8 @@ PF mixes every position, so the per-position factor means nothing there);
   minus a baseline, not an average); `Positional scoring percentile` and the
   tier %s (already within-position); pick sheets (every PPG column there already
   has a twin).
-- [x] **Doc fixes found on the way** (defects, doc-only): `PPG starter vs bench
+- [x] **Doc fixes found on the way** (defects, doc-only; plus the two add_drops
+  difference notes now say "blank when both sides are blank"): `PPG starter vs bench
   diff` said PPG starter − PPG bench; the code (since Phase 1C) uses the Adjusted
   pair and reads a missing side as 0 — 747 of 1,058 two-sided player_year rows
   differ from the documented formula. `Difference of averages adjusted by
@@ -766,9 +767,37 @@ PF mixes every position, so the per-position factor means nothing there);
   number format moved (checked over every catalog column).
 - [x] Guard: `tests/test_ppg_position_adjusted.py` recomputes the grid and the
   factor from player_week and checks every twin against it.
-- [ ] **3-part audit** on the first post-merge build. Expected diff: the 52 new
-  columns on six sheets, their Formulas rows (and the two corrected ones),
-  nothing else. The first Tuesday digest after merge lists the new player_year
+- [x] **Playoff PPG split, player_all_time only** [per user: "Semifinals and
+  finals only", starter PPG]: `Regular-season PPG starter` ("Week N" starts),
+  `Playoff PPG starter` (championship-bracket Semifinal + Final starts; 3rd Place
+  and the toilet bracket are neither), `Playoff minus regular-season PPG
+  starter` (the player's own clutch index), each with its position-adjusted
+  twin. Every start counts, as in `PPG starter`; player points carry no
+  semifinal +5 (a team PF bonus). 122 players have a Semifinal/Final start in
+  the offline build.
+- [x] **Stale add_drops difference fixed** (defect): add_drops' final pass left
+  the first-pass `Difference of averages` (+ adjusted) and the Player addition
+  value built on it when it blanked BOTH sides (never rostered a week here, no
+  dropped-player window). Now blank, and the addition value is 0.0 as the
+  Formulas sheet documents for a player never rostered a week. Exactly 3 rows:
+  K.J. Osborn (Oliverwkw 2023-01-11, value 10.10 -> 0), Gardner Minshew
+  (stevenb123 2022-01-08, 11.82 -> 0), Tyler Huntley (stevenb123 2022-01-09,
+  10.60 -> 0 — its +5 handcuff bonus goes with it). O-Score unchanged (all
+  three were already N/A); nothing else moved.
+- [x] **phase14_phrasing.csv regenerated in full** (defect: nothing regenerates
+  it, so it still listed the retired `transactions` / `picks` sheets, "Number of
+  transactions", "Transaction skill", a week-3 on-pace gate, and had no rows for
+  add_drops, player_additions, the pick sheets or the year sheets' all-time
+  boards). Every existing row now comes from `phrasing_catalog()` over the
+  committed exports; this PR's new columns' rows from the offline build. 886 ->
+  1,493 rows. The 90 dropped (sheet, stat) pairs all name something gone, except
+  two correctly unranked: `Reference player name` (text) and league_all_time
+  `Number of donuts` (not a milestone stat). Guard:
+  `tests/test_phrasing_reference.py` fails on a row naming a sheet or column
+  that no longer exists (it fails on the old file).
+- [ ] **3-part audit** on the first post-merge build. Expected diff: the 58 new
+  columns on six sheets, their Formulas rows (and the four corrected ones), the
+  3 add_drops rows above, nothing else. The first Tuesday digest after merge lists the new player_year
   columns' on-pace standings once; boards stay silent on them for a week (new
   slots are absent from the prior snapshot).
 

@@ -46,10 +46,10 @@ _ROWS = [
      "Notes": ""},
     {"Stat": "Difference of averages", "Sheet": "add_drops",
      "Formula": "How much more the added player scored than the dropped one over the added player's tenure. Average PPG on team − Average PPG of dropped player over same time.",
-     "Notes": "A missing side counts as 0."},
+     "Notes": "A missing side counts as 0; blank when both sides are blank."},
     {"Stat": "Difference of averages adjusted by position", "Sheet": "add_drops",
      "Formula": "Same added-minus-dropped PPG gap, but each side scaled for its position so a 12-PPG TE isn't judged like a 12-PPG QB. Each PPG × (league starter avg / position avg).",
-     "Notes": "Position averages are that season's starter averages from player_week (per-season baselines, so one scoring era never shifts another's)."},
+     "Notes": "Position averages are that season's starter averages from player_week (per-season baselines, so one scoring era never shifts another's). Blank when both sides are blank."},
     {"Stat": "Age difference", "Sheet": "add_drops",
      "Formula": "Age gap between the added and dropped players. added age − dropped age in decimal years, at the pickup date.",
      "Notes": "Negative = the team got younger."},
@@ -1529,6 +1529,17 @@ _ROWS = [
     {"Stat": "Adjusted PPG bench on team", "Sheet": "player_additions", "Columns": ["Adjusted PPG bench on team"],
      "Formula": "Bench points in healthy weeks / Healthy bench weeks on team.",
      "Notes": "Blank with no healthy bench week."},
+    # --- player_all_time playoff split (championship bracket only).
+    {"Stat": "Regular-season PPG starter", "Sheet": "player_all_time", "Columns": ["Regular-season PPG starter"],
+     "Formula": "PPG starter over his regular-season starts only (weeks named 'Week N'), career.",
+     "Notes": "Every start counts, a start in a missed week included, as in 'PPG starter'. Blank with no regular-season start."},
+    {"Stat": "Playoff PPG starter", "Sheet": "player_all_time", "Columns": ["Playoff PPG starter"],
+     "Formula": "PPG starter over his starts in championship-bracket Semifinal and Final weeks, career. The 3rd Place game and the toilet bracket are excluded.",
+     "Notes": "Player points carry no semifinal +5 (that is a team PF bonus). Blank with no Semifinal/Final start."},
+    {"Stat": "Playoff minus regular-season PPG starter", "Sheet": "player_all_time",
+     "Columns": ["Playoff minus regular-season PPG starter"],
+     "Formula": "The player's own clutch index: Playoff PPG starter − Regular-season PPG starter. Positive = he scored more per start in the Semifinal/Final.",
+     "Notes": "Blank when either side is blank. The player-level counterpart of team_all_time's 'Playoff PF minus regular-season PF' (which also counts the 3rd Place game)."},
 ]
 
 
@@ -1582,6 +1593,10 @@ _POS_TWINS = [
     ("Avg points per rostered week on team", "player_additions", "x the player's factor in the addition's season", ""),
     ("PPG bench on team", "player_additions", "x the player's factor in the addition's season", ""),
     ("Adjusted PPG bench on team", "player_additions", "x the player's factor in the addition's season", ""),
+    ("Regular-season PPG starter", "player_all_time", "each regular-season start x that season's factor, then averaged", ""),
+    ("Playoff PPG starter", "player_all_time", "each Semifinal/Final start x that season's factor, then averaged", ""),
+    ("Playoff minus regular-season PPG starter", "player_all_time",
+     "Playoff PPG starter adjusted by position − Regular-season PPG starter adjusted by position", ""),
 ]
 for _base, _sheet, _how, _note in _POS_TWINS:
     _col = ("PPG as team starter adjusted by position this season" if _base == "PPG as team starter this season"

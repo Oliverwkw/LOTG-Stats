@@ -48,7 +48,9 @@ _NEW = {
                         "Avg points (full season)", "Change in avg points from previous season",
                         "Change in avg points from career"]]),
     "player_all_time": (["PPG starter per rostered week", "Adjusted PPG starter per rostered week"]
-                        + [b + _A for b in _PLAYER_BASES + ["Avg points (full career)"]]),
+                        + [b + _A for b in _PLAYER_BASES + ["Avg points (full career)"]]
+                        + [c for b in ("Regular-season PPG starter", "Playoff PPG starter",
+                                       "Playoff minus regular-season PPG starter") for c in (b, b + _A)]),
     "player_additions": [c for b in ("Adjusted Avg points added", "Avg points added per rostered week",
                                      "Adjusted Avg points added per rostered week",
                                      "Avg points per rostered week on team", "PPG bench on team",
@@ -288,14 +290,12 @@ def test_difference_columns_split_into_their_twins():
             continue
         a, b = _num(df[a_col]), _num(df[b_col])
         d = _num(df["Difference of averages adjusted by position"])
-        # Pre-existing: a few add_drops rows keep a first-pass difference after
-        # the final pass blanked BOTH of its sides (never rostered a week here;
-        # e.g. K.J. Osborn, Oliverwkw 2023-01-11) — the unadjusted "Difference
-        # of averages" carries the same stale value. Left out and counted.
-        orphan = d.notna() & a.isna() & b.isna()
-        if orphan.any():
-            print(f"  NOTE {name}: {int(orphan.sum())} difference(s) with neither side on the sheet (pre-existing)")
-        k = d.notna() & ~orphan
+        # A difference with neither side on the sheet is blank too (it used to
+        # survive from add_drops' first pass: K.J. Osborn, Oliverwkw 2023-01-11).
+        for dc in ("Difference of averages", "Difference of averages adjusted by position"):
+            orphan = _num(df[dc]).notna() & a.isna() & b.isna()
+            assert not orphan.any(), f"{name}: {int(orphan.sum())} '{dc}' with neither side on the sheet"
+        k = d.notna()
         bad = k & ((d - (a.fillna(0) - b.fillna(0))).abs() > 2e-4)
         assert not bad.any(), f"{name}: {int(bad.sum())} rows where the adjusted difference != its twins"
 
@@ -328,6 +328,38 @@ def test_add_drops_twins_use_each_players_factor():
             assert not bad.any(), f"add_drops {col}{_A}: {int(bad.sum())} rows not base x the {side} factor"
             checked += int(k.sum())
     assert checked > 1000, f"only {checked} add_drops cells checked"
+
+
+def test_playoff_split_recomputes_from_player_week():
+    """player_all_time: PPG starter over regular-season ("Week N") starts vs
+    Semifinal + Final starts (3rd Place and the toilet bracket are neither),
+    the gap, and the three position-adjusted twins."""
+    pa, pw = _sheet("player_all_time"), _read("player_week")
+    if pa is None or pw is None:
+        return True
+    w = _weekly(pw)
+    fac = _factors(w)
+    w["f"] = [fac.get((int(y), p), 1.0) if pd.notna(y) else 1.0 for y, p in zip(w["Year"], w["Position"])]
+    wn = pw["Week Name"].astype(str).str.strip()
+    w["ph"] = np.where(wn.str.startswith("Week "), "reg", np.where(wn.isin(["Semifinal", "Final"]), "po", ""))
+    st = w[w["start"] & (w["ph"] != "")].assign(pf=lambda d: d["Points"] * d["f"])
+    g = st.groupby(["Player", "ph"]).agg(p=("Points", "mean"), pf=("pf", "mean")).unstack("ph")
+    g.columns = [f"_{a}_{b}" for a, b in g.columns]
+    pa = pa[~pa["Player"].duplicated(keep=False)].set_index("Player")
+    m = pa.join(g, how="left")
+    want = {
+        "Regular-season PPG starter": m["_p_reg"], "Playoff PPG starter": m["_p_po"],
+        "Regular-season PPG starter" + _A: m["_pf_reg"], "Playoff PPG starter" + _A: m["_pf_po"],
+    }
+    want["Playoff minus regular-season PPG starter"] = want["Playoff PPG starter"] - want["Regular-season PPG starter"]
+    want["Playoff minus regular-season PPG starter" + _A] = (
+        want["Playoff PPG starter" + _A] - want["Regular-season PPG starter" + _A])
+    for col, v in want.items():
+        bad = ~_close(m[col], v, 3e-4)
+        assert not bad.any(), f"{col}: {int(bad.sum())} players disagree with player_week"
+    n_po = int(_num(m["Playoff PPG starter"]).notna().sum())
+    assert n_po > 50, f"only {n_po} players with a Semifinal/Final start"
+    print(f"  {len(m)} players reconcile ({n_po} with a Semifinal/Final start)")
 
 
 def test_player_week_twins():
@@ -373,7 +405,8 @@ if __name__ == "__main__":
     for fn in (test_player_year_recomputes_from_player_week, test_player_year_change_columns,
                test_all_time_pools_the_seasons, test_blank_exactly_where_base_is,
                test_player_additions_grid, test_difference_columns_split_into_their_twins,
-               test_add_drops_twins_use_each_players_factor, test_player_week_twins):
+               test_add_drops_twins_use_each_players_factor, test_playoff_split_recomputes_from_player_week,
+               test_player_week_twins):
         print(fn.__name__)
         fn()
     print("ok")
