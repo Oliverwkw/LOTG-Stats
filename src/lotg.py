@@ -1132,7 +1132,9 @@ _TOPIC_IDENTITY = {
 _EXTRA_COUNT_PREFIXES = ("healthy weeks ", "healthy bench weeks ", "bench weeks ", "injured weeks ",
                          # the donut / points-threshold counts on the team and
                          # league sheets: "Donuts (roster)", "Players over 30 pts (starters)"
-                         "donuts (", "players under ", "players over ")
+                         "donuts (", "players under ", "players over ",
+                         # player_all_time's playoff split start counts
+                         "regular-season games started", "playoff games started")
 
 
 def _col_topic(col: str) -> str:
@@ -1185,7 +1187,8 @@ def _col_topic(col: str) -> str:
                             "% of points", "ppg", "par", "volatility", "scoring floor", "scoring ceiling",
                             "boom", "bust", "addition value", "points added", "net points", "points lost",
                             "avg net", "o-score", "skill", "difference of averages", "% of starts",
-                            "difference from best", "difference from worst", "weeks as starter")):
+                            "difference from best", "difference from worst", "weeks as starter",
+                            "games started")):
         return "Value"
     if any(k in n for k in ("age", "number of qb", "number of rb", "number of wr", "number of te",
                             "number of rookies", "number of cuff", "donut", "under 10", "over 20",
@@ -16293,15 +16296,14 @@ def build_all(repo_root: Path) -> None:
                 _pf=pd.to_numeric(pw_work["Points_posadj"], errors="coerce"))
             _g = _sp.groupby(["Player ID", "_ph"]).agg(n=("_p", "size"), p=("_p", "sum"), pf=("_pf", "sum"))
             _ppg = {(str(k[0]), k[1]): (r["p"] / r["n"], r["pf"] / r["n"]) for k, r in _g.iterrows() if r["n"]}
-            # The same split as COUNTS (per user): starter points in each phase
-            # and playoff minus regular. No start in a phase = 0 points there.
-            _tot = {(str(k[0]), k[1]): float(r["p"]) for k, r in _g.iterrows()}
-            _rs_t = [_tot.get((str(p), "reg"), 0.0) for p in pa["Player ID"]]
-            _po_t = [_tot.get((str(p), "po"), 0.0) for p in pa["Player ID"]]
-            pa["Regular-season points as starter"] = [round(v, 2) for v in _rs_t]
-            pa["Playoff points as starter"] = [round(v, 2) for v in _po_t]
-            pa["Playoff minus regular-season points as starter"] = [
-                round(b_ - a_, 2) for a_, b_ in zip(_rs_t, _po_t)]
+            # The same split as COUNTS (per user): starts and starter points in
+            # each phase. No start in a phase = 0 there.
+            _tot = {(str(k[0]), k[1]): (int(r["n"]), float(r["p"])) for k, r in _g.iterrows()}
+            for _lbl_n, _lbl_p, _ph in (
+                    ("Regular-season games started", "Regular-season points as starter", "reg"),
+                    ("Playoff games started", "Playoff points as starter", "po")):
+                pa[_lbl_n] = [_tot.get((str(p), _ph), (0, 0.0))[0] for p in pa["Player ID"]]
+                pa[_lbl_p] = [round(_tot.get((str(p), _ph), (0, 0.0))[1], 2) for p in pa["Player ID"]]
             for _lbl, _ph in (("Regular-season PPG starter", "reg"), ("Playoff PPG starter", "po")):
                 for _j, _sfx in ((0, ""), (1, " adjusted by position")):
                     pa[_lbl + _sfx] = [
@@ -18013,8 +18015,8 @@ def build_all(repo_root: Path) -> None:
             # Playoff points as COUNTS (per user, like player_all_time's): total
             # PF in the regular season ("Week N") and in the championship
             # bracket's Semifinal + Final (the "Playoff record" games — 3rd
-            # Place and the toilet bracket are neither), and playoff minus
-            # regular. A team that never reached them has 0 playoff points.
+            # Place and the toilet bracket are neither). A team that never
+            # reached them has 0 playoff points.
             _rs_pts = _po_pts = 0.0
             if _wkn is not None:
                 _pf_all = pd.to_numeric(g["PF"], errors="coerce").fillna(0.0)
@@ -18029,7 +18031,6 @@ def build_all(repo_root: Path) -> None:
                 "Playoff win % minus regular-season win %": _clutch_wp,
                 "Regular-season points": round(_rs_pts, 2),
                 "Playoff points": round(_po_pts, 2),
-                "Playoff minus regular-season points": round(_po_pts - _rs_pts, 2),
                 "Number of playoff appearances": playoff_appearance_counts.get(str(team), 0),
                 "Number of championship appearances": champ_appearance_counts.get(str(team), 0),
                 "Number of last place finishes": last_place_counts.get(str(team), 0),

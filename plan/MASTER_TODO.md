@@ -833,10 +833,17 @@ PF mixes every position, so the per-position factor means nothing there);
   also counts the 3rd Place game — left as is). Not added to team_year: a
   season's playoff total is 0 until the playoffs, so the email's on-pace
   projection would scale that 0 by weeks played and report noise every week of
-  the regular season. The differences are of TOTALS, so they are always
-  negative and track regular-season volume; the Formulas notes say so and point
-  to the per-game columns. Additive only (offline build: 6 new columns, 6
-  Formulas rows, nothing else).
+  the regular season. Additive only (offline build: 6 new columns, 6 Formulas
+  rows, nothing else).
+  - [x] **The two total differences dropped** [per user, on review]: `Playoff
+    minus regular-season points as starter` and `Playoff minus regular-season
+    points` subtracted TOTALS, so they were always about -11,000 to -12,000 and
+    tracked regular-season volume, not playoff performance; the per-game
+    columns carry that comparison.
+  - [x] **Start counts added** [per user]: player_all_time `Regular-season
+    games started` and `Playoff games started` (Semifinal + Final), the
+    denominators of the two PPG columns. Every start counts, as in `Weeks as
+    starter`; integer-formatted and banded with it.
 - [x] **Position factor: previous season's until week 5** [per user, from the
   "no baseline before kickoff" note]: a season with fewer than 5 weeks played
   (the season in progress through week 4, and moves filed under it before
@@ -861,7 +868,8 @@ PF mixes every position, so the per-position factor means nothing there);
   (`digest.split_records` / `_part_html`). The lede and the edits section are
   unchanged. Guard: `check_records_and_leaderboard_changes_are_two_parts`.
 - [ ] **3-part audit** on the first post-merge build. Expected diff: the 64 new
-  columns on seven sheets, their Formulas rows (and the four corrected ones), the
+  columns on seven sheets (the two total differences dropped, the two start
+  counts added), their Formulas rows (and the four corrected ones), the
   3 stale-difference add_drops rows, the 6 fantasy-season add_drops rows (+ a
   ±0.1 O-Score ripple), the donut / points-threshold renames on the team and
   league sheets, nothing else. The first Tuesday digest after merge lists the
