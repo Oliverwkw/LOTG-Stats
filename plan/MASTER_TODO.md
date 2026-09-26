@@ -818,9 +818,10 @@ PF mixes every position, so the per-position factor means nothing there);
   the new prefixes so they still render as integers; the digest's " pts" suffix
   now only applies to the games columns (the player names carry "pts"
   themselves). Values unchanged (offline build, renamed columns compared cell by
-  cell). The first Tuesday digest after merge is blind to these columns'
-  all-time boards for one week (its snapshot is keyed by column name) and lists
-  their on-pace standings once.
+  cell). The digest snapshot is keyed by column name, so
+  `digest.migrate_snapshot_columns` rewrites the old names on read (like
+  `migrate_board_label`): the first Tuesday digest after merge still diffs
+  these boards against last week instead of going blind to them for a week.
 - [x] **Playoff points as counts** [per user: "playoff points, regular season
   points, playoff − regular season", player_all_time + team sheets where
   missing]: player_all_time `Regular-season points as starter`, `Playoff points

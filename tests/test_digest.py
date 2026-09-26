@@ -799,6 +799,53 @@ def check_records_and_leaderboard_changes_are_two_parts():
     return ok
 
 
+def check_renamed_count_columns_keep_their_prior():
+    """A snapshot written before the 2026-09-26 count-column rename ("Number of
+    donuts" -> "Donuts (roster)", …) is read under the new names, so the first
+    digest after the rename still diffs those boards instead of going blind."""
+    import json
+    import tempfile
+    old = {
+        "teams": {"Number of donuts": [{"entity": "A", "value": 9.0}],
+                  "Number of starters over 30": [{"entity": "A", "value": 2.0}], "PF": []},
+        "players": {"Number of donuts": []},     # no player column is renamed
+        "event_board": [
+            {"sheet": "team_week", "column": "Number of starter donuts", "end": "high",
+             "key": "k1", "rank": 1, "label": "x", "value": 3.0},
+            {"sheet": "league_year", "column": "Number of starting donuts", "end": "high",
+             "key": "k2", "rank": 1, "label": "y", "value": 30.0},
+            {"sheet": "league_week", "column": "Number of players under 10", "end": "high",
+             "key": "k3", "rank": 1, "label": "z", "value": 50.0},
+            {"sheet": "trades", "column": "Number of donuts", "end": "high",
+             "key": "k4", "rank": 1, "label": "w", "value": 1.0},
+            {"sheet": "team_year", "column": "Number of games within 10", "end": "high",
+             "key": "k5", "rank": 1, "label": "v", "value": 4.0},
+        ],
+        "pace": {"teams": {"Number of players over 20": {"A": "high:1"}}},
+        "yearly_records": {"league": {"Number of donuts": 40.0}},
+    }
+    with tempfile.TemporaryDirectory() as d:
+        p = Path(d) / "snap.json"
+        p.write_text(json.dumps(old))
+        s = D.load_snapshot(p)
+    cols = [e["column"] for e in s["event_board"]]
+    ok = _ok("team_all_time ranks renamed",
+             set(s["teams"]) == {"Donuts (roster)", "Players over 30 pts (starters)", "PF"}, str(set(s["teams"])))
+    ok &= _ok("team / league event boards renamed",
+              cols[:3] == ["Donuts (starters)", "Donuts (starters)", "Players under 10 pts (roster)"], str(cols))
+    ok &= _ok("other sheets and the games counts untouched",
+              cols[3:] == ["Number of donuts", "Number of games within 10"] and "Number of donuts" in s["players"])
+    ok &= _ok("pace and single-season record maps renamed",
+              "Players over 20 pts (roster)" in s["pace"]["teams"]
+              and "Donuts (roster)" in s["yearly_records"]["league"])
+    ok &= _ok("idempotent", D.migrate_count_column("Donuts (starters)") == "Donuts (starters)"
+              and D.migrate_snapshot_columns(json.loads(json.dumps(s))) == s)
+    prior = D._prior_board(s["event_board"])
+    ok &= _ok("_prior_board finds the renamed slot",
+              ("team_week", "Donuts (starters)", "high") in prior)
+    return ok
+
+
 def check_digest_title():
     """In-season names the week (and never says "through"); the offseason names
     the build date instead of the meaningless "week 0"."""
@@ -1377,6 +1424,7 @@ def run_all() -> bool:
         check_phrasing_catalog,
         check_render_html_smoke,
         check_records_and_leaderboard_changes_are_two_parts,
+        check_renamed_count_columns_keep_their_prior,
         check_digest_title,
         check_an_invisible_overtake_is_not_reported,
         check_a_tie_join_is_never_suppressed,

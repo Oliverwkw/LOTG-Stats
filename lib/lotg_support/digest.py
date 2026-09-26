@@ -3333,9 +3333,57 @@ def build_replica_html(frames: dict, season: Optional[int] = None,
 # ---------------------------------------------------------------------------
 # Persistence
 # ---------------------------------------------------------------------------
+# The team / league count columns renamed on 2026-09-26 ("Number of donuts" ->
+# "Donuts (roster)", "Number of starters over 30" -> "Players over 30 pts
+# (starters)", …). A board is keyed by COLUMN, so a snapshot written under the
+# old names would leave every one of those boards without a prior and the first
+# digest after the rename blind to them (`diff_events` drops a slot the prior
+# never had). As with `migrate_board_label`, the old names are rewritten on READ:
+# idempotent, free once the snapshot rotates, safe on a replayed old snapshot.
+# Only team / league boards carry these names; no player column matches.
+_LEGACY_COUNT_COLUMN = (
+    (re.compile(r"^Number of donuts$"), "Donuts (roster)"),
+    (re.compile(r"^Number of (?:starter|starting) donuts$"), "Donuts (starters)"),
+    (re.compile(r"^Number of players (under|over) (\d+)$"), r"Players \1 \2 pts (roster)"),
+    (re.compile(r"^Number of starters (under|over) (\d+)$"), r"Players \1 \2 pts (starters)"),
+)
+_COUNT_RENAME_SHEETS = frozenset(("team_week", "team_year", "team_all_time",
+                                  "league_week", "league_year", "league_all_time"))
+
+
+def migrate_count_column(column: str) -> str:
+    """A pre-2026-09-26 team / league count column in today's name (idempotent)."""
+    if not isinstance(column, str):
+        return column
+    for pat, new in _LEGACY_COUNT_COLUMN:
+        if pat.match(column):
+            return pat.sub(new, column)
+    return column
+
+
+def migrate_snapshot_columns(snapshot: Optional[dict]) -> Optional[dict]:
+    """`snapshot` with the renamed team / league count columns in today's names:
+    the team_all_time ranks, the event boards on team / league sheets, and the
+    teams / league halves of the on-pace and single-season-record maps."""
+    if not isinstance(snapshot, dict):
+        return snapshot
+    if isinstance(snapshot.get("teams"), dict):
+        snapshot["teams"] = {migrate_count_column(k): v for k, v in snapshot["teams"].items()}
+    for e in snapshot.get("event_board") or ():
+        if isinstance(e, dict) and e.get("sheet") in _COUNT_RENAME_SHEETS:
+            e["column"] = migrate_count_column(e.get("column"))
+    for part in ("pace", "yearly_records"):
+        m = snapshot.get(part)
+        if isinstance(m, dict):
+            for sec in ("teams", "league"):
+                if isinstance(m.get(sec), dict):
+                    m[sec] = {migrate_count_column(k): v for k, v in m[sec].items()}
+    return snapshot
+
+
 def load_snapshot(path: Path) -> Optional[dict]:
     try:
-        return json.loads(Path(path).read_text())
+        return migrate_snapshot_columns(json.loads(Path(path).read_text()))
     except (OSError, ValueError):
         return None
 
