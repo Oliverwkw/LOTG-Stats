@@ -210,10 +210,10 @@ def check_downstream_rows_follow_the_player(tmp):
     pw = pd.DataFrame({"Player": ["Jaylin Noel"], "Team": ["plehv79"],
                        "Year": ["2025"], "Week": ["17"]})
     base_tw = pd.DataFrame({"Team": ["plehv79", "LWebs53"], "Year": ["2025", "2025"],
-                            "Week": ["17", "17"], "Number of donuts": ["3", "1"]})
+                            "Week": ["17", "17"], "Donuts (roster)": ["3", "1"]})
     cur_tw = base_tw.copy()
-    cur_tw.loc[0, "Number of donuts"] = "2"    # plehv79 — reachable from Noel
-    cur_tw.loc[1, "Number of donuts"] = "5"    # LWebs53 — not
+    cur_tw.loc[0, "Donuts (roster)"] = "2"    # plehv79 — reachable from Noel
+    cur_tw.loc[1, "Donuts (roster)"] = "5"    # LWebs53 — not
 
     drift = N.Drift(compared=True)
     drift.player_seasons.add(("Jaylin Noel", 2025))

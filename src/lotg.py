@@ -135,6 +135,7 @@ from lotg_support.late_listing import undo_late_listings
 from lotg_support.plan import load_plan_catalog, require_columns
 from lotg_support.history import reconcile_top_team, reconcile_last_team
 from lotg_support import pick_index
+from lotg_support import position_factor
 
 import league_all_time
 import league_week
@@ -1128,7 +1129,12 @@ _TOPIC_IDENTITY = {
 # Whole-number count columns whose names do not open with the "weeks " /
 # "number of " / "times " prefixes the three count rules below key on: the
 # bench / healthy-week counts on the player sheets and player_additions.
-_EXTRA_COUNT_PREFIXES = ("healthy weeks ", "healthy bench weeks ", "bench weeks ", "injured weeks ")
+_EXTRA_COUNT_PREFIXES = ("healthy weeks ", "healthy bench weeks ", "bench weeks ", "injured weeks ",
+                         # the donut / points-threshold counts on the team and
+                         # league sheets: "Donuts (roster)", "Players over 30 pts (starters)"
+                         "donuts (", "players under ", "players over ",
+                         # player_all_time's playoff split start counts
+                         "regular-season games started", "playoff games started")
 
 
 def _col_topic(col: str) -> str:
@@ -1181,7 +1187,8 @@ def _col_topic(col: str) -> str:
                             "% of points", "ppg", "par", "volatility", "scoring floor", "scoring ceiling",
                             "boom", "bust", "addition value", "points added", "net points", "points lost",
                             "avg net", "o-score", "skill", "difference of averages", "% of starts",
-                            "difference from best", "difference from worst", "weeks as starter")):
+                            "difference from best", "difference from worst", "weeks as starter",
+                            "games started")):
         return "Value"
     if any(k in n for k in ("age", "number of qb", "number of rb", "number of wr", "number of te",
                             "number of rookies", "number of cuff", "donut", "under 10", "over 20",
@@ -1634,6 +1641,12 @@ def _column_kind(col: str) -> str:
     if col_l in text_exact:
         return "text"
 
+    # The position-adjusted twin of trades' "Avg PPG of received players in 5
+    # games before trade": the "trade " text marker below would catch it (the
+    # base name ends at "trade"), and a PPG is numeric.
+    if col_l == "avg ppg of received players in 5 games before trade adjusted by position":
+        return "numeric"
+
     # player_additions KTC checkpoints/changes are numeric metrics — keep them
     # numeric so a missing/future value renders N/A (via _preserve_na) like the
     # picks-sheet KTC columns, instead of being caught by the generic "pick"
@@ -1899,6 +1912,10 @@ def _preserve_na(col: str) -> bool:
     these describe a *change* relative to a prior period — for the first
     week/season the comparison literally doesn't exist."""
     col_l = str(col or "").strip().lower()
+    # A position-adjusted twin is blank exactly where its base is: it renders
+    # N/A when the base does, and takes the base's 0-fill otherwise.
+    if col_l.endswith(" adjusted by position"):
+        return _preserve_na(col_l[:-len(" adjusted by position")])
     if col_l.startswith("change from ") or col_l.startswith("change in "):
         return True
     # Draft-origin shares (team/league sheets): "% of 3rd year+ players drafted"
@@ -2040,7 +2057,12 @@ def _preserve_na(col: str) -> bool:
     # Phase 12 fix #3: role-split scoring averages are N/A (not 0) when the
     # player never started / never benched / never played that period.
     if col_l in {"ppg starter", "ppg bench", "adjusted ppg starter", "adjusted ppg bench",
-                 "adjusted avg points", "ppg starter vs bench diff"}:
+                 "adjusted avg points", "ppg starter vs bench diff",
+                 "ppg starter per rostered week", "adjusted ppg starter per rostered week",
+                 # player_all_time's playoff split: blank with no regular-season
+                 # / no Semifinal-or-Final start (the gap: either side missing).
+                 "regular-season ppg starter", "playoff ppg starter",
+                 "playoff minus regular-season ppg starter"}:
         return True
     # Player win % as starter / while rostered (player_year / player_all_time):
     # N/A when the player has no qualifying (scored) started / rostered weeks in
@@ -2125,6 +2147,10 @@ def _preserve_na(col: str) -> bool:
         # when never rostered a week here, like add_drops' (a 0 would claim he
         # played and scored nothing).
         "avg ppg on team", "avg ppg on team adjusted by position",
+        # player_additions' other rostered / bench averages: blank on an empty
+        # denominator (never rostered, never benched), like "Avg PPG on team".
+        "avg points per rostered week on team", "ppg bench on team",
+        "adjusted ppg bench on team",
         "average ppg of dropped player over same time",
         "ppg of 5 games before pickup",
         "avg ppg of received players on team",
@@ -2750,6 +2776,62 @@ def _early_rookie_class_mask(picks, non_rookie_mask, current_season,
         return (~_nr) & (year == int(current_season))
     except (TypeError, ValueError):
         return false
+
+
+# player_additions' per-week PPG grid (see _pa_scoring): the combinations of
+# started / benched / rostered points over started / rostered / healthy weeks
+# the sheet did not already carry, each with its position-adjusted twin, plus
+# the adjusted twin of "PPG of 5 games before pickup".
+_PA_PPG_GRID_COLUMNS = tuple(
+    _c for _base in ("Adjusted Avg points added", "Avg points added per rostered week",
+                     "Adjusted Avg points added per rostered week",
+                     "Avg points per rostered week on team", "PPG bench on team",
+                     "Adjusted PPG bench on team")
+    for _c in (_base, f"{_base} adjusted by position")
+) + ("PPG of 5 games before pickup adjusted by position",)
+
+
+def _add_ppg_split_columns(df: pd.DataFrame) -> pd.DataFrame:
+    """player_year / player_all_time: the starter-points-per-ROSTERED-week pair
+    and a position-adjusted twin of every PPG column, from the per-week sums the
+    two groupbys carry (`*_posadj` = each week's points x that season's position
+    factor, summed). Blank (None) wherever the denominator is empty, like the
+    PPG columns they sit beside. Called after "PPG starter vs bench diff"."""
+    def _ratio(num: str, den) -> pd.Series:
+        d = den if isinstance(den, pd.Series) else df[den]
+        d = pd.to_numeric(d, errors="coerce")
+        n = pd.to_numeric(df[num], errors="coerce")
+        return (n / d.where(d > 0)).round(4)
+
+    _ros = (pd.to_numeric(df["Weeks_as_starter"], errors="coerce").fillna(0)
+            + pd.to_numeric(df["Weeks_as_bench"], errors="coerce").fillna(0))
+    df["Avg points adjusted by position"] = pd.to_numeric(
+        df["Avg_points_posadj"], errors="coerce").round(4)
+    df["Adjusted Avg points adjusted by position"] = _ratio("Played_points_posadj", "Played_weeks")
+    df["PPG starter adjusted by position"] = _ratio("Starter_points_posadj", "Weeks_as_starter")
+    df["Adjusted PPG starter adjusted by position"] = _ratio(
+        "Played_starter_points_posadj", "Played_starter_weeks")
+    df["PPG bench adjusted by position"] = _ratio("Bench_points_posadj", "Weeks_as_bench")
+    df["Adjusted PPG bench adjusted by position"] = _ratio(
+        "Played_bench_points_posadj", "Played_bench_weeks")
+    # Starter points over EVERY rostered week (started + benched), and over the
+    # healthy ones (not a bye, injury or suspension): what his starts put up per
+    # week he was held, where "PPG starter" divides by the starts alone.
+    df["PPG starter per rostered week"] = _ratio("Starter_points_sum", _ros)
+    df["PPG starter per rostered week adjusted by position"] = _ratio("Starter_points_posadj", _ros)
+    df["Adjusted PPG starter per rostered week"] = _ratio("Played_starter_points", "Played_weeks")
+    df["Adjusted PPG starter per rostered week adjusted by position"] = _ratio(
+        "Played_starter_points_posadj", "Played_weeks")
+    # Same rule as "PPG starter vs bench diff": the Adjusted (played-week) pair,
+    # a missing side read as 0, blank only when both are missing.
+    _st = df["Adjusted PPG starter adjusted by position"]
+    _bn = df["Adjusted PPG bench adjusted by position"]
+    df["PPG starter vs bench diff adjusted by position"] = [
+        None if (pd.isna(a) and pd.isna(b))
+        else round(float(0 if pd.isna(a) else a) - float(0 if pd.isna(b) else b), 4)
+        for a, b in zip(_st, _bn)
+    ]
+    return df
 
 
 def build_all(repo_root: Path) -> None:
@@ -6261,12 +6343,12 @@ def build_all(repo_root: Path) -> None:
                     # Exclude empty/placeholder lineup slots (Sleeper fills an
                     # unset starter slot with "0"); otherwise an empty starter
                     # slot counts as a starter "donut" but not a roster donut,
-                    # which made "Number of starter donuts" exceed "Number of
-                    # donuts" in championship weeks with unfilled lineups
+                    # which made "Donuts (starters)" exceed "Donuts (roster)"
+                    # in championship weeks with unfilled lineups
                     # (e.g. plehv79 2022 wk16).
                     starter_points = [ppts.get(pid, 0.0) for pid in starters if _valid_pid(pid)]
-                    # "Number of players ..." count ALL rostered players (item 6);
-                    # "Number of starters ..." are the starter-only companions.
+                    # The "(roster)" counts cover ALL rostered players (item 6);
+                    # the "(starters)" ones are the starter-only companions.
                     roster_points = [ppts.get(pid, 0.0) for pid in players if _valid_pid(pid)]
                     donuts = sum(1 for x in roster_points if float(x) == 0.0)
                     under10 = sum(1 for x in roster_points if float(x) < 10.0)
@@ -6448,18 +6530,18 @@ def build_all(repo_root: Path) -> None:
                         "Win Variance": round(luck_raw, 4) if luck_raw is not None else None,
                         "Brosenzweig": None,
                         "Sisenzweig": None,
-                        "Number of donuts": donuts,
-                        "Number of starter donuts": s_donuts,
-                        "Number of players under 10": under10,
-                        "Number of starters under 10": s_under10,
-                        "Number of players over 20": over20,
-                        "Number of starters over 20": s_over20,
-                        "Number of players over 30": over30,
-                        "Number of starters over 30": s_over30,
-                        "Number of players over 40": over40,
-                        "Number of starters over 40": s_over40,
-                        "Number of players over 50": over50,
-                        "Number of starters over 50": s_over50,
+                        "Donuts (roster)": donuts,
+                        "Donuts (starters)": s_donuts,
+                        "Players under 10 pts (roster)": under10,
+                        "Players under 10 pts (starters)": s_under10,
+                        "Players over 20 pts (roster)": over20,
+                        "Players over 20 pts (starters)": s_over20,
+                        "Players over 30 pts (roster)": over30,
+                        "Players over 30 pts (starters)": s_over30,
+                        "Players over 40 pts (roster)": over40,
+                        "Players over 40 pts (starters)": s_over40,
+                        "Players over 50 pts (roster)": over50,
+                        "Players over 50 pts (starters)": s_over50,
                         "Number of QB started": qb_s,
                         "Number of WR started": wr_s,
                         "Number of RB started": rb_s,
@@ -9969,29 +10051,26 @@ def build_all(repo_root: Path) -> None:
     # shared via _pos_factor(season, pos).
     _starter_avg_by_season: Dict[int, float] = {}
     _pos_avg_by_season: Dict[int, Dict[str, float]] = {}
+    _pos_baselines: position_factor.Baselines = ({}, {}, {})
     try:
         if not pw.empty and "Starter/Bench" in pw.columns and "Position" in pw.columns:
-            _stp = pw[pw["Starter/Bench"].astype(str).str.lower() == "starter"].copy()
-            _stp["_Y"] = pd.to_numeric(_stp["Year"], errors="coerce")
-            _stp["_P"] = pd.to_numeric(_stp["Points"], errors="coerce")
-            for _yr, _g in _stp.groupby("_Y"):
-                if pd.isna(_yr):
-                    continue
-                _yi = int(_yr)
-                _starter_avg_by_season[_yi] = float(_g["_P"].mean() or 0.0)
-                _pos_avg_by_season[_yi] = {
-                    str(_pp).upper(): float(_gg["_P"].mean() or 0.0)
-                    for _pp, _gg in _g.groupby(_g["Position"].astype(str).str.upper())
-                }
+            # lotg_support.position_factor: each season's own baseline, or the
+            # previous season's until it has played MIN_WEEKS weeks (user rule
+            # 2026-09-26; retroactive, as every build recomputes).
+            _pos_baselines = position_factor.season_baselines(
+                pw[pw["Starter/Bench"].astype(str).str.lower() == "starter"])
+            _starter_avg_by_season, _pos_avg_by_season, _pos_src = _pos_baselines
+            for _yi, _src in sorted(_pos_src.items()):
+                if _src != _yi:
+                    _log(debug, f"[{_now_iso()}] INFO position baseline {_yi}: fewer than "
+                                f"{position_factor.MIN_WEEKS} weeks played, using {_src}'s")
     except Exception as e:
         _log_exc(debug, "per_season_pos_baseline", e)
 
     def _pos_factor(season: Any, pos: Optional[str]) -> float:
-        """league-starter-avg / position-avg, computed within `season` only."""
-        _yi = _to_int(season, None)
-        _la = _starter_avg_by_season.get(_yi, 0.0)
-        _pa = (_pos_avg_by_season.get(_yi) or {}).get((pos or "").upper(), 0.0)
-        return (_la / _pa) if (_pa and _la) else 1.0
+        """league-starter-avg / position-avg for `season`'s baseline (see
+        lotg_support.position_factor)."""
+        return position_factor.factor(_pos_baselines, season, pos)
 
     # ------------------------------------------------------------------
     # Handcuff — ONE definition for add_drops, trades, the pick sheets and
@@ -10478,7 +10557,18 @@ def build_all(repo_root: Path) -> None:
                 # 'adjust adjusted averages to match this').
                 added_pos, added_nfl = _player_pos_nfl_team_at(added, pickup_iso_prefix)
                 dropped_pos, dropped_nfl = _player_pos_nfl_team_at(dropped, pickup_iso_prefix)
-                _tx_season = _to_int(str(pickup_iso_prefix)[:4], None)
+                # The move's FANTASY season (its "Season" column, _move_season:
+                # league time, bounded by championships) — not the calendar year
+                # of its UTC timestamp, which put a New Year's Eve evening move
+                # (2021-12-31 22:36 ET) and every Jan-Aug offseason move under the
+                # wrong season's position baseline.
+                _tx_season = _to_int(r.get("Season"), None)
+                if _tx_season is None:
+                    try:
+                        _tx_season = _move_season(pd.to_datetime(pickup_iso, utc=True).to_pydatetime(),
+                                                  _to_int(pickup_iso_prefix[:4], None), _season_end_by_season)
+                    except Exception:
+                        _tx_season = None
                 added_adj = _pos_adjust(added_on_team, added_pos, _tx_season)
                 dropped_adj = _pos_adjust(dropped_same_window, dropped_pos, _tx_season)
                 adj_diff = None
@@ -10490,6 +10580,15 @@ def build_all(repo_root: Path) -> None:
                 r["_added_pos"] = added_pos
                 r["_tx_season"] = _tx_season
                 r["_dropped_adj"] = dropped_adj
+                # Position-adjusted twins of the per-game columns, each side by
+                # its own player's position, in the move's season (as the
+                # adjusted difference above). The added side's on-team average
+                # is re-derived in the final pass.
+                if dropped_adj is not None:
+                    r["Average PPG of dropped player over same time adjusted by position"] = dropped_adj
+                if added_pre5 is not None:
+                    r["PPG of 5 games before pickup adjusted by position"] = _pos_adjust(
+                        added_pre5, added_pos, _tx_season)
 
                 # --- Points Added / Lost / Net (+ per-week averages) ---
                 # Points Added: the added player's fantasy points in the weeks
@@ -10560,6 +10659,8 @@ def build_all(repo_root: Path) -> None:
                     )[:17]
                     _ptot = sum(float(g["Points"] or 0.0) for g in _post)
                     r["Dropped avg points"] = round(-_ptot / len(_post), 4) if _post else 0.0
+                    r["Dropped avg points adjusted by position"] = (
+                        _pos_adjust(-_ptot / len(_post), dropped_pos, _tx_season) if _post else 0.0)
                     r["Dropped total points"] = round(-_ptot, 2) if _post else 0.0
 
                 # Length of tenure on team (added player): days from pickup to
@@ -12439,6 +12540,7 @@ def build_all(repo_root: Path) -> None:
             recv_on_team_avgs: List[float] = []
             recv_adj_on_team_avgs: List[float] = []
             recv_pre5_avgs: List[float] = []
+            recv_adj_pre5_avgs: List[float] = []
             for pid in (row.get("_recv_player_ids") or []):
                 name = _player_display(pid)
                 _ex_i = _pick_tenure_end(team, str(pid), trade_iso)
@@ -12451,6 +12553,7 @@ def build_all(repo_root: Path) -> None:
                 pre5 = _avg_ppg_pre5(name, _league_day_iso(trade_iso) or trade_prefix)
                 if pre5 is not None:
                     recv_pre5_avgs.append(pre5)
+                    recv_adj_pre5_avgs.append(pre5 * _pos_factor(row.get("Season"), _player_pos(name)))
 
             # Phase 7D: fold in the PPG of players DRAFTED with received picks,
             # over their post-draft tenure on THIS team. Only when this team
@@ -12507,6 +12610,18 @@ def build_all(repo_root: Path) -> None:
                 row["Avg PPG of received players in 5 games before trade"] = round(
                     sum(recv_pre5_avgs) / len(recv_pre5_avgs), 4
                 )
+            # Position-adjusted twins: each player's average x his position
+            # factor, then averaged — the two sides of "Difference of averages
+            # adjusted by position", and the pre-trade form on the same scale.
+            if recv_adj_on_team_avgs:
+                row["Avg PPG of received players on team adjusted by position"] = round(
+                    sum(recv_adj_on_team_avgs) / len(recv_adj_on_team_avgs), 4)
+            if drop_adj_avgs:
+                row["Avg PPG of sent players over same time adjusted by position"] = round(
+                    sum(drop_adj_avgs) / len(drop_adj_avgs), 4)
+            if recv_adj_pre5_avgs:
+                row["Avg PPG of received players in 5 games before trade adjusted by position"] = round(
+                    sum(recv_adj_pre5_avgs) / len(recv_adj_pre5_avgs), 4)
 
             diff_avg = None
             if recv_on_team_avgs or drop_over_avgs:
@@ -13196,6 +13311,12 @@ def build_all(repo_root: Path) -> None:
                 "_W": pd.to_numeric(pw["Week"], errors="coerce"),
                 "_isS": _isS,
                 "_spts": _pts * _isS,
+                # That week's started points x its season's position factor.
+                "_spts_adj": _pts * _isS * pd.Series(
+                    [_pos_factor(_y, _p) for _y, _p in zip(
+                        pd.to_numeric(pw["Year"], errors="coerce"),
+                        pw.get("Position", pd.Series("", index=pw.index)).astype(str))],
+                    index=pw.index),
                 "_hi": pd.to_numeric(pw.get("Highest starter on team?"), errors="coerce").fillna(0.0),
                 "_lo": pd.to_numeric(pw.get("Lowest starter on team?"), errors="coerce").fillna(0.0),
                 "_one": 1.0,
@@ -13223,6 +13344,7 @@ def build_all(repo_root: Path) -> None:
                 _starts = _g["_isS"].transform("sum")
                 _rostered = _g["_one"].transform("sum")
                 _spts = _g["_spts"].transform("sum")
+                _spts_adj = _g["_spts_adj"].transform("sum")
                 _teamden = (_tmp.groupby("Team")["_spts"].transform("sum") if _lvl == "L"
                             else _tmp.groupby(["Team", "_Y"])["_spts"].transform("sum"))
                 _specs = [
@@ -13233,6 +13355,8 @@ def build_all(repo_root: Path) -> None:
                     (f"% of team points on team{_sfx}", _spts / _teamden.replace(0, np.nan), "pct"),
                     (f"Total points as team starter{_sfx}", _spts, "pts"),
                     (f"PPG as team starter{_sfx}", _spts / _starts.replace(0, np.nan), "pts"),
+                    (f"PPG as team starter adjusted by position{_sfx}",
+                     _spts_adj / _starts.replace(0, np.nan), "pts"),
                     (f"Total times highest starter on team{_sfx}", _g["_hi"].transform("sum"), "int"),
                     (f"Total times lowest starter on team{_sfx}", _g["_lo"].transform("sum"), "int"),
                 ]
@@ -13981,11 +14105,11 @@ def build_all(repo_root: Path) -> None:
         # which swept in bye/injury/suspension zeros) with the played-only
         # recompute. All donut rollups (team_year / all_time / league_*) sum
         # these team_week source columns, so the correction propagates upward.
-        tw["Number of donuts"] = tw["Number_of_donuts"].round(0).astype(int)
-        tw["Number of starter donuts"] = tw["Number_of_starter_donuts"].round(0).astype(int)
+        tw["Donuts (roster)"] = tw["Number_of_donuts"].round(0).astype(int)
+        tw["Donuts (starters)"] = tw["Number_of_starter_donuts"].round(0).astype(int)
         # Same played-only correction for the "under 10" family.
-        tw["Number of players under 10"] = tw["Number_of_players_under10"].round(0).astype(int)
-        tw["Number of starters under 10"] = tw["Number_of_starters_under10"].round(0).astype(int)
+        tw["Players under 10 pts (roster)"] = tw["Number_of_players_under10"].round(0).astype(int)
+        tw["Players under 10 pts (starters)"] = tw["Number_of_starters_under10"].round(0).astype(int)
 
         tw.drop(columns=[
             "Hardship_Points_Lost",
@@ -14077,7 +14201,10 @@ def build_all(repo_root: Path) -> None:
                     {"true": 1.0, "false": 0.0, "1": 1.0, "0": 0.0, "0.5": 0.5}
                 )
             _wn = L["Week Name"].astype(str) if "Week Name" in L.columns else pd.Series("", index=L.index)
-            L["_POST"] = _wn.isin(["Final", "Semifinal", "3rd Place"]).astype(float)
+            # Postseason = the championship bracket's Semifinal + Final only (user
+            # rule 2026-09-26: 3rd Place and the toilet bracket are neither
+            # playoff nor regular season, on every sheet).
+            L["_POST"] = _wn.isin(["Final", "Semifinal"]).astype(float)
 
             def _z_all(s):
                 s = pd.to_numeric(s, errors="coerce")
@@ -14290,19 +14417,34 @@ def build_all(repo_root: Path) -> None:
             def get_avg(sid,yr,wk):
                 return rolling_avg.get((str(sid),int(yr),int(wk)))
 
+            # Position-adjusted twin: each side's 5-game average x its own
+            # position's factor in the row's season, so a flex call between a
+            # WR and a TE compares like with like (as add_drops' "Difference of
+            # averages adjusted by position" does). The cuff halving applies
+            # to it the same way.
+            _pos_by_pid = {}
+            if "Position" in pw.columns:
+                for _pid_x, _pos_x in zip(pw["Player ID"].astype(str), pw["Position"].astype(str)):
+                    _pos_by_pid.setdefault(_pid_x, _pos_x)
+
             diffs=[]
             cuff_adj=[]
+            diffs_adj=[]
+            cuff_adj_adj=[]
             for _, r in pw.iterrows():
                 ref=r.get("Reference player ID")
                 if ref is None or pd.isna(ref) or str(ref).strip()=="":
-                    diffs.append(None); cuff_adj.append(None); continue
+                    diffs.append(None); cuff_adj.append(None)
+                    diffs_adj.append(None); cuff_adj_adj.append(None); continue
                 yr=r.get("Year"); wk=r.get("Week")
                 if pd.isna(yr) or pd.isna(wk):
-                    diffs.append(None); cuff_adj.append(None); continue
+                    diffs.append(None); cuff_adj.append(None)
+                    diffs_adj.append(None); cuff_adj_adj.append(None); continue
                 avg_p=get_avg(r.get("Player ID"),yr,wk)
                 avg_r=get_avg(ref,yr,wk)
                 if (avg_p is None) or (avg_r is None):
-                    diffs.append(None); cuff_adj.append(None); continue
+                    diffs.append(None); cuff_adj.append(None)
+                    diffs_adj.append(None); cuff_adj_adj.append(None); continue
                 started = (r.get("Starter/Bench") == "Starter")
                 diff = (avg_r-avg_p) if started else (avg_p-avg_r)
                 diffs.append(round(float(diff),2))
@@ -14310,8 +14452,15 @@ def build_all(repo_root: Path) -> None:
                     _ACTIVATED_CUFF_COL
                 ) or 0)
                 cuff_adj.append(round(float(diff) * (0.5 if cuff else 1.0), 2))
+                adj_p = avg_p * _pos_factor(yr, _pos_by_pid.get(str(r.get("Player ID"))))
+                adj_r = avg_r * _pos_factor(yr, _pos_by_pid.get(str(ref)))
+                diff_adj = (adj_r-adj_p) if started else (adj_p-adj_r)
+                diffs_adj.append(round(float(diff_adj),2))
+                cuff_adj_adj.append(round(float(diff_adj) * (0.5 if cuff else 1.0), 2))
             pw["Difference in averages of best/worst startables over previous 5 games"] = diffs
             pw["Cuff adjusted difference"] = cuff_adj
+            pw["Difference in averages of best/worst startables over previous 5 games adjusted by position"] = diffs_adj
+            pw["Cuff adjusted difference adjusted by position"] = cuff_adj_adj
         except Exception as e:
             _log_exc(debug, "player_week_rolling_diffs", e)
 
@@ -15114,6 +15263,64 @@ def build_all(repo_root: Path) -> None:
             _cum_p += _p
             _cum_y += 1
 
+    # Position-adjusted twins of the nflverse season / career sums: each
+    # season's points x THAT season's position factor. A season before the
+    # league's first (the nflverse backfill years, re-scored with the earliest
+    # league season's rules) borrows the earliest league season's factor; a
+    # season past the last borrows the latest. The player's position is the one
+    # player_week carries (one per player), else the Sleeper dictionary's.
+    _nfl_pos_by_sid: Dict[str, str] = {}
+    try:
+        if not pw.empty and {"Player ID", "Position"}.issubset(pw.columns):
+            for _sid_p, _pos_p in zip(pw["Player ID"].astype(str), pw["Position"].astype(str)):
+                _nfl_pos_by_sid.setdefault(_sid_p, _pos_p)
+    except Exception as e:
+        _log_exc(debug, "nfl_pos_by_sid", e)
+
+    def _nfl_sid_pos(sid: Any) -> str:
+        return (_nfl_pos_by_sid.get(str(sid))
+                or str((pid_meta.get(str(sid)) or {}).get("pos") or "").upper())
+
+    def _season_pos_factor(season: Any, pos: Optional[str]) -> float:
+        _yi = _to_int(season, None)
+        if _starter_avg_by_season and _yi is not None and _yi not in _starter_avg_by_season:
+            _yi = min(max(_yi, min(_starter_avg_by_season)), max(_starter_avg_by_season))
+        return _pos_factor(_yi, pos)
+
+    nfl_full_season_points_posadj: Dict[Tuple[str, int], float] = {
+        (_sid_k, _yr_k): _p * _season_pos_factor(_yr_k, _nfl_sid_pos(_sid_k))
+        for (_sid_k, _yr_k), _p in nfl_full_season_points.items()
+    }
+    nfl_career_total_points_posadj: Dict[str, float] = defaultdict(float)
+    for (_sid_k, _yr_k), _p in nfl_full_season_points_posadj.items():
+        nfl_career_total_points_posadj[_sid_k] += _p
+    nfl_career_points_before_posadj: Dict[Tuple[str, int], float] = {}
+    for _sid_k, _entries in _by_sid_yr.items():
+        _cum_pa = 0.0
+        for _yr_k, _g, _p in sorted(_entries):
+            nfl_career_points_before_posadj[(_sid_k, _yr_k)] = _cum_pa
+            _cum_pa += nfl_full_season_points_posadj.get((_sid_k, _yr_k), 0.0)
+
+    def _nfl_season_avg(sid: Any, year: Any, posadj: bool = False) -> Optional[float]:
+        """Avg points (full season), or its position-adjusted twin."""
+        try:
+            _k = (str(sid), int(year))
+        except (TypeError, ValueError):
+            return None
+        _g = nfl_full_season_games.get(_k, 0)
+        if not _g:
+            return None
+        _src = nfl_full_season_points_posadj if posadj else nfl_full_season_points
+        return round(_src.get(_k, 0.0) / _g, 4)
+
+    def _nfl_career_avg(sid: Any, posadj: bool = False) -> Optional[float]:
+        """Avg points (full career), or its position-adjusted twin."""
+        _g = nfl_career_total_games.get(str(sid), 0)
+        if not _g:
+            return None
+        _src = nfl_career_total_points_posadj if posadj else nfl_career_total_points
+        return round(_src.get(str(sid), 0.0) / _g, 4)
+
     player_year = pd.DataFrame()
     player_all = pd.DataFrame()
     if not pw.empty:
@@ -15255,6 +15462,17 @@ def build_all(repo_root: Path) -> None:
         pw_work["_played_starter_weeks"] = ((pw_work["Starter?"] == 1) & (pw_work["_played"] == 1)).astype(int)
         pw_work["_played_bench_points"] = pw_work["_bench_points"] * pw_work["_played"]
         pw_work["_played_bench_weeks"] = ((pw_work["Starter?"] == 0) & (pw_work["_played"] == 1)).astype(int)
+        # Position-adjusted twins: every week's points x that SEASON's position
+        # factor (league starter avg / position starter avg, _pos_factor) BEFORE
+        # summing, so an all-time average spanning seasons scales each week by
+        # its own season — the way add_drops' "adjusted by position" averages do.
+        pw_work["_pos_fac"] = [
+            _pos_factor(_y, _p) if pd.notna(_y) else 1.0
+            for _y, _p in zip(pw_work["Year"], pw_work["Position"].astype(str))
+        ]
+        for _src_c in ("Points", "_starter_points", "_bench_points", "_played_points",
+                       "_played_starter_points", "_played_bench_points"):
+            pw_work[f"{_src_c}_posadj"] = pd.to_numeric(pw_work[_src_c], errors="coerce") * pw_work["_pos_fac"]
 
         py_base = pw_work.groupby(["Player ID", "Year"], as_index=False).agg(
             Player=("Player", "first"),
@@ -15275,6 +15493,12 @@ def build_all(repo_root: Path) -> None:
             Played_starter_points=("_played_starter_points", "sum"),
             Played_starter_weeks=("_played_starter_weeks", "sum"),
             Played_bench_points=("_played_bench_points", "sum"),
+            Avg_points_posadj=("Points_posadj", "mean"),
+            Starter_points_posadj=("_starter_points_posadj", "sum"),
+            Bench_points_posadj=("_bench_points_posadj", "sum"),
+            Played_points_posadj=("_played_points_posadj", "sum"),
+            Played_starter_points_posadj=("_played_starter_points_posadj", "sum"),
+            Played_bench_points_posadj=("_played_bench_points_posadj", "sum"),
             Played_bench_weeks=("_played_bench_weeks", "sum"),
             St_win_sum=("_st_winval", "sum"),
             St_games=("_st_game", "sum"),
@@ -15369,6 +15593,7 @@ def build_all(repo_root: Path) -> None:
                 return None
             return round(float(0 if st_na else st) - float(0 if bn_na else bn), 4)
         py_base["PPG starter vs bench diff"] = py_base.apply(_ppg_diff, axis=1)
+        py_base = _add_ppg_split_columns(py_base)
         py_base["Rookie?"] = py_base["Rookie_flag"].astype(bool)
         py_base["Age"] = py_base["Age_avg"].round(2)
         # Drop intermediate helpers but keep Played_* — change-in-career
@@ -15482,6 +15707,22 @@ def build_all(repo_root: Path) -> None:
         except Exception as e:
             _log_exc(debug, "player_year_pct_of_points", e)
 
+        def _set_nfl_posadj_year_cols(frame: pd.DataFrame) -> None:
+            """Avg points (full season) / Change in avg points from previous
+            season / from career, position-adjusted. `frame` must be sorted by
+            (Player ID, Year) and already carry "Change in avg points from
+            career" (the adjusted one reuses its guards)."""
+            frame["Avg points (full season) adjusted by position"] = [
+                _nfl_season_avg(p, y, posadj=True) if pd.notna(y) else None
+                for p, y in zip(frame["Player ID"], frame["Year"])
+            ]
+            frame["Change in avg points from previous season adjusted by position"] = (
+                pd.to_numeric(frame["Avg points (full season) adjusted by position"], errors="coerce")
+                .groupby(frame["Player ID"]).diff()
+            )
+            frame["Change in avg points from career adjusted by position"] = frame.apply(
+                lambda r: _change_avg_career(r, posadj=True), axis=1)
+
         py = py.sort_values(["Player ID", "Year"]).reset_index(drop=True)
         # Phase 3B: NFLverse full-season columns + change-in rewrites.
         # "Points" stays as rostered-only (LOTG league totals); the new
@@ -15552,7 +15793,7 @@ def build_all(repo_root: Path) -> None:
         # legitimately produced fewer total points.)
         _MIN_SEASON_GAMES_FOR_CAREER_AVG_DIFF = 2
 
-        def _change_avg_career(r):
+        def _change_avg_career(r, posadj: bool = False):
             pid_s = str(r.get("Player ID"))
             try:
                 yr_i = int(r.get("Year"))
@@ -15560,18 +15801,24 @@ def build_all(repo_root: Path) -> None:
                 return None
             if nfl_full_season_games.get((pid_s, yr_i), 0) < _MIN_SEASON_GAMES_FOR_CAREER_AVG_DIFF:
                 return None
-            pre_pts = nfl_career_points_before.get((pid_s, yr_i))
+            pre_pts = (nfl_career_points_before_posadj if posadj
+                       else nfl_career_points_before).get((pid_s, yr_i))
             pre_g = nfl_career_games_before.get((pid_s, yr_i), 0)
             if not pre_g or pre_pts is None:
                 return None
-            cur = r.get("Avg points (full season)")
-            if cur is None:
+            cur = r.get("Avg points (full season) adjusted by position" if posadj
+                        else "Avg points (full season)")
+            if cur is None or pd.isna(cur):
                 return None
             try:
                 return round(float(cur) - (pre_pts / pre_g), 4)
             except Exception:
                 return None
         py["Change in avg points from career"] = py.apply(_change_avg_career, axis=1)
+        # Position-adjusted twins of the three nflverse per-game columns: the
+        # season's average (and the prior career's) with every season's points
+        # scaled by that season's position factor.
+        _set_nfl_posadj_year_cols(py)
 
         py = py.rename(
             columns={
@@ -15920,6 +16167,7 @@ def build_all(repo_root: Path) -> None:
                         )
                         player_year["Change in points from career"] = player_year.apply(_change_pts_career, axis=1)
                         player_year["Change in avg points from career"] = player_year.apply(_change_avg_career, axis=1)
+                        _set_nfl_posadj_year_cols(player_year)
         except Exception as e:
             _log_exc(debug, "player_year_tx_only_pad", e)
 
@@ -15951,6 +16199,12 @@ def build_all(repo_root: Path) -> None:
             Played_starter_points=("_played_starter_points", "sum"),
             Played_starter_weeks=("_played_starter_weeks", "sum"),
             Played_bench_points=("_played_bench_points", "sum"),
+            Avg_points_posadj=("Points_posadj", "mean"),
+            Starter_points_posadj=("_starter_points_posadj", "sum"),
+            Bench_points_posadj=("_bench_points_posadj", "sum"),
+            Played_points_posadj=("_played_points_posadj", "sum"),
+            Played_starter_points_posadj=("_played_starter_points_posadj", "sum"),
+            Played_bench_points_posadj=("_played_bench_points_posadj", "sum"),
             Played_bench_weeks=("_played_bench_weeks", "sum"),
             St_win_sum=("_st_winval", "sum"),
             St_games=("_st_game", "sum"),
@@ -16027,12 +16281,51 @@ def build_all(repo_root: Path) -> None:
                 return None
             return round(float(0 if st_na else st) - float(0 if bn_na else bn), 4)
         pa["PPG starter vs bench diff"] = pa.apply(_pa_ppg_diff, axis=1)
+        pa = _add_ppg_split_columns(pa)
+        # Playoff split (all-time only, per user): PPG starter in the regular
+        # season ("Week N") vs the championship bracket's Semifinal and Final
+        # weeks — 3rd Place and the toilet bracket are neither — and the gap, a
+        # player's own clutch index. Every start counts, as in "PPG starter".
+        # Each has a position-adjusted twin (each week x its season's factor).
+        try:
+            _wn = pw_work["Week Name"].astype(str).str.strip()
+            _is_st = pd.to_numeric(pw_work["Starter?"], errors="coerce").fillna(0) == 1
+            _phase = pd.Series(None, index=pw_work.index, dtype=object)
+            _phase[_wn.str.startswith("Week ")] = "reg"
+            _phase[_wn.isin(("Semifinal", "Final"))] = "po"
+            _sp = pw_work.loc[_is_st & _phase.notna(), ["Player ID"]].assign(
+                _ph=_phase[_is_st & _phase.notna()],
+                _p=pd.to_numeric(pw_work["Points"], errors="coerce"),
+                _pf=pd.to_numeric(pw_work["Points_posadj"], errors="coerce"))
+            _g = _sp.groupby(["Player ID", "_ph"]).agg(n=("_p", "size"), p=("_p", "sum"), pf=("_pf", "sum"))
+            _ppg = {(str(k[0]), k[1]): (r["p"] / r["n"], r["pf"] / r["n"]) for k, r in _g.iterrows() if r["n"]}
+            # The same split as COUNTS (per user): starts and starter points in
+            # each phase. No start in a phase = 0 there.
+            _tot = {(str(k[0]), k[1]): (int(r["n"]), float(r["p"])) for k, r in _g.iterrows()}
+            for _lbl_n, _lbl_p, _ph in (
+                    ("Regular-season games started", "Regular-season points as starter", "reg"),
+                    ("Playoff games started", "Playoff points as starter", "po")):
+                pa[_lbl_n] = [_tot.get((str(p), _ph), (0, 0.0))[0] for p in pa["Player ID"]]
+                pa[_lbl_p] = [round(_tot.get((str(p), _ph), (0, 0.0))[1], 2) for p in pa["Player ID"]]
+            for _lbl, _ph in (("Regular-season PPG starter", "reg"), ("Playoff PPG starter", "po")):
+                for _j, _sfx in ((0, ""), (1, " adjusted by position")):
+                    pa[_lbl + _sfx] = [
+                        round(_ppg[(str(p), _ph)][_j], 4) if (str(p), _ph) in _ppg else None
+                        for p in pa["Player ID"]]
+            for _sfx in ("", " adjusted by position"):
+                _po_v = pd.to_numeric(pa["Playoff PPG starter" + _sfx], errors="coerce")
+                _rs_v = pd.to_numeric(pa["Regular-season PPG starter" + _sfx], errors="coerce")
+                pa["Playoff minus regular-season PPG starter" + _sfx] = (_po_v - _rs_v).round(4)
+        except Exception as e:
+            _log_exc(debug, "player_all_playoff_ppg_split", e)
         pa = pa.drop(columns=[
             "Starter_points_sum", "Bench_points_sum", "Weeks_as_bench",
             "Played_points", "Played_weeks",
             "Played_starter_points", "Played_starter_weeks",
             "Played_bench_points", "Played_bench_weeks",
             "St_win_sum", "St_games", "Ros_win_sum", "Ros_games",
+            "Avg_points_posadj", "Starter_points_posadj", "Bench_points_posadj",
+            "Played_points_posadj", "Played_starter_points_posadj", "Played_bench_points_posadj",
         ], errors="ignore")
 
         top_team_all = (
@@ -16164,6 +16457,8 @@ def build_all(repo_root: Path) -> None:
             ) if nfl_career_total_games.get(str(r.get("Player ID")), 0) else None,
             axis=1,
         )
+        pa["Avg points (full career) adjusted by position"] = [
+            _nfl_career_avg(p, posadj=True) for p in pa["Player ID"]]
 
         # Phase 3B: Taxi-eligible boolean.
         # TRUE if: player is currently in their first year in the
@@ -16354,6 +16649,8 @@ def build_all(repo_root: Path) -> None:
                             nfl_career_total_points.get(s, 0.0) / nfl_career_total_games.get(s, 1), 4
                         ) if nfl_career_total_games.get(s, 0) else None
                     )
+                    player_all.loc[_pm, "Avg points (full career) adjusted by position"] = _psid.map(
+                        lambda s: _nfl_career_avg(s, posadj=True))
         except Exception as e:
             _log_exc(debug, "player_all_tx_only_pad", e)
 
@@ -16383,7 +16680,7 @@ def build_all(repo_root: Path) -> None:
         # block only carries volatility / floor / ceiling / PAR.
         try:
             _newc = ["Starter scoring volatility", "Starter scoring floor", "Starter scoring ceiling",
-                     "Starter PAR", "Starter PAR per game"]
+                     "Starter PAR", "Starter PAR per game", "Starter PAR per game adjusted by position"]
             _st = pw_work[pw_work.get("Starter?") == 1].copy()
             _st["Points"] = pd.to_numeric(_st["Points"], errors="coerce")
             _st = _st.dropna(subset=["Points"])
@@ -16396,6 +16693,8 @@ def build_all(repo_root: Path) -> None:
                         .apply(_repl).rename("_repl").reset_index())
                 _stp = _st.merge(_rep, on=["Year", "Week", "Position"], how="left")
                 _stp["_par"] = _stp["Points"] - _stp["_repl"]
+                # Each started week's PAR x that season's position factor.
+                _stp["_par_adj"] = _stp["_par"] * pd.to_numeric(_stp["_pos_fac"], errors="coerce")
 
                 def _agg(_keys, _src_par):
                     _g = _st.groupby(_keys)["Points"]
@@ -16406,6 +16705,8 @@ def build_all(repo_root: Path) -> None:
                         "Starter scoring ceiling": _g.max().round(2),
                         "Starter PAR": _src_par.groupby(_keys)["_par"].sum().round(2),
                         "Starter PAR per game": _src_par.groupby(_keys)["_par"].mean().round(2),
+                        "Starter PAR per game adjusted by position":
+                            _src_par.groupby(_keys)["_par_adj"].mean().round(2),
                     })
                     return _d
                 _dy = _agg(["Player ID", "Year"], _stp)
@@ -17475,18 +17776,18 @@ def build_all(repo_root: Path) -> None:
                     "Player average age": ("Player average age", "mean"),
                     "Team age including picks": ("Team age including picks", "mean"),
                     "Difference between highest and lowest starters": ("Difference between highest and lowest starters", "max"),
-                    "Number of donuts": ("Number of donuts", "sum"),
-                    "Number of starter donuts": ("Number of starter donuts", "sum"),
-                    "Number of players under 10": ("Number of players under 10", "sum"),
-                    "Number of starters under 10": ("Number of starters under 10", "sum"),
-                    "Number of players over 20": ("Number of players over 20", "sum"),
-                    "Number of starters over 20": ("Number of starters over 20", "sum"),
-                    "Number of players over 30": ("Number of players over 30", "sum"),
-                    "Number of starters over 30": ("Number of starters over 30", "sum"),
-                    "Number of players over 40": ("Number of players over 40", "sum"),
-                    "Number of starters over 40": ("Number of starters over 40", "sum"),
-                    "Number of players over 50": ("Number of players over 50", "sum"),
-                    "Number of starters over 50": ("Number of starters over 50", "sum"),
+                    "Donuts (roster)": ("Donuts (roster)", "sum"),
+                    "Donuts (starters)": ("Donuts (starters)", "sum"),
+                    "Players under 10 pts (roster)": ("Players under 10 pts (roster)", "sum"),
+                    "Players under 10 pts (starters)": ("Players under 10 pts (starters)", "sum"),
+                    "Players over 20 pts (roster)": ("Players over 20 pts (roster)", "sum"),
+                    "Players over 20 pts (starters)": ("Players over 20 pts (starters)", "sum"),
+                    "Players over 30 pts (roster)": ("Players over 30 pts (roster)", "sum"),
+                    "Players over 30 pts (starters)": ("Players over 30 pts (starters)", "sum"),
+                    "Players over 40 pts (roster)": ("Players over 40 pts (roster)", "sum"),
+                    "Players over 40 pts (starters)": ("Players over 40 pts (starters)", "sum"),
+                    "Players over 50 pts (roster)": ("Players over 50 pts (roster)", "sum"),
+                    "Players over 50 pts (starters)": ("Players over 50 pts (starters)", "sum"),
                     "Number of cuffs rostered": ("Number of cuffs rostered", "sum"),
                     "Number of cuffs started": ("Number of cuffs started", "sum"),
                     "Weeks of starter injuries": ("Number of starter injuries", "sum"),
@@ -17700,20 +18001,30 @@ def build_all(repo_root: Path) -> None:
             )
             # Clutch index (improvement #9, team_all_time only): how a manager
             # performs in the WINNERS'-bracket playoffs vs the regular season,
-            # all-time. Playoff = Semifinal / Final / 3rd Place; regular = the
-            # "Week N" games. N/A for a team that never reached the playoffs
+            # all-time. Playoff = Semifinal / Final (3rd Place and the toilet
+            # bracket are neither); regular = the "Week N" games. N/A for a team that never reached the playoffs
             # (no delta to take). Win? is numeric (1/0) in-build.
             _clutch_pf = None
             _clutch_wp = None
             _wkn = g.get("Week Name")
             if _wkn is not None:
-                _is_po = _wkn.isin(("Semifinal", "Final", "3rd Place"))
+                _is_po = _wkn.isin(("Semifinal", "Final"))
                 _is_rg = _wkn.astype(str).str.startswith("Week ")
                 _pf_n = pd.to_numeric(g["PF"], errors="coerce")
                 _w_n = pd.to_numeric(g["Win?"], errors="coerce")
                 if _is_po.any() and _is_rg.any():
                     _clutch_pf = round(float(_pf_n[_is_po].mean() - _pf_n[_is_rg].mean()), 2)
                     _clutch_wp = round(float(_w_n[_is_po].mean() - _w_n[_is_rg].mean()), 4)
+            # Playoff points as COUNTS (per user, like player_all_time's): total
+            # PF in the regular season ("Week N") and in the championship
+            # bracket's Semifinal + Final (the "Playoff record" games — 3rd
+            # Place and the toilet bracket are neither). A team that never
+            # reached them has 0 playoff points.
+            _rs_pts = _po_pts = 0.0
+            if _wkn is not None:
+                _pf_all = pd.to_numeric(g["PF"], errors="coerce").fillna(0.0)
+                _rs_pts = float(_pf_all[_wkn.astype(str).str.startswith("Week ")].sum())
+                _po_pts = float(_pf_all[_wkn.isin(("Semifinal", "Final"))].sum())
             row = {
                 "Team": str(team),
                 "All time win %": round((wins + 0.5 * ties) / gp, 4),
@@ -17721,6 +18032,8 @@ def build_all(repo_root: Path) -> None:
                 "Championships": championship_counts.get(str(team), 0),
                 "Playoff PF minus regular-season PF": _clutch_pf,
                 "Playoff win % minus regular-season win %": _clutch_wp,
+                "Regular-season points": round(_rs_pts, 2),
+                "Playoff points": round(_po_pts, 2),
                 "Number of playoff appearances": playoff_appearance_counts.get(str(team), 0),
                 "Number of championship appearances": champ_appearance_counts.get(str(team), 0),
                 "Number of last place finishes": last_place_counts.get(str(team), 0),
@@ -17895,18 +18208,18 @@ def build_all(repo_root: Path) -> None:
                     "Team age including picks": ("Team age including picks", "mean"),
                     "Difference between highest and lowest starters": ("Difference between highest and lowest starters", "max"),
                     "Combined matchup score": ("Combined matchup score", "max"),
-                    "Number of donuts": ("Number of donuts", "sum"),
-                    "Number of starter donuts": ("Number of starter donuts", "sum"),
-                    "Number of players under 10": ("Number of players under 10", "sum"),
-                    "Number of starters under 10": ("Number of starters under 10", "sum"),
-                    "Number of players over 20": ("Number of players over 20", "sum"),
-                    "Number of starters over 20": ("Number of starters over 20", "sum"),
-                    "Number of players over 30": ("Number of players over 30", "sum"),
-                    "Number of starters over 30": ("Number of starters over 30", "sum"),
-                    "Number of players over 40": ("Number of players over 40", "sum"),
-                    "Number of starters over 40": ("Number of starters over 40", "sum"),
-                    "Number of players over 50": ("Number of players over 50", "sum"),
-                    "Number of starters over 50": ("Number of starters over 50", "sum"),
+                    "Donuts (roster)": ("Donuts (roster)", "sum"),
+                    "Donuts (starters)": ("Donuts (starters)", "sum"),
+                    "Players under 10 pts (roster)": ("Players under 10 pts (roster)", "sum"),
+                    "Players under 10 pts (starters)": ("Players under 10 pts (starters)", "sum"),
+                    "Players over 20 pts (roster)": ("Players over 20 pts (roster)", "sum"),
+                    "Players over 20 pts (starters)": ("Players over 20 pts (starters)", "sum"),
+                    "Players over 30 pts (roster)": ("Players over 30 pts (roster)", "sum"),
+                    "Players over 30 pts (starters)": ("Players over 30 pts (starters)", "sum"),
+                    "Players over 40 pts (roster)": ("Players over 40 pts (roster)", "sum"),
+                    "Players over 40 pts (starters)": ("Players over 40 pts (starters)", "sum"),
+                    "Players over 50 pts (roster)": ("Players over 50 pts (roster)", "sum"),
+                    "Players over 50 pts (starters)": ("Players over 50 pts (starters)", "sum"),
                     "Number of cuffs rostered": ("Number of cuffs rostered", "sum"),
                     "Number of cuffs started": ("Number of cuffs started", "sum"),
                     "Weeks of starter injuries": ("Number of starter injuries", "sum"),
@@ -18553,13 +18866,13 @@ def build_all(repo_root: Path) -> None:
                     "Player average age": ("Player average age", "mean"),
                     "Team age including picks": ("Team age including picks", "mean"),
                     "Difference between highest and lowest starters": ("Difference between highest and lowest starters", "max"),
-                    "Number of donuts": ("Number of donuts", "sum"),
-                    "Number of starting donuts": ("Number of starter donuts", "sum"),
-                    "Number of players under 10": ("Number of players under 10", "sum"),
-                    "Number of players over 20": ("Number of players over 20", "sum"),
-                    "Number of players over 30": ("Number of players over 30", "sum"),
-                    "Number of players over 40": ("Number of players over 40", "sum"),
-                    "Number of players over 50": ("Number of players over 50", "sum"),
+                    "Donuts (roster)": ("Donuts (roster)", "sum"),
+                    "Donuts (starters)": ("Donuts (starters)", "sum"),
+                    "Players under 10 pts (roster)": ("Players under 10 pts (roster)", "sum"),
+                    "Players over 20 pts (roster)": ("Players over 20 pts (roster)", "sum"),
+                    "Players over 30 pts (roster)": ("Players over 30 pts (roster)", "sum"),
+                    "Players over 40 pts (roster)": ("Players over 40 pts (roster)", "sum"),
+                    "Players over 50 pts (roster)": ("Players over 50 pts (roster)", "sum"),
                     "Number of cuffs rostered": ("Number of cuffs rostered", "sum"),
                     "Number of cuffs started": ("Number of cuffs started", "sum"),
                     # Total startup players still rostered league-wide that week =
@@ -18691,13 +19004,13 @@ def build_all(repo_root: Path) -> None:
                     "Player average age": ("Player average age", "mean"),
                     "Team age including picks": ("Team age including picks", "mean"),
                     "Difference between highest and lowest starters": ("Difference between highest and lowest starters", "max"),
-                    "Number of donuts": ("Number of donuts", "sum"),
-                    "Number of starting donuts": ("Number of starter donuts", "sum"),
-                    "Number of players under 10": ("Number of players under 10", "sum"),
-                    "Number of players over 20": ("Number of players over 20", "sum"),
-                    "Number of players over 30": ("Number of players over 30", "sum"),
-                    "Number of players over 40": ("Number of players over 40", "sum"),
-                    "Number of players over 50": ("Number of players over 50", "sum"),
+                    "Donuts (roster)": ("Donuts (roster)", "sum"),
+                    "Donuts (starters)": ("Donuts (starters)", "sum"),
+                    "Players under 10 pts (roster)": ("Players under 10 pts (roster)", "sum"),
+                    "Players over 20 pts (roster)": ("Players over 20 pts (roster)", "sum"),
+                    "Players over 30 pts (roster)": ("Players over 30 pts (roster)", "sum"),
+                    "Players over 40 pts (roster)": ("Players over 40 pts (roster)", "sum"),
+                    "Players over 50 pts (roster)": ("Players over 50 pts (roster)", "sum"),
                     "Number of cuffs rostered": ("Number of cuffs rostered", "sum"),
                     "Number of cuffs started": ("Number of cuffs started", "sum"),
                     "Startup draft players remaining": ("Startup draft players remaining", "max"),
@@ -18884,13 +19197,13 @@ def build_all(repo_root: Path) -> None:
             league_all["Difference between highest and lowest starters"] = (
                 float(_star_hi_all - _star_lo_all) if (_star_hi_all is not None and _star_lo_all is not None) else None
             )
-            league_all["Number of donuts"] = float(pd.to_numeric(g_week.get("Number of donuts"), errors="coerce").sum())
-            league_all["Number of starting donuts"] = float(pd.to_numeric(g_week.get("Number of starter donuts"), errors="coerce").sum())
-            league_all["Number of players under 10"] = float(pd.to_numeric(g_week.get("Number of players under 10"), errors="coerce").sum())
-            league_all["Number of players over 20"] = float(pd.to_numeric(g_week.get("Number of players over 20"), errors="coerce").sum())
-            league_all["Number of players over 30"] = float(pd.to_numeric(g_week.get("Number of players over 30"), errors="coerce").sum())
-            league_all["Number of players over 40"] = float(pd.to_numeric(g_week.get("Number of players over 40"), errors="coerce").sum())
-            league_all["Number of players over 50"] = float(pd.to_numeric(g_week.get("Number of players over 50"), errors="coerce").sum())
+            league_all["Donuts (roster)"] = float(pd.to_numeric(g_week.get("Donuts (roster)"), errors="coerce").sum())
+            league_all["Donuts (starters)"] = float(pd.to_numeric(g_week.get("Donuts (starters)"), errors="coerce").sum())
+            league_all["Players under 10 pts (roster)"] = float(pd.to_numeric(g_week.get("Players under 10 pts (roster)"), errors="coerce").sum())
+            league_all["Players over 20 pts (roster)"] = float(pd.to_numeric(g_week.get("Players over 20 pts (roster)"), errors="coerce").sum())
+            league_all["Players over 30 pts (roster)"] = float(pd.to_numeric(g_week.get("Players over 30 pts (roster)"), errors="coerce").sum())
+            league_all["Players over 40 pts (roster)"] = float(pd.to_numeric(g_week.get("Players over 40 pts (roster)"), errors="coerce").sum())
+            league_all["Players over 50 pts (roster)"] = float(pd.to_numeric(g_week.get("Players over 50 pts (roster)"), errors="coerce").sum())
             # UNIQUE cuff players league-wide all-time (item 9), overriding the
             # player-week sum.
             league_all["Number of cuffs rostered"] = int(unique_cuffs_league_all.get("Number of cuffs rostered", 0))
@@ -20167,6 +20480,7 @@ def build_all(repo_root: Path) -> None:
         drop day, compared as league days (callers pass them)."""
         out = {"weeks": 0, "starts": 0, "inj_weeks": 0, "inj_starts": 0,
                "injured_weeks": 0, "points_benched": 0.0,
+               "points_started_healthy": 0.0, "points_benched_healthy": 0.0,
                "points_started": 0.0, "sum_pts": 0.0, "games_pts": 0.0, "ppg": None,
                "first_start_ed": None, "weeks_before_start": None, "pos": ""}
         _pk = str(_pickup)[:10] if _pickup else ""
@@ -20197,6 +20511,11 @@ def build_all(repo_root: Path) -> None:
         out["inj_starts"] = sum(1 for e in _weeks if e["starter"] and not e["bye"] and not e["inj"])
         out["points_started"] = sum(e["pts"] for e in _starts)
         out["points_benched"] = sum(e["pts"] for e in _weeks if not e["starter"])
+        # The same two over the healthy weeks only (not a bye or a missed week).
+        out["points_started_healthy"] = sum(
+            e["pts"] for e in _starts if not e["bye"] and not e["inj"])
+        out["points_benched_healthy"] = sum(
+            e["pts"] for e in _weeks if not e["starter"] and not e["bye"] and not e["inj"])
         out["injured_weeks"] = sum(1 for e in _weeks if e.get("injury"))
         out["sum_pts"] = sum(e["pts"] for e in _weeks)
         out["games_pts"] = sum(e["pts"] for e in _weeks if not e["bye"] and not e["inj"])
@@ -20220,6 +20539,8 @@ def build_all(repo_root: Path) -> None:
         if isinstance(add_drops_df, pd.DataFrame) and not add_drops_df.empty and "Player Added" in add_drops_df.columns:
             _CUFF_BONUS_RC = 5.0
             _adj_col = "Difference of averages adjusted by position"
+            if "Average PPG on team adjusted by position" not in add_drops_df.columns:
+                add_drops_df["Average PPG on team adjusted by position"] = None
             for _i in add_drops_df.index:
                 _add = add_drops_df.at[_i, "Player Added"]
                 if not (_add is not None and str(_add).strip()
@@ -20252,6 +20573,19 @@ def build_all(repo_root: Path) -> None:
                     _da = None if _da is None or pd.isna(_da) else float(_da)
                     if _aa is not None or _da is not None:
                         add_drops_df.at[_i, _adj_col] = round((_aa or 0.0) - (_da or 0.0), 4)
+                    # Its added-side term, on its own: the on-team average
+                    # scaled for the added player's position.
+                    add_drops_df.at[_i, "Average PPG on team adjusted by position"] = (
+                        round(_aa, 4) if _aa is not None else None)
+                else:
+                    # Neither side left on the sheet (never rostered a week here,
+                    # and no dropped-player window): the first pass's difference —
+                    # built on the nflverse window this pass replaced — no longer
+                    # describes anything shown. Blank it, and grade the pickup as
+                    # the Formulas sheet says for a player never rostered a week.
+                    add_drops_df.at[_i, "Difference of averages"] = None
+                    add_drops_df.at[_i, _adj_col] = None
+                    add_drops_df.at[_i, "Player addition value"] = 0.0
                 add_drops_df.at[_i, "Number of starts before next drop"] = int(_st["starts"])
                 _pct = _pinj = None
                 if _st["weeks"] > 0:
@@ -21071,6 +21405,26 @@ def build_all(repo_root: Path) -> None:
             avg_add_adj = (pts_added * fac / n_start) if n_start else None
             out["Avg points added adjusted by position"] = (
                 round(avg_add_adj, 2) if avg_add_adj is not None else None)
+            # The rest of the per-week grid over this tenure: started points per
+            # healthy start / per rostered week / per healthy (played) week,
+            # rostered points per rostered week, bench points per bench week /
+            # per healthy bench week — each with its position-adjusted twin
+            # (x the same `fac` as the columns above). None on an empty
+            # denominator.
+            def _per(num, den):
+                return (num / den) if den else None
+            _hb = st["inj_weeks"] - st["inj_starts"]
+            for _cn, _v in (
+                ("Adjusted Avg points added", _per(st["points_started_healthy"], st["inj_starts"])),
+                ("Avg points added per rostered week", _per(pts_added, n_ros)),
+                ("Adjusted Avg points added per rostered week",
+                 _per(st["points_started_healthy"], st["inj_weeks"])),
+                ("Avg points per rostered week on team", _per(st["sum_pts"], n_ros)),
+                ("PPG bench on team", _per(st["points_benched"], n_ros - n_start)),
+                ("Adjusted PPG bench on team", _per(st["points_benched_healthy"], _hb)),
+            ):
+                out[_cn] = round(_v, 2) if _v is not None else None
+                out[f"{_cn} adjusted by position"] = round(_v * fac, 2) if _v is not None else None
             # Last 5 NFL games before pickup, any team: the nflverse game log,
             # through the same helper add_drops uses, so the two sheets carry
             # one number (the roster-only version missed every game he played
@@ -21081,6 +21435,8 @@ def build_all(repo_root: Path) -> None:
             except NameError:      # the add_drops block never ran
                 _pre5 = None
             out["PPG of 5 games before pickup"] = round(_pre5, 2) if _pre5 is not None else None
+            out["PPG of 5 games before pickup adjusted by position"] = (
+                round(_pre5 * fac, 2) if _pre5 is not None else None)
             pct = out["% of starts made while rostered"]
             # Same tenure-length term the pick sheets carry: `% of starts` is a
             # RATE, so without it a player who started at a given clip for one
@@ -21185,6 +21541,7 @@ def build_all(repo_root: Path) -> None:
                 "Avg points added": sc.get("Avg points added"),
                 "Avg points added adjusted by position": sc.get("Avg points added adjusted by position"),
                 "PPG of 5 games before pickup": sc.get("PPG of 5 games before pickup"),
+                **{_c: sc.get(_c) for _c in _PA_PPG_GRID_COLUMNS},
                 "Player addition value": sc.get("Player addition value"),
                 "Age at pickup": _pa_age(pid, pickup_dt),
                 "Cuff at pickup?": cuff,

@@ -712,9 +712,200 @@ all in the weekly email.
   player with a start in an injury week (24 such starter-weeks exist) so
   healthy starts < starts; a 2020 row; a zero-rostered-week padded row.
 
+## PPG grid + a position-adjusted twin of every player PPG column
+From the "which starting / rostered / healthy PPG combinations are missing"
+inquiry. Asked for: fill every gap in the grid on player_year, player_all_time
+and player_additions (player_week excluded), then give EVERY player PPG column a
+position-adjusted version, all treated like the other averages in the weekly
+email. Scope decisions [per user]: team / league averages are left out (a team's
+PF mixes every position, so the per-position factor means nothing there);
+"anything that makes statistical sense" among the derived per-game columns.
+
+- [x] **The grid.** "Healthy" points equal gross points (all 4,671 bye / injury /
+  suspension rows in player_week score exactly 0), so the grid is starter /
+  rostered / bench points over started / rostered / healthy weeks. New where
+  missing: player_year + player_all_time `PPG starter per rostered week`,
+  `Adjusted PPG starter per rostered week`; player_additions `Adjusted Avg points
+  added`, `Avg points added per rostered week`, `Adjusted Avg points added per
+  rostered week`, `Avg points per rostered week on team`, `PPG bench on team`,
+  `Adjusted PPG bench on team`. Rostered points / started weeks deliberately not
+  built (mixes two week sets; measures nothing).
+- [x] **Twins** (`<column> adjusted by position`), one factor (`_pos_factor`:
+  that season's league starter avg / position starter avg):
+  player_year (13: Avg points, Adjusted Avg points, PPG starter / bench and their
+  Adjusted and per-rostered-week forms, PPG starter vs bench diff, Starter PAR
+  per game, Avg points (full season), both Change in avg points columns);
+  player_all_time (11, full career instead of the season/change columns);
+  player_additions (6 grid twins + PPG of 5 games before pickup); add_drops (4:
+  Average PPG on team, dropped player's PPG over same time, PPG of 5 games before
+  pickup, Dropped avg points); trades (3: received on team, sent over same time,
+  received 5 games before); player_week (4: PPG as team starter + its "this
+  season" form, the 5-game start/sit difference and its cuff-adjusted form).
+  Multi-season averages scale each WEEK (or nflverse season) by its own season's
+  factor before averaging; the two nflverse backfill seasons borrow the first
+  league season's factor (they are scored with its rules). add_drops / trades /
+  player_additions keep their sheet's existing convention (the move's season).
+- [x] **Deliberately NOT twinned** (classified): team/league averages (by design,
+  per user); player_week `Change from previous week / previous 5 weeks avg /
+  career average to that point / overall career average` (a single week's points
+  minus a baseline, not an average); `Positional scoring percentile` and the
+  tier %s (already within-position); pick sheets (every PPG column there already
+  has a twin).
+- [x] **Doc fixes found on the way** (defects, doc-only; plus the two add_drops
+  difference notes now say "blank when both sides are blank"): `PPG starter vs bench
+  diff` said PPG starter − PPG bench; the code (since Phase 1C) uses the Adjusted
+  pair and reads a missing side as 0 — 747 of 1,058 two-sided player_year rows
+  differ from the documented formula. `Difference of averages adjusted by
+  position` said "all-time" position averages; they are per-season.
+- [x] Plan CSV + `stats_catalog.json` + Formulas entries + schema pin +
+  `_preserve_na` (a twin is blank exactly where its base is) + a `_column_kind`
+  override for the trades pre-trade twin (the "trade " text marker would catch
+  it). Digest: every new name carries a rate marker ("avg" / "ppg" / "diff"), so
+  it projects as-is and waits on the rate gates like its base; "adjusted by
+  position" makes the twins derived (lower prominence) exactly like the existing
+  twins; two display phrasings added. No existing column's kind, N/A rule or
+  number format moved (checked over every catalog column).
+- [x] Guard: `tests/test_ppg_position_adjusted.py` recomputes the grid and the
+  factor from player_week and checks every twin against it.
+- [x] **Playoff PPG split, player_all_time only** [per user: "Semifinals and
+  finals only", starter PPG]: `Regular-season PPG starter` ("Week N" starts),
+  `Playoff PPG starter` (championship-bracket Semifinal + Final starts; 3rd Place
+  and the toilet bracket are neither), `Playoff minus regular-season PPG
+  starter` (the player's own clutch index), each with its position-adjusted
+  twin. Every start counts, as in `PPG starter`; player points carry no
+  semifinal +5 (a team PF bonus). 122 players have a Semifinal/Final start in
+  the offline build.
+- [x] **Stale add_drops difference fixed** (defect): add_drops' final pass left
+  the first-pass `Difference of averages` (+ adjusted) and the Player addition
+  value built on it when it blanked BOTH sides (never rostered a week here, no
+  dropped-player window). Now blank, and the addition value is 0.0 as the
+  Formulas sheet documents for a player never rostered a week. Exactly 3 rows:
+  K.J. Osborn (Oliverwkw 2023-01-11, value 10.10 -> 0), Gardner Minshew
+  (stevenb123 2022-01-08, 11.82 -> 0), Tyler Huntley (stevenb123 2022-01-09,
+  10.60 -> 0 — its +5 handcuff bonus goes with it). O-Score unchanged (all
+  three were already N/A); nothing else moved.
+- [x] **phase14_phrasing.csv regenerated in full** (defect: nothing regenerates
+  it, so it still listed the retired `transactions` / `picks` sheets, "Number of
+  transactions", "Transaction skill", a week-3 on-pace gate, and had no rows for
+  add_drops, player_additions, the pick sheets or the year sheets' all-time
+  boards). Every existing row now comes from `phrasing_catalog()` over the
+  committed exports; this PR's new columns' rows from the offline build. 886 ->
+  1,493 rows. The 90 dropped (sheet, stat) pairs all name something gone, except
+  two correctly unranked: `Reference player name` (text) and league_all_time
+  `Number of donuts` (not a milestone stat). Guard:
+  `tests/test_phrasing_reference.py` fails on a row naming a sheet or column
+  that no longer exists (it fails on the old file).
+- [x] **add_drops position factor keyed to the FANTASY season** [per user:
+  "use FFB year like everything else — calendar year should pretty much never
+  be used"] (defect): `_tx_season` was the calendar year of the move's UTC
+  timestamp; it is now the row's own `Season` (`_move_season`: league time,
+  bounded by championships), as trades / player_additions / picks already did.
+  Swept every `_pos_factor` caller: this was the only calendar-year one. Offline
+  build: exactly the 6 of 1,503 rows whose Season differs from that year move
+  (late-December-after-the-final / early-January-before-it moves), plus a ±0.1
+  O-Score percentile ripple on 7 others. Note (by design of per-season
+  baselines, unchanged): a move filed under a season with no starts yet (e.g.
+  an August pickup before week 1) has no baseline and scales by 1.0.
+- [x] **Team + league count labels** [per user: clear "(starters)" vs
+  "(roster)" in the spreadsheet and the email]: `Number of donuts` -> `Donuts
+  (roster)`, `Number of starter donuts` / league `Number of starting donuts` ->
+  `Donuts (starters)`, `Number of players under 10 / over 20..50` -> `Players
+  under 10 pts (roster)` / `Players over N pts (roster)`, `Number of starters
+  …` -> `Players … pts (starters)`, on team_week/year/all_time and
+  league_week/year/all_time. `Number of games within 5/10` (games, not players)
+  unchanged. Kind, N/A rule, number format, header topic and every digest
+  classification checked identical old -> new; `_EXTRA_COUNT_PREFIXES` gains
+  the new prefixes so they still render as integers; the digest's " pts" suffix
+  now only applies to the games columns (the player names carry "pts"
+  themselves). Values unchanged (offline build, renamed columns compared cell by
+  cell). The digest snapshot is keyed by column name, so
+  `digest.migrate_snapshot_columns` rewrites the old names on read (like
+  `migrate_board_label`): the first Tuesday digest after merge still diffs
+  these boards against last week instead of going blind to them for a week.
+- [x] **Playoff points as counts** [per user: "playoff points, regular season
+  points, playoff − regular season", player_all_time + team sheets where
+  missing]: player_all_time `Regular-season points as starter`, `Playoff points
+  as starter`, `Playoff minus regular-season points as starter` (the counts
+  behind the PPG split: same Semifinal + Final definition, 0 with no start in a
+  phase); team_all_time `Regular-season points`, `Playoff points`, `Playoff
+  minus regular-season points` (team PF; the "Playoff record" games — Semifinal
+  + Final — so a higher seed's semifinal carries the +5). team_all_time had
+  only the per-game clutch index (`Playoff PF minus regular-season PF`; it
+  counted the 3rd Place game until the playoff-definition entry below). Not added to team_year: a
+  season's playoff total is 0 until the playoffs, so the email's on-pace
+  projection would scale that 0 by weeks played and report noise every week of
+  the regular season. Additive only (offline build: 6 new columns, 6 Formulas
+  rows, nothing else).
+  - [x] **The two total differences dropped** [per user, on review]: `Playoff
+    minus regular-season points as starter` and `Playoff minus regular-season
+    points` subtracted TOTALS, so they were always about -11,000 to -12,000 and
+    tracked regular-season volume, not playoff performance; the per-game
+    columns carry that comparison.
+  - [x] **Start counts added** [per user]: player_all_time `Regular-season
+    games started` and `Playoff games started` (Semifinal + Final), the
+    denominators of the two PPG columns. Every start counts, as in `Weeks as
+    starter`; integer-formatted and banded with it.
+- [x] **Position factor: previous season's until week 5** [per user, from the
+  "no baseline before kickoff" note]: a season with fewer than 5 weeks played
+  (the season in progress through week 4, and moves filed under it before
+  kickoff) uses the PREVIOUS season's factor; once its week 5 is in, the whole
+  season switches to its own — retroactively, as every build recomputes. A
+  season past every one on record uses the latest (was: no baseline -> 1.0).
+  5 = `digest.MIN_YEARLY_WEEK`, so an adjusted number settles the week the email
+  first reports it; a test keeps the two equal. Moved to
+  `lotg_support.position_factor` (unit-tested on synthetic seasons in
+  `tests/test_position_factor.py` — the offline harness stops at 2025, where
+  every season is complete, so it cannot see the rule). Reaches EVERY
+  `_pos_factor` caller, including existing columns and the handcuff test's
+  TE-equivalent threshold, but only for the season in progress: on the committed
+  exports 2026 (2 weeks) now uses 2025's factors (TE 1.232 instead of a
+  two-week 1.356). Completed seasons are untouched.
+- [x] **Email: "Records" and "Leaderboard changes"** [per user]: the new-data
+  half of the digest is two visually distinct parts — a gold-ruled "Records"
+  block (every first-place move: rank 1 at either end, any board, single-season
+  records included) then a navy-ruled "Leaderboard changes" block (everything
+  else, milestones included). On-pace 1sts are NOT records [per user, on
+  review]: the "On pace this season" sections stay whole under Leaderboard
+  changes — a projection is not a record yet. Inside each, the usual sections
+  in the usual order and grouping, one heading level down
+  (`digest.split_records` / `_part_html`). The lede and the edits section are
+  unchanged. Guard: `check_records_and_leaderboard_changes_are_two_parts`.
+- [x] **One playoff definition on every sheet** [per user]: playoff = the
+  championship bracket's Semifinal + Final ONLY; regular season = the "Week N"
+  weeks before the playoffs start; 3rd Place and the toilet bracket (Toilet
+  Semis / Final / Trash) count as NEITHER. Audit of every playoff / regular-
+  season mask in the build: the bracket records (`_BRACKET`), the player
+  playoff split, the playoff points counts and the standings-leader streak
+  (weeks before `playoff_week_start`) already matched. Two did not and now do:
+  team_all_time's clutch index (`Playoff PF minus regular-season PF`,
+  `Playoff win % minus regular-season win %` — both counted 3rd Place as
+  playoff) and Luck's postseason ×1.8 weight on the result-surprise part
+  (`_POST` included 3rd Place, so the 3rd-place game's Luck — and every team_year
+  / team_all_time Luck sum over it — moves). Formulas rows and
+  plan/LUCK_REWORK.md updated. Guards in tests/test_ppg_position_adjusted.py:
+  the clutch index recomputed from team_week, and no `isin` mask in src/lotg.py
+  naming 3rd Place beside Semifinal/Final.
+- [ ] **3-part audit** on the first post-merge build. Expected diff: the 64 new
+  columns on seven sheets (the two total differences dropped, the two start
+  counts added), their Formulas rows (and the four corrected ones), the
+  3 stale-difference add_drops rows, the 6 fantasy-season add_drops rows (+ a
+  ±0.1 O-Score ripple), the donut / points-threshold renames on the team and
+  league sheets, the clutch index on teams that played a 3rd Place game and
+  Luck on 3rd Place weeks (plus the team_year / team_all_time Luck sums and
+  anything ranked on them), nothing else. The first Tuesday digest after merge lists the
+  new player_year columns' on-pace standings once; boards stay silent on them
+  for a week (new slots are absent from the prior snapshot).
+
 ## Phase 15 — TBD: OLD LEAGUES
 - [ ] **TBD.** Placeholder for integrating other historical/old leagues' data (e.g. the
   separate ESPN leagues seen in the 2020 emails — UChicago '24 = leagueId 57687541, UChi
   Fantasy = 54022297 — and any earlier seasons). Scope, sources, and whether they belong in
   this dataset at all to be decided later. Reuse the Phase-13 ESPN dump script + loader
   pattern where applicable.
+- **Design note (2026-09-26, per user): redraft data only affects the "Records" part
+  of the weekly email.** Whatever old-league / redraft data Phase 15 brings in may
+  set or break FIRST-PLACE marks (the digest's "Records" block — `digest.is_record`,
+  rank 1 at either end, projections excluded), but it must not reach the "Leaderboard changes" block: no
+  2nd-5th place moves, on-pace standings, event-board shuffles or milestones driven
+  by redraft rows. Design the integration (which boards redraft rows enter, how
+  they are keyed in the rank snapshot) so that holds.

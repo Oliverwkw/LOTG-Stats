@@ -248,6 +248,8 @@ _PHRASING = {
     ("add_drops", "Age difference"): "Age difference (added − dropped player)",
     ("add_drops", "Faab"): "FAAB bid",
     ("add_drops", "Dropped avg points"): "Dropped player's PPG after the drop (negated)",
+    ("add_drops", "Dropped avg points adjusted by position"):
+        "Dropped player's position-adjusted PPG after the drop (negated)",
     ("add_drops", "Dropped total points"): "Dropped player's points after the drop (negated)",
     ("trades", "Tanking"): "Tank-score change from the trade",
     ("add_drops", "Tanking"): "Tank-score change from the move",
@@ -255,10 +257,13 @@ _PHRASING = {
     ("rookie_picks", "Tanking"): "Tank-score change from the pick",
     ("non_rookie_picks", "Tanking"): "Tank-score change from the pick",
     ("", "Cuff adjusted difference"): "Cuff-adjusted start/sit difference (5-game averages)",
+    ("", "Cuff adjusted difference adjusted by position"):
+        "Cuff-adjusted start/sit difference (5-game averages, position-adjusted)",
     ("", "UPST"): "Upset wins",
 }
-# "Number of players over 30" is points, not age: say so.
-_POINTS_THRESHOLD = re.compile(r"^(Number of (?:players|starters|games) (?:over|under|within) \d+)$")
+# "Number of games within 10" is points, not anything else: say so. (The player
+# thresholds carry "pts" in their own names: "Players over 30 pts (roster)".)
+_POINTS_THRESHOLD = re.compile(r"^(Number of games (?:over|under|within) \d+)$")
 # Which sheet a section's crossings / highlights / projections are ranked on.
 _SECTION_SHEET = {
     ("crossing", "players"): "player_all_time", ("crossing", "teams"): "team_all_time",
@@ -272,7 +277,7 @@ _SECTION_SHEET = {
 def display_column(column: str, sheet: str = "") -> str:
     """The column as the email names it: the sheet's phrasing (`_PHRASING`), an
     award's "?" dropped ("Times as Highest starter on team"), and "pts" on a
-    points threshold ("Number of players over 30 pts")."""
+    points threshold ("Number of games within 10 pts")."""
     name = _PHRASING.get((sheet, column)) or _PHRASING.get(("", column)) or column
     name = _POINTS_THRESHOLD.sub(r"\1 pts", name)
     return name[:-1] if name.endswith("?") else name
@@ -3178,6 +3183,58 @@ def split_sections(sections: Sequence[Tuple[str, bool, list]],
     return top, edits
 
 
+# The new-data half of the email in two visually distinct parts (user rule,
+# 2026-09-26): RECORDS — every first-place move (rank 1 at either end, on any
+# board, single-season records included) — then LEADERBOARD CHANGES, everything
+# else. The on-pace section stays whole under LEADERBOARD CHANGES, its 1sts
+# included: a projection is not a record yet (user, 2026-09-26). Inside each part the sections keep the email's usual
+# order and grouping, one heading level down. Each part is a tinted block with a
+# coloured rule so the two read apart at a glance, in mail clients too (inline
+# styles only).
+RECORDS_TITLE = "Records"
+BOARDS_TITLE = "Leaderboard changes"
+_PART_STYLE = {
+    RECORDS_TITLE: ("#fbf6e6", "#c9a227"),   # (background, left rule)
+    BOARDS_TITLE: ("#f4f7fb", "#0b2545"),
+}
+
+
+def is_record(item) -> bool:
+    """A first-place move: the item holds rank 1 on its board. A milestone has
+    no place and is never one; an on-pace projection is never one either — the
+    pace section stays together under Leaderboard changes (user, 2026-09-26)."""
+    if isinstance(item, Projection):
+        return False
+    rank = getattr(item, "rank", None)
+    return isinstance(rank, int) and rank == 1
+
+
+def split_records(sections: Sequence[Tuple[str, bool, list]]
+                  ) -> Tuple[List[Tuple[str, bool, list]], List[Tuple[str, bool, list]]]:
+    """(records sections, leaderboard-change sections): each section's items
+    split by `is_record`, empty halves dropped, section order kept."""
+    recs, boards = [], []
+    for title, grouped, items in sections:
+        r = [i for i in items if is_record(i)]
+        o = [i for i in items if not is_record(i)]
+        if r:
+            recs.append((title, grouped, r))
+        if o:
+            boards.append((title, grouped, o))
+    return recs, boards
+
+
+def _part_html(title: str, sections: Sequence[Tuple[str, bool, list]]) -> str:
+    if not sections:
+        return ""
+    bg, rule = _PART_STYLE[title]
+    inner = "".join(_section_block(t, g, i, level=3) for t, g, i in sections)
+    return (f'  <div style="margin:20px 0 0;padding:4px 14px 12px;background:{bg};'
+            f'border-left:4px solid {rule};border-radius:4px;">\n'
+            f'  <h2 style="font:700 19px/1.3 system-ui,sans-serif;margin:12px 0 4px;'
+            f'color:#1a2b3c;">{title}</h2>\n{inner}  </div>')
+
+
 def _section_block(title: str, grouped: bool, items: Sequence, level: int = 2) -> str:
     if grouped:
         return _grouped_section_html(title, items, level)
@@ -3209,13 +3266,15 @@ def render_digest_html(
          f'border-left:3px solid #0b2545;border-radius:4px;">{intro}</p>'
          if intro else ""),
     ]
-    # New data first, exactly as it has always read; then, only if there are
+    # New data first — its first-place moves under "Records", everything else
+    # under "Leaderboard changes" (`split_records`); then, only if there are
     # any, the moves an edit alone explains, under their own header at the
     # bottom (see `attribute`).
     top, edits = split_sections(digest_sections(
         crossings, projections, milestones, records, highlights, events), new_data)
-    for title, grouped, items in top:
-        body.append(_section_block(title, grouped, items))
+    rec_part, board_part = split_records(top)
+    body.append(_part_html(RECORDS_TITLE, rec_part))
+    body.append(_part_html(BOARDS_TITLE, board_part))
     if edits:
         body.append(_EDIT_HEADER_HTML)
         for title, grouped, items in edits:
@@ -3274,9 +3333,57 @@ def build_replica_html(frames: dict, season: Optional[int] = None,
 # ---------------------------------------------------------------------------
 # Persistence
 # ---------------------------------------------------------------------------
+# The team / league count columns renamed on 2026-09-26 ("Number of donuts" ->
+# "Donuts (roster)", "Number of starters over 30" -> "Players over 30 pts
+# (starters)", …). A board is keyed by COLUMN, so a snapshot written under the
+# old names would leave every one of those boards without a prior and the first
+# digest after the rename blind to them (`diff_events` drops a slot the prior
+# never had). As with `migrate_board_label`, the old names are rewritten on READ:
+# idempotent, free once the snapshot rotates, safe on a replayed old snapshot.
+# Only team / league boards carry these names; no player column matches.
+_LEGACY_COUNT_COLUMN = (
+    (re.compile(r"^Number of donuts$"), "Donuts (roster)"),
+    (re.compile(r"^Number of (?:starter|starting) donuts$"), "Donuts (starters)"),
+    (re.compile(r"^Number of players (under|over) (\d+)$"), r"Players \1 \2 pts (roster)"),
+    (re.compile(r"^Number of starters (under|over) (\d+)$"), r"Players \1 \2 pts (starters)"),
+)
+_COUNT_RENAME_SHEETS = frozenset(("team_week", "team_year", "team_all_time",
+                                  "league_week", "league_year", "league_all_time"))
+
+
+def migrate_count_column(column: str) -> str:
+    """A pre-2026-09-26 team / league count column in today's name (idempotent)."""
+    if not isinstance(column, str):
+        return column
+    for pat, new in _LEGACY_COUNT_COLUMN:
+        if pat.match(column):
+            return pat.sub(new, column)
+    return column
+
+
+def migrate_snapshot_columns(snapshot: Optional[dict]) -> Optional[dict]:
+    """`snapshot` with the renamed team / league count columns in today's names:
+    the team_all_time ranks, the event boards on team / league sheets, and the
+    teams / league halves of the on-pace and single-season-record maps."""
+    if not isinstance(snapshot, dict):
+        return snapshot
+    if isinstance(snapshot.get("teams"), dict):
+        snapshot["teams"] = {migrate_count_column(k): v for k, v in snapshot["teams"].items()}
+    for e in snapshot.get("event_board") or ():
+        if isinstance(e, dict) and e.get("sheet") in _COUNT_RENAME_SHEETS:
+            e["column"] = migrate_count_column(e.get("column"))
+    for part in ("pace", "yearly_records"):
+        m = snapshot.get(part)
+        if isinstance(m, dict):
+            for sec in ("teams", "league"):
+                if isinstance(m.get(sec), dict):
+                    m[sec] = {migrate_count_column(k): v for k, v in m[sec].items()}
+    return snapshot
+
+
 def load_snapshot(path: Path) -> Optional[dict]:
     try:
-        return json.loads(Path(path).read_text())
+        return migrate_snapshot_columns(json.loads(Path(path).read_text()))
     except (OSError, ValueError):
         return None
 

@@ -41,7 +41,7 @@ the current, not-yet-complete season** (historical seasons are always correct).
 being played (partial Sleeper points) and (b) nflverse hasn't published it yet.
 
 - **Affected (latest week only, until it settles):**
-  - player_week: `Points`, `Starter/Bench` scoring, `Injury?` (see B), `Number of donuts`/`…under 10`, **every weekly award** (`Player of the week?`, `Captain?`, position-of-week, `Highest/Lowest starter on team?`) and **every weekly streak** (terminal values jump around).
+  - player_week: `Points`, `Starter/Bench` scoring, `Injury?` (see B), `Donuts (roster)`/`Players under 10 pts (…)`, **every weekly award** (`Player of the week?`, `Captain?`, position-of-week, `Highest/Lowest starter on team?`) and **every weekly streak** (terminal values jump around).
   - team_week: `PF`, `Max PF`, `Efficiency`, `Win?`, `Margin`, all award flags (`Highest score?`, `One-man army?`, `Most bench points?`, `Most injured?`, …), all team streaks, `Starter-adjusted Hardship`, `Luck`, `Loss from hardship?`.
   - Everything downstream that sums the latest week (team_year/all, player_year/all, league sheets, manager skill, O-Score on current-season events).
 - **Fix:** gate the trailing week. Only finalize a week once it is genuinely done —
