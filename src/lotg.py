@@ -8317,7 +8317,9 @@ def build_all(repo_root: Path) -> None:
             if not _dt_str:
                 return 1
             try:
-                _d = datetime.fromisoformat(str(_dt_str).replace("Z", "+00:00")).date()
+                # The LEAGUE (ET) day, as team_week's trade week uses: the UTC
+                # date put a Monday-night trade in the next week.
+                _d = _league_day(datetime.fromisoformat(str(_dt_str).replace("Z", "+00:00")))
                 return _season_week_of(_d, int(_season))
             except Exception:
                 return 1
@@ -8754,7 +8756,7 @@ def build_all(repo_root: Path) -> None:
                 # and wrong by up to five days depending on the season.
                 def _week_for_date(dstr: str, season: int):
                     try:
-                        d = datetime.fromisoformat(str(dstr).replace("Z", "+00:00")).date()
+                        d = _league_day(datetime.fromisoformat(str(dstr).replace("Z", "+00:00")))
                     except Exception:
                         return None
                     return max(1, _season_week_of(d, int(season)))
@@ -9687,6 +9689,52 @@ def build_all(repo_root: Path) -> None:
                             player_drop_year[(_dpid, _tx_season)] += 1
             except Exception as e:
                 _log_exc(debug, "player_tx_counter_rebuild", e)
+
+            # The WEEKLY player counters, rebuilt the same way and on the same
+            # Tuesday-Monday league week team_week uses (`_addrop_by_tsw` below).
+            # They were only ever incremented in the weekly fetch loop, so
+            # player_week still carried (a) every commissioner-washed leg the
+            # cleanup above removed from add_drops — a waiver run processed
+            # early, reversed and re-run counted three times (Jerome Ford 2023
+            # wk1: 3 add/drops against 1 on player_year) — and (b) Sleeper's own
+            # week for the move, not the league week: a Wednesday waiver after
+            # week N's games sat in week N, not N+1 (319 player-weeks, audit
+            # 2026-09-26). An offseason move more than 7 days before kickoff
+            # gets no week, as on team_week.
+            try:
+                player_addrop_week.clear(); player_drop_week.clear()
+                for _adr in add_drop_rows:
+                    try:
+                        _s_w = int(_adr.get("Season"))
+                    except (TypeError, ValueError):
+                        continue
+                    _dday_w = _league_day(_aware(_adr.get("Date")))
+                    _wk_w = _season_week_of(_dday_w, _s_w) if _dday_w is not None else 0
+                    if not _wk_w:
+                        continue
+                    _apid = _adr.get("_added_pid")
+                    _dpid = _adr.get("_dropped_pid")
+                    if _apid:
+                        player_addrop_week[(str(_apid), _s_w, int(_wk_w))] += 1
+                    if _dpid:
+                        player_addrop_week[(str(_dpid), _s_w, int(_wk_w))] += 1
+                        player_drop_week[(str(_dpid), _s_w, int(_wk_w))] += 1
+                if not pw.empty and {"Player ID", "Year", "Week"}.issubset(pw.columns):
+                    _pk = list(zip(pw["Player ID"].astype(str),
+                                   pd.to_numeric(pw["Year"], errors="coerce"),
+                                   pd.to_numeric(pw["Week"], errors="coerce")))
+                    _before_w = int(pd.to_numeric(pw.get("Number of Add/Drops"), errors="coerce").fillna(0).sum())
+                    pw["Number of Add/Drops"] = [
+                        int(player_addrop_week.get((p, int(y), int(w)), 0)) if pd.notna(y) and pd.notna(w) else 0
+                        for p, y, w in _pk]
+                    pw["Number of drops"] = [
+                        int(player_drop_week.get((p, int(y), int(w)), 0)) if pd.notna(y) and pd.notna(w) else 0
+                        for p, y, w in _pk]
+                    _log(debug, f"[{_now_iso()}] INFO player_week Number of Add/Drops rebuilt from "
+                                f"add_drop_rows on the Tuesday-Monday league week: {_before_w} -> "
+                                f"{int(pw['Number of Add/Drops'].sum())}")
+            except Exception as e:
+                _log_exc(debug, "player_week_tx_counter_rebuild", e)
 
             # Same fix, same reason, for the TEAM counters. The scattered
             # per-event increments fire in the weekly loop, which has long
@@ -14768,7 +14816,8 @@ def build_all(repo_root: Path) -> None:
 
     def _trade_is_offseason(dt_str, season) -> Optional[bool]:
         try:
-            d = datetime.fromisoformat(str(dt_str).replace("Z", "+00:00")).date()
+            # League (ET) day, like every other window test on a move's date.
+            d = _league_day(datetime.fromisoformat(str(dt_str).replace("Z", "+00:00")))
         except Exception:
             return None
         try:
@@ -18728,7 +18777,10 @@ def build_all(repo_root: Path) -> None:
         if not dt_str:
             return 1
         try:
-            d = datetime.fromisoformat(str(dt_str).replace("Z", "+00:00")).date()
+            # The LEAGUE (ET) day, as team_week's trade week uses: the UTC date
+            # put a Monday-night trade a week late (2021 wk13->14, 2024 wk5->6
+            # and wk14->15; audit 2026-09-26).
+            d = _league_day(datetime.fromisoformat(str(dt_str).replace("Z", "+00:00")))
             return _season_week_of(d, int(season))
         except Exception:
             return 1

@@ -269,7 +269,7 @@ class InjuryGap:
         return f"{self.season} week {self.week}"
 
 
-def injury_capture_health(summary: dict) -> List[InjuryGap]:
+def injury_capture_health(summary: dict, played: Optional[dict] = None) -> List[InjuryGap]:
     """Weeks whose injury capture is INCOMPLETE, as opposed to absent.
 
     `injury_coverage.week_gaps` — the one thing the health email already reports —
@@ -290,10 +290,18 @@ def injury_capture_health(summary: dict) -> List[InjuryGap]:
     Both were already computed by injury_coverage.render_report(), which prints
     them to a markdown report on the workflow's stdout that nobody reads. This
     returns them so the Wednesday email can carry them instead.
+
+    `played` ({season: {weeks}} of FINISHED weeks — team_week's, which the build
+    writes only once a week is final) keeps the week being played out of it: its
+    Tuesday capture is not due yet, so "never landed" would be a false alarm on
+    any run between kickoff and Tuesday (a mid-week dispatch, 2026-09-26: week 3,
+    two days in). Without it every week is judged, as before.
     """
     out: List[InjuryGap] = []
     for (season, week) in sorted(summary):
         v = summary[(season, week)] or {}
+        if played is not None and int(week) not in (played.get(int(season)) or ()):
+            continue                       # still being played: nothing is due yet
         if not v.get("finalized", True):
             out.append(InjuryGap(
                 "unfinalized", int(season), int(week),

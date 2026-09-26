@@ -243,6 +243,17 @@ def test_an_unfinalized_week_is_reported_as_that_not_as_unswept():
     assert [g.kind for g in got] == ["unfinalized"]
 
 
+def test_the_week_being_played_is_not_unfinalized_yet():
+    """Mid-week (2026-09-26, week 3 two days in) the week has gameday sweeps and
+    no Tuesday capture because Tuesday has not come. Given the finished weeks it
+    is not a finding; a finished week that missed its capture still is."""
+    summary = {(2026, 2): {"finalized": False, "captures": 3},
+               (2026, 3): {"finalized": False, "captures": 2}}
+    got = SW.injury_capture_health(summary, {2026: {1, 2}})
+    assert [(g.kind, g.week) for g in got] == [("unfinalized", 2)]
+    assert [g.week for g in SW.injury_capture_health(summary)] == [2, 3]
+
+
 def test_incomplete_injury_weeks_reach_the_email():
     sys.path.insert(0, str(_ROOT / "scripts"))
     import send_audit_email as E
@@ -256,7 +267,8 @@ def test_incomplete_injury_weeks_reach_the_email():
     assert "2026 week 4" in html and "2026 week 5" in html
 
 
-TESTS = [test_the_schedule_is_read_from_the_workflow_not_restated,
+TESTS = [test_the_week_being_played_is_not_unfinalized_yet,
+         test_the_schedule_is_read_from_the_workflow_not_restated,
          test_the_most_recent_fire_is_judged_once_it_has_had_time,
          test_a_fire_still_inside_the_grace_window_is_not_judged,
          test_a_successful_primary_is_not_flagged_by_its_own_catch_up,
