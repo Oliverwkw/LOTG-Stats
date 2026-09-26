@@ -312,6 +312,154 @@ def check_team_week_faab_matches_the_add_drops_sheet() -> bool:
                f"{[(k, got.get(k), expect.get(k)) for k in diff[:6]]}")
 
 
+# The line the build logs once player_week's move counts come from the final
+# add_drops rows on the Tuesday-Monday week (audit 2026-09-26).
+_PLAYER_WEEK_MARKER = "player_week Number of Add/Drops rebuilt"
+
+
+def _built_with(d: Path, marker: str) -> bool:
+    try:
+        return marker in (d / "raw" / "build_debug.log").read_text(errors="replace")
+    except Exception:
+        return False
+
+
+def _unique_names(d: Path) -> set:
+    """Player names that are one player (player_week carries no Player ID, so a
+    shared name cannot be told apart and is left out)."""
+    pa = pd.read_csv(d / "player_all_time.csv", low_memory=False)
+    n = pa["Player"].astype(str)
+    return set(n[~n.duplicated(keep=False)])
+
+
+def check_player_week_moves_match_the_add_drops_sheet() -> bool:
+    """player_week's "Number of Add/Drops" / "Number of drops" are the
+    add_drops.csv rows naming the player, dated into that week on the same
+    Tuesday-Monday clock as team_week.
+
+    They used to come from the raw Sleeper transactions and Sleeper's own week:
+    a commissioner-washed waiver run counted three times (Jerome Ford 2023 wk1:
+    3 against 1 on player_year) and a Wednesday waiver sat in the week just
+    played (319 player-weeks off)."""
+    d = _exports()
+    pw_path, ad_path = d / "player_week.csv", d / "add_drops.csv"
+    if not pw_path.exists() or not ad_path.exists() or not (d / "player_all_time.csv").exists():
+        print("  [SKIP] no player_week.csv / add_drops.csv / player_all_time.csv")
+        return True
+    if not _built_with(d, _PLAYER_WEEK_MARKER):
+        print(f"  [SKIP] these exports predate the rebuilt player_week move counts "
+              f"(no {_PLAYER_WEEK_MARKER!r} in raw/build_debug.log)")
+        return True
+    names = _unique_names(d)
+    pw = pd.read_csv(pw_path, low_memory=False)
+    ad = pd.read_csv(ad_path, low_memory=False)
+    when = pd.to_datetime(ad["Date"], errors="coerce")
+    season = pd.to_numeric(ad["Season"], errors="coerce")
+    moves: dict = {}
+    drops: dict = {}
+    for add, drop, w, s in zip(ad["Player Added"], ad["Player Dropped"], when, season):
+        if pd.isna(w) or pd.isna(s):
+            continue
+        wk = lotg._season_week_of(w.date(), int(s))
+        if not wk:
+            continue
+        for who, is_drop in ((add, False), (drop, True)):
+            if isinstance(who, str) and who.strip():
+                k = (who.strip(), int(s), int(wk))
+                moves[k] = moves.get(k, 0) + 1
+                if is_drop:
+                    drops[k] = drops.get(k, 0) + 1
+    ok = True
+    for col, expect in (("Number of Add/Drops", moves), ("Number of drops", drops)):
+        bad = []
+        for p, y, w, v in zip(pw["Player"].astype(str), pd.to_numeric(pw["Year"], errors="coerce"),
+                              pd.to_numeric(pw["Week"], errors="coerce"), _num(pw[col])):
+            if p not in names or pd.isna(y) or pd.isna(w):
+                continue
+            e = expect.get((p, int(y), int(w)), 0)
+            if int(v) != e:
+                bad.append((p, int(y), int(w), int(v), e))
+        ok &= _ok(f"player_week {col} equals the add_drops rows dated into each week",
+                  not bad, f"{len(bad)} player-week(s) differ (player, year, week, got, expected): {bad[:6]}")
+    return ok
+
+
+def check_player_week_trades_match_the_trades_sheet() -> bool:
+    """player_week's "Number of trades" counts the trades.csv rows in which the
+    player was RECEIVED, dated into that week by the LEAGUE (ET) day. The UTC
+    date put a Monday-night trade a week late."""
+    d = _exports()
+    pw_path, tr_path = d / "player_week.csv", d / "trades.csv"
+    if not pw_path.exists() or not tr_path.exists() or not (d / "player_all_time.csv").exists():
+        print("  [SKIP] no player_week.csv / trades.csv / player_all_time.csv")
+        return True
+    if not _built_with(d, _PLAYER_WEEK_MARKER):
+        print("  [SKIP] these exports predate the league-day trade week")
+        return True
+    names = _unique_names(d)
+    pw = pd.read_csv(pw_path, low_memory=False)
+    tr = pd.read_csv(tr_path, low_memory=False)
+    when = pd.to_datetime(tr["Date"], errors="coerce")
+    season = pd.to_numeric(tr["Season"], errors="coerce")
+    expect: dict = {}
+    for recv, w, s in zip(tr["Assets received"].astype(str), when, season):
+        if pd.isna(w) or pd.isna(s):
+            continue
+        wk = lotg._season_week_of(w.date(), int(s))
+        for a in recv.split(";"):
+            a = a.strip()
+            # picks ("2024 1.05(D. Maye)", "2027 4(plehv79)") and FAAB are not players
+            if not a or a[:4].isdigit() or "FAAB" in a:
+                continue
+            k = (a, int(s), int(wk))
+            expect[k] = expect.get(k, 0) + 1
+    bad = []
+    for p, y, w, v in zip(pw["Player"].astype(str), pd.to_numeric(pw["Year"], errors="coerce"),
+                          pd.to_numeric(pw["Week"], errors="coerce"), _num(pw["Number of trades"])):
+        if p not in names or pd.isna(y) or pd.isna(w):
+            continue
+        e = expect.get((p, int(y), int(w)), 0)
+        if int(v) != e:
+            bad.append((p, int(y), int(w), int(v), e))
+    return _ok("player_week trades equal the players received in trades.csv that week",
+               not bad, f"{len(bad)} player-week(s) differ: {bad[:6]}")
+
+
+def check_league_week_trades_are_the_distinct_trades_that_week() -> bool:
+    """league_week's "Number of trades" counts each trade once (its rows share one
+    timestamp), in the week the LEAGUE (ET) day puts it — the same week
+    team_week credits its sides. On the UTC date, 2021 wk13 read 2 against 3 and
+    wk14 read 1 against 0 (and 2024 wk5/6, wk14/15 the same way)."""
+    d = _exports()
+    lw_path, tr_path = d / "league_week.csv", d / "trades.csv"
+    if not lw_path.exists() or not tr_path.exists():
+        print("  [SKIP] no league_week.csv / trades.csv")
+        return True
+    if not _built_with(d, _PLAYER_WEEK_MARKER):
+        print("  [SKIP] these exports predate the league-day trade week")
+        return True
+    lw = pd.read_csv(lw_path, low_memory=False)
+    tr = pd.read_csv(tr_path, low_memory=False)
+    when = pd.to_datetime(tr["Date"], errors="coerce")
+    season = pd.to_numeric(tr["Season"], errors="coerce")
+    per: dict = {}
+    for raw, w, s in zip(tr["Date"].astype(str), when, season):
+        if pd.isna(w) or pd.isna(s):
+            continue
+        wk = lotg._season_week_of(w.date(), int(s))
+        per.setdefault((int(s), int(wk)), set()).add(raw)
+    bad = []
+    for y, w, v in zip(pd.to_numeric(lw["Year"], errors="coerce"), pd.to_numeric(lw["Week"], errors="coerce"),
+                       _num(lw["Number of trades"])):
+        if pd.isna(y) or pd.isna(w):
+            continue
+        e = len(per.get((int(y), int(w)), ()))
+        if int(v) != e:
+            bad.append((int(y), int(w), int(v), e))
+    return _ok("league_week trades equal the distinct trades dated into each week",
+               not bad, f"{len(bad)} week(s) differ (year, week, got, expected): {bad[:6]}")
+
+
 def run_all() -> bool:
     if not (_exports() / "team_year.csv").exists():
         print("no exports/ — SKIP")
@@ -321,7 +469,10 @@ def run_all() -> bool:
               check_the_totals_match_the_detail_sheet,
               check_every_detail_row_lands_in_exactly_one_bucket,
               check_team_week_trades_match_the_trades_sheet,
-              check_team_week_faab_matches_the_add_drops_sheet):
+              check_team_week_faab_matches_the_add_drops_sheet,
+              check_player_week_moves_match_the_add_drops_sheet,
+              check_player_week_trades_match_the_trades_sheet,
+              check_league_week_trades_are_the_distinct_trades_that_week):
         print(f"\n{t.__name__}:")
         all_ok &= bool(t())
     print("\n" + ("ALL PASS" if all_ok else "SOME FAILED"))
