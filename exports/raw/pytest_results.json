@@ -1523,6 +1523,11 @@
    "reason": ""
   },
   {
+   "test": "tests/test_phrasing_reference.py::test_every_row_names_a_current_sheet_and_column",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
    "test": "tests/test_pick_chain_links.py::test_pick_chain_link_integrity",
    "outcome": "passed",
    "reason": ""
@@ -1553,12 +1558,97 @@
    "reason": ""
   },
   {
+   "test": "tests/test_position_factor.py::test_min_weeks_matches_the_email_gate",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_position_factor.py::test_a_complete_season_uses_its_own_baseline",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_position_factor.py::test_weeks_1_to_4_borrow_the_previous_season_then_switch_at_week_5",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_position_factor.py::test_a_season_not_yet_kicked_off_uses_the_latest",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_position_factor.py::test_the_first_season_on_record_keeps_its_own_even_when_short",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_position_factor.py::test_unknown_position_or_season_is_neutral",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
    "test": "tests/test_position_pins.py::test_position_pins",
    "outcome": "passed",
    "reason": ""
   },
   {
    "test": "tests/test_ppg_consistency.py::test_ppg_consistency",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_ppg_position_adjusted.py::test_player_year_recomputes_from_player_week",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_ppg_position_adjusted.py::test_player_year_change_columns",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_ppg_position_adjusted.py::test_all_time_pools_the_seasons",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_ppg_position_adjusted.py::test_blank_exactly_where_base_is",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_ppg_position_adjusted.py::test_player_additions_grid",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_ppg_position_adjusted.py::test_difference_columns_split_into_their_twins",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_ppg_position_adjusted.py::test_add_drops_twins_use_each_players_factor",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_ppg_position_adjusted.py::test_playoff_split_recomputes_from_player_week",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_ppg_position_adjusted.py::test_team_playoff_points_recompute_from_team_week",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_ppg_position_adjusted.py::test_no_playoff_mask_counts_the_3rd_place_game",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_ppg_position_adjusted.py::test_player_week_twins",
    "outcome": "passed",
    "reason": ""
   },
