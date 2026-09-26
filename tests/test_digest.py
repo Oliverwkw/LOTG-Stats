@@ -530,7 +530,7 @@ def check_the_rename_does_not_desync_the_baseline():
     # A float column is what upcasts the row, exactly as on the real sheet
     # (Avg PF, Efficiency …); an all-int fixture would keep Year an int and pass
     # against the unfixed label.
-    ly = pd.DataFrame([{"Year": 2023, "Number of donuts": 130, "Avg PF": 131.5}]).iloc[0]
+    ly = pd.DataFrame([{"Year": 2023, "Donuts (roster)": 130, "Avg PF": 131.5}]).iloc[0]
     ok &= _ok("an all-numeric league_year row still reads as a year",
               D._board_label("league_year", ly) == "the 2023 season",
               f"got {D._board_label('league_year', ly)}")
@@ -542,10 +542,10 @@ def check_the_rename_does_not_desync_the_baseline():
               and D.migrate_board_label("league_year", "the 2023 season") == "the 2023 season")
     ok &= _ok("other sheets' labels are not rewritten by it",
               D.migrate_board_label("team_year", "the 2023.0 season") == "the 2023.0 season")
-    prior = [{"sheet": "league_year", "column": "Number of donuts", "end": "high",
+    prior = [{"sheet": "league_year", "column": "Donuts (roster)", "end": "high",
               "key": "league_year|2022.0", "rank": 3, "label": "the 2022.0 season",
               "value": 98.0}]
-    slot = D._prior_board(prior)[("league_year", "Number of donuts", "high")]
+    slot = D._prior_board(prior)[("league_year", "Donuts (roster)", "high")]
     ok &= _ok("_prior_board names an old league season in the new spelling",
               slot["by_rank"][3] == ["the 2022 season"]
               and slot.get("val_by_label", {}).get("the 2022 season") == 98.0,
@@ -716,7 +716,7 @@ def check_rate_and_weekly_classification():
                   ["Times as Captain?", "Times One-man army?", "Wins from byes",
                    "Losses from hardship (2-sided)", "Losses from byes"]))
     ok &= _ok("normal counts not weekly-counting",
-              not any(D.is_weekly_counting_stat(c) for c in ["Number of donuts", "Points", "Total trades"]))
+              not any(D.is_weekly_counting_stat(c) for c in ["Donuts (roster)", "Points", "Total trades"]))
     # Audit finding F2: "Most number of X from same NFL team" is a season MAX
     # capped by roster size, not a running total. Scaling it by weeks-remaining
     # produced impossible values (6 -> 12.8 at week 8, vs an all-time high of 7)
@@ -758,6 +758,91 @@ def check_render_html_smoke():
              and "most in any season" in html and "week 7" in html)
     ok &= _ok("empty digest fallback",
               "No leaderboard changes" in D.render_digest_html([], [], {"season": 2026, "weeks_completed": 7}, []))
+    return ok
+
+
+def check_records_and_leaderboard_changes_are_two_parts():
+    """New data renders as two visually distinct parts (user rule 2026-09-26):
+    "Records" — every first-place move, on any board — then "Leaderboard
+    changes" — everything else, milestones and the whole on-pace section (its
+    1sts included: a projection is not a record yet) included. Each keeps the usual
+    sections, in the usual order."""
+    first = D.Crossing("teams", "Max PF", "high", 1, "BRO", 305.0, passed=("shmuel",))
+    third = D.Crossing("teams", "PF", "high", 3, "AceMatthew", 900.0, passed=("plehv79",))
+    low1 = D.Crossing("teams", "Points against", "low", 1, "LWebs53", 80.0, passed=("x",))
+    pace1 = D.Projection("teams", "A", "Hardship", "high", 1, 3, 110.0)
+    pace4 = D.Projection("teams", "B", "Luck", "high", 4, 3, 2.0)
+    m = D.Milestone("PF", 51000.0, 50000.0)
+    rec = D.YearlyRecord("teams", "BRO", "Times One-man army?", 9.0)
+    html = D.render_digest_html([first, third, low1], [pace1, pace4],
+                                {"season": 2026, "weeks_completed": 7}, [m], [rec])
+    r0, b0 = html.find(">Records</h2>"), html.find(">Leaderboard changes</h2>")
+    ok = _ok("both parts present, Records first", 0 < r0 < b0, f"{r0} {b0}")
+    recs, boards = html[r0:b0], html[b0:]
+    ok &= _ok("1st-place moves at either end sit under Records",
+              "BRO" in recs and "LWebs53" in recs and "most in any season" in recs)
+    ok &= _ok("an on-pace 1st stays in the pace section, under Leaderboard changes",
+              "Hardship" in boards and "Hardship" not in recs and "On pace" not in recs)
+    ok &= _ok("everything else is a leaderboard change",
+              "AceMatthew" in boards and "Luck" in boards and "passes 50,000" in boards
+              and "AceMatthew" not in recs and "passes 50,000" not in recs)
+    ok &= _ok("sections keep their titles and order inside a part",
+              recs.index("All-time leaderboard moves — teams") < recs.index("New single-season records")
+              and boards.index("All-time leaderboard moves — teams") < boards.index("League milestones")
+              < boards.index("On pace this season — teams"))
+    ok &= _ok("the parts look different",
+              html.rfind("border-left:4px solid #c9a227", 0, r0) >= 0
+              and r0 < html.rfind("border-left:4px solid #0b2545", 0, b0))
+    only_boards = D.render_digest_html([third], [], {"season": 2026, "weeks_completed": 7})
+    ok &= _ok("no first-place move -> no Records part", ">Records</h2>" not in only_boards
+              and ">Leaderboard changes</h2>" in only_boards)
+    return ok
+
+
+def check_renamed_count_columns_keep_their_prior():
+    """A snapshot written before the 2026-09-26 count-column rename ("Number of
+    donuts" -> "Donuts (roster)", …) is read under the new names, so the first
+    digest after the rename still diffs those boards instead of going blind."""
+    import json
+    import tempfile
+    old = {
+        "teams": {"Number of donuts": [{"entity": "A", "value": 9.0}],
+                  "Number of starters over 30": [{"entity": "A", "value": 2.0}], "PF": []},
+        "players": {"Number of donuts": []},     # no player column is renamed
+        "event_board": [
+            {"sheet": "team_week", "column": "Number of starter donuts", "end": "high",
+             "key": "k1", "rank": 1, "label": "x", "value": 3.0},
+            {"sheet": "league_year", "column": "Number of starting donuts", "end": "high",
+             "key": "k2", "rank": 1, "label": "y", "value": 30.0},
+            {"sheet": "league_week", "column": "Number of players under 10", "end": "high",
+             "key": "k3", "rank": 1, "label": "z", "value": 50.0},
+            {"sheet": "trades", "column": "Number of donuts", "end": "high",
+             "key": "k4", "rank": 1, "label": "w", "value": 1.0},
+            {"sheet": "team_year", "column": "Number of games within 10", "end": "high",
+             "key": "k5", "rank": 1, "label": "v", "value": 4.0},
+        ],
+        "pace": {"teams": {"Number of players over 20": {"A": "high:1"}}},
+        "yearly_records": {"league": {"Number of donuts": 40.0}},
+    }
+    with tempfile.TemporaryDirectory() as d:
+        p = Path(d) / "snap.json"
+        p.write_text(json.dumps(old))
+        s = D.load_snapshot(p)
+    cols = [e["column"] for e in s["event_board"]]
+    ok = _ok("team_all_time ranks renamed",
+             set(s["teams"]) == {"Donuts (roster)", "Players over 30 pts (starters)", "PF"}, str(set(s["teams"])))
+    ok &= _ok("team / league event boards renamed",
+              cols[:3] == ["Donuts (starters)", "Donuts (starters)", "Players under 10 pts (roster)"], str(cols))
+    ok &= _ok("other sheets and the games counts untouched",
+              cols[3:] == ["Number of donuts", "Number of games within 10"] and "Number of donuts" in s["players"])
+    ok &= _ok("pace and single-season record maps renamed",
+              "Players over 20 pts (roster)" in s["pace"]["teams"]
+              and "Donuts (roster)" in s["yearly_records"]["league"])
+    ok &= _ok("idempotent", D.migrate_count_column("Donuts (starters)") == "Donuts (starters)"
+              and D.migrate_snapshot_columns(json.loads(json.dumps(s))) == s)
+    prior = D._prior_board(s["event_board"])
+    ok &= _ok("_prior_board finds the renamed slot",
+              ("team_week", "Donuts (starters)", "high") in prior)
     return ok
 
 
@@ -1338,6 +1423,8 @@ def run_all() -> bool:
         check_rate_and_weekly_classification,
         check_phrasing_catalog,
         check_render_html_smoke,
+        check_records_and_leaderboard_changes_are_two_parts,
+        check_renamed_count_columns_keep_their_prior,
         check_digest_title,
         check_an_invisible_overtake_is_not_reported,
         check_a_tie_join_is_never_suppressed,
@@ -1890,9 +1977,10 @@ def check_rookie_class_waits_for_week_8_on_player_boards():
 def check_columns_are_named_for_the_email():
     ok = _ok("an award drops its '?'",
              D.display_column("Times as Highest starter on team?") == "Times as Highest starter on team")
-    ok &= _ok("a points threshold says pts",
-              D.display_column("Number of players over 30") == "Number of players over 30 pts"
-              and D.display_column("Number of starters under 10") == "Number of starters under 10 pts")
+    ok &= _ok("a points threshold says pts (once)",
+              D.display_column("Players over 30 pts (roster)") == "Players over 30 pts (roster)"
+              and D.display_column("Players under 10 pts (starters)") == "Players under 10 pts (starters)"
+              and D.display_column("Number of games within 10") == "Number of games within 10 pts")
     ok &= _ok("an age column does not",
               D.display_column("Player average age") == "Player average age")
     ok &= _ok("a trade's difference of averages says of what",
@@ -1965,7 +2053,7 @@ def check_this_weeks_rows_are_told_once():
     hl2 = [D.WeeklyHighlight("teams", "LWebs53", "Number of WR rostered", "high", 1, 19.0, week=2)]
     ev2 = [D.EventCrossing("team_week", "LWebs53 2026 week 2", "Number of WR rostered", "high", 1,
                            19.0, passed=("LWebs53 2026 week 1",)),
-           D.EventCrossing("league_week", "2026 week 2", "Number of players under 10", "high", 1,
+           D.EventCrossing("league_week", "2026 week 2", "Players under 10 pts (roster)", "high", 1,
                            131.0, passed=("2024 week 2",))]
     out2, _r = D.fold_week_boards(hl2, ev2, {}, [(2026, 2)])
     lines = [h.line() for h in out2]

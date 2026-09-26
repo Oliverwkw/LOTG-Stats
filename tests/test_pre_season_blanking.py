@@ -39,11 +39,11 @@ def _team_year_frame() -> pd.DataFrame:
     return pd.DataFrame(
         [
             {"Team": "AceMatthew", "Year": 2024, "Player average age": 26.5,
-             "Points": 1800.0, "Number of QB started": 2, "Number of donuts": 0,
+             "Points": 1800.0, "Number of QB started": 2, "Donuts (roster)": 0,
              "Trading skill": 55.0, "Number of Add/Drops": 30,
              "Offseason trades": 1.0, "Draft Value": 4.2},
             {"Team": "AceMatthew", "Year": 2026, "Player average age": 0.0,
-             "Points": float("nan"), "Number of QB started": 0, "Number of donuts": 0,
+             "Points": float("nan"), "Number of QB started": 0, "Donuts (roster)": 0,
              "Trading skill": 44.1, "Number of Add/Drops": 4,
              "Offseason trades": 2.0, "Draft Value": 1.22},
         ]
@@ -57,7 +57,7 @@ def test_blanks_not_started_game_stats():
     # is "Player average age", but the whole game-stat family is affected).
     assert row26["Player average age"] == "N/A"
     assert row26["Number of QB started"] == "N/A"
-    assert row26["Number of donuts"] == "N/A"
+    assert row26["Donuts (roster)"] == "N/A"
     assert row26["Points"] == "N/A"
     # Genuine offseason facts survive.
     assert row26["Trading skill"] == 44.1
@@ -73,7 +73,7 @@ def test_completed_season_untouched():
     df = _blank_pre_season_year_stats(_team_year_frame(), "team-year", {2024})
     row24 = df[df["Year"] == 2024].iloc[0]
     assert row24["Player average age"] == 26.5
-    assert row24["Number of donuts"] == 0
+    assert row24["Donuts (roster)"] == 0
     assert row24["Points"] == 1800.0
     assert row24["Number of QB started"] == 2
 
