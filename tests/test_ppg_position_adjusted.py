@@ -395,7 +395,28 @@ def test_team_playoff_points_recompute_from_team_week():
         assert not bad.any(), f"team_all_time {col}: {int(bad.sum())} teams disagree with team_week"
     # Regular-season + every bracket game = all-time Points.
     assert (_num(m["Regular-season points"]) <= _num(m["Points"]) + 0.011).all(), "regular-season points exceed Points"
+    # The clutch index uses the same two phases, per game.
+    win = _flag(tw["Win?"]).astype(float)
+    for col, v, tol in (("Playoff PF minus regular-season PF", pf, 0.011),
+                        ("Playoff win % minus regular-season win %", win, 0.0002)):
+        r = v[wn.str.startswith("Week ")].groupby(tw["Team"]).mean()
+        p_ = v[wn.isin(["Semifinal", "Final"])].groupby(tw["Team"]).mean()
+        want = (p_ - r).reindex(m.index)
+        got = _num(m[col])
+        assert (got.isna() == want.isna()).all(), f"team_all_time {col}: blank on the wrong teams"
+        bad = ~_close(got[want.notna()], want[want.notna()], tol)
+        assert not bad.any(), f"team_all_time {col}: {int(bad.sum())} teams disagree (3rd Place counted?)"
     print(f"  {len(m)} teams reconcile")
+
+
+def test_no_playoff_mask_counts_the_3rd_place_game():
+    """Playoff = Semifinal + Final on every sheet (user rule 2026-09-26): a
+    Week Name membership test naming "3rd Place" alongside a Semifinal/Final
+    is the old, wider definition coming back."""
+    src = (Path(__file__).resolve().parent.parent / "src" / "lotg.py").read_text()
+    bad = [ln.strip() for ln in src.splitlines()
+           if "3rd Place" in ln and ("Semifinal" in ln or "Final" in ln) and "isin" in ln]
+    assert not bad, f"playoff mask counts 3rd Place: {bad}"
 
 
 def test_player_week_twins():

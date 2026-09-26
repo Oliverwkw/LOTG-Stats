@@ -829,8 +829,8 @@ PF mixes every position, so the per-position factor means nothing there);
   phase); team_all_time `Regular-season points`, `Playoff points`, `Playoff
   minus regular-season points` (team PF; the "Playoff record" games — Semifinal
   + Final — so a higher seed's semifinal carries the +5). team_all_time had
-  only the per-game clutch index (`Playoff PF minus regular-season PF`, which
-  also counts the 3rd Place game — left as is). Not added to team_year: a
+  only the per-game clutch index (`Playoff PF minus regular-season PF`; it
+  counted the 3rd Place game until the playoff-definition entry below). Not added to team_year: a
   season's playoff total is 0 until the playoffs, so the email's on-pace
   projection would scale that 0 by weeks played and report noise every week of
   the regular season. Additive only (offline build: 6 new columns, 6 Formulas
@@ -862,17 +862,36 @@ PF mixes every position, so the per-position factor means nothing there);
 - [x] **Email: "Records" and "Leaderboard changes"** [per user]: the new-data
   half of the digest is two visually distinct parts — a gold-ruled "Records"
   block (every first-place move: rank 1 at either end, any board, single-season
-  records and on-pace 1sts included) then a navy-ruled "Leaderboard changes"
-  block (everything else, milestones included). Inside each, the usual sections
+  records included) then a navy-ruled "Leaderboard changes" block (everything
+  else, milestones included). On-pace 1sts are NOT records [per user, on
+  review]: the "On pace this season" sections stay whole under Leaderboard
+  changes — a projection is not a record yet. Inside each, the usual sections
   in the usual order and grouping, one heading level down
   (`digest.split_records` / `_part_html`). The lede and the edits section are
   unchanged. Guard: `check_records_and_leaderboard_changes_are_two_parts`.
+- [x] **One playoff definition on every sheet** [per user]: playoff = the
+  championship bracket's Semifinal + Final ONLY; regular season = the "Week N"
+  weeks before the playoffs start; 3rd Place and the toilet bracket (Toilet
+  Semis / Final / Trash) count as NEITHER. Audit of every playoff / regular-
+  season mask in the build: the bracket records (`_BRACKET`), the player
+  playoff split, the playoff points counts and the standings-leader streak
+  (weeks before `playoff_week_start`) already matched. Two did not and now do:
+  team_all_time's clutch index (`Playoff PF minus regular-season PF`,
+  `Playoff win % minus regular-season win %` — both counted 3rd Place as
+  playoff) and Luck's postseason ×1.8 weight on the result-surprise part
+  (`_POST` included 3rd Place, so the 3rd-place game's Luck — and every team_year
+  / team_all_time Luck sum over it — moves). Formulas rows and
+  plan/LUCK_REWORK.md updated. Guards in tests/test_ppg_position_adjusted.py:
+  the clutch index recomputed from team_week, and no `isin` mask in src/lotg.py
+  naming 3rd Place beside Semifinal/Final.
 - [ ] **3-part audit** on the first post-merge build. Expected diff: the 64 new
   columns on seven sheets (the two total differences dropped, the two start
   counts added), their Formulas rows (and the four corrected ones), the
   3 stale-difference add_drops rows, the 6 fantasy-season add_drops rows (+ a
   ±0.1 O-Score ripple), the donut / points-threshold renames on the team and
-  league sheets, nothing else. The first Tuesday digest after merge lists the
+  league sheets, the clutch index on teams that played a 3rd Place game and
+  Luck on 3rd Place weeks (plus the team_year / team_all_time Luck sums and
+  anything ranked on them), nothing else. The first Tuesday digest after merge lists the
   new player_year columns' on-pace standings once; boards stay silent on them
   for a week (new slots are absent from the prior snapshot).
 
@@ -885,7 +904,7 @@ PF mixes every position, so the per-position factor means nothing there);
 - **Design note (2026-09-26, per user): redraft data only affects the "Records" part
   of the weekly email.** Whatever old-league / redraft data Phase 15 brings in may
   set or break FIRST-PLACE marks (the digest's "Records" block — `digest.is_record`,
-  rank 1 at either end), but it must not reach the "Leaderboard changes" block: no
+  rank 1 at either end, projections excluded), but it must not reach the "Leaderboard changes" block: no
   2nd-5th place moves, on-pace standings, event-board shuffles or milestones driven
   by redraft rows. Design the integration (which boards redraft rows enter, how
   they are keyed in the rank snapshot) so that holds.

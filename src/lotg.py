@@ -14201,7 +14201,10 @@ def build_all(repo_root: Path) -> None:
                     {"true": 1.0, "false": 0.0, "1": 1.0, "0": 0.0, "0.5": 0.5}
                 )
             _wn = L["Week Name"].astype(str) if "Week Name" in L.columns else pd.Series("", index=L.index)
-            L["_POST"] = _wn.isin(["Final", "Semifinal", "3rd Place"]).astype(float)
+            # Postseason = the championship bracket's Semifinal + Final only (user
+            # rule 2026-09-26: 3rd Place and the toilet bracket are neither
+            # playoff nor regular season, on every sheet).
+            L["_POST"] = _wn.isin(["Final", "Semifinal"]).astype(float)
 
             def _z_all(s):
                 s = pd.to_numeric(s, errors="coerce")
@@ -17998,14 +18001,14 @@ def build_all(repo_root: Path) -> None:
             )
             # Clutch index (improvement #9, team_all_time only): how a manager
             # performs in the WINNERS'-bracket playoffs vs the regular season,
-            # all-time. Playoff = Semifinal / Final / 3rd Place; regular = the
-            # "Week N" games. N/A for a team that never reached the playoffs
+            # all-time. Playoff = Semifinal / Final (3rd Place and the toilet
+            # bracket are neither); regular = the "Week N" games. N/A for a team that never reached the playoffs
             # (no delta to take). Win? is numeric (1/0) in-build.
             _clutch_pf = None
             _clutch_wp = None
             _wkn = g.get("Week Name")
             if _wkn is not None:
-                _is_po = _wkn.isin(("Semifinal", "Final", "3rd Place"))
+                _is_po = _wkn.isin(("Semifinal", "Final"))
                 _is_rg = _wkn.astype(str).str.startswith("Week ")
                 _pf_n = pd.to_numeric(g["PF"], errors="coerce")
                 _w_n = pd.to_numeric(g["Win?"], errors="coerce")
