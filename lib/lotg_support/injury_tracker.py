@@ -240,6 +240,10 @@ UNDECIDED_STATUS_PAIRS = {
     # injury_status (IR), so he is designated on that instead.
     ("", "Inactive"): "Sleeper roster status on retired/unsigned players, not a game-day inactive",
     ("Questionable", "Inactive"): "same stale-roster population as ('', 'Inactive')",
+    # First seen 2026-09-26 (week 3, mid-week): Demarcus Robinson (WR SF, ankle),
+    # on no league roster. Doubtful is a game-time label — a Doubtful player can
+    # still suit up — so it decides nothing, exactly as ('Doubtful', 'Active').
+    ("Doubtful", "Inactive"): "game-time label, same as ('Doubtful', 'Active')",
 }
 # "na" is the exempt list (above), and it is read LAST — after both explicit
 # vocabularies — because it is the least specific thing Sleeper can say. Sleeper
