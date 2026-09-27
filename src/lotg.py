@@ -1986,6 +1986,7 @@ def _preserve_na(col: str) -> bool:
     # (2021 w1) the prior week doesn't exist, so the comparison is N/A, not
     # 0 (audit run-2 F5 — they rendered 0.0, reading as "no change").
     if col_l in {"increase in points from previous week",
+                 "increase in efficiency from previous week",
                  "roster turnover from previous week",
                  "starter turnover from previous week",
                  "difference in pregame avg max pf from opponent"}:
@@ -6602,6 +6603,7 @@ def build_all(repo_root: Path) -> None:
                         "Most efficient?": None,
                         "Least efficient?": None,
                         "Increase in points from previous week": None,
+                        "Increase in efficiency from previous week": None,
                         "Number of cuffs rostered": None,
                         "Number of cuffs started": None,
                         "Future draft capital": None,
@@ -14526,6 +14528,7 @@ def build_all(repo_root: Path) -> None:
     # --------------------------
     if not tw.empty:
         tw["Increase in points from previous week"] = None
+        tw["Increase in efficiency from previous week"] = None
         tw["Highest score?"] = 0
         tw["Lowest score?"] = 0
         tw["Narrowest victory?"] = 0
@@ -14666,8 +14669,9 @@ def build_all(repo_root: Path) -> None:
             current_year = None
             # prev_pf carries across seasons: Week 1's "Increase in points
             # from previous week" compares to the team's last played week
-            # of the prior season (≈ championship week).
+            # of the prior season (≈ championship week). prev_eff likewise.
             prev_pf = None
+            prev_eff = None
             _aw = {_sc: 0 for _fc, _sc in _team_award_streaks}  # all-time award counters
             _bot = _pf150 = _quiet = 0  # all-time dedicated counters
             _rival: Dict[str, int] = {}  # opponent -> consecutive H2H wins
@@ -14749,6 +14753,11 @@ def build_all(repo_root: Path) -> None:
                     tw.loc[idx, "Increase in points from previous week"] = round(float(row["PF"]) - float(prev_pf), 2)
                 if pd.notna(row["PF"]):
                     prev_pf = row["PF"]
+                _eff = pd.to_numeric(pd.Series([row.get("Efficiency")]), errors="coerce").iloc[0]
+                if prev_eff is not None and pd.notna(_eff):
+                    tw.loc[idx, "Increase in efficiency from previous week"] = round(float(_eff) - prev_eff, 4)
+                if pd.notna(_eff):
+                    prev_eff = float(_eff)
 
         # Terminal-encode the all-time streaks: list each run once (length on
         # its final week, 'In Progress' before that, 0 when not streaking).
@@ -17334,6 +17343,7 @@ def build_all(repo_root: Path) -> None:
                 "Record & win % vs champion": "N/A",
                 "Record & win % vs last place": "N/A",
                 "Change in win % from previous season": None,
+                "Change in efficiency from previous season": None,
                 "Win Variance": win_variance,
                 "Week of playoff elimination": playoff_elimination_by_season.get(int(yr), {}).get(str(team)),
                 "Draft Value": 0,
@@ -17428,6 +17438,7 @@ def build_all(repo_root: Path) -> None:
                             "Record & win % vs champion": "N/A",
                             "Record & win % vs last place": "N/A",
                             "Change in win % from previous season": None,
+                            "Change in efficiency from previous season": None,
                             "Win Variance": None,
                             "Week of playoff elimination": None,
                             "Draft Value": 0,
@@ -17951,6 +17962,9 @@ def build_all(repo_root: Path) -> None:
 
         team_year = team_year.sort_values(["Team", "Year"]).reset_index(drop=True)
         team_year["Change in win % from previous season"] = team_year.groupby("Team")["Win %"].diff()
+        team_year["Change in efficiency from previous season"] = (
+            pd.to_numeric(team_year["Efficiency"], errors="coerce").groupby(team_year["Team"]).diff().round(4)
+        )
         # Earliest tracked season has no prior offseason ROSTER in the dataset,
         # so its offseason turnover is N/A (nothing to diff the week-1 roster
         # against) — not 0. Done before the all-time rollup so the NaN is
