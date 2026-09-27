@@ -911,3 +911,23 @@ PF mixes every position, so the per-position factor means nothing there);
   2nd-5th place moves, on-pace standings, event-board shuffles or milestones driven
   by redraft rows. Design the integration (which boards redraft rows enter, how
   they are keyed in the rank snapshot) so that holds.
+- **Plan (2026-09-27, per user):**
+  - **Separate redraft-inclusive sheets.** Recreate the team, player and league
+    sheets with every piece of data we can find, including the redraft years. These
+    live *alongside* the main sheets, not merged into them: the main sheets stay
+    2020+ and unchanged.
+  - **Email asterisks.** In the weekly email's "Records" block, mark with an
+    asterisk (`*`) any record that is *also* a record when the redraft years are
+    included. The records themselves are still decided on the main (2020+) data;
+    the asterisk only says that the mark also holds over the longer history. Add
+    a one-line legend to the email explaining the asterisk.
+- **Data status (checked 2026-09-27):** nothing pre-2020 is in the repo. The
+  redraft years are earlier seasons of the *same* ESPN league: 34086's metadata
+  lists `previousSeasons: [2017, 2018, 2019]`. Without login cookies, the ESPN API
+  returns 401 for 2018/2019 (they exist but are private) and 404 for 2017 through
+  the league-history endpoint (unclear: may need the login, or may be gone). To
+  pull them, the commissioner runs `scripts/espn_dump_2020.py --season 2019` / `2018`
+  with their `espn_s2`/`SWID` cookies. 2017 needs a small change to use the
+  league-history endpoint. Unverified until then: whether per-week lineups (not
+  just scores) survive for the older seasons, and whether ESPN's player IDs from
+  those years map through `player_id_map.csv`.
