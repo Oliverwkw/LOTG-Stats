@@ -1923,6 +1923,11 @@
    "reason": ""
   },
   {
+   "test": "tests/test_schedule_watch.py::test_the_week_being_played_is_not_unfinalized_yet",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
    "test": "tests/test_schedule_watch.py::test_incomplete_injury_weeks_reach_the_email",
    "outcome": "passed",
    "reason": ""
