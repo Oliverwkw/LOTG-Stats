@@ -312,6 +312,7 @@
     "% of points from RBs",
     "Difference in pregame avg max PF from opponent",
     "Increase in points from previous week",
+    "Increase in efficiency from previous week",
     "Brosenzweig",
     "Sisenzweig",
     "Highest score?",
@@ -551,7 +552,8 @@
     "Total transactions",
     "Amount of FAAB spent",
     "Future draft capital",
-    "Change in win % from previous season"
+    "Change in win % from previous season",
+    "Change in efficiency from previous season"
   ],
   "team-all-time": [
     "Team",
