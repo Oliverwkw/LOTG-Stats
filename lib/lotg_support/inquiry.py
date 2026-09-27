@@ -30,8 +30,9 @@ Gotchas that live here as code so no future inquiry has to rediscover them:
     `season_meta(2020).has_snapshot` is False.
   * A team's `PF` in `team_week.csv` is NOT always Sleeper's raw `points`: the
     league's +5 home-field bonus for the higher seed in each semifinal is added
-    by the build, and only there (see `SEMIFINAL_HOME_BONUS`). Eight rows across
-    2021-2025 differ for exactly this reason.
+    by the build, and only there (see `SEMIFINAL_HOME_BONUS`). Ten rows across
+    2021-2025 differ for exactly this reason (two per season); 2020 carries two
+    more in its week-15 semifinal, outside the snapshot.
   * Sleeper writes `"0"` into `starters` for a start slot left empty, and puts
     offseason trades in `week_01` of the season they precede.
 
