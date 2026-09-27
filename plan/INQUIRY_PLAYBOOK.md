@@ -561,8 +561,17 @@ list is here so an answer written by hand does not walk into them.
 
 - **`team_week.PF` is not Sleeper's raw `points`.** The league gives the higher
   seed in each semifinal +5 (home field) and the build bakes it into `PF`.
-  Exactly eight rows across 2021-2025 differ, all in the playoff-start week.
-  `inquiry.SEMIFINAL_HOME_BONUS`.
+  Twelve rows carry it, all in the playoff-start week: two per season 2020-2025
+  (2020's are week 15 and come from the ESPN backfill, so snapshot-based checks
+  see only the ten from 2021-2025). Anything derived from `PF` — Efficiency
+  included — inherits the +5. `inquiry.SEMIFINAL_HOME_BONUS`.
+- **2022 week 16 Toilet Semis (plehv79 v shmuel256) was thrown on purpose.**
+  A tankathon matchup: while placement counted the toilet bowl (see that entry below),
+  winning it cost draft position. plehv79 scored 45.36 (32.8% efficiency, the
+  league's lowest ever) and shmuel256 67.16 (47.3%). Treat both rows as
+  intentional, not performance — they top any "worst week" or efficiency-drop
+  board and plehv79's week 17 then tops the rebound board. Confirmed by
+  Oliver, 2026-09-27; see `plan/notes/EFFICIENCY_WEEK_OVER_WEEK.md`.
 - **The snapshot records no stat lines at all.** Every
   `season_*/weeks/week_*/stats_nfl.json` is an empty list, in all six seasons —
   so nothing in this repo knows what a player DID, only what he was worth.
