@@ -10696,11 +10696,12 @@ def build_all(repo_root: Path) -> None:
                 r["Avg net points adjusted by position"] = round((_adj_add - _adj_lost) / _nwk, 2) if _nwk else 0.0
 
                 # --- Dropped avg / total points (next 17 PLAYED games) ---
-                # The dropped player's realized NFL output after leaving, NEGATED
-                # (points that walked out the door): his next 17 games actually
-                # played per the nflverse log, from the drop date on. Dynamic —
-                # fewer than 17 games so far averages/sums what exists; a player
-                # who never played again scores a real 0 (the perfect drop).
+                # The dropped player's realized NFL output after leaving (points
+                # that walked out the door), as scored — lower = better drop: his
+                # next 17 games actually played per the nflverse log, from the
+                # drop date on. Dynamic — fewer than 17 games so far averages/sums
+                # what exists; a player who never played again scores a real 0,
+                # and one who went negative (a fumble) ranks below that.
                 if _is_name(dropped):
                     _post = sorted(
                         (g for g in _tx_player_games(dropped, r.get("_dropped_pid"))
@@ -10708,10 +10709,10 @@ def build_all(repo_root: Path) -> None:
                         key=lambda g: g["_wk_date"],
                     )[:17]
                     _ptot = sum(float(g["Points"] or 0.0) for g in _post)
-                    r["Dropped avg points"] = round(-_ptot / len(_post), 4) if _post else 0.0
+                    r["Dropped avg points"] = round(_ptot / len(_post), 4) if _post else 0.0
                     r["Dropped avg points adjusted by position"] = (
-                        _pos_adjust(-_ptot / len(_post), dropped_pos, _tx_season) if _post else 0.0)
-                    r["Dropped total points"] = round(-_ptot, 2) if _post else 0.0
+                        _pos_adjust(_ptot / len(_post), dropped_pos, _tx_season) if _post else 0.0)
+                    r["Dropped total points"] = round(_ptot, 2) if _post else 0.0
 
                 # Length of tenure on team (added player): days from pickup to
                 # the next exit (or to today if still rostered). Blank if no add.
@@ -20818,8 +20819,8 @@ def build_all(repo_root: Path) -> None:
     #   1) most recent populated Net KTC value (2yr -> 1yr -> end-of-season ->
     #      deal time), with 0 filled in when the row has no populated net KTC
     #      at all (untracked dropped player)
-    #   2) Dropped avg points   (negated post-drop PPG; 0 = never played again)
-    #   3) Dropped total points (negated post-drop total over the same window)
+    #   2) Dropped avg points   (post-drop PPG, NEGATED here: lower = better drop)
+    #   3) Dropped total points (post-drop total over the same window, negated here)
     #   4) Player addition value (the composite already on the row)
     # No zero-to-bottom tie rule here: a 0 in the dropped-points columns is the
     # BEST outcome (the player never played again), not "no production".
@@ -20855,8 +20856,8 @@ def build_all(repo_root: Path) -> None:
                     _mr = _mr.where(_mr.notna(), _v)
                 _comps = [
                     _mr.fillna(0.0),
-                    pd.to_numeric(add_drops_df.get("Dropped avg points"), errors="coerce"),
-                    pd.to_numeric(add_drops_df.get("Dropped total points"), errors="coerce"),
+                    -pd.to_numeric(add_drops_df.get("Dropped avg points"), errors="coerce"),
+                    -pd.to_numeric(add_drops_df.get("Dropped total points"), errors="coerce"),
                     pd.to_numeric(add_drops_df.get("Player addition value"), errors="coerce"),
                 ]
                 _pcts = pd.concat(
