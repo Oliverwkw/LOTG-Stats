@@ -349,7 +349,8 @@ def _league_day_iso(ts: Any) -> str:
     return _league_day(parsed.to_pydatetime()).isoformat()
 
 
-# How far a trade's "Avg PPG of sent players over same time" window may run.
+# How far a trade's "Avg PPG of sent players over same time" window may run
+# when no player came back (FAAB only, or received picks flipped / undrafted).
 _SENT_WINDOW_YEARS = 4
 
 
@@ -12567,10 +12568,11 @@ def build_all(repo_root: Path) -> None:
 
             # ----- (c) Forward-looking tenure window + PPG averages -----
             # The SENT side is measured over [trade_date, latest exit among the
-            # received players) on the nflverse game log (a counterfactual: they
-            # were not on this roster), capped at _SENT_WINDOW_YEARS after the
-            # trade (see _sent_window_end below). The received side is its own
-            # tenures, on rostered league points (_rostered_ppg below).
+            # received players and players drafted here with received picks) on
+            # the nflverse game log (a counterfactual: they were not on this
+            # roster). With no such player it runs to today, capped (see
+            # effective_end below). The received side is its own tenures, on
+            # rostered league points (_rostered_ppg below).
             # recv_windows also feeds the received players' start rates below.
             _today_day = datetime.utcnow().date().isoformat()
             recv_windows: Dict[str, Tuple[str, Optional[str]]] = {}
@@ -12659,12 +12661,9 @@ def build_all(repo_root: Path) -> None:
                 _dstart = _draft_anchor_iso(int(_dyear))
                 _dsid = name_to_sid_local2.get(_dpl)
                 _nxo = _pick_tenure_end(team, _dsid, _dstart) if _dsid else None
-                # The drafted player's stay here can also extend the sent
-                # window (never shorten it: with no received player it
-                # already runs to today).
-                if latest_end is not None:
-                    _de = _nxo[:10] if _nxo else _today_day
-                    latest_end = _de if _de > latest_end else latest_end
+                # His stay here bounds the sent window like a received player's.
+                _de = _nxo[:10] if _nxo else _today_day
+                latest_end = _de if (latest_end is None or _de > latest_end) else latest_end
                 _davg = _rostered_ppg(_dpl, _dstart, _league_day_iso(_nxo) if _nxo else None)
                 if _davg is not None:
                     recv_on_team_avgs.append(_davg)
@@ -12673,10 +12672,12 @@ def build_all(repo_root: Path) -> None:
 
             drop_over_avgs: List[float] = []
             drop_adj_avgs: List[float] = []
-            # No received player (picks / FAAB only): the window runs to today
-            # BY DESIGN — a received pick's payoff (incl. a later flip) has no
-            # end date. Every window stops _SENT_WINDOW_YEARS after the trade.
-            effective_end = _sent_window_end(trade_prefix, latest_end or _today_day)
+            # No player came back — FAAB only, or picks flipped / not yet
+            # drafted: the window runs to today BY DESIGN (a received pick's
+            # payoff, incl. a later flip, has no end date), stopping
+            # _SENT_WINDOW_YEARS after the trade. Any player sets the end
+            # itself, uncapped.
+            effective_end = latest_end or _sent_window_end(trade_prefix, _today_day)
             if effective_end:
                 for pid in (row.get("_drop_player_ids") or []):
                     name = _player_display(pid)

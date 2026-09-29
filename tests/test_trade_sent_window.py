@@ -1,9 +1,10 @@
 """Trades' "Avg PPG of sent players over same time" window cap.
 
 The sent side is measured from the trade until the last received player (or
-player drafted with a received pick) leaves, to today when one is still here or
-nothing but picks / FAAB came back. `_sent_window_end` stops every window
-_SENT_WINDOW_YEARS calendar years after the trade.
+player drafted here with a received pick) leaves, to today while one is still
+here. Only when no player came back (FAAB only, or received picks flipped / not
+yet drafted) does it run to today with no player to end it — and then
+`_sent_window_end` stops it _SENT_WINDOW_YEARS calendar years after the trade.
 
 Run: PYTHONPATH=src:lib python tests/test_trade_sent_window.py
 """
@@ -20,7 +21,7 @@ import lotg  # noqa: E402
 
 
 def check_cap_applies_four_calendar_years_on():
-    # Lazard to shmuel256 for picks + FAAB: runs to today, capped 2028-10-07.
+    # BROsenzweig sent Lazard for a pick + FAAB: runs to today, capped 2028-10-07.
     got = lotg._sent_window_end("2024-10-07", "2099-01-01")
     ok = lotg._SENT_WINDOW_YEARS == 4 and got == "2028-10-07"
     print(f"  2024-10-07 -> today(2099) capped at {got}: {'ok' if ok else 'FAIL'}")
@@ -28,8 +29,7 @@ def check_cap_applies_four_calendar_years_on():
 
 
 def check_earlier_end_is_kept():
-    cases = [("2023-10-05", "2025-08-17", "2025-08-17"),   # a received player left first
-             ("2026-07-10", "2026-09-29", "2026-09-29"),   # today, inside the cap
+    cases = [("2026-07-10", "2026-09-29", "2026-09-29"),   # today, inside the cap
              ("2020-09-09", "2024-09-09", "2024-09-09")]   # exactly at the cap
     ok = True
     for trade, end, want in cases:
