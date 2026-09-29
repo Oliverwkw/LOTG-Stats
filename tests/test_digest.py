@@ -2146,6 +2146,37 @@ def check_a_tie_reached_together_is_one_line():
     return ok
 
 
+def test_a_tie_with_own_last_week_is_not_reported():
+    """plehv79 rostered 9 TEs in weeks 1, 2 and 3: week 3 "ties the record" with
+    week 2 only because nothing changed, so it is not a line. A tie with another
+    team's last week, or with this team's older week, still is."""
+    from lotg_support import digest as D
+    tw = pd.DataFrame({
+        "Team": ["plehv79", "plehv79", "plehv79", "LWebs53", "LWebs53", "AceMatthew"],
+        "Year": [2026] * 6, "Week": [1, 2, 3, 2, 3, 2],
+        "Number of TE rostered": [9, 9, 9, 4, 4, 4],
+        "Number of WR rostered": [10, 10, 10, 18, 19, 19],
+    })
+    lw = pd.DataFrame({"Year": [2026, 2026], "Week": [2, 3], "Number of Injuries": [46, 46]})
+    frames = {"team_week": tw, "league_week": lw}
+    hl = [D.WeeklyHighlight("teams", "plehv79", "Number of TE rostered", "high", 1, 9.0, week=3),
+          D.WeeklyHighlight("teams", "LWebs53", "Number of WR rostered", "high", 1, 19.0, week=3),
+          D.WeeklyHighlight("league", "The league", "Number of Injuries", "high", 1, 46.0, week=3)]
+    ev = [D.EventCrossing("team_week", "plehv79 2026 week 3", "Number of TE rostered", "high", 1,
+                          9.0, joined=True, others=("plehv79 2026 week 1", "plehv79 2026 week 2"))]
+    out, rest = D.fold_week_boards(hl, ev, frames, [(2026, 3)])
+    got = [(h.entity, h.column) for h in out]
+    assert got == [("LWebs53", "Number of WR rostered")], got
+    assert rest == [], [e.label for e in rest]
+    # The same value two weeks back is a record returning, not a repeat.
+    back = tw.copy()
+    back.loc[(back["Team"] == "plehv79") & (back["Week"] == 2), "Number of TE rostered"] = 8
+    out, _ = D.fold_week_boards(
+        [D.WeeklyHighlight("teams", "plehv79", "Number of TE rostered", "high", 1, 9.0, week=3)],
+        [], {"team_week": back}, [(2026, 3)])
+    assert len(out) == 1, [h.line() for h in out]
+
+
 def test_digest_engine():
     assert run_all()
 

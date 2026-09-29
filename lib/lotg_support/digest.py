@@ -2667,7 +2667,30 @@ def fold_week_boards(highlights: Sequence[WeeklyHighlight],
     for h in out:
         if h.section == "teams" and _is_opponent_stat("team_week", h.column) and h.week:
             h.opponent = opponents.get((h.entity, _season_of(weeks, h.week), int(h.week)), "")
+    out = [h for h in out if not _repeats_last_week(h, frames, weeks)]
     return _merge_week_ties(out), rest
+
+
+def _repeats_last_week(h: WeeklyHighlight, frames: dict, weeks: set) -> bool:
+    """The same team / player / league held this exact value the week before,
+    same season: plehv79's 9 TEs rostered in week 3 "tied with ... plehv79 2026
+    week 2". The record was already told last week and nothing moved, so the
+    line is dropped — with the week-board move folded into it. A tie with anyone
+    else's week, or with last season's final week, is still news."""
+    sheet = _SECTION_SHEET.get(("week", h.section))
+    df = (frames or {}).get(sheet)
+    season = _season_of(weeks, h.week) if h.week else 0
+    if df is None or df.empty or not season or h.column not in df.columns:
+        return False
+    rows = df[(pd.to_numeric(df["Year"], errors="coerce") == season)
+              & (pd.to_numeric(df["Week"], errors="coerce") == int(h.week) - 1)]
+    if h.section != "league":
+        entity_col = "Player" if h.section == "players" else "Team"
+        if entity_col not in rows.columns:
+            return False
+        rows = rows[rows[entity_col].astype(str) == h.entity]
+    return any(_to_float(v) is not None and math.isclose(_to_float(v), h.value, abs_tol=1e-9)
+               for v in rows[h.column])
 
 
 def _merge_week_ties(highlights: List[WeeklyHighlight]) -> List[WeeklyHighlight]:
