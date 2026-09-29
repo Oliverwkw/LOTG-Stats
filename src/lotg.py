@@ -10630,6 +10630,7 @@ def build_all(repo_root: Path) -> None:
                 r["_added_pos"] = added_pos
                 r["_tx_season"] = _tx_season
                 r["_dropped_adj"] = dropped_adj
+                r["_dropped_pos"] = dropped_pos
                 # Position-adjusted twins of the per-game columns, each side by
                 # its own player's position, in the move's season (as the
                 # adjusted difference above). The added side's on-team average
@@ -10648,6 +10649,10 @@ def build_all(repo_root: Path) -> None:
                 # opportunity cost of starting the add instead of the drop. The
                 # averages divide by the number of started weeks so swaps of
                 # different lengths are comparable. Pure drop (no add) -> all 0.
+                # Rows with an added player are re-derived in the final pass
+                # over _tenure_stats' started weeks: the Thursday week-date
+                # below lost the start of a Thursday-Sunday pickup who played
+                # that Sunday, while the final-pass start count kept it.
                 def _is_name(_v):
                     _s = str(_v).strip()
                     return bool(_s) and _s.upper() != "N/A" and _s.lower() not in ("nan", "none")
@@ -20499,7 +20504,14 @@ def build_all(repo_root: Path) -> None:
                     _pts = float(_r.get("Points")) if _r.get("Points") not in (None, "") else 0.0
                 except Exception:
                     _pts = 0.0
+                try:
+                    _yw = (int(_r.get("Year")), int(_r.get("Week")))
+                except Exception:
+                    _yw = None
                 _pw_ten[(str(_r.get("Team")), str(_r.get("Player")))].append({
+                    # (season, week), so add_drops can price the dropped
+                    # player's game log over exactly these started weeks.
+                    "yw": _yw,
                     "ed": _ed,
                     "sd": _first_game_day(_r.get("Year"), _r.get("Week")) or _ed,
                     "starter": str(_r.get("Starter/Bench")).strip().lower() == "starter",
@@ -20548,7 +20560,8 @@ def build_all(repo_root: Path) -> None:
                "injured_weeks": 0, "points_benched": 0.0,
                "points_started_healthy": 0.0, "points_benched_healthy": 0.0,
                "points_started": 0.0, "sum_pts": 0.0, "games_pts": 0.0, "ppg": None,
-               "first_start_ed": None, "weeks_before_start": None, "pos": ""}
+               "first_start_ed": None, "weeks_before_start": None, "pos": "",
+               "started_yw": []}
         _pk = str(_pickup)[:10] if _pickup else ""
         if not _pk:
             return out
@@ -20576,6 +20589,7 @@ def build_all(repo_root: Path) -> None:
         out["inj_weeks"] = sum(1 for e in _weeks if not e["bye"] and not e["inj"])
         out["inj_starts"] = sum(1 for e in _weeks if e["starter"] and not e["bye"] and not e["inj"])
         out["points_started"] = sum(e["pts"] for e in _starts)
+        out["started_yw"] = [e["yw"] for e in _starts if e.get("yw")]
         out["points_benched"] = sum(e["pts"] for e in _weeks if not e["starter"])
         # The same two over the healthy weeks only (not a bye or a missed week).
         out["points_started_healthy"] = sum(
@@ -20662,6 +20676,49 @@ def build_all(repo_root: Path) -> None:
                     add_drops_df.at[_i, "Injury adjusted % of starts made while rostered"] = _pinj
                 if _st["weeks_before_start"] is not None:
                     add_drops_df.at[_i, "Weeks between pickup and start"] = int(_st["weeks_before_start"])
+                # Points Added / Lost / Net and their per-start averages, over
+                # the SAME started weeks "Number of starts before next drop"
+                # counts (and player_additions' "Points added" sums). Points
+                # Lost stays the dropped player's nflverse points in those
+                # weeks (0 for a DNP/bye), as the first pass defined it.
+                try:
+                    _pts_add = float(_st["points_started"])
+                    _syw = _st["started_yw"]
+                    _pts_lost = 0.0
+                    _dpl = add_drops_df.at[_i, "Player Dropped"] if "Player Dropped" in add_drops_df.columns else None
+                    _dpid = add_drops_df.at[_i, "_dropped_pid"] if "_dropped_pid" in add_drops_df.columns else None
+                    if (_syw and _dpl is not None and str(_dpl).strip()
+                            and str(_dpl).strip().lower() not in ("nan", "none", "n/a")):
+                        _dlog = {
+                            (int(_e["year"]), int(_e["week"])): float(_e.get("points") or 0.0)
+                            for _e in nfl_log_by_sid.get(str(_dpid), [])
+                            if _e.get("year") is not None and _e.get("week") is not None
+                        }
+                        _pts_lost = sum(_dlog.get(_yw, 0.0) for _yw in _syw)
+                    _nwk = len(_syw)
+                    _ts = add_drops_df.at[_i, "_tx_season"] if "_tx_season" in add_drops_df.columns else None
+                    _apos_p = add_drops_df.at[_i, "_added_pos"] if "_added_pos" in add_drops_df.columns else None
+                    _dpos_p = add_drops_df.at[_i, "_dropped_pos"] if "_dropped_pos" in add_drops_df.columns else None
+                    _adj_add = (round(_pts_add * _pos_factor(_ts, _apos_p), 4)
+                                if isinstance(_apos_p, str) and _apos_p else _pts_add)
+                    _adj_lost = (round(_pts_lost * _pos_factor(_ts, _dpos_p), 4)
+                                 if isinstance(_dpos_p, str) and _dpos_p else _pts_lost)
+                    add_drops_df.at[_i, "Points Added"] = round(_pts_add, 2)
+                    add_drops_df.at[_i, "Points Lost"] = round(_pts_lost, 2)
+                    add_drops_df.at[_i, "Net points"] = round(_pts_add - _pts_lost, 2)
+                    add_drops_df.at[_i, "Avg points added"] = round(_pts_add / _nwk, 2) if _nwk else 0.0
+                    add_drops_df.at[_i, "Avg points lost"] = round(_pts_lost / _nwk, 2) if _nwk else 0.0
+                    add_drops_df.at[_i, "Avg net points"] = round((_pts_add - _pts_lost) / _nwk, 2) if _nwk else 0.0
+                    add_drops_df.at[_i, "Avg points added adjusted by position"] = (
+                        round(_adj_add / _nwk, 2) if _nwk else 0.0)
+                    add_drops_df.at[_i, "Avg points lost adjusted by position"] = (
+                        round(_adj_lost / _nwk, 2) if _nwk else 0.0)
+                    add_drops_df.at[_i, "Avg net points adjusted by position"] = (
+                        round((_adj_add - _adj_lost) / _nwk, 2) if _nwk else 0.0)
+                except Exception as e:
+                    # Keep the first pass's values for this row; never abort
+                    # the recompute (and Player addition value) for the rest.
+                    _log_exc(debug, "add_drops_points_recompute", e)
                 if _adj_col in add_drops_df.columns:
                     _adj = pd.to_numeric(pd.Series([add_drops_df.at[_i, _adj_col]]), errors="coerce").iloc[0]
                     if pd.notna(_adj):
