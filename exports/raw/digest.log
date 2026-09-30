@@ -1,5 +1,5 @@
 [digest] 43 percent column(s) stored as 0-1 fractions
-[digest] build-inputs fingerprint: 53de013d8241ad90
+[digest] build-inputs fingerprint: be55745b8da2204c
 [digest] season=2026 weeks_completed=3
 [digest] new data: 0 new week(s), 0 player(s) / 0 team(s) in them, 2 player(s) / 1 team(s) in new transactions; edit landed: True -> 4 item(s) with the news, 16 under edits
 [digest] lede: stevenb123's 2020-12-04 move for Kirk Cousins passes stevenb123's 2020-11-29 move for Jalen Hurts for highest O-Score (97.9). This is mostly a recompute: 16 of the 19 other moves re-value settled history (11 on add/drops and 5 on trades), and only 3 reflect new data. The biggest single thread is 6 Avg net points moves.

@@ -208,6 +208,71 @@
    "reason": ""
   },
   {
+   "test": "tests/test_combined_matchup.py::test_value_in_winner_row_and_winner_text_in_loser_row",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_combined_matchup.py::test_efficiency_and_boom_average_each_teams_own_value",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_combined_matchup.py::test_starters_and_points_per_starter_are_pooled",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_combined_matchup.py::test_league_points_per_started_divides_by_summed_starts",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_combined_matchup.py::test_league_per_started_is_a_rate_in_the_digest",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_combined_matchup.py::test_winner_follows_win_flag_not_pf",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_combined_matchup.py::test_tie_puts_value_in_both_rows",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_combined_matchup.py::test_missing_base_blanks_both_rows",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_combined_matchup.py::test_no_opponent_row_is_blank_and_frame_untouched",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_combined_matchup.py::test_workbook_topic_and_formats_follow_the_base",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_combined_matchup.py::test_plan_and_formulas_carry_the_block_last",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_combined_matchup.py::test_email_names_both_teams_on_a_combined_stat",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_combined_matchup.py::test_committed_exports_one_value_per_game",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
    "test": "tests/test_commissioner_overlay_match.py::test_every_sleeper_overlay_row_names_a_completed_trade",
    "outcome": "passed",
    "reason": ""
