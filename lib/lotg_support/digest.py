@@ -124,6 +124,8 @@ _RATE_MARKERS = (
     # 1st (6 -> 12.8 at week 8, vs an all-time high of 7). See F2 in
     # plan/AUDIT_PHASE14_3PART.md.
     "most number of",
+    # League "Points per QB started" and kin: points per player-start, a rate.
+    "points per ",
 )
 
 
@@ -2566,8 +2568,10 @@ def diff_events(prior_board, events: Sequence[EventHighlight],
 # ---------------------------------------------------------------------------
 _WEEK_LABEL = re.compile(r"^(?P<who>.*?)\s*\b(?P<year>\d{4}) week (?P<week>\d+)$")
 _WEEK_SHEET_SECTION = {"player_week": "players", "team_week": "teams", "league_week": "league"}
-# A stat measured against the week's opponent: the email names him on every row.
-_OPPONENT_MARKERS = ("opponent",)
+# A stat measured against the week's opponent — or one game's two teams taken
+# together (team_week's "Combined ..." block, written in the winner's row): the
+# email names the opponent on every row, so a combined line reads both teams.
+_OPPONENT_MARKERS = ("opponent", "combined ")
 
 
 def _week_of(label: str) -> Optional[Tuple[str, int, int]]:
