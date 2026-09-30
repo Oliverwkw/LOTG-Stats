@@ -12641,8 +12641,9 @@ def build_all(repo_root: Path) -> None:
 
             # Phase 7D: fold in the PPG of players DRAFTED with received picks,
             # over their post-draft tenure on THIS team. Only when this team
-            # actually made the selection (Final Team == team) — a pick flipped
-            # again before the draft never became a player here. Undrafted
+            # actually made the selection (Final Team == team) and held the pick
+            # from this trade to the draft — a pick flipped again before the
+            # draft never became a player here, even if it later came back. Undrafted
             # future picks contribute nothing. The drafted player's window
             # starts at the draft and ends at their next exit from this team,
             # on the same rostered-league-points basis as the received players
@@ -12659,6 +12660,13 @@ def build_all(repo_root: Path) -> None:
                 if _dfinal != _norm_team_name(team):
                     continue  # pick was flipped before the draft
                 _dstart = _draft_anchor_iso(int(_dyear))
+                # Sent on before the draft and later won back: the player is the
+                # re-acquiring trade's, not this one's (BROsenzweig got 2026 2.06
+                # for DK Metcalf, sent it on 2026-05-02, won it back 2026-07-10
+                # and drafted Jonah Coleman).
+                _pout = _next_out_pick(team, tuple(_pm), trade_iso)
+                if _pout and str(_pout["date"])[:10] < _dstart[:10]:
+                    continue
                 _dsid = name_to_sid_local2.get(_dpl)
                 _nxo = _pick_tenure_end(team, _dsid, _dstart) if _dsid else None
                 _davg = _rostered_ppg(_dpl, _dstart, _league_day_iso(_nxo) if _nxo else None)
