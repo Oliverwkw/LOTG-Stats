@@ -44,7 +44,7 @@ def check_decrypt_roundtrip():
         print("  [SKIP] openssl not available")
         return True
     key = "a" * 64
-    creds = {"username": "lotgstats@gmail.com", "password": "app pass word"}
+    creds = {"username": "sender@x.com", "password": "app pass word"}
     with tempfile.TemporaryDirectory() as d:
         enc = Path(d) / "creds.enc"
         enc.write_text(_encrypt(json.dumps(creds), key) + "\n")
@@ -86,8 +86,10 @@ def check_recipient_split():
     cfg = {"recipients": ["a@x.com", "b@x.com", "c@x.com"], "test_recipients": ["a@x.com"]}
     ok = _ok("real digest -> all recipients", S._recipients_for(cfg, test=False) == cfg["recipients"])
     ok &= _ok("test email -> test recipients only", S._recipients_for(cfg, test=True) == ["a@x.com"])
-    # No test_recipients configured -> test falls back to the full list.
-    ok &= _ok("test falls back to recipients", S._recipients_for({"recipients": ["a@x.com"]}, test=True) == ["a@x.com"])
+    # No test_recipients configured -> nobody, never the league (a test or
+    # manual send must not reach the whole league by accident).
+    ok &= _ok("test never falls back to the league list",
+              S._recipients_for({"recipients": ["a@x.com"]}, test=True) == [])
     return ok
 
 
@@ -102,7 +104,7 @@ def check_recipients_env_override():
         ok = _ok("DIGEST_RECIPIENTS overrides the YAML league list",
                  S._recipients_for(cfg, test=False) == ["a@x.com", "b@x.com"])
         ok &= _ok("test email does NOT inherit the league override when its own is unset",
-                  S._recipients_for(cfg, test=True) == ["a@x.com", "b@x.com"])
+                  S._recipients_for(cfg, test=True) == ["yamltest@x.com"])
         os.environ["DIGEST_TEST_RECIPIENTS"] = "t@x.com"
         ok &= _ok("DIGEST_TEST_RECIPIENTS wins for the test email",
                   S._recipients_for(cfg, test=True) == ["t@x.com"])

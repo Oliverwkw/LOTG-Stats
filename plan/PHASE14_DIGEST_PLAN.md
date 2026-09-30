@@ -114,7 +114,7 @@ All yearly ranking (on-pace and records) is against completed single seasons
 
 ### Recipients
 `config/digest.yaml` has two lists: **`recipients`** (the whole league — the real
-Tuesday in-season email) and **`test_recipients`** (`okeimweiss@gmail.com` only —
+Tuesday in-season email) and **`test_recipients`** (`<maintainer address>` only —
 the test button). `send_digest.py` picks the right one via `_recipients_for()`.
 
 ### Test email
@@ -214,7 +214,7 @@ carries on-pace data baselines silently.
 - `scripts/send_digest.py` — SMTP send from `config/digest.yaml` recipients +
   `SMTP_USERNAME`/`SMTP_PASSWORD` env. Safe no-op when HTML is missing, the
   digest is empty (`--skip-empty`), or creds are absent.
-- `config/digest.yaml` — recipients (`okeimweiss@gmail.com`, extensible) +
+- `config/digest.yaml` — recipients (`<maintainer address>`, extensible) +
   non-secret sender settings.
 - `plan/phase14_phrasing.csv` — the "how every stat is phrased if it changes"
   catalog (779 stats: sheet, scope, scale, rise/fall phrasing, incl. two-sided
@@ -239,7 +239,7 @@ carries on-pace data baselines silently.
 
 ## Delivery credentials (encrypted in the repo)
 
-The sending account (`lotgstats@gmail.com`) + password are AES-256 encrypted into
+The sending account (`<sending account>`) + password are AES-256 encrypted into
 `config/digest_credentials.enc`. The decryption key is the single **`DIGEST_KEY`**
 GitHub Actions secret — never committed. `scripts/send_digest.py` decrypts the
 blob at send time (via `openssl`); `SMTP_USERNAME`/`SMTP_PASSWORD` env vars
@@ -250,7 +250,7 @@ override it if ever needed. Re-encrypt with `scripts/encrypt_digest_credentials.
 2. **Swap in a Gmail App Password.** Gmail rejects plain-password SMTP; the
    account needs 2FA + a 16-char app password
    (https://myaccount.google.com/apppasswords). Then re-encrypt:
-   `DIGEST_KEY=<key> python scripts/encrypt_digest_credentials.py --username lotgstats@gmail.com --password '<app password>'`
+   `DIGEST_KEY=<key> python scripts/encrypt_digest_credentials.py --username <sending account> --password '<app password>'`
    and commit the updated `config/digest_credentials.enc`.
 
 Until `DIGEST_KEY` exists the send step logs a skip and the pipeline stays green.

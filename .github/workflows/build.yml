@@ -561,6 +561,7 @@ jobs:
         env:
           DIGEST_KEY: ${{ secrets.DIGEST_KEY }}
           DIGEST_RECIPIENTS: ${{ secrets.DIGEST_RECIPIENTS }}
+          DIGEST_TEST_RECIPIENTS: ${{ secrets.DIGEST_TEST_RECIPIENTS }}
         # `--manual` on a hand-triggered run: the real digest, but addressed to
         # the maintainer instead of the league. Only the Tuesday cron mails all
         # eight. Run 462 was a workflow_dispatch and went to everyone.

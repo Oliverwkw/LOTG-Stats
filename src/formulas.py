@@ -772,7 +772,7 @@ _ROWS = [
      "Notes": "Healthy weeks rostered = healthy starts + Healthy weeks on bench. 'Weeks on bench' is the gross count (unavailable weeks included)."},
     {"Stat": "Healthy % of starts", "Sheet": "player_year / player_all_time", "Columns": ["Healthy % of starts"],
      "Formula": "Share of his healthy weeks he started: starts in healthy weeks / Healthy weeks rostered (0-1). A start in a bye, injury or suspension week counts in neither side.",
-     "Notes": "The available-weeks counterpart of '% of starts', and the same definition as the add_drops / player_additions 'Injury adjusted % of starts made while rostered'. 0 when he had no healthy week (the sheet's '% of starts' convention)."},
+     "Notes": "The available-weeks counterpart of '% of starts', and the same definition as the add_drops / player_additions 'Injury adjusted % of starts made while rostered'. N/A when he had no healthy week (no weeks he could have started, which is not a 0% start rate)."},
     {"Stat": "Total points on bench", "Sheet": "player_year / player_all_time", "Columns": ["Total points on bench"],
      "Formula": "Points he scored in the weeks he was benched (the league's own points, player_week).",
      "Notes": "The bench counterpart of 'Total points as starter'; the two sum to his rostered points. 'PPG bench' = this / Weeks on bench."},

@@ -2104,6 +2104,11 @@ def _preserve_na(col: str) -> bool:
     # the period — distinct from a real 0% win rate.
     if col_l in {"win % as starter", "win % while rostered"}:
         return True
+    # Healthy % of starts (player_year / player_all_time): N/A when the player
+    # had no healthy week in the period (0/0) — there were no weeks he could
+    # have started, which is not the same as a 0% start rate (user, 2026-09-30).
+    if col_l == "healthy % of starts":
+        return True
     # Length of tenure on team: a blank means there is NO player whose tenure
     # to measure — a transactions pure drop (no added player) or an unmade pick
     # (no player drafted yet). Render those as N/A. A genuine 0-day tenure

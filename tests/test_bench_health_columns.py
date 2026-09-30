@@ -131,8 +131,12 @@ def test_player_year_internal_identities():
         pct = _num(df["Healthy % of starts"])
         # A new column is blank exactly where its existing sibling is (a row the
         # build leaves unfilled — the offline harness's out-of-range season).
-        for new, old in ((hb, bench), (hw, ros), (pct, _num(df["% of starts"]))):
+        for new, old in ((hb, bench), (hw, ros)):
             assert (new.isna() == old.isna()).all(), f"{name}: blank cells disagree with the gross column"
+        # Healthy % of starts is N/A exactly when there is no healthy week (0/0),
+        # or the row itself is unfilled — never a 0 standing in for "no weeks".
+        assert (pct.isna() == (hw.isna() | (hw == 0))).all(), \
+            f"{name}: Healthy % of starts must be N/A exactly when Healthy weeks rostered is 0"
         k = ros.notna()
         ros, bench, hw, hb, starts, inj, sus, pct = (
             x[k] for x in (ros, bench, hw, hb, starts, inj, sus, pct))
@@ -140,7 +144,7 @@ def test_player_year_internal_identities():
         # Healthy + injured + suspended never exceeds rostered (byes are the gap).
         assert (hw + inj + sus <= ros).all(), f"{name}: healthy + injured + suspended > rostered"
         assert ((hw - hb) <= starts).all(), f"{name}: healthy starts exceed starts"
-        assert pct.between(0, 1).all(), f"{name}: Healthy % of starts outside 0-1"
+        assert pct.dropna().between(0, 1).all(), f"{name}: Healthy % of starts outside 0-1"
 
 
 def test_all_time_sums_the_seasons():

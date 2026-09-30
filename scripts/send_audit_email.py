@@ -573,12 +573,16 @@ def main(argv=None) -> int:
         return _bail("clean week and --skip-clean set — not sending.")
 
     cfg = yaml.safe_load(Path(args.config).read_text()) or {}
-    recipients = _audit_recipients(cfg)
-    if not recipients:
-        return _bail(f"no audit_recipients configured in {args.config}.")
     creds = mailer.resolve_credentials(_CREDS_ENC)
     if not creds:
         return _bail("no credentials (set DIGEST_KEY, or SMTP_USERNAME/PASSWORD) — skipping send.")
+    recipients = _audit_recipients(cfg)
+    if not recipients:
+        # Loud: the addresses live in the DIGEST_AUDIT_RECIPIENTS secret now,
+        # and a missing secret must not pass for a skipped week.
+        print("::error::[audit-email] no recipients — set the "
+              "DIGEST_AUDIT_RECIPIENTS repo secret.")
+        return 1
 
     print(f"[audit-email] sending to {len(recipients)} recipient(s).")
     mailer.send_html(cfg, recipients, subject, html, creds[0], creds[1])

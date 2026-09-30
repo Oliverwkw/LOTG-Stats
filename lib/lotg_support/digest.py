@@ -2814,13 +2814,19 @@ class Milestone:
     value: float
     milestone: float
 
+    def _tail(self) -> str:
+        # A total landing exactly on the round number would read "passes
+        # 500,000 (now 500,000)"; say "reaches" and drop the echo instead.
+        if _fmt(self.value) == _fmt(self.milestone):
+            return f"reaches {_fmt(self.milestone)}."
+        return f"passes {_fmt(self.milestone)} (now {_fmt(self.value)})."
+
     def sentence(self) -> str:
-        return (f"League {self.stat} passes {_fmt(self.milestone)} "
-                f"(now {_fmt(self.value)}).")
+        return f"League {self.stat} {self._tail()}"
 
     def line(self) -> str:
         # Under "League milestones", the leading "League" is the header again.
-        return f"{self.stat} passes {_fmt(self.milestone)} (now {_fmt(self.value)})."
+        return f"{self.stat} {self._tail()}"
 
 
 def league_milestone_values(league_all_time: pd.DataFrame) -> Dict[str, float]:
@@ -3213,36 +3219,67 @@ def split_sections(sections: Sequence[Tuple[str, bool, list]],
     return top, edits
 
 
-# The new-data half of the email in two visually distinct parts (user rule,
-# 2026-09-26): RECORDS — every first-place move (rank 1 at either end, on any
-# board, single-season records included) — then LEADERBOARD CHANGES, everything
-# else. The on-pace section stays whole under LEADERBOARD CHANGES, its 1sts
-# included: a projection is not a record yet (user, 2026-09-26). Inside each part the sections keep the email's usual
-# order and grouping, one heading level down. Each part is a tinted block with a
-# coloured rule so the two read apart at a glance, in mail clients too (inline
-# styles only).
+# The new-data half of the email in four visually distinct parts, in this
+# order (user rules, 2026-09-26 and 2026-09-30):
+#   RECORDS                        — every first-place move (rank 1 at either
+#                                    end, on any board, single-season records
+#                                    included);
+#   ON PACE FOR RECORDS            — on-pace projections at 1st (a projection is
+#                                    not a record yet, so it never sits in
+#                                    RECORDS);
+#   LEADERBOARD CHANGES            — every other non-projection move, milestones
+#                                    included;
+#   ON PACE FOR LEADERBOARD CHANGES — on-pace projections below 1st.
+# Inside each part the sections keep the email's usual order and grouping, one
+# heading level down. Each part is a tinted block with a coloured rule so they
+# read apart at a glance, in mail clients too (inline styles only).
 RECORDS_TITLE = "Records"
+PACE_RECORDS_TITLE = "On pace for records"
 BOARDS_TITLE = "Leaderboard changes"
+PACE_BOARDS_TITLE = "On pace for leaderboard changes"
+PART_ORDER = (RECORDS_TITLE, PACE_RECORDS_TITLE, BOARDS_TITLE, PACE_BOARDS_TITLE)
 _PART_STYLE = {
-    RECORDS_TITLE: ("#fbf6e6", "#c9a227"),   # (background, left rule)
+    RECORDS_TITLE: ("#fbf6e6", "#c9a227"),        # (background, left rule)
+    PACE_RECORDS_TITLE: ("#fdfaf0", "#e0c46a"),
     BOARDS_TITLE: ("#f4f7fb", "#0b2545"),
+    PACE_BOARDS_TITLE: ("#f8fafc", "#7d8fa6"),
 }
 
 
 def is_record(item) -> bool:
     """A first-place move: the item holds rank 1 on its board. A milestone has
-    no place and is never one; an on-pace projection is never one either — the
-    pace section stays together under Leaderboard changes (user, 2026-09-26)."""
+    no place and is never one; an on-pace projection is never one either — it
+    goes to "On pace for records" instead (`part_of`)."""
     if isinstance(item, Projection):
         return False
     rank = getattr(item, "rank", None)
     return isinstance(rank, int) and rank == 1
 
 
+def part_of(item) -> str:
+    """Which of the four PART_ORDER parts an item belongs to."""
+    if isinstance(item, Projection):
+        return PACE_RECORDS_TITLE if item.rank == 1 else PACE_BOARDS_TITLE
+    return RECORDS_TITLE if is_record(item) else BOARDS_TITLE
+
+
+def split_parts(sections: Sequence[Tuple[str, bool, list]]
+                ) -> Dict[str, List[Tuple[str, bool, list]]]:
+    """{part title: sections} for the four PART_ORDER parts — each section's
+    items routed by `part_of`, empty halves dropped, section order kept."""
+    out: Dict[str, List[Tuple[str, bool, list]]] = {t: [] for t in PART_ORDER}
+    for title, grouped, items in sections:
+        for part in PART_ORDER:
+            chosen = [i for i in items if part_of(i) == part]
+            if chosen:
+                out[part].append((title, grouped, chosen))
+    return out
+
+
 def split_records(sections: Sequence[Tuple[str, bool, list]]
                   ) -> Tuple[List[Tuple[str, bool, list]], List[Tuple[str, bool, list]]]:
-    """(records sections, leaderboard-change sections): each section's items
-    split by `is_record`, empty halves dropped, section order kept."""
+    """(records sections, everything else) — the two-way view of `split_parts`,
+    kept for callers that only care whether an item is a first-place move."""
     recs, boards = [], []
     for title, grouped, items in sections:
         r = [i for i in items if is_record(i)]
@@ -3296,15 +3333,14 @@ def render_digest_html(
          f'border-left:3px solid #0b2545;border-radius:4px;">{intro}</p>'
          if intro else ""),
     ]
-    # New data first — its first-place moves under "Records", everything else
-    # under "Leaderboard changes" (`split_records`); then, only if there are
+    # New data first, in the four PART_ORDER parts (`split_parts`); then, only if there are
     # any, the moves an edit alone explains, under their own header at the
     # bottom (see `attribute`).
     top, edits = split_sections(digest_sections(
         crossings, projections, milestones, records, highlights, events), new_data)
-    rec_part, board_part = split_records(top)
-    body.append(_part_html(RECORDS_TITLE, rec_part))
-    body.append(_part_html(BOARDS_TITLE, board_part))
+    parts = split_parts(top)
+    for part in PART_ORDER:
+        body.append(_part_html(part, parts[part]))
     if edits:
         body.append(_EDIT_HEADER_HTML)
         for title, grouped, items in edits:
