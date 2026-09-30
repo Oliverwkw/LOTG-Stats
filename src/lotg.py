@@ -11786,12 +11786,20 @@ def build_all(repo_root: Path) -> None:
         # with a received pick into "Avg PPG of received players on team" —
         # but only for the team that ended up making the selection.
         _pick_to_drafted: Dict[Tuple[int, int, str], Tuple[str, str, int]] = {}
+        _unmade_skipped = 0
         if not ph.empty and {"Year", "Number", "Original Team", "Final Team", "Player Picked"}.issubset(set(ph.columns)):
             for _, _phr in ph.iterrows():
                 _ym = re.match(r"\s*(\d{4})", str(_phr.get("Year", "")))
                 _nm = re.match(r"\s*(\d+)\.(\d+)", str(_phr.get("Number", "")))
                 _plp = str(_phr.get("Player Picked", "")).strip()
                 if not _ym or not _nm or not _plp or _plp.upper() == "N/A":
+                    continue
+                # An unmade (future) pick carries the "Unknown" placeholder —
+                # no player was drafted, so it must not read as one (it once
+                # held trades' sent-side windows open to today as a drafted
+                # player never rostered; see the picks-sheet convention).
+                if _plp.lower() in ("unknown", "nan", "none"):
+                    _unmade_skipped += 1
                     continue
                 # Skip synthetic off-platform picks (2.09 / 5.0X) — they aren't
                 # Sleeper-traded and must not shadow a real (year,round,owner) pick.
@@ -11802,6 +11810,8 @@ def build_all(repo_root: Path) -> None:
                     continue
                 _key = (int(_ym.group(1)), int(_nm.group(1)), _norm_team_name(_phr.get("Original Team", "")))
                 _pick_to_drafted[_key] = (_plp, _norm_team_name(_phr.get("Final Team", "")), int(_ym.group(1)))
+        _log(debug, f"[{_now_iso()}] pick_to_drafted: {len(_pick_to_drafted)} made picks, "
+                    f"{_unmade_skipped} unmade ('Unknown') skipped")
 
         # (fantasy team, player name) -> [(year, week, points, wk_date)] for
         # weeks that player STARTED for that team — powers the trade Points
