@@ -45,19 +45,21 @@ _decrypt_credentials = mailer.decrypt_credentials
 
 
 def _recipients_for(cfg: dict, test: bool):
-    """Test emails go to `test_recipients` (falling back to `recipients`); the
-    real digest goes to `recipients` (the whole league).
+    """Test emails go to `test_recipients`; the real digest goes to `recipients`
+    (the whole league).
 
     `--manual` routes here too — see main(). A hand-triggered run is someone
     checking their work, and it must not put a provisional digest in front of
     eight people; run 462 mailed one to the whole league before this existed.
+    So a test/manual send NEVER falls back to the league list, from the YAML or
+    from DIGEST_RECIPIENTS: with no test address configured it sends nothing.
 
-    A DIGEST_TEST_RECIPIENTS / DIGEST_RECIPIENTS env var (repo secret) overrides
-    the committed YAML, so the addresses need not sit in this public repo."""
+    The addresses live in repo secrets (DIGEST_RECIPIENTS / DIGEST_TEST_RECIPIENTS,
+    comma-separated) — this repo is public, so config/digest.yaml carries none.
+    The YAML lists remain only as a fallback for local use."""
     if test:
-        env = mailer.recipients_from_env("DIGEST_TEST_RECIPIENTS", "DIGEST_RECIPIENTS")
-        lst = env if env is not None else (
-            cfg.get("test_recipients") or cfg.get("recipients") or [])
+        env = mailer.recipients_from_env("DIGEST_TEST_RECIPIENTS")
+        lst = env if env is not None else (cfg.get("test_recipients") or [])
     else:
         env = mailer.recipients_from_env("DIGEST_RECIPIENTS")
         lst = env if env is not None else (cfg.get("recipients") or [])
@@ -132,16 +134,22 @@ def main(argv=None) -> int:
             return _bail("digest has no changes this week — skipping send.")
         subject = _subject(Path(args.snapshot))
 
+    creds = _resolve_credentials()
+    if not creds:
+        return _bail("no credentials (set DIGEST_KEY, or SMTP_USERNAME/SMTP_PASSWORD) — skipping send.")
+
     # A manual run gets the real digest, addressed like a test.
     recipients = _recipients_for(cfg, args.test or args.manual)
     if args.manual and not args.test:
         print("[send] manual run — addressing the maintainer only, not the league.")
     if not recipients:
-        return _bail(f"no recipients configured in {args.config}.")
-
-    creds = _resolve_credentials()
-    if not creds:
-        return _bail("no credentials (set DIGEST_KEY, or SMTP_USERNAME/SMTP_PASSWORD) — skipping send.")
+        # Loud: with credentials present this is a real send with nobody to send
+        # to — a missing secret must not look like a quiet week. Failing here
+        # also stops the Tuesday job before the snapshot rotates, so the next
+        # run still diffs against the last digest that actually went out.
+        print("::error::[send] no recipients — set the DIGEST_RECIPIENTS / "
+              "DIGEST_TEST_RECIPIENTS repo secrets.")
+        return 1
 
     print(f"[send] sending digest to {len(recipients)} recipient(s).")
     mailer.send_html(cfg, recipients, subject, html, creds[0], creds[1])

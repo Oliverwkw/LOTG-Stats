@@ -151,12 +151,12 @@ def check_manual_run_addresses_the_maintainer():
     churn from a KTC correction — to all eight league members."""
     import send_digest as S
     cfg = {"recipients": ["a@x.com", "b@x.com", "c@x.com"],
-           "test_recipients": ["okeimweiss@gmail.com"]}
+           "test_recipients": ["maintainer@x.com"]}
     league = S._recipients_for(cfg, False)
     manual = S._recipients_for(cfg, True)
     ok = _ok("the weekly cron still reaches the league", len(league) == 3, league)
     ok &= _ok("a manual run reaches the maintainer only",
-              manual == ["okeimweiss@gmail.com"], manual)
+              manual == ["maintainer@x.com"], manual)
     ok &= _ok("--manual is a real flag", "--manual" in open(
         _ROOT / "scripts" / "send_digest.py").read())
     wf = (_ROOT / ".github" / "workflows" / "build.yml").read_text()

@@ -8,7 +8,7 @@ Gmail **App Password** (Gmail rejects plain-password SMTP; you need 2FA + a
 
 Usage (key from env, recommended — matches how CI decrypts):
     DIGEST_KEY=<hex key> python scripts/encrypt_digest_credentials.py \
-        --username lotgstats@gmail.com --password 'abcd efgh ijkl mnop'
+        --username sender@example.com --password 'abcd efgh ijkl mnop'
 
 Generate a fresh key first if you don't have one:
     python -c "import secrets; print(secrets.token_hex(32))"

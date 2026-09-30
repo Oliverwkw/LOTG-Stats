@@ -572,6 +572,15 @@ list is here so an answer written by hand does not walk into them.
   intentional, not performance — they top any "worst week" or efficiency-drop
   board and plehv79's week 17 then tops the rebound board. Confirmed by
   Oliver, 2026-09-27; see `plan/notes/EFFICIENCY_WEEK_OVER_WEEK.md`.
+- **Streak columns mix numbers with the text `"In Progress"`.** 46 player_week
+  and 15 team_week streak columns hold integers, with `"In Progress"` on rows
+  whose run had not yet ended (terminal encoding), so pandas
+  reads them as text and a naive `.sum()` / `.mean()` / `sort_values` is wrong or
+  raises. Read them with `pd.to_numeric(..., errors="coerce")` — the build's own
+  readers (`digest._MISSING`, `sanity.py`) already drop the sentinel, and nothing
+  in the build does arithmetic on the exported strings. Left as-is by user
+  decision (2026-09-30): the sheet is read by people, and the sentinel says
+  something a blank would not.
 - **The snapshot records no stat lines at all.** Every
   `season_*/weeks/week_*/stats_nfl.json` is an empty list, in all six seasons —
   so nothing in this repo knows what a player DID, only what he was worth.

@@ -564,7 +564,8 @@ class NewData:
                  weeks_completed: Optional[int] = None,
                  new_weeks=(), players=(), teams=(),
                  edit_landed: Optional[bool] = None,
-                 tx_players=(), tx_teams=(), last_weeks=None):
+                 tx_players=(), tx_teams=(), last_weeks=None,
+                 closed_keys=(), additive=None, contrib=None):
         self.season = season
         self.in_season = weeks_completed is None or int(weeks_completed) > 0
         self.new_weeks = frozenset(new_weeks)
@@ -576,6 +577,14 @@ class NewData:
         # streak (see `_new_data_reaches`).
         self.last_weeks = dict(last_weeks or {})
         self.edit_landed = edit_landed
+        # Board keys of transaction/pick rows whose stint is over — they cannot
+        # take in new games (digest.closed_event_keys).
+        self.closed_keys = frozenset(closed_keys)
+        # {section: all-time columns that are a pure sum of week rows} and
+        # {(section, entity, column): what the new weeks added} — see
+        # digest.alltime_week_contributions.
+        self.additive = {k: frozenset(v) for k, v in (additive or {}).items()}
+        self.contrib = dict(contrib or {})
 
     @property
     def new_games(self) -> bool:
@@ -665,6 +674,20 @@ def _new_data_reaches(cand: "_Cand", yr: Optional[int], season: Optional[int],
         reached = bool(named & played) or bool(
             named & traded and any(m in col for m in _TX_MARKERS))
     if not reached:
+        return False
+    kind = type(cand.item).__name__
+    # An all-time total that is a pure sum of week rows can only have moved on
+    # new data by as much as the new weeks' rows add: none added -> an edit did
+    # it (user, 2026-09-30). Rates, skills and averages keep the rule above.
+    if yr is None and kind == "Crossing":
+        sec = getattr(cand.item, "section", "")
+        if cand.column in new_data.additive.get(sec, ()):
+            return (sec, getattr(cand.item, "mover", ""), cand.column) in new_data.contrib
+    # A past transaction/pick row whose stint is over (the player long since
+    # dropped or traded on) cannot take in anything new — naming a team that
+    # made a move this week does not make its old, closed move news.
+    if kind == "EventCrossing" and yr is not None and season and yr < season \
+            and getattr(cand.item, "key", "") in new_data.closed_keys:
         return False
     if yr is None or (season and yr >= season):
         return True
