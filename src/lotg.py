@@ -12661,11 +12661,14 @@ def build_all(repo_root: Path) -> None:
                 _dstart = _draft_anchor_iso(int(_dyear))
                 _dsid = name_to_sid_local2.get(_dpl)
                 _nxo = _pick_tenure_end(team, _dsid, _dstart) if _dsid else None
-                # His stay here bounds the sent window like a received player's.
-                _de = _nxo[:10] if _nxo else _today_day
-                latest_end = _de if (latest_end is None or _de > latest_end) else latest_end
                 _davg = _rostered_ppg(_dpl, _dstart, _league_day_iso(_nxo) if _nxo else None)
                 if _davg is not None:
+                    # His stay here bounds the sent window like a received
+                    # player's. One never rostered a week here (dropped or
+                    # traded on before a week counted) doesn't: with no other
+                    # player the trade keeps the capped no-player window.
+                    _de = _nxo[:10] if _nxo else _today_day
+                    latest_end = _de if (latest_end is None or _de > latest_end) else latest_end
                     recv_on_team_avgs.append(_davg)
                     _dpos = _player_pos(_dpl)
                     recv_adj_on_team_avgs.append(_davg * _pos_factor(_dyear, _dpos))
@@ -12673,7 +12676,7 @@ def build_all(repo_root: Path) -> None:
             drop_over_avgs: List[float] = []
             drop_adj_avgs: List[float] = []
             # No player came back — FAAB only, or picks flipped / not yet
-            # drafted: the window runs to today BY DESIGN (a received pick's
+            # drafted / drafted here but never rostered a week: the window runs to today BY DESIGN (a received pick's
             # payoff, incl. a later flip, has no end date), stopping
             # _SENT_WINDOW_YEARS after the trade. Any player sets the end
             # itself, uncapped.
