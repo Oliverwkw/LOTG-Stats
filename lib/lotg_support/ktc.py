@@ -34,6 +34,7 @@ import json
 import os
 import re
 import urllib.request
+from concurrent.futures import ThreadPoolExecutor
 from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Tuple
@@ -129,6 +130,44 @@ def load_history(repo_root: Path, name_id: str) -> List[Dict]:
         return cached          # an empty answer must not erase a good history
     cache.write_text(json.dumps(data))
     return data
+
+
+# How many histories to download at once when a batch has gone stale (the
+# Tuesday build and any forced refresh re-fetch ~1,000 of them). One at a time
+# took ~17 of a ~21-minute build; each fetch is one small GET to its own cache
+# file, so a handful in flight is safe. `LOTG_KTC_FETCH_WORKERS=1` restores the
+# old serial behaviour. A failed fetch is exactly as before: load_history keeps
+# the cached copy, and the serial pass in build_index retries it.
+_FETCH_WORKERS = max(1, int(os.environ.get("LOTG_KTC_FETCH_WORKERS", "6") or 6))
+
+
+def _history_is_fresh(repo_root: Path, name_id: str) -> bool:
+    cache = _cache_dir(repo_root) / "players" / f"{name_id}.json"
+    if not cache.exists():
+        return False
+    age_h = (datetime.utcnow().timestamp() - cache.stat().st_mtime) / 3600.0
+    return age_h < _HISTORY_MAX_AGE_H
+
+
+def prefetch_histories(repo_root: Path, name_ids: Iterable[str],
+                       workers: Optional[int] = None) -> int:
+    """Refresh every stale history in `name_ids` concurrently, so the serial
+    lookups that follow read fresh cache files instead of waiting on the network
+    one request at a time. Changes no values: it calls the same load_history the
+    serial pass would, just earlier and several at once. Returns how many it
+    fetched."""
+    todo = sorted({n for n in name_ids if n and not _history_is_fresh(repo_root, n)})
+    if not todo:
+        return 0
+    _cache_dir(repo_root)          # create the directories before the threads race
+    n = workers or _FETCH_WORKERS
+    if n <= 1:
+        for nm in todo:
+            load_history(repo_root, nm)
+        return len(todo)
+    with ThreadPoolExecutor(max_workers=n) as pool:
+        list(pool.map(lambda nm: load_history(repo_root, nm), todo))
+    return len(todo)
 
 
 # --------------------------------------------------------------------------
@@ -441,7 +480,8 @@ def build_index(
     # from Sleeper's full_name + position when present. Their backend
     # still serves the full history for those slugs.
     wanted_sids = {str(s) for s in sleeper_ids if s}
-    for sid in sorted(wanted_sids):
+
+    def _player_cands(sid: str) -> List[str]:
         nm = sid_to_name.get(sid)
         cands = [nm] if nm else []
         if not nm and sid_to_meta:
@@ -453,6 +493,16 @@ def build_index(
             # player_name_id_candidates.
             cands = player_name_id_candidates(meta.get("full_name") or "",
                                               meta.get("pos") or "")
+        return cands
+
+    player_cands = {sid: _player_cands(sid) for sid in sorted(wanted_sids)}
+    # Concurrent refresh of each player's FIRST candidate (the one the serial
+    # loop below tries first, and nearly always the only one). Fallback
+    # candidates are left to the serial loop, so no slug is fetched that the
+    # old code would not have fetched.
+    prefetch_histories(repo_root, [c[0] for c in player_cands.values() if c])
+    for sid in sorted(wanted_sids):
+        cands = player_cands[sid]
         for cand in cands:
             hist = load_history(repo_root, cand)
             if hist:
@@ -512,6 +562,8 @@ def build_index(
                 for _back in range(1, 9):
                     for cand in pick_label_candidates(f"{_y0 - _back} {_m.group(2)}"):
                         wanted_pick_names.add(cand)
+    prefetch_histories(repo_root, [pick_name_to_name_id.get(fn) or _pick_full_name_to_id(fn)
+                                   for fn in wanted_pick_names])
     for fn in sorted(wanted_pick_names):
         # Use directory mapping if present, else derive the name_id.
         nm = pick_name_to_name_id.get(fn) or _pick_full_name_to_id(fn)

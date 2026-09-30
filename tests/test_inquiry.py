@@ -276,7 +276,8 @@ def test_sweep_reports_every_end_and_flags_volatile():
     assert {h.end for h in hits} <= {"high", "low"}
     by_col = {h.column: h for h in hits}
     assert by_col["Points"].end == "high"
-    assert "1st-highest Points" in by_col["Points"].describe()
+    assert "highest Points" in by_col["Points"].describe()
+    assert "1st-" not in by_col["Points"].describe()
 
     # Volatile columns are kept and flagged by default, dropped only on request.
     wide = Q.sweep("team_all_time", "Team=shmuel256", window=3)

@@ -481,7 +481,9 @@ class RankHit:
     def describe(self) -> str:
         mark = "  [build-volatile]" if self.volatile else ""
         side = "highest" if self.end != "low" else "lowest"
-        return (f"{self.label}: {_ordinal(self.rank)}-{side} {self.column} "
+        # Rank 1 reads "highest", not "1st-highest" — same as the digest.
+        place = side if self.rank == 1 else f"{_ordinal(self.rank)}-{side}"
+        return (f"{self.label}: {place} {self.column} "
                 f"({_fmt_value(self.value)} of {self.out_of}){mark}")
 
 

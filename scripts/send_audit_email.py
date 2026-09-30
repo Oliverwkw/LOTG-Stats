@@ -257,8 +257,8 @@ def _injury_html(gaps: dict, captures_present: bool, incomplete=()) -> str:
                 'with at least one gameday sweep behind it.</p>')
     items = []
     for g in incomplete:
-        what = ("no post-week capture" if g.kind == "unfinalized"
-                else "no gameday sweep")
+        what = {"unfinalized": "no post-week capture",
+                "uncovered": "players missing from the tracker"}.get(g.kind, "no gameday sweep")
         items.append(f'<li style="margin:4px 0;"><b>{_esc(g.label())}</b> — '
                      f'{_esc(what)}: {_esc(g.detail)}</li>')
     for season in sorted(gaps):
@@ -553,6 +553,12 @@ def main(argv=None) -> int:
     # at all — and Sleeper keeps no history, so both are permanent.
     injury_incomplete = SW.injury_capture_health(
         summary, C.played_weeks(_read_csv(exports, "team_week")))
+    try:
+        injury_incomplete += SW.uncovered_player_weeks(
+            captures, _read_csv(exports, "player_week"),
+            C.played_weeks(_read_csv(exports, "team_week")))
+    except Exception as e:                       # never let the check stop the email
+        print(f"[audit-email] tracker coverage check unavailable: {type(e).__name__}: {e}")
     for g in injury_incomplete:
         print(f"::warning::[audit-email] injury tracker {g.label()}: {g.kind}")
 
@@ -573,12 +579,16 @@ def main(argv=None) -> int:
         return _bail("clean week and --skip-clean set — not sending.")
 
     cfg = yaml.safe_load(Path(args.config).read_text()) or {}
-    recipients = _audit_recipients(cfg)
-    if not recipients:
-        return _bail(f"no audit_recipients configured in {args.config}.")
     creds = mailer.resolve_credentials(_CREDS_ENC)
     if not creds:
         return _bail("no credentials (set DIGEST_KEY, or SMTP_USERNAME/PASSWORD) — skipping send.")
+    recipients = _audit_recipients(cfg)
+    if not recipients:
+        # Loud: the addresses live in the DIGEST_AUDIT_RECIPIENTS secret now,
+        # and a missing secret must not pass for a skipped week.
+        print("::error::[audit-email] no recipients — set the "
+              "DIGEST_AUDIT_RECIPIENTS repo secret.")
+        return 1
 
     print(f"[audit-email] sending to {len(recipients)} recipient(s).")
     mailer.send_html(cfg, recipients, subject, html, creds[0], creds[1])

@@ -12,38 +12,21 @@
 # The digest send is a no-op (logged, exit 0) whenever credentials are absent,
 # so the pipeline is safe to run before DIGEST_KEY is added.
 
-# From address is the decrypted sending account (lotgstats@gmail.com).
+# From address is the decrypted sending account (see digest_credentials.enc).
 #
-# `recipients`      — the real in-season Tuesday digest goes to the whole league.
-# `test_recipients` — the "Send test digest email" button goes here only.
+# RECIPIENTS ARE NOT STORED HERE. This repo is public, so the address lists live
+# in repo secrets (comma-separated), passed through by the workflows:
 #
-# ⚠️ THIS REPO IS PUBLIC, so the addresses below are published and scrapeable.
-# To keep them out of the repo, set these repo *secrets* — each one overrides the
-# matching list here (comma-separated), after which the YAML list can be emptied:
+#   DIGEST_RECIPIENTS        — the real Tuesday digest (the whole league)
+#   DIGEST_TEST_RECIPIENTS   — test sends and manual (workflow_dispatch) sends
+#   DIGEST_AUDIT_RECIPIENTS  — the Wednesday dataset-health email (maintainer)
 #
-#   DIGEST_RECIPIENTS        -> overrides `recipients`
-#   DIGEST_TEST_RECIPIENTS   -> overrides `test_recipients`
-#   DIGEST_AUDIT_RECIPIENTS  -> overrides `audit_recipients`
-#
-# All three workflows already pass them through. Note that removing the
-# addresses from this file does NOT erase them from git history.
-recipients:
-  - okeimweiss@gmail.com
-  - skeimweiss@gmail.com
-  - Benjamin.Rosenzweig@aol.com
-  - jacob.rosenzweig@aol.com
-  - plehv@outlook.com
-  - lukejoshweber@gmail.com
-  - steven.borodkin17@gmail.com
-  - matthewtaub7@gmail.com
-
-test_recipients:
-  - okeimweiss@gmail.com
-
-# `audit_recipients` — the SECOND weekly email: a private dataset-health check
-# (breakages + missed injuries) to the maintainer only. See send_audit_email.py.
-audit_recipients:
-  - okeimweiss@gmail.com
+# The lists below are an optional fallback for local runs only and must stay
+# empty in the committed file (tests/test_no_public_emails.py enforces it).
+# A test/manual send never falls back to the league list.
+recipients: []
+test_recipients: []
+audit_recipients: []
 
 from_name: "LOTG Stats"
 

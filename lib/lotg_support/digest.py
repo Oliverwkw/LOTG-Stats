@@ -2074,6 +2074,126 @@ def edit_fingerprint(tree_entries: Sequence[str]) -> Optional[str]:
     return hashlib.sha256("\n".join(sorted(parts)).encode()).hexdigest()[:16]
 
 
+# How far past a trade its sent side keeps being measured when no player came
+# back (lotg.py `_SENT_WINDOW_YEARS`): such a trade's row still moves on new
+# games until then, so it is not settled.
+_SENT_WINDOW_DAYS = 4 * 365
+
+
+def _blank(v) -> bool:
+    return v is None or (isinstance(v, float) and math.isnan(v)) or str(v).strip() in ("", "nan", "N/A")
+
+
+def closed_event_keys(frames: dict, today=None) -> set:
+    """Board keys of transaction/pick rows whose stint is OVER — the value they
+    rank on can no longer take in new games (user, 2026-09-30).
+
+    A 2020 pickup the team dropped years ago cannot be moved by this week's games
+    or by the same team's new trade; if its addition value moved, an edit did it.
+    Open rows are left out (they can still accrue):
+      * add_drops / player_additions — no "Date dropped/traded" yet;
+      * picks — the drafted player still on the drafting team (a player_additions
+        Draft row with no drop date), or the pick not yet made;
+      * trades — anything received still on the team ("Assets retained now"), or
+        no player came back and the sent side's window is still running.
+    Anything that can't be read stays open, so a doubt never moves a line to edits."""
+    import datetime as _dt
+    today = today or _dt.date.today()
+    closed: set = set()
+    pa = frames.get("player_additions")
+    open_drafts: set = set()
+    if pa is not None and not pa.empty and {"Player", "Team"} <= set(pa.columns):
+        for _i, r in pa.iterrows():
+            if str(r.get("Addition type", "")).lower().startswith("draft") \
+                    and _blank(r.get("Date dropped/traded")):
+                open_drafts.add((str(r.get("Player")), str(r.get("Team"))))
+    for sheet in ("add_drops", "player_additions"):
+        df = frames.get(sheet)
+        if df is None or df.empty or "Date dropped/traded" not in df.columns:
+            continue
+        for _i, r in df.iterrows():
+            if not _blank(r.get("Date dropped/traded")):
+                closed.add(_board_row_key(sheet, r))
+    for sheet in _PICK_SHEETS:
+        df = frames.get(sheet)
+        if df is None or df.empty or "Player Picked" not in df.columns:
+            continue
+        for _i, r in df.iterrows():
+            who = str(r.get("Player Picked") or "")
+            if _blank(who) or who == "Unknown":
+                continue
+            if (who, str(r.get("Team"))) not in open_drafts:
+                closed.add(_board_row_key(sheet, r))
+    tr = frames.get("trades")
+    if tr is not None and not tr.empty and "Assets retained now" in tr.columns:
+        for _i, r in tr.iterrows():
+            if not _blank(r.get("Assets retained now")):
+                continue
+            no_player_back = _blank(r.get("Avg PPG of received players on team"))
+            try:
+                d = _dt.date.fromisoformat(str(r.get("Date"))[:10])
+            except ValueError:
+                continue
+            if no_player_back and (today - d).days <= _SENT_WINDOW_DAYS:
+                continue
+            closed.add(_board_row_key("trades", r))
+    return closed
+
+
+# All-time sheet -> (week sheet, entity column). An all-time column whose value
+# is exactly the sum of that entity's week rows can only be moved by new data
+# through new week rows — so the new rows' own sum says whether they did.
+_ALLTIME_WEEKS = {"teams": ("team_all_time", "team_week", "Team"),
+                  "players": ("player_all_time", "player_week", "Player")}
+
+
+def alltime_week_contributions(frames: dict, new_weeks) -> Tuple[Dict[str, set], Dict[tuple, float]]:
+    """({section: additive columns}, {(section, entity, column): new-week sum}).
+
+    A column is additive when EVERY entity's all-time value equals the sum of its
+    week rows (to 0.011) — a count or total. Rates, skills and averages fail the
+    test and keep the old rule. The contribution is what the new weeks' rows add
+    to that column for that entity (user, 2026-09-30: "check whether this week's
+    new rows could produce a change that size")."""
+    additive: Dict[str, set] = {}
+    contrib: Dict[tuple, float] = {}
+    for section, (at_name, wk_name, key) in _ALLTIME_WEEKS.items():
+        at, wk = frames.get(at_name), frames.get(wk_name)
+        if at is None or wk is None or at.empty or wk.empty \
+                or key not in at.columns or key not in wk.columns:
+            continue
+        cols = [c for c in at.columns if c in wk.columns
+                and c not in (key, "Year", "Week", "Team", "Player")]
+        wnum = wk[cols].apply(pd.to_numeric, errors="coerce")
+        anum = at[cols].apply(pd.to_numeric, errors="coerce")
+        wsum = wnum.groupby(wk[key].astype(str)).sum(min_count=1)
+        aidx = anum.set_index(at[key].astype(str))
+        aidx = aidx[~aidx.index.duplicated(keep=False)]
+        common = aidx.index.intersection(wsum.index)
+        keep = set()
+        for c in cols:
+            a, w = aidx.loc[common, c], wsum.loc[common, c]
+            if a.notna().sum() == 0 or (a.fillna(0) == 0).all():
+                continue
+            if (a.isna() == w.isna()).all() and ((a - w).abs().fillna(0) <= 0.011).all():
+                keep.add(c)
+        additive[section] = keep
+        if not keep or not new_weeks:
+            continue
+        pairs = {(int(y), int(w_)) for y, w_ in new_weeks}
+        yrs = pd.to_numeric(wk.get("Year"), errors="coerce")
+        wks = pd.to_numeric(wk.get("Week"), errors="coerce")
+        sel = [(int(y), int(w_)) in pairs if pd.notna(y) and pd.notna(w_) else False
+               for y, w_ in zip(yrs, wks)]
+        new_rows = wnum.loc[sel, sorted(keep)]
+        nsum = new_rows.groupby(wk.loc[sel, key].astype(str)).sum(min_count=1)
+        for ent, r in nsum.iterrows():
+            for c, v in r.items():
+                if pd.notna(v) and v != 0:
+                    contrib[(section, ent, c)] = float(v)
+    return additive, contrib
+
+
 def new_data_since(prior: Optional[dict], meta: dict, frames: dict,
                    fingerprint: Optional[str] = None) -> Optional[NewData]:
     """What reached the league between the prior snapshot and this build — None
@@ -2131,10 +2251,19 @@ def new_data_since(prior: Optional[dict], meta: dict, frames: dict,
         last_weeks = {int(y): int(w) for y, w in _lw.groupby("y")["w"].max().items()}
     before = pmeta.get("inputs_fingerprint")
     edit_landed = (before != fingerprint) if (before and fingerprint) else None
+    try:
+        closed = closed_event_keys(frames)
+    except Exception:                      # noqa: BLE001 — a doubt stays "open"
+        closed = set()
+    try:
+        additive, contrib = alltime_week_contributions(frames, new_weeks)
+    except Exception:                      # noqa: BLE001 — fall back to the old rule
+        additive, contrib = {}, {}
     return NewData(season=season, weeks_completed=meta.get("weeks_completed"),
                    new_weeks=new_weeks, players=players, teams=teams,
                    edit_landed=edit_landed, tx_players=tx_players,
-                   tx_teams=tx_teams, last_weeks=last_weeks)
+                   tx_teams=tx_teams, last_weeks=last_weeks,
+                   closed_keys=closed, additive=additive, contrib=contrib)
 
 
 def all_row_keys(frames: dict) -> List[str]:
@@ -2814,13 +2943,19 @@ class Milestone:
     value: float
     milestone: float
 
+    def _tail(self) -> str:
+        # A total landing exactly on the round number would read "passes
+        # 500,000 (now 500,000)"; say "reaches" and drop the echo instead.
+        if _fmt(self.value) == _fmt(self.milestone):
+            return f"reaches {_fmt(self.milestone)}."
+        return f"passes {_fmt(self.milestone)} (now {_fmt(self.value)})."
+
     def sentence(self) -> str:
-        return (f"League {self.stat} passes {_fmt(self.milestone)} "
-                f"(now {_fmt(self.value)}).")
+        return f"League {self.stat} {self._tail()}"
 
     def line(self) -> str:
         # Under "League milestones", the leading "League" is the header again.
-        return f"{self.stat} passes {_fmt(self.milestone)} (now {_fmt(self.value)})."
+        return f"{self.stat} {self._tail()}"
 
 
 def league_milestone_values(league_all_time: pd.DataFrame) -> Dict[str, float]:
@@ -3213,36 +3348,67 @@ def split_sections(sections: Sequence[Tuple[str, bool, list]],
     return top, edits
 
 
-# The new-data half of the email in two visually distinct parts (user rule,
-# 2026-09-26): RECORDS — every first-place move (rank 1 at either end, on any
-# board, single-season records included) — then LEADERBOARD CHANGES, everything
-# else. The on-pace section stays whole under LEADERBOARD CHANGES, its 1sts
-# included: a projection is not a record yet (user, 2026-09-26). Inside each part the sections keep the email's usual
-# order and grouping, one heading level down. Each part is a tinted block with a
-# coloured rule so the two read apart at a glance, in mail clients too (inline
-# styles only).
+# The new-data half of the email in four visually distinct parts, in this
+# order (user rules, 2026-09-26 and 2026-09-30):
+#   RECORDS                        — every first-place move (rank 1 at either
+#                                    end, on any board, single-season records
+#                                    included);
+#   ON PACE FOR RECORDS            — on-pace projections at 1st (a projection is
+#                                    not a record yet, so it never sits in
+#                                    RECORDS);
+#   LEADERBOARD CHANGES            — every other non-projection move, milestones
+#                                    included;
+#   ON PACE FOR LEADERBOARD CHANGES — on-pace projections below 1st.
+# Inside each part the sections keep the email's usual order and grouping, one
+# heading level down. Each part is a tinted block with a coloured rule so they
+# read apart at a glance, in mail clients too (inline styles only).
 RECORDS_TITLE = "Records"
+PACE_RECORDS_TITLE = "On pace for records"
 BOARDS_TITLE = "Leaderboard changes"
+PACE_BOARDS_TITLE = "On pace for leaderboard changes"
+PART_ORDER = (RECORDS_TITLE, PACE_RECORDS_TITLE, BOARDS_TITLE, PACE_BOARDS_TITLE)
 _PART_STYLE = {
-    RECORDS_TITLE: ("#fbf6e6", "#c9a227"),   # (background, left rule)
+    RECORDS_TITLE: ("#fbf6e6", "#c9a227"),        # (background, left rule)
+    PACE_RECORDS_TITLE: ("#fdfaf0", "#e0c46a"),
     BOARDS_TITLE: ("#f4f7fb", "#0b2545"),
+    PACE_BOARDS_TITLE: ("#f8fafc", "#7d8fa6"),
 }
 
 
 def is_record(item) -> bool:
     """A first-place move: the item holds rank 1 on its board. A milestone has
-    no place and is never one; an on-pace projection is never one either — the
-    pace section stays together under Leaderboard changes (user, 2026-09-26)."""
+    no place and is never one; an on-pace projection is never one either — it
+    goes to "On pace for records" instead (`part_of`)."""
     if isinstance(item, Projection):
         return False
     rank = getattr(item, "rank", None)
     return isinstance(rank, int) and rank == 1
 
 
+def part_of(item) -> str:
+    """Which of the four PART_ORDER parts an item belongs to."""
+    if isinstance(item, Projection):
+        return PACE_RECORDS_TITLE if item.rank == 1 else PACE_BOARDS_TITLE
+    return RECORDS_TITLE if is_record(item) else BOARDS_TITLE
+
+
+def split_parts(sections: Sequence[Tuple[str, bool, list]]
+                ) -> Dict[str, List[Tuple[str, bool, list]]]:
+    """{part title: sections} for the four PART_ORDER parts — each section's
+    items routed by `part_of`, empty halves dropped, section order kept."""
+    out: Dict[str, List[Tuple[str, bool, list]]] = {t: [] for t in PART_ORDER}
+    for title, grouped, items in sections:
+        for part in PART_ORDER:
+            chosen = [i for i in items if part_of(i) == part]
+            if chosen:
+                out[part].append((title, grouped, chosen))
+    return out
+
+
 def split_records(sections: Sequence[Tuple[str, bool, list]]
                   ) -> Tuple[List[Tuple[str, bool, list]], List[Tuple[str, bool, list]]]:
-    """(records sections, leaderboard-change sections): each section's items
-    split by `is_record`, empty halves dropped, section order kept."""
+    """(records sections, everything else) — the two-way view of `split_parts`,
+    kept for callers that only care whether an item is a first-place move."""
     recs, boards = [], []
     for title, grouped, items in sections:
         r = [i for i in items if is_record(i)]
@@ -3296,15 +3462,14 @@ def render_digest_html(
          f'border-left:3px solid #0b2545;border-radius:4px;">{intro}</p>'
          if intro else ""),
     ]
-    # New data first — its first-place moves under "Records", everything else
-    # under "Leaderboard changes" (`split_records`); then, only if there are
+    # New data first, in the four PART_ORDER parts (`split_parts`); then, only if there are
     # any, the moves an edit alone explains, under their own header at the
     # bottom (see `attribute`).
     top, edits = split_sections(digest_sections(
         crossings, projections, milestones, records, highlights, events), new_data)
-    rec_part, board_part = split_records(top)
-    body.append(_part_html(RECORDS_TITLE, rec_part))
-    body.append(_part_html(BOARDS_TITLE, board_part))
+    parts = split_parts(top)
+    for part in PART_ORDER:
+        body.append(_part_html(part, parts[part]))
     if edits:
         body.append(_EDIT_HEADER_HTML)
         for title, grouped, items in edits:

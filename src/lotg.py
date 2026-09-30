@@ -2104,6 +2104,11 @@ def _preserve_na(col: str) -> bool:
     # the period — distinct from a real 0% win rate.
     if col_l in {"win % as starter", "win % while rostered"}:
         return True
+    # Healthy % of starts (player_year / player_all_time): N/A when the player
+    # had no healthy week in the period (0/0) — there were no weeks he could
+    # have started, which is not the same as a 0% start rate (user, 2026-09-30).
+    if col_l == "healthy % of starts":
+        return True
     # Length of tenure on team: a blank means there is NO player whose tenure
     # to measure — a transactions pure drop (no added player) or an unmade pick
     # (no player drafted yet). Render those as N/A. A genuine 0-day tenure
@@ -12779,18 +12784,30 @@ def build_all(repo_root: Path) -> None:
                 row["Avg PPG of received players in 5 games before trade adjusted by position"] = round(
                     sum(recv_adj_pre5_avgs) / len(recv_adj_pre5_avgs), 4)
 
+            # The difference needs a received side: with no received player ever
+            # rostered for this team (picks/FAAB only, or the return never
+            # joined), there is nothing to compare the sent players against, so
+            # the difference is N/A rather than "0 minus the sent side"
+            # (user, 2026-09-30). A received player rostered but never played
+            # still reads 0 PPG (the on-team PPG rule) and does compare.
+            #
+            # The Trade addition value below still charges the sent side on those
+            # trades (received 0 − sent), exactly as before: a player sold for
+            # picks is a real cost, and only the DISPLAYED difference is N/A.
             diff_avg = None
             if recv_on_team_avgs or drop_over_avgs:
                 a = (sum(recv_on_team_avgs) / len(recv_on_team_avgs)) if recv_on_team_avgs else 0.0
                 b = (sum(drop_over_avgs) / len(drop_over_avgs)) if drop_over_avgs else 0.0
                 diff_avg = round(a - b, 4)
-                row["Difference of averages"] = diff_avg
+                if recv_on_team_avgs:
+                    row["Difference of averages"] = diff_avg
             adj_diff = None
             if recv_adj_on_team_avgs or drop_adj_avgs:
                 a_adj = (sum(recv_adj_on_team_avgs) / len(recv_adj_on_team_avgs)) if recv_adj_on_team_avgs else 0.0
                 b_adj = (sum(drop_adj_avgs) / len(drop_adj_avgs)) if drop_adj_avgs else 0.0
                 adj_diff = round(a_adj - b_adj, 4)
-                row["Difference of averages adjusted by position"] = adj_diff
+                if recv_adj_on_team_avgs:
+                    row["Difference of averages adjusted by position"] = adj_diff
 
             # ----- Trade addition value (V2, Item 7E) -----
             # Mirror the transaction "Player addition value" composite:

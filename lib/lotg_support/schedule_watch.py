@@ -260,7 +260,7 @@ def missed_runs(repo_root: Path, now: Optional[datetime] = None,
 # ---------------------------------------------------------------------------
 @dataclass
 class InjuryGap:
-    kind: str          # "unfinalized" | "unswept"
+    kind: str          # "unfinalized" | "unswept" | "uncovered"
     season: int
     week: int
     detail: str
@@ -316,4 +316,52 @@ def injury_capture_health(summary: dict, played: Optional[dict] = None) -> List[
                 "designations are only what Sleeper was showing on Tuesday, two "
                 "days after the games, so a tag the team cleared on the Monday "
                 "is not in this week."))
+    return out
+
+
+def uncovered_player_weeks(captures, player_week, played: Optional[dict] = None,
+                           first_season: int = 2026, show: int = 5) -> List[InjuryGap]:
+    """Finalized weeks where a rostered player has NO tracker row (user,
+    2026-09-30).
+
+    Every player on a roster during a week's games is captured by that day's
+    gameday sweeps and by the Tuesday final capture, so this should always be
+    empty. If a player slips through anyway (picked up and dropped between
+    captures, a sweep that failed on his gameday), his week falls back to the
+    pre-tracker snap-based Injury? guess for good — Sleeper keeps no history to
+    recapture it from. Only FINALIZED, finished weeks are judged: a week still
+    being played is not due yet. Matched on the player's name, which is all
+    player_week carries; a name mismatch would show up here as a false alarm,
+    never hide a gap."""
+    out: List[InjuryGap] = []
+    if player_week is None or getattr(player_week, "empty", True) \
+            or not {"Player", "Year", "Week"} <= set(player_week.columns):
+        return out
+    have, finalized = set(), set()
+    for r in captures or ():
+        try:
+            key = (int(r.get("season")), int(r.get("week")))
+        except (TypeError, ValueError):
+            continue
+        have.add(key + (str(r.get("full_name") or ""),))
+        if str(r.get("finalized_at_utc") or "").strip():
+            finalized.add(key)
+    missing: dict = {}
+    for name, yr, wk in zip(player_week["Player"], player_week["Year"], player_week["Week"]):
+        try:
+            key = (int(yr), int(wk))
+        except (TypeError, ValueError):
+            continue
+        if key[0] < first_season or key not in finalized:
+            continue
+        if played is not None and key[1] not in (played.get(key[0]) or ()):
+            continue
+        if key + (str(name),) not in have:
+            missing.setdefault(key, []).append(str(name))
+    for (season, week), names in sorted(missing.items()):
+        shown = ", ".join(sorted(names)[:show]) + (f" +{len(names) - show} more" if len(names) > show else "")
+        out.append(InjuryGap(
+            "uncovered", season, week,
+            f"{len(names)} rostered player(s) have no tracker row ({shown}) — their "
+            f"Injury? for this week falls back to the snap-based guess."))
     return out

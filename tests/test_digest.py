@@ -761,12 +761,25 @@ def check_render_html_smoke():
     return ok
 
 
-def check_records_and_leaderboard_changes_are_two_parts():
-    """New data renders as two visually distinct parts (user rule 2026-09-26):
-    "Records" — every first-place move, on any board — then "Leaderboard
-    changes" — everything else, milestones and the whole on-pace section (its
-    1sts included: a projection is not a record yet) included. Each keeps the usual
-    sections, in the usual order."""
+def check_milestone_landing_exactly_does_not_echo():
+    """A league total landing exactly on its round number reads "reaches N",
+    not "passes N (now N)"; past it, the "(now …)" value still shows."""
+    exact = D.Milestone("PF", 500000.0, 500000.0)
+    past = D.Milestone("PF", 500123.0, 500000.0)
+    ok = _ok("exact -> reaches, no echo",
+             exact.line() == "PF reaches 500,000." and "now" not in exact.sentence(),
+             exact.line())
+    ok &= _ok("past -> passes with now", "(now 500,123)" in past.line(), past.line())
+    return ok
+
+
+def check_records_and_leaderboard_changes_are_four_parts():
+    """New data renders as four visually distinct parts, in this order (user
+    rules 2026-09-26 and 2026-09-30): "Records" (every first-place move, on any
+    board), "On pace for records" (on-pace projections at 1st — a projection is
+    not a record yet), "Leaderboard changes" (everything else, milestones
+    included), "On pace for leaderboard changes" (projections below 1st). Each
+    keeps the usual sections, in the usual order."""
     first = D.Crossing("teams", "Max PF", "high", 1, "BRO", 305.0, passed=("shmuel",))
     third = D.Crossing("teams", "PF", "high", 3, "AceMatthew", 900.0, passed=("plehv79",))
     low1 = D.Crossing("teams", "Points against", "low", 1, "LWebs53", 80.0, passed=("x",))
@@ -776,26 +789,29 @@ def check_records_and_leaderboard_changes_are_two_parts():
     rec = D.YearlyRecord("teams", "BRO", "Times One-man army?", 9.0)
     html = D.render_digest_html([first, third, low1], [pace1, pace4],
                                 {"season": 2026, "weeks_completed": 7}, [m], [rec])
-    r0, b0 = html.find(">Records</h2>"), html.find(">Leaderboard changes</h2>")
-    ok = _ok("both parts present, Records first", 0 < r0 < b0, f"{r0} {b0}")
-    recs, boards = html[r0:b0], html[b0:]
+    pos = [html.find(f">{t}</h2>") for t in D.PART_ORDER]
+    ok = _ok("all four parts present, in order", 0 < pos[0] < pos[1] < pos[2] < pos[3], str(pos))
+    recs, pace_r, boards, pace_b = (html[pos[0]:pos[1]], html[pos[1]:pos[2]],
+                                    html[pos[2]:pos[3]], html[pos[3]:])
     ok &= _ok("1st-place moves at either end sit under Records",
               "BRO" in recs and "LWebs53" in recs and "most in any season" in recs)
-    ok &= _ok("an on-pace 1st stays in the pace section, under Leaderboard changes",
-              "Hardship" in boards and "Hardship" not in recs and "On pace" not in recs)
-    ok &= _ok("everything else is a leaderboard change",
-              "AceMatthew" in boards and "Luck" in boards and "passes 50,000" in boards
+    ok &= _ok("an on-pace 1st sits under On pace for records, nowhere else",
+              "Hardship" in pace_r and "Hardship" not in recs + boards + pace_b)
+    ok &= _ok("an on-pace 4th sits under On pace for leaderboard changes",
+              "Luck" in pace_b and "Luck" not in recs + pace_r + boards)
+    ok &= _ok("every other move is a leaderboard change",
+              "AceMatthew" in boards and "passes 50,000" in boards
               and "AceMatthew" not in recs and "passes 50,000" not in recs)
     ok &= _ok("sections keep their titles and order inside a part",
               recs.index("All-time leaderboard moves — teams") < recs.index("New single-season records")
               and boards.index("All-time leaderboard moves — teams") < boards.index("League milestones")
-              < boards.index("On pace this season — teams"))
+              and "On pace this season — teams" in pace_r and "On pace this season — teams" in pace_b)
     ok &= _ok("the parts look different",
-              html.rfind("border-left:4px solid #c9a227", 0, r0) >= 0
-              and r0 < html.rfind("border-left:4px solid #0b2545", 0, b0))
+              len({D._PART_STYLE[t] for t in D.PART_ORDER}) == 4)
     only_boards = D.render_digest_html([third], [], {"season": 2026, "weeks_completed": 7})
     ok &= _ok("no first-place move -> no Records part", ">Records</h2>" not in only_boards
-              and ">Leaderboard changes</h2>" in only_boards)
+              and ">Leaderboard changes</h2>" in only_boards
+              and ">On pace for records</h2>" not in only_boards)
     return ok
 
 
@@ -1038,7 +1054,7 @@ def check_flat_sections_are_ordered_too():
     html = D.render_digest_html([], [], {"season": 2026, "weeks_completed": 7},
                                 milestones=ms)
     return _ok("the more relevant stat leads",
-               html.index("PF passes") < html.index("Amount of FAAB spent passes"), html)
+               html.index("PF reaches") < html.index("Amount of FAAB spent passes"), html)
 
 
 def check_order_is_stable():
@@ -1423,7 +1439,8 @@ def run_all() -> bool:
         check_rate_and_weekly_classification,
         check_phrasing_catalog,
         check_render_html_smoke,
-        check_records_and_leaderboard_changes_are_two_parts,
+        check_records_and_leaderboard_changes_are_four_parts,
+        check_milestone_landing_exactly_does_not_echo,
         check_renamed_count_columns_keep_their_prior,
         check_digest_title,
         check_an_invisible_overtake_is_not_reported,

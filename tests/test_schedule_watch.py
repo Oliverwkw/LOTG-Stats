@@ -267,6 +267,18 @@ def test_incomplete_injury_weeks_reach_the_email():
     assert "2026 week 4" in html and "2026 week 5" in html
 
 
+def test_a_rostered_player_missing_from_the_tracker_is_a_finding():
+    import pandas as pd
+    pw = pd.DataFrame({"Player": ["A", "B", "C"], "Year": [2026, 2026, 2026], "Week": [1, 1, 2]})
+    caps = [{"season": 2026, "week": 1, "full_name": "A", "finalized_at_utc": "t"},
+            {"season": 2026, "week": 2, "full_name": "Z", "finalized_at_utc": ""}]
+    got = SW.uncovered_player_weeks(caps, pw, {2026: {1, 2}})
+    assert [(g.kind, g.week) for g in got] == [("uncovered", 1)], got   # week 2 not finalized
+    assert "B" in got[0].detail and "1 rostered player" in got[0].detail
+    old = pd.DataFrame({"Player": ["A"], "Year": [2025], "Week": [1]})
+    assert SW.uncovered_player_weeks([], old, None) == []               # pre-tracker seasons skipped
+
+
 TESTS = [test_the_week_being_played_is_not_unfinalized_yet,
          test_the_schedule_is_read_from_the_workflow_not_restated,
          test_the_most_recent_fire_is_judged_once_it_has_had_time,
@@ -289,7 +301,8 @@ TESTS = [test_the_week_being_played_is_not_unfinalized_yet,
          test_an_unfinalized_week_is_a_finding,
          test_a_healthy_injury_week_is_not_a_finding,
          test_an_unfinalized_week_is_reported_as_that_not_as_unswept,
-         test_incomplete_injury_weeks_reach_the_email]
+         test_incomplete_injury_weeks_reach_the_email,
+         test_a_rostered_player_missing_from_the_tracker_is_a_finding]
 
 if __name__ == "__main__":
     bad = 0
