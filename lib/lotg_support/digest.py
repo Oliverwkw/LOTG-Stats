@@ -247,10 +247,10 @@ _PHRASING = {
         "position-adjusted avg net points per start",
     ("add_drops", "Age difference"): "Age difference (added − dropped player)",
     ("add_drops", "Faab"): "FAAB bid",
-    ("add_drops", "Dropped avg points"): "Dropped player's PPG after the drop (negated)",
+    ("add_drops", "Dropped avg points"): "PPG in next 17 games after drop",
     ("add_drops", "Dropped avg points adjusted by position"):
-        "Dropped player's position-adjusted PPG after the drop (negated)",
-    ("add_drops", "Dropped total points"): "Dropped player's points after the drop (negated)",
+        "position-adjusted PPG in next 17 games after drop",
+    ("add_drops", "Dropped total points"): "Points in next 17 games after drop",
     ("trades", "Tanking"): "Tank-score change from the trade",
     ("add_drops", "Tanking"): "Tank-score change from the move",
     ("player_additions", "Tanking"): "Tank-score change from the pickup",
@@ -664,6 +664,9 @@ def build_snapshot(
         "captured_at": captured_at.isoformat(),
         "season": season,
         "weeks_completed": weeks,
+        # Marks a snapshot written after add_drops' post-drop points columns
+        # stopped being negated (see `migrate_snapshot_signs`).
+        _DROPPED_SIGN_KEY: _DROPPED_SIGN_RAW,
     }
     held = sorted({str(p) for p in (held_players or ())})
     if held:
@@ -3404,9 +3407,44 @@ def migrate_snapshot_columns(snapshot: Optional[dict]) -> Optional[dict]:
     return snapshot
 
 
+# add_drops' three post-drop columns were stored NEGATED until 2026-09-30 (a
+# 0 = never played again was the best score, so the negation made "highest" the
+# best drop). They now hold the dropped player's points as scored, lowest = best
+# drop. A snapshot written before that holds the same facts with the other sign:
+# its high end is today's low end, value for value. Read unmigrated, every place
+# on those six boards would change hands at once and the first digest after the
+# flip would report each row passing the rows it simply mirrors. So, as with the
+# renames above, it is rewritten on READ: each stored place is negated and moved
+# to the opposite end, and the snapshot is stamped so it never flips twice. New
+# snapshots carry the stamp from `build_snapshot`.
+_DROPPED_SIGN_KEY = "dropped_points_sign"
+_DROPPED_SIGN_RAW = "raw"
+_DROPPED_SIGN_COLUMNS = frozenset(("Dropped avg points", "Dropped avg points adjusted by position",
+                                   "Dropped total points"))
+
+
+def migrate_snapshot_signs(snapshot: Optional[dict]) -> Optional[dict]:
+    """`snapshot` with add_drops' pre-2026-09-30 negated post-drop places in
+    today's sign (idempotent: a stamped snapshot is returned as is)."""
+    if not isinstance(snapshot, dict):
+        return snapshot
+    meta = snapshot.setdefault("meta", {})
+    if not isinstance(meta, dict) or meta.get(_DROPPED_SIGN_KEY) == _DROPPED_SIGN_RAW:
+        return snapshot
+    for e in snapshot.get("event_board") or ():
+        if (isinstance(e, dict) and e.get("sheet") == "add_drops"
+                and e.get("column") in _DROPPED_SIGN_COLUMNS):
+            v = _to_float(e.get("value"))
+            if v is not None:
+                e["value"] = 0.0 if v == 0 else -v
+            e["end"] = {"high": "low", "low": "high"}.get(e.get("end"), e.get("end"))
+    meta[_DROPPED_SIGN_KEY] = _DROPPED_SIGN_RAW
+    return snapshot
+
+
 def load_snapshot(path: Path) -> Optional[dict]:
     try:
-        return migrate_snapshot_columns(json.loads(Path(path).read_text()))
+        return migrate_snapshot_signs(migrate_snapshot_columns(json.loads(Path(path).read_text())))
     except (OSError, ValueError):
         return None
 

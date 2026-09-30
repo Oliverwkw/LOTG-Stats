@@ -349,6 +349,27 @@ def _league_day_iso(ts: Any) -> str:
     return _league_day(parsed.to_pydatetime()).isoformat()
 
 
+# How far a trade's "Avg PPG of sent players over same time" window may run
+# when no player came back (FAAB only, or received picks flipped / undrafted).
+_SENT_WINDOW_YEARS = 4
+
+
+def _sent_window_end(trade_day: str, end_day: str) -> str:
+    """End (exclusive, 'YYYY-MM-DD') of a trade's sent-side PPG window: the
+    earlier of `end_day` and _SENT_WINDOW_YEARS calendar years after
+    `trade_day` (a Feb 29 trade caps on Feb 28)."""
+    try:
+        d = date.fromisoformat(str(trade_day)[:10])
+    except ValueError:
+        return end_day
+    y = d.year + _SENT_WINDOW_YEARS
+    try:
+        cap = d.replace(year=y)
+    except ValueError:
+        cap = d.replace(year=y, day=28)
+    return min(str(end_day)[:10], cap.isoformat())
+
+
 def _move_season(when: Optional[datetime], fallback_season: int,
                  season_end: Optional[Dict[int, Optional[date]]] = None) -> int:
     """Fantasy season a dated roster move belongs to.
@@ -10630,6 +10651,7 @@ def build_all(repo_root: Path) -> None:
                 r["_added_pos"] = added_pos
                 r["_tx_season"] = _tx_season
                 r["_dropped_adj"] = dropped_adj
+                r["_dropped_pos"] = dropped_pos
                 # Position-adjusted twins of the per-game columns, each side by
                 # its own player's position, in the move's season (as the
                 # adjusted difference above). The added side's on-team average
@@ -10648,6 +10670,10 @@ def build_all(repo_root: Path) -> None:
                 # opportunity cost of starting the add instead of the drop. The
                 # averages divide by the number of started weeks so swaps of
                 # different lengths are comparable. Pure drop (no add) -> all 0.
+                # Rows with an added player are re-derived in the final pass
+                # over _tenure_stats' started weeks: the Thursday week-date
+                # below lost the start of a Thursday-Sunday pickup who played
+                # that Sunday, while the final-pass start count kept it.
                 def _is_name(_v):
                     _s = str(_v).strip()
                     return bool(_s) and _s.upper() != "N/A" and _s.lower() not in ("nan", "none")
@@ -10696,11 +10722,12 @@ def build_all(repo_root: Path) -> None:
                 r["Avg net points adjusted by position"] = round((_adj_add - _adj_lost) / _nwk, 2) if _nwk else 0.0
 
                 # --- Dropped avg / total points (next 17 PLAYED games) ---
-                # The dropped player's realized NFL output after leaving, NEGATED
-                # (points that walked out the door): his next 17 games actually
-                # played per the nflverse log, from the drop date on. Dynamic —
-                # fewer than 17 games so far averages/sums what exists; a player
-                # who never played again scores a real 0 (the perfect drop).
+                # The dropped player's realized NFL output after leaving (points
+                # that walked out the door), as scored — lower = better drop: his
+                # next 17 games actually played per the nflverse log, from the
+                # drop date on. Dynamic — fewer than 17 games so far averages/sums
+                # what exists; a player who never played again scores a real 0,
+                # and one who went negative (a fumble) ranks below that.
                 if _is_name(dropped):
                     _post = sorted(
                         (g for g in _tx_player_games(dropped, r.get("_dropped_pid"))
@@ -10708,10 +10735,10 @@ def build_all(repo_root: Path) -> None:
                         key=lambda g: g["_wk_date"],
                     )[:17]
                     _ptot = sum(float(g["Points"] or 0.0) for g in _post)
-                    r["Dropped avg points"] = round(-_ptot / len(_post), 4) if _post else 0.0
+                    r["Dropped avg points"] = round(_ptot / len(_post), 4) if _post else 0.0
                     r["Dropped avg points adjusted by position"] = (
-                        _pos_adjust(-_ptot / len(_post), dropped_pos, _tx_season) if _post else 0.0)
-                    r["Dropped total points"] = round(-_ptot, 2) if _post else 0.0
+                        _pos_adjust(_ptot / len(_post), dropped_pos, _tx_season) if _post else 0.0)
+                    r["Dropped total points"] = round(_ptot, 2) if _post else 0.0
 
                 # Length of tenure on team (added player): days from pickup to
                 # the next exit (or to today if still rostered). Blank if no add.
@@ -12541,10 +12568,13 @@ def build_all(repo_root: Path) -> None:
 
             # ----- (c) Forward-looking tenure window + PPG averages -----
             # The SENT side is measured over [trade_date, latest exit among the
-            # received players) on the nflverse game log (a counterfactual: they
-            # were not on this roster). The received side is its own tenures,
-            # on rostered league points (_rostered_ppg below).
+            # received players and players drafted here with received picks) on
+            # the nflverse game log (a counterfactual: they were not on this
+            # roster). With no such player it runs to today, capped (see
+            # effective_end below). The received side is its own tenures, on
+            # rostered league points (_rostered_ppg below).
             # recv_windows also feeds the received players' start rates below.
+            _today_day = datetime.utcnow().date().isoformat()
             recv_windows: Dict[str, Tuple[str, Optional[str]]] = {}
             latest_end: Optional[str] = None
             for pid in (row.get("_recv_player_ids") or []):
@@ -12555,8 +12585,12 @@ def build_all(repo_root: Path) -> None:
                 _ex = _pick_tenure_end(team, str(pid), trade_iso)
                 end_iso = _ex[:10] if _ex else None
                 recv_windows[str(pid)] = (trade_prefix, end_iso)
-                if end_iso is not None:
-                    latest_end = end_iso if (latest_end is None or end_iso > latest_end) else latest_end
+                # A received player still here keeps the sent window open to
+                # today — skipping him ended it at the first one to leave
+                # (Kyren Williams, still on shmuel256, ended Jonathan Taylor's
+                # 2023-10-05 window at Kirk Cousins' 2025-08-17 exit).
+                _e = end_iso or _today_day
+                latest_end = _e if (latest_end is None or _e > latest_end) else latest_end
 
             def _avg_ppg_window(name: str, start: str, end: Optional[str]) -> Optional[float]:
                 games = _player_games(name)
@@ -12607,8 +12641,9 @@ def build_all(repo_root: Path) -> None:
 
             # Phase 7D: fold in the PPG of players DRAFTED with received picks,
             # over their post-draft tenure on THIS team. Only when this team
-            # actually made the selection (Final Team == team) — a pick flipped
-            # again before the draft never became a player here. Undrafted
+            # actually made the selection (Final Team == team) and held the pick
+            # from this trade to the draft — a pick flipped again before the
+            # draft never became a player here, even if it later came back. Undrafted
             # future picks contribute nothing. The drafted player's window
             # starts at the draft and ends at their next exit from this team,
             # on the same rostered-league-points basis as the received players
@@ -12625,20 +12660,35 @@ def build_all(repo_root: Path) -> None:
                 if _dfinal != _norm_team_name(team):
                     continue  # pick was flipped before the draft
                 _dstart = _draft_anchor_iso(int(_dyear))
+                # Sent on before the draft and later won back: the player is the
+                # re-acquiring trade's, not this one's (BROsenzweig got 2026 2.06
+                # for DK Metcalf, sent it on 2026-05-02, won it back 2026-07-10
+                # and drafted Jonah Coleman).
+                _pout = _next_out_pick(team, tuple(_pm), trade_iso)
+                if _pout and str(_pout["date"])[:10] < _dstart[:10]:
+                    continue
                 _dsid = name_to_sid_local2.get(_dpl)
                 _nxo = _pick_tenure_end(team, _dsid, _dstart) if _dsid else None
                 _davg = _rostered_ppg(_dpl, _dstart, _league_day_iso(_nxo) if _nxo else None)
                 if _davg is not None:
+                    # His stay here bounds the sent window like a received
+                    # player's. One never rostered a week here (dropped or
+                    # traded on before a week counted) doesn't: with no other
+                    # player the trade keeps the capped no-player window.
+                    _de = _nxo[:10] if _nxo else _today_day
+                    latest_end = _de if (latest_end is None or _de > latest_end) else latest_end
                     recv_on_team_avgs.append(_davg)
                     _dpos = _player_pos(_dpl)
                     recv_adj_on_team_avgs.append(_davg * _pos_factor(_dyear, _dpos))
 
             drop_over_avgs: List[float] = []
             drop_adj_avgs: List[float] = []
-            # If no received player has been dropped yet, the window
-            # is open-ended — use today as the upper bound so the
-            # sent-side PPG still has a meaningful window.
-            effective_end = latest_end or datetime.utcnow().date().isoformat()
+            # No player came back — FAAB only, or picks flipped / not yet
+            # drafted / drafted here but never rostered a week: the window runs to today BY DESIGN (a received pick's
+            # payoff, incl. a later flip, has no end date), stopping
+            # _SENT_WINDOW_YEARS after the trade. Any player sets the end
+            # itself, uncapped.
+            effective_end = latest_end or _sent_window_end(trade_prefix, _today_day)
             if effective_end:
                 for pid in (row.get("_drop_player_ids") or []):
                     name = _player_display(pid)
@@ -20499,7 +20549,14 @@ def build_all(repo_root: Path) -> None:
                     _pts = float(_r.get("Points")) if _r.get("Points") not in (None, "") else 0.0
                 except Exception:
                     _pts = 0.0
+                try:
+                    _yw = (int(_r.get("Year")), int(_r.get("Week")))
+                except Exception:
+                    _yw = None
                 _pw_ten[(str(_r.get("Team")), str(_r.get("Player")))].append({
+                    # (season, week), so add_drops can price the dropped
+                    # player's game log over exactly these started weeks.
+                    "yw": _yw,
                     "ed": _ed,
                     "sd": _first_game_day(_r.get("Year"), _r.get("Week")) or _ed,
                     "starter": str(_r.get("Starter/Bench")).strip().lower() == "starter",
@@ -20548,7 +20605,8 @@ def build_all(repo_root: Path) -> None:
                "injured_weeks": 0, "points_benched": 0.0,
                "points_started_healthy": 0.0, "points_benched_healthy": 0.0,
                "points_started": 0.0, "sum_pts": 0.0, "games_pts": 0.0, "ppg": None,
-               "first_start_ed": None, "weeks_before_start": None, "pos": ""}
+               "first_start_ed": None, "weeks_before_start": None, "pos": "",
+               "started_yw": []}
         _pk = str(_pickup)[:10] if _pickup else ""
         if not _pk:
             return out
@@ -20576,6 +20634,7 @@ def build_all(repo_root: Path) -> None:
         out["inj_weeks"] = sum(1 for e in _weeks if not e["bye"] and not e["inj"])
         out["inj_starts"] = sum(1 for e in _weeks if e["starter"] and not e["bye"] and not e["inj"])
         out["points_started"] = sum(e["pts"] for e in _starts)
+        out["started_yw"] = [e["yw"] for e in _starts if e.get("yw")]
         out["points_benched"] = sum(e["pts"] for e in _weeks if not e["starter"])
         # The same two over the healthy weeks only (not a bye or a missed week).
         out["points_started_healthy"] = sum(
@@ -20662,6 +20721,49 @@ def build_all(repo_root: Path) -> None:
                     add_drops_df.at[_i, "Injury adjusted % of starts made while rostered"] = _pinj
                 if _st["weeks_before_start"] is not None:
                     add_drops_df.at[_i, "Weeks between pickup and start"] = int(_st["weeks_before_start"])
+                # Points Added / Lost / Net and their per-start averages, over
+                # the SAME started weeks "Number of starts before next drop"
+                # counts (and player_additions' "Points added" sums). Points
+                # Lost stays the dropped player's nflverse points in those
+                # weeks (0 for a DNP/bye), as the first pass defined it.
+                try:
+                    _pts_add = float(_st["points_started"])
+                    _syw = _st["started_yw"]
+                    _pts_lost = 0.0
+                    _dpl = add_drops_df.at[_i, "Player Dropped"] if "Player Dropped" in add_drops_df.columns else None
+                    _dpid = add_drops_df.at[_i, "_dropped_pid"] if "_dropped_pid" in add_drops_df.columns else None
+                    if (_syw and _dpl is not None and str(_dpl).strip()
+                            and str(_dpl).strip().lower() not in ("nan", "none", "n/a")):
+                        _dlog = {
+                            (int(_e["year"]), int(_e["week"])): float(_e.get("points") or 0.0)
+                            for _e in nfl_log_by_sid.get(str(_dpid), [])
+                            if _e.get("year") is not None and _e.get("week") is not None
+                        }
+                        _pts_lost = sum(_dlog.get(_yw, 0.0) for _yw in _syw)
+                    _nwk = len(_syw)
+                    _ts = add_drops_df.at[_i, "_tx_season"] if "_tx_season" in add_drops_df.columns else None
+                    _apos_p = add_drops_df.at[_i, "_added_pos"] if "_added_pos" in add_drops_df.columns else None
+                    _dpos_p = add_drops_df.at[_i, "_dropped_pos"] if "_dropped_pos" in add_drops_df.columns else None
+                    _adj_add = (round(_pts_add * _pos_factor(_ts, _apos_p), 4)
+                                if isinstance(_apos_p, str) and _apos_p else _pts_add)
+                    _adj_lost = (round(_pts_lost * _pos_factor(_ts, _dpos_p), 4)
+                                 if isinstance(_dpos_p, str) and _dpos_p else _pts_lost)
+                    add_drops_df.at[_i, "Points Added"] = round(_pts_add, 2)
+                    add_drops_df.at[_i, "Points Lost"] = round(_pts_lost, 2)
+                    add_drops_df.at[_i, "Net points"] = round(_pts_add - _pts_lost, 2)
+                    add_drops_df.at[_i, "Avg points added"] = round(_pts_add / _nwk, 2) if _nwk else 0.0
+                    add_drops_df.at[_i, "Avg points lost"] = round(_pts_lost / _nwk, 2) if _nwk else 0.0
+                    add_drops_df.at[_i, "Avg net points"] = round((_pts_add - _pts_lost) / _nwk, 2) if _nwk else 0.0
+                    add_drops_df.at[_i, "Avg points added adjusted by position"] = (
+                        round(_adj_add / _nwk, 2) if _nwk else 0.0)
+                    add_drops_df.at[_i, "Avg points lost adjusted by position"] = (
+                        round(_adj_lost / _nwk, 2) if _nwk else 0.0)
+                    add_drops_df.at[_i, "Avg net points adjusted by position"] = (
+                        round((_adj_add - _adj_lost) / _nwk, 2) if _nwk else 0.0)
+                except Exception as e:
+                    # Keep the first pass's values for this row; never abort
+                    # the recompute (and Player addition value) for the rest.
+                    _log_exc(debug, "add_drops_points_recompute", e)
                 if _adj_col in add_drops_df.columns:
                     _adj = pd.to_numeric(pd.Series([add_drops_df.at[_i, _adj_col]]), errors="coerce").iloc[0]
                     if pd.notna(_adj):
@@ -20818,8 +20920,8 @@ def build_all(repo_root: Path) -> None:
     #   1) most recent populated Net KTC value (2yr -> 1yr -> end-of-season ->
     #      deal time), with 0 filled in when the row has no populated net KTC
     #      at all (untracked dropped player)
-    #   2) Dropped avg points   (negated post-drop PPG; 0 = never played again)
-    #   3) Dropped total points (negated post-drop total over the same window)
+    #   2) Dropped avg points   (post-drop PPG, NEGATED here: lower = better drop)
+    #   3) Dropped total points (post-drop total over the same window, negated here)
     #   4) Player addition value (the composite already on the row)
     # No zero-to-bottom tie rule here: a 0 in the dropped-points columns is the
     # BEST outcome (the player never played again), not "no production".
@@ -20855,8 +20957,8 @@ def build_all(repo_root: Path) -> None:
                     _mr = _mr.where(_mr.notna(), _v)
                 _comps = [
                     _mr.fillna(0.0),
-                    pd.to_numeric(add_drops_df.get("Dropped avg points"), errors="coerce"),
-                    pd.to_numeric(add_drops_df.get("Dropped total points"), errors="coerce"),
+                    -pd.to_numeric(add_drops_df.get("Dropped avg points"), errors="coerce"),
+                    -pd.to_numeric(add_drops_df.get("Dropped total points"), errors="coerce"),
                     pd.to_numeric(add_drops_df.get("Player addition value"), errors="coerce"),
                 ]
                 _pcts = pd.concat(
