@@ -12790,18 +12790,24 @@ def build_all(repo_root: Path) -> None:
             # the difference is N/A rather than "0 minus the sent side"
             # (user, 2026-09-30). A received player rostered but never played
             # still reads 0 PPG (the on-team PPG rule) and does compare.
+            #
+            # The Trade addition value below still charges the sent side on those
+            # trades (received 0 − sent), exactly as before: a player sold for
+            # picks is a real cost, and only the DISPLAYED difference is N/A.
             diff_avg = None
-            if recv_on_team_avgs:
-                a = sum(recv_on_team_avgs) / len(recv_on_team_avgs)
+            if recv_on_team_avgs or drop_over_avgs:
+                a = (sum(recv_on_team_avgs) / len(recv_on_team_avgs)) if recv_on_team_avgs else 0.0
                 b = (sum(drop_over_avgs) / len(drop_over_avgs)) if drop_over_avgs else 0.0
                 diff_avg = round(a - b, 4)
-                row["Difference of averages"] = diff_avg
+                if recv_on_team_avgs:
+                    row["Difference of averages"] = diff_avg
             adj_diff = None
-            if recv_adj_on_team_avgs:
-                a_adj = sum(recv_adj_on_team_avgs) / len(recv_adj_on_team_avgs)
+            if recv_adj_on_team_avgs or drop_adj_avgs:
+                a_adj = (sum(recv_adj_on_team_avgs) / len(recv_adj_on_team_avgs)) if recv_adj_on_team_avgs else 0.0
                 b_adj = (sum(drop_adj_avgs) / len(drop_adj_avgs)) if drop_adj_avgs else 0.0
                 adj_diff = round(a_adj - b_adj, 4)
-                row["Difference of averages adjusted by position"] = adj_diff
+                if recv_adj_on_team_avgs:
+                    row["Difference of averages adjusted by position"] = adj_diff
 
             # ----- Trade addition value (V2, Item 7E) -----
             # Mirror the transaction "Player addition value" composite:
