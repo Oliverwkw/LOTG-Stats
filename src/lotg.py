@@ -109,6 +109,7 @@ if str(SUPPORT_ROOT) not in sys.path:
     sys.path.insert(0, str(SUPPORT_ROOT))
 
 from lotg_support.utils import HttpConfig, safe_div, clean_name, safe_bool
+from lotg_support import matchup
 from lotg_support.sleeper import SleeperClient
 from lotg_support.injury_tracker import (
     apply_overlay as _apply_injury_overlay,
@@ -1130,6 +1131,9 @@ _TOPIC_FILL = {
     "Value": "8EAADB", "Awards": "FFE699", "Streaks": "F4B183",
     "Roster": "D9C3E9", "Hardship & Luck": "FFC7CE", "Activity": "FFD966",
     "KTC": "9CD3DC", "Tenure": "C9E4CA", "Change": "F8CBAD",
+    # team_week's combined-matchup block (lotg_support.matchup): its own colour
+    # so the two-team section reads apart from the team's own stats.
+    "Combined": "C4BD97",
 }
 _FAMILY_TAB = {
     "player": "5B9BD5", "team": "70AD47", "league": "FFC000",
@@ -1163,6 +1167,10 @@ def _col_topic(col: str) -> str:
     n = re.sub(r"\s+", " ", str(col).strip().lower())
     if n in _TOPIC_IDENTITY or n.startswith("team's traded with"):
         return "Identity"
+    # One band for the whole combined-matchup block, whatever each column's
+    # base stat would otherwise be (points, roster counts, hardship, ...).
+    if matchup.base_column(col):
+        return "Combined"
     if n.startswith("change from") or n.startswith("change in"):
         return "Change"
     if "streak" in n:
@@ -1256,6 +1264,11 @@ def _col_number_format(col: str) -> Optional[str]:
     """Excel number format for a column (Phase 11E): uniform 2 decimals, NO
     thousands commas, on all value/stat/percent columns. Counts, streaks and
     Year/Week/Season stay whole numbers; text/date columns are left General."""
+    # A combined-matchup column is formatted like the per-team stat it combines
+    # ("Combined efficiency" as a percent, "Combined donuts" as a count).
+    _base = matchup.base_column(col)
+    if _base:
+        return _col_number_format(_base)
     n = re.sub(r"\s+", " ", str(col).strip().lower())
     # Identity / labels / dates / pick-number -> leave alone.
     if n in ("year", "week", "season", "number") or "date" in n:
@@ -3536,6 +3549,24 @@ def build_all(repo_root: Path) -> None:
                             return v
                     d[_scol] = d[_scol].map(_streak_cell).astype(object)
 
+                # team_week's combined-matchup columns hold a number in the
+                # winner's row and the text "winner" in the loser's, so
+                # read_csv types them as text too. Numbers back to numbers
+                # (so the column sorts); "winner" is linked to the winner's
+                # cell below, once the Opponent rows are indexed.
+                if sheet_name == "team_week":
+                    def _combined_cell(v: Any) -> Any:
+                        s = str(v).strip()
+                        if s in ("", "nan", "None", "N/A"):
+                            return None
+                        try:
+                            f = float(s)
+                            return int(f) if f == int(f) and "." not in s else f
+                        except Exception:
+                            return s
+                    for _ccol in [c for c in d.columns if matchup.base_column(c)]:
+                        d[_ccol] = d[_ccol].map(_combined_cell).astype(object)
+
                 # Phase 11B: the Formulas tab is a reference doc, not a data
                 # table — render it grouped into color-coded sections by the
                 # sheet each stat belongs to, with a styled header and wrapped
@@ -3866,6 +3897,21 @@ def build_all(repo_root: Path) -> None:
                                 _c = ws.cell(row=r, column=_oj)
                                 _c.hyperlink = f"#'team_week'!A{_row}"
                                 _c.font = _bluefont2
+                        # Combined-matchup "winner" cells -> the same column of
+                        # the winner's (= this row's opponent's) row.
+                        for _cn in [c for c in _hdr2 if matchup.base_column(c)]:
+                            _cj = _hcol(_cn)
+                            _cl = get_column_letter(_cj)
+                            for r in range(2, ws.max_row + 1):
+                                _c = ws.cell(row=r, column=_cj)
+                                if str(_c.value or "").strip() != matchup.WINNER_TEXT:
+                                    continue
+                                _row = _twrow.get((str(ws.cell(row=r, column=_oj).value or "").strip(),
+                                                   _yw(ws.cell(row=r, column=_yj).value),
+                                                   _yw(ws.cell(row=r, column=_wj).value)))
+                                if _row:
+                                    _c.hyperlink = f"#'team_week'!{_cl}{_row}"
+                                    _c.font = _bluefont2
                     # Trade counterparties -> the other team's row of the same trade.
                     if sheet_name == "trades" and "Date" in _hdr2:
                         _dj, _tj = _hcol("Date"), _hcol("Team")
