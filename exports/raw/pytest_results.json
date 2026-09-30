@@ -338,6 +338,11 @@
    "reason": ""
   },
   {
+   "test": "tests/test_digest.py::test_a_tie_with_own_last_week_is_not_reported",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
    "test": "tests/test_digest.py::test_digest_engine",
    "outcome": "passed",
    "reason": ""
@@ -539,6 +544,11 @@
   },
   {
    "test": "tests/test_draft_capital.py::test_unknown_rule_raises",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_dropped_points_sign.py::test_dropped_points_sign",
    "outcome": "passed",
    "reason": ""
   },
@@ -1558,6 +1568,11 @@
    "reason": ""
   },
   {
+   "test": "tests/test_points_added_consistency.py::test_points_added_consistency",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
    "test": "tests/test_position_factor.py::test_min_weeks_matches_the_email_gate",
    "outcome": "passed",
    "reason": ""
@@ -2289,6 +2304,11 @@
   },
   {
    "test": "tests/test_top_team_played_week.py::test_top_team_played_week",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_trade_sent_window.py::test_trade_sent_window",
    "outcome": "passed",
    "reason": ""
   },
