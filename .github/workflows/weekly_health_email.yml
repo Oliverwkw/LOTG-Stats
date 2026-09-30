@@ -75,6 +75,16 @@ jobs:
     steps:
       - name: Checkout repo
         uses: actions/checkout@v7
+        with:
+          # Full commit history, no file contents (blob:none keeps it cheap). The
+          # audit names the commits merged since the exports were built
+          # (`audit_weekly.code_changes_since`: git log <built_from_commit>..HEAD)
+          # and reports their movement as notes instead of breakages. The default
+          # depth-1 checkout has no such range, so git log failed, the list came
+          # back empty, and a PR merged between Tuesday's build and this run was
+          # flagged as a breakage (2026-09-30: #455's intended changes, 473 rows).
+          fetch-depth: 0
+          filter: blob:none
 
       - name: Setup Python
         uses: actions/setup-python@v6

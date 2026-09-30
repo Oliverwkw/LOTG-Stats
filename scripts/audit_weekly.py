@@ -1104,6 +1104,15 @@ def code_changes_since(commit: Optional[str]) -> List[Tuple[str, str]]:
             capture_output=True, text=True, timeout=15, cwd=str(_ROOT))
     except Exception:
         return []
+    if out.returncode != 0:
+        # The range does not exist in this checkout — a shallow clone, or a stamp
+        # from a commit that is not an ancestor. Nothing can be attributed, so
+        # the movement flags as before (the safe side), but say why: a silent []
+        # here is what turned #455's intended changes into "breakages".
+        print(f"::warning::[audit] cannot list commits since the exports were built "
+              f"({commit}..HEAD): {(out.stderr or '').strip().splitlines()[:1]} — "
+              f"code-change attribution is off for this run")
+        return []
     rows = []
     for line in (out.stdout or "").splitlines():
         line = line.strip()
