@@ -11,6 +11,9 @@ How each stat combines (`COMBINED_COLUMNS`):
   * "mean"  — the average of the two teams' own values (efficiency, boom/bust
               %): each team is judged against its OWN lineup, then averaged.
   * "bench" — combined Max PF − combined PF (points left on both benches).
+  * "per_started" — combined position points ÷ combined starters at that
+              position (pooled over the game's starters, so the count behind
+              the points is taken out; `POSITIONS` pairs the two columns).
 
 PF carries the league's +5 semifinal home-field bonus and so does everything
 built on it here (combined points, and — since Max PF does not carry it —
@@ -29,6 +32,17 @@ import pandas as pd
 
 WINNER_TEXT = "winner"
 
+# team_week's positional starter split: (position, points column, starters
+# column). Shared by the combined per-starter columns and the league sheets'
+# "Points per X started" (`points_per_started`).
+POSITIONS: Tuple[Tuple[str, str, str], ...] = (
+    ("QB", "Points from QBs", "Number of QB started"),
+    ("WR", "Points from WRs", "Number of WR started"),
+    ("RB", "Points from RBs", "Number of RB started"),
+    ("TE", "Points from TEs", "Number of TE started"),
+)
+_STARTERS_OF: Dict[str, str] = {pts: n for _p, pts, n in POSITIONS}
+
 # (column, team_week base column, how). Order is the sheet order.
 COMBINED_COLUMNS: Tuple[Tuple[str, str, str], ...] = (
     ("Combined points", "PF", "sum"),
@@ -39,6 +53,14 @@ COMBINED_COLUMNS: Tuple[Tuple[str, str, str], ...] = (
     ("Combined points from WRs", "Points from WRs", "sum"),
     ("Combined points from RBs", "Points from RBs", "sum"),
     ("Combined points from TEs", "Points from TEs", "sum"),
+    ("Combined QBs started", "Number of QB started", "sum"),
+    ("Combined WRs started", "Number of WR started", "sum"),
+    ("Combined RBs started", "Number of RB started", "sum"),
+    ("Combined TEs started", "Number of TE started", "sum"),
+    ("Combined points per QB started", "Points from QBs", "per_started"),
+    ("Combined points per WR started", "Points from WRs", "per_started"),
+    ("Combined points per RB started", "Points from RBs", "per_started"),
+    ("Combined points per TE started", "Points from TEs", "per_started"),
     ("Combined donuts (starters)", "Donuts (starters)", "sum"),
     ("Combined players under 10 pts (starters)", "Players under 10 pts (starters)", "sum"),
     ("Combined players over 20 pts (starters)", "Players over 20 pts (starters)", "sum"),
@@ -122,6 +144,12 @@ def combine(a: dict, b: dict, base: str, how: str) -> Optional[float]:
     x, y = _num(a.get(base)), _num(b.get(base))
     if x is None or y is None:
         return None
+    if how == "per_started":
+        n = _STARTERS_OF[base]
+        na, nb = _num(a.get(n)), _num(b.get(n))
+        if na is None or nb is None or na + nb <= 0:
+            return None
+        return (x + y) / (na + nb)
     return (x + y) / 2.0 if how == "mean" else x + y
 
 
@@ -166,3 +194,24 @@ def add_combined_columns(tw: pd.DataFrame) -> pd.DataFrame:
     for name in COMBINED_NAMES:
         out[name] = pd.Series(cols[name], index=out.index, dtype=object)
     return out
+
+
+def points_per_started(frame: pd.DataFrame) -> Dict[str, Optional[float]]:
+    """League "Points per X started" over a set of team_week rows (a week, a
+    season, all time): the position's total starter points ÷ its total
+    player-starts. Summed from the WEEKLY starts, not the league year / all-time
+    "Number of X started" columns, which count distinct players. None when the
+    position has no starts in the frame."""
+    out: Dict[str, Optional[float]] = {}
+    for pos, pts_col, n_col in POSITIONS:
+        name = f"Points per {pos} started"
+        if frame is None or frame.empty or pts_col not in frame.columns or n_col not in frame.columns:
+            out[name] = None
+            continue
+        pts = pd.to_numeric(frame[pts_col], errors="coerce").fillna(0.0).sum()
+        n = pd.to_numeric(frame[n_col], errors="coerce").fillna(0.0).sum()
+        out[name] = round(float(pts) / float(n), 4) if n > 0 else None
+    return out
+
+
+LEAGUE_PER_STARTED_COLUMNS: Tuple[str, ...] = tuple(f"Points per {p} started" for p, _a, _b in POSITIONS)

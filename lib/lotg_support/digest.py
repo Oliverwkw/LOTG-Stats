@@ -124,6 +124,8 @@ _RATE_MARKERS = (
     # 1st (6 -> 12.8 at week 8, vs an all-time high of 7). See F2 in
     # plan/AUDIT_PHASE14_3PART.md.
     "most number of",
+    # League "Points per QB started" and kin: points per player-start, a rate.
+    "points per ",
 )
 
 

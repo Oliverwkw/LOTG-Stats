@@ -25,11 +25,13 @@ from lotg_support import digest as D  # noqa: E402
 def _game(**over):
     a = {"Team": "A", "Opponent": "B", "Year": 2025, "Week": 3, "Win?": True,
          "PF": 150.0, "Max PF": 170.0, "Efficiency": 150 / 170,
-         "Points from QBs": 40.0, "Donuts (starters)": 1, "% of starters boom": 20.0,
+         "Points from QBs": 40.0, "Number of QB started": 2,
+         "Donuts (starters)": 1, "% of starters boom": 20.0,
          "Starter turnover from previous week": 2}
     b = {"Team": "B", "Opponent": "A", "Year": 2025, "Week": 3, "Win?": False,
          "PF": 120.0, "Max PF": 160.0, "Efficiency": 120 / 160,
-         "Points from QBs": 30.0, "Donuts (starters)": 0, "% of starters boom": 10.0,
+         "Points from QBs": 30.0, "Number of QB started": 1,
+         "Donuts (starters)": 0, "% of starters boom": 10.0,
          "Starter turnover from previous week": 1}
     a.update(over.get("a", {}))
     b.update(over.get("b", {}))
@@ -57,6 +59,32 @@ def test_efficiency_and_boom_average_each_teams_own_value():
     # Average of 0.8824 and 0.75, NOT 270/330 = 0.8182.
     assert abs(out.at["A", "Combined efficiency"] - round((150 / 170 + 120 / 160) / 2, 4)) < 1e-9
     assert out.at["A", "Combined % of starters boom"] == 15.0
+
+
+def test_starters_and_points_per_starter_are_pooled():
+    out = M.add_combined_columns(_game()).set_index("Team")
+    assert out.at["A", "Combined QBs started"] == 3
+    # (40 + 30) / (2 + 1), NOT the mean of 20 and 30.
+    assert abs(out.at["A", "Combined points per QB started"] - round(70 / 3, 4)) < 1e-9
+    assert out.at["B", "Combined points per QB started"] == M.WINNER_TEXT
+    # No starts at a position on either side: blank, not a division by zero.
+    z = M.add_combined_columns(_game(a={"Number of QB started": 0}, b={"Number of QB started": 0}))
+    assert z["Combined points per QB started"].isna().all()
+
+
+def test_league_points_per_started_divides_by_summed_starts():
+    f = pd.DataFrame({"Points from QBs": [40.0, 30.0, 50.0], "Number of QB started": [2, 1, 2],
+                      "Points from WRs": [0.0, 0.0, 0.0], "Number of WR started": [0, 0, 0]})
+    got = M.points_per_started(f)
+    assert got["Points per QB started"] == round(120 / 5, 4)
+    assert got["Points per WR started"] is None          # no starts
+    assert got["Points per RB started"] is None          # column absent
+    assert list(got) == list(M.LEAGUE_PER_STARTED_COLUMNS)
+
+
+def test_league_per_started_is_a_rate_in_the_digest():
+    # A yearly on-pace projection must not scale a per-start rate by weeks left.
+    assert D.is_rate_stat("Points per RB started")
 
 
 def test_winner_follows_win_flag_not_pf():

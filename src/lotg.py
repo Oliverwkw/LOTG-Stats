@@ -18992,6 +18992,8 @@ def build_all(repo_root: Path) -> None:
                 "Number of WR started": int(pd.to_numeric(g.get("Number of WR started"), errors="coerce").fillna(0.0).sum()),
                 "Number of RB started": int(pd.to_numeric(g.get("Number of RB started"), errors="coerce").fillna(0.0).sum()),
                 "Number of TE started": int(pd.to_numeric(g.get("Number of TE started"), errors="coerce").fillna(0.0).sum()),
+                # League-wide starter points per player-start at each position.
+                **matchup.points_per_started(g),
                 "Number of QB rostered": int(pd.to_numeric(g.get("Number of QB rostered"), errors="coerce").fillna(0.0).sum()),
                 "Number of WR rostered": int(pd.to_numeric(g.get("Number of WR rostered"), errors="coerce").fillna(0.0).sum()),
                 "Number of RB rostered": int(pd.to_numeric(g.get("Number of RB rostered"), errors="coerce").fillna(0.0).sum()),
@@ -19144,6 +19146,9 @@ def build_all(repo_root: Path) -> None:
                     for _pos in ["QB", "WR", "RB", "TE"]
                     for _kind in ["started", "rostered"]
                 },
+                # Per player-START over the season's team-weeks — the counts
+                # above are distinct players, so they are not the denominator.
+                **matchup.points_per_started(g),
                 # Season-scoped like the counts beside it (see team_year): a
                 # bid placed after the championship belongs to the next
                 # season's offseason, which team_week cannot hold.
@@ -19326,6 +19331,9 @@ def build_all(repo_root: Path) -> None:
                 for _pos in ["QB", "WR", "RB", "TE"]
                 for _kind in ["started", "rostered"]
             },
+            # Per player-START over every team-week (the counts above are
+            # distinct players, so they are not the denominator).
+            **matchup.points_per_started(g_week),
             # Rolled up from team_year, the same source team_all_time sums, so
             # the two all-time sheets cannot disagree. Summing team_week (what
             # this did before) dropped every move belonging to a season's
