@@ -476,7 +476,7 @@ Surfaced by an inquiry ("what % of Oliverwkw's points is Nick Chubb?"), full wri
 - [x] Turn on real sending — done via the `DIGEST_KEY` secret + encrypted credentials (not the `SMTP_USERNAME`/`SMTP_PASSWORD` route originally planned); confirmed by two successful test-email runs.
 
 **Weekly automated audit** — BUILT (#368), hardened by #369/#370: `.github/workflows/weekly_health_email.yml` mails a private dataset-health check to the maintainer every Wednesday 15:00 UTC (breakages + missed injury weeks), `workflow_dispatch` fallback. It runs a **full cold-cache rebuild** (no `actions/cache/restore`, i.e. the `force_refresh_cache` condition) and diffs that against the committed exports, so Part 1 asks "does a from-scratch rebuild still reproduce what we ship?". Observes only — caches aren't saved and `permissions: contents: read`.
-- [ ] **Confirm the first live Wednesday run** (never yet fired) — then tick this.
+- [x] **Confirm the first live Wednesday run** — confirmed: scheduled runs succeeded every Wednesday from 2026-09-02 on (09-02, 09-09, 09-16, 09-23).
 
 **Run 456 (2026-08-04) offseason email — investigated, no code fix needed.** The first year-round offseason digest reported two team crossings that no offseason event could have caused (`Number of donuts`, `Weeks of injuries` — both frozen historical facts). They are the one-off tail of the #381 live-status fix, not a digest bug:
 - The baseline it diffed against was captured 2026-07-28 off run 454's exports — the last build *before* #381. In that build Sleeper's live `injury_status` (a batch of late-July training-camp PUP/Out designations) was still stamping `Injury?` on completed-season zero-point weeks, which inflated `Weeks of injuries` and suppressed `Number of donuts` across the league.
@@ -701,7 +701,18 @@ all in the weekly email.
   the player_additions names carry "on team" so they read as forward-accruing.
 - [x] Guard: `tests/test_bench_health_columns.py` recomputes all eight from
   player_week (skips on pre-merge exports; fails on a partial set).
-- [ ] **3-part audit** (code / results / diff) on the first post-merge build.
+- [x] **3-part audit** (code / results / diff) on the first post-merge build —
+  **PASS** (2026-09-30): run 550 (merge `88f0df8`) vs baseline run 548. Diff: only
+  the 12 new columns + `Starts on team` removed + Formulas rows (Stat set: +8 new,
+  `Starts on team` gone, `Number of starts before next drop` sheet label widened,
+  Player addition value text renamed); 0 changed cells in any other column, row
+  counts unchanged, build-log error profile identical to baseline. Results: all
+  player_year / player_all_time values recompute exactly from player_week;
+  Freiermuth, Bryce Young, Thielen 2021 (start in an injury week) and 2020 rows
+  check out. Flagged, by design: `Healthy % of starts` = 0.0 (not N/A) on the 73
+  zero-healthy player-years and 249 pad rows, same as `% of starts`; run 550's
+  player_additions double-counted 10 multi-stint pairs, since fixed by #444/#445
+  (0 mismatches on current exports).
   Expected diff: the 12 new columns on the three sheets, `Starts on team` gone
   from player_additions, their Formulas rows, nothing else. The first Tuesday
   digest after merge will list the new player_year columns' on-pace standings
