@@ -2074,6 +2074,126 @@ def edit_fingerprint(tree_entries: Sequence[str]) -> Optional[str]:
     return hashlib.sha256("\n".join(sorted(parts)).encode()).hexdigest()[:16]
 
 
+# How far past a trade its sent side keeps being measured when no player came
+# back (lotg.py `_SENT_WINDOW_YEARS`): such a trade's row still moves on new
+# games until then, so it is not settled.
+_SENT_WINDOW_DAYS = 4 * 365
+
+
+def _blank(v) -> bool:
+    return v is None or (isinstance(v, float) and math.isnan(v)) or str(v).strip() in ("", "nan", "N/A")
+
+
+def closed_event_keys(frames: dict, today=None) -> set:
+    """Board keys of transaction/pick rows whose stint is OVER — the value they
+    rank on can no longer take in new games (user, 2026-09-30).
+
+    A 2020 pickup the team dropped years ago cannot be moved by this week's games
+    or by the same team's new trade; if its addition value moved, an edit did it.
+    Open rows are left out (they can still accrue):
+      * add_drops / player_additions — no "Date dropped/traded" yet;
+      * picks — the drafted player still on the drafting team (a player_additions
+        Draft row with no drop date), or the pick not yet made;
+      * trades — anything received still on the team ("Assets retained now"), or
+        no player came back and the sent side's window is still running.
+    Anything that can't be read stays open, so a doubt never moves a line to edits."""
+    import datetime as _dt
+    today = today or _dt.date.today()
+    closed: set = set()
+    pa = frames.get("player_additions")
+    open_drafts: set = set()
+    if pa is not None and not pa.empty and {"Player", "Team"} <= set(pa.columns):
+        for _i, r in pa.iterrows():
+            if str(r.get("Addition type", "")).lower().startswith("draft") \
+                    and _blank(r.get("Date dropped/traded")):
+                open_drafts.add((str(r.get("Player")), str(r.get("Team"))))
+    for sheet in ("add_drops", "player_additions"):
+        df = frames.get(sheet)
+        if df is None or df.empty or "Date dropped/traded" not in df.columns:
+            continue
+        for _i, r in df.iterrows():
+            if not _blank(r.get("Date dropped/traded")):
+                closed.add(_board_row_key(sheet, r))
+    for sheet in _PICK_SHEETS:
+        df = frames.get(sheet)
+        if df is None or df.empty or "Player Picked" not in df.columns:
+            continue
+        for _i, r in df.iterrows():
+            who = str(r.get("Player Picked") or "")
+            if _blank(who) or who == "Unknown":
+                continue
+            if (who, str(r.get("Team"))) not in open_drafts:
+                closed.add(_board_row_key(sheet, r))
+    tr = frames.get("trades")
+    if tr is not None and not tr.empty and "Assets retained now" in tr.columns:
+        for _i, r in tr.iterrows():
+            if not _blank(r.get("Assets retained now")):
+                continue
+            no_player_back = _blank(r.get("Avg PPG of received players on team"))
+            try:
+                d = _dt.date.fromisoformat(str(r.get("Date"))[:10])
+            except ValueError:
+                continue
+            if no_player_back and (today - d).days <= _SENT_WINDOW_DAYS:
+                continue
+            closed.add(_board_row_key("trades", r))
+    return closed
+
+
+# All-time sheet -> (week sheet, entity column). An all-time column whose value
+# is exactly the sum of that entity's week rows can only be moved by new data
+# through new week rows — so the new rows' own sum says whether they did.
+_ALLTIME_WEEKS = {"teams": ("team_all_time", "team_week", "Team"),
+                  "players": ("player_all_time", "player_week", "Player")}
+
+
+def alltime_week_contributions(frames: dict, new_weeks) -> Tuple[Dict[str, set], Dict[tuple, float]]:
+    """({section: additive columns}, {(section, entity, column): new-week sum}).
+
+    A column is additive when EVERY entity's all-time value equals the sum of its
+    week rows (to 0.011) — a count or total. Rates, skills and averages fail the
+    test and keep the old rule. The contribution is what the new weeks' rows add
+    to that column for that entity (user, 2026-09-30: "check whether this week's
+    new rows could produce a change that size")."""
+    additive: Dict[str, set] = {}
+    contrib: Dict[tuple, float] = {}
+    for section, (at_name, wk_name, key) in _ALLTIME_WEEKS.items():
+        at, wk = frames.get(at_name), frames.get(wk_name)
+        if at is None or wk is None or at.empty or wk.empty \
+                or key not in at.columns or key not in wk.columns:
+            continue
+        cols = [c for c in at.columns if c in wk.columns
+                and c not in (key, "Year", "Week", "Team", "Player")]
+        wnum = wk[cols].apply(pd.to_numeric, errors="coerce")
+        anum = at[cols].apply(pd.to_numeric, errors="coerce")
+        wsum = wnum.groupby(wk[key].astype(str)).sum(min_count=1)
+        aidx = anum.set_index(at[key].astype(str))
+        aidx = aidx[~aidx.index.duplicated(keep=False)]
+        common = aidx.index.intersection(wsum.index)
+        keep = set()
+        for c in cols:
+            a, w = aidx.loc[common, c], wsum.loc[common, c]
+            if a.notna().sum() == 0 or (a.fillna(0) == 0).all():
+                continue
+            if (a.isna() == w.isna()).all() and ((a - w).abs().fillna(0) <= 0.011).all():
+                keep.add(c)
+        additive[section] = keep
+        if not keep or not new_weeks:
+            continue
+        pairs = {(int(y), int(w_)) for y, w_ in new_weeks}
+        yrs = pd.to_numeric(wk.get("Year"), errors="coerce")
+        wks = pd.to_numeric(wk.get("Week"), errors="coerce")
+        sel = [(int(y), int(w_)) in pairs if pd.notna(y) and pd.notna(w_) else False
+               for y, w_ in zip(yrs, wks)]
+        new_rows = wnum.loc[sel, sorted(keep)]
+        nsum = new_rows.groupby(wk.loc[sel, key].astype(str)).sum(min_count=1)
+        for ent, r in nsum.iterrows():
+            for c, v in r.items():
+                if pd.notna(v) and v != 0:
+                    contrib[(section, ent, c)] = float(v)
+    return additive, contrib
+
+
 def new_data_since(prior: Optional[dict], meta: dict, frames: dict,
                    fingerprint: Optional[str] = None) -> Optional[NewData]:
     """What reached the league between the prior snapshot and this build — None
@@ -2131,10 +2251,19 @@ def new_data_since(prior: Optional[dict], meta: dict, frames: dict,
         last_weeks = {int(y): int(w) for y, w in _lw.groupby("y")["w"].max().items()}
     before = pmeta.get("inputs_fingerprint")
     edit_landed = (before != fingerprint) if (before and fingerprint) else None
+    try:
+        closed = closed_event_keys(frames)
+    except Exception:                      # noqa: BLE001 — a doubt stays "open"
+        closed = set()
+    try:
+        additive, contrib = alltime_week_contributions(frames, new_weeks)
+    except Exception:                      # noqa: BLE001 — fall back to the old rule
+        additive, contrib = {}, {}
     return NewData(season=season, weeks_completed=meta.get("weeks_completed"),
                    new_weeks=new_weeks, players=players, teams=teams,
                    edit_landed=edit_landed, tx_players=tx_players,
-                   tx_teams=tx_teams, last_weeks=last_weeks)
+                   tx_teams=tx_teams, last_weeks=last_weeks,
+                   closed_keys=closed, additive=additive, contrib=contrib)
 
 
 def all_row_keys(frames: dict) -> List[str]:
