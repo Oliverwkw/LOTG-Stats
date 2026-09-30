@@ -428,6 +428,26 @@
    "reason": ""
   },
   {
+   "test": "tests/test_digest_attribution_refine.py::test_closed_event_keys",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_digest_attribution_refine.py::test_closed_old_move_is_an_edit_even_when_its_team_moved",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_digest_attribution_refine.py::test_alltime_sum_needs_new_rows_behind_it",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_digest_attribution_refine.py::test_additivity_detection",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
    "test": "tests/test_digest_missed_week.py::test_the_ordinary_week_is_untouched",
    "outcome": "passed",
    "reason": ""
@@ -1398,6 +1418,21 @@
    "reason": ""
   },
   {
+   "test": "tests/test_ktc_prefetch.py::test_prefetch_fetches_only_stale_and_writes_same_files",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_ktc_prefetch.py::test_prefetch_runs_concurrently",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_ktc_prefetch.py::test_failed_fetch_keeps_cached_copy",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
    "test": "tests/test_late_listing.py::test_a_wednesday_waiver_pickup_comes_off_the_week_just_ended",
    "outcome": "passed",
    "reason": ""
@@ -1519,6 +1554,16 @@
   },
   {
    "test": "tests/test_no_binary_blobs_committed.py::test_no_tracked_file_is_pathologically_large",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_no_public_emails.py::test_no_personal_email_addresses_are_committed",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_no_public_emails.py::test_digest_yaml_recipient_lists_are_empty",
    "outcome": "passed",
    "reason": ""
   },
@@ -2009,6 +2054,11 @@
   },
   {
    "test": "tests/test_schedule_watch.py::test_incomplete_injury_weeks_reach_the_email",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_schedule_watch.py::test_a_rostered_player_missing_from_the_tracker_is_a_finding",
    "outcome": "passed",
    "reason": ""
   },
