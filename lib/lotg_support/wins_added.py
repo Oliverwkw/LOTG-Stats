@@ -56,8 +56,11 @@ A player entering the lineup who was not started by ANY team that week (a
 bench player, or an arrival who sat on someone's bench or on waivers) counts
 for at most 1.5 x his average over his previous 3 NFL games
 (`CAP_MULTIPLIER`, `CAP_GAMES`), so a bench boom nobody would have started
-does not swing a counterfactual. With no prior game on record he counts in
-full (`Report.uncapped` lists every such player-week).
+does not swing a counterfactual. Every substitution must also be plausible:
+the incoming player's 3-game average at least the outgoing one's minus 5
+(`PLAUSIBLE_MARGIN`). A player with fewer than 3 prior NFL games (a rookie's
+first three) is never moved into a counterfactual lineup, but may be moved out
+of one (`Report.unproven_blocked` lists the blocked entries).
 
 DATA
 ----
@@ -94,6 +97,10 @@ from lotg_support.replay import is_legal
 COLUMN = "Wins added"
 CAP_MULTIPLIER = 1.5
 CAP_GAMES = 3
+# A counterfactual substitution must be one the manager could reasonably have
+# made: the incoming player's last-3-game average at least the outgoing
+# player's minus this many points (`cf_lineup_points`).
+PLAUSIBLE_MARGIN = 5.0
 # Lineage returns with a share strictly between 0 and 1 that STARTED in a week
 # are enumerated exactly; past this many (never seen in this league's data) the
 # rest are rounded to removed/kept at 50%.
@@ -187,16 +194,22 @@ class League:
                 return hist[1][i]
         return 0.0
 
-    def cap(self, pid: str, key: WeekKey) -> Optional[float]:
-        """1.5 x the player's average over his previous 3 NFL games, or None."""
+    def recent_avg(self, pid: str, key: WeekKey) -> Optional[float]:
+        """The player's average over his previous 3 played NFL games — None
+        until he has played 3 (a rookie's first 3 games: unproven)."""
         hist = self._nfl.get(pid)
         if not hist:
             return None
         i = bisect.bisect_left(hist[0], key)
-        prior = hist[1][max(0, i - CAP_GAMES):i]
-        if not prior:
+        if i < CAP_GAMES:
             return None
-        return CAP_MULTIPLIER * sum(prior) / len(prior)
+        prior = hist[1][i - CAP_GAMES:i]
+        return sum(prior) / len(prior)
+
+    def cap(self, pid: str, key: WeekKey) -> Optional[float]:
+        """1.5 x the player's average over his previous 3 NFL games, or None."""
+        avg = self.recent_avg(pid, key)
+        return None if avg is None else CAP_MULTIPLIER * avg
 
     def team_week(self, key: WeekKey, team: str) -> Optional[TeamWeek]:
         return self.weeks.get(key, {}).get(team)
@@ -708,7 +721,7 @@ def lineage(move: Move, later: Sequence[Move], value_fn: Optional[ValueFn]) -> L
 class Report:
     rows: int = 0
     unresolved_names: List[str] = field(default_factory=list)
-    uncapped: Set[Tuple[str, WeekKey]] = field(default_factory=set)
+    unproven_blocked: Set[Tuple[str, WeekKey]] = field(default_factory=set)
     optimised_weeks: int = 0
     illegal_real_lineups: List[Tuple[WeekKey, str]] = field(default_factory=list)
     share_fallbacks: int = 0
@@ -730,17 +743,22 @@ def cf_lineup_points(league: League, key: WeekKey, tw: TeamWeek, out: Set[str],
         pts = league.points(p, key)
         if p in started:
             return pts
-        cap = league.cap(p, key)
-        if cap is None:
-            if report is not None and pts > 0:
-                report.uncapped.add((p, key))
-            return pts
-        return min(pts, cap)
+        return min(pts, league.cap(p, key))
+
+    def proven(p: str) -> bool:
+        """Unproven players (fewer than 3 prior NFL games — a rookie's first
+        three) are never moved INTO a counterfactual lineup [per user]; they
+        can still be moved out of one."""
+        if league.recent_avg(p, key) is not None:
+            return True
+        if report is not None and league.points(p, key) > 0:
+            report.unproven_blocked.add((p, key))
+        return False
 
     # An arrival already on the real roster adds nothing — unless the
-    # counterfactual is removing that real copy (a given-up player the team
-    # later re-acquired counts as a different player).
-    arr = [a for a in dict.fromkeys(arrivals) if (a not in tw.players or a in out) and a not in kept]
+    # counterfactual is removing that real copy.
+    arr = [a for a in dict.fromkeys(arrivals)
+           if (a not in tw.players or a in out) and a not in kept and proven(a)]
     for a in arr:
         val[a] = entry_value(a)
     arr = [a for a in arr if val[a] > 0]
@@ -748,7 +766,7 @@ def cf_lineup_points(league: League, key: WeekKey, tw: TeamWeek, out: Set[str],
     if holes:
         by_pos: Dict[str, List[str]] = defaultdict(list)
         for p in tw.players:
-            if p in tw.starters or p in out:
+            if p in tw.starters or p in out or not proven(p):
                 continue
             v = entry_value(p)
             if v > 0:
@@ -756,6 +774,42 @@ def cf_lineup_points(league: League, key: WeekKey, tw: TeamWeek, out: Set[str],
                 by_pos[league.positions.get(p, "")].append(p)
         for group in by_pos.values():
             bench.extend(sorted(group, key=lambda p: -val[p])[:BENCH_SHORTLIST_PER_POSITION])
+    # Plausibility [per user]: a substitution counts only if the manager could
+    # reasonably have made it — the incoming player's last-3-game average is
+    # at least the outgoing one's minus PLAUSIBLE_MARGIN. A displacement is
+    # judged against the starter displaced; a forced fill (the slot of a
+    # starter the counterfactual removed) against the best-averaging player
+    # who could legally fill it. A real empty slot takes anyone proven. An
+    # unproven starter (no 3-game average) may be displaced by anyone proven.
+    def avg(p: str) -> Optional[float]:
+        return league.recent_avg(p, key)
+
+    def plausible(p: str, ref: Optional[float]) -> bool:
+        a = avg(p)
+        return a is None or ref is None or a >= ref - PLAUSIBLE_MARGIN
+
+    empty = n - len(tw.starters)
+    fill_ref: Optional[float] = None
+    if holes:
+        pads = n - len(kept) - 1
+        fillers = [p for p in list(arr) + [b for b in tw.players if b not in tw.starters and b not in out]
+                   if avg(p) is not None and is_legal(kept + [p] + [EMPTY] * pads, elig, slots)]
+        known = [avg(p) for p in fillers if avg(p) is not None]
+        fill_ref = max(known) if known else None
+        bench = [b for b in bench if plausible(b, fill_ref)]
+
+    def passes(a_sub: Tuple[str, ...], kb: int, drop: Tuple[str, ...]) -> bool:
+        for movers in itertools.permutations(a_sub, len(drop)):
+            if not all(plausible(a, avg(k)) for a, k in zip(movers, drop)):
+                continue
+            rest = [a for a in a_sub if a not in movers]
+            open_holes = holes - kb
+            failing = sum(1 for a in rest if not plausible(a, fill_ref))
+            # Arrivals that fail the fill test may only take a real empty slot.
+            if failing <= empty and len(rest) <= open_holes + empty:
+                return True
+        return False
+
     base = sum(val[p] for p in kept)
     if not arr and not bench:
         return round(base, 2)
@@ -778,6 +832,8 @@ def cf_lineup_points(league: League, key: WeekKey, tw: TeamWeek, out: Set[str],
                                 continue
                             lineup = [k for k in kept if k not in drop] + list(add)
                             if len(lineup) > n:
+                                continue
+                            if not passes(a_sub, kb, drop):
                                 continue
                             if is_legal(lineup + [EMPTY] * (n - len(lineup)), elig, slots):
                                 best = score

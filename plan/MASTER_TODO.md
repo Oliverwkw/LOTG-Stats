@@ -939,7 +939,11 @@ Rules [per user, 2026-10-01]:
   open slots no arrival fills go to the best eligible bench player (bench never
   displaces), players move between slots to keep it legal. A player started by
   nobody that week counts for at most 1.5 × his average over his previous 3 NFL
-  games. The opponent's lineup changes only if its roster does.
+  games. Every substitution must be plausible [per user, 2026-10-01]: the
+  incoming player's last-3-game average >= the outgoing player's − 5 (a forced
+  fill vs the best-averaging legal filler). A player with fewer than 3 prior
+  NFL games (a rookie's first three) never moves in, but can be moved out.
+  The opponent's lineup changes only if its roster does.
 - 2020 included (ESPN backfill via `espn_2020.emit_sleeper_2020`).
 
 - [x] `lib/lotg_support/wins_added.py` (+ `explain()` for tracing a row week by
@@ -966,7 +970,12 @@ Rules [per user, 2026-10-01]:
   lineup on prior form and scoring it on actual points gives trades +101
   (154 positive / 113 negative) and, with both stops, add_drops +4; the
   by-season slide (2020 trades −4.5 → 2025 −0.2) disappears. The two stops
-  are adopted; the prior-form decision is pending the user's call.
+  are adopted. Instead of deciding lineups on prior form, the user chose the
+  plausibility test + unproven-rookie rule above (scoring stays on actual
+  points): trades −179 (134 positive / 155 negative), add_drops −20 (78 / 89),
+  562 rookie entries blocked; Spearman vs Trade impact score +0.38, vs
+  Player addition value +0.25. A mild lean remains on old trades (2020 mean
+  −1.06, 2025 0.00).
   Old moves swinging more games than new ones is intended [per user] — no
   per-season normalisation.
 - [ ] **3-part audit** on the first post-merge build. Expected diff: `Wins added`

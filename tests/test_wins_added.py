@@ -6,6 +6,9 @@ The synthetic cases pin each part of the rule in `lotg_support.wins_added`:
     between slots to fit him (an RB leaves the RB slot for the flex so a WR can
     come in); a bench player only fills a slot a departed starter left open;
     nobody started anywhere counts for at most 1.5 x his last-3-game average;
+    every substitution must be plausible (incoming 3-game average >= outgoing
+    minus 5); a player with fewer than 3 prior games never moves in but can
+    be moved out;
   * the per-week result flip against the real opponent, ±1;
   * the opponent losing a given-up player he started (and the mirror row);
   * lineage through a later trade at its KTC share, read as a probability;
@@ -51,14 +54,19 @@ def _tw(team, starters, bench, pts, opp):
                       pf=pf, offset=0.0, opponent=opp)
 
 
-def _league(weeks, pts_by_week, nfl=None):
+def _league(weeks, pts_by_week, nfl=None, unproven=()):
     """weeks: {key: [(team, starters, bench, opp)]}; pts_by_week: {key: {pid: pts}}."""
     built = {k: {t: _tw(t, s, b, pts_by_week[k], o) for t, s, b, o in rows} for k, rows in weeks.items()}
     elig = {SEASON: {p: frozenset({pos}) for p, pos in POS.items()}}
     days = {k: f"{k[0]}-10-{k[1]:02d}" for k in weeks}
     rostered = {k: {p: v for p, v in pts_by_week[k].items()
                     if any(p in tw.players for tw in built[k].values())} for k in weeks}
-    nfl = dict(nfl or {})
+    nfl = {p: dict(g) for p, g in (nfl or {}).items()}
+    for p in POS:                               # a proven 10-a-game history unless given one
+        if p not in nfl:
+            nfl[p] = {(SEASON - 1, 15): 10.0, (SEASON - 1, 16): 10.0, (SEASON - 1, 17): 10.0}
+    for p in unproven:
+        nfl.pop(p, None)
     for k, pts in pts_by_week.items():          # unrostered players score from "nflverse"
         for p, v in pts.items():
             if p not in rostered[k]:
@@ -98,6 +106,38 @@ def test_arrival_cap_depends_on_whether_anyone_started_him():
     # Started by another team that week: full points.
     lg = _league({K1: [("A", ["r1", "w1", "r2"], [], None), ("C", ["c1", "c2", "w3"], [], None)]}, {K1: pts}, hist)
     assert W.cf_lineup_points(lg, K1, lg.team_week(K1, "A"), set(), ["w3"]) == 47.0
+
+
+def test_implausible_substitution_is_not_made():
+    # w3 scored 30 but averages 3; the weakest starter he could replace (r1)
+    # averages 15. Nobody would have started him over r1: no change.
+    hist = {"w3": {(SEASON - 1, 15): 3.0, (SEASON - 1, 16): 3.0, (SEASON - 1, 17): 3.0},
+            "r1": {(SEASON - 1, 15): 15.0, (SEASON - 1, 16): 15.0, (SEASON - 1, 17): 15.0},
+            "w1": {(SEASON - 1, 15): 15.0, (SEASON - 1, 16): 15.0, (SEASON - 1, 17): 15.0},
+            "r2": {(SEASON - 1, 15): 15.0, (SEASON - 1, 16): 15.0, (SEASON - 1, 17): 15.0}}
+    pts = {"r1": 5, "w1": 10, "r2": 12, "w3": 30, "c1": 1, "c2": 1, "c3": 1}
+    weeks = {K1: [("A", ["r1", "w1", "r2"], [], None), ("C", ["c1", "c2", "w3"], [], None)]}
+    lg = _league(weeks, {K1: pts}, hist)
+    assert W.cf_lineup_points(lg, K1, lg.team_week(K1, "A"), set(), ["w3"]) == 27.0
+    # Averaging 11 (within 5 of 15) he is a reasonable start: in for r1.
+    hist["w3"] = {(SEASON - 1, 15): 11.0, (SEASON - 1, 16): 11.0, (SEASON - 1, 17): 11.0}
+    lg = _league(weeks, {K1: pts}, hist)
+    assert W.cf_lineup_points(lg, K1, lg.team_week(K1, "A"), set(), ["w3"]) == 52.0
+
+
+def test_unproven_players_never_move_in_but_can_move_out():
+    pts = {"r1": 5, "w1": 10, "r2": 12, "w2": 20, "b1": 9, "c1": 1, "c2": 1, "c3": 1}
+    weeks = {K1: [("A", ["r1", "w1", "r2"], ["b1"], None), ("C", ["c1", "c2", "w2"], [], None)]}
+    # A rookie arrival (fewer than 3 prior games) is never inserted...
+    lg = _league(weeks, {K1: pts}, unproven=["w2"])
+    tw = lg.team_week(K1, "A")
+    assert W.cf_lineup_points(lg, K1, tw, set(), ["w2"]) == 27.0
+    # ...nor used as a forced fill: r2's slot stays empty without a proven filler.
+    lg = _league(weeks, {K1: pts}, unproven=["b1"])
+    assert W.cf_lineup_points(lg, K1, lg.team_week(K1, "A"), {"r2"}, []) == 15.0
+    # A rookie STARTER can be displaced by any proven arrival.
+    lg = _league(weeks, {K1: pts}, unproven=["r1"])
+    assert W.cf_lineup_points(lg, K1, lg.team_week(K1, "A"), set(), ["w2"]) == 42.0
 
 
 def _move(team, day, received=(), sent=(), kind="trade", senders=None, stamp=None):

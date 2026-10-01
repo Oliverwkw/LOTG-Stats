@@ -21978,7 +21978,7 @@ def build_all(repo_root: Path) -> None:
         add_drops_df[_wa.COLUMN] = _wa_ad
         _log(debug, f"[{_now_iso()}] INFO wins added: {_wa_report.rows} rows over "
                     f"{len(_wa_league.order)} weeks; {_wa_report.optimised_weeks} lineups searched; "
-                    f"{len(_wa_report.uncapped)} uncapped entries (no prior game); "
+                    f"{len(_wa_report.unproven_blocked)} entries blocked as unproven (<3 prior games); "
                     f"{len(_wa_bad)} guard warnings; unresolved names: {_wa_report.unresolved_names}")
     except Exception as e:
         _log_exc(debug, "wins_added", e)
