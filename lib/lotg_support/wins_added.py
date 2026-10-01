@@ -1,6 +1,8 @@
 """Wins added: how many games a trade or an add/drop actually swung.
 
-One number per row of `trades` and `add_drops` (the column is `Wins added`).
+Two columns on every row of `trades` and `add_drops`: `Wins added` (the total)
+and `Wins added per season` (the same, as a rate: × 17 / games the team has
+played since the move — one loss the week after a drop reads −17).
 
 THE RULE
 --------
@@ -95,6 +97,8 @@ from lotg_support import inquiry as Q
 from lotg_support.replay import is_legal
 
 COLUMN = "Wins added"
+RATE_COLUMN = "Wins added per season"
+SEASON_GAMES = 17          # "per season" = per 17 games, every year (2020 had 16)
 CAP_MULTIPLIER = 1.5
 CAP_GAMES = 3
 # A counterfactual substitution must be one the manager could reasonably have
@@ -1055,11 +1059,28 @@ def later_moves(moves: Sequence[Move]) -> Dict[int, List[Move]]:
     return {id(mv): [m for m in by_team[mv.team] if m.stamp > mv.stamp] for mv in moves}
 
 
+def games_elapsed(move: Move, league: League, through: Optional[WeekKey] = None) -> int:
+    """Games the team has played from the move's first week through the latest
+    (the 2026+ two-week final is one game) — the per-season rate's denominator."""
+    eff = league.week_of(move.day)
+    if eff is None:
+        return 0
+    keys = [k for k in league.keys_from(eff) if through is None or k <= through]
+    return len(games_for(league, move.team, keys))
+
+
+def per_season(wins: float, games: int) -> Optional[float]:
+    """Wins added as a rate: per `SEASON_GAMES` games since the move (N/A before
+    the first game). A loss the week after a drop reads −17 after one game."""
+    return round(float(wins) * SEASON_GAMES / int(games), 2) if games else None
+
+
 def compute(trades: pd.DataFrame, add_drops: pd.DataFrame, league: League,
             picks: Sequence[pd.DataFrame], value_fn: Optional[ValueFn] = None,
             report: Optional[Report] = None,
-            only: Optional[Set[Tuple[str, Any]]] = None) -> Tuple[pd.Series, pd.Series]:
-    """`Wins added` for every row of `trades` and `add_drops` (aligned Series).
+            only: Optional[Set[Tuple[str, Any]]] = None) -> Tuple[pd.DataFrame, pd.DataFrame]:
+    """`Wins added` and `Wins added per season` for every row of `trades` and
+    `add_drops`, as two frames aligned to the inputs' index.
 
     `only` = {(sheet, index)} evaluates just those rows (the rest stay NaN);
     every row is still read, because a row's lineage runs through the others."""
@@ -1067,15 +1088,20 @@ def compute(trades: pd.DataFrame, add_drops: pd.DataFrame, league: League,
     resolver = Resolver(league)
     moves = moves_from_sheets(trades, add_drops, league, picks, resolver)
     later = later_moves(moves)
-    out = {"trades": {}, "add_drops": {}}
+    out: Dict[str, Dict[str, Dict[Any, Optional[float]]]] = {
+        "trades": {COLUMN: {}, RATE_COLUMN: {}}, "add_drops": {COLUMN: {}, RATE_COLUMN: {}}}
     for mv in moves:
         if only is not None and (mv.sheet, mv.index) not in only:
             continue
-        out[mv.sheet][mv.index] = round(wins_added_for(mv, later[id(mv)], league, value_fn, report), 2)
+        wins = round(wins_added_for(mv, later[id(mv)], league, value_fn, report), 2)
+        out[mv.sheet][COLUMN][mv.index] = wins
+        out[mv.sheet][RATE_COLUMN][mv.index] = per_season(wins, games_elapsed(mv, league))
         report.rows += 1
     report.unresolved_names = sorted(set(resolver.unresolved))
-    return (pd.Series(out["trades"], dtype=float).reindex(trades.index),
-            pd.Series(out["add_drops"], dtype=float).reindex(add_drops.index))
+
+    def frame(sheet: str, index: pd.Index) -> pd.DataFrame:
+        return pd.DataFrame({c: pd.Series(v, dtype=float).reindex(index) for c, v in out[sheet].items()})
+    return frame("trades", trades.index), frame("add_drops", add_drops.index)
 
 
 # ---------------------------------------------------------------------------
@@ -1164,6 +1190,7 @@ def compute_from_exports(report: Optional[Report] = None) -> Tuple[pd.DataFrame,
     league = load_league(Q.load_sheet("team_week"), nflverse_points_from_cache())
     picks = [Q.load_sheet("rookie_picks"), Q.load_sheet("non_rookie_picks")]
     t, a = compute(trades, add_drops, league, picks, local_value_fn(), report)
-    trades[COLUMN] = t
-    add_drops[COLUMN] = a
+    for col in (COLUMN, RATE_COLUMN):
+        trades[col] = t[col]
+        add_drops[col] = a[col]
     return trades, add_drops

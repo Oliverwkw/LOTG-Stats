@@ -248,6 +248,26 @@ def test_reacquiring_a_player_ends_the_earlier_moves_count():
     assert W.wins_added_for(m3, [], lg) == -1.0
 
 
+def test_per_season_rate_is_wins_times_17_over_games_since_the_move():
+    assert W.per_season(-1.0, 1) == -17.0, "a loss the week after the move reads -17"
+    assert W.per_season(-1.0, 2) == -8.5
+    assert W.per_season(3.0, 51) == 1.0
+    assert W.per_season(0.0, 0) is None, "N/A before the move's first game"
+    lg = _league(_weeks(4, ["r1", "w1", "r2"]),
+                 {k: {"r1": 5, "w1": 10, "r2": 12, "o1": 1, "o2": 1, "o3": 1} for k in _weeks(4, [])})
+    assert W.games_elapsed(_move("A", f"{SEASON}-10-02"), lg) == 3   # weeks 2-4
+
+
+def test_the_rate_waits_five_weeks_on_the_email_boards():
+    # The weekly email keeps a move off a RATE board until 5 NFL weeks have
+    # been played since it (digest.BoardGate, EVENT_MIN_WEEKS) — the same hold
+    # every other rate on the move sheets gets. Wins added itself is a count.
+    from lotg_support import digest as D
+    assert D.is_rate_stat(W.RATE_COLUMN) and not D.is_counting_stat(W.RATE_COLUMN)
+    assert D.is_counting_stat(W.COLUMN)
+    assert D.EVENT_MIN_WEEKS == 5
+
+
 # ---------------------------------------------------------------------------
 # Data guards
 # ---------------------------------------------------------------------------
@@ -305,6 +325,18 @@ def test_sample_recomputes_to_the_exported_column():
     assert len(picked) >= 12, f"only {len(picked)} rows qualified for the recompute"
     bad = [p for p in picked if abs(p[2] - p[3]) > 0.011]
     assert not bad, f"recompute disagrees with the export (sheet, row, recomputed, exported): {bad}"
+    # The rate is the total × 17 / games since the move, on every row.
+    for sheet, df in frames.items():
+        mv_of = {mv.index: mv for mv in moves if mv.sheet == sheet}
+        if W.RATE_COLUMN not in df.columns:
+            continue
+        rate = pd.to_numeric(df[W.RATE_COLUMN], errors="coerce")
+        tot = pd.to_numeric(df[W.COLUMN], errors="coerce")
+        def _ok(i):
+            want = W.per_season(tot[i], W.games_elapsed(mv_of[i], lg))
+            return pd.isna(rate[i]) if want is None else abs(want - rate[i]) <= 0.011
+        off = [i for i in df.index if not _ok(i)]
+        assert not off, f"{sheet}: {len(off)} rows whose rate is not Wins added x 17 / games: {off[:5]}"
     print(f"  {len(picked)} rows recompute exactly")
 
 

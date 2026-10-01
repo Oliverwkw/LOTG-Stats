@@ -946,6 +946,16 @@ Rules [per user, 2026-10-01]:
   The opponent's lineup changes only if its roster does.
 - 2020 included (ESPN backfill via `espn_2020.emit_sleeper_2020`).
 
+- [x] **`Wins added per season`** [per user, 2026-10-01] beside it on both
+  sheets: Wins added × 17 / games the team has played since the move (the
+  2026+ two-week final is one game; 17 for every year). A loss the week after a
+  drop reads −17. N/A before the move's first game. A rate, so the weekly email
+  holds a move off its boards until 5 weeks after it (`digest.BoardGate`,
+  `EVENT_MIN_WEEKS`) like every other rate on the move sheets — no digest
+  change needed; the test pins the classification. Chosen over "live games"
+  (weeks something from the move was still in play) as the denominator: most
+  drops are live ~4 weeks, so one flip read ±17 / ±8.5 and the board filled with
+  2020 one-week flukes.
 - [x] `lib/lotg_support/wins_added.py` (+ `explain()` for tracing a row week by
   week), the build hook at the end of `build_all` (before the KTC provenance
   dump), Plan CSV + `stats_catalog.json` + Formulas + schema pin + phrasing rows.
@@ -979,7 +989,8 @@ Rules [per user, 2026-10-01]:
   Old moves swinging more games than new ones is intended [per user] — no
   per-season normalisation.
 - [ ] **3-part audit** on the first post-merge build. Expected diff: `Wins added`
-  on trades + add_drops, its Formulas row, nothing else (ktc_provenance.csv may
+  and `Wins added per season` on trades + add_drops, their Formulas rows,
+  nothing else (ktc_provenance.csv may
   gain rows for trade-day lookups not already made). Results cases (run-597
   local recompute): stevenb123's McBride row = +6 (2023 wk 15, 2024 wk 5, 6,
   12, wk 17 final vs shmuel256, 2025 wk 7); plehv79's mirror row includes −1 at

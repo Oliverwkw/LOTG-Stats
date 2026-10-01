@@ -21948,7 +21948,8 @@ def build_all(repo_root: Path) -> None:
     # making the move have changed the result against the real opponent? +1 per
     # loss the move turned into a win, −1 per win it turned into a loss. Given-up
     # assets count forever; received ones while held, following the team's later
-    # trades at their KTC share. The whole rule (and the lineup rule) lives in
+    # trades at their KTC share. `Wins added per season` is the same total as a
+    # rate (× 17 / games played since the move). The whole rule lives in
     # lotg_support.wins_added, which reads the moves from these same two frames
     # so a local recompute from the CSVs goes through the identical code path.
     # Runs here, after every pass that edits trades / add_drops / team_week / the
@@ -21974,8 +21975,9 @@ def build_all(repo_root: Path) -> None:
         for _msg in _wa_bad[:20]:
             _log(debug, f"[{_now_iso()}] WARN wins added: {_msg}")
         _wa_tr, _wa_ad = _wa.compute(tr, add_drops_df, _wa_league, [ph], _wa_value, _wa_report)
-        tr[_wa.COLUMN] = _wa_tr
-        add_drops_df[_wa.COLUMN] = _wa_ad
+        for _wa_col in (_wa.COLUMN, _wa.RATE_COLUMN):
+            tr[_wa_col] = _wa_tr[_wa_col]
+            add_drops_df[_wa_col] = _wa_ad[_wa_col]
         _log(debug, f"[{_now_iso()}] INFO wins added: {_wa_report.rows} rows over "
                     f"{len(_wa_league.order)} weeks; {_wa_report.optimised_weeks} lineups searched; "
                     f"{len(_wa_report.unproven_blocked)} entries blocked as unproven (<3 prior games); "
