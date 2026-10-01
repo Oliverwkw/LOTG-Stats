@@ -1017,6 +1017,17 @@ Rules [per user, 2026-10-01]:
   Formulas rows + 1 edited; everything else is wall-clock tenure or the daily
   KTC "years later" roll (and the O-Score / skill columns reading it). No row
   added or removed.
+- [ ] **Fix: forced fills with two+ open slots** (found 2026-10-01 while porting
+  the rule to `whatif.py`'s plausible model). `cf_lineup_points` judged EVERY
+  forced fill against the single best-averaging legal filler, so with two
+  starters removed the second slot usually stayed empty — 2025 wk 14, Lamar +
+  Godwin out of shmuel256, every WR measured against Herbert's QB average.
+  Now the bar is the h-th best filler (h = open slots). Impact on run 604's
+  data (build bridge + KTC replayed from provenance): trades 138 / 566 rows
+  move (135 down, 3 up; sum −183 → −283), add_drops 32 / 1,610 (all down;
+  −14 → −21) — the empty slot had been crediting multi-starter returns (LWebs53
+  2020 startup swap +9.67 → +3.49; shmuel256 2023 Kamara trade +4 → −1). Unit
+  test pins the two-hole case. 3-part audit vs run 604 after merge.
 - [ ] **Follow-up PR: Trade impact score's WIN IMPACT uses the Wins added
   "would he have played" test** [per user, 2026-10-01 — keep the two metrics
   clearly different; do NOT substitute Wins added into the score]. Today the

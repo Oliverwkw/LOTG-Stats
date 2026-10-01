@@ -140,6 +140,17 @@ def test_unproven_players_never_move_in_but_can_move_out():
     assert W.cf_lineup_points(lg, K1, lg.team_week(K1, "A"), set(), ["w2"]) == 42.0
 
 
+def test_two_open_slots_are_judged_against_the_two_best_options():
+    # r2 (RB, flex) and w1 (WR) both leave. Fillers: b1 (RB, avg 18) and b2
+    # (WR, avg 9). Judged against the single best (18) b2 fails and the WR
+    # slot stays empty; with two holes the bar is the 2nd-best (9 - 5).
+    hist = {p: {(SEASON - 1, 15): a, (SEASON - 1, 16): a, (SEASON - 1, 17): a}
+            for p, a in (("b1", 18.0), ("b2", 9.0), ("r1", 10.0), ("w1", 10.0), ("r2", 10.0))}
+    pts = {"r1": 5, "w1": 10, "r2": 12, "b1": 14, "b2": 8}
+    lg = _league({K1: [("A", ["r1", "w1", "r2"], ["b1", "b2"], None)]}, {K1: pts}, hist)
+    assert W.cf_lineup_points(lg, K1, lg.team_week(K1, "A"), {"w1", "r2"}, []) == 5 + 14 + 8.0
+
+
 def _move(team, day, received=(), sent=(), kind="trade", senders=None, stamp=None):
     return W.Move(sheet="trades" if kind == "trade" else "add_drops", index=0, team=team,
                   stamp=stamp or f"{day} 12:00:00", day=day, kind=kind,

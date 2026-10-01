@@ -826,9 +826,13 @@ def cf_lineup_points(league: League, key: WeekKey, tw: TeamWeek, out: Set[str],
     # reasonably have made it — the incoming player's last-3-game average is
     # at least the outgoing one's minus PLAUSIBLE_MARGIN. A displacement is
     # judged against the starter displaced; a forced fill (the slot of a
-    # starter the counterfactual removed) against the best-averaging player
-    # who could legally fill it. A real empty slot takes anyone proven. An
-    # unproven starter (no 3-game average) may be displaced by anyone proven.
+    # starter the counterfactual removed) against the h-th best-averaging
+    # player who could legally fill one, h = the number of open slots — with
+    # one hole the best option is the bar, with two the second-best (judging
+    # both fills against the single best left the second slot empty: 2025
+    # wk 14, Lamar + Godwin out of shmuel256, every WR measured against
+    # Herbert's QB average). A real empty slot takes anyone proven. An unproven
+    # starter (no 3-game average) may be displaced by anyone proven.
     def avg(p: str) -> Optional[float]:
         return league.recent_avg(p, key)
 
@@ -842,8 +846,8 @@ def cf_lineup_points(league: League, key: WeekKey, tw: TeamWeek, out: Set[str],
         pads = n - len(kept) - 1
         fillers = [p for p in list(arr) + [b for b in tw.players if b not in tw.starters and b not in out]
                    if avg(p) is not None and is_legal(kept + [p] + [EMPTY] * pads, elig, slots)]
-        known = [avg(p) for p in fillers if avg(p) is not None]
-        fill_ref = max(known) if known else None
+        known = sorted((avg(p) for p in fillers if avg(p) is not None), reverse=True)
+        fill_ref = known[min(holes, len(known)) - 1] if known else None
         bench = [b for b in bench if plausible(b, fill_ref)]
 
     def passes(a_sub: Tuple[str, ...], kb: int, drop: Tuple[str, ...]) -> bool:
