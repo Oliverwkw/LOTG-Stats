@@ -996,19 +996,27 @@ Rules [per user, 2026-10-01]:
   −1.06, 2025 0.00).
   Old moves swinging more games than new ones is intended [per user] — no
   per-season normalisation.
-- [ ] **3-part audit** on the first post-merge build. Expected diff: `Wins added`
-  and `Wins added per season` on trades + add_drops, their Formulas rows,
-  the new `exports/raw/wins_added_gsis_bridge.csv`, nothing else (ktc_provenance.csv may
-  gain rows for trade-day lookups not already made). Results cases (run-597
-  local recompute): stevenb123's McBride row = +6 (2023 wk 15, 2024 wk 5, 6,
-  12, wk 17 final vs shmuel256, 2025 wk 7); plehv79's mirror row includes −1 at
-  2024 wk 5 and wk 12; LWebs53's Jan-2023 Kyren Williams drop = 0 (re-acquired
-  in 2023 wk 2, and in wk 1 his 3-game average of 1.5 made him implausible)
-  while the Oct-2023 Kyren + Cousins for Jonathan Taylor trade carries the cost
-  (−7.07); Oliverwkw's Waddle trade carries Ekeler at 0.245 (Conner's KTC share
-  of that deal); a FAAB-only sale reads as a pure drop; a rookie in his first 3
-  games never enters a counterfactual lineup; a 2020 row.
-
+- [x] **3-part audit — PASS (2026-10-01): post-merge run 604 (merge `4c37f25`, #458)
+  vs the last pre-merge main run 597** (one post-merge build, no paired base —
+  per user). Branch runs 599-603 caught two bugs before merge (build vs
+  recompute nflverse bridge; rate 0-filled instead of N/A), both fixed.
+  Part 1: 526 passed / 2 standing skips, both new guards ran, no build ERROR
+  today, `INFO wins added: 2176 rows … 0 guard warnings, unresolved []`;
+  exports committed (ae35b04), email/rotation skipped. Part 2: an independent
+  recompute from run 604's own sheets + its persisted bridge reproduces EVERY
+  row — 1,795 non-KTC rows directly, the 381 KTC-share rows with the build's
+  player KTC replayed from `raw/ktc_provenance.csv`; rate = total × 17 / games
+  on all 2,176. Cases: stevenb123 McBride +6 (2023 wk15, 2024 wk5/6/12/17, 2025
+  wk7) with plehv79's mirror −1 at 2024 wk5/12; LWebs53's Kyren drop 0 and the
+  Taylor trade −7.07; Waddle trade carries Ekeler/Burks at 0.245; all 39
+  FAAB-only sales equal the same move as a pure drop; week-1 rookies (Caleb
+  Douglas, Denzel Boston, Kenyon Sadiq) cannot enter a counterfactual; 2020 rows
+  populated; the one no-game move reads N/A; plehv79 2023 In Progress / 2024 2,
+  every 2026 streak N/A, 56/56 team-seasons recompute. Part 3: only the two new
+  columns, `Winning season streak` (13 cells, exactly the previewed rows), 2
+  Formulas rows + 1 edited; everything else is wall-clock tenure or the daily
+  KTC "years later" roll (and the O-Score / skill columns reading it). No row
+  added or removed.
 - [ ] **Follow-up PR (after the column ships): feed Wins added into `Trade
   impact score`** in place of its WIN IMPACT term (`_tpi_wins` + downstream
   share, `src/lotg.py` ~12920 / ~13069). That term only checks weeks where a
@@ -1022,7 +1030,9 @@ pre-merge run → first post-merge run), in case the paired same-time
 `audit-base` convention hid a change. Pairs 560→564 (#446/#447), 564→567
 (#448), 567→568 (#449), 568→570 (no PR), 570→581 (#450/#452; run 571 was a
 guard-skipped fire), 581→584 (#453), 584→589 (#454), 589→597 (#455).
-- [x] **No missed PR change.** Every completed-season change in a non-volatile
+- [x] **No missed PR change** (doc nit: #452's body says "Unchanged: the received
+  side" though its pick-held rule moved 15 received-side rows — the rule itself
+  says so; behaviour is as intended). Every completed-season change in a non-volatile
   column is the PR's own documented change (#446 twins + renames + position
   factor; #448 move counts / trade-week clock; #452 dropped points as scored,
   sent-side window, pick-held rule — which also moves the received side, despite
