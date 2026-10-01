@@ -2003,6 +2003,11 @@ def _preserve_na(col: str) -> bool:
     # O-Score: N/A unless all four percentile components are present.
     if col_l == "o-score":
         return True
+    # Wins added (trades / add_drops): the per-season rate is N/A before the
+    # move's first game (0 games — not a rate of 0). The total is computed on
+    # every row; N/A there means the pass failed, not "swung nothing".
+    if col_l in {"wins added", "wins added per season"}:
+        return True
     # Manager skill (team_year / team_all_time): shrunk-mean O-Score of the
     # team's picks / trades / add-drops. Blank = no events of that type (didn't
     # draft/trade/add-drop) — N/A, distinct from a real low score. "Add/Drop
@@ -2589,6 +2594,29 @@ def _is_second_finals_week(year: Any, week: Any,
         return len(fw) >= 2 and int(week) == fw[-1]
     except Exception:
         return False
+
+
+def _regular_season_games(playoff_start: Optional[int]) -> Optional[int]:
+    """Regular-season games every team plays: one per week before the
+    playoffs start (2020: 14, 2021-2025: 15, 2026+: 14)."""
+    return int(playoff_start) - 1 if playoff_start else None
+
+
+def _winning_season_decided(record: Any, playoff_start: Optional[int]) -> float:
+    """Is this a winning (.500+) REGULAR season? 1.0 once clinched (even losing
+    out), 0.0 once out of reach (even winning out), NaN while still open. A
+    finished regular season is always decided."""
+    total = _regular_season_games(playoff_start)
+    m = re.match(r"^\s*(\d+)-(\d+)(?:-(\d+))?\s*$", str(record or ""))
+    if not total or not m:
+        return float("nan")
+    w, l, t = int(m.group(1)), int(m.group(2)), int(m.group(3) or 0)
+    score, remaining = w + 0.5 * t, max(0, total - (w + l + t))
+    if score >= 0.5 * total:
+        return 1.0
+    if score + remaining < 0.5 * total:
+        return 0.0
+    return float("nan")
 
 
 def _matchup_stage(week: int, playoff_start: Optional[int],
@@ -18418,7 +18446,7 @@ def build_all(repo_root: Path) -> None:
 
         # Season-based streaks (the season grain is the natural "weekly" unit
         # for these, so they live on team_year, not team_week): consecutive
-        # seasons making the playoffs / finishing >= .500. Terminal-encoded
+        # seasons making the playoffs / with a .500+ REGULAR season. Terminal-encoded
         # like the weekly streaks — only the final season of a run carries the
         # length, intermediate seasons read "In Progress", broken/none reads 0,
         # and a not-yet-complete season reads "N/A".
@@ -18443,8 +18471,16 @@ def build_all(repo_root: Path) -> None:
                             pa_run.append((ri, pa))
                         else:
                             pa_run.append((ri, None))
-                        wp = r.get("Win %")
-                        wp = pd.to_numeric(pd.Series([wp]), errors="coerce").iloc[0]
+                        # REGULAR-season record [per user]: a season counts once
+                        # its regular season is DECIDED — a .500 record clinched
+                        # (even losing out) or out of reach (even winning out).
+                        # Until then it reads N/A and neither extends nor breaks
+                        # the run, so a live season cannot flip completed rows
+                        # week to week (2026 wk 2 -> 3 had BROsenzweig 2025 go
+                        # "In Progress" -> 2 on a 1-1 -> 1-2 overall record).
+                        wp = _winning_season_decided(
+                            r.get("Regular season record"),
+                            playoff_start_by_season.get(int(yr)) if pd.notna(yr) else None)
                         if pd.notna(wp):
                             ws = ws + 1 if float(wp) >= 0.5 else 0
                             ws_run.append((ri, ws))
@@ -21942,6 +21978,56 @@ def build_all(repo_root: Path) -> None:
                     f"{sum(1 for r in _pa_rows if r['Addition type'] in ('Waiver','Free agency','Commissioner'))} add/drop)")
     except Exception as e:
         _log_exc(debug, "player_additions", e)
+
+    # WINS ADDED (trades + add_drops). For every week from the move to today —
+    # playoffs and consolation games included, each week on its own — would not
+    # making the move have changed the result against the real opponent? +1 per
+    # loss the move turned into a win, −1 per win it turned into a loss. Given-up
+    # assets count forever; received ones while held, following the team's later
+    # trades at their KTC share. `Wins added per season` is the same total as a
+    # rate (× 17 / games played since the move). The whole rule lives in
+    # lotg_support.wins_added, which reads the moves from these same two frames
+    # so a local recompute from the CSVs goes through the identical code path.
+    # Runs here, after every pass that edits trades / add_drops / team_week / the
+    # pick frame, and before the provenance dump so its KTC lookups are recorded.
+    try:
+        from lotg_support import wins_added as _wa
+        from lotg_support.ktc import asset_value_at as _wa_kv
+
+        def _wa_value(_asset, _day):
+            if _ktc_idx is None:
+                return None
+            try:
+                _d = date.fromisoformat(str(_day)[:10])
+                if _asset.is_pick:
+                    return _wa_kv(_wa._ktc_pick_label(_asset.label), None, _d, _ktc_idx)
+                return _wa_kv(None, str(_asset.pid), _d, _ktc_idx) if _asset.pid else None
+            except Exception:
+                return None
+
+        _wa_report = _wa.Report()
+        # The player -> gsis bridge after this build's enrichment (Sleeper's own id
+        # with the last-name correction, then DynastyProcess, then nflverse),
+        # persisted so a recompute outside the build scores the same nflverse games.
+        _wa_bridge = {str(_sid): str(_m.get("gsis_id")) for _sid, _m in pid_meta.items()
+                      if (_m or {}).get("gsis_id") and str(_m.get("gsis_id")).lower() != "nan"}
+        _wa.write_gsis_bridge(_wa_bridge, repo_root / "exports" / "raw" / _wa.BRIDGE_FILE)
+        _wa_league = _wa.load_league(tw, _wa.nflverse_points_from_cache(
+            bridge=_wa_bridge, score=_league_score, score_map=_LEAGUE_SCORE_MAP,
+            cache_dir=cache_dir))
+        _wa_bad = _wa.check_offsets(_wa_league) + _wa.check_real_lineups_legal(_wa_league)
+        for _msg in _wa_bad[:20]:
+            _log(debug, f"[{_now_iso()}] WARN wins added: {_msg}")
+        _wa_tr, _wa_ad = _wa.compute(tr, add_drops_df, _wa_league, [ph], _wa_value, _wa_report)
+        for _wa_col in (_wa.COLUMN, _wa.RATE_COLUMN):
+            tr[_wa_col] = _wa_tr[_wa_col]
+            add_drops_df[_wa_col] = _wa_ad[_wa_col]
+        _log(debug, f"[{_now_iso()}] INFO wins added: {_wa_report.rows} rows over "
+                    f"{len(_wa_league.order)} weeks; {_wa_report.optimised_weeks} lineups searched; "
+                    f"{len(_wa_report.unproven_blocked)} entries blocked as unproven (<3 prior games); "
+                    f"{len(_wa_bad)} guard warnings; unresolved names: {_wa_report.unresolved_names}")
+    except Exception as e:
+        _log_exc(debug, "wins_added", e)
 
     # KTC PROVENANCE. Where every resolved value came from, one row per lookup:
     # a quote published on the target date itself (`mirror`), an absence on a day
