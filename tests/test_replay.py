@@ -166,7 +166,7 @@ def test_herbert_counterfactual_matches_the_documented_answer():
     if not _HAVE_DATA:
         return _skip("no committed data")
     scenario = R.undo_trade(2025, player="Justin Herbert")
-    for model in ("anchored", "strict", "ceiling"):
+    for model in R.MODELS:
         result = R.replay(scenario.with_model(model))
         shmuel = next(s for s in result.standings if s.team == "shmuel256")
         was = next(s for s in result.real_standings if s.team == "shmuel256")
@@ -175,21 +175,6 @@ def test_herbert_counterfactual_matches_the_documented_answer():
         assert result.bracket.champion == "shmuel256", model
         assert result.real_bracket.champion == "shmuel256", model
         assert not result.warnings, result.warnings
-
-
-def test_plausible_model_on_the_herbert_trade():
-    # The fourth model (the build's Wins added lineup rule) agrees on weeks 6
-    # and 8 and the champion, and also flips week 13: it lets Tre' Harris
-    # start for shmuel256 in a slot whose starter he plausibly outranked, which
-    # anchored never does (his real manager benched him). Report, don't pick.
-    if not _HAVE_DATA:
-        return _skip("no committed data")
-    result = R.replay(R.undo_trade(2025, player="Justin Herbert").with_model("plausible"))
-    shmuel = next(s for s in result.standings if s.team == "shmuel256")
-    assert shmuel.record == "14-1", shmuel.record
-    assert {f.week for f in result.flips} == {6, 8, 13}, result.flips
-    assert result.bracket.champion == "shmuel256"
-    assert not result.warnings, result.warnings
 
 
 def test_plausible_no_move_replay_reproduces_every_season():
@@ -270,7 +255,6 @@ TESTS = [
     test_bracket_applies_the_home_field_bonus_to_the_higher_seed_only,
     test_undo_trade_finds_the_2025_herbert_deal,
     test_herbert_counterfactual_matches_the_documented_answer,
-    test_plausible_model_on_the_herbert_trade,
     test_plausible_no_move_replay_reproduces_every_season,
     test_a_three_team_trade_routes_each_player_home,
     test_a_player_on_nobody_s_roster_scores_his_nflverse_line,

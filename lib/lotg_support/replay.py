@@ -34,10 +34,11 @@ Three models are provided; run more than one and report where they disagree:
       routine (`lotg_support.lineup.compute_optimal_lineup`), so it agrees with
       the `Max PF` column by construction.
   plausible — the build's `Wins added` lineup rule (`wins_added.cf_lineup_points`,
-      one definition, not a copy): starters who leave are removed; an arrival
-      may fill an open slot or displace a starter, with players moving between
-      slots to stay legal; an open slot no arrival fills goes to the best
-      eligible bench player (the bench never displaces anyone). Every
+      one definition, not a copy): starters who leave are removed and every
+      slot they clear is filled by a different player; an arrival takes one
+      explicit role (fill a cleared slot, take a real empty slot, or displace
+      one named starter), with players sliding between slots to make room; a
+      bench player only fills a cleared slot, never displaces anyone. Every
       substitution must be one the manager could reasonably have made — the
       incoming player's last-3-game average at least the outgoing one's minus 5
       — a player nobody started that week counts for at most 1.5x that
@@ -508,8 +509,10 @@ def _score_weeks(scenario: Scenario, meta: Q.SeasonMeta,
                     if pick:
                         spare.remove(pick)
             elif scenario.model == "plausible" and in_league:
-                tw = _wa.TeamWeek(team=str(rid), starters=tuple(p for p in row.starters if p != Q.EMPTY_SLOT),
-                                  players=frozenset(row.players), pf=row.points, offset=0.0, opponent=None)
+                placed = [(i, p) for i, p in enumerate(row.starters) if p != Q.EMPTY_SLOT]
+                tw = _wa.TeamWeek(team=str(rid), starters=tuple(p for _, p in placed),
+                                  players=frozenset(row.players), pf=row.points, offset=0.0,
+                                  opponent=None, slot_index=tuple(i for i, _ in placed))
                 scores[wk][rid] = _wa.cf_lineup_points(league, key, tw, set(lost), gained)
                 continue
             else:

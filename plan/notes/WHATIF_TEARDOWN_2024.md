@@ -267,22 +267,26 @@ The multi-trade rewind this note needed did not exist before it; it was added as
 
 ## Addendum (2026-10-01): a fourth lineup model
 
-`whatif.py` gained a **plausible** model — the build's `Wins added` lineup rule
-(an arrival may displace a starter only if his last-3-game average is within 5
-of that starter's; anyone nobody started is capped at 1.5× that average; a rookie
-in his first 3 games never moves in; hindsight picks among the plausible
-options). Re-running the five-trade rewind above on 2024 with `--model all`:
+`whatif.py` gained a **plausible** model — the build's `Wins added` lineup rule:
+every slot a departing starter clears is filled by a different player; a
+returning player takes one explicit role (fill a cleared slot, or displace one
+named starter whose last-3-game average he is within 5 of); the bench only
+fills cleared slots; anyone nobody started is capped at 1.5× his 3-game average;
+a rookie in his first 3 games never moves in; hindsight picks among the
+plausible options. Re-running the five-trade rewind above on 2024 with
+`--model all`:
 
 | Model | Oliverwkw | Champion |
 |---|---|---|
 | anchored | 3-12 → 8-7 | stevenb123 |
 | strict | 3-12 → 3-12 | stevenb123 |
 | ceiling | 3-12 → 8-7 | **Oliverwkw** |
-| plausible | 3-12 → **10-5** | **Oliverwkw** |
+| plausible | 3-12 → **10-5** | stevenb123 |
 
 The three original models reproduce the table above exactly (players on nobody's
 roster now score their nflverse line instead of 0 in every model; it does not
-move this answer). Plausible sits above anchored because it lets returned stars
-displace whichever starter they plausibly outranked that week, where anchored
-only starts an arrival his real manager started — so the disagreement on the
-champion now runs two-against-two. Report both ends, as before.
+move this answer). Plausible puts you two wins above anchored — it lets the
+returned stars displace whichever starter they plausibly outranked that week,
+where anchored only starts an arrival his real manager started — but the title
+still goes to stevenb123, so only ceiling crowns Oliverwkw. Report both ends, as
+before.

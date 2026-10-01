@@ -572,15 +572,17 @@ are four, and `--model all` runs each:
 - **ceiling** — the score moves by the change in the roster's optimal lineup,
   using the build's own Max PF routine.
 - **plausible** — the build's `Wins added` lineup rule, called rather than
-  copied (`wins_added.cf_lineup_points`): an arrival may fill a slot or displace
-  a starter, players move between slots to stay legal, the bench only fills a
-  slot someone left; every substitution must be plausible (incoming last-3-game
-  average ≥ outgoing − 5; with h slots open a fill is judged against the h-th
-  best option), a player nobody started counts for at most 1.5× that average,
-  and a rookie in his first 3 games never moves in. Hindsight picks among the
-  plausible options, so it can disagree with anchored — 2025 Herbert trade:
-  anchored / strict / ceiling 13-2, plausible 14-1 (it also starts Tre' Harris
-  in week 13).
+  copied (`wins_added.cf_lineup_points`): every slot a departing starter clears
+  is filled by a different player; an arrival takes one explicit role (fill a
+  cleared slot, take a real empty slot, or displace one named starter), with
+  players sliding between slots to make room; the bench only fills cleared
+  slots, never displaces anyone; every substitution must be plausible (incoming
+  last-3-game average ≥ outgoing − 5; with h slots cleared a fill is judged
+  against the h-th best option), a player nobody started counts for at most
+  1.5× that average, and a rookie in his first 3 games never moves in.
+  Hindsight picks among the plausible options. On the 2025 Herbert trade all
+  four models agree (13-2, weeks 6 and 8); on the 2024 teardown it has
+  Oliverwkw 10-5 (anchored / ceiling 8-7) but stevenb123 still champion.
 
 In every model, **a player on nobody's roster scores his nflverse line** under
 that season's league scoring (it used to count 0.00), **a 3-team trade undoes
