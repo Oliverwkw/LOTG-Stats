@@ -980,12 +980,15 @@ Rules [per user, 2026-10-01]:
   per-season normalisation.
 - [ ] **3-part audit** on the first post-merge build. Expected diff: `Wins added`
   on trades + add_drops, its Formulas row, nothing else (ktc_provenance.csv may
-  gain rows for trade-day lookups not already made). Results cases: stevenb123's
-  McBride row = +4 through 2025 (2024 wk 5, 12 vs plehv79, wk 17 final vs
-  shmuel256, 2025 wk 7); plehv79's mirror row includes −1 at 2024 wk 5 and wk 12;
-  LWebs53's Kyren Williams drop flips 2023 wk 15 (Kyren 24.5 for Henry 5.0 beats
-  a 17.88 deficit); Oliverwkw's Waddle trade carries Ekeler at 0.245 (Conner's
-  KTC share of that deal); a FAAB-only sale reads as a pure drop; a 2020 row.
+  gain rows for trade-day lookups not already made). Results cases (run-597
+  local recompute): stevenb123's McBride row = +6 (2023 wk 15, 2024 wk 5, 6,
+  12, wk 17 final vs shmuel256, 2025 wk 7); plehv79's mirror row includes −1 at
+  2024 wk 5 and wk 12; LWebs53's Jan-2023 Kyren Williams drop = 0 (re-acquired
+  in 2023 wk 2, and in wk 1 his 3-game average of 1.5 made him implausible)
+  while the Oct-2023 Kyren + Cousins for Jonathan Taylor trade carries the cost
+  (−7.07); Oliverwkw's Waddle trade carries Ekeler at 0.245 (Conner's KTC share
+  of that deal); a FAAB-only sale reads as a pure drop; a rookie in his first 3
+  games never enters a counterfactual lineup; a 2020 row.
 
 - [ ] **Follow-up PR (after the column ships): feed Wins added into `Trade
   impact score`** in place of its WIN IMPACT term (`_tpi_wins` + downstream
