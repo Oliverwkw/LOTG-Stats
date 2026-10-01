@@ -921,11 +921,12 @@ Rules [per user, 2026-10-01]:
 - Each week on its own against the real opponent; no re-seeding, no bracket
   replay. Playoffs, 3rd place and the toilet bracket count as normal weeks. The
   2026+ two-week final is ONE game (both weeks summed).
-- Given-up assets count from the move to today, with no cap — and keep counting
-  after the returned assets are dropped or traded. A given-up pick = the player
-  drafted with it. A given-up player the team later re-acquires is treated as a
-  different player (the re-acquiring move owns him while he is held; the
-  original drop/trade resumes afterwards — see "by design" below).
+- Given-up assets count from the move to today — and keep counting after the
+  returned assets are dropped or traded. A given-up pick = the player drafted
+  with it. Two stops [per user, 2026-10-01, revised from "no cap" / "re-acquired
+  = a different player" after the column summed to −726 / −522]: the count ends
+  once the league lets him go (on no roster for 4 straight weeks) and when the
+  team re-acquires him (the earlier move's count ends the week before).
 - Lineage must scale with size: what a received asset is later traded for
   carries this move's share of that trade = KTC of the lineage inputs / KTC of
   the team's whole side on that trade's day (FAAB weight 0), read as a
@@ -956,12 +957,18 @@ Rules [per user, 2026-10-01]:
   lineup legal and every PF reconciled (832 team-weeks), 0 unresolved names, 186
   uncapped entries (players with no prior NFL game), nflverse re-scoring =
   Sleeper on 16,835 / 16,845 rostered player-weeks (10 stat corrections).
-- **By design, flagged for the user:** the column leans negative (trades sum
-  −726, add_drops −522 at run 597): given-up assets count forever, received ones
-  only while held. A player dropped repeatedly stacks — 211 team-player pairs
-  were dropped more than once (Jared Goff's drops are −6 / −7 each). 2020 moves
-  dominate the bottom of both boards because they have six seasons of given-up
-  weeks.
+- **Negativity, diagnosed (2026-10-01).** As first built the column summed to
+  −726 (trades) / −522 (add_drops) at run 597. Variants: the lineage window,
+  the 4-week-unrostered stop and the re-acquisition stop each help add_drops
+  (to −234 / −211 / −378) but barely move trades (−619 / −678 / −692). The
+  main cause is hindsight in the lineup rule — a given-up player is compared
+  with whichever starter happened to score worst that week. Deciding the
+  lineup on prior form and scoring it on actual points gives trades +101
+  (154 positive / 113 negative) and, with both stops, add_drops +4; the
+  by-season slide (2020 trades −4.5 → 2025 −0.2) disappears. The two stops
+  are adopted; the prior-form decision is pending the user's call.
+  Old moves swinging more games than new ones is intended [per user] — no
+  per-season normalisation.
 - [ ] **3-part audit** on the first post-merge build. Expected diff: `Wins added`
   on trades + add_drops, its Formulas row, nothing else (ktc_provenance.csv may
   gain rows for trade-day lookups not already made). Results cases: stevenb123's
@@ -970,6 +977,13 @@ Rules [per user, 2026-10-01]:
   LWebs53's Kyren Williams drop flips 2023 wk 15 (Kyren 24.5 for Henry 5.0 beats
   a 17.88 deficit); Oliverwkw's Waddle trade carries Ekeler at 0.245 (Conner's
   KTC share of that deal); a FAAB-only sale reads as a pure drop; a 2020 row.
+
+- [ ] **Follow-up PR (after the column ships): feed Wins added into `Trade
+  impact score`** in place of its WIN IMPACT term (`_tpi_wins` + downstream
+  share, `src/lotg.py` ~12920 / ~13069). That term only checks weeks where a
+  received player started (always 0 on 313 of 566 trades), swaps in the top-k
+  given-up scorers with hindsight and no slot legality, and never adjusts the
+  opponent. Moves every Trade impact score and the trades O-Score built on it.
 
 ## Phase 15 — TBD: OLD LEAGUES
 - [ ] **TBD.** Placeholder for integrating other historical/old leagues' data (e.g. the

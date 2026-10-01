@@ -9,7 +9,8 @@ The synthetic cases pin each part of the rule in `lotg_support.wins_added`:
   * the per-week result flip against the real opponent, ±1;
   * the opponent losing a given-up player he started (and the mirror row);
   * lineage through a later trade at its KTC share, read as a probability;
-  * a given-up player later re-acquired counts as a different player.
+  * the given-up count stops once the league lets him go (4 straight weeks
+    on no roster) or the team re-acquires him.
 
 The data guards: every real lineup 2020-today is legal under its season's
 template and every PF is its starters' points (+5 in a semifinal) — the two
@@ -151,7 +152,7 @@ def test_dropping_ends_the_lineage():
     assert [(i.pid, i.ended) for i in items] == [("x", f"{SEASON}-08-15")], "an add/drop does not pass lineage on"
 
 
-def test_reacquired_player_counts_as_a_different_player():
+def test_a_reacquired_player_belongs_to_the_reacquiring_move():
     # A dropped d, later picked him back up (m2) and started him. While he is
     # really on A, the drop adds nothing that week; the re-add owns the week.
     pts = {"r1": 5, "w1": 10, "d": 30, "b1": 2, "o1": 20, "o2": 10, "o3": 10}
@@ -160,6 +161,51 @@ def test_reacquired_player_counts_as_a_different_player():
     m2 = _move("A", f"{SEASON}-08-20", received=["d"], kind="add_drop", stamp=f"{SEASON}-08-20 12:00:00")
     assert W.wins_added_for(m1, [m2], lg) == 0.0
     assert W.wins_added_for(m2, [], lg) == 1.0
+
+
+def _weeks(n, a_starters, a_bench=(), b_starters=("o1", "o2", "o3")):
+    return {(SEASON, w): [("A", list(a_starters), list(a_bench), "B"), ("B", list(b_starters), [], "A")]
+            for w in range(1, n + 1)}
+
+
+def test_the_count_stops_once_the_league_lets_him_go():
+    # d dropped before week 1 and nobody rosters him for weeks 1-4. In week 5
+    # he scores 40 and would win A the game — but by then the league has let
+    # him go for 4 straight weeks, so the drop no longer owns him.
+    hist = {"d": {(SEASON - 1, 15): 30.0, (SEASON - 1, 16): 30.0, (SEASON - 1, 17): 30.0}}
+    # d plays no NFL game in weeks 1-4 (no stat line), so his 3-game cap still
+    # reads last season's 30.
+    pts = {k: {"r1": 5, "w1": 10, "r2": 12, "o1": 20, "o2": 10, "o3": 10} for k in _weeks(5, [])}
+    pts[(SEASON, 5)]["d"] = 40
+    lg = _league(_weeks(5, ["r1", "w1", "r2"]), pts, hist)
+    drop = _move("A", f"{SEASON}-09-01", sent=["d"], kind="add_drop")
+    assert W._given_up(drop, lg) == [("d", (SEASON, 1), (SEASON, 4))]
+    assert W.wins_added_for(drop, [], lg) == 0.0
+    # Rostered somewhere in week 3, the run restarts and week 5 still counts.
+    weeks = _weeks(5, ["r1", "w1", "r2"])
+    weeks[(SEASON, 3)].append(("C", ["c1", "c2", "c3"], ["d"], None))
+    pts[(SEASON, 3)].update({"c1": 1, "c2": 1, "c3": 1})
+    lg = _league(weeks, pts, hist)
+    assert W.wins_added_for(drop, [], lg) == -1.0
+
+
+def test_reacquiring_a_player_ends_the_earlier_moves_count():
+    # A drops d (m1), picks him back up in week 2 (m2), drops him again in
+    # week 3 (m3). From the re-add on, m1 never owns d again — week 5 is m3's.
+    hist = {"d": {(SEASON - 1, 15): 30.0, (SEASON - 1, 16): 30.0, (SEASON - 1, 17): 30.0}}
+    weeks = _weeks(5, ["r1", "w1", "r2"])
+    for w in range(1, 6):                       # d stays rostered by C throughout
+        weeks[(SEASON, w)].append(("C", ["c1", "c2", "c3"], ["d"], None))
+    pts = {k: {"r1": 5, "w1": 10, "r2": 12, "d": 0, "o1": 20, "o2": 10, "o3": 10,
+               "c1": 1, "c2": 1, "c3": 1} for k in weeks}
+    pts[(SEASON, 5)]["d"] = 40
+    lg = _league(weeks, pts, hist)
+    m1 = _move("A", f"{SEASON}-09-01", sent=["d"], kind="add_drop", stamp=f"{SEASON}-09-01 12:00:00")
+    m2 = _move("A", f"{SEASON}-10-02", received=["d"], kind="add_drop", stamp=f"{SEASON}-10-02 12:00:00")
+    m3 = _move("A", f"{SEASON}-10-03", sent=["d"], kind="add_drop", stamp=f"{SEASON}-10-03 12:00:00")
+    assert W._given_up(m1, lg, [m2, m3]) == [("d", (SEASON, 1), (SEASON, 1))]
+    assert W.wins_added_for(m1, [m2, m3], lg) == 0.0
+    assert W.wins_added_for(m3, [], lg) == -1.0
 
 
 # ---------------------------------------------------------------------------

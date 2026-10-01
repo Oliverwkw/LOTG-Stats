@@ -17,12 +17,11 @@ is one game (both weeks' points summed).
 
 WHAT THE COUNTERFACTUAL CHANGES
 -------------------------------
-* Everything the team GAVE UP is back on its roster, from the move to today,
-  for good — whatever happened to what came back. A given-up pick is the
-  player actually drafted with it, from his rookie season on. A player the
-  team later re-acquires is treated as a different player: while he is really
-  on the roster the counterfactual copy adds nothing, and the original move's
-  account resumes once he leaves again.
+* Everything the team GAVE UP is back on its roster from the move to today —
+  whatever happened to what came back — until the league lets him go (no
+  roster for 4 straight weeks) or the team re-acquires him (`_given_up`). A
+  given-up pick is the player actually drafted with it, from his rookie season
+  on.
 * Everything the team RECEIVED leaves its roster while the team holds it, and
   the account follows it forward through the team's own later trades
   ("lineage"): a received pick becomes the player the team drafted with it; a
@@ -826,9 +825,25 @@ def _present(items: Sequence[LineageItem], league: League, key: WeekKey, tw: Tea
             and (it.ended is None or it.ended > start)]
 
 
-def _given_up(move: Move, league: League) -> List[Tuple[str, WeekKey]]:
+UNROSTERED_WEEKS = 4
+FOREVER: WeekKey = (9999, 99)
+
+
+def _given_up(move: Move, league: League,
+              later: Sequence[Move] = ()) -> List[Tuple[str, WeekKey, WeekKey]]:
+    """(player, first week, last week) for everything the move gave up.
+
+    The count runs from the move to today, and stops early in two cases
+    [per user, 2026-10-01]:
+      * the league let him go — once he has been on NO roster for
+        `UNROSTERED_WEEKS` straight weeks, the count ends with that week
+        (the team would have cut him too);
+      * the team re-acquires him — the earlier move's count ends the week
+        before the re-acquiring move takes effect, so the same player is
+        never counted by two of the team's moves at once.
+    """
     eff = league.week_of(move.day)
-    out: List[Tuple[str, WeekKey]] = []
+    out: List[Tuple[str, WeekKey, WeekKey]] = []
     for a in move.sent:
         if not a.pid:
             continue
@@ -838,8 +853,24 @@ def _given_up(move: Move, league: League) -> List[Tuple[str, WeekKey]]:
             start = a.start if eff is None or a.start > eff else eff
         else:
             start = eff
-        if start is not None:
-            out.append((a.pid, start))
+        if start is None:
+            continue
+        end = FOREVER
+        run = 0
+        for k in league.keys_from(start):
+            run = 0 if a.pid in league.holder[k] else run + 1
+            if run >= UNROSTERED_WEEKS:
+                end = k
+                break
+        for mv in later:
+            if any(r.pid == a.pid and not r.is_pick for r in mv.received):
+                back = league.week_of(mv.day)
+                before = league.before(back, 1) if back else []
+                if back is not None:
+                    end = min(end, before[0] if before else (0, 0))
+                break
+        if end >= start:
+            out.append((a.pid, start, end))
     return out
 
 
@@ -851,7 +882,7 @@ def wins_added_for(move: Move, later: Sequence[Move], league: League,
     if eff is None:
         return 0.0
     items = lineage(move, later, value_fn)
-    given = _given_up(move, league)
+    given = _given_up(move, league, later)
     keys = [k for k in league.keys_from(eff) if through is None or k <= through]
     total = 0.0
     for game in games_for(league, move.team, keys):
@@ -860,7 +891,7 @@ def wins_added_for(move: Move, later: Sequence[Move], league: League,
 
 
 def _game_value(move: Move, game: Sequence[WeekKey], items: Sequence[LineageItem],
-                given: Sequence[Tuple[str, WeekKey]], league: League, report: Optional[Report]) -> float:
+                given: Sequence[Tuple[str, WeekKey, WeekKey]], league: League, report: Optional[Report]) -> float:
     team = move.team
     per_week = []
     groups: Dict[int, float] = {}
@@ -872,8 +903,8 @@ def _game_value(move: Move, game: Sequence[WeekKey], items: Sequence[LineageItem
             return 0.0
         present = _present(items, league, key, tw)
         lineage_now = {it.pid for it in present}
-        arrivals = [p for p, start in given if start <= key and (p not in tw.players or p in lineage_now)]
-        opp_out = {p for p, start in given if start <= key and p in opp.players}
+        arrivals = [p for p, start, end in given if start <= key <= end and (p not in tw.players or p in lineage_now)]
+        opp_out = {p for p, start, end in given if start <= key <= end and p in opp.players}
         opp_in = [it.pid for it in present if it.group == 0
                   and move.senders.get(it.pid) == opp.team and it.pid not in opp.players]
         for it in present:
@@ -949,7 +980,7 @@ def explain(move: Move, later: Sequence[Move], league: League,
     if eff is None:
         return []
     items = lineage(move, later, value_fn)
-    given = _given_up(move, league)
+    given = _given_up(move, league, later)
     out = []
     for game in games_for(league, move.team, league.keys_from(eff)):
         v = _game_value(move, game, items, given, league, None)
