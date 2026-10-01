@@ -54,15 +54,16 @@ def _tw(team, starters, bench, pts, opp):
                       pf=pf, offset=0.0, opponent=opp)
 
 
-def _league(weeks, pts_by_week, nfl=None, unproven=()):
+def _league(weeks, pts_by_week, nfl=None, unproven=(), slots=SLOTS, pos=None):
     """weeks: {key: [(team, starters, bench, opp)]}; pts_by_week: {key: {pid: pts}}."""
     built = {k: {t: _tw(t, s, b, pts_by_week[k], o) for t, s, b, o in rows} for k, rows in weeks.items()}
-    elig = {SEASON: {p: frozenset({pos}) for p, pos in POS.items()}}
+    pos = {**POS, **(pos or {})}
+    elig = {SEASON: {p: frozenset({ps}) for p, ps in pos.items()}}
     days = {k: f"{k[0]}-10-{k[1]:02d}" for k in weeks}
     rostered = {k: {p: v for p, v in pts_by_week[k].items()
                     if any(p in tw.players for tw in built[k].values())} for k in weeks}
     nfl = {p: dict(g) for p, g in (nfl or {}).items()}
-    for p in POS:                               # a proven 10-a-game history unless given one
+    for p in pos:                               # a proven 10-a-game history unless given one
         if p not in nfl:
             nfl[p] = {(SEASON - 1, 15): 10.0, (SEASON - 1, 16): 10.0, (SEASON - 1, 17): 10.0}
     for p in unproven:
@@ -71,7 +72,7 @@ def _league(weeks, pts_by_week, nfl=None, unproven=()):
         for p, v in pts.items():
             if p not in rostered[k]:
                 nfl.setdefault(p, {})[k] = v
-    return W.League(built, rostered, {SEASON: SLOTS}, elig, POS, nfl, days)
+    return W.League(built, rostered, {SEASON: slots}, elig, pos, nfl, days)
 
 
 K1 = (SEASON, 1)
@@ -149,6 +150,53 @@ def test_two_open_slots_are_judged_against_the_two_best_options():
     pts = {"r1": 5, "w1": 10, "r2": 12, "b1": 14, "b2": 8}
     lg = _league({K1: [("A", ["r1", "w1", "r2"], ["b1", "b2"], None)]}, {K1: pts}, hist)
     assert W.cf_lineup_points(lg, K1, lg.team_week(K1, "A"), {"w1", "r2"}, []) == 5 + 14 + 8.0
+
+
+def _h(a):
+    return {(SEASON - 1, 15): a, (SEASON - 1, 16): a, (SEASON - 1, 17): a}
+
+
+SF = (("QB",), ("WR",), ("QB", "RB", "WR", "TE"))   # QB, WR, superflex
+
+
+def test_a_bench_player_never_replaces_a_starter_by_reshuffling():
+    # w1 (WR) leaves. Arrival a (WR, 20) can fill the WR slot. Bench QB q2 (30)
+    # could only get in by benching the real QB q1 — the old count-based rule
+    # allowed it (a "displaces" q1 while q3 slides to QB and q2 takes the
+    # superflex): 60. Slot-aware, a bench player only fills a cleared slot,
+    # and q2 cannot play WR: q1 + a + q3 = 35.
+    pos = {"q1": "QB", "q2": "QB", "q3": "QB", "a": "WR", "c1": "QB", "c2": "WR", "c3": "WR"}
+    hist = {"q1": _h(15.0), "q3": _h(10.0), "q2": _h(20.0), "a": _h(15.0), "w1": _h(10.0)}
+    pts = {"q1": 5, "w1": 10, "q3": 10, "q2": 30, "a": 20, "c1": 1, "c2": 1, "c3": 1}
+    lg = _league({K1: [("A", ["q1", "w1", "q3"], ["q2"], None), ("C", ["c1", "c2", "a"], [], None)]},
+                 {K1: pts}, hist, slots=SF, pos=pos)
+    pts_cf, lineup = W.cf_lineup(lg, K1, lg.team_week(K1, "A"), {"w1"}, ["a"])
+    assert (pts_cf, sorted(lineup)) == (35.0, ["a", "q1", "q3"]), (pts_cf, lineup)
+
+
+def test_every_cleared_slot_is_filled_even_by_a_zero():
+    # w1 leaves; the only WR on the bench scored 0. The slot is still filled.
+    pts = {"r1": 5, "w1": 10, "r2": 12, "w2": 0}
+    lg = _league({K1: [("A", ["r1", "w1", "r2"], ["w2"], None)]}, {K1: pts})
+    pts_cf, lineup = W.cf_lineup(lg, K1, lg.team_week(K1, "A"), {"w1"}, [])
+    assert (pts_cf, sorted(lineup)) == (17.0, ["r1", "r2", "w2"]), (pts_cf, lineup)
+
+
+def test_four_for_one_fills_every_cleared_slot_with_a_different_player():
+    # The shape of shmuel256's 2022 Jefferson trade: four received starters
+    # out in one week, Jefferson (j) back, bench covers the rest — four
+    # cleared slots, four different players.
+    slots = (("QB",), ("RB",), ("WR",), ("WR",), ("QB", "RB", "WR", "TE"))
+    pos = {"q1": "QB", "r1": "RB", "w1": "WR", "w2": "WR", "s1": "QB", "j": "WR",
+           "bq": "QB", "br": "RB", "bw": "WR", "c1": "QB", "c2": "WR", "c3": "WR", "c4": "WR", "c5": "RB"}
+    pts = {"q1": 20, "r1": 15, "w1": 14, "w2": 13, "s1": 18, "j": 25, "bq": 12, "br": 9, "bw": 8,
+           "c1": 1, "c2": 1, "c3": 1, "c4": 1, "c5": 1}
+    weeks = {K1: [("A", ["q1", "r1", "w1", "w2", "s1"], ["bq", "br", "bw"], None),
+                  ("C", ["c1", "c5", "c2", "j", "c3"], ["c4"], None)]}
+    lg = _league(weeks, {K1: pts}, slots=slots, pos=pos)
+    pts_cf, lineup = W.cf_lineup(lg, K1, lg.team_week(K1, "A"), {"q1", "r1", "w1", "w2"}, ["j"])
+    assert sorted(lineup) == ["bq", "br", "bw", "j", "s1"], lineup
+    assert pts_cf == 18 + 25 + 12 + 9 + 8
 
 
 def _move(team, day, received=(), sent=(), kind="trade", senders=None, stamp=None):

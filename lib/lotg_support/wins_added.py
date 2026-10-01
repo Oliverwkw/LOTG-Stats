@@ -112,7 +112,6 @@ PLAUSIBLE_MARGIN = 5.0
 # rest are rounded to removed/kept at 50%.
 MAX_ENUMERATED_GROUPS = 6
 TWO_WEEK_FINAL_FROM = 2026
-BENCH_SHORTLIST_PER_POSITION = 3
 EMPTY = Q.EMPTY_SLOT
 
 WeekKey = Tuple[int, int]
@@ -129,6 +128,11 @@ class TeamWeek:
     pf: float                          # real PF, +5 semifinal bonus included
     offset: float                      # pf − Σ starters' points (the bonus)
     opponent: Optional[str]
+    slot_index: Tuple[int, ...] = ()   # each starter's slot in the template (default: in order)
+
+    def slot_of(self) -> Dict[str, int]:
+        idx = self.slot_index or tuple(range(len(self.starters)))
+        return dict(zip(self.starters, idx))
 
 
 class League:
@@ -332,11 +336,13 @@ def load_league(team_week: pd.DataFrame,
                 starters, players, ppts = rows[team]
                 pts.update({str(k): float(v) for k, v in ppts.items()})
                 wrows.append((starters, slots[season]))
-                real_starters = tuple(p for p in starters if p and p != EMPTY)
+                placed = [(i, p) for i, p in enumerate(starters) if p and p != EMPTY]
+                real_starters = tuple(p for _, p in placed)
                 raw = sum(float(ppts.get(p, 0.0)) for p in real_starters)
                 out[team] = TeamWeek(team=team, starters=real_starters,
                                      players=frozenset(str(p) for p in players),
-                                     pf=round(pf, 2), offset=round(pf - raw, 2), opponent=opp)
+                                     pf=round(pf, 2), offset=round(pf - raw, 2), opponent=opp,
+                                     slot_index=tuple(i for i, _ in placed))
             if out:
                 weeks[key] = out
                 points[key] = pts
@@ -778,118 +784,153 @@ class Report:
 def cf_lineup_points(league: League, key: WeekKey, tw: TeamWeek, out: Set[str],
                      arrivals: Sequence[str], report: Optional[Report] = None) -> float:
     """Counterfactual starters' points (see the module docstring's lineup rule)."""
+    return cf_lineup(league, key, tw, out, arrivals, report)[0]
+
+
+def cf_lineup(league: League, key: WeekKey, tw: TeamWeek, out: Set[str],
+              arrivals: Sequence[str], report: Optional[Report] = None) -> Tuple[float, List[str]]:
+    """(points, starters) of the counterfactual lineup — the starters are what
+    `cf_lineup_points` scores, returned so a row can be checked by eye.
+
+    The pool is exactly the real roster that week minus `out` (what the move
+    brought in) plus `arrivals` (what it gave up). Slot-aware [per user]:
+
+      * every CLEARED slot — one a removed starter occupied — is filled, by a
+        different player each: the most plausible eligible option (3-game
+        average within PLAUSIBLE_MARGIN of the h-th best option for the h
+        cleared slots), else the best eligible one; left empty only if nobody
+        on the pool can play it;
+      * an arrival takes one explicit role: fill a cleared slot, take a slot
+        the manager really left empty, or displace ONE named starter whose
+        3-game average he is within PLAUSIBLE_MARGIN of;
+      * a bench player only ever fills a cleared slot — directly, or by one
+        starter sliding into it and the bench player taking the slot that
+        slide frees (the RB slot is cleared and the bench has only a WR: the
+        RB in the flex slides into the RB slot and the WR takes the flex). He
+        never displaces a starter, so no start/sit change the move did not
+        force;
+      * a player nobody started that week counts at most 1.5x his 3-game
+        average; a player with fewer than 3 prior NFL games is never moved in.
+    Among the plausible lineups the highest-scoring one is taken (real points).
+    """
     season = key[0]
     slots = league.slots[season]
     elig = league.eligibility[season]
     n = len(slots)
     started = league.started[key]
-    kept = [p for p in tw.starters if p not in out]
-    holes = len(tw.starters) - len(kept)
-    val: Dict[str, float] = {p: league.points(p, key) for p in kept}
+    slot_of = tw.slot_of()
+    kept = [(slot_of[p], p) for p in tw.starters if p not in out]
+    cleared = [slot_of[p] for p in tw.starters if p in out]
+    empty_real = [i for i in range(n) if i not in set(slot_of.values())]
 
-    def entry_value(p: str) -> float:
-        pts = league.points(p, key)
-        if p in started:
-            return pts
-        return min(pts, league.cap(p, key))
+    def avg(p: str) -> Optional[float]:
+        return league.recent_avg(p, key)
 
     def proven(p: str) -> bool:
-        """Unproven players (fewer than 3 prior NFL games — a rookie's first
-        three) are never moved INTO a counterfactual lineup [per user]; they
-        can still be moved out of one."""
-        if league.recent_avg(p, key) is not None:
+        if avg(p) is not None:
             return True
         if report is not None and league.points(p, key) > 0:
             report.unproven_blocked.add((p, key))
         return False
 
-    # An arrival already on the real roster adds nothing — unless the
-    # counterfactual is removing that real copy.
+    def entry_value(p: str) -> float:
+        pts = league.points(p, key)
+        return pts if p in started else min(pts, league.cap(p, key))
+
+    def fits(p: str, i: int) -> bool:
+        return bool(elig.get(p, frozenset()) & set(slots[i]))
+
+    def can_take(p: str, i: int, stay: Sequence[Tuple[int, str]]) -> bool:
+        """Into slot i directly, or into a starter's slot j while he slides into i."""
+        return fits(p, i) or any(fits(p, j) and fits(k, i) for j, k in stay)
+
+    val: Dict[str, float] = {p: league.points(p, key) for _, p in kept}
     arr = [a for a in dict.fromkeys(arrivals)
-           if (a not in tw.players or a in out) and a not in kept and proven(a)]
+           if (a not in tw.players or a in out) and a not in val and proven(a)]
     for a in arr:
         val[a] = entry_value(a)
-    arr = [a for a in arr if val[a] > 0]
-    bench: List[str] = []
-    if holes:
-        by_pos: Dict[str, List[str]] = defaultdict(list)
-        for p in tw.players:
-            if p in tw.starters or p in out or not proven(p):
-                continue
-            v = entry_value(p)
-            if v > 0:
-                val[p] = v
-                by_pos[league.positions.get(p, "")].append(p)
-        for group in by_pos.values():
-            bench.extend(sorted(group, key=lambda p: -val[p])[:BENCH_SHORTLIST_PER_POSITION])
-    # Plausibility [per user]: a substitution counts only if the manager could
-    # reasonably have made it — the incoming player's last-3-game average is
-    # at least the outgoing one's minus PLAUSIBLE_MARGIN. A displacement is
-    # judged against the starter displaced; a forced fill (the slot of a
-    # starter the counterfactual removed) against the h-th best-averaging
-    # player who could legally fill one, h = the number of open slots — with
-    # one hole the best option is the bar, with two the second-best (judging
-    # both fills against the single best left the second slot empty: 2025
-    # wk 14, Lamar + Godwin out of shmuel256, every WR measured against
-    # Herbert's QB average). A real empty slot takes anyone proven. An unproven
-    # starter (no 3-game average) may be displaced by anyone proven.
-    def avg(p: str) -> Optional[float]:
-        return league.recent_avg(p, key)
+    bench = [b for b in tw.players
+             if b not in tw.starters and b not in out and b not in arr and proven(b)]
+    for b in bench:
+        val[b] = entry_value(b)
 
-    def plausible(p: str, ref: Optional[float]) -> bool:
-        a = avg(p)
-        return a is None or ref is None or a >= ref - PLAUSIBLE_MARGIN
-
-    empty = n - len(tw.starters)
+    # The fill bar: the h-th best 3-game average among everyone who could take
+    # one of the h cleared slots.
     fill_ref: Optional[float] = None
-    if holes:
-        pads = n - len(kept) - 1
-        fillers = [p for p in list(arr) + [b for b in tw.players if b not in tw.starters and b not in out]
-                   if avg(p) is not None and is_legal(kept + [p] + [EMPTY] * pads, elig, slots)]
-        known = sorted((avg(p) for p in fillers if avg(p) is not None), reverse=True)
-        fill_ref = known[min(holes, len(known)) - 1] if known else None
-        bench = [b for b in bench if plausible(b, fill_ref)]
+    if cleared:
+        fillers = sorted({avg(p) for p in arr + bench
+                          if any(can_take(p, i, kept) for i in cleared)}, reverse=True)
+        fill_ref = fillers[min(len(cleared), len(fillers)) - 1] if fillers else None
 
-    def passes(a_sub: Tuple[str, ...], kb: int, drop: Tuple[str, ...]) -> bool:
-        for movers in itertools.permutations(a_sub, len(drop)):
-            if not all(plausible(a, avg(k)) for a, k in zip(movers, drop)):
+    def plausible_fill(p: str) -> bool:
+        return fill_ref is None or avg(p) >= fill_ref - PLAUSIBLE_MARGIN
+
+    def plausible_over(p: str, k: str) -> bool:
+        ka = avg(k)
+        return ka is None or avg(p) >= ka - PLAUSIBLE_MARGIN
+
+    def fill_bench(open_slots: List[int], stay: List[Tuple[int, str]], taken: Set[str]) -> Optional[List[str]]:
+        """Best distinct bench player per open cleared slot (plausible first,
+        else best eligible); None if a slot can be filled by nobody — then it
+        is left empty (returns the partial fill)."""
+        if not open_slots:
+            return []
+        options: List[List[Optional[str]]] = []
+        for i in open_slots:
+            elig_b = [b for b in bench if b not in taken and can_take(b, i, stay)]
+            good = [b for b in elig_b if plausible_fill(b)] or elig_b
+            good = sorted(good, key=lambda b: -val[b])[:len(open_slots) + 2]
+            options.append(good or [None])
+        best_fill: Optional[List[str]] = None
+        best_v = -1.0
+        for combo in itertools.product(*options):
+            chosen = [b for b in combo if b is not None]
+            if len(set(chosen)) != len(chosen):
                 continue
-            rest = [a for a in a_sub if a not in movers]
-            open_holes = holes - kb
-            failing = sum(1 for a in rest if not plausible(a, fill_ref))
-            # Arrivals that fail the fill test may only take a real empty slot.
-            if failing <= empty and len(rest) <= open_holes + empty:
-                return True
-        return False
+            v = sum(val[b] for b in chosen)
+            if v > best_v:
+                best_v, best_fill = v, chosen
+        return best_fill or []
 
-    base = sum(val[p] for p in kept)
-    if not arr and not bench:
-        return round(base, 2)
-    best = base
-    kept_sorted = sorted(kept, key=lambda p: val[p])
-    for ka in range(len(arr) + 1):
-        for a_sub in itertools.combinations(arr, ka):
-            a_val = sum(val[a] for a in a_sub)
-            a_max = max((val[a] for a in a_sub), default=0.0)
-            droppable = [k for k in kept_sorted if val[k] < a_max]
-            for kb in range(min(holes, len(bench)) + 1):
-                for b_sub in itertools.combinations(bench, kb):
-                    add = a_sub + b_sub
-                    add_val = a_val + sum(val[b] for b in b_sub)
-                    d_min = max(0, len(kept) + len(add) - n)
-                    for d in range(d_min, ka + 1):
-                        for drop in itertools.combinations(droppable, d):
-                            score = base - sum(val[x] for x in drop) + add_val
-                            if score <= best + 1e-9:
-                                continue
-                            lineup = [k for k in kept if k not in drop] + list(add)
-                            if len(lineup) > n:
-                                continue
-                            if not passes(a_sub, kb, drop):
-                                continue
-                            if is_legal(lineup + [EMPTY] * (n - len(lineup)), elig, slots):
-                                best = score
-    return round(best, 2)
+    best_score = -1.0
+    best_lineup: List[str] = [p for _, p in kept]
+
+    def consider(lineup: List[str]) -> None:
+        nonlocal best_score, best_lineup
+        if len(lineup) > n or len(set(lineup)) != len(lineup):
+            return
+        score = sum(val[p] for p in lineup)
+        if score <= best_score + 1e-9:
+            return
+        if is_legal(lineup + [EMPTY] * (n - len(lineup)), elig, slots):
+            best_score, best_lineup = score, lineup
+
+    # Each arrival: unused, fills a cleared slot, takes a real empty slot, or
+    # displaces one named starter.
+    roles: List[List[Tuple[str, Any]]] = []
+    for a in arr:
+        r: List[Tuple[str, Any]] = [("none", None)]
+        r += [("fill", i) for i in cleared if can_take(a, i, kept)
+              and (plausible_fill(a) or not any(can_take(x, i, kept) and plausible_fill(x)
+                                                for x in arr + bench))]
+        r += [("empty", i) for i in empty_real if can_take(a, i, kept)]
+        r += [("disp", (j, k)) for j, k in kept
+              if val[a] > val[k] and can_take(a, j, [x for x in kept if x[1] != k])
+              and plausible_over(a, k)]
+        roles.append(r)
+
+    for combo in itertools.product(*roles) if roles else [()]:
+        targets = [t for kind, t in combo if kind != "none"]
+        if len(targets) != len(set(map(repr, targets))):
+            continue
+        displaced = {t[1] for kind, t in combo if kind == "disp"}
+        stay = [(j, k) for j, k in kept if k not in displaced]
+        used = [a for a, (kind, _) in zip(arr, combo) if kind != "none"]
+        filled = {t for kind, t in combo if kind == "fill"}
+        open_slots = [i for i in cleared if i not in filled]
+        fill = fill_bench(open_slots, stay, set(used))
+        consider([k for _, k in stay] + used + fill)
+    return round(best_score if best_score >= 0 else sum(val[p] for p in best_lineup), 2), best_lineup
 
 
 def _result(a: float, b: float) -> float:
