@@ -122,6 +122,7 @@ the answer, not a silent choice.
 | `scripts/contract_study.py` (`lotg_support.contracts`) | the *real world* side: what an NFL contract predicts about fantasy production — signings ranked inside their position's market, matched against comparable players who did not get paid |
 | `scripts/forecast.py` (`lotg_support.forecast`) | the season that has not happened yet: project rosters (rates, ageing, market-priced rookies, availability and depth), calibrate against completed seasons, simulate championship / playoff / seeding odds |
 | `scripts/touchdowns.py` (`lotg_support.scoring_events`) | what a player actually DID rather than what he was worth: nflverse's stat lines joined onto this league's starters — touchdowns scored (and thrown) per starter-week, the scan for lineups that reached the end zone with nobody, and career totals in any nflverse stat, both as of a start and lifetime |
+| `scripts/boldness.py` (`lotg_support.boldness`) | how bold a lineup call was: each start against the best bench player who could legally have taken the slot, on PRE-KICKOFF expected points (season-decayed history, draft-round rookie priors, next-man-up cuff promotion), with tank / eliminated / seed-locked weeks flagged; plus team-week ex-ante Max PF minus expected PF |
 
 All of them are additive and read-only. None is imported by the build or run by
 any workflow — except `lotg_support.wins_added`, which IS the build's `Wins
@@ -428,6 +429,34 @@ age) who were not paid, and reports the paired gap with a BH q-value over the
 whole family. Every choice — what counts as big, how close a control must be,
 whether one-year deals count — is a parameter, and
 `plan/notes/CONTRACT_VALUE_BY_POSITION.md` runs the sensitivity table.
+
+**Boldness — a start/sit call judged on what was knowable.** `player_week`'s
+"Difference in averages of best/worst startables over previous 5 games" picks
+its reference player by what he ACTUALLY scored that week (the bench's top
+scorer, any position — only 28% of its references share the starter's
+position), so it is a hindsight measure. `lotg_support.boldness` is the
+ex-ante one:
+
+```bash
+python scripts/boldness.py week --season 2026 --week 4 --team BROsenzweig
+python scripts/boldness.py top -n 20            # games that mattered
+python scripts/boldness.py top --position QB --all
+python scripts/boldness.py managers
+python scripts/boldness.py teams                # ex-ante Max PF - expected PF
+python scripts/boldness.py validate
+```
+
+`Boldness = max(0, E[best eligible available bench] - E[starter])`. E is a
+shrunk average of the player's own NFL games re-scored to league settings:
+this season's games weigh 1, last season's 0.25 (tuned — an interior optimum
+on 14,411 rostered player-weeks; season-only E is measurably worse), a game for
+another NFL team half that; a rookie with no game yet gets a prior from past
+rookies at his position and draft round; a next man up whose higher-E teammate
+sits out (while on that team's roster, having played for it this season) is
+lifted to beta x the teammate's E, beta calibrated per position (~0.85; TE
+~0.70). `check_calibration` holds that the slope of (starter - reference)
+actual points on Edge is near -1 (-0.74 pooled 2021-2025). The documented 2022
+week-16 thrown game is the #1 team-week on it (75.8) without being told.
 
 ## The season that has not happened yet
 
@@ -894,6 +923,21 @@ list is here so an answer written by hand does not walk into them.
   team sold stars for draft picks there is no vacated slot and the returning
   stars simply sit — the counterfactual PF can even fall. Report it, but read the
   spread from `anchored` and `ceiling`. (`WHATIF_TEARDOWN_2024.md`.)
+
+- **`team_year."Week of playoff elimination"` is filled for the in-progress
+  season, with the current standings read as final.** The formula says blank;
+  on 2026 after week 3 it reads 0 for the current top four and 3 for the other
+  four, i.e. "eliminated in week 3" at 1-2 with eleven weeks left. A build
+  defect (reported, not fixed from an inquiry); `boldness.stakes()` trusts the
+  column for completed seasons only.
+- **nflverse's position is a player's, not his role's.** Taysom Hill is a TE in
+  nflverse but started at QB for New Orleans in 2021 weeks 13-14, so any
+  same-position logic (the boldness cuff promotion, a positional prior) misses
+  that role. Read a top-of-board Taysom row by hand.
+- **An offseason depth-chart change is not an injury.** Jordan Love entering
+  2023 or Jalen Hurts entering 2021 had backup histories; nothing in the cache
+  records that the job became theirs, so week-1 starts of new starters read as
+  bold. The boldness promotion only covers an absent teammate.
 
 ### Forecasting traps
 
