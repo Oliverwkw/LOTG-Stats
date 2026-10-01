@@ -1017,12 +1017,18 @@ Rules [per user, 2026-10-01]:
   Formulas rows + 1 edited; everything else is wall-clock tenure or the daily
   KTC "years later" roll (and the O-Score / skill columns reading it). No row
   added or removed.
-- [ ] **Follow-up PR (after the column ships): feed Wins added into `Trade
-  impact score`** in place of its WIN IMPACT term (`_tpi_wins` + downstream
-  share, `src/lotg.py` ~12920 / ~13069). That term only checks weeks where a
-  received player started (always 0 on 313 of 566 trades), swaps in the top-k
-  given-up scorers with hindsight and no slot legality, and never adjusts the
-  opponent. Moves every Trade impact score and the trades O-Score built on it.
+- [ ] **Follow-up PR: Trade impact score's WIN IMPACT uses the Wins added
+  "would he have played" test** [per user, 2026-10-01 — keep the two metrics
+  clearly different; do NOT substitute Wins added into the score]. Today the
+  term (`_tpi_wins` + downstream share, `src/lotg.py` ~12920 / ~13069) swaps in
+  the top-k given-up scorers that week with hindsight and no slot legality. It
+  should only count a given-up player where he would plausibly have started:
+  legal slot, last-3-game average within 5 of the player he replaces, 1.5x cap
+  for anyone nobody started, never an unproven (<3 prior games) player — one
+  shared rule from `lotg_support.wins_added`, not a second copy. Everything
+  else about the score stays as it is (only weeks a received player started,
+  fixed opponent score, z-scored composite). Moves every Trade impact score and
+  the trades O-Score built on it.
 
 ## Sequential re-audit of #446–#455 + winning-season streak fix (2026-10-01)
 Asked for: re-do every audit since #446 against SEQUENTIAL main builds (last
