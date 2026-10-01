@@ -956,6 +956,14 @@ Rules [per user, 2026-10-01]:
   (weeks something from the move was still in play) as the denominator: most
   drops are live ~4 weeks, so one flip read ±17 / ±8.5 and the board filled with
   2020 one-week flukes.
+- [x] **One nflverse path (branch run 599 caught it).** The build first handed
+  the engine its own `nfl_games_by_sid` while recomputes re-scored `.cache`
+  through a looser sid → gsis bridge; the two disagreed on some players' 3-game
+  history, so the plausibility / unproven tests flipped games (stevenb123's
+  McBride row built 5, recomputed 6). Now the build persists its enriched bridge
+  (Sleeper gsis with the last-name correction → DynastyProcess → nflverse) to
+  `exports/raw/wins_added_gsis_bridge.csv` and both paths score through
+  `wins_added.nflverse_points_from_cache` with it.
 - [x] `lib/lotg_support/wins_added.py` (+ `explain()` for tracing a row week by
   week), the build hook at the end of `build_all` (before the KTC provenance
   dump), Plan CSV + `stats_catalog.json` + Formulas + schema pin + phrasing rows.
@@ -990,7 +998,7 @@ Rules [per user, 2026-10-01]:
   per-season normalisation.
 - [ ] **3-part audit** on the first post-merge build. Expected diff: `Wins added`
   and `Wins added per season` on trades + add_drops, their Formulas rows,
-  nothing else (ktc_provenance.csv may
+  the new `exports/raw/wins_added_gsis_bridge.csv`, nothing else (ktc_provenance.csv may
   gain rows for trade-day lookups not already made). Results cases (run-597
   local recompute): stevenb123's McBride row = +6 (2023 wk 15, 2024 wk 5, 6,
   12, wk 17 final vs shmuel256, 2025 wk 7); plehv79's mirror row includes −1 at

@@ -21970,7 +21970,15 @@ def build_all(repo_root: Path) -> None:
                 return None
 
         _wa_report = _wa.Report()
-        _wa_league = _wa.load_league(tw, nfl_games_by_sid)
+        # The player -> gsis bridge after this build's enrichment (Sleeper's own id
+        # with the last-name correction, then DynastyProcess, then nflverse),
+        # persisted so a recompute outside the build scores the same nflverse games.
+        _wa_bridge = {str(_sid): str(_m.get("gsis_id")) for _sid, _m in pid_meta.items()
+                      if (_m or {}).get("gsis_id") and str(_m.get("gsis_id")).lower() != "nan"}
+        _wa.write_gsis_bridge(_wa_bridge, repo_root / "exports" / "raw" / _wa.BRIDGE_FILE)
+        _wa_league = _wa.load_league(tw, _wa.nflverse_points_from_cache(
+            bridge=_wa_bridge, score=_league_score, score_map=_LEAGUE_SCORE_MAP,
+            cache_dir=cache_dir))
         _wa_bad = _wa.check_offsets(_wa_league) + _wa.check_real_lineups_legal(_wa_league)
         for _msg in _wa_bad[:20]:
             _log(debug, f"[{_now_iso()}] WARN wins added: {_msg}")

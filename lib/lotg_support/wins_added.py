@@ -70,9 +70,11 @@ DATA
 the build's late-listing correction); 2020 from the ESPN backfill
 (`src/espn_2020.emit_sleeper_2020`), which speaks the same shape. Real results
 are `team_week` PF (with the +5 semifinal bonus) against `team_week` Opponent.
-A player on nobody's roster that week scores his nflverse line under that
-season's league scoring (the build's `nfl_games_by_sid`; locally
-`nflverse_points_from_cache`). The moves are read from the two sheets
+A player on nobody's roster that week, and every "previous 3 games" average,
+use his nflverse lines under that season's league scoring
+(`nflverse_points_from_cache`). The build persists its sleeper -> gsis bridge
+(`exports/raw/wins_added_gsis_bridge.csv`) so a recompute scores the same
+games. The moves are read from the two sheets
 themselves, so the build and a local recompute go through one code path.
 
 Nothing here writes anything; the build calls `compute` and stores the
@@ -362,28 +364,68 @@ def _last_game_days(keys: Set[WeekKey]) -> Dict[WeekKey, str]:
     return out
 
 
-def nflverse_points_from_cache(seasons: Optional[Sequence[int]] = None) -> Dict[str, Dict[WeekKey, float]]:
+BRIDGE_FILE = "wins_added_gsis_bridge.csv"
+
+
+def bridge_path() -> Path:
+    return Q.repo_root() / "exports" / "raw" / BRIDGE_FILE
+
+
+def write_gsis_bridge(bridge: Dict[str, str], path: Optional[Path] = None) -> Path:
+    """Persist the build's sleeper_id -> gsis_id map (Sleeper's own id with the
+    build's last-name correction, then DynastyProcess, then nflverse) so a
+    recompute outside the build scores exactly the same nflverse games."""
+    path = path or bridge_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    rows = sorted((str(s), str(g)) for s, g in bridge.items() if s and g and str(g).lower() != "nan")
+    pd.DataFrame(rows, columns=["sleeper_id", "gsis_id"]).to_csv(path, index=False)
+    return path
+
+
+def load_gsis_bridge() -> Dict[str, str]:
+    """The build's persisted bridge; before one exists, the inquiry layer's
+    (DynastyProcess first, Sleeper's own field second)."""
+    path = bridge_path()
+    if path.exists():
+        df = pd.read_csv(path, dtype=str)
+        return dict(zip(df["sleeper_id"], df["gsis_id"]))
+    from lotg_support.scoring_events import gsis_bridge
+    return gsis_bridge()
+
+
+def nflverse_points_from_cache(seasons: Optional[Sequence[int]] = None,
+                               bridge: Optional[Dict[str, str]] = None,
+                               score: Optional[Callable[..., float]] = None,
+                               score_map: Optional[Dict[str, Tuple[str, ...]]] = None,
+                               cache_dir: Optional[Path] = None) -> Dict[str, Dict[WeekKey, float]]:
     """League-scored nflverse points by Sleeper id, from the build's `.cache`.
 
-    The local twin of the build's `nfl_games_by_sid`: regular-season games,
-    each season scored with its own league scoring settings (2020 with the ESPN
-    table) through the build's `_league_score`.
+    Regular-season games, each season scored with its own league scoring
+    settings (2020 with the ESPN table, earlier seasons with 2020's) through the
+    build's `_league_score`. The build and every recompute call this with the
+    same bridge (`load_gsis_bridge`), so they score the same games. A gsis id
+    two Sleeper ids share is given to both.
     """
-    _src_on_path()
-    import lotg  # noqa: E402
+    if score is None or score_map is None:
+        _src_on_path()
+        import lotg  # noqa: E402
+        score, score_map = lotg._league_score, lotg._LEAGUE_SCORE_MAP
+    bridge = bridge if bridge is not None else load_gsis_bridge()
+    gsis_to_sids: Dict[str, List[str]] = defaultdict(list)
+    for sid, gsis in bridge.items():
+        g = str(gsis or "").strip()
+        if g and g.lower() != "nan":
+            gsis_to_sids[g].append(str(sid))
     root = Q.repo_root()
-    gsis_to_sid: Dict[str, str] = {}
-    for sid, gsis in Q._sleeper_to_gsis().items():
-        if gsis:
-            gsis_to_sid.setdefault(str(gsis), str(sid))
+    cache_dir = cache_dir or root / ".cache"
     positions = Q.players().positions()
-    # From 2017: the three seasons before the league exist only as history for
-    # the bench cap's "previous 3 games" (scored with the first season's table,
-    # as the build's backfill does).
+    # From 2017: the three seasons before the league are history only, for the
+    # "previous 3 games" average.
     seasons = list(seasons or range(2017, date.today().year + 1))
+    first_table = None
     out: Dict[str, Dict[WeekKey, float]] = defaultdict(dict)
     for season in seasons:
-        path = root / ".cache" / f"nflverse_stats_player_week_{season}.csv"
+        path = cache_dir / f"nflverse_stats_player_week_{season}.csv"
         if not path.exists():
             continue
         if season >= 2021:
@@ -392,18 +434,20 @@ def nflverse_points_from_cache(seasons: Optional[Sequence[int]] = None) -> Dict[
                 continue
             scoring = json.loads(lj.read_text()).get("scoring_settings") or {}
         else:
-            scoring = _espn_2020()["league"]["scoring_settings"]
+            if first_table is None:
+                first_table = _espn_2020()["league"]["scoring_settings"]
+            scoring = first_table
         df = pd.read_csv(path, low_memory=False)
         if "season_type" in df.columns:
             df = df[df["season_type"].astype(str).str.upper() == "REG"]
-        cols = [c for cs in lotg._LEAGUE_SCORE_MAP.values() for c in cs if c in df.columns]
+        cols = [c for cs in score_map.values() for c in cs if c in df.columns]
         for r in df[["player_id", "week"] + cols].itertuples(index=False):
-            sid = gsis_to_sid.get(str(r[0]))
-            if not sid:
+            sids = gsis_to_sids.get(str(r[0]))
+            if not sids:
                 continue
-            stats = dict(zip(cols, r[2:]))
-            stats = {k: (None if pd.isna(v) else v) for k, v in stats.items()}
-            out[sid][(int(season), int(r[1]))] = lotg._league_score(stats, scoring, positions.get(sid))
+            stats = {k: (None if pd.isna(v) else v) for k, v in zip(cols, r[2:])}
+            for sid in sids:
+                out[sid][(int(season), int(r[1]))] = score(stats, scoring, positions.get(sid))
     return dict(out)
 
 
