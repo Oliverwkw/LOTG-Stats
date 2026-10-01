@@ -2250,3 +2250,34 @@ def test_a_faller_on_an_event_board_was_passed_by_the_row_that_stood_still():
     got = [c.sentence() for c in D.diff_events(board, events2, prior_row_keys=["k_h", "k_w"])]
     assert any(s.startswith("Wilson move passes Hurts move") for s in got), got
     assert not any("was passed by" in s for s in got), got
+
+
+def test_add_drop_rows_name_the_dropped_player():
+    """An add/drop that both added and dropped a player names the dropped one in
+    parentheses, like an opponent; a pure add, and a label two rows with
+    different drops share, are left alone. Display only."""
+    import pandas as pd
+    from lotg_support import digest as D
+    ad = pd.DataFrame([
+        ["LWebs53", "2021-12-10 13:00:24", "Demaryius Thomas", "Carlos Hyde"],
+        ["LWebs53", "2021-12-10 16:58:57", "Demaryius Thomas", "Jeff Wilson"],
+        ["T", "2025-09-01 10:00:00", "QJ", "Old Guy"],
+        ["U", "2025-09-02 10:00:00", "Pure Add", None],
+        ["V", "2025-09-03 10:00:00", None, "Pure Drop"],
+    ], columns=["Team", "Date", "Player Added", "Player Dropped"])
+    lbl = {i: D._board_label("add_drops", ad.iloc[i]) for i in range(len(ad))}
+    col = "Faab"
+    mover = D.EventCrossing("add_drops", lbl[1], col, "high", 1, 50.0,
+                            passed=(lbl[0], lbl[2], lbl[3], lbl[4]),
+                            key=D._board_row_key("add_drops", ad.iloc[1]))
+    D.name_dropped_players([mover], {"add_drops": ad})
+    s = mover.sentence()
+    assert s.startswith("LWebs53's 2021-12-10 move for Demaryius Thomas (dropped Jeff Wilson) "), s
+    assert "T's 2025-09-01 move for QJ (dropped Old Guy)" in s, s
+    assert "Carlos Hyde" not in s, s                     # ambiguous label: unnamed
+    assert "U's 2025-09-02 move for Pure Add," in s or "U's 2025-09-02 move for Pure Add " in s, s
+    assert "drop of Pure Drop (dropped" not in s, s
+    assert mover.label == lbl[1]                         # identity untouched
+    other = D.EventCrossing("trades", "A's 2025-09-01 trade for X", col, "high", 1, 1.0)
+    D.name_dropped_players([other], {"add_drops": ad})
+    assert other.shown == {}
