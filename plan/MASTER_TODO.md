@@ -909,6 +909,146 @@ PF mixes every position, so the per-position factor means nothing there);
   new player_year columns' on-pace standings once; boards stay silent on them
   for a week (new slots are absent from the prior snapshot).
 
+## Wins added (trades + add_drops)
+Asked for (2026-10-01): a wins added/lost formula for every trade and add/drop —
+"for every week, would not making this move have changed if I won. +1 if switch
+to win, −1 if switch to loss" — that handles Peter trading away McBride and
+Oliverwkw's Waddle → Conner → Ekeler flip. One column on each sheet, `Wins added`
+(after `Trade impact score` / `Player addition value`); the rule lives in
+`lotg_support.wins_added`, the build only stores it.
+
+Rules [per user, 2026-10-01]:
+- Each week on its own against the real opponent; no re-seeding, no bracket
+  replay. Playoffs, 3rd place and the toilet bracket count as normal weeks. The
+  2026+ two-week final is ONE game (both weeks summed).
+- Given-up assets count from the move to today — and keep counting after the
+  returned assets are dropped or traded. A given-up pick = the player drafted
+  with it. Two stops [per user, 2026-10-01, revised from "no cap" / "re-acquired
+  = a different player" after the column summed to −726 / −522]: the count ends
+  once the league lets him go (on no roster for 4 straight weeks) and when the
+  team re-acquires him (the earlier move's count ends the week before).
+- Lineage must scale with size: what a received asset is later traded for
+  carries this move's share of that trade = KTC of the lineage inputs / KTC of
+  the team's whole side on that trade's day (FAAB weight 0), read as a
+  probability (averaged over removed / kept). Chosen over the integer
+  majority-rule and production-share alternatives. Drops end lineage.
+- FAAB is left out entirely (house rules move budgets untrackably). A
+  FAAB-only sale is a pure drop; a FAAB-only purchase a pure add.
+- Lineup: best feasible counterfactual lineup with no other start/sit decision —
+  removed starters leave, arrivals may fill or displace if eligible and better,
+  open slots no arrival fills go to the best eligible bench player (bench never
+  displaces), players move between slots to keep it legal. A player started by
+  nobody that week counts for at most 1.5 × his average over his previous 3 NFL
+  games. Every substitution must be plausible [per user, 2026-10-01]: the
+  incoming player's last-3-game average >= the outgoing player's − 5 (a forced
+  fill vs the best-averaging legal filler). A player with fewer than 3 prior
+  NFL games (a rookie's first three) never moves in, but can be moved out.
+  The opponent's lineup changes only if its roster does.
+- 2020 included (ESPN backfill via `espn_2020.emit_sleeper_2020`).
+
+- [x] **`Wins added per season`** [per user, 2026-10-01] beside it on both
+  sheets: Wins added × 17 / games the team has played since the move (the
+  2026+ two-week final is one game; 17 for every year). A loss the week after a
+  drop reads −17. N/A before the move's first game. A rate, so the weekly email
+  holds a move off its boards until 5 weeks after it (`digest.BoardGate`,
+  `EVENT_MIN_WEEKS`) like every other rate on the move sheets — no digest
+  change needed; the test pins the classification. Chosen over "live games"
+  (weeks something from the move was still in play) as the denominator: most
+  drops are live ~4 weeks, so one flip read ±17 / ±8.5 and the board filled with
+  2020 one-week flukes.
+- [x] **One nflverse path (branch run 599 caught it).** The build first handed
+  the engine its own `nfl_games_by_sid` while recomputes re-scored `.cache`
+  through a looser sid → gsis bridge; the two disagreed on some players' 3-game
+  history, so the plausibility / unproven tests flipped games (stevenb123's
+  McBride row built 5, recomputed 6). Now the build persists its enriched bridge
+  (Sleeper gsis with the last-name correction → DynastyProcess → nflverse) to
+  `exports/raw/wins_added_gsis_bridge.csv` and both paths score through
+  `wins_added.nflverse_points_from_cache` with it.
+- [x] `lib/lotg_support/wins_added.py` (+ `explain()` for tracing a row week by
+  week), the build hook at the end of `build_all` (before the KTC provenance
+  dump), Plan CSV + `stats_catalog.json` + Formulas + schema pin + phrasing rows.
+  Not build-volatile: like `Points added` it grows on old rows only as new weeks
+  are played.
+- [x] Guard: `tests/test_wins_added.py` — eight synthetic cases (slot movement,
+  bench cap, forced fills only, the ±1 flip, opponent + mirror row, KTC-share
+  lineage, drops end lineage, re-acquired player), every real lineup legal and
+  every PF = starters (+5) over 2020–today, and a recompute of 24 sample rows
+  against the exported column (skips on pre-merge exports; settled-by-completed-
+  seasons rows without KTC-shared lineage only).
+- Local recompute from the run-597 exports (2026 through week 3): every real
+  lineup legal and every PF reconciled (832 team-weeks), 0 unresolved names, 186
+  uncapped entries (players with no prior NFL game), nflverse re-scoring =
+  Sleeper on 16,835 / 16,845 rostered player-weeks (10 stat corrections).
+- **Negativity, diagnosed (2026-10-01).** As first built the column summed to
+  −726 (trades) / −522 (add_drops) at run 597. Variants: the lineage window,
+  the 4-week-unrostered stop and the re-acquisition stop each help add_drops
+  (to −234 / −211 / −378) but barely move trades (−619 / −678 / −692). The
+  main cause is hindsight in the lineup rule — a given-up player is compared
+  with whichever starter happened to score worst that week. Deciding the
+  lineup on prior form and scoring it on actual points gives trades +101
+  (154 positive / 113 negative) and, with both stops, add_drops +4; the
+  by-season slide (2020 trades −4.5 → 2025 −0.2) disappears. The two stops
+  are adopted. Instead of deciding lineups on prior form, the user chose the
+  plausibility test + unproven-rookie rule above (scoring stays on actual
+  points): trades −179 (134 positive / 155 negative), add_drops −20 (78 / 89),
+  562 rookie entries blocked; Spearman vs Trade impact score +0.38, vs
+  Player addition value +0.25. A mild lean remains on old trades (2020 mean
+  −1.06, 2025 0.00).
+  Old moves swinging more games than new ones is intended [per user] — no
+  per-season normalisation.
+- [ ] **3-part audit** on the first post-merge build. Expected diff: `Wins added`
+  and `Wins added per season` on trades + add_drops, their Formulas rows,
+  the new `exports/raw/wins_added_gsis_bridge.csv`, nothing else (ktc_provenance.csv may
+  gain rows for trade-day lookups not already made). Results cases (run-597
+  local recompute): stevenb123's McBride row = +6 (2023 wk 15, 2024 wk 5, 6,
+  12, wk 17 final vs shmuel256, 2025 wk 7); plehv79's mirror row includes −1 at
+  2024 wk 5 and wk 12; LWebs53's Jan-2023 Kyren Williams drop = 0 (re-acquired
+  in 2023 wk 2, and in wk 1 his 3-game average of 1.5 made him implausible)
+  while the Oct-2023 Kyren + Cousins for Jonathan Taylor trade carries the cost
+  (−7.07); Oliverwkw's Waddle trade carries Ekeler at 0.245 (Conner's KTC share
+  of that deal); a FAAB-only sale reads as a pure drop; a rookie in his first 3
+  games never enters a counterfactual lineup; a 2020 row.
+
+- [ ] **Follow-up PR (after the column ships): feed Wins added into `Trade
+  impact score`** in place of its WIN IMPACT term (`_tpi_wins` + downstream
+  share, `src/lotg.py` ~12920 / ~13069). That term only checks weeks where a
+  received player started (always 0 on 313 of 566 trades), swaps in the top-k
+  given-up scorers with hindsight and no slot legality, and never adjusts the
+  opponent. Moves every Trade impact score and the trades O-Score built on it.
+
+## Sequential re-audit of #446–#455 + winning-season streak fix (2026-10-01)
+Asked for: re-do every audit since #446 against SEQUENTIAL main builds (last
+pre-merge run → first post-merge run), in case the paired same-time
+`audit-base` convention hid a change. Pairs 560→564 (#446/#447), 564→567
+(#448), 567→568 (#449), 568→570 (no PR), 570→581 (#450/#452; run 571 was a
+guard-skipped fire), 581→584 (#453), 584→589 (#454), 589→597 (#455).
+- [x] **No missed PR change.** Every completed-season change in a non-volatile
+  column is the PR's own documented change (#446 twins + renames + position
+  factor; #448 move counts / trade-week clock; #452 dropped points as scored,
+  sent-side window, pick-held rule — which also moves the received side, despite
+  the PR body's "Unchanged: the received side" line; #455 trades Difference of
+  averages N/A on 111 rows with no received side — confirmed caused by #455:
+  same-time base run 598 kept the values) or live drift by design (open
+  windows into 2026, career averages, the all-time pooled Positional scoring
+  percentile and the tier % / streak columns on it, the all-time vs-opponent
+  streaks, wall-clock Tenure). Formulas rows track the PRs exactly; no
+  completed-season row was added or removed in any pair.
+- [x] **Fixed: `Winning season streak` counted the in-progress season** (found in
+  568→570, not caused by any PR, invisible to a same-time pair). 2026's
+  provisional Win % extended the run at 1-1 and broke it at 1-2, flipping
+  completed rows week to week. Now [per user]: the streak reads the REGULAR-
+  season record across the board (playoff / consolation games don't count), and
+  a season counts once it is decided — .500 clinched even losing out extends
+  it, .500 out of reach even winning out breaks it, otherwise N/A and the run
+  is left alone (a finished regular season is always decided). Regular-season
+  games = playoff start − 1 (2020: 14, 2021-25: 15, 2026: 14). On run 597's
+  data 13 of 56 team_year rows move: every 2026 row → N/A (nobody decided at
+  week 3), plehv79 2024 (8-9 overall, 8-7 regular) becomes a winning season
+  (2023 → In Progress, 2024 → 2), and the 2025 rows of AceMatthew / shmuel256 /
+  stevenb123 read their run length instead of In Progress. Guard:
+  `tests/test_winning_season_streak.py`. Expected diff: team_year `Winning
+  season streak` only + its Formulas row.
+
 ## Phase 15 — TBD: OLD LEAGUES
 - [ ] **TBD.** Placeholder for integrating other historical/old leagues' data (e.g. the
   separate ESPN leagues seen in the 2020 emails — UChicago '24 = leagueId 57687541, UChi
