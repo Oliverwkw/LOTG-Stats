@@ -299,6 +299,7 @@ def main(argv=None) -> int:
     highlights, event_changes = D.fold_week_boards(
         highlights, event_changes, frames, [(meta["season"], w) for w in covered])
     D.name_opponents(event_changes, frames)
+    D.name_dropped_players(event_changes, frames)
 
     # The lede: up to five sentences above the list saying what actually
     # happened, because 65 one-line facts is a wall nobody reads. Computed, not

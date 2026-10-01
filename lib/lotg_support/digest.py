@@ -2745,6 +2745,41 @@ def name_opponents(events: Sequence["EventCrossing"], frames: dict) -> None:
             e.shown[lbl] = _with_opponent(lbl, opponents)
 
 
+def name_dropped_players(events: Sequence["EventCrossing"], frames: dict) -> None:
+    """Name the dropped player on every add/drop row that both added and dropped
+    one ("LWebs53's 2021-12-10 move for Demaryius Thomas (dropped Jeff Wilson)"),
+    the way `name_opponents` names an opponent: the label only says who came in.
+    The mover is looked up by its row key; a row it passed or tied by its label,
+    and left unnamed when that label is shared by rows that dropped different
+    players (one team adding the same player twice in a day). Display only
+    (`EventCrossing.shown`)."""
+    ad = (frames or {}).get("add_drops")
+    if ad is None or ad.empty or not {"Player Added", "Player Dropped"} <= set(ad.columns):
+        return
+    by_key: Dict[str, str] = {}
+    by_label: Dict[str, set] = {}
+    for _i, row in ad.iterrows():
+        added = _event_cell(row, "Player Added")
+        if not added:
+            continue
+        dropped = _event_cell(row, "Player Dropped")
+        by_label.setdefault(_board_label("add_drops", row), set()).add(dropped)
+        if dropped:
+            by_key[_board_row_key("add_drops", row)] = dropped
+
+    def from_label(lbl: str) -> str:
+        got = by_label.get(lbl, set())
+        return next(iter(got)) if len(got) == 1 else ""
+
+    for e in events:
+        if e.sheet != "add_drops":
+            continue
+        for lbl in (e.label,) + tuple(e.co_movers) + tuple(e.others) + tuple(e.passed):
+            dropped = (by_key.get(e.key) if lbl == e.label else None) or from_label(lbl)
+            if dropped:
+                e.shown[lbl] = f"{e.shown.get(lbl, lbl)} (dropped {dropped})"
+
+
 def fold_week_boards(highlights: Sequence[WeeklyHighlight],
                      events: Sequence["EventCrossing"], frames: dict,
                      weeks: Sequence[Tuple[int, int]]
