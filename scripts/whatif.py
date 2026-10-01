@@ -7,7 +7,7 @@ writes nothing. Nothing in the build imports it and no workflow runs it.
     # the Herbert-for-Jackson trade?
     python scripts/whatif.py --season 2025 --undo-trade-player 'Justin Herbert'
 
-    # bracket the lineup assumption with all three models
+    # bracket the lineup assumption with all four models
     python scripts/whatif.py --season 2025 --undo-trade-player 'Justin Herbert' --model all
 
     # several trades rewound together — a teardown is not one trade, and undoing
@@ -141,7 +141,7 @@ def main(argv=None) -> int:
         for model in models:
             print(f"  {model:<9} champion {champs[model]:<18} {flips[model]} result(s) flip")
         agree = len(set(champs.values())) == 1
-        print(f"\n  the three models {'AGREE' if agree else 'DISAGREE'} on the champion"
+        print(f"\n  the {len(models)} models {'AGREE' if agree else 'DISAGREE'} on the champion"
               + ("" if agree else " — report the disagreement, do not pick one"))
     return 0
 

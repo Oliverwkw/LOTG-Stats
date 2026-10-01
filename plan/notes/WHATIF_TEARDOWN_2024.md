@@ -228,15 +228,18 @@ Classified by-design / needs-human-judgment / defect.
 - **[by-design] Trades are not priced.** `trades` stores its assets as free text,
   so `spend_by_position()` cannot value the deal itself. Pick-level KTC from
   `picks` is the closest available and is what is quoted.
-- **[by-design] Three-way trades cannot be rewound.** 3 of 2024's 67 trades have
-  more than two sides; `undo_trade` and `compose` both refuse rather than guess
-  the routing (`replay.three_way_trades`). None of the five teardown trades is
-  one, so this does not touch the answer.
+- **[by-design, superseded 2026-10-01] Three-way trades cannot be rewound.** 3
+  of 2024's 67 trades have more than two sides; `undo_trade` and `compose` both
+  refused rather than guess the routing (`replay.three_way_trades`). None of the
+  five teardown trades is one, so this did not touch the answer. *Since
+  2026-10-01 they rewind: Sleeper's `drops` names each sender (`Trade.sent_by`).*
 - **[by-design] Build-volatile columns quoted:** Tanking, Draft Value, Future
   draft capital, Drafting/Trading skill. They legitimately move between builds
   (`lotg_support.volatile_columns`); none is load-bearing here.
-- **[by-design] Replay warning surfaced:** week 1, Alec Pierce was on nobody's
-  roster, so no score is available and he is counted as 0.00 for that week.
+- **[by-design, superseded 2026-10-01] Replay warning surfaced:** week 1, Alec
+  Pierce was on nobody's roster, so no score is available and he is counted as
+  0.00 for that week. *Since 2026-10-01 such a player scores his nflverse line;
+  the re-run in the addendum below reproduces the three models' records.*
 - **[needs-human-judgment] 2026 has not been played.** The "the rebuild worked"
   half of the verdict is a roster judgement, not a result.
 - **[by-design] `strict` is degenerate for player-for-picks trades** — see above.
@@ -261,3 +264,25 @@ python tests/test_replay_compose.py
 The multi-trade rewind this note needed did not exist before it; it was added as
 `replay.compose` / `replay.undo_trades`, guarded by `replay.check_compose` and
 `tests/test_replay_compose.py`. Nothing the build produces changed.
+
+## Addendum (2026-10-01): a fourth lineup model
+
+`whatif.py` gained a **plausible** model — the build's `Wins added` lineup rule
+(an arrival may displace a starter only if his last-3-game average is within 5
+of that starter's; anyone nobody started is capped at 1.5× that average; a rookie
+in his first 3 games never moves in; hindsight picks among the plausible
+options). Re-running the five-trade rewind above on 2024 with `--model all`:
+
+| Model | Oliverwkw | Champion |
+|---|---|---|
+| anchored | 3-12 → 8-7 | stevenb123 |
+| strict | 3-12 → 3-12 | stevenb123 |
+| ceiling | 3-12 → 8-7 | **Oliverwkw** |
+| plausible | 3-12 → **10-5** | **Oliverwkw** |
+
+The three original models reproduce the table above exactly (players on nobody's
+roster now score their nflverse line instead of 0 in every model; it does not
+move this answer). Plausible sits above anchored because it lets returned stars
+displace whichever starter they plausibly outranked that week, where anchored
+only starts an arrival his real manager started — so the disagreement on the
+champion now runs two-against-two. Report both ends, as before.

@@ -33,6 +33,25 @@ Three models are provided; run more than one and report where they disagree:
       by how much the roster's ceiling moved. Uses the build's own Max PF
       routine (`lotg_support.lineup.compute_optimal_lineup`), so it agrees with
       the `Max PF` column by construction.
+  plausible — the build's `Wins added` lineup rule (`wins_added.cf_lineup_points`,
+      one definition, not a copy): starters who leave are removed; an arrival
+      may fill an open slot or displace a starter, with players moving between
+      slots to stay legal; an open slot no arrival fills goes to the best
+      eligible bench player (the bench never displaces anyone). Every
+      substitution must be one the manager could reasonably have made — the
+      incoming player's last-3-game average at least the outgoing one's minus 5
+      — a player nobody started that week counts for at most 1.5x that
+      average, and a player with fewer than 3 prior NFL games (a rookie's
+      first three) is never moved in. Scored on actual points.
+
+PLAYERS ON NOBODY'S ROSTER score their nflverse line under that season's league
+scoring (`wins_added.nflverse_points_from_cache`, through the build's persisted
+sleeper -> gsis bridge), in every model — they used to count as 0.
+
+ANCHORED'S PRIOR FORM before a player's first game of the season (week 1) is his
+average over his previous 3 NFL games, not 0 — with every prior at 0 the
+surplus cut was arbitrary (2025 wk 1: adding McBride to plehv79 LOWERED its
+score, 128.14 -> 114.22, by benching a better player).
 
 LEAGUE RULES THAT ARE EASY TO GET WRONG (all handled here)
 ----------------------------------------------------------
@@ -59,13 +78,40 @@ Usage:
 """
 from __future__ import annotations
 
+import functools
 from dataclasses import dataclass, field, replace as _dc_replace
-from typing import Dict, Iterable, List, Optional, Sequence, Set, Tuple
+from typing import Callable, Dict, Iterable, List, Optional, Sequence, Set, Tuple
 
 from lotg_support import inquiry as Q
 from lotg_support.lineup import compute_optimal_lineup
 
-MODELS: Tuple[str, ...] = ("anchored", "strict", "ceiling")
+MODELS: Tuple[str, ...] = ("anchored", "strict", "ceiling", "plausible")
+
+
+@functools.lru_cache(maxsize=None)
+def _league_cached(root: str):
+    """The `Wins added` week-by-week league: every lineup since 2020, real
+    points, and league-scored nflverse lines for players on nobody's roster.
+    None when the exports are absent."""
+    from lotg_support import wins_added as W
+    try:
+        return W.load_league(Q.load_sheet("team_week"), W.nflverse_points_from_cache())
+    except Exception:
+        return None
+
+
+def _league():
+    return _league_cached(str(Q.repo_root()))
+
+
+class _WinsAddedProxy:
+    """Lazy handle on lotg_support.wins_added (it imports this module)."""
+    def __getattr__(self, name):
+        from lotg_support import wins_added as W
+        return getattr(W, name)
+
+
+_wa = _WinsAddedProxy()
 
 
 # ---------------------------------------------------------------------------
@@ -114,17 +160,22 @@ def _resolve_trade(season: int, player: Optional[str] = None, date: Optional[str
 
 
 def _trade_moves(trade: "Q.Trade", from_week: int = 1) -> Tuple[Move, ...]:
-    """Every player in `trade` sent back to whoever gave him up."""
+    """Every player in `trade` sent back to whoever gave him up.
+
+    Sleeper records the sender of every player (`drops`), so a 3-team deal
+    routes each one home; a 2-team deal without that record falls back to "the
+    other side"."""
     moves = []
     for rid, gained in trade.received.items():
         others = [r for r in trade.roster_ids if r != rid]
         for pid in gained:
-            # Undo = the player goes back to whoever gave him up. Two-sided
-            # trades are the norm here; a 3-way would need explicit routing.
-            if len(others) != 1:
-                raise LookupError(f"trade {trade.transaction_id} has {len(trade.roster_ids)} sides; "
-                                  "build the Move list explicitly")
-            moves.append(Move(player_id=pid, from_roster=rid, to_roster=others[0],
+            sender = trade.sent_by.get(pid)
+            if sender is None and len(others) == 1:
+                sender = others[0]
+            if sender is None:
+                raise LookupError(f"trade {trade.transaction_id}: no sender recorded for "
+                                  f"{Q.players().name(pid)}; build the Move list explicitly")
+            moves.append(Move(player_id=pid, from_roster=rid, to_roster=int(sender),
                               from_week=from_week))
     return tuple(moves)
 
@@ -270,23 +321,30 @@ def is_legal(lineup: Sequence[str], eligibility: Dict[str, frozenset],
     return all(assign(p, set()) for p in lineup)
 
 
-def _prior_ppg(pid: str, history: Dict[str, List[float]]) -> float:
-    """Points per game over the weeks already played — no hindsight."""
+def _prior_ppg(pid: str, history: Dict[str, List[float]],
+               before: Optional[Callable[[str], Optional[float]]] = None) -> float:
+    """Points per game over the weeks already played — no hindsight. Before the
+    player's first game of the season, `before(pid)` (his last-3-NFL-game
+    average) stands in, so week 1 is not a tie at 0."""
     played = history.get(pid) or []
-    return sum(played) / len(played) if played else 0.0
+    if played:
+        return sum(played) / len(played)
+    prior = before(pid) if before else None
+    return float(prior) if prior is not None else 0.0
 
 
 def _anchored_lineup(real_starters: Sequence[str], roster: Sequence[str],
                      departing: Set[str], arrivals: Sequence[str],
                      eligibility: Dict[str, frozenset], history: Dict[str, List[float]],
-                     benched_out: Set[str], slots: Sequence[Sequence[str]]) -> List[str]:
+                     benched_out: Set[str], slots: Sequence[Sequence[str]],
+                     before: Optional[Callable[[str], Optional[float]]] = None) -> List[str]:
     """Real lineup, minimally perturbed (see the module docstring's `anchored`)."""
     lineup = [p for p in real_starters if p not in departing]
     lineup.extend(a for a in arrivals if a not in lineup)
 
     size = len(slots)
     while len(lineup) > size:
-        for cand in sorted(lineup, key=lambda p: _prior_ppg(p, history)):
+        for cand in sorted(lineup, key=lambda p: _prior_ppg(p, history, before)):
             trial = [p for p in lineup if p != cand]
             if len(trial) > size or is_legal(trial, eligibility, slots):
                 lineup = trial
@@ -296,7 +354,7 @@ def _anchored_lineup(real_starters: Sequence[str], roster: Sequence[str],
 
     bench = [p for p in roster if p not in lineup and p not in departing and p not in benched_out]
     while len(lineup) < size:
-        for cand in sorted(bench, key=lambda p: -_prior_ppg(p, history)):
+        for cand in sorted(bench, key=lambda p: -_prior_ppg(p, history, before)):
             trial = lineup + [cand]
             if len(trial) < size or is_legal(trial, eligibility, slots):
                 lineup = trial
@@ -383,9 +441,11 @@ def _score_weeks(scenario: Scenario, meta: Q.SeasonMeta,
                                                Dict[int, List[Tuple[int, int]]]]:
     positions = Q.players().positions()
     eligibility = Q.season_eligibility(scenario.season)
-    unavailable = Q.unavailable(scenario.season) if scenario.model == "anchored" else set()
+    unavailable = Q.unavailable(scenario.season) if scenario.model in ("anchored", "plausible") else set()
     slots = meta.starting_slots
     history: Dict[str, List[float]] = {}
+    league = _league()
+    off_roster: Dict[str, List[int]] = {}
 
     real_scores: Dict[int, Dict[int, float]] = {}
     scores: Dict[int, Dict[int, float]] = {}
@@ -400,6 +460,8 @@ def _score_weeks(scenario: Scenario, meta: Q.SeasonMeta,
         active = [m for m in scenario.moves if m.from_week <= wk]
         points = {pid: val for row in rows.values() for pid, val in row.players_points.items()}
         started_anywhere = {p for row in rows.values() for p in row.starters}
+        key = (scenario.season, wk)
+        in_league = league is not None and key in league.weeks
 
         arriving: Dict[int, List[str]] = {}
         leaving: Dict[int, Set[str]] = {}
@@ -407,9 +469,9 @@ def _score_weeks(scenario: Scenario, meta: Q.SeasonMeta,
             arriving.setdefault(mv.to_roster, []).append(mv.player_id)
             leaving.setdefault(mv.from_roster, set()).add(mv.player_id)
             if mv.player_id not in points:
-                warnings.append(
-                    f"week {wk}: {Q.players().name(mv.player_id)} was on nobody's roster, "
-                    "so no score is available — counted as 0.00")
+                # On nobody's roster: his nflverse line, as the build scores it.
+                points[mv.player_id] = league.points(mv.player_id, key) if league is not None else 0.0
+                off_roster.setdefault(mv.player_id, []).append(wk)
 
         for rid in sorted(set(arriving) | set(leaving)):
             row = rows.get(rid)
@@ -445,16 +507,29 @@ def _score_weeks(scenario: Scenario, meta: Q.SeasonMeta,
                     lineup[idx] = pick if pick else Q.EMPTY_SLOT
                     if pick:
                         spare.remove(pick)
+            elif scenario.model == "plausible" and in_league:
+                tw = _wa.TeamWeek(team=str(rid), starters=tuple(p for p in row.starters if p != Q.EMPTY_SLOT),
+                                  players=frozenset(row.players), pf=row.points, offset=0.0, opponent=None)
+                scores[wk][rid] = _wa.cf_lineup_points(league, key, tw, set(lost), gained)
+                continue
             else:
+                if scenario.model == "plausible":
+                    warnings.append(f"week {wk}: not in the exported team_week yet — "
+                                    "the plausible model fell back to anchored")
                 arrivals = [p for p in gained if p in started_anywhere]
                 out = {p for p in roster if (p, wk) in unavailable}
+                before = (lambda p, k=key: league.recent_avg(p, k)) if league is not None else None
                 lineup = _anchored_lineup(row.starters, roster, lost, arrivals,
-                                          eligibility, history, out, slots)
+                                          eligibility, history, out, slots, before)
             scores[wk][rid] = round(sum(points.get(p, 0.0) for p in lineup), 2)
 
         for pid, val in points.items():
             history.setdefault(pid, []).append(val)
 
+    for pid, wks in off_roster.items():
+        warnings.append(f"{Q.players().name(pid)} was on nobody's roster in week(s) "
+                        f"{', '.join(map(str, wks))} — scored from his nflverse line"
+                        + ("" if league is not None else " (unavailable here: counted as 0.00)"))
     return real_scores, scores, pairs
 
 
@@ -638,11 +713,13 @@ def check_identity(season: int) -> List[str]:
 
 
 def three_way_trades(season: int) -> List["Q.Trade"]:
-    """Trades neither `undo_trade` nor `compose` can rewind — more than two sides.
+    """Trades with more than two sides.
 
-    Undoing one needs explicit routing (which side gave up whom is not recoverable
-    from the received-by-roster mapping alone), so both paths refuse rather than
-    guess. Report the count in any write-up that sweeps a season's trades.
+    These used to be unrewindable (who gave up whom is not recoverable from the
+    received-by-roster mapping alone). Sleeper's `drops` names every sender, so
+    `undo_trade` now routes each player home (`Trade.sent_by`); a 3-way whose
+    record lacks a sender still raises rather than guesses. Kept so a write-up
+    can count them.
     """
     return [t for t in Q.trades(season=season) if len(t.roster_ids) != 2]
 
@@ -656,9 +733,8 @@ def check_compose(season: int) -> List[str]:
     and composing a trade with its own mirror image must cancel to no moves at
     all, which `check_identity` has already shown reproduces the real season.
 
-    Three-way trades are skipped, because `undo_trade` cannot express one either
-    — a pre-existing limit of the single-trade path, not something composition
-    introduced. `three_way_trades()` counts them so a write-up can say so.
+    Three-way trades are skipped here (the mirror-image check assumes two
+    sides); their routing is pinned by `tests/test_replay_compose.py`.
     """
     problems: List[str] = []
     for trade in Q.trades(season=season)[:12]:

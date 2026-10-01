@@ -116,7 +116,7 @@ the answer, not a silent choice.
 | Tool | For |
 |---|---|
 | `scripts/inquire.py` (`lotg_support.inquiry`) | finding, filtering and ranking anything in the fourteen export sheets, and reading the raw Sleeper snapshot |
-| `scripts/whatif.py` (`lotg_support.replay`) | counterfactual seasons: rewind a trade — or a whole sequence of them — or move a player, replay every week, re-seed, re-run the bracket |
+| `scripts/whatif.py` (`lotg_support.replay`) | counterfactual seasons: rewind a trade (3-team deals included) — or a whole sequence of them — or move a player, replay every week under four lineup models (incl. the `Wins added` rule), re-seed, re-run the bracket |
 | `lotg_support.analysis` (via `inquire.py group/stacks/compare/compare-all/correlate/stretch/timeline/ownership/scarcity/spend/age`) | the joins and comparisons a judgement question needs: position attached to any sheet, roster-group depth, lineup composition, cohort tests with FDR control, arbitrary time windows, entity timelines, who owned whom and in what order, positional scarcity, spend vs return, roster age (including the in-progress season) |
 | `scripts/draft_capital.py` (`lotg_support.draft_capital`) | what a draft slot returns across *all* rounds, who gets which slot under each era's ordering rule, and what moving up the order costs in roster ceiling |
 | `scripts/contract_study.py` (`lotg_support.contracts`) | the *real world* side: what an NFL contract predicts about fantasy production — signings ranked inside their position's market, matched against comparable players who did not get paid |
@@ -561,7 +561,7 @@ roster gutted. (`WHATIF_TEARDOWN_2024.md` is the worked example: the headline
 trade alone is worth 2 wins, all five together are worth 5.)
 
 The lineup model is the load-bearing assumption in any counterfactual, so there
-are three, and `--model all` runs each:
+are four, and `--model all` runs each:
 
 - **anchored** (default) — the real lineup minus departures; an arriving player
   starts only if his real manager started him that week; holes and surpluses are
@@ -571,6 +571,22 @@ are three, and `--model all` runs each:
   position. Nothing else moves.
 - **ceiling** — the score moves by the change in the roster's optimal lineup,
   using the build's own Max PF routine.
+- **plausible** — the build's `Wins added` lineup rule, called rather than
+  copied (`wins_added.cf_lineup_points`): an arrival may fill a slot or displace
+  a starter, players move between slots to stay legal, the bench only fills a
+  slot someone left; every substitution must be plausible (incoming last-3-game
+  average ≥ outgoing − 5; with h slots open a fill is judged against the h-th
+  best option), a player nobody started counts for at most 1.5× that average,
+  and a rookie in his first 3 games never moves in. Hindsight picks among the
+  plausible options, so it can disagree with anchored — 2025 Herbert trade:
+  anchored / strict / ceiling 13-2, plausible 14-1 (it also starts Tre' Harris
+  in week 13).
+
+In every model, **a player on nobody's roster scores his nflverse line** under
+that season's league scoring (it used to count 0.00), **a 3-team trade undoes
+itself** — each player goes back to the roster Sleeper says sent him — and
+anchored's prior form before a player's first game is his last-3-NFL-game
+average (week 1 used to be a tie at 0, so its surplus cut was arbitrary).
 
 **Report where the models disagree rather than picking one.** If they agree, say
 so — that is the strongest form the answer can take.
@@ -1098,9 +1114,15 @@ workflow does. Concretely:
 1. **Additive only.** New files under `lib/lotg_support/`, `scripts/`, `tests/`,
    `plan/notes/`. Do not edit `src/`, `config/`, `.github/workflows/`,
    `exports/`, or `data/`. Editing an existing `lib/lotg_support/` module is
-   fine *only* if the build does not import it — `inquiry`, `analysis` and
-   `replay` are inquiry-only; `digest`, `lineup`, `ktc`, `sleeper`, `snapshot`,
-   `utils` and the rest are build code, so read from them, never change them.
+   fine *only* if the build does not import it — `analysis` is inquiry-only;
+   `digest`, `lineup`, `ktc`, `sleeper`, `snapshot`, `utils`, `wins_added` and
+   the rest are build code, so read from them, never change them. **`inquiry`
+   and `replay` are now half and half** (since #458): the build imports
+   `wins_added`, which uses `inquiry`'s `week` / `teams` / `season_meta` /
+   `players` / `repo_root` / `_week_last_game_days` / `_normalize` /
+   `_FLEX_POOL` / `EMPTY_SLOT` / `WeekRow` and `replay.is_legal`. Those are
+   build code; the rest of both modules is still inquiry-only — check with
+   `grep -o "Q\.[A-Za-z_]*\|is_legal" lib/lotg_support/wins_added.py | sort -u`.
 2. **Nothing the build runs may import your module.** Check before you finish:
    `grep -rn "your_module" src/ .github/workflows/` must come back empty.
 3. **Reuse the build's own logic rather than reimplementing it.** The ceiling
