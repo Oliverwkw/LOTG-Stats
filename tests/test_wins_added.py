@@ -332,6 +332,9 @@ def test_sample_recomputes_to_the_exported_column():
             continue
         rate = pd.to_numeric(df[W.RATE_COLUMN], errors="coerce")
         tot = pd.to_numeric(df[W.COLUMN], errors="coerce")
+        none_yet = [i for i in df.index if W.games_elapsed(mv_of[i], lg) == 0 and not pd.isna(rate[i])]
+        assert not none_yet, f"{sheet}: {len(none_yet)} rows with no game yet carry a rate instead of N/A: {none_yet[:5]}"
+
         def _ok(i):
             want = W.per_season(tot[i], W.games_elapsed(mv_of[i], lg))
             return pd.isna(rate[i]) if want is None else abs(want - rate[i]) <= 0.011

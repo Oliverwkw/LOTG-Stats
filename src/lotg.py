@@ -2003,6 +2003,11 @@ def _preserve_na(col: str) -> bool:
     # O-Score: N/A unless all four percentile components are present.
     if col_l == "o-score":
         return True
+    # Wins added (trades / add_drops): the per-season rate is N/A before the
+    # move's first game (0 games — not a rate of 0). The total is computed on
+    # every row; N/A there means the pass failed, not "swung nothing".
+    if col_l in {"wins added", "wins added per season"}:
+        return True
     # Manager skill (team_year / team_all_time): shrunk-mean O-Score of the
     # team's picks / trades / add-drops. Blank = no events of that type (didn't
     # draft/trade/add-drop) — N/A, distinct from a real low score. "Add/Drop
