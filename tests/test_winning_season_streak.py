@@ -66,8 +66,8 @@ def test_only_decided_seasons_move_the_streak():
     if not ty_p.exists() or not fo_p.exists():
         return _skip("exports absent")
     fo = pd.read_csv(fo_p, dtype=str, keep_default_na=False)
-    note = " ".join(fo.loc[fo["Stat"] == _COL, "Notes"])
-    if "neither extends nor breaks" not in note:
+    note = " ".join(fo.loc[fo["Stat"] == _COL, "Formula"]) + " " + " ".join(fo.loc[fo["Stat"] == _COL, "Notes"])
+    if "REGULAR season" not in note:
         return _skip("exports predate the in-progress-season fix (pre-merge build)")
     from lotg_support import inquiry as Q
     ty = pd.read_csv(ty_p, dtype=str, keep_default_na=False)
