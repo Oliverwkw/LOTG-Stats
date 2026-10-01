@@ -21943,6 +21943,46 @@ def build_all(repo_root: Path) -> None:
     except Exception as e:
         _log_exc(debug, "player_additions", e)
 
+    # WINS ADDED (trades + add_drops). For every week from the move to today —
+    # playoffs and consolation games included, each week on its own — would not
+    # making the move have changed the result against the real opponent? +1 per
+    # loss the move turned into a win, −1 per win it turned into a loss. Given-up
+    # assets count forever; received ones while held, following the team's later
+    # trades at their KTC share. The whole rule (and the lineup rule) lives in
+    # lotg_support.wins_added, which reads the moves from these same two frames
+    # so a local recompute from the CSVs goes through the identical code path.
+    # Runs here, after every pass that edits trades / add_drops / team_week / the
+    # pick frame, and before the provenance dump so its KTC lookups are recorded.
+    try:
+        from lotg_support import wins_added as _wa
+        from lotg_support.ktc import asset_value_at as _wa_kv
+
+        def _wa_value(_asset, _day):
+            if _ktc_idx is None:
+                return None
+            try:
+                _d = date.fromisoformat(str(_day)[:10])
+                if _asset.is_pick:
+                    return _wa_kv(_wa._ktc_pick_label(_asset.label), None, _d, _ktc_idx)
+                return _wa_kv(None, str(_asset.pid), _d, _ktc_idx) if _asset.pid else None
+            except Exception:
+                return None
+
+        _wa_report = _wa.Report()
+        _wa_league = _wa.load_league(tw, nfl_games_by_sid)
+        _wa_bad = _wa.check_offsets(_wa_league) + _wa.check_real_lineups_legal(_wa_league)
+        for _msg in _wa_bad[:20]:
+            _log(debug, f"[{_now_iso()}] WARN wins added: {_msg}")
+        _wa_tr, _wa_ad = _wa.compute(tr, add_drops_df, _wa_league, [ph], _wa_value, _wa_report)
+        tr[_wa.COLUMN] = _wa_tr
+        add_drops_df[_wa.COLUMN] = _wa_ad
+        _log(debug, f"[{_now_iso()}] INFO wins added: {_wa_report.rows} rows over "
+                    f"{len(_wa_league.order)} weeks; {_wa_report.optimised_weeks} lineups searched; "
+                    f"{len(_wa_report.uncapped)} uncapped entries (no prior game); "
+                    f"{len(_wa_bad)} guard warnings; unresolved names: {_wa_report.unresolved_names}")
+    except Exception as e:
+        _log_exc(debug, "wins_added", e)
+
     # KTC PROVENANCE. Where every resolved value came from, one row per lookup:
     # a quote published on the target date itself (`mirror`), an absence on a day
     # the mirror did cover (`off-rolls` -> 0), or one of the two places a value is

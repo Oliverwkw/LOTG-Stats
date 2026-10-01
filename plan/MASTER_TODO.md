@@ -909,6 +909,68 @@ PF mixes every position, so the per-position factor means nothing there);
   new player_year columns' on-pace standings once; boards stay silent on them
   for a week (new slots are absent from the prior snapshot).
 
+## Wins added (trades + add_drops)
+Asked for (2026-10-01): a wins added/lost formula for every trade and add/drop —
+"for every week, would not making this move have changed if I won. +1 if switch
+to win, −1 if switch to loss" — that handles Peter trading away McBride and
+Oliverwkw's Waddle → Conner → Ekeler flip. One column on each sheet, `Wins added`
+(after `Trade impact score` / `Player addition value`); the rule lives in
+`lotg_support.wins_added`, the build only stores it.
+
+Rules [per user, 2026-10-01]:
+- Each week on its own against the real opponent; no re-seeding, no bracket
+  replay. Playoffs, 3rd place and the toilet bracket count as normal weeks. The
+  2026+ two-week final is ONE game (both weeks summed).
+- Given-up assets count from the move to today, with no cap — and keep counting
+  after the returned assets are dropped or traded. A given-up pick = the player
+  drafted with it. A given-up player the team later re-acquires is treated as a
+  different player (the re-acquiring move owns him while he is held; the
+  original drop/trade resumes afterwards — see "by design" below).
+- Lineage must scale with size: what a received asset is later traded for
+  carries this move's share of that trade = KTC of the lineage inputs / KTC of
+  the team's whole side on that trade's day (FAAB weight 0), read as a
+  probability (averaged over removed / kept). Chosen over the integer
+  majority-rule and production-share alternatives. Drops end lineage.
+- FAAB is left out entirely (house rules move budgets untrackably). A
+  FAAB-only sale is a pure drop; a FAAB-only purchase a pure add.
+- Lineup: best feasible counterfactual lineup with no other start/sit decision —
+  removed starters leave, arrivals may fill or displace if eligible and better,
+  open slots no arrival fills go to the best eligible bench player (bench never
+  displaces), players move between slots to keep it legal. A player started by
+  nobody that week counts for at most 1.5 × his average over his previous 3 NFL
+  games. The opponent's lineup changes only if its roster does.
+- 2020 included (ESPN backfill via `espn_2020.emit_sleeper_2020`).
+
+- [x] `lib/lotg_support/wins_added.py` (+ `explain()` for tracing a row week by
+  week), the build hook at the end of `build_all` (before the KTC provenance
+  dump), Plan CSV + `stats_catalog.json` + Formulas + schema pin + phrasing rows.
+  Not build-volatile: like `Points added` it grows on old rows only as new weeks
+  are played.
+- [x] Guard: `tests/test_wins_added.py` — eight synthetic cases (slot movement,
+  bench cap, forced fills only, the ±1 flip, opponent + mirror row, KTC-share
+  lineage, drops end lineage, re-acquired player), every real lineup legal and
+  every PF = starters (+5) over 2020–today, and a recompute of 24 sample rows
+  against the exported column (skips on pre-merge exports; settled-by-completed-
+  seasons rows without KTC-shared lineage only).
+- Local recompute from the run-597 exports (2026 through week 3): every real
+  lineup legal and every PF reconciled (832 team-weeks), 0 unresolved names, 186
+  uncapped entries (players with no prior NFL game), nflverse re-scoring =
+  Sleeper on 16,835 / 16,845 rostered player-weeks (10 stat corrections).
+- **By design, flagged for the user:** the column leans negative (trades sum
+  −726, add_drops −522 at run 597): given-up assets count forever, received ones
+  only while held. A player dropped repeatedly stacks — 211 team-player pairs
+  were dropped more than once (Jared Goff's drops are −6 / −7 each). 2020 moves
+  dominate the bottom of both boards because they have six seasons of given-up
+  weeks.
+- [ ] **3-part audit** on the first post-merge build. Expected diff: `Wins added`
+  on trades + add_drops, its Formulas row, nothing else (ktc_provenance.csv may
+  gain rows for trade-day lookups not already made). Results cases: stevenb123's
+  McBride row = +4 through 2025 (2024 wk 5, 12 vs plehv79, wk 17 final vs
+  shmuel256, 2025 wk 7); plehv79's mirror row includes −1 at 2024 wk 5 and wk 12;
+  LWebs53's Kyren Williams drop flips 2023 wk 15 (Kyren 24.5 for Henry 5.0 beats
+  a 17.88 deficit); Oliverwkw's Waddle trade carries Ekeler at 0.245 (Conner's
+  KTC share of that deal); a FAAB-only sale reads as a pure drop; a 2020 row.
+
 ## Phase 15 — TBD: OLD LEAGUES
 - [ ] **TBD.** Placeholder for integrating other historical/old leagues' data (e.g. the
   separate ESPN leagues seen in the 2020 emails — UChicago '24 = leagueId 57687541, UChi
