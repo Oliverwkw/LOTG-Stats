@@ -423,6 +423,11 @@
    "reason": ""
   },
   {
+   "test": "tests/test_digest.py::test_add_drop_rows_name_the_dropped_player",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
    "test": "tests/test_digest_attribution.py::test_digest_attribution",
    "outcome": "passed",
    "reason": ""
@@ -859,6 +864,16 @@
   },
   {
    "test": "tests/test_game_day_status.py::test_the_exports_honour_every_row",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_health_email_history.py::test_health_workflow_checks_out_full_history",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_health_email_history.py::test_code_changes_since_lists_commits_and_warns_on_a_missing_range",
    "outcome": "passed",
    "reason": ""
   },
@@ -2474,6 +2489,91 @@
   },
   {
    "test": "tests/test_waiver_claim_dedup.py::test_waiver_claim_dedup",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_winning_season_streak.py::test_only_decided_seasons_move_the_streak",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_wins_added.py::test_arrival_displaces_and_players_change_slots",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_wins_added.py::test_bench_only_fills_open_slots_and_is_capped",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_wins_added.py::test_arrival_cap_depends_on_whether_anyone_started_him",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_wins_added.py::test_implausible_substitution_is_not_made",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_wins_added.py::test_unproven_players_never_move_in_but_can_move_out",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_wins_added.py::test_dropping_a_player_who_would_have_won_the_game_is_minus_one",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_wins_added.py::test_opponent_loses_the_player_and_the_mirror_row_agrees",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_wins_added.py::test_lineage_through_a_later_trade_earns_its_ktc_share",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_wins_added.py::test_dropping_ends_the_lineage",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_wins_added.py::test_a_reacquired_player_belongs_to_the_reacquiring_move",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_wins_added.py::test_the_count_stops_once_the_league_lets_him_go",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_wins_added.py::test_reacquiring_a_player_ends_the_earlier_moves_count",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_wins_added.py::test_per_season_rate_is_wins_times_17_over_games_since_the_move",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_wins_added.py::test_the_rate_waits_five_weeks_on_the_email_boards",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_wins_added.py::test_real_lineups_are_legal_and_pf_is_starters_plus_bonus",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_wins_added.py::test_sample_recomputes_to_the_exported_column",
    "outcome": "passed",
    "reason": ""
   },
