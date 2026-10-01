@@ -124,7 +124,8 @@ the answer, not a silent choice.
 | `scripts/touchdowns.py` (`lotg_support.scoring_events`) | what a player actually DID rather than what he was worth: nflverse's stat lines joined onto this league's starters — touchdowns scored (and thrown) per starter-week, the scan for lineups that reached the end zone with nobody, and career totals in any nflverse stat, both as of a start and lifetime |
 
 All of them are additive and read-only. None is imported by the build or run by
-any workflow.
+any workflow — except `lotg_support.wins_added`, which IS the build's `Wins
+added` column; its `explain()` is the inquiry entry point (see "Counterfactuals").
 
 ## Start here, not with a script
 
@@ -525,6 +526,54 @@ are three, and `--model all` runs each:
 
 **Report where the models disagree rather than picking one.** If they agree, say
 so — that is the strongest form the answer can take.
+
+### "Why is this move −7?" — `Wins added`, game by game
+
+`trades` and `add_drops` carry `Wins added` (games the move swung, from the move
+to today, each week against the real opponent, no re-seeding) and `Wins added
+per season` (× 17 / games since the move). Unlike `whatif.py`, this is a BUILD
+column (`lotg_support.wins_added`, imported by `src/lotg.py`), so the question
+is usually "which games make up the number", not "what would the season have
+been". `explain()` answers it in seconds:
+
+```python
+import sys; sys.path.insert(0, "lib")
+from lotg_support import inquiry as Q, wins_added as W
+
+league = W.load_league(Q.load_sheet("team_week"), W.nflverse_points_from_cache())
+trades, adds = Q.load_sheet("trades"), Q.load_sheet("add_drops")
+moves = W.moves_from_sheets(trades, adds, league,
+                            [Q.load_sheet("rookie_picks"), Q.load_sheet("non_rookie_picks")])
+later = W.later_moves(moves)
+mv = next(m for m in moves if m.sheet == "trades" and m.index == 491)  # stevenb123 gets McBride
+W.explain(mv, later[id(mv)], league)          # [(((2023, 15),), 'LWebs53', 1.0), ...]
+W.lineage(mv, later[id(mv)], W.local_value_fn())   # what the return turned into, with shares
+W._given_up(mv, league, later[id(mv)])        # given-up players and their (start, end) weeks
+```
+
+Things to know before quoting one:
+
+- **The rules are the user's, and each one moves the number** — given-up
+  players count until the league lets him go (4 straight weeks on no roster) or
+  the team re-acquires him; received ones while held, following later trades
+  at their KTC share; FAAB is ignored; a substitution counts only if plausible
+  (incoming 3-game average ≥ outgoing − 5), with a 1.5× cap on anyone nobody
+  started and no rookie in his first 3 games ever moved in. The whole rule is
+  the module docstring and the Formulas rows; `plan/MASTER_TODO.md` → "Wins
+  added" has the history (it summed −726 / −522 before the plausibility test).
+- **A recompute matches the build only with the build's inputs.** Score
+  nflverse through the build's persisted bridge
+  (`exports/raw/wins_added_gsis_bridge.csv`, read by default) or the 3-game
+  averages drift and games flip. Rows whose lineage passes through a later
+  trade use KTC shares: to reproduce them, replay the build's player values
+  from `exports/raw/ktc_provenance.csv` (the #458 audit did, 2,176/2,176).
+  `local_value_fn()` builds its own index (~2 min) and differs in the decimals.
+- **Old moves swing more games by design** — compare `Wins added per season`
+  across eras, the total within one. A brand-new move reads ±17 / ±8.5 after
+  one or two games; the weekly email holds it off the rate boards for 5 weeks.
+- **It is not `Trade addition value`** (per-game quality, every game counts)
+  **nor `Trade impact score`** (a z-scored grade whose win term only looks at
+  weeks a received player started). Say which one you are quoting.
 
 ## Trust, then verify
 
