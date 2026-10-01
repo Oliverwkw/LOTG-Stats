@@ -1016,6 +1016,39 @@ Rules [per user, 2026-10-01]:
   given-up scorers with hindsight and no slot legality, and never adjusts the
   opponent. Moves every Trade impact score and the trades O-Score built on it.
 
+## Sequential re-audit of #446–#455 + winning-season streak fix (2026-10-01)
+Asked for: re-do every audit since #446 against SEQUENTIAL main builds (last
+pre-merge run → first post-merge run), in case the paired same-time
+`audit-base` convention hid a change. Pairs 560→564 (#446/#447), 564→567
+(#448), 567→568 (#449), 568→570 (no PR), 570→581 (#450/#452; run 571 was a
+guard-skipped fire), 581→584 (#453), 584→589 (#454), 589→597 (#455).
+- [x] **No missed PR change.** Every completed-season change in a non-volatile
+  column is the PR's own documented change (#446 twins + renames + position
+  factor; #448 move counts / trade-week clock; #452 dropped points as scored,
+  sent-side window, pick-held rule — which also moves the received side, despite
+  the PR body's "Unchanged: the received side" line; #455 trades Difference of
+  averages N/A on 111 rows with no received side — confirmed caused by #455:
+  same-time base run 598 kept the values) or live drift by design (open
+  windows into 2026, career averages, the all-time pooled Positional scoring
+  percentile and the tier % / streak columns on it, the all-time vs-opponent
+  streaks, wall-clock Tenure). Formulas rows track the PRs exactly; no
+  completed-season row was added or removed in any pair.
+- [x] **Fixed: `Winning season streak` counted the in-progress season** (found in
+  568→570, not caused by any PR, invisible to a same-time pair). 2026's
+  provisional Win % extended the run at 1-1 and broke it at 1-2, flipping
+  completed rows week to week. Now [per user]: the streak reads the REGULAR-
+  season record across the board (playoff / consolation games don't count), and
+  a season counts once it is decided — .500 clinched even losing out extends
+  it, .500 out of reach even winning out breaks it, otherwise N/A and the run
+  is left alone (a finished regular season is always decided). Regular-season
+  games = playoff start − 1 (2020: 14, 2021-25: 15, 2026: 14). On run 597's
+  data 13 of 56 team_year rows move: every 2026 row → N/A (nobody decided at
+  week 3), plehv79 2024 (8-9 overall, 8-7 regular) becomes a winning season
+  (2023 → In Progress, 2024 → 2), and the 2025 rows of AceMatthew / shmuel256 /
+  stevenb123 read their run length instead of In Progress. Guard:
+  `tests/test_winning_season_streak.py`. Expected diff: team_year `Winning
+  season streak` only + its Formulas row.
+
 ## Phase 15 — TBD: OLD LEAGUES
 - [ ] **TBD.** Placeholder for integrating other historical/old leagues' data (e.g. the
   separate ESPN leagues seen in the 2020 emails — UChicago '24 = leagueId 57687541, UChi

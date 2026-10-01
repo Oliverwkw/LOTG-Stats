@@ -2596,6 +2596,29 @@ def _is_second_finals_week(year: Any, week: Any,
         return False
 
 
+def _regular_season_games(playoff_start: Optional[int]) -> Optional[int]:
+    """Regular-season games every team plays: one per week before the
+    playoffs start (2020: 14, 2021-2025: 15, 2026+: 14)."""
+    return int(playoff_start) - 1 if playoff_start else None
+
+
+def _winning_season_decided(record: Any, playoff_start: Optional[int]) -> float:
+    """Is this a winning (.500+) REGULAR season? 1.0 once clinched (even losing
+    out), 0.0 once out of reach (even winning out), NaN while still open. A
+    finished regular season is always decided."""
+    total = _regular_season_games(playoff_start)
+    m = re.match(r"^\s*(\d+)-(\d+)(?:-(\d+))?\s*$", str(record or ""))
+    if not total or not m:
+        return float("nan")
+    w, l, t = int(m.group(1)), int(m.group(2)), int(m.group(3) or 0)
+    score, remaining = w + 0.5 * t, max(0, total - (w + l + t))
+    if score >= 0.5 * total:
+        return 1.0
+    if score + remaining < 0.5 * total:
+        return 0.0
+    return float("nan")
+
+
 def _matchup_stage(week: int, playoff_start: Optional[int],
                    season: Optional[int] = None) -> Optional[str]:
     if not playoff_start:
@@ -18423,7 +18446,7 @@ def build_all(repo_root: Path) -> None:
 
         # Season-based streaks (the season grain is the natural "weekly" unit
         # for these, so they live on team_year, not team_week): consecutive
-        # seasons making the playoffs / finishing >= .500. Terminal-encoded
+        # seasons making the playoffs / with a .500+ REGULAR season. Terminal-encoded
         # like the weekly streaks — only the final season of a run carries the
         # length, intermediate seasons read "In Progress", broken/none reads 0,
         # and a not-yet-complete season reads "N/A".
@@ -18448,8 +18471,16 @@ def build_all(repo_root: Path) -> None:
                             pa_run.append((ri, pa))
                         else:
                             pa_run.append((ri, None))
-                        wp = r.get("Win %")
-                        wp = pd.to_numeric(pd.Series([wp]), errors="coerce").iloc[0]
+                        # REGULAR-season record [per user]: a season counts once
+                        # its regular season is DECIDED — a .500 record clinched
+                        # (even losing out) or out of reach (even winning out).
+                        # Until then it reads N/A and neither extends nor breaks
+                        # the run, so a live season cannot flip completed rows
+                        # week to week (2026 wk 2 -> 3 had BROsenzweig 2025 go
+                        # "In Progress" -> 2 on a 1-1 -> 1-2 overall record).
+                        wp = _winning_season_decided(
+                            r.get("Regular season record"),
+                            playoff_start_by_season.get(int(yr)) if pd.notna(yr) else None)
                         if pd.notna(wp):
                             ws = ws + 1 if float(wp) >= 0.5 else 0
                             ws_run.append((ri, ws))
