@@ -13131,7 +13131,10 @@ def build_all(repo_root: Path) -> None:
                 _ad_in = add_drops_df.copy()
                 _tr_in["Date"] = _eastern(_tr_in["Date"])
                 _ad_in["Date"] = _eastern(_ad_in["Date"])
-                _wa_tr, _wa_ad = _wa.compute(_tr_in, _ad_in, _wa_league, [ph], _wa_value, _wa_report)
+                # The pick frame still calls the drafting team "Final Team" here;
+                # it is renamed to "Team" just before the export (see below).
+                _ph_in = ph.rename(columns={"Final Team": "Team"}) if "Final Team" in ph.columns else ph
+                _wa_tr, _wa_ad = _wa.compute(_tr_in, _ad_in, _wa_league, [_ph_in], _wa_value, _wa_report)
                 for _wa_col in (_wa.COLUMN, _wa.RATE_COLUMN):
                     for _i, _row in enumerate(trades_rows):
                         _row[_wa_col] = _wa_tr[_wa_col].iloc[_i]
