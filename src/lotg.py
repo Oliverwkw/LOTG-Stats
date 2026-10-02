@@ -2228,6 +2228,17 @@ def _preserve_na(col: str) -> bool:
         "weeks between pickup and start",
     }:
         return True
+    # Season-outcome columns: N/A while the season is live (standings and
+    # seeds provisional, no champion yet) — not 0 / False, which read as
+    # "made the bracket" / "not on the champion's roster".
+    if col_l in {
+        "week of playoff elimination",
+        "(smallest) playoff tiebreaker",
+        "rostered by champion?",
+        "started by champion?",
+        "started in championship game?",
+    }:
+        return True
     return False
 
 
@@ -2247,9 +2258,11 @@ def _fill_missing_values(df: pd.DataFrame, cols: List[str]) -> pd.DataFrame:
             continue
 
         if kind == "boolean":
-            def _coerce_bool(v: Any) -> bool:
+            _keep_na = _preserve_na(col)
+
+            def _coerce_bool(v: Any) -> Any:
                 if pd.isna(v):
-                    return default
+                    return None if _keep_na else default
                 if isinstance(v, bool):
                     return v
                 if isinstance(v, (int, float)):
@@ -16386,9 +16399,17 @@ def build_all(repo_root: Path) -> None:
             def _cky(p, y):
                 return (str(p), int(y)) if pd.notna(y) else None
             _pk = list(player_year[["Player ID", "Year"]].itertuples(index=False, name=None))
-            player_year["Rostered by champion?"] = [bool(_champ_ros_year.get(_cky(p, y), 0)) for p, y in _pk]
-            player_year["Started by champion?"] = [bool(_champ_start_year.get(_cky(p, y), 0)) for p, y in _pk]
-            player_year["Started in championship game?"] = [bool(_champ_final_year.get(_cky(p, y), 0)) for p, y in _pk]
+            # A live season has no champion yet: N/A, not "False" (which reads
+            # as "not on the champion's roster").
+            _done_y = {int(y): _season_is_complete(int(y)) for _p, y in _pk if pd.notna(y)}
+
+            def _champ_flag(lookup, p, y):
+                if pd.isna(y) or not _done_y.get(int(y), True):
+                    return None
+                return bool(lookup.get(_cky(p, y), 0))
+            player_year["Rostered by champion?"] = [_champ_flag(_champ_ros_year, p, y) for p, y in _pk]
+            player_year["Started by champion?"] = [_champ_flag(_champ_start_year, p, y) for p, y in _pk]
+            player_year["Started in championship game?"] = [_champ_flag(_champ_final_year, p, y) for p, y in _pk]
         except Exception as e:
             _log_exc(debug, "player_year_champ_flags", e)
 
@@ -17259,7 +17280,10 @@ def build_all(repo_root: Path) -> None:
                 season_playoffs = {str(t) for t in playoff_teams.get(int(season), set())}
                 for team in sorted({str(t) for t in teams}):
                     if team in season_playoffs:
-                        elim_map[team] = None
+                        # 0 = made the bracket (formula). Explicit, not None:
+                        # the column preserves N/A for a live season, so a
+                        # None would no longer be zero-filled into this 0.
+                        elim_map[team] = 0
                         continue
                     elim_week = None
                     for wk in weeks:
@@ -17271,6 +17295,10 @@ def build_all(repo_root: Path) -> None:
                         if int((others["min_win_pct"] > t_max).sum()) >= 4:
                             elim_week = int(wk)
                             break
+                    # A team that missed only on the PF tiebreak is never "4 teams
+                    # ahead" on win % — it was eliminated at the season's end.
+                    if elim_week is None and season_playoffs:
+                        elim_week = int(weeks[-1])
                     elim_map[team] = elim_week
                 elim_by_year[int(season)] = elim_map
             return elim_by_year
@@ -17496,7 +17524,12 @@ def build_all(repo_root: Path) -> None:
                 "Change in win % from previous season": None,
                 "Change in efficiency from previous season": None,
                 "Win Variance": win_variance,
-                "Week of playoff elimination": playoff_elimination_by_season.get(int(yr), {}).get(str(team)),
+                # A live season's standings are provisional (its games-so-far
+                # read as the whole schedule, so every team outside the current
+                # top 4 came out "eliminated" in the latest week): N/A until done.
+                "Week of playoff elimination": (
+                    playoff_elimination_by_season.get(int(yr), {}).get(str(team))
+                    if _season_is_complete(int(yr)) else "N/A"),
                 "Draft Value": 0,
                 "Number of first round picks made": 0,
                 "Total number of picks made": 0,
@@ -19148,7 +19181,8 @@ def build_all(repo_root: Path) -> None:
             # tiebreaker was needed). Regular-season weeks only ("Week N").
             _reg = g[g["Week Name"].astype(str).str.match(r"^Week \d", na=False)]
             _smallest_tb = "N/A"
-            if not _reg.empty:
+            # Seeds are only "finished" once the season is: N/A while live.
+            if not _reg.empty and _season_is_complete(int(yr)):
                 _stand = []
                 for _tm, _tg in _reg.groupby("Team"):
                     _wn = pd.to_numeric(_tg.get("Win?"), errors="coerce")

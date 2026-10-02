@@ -77,13 +77,32 @@ def test_seed_lock_needs_every_outcome_to_agree():
     assert B.locked_seeds(wins, pf, games, spread=170) == ["a"]
 
 
+def test_lineup_fits_allows_a_reshuffle_but_not_an_illegal_lineup():
+    slots = [("QB",), ("RB",), ("WR",), ("RB", "WR", "TE"), ("QB", "RB", "WR", "TE")]
+    e = {"q1": frozenset({"QB"}), "q2": frozenset({"QB"}), "q3": frozenset({"QB"}),
+         "r1": frozenset({"RB"}), "r2": frozenset({"RB"}), "w1": frozenset({"WR"}),
+         "t1": frozenset({"TE"})}
+    # a bench RB coming in for the flex TE is legal (he takes the flex)
+    assert B.lineup_fits(["q1", "r1", "w1", "r2", "q2"], slots, e)
+    # a bench QB coming in for a superflex RB is legal too — the reshuffle
+    # case a same-slot swap would miss when the starter was in a strict slot
+    assert B.lineup_fits(["q1", "r2", "w1", "t1", "q2"], slots, e)
+    # a third QB cannot start: only QB + superflex take quarterbacks
+    assert not B.lineup_fits(["q1", "r1", "w1", "q3", "q2"], slots, e)
+    # removing the only WR leaves the strict WR slot unfillable
+    assert not B.lineup_fits(["q1", "r1", "r2", "t1", "q2"], slots, e)
+    # an unknown player is eligible nowhere
+    assert not B.lineup_fits(["zz"], slots, e)
+    assert B.lineup_fits([], slots, e)
+
+
 def test_seed_lock_with_no_games_locks_nothing():
     assert B.locked_seeds({"a": 3}, {"a": 1.0}, [], spread=100) == []
 
 
 def test_every_debatable_choice_is_a_parameter():
     p = B.Params()
-    for name in ("prior_season_weight", "team_change_weight", "shrink_games",
+    for name in ("prior_season_weight", "recency_half_life", "team_change_weight", "shrink_games",
                  "rookie_shrink_games", "promotion_lookback", "promote",
                  "preseason_grace_weeks", "beta"):
         assert hasattr(p, name), name
@@ -121,16 +140,45 @@ def test_the_reference_could_legally_have_started():
     if y is None:
         return _skip("no completed season with exports and the nflverse cache")
     df = _rows(y).dropna(subset=["Reference ID"])
-    elig = Q.season_eligibility(y)
-    taxi = B._taxi(y)
+    slots = B.season_slots(y)
+    elig = B.season_eligibility(y)
     unavail = Q.unavailable(y)
+    lineups = {(wk, rid): w for wk in sorted(set(df["Week"])) for rid, w in B.week_rows(y, int(wk)).items()}
+    teams = {v: k for k, v in B.season_teams(y).items()}
     bad = []
     for r in df.to_dict("records"):
-        slot = set(str(r["Slot"]).split("/"))
         ref = str(r["Reference ID"])
-        if not (elig.get(ref, frozenset()) & slot) or ref in taxi or (ref, int(r["Week"])) in unavail:
+        wr = lineups[(r["Week"], teams[r["Team"]])]
+        others = [p for p in wr.starters[:len(slots)] if p != Q.EMPTY_SLOT and p != r["Starter ID"]]
+        # taxi players count as bench by design, so they are legal references
+        if (ref in wr.starters or (ref, int(r["Week"])) in unavail
+                or not B.lineup_fits(others + [ref], slots, elig)):
             bad.append((r["Week"], r["Team"], r["Starter"], r["Reference"]))
     assert not bad, bad[:5]
+
+
+def test_rookie_slot_prior_learns_only_from_earlier_drafts():
+    # every training row must predate the season it prices, and only real
+    # rookies (rookie season == draft year) are priced by slot
+    if not _HAVE_EXPORTS:
+        return _skip("no exports/")
+    ids = B._player_ids()
+    for y, g, overall, pos in B._rookie_draft_rows():
+        assert int(ids.at[g, "rookie_season"]) == y
+        assert pos in B.POSITIONS and overall >= 1
+    first = min(y for y, *_ in B._rookie_draft_rows())
+    assert B.rookie_slot_priors(first) == {}      # nothing earlier to learn from
+
+
+def test_2020_runs_from_the_espn_backfill():
+    # 2020 has no snapshot; its lineups come from the ESPN emit and its points
+    # are ESPN-scored, which the re-scored log must still reproduce
+    if not _HAVE_EXPORTS or not _have_cache(2020):
+        return _skip("no exports/ or nflverse cache for 2018-2020")
+    assert B.played_weeks(2020) and len(B.season_slots(2020)) == 9
+    assert B.check_points_reconcile(2020) == []
+    df = B.boldness(2020, weeks=[1], params=_FAST)
+    assert len(df) == 8 * 9 and df["E starter"].notna().all()
 
 
 def test_expected_points_mean_something():

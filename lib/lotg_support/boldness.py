@@ -1,87 +1,86 @@
 """Boldness — how far a lineup call went against what the manager could see.
 
 `player_week` already carries a start/sit signal, "Difference in averages of
-best/worst startables over previous 5 games", but it answers a different
-question. Its reference player is picked by what he ACTUALLY scored that week
-(the bench's top scorer, any position, taxi and IR included), and only then are
-the two 5-game averages compared. That is "how far behind the man who turned out
-best was this starter on paper" — a hindsight choice of comparison — not "how
-far did this call go against the information on the table". This module is the
-second one.
+best/worst startables over previous 5 games": each starter against the best
+startable bench player, on 5-game averages. This is the same comparison, built
+out so that it measures boldness rather than hindsight:
+
+* the reference is the bench player with the best PRE-KICKOFF expectation, not
+  the one who turned out to score the most that week (the build's column picks
+  its reference by actual points, then compares averages);
+* "startable" is enforced: he must be able to come into the lineup in the
+  starter's place, the other starters reshuffling slots as needed
+  (`lineup_fits`), and be available (not on bye / injured / suspended by the
+  build's own flags, `inquiry.unavailable`);
+* the expectation knows about recency, seasons, rookies and cuffs (below).
 
 ## The stat
 
-For every start, before kickoff:
+    Edge     = E[best startable bench player] - E[starter]
+    Boldness = max(0, Edge)
+    Bust odds = P(the reference outscores the starter), a logistic fit of the
+                actual result on Edge (`fit_bust_odds`)
 
-    Boldness = max(0, E[best eligible available bench option] - E[starter])
-
-where `E` is the player's expected points (below), "eligible" means the bench
-player could legally fill the starter's slot (`inquiry.season_eligibility`, so
-position drift is handled), and "available" means not on bye / injured /
-suspended by the build's own flags (`inquiry.unavailable`) and not parked on the
-taxi squad. A signed twin, `Edge`, keeps the negative side (a safe call is
-negative). `Team boldness` is the ex-ante version of Max PF minus PF: the best
-lineup the expectations allowed (`lineup.compute_optimal_lineup`, the build's
-own routine, fed E instead of points) minus the expected points of the lineup
-actually set — so two starters gambling against the same bench player are not
-double-counted.
+An empty starting slot is a start with E = 0. `Team boldness` is the ex-ante
+Max PF (the build's `lineup.compute_optimal_lineup`, fed E) minus the expected
+points of the lineup set, so two starters gambling against the same bench
+player are not double-counted.
 
 ## Expected points
 
-A shrunk, season-decayed average of the player's own NFL games, re-scored into
-league settings (`contracts.lotg_points`), with three adjustments the question
-asked for:
+A shrunk, weighted average of the player's own NFL games, scored with the
+league's settings FOR THE SEASON BEING JUDGED (the build's `lotg._league_score`
+with that season's table: Sleeper's from 2021, the ESPN league's for 2020) —
+so 2021 week 1, leaning on 2020 games, re-scores them as PPR.
 
-* **Between seasons.** Games from the current season count 1; the previous
-  season `prior_season_weight` (d); two seasons back d². A game played for a
-  different NFL team than the player's team that week is further multiplied by
-  `team_change_weight`. So week 1 is judged on last year at half weight, and a
-  player's own season takes over as it accumulates — no "N/A until 5 games".
-* **Rookies.** A player with no NFL game yet is not N/A: he gets a prior from
-  past rookies at his position and NFL draft round (`rookie_priors`, learned only
-  from seasons BEFORE the one being judged), and that prior is shrunk away as his
-  own games arrive. Starting an undrafted rookie in week 1 is therefore
-  measurable, and reads as bold, which it is.
-* **Cuffs (role changes).** A backup's history is a backup's history. When a
-  same-team, same-position teammate with a higher E sits out the week (no stat
-  line and no offensive snap — inactives are announced before kickoff) while
-  still on that team's weekly roster (injured reserve included), having played
-  for it this season (or last, in the first `preseason_grace_weeks`), the backup is
-  promoted for as long as the absence lasts — the NEXT MAN UP only (the
-  highest-E teammate still available): E = max(own E, beta[pos] x
-  teammate's E). `beta` is calibrated from
-  every such promotion in the NFL 2019-2025 (`calibrate_beta`), not chosen. The
-  build's cuff columns halve a difference after the fact; this changes the
-  expectation instead, so an activated cuff is simply not bold.
+* **Recency.** A game's weight halves every `recency_half_life` games played
+  since. A 40-point breakout moves E straight away; two quiet years behind it
+  fade.
+* **Between seasons.** On top of recency, a last-season game weighs
+  `prior_season_weight`, two back its square, and a game for a different NFL
+  team `team_change_weight` more. Week 1 is judged on last year, discounted.
+* **Rookies.** A rookie picked in that season's LOTG rookie draft gets a prior
+  from the slot (`rookie_slot_priors`): a curve fitted on earlier drafts' picks'
+  ROOKIE-YEAR points per game only — Gibbs' 2023, never his 2026 — so this
+  year's 1.03 is priced on what 1.03-ish picks did as rookies. A rookie not
+  drafted here falls back to past rookies at his position and NFL round. Either
+  prior is shrunk away as his own games arrive.
+* **Cuffs (role changes).** When a same-team, same-position teammate with a
+  higher E sits out (no stat line and no offensive snap — inactives are known
+  before kickoff; in the live week, Sleeper's status) while on that team's
+  weekly roster, having played for it this season (or last, in the first
+  `preseason_grace_weeks`), the NEXT MAN UP is lifted to beta[pos] x the
+  teammate's E. beta is calibrated on every such NFL event 2019-2025
+  (`calibrate_beta`).
 
-Everything debatable is a field on `Params`.
+Everything debatable is a field on `Params`; `tune()` reports the sensitivity.
 
 ## Guards
 
-* `check_points_reconcile` — the re-scored game log must reproduce the build's
-  own `player_week["Points"]` for rostered players (same tolerance story as
-  `scoring_events.check_touchdown_join`).
-* `check_calibration` — if E is unbiased, a start with boldness B should lose to
-  its reference by about B on average: the slope of (starter - reference) actual
-  points on Edge must be near -1. This is the test that E means something.
-* `check_team_boldness_bounds` — Team boldness is never negative and the
-  optimiser fed ACTUAL points reproduces `team_week["Max PF"]` (minus the
-  semifinal bonus) wherever the pool is the same, which ties the lineup half to
-  the build.
+* `check_points_reconcile` — the re-scored game log reproduces the build's own
+  `player_week["Points"]` (2020's ESPN points included).
+* `check_calibration` — the slope of (starter - reference) actual points on
+  Edge must sit near -1: E means something.
+* `check_team_boldness_bounds` — Team boldness is never negative, and the
+  optimiser fed ACTUAL points reproduces `team_week["Max PF"]`.
 
 ## Traps
 
+* **Taxi counts as bench, by design.** Taxi status is not tracked week by week
+  anywhere in this dataset, and cannot be: `rosters.json` carries a `taxi` list
+  only as of the moment the snapshot was taken (2023 on), and the transaction
+  log records no taxi moves. It does not need to be: keeping a player on the
+  taxi squad is a lineup decision like benching him, so a taxi player is an
+  ordinary bench option here, and parking a productive rookie there reads as
+  bold — because it was.
 * `Q.unavailable` maps the build's flags to ids by NAME, so two players sharing
   a name share flags. Rare; counted nowhere.
-* Historical taxi status is only known at season end (rosters.json). A player
-  promoted off taxi mid-season was, before that, unstartable and may be named as
-  a reference; `Ref taxi-eligible?` flags rookies who never started that season
-  so such rows can be read by hand.
-* A starter flagged unavailable is a dead start, not a bold one: it is kept,
-  flagged `Starter unavailable?`, and excluded from the history boards by
-  default.
-* Expected points have no matchup, weather or Vegas input. Two-thirds of what a
-  manager weighs is in here; the rest is not in any file this repo has.
+* A starter flagged unavailable is a dead start, not a bold one: kept, flagged
+  `Starter unavailable?`, and excluded from the history boards by default.
+* nflverse's position is a player's, not his role's (Taysom Hill), and an
+  offseason depth-chart change is not an injury (Jordan Love 2023): both read
+  bold in week 1.
+* No matchup, weather or betting input: E is the player's own record only.
 
 Read-only and inquiry-only: nothing in `src/` or `.github/workflows/` imports
 this module.
@@ -117,7 +116,10 @@ LIVE_OUT_STATUSES = frozenset({"Out", "IR", "PUP", "Sus", "NA", "DNR"})
 class Params:
     """Every debatable choice, named. Defaults are the tuned ones (see
     `tune()` and the note in plan/notes when written)."""
-    prior_season_weight: float = 0.25  # d: weight of a last-season game (tuned: interior optimum)
+    prior_season_weight: float = 0.5   # d: extra weight on a last-season game (tuned with recency)
+    recency_half_life: Optional[float] = 8.0  # a game's weight halves every N games played since
+                                              # (None: no recency decay). Tuned: 8 beats none, 16
+                                              # and 4; 2 is clearly worse (single games are noisy)
     team_change_weight: float = 0.5    # extra multiplier for a game on another NFL team
     shrink_games: float = 2.0          # pseudo-games of prior for a veteran
     rookie_shrink_games: float = 3.0   # pseudo-games of the draft-round prior for a rookie
@@ -145,15 +147,49 @@ def _player_ids() -> pd.DataFrame:
     return ids.drop_duplicates("gsis_id").set_index("gsis_id")
 
 
+@functools.lru_cache(maxsize=1)
+def _build_scorer():
+    """The build's own per-row scorer (`lotg._league_score`), as wins_added
+    reaches it — one implementation of league scoring, not two."""
+    from lotg_support import wins_added as W
+    W._src_on_path()
+    import lotg  # noqa: E402  (src/, import-safe)
+    return lotg._league_score, lotg._LEAGUE_SCORE_MAP
+
+
 @functools.lru_cache(maxsize=16)
-def _season_log(season: int) -> pd.DataFrame:
+def scoring_table(season: int) -> Tuple[Tuple[str, float], ...]:
+    """The league's scoring settings for `season`: Sleeper's from 2021, the
+    ESPN league's for 2020 (pre-PPR), and 2020's for anything earlier — the
+    same choice `wins_added.nflverse_points_from_cache` makes."""
+    from lotg_support import wins_added as W
+    if int(season) >= 2021:
+        lj = Q.repo_root() / "exports" / "snapshot" / f"season_{int(season)}" / "league.json"
+        table = json.loads(lj.read_text()).get("scoring_settings") or {}
+    else:
+        table = W._espn_2020()["league"]["scoring_settings"]
+    return tuple(sorted((str(k), float(v)) for k, v in table.items() if v is not None))
+
+
+@functools.lru_cache(maxsize=128)
+def _season_log(season: int, scoring_season: Optional[int] = None) -> pd.DataFrame:
     """One row per (gsis_id, week) the player TOOK THE FIELD in a regular-season
     game: a stat line, or an offensive snap with none (scored 0, as the build's
-    5-game window does). Columns: gsis_id, season, week, team, points."""
-    stats = SE.weekly_stats(season)
-    stats = stats.assign(points=C.lotg_points(stats).astype(float))
-    stats = stats[["player_id", "week", "team", "points"]].rename(columns={"player_id": "gsis_id"})
-    stats["week"] = stats["week"].astype(int)
+    5-game window does). Columns: gsis_id, season, week, team, points, position.
+
+    Points are scored with `scoring_season`'s league settings (default: the
+    game's own season). A season is judged on its OWN rules, so 2021 week 1,
+    leaning on 2020 games, re-scores them as PPR — 2020 itself was not."""
+    score, score_map = _build_scorer()
+    table = dict(scoring_table(int(scoring_season if scoring_season is not None else season)))
+    raw = SE.weekly_stats(season)
+    pos = _player_ids()["pos"]
+    cols = [c for cs in score_map.values() for c in cs if c in raw.columns]
+    pts = [score({k: (None if pd.isna(v) else v) for k, v in zip(cols, vals)}, table, pos.get(str(g)))
+           for g, vals in zip(raw["player_id"].astype(str), raw[cols].itertuples(index=False, name=None))]
+    stats = pd.DataFrame({"gsis_id": raw["player_id"].astype(str).to_numpy(),
+                          "week": raw["week"].astype(int).to_numpy(),
+                          "team": raw["team"].to_numpy(), "points": pts})
     try:
         snaps = X.load_nflverse_snap_counts(_config(), season)
     except Exception:
@@ -177,15 +213,15 @@ def _season_log(season: int) -> pd.DataFrame:
         extra = snaps[[k not in have for k in zip(snaps["gsis_id"], snaps["week"])]]
         stats = pd.concat([stats, extra.assign(points=0.0)], ignore_index=True)
     stats["season"] = int(season)
-    pos = _player_ids()["pos"]
     stats["position"] = stats["gsis_id"].map(pos)
     stats = stats[stats["position"].isin(POSITIONS)]
     return stats.drop_duplicates(["gsis_id", "week"]).reset_index(drop=True)
 
 
-def game_log(seasons: Sequence[int]) -> pd.DataFrame:
-    """The appearance log for several seasons, oldest first."""
-    frames = [_season_log(int(s)) for s in seasons if int(s) >= FIRST_LOG_SEASON]
+def game_log(seasons: Sequence[int], scoring_season: Optional[int] = None) -> pd.DataFrame:
+    """The appearance log for several seasons, oldest first, every game scored
+    with `scoring_season`'s settings (default: each game's own season)."""
+    frames = [_season_log(int(s), scoring_season) for s in seasons if int(s) >= FIRST_LOG_SEASON]
     if not frames:
         return pd.DataFrame(columns=["gsis_id", "season", "week", "team", "points", "position"])
     return pd.concat(frames, ignore_index=True)
@@ -226,7 +262,7 @@ def _rookie_priors_cached(season: int) -> Tuple[Tuple[Tuple[str, str], float], .
     out: Dict[Tuple[str, str], float] = {}
     rows = []
     for y in range(FIRST_LOG_SEASON, int(season)):
-        log = _season_log(y)
+        log = _season_log(y, int(season))
         rook = ids.index[(pd.to_numeric(ids["rookie_season"], errors="coerce") == y)]
         sub = log[log["gsis_id"].isin(set(rook))]
         if sub.empty:
@@ -250,11 +286,83 @@ def rookie_priors(season: int) -> Dict[Tuple[str, str], float]:
     return dict(_rookie_priors_cached(int(season)))
 
 
+def _pick_order(number) -> Optional[Tuple[int, int]]:
+    try:
+        r, k = str(number).split(".")
+        return int(r), int(k)
+    except (ValueError, AttributeError):
+        return None
+
+
+@functools.lru_cache(maxsize=1)
+def _rookie_draft_rows() -> Tuple[Tuple[int, str, int, str], ...]:
+    """(draft year, gsis_id, overall pick, position) for every LOTG rookie-draft
+    pick that was a real NFL rookie that year (the rookie draft also takes
+    veterans — those are not priced by slot)."""
+    rp = Q.load_sheet("rookie_picks")
+    ids = _player_ids()
+    bridge = SE.gsis_bridge()
+    by_name: Dict[str, List[str]] = {}
+    for pid, nm in Q.players().names().items():
+        by_name.setdefault(nm, []).append(pid)
+    out = []
+    for y, grp in rp.groupby(Q.numeric(rp, "Year")):
+        if pd.isna(y):
+            continue
+        order = sorted(((o, nm) for nm, o in ((n, _pick_order(num)) for n, num in
+                        zip(grp["Player Picked"], grp["Number"])) if o), key=lambda t: t[0])
+        for overall, ((_r, _k), nm) in enumerate(order, start=1):
+            cands = [bridge.get(pid) for pid in by_name.get(nm, [])]
+            cands = sorted({g for g in cands if g and g in ids.index
+                            and ids.at[g, "pos"] in POSITIONS
+                            and pd.to_numeric(ids.at[g, "rookie_season"], errors="coerce") == y})
+            if len(cands) == 1:
+                out.append((int(y), cands[0], overall, ids.at[cands[0], "pos"]))
+    return tuple(out)
+
+
+@functools.lru_cache(maxsize=16)
+def _rookie_slot_priors_cached(season: int) -> Tuple[Tuple[str, float], ...]:
+    rows = _rookie_draft_rows()
+    train = []
+    for y, g, overall, pos in rows:
+        if y >= season:
+            continue
+        log = _season_log(y, int(season))          # ROOKIE-YEAR games only, today's rules
+        pts = log.loc[log["gsis_id"] == g, "points"]
+        if len(pts):
+            train.append((np.log(overall), pos, float(pts.mean()), len(pts)))
+    if len(train) < 30:
+        return ()
+    X = np.array([[1.0, lo] + [1.0 if pos == q else 0.0 for q in POSITIONS[1:]] for lo, pos, _, _ in train])
+    yv = np.array([t[2] for t in train])
+    wv = np.sqrt(np.array([t[3] for t in train], dtype=float))
+    coef, *_ = np.linalg.lstsq(X * wv[:, None], yv * wv, rcond=None)
+    out = {}
+    for y, g, overall, pos in rows:
+        if y == season:
+            x = np.array([1.0, np.log(overall)] + [1.0 if pos == q else 0.0 for q in POSITIONS[1:]])
+            out[g] = max(0.0, float(x @ coef))
+    return tuple(sorted(out.items()))
+
+
+def rookie_slot_priors(season: int) -> Dict[str, float]:
+    """{gsis_id: prior} for this season's LOTG rookie-draft picks.
+
+    Fitted on earlier drafts only, on each pick's ROOKIE-YEAR points per game
+    (Gibbs' 2023, never his 2026): ppg ~ a + b*ln(overall pick) + position,
+    weighted by games played. One pick per slot per year is too thin to average
+    slot by slot, hence the curve. Empty for a season with under 30 past
+    rookies to learn from (2021, the first rookie draft) — those fall back to
+    the NFL-draft-round prior."""
+    return dict(_rookie_slot_priors_cached(int(season)))
+
+
 @functools.lru_cache(maxsize=16)
 def _vet_priors_cached(season: int) -> Tuple[Tuple[str, float], ...]:
-    log = game_log([season - 1])
+    log = game_log([season - 1], scoring_season=season)
     if log.empty:
-        log = game_log([season - 2])
+        log = game_log([season - 2], scoring_season=season)
     return tuple(sorted({p: float(g["points"].mean()) for p, g in log.groupby("position")}.items()))
 
 
@@ -270,9 +378,10 @@ def veteran_priors(season: int) -> Dict[str, float]:
 def _base_expectations(season: int, weeks: Sequence[int], p: Params) -> pd.DataFrame:
     """E before any role promotion, for every player with history or a rookie
     prior, for each requested week."""
-    log = game_log([season - 2, season - 1, season])
+    log = game_log([season - 2, season - 1, season], scoring_season=season)
     ids = _player_ids()
     rpri = rookie_priors(season)
+    spri = rookie_slot_priors(season)
     vpri = veteran_priors(season)
     teams_now = _weekly_teams(season)
     rookies = set(ids.index[pd.to_numeric(ids["rookie_season"], errors="coerce") == season])
@@ -285,7 +394,11 @@ def _base_expectations(season: int, weeks: Sequence[int], p: Params) -> pd.DataF
         latest = before.sort_values(["season", "week"]).groupby("gsis_id")["team"].last()
         players = set(before["gsis_id"]) | rookies
         cur_team = {g: teams_now.get((g, wk), latest.get(g)) for g in players}
+        before = before.sort_values(["season", "week"])
         w = np.power(p.prior_season_weight, (season - before["season"]).to_numpy(dtype=float))
+        if p.recency_half_life:
+            ago = before.groupby("gsis_id").cumcount(ascending=False).to_numpy(dtype=float)
+            w = w * np.power(0.5, ago / float(p.recency_half_life))
         moved = before["team"].to_numpy() != before["gsis_id"].map(cur_team).to_numpy()
         w = np.where(moved & (before["season"].to_numpy() < season), w * p.team_change_weight, w)
         b = before.assign(_w=w, _wp=w * before["points"].to_numpy())
@@ -300,9 +413,13 @@ def _base_expectations(season: int, weeks: Sequence[int], p: Params) -> pd.DataF
             Wsum, Ssum = (float(agg.at[g, "W"]), float(agg.at[g, "S"])) if g in agg.index else (0.0, 0.0)
             is_rookie = g in rookies
             if is_rookie:
-                prior = rpri.get((pos, _bucket(ids["draft_round"].get(g))), rpri.get((pos, "*"), vpri.get(pos, 0.0)))
+                if g in spri:          # picked in this season's LOTG rookie draft
+                    prior, how = spri[g], "slot"
+                else:                  # not drafted here: NFL draft round
+                    prior = rpri.get((pos, _bucket(ids["draft_round"].get(g))), rpri.get((pos, "*"), vpri.get(pos, 0.0)))
+                    how = "nfl round"
                 k = p.rookie_shrink_games
-                source = "rookie prior" if Wsum == 0 else "rookie history"
+                source = (f"rookie prior ({how})" if Wsum == 0 else f"rookie history ({how})")
             else:
                 prior = vpri.get(pos, 0.0)
                 k = p.shrink_games
@@ -332,7 +449,7 @@ def _promotion_events(season: int, base: pd.DataFrame, p: Params) -> pd.DataFram
     "Sat out" is known before kickoff (inactives are announced ~90 minutes
     ahead): in a played week it is "no stat line and no offensive snap"; in a
     week not yet played it is Sleeper's current status (`LIVE_OUT_STATUSES`)."""
-    log = game_log([season - 1, season])
+    log = game_log([season - 1, season], scoring_season=season)
     cur = log[log["season"] == season]
     played_team = dict(zip(zip(cur["gsis_id"], cur["week"]), cur["team"]))
     played_weeks = set(cur["week"])
@@ -398,7 +515,7 @@ def _calibrate_beta_cached(seasons: Tuple[int, ...], base_params: Params) -> Tup
         ev = _promotion_events(y, base, p)
         if ev.empty:
             continue
-        log = _season_log(y)
+        log = _season_log(y, y)
         actual = dict(zip(zip(log["gsis_id"], log["week"]), log["points"]))
         ev = ev.merge(base[["gsis_id", "week", "position", "E_base"]], on=["gsis_id", "week"])
         for r in ev.itertuples():
@@ -446,14 +563,6 @@ def expected_points(season: int, weeks: Optional[Sequence[int]] = None,
 # ---------------------------------------------------------------------------
 # Availability on the league side
 # ---------------------------------------------------------------------------
-def _taxi(season: int) -> frozenset:
-    try:
-        ros = Q._snap(f"season_{int(season)}/rosters.json")
-    except FileNotFoundError:
-        return frozenset()
-    return frozenset(str(i) for r in ros for i in (r.get("taxi") or []))
-
-
 def _live_unavailable(season: int, wk: int) -> set:
     """For a week the build has not exported: Sleeper's current statuses plus
     byes off the cached schedule."""
@@ -469,6 +578,99 @@ def _live_unavailable(season: int, wk: int) -> set:
     return out
 
 
+# ---------------------------------------------------------------------------
+# One season's league side: snapshot seasons from Sleeper, 2020 from the ESPN
+# backfill (`wins_added._espn_2020`, the same Sleeper-shaped emit the build's
+# Wins added uses), so every function below reads lineups one way.
+# ---------------------------------------------------------------------------
+def _espn() -> Dict:
+    from lotg_support import wins_added as W
+    return W._espn_2020()
+
+
+def season_slots(season: int) -> Tuple[Tuple[str, ...], ...]:
+    meta = Q.season_meta(int(season))
+    if meta.starting_slots:
+        return tuple(meta.starting_slots)
+    from lotg_support import wins_added as W
+    return W._slots_for(_espn()["league"]["roster_positions"])
+
+
+@functools.lru_cache(maxsize=64)
+def _week_rows_cached(season: int, wk: int) -> Tuple[Tuple[int, Q.WeekRow], ...]:
+    if Q.season_meta(season).has_snapshot:
+        return tuple(Q.week(season, wk).items())
+    rows = _espn()["matchups_by_week"].get(int(wk)) or []
+    return tuple((int(r["roster_id"]), Q.WeekRow(
+        roster_id=int(r["roster_id"]), matchup_id=r.get("matchup_id"),
+        points=float(r.get("points") or 0.0),
+        starters=tuple(str(p) for p in (r.get("starters") or ())),
+        players=tuple(str(p) for p in (r.get("players") or ())),
+        players_points={str(k): float(v or 0.0) for k, v in (r.get("players_points") or {}).items()},
+    )) for r in rows)
+
+
+def week_rows(season: int, wk: int) -> Dict[int, Q.WeekRow]:
+    """{roster_id: WeekRow} for any season with lineups, 2020 included."""
+    return dict(_week_rows_cached(int(season), int(wk)))
+
+
+def played_weeks(season: int) -> List[int]:
+    meta = Q.season_meta(int(season))
+    if meta.has_snapshot:
+        return [w for w in Q.played_weeks(season) if w <= meta.last_week]
+    return [w for w in sorted(_espn()["matchups_by_week"]) if w <= meta.last_week
+            and any(r.points for r in week_rows(season, w).values())]
+
+
+@functools.lru_cache(maxsize=16)
+def _teams_cached(season: int) -> Tuple[Tuple[int, str], ...]:
+    if Q.season_meta(season).has_snapshot:
+        return tuple(Q.teams(season).items())
+    d = _espn()
+    users = {u["user_id"]: u.get("display_name") for u in d["users"]}
+    return tuple((int(r["roster_id"]), Q.canonical_team(users.get(r["owner_id"], f"Roster {r['roster_id']}")))
+                 for r in d["rosters"])
+
+
+def season_teams(season: int) -> Dict[int, str]:
+    return dict(_teams_cached(int(season)))
+
+
+@functools.lru_cache(maxsize=16)
+def _eligibility_cached(season: int) -> Tuple[Tuple[str, frozenset], ...]:
+    if Q.season_meta(season).has_snapshot:
+        return tuple(Q.season_eligibility(season).items())
+    # 2020: Sleeper's position (or the ESPN emit's) plus every strict slot the
+    # player was really fielded in — the same rule season_eligibility uses.
+    base = dict(Q.players().positions())
+    for pid, m in _espn()["player_meta"].items():
+        base.setdefault(str(pid), m.get("pos"))
+    slots = season_slots(season)
+    out: Dict[str, set] = {pid: ({p} if p else set()) for pid, p in base.items()}
+    for wk in played_weeks(season):
+        for wr in week_rows(season, wk).values():
+            for idx, pid in enumerate(wr.starters):
+                if pid != Q.EMPTY_SLOT and idx < len(slots) and len(slots[idx]) == 1:
+                    out.setdefault(pid, set()).add(slots[idx][0])
+    return tuple((pid, frozenset(v)) for pid, v in out.items() if v)
+
+
+def season_eligibility(season: int) -> Dict[str, frozenset]:
+    return dict(_eligibility_cached(int(season)))
+
+
+@functools.lru_cache(maxsize=1)
+def _bridge() -> Dict[str, str]:
+    """sleeper id -> gsis: the inquiry bridge, plus the 2020 emit's own ids."""
+    out = dict(SE.gsis_bridge())
+    for pid, m in _espn()["player_meta"].items():
+        g = str((m or {}).get("gsis_id") or "").strip()
+        if g and g.lower() != "nan":
+            out.setdefault(str(pid), g)
+    return out
+
+
 def stakes(season: int) -> Dict[Tuple[str, int], str]:
     """{(team lower-case, week): reason} for weeks a team had nothing (or
     something perverse) to play for: past its 'Week of playoff elimination'
@@ -479,7 +681,10 @@ def stakes(season: int) -> Dict[Tuple[str, int], str]:
     read as final, so it is not trusted there."""
     out: Dict[Tuple[str, int], str] = {}
     season = int(season)
-    if season not in Q.completed_seasons():
+    meta = Q.season_meta(season)
+    # 2020 (ESPN backfill, no snapshot) is complete but outside completed_seasons().
+    done = season in Q.completed_seasons() or (not meta.has_snapshot and season in Q.export_seasons())
+    if not done:
         return out
     ty = Q.load_sheet("team_year")
     ty = ty[Q.numeric(ty, "Year") == season]
@@ -523,8 +728,9 @@ def _seed_locked(season: int, tw: pd.DataFrame, reg: int) -> List[str]:
         wins[k] = wins.get(k, 0.0) + (1.0 if str(w).lower() in ("true", "1") else 0.0)
         pf[k] = pf.get(k, 0.0) + (float(x) if pd.notna(x) else 0.0)
     spread = _max_weekly_spread()
-    teams = Q.teams(season)
-    games = [(teams.get(a, "").lower(), teams.get(b, "").lower()) for a, b in Q.pairings(season, reg)]
+    final = tw[wk_s == reg]
+    games = sorted({tuple(sorted((str(t).lower(), str(o).lower())))
+                    for t, o in zip(final["Team"], final["Opponent"]) if pd.notna(o)})
     return locked_seeds(wins, pf, games, spread)
 
 
@@ -557,9 +763,9 @@ def locked_seeds(wins: Dict[str, float], pf: Dict[str, float],
 def season_weeks(season: int, include_live: bool = True) -> Tuple[List[int], Optional[int]]:
     """(scored weeks within the league calendar, the live week or None)."""
     meta = Q.season_meta(season)
-    played = [w for w in Q.played_weeks(season) if w <= meta.last_week]
+    played = played_weeks(season)
     live = None
-    if include_live and season not in Q.completed_seasons():
+    if include_live and meta.has_snapshot and season not in Q.completed_seasons():
         nxt = (max(played) + 1) if played else 1
         try:
             if nxt <= meta.last_week and Q.week(season, nxt):
@@ -569,78 +775,104 @@ def season_weeks(season: int, include_live: bool = True) -> Tuple[List[int], Opt
     return played, live
 
 
+def lineup_fits(players: Sequence[str], slots: Sequence[Tuple[str, ...]],
+                elig: Dict[str, frozenset]) -> bool:
+    """Can these players all start at once, each in a slot he is eligible for?
+    Bipartite matching (Kuhn) — ten slots, so cheap. A player missing from
+    `elig` is eligible nowhere."""
+    if len(players) > len(slots):
+        return False
+    owner: Dict[int, int] = {}
+    pos = [elig.get(p, frozenset()) for p in players]
+
+    def place(i: int, seen: set) -> bool:
+        for j, slot in enumerate(slots):
+            if j in seen or not (pos[i] & set(slot)):
+                continue
+            seen.add(j)
+            if j not in owner or place(owner[j], seen):
+                owner[j] = i
+                return True
+        return False
+
+    return all(place(i, set()) for i in range(len(players)))
+
+
 def boldness(season: int, weeks: Optional[Sequence[int]] = None,
              params: Params = Params(), include_live: bool = True) -> pd.DataFrame:
-    """One row per start (empty slots counted, not listed): the starter, his E,
-    the best eligible available bench option and its E, Boldness, Edge, what
-    actually happened, and every flag a reader needs to classify the row."""
+    """One row per starting slot: the starter (an empty slot is a start with
+    E = 0, Starter "Empty slot"), his E, the best STARTABLE available bench
+    player (`lineup_fits`) and his E, Boldness, Edge, what actually happened,
+    and every flag a reader needs to classify the row."""
     season = int(season)
     played, live = season_weeks(season, include_live)
     wks = [w for w in (list(weeks) if weeks is not None else played + ([live] if live else []))]
     if not wks:
         return pd.DataFrame()
-    meta = Q.season_meta(season)
-    slots = meta.starting_slots
+    slots = season_slots(season)
     E = expected_points(season, wks, params)
     E_idx = {(r.gsis_id, r.week): r for r in E.itertuples()}
-    bridge = SE.gsis_bridge()
-    elig = Q.season_eligibility(season)
+    bridge = _bridge()
+    elig = season_eligibility(season)
     unavail_hist = Q.unavailable(season)
-    taxi = _taxi(season)
-    teams = Q.teams(season)
+    teams = season_teams(season)
     names = Q.players().names()
     stake = stakes(season)
-    started_ever = set()
     rows = []
     for wk in sorted(wks):
         is_live = (wk == live)
         unavail = _live_unavailable(season, wk) if is_live else {pid for pid, w in unavail_hist if w == wk}
-        for rid, wr in Q.week(season, wk).items():
+        for rid, wr in week_rows(season, wk).items():
             starters = list(wr.starters)
-            bench = [b for b in wr.bench if b not in taxi and b not in unavail]
+            # Taxi = bench, by design (see the module traps).
+            bench = [b for b in wr.bench if b not in unavail]
 
             def info(pid):
                 g = bridge.get(pid)
                 return E_idx.get((g, wk)) if g else None
 
+            filled = [p for p in starters[:len(slots)] if p != Q.EMPTY_SLOT]
             for idx, s in enumerate(starters):
-                if s == Q.EMPTY_SLOT or idx >= len(slots):
+                if idx >= len(slots):
                     continue
                 slot = slots[idx]
-                si = info(s)
+                empty = s == Q.EMPTY_SLOT
+                si = None if empty else info(s)
+                # Best STARTABLE bench player: anyone who could come into the
+                # lineup in his place, the other starters reshuffling slots as
+                # needed — not only a same-slot swap.
+                others = [p for p in filled if p != s]
                 cands = [(info(b), b) for b in bench
-                         if info(b) is not None and (elig.get(b, frozenset()) & set(slot))]
+                         if info(b) is not None and lineup_fits(others + [b], slots, elig)]
                 ref = max(cands, key=lambda c: c[0].E) if cands else (None, None)
                 ri, r = ref
-                e_s = float(si.E) if si is not None else np.nan
+                e_s = 0.0 if empty else (float(si.E) if si is not None else np.nan)
                 e_r = float(ri.E) if ri is not None else np.nan
-                edge = e_r - e_s if (si is not None and ri is not None) else np.nan
+                edge = e_r - e_s if (pd.notna(e_s) and ri is not None) else np.nan
                 rows.append({
                     "Year": season, "Week": wk, "Team": teams.get(rid, f"Roster {rid}"),
                     "Slot": "/".join(slot) if len(slot) > 1 else slot[0],
-                    "Starter": names.get(s, s), "Starter ID": s,
+                    "Starter": "Empty slot" if empty else names.get(s, s), "Starter ID": None if empty else s,
                     "Starter position": si.position if si is not None else None,
-                    "E starter": round(e_s, 2) if si is not None else None,
+                    "E starter": round(e_s, 2) if pd.notna(e_s) else None,
                     "Reference": names.get(r, r) if r else None, "Reference ID": r,
                     "Reference position": ri.position if ri is not None else None,
                     "E reference": round(e_r, 2) if ri is not None else None,
                     "Edge": round(edge, 2) if pd.notna(edge) else None,
                     "Boldness": round(max(0.0, edge), 2) if pd.notna(edge) else None,
-                    "Starter points": None if is_live else wr.players_points.get(s),
+                    "Starter points": None if is_live else (0.0 if empty else wr.players_points.get(s)),
                     "Reference points": None if (is_live or not r) else wr.players_points.get(r),
-                    "Starter source": si.source if si is not None else "unresolved",
+                    "Starter source": "empty slot" if empty else (si.source if si is not None else "unresolved"),
                     "Starter rookie?": bool(si.rookie) if si is not None else None,
                     "Starter games this season": int(si.games_this_season) if si is not None else None,
                     "Starter promoted over": names.get(_sleeper_of(si.promoted_over), si.promoted_over)
                     if si is not None and isinstance(si.promoted_over, str) else None,
                     "Reference source": ri.source if ri is not None else None,
                     "Reference promoted?": bool(isinstance(ri.promoted_over, str)) if ri is not None else None,
-                    "Ref taxi-eligible?": bool(ri is not None and ri.rookie and r not in started_ever),
-                    "Starter unavailable?": s in unavail,
+                    "Starter unavailable?": (not empty) and s in unavail,
                     "Low stakes": stake.get((teams.get(rid, "").lower(), wk)),
                     "Live week?": is_live,
                 })
-            started_ever.update(p for p in starters if p != Q.EMPTY_SLOT)
     df = pd.DataFrame(rows)
     if not df.empty:
         df["Result"] = pd.to_numeric(df["Starter points"], errors="coerce") - pd.to_numeric(df["Reference points"], errors="coerce")
@@ -649,7 +881,7 @@ def boldness(season: int, weeks: Optional[Sequence[int]] = None,
 
 @functools.lru_cache(maxsize=1)
 def _gsis_to_sleeper() -> Dict[str, str]:
-    return {g: s for s, g in SE.gsis_bridge().items()}
+    return {g: s for s, g in _bridge().items()}
 
 
 def _sleeper_of(gsis: Optional[str]) -> Optional[str]:
@@ -665,18 +897,18 @@ def team_boldness(season: int, weeks: Optional[Sequence[int]] = None,
     wks = list(weeks) if weeks is not None else played + ([live] if live else [])
     E = expected_points(season, wks, params)
     E_idx = {(r.gsis_id, r.week): float(r.E) for r in E.itertuples()}
-    bridge = SE.gsis_bridge()
-    pos = Q.players().positions()
+    bridge = _bridge()
+    pos = {p: next(iter(sorted(e))) for p, e in season_eligibility(season).items()}
+    pos.update(Q.players().positions())
     unavail_hist = Q.unavailable(season)
-    taxi = _taxi(season)
-    teams = Q.teams(season)
+    teams = season_teams(season)
     rows = []
     for wk in sorted(wks):
         is_live = wk == live
         unavail = _live_unavailable(season, wk) if is_live else {pid for pid, w in unavail_hist if w == wk}
-        for rid, wr in Q.week(season, wk).items():
+        for rid, wr in week_rows(season, wk).items():
             starters = [s for s in wr.starters if s != Q.EMPTY_SLOT]
-            pool = starters + [b for b in wr.bench if b not in taxi and b not in unavail]
+            pool = starters + [b for b in wr.bench if b not in unavail]
             e = {p: E_idx.get((bridge.get(p), wk)) for p in pool}
             unresolved = [p for p, v in e.items() if v is None]
             e = {p: v for p, v in e.items() if v is not None}
@@ -692,7 +924,7 @@ def team_boldness(season: int, weeks: Optional[Sequence[int]] = None,
 def history(seasons: Optional[Sequence[int]] = None, params: Params = Params(),
             include_live: bool = True) -> pd.DataFrame:
     """`boldness()` for every snapshot season (2021 on), concatenated."""
-    seasons = seasons or [s for s in Q.snapshot_seasons() if s >= 2021]
+    seasons = seasons or sorted(set(Q.export_seasons()) | set(Q.snapshot_seasons()))
     frames = [boldness(s, params=params, include_live=include_live) for s in seasons]
     frames = [f for f in frames if not f.empty]
     return pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
@@ -707,7 +939,7 @@ def check_points_reconcile(season: int, min_rate: float = 0.97, tolerance: float
     back-corrects and `lotg_points` has a known residual — so a rate."""
     pw = Q.load_sheet("player_week")
     pw = pw[Q.numeric(pw, "Year") == season]
-    bridge = SE.gsis_bridge()
+    bridge = _bridge()
     name_to_id = {}
     for pid, nm in Q.players().names().items():
         name_to_id.setdefault(nm, pid)
@@ -737,6 +969,37 @@ def calibration(df: pd.DataFrame) -> Dict[str, float]:
             "r": float(np.corrcoef(d["Edge"].astype(float), d["Result"].astype(float))[0, 1])}
 
 
+def fit_bust_odds(df: pd.DataFrame) -> Tuple[float, float]:
+    """(a, b) of P(reference outscores starter) = 1 / (1 + exp(-(a + b*Edge))),
+    fitted by logistic regression (Newton's method) on completed, available,
+    games-that-mattered starts. In-sample when applied to the same history —
+    say so when quoting it."""
+    d = df[(~df["Live week?"]) & (~df["Starter unavailable?"]) & df["Low stakes"].isna()]
+    d = d.dropna(subset=["Edge", "Result"])
+    d = d[d["Result"] != 0]
+    x = d["Edge"].to_numpy(dtype=float)
+    y = (d["Result"].to_numpy(dtype=float) < 0).astype(float)
+    beta = np.zeros(2)
+    X = np.column_stack([np.ones_like(x), x])
+    for _ in range(50):
+        pr = 1 / (1 + np.exp(-X @ beta))
+        g = X.T @ (y - pr)
+        H = (X * (pr * (1 - pr))[:, None]).T @ X
+        step = np.linalg.solve(H, g)
+        beta += step
+        if np.abs(step).max() < 1e-9:
+            break
+    return float(beta[0]), float(beta[1])
+
+
+def with_bust_odds(df: pd.DataFrame, coef: Optional[Tuple[float, float]] = None) -> pd.DataFrame:
+    """Adds 'Bust odds': the calibrated chance the reference outscores the
+    starter, from `fit_bust_odds` (fitted on `df` itself unless `coef` given)."""
+    a, b = coef if coef is not None else fit_bust_odds(df)
+    edge = pd.to_numeric(df["Edge"], errors="coerce")
+    return df.assign(**{"Bust odds": (1 / (1 + np.exp(-(a + b * edge)))).round(3)})
+
+
 def check_calibration(df: pd.DataFrame, lo: float = -1.4, hi: float = -0.6) -> List[str]:
     """If E is unbiased, Result ≈ -Edge on average: the slope must sit near -1."""
     c = calibration(df)
@@ -758,11 +1021,11 @@ def check_team_boldness_bounds(season: int, params: Params = Params()) -> List[s
              zip(tw["Team"], Q.numeric(tw, "Week"), pd.to_numeric(tw["Max PF"], errors="coerce"))
              if pd.notna(w) and pd.notna(m)}
     pos = Q.players().positions()
-    teams = Q.teams(season)
+    teams = season_teams(season)
     played, _ = season_weeks(season, include_live=False)
     n = agree = 0
     for wk in played[:3]:
-        for rid, wr in Q.week(season, wk).items():
+        for rid, wr in week_rows(season, wk).items():
             v = L.compute_optimal_lineup(dict(wr.players_points), pos, season)
             b = built.get((teams.get(rid, "").lower(), wk))
             if b is None:
@@ -776,28 +1039,31 @@ def check_team_boldness_bounds(season: int, params: Params = Params()) -> List[s
 
 def tune(seasons: Sequence[int] = (2021, 2022, 2023, 2024, 2025),
          grid_d: Sequence[float] = (0.25, 0.5, 0.75, 1.0),
-         grid_k: Sequence[float] = (1.0, 2.0, 4.0)) -> pd.DataFrame:
+         grid_k: Sequence[float] = (1.0, 2.0, 4.0),
+         grid_h: Sequence[Optional[float]] = (None,)) -> pd.DataFrame:
     """MAE of E against what rostered players actually scored, over a small grid.
     Reported for sensitivity, not to be re-tuned every season (see the playbook's
     forecasting trap about knobs with no interior optimum)."""
-    bridge = SE.gsis_bridge()
+    bridge = _bridge()
     out = []
     targets = {}
     for y in seasons:
         rostered = set()
         for wk in season_weeks(y, include_live=False)[0]:
-            for wr in Q.week(y, wk).values():
+            for wr in week_rows(y, wk).values():
                 rostered |= {(bridge.get(p), wk) for p in wr.players if bridge.get(p)}
         log = _season_log(y)
         targets[y] = {(g, w): pt for g, w, pt in zip(log["gsis_id"], log["week"], log["points"])
                       if (g, w) in rostered}
     for d in grid_d:
-        for k in grid_k:
-            p = Params(prior_season_weight=d, shrink_games=k, promote=False)
-            err = []
-            for y in seasons:
-                e = _base_expectations(y, range(1, 19), p)
-                ed = dict(zip(zip(e["gsis_id"], e["week"]), e["E_base"]))
-                err += [abs(ed[key] - v) for key, v in targets[y].items() if key in ed]
-            out.append({"prior_season_weight": d, "shrink_games": k, "MAE": float(np.mean(err)), "n": len(err)})
+        for h in grid_h:
+            for k in grid_k:
+                p = Params(prior_season_weight=d, recency_half_life=h, shrink_games=k, promote=False)
+                err = []
+                for y in seasons:
+                    e = _base_expectations(y, range(1, 19), p)
+                    ed = dict(zip(zip(e["gsis_id"], e["week"]), e["E_base"]))
+                    err += [abs(ed[key] - v) for key, v in targets[y].items() if key in ed]
+                out.append({"prior_season_weight": d, "recency_half_life": h, "shrink_games": k,
+                            "MAE": float(np.mean(err)), "n": len(err)})
     return pd.DataFrame(out).sort_values("MAE")
