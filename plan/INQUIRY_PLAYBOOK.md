@@ -477,6 +477,18 @@ position per player put Cordarrelle Patterson (RB today, WR in 2021) out of the
 WR slot and returned a "best" lineup below the one actually set. The
 invariant: Lineup Boldness >= the boldest single start of that lineup.
 
+**Inquiry = export, to the cent.** `scripts/boldness.py` reproduces the exported
+column because:
+- beta is a pure NFL fit (the no-history fallback is kept out of the
+  calibration, so the league's rosters cannot move it);
+- outside the build, weeks stop at the last one the committed build finalized
+  (its team_week rows). "Any points" alone counts a week in progress from
+  Thursday night on.
+
+Trap: `Q.played_weeks` still uses "any points". Other tools that count weeks
+with it (analysis, draft_capital, forecast, replay) see a live week as played
+mid-week.
+
 **Empty slots are not boldness** [per user, 2026-10-02]. Both halves judge a
 lineup on the slots that were FILLED: the ex-ante max fills only those, and a
 starter's reference must be able to take his place among them. An empty slot
