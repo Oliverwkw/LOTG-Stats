@@ -1190,6 +1190,19 @@ Rules [per user, 2026-10-01]:
   cells), Lineup Boldness (97 team-weeks, 15 team-years), each by hundredths (undoing #462's
   beta ripple); 625 is cell-identical to 624. Open (needs judgment): `Q.played_weeks` still
   counts a live week as played for analysis / draft_capital / forecast / replay.
+- [x] **Inquiry: played weeks are final weeks** (#466 / `8a1a3cb`). `Q.played_weeks` counted
+  any week with points, so from Thursday night analysis / draft_capital / forecast / replay
+  read the live week's partial scores as final. Today's 2026 forecast would have booked wk4
+  with roster 4 on 15.6 and the rest on 0. It now stops at `Q.finalized_week` (the committed
+  build's last team_week). The forecast's in-season switch keeps "has kickoff happened" via
+  `include_in_progress=True`. Inquiry-only.
+  **3-part audit — PASS (2026-10-02): post-merge run 627 vs the last pre-merge main run 625**
+  (branch run 626). Part 1: 560 passed / 2 standing skips, no new ERROR, exports committed
+  (ae00446; this also lands #465's values). Part 2:
+  - 2026 played = [1, 2, 3], started = [1, 2, 3, 4], forecast observed = [1, 2, 3];
+  - boldness inquiry vs the committed exports: 0 of 7,771 starts and 0 of 832 lineups differ.
+
+  Part 3: 627 is cell-identical to both 625 and 626.
 
 ## Sequential re-audit of #446–#455 + winning-season streak fix (2026-10-01)
 Asked for: re-do every audit since #446 against SEQUENTIAL main builds (last
