@@ -1017,6 +1017,58 @@ Rules [per user, 2026-10-01]:
   Formulas rows + 1 edited; everything else is wall-clock tenure or the daily
   KTC "years later" roll (and the O-Score / skill columns reading it). No row
   added or removed.
+- [ ] **Fix: forced fills with two+ open slots** (found 2026-10-01 while porting
+  the rule to `whatif.py`'s plausible model). `cf_lineup_points` judged EVERY
+  forced fill against the single best-averaging legal filler, so with two
+  starters removed the second slot usually stayed empty — 2025 wk 14, Lamar +
+  Godwin out of shmuel256, every WR measured against Herbert's QB average.
+  Now the bar is the h-th best filler (h = open slots). Impact on run 604's
+  data (build bridge + KTC replayed from provenance): trades 138 / 566 rows
+  move (135 down, 3 up; sum −183 → −283), add_drops 32 / 1,610 (all down;
+  −14 → −21) — the empty slot had been crediting multi-starter returns (LWebs53
+  2020 startup swap +9.67 → +3.49; shmuel256 2023 Kamara trade +4 → −1). Unit
+  test pins the two-hole case. 3-part audit vs run 604 after merge.
+  **Extended [per user]: the lineup rule is slot-aware.** Checking the
+  2022-09-27 Jefferson 4-for-1 (shmuel256 / LWebs53) week by week showed (a)
+  slots left EMPTY when no bench player passed plausibility or scored > 0
+  (shmuel256 2024 wk 6-7: 9 of 10 filled) and (b) a bench player benching a
+  real starter through a slot reshuffle — the count-based check let LWebs53
+  2022 wk 8 start Geno Smith for Tom Brady. Now: the pool is the real roster
+  minus the move's return plus what it gave up; every cleared slot is filled
+  by a different player (plausible first, else best eligible); a given-up
+  player takes one explicit role (fill a cleared slot / a real empty slot /
+  displace one named starter); a bench player only fills a cleared slot,
+  directly or by one starter sliding into it. Unit tests: no bench-for-starter
+  reshuffle, a 0-point filler still fills, the 4-for-1 shape.
+  **Then, per user, three more rules:** given-up players come first for
+  cleared slots (LWebs53 2022 wk 5: Adams belongs in Jefferson's slot, not
+  Adams into Aaron Jones' flex with bench Reynolds in Jefferson's slot); a real
+  starter still on the roster never sits while a real bench player starts;
+  a rookie in his first 3 games may move in if he really started that week.
+  Filling every cleared slot ranks before points. The bench fill is a
+  legality-checked search over the whole lineup (a one-slide approximation let
+  two fillers lean on the same slide and left slots empty).
+  **Final rules [per user]** — the sequence: (1) the move's return comes off
+  the lineup and the bench, leaving its slots empty; (2) what it gave up joins
+  the bench; (3) the empty slots fill from the bench, given-up and real bench
+  players competing on points, each filler within 5 of the h-th best option
+  (best eligible if nobody is); (4) a remaining given-up player who outscored a
+  starter, is within 5 of that starter's 3-game average and fits (after
+  rearranging) swaps in; (5) re-decide the game. Kept on top of the sequence:
+  a real starter still on the roster never sits while a real bench player
+  starts, and the best lineup obeying every rule is taken (filled slots, then
+  fewest implausible fillers, then points). Given-up-first priority for empty
+  slots was tried and dropped. Search: over (given-up players used, starters
+  displaced) with a bound, the bench fill exact by matroid greedy, lineups
+  cached — 88 s for every row (a role-by-role search took 41 min).
+  Full local sweep: 28,656 counterfactual lineups, every move and week, keep
+  every rule. vs run 604: trades 177 / 566 rows move (−183 → −135), add_drops
+  41 (−14 → −18).
+  Guard: `test_counterfactual_lineups_keep_the_rules_on_real_moves` checks
+  every counterfactual lineup of the Jefferson 4-for-1 and a spread of moves
+  (1,367 lineups): pool = roster − return + given-up, the starter-before-bench
+  invariant, no cleared slot empty while an eligible proven player sits, no
+  unproven entrant who did not really start.
 - [ ] **Follow-up PR: Trade impact score's WIN IMPACT uses the Wins added
   "would he have played" test** [per user, 2026-10-01 — keep the two metrics
   clearly different; do NOT substitute Wins added into the score]. Today the
