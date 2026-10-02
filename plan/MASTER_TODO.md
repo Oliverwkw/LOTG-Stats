@@ -1156,6 +1156,26 @@ Rules [per user, 2026-10-01]:
     his role;
   - Lineup Boldness exceeds the sum of start Boldness on 5 empty-slot weeks, the biggest
     being plehv79's thrown 2022 wk16 (74.18).
+- [x] **Boldness: empty slots and dead starts are not boldness; `Empty slots` column** (#464 /
+  `866dc04`) [per user, 2026-10-02]. Lineup Boldness now judges only the filled slots, and a
+  starter's reference must take his place among them. A dead start (flagged bye / injured /
+  suspended, scored 0) is judged the same way: N/A, slot out. The new `Empty slots` is a count
+  on team_week, summed on team_year / team_all_time; dead starts are not counted. Also fixed
+  the #463 `-n auto` race in `test_reads_are_pure` (it read `exports/raw/pytest.log` mid-write;
+  this failed branch run 620). The season-relative Lineup Boldness for the 2024 second flex was
+  declined: leave it as is.
+  **3-part audit — PASS (2026-10-02): post-merge run 623 vs the last pre-merge main run 619**
+  (branch runs 620, 622; 621 cancelled). Part 1: 557 passed / 2 standing skips, no new build
+  ERROR, exports committed (050cc87); 623 is cell-identical to branch run 622. Part 2:
+  - `Empty slots` > 0 on exactly 6 team-weeks: plehv79 2022 wk16 = 6 and wk17 = 2,
+    JacobRosenzweig 2022 wk13 and wk17 = 1, shmuel256 2020 Final = 2, LWebs53 2025 wk9 = 1;
+  - year / all-time sums and the Lineup Boldness means reconcile (0 mismatches);
+  - the 26 starters without Boldness are exactly the 26 dead starts;
+  - every changed lineup holds an empty slot or a dead start;
+  - 0 lineups fall below their boldest start.
+
+  Part 3: only Boldness (35 cells), Lineup Boldness (11 / 8 / 5), the new column, and formulas
+  (+1 row) changed; no row was added or removed.
 
 ## Sequential re-audit of #446–#455 + winning-season streak fix (2026-10-01)
 Asked for: re-do every audit since #446 against SEQUENTIAL main builds (last
