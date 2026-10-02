@@ -687,95 +687,6 @@ def _bridge() -> Dict[str, str]:
     return out
 
 
-def stakes(season: int) -> Dict[Tuple[str, int], str]:
-    """{(team lower-case, week): reason} for weeks a team had nothing (or
-    something perverse) to play for: past its 'Week of playoff elimination'
-    in the regular season, a toilet-bowl game (through the 2024 draft,
-    winning one cost draft position), or the final regular-season week with
-    its seed already locked (`_seed_locked`). Completed seasons only — the build fills
-    that column for the in-progress season too, with the current standings
-    read as final, so it is not trusted there."""
-    out: Dict[Tuple[str, int], str] = {}
-    season = int(season)
-    meta = Q.season_meta(season)
-    # 2020 (ESPN backfill, no snapshot) is complete but outside completed_seasons().
-    done = season in Q.completed_seasons() or (not meta.has_snapshot and season in Q.export_seasons())
-    if not done:
-        return out
-    ty = Q.load_sheet("team_year")
-    ty = ty[Q.numeric(ty, "Year") == season]
-    reg = Q.season_meta(season).regular_season_weeks
-    for t, e in zip(ty["Team"], pd.to_numeric(ty["Week of playoff elimination"], errors="coerce")):
-        if pd.notna(e) and e > 0:
-            for wk in range(int(e) + 1, reg + 1):
-                out[(str(t).lower(), wk)] = "eliminated"
-    tw = Q.load_sheet("team_week")
-    tw = tw[Q.numeric(tw, "Year") == season]
-    for t, wk, nm in zip(tw["Team"], Q.numeric(tw, "Week"), tw["Week Name"]):
-        if pd.notna(wk) and "toilet" in str(nm).lower():
-            out[(str(t).lower(), int(wk))] = "toilet bowl"
-    for t in _seed_locked(season, tw, reg):
-        out.setdefault((t, reg), "seed locked")
-    return out
-
-
-@functools.lru_cache(maxsize=1)
-def _max_weekly_spread() -> float:
-    """Largest (max PF - min PF) in any regular-season week on record: no PF
-    tiebreak gap wider than this can close in a single week."""
-    tw = Q.load_sheet("team_week")
-    tw = tw.assign(_pf=pd.to_numeric(tw["PF"], errors="coerce"),
-                   _y=Q.numeric(tw, "Year"), _w=Q.numeric(tw, "Week"))
-    g = tw.groupby(["_y", "_w"])["_pf"]
-    return float((g.max() - g.min()).max())
-
-
-def _seed_locked(season: int, tw: pd.DataFrame, reg: int) -> List[str]:
-    """Teams whose seed could not move in the final regular-season week under
-    ANY result of that week's games. A tie in wins counts as movable unless the
-    season PF gap exceeds the largest one-week PF spread the league has ever
-    produced (`_max_weekly_spread`), so this is conservative."""
-    wk_s = Q.numeric(tw, "Week")
-    prior = tw[(wk_s < reg)]
-    wins: Dict[str, float] = {}
-    pf: Dict[str, float] = {}
-    for t, w, x in zip(prior["Team"], prior["Win?"], pd.to_numeric(prior["PF"], errors="coerce")):
-        k = str(t).lower()
-        wins[k] = wins.get(k, 0.0) + (1.0 if str(w).lower() in ("true", "1") else 0.0)
-        pf[k] = pf.get(k, 0.0) + (float(x) if pd.notna(x) else 0.0)
-    spread = _max_weekly_spread()
-    final = tw[wk_s == reg]
-    games = sorted({tuple(sorted((str(t).lower(), str(o).lower())))
-                    for t, o in zip(final["Team"], final["Opponent"]) if pd.notna(o)})
-    return locked_seeds(wins, pf, games, spread)
-
-
-def locked_seeds(wins: Dict[str, float], pf: Dict[str, float],
-                 games: Sequence[Tuple[str, str]], spread: float) -> List[str]:
-    """Pure core of `_seed_locked`: every win/loss outcome of `games` is
-    enumerated; a team is locked when its possible seeds collapse to one. Ties
-    in wins are movable unless the PF gap exceeds `spread`."""
-    if not wins or not games:
-        return []
-    possible: Dict[str, set] = {t: set() for t in wins}
-    for mask in range(2 ** len(games)):
-        final = dict(wins)
-        for i, (a, b) in enumerate(games):
-            w = a if (mask >> i) & 1 else b
-            final[w] = final.get(w, 0.0) + 1
-        for t in wins:
-            above = sum(1 for u in wins if u != t and final[u] > final[t])
-            tied = sum(1 for u in wins if u != t and final[u] == final[t]
-                       and abs(pf.get(u, 0.0) - pf.get(t, 0.0)) <= spread)
-            above += sum(1 for u in wins if u != t and final[u] == final[t]
-                         and pf.get(u, 0.0) - pf.get(t, 0.0) > spread)
-            possible[t].update(range(above + 1, above + tied + 2))
-    return sorted(t for t, seeds in possible.items() if len(seeds) == 1)
-
-
-# ---------------------------------------------------------------------------
-# Boldness
-# ---------------------------------------------------------------------------
 def season_weeks(season: int, include_live: bool = True) -> Tuple[List[int], Optional[int]]:
     """(scored weeks within the league calendar, the live week or None)."""
     meta = Q.season_meta(season)
@@ -833,7 +744,6 @@ def boldness(season: int, weeks: Optional[Sequence[int]] = None,
     unavail_hist = Q.unavailable(season)
     teams = season_teams(season)
     names = Q.players().names()
-    stake = stakes(season)
     rows = []
     for wk in sorted(wks):
         is_live = (wk == live)
@@ -886,7 +796,6 @@ def boldness(season: int, weeks: Optional[Sequence[int]] = None,
                     "Reference source": ri.source if ri is not None else None,
                     "Reference promoted?": bool(isinstance(ri.promoted_over, str)) if ri is not None else None,
                     "Starter unavailable?": (not empty) and s in unavail,
-                    "Low stakes": stake.get((teams.get(rid, "").lower(), wk)),
                     "Live week?": is_live,
                 })
     df = pd.DataFrame(rows)
@@ -987,10 +896,11 @@ def calibration(df: pd.DataFrame) -> Dict[str, float]:
 
 def fit_bust_odds(df: pd.DataFrame) -> Tuple[float, float]:
     """(a, b) of P(reference outscores starter) = 1 / (1 + exp(-(a + b*Edge))),
-    fitted by logistic regression (Newton's method) on completed, available,
-    games-that-mattered starts. In-sample when applied to the same history —
+    fitted by logistic regression (Newton's method) on every completed start
+    with an available starter — low-stakes and tank weeks included. In-sample
+    when applied to the same history —
     say so when quoting it."""
-    d = df[(~df["Live week?"]) & (~df["Starter unavailable?"]) & df["Low stakes"].isna()]
+    d = df[(~df["Live week?"]) & (~df["Starter unavailable?"])]
     d = d.dropna(subset=["Edge", "Result"])
     d = d[d["Result"] != 0]
     x = d["Edge"].to_numpy(dtype=float)
