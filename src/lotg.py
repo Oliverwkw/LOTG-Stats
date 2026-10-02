@@ -2228,6 +2228,21 @@ def _preserve_na(col: str) -> bool:
         "weeks between pickup and start",
     }:
         return True
+    # Season-outcome columns: N/A while the season is live (standings and
+    # seeds provisional, no champion yet) — not 0 / False, which read as
+    # "made the bracket" / "not on the champion's roster".
+    # Boldness: N/A on a bench row (not a start); Lineup Boldness: N/A before a
+    # season's first game — neither is a real 0.
+    if col_l in {"boldness", "lineup boldness"}:
+        return True
+    if col_l in {
+        "week of playoff elimination",
+        "(smallest) playoff tiebreaker",
+        "rostered by champion?",
+        "started by champion?",
+        "started in championship game?",
+    }:
+        return True
     return False
 
 
@@ -2247,9 +2262,11 @@ def _fill_missing_values(df: pd.DataFrame, cols: List[str]) -> pd.DataFrame:
             continue
 
         if kind == "boolean":
-            def _coerce_bool(v: Any) -> bool:
+            _keep_na = _preserve_na(col)
+
+            def _coerce_bool(v: Any) -> Any:
                 if pd.isna(v):
-                    return default
+                    return None if _keep_na else default
                 if isinstance(v, bool):
                     return v
                 if isinstance(v, (int, float)):
@@ -4762,6 +4779,13 @@ def build_all(repo_root: Path) -> None:
     except Exception as e:
         _log_exc(debug, "commish_pick_overlay_load", e)
 
+    # Boldness inputs, captured per season from the build's OWN data (the
+    # committed snapshot can be a week stale on a build-only run). Consumed
+    # after the team sheets exist — see "Boldness / Lineup Boldness".
+    _bold_matchups: Dict[int, Dict[int, List[Dict[str, Any]]]] = {}
+    _bold_roster_positions: Dict[int, List[str]] = {}
+    _bold_scoring: Dict[int, Dict[str, Any]] = {}
+
     for lg in leagues:
         league_id = str(lg.get("league_id"))
         season = _to_int(lg.get("season"), 0) or 0
@@ -5731,6 +5755,11 @@ def build_all(repo_root: Path) -> None:
                                     f"undid moves completed after the week ({', '.join(_lchg)})")
             except Exception as e:
                 _log_exc(debug, f"late_listing_{season}", e)
+
+        # Boldness inputs for this season (late-listing corrected, as above).
+        _bold_matchups[int(season)] = {int(_w): list(_m or []) for _w, _m in matchups_by_week.items()}
+        _bold_roster_positions[int(season)] = list(lg.get("roster_positions") or [])
+        _bold_scoring[int(season)] = dict(lg.get("scoring_settings") or {})
 
         # ------------- Manual 2021 botched-trade merge -------------
         # Sleeper split ONE draft-day pick trade (shmuel256's 2021 2.08 for
@@ -16386,9 +16415,17 @@ def build_all(repo_root: Path) -> None:
             def _cky(p, y):
                 return (str(p), int(y)) if pd.notna(y) else None
             _pk = list(player_year[["Player ID", "Year"]].itertuples(index=False, name=None))
-            player_year["Rostered by champion?"] = [bool(_champ_ros_year.get(_cky(p, y), 0)) for p, y in _pk]
-            player_year["Started by champion?"] = [bool(_champ_start_year.get(_cky(p, y), 0)) for p, y in _pk]
-            player_year["Started in championship game?"] = [bool(_champ_final_year.get(_cky(p, y), 0)) for p, y in _pk]
+            # A live season has no champion yet: N/A, not "False" (which reads
+            # as "not on the champion's roster").
+            _done_y = {int(y): _season_is_complete(int(y)) for _p, y in _pk if pd.notna(y)}
+
+            def _champ_flag(lookup, p, y):
+                if pd.isna(y) or not _done_y.get(int(y), True):
+                    return None
+                return bool(lookup.get(_cky(p, y), 0))
+            player_year["Rostered by champion?"] = [_champ_flag(_champ_ros_year, p, y) for p, y in _pk]
+            player_year["Started by champion?"] = [_champ_flag(_champ_start_year, p, y) for p, y in _pk]
+            player_year["Started in championship game?"] = [_champ_flag(_champ_final_year, p, y) for p, y in _pk]
         except Exception as e:
             _log_exc(debug, "player_year_champ_flags", e)
 
@@ -17259,7 +17296,10 @@ def build_all(repo_root: Path) -> None:
                 season_playoffs = {str(t) for t in playoff_teams.get(int(season), set())}
                 for team in sorted({str(t) for t in teams}):
                     if team in season_playoffs:
-                        elim_map[team] = None
+                        # 0 = made the bracket (formula). Explicit, not None:
+                        # the column preserves N/A for a live season, so a
+                        # None would no longer be zero-filled into this 0.
+                        elim_map[team] = 0
                         continue
                     elim_week = None
                     for wk in weeks:
@@ -17271,6 +17311,10 @@ def build_all(repo_root: Path) -> None:
                         if int((others["min_win_pct"] > t_max).sum()) >= 4:
                             elim_week = int(wk)
                             break
+                    # A team that missed only on the PF tiebreak is never "4 teams
+                    # ahead" on win % — it was eliminated at the season's end.
+                    if elim_week is None and season_playoffs:
+                        elim_week = int(weeks[-1])
                     elim_map[team] = elim_week
                 elim_by_year[int(season)] = elim_map
             return elim_by_year
@@ -17496,7 +17540,12 @@ def build_all(repo_root: Path) -> None:
                 "Change in win % from previous season": None,
                 "Change in efficiency from previous season": None,
                 "Win Variance": win_variance,
-                "Week of playoff elimination": playoff_elimination_by_season.get(int(yr), {}).get(str(team)),
+                # A live season's standings are provisional (its games-so-far
+                # read as the whole schedule, so every team outside the current
+                # top 4 came out "eliminated" in the latest week): N/A until done.
+                "Week of playoff elimination": (
+                    playoff_elimination_by_season.get(int(yr), {}).get(str(team))
+                    if _season_is_complete(int(yr)) else "N/A"),
                 "Draft Value": 0,
                 "Number of first round picks made": 0,
                 "Total number of picks made": 0,
@@ -18856,6 +18905,63 @@ def build_all(repo_root: Path) -> None:
     except Exception as e:
         _log_exc(debug, "team_tier_shares", e)
 
+    # Boldness / Lineup Boldness (lotg_support.boldness): how far each start —
+    # and each whole lineup — went against PRE-KICKOFF expected points. Fed the
+    # build's own matchups, flags, rookie picks, scorer and gsis bridge, never
+    # the committed exports. player_week = starters only; team_year /
+    # team_all_time = the AVERAGE per lineup over the weeks played.
+    try:
+        from lotg_support import boldness as _bold
+        _t0 = datetime.now()
+        _bold_unavail: Dict[int, Set[Tuple[str, int]]] = defaultdict(set)
+        if not pw.empty:
+            _flag_cols = [c for c in ("Bye?", "Injury?", "Suspension?") if c in pw.columns]
+            _off = pd.Series(False, index=pw.index)
+            for _c in _flag_cols:
+                _off = _off | pw[_c].map(lambda v: safe_bool(v, default=False))
+            for _pid, _y, _w in pw.loc[_off, ["Player ID", "Year", "Week"]].itertuples(index=False, name=None):
+                if pd.notna(_y) and pd.notna(_w):
+                    _bold_unavail[int(_y)].add((str(_pid), int(_w)))
+        _rk = ph[~pick_history.non_rookie_mask(ph)] if isinstance(ph, pd.DataFrame) and not ph.empty else pd.DataFrame()
+        _bold_bridge = {str(_sid): str(_m.get("gsis_id")).strip() for _sid, _m in pid_meta.items()
+                        if (_m or {}).get("gsis_id") and str(_m.get("gsis_id")).lower() != "nan"}
+        with _bold.build_inputs(
+                matchups=_bold_matchups, roster_positions=_bold_roster_positions,
+                teams={int(k): dict(v) for k, v in season_roster_to_team.items()},
+                unavailable=dict(_bold_unavail),
+                rookie_picks=_rk[["Year", "Number", "Player Picked"]] if not _rk.empty else pd.DataFrame(columns=["Year", "Number", "Player Picked"]),
+                scoring=_bold_scoring, score=_league_score, score_map=_LEAGUE_SCORE_MAP,
+                bridge=_bold_bridge):
+            _bstarts, _blineups = _bold.build_columns()
+        if not pw.empty:
+            _bs = _bstarts.assign(Year=pd.to_numeric(_bstarts["Year"]).astype(int),
+                                  Week=pd.to_numeric(_bstarts["Week"]).astype(int),
+                                  **{"Player ID": _bstarts["Player ID"].astype(str)})
+            _bmap = {(y, w, p): b for y, w, p, b in _bs[["Year", "Week", "Player ID", "Boldness"]].itertuples(index=False, name=None)}
+            _is_start = pw["Starter/Bench"].astype(str) == "Starter"
+            pw["Boldness"] = [
+                (_bmap.get((int(y), int(w), str(p))) if (s_ and pd.notna(y) and pd.notna(w)) else None)
+                for y, w, p, s_ in zip(pw["Year"], pw["Week"], pw["Player ID"], _is_start)]
+        _bl = _blineups.assign(Year=pd.to_numeric(_blineups["Year"]).astype(int),
+                               Week=pd.to_numeric(_blineups["Week"]).astype(int))
+        if isinstance(tw, pd.DataFrame) and not tw.empty:
+            _lmap = {(y, w, str(t)): v for y, w, t, v in _bl[["Year", "Week", "Team", "Lineup Boldness"]].itertuples(index=False, name=None)}
+            tw["Lineup Boldness"] = [
+                (_lmap.get((int(y), int(w), str(t))) if pd.notna(y) and pd.notna(w) else None)
+                for y, w, t in zip(pd.to_numeric(tw["Year"], errors="coerce"),
+                                   pd.to_numeric(tw["Week"], errors="coerce"), tw["Team"])]
+        if isinstance(team_year, pd.DataFrame) and not team_year.empty:
+            _ymap = _bl.groupby(["Team", "Year"])["Lineup Boldness"].mean().round(2).to_dict()
+            team_year["Lineup Boldness"] = [_ymap.get((str(t), int(y))) if pd.notna(y) else None
+                                            for t, y in zip(team_year["Team"], pd.to_numeric(team_year["Year"], errors="coerce"))]
+        if isinstance(team_all, pd.DataFrame) and not team_all.empty:
+            _amap = _bl.groupby("Team")["Lineup Boldness"].mean().round(2).to_dict()
+            team_all["Lineup Boldness"] = [_amap.get(str(t)) for t in team_all["Team"]]
+        _log(debug, f"[{_now_iso()}] INFO boldness: {len(_bstarts)} starts, {len(_blineups)} lineups "
+                    f"in {(datetime.now() - _t0).total_seconds():.0f}s")
+    except Exception as e:
+        _log_exc(debug, "boldness", e)
+
     # League rollups
     # League-wide unique extras (Phase 5B item 2): rookies and NFL-team counts
     # at year / all-time must be DISTINCT across the whole period, not summed
@@ -19148,7 +19254,8 @@ def build_all(repo_root: Path) -> None:
             # tiebreaker was needed). Regular-season weeks only ("Week N").
             _reg = g[g["Week Name"].astype(str).str.match(r"^Week \d", na=False)]
             _smallest_tb = "N/A"
-            if not _reg.empty:
+            # Seeds are only "finished" once the season is: N/A while live.
+            if not _reg.empty and _season_is_complete(int(yr)):
                 _stand = []
                 for _tm, _tg in _reg.groupby("Team"):
                     _wn = pd.to_numeric(_tg.get("Win?"), errors="coerce")
