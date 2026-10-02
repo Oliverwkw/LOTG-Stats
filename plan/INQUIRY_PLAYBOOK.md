@@ -485,9 +485,12 @@ column because:
   (its team_week rows). "Any points" alone counts a week in progress from
   Thursday night on.
 
-Trap: `Q.played_weeks` still uses "any points". Other tools that count weeks
-with it (analysis, draft_capital, forecast, replay) see a live week as played
-mid-week.
+`Q.played_weeks` is FINAL weeks only: weeks with points, capped at
+`Q.finalized_week` (the committed build's last team_week). Every inquiry tool
+counting weeks with it (analysis, draft_capital, forecast, replay, boldness)
+therefore ignores the week in progress, which has points from Thursday night
+on. For "has the season begun?" pass `include_in_progress=True`, as the
+forecast's designation switch does.
 
 **Empty slots are not boldness** [per user, 2026-10-02]. Both halves judge a
 lineup on the slots that were FILLED: the ex-ante max fills only those, and a
