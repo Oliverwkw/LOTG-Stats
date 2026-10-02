@@ -96,6 +96,18 @@ def test_lineup_fits_allows_a_reshuffle_but_not_an_illegal_lineup():
     assert B.lineup_fits([], slots, e)
 
 
+def test_the_rookie_slot_prior_fades_out():
+    # after rookie_prior_weeks the slot has no say: a rookie's E is his own
+    # games shrunk toward the ordinary positional prior, as for anyone
+    y = _season()
+    if y is None:
+        return _skip("no completed season with exports and the nflverse cache")
+    e = B._base_expectations(y, [1, 8], _FAST)
+    rk = e[e["rookie"]]
+    assert (rk.loc[rk["week"] == 8, "source"] == "history").all()
+    assert rk.loc[rk["week"] == 1, "source"].str.startswith("rookie").all()
+
+
 def test_seed_lock_with_no_games_locks_nothing():
     assert B.locked_seeds({"a": 3}, {"a": 1.0}, [], spread=100) == []
 
@@ -103,7 +115,7 @@ def test_seed_lock_with_no_games_locks_nothing():
 def test_every_debatable_choice_is_a_parameter():
     p = B.Params()
     for name in ("prior_season_weight", "recency_half_life", "team_change_weight", "shrink_games",
-                 "rookie_shrink_games", "promotion_lookback", "promote",
+                 "rookie_shrink_games", "rookie_prior_weeks", "promotion_lookback", "promote",
                  "preseason_grace_weeks", "beta"):
         assert hasattr(p, name), name
     assert 0 < p.prior_season_weight < 1

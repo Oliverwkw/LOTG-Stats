@@ -44,7 +44,12 @@ so 2021 week 1, leaning on 2020 games, re-scores them as PPR.
   ROOKIE-YEAR points per game only — Gibbs' 2023, never his 2026 — so this
   year's 1.03 is priced on what 1.03-ish picks did as rookies. A rookie not
   drafted here falls back to past rookies at his position and NFL round. Either
-  prior is shrunk away as his own games arrive.
+  prior speaks for the first few weeks only: its weight fades linearly to
+  nothing by `rookie_prior_weeks` (4), after which the rookie is judged on his
+  own games like anyone else — De'Von Achane, the 2023 1.11, was a 9.5
+  expectation in week 1 and 16.8 the week after his 51-point game, so starting
+  him then was not bold. (Fade length barely moves accuracy: rookie MAE 4.91-4.93
+  for anything from 1 week to never; "a few weeks" is a choice, not a fit.)
 * **Cuffs (role changes).** When a same-team, same-position teammate with a
   higher E sits out (no stat line and no offensive snap — inactives are known
   before kickoff; in the live week, Sleeper's status) while on that team's
@@ -122,7 +127,10 @@ class Params:
                                               # and 4; 2 is clearly worse (single games are noisy)
     team_change_weight: float = 0.5    # extra multiplier for a game on another NFL team
     shrink_games: float = 2.0          # pseudo-games of prior for a veteran
-    rookie_shrink_games: float = 3.0   # pseudo-games of the draft-round prior for a rookie
+    rookie_shrink_games: float = 3.0   # pseudo-games of the draft-slot prior for a rookie in week 1
+    rookie_prior_weeks: Optional[float] = 4.0  # the slot prior fades linearly to nothing by this week,
+                                               # after which a rookie is judged like anyone else
+                                               # (None: never fades)
     promotion_lookback: Optional[int] = None  # None: the teammate counts while he is on the team's weekly
                                        # roster and not playing; N: only if he played in one of its last N games
     promote: bool = True               # apply the cuff/role promotion
@@ -418,8 +426,16 @@ def _base_expectations(season: int, weeks: Sequence[int], p: Params) -> pd.DataF
                 else:                  # not drafted here: NFL draft round
                     prior = rpri.get((pos, _bucket(ids["draft_round"].get(g))), rpri.get((pos, "*"), vpri.get(pos, 0.0)))
                     how = "nfl round"
-                k = p.rookie_shrink_games
-                source = (f"rookie prior ({how})" if Wsum == 0 else f"rookie history ({how})")
+                # The slot speaks for the first few weeks only, then it is the
+                # player's own games (shrunk like anyone's): fade the slot's
+                # pseudo-games out and the ordinary positional prior in.
+                fade = 1.0 if not p.rookie_prior_weeks else max(0.0, 1.0 - (wk - 1) / float(p.rookie_prior_weeks))
+                k_r, k_v = p.rookie_shrink_games * fade, p.shrink_games * (1.0 - fade)
+                vp = vpri.get(pos, 0.0)
+                k = k_r + k_v
+                prior = (k_r * prior + k_v * vp) / k if k > 0 else vp
+                source = (f"rookie prior ({how})" if Wsum == 0 and fade > 0
+                          else (f"rookie history ({how})" if fade > 0 else "history"))
             else:
                 prior = vpri.get(pos, 0.0)
                 k = p.shrink_games
