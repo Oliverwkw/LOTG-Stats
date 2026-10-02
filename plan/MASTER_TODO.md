@@ -1017,7 +1017,7 @@ Rules [per user, 2026-10-01]:
   Formulas rows + 1 edited; everything else is wall-clock tenure or the daily
   KTC "years later" roll (and the O-Score / skill columns reading it). No row
   added or removed.
-- [ ] **Fix: forced fills with two+ open slots** (found 2026-10-01 while porting
+- [x] **Fix: forced fills with two+ open slots** (found 2026-10-01 while porting
   the rule to `whatif.py`'s plausible model). `cf_lineup_points` judged EVERY
   forced fill against the single best-averaging legal filler, so with two
   starters removed the second slot usually stayed empty — 2025 wk 14, Lamar +
@@ -1069,6 +1069,21 @@ Rules [per user, 2026-10-01]:
   (1,367 lineups): pool = roster − return + given-up, the starter-before-bench
   invariant, no cleared slot empty while an eligible proven player sits, no
   unproven entrant who did not really start.
+  **3-part audit — PASS (2026-10-02): post-merge run 610 (merge `df151ca`,
+  #459) vs the last pre-merge main run 607** (branch runs 605-609; 608
+  cancelled mid-rework). Part 1: 532 passed / 2 standing skips — both the
+  real-move lineup guard and the recompute guard ran; no build ERROR; `0 guard
+  warnings, unresolved []`; exports committed (d8d8fdd); email / rotation
+  skipped. Part 2: an independent recompute of run 610 from its own sheets +
+  bridge reproduces all 2,176 rows (381 KTC-share rows with the build's player
+  KTC replayed from provenance); rate = total × 17 / games everywhere; the
+  Jefferson 4-for-1 weeks fill every slot (LWebs53 2022 wk 5: Adams, Evans,
+  Cook, Rodgers in; wk 8 Brady stays; shmuel256 four cleared slots → four
+  different players). Part 3: only `Wins added` (177 trades / 41 add_drops
+  rows — exactly the predicted set) and `Wins added per season` (172 / 37; the
+  rest round the same), one Formulas note; everything else is wall-clock tenure
+  or the daily KTC "2 years later" roll and the add_drops O-Score / Add/Drop
+  skill reading it. No row added or removed.
 - [ ] **Follow-up PR: Trade impact score's WIN IMPACT uses the Wins added
   "would he have played" test** [per user, 2026-10-01 — keep the two metrics
   clearly different; do NOT substitute Wins added into the score]. Today the
