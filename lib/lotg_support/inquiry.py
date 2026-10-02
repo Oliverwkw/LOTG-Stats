@@ -1133,6 +1133,7 @@ class Trade:
     received: Dict[int, Tuple[str, ...]]          # roster_id -> player ids gained
     faab: Dict[int, float] = field(default_factory=dict)   # roster_id -> net FAAB
     picks: Tuple[dict, ...] = ()
+    sent_by: Dict[str, int] = field(default_factory=dict)  # player id -> roster that gave him up
 
     def team(self, rid: int, year: Optional[int] = None) -> str:
         return teams(year or self.season).get(rid, f"Roster {rid}")
@@ -1205,6 +1206,7 @@ def trades(season: Optional[int] = None, player: Optional[str] = None,
                 roster_ids=tuple(int(r) for r in (txn.get("roster_ids") or ())),
                 received={k: tuple(v) for k, v in received.items()},
                 faab=cash, picks=tuple(txn.get("draft_picks") or ()),
+                sent_by={str(k): int(v) for k, v in (txn.get("drops") or {}).items()},
             ))
     out.sort(key=lambda t: (t.season, t.date))
     return out

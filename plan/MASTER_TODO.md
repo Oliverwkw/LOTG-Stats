@@ -1084,18 +1084,21 @@ Rules [per user, 2026-10-01]:
   rest round the same), one Formulas note; everything else is wall-clock tenure
   or the daily KTC "2 years later" roll and the add_drops O-Score / Add/Drop
   skill reading it. No row added or removed.
-- [ ] **Follow-up PR: Trade impact score's WIN IMPACT uses the Wins added
-  "would he have played" test** [per user, 2026-10-01 — keep the two metrics
-  clearly different; do NOT substitute Wins added into the score]. Today the
-  term (`_tpi_wins` + downstream share, `src/lotg.py` ~12920 / ~13069) swaps in
-  the top-k given-up scorers that week with hindsight and no slot legality. It
-  should only count a given-up player where he would plausibly have started:
-  legal slot, last-3-game average within 5 of the player he replaces, 1.5x cap
-  for anyone nobody started, never an unproven (<3 prior games) player — one
-  shared rule from `lotg_support.wins_added`, not a second copy. Everything
-  else about the score stays as it is (only weeks a received player started,
-  fixed opponent score, z-scored composite). Moves every Trade impact score and
-  the trades O-Score built on it.
+- [x] **Trade impact score's win term IS Wins added** [per user, 2026-10-02 —
+  revised from "match its would-he-have-played test": feeding Wins added in
+  keeps the score a distinct metric (a z-scored blend of five signals) without
+  a second, cruder win counterfactual inside it]. The old term (`_tpi_wins` +
+  KTC-share downstream credit) only looked at weeks a received player started
+  (always 0 on 313 / 566 trades), swapped in the top-k given-up scorers with
+  hindsight and never adjusted the opponent; removed with its downstream
+  machinery and margin map. Wins added now computes ONCE, just before the
+  composite (dates through the same UTC → Eastern conversion the export uses),
+  for both sheets — the end-of-build pass is gone. Expected: Trade impact score
+  and the trades O-Score / Trading skill move; Wins added identical to run 614.
+  `Points lost` left alone [per user]: it never builds a lineup (raw given-up
+  points over weeks a received player started); measured on run 607 it reads
+  2.4x the given-up players' plausible-start points on 1-3 player trades, ~10%
+  below a full replacement view — recorded, by design.
 - [x] **Boldness + Lineup Boldness + live-season outcome fixes** (#461, merged
   before a branch build and reverted in e8eaa35; re-landed as #462 / `8c7c207`
   with two fixes from branch build 612). Fix 1: Lineup Boldness fed the single-*current*-position

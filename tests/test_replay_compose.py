@@ -120,21 +120,21 @@ def test_compose_guard_passes_for_every_completed_season():
         assert problems == [], f"{year}: {problems}"
 
 
-def test_three_way_trades_are_refused_not_guessed():
+def test_three_way_trades_route_each_player_to_his_sender():
     if not _HAVE_DATA:
         return _skip("no committed data")
-    # A pre-existing limit of the single-trade path, inherited by composition:
-    # pinned here so it stays a loud refusal rather than a silent wrong answer.
+    # They used to be refused. Sleeper's `drops` names every sender, so each
+    # player now goes back to exactly the roster that gave him up — checked
+    # against the raw transaction, for every 3-way in the completed seasons.
     found = [t for y in Q.completed_seasons() for t in R.three_way_trades(y)]
     if not found:
         return _skip("no three-way trade in the committed data")
-    trade = found[0]
-    try:
-        R.undo_trades(trade.season, transaction_ids=[trade.transaction_id])
-    except LookupError as exc:
-        assert "sides" in str(exc)
-    else:
-        raise AssertionError("expected a LookupError on a three-way trade")
+    for trade in found:
+        scn = R.undo_trades(trade.season, transaction_ids=[trade.transaction_id])
+        assert {m.player_id for m in scn.moves} == {p for got in trade.received.values() for p in got}
+        for m in scn.moves:
+            assert m.player_id in trade.received[m.from_roster]
+            assert m.to_roster == trade.sent_by[m.player_id] != m.from_roster
 
 
 def test_one_trade_composed_equals_undo_trade():
@@ -193,7 +193,7 @@ TESTS = [
     test_seasons_may_not_be_mixed,
     test_undo_trades_needs_a_selector,
     test_compose_guard_passes_for_every_completed_season,
-    test_three_way_trades_are_refused_not_guessed,
+    test_three_way_trades_route_each_player_to_his_sender,
     test_one_trade_composed_equals_undo_trade,
     test_the_teardown_composes_to_every_players_real_move,
     test_composing_the_teardown_beats_undoing_the_big_trade_alone,

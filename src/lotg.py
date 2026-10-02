@@ -12546,27 +12546,6 @@ def build_all(repo_root: Path) -> None:
         except Exception as e:
             _log_exc(debug, "picks_pickadj_diff_item1", e)
 
-        # --- Item 3: "Trade impact score" = wins the trade actually
-        # flipped (player stats → win impact). For each week AFTER the trade in
-        # which a received asset started for this team, we already know the
-        # week's net points (received starters − the top-k players traded away,
-        # the existing maximize rule). Counterfactual: had the team NOT made the
-        # trade, that week's margin would be (actual margin − net points). If the
-        # win/loss outcome flips between the two, the trade is credited (+1) or
-        # debited (−1) that game. Picks count via the players drafted with them
-        # (future weeks), so a rebuild is credited when its rookies win games —
-        # it is not punished for shedding veterans. Σ over weeks × coefficient.
-        _team_margin: Dict[Tuple[str, int, int], float] = {}
-        _mcols = ["Team", "Year", "Week", "Margin"]
-        if not tw.empty and set(_mcols).issubset(tw.columns):
-            for _t, _y, _w, _mg in zip(*[tw[c] for c in _mcols]):
-                if pd.isna(_y) or pd.isna(_w):
-                    continue
-                try:
-                    _team_margin[(str(_t), int(_y), int(_w))] = float(_mg)
-                except Exception:
-                    continue
-        _TPI_COEFF = 1000.0  # KTC-points per net game flipped (tunable)
 
         for idx, row in enumerate(trades_rows):
             team = str(row.get("Team") or "")
@@ -12974,8 +12953,6 @@ def build_all(repo_root: Path) -> None:
                     _sent_logs.append({_k2: (_v, _v * _afac(_dr[0], _k2[0])) for _k2, _v in _nfl_wk_pts(name=_dr[0]).items()})
             _tp_added = _tp_lost = _tadj_added = _tadj_lost = 0.0
             _tnwk = 0
-            _wins_flipped = 0  # Item 3: net games the trade actually flipped
-            _has_margin = False
             for _w, _rpts in _recv_week.items():
                 _k = len(_rpts)
                 if _k == 0:
@@ -12991,16 +12968,6 @@ def build_all(repo_root: Path) -> None:
                 _wk_lost = sum(c[0] for c in _cand)
                 _tp_lost += _wk_lost
                 _tadj_lost += sum(c[1] for c in _cand)
-                # Item 3: did this week's net swing flip the team's result? The
-                # counterfactual margin (no trade) = actual margin − net points.
-                _mg = _team_margin.get((str(team), int(_w[0]), int(_w[1])))
-                if _mg is not None:
-                    _has_margin = True
-                    _net_wk = _wk_added - _wk_lost
-                    _wins_flipped += int(_mg > 0) - int((_mg - _net_wk) > 0)
-            # Raw win-impact (games the trade flipped). Folded into the
-            # "Trade impact score" composite in a post-loop pass below.
-            row["_tpi_wins"] = float(_wins_flipped) if _has_margin else None
             _tnet = _tp_added - _tp_lost
             _tadj_net = _tadj_added - _tadj_lost
             row["Points added"] = round(_tp_added, 2)
@@ -13026,7 +12993,6 @@ def build_all(repo_root: Path) -> None:
             # win-impact can be credited downstream, weighted by the asset's KTC
             # value SHARE of that downstream trade (no separate hop discount —
             # the share itself decays the credit each link).
-            _tpi_down_list: List[Tuple[int, Tuple[str, Any], str]] = []
             retained: List[str] = []
             traded_away: List[str] = []
             dropped_to_fa: List[str] = []
@@ -13079,10 +13045,6 @@ def build_all(repo_root: Path) -> None:
                     continue
 
                 traded_away.append(asset_disp)
-                try:
-                    _tpi_down_list.append((int(nx["tx_idx"]), asset_key, str(nx["date"])))
-                except Exception:
-                    pass
                 nx_keys, nx_disp = _next_trade_received(nx["tx_idx"])
                 return_immediate.extend(nx_disp)
                 # Additional assets traded away in the next trade
@@ -13108,7 +13070,6 @@ def build_all(repo_root: Path) -> None:
                     for k2, d2 in zip(more_k, more_d):
                         queue.append((k2, d2, nxt["date"]))
 
-            row["_tpi_down"] = _tpi_down_list  # Item 3 downstream re-trade links
             if retained:
                 row["Assets retained now"] = "; ".join(retained)
             if traded_away:
@@ -13122,129 +13083,93 @@ def build_all(repo_root: Path) -> None:
             if return_full:
                 row["Return from trades of trades...of trades. Keep going until present day"] = "; ".join(dict.fromkeys(return_full))
 
+        # WINS ADDED (trades + add_drops). For every week from the move to today —
+        # playoffs and consolation games included, each week on its own — would
+        # not making the move have changed the result against the real opponent?
+        # +1 per loss the move turned into a win, −1 per win it turned into a
+        # loss; `Wins added per season` is the same total × 17 / games since the
+        # move. The whole rule (and the lineup rule) lives in
+        # lotg_support.wins_added, which reads the moves from these same rows, so
+        # a local recompute from the CSVs goes through the identical code path.
+        # Runs once, here, because Trade impact score (just below) uses it as its
+        # win term; dates go through the same UTC -> Eastern conversion the
+        # export applies, so the values equal the exported columns'. Its KTC
+        # lookups land in the provenance dump.
+        def _wins_added_pass() -> None:
+            try:
+                from lotg_support import wins_added as _wa
+                from lotg_support.ktc import asset_value_at as _wa_kv
+
+                def _wa_value(_asset, _day):
+                    if _ktc_idx is None:
+                        return None
+                    try:
+                        _d = date.fromisoformat(str(_day)[:10])
+                        if _asset.is_pick:
+                            return _wa_kv(_wa._ktc_pick_label(_asset.label), None, _d, _ktc_idx)
+                        return _wa_kv(None, str(_asset.pid), _d, _ktc_idx) if _asset.pid else None
+                    except Exception:
+                        return None
+
+                def _eastern(_col):
+                    return _to_eastern_display(pd.to_datetime(_col, errors="coerce", utc=True, format="ISO8601"))
+
+                _wa_report = _wa.Report()
+                # The player -> gsis bridge after this build's enrichment (Sleeper's
+                # own id with the last-name correction, then DynastyProcess, then
+                # nflverse), persisted so a recompute scores the same nflverse games.
+                _wa_bridge = {str(_sid): str(_m.get("gsis_id")) for _sid, _m in pid_meta.items()
+                              if (_m or {}).get("gsis_id") and str(_m.get("gsis_id")).lower() != "nan"}
+                _wa.write_gsis_bridge(_wa_bridge, repo_root / "exports" / "raw" / _wa.BRIDGE_FILE)
+                _wa_league = _wa.load_league(tw, _wa.nflverse_points_from_cache(
+                    bridge=_wa_bridge, score=_league_score, score_map=_LEAGUE_SCORE_MAP,
+                    cache_dir=cache_dir))
+                _wa_bad = _wa.check_offsets(_wa_league) + _wa.check_real_lineups_legal(_wa_league)
+                for _msg in _wa_bad[:20]:
+                    _log(debug, f"[{_now_iso()}] WARN wins added: {_msg}")
+                _tr_in = pd.DataFrame(trades_rows)
+                _ad_in = add_drops_df.copy()
+                _tr_in["Date"] = _eastern(_tr_in["Date"])
+                _ad_in["Date"] = _eastern(_ad_in["Date"])
+                # The pick frame still calls the drafting team "Final Team" here;
+                # it is renamed to "Team" just before the export (see below).
+                _ph_in = ph.rename(columns={"Final Team": "Team"}) if "Final Team" in ph.columns else ph
+                _wa_tr, _wa_ad = _wa.compute(_tr_in, _ad_in, _wa_league, [_ph_in], _wa_value, _wa_report)
+                for _wa_col in (_wa.COLUMN, _wa.RATE_COLUMN):
+                    for _i, _row in enumerate(trades_rows):
+                        _row[_wa_col] = _wa_tr[_wa_col].iloc[_i]
+                    add_drops_df[_wa_col] = _wa_ad[_wa_col].values
+                _log(debug, f"[{_now_iso()}] INFO wins added: {_wa_report.rows} rows over "
+                            f"{len(_wa_league.order)} weeks; {_wa_report.optimised_weeks} lineups searched; "
+                            f"{len(_wa_report.unproven_blocked)} entries blocked as unproven (<3 prior games); "
+                            f"{len(_wa_bad)} guard warnings; unresolved names: {_wa_report.unresolved_names}")
+            except Exception as e:
+                _log_exc(debug, "wins_added", e)
+
         # --- Item 3: "Trade impact score" composite. ---
-        # Win impact = the games the trade flipped (counterfactual weekly margins
-        # from received-asset production) PLUS a share of the games flipped by
-        # LATER trades that re-used the received assets. Each downstream trade is
-        # credited by the FRACTION of its sent-side KTC value (on the later
-        # trade's day) that came from THIS trade's assets — so a minor add-on
-        # later bundled for a stud earns only its small share, recursively. That
-        # downstream-aware win impact is HEAVILY weighted (per user) and blended
-        # (z-scored across all trades) with realized production (Avg net points),
-        # overall trade value incl. picks (Trade addition value), future pick
-        # capital (Pick value received), and youth (−Asset diff in avg age) into
-        # one continuous, percentile-rankable score. The output uses no KTC
-        # directly (KTC only proportions the downstream credit); all signals
-        # credit a rebuild, so tank trades aren't punished.
+        # Its win term IS `Wins added` (lotg_support.wins_added: games the trade
+        # swung, from the move to today, received assets followed through later
+        # trades at their KTC share) [per user, 2026-10-02 — replacing a cruder
+        # in-house count that only checked weeks a received player started,
+        # swapped in the top-k given-up scorers with hindsight and never
+        # adjusted the opponent]. HEAVILY weighted and blended (z-scored across
+        # all trades) with realized production (Avg net points), overall trade
+        # value incl. picks (Trade addition value), future pick capital (Pick
+        # value received) and youth (−Asset diff in avg age) into one
+        # continuous, percentile-rankable score — still its own metric, a grade,
+        # not a win count. Wins added is computed HERE, once, for both sheets
+        # (the exported columns are these same values).
         try:
             def _tpi_f(_v):
                 try:
                     return float(_v)
                 except Exception:
                     return None
-            try:
-                from lotg_support.ktc import asset_value_at as _tpi_kv
-            except Exception:
-                _tpi_kv = None
-            try:
-                _tpi_idx = _ktc_idx  # may be undefined if the KTC pass was skipped
-            except NameError:
-                _tpi_idx = None
 
-            def _tpi_pdate(_s):
-                try:
-                    return datetime.fromisoformat(str(_s).replace("Z", "+00:00")).date()
-                except Exception:
-                    return None
-
-            # Phase 12 #45a: count win-impact KTC lookups that come back EMPTY
-            # (no history at that date) vs total. A high empty rate means the
-            # build fetched KTC incompletely (rate-limit / cold cache), which
-            # silently 0-fills the downstream-credit proportioning and makes
-            # "Trade impact score" non-deterministic across builds. Logged after
-            # the loop so an incomplete build is obvious instead of silent.
-            _tpi_ktc_stats = {"total": 0, "empty": 0}
-
-            def _tpi_kv_counted(_pl, _pid, _d):
-                _v = _tpi_kv(_pl, _pid, _d, _tpi_idx)
-                _tpi_ktc_stats["total"] += 1
-                if _v is None:
-                    _tpi_ktc_stats["empty"] += 1
-                return float(_v or 0.0)
-
-            def _tpi_asset_ktc(_ak, _jidx, _dstr):
-                if _tpi_kv is None or _tpi_idx is None:
-                    return 0.0
-                _d = _tpi_pdate(_dstr)
-                if _d is None:
-                    return 0.0
-                try:
-                    if _ak[0] == "player":
-                        return _tpi_kv_counted(None, str(_ak[1]), _d)
-                    _rj = trades_rows[_jidx]
-                    for _m, _l in zip(_rj.get("_drop_pick_meta") or [], _rj.get("_drop_picks") or []):
-                        if tuple(_m) == tuple(_ak[1]):
-                            return _tpi_kv_counted(str(_l), None, _d)
-                except Exception:
-                    return 0.0
-                return 0.0
-
-            _sent_tot_cache: Dict[int, float] = {}
-
-            def _tpi_sent_total(_jidx):
-                if _jidx in _sent_tot_cache:
-                    return _sent_tot_cache[_jidx]
-                _tot = 0.0
-                if _tpi_kv is not None and _tpi_idx is not None:
-                    _rj = trades_rows[_jidx]
-                    _d = _tpi_pdate(_rj.get("Date"))
-                    if _d is not None:
-                        for _pid in (_rj.get("_drop_player_ids") or []):
-                            _tot += _tpi_kv_counted(None, str(_pid), _d)
-                        for _l in (_rj.get("_drop_picks") or []):
-                            _tot += _tpi_kv_counted(str(_l), None, _d)
-                _sent_tot_cache[_jidx] = _tot
-                return _tot
-
-            _winimpact: Dict[int, float] = {}
-            _wi_active: Set[int] = set()
-
-            def _tpi_total(_i):
-                if _i in _winimpact:
-                    return _winimpact[_i]
-                if _i in _wi_active:
-                    return 0.0  # cycle guard (trades are time-ordered; shouldn't fire)
-                _wi_active.add(_i)
-                _val = _tpi_f(trades_rows[_i].get("_tpi_wins")) or 0.0
-                _by_j: Dict[int, List[Tuple[Tuple[str, Any], str]]] = defaultdict(list)
-                for (_j, _ak, _ds) in (trades_rows[_i].get("_tpi_down") or []):
-                    if 0 <= _j < len(trades_rows):
-                        _by_j[_j].append((_ak, _ds))
-                for _j, _assets in _by_j.items():
-                    _st = _tpi_sent_total(_j)
-                    if _st > 0:
-                        _num = sum(_tpi_asset_ktc(_ak, _j, _ds) for (_ak, _ds) in _assets)
-                        _share = max(0.0, min(1.0, _num / _st))
-                        if _share > 0:
-                            _val += _share * _tpi_total(_j)
-                _wi_active.discard(_i)
-                _winimpact[_i] = _val
-                return _val
-
-            for _i in range(len(trades_rows)):
-                trades_rows[_i]["_tpi_winimpact"] = _tpi_total(_i)
-
-            _tt = _tpi_ktc_stats["total"]
-            _te = _tpi_ktc_stats["empty"]
-            if _tt:
-                _rate = 100.0 * _te / _tt
-                _log(debug, f"[{_now_iso()}] INFO KTC win-impact lookups: {_te}/{_tt} empty ({_rate:.1f}%)")
-                if _rate > 25.0:
-                    _log(debug, f"[{_now_iso()}] WARN KTC win-impact incomplete ({_te}/{_tt} empty) "
-                                f"— Trade impact score may be non-deterministic this build; check the KTC cache/fetch")
+            _wins_added_pass()
 
             _tpi_specs = [
-                ("_tpi_winimpact", 2.0, True),                        # downstream-aware win impact (HEAVY)
+                ("Wins added", 2.0, True),                            # games swung, downstream-aware (HEAVY)
                 ("Avg net points", 0.8, False),                       # realized production
                 ("Trade addition value", 0.5, False),                 # value incl. picks
                 ("Pick value received", 0.5, True),                   # future capital
@@ -13283,8 +13208,6 @@ def build_all(repo_root: Path) -> None:
                 # and the full ranking (and thus the O-Score percentile that
                 # consumes this) are unchanged.
                 _r["Trade impact score"] = round(0.6 * _score, 1)
-                for _k in ("_tpi_wins", "_tpi_down", "_tpi_winimpact"):
-                    _r.pop(_k, None)
         except Exception as e:
             _log_exc(debug, "team_perf_improvement_item3", e)
 
@@ -22085,56 +22008,6 @@ def build_all(repo_root: Path) -> None:
                     f"{sum(1 for r in _pa_rows if r['Addition type'] in ('Waiver','Free agency','Commissioner'))} add/drop)")
     except Exception as e:
         _log_exc(debug, "player_additions", e)
-
-    # WINS ADDED (trades + add_drops). For every week from the move to today —
-    # playoffs and consolation games included, each week on its own — would not
-    # making the move have changed the result against the real opponent? +1 per
-    # loss the move turned into a win, −1 per win it turned into a loss. Given-up
-    # assets count forever; received ones while held, following the team's later
-    # trades at their KTC share. `Wins added per season` is the same total as a
-    # rate (× 17 / games played since the move). The whole rule lives in
-    # lotg_support.wins_added, which reads the moves from these same two frames
-    # so a local recompute from the CSVs goes through the identical code path.
-    # Runs here, after every pass that edits trades / add_drops / team_week / the
-    # pick frame, and before the provenance dump so its KTC lookups are recorded.
-    try:
-        from lotg_support import wins_added as _wa
-        from lotg_support.ktc import asset_value_at as _wa_kv
-
-        def _wa_value(_asset, _day):
-            if _ktc_idx is None:
-                return None
-            try:
-                _d = date.fromisoformat(str(_day)[:10])
-                if _asset.is_pick:
-                    return _wa_kv(_wa._ktc_pick_label(_asset.label), None, _d, _ktc_idx)
-                return _wa_kv(None, str(_asset.pid), _d, _ktc_idx) if _asset.pid else None
-            except Exception:
-                return None
-
-        _wa_report = _wa.Report()
-        # The player -> gsis bridge after this build's enrichment (Sleeper's own id
-        # with the last-name correction, then DynastyProcess, then nflverse),
-        # persisted so a recompute outside the build scores the same nflverse games.
-        _wa_bridge = {str(_sid): str(_m.get("gsis_id")) for _sid, _m in pid_meta.items()
-                      if (_m or {}).get("gsis_id") and str(_m.get("gsis_id")).lower() != "nan"}
-        _wa.write_gsis_bridge(_wa_bridge, repo_root / "exports" / "raw" / _wa.BRIDGE_FILE)
-        _wa_league = _wa.load_league(tw, _wa.nflverse_points_from_cache(
-            bridge=_wa_bridge, score=_league_score, score_map=_LEAGUE_SCORE_MAP,
-            cache_dir=cache_dir))
-        _wa_bad = _wa.check_offsets(_wa_league) + _wa.check_real_lineups_legal(_wa_league)
-        for _msg in _wa_bad[:20]:
-            _log(debug, f"[{_now_iso()}] WARN wins added: {_msg}")
-        _wa_tr, _wa_ad = _wa.compute(tr, add_drops_df, _wa_league, [ph], _wa_value, _wa_report)
-        for _wa_col in (_wa.COLUMN, _wa.RATE_COLUMN):
-            tr[_wa_col] = _wa_tr[_wa_col]
-            add_drops_df[_wa_col] = _wa_ad[_wa_col]
-        _log(debug, f"[{_now_iso()}] INFO wins added: {_wa_report.rows} rows over "
-                    f"{len(_wa_league.order)} weeks; {_wa_report.optimised_weeks} lineups searched; "
-                    f"{len(_wa_report.unproven_blocked)} entries blocked as unproven (<3 prior games); "
-                    f"{len(_wa_bad)} guard warnings; unresolved names: {_wa_report.unresolved_names}")
-    except Exception as e:
-        _log_exc(debug, "wins_added", e)
 
     # KTC PROVENANCE. Where every resolved value came from, one row per lookup:
     # a quote published on the target date itself (`mirror`), an absence on a day
