@@ -306,12 +306,13 @@ def is_legal(lineup: Sequence[str], eligibility: Dict[str, frozenset],
     if len(lineup) != len(slots):
         return False
     match: Dict[int, str] = {}
+    slot_sets = [set(eligible) for eligible in slots]
 
     def assign(player: str, seen: Set[int]) -> bool:
-        for idx, eligible in enumerate(slots):
+        for idx, eligible in enumerate(slot_sets):
             if idx in seen:
                 continue
-            if player != Q.EMPTY_SLOT and not (eligibility.get(player, frozenset()) & set(eligible)):
+            if player != Q.EMPTY_SLOT and not (eligibility.get(player, frozenset()) & eligible):
                 continue
             seen.add(idx)
             if idx not in match or assign(match[idx], seen):

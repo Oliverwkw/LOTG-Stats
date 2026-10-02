@@ -8,6 +8,7 @@ from datetime import datetime, timezone, timedelta, date
 from zoneinfo import ZoneInfo
 from bisect import bisect_left
 from collections import Counter, deque, defaultdict
+import copy
 import json
 import math
 import re
@@ -3852,15 +3853,28 @@ def build_all(repo_root: Path) -> None:
                         # Wrap every data cell (#7) + conservative number format.
                         nf = _col_number_format(hc.value) if hc.value else None
                         _band = _band_fill if _parity[j - 1] else None
+                        # Within a column every cell that starts from the same
+                        # style and takes the same fill ends with the same
+                        # style: set the first through openpyxl (which registers
+                        # it), copy the result onto the rest. Assigning styles
+                        # cell by cell was the slowest part of the workbook.
+                        _style_memo: Dict[Tuple[Any, int], Any] = {}
                         for r in range(2, ws.max_row + 1):
                             dc = ws.cell(row=r, column=j)
+                            _inprog = str(dc.value).strip() == "In Progress"
+                            _mk = (None if dc._style is None else tuple(dc._style), 1 if _inprog else 0)
+                            _hit = _style_memo.get(_mk)
+                            if _hit is not None:
+                                dc._style = copy.copy(_hit)
+                                continue
                             dc.alignment = _data_wrap
                             if nf:
                                 dc.number_format = nf
-                            if str(dc.value).strip() == "In Progress":
+                            if _inprog:
                                 dc.fill = _inprog_fill
                             elif _band is not None:
                                 dc.fill = _band
+                            _style_memo[_mk] = copy.copy(dc._style)
                 except Exception:
                     pass
 

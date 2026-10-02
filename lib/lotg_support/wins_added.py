@@ -859,12 +859,25 @@ def _cf_lineup(league: League, key: WeekKey, tw: TeamWeek, out: Set[str],
         return pts if p in started else min(pts, league.cap(p, key))
 
     legal_memo: Dict[FrozenSet[str], bool] = {}
+    # Legality depends on a lineup only through its players' eligible
+    # positions, so lineups with the same profile share one matching —
+    # across every week and team of the season, not just this call.
+    profile_memo = league.__dict__.setdefault("_legal_profile_cache", {})
+
+    def profile(p: str) -> Tuple[str, ...]:
+        return ("\0empty",) if p == EMPTY else tuple(sorted(elig.get(p, frozenset())))
 
     def legal(lineup: Sequence[str]) -> bool:
         key_ = frozenset(lineup)
         if key_ not in legal_memo:
-            legal_memo[key_] = (len(lineup) <= n and
-                                is_legal(list(lineup) + [EMPTY] * (n - len(lineup)), elig, slots))
+            if len(lineup) > n:
+                legal_memo[key_] = False
+            else:
+                pkey = (season, tuple(sorted(profile(p) for p in lineup)))
+                if pkey not in profile_memo:
+                    profile_memo[pkey] = is_legal(
+                        list(lineup) + [EMPTY] * (n - len(lineup)), elig, slots)
+                legal_memo[key_] = profile_memo[pkey]
         return legal_memo[key_]
 
     def fits(p: str, i: int) -> bool:
@@ -961,17 +974,36 @@ def _cf_lineup(league: League, key: WeekKey, tw: TeamWeek, out: Set[str],
     open_room = len(cleared) + len(empty_real)
     fill_memo: Dict[Tuple[FrozenSet[str], FrozenSet[str], int], List[List[str]]] = {}
 
+    displaces = {a: set(ks) for a, ks in can_displace.items()}
+    implausible = {a: 0 if plausible_fill(a) else 1 for a in arr}
+
     def matched(D: Sequence[str], U: Sequence[str]) -> Optional[int]:
         """Fewest implausible FILLERS among the arrivals left over once each
-        displaced starter has his own displacer; None if no such matching."""
-        best_imp: Optional[int] = None
-        for perm in itertools.permutations(U, len(D)):
-            if all(k in can_displace[a] for a, k in zip(perm, D)):
-                left = [a for a in U if a not in perm]
-                imp = sum(1 for a in left if not plausible_fill(a))
-                if best_imp is None or imp < best_imp:
-                    best_imp = imp
-        return best_imp
+        displaced starter has his own displacer; None if no such matching.
+
+        A depth-first walk over displacer choices that can actually displace
+        each starter — the same assignments as trying every permutation of U,
+        without generating the ones that fail."""
+        total = sum(implausible[a] for a in U)
+        if not D:
+            return total
+        best: List[Optional[int]] = [None]
+        used: Set[str] = set()
+
+        def go(i: int, used_imp: int) -> None:
+            if i == len(D):
+                imp = total - used_imp
+                if best[0] is None or imp < best[0]:
+                    best[0] = imp
+                return
+            for a in U:
+                if a not in used and D[i] in displaces[a]:
+                    used.add(a)
+                    go(i + 1, used_imp + implausible[a])
+                    used.discard(a)
+
+        go(0, 0)
+        return best[0]
 
     for u in range(len(arr) + 1):
         for U in itertools.combinations(arr, u):
