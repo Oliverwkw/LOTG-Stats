@@ -21,10 +21,19 @@ out so that it measures boldness rather than hindsight:
     Bust odds = P(the reference outscores the starter), a logistic fit of the
                 actual result on Edge (`fit_bust_odds`)
 
-An empty starting slot is a start with E = 0. `Team boldness` is the ex-ante
-Max PF (`best_lineup_value`, fed E, under the same slots and per-season
-eligibility as the starts) minus the expected points of the lineup set, so two
-starters gambling against the same bench player are not double-counted.
+`Team boldness` is the ex-ante Max PF (`best_lineup_value`, fed E, under the
+same slots and per-season eligibility as the starts) minus the expected points
+of the lineup set, so two starters gambling against the same bench player are
+not double-counted.
+
+**Empty slots are not boldness** [per user, 2026-10-02]. A slot left empty is
+a tank or a clinched game being coasted (plehv79's thrown 2022 Toilet Semis,
+shmuel256 emptying two slots in the 2020 Final once it was won), not a
+start/sit gamble. Both halves judge the lineup on the slots that were FILLED
+only: the ex-ante max fills only those, and a starter's reference must be able
+to take his place among them. Empty slots are counted instead (`Empty slots`).
+An empty-slot row still appears in `boldness()` (its reference shows what could
+have filled it) but carries no Boldness.
 
 ## Expected points
 
@@ -189,11 +198,11 @@ def build_inputs(*, matchups: Dict[int, Dict[int, List[dict]]],
 
 
 def build_columns(params: "Params" = None) -> Tuple[pd.DataFrame, pd.DataFrame]:
-    """The two exported columns, for every season the build handed over.
+    """The exported columns, for every season the build handed over.
 
     Returns (starts, lineups): starts = Year, Week, Team, Player ID, Boldness
     (one row per filled starting slot); lineups = Year, Week, Team, Lineup
-    Boldness. Call inside `build_inputs`."""
+    Boldness, Empty slots. Call inside `build_inputs`."""
     if _INJECTED is None:
         raise RuntimeError("build_columns() needs build_inputs(...)")
     params = params or Params()
@@ -211,11 +220,11 @@ def build_columns(params: "Params" = None) -> Tuple[pd.DataFrame, pd.DataFrame]:
                           .rename(columns={"Starter ID": "Player ID"}))
         t = team_boldness(season, params=params, include_live=False)
         if not t.empty:
-            lineups.append(t[["Year", "Week", "Team", "Team boldness"]]
+            lineups.append(t[["Year", "Week", "Team", "Team boldness", "Empty slots"]]
                            .rename(columns={"Team boldness": "Lineup Boldness"}))
     cat = lambda fr, cols: pd.concat(fr, ignore_index=True) if fr else pd.DataFrame(columns=cols)
     return (cat(starts, ["Year", "Week", "Team", "Player ID", "Boldness"]),
-            cat(lineups, ["Year", "Week", "Team", "Lineup Boldness"]))
+            cat(lineups, ["Year", "Week", "Team", "Lineup Boldness", "Empty slots"]))
 
 
 def _unavailable(season: int) -> Set[Tuple[str, int]]:
@@ -886,12 +895,23 @@ def best_lineup_value(values: Dict[str, float], slots: Sequence[Tuple[str, ...]]
     return total
 
 
+def filled_slots(starters: Sequence[str], slots: Sequence[Tuple[str, ...]]
+                 ) -> Tuple[List[str], List[Tuple[str, ...]], int]:
+    """(the starters who filled a slot, the slots they filled, how many slots
+    were left empty). Sleeper marks an empty slot with `Q.EMPTY_SLOT`; the 2020
+    ESPN lineups just list fewer starters, so the unlisted tail counts empty."""
+    starters = list(starters)[:len(slots)]
+    idx = [i for i, p in enumerate(starters) if p != Q.EMPTY_SLOT]
+    return [starters[i] for i in idx], [slots[i] for i in idx], len(slots) - len(idx)
+
+
 def boldness(season: int, weeks: Optional[Sequence[int]] = None,
              params: Params = Params(), include_live: bool = True) -> pd.DataFrame:
-    """One row per starting slot: the starter (an empty slot is a start with
-    E = 0, Starter "Empty slot"), his E, the best STARTABLE available bench
-    player (`lineup_fits`) and his E, Boldness, Edge, what actually happened,
-    and every flag a reader needs to classify the row."""
+    """One row per starting slot: the starter (an empty slot is a row with
+    E = 0, Starter "Empty slot" and no Boldness), his E, the best STARTABLE
+    available bench player (`lineup_fits`, among the FILLED slots) and his E,
+    Boldness, Edge, what actually happened, and every flag a reader needs to
+    classify the row."""
     season = int(season)
     played, live = season_weeks(season, include_live)
     wks = [w for w in (list(weeks) if weeks is not None else played + ([live] if live else []))]
@@ -918,7 +938,7 @@ def boldness(season: int, weeks: Optional[Sequence[int]] = None,
                 g = bridge.get(pid)
                 return E_idx.get((g, wk)) if g else None
 
-            filled = [p for p in starters[:len(slots)] if p != Q.EMPTY_SLOT]
+            filled, filled_sl, _ = filled_slots(starters, slots)
             for idx, s in enumerate(starters):
                 if idx >= len(slots):
                     continue
@@ -927,10 +947,13 @@ def boldness(season: int, weeks: Optional[Sequence[int]] = None,
                 si = None if empty else info(s)
                 # Best STARTABLE bench player: anyone who could come into the
                 # lineup in his place, the other starters reshuffling slots as
-                # needed — not only a same-slot swap.
+                # needed — not only a same-slot swap. Only the filled slots
+                # count (empty slots are not boldness); for an empty-slot row,
+                # what could have filled THAT slot.
                 others = [p for p in filled if p != s]
+                fit_sl = (filled_sl + [slot]) if empty else filled_sl
                 cands = [(info(b), b) for b in bench
-                         if info(b) is not None and lineup_fits(others + [b], slots, elig)]
+                         if info(b) is not None and lineup_fits(others + [b], fit_sl, elig)]
                 ref = max(cands, key=lambda c: c[0].E) if cands else (None, None)
                 ri, r = ref
                 e_s = 0.0 if empty else (float(si.E) if si is not None else np.nan)
@@ -946,7 +969,7 @@ def boldness(season: int, weeks: Optional[Sequence[int]] = None,
                     "Reference position": ri.position if ri is not None else None,
                     "E reference": round(e_r, 2) if ri is not None else None,
                     "Edge": round(edge, 2) if pd.notna(edge) else None,
-                    "Boldness": round(max(0.0, edge), 2) if pd.notna(edge) else None,
+                    "Boldness": round(max(0.0, edge), 2) if (pd.notna(edge) and not empty) else None,
                     "Starter points": None if is_live else (0.0 if empty else wr.players_points.get(s)),
                     "Reference points": None if (is_live or not r) else wr.players_points.get(r),
                     "Starter source": "empty slot" if empty else (si.source if si is not None else "unresolved"),
@@ -977,7 +1000,8 @@ def _sleeper_of(gsis: Optional[str]) -> Optional[str]:
 def team_boldness(season: int, weeks: Optional[Sequence[int]] = None,
                   params: Params = Params(), include_live: bool = True) -> pd.DataFrame:
     """One row per team-week: the ex-ante Max PF (best lineup E allowed,
-    `best_lineup_value`) minus the expected points of the lineup set."""
+    `best_lineup_value`, over the slots the manager FILLED) minus the expected
+    points of the lineup set, and how many slots were left empty."""
     season = int(season)
     played, live = season_weeks(season, include_live)
     wks = list(weeks) if weeks is not None else played + ([live] if live else [])
@@ -993,16 +1017,17 @@ def team_boldness(season: int, weeks: Optional[Sequence[int]] = None,
         is_live = wk == live
         unavail = _live_unavailable(season, wk) if is_live else {pid for pid, w in unavail_hist if w == wk}
         for rid, wr in week_rows(season, wk).items():
-            starters = [s for s in wr.starters if s != Q.EMPTY_SLOT]
+            starters, filled_sl, n_empty = filled_slots(wr.starters, slots)
             pool = starters + [b for b in wr.bench if b not in unavail]
             e = {p: E_idx.get((bridge.get(p), wk)) for p in pool}
             unresolved = [p for p, v in e.items() if v is None]
             e = {p: v for p, v in e.items() if v is not None}
             chosen = sum(e.get(s, 0.0) for s in starters)
-            best = best_lineup_value(e, slots, elig)
+            best = best_lineup_value(e, filled_sl, elig)
             rows.append({"Year": season, "Week": wk, "Team": teams.get(rid, f"Roster {rid}"),
                          "Ex-ante max": round(best, 2), "Expected PF": round(chosen, 2),
                          "Team boldness": round(max(0.0, best - chosen), 2),
+                         "Empty slots": int(n_empty),
                          "Unresolved players": len(unresolved), "Live week?": is_live})
     return pd.DataFrame(rows)
 

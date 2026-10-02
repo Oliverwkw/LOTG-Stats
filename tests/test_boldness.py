@@ -115,6 +115,34 @@ def test_lineup_boldness_covers_every_single_start():
     assert len(j) and (j["lineup"] >= j["start"] - 0.011).all(), j[j["lineup"] < j["start"] - 0.011]
 
 
+def test_filled_slots_drops_empty_markers_and_an_unlisted_tail():
+    slots = [("QB",), ("RB",), ("WR",), ("RB", "WR", "TE")]
+    # Sleeper marks an empty slot with "0"
+    assert B.filled_slots(["q", Q.EMPTY_SLOT, "w", "f"], slots) == (["q", "w", "f"], [("QB",), ("WR",), ("RB", "WR", "TE")], 1)
+    # a 2020 ESPN lineup simply lists fewer starters: the tail is empty
+    assert B.filled_slots(["q", "r"], slots) == (["q", "r"], [("QB",), ("RB",)], 2)
+    assert B.filled_slots([], slots) == ([], [], 4)
+    # an empty slot is not boldness: the best lineup fills only the filled slots
+    e = {"q": frozenset({"QB"}), "r": frozenset({"RB"}), "w": frozenset({"WR"}), "w2": frozenset({"WR"})}
+    _, sl, _ = B.filled_slots(["q", Q.EMPTY_SLOT, "w", Q.EMPTY_SLOT], slots)
+    assert B.best_lineup_value({"q": 20.0, "w": 10.0, "r": 15.0, "w2": 12.0}, sl, e) == 20.0 + 12.0
+
+
+def test_empty_slots_carry_no_boldness_and_are_counted():
+    y = _season()
+    if y is None:
+        return _skip("no completed season with exports and the nflverse cache")
+    b = _rows(y)
+    empty = b[b["Starter"] == "Empty slot"]
+    assert empty["Boldness"].isna().all()
+    tb = B.team_boldness(y, params=_FAST, include_live=False)
+    slots = B.season_slots(y)
+    for _, r in tb.iterrows():
+        wr = {B.season_teams(y).get(rid): w for rid, w in B.week_rows(y, int(r["Week"])).items()}[r["Team"]]
+        listed = list(wr.starters)[:len(slots)]
+        assert r["Empty slots"] == len(slots) - sum(p != Q.EMPTY_SLOT for p in listed)
+
+
 def test_the_rookie_slot_prior_fades_out():
     # after rookie_prior_weeks the slot has no say: a rookie's E is his own
     # games shrunk toward the ordinary positional prior, as for anyone
@@ -241,6 +269,7 @@ def test_the_build_path_matches_the_inquiry_path():
     assert ((m["Boldness_plain"].fillna(-1) - m["Boldness_built"].fillna(-1)).abs() < 1e-9).all()
     lm = lineups.merge(built_lineups, on=["Year", "Week", "Team"])
     assert len(lm) == len(lineups) and (lm["Team boldness"] - lm["Lineup Boldness"]).abs().max() < 1e-9
+    assert (lm["Empty slots_x"] == lm["Empty slots_y"]).all()
 
 
 def test_expected_points_mean_something():
