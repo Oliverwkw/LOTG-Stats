@@ -188,6 +188,76 @@
    "reason": ""
   },
   {
+   "test": "tests/test_boldness.py::test_draft_rounds_bucket_as_documented",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_boldness.py::test_lineup_fits_allows_a_reshuffle_but_not_an_illegal_lineup",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_boldness.py::test_the_best_lineup_uses_each_players_eligibility_not_one_position",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_boldness.py::test_lineup_boldness_covers_every_single_start",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_boldness.py::test_the_rookie_slot_prior_fades_out",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_boldness.py::test_every_debatable_choice_is_a_parameter",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_boldness.py::test_rescored_log_reproduces_the_builds_points",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_boldness.py::test_team_boldness_is_never_negative_and_the_lineup_search_matches_max_pf",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_boldness.py::test_boldness_is_the_positive_part_of_edge",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_boldness.py::test_the_reference_could_legally_have_started",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_boldness.py::test_rookie_slot_prior_learns_only_from_earlier_drafts",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_boldness.py::test_2020_runs_from_the_espn_backfill",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_boldness.py::test_the_build_path_matches_the_inquiry_path",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_boldness.py::test_expected_points_mean_something",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
    "test": "tests/test_build_digest.py::test_build_digest",
    "outcome": "passed",
    "reason": ""
@@ -1479,6 +1549,26 @@
   },
   {
    "test": "tests/test_league_scoring.py::test_league_scoring",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_live_season_outcomes.py::test_season_outcome_columns_keep_na",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_live_season_outcomes.py::test_a_live_elimination_week_stays_na_and_a_bracket_zero_stays_zero",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_live_season_outcomes.py::test_a_live_champion_flag_is_na_not_false",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_live_season_outcomes.py::test_other_booleans_still_default_to_false",
    "outcome": "passed",
    "reason": ""
   },
