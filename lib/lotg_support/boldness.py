@@ -502,6 +502,8 @@ def _base_expectations(season: int, weeks: Sequence[int], p: Params) -> pd.DataF
     rookies &= set(ids.index[ids["pos"].isin(POSITIONS)])
     rostered = _rostered_gsis(season)
     last_team = {}
+    _pos = ids["pos"].to_dict() if ids.index.is_unique else None
+    pos_of = (lambda g: _pos.get(g)) if _pos is not None else (lambda g: ids["pos"].get(g))
     out = []
     for wk in sorted(set(int(w) for w in weeks)):
         before = log[(log["season"] < season) | (log["week"] < wk)]
@@ -519,16 +521,20 @@ def _base_expectations(season: int, weeks: Sequence[int], p: Params) -> pd.DataF
             w = w * np.power(0.5, ago / float(p.recency_half_life))
         moved = before["team"].to_numpy() != before["gsis_id"].map(cur_team).to_numpy()
         w = np.where(moved & (before["season"].to_numpy() < season), w * p.team_change_weight, w)
-        b = before.assign(_w=w, _wp=w * before["points"].to_numpy())
+        b = before.assign(_w=w, _wp=w * before["points"].to_numpy(),
+                          _cur=(before["season"].to_numpy() == season).astype(int))
         agg = b.groupby("gsis_id").agg(W=("_w", "sum"), S=("_wp", "sum"),
-                                       n_cur=("season", lambda s: int((s == season).sum())),
+                                       n_cur=("_cur", "sum"),
                                        n_all=("week", "size"))
+        # Plain dicts for the per-player lookups below: `.at` on the frame
+        # was most of this loop's runtime.
+        aW, aS, aN = agg["W"].to_dict(), agg["S"].to_dict(), agg["n_cur"].to_dict()
         rows = []
         for g in players:
-            pos = ids["pos"].get(g)
+            pos = pos_of(g)
             if pos not in POSITIONS:
                 continue
-            Wsum, Ssum = (float(agg.at[g, "W"]), float(agg.at[g, "S"])) if g in agg.index else (0.0, 0.0)
+            Wsum, Ssum = (float(aW[g]), float(aS[g])) if g in aW else (0.0, 0.0)
             is_rookie = g in rookies
             if is_rookie:
                 if g in spri:          # picked in this season's LOTG rookie draft
@@ -551,7 +557,7 @@ def _base_expectations(season: int, weeks: Sequence[int], p: Params) -> pd.DataF
                 k = p.shrink_games
                 source = "history" if Wsum > 0 else "positional prior"
             rows.append((g, wk, cur_team.get(g), pos, (Ssum + k * prior) / (Wsum + k), Wsum,
-                         int(agg.at[g, "n_cur"]) if g in agg.index else 0, is_rookie, source))
+                         int(aN[g]) if g in aN else 0, is_rookie, source))
         out.append(pd.DataFrame(rows, columns=["gsis_id", "week", "team", "position", "E_base",
                                                "weight", "games_this_season", "rookie", "source"]))
     return pd.concat(out, ignore_index=True) if out else pd.DataFrame()
@@ -587,20 +593,27 @@ def _promotion_events(season: int, base: pd.DataFrame, p: Params) -> pd.DataFram
     for g, gs, gw, gt in appear:
         games_of.setdefault(g, []).append((int(gs), int(gw), str(gt)))
     rows = []
-    for (wk, team, pos), grp in base[base["team"].notna()].groupby(["week", "team", "position"]):
+    # Grouped by hand from ONE itertuples pass (rows keep their frame order
+    # within a group, groups come in sorted key order — what groupby gave):
+    # an itertuples per group, three times over, was most of this function.
+    groups: Dict[Tuple[Any, Any, Any], list] = {}
+    for r in base[base["team"].notna()].itertuples():
+        groups.setdefault((r.week, r.team, r.position), []).append(r)
+    for (wk, team, pos) in sorted(groups):
+        grp = groups[(wk, team, pos)]
         if len(grp) < 2:
             continue
         if wk in played_weeks:
             sat = lambda g: (g, wk) not in played_team
-            present = [r for r in grp.itertuples() if played_team.get((r.gsis_id, wk)) == team]
+            present = [r for r in grp if played_team.get((r.gsis_id, wk)) == team]
         else:
             sat = lambda g: g in live_out
-            present = [r for r in grp.itertuples()
+            present = [r for r in grp
                        if not sat(r.gsis_id) and on_roster.get((r.gsis_id, wk), r.team) == team]
         # The absent teammate must be on this team's weekly roster THIS week
         # (injured reserve included) — a retired or released player keeps his
         # last team in the game log and would otherwise "sit out" forever.
-        absent = [r for r in grp.itertuples() if sat(r.gsis_id) and on_roster.get((r.gsis_id, wk)) == team]
+        absent = [r for r in grp if sat(r.gsis_id) and on_roster.get((r.gsis_id, wk)) == team]
         # ...and must have played for it this season (last season too in the
         # first weeks): a starter missing the whole year (Deshaun Watson 2021)
         # is not a role anyone is filling in for, and his stale E would

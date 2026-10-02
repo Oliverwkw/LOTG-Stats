@@ -110,6 +110,10 @@ def pytest_sessionfinish(session, exitstatus):
     out = os.environ.get("LOTG_TEST_RESULTS")
     if not out:
         return
+    # Under pytest-xdist each worker finishes a session of its own; only the
+    # controller has every worker's reports, so only it writes the record.
+    if hasattr(session.config, "workerinput"):
+        return
     try:
         os.makedirs(os.path.dirname(out) or ".", exist_ok=True)
         with open(out, "w") as fh:
