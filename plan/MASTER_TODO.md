@@ -1096,6 +1096,31 @@ Rules [per user, 2026-10-01]:
   else about the score stays as it is (only weeks a received player started,
   fixed opponent score, z-scored composite). Moves every Trade impact score and
   the trades O-Score built on it.
+- [x] **Boldness + Lineup Boldness + live-season outcome fixes** (#461, merged
+  before a branch build and reverted in e8eaa35; re-landed as #462 / `8c7c207`
+  with two fixes from branch build 612). Fix 1: Lineup Boldness fed the single-*current*-position
+  `compute_optimal_lineup`, so Cordarrelle Patterson (WR-eligible in 2021) was locked out of WR
+  and stevenb123 2021 wk9's ex-ante max came out below the lineup set. It is now
+  `best_lineup_value`, which is exact and uses per-season eligibility. Fix 2: no-history
+  starters (Rivers 2025 wk15, Etienne 2022 wk1) now take the positional prior instead of N/A.
+  **3-part audit — PASS (2026-10-02): post-merge run 614 vs the last pre-merge main run
+  610** (branch runs 612, 613). Part 1: 550 passed / 2 standing skips; no new build ERROR
+  (the 8 KTC 403s also appear in 610); `boldness: 7771 starts, 832 lineups in 133s`; exports
+  committed (2bcdf89). Part 2: no bench row has Boldness and every starter does; 0 negatives;
+  0 lineups below their boldest start; team_year / team_all_time = the mean of team_week
+  (0 mismatches); the 2020 ESPN season is included (1,150 starts). The 2026 outcome cells
+  are blank: 8 eliminations, the tiebreaker, and 3×320 champion flags. Completed seasons
+  are untouched: 4 bracket zeros per year, and all-time championship counts unchanged.
+  Inquiry-path recompute of 2020 wk5 / 2023 wk7 / 2026 wk3 is within 0.05 per start (β
+  calibrated on the committed rather than the build's inputs). Part 3: vs 610 only the new
+  columns, the 2026 cells above, and formulas (+2 rows, 2 notes); no row added or removed.
+  **Needs human judgment:**
+  - a dead start (`Starter unavailable?`, e.g. Chris Rodriguez 2025 wk15 = 3.39) is scored
+    like any other start;
+  - Etienne 2022 wk1 now reads 8.12 bold because the RB positional prior knows nothing of
+    his role;
+  - Lineup Boldness exceeds the sum of start Boldness on 5 empty-slot weeks, the biggest
+    being plehv79's thrown 2022 wk16 (74.18).
 
 ## Sequential re-audit of #446–#455 + winning-season streak fix (2026-10-01)
 Asked for: re-do every audit since #446 against SEQUENTIAL main builds (last
