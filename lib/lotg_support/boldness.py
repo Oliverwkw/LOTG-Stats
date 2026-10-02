@@ -32,6 +32,7 @@ shmuel256 emptying two slots in the 2020 Final once it was won), not a
 start/sit gamble. Both halves judge the lineup on the slots that were FILLED
 only: the ex-ante max fills only those, and a starter's reference must be able
 to take his place among them. Empty slots are counted instead (`Empty slots`).
+A dead start (below) is judged the same way, but is not counted as empty.
 An empty-slot row still appears in `boldness()` (its reference shows what could
 have filled it) but carries no Boldness.
 
@@ -89,8 +90,10 @@ Everything debatable is a field on `Params`; `tune()` reports the sensitivity.
   bold — because it was.
 * `Q.unavailable` maps the build's flags to ids by NAME, so two players sharing
   a name share flags. Rare; counted nowhere.
-* A starter flagged unavailable is a dead start, not a bold one: kept, flagged
-  `Starter unavailable?`, and excluded from the history boards by default.
+* A DEAD START — a starter flagged unavailable (bye / injured / suspended) who
+  scored 0 — is treated exactly like an empty slot [per user, 2026-10-02]: no
+  Boldness, and his slot drops out of the lineup comparison. Flagged
+  `Dead start?`. A flagged starter who did score keeps his Boldness.
 * nflverse's position is a player's, not his role's (Taysom Hill), and an
   offseason depth-chart change is not an injury (Jordan Love 2023): both read
   bold in week 1.
@@ -214,8 +217,9 @@ def build_columns(params: "Params" = None) -> Tuple[pd.DataFrame, pd.DataFrame]:
         if not b.empty:
             b = b[b["Starter ID"].notna()].copy()
             # No startable bench player at all = nothing bolder was on offer: 0,
-            # not N/A. Only a starter with no expectation (unresolved) stays N/A.
-            b.loc[b["Boldness"].isna() & b["E starter"].notna(), "Boldness"] = 0.0
+            # not N/A. A starter with no expectation (unresolved) and a dead
+            # start (ruled out, scored 0 — judged as an empty slot) stay N/A.
+            b.loc[b["Boldness"].isna() & b["E starter"].notna() & ~b["Dead start?"], "Boldness"] = 0.0
             starts.append(b[["Year", "Week", "Team", "Starter ID", "Boldness"]]
                           .rename(columns={"Starter ID": "Player ID"}))
         t = team_boldness(season, params=params, include_live=False)
@@ -905,6 +909,15 @@ def filled_slots(starters: Sequence[str], slots: Sequence[Tuple[str, ...]]
     return [starters[i] for i in idx], [slots[i] for i in idx], len(slots) - len(idx)
 
 
+def dead_starts(wr: "Q.WeekRow", unavail: Set[str], is_live: bool) -> Set[str]:
+    """Starters ruled out (bye / injured / suspended) who scored 0: judged as
+    empty slots, not as bold starts. None in a live week (no points yet)."""
+    if is_live:
+        return set()
+    return {s for s in wr.starters if s != Q.EMPTY_SLOT and s in unavail
+            and float(wr.players_points.get(s) or 0.0) == 0.0}
+
+
 def boldness(season: int, weeks: Optional[Sequence[int]] = None,
              params: Params = Params(), include_live: bool = True) -> pd.DataFrame:
     """One row per starting slot: the starter (an empty slot is a row with
@@ -938,12 +951,15 @@ def boldness(season: int, weeks: Optional[Sequence[int]] = None,
                 g = bridge.get(pid)
                 return E_idx.get((g, wk)) if g else None
 
-            filled, filled_sl, _ = filled_slots(starters, slots)
+            dead = dead_starts(wr, unavail, is_live)
+            filled, filled_sl, _ = filled_slots(
+                [Q.EMPTY_SLOT if p in dead else p for p in starters], slots)
             for idx, s in enumerate(starters):
                 if idx >= len(slots):
                     continue
                 slot = slots[idx]
                 empty = s == Q.EMPTY_SLOT
+                is_dead = s in dead
                 si = None if empty else info(s)
                 # Best STARTABLE bench player: anyone who could come into the
                 # lineup in his place, the other starters reshuffling slots as
@@ -951,7 +967,7 @@ def boldness(season: int, weeks: Optional[Sequence[int]] = None,
                 # count (empty slots are not boldness); for an empty-slot row,
                 # what could have filled THAT slot.
                 others = [p for p in filled if p != s]
-                fit_sl = (filled_sl + [slot]) if empty else filled_sl
+                fit_sl = (filled_sl + [slot]) if (empty or is_dead) else filled_sl
                 cands = [(info(b), b) for b in bench
                          if info(b) is not None and lineup_fits(others + [b], fit_sl, elig)]
                 ref = max(cands, key=lambda c: c[0].E) if cands else (None, None)
@@ -969,7 +985,7 @@ def boldness(season: int, weeks: Optional[Sequence[int]] = None,
                     "Reference position": ri.position if ri is not None else None,
                     "E reference": round(e_r, 2) if ri is not None else None,
                     "Edge": round(edge, 2) if pd.notna(edge) else None,
-                    "Boldness": round(max(0.0, edge), 2) if (pd.notna(edge) and not empty) else None,
+                    "Boldness": round(max(0.0, edge), 2) if (pd.notna(edge) and not empty and not is_dead) else None,
                     "Starter points": None if is_live else (0.0 if empty else wr.players_points.get(s)),
                     "Reference points": None if (is_live or not r) else wr.players_points.get(r),
                     "Starter source": "empty slot" if empty else (si.source if si is not None else "unresolved"),
@@ -980,6 +996,7 @@ def boldness(season: int, weeks: Optional[Sequence[int]] = None,
                     "Reference source": ri.source if ri is not None else None,
                     "Reference promoted?": bool(isinstance(ri.promoted_over, str)) if ri is not None else None,
                     "Starter unavailable?": (not empty) and s in unavail,
+                    "Dead start?": is_dead,
                     "Live week?": is_live,
                 })
     df = pd.DataFrame(rows)
@@ -1017,7 +1034,10 @@ def team_boldness(season: int, weeks: Optional[Sequence[int]] = None,
         is_live = wk == live
         unavail = _live_unavailable(season, wk) if is_live else {pid for pid, w in unavail_hist if w == wk}
         for rid, wr in week_rows(season, wk).items():
-            starters, filled_sl, n_empty = filled_slots(wr.starters, slots)
+            _, _, n_empty = filled_slots(wr.starters, slots)
+            dead = dead_starts(wr, unavail, is_live)
+            starters, filled_sl, _ = filled_slots(
+                [Q.EMPTY_SLOT if p in dead else p for p in wr.starters], slots)
             pool = starters + [b for b in wr.bench if b not in unavail]
             e = {p: E_idx.get((bridge.get(p), wk)) for p in pool}
             unresolved = [p for p, v in e.items() if v is None]

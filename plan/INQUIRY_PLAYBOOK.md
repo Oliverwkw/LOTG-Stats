@@ -482,7 +482,10 @@ lineup on the slots that were FILLED: the ex-ante max fills only those, and a
 starter's reference must be able to take his place among them. An empty slot
 (a tank, or a clinched game coasted: shmuel256 emptied 2 slots in the 2020
 Final once it was won) is counted in team_week `Empty slots`, summed on
-team_year / team_all_time, and `boldness()` keeps its row with no Boldness.
+team_year / team_all_time, and `boldness()` keeps its row with no Boldness. A DEAD START (a starter
+flagged bye / injured / suspended who scored 0) is judged exactly like an empty
+slot — no Boldness, slot out of the comparison, `Dead start?` in `boldness()` —
+but is not counted in `Empty slots`.
 
 ## The season that has not happened yet
 

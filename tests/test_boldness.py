@@ -22,6 +22,8 @@ from pathlib import Path
 _ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(_ROOT / "lib"))
 
+import pandas as pd  # noqa: E402
+
 from lotg_support import boldness as B  # noqa: E402
 from lotg_support import inquiry as Q  # noqa: E402
 
@@ -143,6 +145,21 @@ def test_empty_slots_carry_no_boldness_and_are_counted():
         assert r["Empty slots"] == len(slots) - sum(p != Q.EMPTY_SLOT for p in listed)
 
 
+def test_a_dead_start_is_judged_like_an_empty_slot():
+    # a starter ruled out who scored 0 carries no Boldness, and the lineup is
+    # judged on the other slots only — never bolder than its live starts
+    y = _season()
+    if y is None:
+        return _skip("no completed season with exports and the nflverse cache")
+    b = _rows(y)
+    dead = b[b["Dead start?"]]
+    assert len(dead) and dead["Boldness"].isna().all()
+    assert (pd.to_numeric(dead["Starter points"]) == 0).all() and dead["Starter unavailable?"].all()
+    # a flagged starter who DID score is an ordinary start
+    scored = b[b["Starter unavailable?"] & ~b["Dead start?"]]
+    assert scored["Boldness"].notna().all() or scored.empty
+
+
 def test_the_rookie_slot_prior_fades_out():
     # after rookie_prior_weeks the slot has no say: a rookie's E is his own
     # games shrunk toward the ordinary positional prior, as for anyone
@@ -186,8 +203,11 @@ def test_boldness_is_the_positive_part_of_edge():
     if y is None:
         return _skip("no completed season with exports and the nflverse cache")
     df = _rows(y).dropna(subset=["Edge"])
-    assert len(df) > 500
-    assert ((df["Boldness"] - df["Edge"].clip(lower=0)).abs() <= 0.011).all()
+    # empty slots and dead starts keep their Edge but are not boldness
+    judged = df[(df["Starter"] != "Empty slot") & ~df["Dead start?"]]
+    assert len(judged) > 500
+    assert ((judged["Boldness"] - judged["Edge"].clip(lower=0)).abs() <= 0.011).all()
+    assert df.loc[df.index.difference(judged.index), "Boldness"].isna().all()
 
 
 def test_the_reference_could_legally_have_started():
@@ -263,7 +283,8 @@ def test_the_build_path_matches_the_inquiry_path():
         starts, built_lineups = B.build_columns(_FAST)
     key = ["Year", "Week", "Team", "Player ID"]
     want = plain[plain["Starter ID"].notna()].rename(columns={"Starter ID": "Player ID"})
-    want = want.assign(Boldness=want["Boldness"].where(want["Boldness"].notna() | want["E starter"].isna(), 0.0))
+    want = want.assign(Boldness=want["Boldness"].where(
+        want["Boldness"].notna() | want["E starter"].isna() | want["Dead start?"], 0.0))
     m = want[key + ["Boldness"]].merge(starts, on=key, suffixes=("_plain", "_built"))
     assert len(m) == len(want) == len(starts)
     assert ((m["Boldness_plain"].fillna(-1) - m["Boldness_built"].fillna(-1)).abs() < 1e-9).all()
