@@ -2232,9 +2232,9 @@ def _preserve_na(col: str) -> bool:
     # Season-outcome columns: N/A while the season is live (standings and
     # seeds provisional, no champion yet) — not 0 / False, which read as
     # "made the bracket" / "not on the champion's roster".
-    # Boldness: N/A on a bench row (not a start); Lineup Boldness: N/A before a
-    # season's first game — neither is a real 0.
-    if col_l in {"boldness", "lineup boldness"}:
+    # Boldness: N/A on a bench row (not a start); Lineup Boldness / Empty
+    # slots: N/A before a season's first game — none of them is a real 0.
+    if col_l in {"boldness", "lineup boldness", "empty slots"}:
         return True
     if col_l in {
         "week of playoff elimination",
@@ -18846,7 +18846,9 @@ def build_all(repo_root: Path) -> None:
     # and each whole lineup — went against PRE-KICKOFF expected points. Fed the
     # build's own matchups, flags, rookie picks, scorer and gsis bridge, never
     # the committed exports. player_week = starters only; team_year /
-    # team_all_time = the AVERAGE per lineup over the weeks played.
+    # team_all_time = the AVERAGE per lineup over the weeks played. Empty slots
+    # are not boldness: they are counted in "Empty slots" (team_week), SUMMED
+    # on team_year / team_all_time.
     try:
         from lotg_support import boldness as _bold
         _t0 = datetime.now()
@@ -18883,17 +18885,28 @@ def build_all(repo_root: Path) -> None:
                                Week=pd.to_numeric(_blineups["Week"]).astype(int))
         if isinstance(tw, pd.DataFrame) and not tw.empty:
             _lmap = {(y, w, str(t)): v for y, w, t, v in _bl[["Year", "Week", "Team", "Lineup Boldness"]].itertuples(index=False, name=None)}
+            _emap = {(y, w, str(t)): v for y, w, t, v in _bl[["Year", "Week", "Team", "Empty slots"]].itertuples(index=False, name=None)}
+            _tw_keys = list(zip(pd.to_numeric(tw["Year"], errors="coerce"),
+                                pd.to_numeric(tw["Week"], errors="coerce"), tw["Team"]))
             tw["Lineup Boldness"] = [
                 (_lmap.get((int(y), int(w), str(t))) if pd.notna(y) and pd.notna(w) else None)
-                for y, w, t in zip(pd.to_numeric(tw["Year"], errors="coerce"),
-                                   pd.to_numeric(tw["Week"], errors="coerce"), tw["Team"])]
+                for y, w, t in _tw_keys]
+            tw["Empty slots"] = [
+                (_emap.get((int(y), int(w), str(t))) if pd.notna(y) and pd.notna(w) else None)
+                for y, w, t in _tw_keys]
         if isinstance(team_year, pd.DataFrame) and not team_year.empty:
             _ymap = _bl.groupby(["Team", "Year"])["Lineup Boldness"].mean().round(2).to_dict()
+            _yemap = _bl.groupby(["Team", "Year"])["Empty slots"].sum().astype(int).to_dict()
+            _ty_keys = list(zip(team_year["Team"], pd.to_numeric(team_year["Year"], errors="coerce")))
             team_year["Lineup Boldness"] = [_ymap.get((str(t), int(y))) if pd.notna(y) else None
-                                            for t, y in zip(team_year["Team"], pd.to_numeric(team_year["Year"], errors="coerce"))]
+                                            for t, y in _ty_keys]
+            team_year["Empty slots"] = [_yemap.get((str(t), int(y))) if pd.notna(y) else None
+                                        for t, y in _ty_keys]
         if isinstance(team_all, pd.DataFrame) and not team_all.empty:
             _amap = _bl.groupby("Team")["Lineup Boldness"].mean().round(2).to_dict()
             team_all["Lineup Boldness"] = [_amap.get(str(t)) for t in team_all["Team"]]
+            _aemap = _bl.groupby("Team")["Empty slots"].sum().astype(int).to_dict()
+            team_all["Empty slots"] = [_aemap.get(str(t)) for t in team_all["Team"]]
         _log(debug, f"[{_now_iso()}] INFO boldness: {len(_bstarts)} starts, {len(_blineups)} lineups "
                     f"in {(datetime.now() - _t0).total_seconds():.0f}s")
     except Exception as e:

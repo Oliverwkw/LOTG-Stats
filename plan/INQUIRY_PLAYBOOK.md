@@ -477,6 +477,16 @@ position per player put Cordarrelle Patterson (RB today, WR in 2021) out of the
 WR slot and returned a "best" lineup below the one actually set. The
 invariant: Lineup Boldness >= the boldest single start of that lineup.
 
+**Empty slots are not boldness** [per user, 2026-10-02]. Both halves judge a
+lineup on the slots that were FILLED: the ex-ante max fills only those, and a
+starter's reference must be able to take his place among them. An empty slot
+(a tank, or a clinched game coasted: shmuel256 emptied 2 slots in the 2020
+Final once it was won) is counted in team_week `Empty slots`, summed on
+team_year / team_all_time, and `boldness()` keeps its row with no Boldness. A DEAD START (a starter
+flagged bye / injured / suspended who scored 0) is judged exactly like an empty
+slot — no Boldness, slot out of the comparison, `Dead start?` in `boldness()` —
+but is not counted in `Empty slots`.
+
 ## The season that has not happened yet
 
 "Who wins this year" is not a lookup, so it has its own tool.
