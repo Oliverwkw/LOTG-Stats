@@ -404,9 +404,13 @@ def discover_numeric_columns(df: pd.DataFrame, entity_col: str,
     for c in df.columns:
         if c in skip:
             continue
-        numeric = sum(1 for v in df[c] if _to_float(v) is not None)
-        if numeric >= 2:
-            cols.append(c)
+        numeric = 0
+        for v in df[c]:
+            if _to_float(v) is not None:
+                numeric += 1
+                if numeric >= 2:
+                    cols.append(c)
+                    break
     return cols
 
 
@@ -511,11 +515,11 @@ def rank_column(df: pd.DataFrame, entity_col: str, column: str) -> List[dict]:
     if column not in df.columns or entity_col not in df.columns:
         return []
     rows = []
-    for _, r in df.iterrows():
-        v = _to_float(r[column])
+    for ent, raw in zip(df[entity_col].tolist(), df[column].tolist()):
+        v = _to_float(raw)
         if v is None:
             continue
-        rows.append({"entity": str(r[entity_col]), "value": v})
+        rows.append({"entity": str(ent), "value": v})
     rows.sort(key=lambda e: (-e["value"], e["entity"]))
     return rows
 
@@ -2298,16 +2302,24 @@ def two_sided_columns(df: pd.DataFrame, entity_col: str, opp_col: str,
     if df is None or df.empty or opp_col not in df.columns:
         return []
     out: List[str] = []
+    # The pair key depends only on the row, so build it once — not once per
+    # column (an iterrows per column was most of a digest build's runtime).
+    n = len(df)
+    ents = [str(a) for a in df[entity_col].tolist()]
+    opps = [str(b or "") for b in df[opp_col].tolist()]
+    ids = [[str(x) for x in df[c].tolist()] if c in df.columns else [""] * n
+           for c in id_cols]
+    keys = [None if not opps[i] else
+            tuple(col_vals[i] for col_vals in ids) + tuple(sorted([ents[i], opps[i]]))
+            for i in range(n)]
     for col in discover_numeric_columns(df, entity_col):
         groups: Dict[tuple, list] = {}
-        for _, r in df.iterrows():
-            v = _to_float(r[col])
+        for key, raw in zip(keys, df[col].tolist()):
+            if key is None:
+                continue
+            v = _to_float(raw)
             if v is None:
                 continue
-            a, b = str(r[entity_col]), str(r.get(opp_col) or "")
-            if not b:
-                continue
-            key = tuple(str(r.get(c, "")) for c in id_cols) + tuple(sorted([a, b]))
             groups.setdefault(key, []).append(v)
         mirror = tot = 0
         for vs in groups.values():
