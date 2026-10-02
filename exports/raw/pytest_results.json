@@ -2518,7 +2518,32 @@
    "reason": ""
   },
   {
-   "test": "tests/test_wins_added.py::test_unproven_players_never_move_in_but_can_move_out",
+   "test": "tests/test_wins_added.py::test_unproven_players_move_in_only_if_they_really_started",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_wins_added.py::test_two_open_slots_are_judged_against_the_two_best_options",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_wins_added.py::test_a_bench_player_never_replaces_a_starter_by_reshuffling",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_wins_added.py::test_a_real_starter_never_sits_behind_a_real_bench_player",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_wins_added.py::test_every_cleared_slot_is_filled_even_by_a_zero",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_wins_added.py::test_four_for_one_fills_every_cleared_slot_with_a_different_player",
    "outcome": "passed",
    "reason": ""
   },
@@ -2569,6 +2594,11 @@
   },
   {
    "test": "tests/test_wins_added.py::test_real_lineups_are_legal_and_pf_is_starters_plus_bonus",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_wins_added.py::test_counterfactual_lineups_keep_the_rules_on_real_moves",
    "outcome": "passed",
    "reason": ""
   },
