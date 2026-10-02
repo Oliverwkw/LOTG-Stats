@@ -225,8 +225,9 @@ class AvailabilityModel:
         if self.designations != "auto":
             raise ValueError(f"designations must be auto/always/never, got {self.designations!r}")
         # in-season Sleeper keeps these current; in the preseason they are a
-        # record of how last season ended, so they are ignored.
-        return bool(Q.played_weeks(year))
+        # record of how last season ended, so they are ignored. In season from
+        # week 1's first kickoff, not from its Tuesday finalization.
+        return bool(Q.played_weeks(year, include_in_progress=True))
 
     def label(self) -> str:
         return (f"shrink={self.shrink_weeks:g}w taxi={'out' if self.exclude_taxi else 'in'} "
