@@ -177,6 +177,53 @@ def test_herbert_counterfactual_matches_the_documented_answer():
         assert not result.warnings, result.warnings
 
 
+def test_plausible_no_move_replay_reproduces_every_season():
+    if not _HAVE_DATA:
+        return _skip("no committed data")
+    for season in Q.completed_seasons():
+        if not Q.season_meta(season).has_snapshot:
+            continue
+        result = R.replay(R.Scenario(season=season, moves=(), model="plausible"))
+        assert result.moved_weeks() == [] and not result.changed, season
+
+
+def test_a_three_team_trade_routes_each_player_home():
+    # 2022-07-03: LWebs53 / Oliverwkw / stevenb123. Sleeper's `drops` names
+    # each sender, so the undo no longer needs an explicit Move list.
+    if not _HAVE_DATA:
+        return _skip("no committed data")
+    moves = {Q.players().name(m.player_id): (Q.teams(2022)[m.from_roster], Q.teams(2022)[m.to_roster])
+             for m in R.undo_trade(2022, player="Dawson Knox").moves}
+    assert moves == {
+        "James Conner": ("Oliverwkw", "LWebs53"), "Dawson Knox": ("Oliverwkw", "stevenb123"),
+        "Chase Edmonds": ("stevenb123", "LWebs53"), "Hunter Renfrow": ("LWebs53", "stevenb123"),
+        "Jaylen Waddle": ("LWebs53", "Oliverwkw"),
+    }, moves
+
+
+def test_a_player_on_nobody_s_roster_scores_his_nflverse_line():
+    # Chase Edmonds was on no roster 2022 weeks 11-17; undoing the 3-way puts
+    # him back on LWebs53. He used to count 0.00 there.
+    if not _HAVE_DATA:
+        return _skip("no committed data")
+    result = R.replay(R.undo_trade(2022, player="Dawson Knox"))
+    note = [w for w in result.warnings if w.startswith("Chase Edmonds was on nobody's roster")]
+    assert note and "scored from his nflverse line" in note[0] and "counted as 0.00" not in note[0], result.warnings
+
+
+def test_anchored_week_one_cuts_on_prior_form_not_arbitrarily():
+    # McBride onto plehv79 for 2025 week 1. With every prior at 0 the surplus
+    # cut was arbitrary (128.14 -> 114.22). Now prior form before a player's
+    # first game is his last-3-NFL-game average: the cut is the starter with
+    # the weakest prior — a rookie with no 3-game history (Croskey-Merritt,
+    # 14.2), whom the rookie rule lets be moved out — for McBride's 12.1.
+    if not _HAVE_DATA:
+        return _skip("no committed data")
+    real = Q.week(2025, 1)[5].points
+    result = R.replay(R.Scenario(season=2025, moves=(R.Move("8130", 1, 5, 1),), model="anchored"))
+    assert round(result.scores[1][5], 2) == round(real - 14.2 + 12.1, 2), (real, result.scores[1][5])
+
+
 def test_a_no_op_scenario_changes_nothing_anywhere():
     if not _HAVE_DATA:
         return _skip("no committed data")
@@ -208,6 +255,10 @@ TESTS = [
     test_bracket_applies_the_home_field_bonus_to_the_higher_seed_only,
     test_undo_trade_finds_the_2025_herbert_deal,
     test_herbert_counterfactual_matches_the_documented_answer,
+    test_plausible_no_move_replay_reproduces_every_season,
+    test_a_three_team_trade_routes_each_player_home,
+    test_a_player_on_nobody_s_roster_scores_his_nflverse_line,
+    test_anchored_week_one_cuts_on_prior_form_not_arbitrarily,
     test_a_no_op_scenario_changes_nothing_anywhere,
     test_render_reports_the_change,
 ]
