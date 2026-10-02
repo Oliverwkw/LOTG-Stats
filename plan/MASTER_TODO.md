@@ -1176,6 +1176,20 @@ Rules [per user, 2026-10-01]:
 
   Part 3: only Boldness (35 cells), Lineup Boldness (11 / 8 / 5), the new column, and formulas
   (+1 row) changed; no row was added or removed.
+- [x] **Boldness inquiry ↔ export parity** (#465 / `f31128c`). Two causes, both fixed:
+  - beta's calibration picked up the league-roster fallback from #462, so build and snapshot
+    inputs gave different beta (RB 0.8762 vs 0.8753); it is now NFL-only (RB 0.8741);
+  - outside the build, "any points" scored the week in progress; it now stops at the
+    committed build's last team_week.
+
+  **3-part audit — PASS (2026-10-02): post-merge run 625 vs the last pre-merge main run
+  623** (branch run 624). Part 1: 559 passed / 2 standing skips, no new ERROR. Exports NOT
+  committed: no roster change; they land with Tuesday's cron, per the no-force rule. Part 2:
+  the inquiry path vs 625's exports differs on 0 of 7,771 starts and 0 of 832 lineups;
+  Empty slots and the dead-start / sum invariants are unchanged. Part 3: only Boldness (176
+  cells), Lineup Boldness (97 team-weeks, 15 team-years), each by hundredths (undoing #462's
+  beta ripple); 625 is cell-identical to 624. Open (needs judgment): `Q.played_weeks` still
+  counts a live week as played for analysis / draft_capital / forecast / replay.
 
 ## Sequential re-audit of #446–#455 + winning-season streak fix (2026-10-01)
 Asked for: re-do every audit since #446 against SEQUENTIAL main builds (last
