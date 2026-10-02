@@ -456,7 +456,9 @@ average of the player's own NFL games scored with THE JUDGED SEASON's settings
 weigh most (a weight that halves every few games played), last season's games
 are discounted again, a game for another NFL team more; a rookie drafted here is
 priced from his LOTG rookie-draft slot, fitted on earlier picks' ROOKIE-YEAR
-points only; a next man up whose higher-E teammate sits out is lifted to beta x
+points only, for his first few weeks — the slot's weight fades to nothing by
+week 4, then he is judged on his own games (Achane 2023: not bold to start after
+his breakout); a next man up whose higher-E teammate sits out is lifted to beta x
 the teammate's E, beta calibrated per position. `check_calibration` holds the
 slope of (starter - reference) actual points on Edge near -1.
 
