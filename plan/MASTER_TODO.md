@@ -1113,6 +1113,24 @@ Rules [per user, 2026-10-01]:
   skill (54 team_year / 8 all-time), 2 Formulas rows; the rest is the 2026 wk 4
   Thursday game's stats arriving (player points, dropped / career PPG and the
   add_drops / pick O-Score and skills reading them). No row added or removed.
+- [x] **Build runtime** (#463 / `3837869`, outputs unchanged). Job wall time
+  roughly halved: build step 9m43s → 3m25s, test step 8m54s → 2m01s, digest
+  16s → 3s (run 617 → 619). Wins added: displacer matching by depth-first
+  walk over valid assignments (not every permutation) + legality cached by
+  eligibility profile per season; `replay.is_legal` builds slot sets once.
+  Boldness: promotion events from one itertuples pass, base expectations
+  without a Python agg lambda / `.at` lookups. Workbook: per-column data-cell
+  styles memoised and copied (openpyxl's per-assignment style hashing). Digest:
+  `two_sided_columns` / `rank_column` without per-column iterrows. CI:
+  pytest-xdist `-n auto` in build.yml and the health email; conftest writes
+  `pytest_results.json` from the xdist controller only.
+  **Audit — PASS (2026-10-02): post-merge run 619 vs the last pre-merge main
+  run 617** (branch run 618 identical). Every export CSV byte-identical; xlsx
+  identical but for `docProps/core.xml` (timestamp); digest HTML identical
+  (build-inputs fingerprint changes on any code merge, by design); test
+  results identical test by test (554 passed / 2 standing skips, same skip
+  reasons). Remaining build time is spread: workbook ~77s, wins added ~50s,
+  boldness ~45s (offline-build measurement).
 - [x] **Boldness + Lineup Boldness + live-season outcome fixes** (#461, merged
   before a branch build and reverted in e8eaa35; re-landed as #462 / `8c7c207`
   with two fixes from branch build 612). Fix 1: Lineup Boldness fed the single-*current*-position
