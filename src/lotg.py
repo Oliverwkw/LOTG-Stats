@@ -2231,6 +2231,10 @@ def _preserve_na(col: str) -> bool:
     # Season-outcome columns: N/A while the season is live (standings and
     # seeds provisional, no champion yet) — not 0 / False, which read as
     # "made the bracket" / "not on the champion's roster".
+    # Boldness: N/A on a bench row (not a start); Lineup Boldness: N/A before a
+    # season's first game — neither is a real 0.
+    if col_l in {"boldness", "lineup boldness"}:
+        return True
     if col_l in {
         "week of playoff elimination",
         "(smallest) playoff tiebreaker",
@@ -4775,6 +4779,13 @@ def build_all(repo_root: Path) -> None:
     except Exception as e:
         _log_exc(debug, "commish_pick_overlay_load", e)
 
+    # Boldness inputs, captured per season from the build's OWN data (the
+    # committed snapshot can be a week stale on a build-only run). Consumed
+    # after the team sheets exist — see "Boldness / Lineup Boldness".
+    _bold_matchups: Dict[int, Dict[int, List[Dict[str, Any]]]] = {}
+    _bold_roster_positions: Dict[int, List[str]] = {}
+    _bold_scoring: Dict[int, Dict[str, Any]] = {}
+
     for lg in leagues:
         league_id = str(lg.get("league_id"))
         season = _to_int(lg.get("season"), 0) or 0
@@ -5744,6 +5755,11 @@ def build_all(repo_root: Path) -> None:
                                     f"undid moves completed after the week ({', '.join(_lchg)})")
             except Exception as e:
                 _log_exc(debug, f"late_listing_{season}", e)
+
+        # Boldness inputs for this season (late-listing corrected, as above).
+        _bold_matchups[int(season)] = {int(_w): list(_m or []) for _w, _m in matchups_by_week.items()}
+        _bold_roster_positions[int(season)] = list(lg.get("roster_positions") or [])
+        _bold_scoring[int(season)] = dict(lg.get("scoring_settings") or {})
 
         # ------------- Manual 2021 botched-trade merge -------------
         # Sleeper split ONE draft-day pick trade (shmuel256's 2021 2.08 for
@@ -18888,6 +18904,63 @@ def build_all(repo_root: Path) -> None:
                 team_all = team_all.merge(_ta_sh, on=["Team"], how="left")
     except Exception as e:
         _log_exc(debug, "team_tier_shares", e)
+
+    # Boldness / Lineup Boldness (lotg_support.boldness): how far each start —
+    # and each whole lineup — went against PRE-KICKOFF expected points. Fed the
+    # build's own matchups, flags, rookie picks, scorer and gsis bridge, never
+    # the committed exports. player_week = starters only; team_year /
+    # team_all_time = the AVERAGE per lineup over the weeks played.
+    try:
+        from lotg_support import boldness as _bold
+        _t0 = datetime.now()
+        _bold_unavail: Dict[int, Set[Tuple[str, int]]] = defaultdict(set)
+        if not pw.empty:
+            _flag_cols = [c for c in ("Bye?", "Injury?", "Suspension?") if c in pw.columns]
+            _off = pd.Series(False, index=pw.index)
+            for _c in _flag_cols:
+                _off = _off | pw[_c].map(lambda v: safe_bool(v, default=False))
+            for _pid, _y, _w in pw.loc[_off, ["Player ID", "Year", "Week"]].itertuples(index=False, name=None):
+                if pd.notna(_y) and pd.notna(_w):
+                    _bold_unavail[int(_y)].add((str(_pid), int(_w)))
+        _rk = ph[~pick_history.non_rookie_mask(ph)] if isinstance(ph, pd.DataFrame) and not ph.empty else pd.DataFrame()
+        _bold_bridge = {str(_sid): str(_m.get("gsis_id")).strip() for _sid, _m in pid_meta.items()
+                        if (_m or {}).get("gsis_id") and str(_m.get("gsis_id")).lower() != "nan"}
+        with _bold.build_inputs(
+                matchups=_bold_matchups, roster_positions=_bold_roster_positions,
+                teams={int(k): dict(v) for k, v in season_roster_to_team.items()},
+                unavailable=dict(_bold_unavail),
+                rookie_picks=_rk[["Year", "Number", "Player Picked"]] if not _rk.empty else pd.DataFrame(columns=["Year", "Number", "Player Picked"]),
+                scoring=_bold_scoring, score=_league_score, score_map=_LEAGUE_SCORE_MAP,
+                bridge=_bold_bridge):
+            _bstarts, _blineups = _bold.build_columns()
+        if not pw.empty:
+            _bs = _bstarts.assign(Year=pd.to_numeric(_bstarts["Year"]).astype(int),
+                                  Week=pd.to_numeric(_bstarts["Week"]).astype(int),
+                                  **{"Player ID": _bstarts["Player ID"].astype(str)})
+            _bmap = {(y, w, p): b for y, w, p, b in _bs[["Year", "Week", "Player ID", "Boldness"]].itertuples(index=False, name=None)}
+            _is_start = pw["Starter/Bench"].astype(str) == "Starter"
+            pw["Boldness"] = [
+                (_bmap.get((int(y), int(w), str(p))) if (s_ and pd.notna(y) and pd.notna(w)) else None)
+                for y, w, p, s_ in zip(pw["Year"], pw["Week"], pw["Player ID"], _is_start)]
+        _bl = _blineups.assign(Year=pd.to_numeric(_blineups["Year"]).astype(int),
+                               Week=pd.to_numeric(_blineups["Week"]).astype(int))
+        if isinstance(tw, pd.DataFrame) and not tw.empty:
+            _lmap = {(y, w, str(t)): v for y, w, t, v in _bl[["Year", "Week", "Team", "Lineup Boldness"]].itertuples(index=False, name=None)}
+            tw["Lineup Boldness"] = [
+                (_lmap.get((int(y), int(w), str(t))) if pd.notna(y) and pd.notna(w) else None)
+                for y, w, t in zip(pd.to_numeric(tw["Year"], errors="coerce"),
+                                   pd.to_numeric(tw["Week"], errors="coerce"), tw["Team"])]
+        if isinstance(team_year, pd.DataFrame) and not team_year.empty:
+            _ymap = _bl.groupby(["Team", "Year"])["Lineup Boldness"].mean().round(2).to_dict()
+            team_year["Lineup Boldness"] = [_ymap.get((str(t), int(y))) if pd.notna(y) else None
+                                            for t, y in zip(team_year["Team"], pd.to_numeric(team_year["Year"], errors="coerce"))]
+        if isinstance(team_all, pd.DataFrame) and not team_all.empty:
+            _amap = _bl.groupby("Team")["Lineup Boldness"].mean().round(2).to_dict()
+            team_all["Lineup Boldness"] = [_amap.get(str(t)) for t in team_all["Team"]]
+        _log(debug, f"[{_now_iso()}] INFO boldness: {len(_bstarts)} starts, {len(_blineups)} lineups "
+                    f"in {(datetime.now() - _t0).total_seconds():.0f}s")
+    except Exception as e:
+        _log_exc(debug, "boldness", e)
 
     # League rollups
     # League-wide unique extras (Phase 5B item 2): rookies and NFL-team counts

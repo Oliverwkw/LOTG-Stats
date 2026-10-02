@@ -126,7 +126,10 @@ the answer, not a silent choice.
 
 All of them are additive and read-only. None is imported by the build or run by
 any workflow — except `lotg_support.wins_added`, which IS the build's `Wins
-added` column; its `explain()` is the inquiry entry point (see "Counterfactuals").
+added` column; its `explain()` is the inquiry entry point (see "Counterfactuals"),
+and `lotg_support.boldness`, which IS `player_week` "Boldness" and the team
+sheets' "Lineup Boldness" (the build feeds it its own data through
+`build_inputs`). A change to either is a build change.
 
 ## Start here, not with a script
 
@@ -438,7 +441,10 @@ reference by what he ACTUALLY scored that week (and does not enforce that he
 could legally have started); `lotg_support.boldness` picks the bench player
 with the best PRE-KICKOFF expectation who could come into the lineup in the
 starter's place, the others reshuffling slots as needed. 2020 included (from
-the ESPN backfill, as Wins added reads it).
+the ESPN backfill, as Wins added reads it). Exported as `player_week."Boldness"`
+(starters; N/A on the bench) and `"Lineup Boldness"` on team_week / team_year /
+team_all_time (ex-ante Max PF minus expected PF; the year and all-time cells are
+the AVERAGE per lineup, not a sum).
 
 ```bash
 python scripts/boldness.py week --season 2026 --week 4 --team BROsenzweig

@@ -87,15 +87,19 @@ Everything debatable is a field on `Params`; `tune()` reports the sensitivity.
   bold in week 1.
 * No matchup, weather or betting input: E is the player's own record only.
 
-Read-only and inquiry-only: nothing in `src/` or `.github/workflows/` imports
-this module.
+BUILD CODE since the boldness PR: the build calls `build_columns()` inside
+`build_inputs(...)` for player_week "Boldness" and the team sheets' "Lineup
+Boldness", so a change here changes the exports and follows the phase workflow
+(plan/MASTER_TODO.md). Run outside the build (scripts/boldness.py, inquiries)
+it reads the committed exports and snapshot instead.
 """
 from __future__ import annotations
 
+import contextlib
 import functools
 import json
 from dataclasses import dataclass, asdict, replace
-from typing import Dict, List, Optional, Sequence, Tuple
+from typing import Any, Callable, Dict, List, Optional, Sequence, Set, Tuple
 
 import numpy as np
 import pandas as pd
@@ -140,6 +144,88 @@ class Params:
 
 
 # ---------------------------------------------------------------------------
+# Build inputs. Run from an inquiry, everything comes from the committed
+# exports and snapshot. Run INSIDE the build, those are last run's files (a
+# build-only run reuses a snapshot up to a week old and never refreshes its
+# matchups), so the build hands over its own in-memory inputs instead and every
+# reader below checks them first.
+# ---------------------------------------------------------------------------
+_INJECTED: Optional[Dict[str, Any]] = None
+
+
+def _clear_caches() -> None:
+    for name, obj in list(globals().items()):
+        if callable(getattr(obj, "cache_clear", None)) and name.startswith(("_", "scoring_table")):
+            obj.cache_clear()
+
+
+@contextlib.contextmanager
+def build_inputs(*, matchups: Dict[int, Dict[int, List[dict]]],
+                 roster_positions: Dict[int, Sequence[str]],
+                 teams: Dict[int, Dict[int, str]],
+                 unavailable: Dict[int, Set[Tuple[str, int]]],
+                 rookie_picks: pd.DataFrame,
+                 scoring: Dict[int, Dict[str, float]],
+                 score: Callable[..., float],
+                 score_map: Dict[str, Tuple[str, ...]],
+                 bridge: Dict[str, str]):
+    """Point the module at the build's own data for the duration.
+
+    matchups {season: {week: Sleeper matchup dicts}} (late-listing corrected),
+    roster_positions {season: Sleeper roster_positions}, teams {season:
+    {roster_id: team}}, unavailable {season: {(player_id, week)}} from the
+    build's own Bye?/Injury?/Suspension? flags, rookie_picks with Year / Number /
+    Player Picked (rookie drafts only), scoring {season: settings}, the build's
+    `_league_score` and score map, and its sleeper->gsis bridge."""
+    global _INJECTED
+    _INJECTED = dict(matchups=matchups, roster_positions=roster_positions, teams=teams,
+                     unavailable=unavailable, rookie_picks=rookie_picks, scoring=scoring,
+                     score=score, score_map=score_map, bridge=bridge)
+    _clear_caches()
+    try:
+        yield
+    finally:
+        _INJECTED = None
+        _clear_caches()
+
+
+def build_columns(params: "Params" = None) -> Tuple[pd.DataFrame, pd.DataFrame]:
+    """The two exported columns, for every season the build handed over.
+
+    Returns (starts, lineups): starts = Year, Week, Team, Player ID, Boldness
+    (one row per filled starting slot); lineups = Year, Week, Team, Lineup
+    Boldness. Call inside `build_inputs`."""
+    if _INJECTED is None:
+        raise RuntimeError("build_columns() needs build_inputs(...)")
+    params = params or Params()
+    starts, lineups = [], []
+    for season in sorted(_INJECTED["matchups"]):
+        if not played_weeks(season):
+            continue
+        b = boldness(season, params=params, include_live=False)
+        if not b.empty:
+            b = b[b["Starter ID"].notna()].copy()
+            # No startable bench player at all = nothing bolder was on offer: 0,
+            # not N/A. Only a starter with no expectation (unresolved) stays N/A.
+            b.loc[b["Boldness"].isna() & b["E starter"].notna(), "Boldness"] = 0.0
+            starts.append(b[["Year", "Week", "Team", "Starter ID", "Boldness"]]
+                          .rename(columns={"Starter ID": "Player ID"}))
+        t = team_boldness(season, params=params, include_live=False)
+        if not t.empty:
+            lineups.append(t[["Year", "Week", "Team", "Team boldness"]]
+                           .rename(columns={"Team boldness": "Lineup Boldness"}))
+    cat = lambda fr, cols: pd.concat(fr, ignore_index=True) if fr else pd.DataFrame(columns=cols)
+    return (cat(starts, ["Year", "Week", "Team", "Player ID", "Boldness"]),
+            cat(lineups, ["Year", "Week", "Team", "Lineup Boldness"]))
+
+
+def _unavailable(season: int) -> Set[Tuple[str, int]]:
+    if _INJECTED is not None:
+        return set(_INJECTED["unavailable"].get(int(season), set()))
+    return Q.unavailable(season)
+
+
+# ---------------------------------------------------------------------------
 # The game log
 # ---------------------------------------------------------------------------
 def _config() -> X.ExternalConfig:
@@ -159,6 +245,8 @@ def _player_ids() -> pd.DataFrame:
 def _build_scorer():
     """The build's own per-row scorer (`lotg._league_score`), as wins_added
     reaches it — one implementation of league scoring, not two."""
+    if _INJECTED is not None:
+        return _INJECTED["score"], _INJECTED["score_map"]
     from lotg_support import wins_added as W
     W._src_on_path()
     import lotg  # noqa: E402  (src/, import-safe)
@@ -170,6 +258,12 @@ def scoring_table(season: int) -> Tuple[Tuple[str, float], ...]:
     """The league's scoring settings for `season`: Sleeper's from 2021, the
     ESPN league's for 2020 (pre-PPR), and 2020's for anything earlier — the
     same choice `wins_added.nflverse_points_from_cache` makes."""
+    if _INJECTED is not None and int(season) in _INJECTED["scoring"]:
+        table = _INJECTED["scoring"][int(season)]
+        return tuple(sorted((str(k), float(v)) for k, v in table.items() if v is not None))
+    if _INJECTED is not None and int(season) < min(_INJECTED["scoring"]):
+        table = _INJECTED["scoring"][min(_INJECTED["scoring"])]   # pre-league: first season's
+        return tuple(sorted((str(k), float(v)) for k, v in table.items() if v is not None))
     from lotg_support import wins_added as W
     if int(season) >= 2021:
         lj = Q.repo_root() / "exports" / "snapshot" / f"season_{int(season)}" / "league.json"
@@ -307,9 +401,9 @@ def _rookie_draft_rows() -> Tuple[Tuple[int, str, int, str], ...]:
     """(draft year, gsis_id, overall pick, position) for every LOTG rookie-draft
     pick that was a real NFL rookie that year (the rookie draft also takes
     veterans — those are not priced by slot)."""
-    rp = Q.load_sheet("rookie_picks")
+    rp = _INJECTED["rookie_picks"] if _INJECTED is not None else Q.load_sheet("rookie_picks")
     ids = _player_ids()
-    bridge = SE.gsis_bridge()
+    bridge = _bridge()
     by_name: Dict[str, List[str]] = {}
     for pid, nm in Q.players().names().items():
         by_name.setdefault(nm, []).append(pid)
@@ -605,6 +699,9 @@ def _espn() -> Dict:
 
 
 def season_slots(season: int) -> Tuple[Tuple[str, ...], ...]:
+    if _INJECTED is not None:
+        rp = _INJECTED["roster_positions"].get(int(season)) or ()
+        return tuple(Q._FLEX_POOL.get(p, (p,)) for p in rp if p not in ("BN", "IR", "TAXI"))
     meta = Q.season_meta(int(season))
     if meta.starting_slots:
         return tuple(meta.starting_slots)
@@ -614,9 +711,12 @@ def season_slots(season: int) -> Tuple[Tuple[str, ...], ...]:
 
 @functools.lru_cache(maxsize=64)
 def _week_rows_cached(season: int, wk: int) -> Tuple[Tuple[int, Q.WeekRow], ...]:
-    if Q.season_meta(season).has_snapshot:
+    if _INJECTED is not None:
+        rows = _INJECTED["matchups"].get(int(season), {}).get(int(wk)) or []
+    elif Q.season_meta(season).has_snapshot:
         return tuple(Q.week(season, wk).items())
-    rows = _espn()["matchups_by_week"].get(int(wk)) or []
+    else:
+        rows = _espn()["matchups_by_week"].get(int(wk)) or []
     return tuple((int(r["roster_id"]), Q.WeekRow(
         roster_id=int(r["roster_id"]), matchup_id=r.get("matchup_id"),
         points=float(r.get("points") or 0.0),
@@ -632,6 +732,9 @@ def week_rows(season: int, wk: int) -> Dict[int, Q.WeekRow]:
 
 
 def played_weeks(season: int) -> List[int]:
+    if _INJECTED is not None:
+        return [w for w in sorted(_INJECTED["matchups"].get(int(season), {}))
+                if any(r.points for r in week_rows(season, w).values())]
     meta = Q.season_meta(int(season))
     if meta.has_snapshot:
         return [w for w in Q.played_weeks(season) if w <= meta.last_week]
@@ -641,6 +744,8 @@ def played_weeks(season: int) -> List[int]:
 
 @functools.lru_cache(maxsize=16)
 def _teams_cached(season: int) -> Tuple[Tuple[int, str], ...]:
+    if _INJECTED is not None:
+        return tuple((int(k), str(v)) for k, v in _INJECTED["teams"].get(int(season), {}).items() if v)
     if Q.season_meta(season).has_snapshot:
         return tuple(Q.teams(season).items())
     d = _espn()
@@ -655,13 +760,14 @@ def season_teams(season: int) -> Dict[int, str]:
 
 @functools.lru_cache(maxsize=16)
 def _eligibility_cached(season: int) -> Tuple[Tuple[str, frozenset], ...]:
-    if Q.season_meta(season).has_snapshot:
+    if _INJECTED is None and Q.season_meta(season).has_snapshot:
         return tuple(Q.season_eligibility(season).items())
     # 2020: Sleeper's position (or the ESPN emit's) plus every strict slot the
     # player was really fielded in — the same rule season_eligibility uses.
     base = dict(Q.players().positions())
-    for pid, m in _espn()["player_meta"].items():
-        base.setdefault(str(pid), m.get("pos"))
+    if int(season) <= 2020:
+        for pid, m in _espn()["player_meta"].items():
+            base.setdefault(str(pid), m.get("pos"))
     slots = season_slots(season)
     out: Dict[str, set] = {pid: ({p} if p else set()) for pid, p in base.items()}
     for wk in played_weeks(season):
@@ -678,8 +784,11 @@ def season_eligibility(season: int) -> Dict[str, frozenset]:
 
 @functools.lru_cache(maxsize=1)
 def _bridge() -> Dict[str, str]:
-    """sleeper id -> gsis: the inquiry bridge, plus the 2020 emit's own ids."""
-    out = dict(SE.gsis_bridge())
+    """sleeper id -> gsis: the inquiry bridge, plus the 2020 emit's own ids (or,
+    inside the build, the build's own bridge first)."""
+    out = dict(_INJECTED["bridge"]) if _INJECTED is not None else {}
+    for k, v in SE.gsis_bridge().items():
+        out.setdefault(k, v)
     for pid, m in _espn()["player_meta"].items():
         g = str((m or {}).get("gsis_id") or "").strip()
         if g and g.lower() != "nan":
@@ -741,7 +850,7 @@ def boldness(season: int, weeks: Optional[Sequence[int]] = None,
     E_idx = {(r.gsis_id, r.week): r for r in E.itertuples()}
     bridge = _bridge()
     elig = season_eligibility(season)
-    unavail_hist = Q.unavailable(season)
+    unavail_hist = _unavailable(season)
     teams = season_teams(season)
     names = Q.players().names()
     rows = []
@@ -825,7 +934,7 @@ def team_boldness(season: int, weeks: Optional[Sequence[int]] = None,
     bridge = _bridge()
     pos = {p: next(iter(sorted(e))) for p, e in season_eligibility(season).items()}
     pos.update(Q.players().positions())
-    unavail_hist = Q.unavailable(season)
+    unavail_hist = _unavailable(season)
     teams = season_teams(season)
     rows = []
     for wk in sorted(wks):

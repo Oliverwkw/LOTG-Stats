@@ -176,6 +176,41 @@ def test_2020_runs_from_the_espn_backfill():
     assert len(df) == 8 * 9 and df["E starter"].notna().all()
 
 
+def test_the_build_path_matches_the_inquiry_path():
+    # Inside the build the module is fed the build's own matchups, flags, picks,
+    # scorer and bridge (build_inputs). Fed the same data the inquiry path reads,
+    # it must return the same Boldness for every start and the same Lineup
+    # Boldness for every lineup — one stat, two doors.
+    y = _season()
+    if y is None:
+        return _skip("no completed season with exports and the nflverse cache")
+    import json
+    from lotg_support import scoring_events as SE
+    plain = B.boldness(y, params=_FAST, include_live=False)
+    lineups = B.team_boldness(y, params=_FAST, include_live=False)
+    weeks = B.played_weeks(y)
+    matchups = {y: {w: [dict(roster_id=rid, matchup_id=r.matchup_id, points=r.points,
+                             starters=list(r.starters), players=list(r.players),
+                             players_points=dict(r.players_points))
+                        for rid, r in B.week_rows(y, w).items()] for w in weeks}}
+    league = json.loads((_ROOT / "exports" / "snapshot" / f"season_{y}" / "league.json").read_text())
+    score, score_map = B._build_scorer()
+    with B.build_inputs(matchups=matchups, roster_positions={y: league["roster_positions"]},
+                        teams={y: B.season_teams(y)}, unavailable={y: Q.unavailable(y)},
+                        rookie_picks=Q.load_sheet("rookie_picks"),
+                        scoring={y: dict(B.scoring_table(y))}, score=score, score_map=score_map,
+                        bridge=SE.gsis_bridge()):
+        starts, built_lineups = B.build_columns(_FAST)
+    key = ["Year", "Week", "Team", "Player ID"]
+    want = plain[plain["Starter ID"].notna()].rename(columns={"Starter ID": "Player ID"})
+    want = want.assign(Boldness=want["Boldness"].where(want["Boldness"].notna() | want["E starter"].isna(), 0.0))
+    m = want[key + ["Boldness"]].merge(starts, on=key, suffixes=("_plain", "_built"))
+    assert len(m) == len(want) == len(starts)
+    assert ((m["Boldness_plain"].fillna(-1) - m["Boldness_built"].fillna(-1)).abs() < 1e-9).all()
+    lm = lineups.merge(built_lineups, on=["Year", "Week", "Team"])
+    assert len(lm) == len(lineups) and (lm["Team boldness"] - lm["Lineup Boldness"]).abs().max() < 1e-9
+
+
 def test_expected_points_mean_something():
     # If E is unbiased, a start with Edge B loses to its reference by about B:
     # the slope of Result on Edge sits near -1. One season is noisier than the
