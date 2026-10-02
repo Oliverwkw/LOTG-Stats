@@ -1,8 +1,8 @@
 """How bold was that lineup call?
 
-A thin command line over `lotg_support.boldness`. For every start it compares
-the starter's pre-kickoff expected points with the best bench player who could
-legally have taken the slot, and prints. It changes nothing — no export, no
+A thin command line over `lotg_support.boldness`. For every start (2020 on) it
+compares the starter's pre-kickoff expected points with the best startable bench
+player's (taxi counts as bench), and prints. It changes nothing — no export, no
 workflow, no build output; the only thing it writes is the nflverse download
 cache under `.cache/`.
 
@@ -35,12 +35,12 @@ from lotg_support import boldness as B  # noqa: E402
 from lotg_support import inquiry as Q  # noqa: E402
 
 _COLS = ["Year", "Week", "Team", "Slot", "Starter", "E starter", "Starter source",
-         "Reference", "E reference", "Boldness", "Starter points", "Reference points",
-         "Starter promoted over", "Low stakes"]
+         "Reference", "E reference", "Boldness", "Bust odds", "Starter points",
+         "Reference points", "Starter promoted over", "Low stakes"]
 
 
 def _history(args) -> pd.DataFrame:
-    h = B.history()
+    h = B.with_bust_odds(B.history())
     h = h[~h["Starter unavailable?"] & h["Boldness"].notna()]
     if not getattr(args, "all", False):
         h = h[h["Low stakes"].isna()]
@@ -48,9 +48,10 @@ def _history(args) -> pd.DataFrame:
 
 
 def cmd_week(args) -> None:
-    df = B.boldness(args.season, weeks=[args.week])
+    coef = B.fit_bust_odds(B.history(include_live=False))
+    df = B.with_bust_odds(B.boldness(args.season, weeks=[args.week]), coef)
     df = df[df["Team"].str.lower() == args.team.lower()]
-    print(df[_COLS[3:12]].to_string(index=False))
+    print(df[_COLS[3:13]].to_string(index=False))
     tb = B.team_boldness(args.season, weeks=[args.week])
     print(tb[tb["Team"].str.lower() == args.team.lower()].to_string(index=False))
 
@@ -80,14 +81,14 @@ def cmd_managers(args) -> None:
 
 
 def cmd_teams(args) -> None:
-    seasons = [s for s in Q.snapshot_seasons() if s >= 2021]
+    seasons = sorted(set(Q.export_seasons()) | set(Q.snapshot_seasons()))
     tb = pd.concat([B.team_boldness(s) for s in seasons], ignore_index=True)
     print(tb.sort_values("Team boldness", ascending=False).head(args.n).to_string(index=False))
 
 
 def cmd_validate(args) -> None:
     problems = []
-    for y in Q.completed_seasons():
+    for y in sorted(set(Q.completed_seasons()) | {2020}):
         problems += B.check_points_reconcile(y)
         problems += B.check_team_boldness_bounds(y)
     problems += B.check_calibration(B.history(include_live=False))
