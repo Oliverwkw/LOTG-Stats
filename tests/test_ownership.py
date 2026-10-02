@@ -289,9 +289,16 @@ def test_reads_are_pure():
     if not _HAVE_EXPORTS:
         return _skip("no exports")
     exports = _ROOT / "exports"
-    before = {p: p.stat().st_mtime for p in exports.rglob("*") if p.is_file()}
+
+    # The suite's own output (build.yml tees pytest into exports/raw/pytest.log
+    # and writes pytest_results.json) is written WHILE this runs — with
+    # `-n auto` that raced the snapshot and failed run 620. Not ours to judge.
+    def mtimes():
+        return {p: p.stat().st_mtime for p in exports.rglob("*")
+                if p.is_file() and not (p.parent.name == "raw" and p.name.startswith("pytest"))}
+    before = mtimes()
     A.ownership_summary()
-    after = {p: p.stat().st_mtime for p in exports.rglob("*") if p.is_file()}
+    after = mtimes()
     assert before == after, "ownership helpers must not touch exports/"
 
 
