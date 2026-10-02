@@ -5,7 +5,7 @@ The stat has no published twin (the build's 5-game start/sit column picks its
 reference by hindsight), so the guards tie each half to something the build
 did publish: the re-scored game log to `player_week["Points"]`, the lineup
 optimiser to `team_week["Max PF"]`. The rest pins the arithmetic and the
-seed-lock enumeration with synthetic fixtures, and checks that expected points
+lineup-legality check with synthetic fixtures, and checks that expected points
 mean something (the calibration slope).
 
 Data-dependent checks skip when `exports/`, the snapshot or the nflverse cache
@@ -64,19 +64,6 @@ def test_draft_rounds_bucket_as_documented():
     assert B._bucket(None) == "UDFA" and B._bucket(float("nan")) == "UDFA" and B._bucket(12) == "UDFA"
 
 
-def test_seed_lock_needs_every_outcome_to_agree():
-    # a is two clear of everyone: locked. b and c can swap: neither locked.
-    # d trails c by a win with a PF gap wider than any week can close: d can
-    # only tie c on wins and lose the tiebreak, so d is locked 4th.
-    wins = {"a": 10, "b": 8, "c": 8, "d": 7}
-    pf = {"a": 2000, "b": 1900, "c": 1950, "d": 1500}
-    games = [("a", "d"), ("b", "c")]
-    assert B.locked_seeds(wins, pf, games, spread=170) == ["a", "d"]
-    # shrink the gap below one week's spread and d's tie becomes movable
-    pf["d"] = 1900
-    assert B.locked_seeds(wins, pf, games, spread=170) == ["a"]
-
-
 def test_lineup_fits_allows_a_reshuffle_but_not_an_illegal_lineup():
     slots = [("QB",), ("RB",), ("WR",), ("RB", "WR", "TE"), ("QB", "RB", "WR", "TE")]
     e = {"q1": frozenset({"QB"}), "q2": frozenset({"QB"}), "q3": frozenset({"QB"}),
@@ -106,10 +93,6 @@ def test_the_rookie_slot_prior_fades_out():
     rk = e[e["rookie"]]
     assert (rk.loc[rk["week"] == 8, "source"] == "history").all()
     assert rk.loc[rk["week"] == 1, "source"].str.startswith("rookie").all()
-
-
-def test_seed_lock_with_no_games_locks_nothing():
-    assert B.locked_seeds({"a": 3}, {"a": 1.0}, [], spread=100) == []
 
 
 def test_every_debatable_choice_is_a_parameter():

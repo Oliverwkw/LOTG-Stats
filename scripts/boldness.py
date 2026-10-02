@@ -9,10 +9,9 @@ cache under `.cache/`.
     # one team-week, start by start (the in-progress week works too)
     python scripts/boldness.py week --season 2026 --week 4 --team BROsenzweig
 
-    # the boldest starts ever (games that mattered; --all keeps tank weeks)
+    # the boldest starts ever (every week counts, tank weeks included)
     python scripts/boldness.py top -n 20
     python scripts/boldness.py top --position QB
-    python scripts/boldness.py top --all
 
     # managers, seasons, positions; team-weeks by ex-ante Max PF minus expected PF
     python scripts/boldness.py managers
@@ -36,15 +35,14 @@ from lotg_support import inquiry as Q  # noqa: E402
 
 _COLS = ["Year", "Week", "Team", "Slot", "Starter", "E starter", "Starter source",
          "Reference", "E reference", "Boldness", "Bust odds", "Starter points",
-         "Reference points", "Starter promoted over", "Low stakes"]
+         "Reference points", "Starter promoted over"]
 
 
 def _history(args) -> pd.DataFrame:
     h = B.with_bust_odds(B.history())
-    h = h[~h["Starter unavailable?"] & h["Boldness"].notna()]
-    if not getattr(args, "all", False):
-        h = h[h["Low stakes"].isna()]
-    return h
+    # Every week counts, tank and consolation weeks included: there is no
+    # reliable way to tell a meaningless or thrown game from a real one.
+    return h[~h["Starter unavailable?"] & h["Boldness"].notna()]
 
 
 def cmd_week(args) -> None:
@@ -61,8 +59,7 @@ def cmd_top(args) -> None:
     if args.position:
         h = h[h["Starter position"] == args.position.upper()]
     done = h[~h["Live week?"]]
-    print(f"{len(done)} completed starts ranked"
-          f"{'' if args.all else ' (low-stakes weeks excluded; --all keeps them)'}")
+    print(f"{len(done)} completed starts ranked")
     print(h.sort_values("Boldness", ascending=False).head(args.n)[_COLS].to_string(index=False))
 
 
@@ -107,10 +104,8 @@ def main(argv=None) -> None:
     t = sub.add_parser("top")
     t.add_argument("-n", type=int, default=20)
     t.add_argument("--position")
-    t.add_argument("--all", action="store_true")
     t.set_defaults(fn=cmd_top)
     m = sub.add_parser("managers")
-    m.add_argument("--all", action="store_true")
     m.set_defaults(fn=cmd_managers)
     te = sub.add_parser("teams")
     te.add_argument("-n", type=int, default=10)

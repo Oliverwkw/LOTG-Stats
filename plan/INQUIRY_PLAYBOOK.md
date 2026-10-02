@@ -122,7 +122,7 @@ the answer, not a silent choice.
 | `scripts/contract_study.py` (`lotg_support.contracts`) | the *real world* side: what an NFL contract predicts about fantasy production — signings ranked inside their position's market, matched against comparable players who did not get paid |
 | `scripts/forecast.py` (`lotg_support.forecast`) | the season that has not happened yet: project rosters (rates, ageing, market-priced rookies, availability and depth), calibrate against completed seasons, simulate championship / playoff / seeding odds |
 | `scripts/touchdowns.py` (`lotg_support.scoring_events`) | what a player actually DID rather than what he was worth: nflverse's stat lines joined onto this league's starters — touchdowns scored (and thrown) per starter-week, the scan for lineups that reached the end zone with nobody, and career totals in any nflverse stat, both as of a start and lifetime |
-| `scripts/boldness.py` (`lotg_support.boldness`) | how bold a lineup call was: each start against the best bench player who could legally have taken the slot, on PRE-KICKOFF expected points (season-decayed history, draft-round rookie priors, next-man-up cuff promotion), with tank / eliminated / seed-locked weeks flagged; plus team-week ex-ante Max PF minus expected PF |
+| `scripts/boldness.py` (`lotg_support.boldness`) | how bold a lineup call was, 2020 on: each start against the best STARTABLE bench player (taxi counts as bench), on PRE-KICKOFF expected points (recency-weighted history scored with the judged season's rules, LOTG rookie-slot prior for a rookie's first weeks, next-man-up cuff promotion), plus bust odds; every week counts, tank weeks included; and team-week ex-ante Max PF minus expected PF |
 
 All of them are additive and read-only. None is imported by the build or run by
 any workflow — except `lotg_support.wins_added`, which IS the build's `Wins
@@ -442,8 +442,8 @@ the ESPN backfill, as Wins added reads it).
 
 ```bash
 python scripts/boldness.py week --season 2026 --week 4 --team BROsenzweig
-python scripts/boldness.py top -n 20            # games that mattered
-python scripts/boldness.py top --position QB --all
+python scripts/boldness.py top -n 20            # every week counts, tank weeks included
+python scripts/boldness.py top --position QB
 python scripts/boldness.py managers
 python scripts/boldness.py teams                # ex-ante Max PF - expected PF
 python scripts/boldness.py validate
