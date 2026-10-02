@@ -468,6 +468,15 @@ his breakout); a next man up whose higher-E teammate sits out is lifted to beta 
 the teammate's E, beta calibrated per position. `check_calibration` holds the
 slope of (starter - reference) actual points on Edge near -1.
 
+A rostered player with no game in the three-season window (Philip Rivers'
+2025 return, Travis Etienne's lost 2021) is priced at the positional prior, not
+left N/A. The lineup's ex-ante max is `best_lineup_value` (exact, using each
+player's per-season slot eligibility, the same as the starts), NOT
+`lineup.compute_optimal_lineup`. Fed expectations, that one's single *current*
+position per player put Cordarrelle Patterson (RB today, WR in 2021) out of the
+WR slot and returned a "best" lineup below the one actually set. The
+invariant: Lineup Boldness >= the boldest single start of that lineup.
+
 ## The season that has not happened yet
 
 "Who wins this year" is not a lookup, so it has its own tool.

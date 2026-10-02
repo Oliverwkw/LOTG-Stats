@@ -4,7 +4,7 @@ what the manager could see before kickoff.
 The stat has no published twin (the build's 5-game start/sit column picks its
 reference by hindsight), so the guards tie each half to something the build
 did publish: the re-scored game log to `player_week["Points"]`, the lineup
-optimiser to `team_week["Max PF"]`. The rest pins the arithmetic and the
+search (`best_lineup_value`) to `team_week["Max PF"]`. The rest pins the arithmetic and the
 lineup-legality check with synthetic fixtures, and checks that expected points
 mean something (the calibration slope).
 
@@ -83,6 +83,38 @@ def test_lineup_fits_allows_a_reshuffle_but_not_an_illegal_lineup():
     assert B.lineup_fits([], slots, e)
 
 
+def test_the_best_lineup_uses_each_players_eligibility_not_one_position():
+    # Cordarrelle Patterson, 2021: an RB today, WR-eligible that season. With a
+    # single position he could not take the WR slot and the "best" lineup came
+    # out below the one actually set (stevenb123, 2021 wk9).
+    slots = [("QB",), ("RB",), ("WR",), ("RB", "WR", "TE")]
+    e = {"q": frozenset({"QB"}), "r": frozenset({"RB"}), "r2": frozenset({"RB"}),
+         "cp": frozenset({"RB", "WR"}), "w": frozenset({"WR"})}
+    vals = {"q": 20.0, "r": 15.0, "r2": 14.0, "cp": 13.0, "w": 5.0}
+    assert B.best_lineup_value(vals, slots, e) == 20 + 15 + 14 + 13
+    # best-first is exact on this structure, never worse than any legal lineup
+    assert B.best_lineup_value(vals, slots, e) >= 20 + 15 + 13 + 5
+    # a slot nobody can fill counts 0, and a negative expectation is never forced in
+    assert B.best_lineup_value({"q": 20.0, "w": -1.0}, slots, e) == 20.0
+    assert B.best_lineup_value({}, slots, e) == 0.0
+
+
+def test_lineup_boldness_covers_every_single_start():
+    # Swapping in one start's reference is itself a legal lineup, so a lineup's
+    # boldness is never below its boldest start (and no starter is unresolved).
+    y = _season()
+    if y is None:
+        return _skip("no completed season with exports and the nflverse cache")
+    b = _rows(y)
+    filled = b[b["Starter ID"].notna()]
+    assert not (filled["Starter source"] == "unresolved").any(), \
+        filled.loc[filled["Starter source"] == "unresolved", ["Week", "Team", "Starter"]].head()
+    mx = filled.groupby(["Week", "Team"])["Boldness"].max().fillna(0.0)
+    tb = B.team_boldness(y, params=_FAST, include_live=False).set_index(["Week", "Team"])["Team boldness"]
+    j = mx.to_frame("start").join(tb.rename("lineup"), how="inner")
+    assert len(j) and (j["lineup"] >= j["start"] - 0.011).all(), j[j["lineup"] < j["start"] - 0.011]
+
+
 def test_the_rookie_slot_prior_fades_out():
     # after rookie_prior_weeks the slot has no say: a rookie's E is his own
     # games shrunk toward the ordinary positional prior, as for anyone
@@ -114,7 +146,7 @@ def test_rescored_log_reproduces_the_builds_points():
     assert B.check_points_reconcile(y) == []
 
 
-def test_team_boldness_is_never_negative_and_the_optimiser_matches_max_pf():
+def test_team_boldness_is_never_negative_and_the_lineup_search_matches_max_pf():
     y = _season()
     if y is None:
         return _skip("no completed season with exports and the nflverse cache")

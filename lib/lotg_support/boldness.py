@@ -22,9 +22,9 @@ out so that it measures boldness rather than hindsight:
                 actual result on Edge (`fit_bust_odds`)
 
 An empty starting slot is a start with E = 0. `Team boldness` is the ex-ante
-Max PF (the build's `lineup.compute_optimal_lineup`, fed E) minus the expected
-points of the lineup set, so two starters gambling against the same bench
-player are not double-counted.
+Max PF (`best_lineup_value`, fed E, under the same slots and per-season
+eligibility as the starts) minus the expected points of the lineup set, so two
+starters gambling against the same bench player are not double-counted.
 
 ## Expected points
 
@@ -66,8 +66,8 @@ Everything debatable is a field on `Params`; `tune()` reports the sensitivity.
   `player_week["Points"]` (2020's ESPN points included).
 * `check_calibration` — the slope of (starter - reference) actual points on
   Edge must sit near -1: E means something.
-* `check_team_boldness_bounds` — Team boldness is never negative, and the
-  optimiser fed ACTUAL points reproduces `team_week["Max PF"]`.
+* `check_team_boldness_bounds` — Team boldness is never negative, and
+  `best_lineup_value` fed ACTUAL points reproduces `team_week["Max PF"]`.
 
 ## Traps
 
@@ -107,7 +107,6 @@ import pandas as pd
 from lotg_support import contracts as C
 from lotg_support import external as X
 from lotg_support import inquiry as Q
-from lotg_support import lineup as L
 from lotg_support import scoring_events as SE
 
 POSITIONS: Tuple[str, ...] = ("QB", "RB", "WR", "TE")
@@ -477,6 +476,19 @@ def veteran_priors(season: int) -> Dict[str, float]:
 # ---------------------------------------------------------------------------
 # Expected points
 # ---------------------------------------------------------------------------
+def _rostered_gsis(season: int) -> Set[str]:
+    """gsis ids of everyone on a league roster in any played week of the season."""
+    bridge = _bridge()
+    out: Set[str] = set()
+    for wk in played_weeks(season):
+        for wr in week_rows(season, wk).values():
+            for pid in wr.players or wr.starters:
+                g = bridge.get(str(pid))
+                if g:
+                    out.add(g)
+    return out
+
+
 def _base_expectations(season: int, weeks: Sequence[int], p: Params) -> pd.DataFrame:
     """E before any role promotion, for every player with history or a rookie
     prior, for each requested week."""
@@ -488,13 +500,17 @@ def _base_expectations(season: int, weeks: Sequence[int], p: Params) -> pd.DataF
     teams_now = _weekly_teams(season)
     rookies = set(ids.index[pd.to_numeric(ids["rookie_season"], errors="coerce") == season])
     rookies &= set(ids.index[ids["pos"].isin(POSITIONS)])
+    rostered = _rostered_gsis(season)
     last_team = {}
     out = []
     for wk in sorted(set(int(w) for w in weeks)):
         before = log[(log["season"] < season) | (log["week"] < wk)]
         # The player's NFL team THIS week: weekly roster, else his latest game.
         latest = before.sort_values(["season", "week"]).groupby("gsis_id")["team"].last()
-        players = set(before["gsis_id"]) | rookies
+        # Rostered players with no game in the window (Philip Rivers' 2025
+        # return, Travis Etienne's lost rookie year) still get an E: the
+        # positional prior, not N/A.
+        players = set(before["gsis_id"]) | rookies | rostered
         cur_team = {g: teams_now.get((g, wk), latest.get(g)) for g in players}
         before = before.sort_values(["season", "week"])
         w = np.power(p.prior_season_weight, (season - before["season"]).to_numpy(dtype=float))
@@ -834,6 +850,29 @@ def lineup_fits(players: Sequence[str], slots: Sequence[Tuple[str, ...]],
     return all(place(i, set()) for i in range(len(players)))
 
 
+def best_lineup_value(values: Dict[str, float], slots: Sequence[Tuple[str, ...]],
+                      elig: Dict[str, frozenset]) -> float:
+    """The most points any legal lineup could hold: every player in `values` may
+    start, each in a slot he is eligible for (the rules `lineup_fits` applies to
+    the starts). Exact, not a heuristic: the sets of players who can start
+    together form a transversal matroid, so taking players best-first and
+    keeping each one who still fits is optimal. A slot no one can fill counts 0.
+
+    Not `lineup.compute_optimal_lineup`: that one knows a single (current)
+    position per player, so a WR-eligible-that-season RB (Cordarrelle
+    Patterson, 2021) could not be placed at WR and the "best" lineup came out
+    below the one actually set."""
+    chosen: List[str] = []
+    total = 0.0
+    for p, v in sorted(values.items(), key=lambda kv: -kv[1]):
+        if v <= 0 or len(chosen) == len(slots):
+            break
+        if lineup_fits(chosen + [p], slots, elig):
+            chosen.append(p)
+            total += v
+    return total
+
+
 def boldness(season: int, weeks: Optional[Sequence[int]] = None,
              params: Params = Params(), include_live: bool = True) -> pd.DataFrame:
     """One row per starting slot: the starter (an empty slot is a start with
@@ -924,16 +963,16 @@ def _sleeper_of(gsis: Optional[str]) -> Optional[str]:
 
 def team_boldness(season: int, weeks: Optional[Sequence[int]] = None,
                   params: Params = Params(), include_live: bool = True) -> pd.DataFrame:
-    """One row per team-week: the ex-ante Max PF (best lineup E allowed, via the
-    build's optimiser) minus the expected points of the lineup set."""
+    """One row per team-week: the ex-ante Max PF (best lineup E allowed,
+    `best_lineup_value`) minus the expected points of the lineup set."""
     season = int(season)
     played, live = season_weeks(season, include_live)
     wks = list(weeks) if weeks is not None else played + ([live] if live else [])
     E = expected_points(season, wks, params)
     E_idx = {(r.gsis_id, r.week): float(r.E) for r in E.itertuples()}
     bridge = _bridge()
-    pos = {p: next(iter(sorted(e))) for p, e in season_eligibility(season).items()}
-    pos.update(Q.players().positions())
+    slots = season_slots(season)
+    elig = season_eligibility(season)
     unavail_hist = _unavailable(season)
     teams = season_teams(season)
     rows = []
@@ -947,7 +986,7 @@ def team_boldness(season: int, weeks: Optional[Sequence[int]] = None,
             unresolved = [p for p, v in e.items() if v is None]
             e = {p: v for p, v in e.items() if v is not None}
             chosen = sum(e.get(s, 0.0) for s in starters)
-            best = L.compute_optimal_lineup(e, pos, season)
+            best = best_lineup_value(e, slots, elig)
             rows.append({"Year": season, "Week": wk, "Team": teams.get(rid, f"Roster {rid}"),
                          "Ex-ante max": round(best, 2), "Expected PF": round(chosen, 2),
                          "Team boldness": round(max(0.0, best - chosen), 2),
@@ -1044,8 +1083,9 @@ def check_calibration(df: pd.DataFrame, lo: float = -1.4, hi: float = -0.6) -> L
 
 
 def check_team_boldness_bounds(season: int, params: Params = Params()) -> List[str]:
-    """Team boldness is never negative, and the optimiser fed ACTUAL points
-    over the full roster reproduces the build's Max PF (semifinal bonus aside)."""
+    """Team boldness is never negative, and `best_lineup_value` fed ACTUAL
+    points over the full roster reproduces the build's Max PF (semifinal bonus
+    aside) — the ex-ante max is the same search, fed E."""
     probs: List[str] = []
     tb = team_boldness(season, params=params, include_live=False)
     if (tb["Team boldness"] < 0).any():
@@ -1055,13 +1095,13 @@ def check_team_boldness_bounds(season: int, params: Params = Params()) -> List[s
     built = {(str(t).lower(), int(w)): float(m) for t, w, m in
              zip(tw["Team"], Q.numeric(tw, "Week"), pd.to_numeric(tw["Max PF"], errors="coerce"))
              if pd.notna(w) and pd.notna(m)}
-    pos = Q.players().positions()
+    slots, elig = season_slots(season), season_eligibility(season)
     teams = season_teams(season)
     played, _ = season_weeks(season, include_live=False)
     n = agree = 0
     for wk in played[:3]:
         for rid, wr in week_rows(season, wk).items():
-            v = L.compute_optimal_lineup(dict(wr.players_points), pos, season)
+            v = best_lineup_value(dict(wr.players_points), slots, elig)
             b = built.get((teams.get(rid, "").lower(), wk))
             if b is None:
                 continue
