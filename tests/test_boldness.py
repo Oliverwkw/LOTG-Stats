@@ -293,6 +293,42 @@ def test_the_build_path_matches_the_inquiry_path():
     assert (lm["Empty slots_x"] == lm["Empty slots_y"]).all()
 
 
+def test_beta_is_an_nfl_fit_the_league_rosters_cannot_move():
+    # beta is calibrated on NFL next-man-up events; it once picked up the
+    # league's rosters (the no-history fallback) and so differed between the
+    # build's inputs and the snapshot's — the inquiry path drifted from the
+    # exported column by up to 0.08. Empty rosters must give the same beta.
+    y = _season()
+    if y is None:
+        return _skip("no completed season with exports and the nflverse cache")
+    seasons = (y - 1, y)
+    plain = B.calibrate_beta(seasons=seasons)
+    score, score_map = B._build_scorer()
+    B._clear_caches()
+    try:
+        with B.build_inputs(matchups={s: {} for s in seasons}, roster_positions={},
+                            teams={}, unavailable={}, rookie_picks=Q.load_sheet("rookie_picks"),
+                            scoring={s: dict(B.scoring_table(s)) for s in seasons},
+                            score=score, score_map=score_map, bridge={}):
+            no_league = B.calibrate_beta(seasons=seasons)
+    finally:
+        B._clear_caches()
+    assert plain and plain == no_league, (plain, no_league)
+
+
+def test_the_inquiry_path_never_scores_a_week_the_build_has_not_finalized():
+    # "any points" also catches the week in progress (Thursday night is
+    # enough); the inquiry path stops where the committed build did.
+    if not _HAVE_EXPORTS:
+        return _skip("no exports")
+    tw = Q.load_sheet("team_week")
+    for y in sorted(set(Q.numeric(tw, "Year").dropna().astype(int))):
+        played, live = B.season_weeks(y)
+        last = int(Q.numeric(tw[Q.numeric(tw, "Year") == y], "Week").max())
+        assert not played or max(played) <= last, (y, played, last)
+        assert live is None or live == last + 1, (y, live, last)
+
+
 def test_expected_points_mean_something():
     # If E is unbiased, a start with Edge B loses to its reference by about B:
     # the slope of Result on Edge sits near -1. One season is noisier than the
