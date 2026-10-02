@@ -502,9 +502,13 @@ def _rostered_gsis(season: int) -> Set[str]:
     return out
 
 
-def _base_expectations(season: int, weeks: Sequence[int], p: Params) -> pd.DataFrame:
+def _base_expectations(season: int, weeks: Sequence[int], p: Params,
+                        league_rostered: bool = True) -> pd.DataFrame:
     """E before any role promotion, for every player with history or a rookie
-    prior, for each requested week."""
+    prior, for each requested week — plus, with `league_rostered`, everyone on
+    a league roster that season (the positional prior for no-history players).
+    The beta calibration passes False: it is an NFL fit, and the league's
+    rosters (the build's vs the snapshot's) must not move it."""
     log = game_log([season - 2, season - 1, season], scoring_season=season)
     ids = _player_ids()
     rpri = rookie_priors(season)
@@ -513,7 +517,7 @@ def _base_expectations(season: int, weeks: Sequence[int], p: Params) -> pd.DataF
     teams_now = _weekly_teams(season)
     rookies = set(ids.index[pd.to_numeric(ids["rookie_season"], errors="coerce") == season])
     rookies &= set(ids.index[ids["pos"].isin(POSITIONS)])
-    rostered = _rostered_gsis(season)
+    rostered = _rostered_gsis(season) if league_rostered else set()
     last_team = {}
     _pos = ids["pos"].to_dict() if ids.index.is_unique else None
     pos_of = (lambda g: _pos.get(g)) if _pos is not None else (lambda g: ids["pos"].get(g))
@@ -663,7 +667,7 @@ def _calibrate_beta_cached(seasons: Tuple[int, ...], base_params: Params) -> Tup
     cnt: Dict[str, int] = {}
     for y in seasons:
         weeks = range(1, 19)
-        base = _base_expectations(y, weeks, p)
+        base = _base_expectations(y, weeks, p, league_rostered=False)
         ev = _promotion_events(y, base, p)
         if ev.empty:
             continue
@@ -778,10 +782,23 @@ def played_weeks(season: int) -> List[int]:
         return [w for w in sorted(_INJECTED["matchups"].get(int(season), {}))
                 if any(r.points for r in week_rows(season, w).values())]
     meta = Q.season_meta(int(season))
+    # Points go live DURING games, so "any points" also catches the week in
+    # progress (a Thursday night game is enough). The build finalizes a week
+    # only after the Tuesday cutoff; outside it, stop at the last week the
+    # committed build finalized — its team_week rows.
+    done = _completed_weeks(int(season))
     if meta.has_snapshot:
-        return [w for w in Q.played_weeks(season) if w <= meta.last_week]
-    return [w for w in sorted(_espn()["matchups_by_week"]) if w <= meta.last_week
+        return [w for w in Q.played_weeks(season) if w <= min(meta.last_week, done)]
+    return [w for w in sorted(_espn()["matchups_by_week"]) if w <= min(meta.last_week, done)
             and any(r.points for r in week_rows(season, w).values())]
+
+
+@functools.lru_cache(maxsize=16)
+def _completed_weeks(season: int) -> int:
+    """The last week of `season` the committed build finalized (0 if none)."""
+    tw = Q.load_sheet("team_week")
+    wk = pd.to_numeric(tw.loc[pd.to_numeric(tw["Year"], errors="coerce") == season, "Week"], errors="coerce")
+    return int(wk.max()) if wk.notna().any() else 0
 
 
 @functools.lru_cache(maxsize=16)
