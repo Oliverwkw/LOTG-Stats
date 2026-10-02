@@ -126,6 +126,10 @@ _RATE_MARKERS = (
     "most number of",
     # League "Points per QB started" and kin: points per player-start, a rate.
     "points per ",
+    # "Lineup Boldness" on team_year / team_all_time is the AVERAGE per lineup
+    # and player_week "Boldness" a one-start level — neither accumulates, so an
+    # on-pace projection would scale an average by the weeks left.
+    "boldness",
 )
 
 
