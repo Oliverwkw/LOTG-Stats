@@ -281,11 +281,11 @@ plausible options. Re-running the five-trade rewind above on 2024 with
 | anchored | 3-12 → 8-7 | stevenb123 |
 | strict | 3-12 → 3-12 | stevenb123 |
 | ceiling | 3-12 → 8-7 | **Oliverwkw** |
-| plausible | 3-12 → **10-5** | stevenb123 |
+| plausible | 3-12 → **9-6** | stevenb123 |
 
 The three original models reproduce the table above exactly (players on nobody's
 roster now score their nflverse line instead of 0 in every model; it does not
-move this answer). Plausible puts you two wins above anchored — it lets the
+move this answer). Plausible puts you a win above anchored — it lets the
 returned stars displace whichever starter they plausibly outranked that week,
 where anchored only starts an arrival his real manager started — but the title
 still goes to stevenb123, so only ceiling crowns Oliverwkw. Report both ends, as

@@ -582,7 +582,7 @@ are four, and `--model all` runs each:
   1.5× that average, and a rookie in his first 3 games never moves in.
   Hindsight picks among the plausible options. On the 2025 Herbert trade all
   four models agree (13-2, weeks 6 and 8); on the 2024 teardown it has
-  Oliverwkw 10-5 (anchored / ceiling 8-7) but stevenb123 still champion.
+  Oliverwkw 9-6 (anchored / ceiling 8-7) but stevenb123 still champion.
 
 In every model, **a player on nobody's roster scores his nflverse line** under
 that season's league scoring (it used to count 0.00), **a 3-team trade undoes
