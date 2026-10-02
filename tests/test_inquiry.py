@@ -328,7 +328,23 @@ def test_reads_are_pure():
     assert before == after, "inquiry must never write to exports/"
 
 
+def test_played_weeks_never_include_the_week_in_progress():
+    # Sleeper points go live during games: "has points" alone counted a week
+    # from its Thursday night game on. Played = what the build finalized.
+    if not (_HAVE_EXPORTS and _HAVE_SNAPSHOT):
+        return _skip("no exports/snapshot")
+    for y in Q.snapshot_seasons():
+        done = Q.finalized_week(y)
+        played = Q.played_weeks(y)
+        assert not played or (done is not None and max(played) <= done), (y, played, done)
+        started = Q.played_weeks(y, include_in_progress=True)
+        assert set(played) <= set(started) and len(started) - len(played) <= 1, (y, played, started)
+        if y in Q.completed_seasons():
+            assert played == started, y
+
+
 TESTS = [
+    test_played_weeks_never_include_the_week_in_progress,
     test_sheet_name_aliases,
     test_to_number_handles_build_cells,
     test_predicate_parsing_and_matching,

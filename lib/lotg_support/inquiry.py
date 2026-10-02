@@ -1013,13 +1013,42 @@ def week(year: int, wk: int, raw: bool = False) -> Dict[int, WeekRow]:
     return out
 
 
-def played_weeks(year: int) -> List[int]:
-    """Weeks of a season that actually have scores (an unplayed week is all zeros)."""
+def finalized_week(year: int) -> Optional[int]:
+    """The last week of `year` the committed build finalized: its team_week
+    rows (0 = none yet). None when there are no exports to say.
+
+    The build finalizes a week only after the Tuesday after its Monday night
+    game (`_week_is_complete` in src/lotg.py). Sleeper points go live DURING
+    games, so "has points" alone also catches the week in progress from
+    Thursday night on."""
+    return _finalized_week_cached(int(year), str(repo_root()))
+
+
+@functools.lru_cache(maxsize=None)
+def _finalized_week_cached(year: int, root: str) -> Optional[int]:
+    try:
+        tw = _load_sheet_cached("team_week", root)
+    except FileNotFoundError:
+        return None
+    if "Year" not in tw.columns or "Week" not in tw.columns:
+        return None
+    wk = pd.to_numeric(tw.loc[pd.to_numeric(tw["Year"], errors="coerce") == year, "Week"], errors="coerce")
+    return int(wk.max()) if wk.notna().any() else 0
+
+
+def played_weeks(year: int, include_in_progress: bool = False) -> List[int]:
+    """Weeks of a season that have FINAL scores: weeks with points (an unplayed
+    week is all zeros), up to the last week the committed build finalized —
+    never the week in progress (`finalized_week`). `include_in_progress=True`
+    adds the week whose games have started: "has the season begun?", not
+    "which results are in"."""
     meta = season_meta(year)
     if not meta.has_snapshot:
         return []
+    done = None if include_in_progress else finalized_week(year)
+    last = meta.last_week if done is None else min(meta.last_week, done)
     out = []
-    for wk in range(1, meta.last_week + 1):
+    for wk in range(1, last + 1):
         try:
             rows = week(year, wk)
         except FileNotFoundError:

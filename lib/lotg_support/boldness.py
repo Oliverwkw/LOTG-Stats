@@ -782,23 +782,12 @@ def played_weeks(season: int) -> List[int]:
         return [w for w in sorted(_INJECTED["matchups"].get(int(season), {}))
                 if any(r.points for r in week_rows(season, w).values())]
     meta = Q.season_meta(int(season))
-    # Points go live DURING games, so "any points" also catches the week in
-    # progress (a Thursday night game is enough). The build finalizes a week
-    # only after the Tuesday cutoff; outside it, stop at the last week the
-    # committed build finalized — its team_week rows.
-    done = _completed_weeks(int(season))
-    if meta.has_snapshot:
-        return [w for w in Q.played_weeks(season) if w <= min(meta.last_week, done)]
-    return [w for w in sorted(_espn()["matchups_by_week"]) if w <= min(meta.last_week, done)
+    if meta.has_snapshot:      # Q.played_weeks stops at the build's last finalized week
+        return [w for w in Q.played_weeks(season) if w <= meta.last_week]
+    done = Q.finalized_week(int(season))
+    last = meta.last_week if done is None else min(meta.last_week, done)
+    return [w for w in sorted(_espn()["matchups_by_week"]) if w <= last
             and any(r.points for r in week_rows(season, w).values())]
-
-
-@functools.lru_cache(maxsize=16)
-def _completed_weeks(season: int) -> int:
-    """The last week of `season` the committed build finalized (0 if none)."""
-    tw = Q.load_sheet("team_week")
-    wk = pd.to_numeric(tw.loc[pd.to_numeric(tw["Year"], errors="coerce") == season, "Week"], errors="coerce")
-    return int(wk.max()) if wk.notna().any() else 0
 
 
 @functools.lru_cache(maxsize=16)
