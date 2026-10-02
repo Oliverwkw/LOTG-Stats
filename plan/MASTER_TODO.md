@@ -1039,9 +1039,36 @@ Rules [per user, 2026-10-01]:
   player takes one explicit role (fill a cleared slot / a real empty slot /
   displace one named starter); a bench player only fills a cleared slot,
   directly or by one starter sliding into it. Unit tests: no bench-for-starter
-  reshuffle, a 0-point filler still fills, the 4-for-1 shape. vs run 604:
-  trades 145 / 566 rows move (−183 → −274), add_drops 37 (−14 → −19);
-  compute ~3.5 min (was ~1.5).
+  reshuffle, a 0-point filler still fills, the 4-for-1 shape.
+  **Then, per user, three more rules:** given-up players come first for
+  cleared slots (LWebs53 2022 wk 5: Adams belongs in Jefferson's slot, not
+  Adams into Aaron Jones' flex with bench Reynolds in Jefferson's slot); a real
+  starter still on the roster never sits while a real bench player starts;
+  a rookie in his first 3 games may move in if he really started that week.
+  Filling every cleared slot ranks before points. The bench fill is a
+  legality-checked search over the whole lineup (a one-slide approximation let
+  two fillers lean on the same slide and left slots empty).
+  **Final rules [per user]** — the sequence: (1) the move's return comes off
+  the lineup and the bench, leaving its slots empty; (2) what it gave up joins
+  the bench; (3) the empty slots fill from the bench, given-up and real bench
+  players competing on points, each filler within 5 of the h-th best option
+  (best eligible if nobody is); (4) a remaining given-up player who outscored a
+  starter, is within 5 of that starter's 3-game average and fits (after
+  rearranging) swaps in; (5) re-decide the game. Kept on top of the sequence:
+  a real starter still on the roster never sits while a real bench player
+  starts, and the best lineup obeying every rule is taken (filled slots, then
+  fewest implausible fillers, then points). Given-up-first priority for empty
+  slots was tried and dropped. Search: over (given-up players used, starters
+  displaced) with a bound, the bench fill exact by matroid greedy, lineups
+  cached — 88 s for every row (a role-by-role search took 41 min).
+  Full local sweep: 28,656 counterfactual lineups, every move and week, keep
+  every rule. vs run 604: trades 177 / 566 rows move (−183 → −135), add_drops
+  41 (−14 → −18).
+  Guard: `test_counterfactual_lineups_keep_the_rules_on_real_moves` checks
+  every counterfactual lineup of the Jefferson 4-for-1 and a spread of moves
+  (1,367 lineups): pool = roster − return + given-up, the starter-before-bench
+  invariant, no cleared slot empty while an eligible proven player sits, no
+  unproven entrant who did not really start.
 - [ ] **Follow-up PR: Trade impact score's WIN IMPACT uses the Wins added
   "would he have played" test** [per user, 2026-10-01 — keep the two metrics
   clearly different; do NOT substitute Wins added into the score]. Today the

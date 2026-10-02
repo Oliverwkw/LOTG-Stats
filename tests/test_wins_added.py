@@ -7,8 +7,10 @@ The synthetic cases pin each part of the rule in `lotg_support.wins_added`:
     come in); a bench player only fills a slot a departed starter left open;
     nobody started anywhere counts for at most 1.5 x his last-3-game average;
     every substitution must be plausible (incoming 3-game average >= outgoing
-    minus 5); a player with fewer than 3 prior games never moves in but can
-    be moved out;
+    minus 5); a player with fewer than 3 prior games moves in only if he
+    really started that week, and can always be moved out; every cleared slot
+    is filled before points are counted; no real starter sits while a real
+    bench player starts;
   * the per-week result flip against the real opponent, ±1;
   * the opponent losing a given-up player he started (and the mirror row);
   * lineage through a later trade at its KTC share, read as a probability;
@@ -126,14 +128,16 @@ def test_implausible_substitution_is_not_made():
     assert W.cf_lineup_points(lg, K1, lg.team_week(K1, "A"), set(), ["w3"]) == 52.0
 
 
-def test_unproven_players_never_move_in_but_can_move_out():
-    pts = {"r1": 5, "w1": 10, "r2": 12, "w2": 20, "b1": 9, "c1": 1, "c2": 1, "c3": 1}
+def test_unproven_players_move_in_only_if_they_really_started():
+    pts = {"r1": 5, "w1": 10, "r2": 12, "w2": 20, "w3": 22, "b1": 9, "c1": 1, "c2": 1, "c3": 1}
     weeks = {K1: [("A", ["r1", "w1", "r2"], ["b1"], None), ("C", ["c1", "c2", "w2"], [], None)]}
-    # A rookie arrival (fewer than 3 prior games) is never inserted...
+    # A rookie (fewer than 3 prior games) who really started that week may move in [per user]...
     lg = _league(weeks, {K1: pts}, unproven=["w2"])
-    tw = lg.team_week(K1, "A")
-    assert W.cf_lineup_points(lg, K1, tw, set(), ["w2"]) == 27.0
-    # ...nor used as a forced fill: r2's slot stays empty without a proven filler.
+    assert W.cf_lineup_points(lg, K1, lg.team_week(K1, "A"), set(), ["w2"]) == 42.0
+    # ...one who did not (on waivers, w3) may not...
+    lg = _league(weeks, {K1: pts}, pos={"w3": "WR"}, unproven=["w3"])
+    assert W.cf_lineup_points(lg, K1, lg.team_week(K1, "A"), set(), ["w3"]) == 27.0
+    # ...nor a rookie on the bench as a forced fill: r2's slot stays empty.
     lg = _league(weeks, {K1: pts}, unproven=["b1"])
     assert W.cf_lineup_points(lg, K1, lg.team_week(K1, "A"), {"r2"}, []) == 15.0
     # A rookie STARTER can be displaced by any proven arrival.
@@ -172,6 +176,19 @@ def test_a_bench_player_never_replaces_a_starter_by_reshuffling():
                  {K1: pts}, hist, slots=SF, pos=pos)
     pts_cf, lineup = W.cf_lineup(lg, K1, lg.team_week(K1, "A"), {"w1"}, ["a"])
     assert (pts_cf, sorted(lineup)) == (35.0, ["a", "q1", "q3"]), (pts_cf, lineup)
+
+
+def test_a_real_starter_never_sits_behind_a_real_bench_player():
+    # LWebs53 2022 wk 5's shape: WR w1 (the return) leaves; given-up WR a could
+    # fill his slot or displace RB r2 in the flex; bench WR b scored more than
+    # r2. "a into the flex, b into w1's slot" would sit real starter r2 behind
+    # real bench player b — not allowed [per user]: a takes w1's slot, r2 stays.
+    pts = {"r1": 5, "w1": 10, "r2": 6, "a": 20, "b": 15, "c1": 1, "c2": 1, "c3": 1}
+    pos = {"b": "WR", "a": "WR"}
+    lg = _league({K1: [("A", ["r1", "w1", "r2"], ["b"], None), ("C", ["c1", "c2", "a"], [], None)]},
+                 {K1: pts}, pos=pos)
+    pts_cf, lineup = W.cf_lineup(lg, K1, lg.team_week(K1, "A"), {"w1"}, ["a"])
+    assert (pts_cf, sorted(lineup)) == (31.0, ["a", "r1", "r2"]), (pts_cf, lineup)
 
 
 def test_every_cleared_slot_is_filled_even_by_a_zero():
@@ -345,6 +362,72 @@ def test_real_lineups_are_legal_and_pf_is_starters_plus_bonus():
     bad = [m for m in W.check_offsets(lg) + W.check_real_lineups_legal(lg) if int(m[1:5]) in done]
     assert not bad, f"{len(bad)} team-weeks break the counterfactual's footing: {bad[:5]}"
     print(f"  {len(weeks)} completed weeks: every lineup legal, every PF = starters (+5)")
+
+
+def test_counterfactual_lineups_keep_the_rules_on_real_moves():
+    """Every counterfactual lineup, week by week, for both sides of the
+    2022-09-27 Jefferson 4-for-1 and a spread of other moves:
+      * drawn only from the week's real roster minus the move's return, plus
+        what it gave up;
+      * no real starter (still on the roster) sits while a real bench player
+        starts [per user];
+      * no cleared slot left empty while an eligible proven player could fill it;
+      * nobody unproven (fewer than 3 prior NFL games) moved in unless he
+        really started that week.
+    Needs no Wins added column — it checks the lineups, not the totals."""
+    if not _have_data():
+        return _skip("exports/ or exports/snapshot absent")
+    if not list((_ROOT / ".cache").glob("nflverse_stats_player_week_*.csv")):
+        return _skip("no nflverse cache for the 3-game averages")
+    from lotg_support import inquiry as Q
+    from lotg_support.replay import is_legal
+    lg = W.load_league(Q.load_sheet("team_week"), W.nflverse_points_from_cache())
+    trades, adds = Q.load_sheet("trades"), Q.load_sheet("add_drops")
+    moves = W.moves_from_sheets(trades, adds, lg, [Q.load_sheet("rookie_picks"), Q.load_sheet("non_rookie_picks")])
+    later = W.later_moves(moves)
+    jj = set(trades.index[trades["Date"].astype(str).str.startswith("2022-09-27 02:10:12")])
+    sample = [m for m in moves if (m.sheet == "trades" and (m.index in jj or m.index % 15 == 0))
+              or (m.sheet == "add_drops" and m.index % 60 == 0)]
+    assert any(m.index in jj for m in sample if m.sheet == "trades"), "Jefferson trade not found"
+    bad, checked = [], 0
+    for mv in sample:
+        eff = lg.week_of(mv.day)
+        if eff is None:
+            continue
+        items = W.lineage(mv, later[id(mv)], None)
+        given = W._given_up(mv, lg, later[id(mv)])
+        for key in lg.keys_from(eff):
+            tw = lg.team_week(key, mv.team)
+            if tw is None:
+                continue
+            out = {it.pid for it in W._present(items, lg, key, tw)}
+            arr = [p for p, st, en in given if st <= key <= en and (p not in tw.players or p in out)]
+            if not (out & set(tw.starters)) and not arr:
+                continue
+            checked += 1
+            _, lineup = W.cf_lineup(lg, key, tw, out, arr)
+            pool = (set(tw.players) - out) | set(arr)
+            real_bench = set(tw.players) - set(tw.starters) - out
+            kept = [p for p in tw.starters if p not in out]
+            slots, elig = lg.slots[key[0]], lg.eligibility[key[0]]
+            where = f"{mv.sheet}[{mv.index}] {mv.team} {key}"
+            if not set(lineup) <= pool:
+                bad.append(f"{where}: off-pool {sorted(set(lineup) - pool)}")
+            if set(lineup) & real_bench and not set(kept) <= set(lineup):
+                bad.append(f"{where}: starter {sorted(set(kept) - set(lineup))} sits while bench "
+                           f"{sorted(set(lineup) & real_bench)} starts")
+            entrants = [p for p in lineup if p not in tw.starters]
+            if any(lg.recent_avg(p, key) is None and p not in lg.started[key] for p in entrants):
+                bad.append(f"{where}: unproven entrant who did not really start")
+            if len(lineup) < len(tw.starters):
+                spare = [p for p in pool - set(lineup)
+                         if lg.recent_avg(p, key) is not None or p in lg.started[key]]
+                pad = len(slots) - len(lineup) - 1
+                if any(is_legal(lineup + [p] + [W.EMPTY] * pad, elig, slots) for p in spare):
+                    bad.append(f"{where}: a cleared slot left empty ({len(lineup)}/{len(tw.starters)})")
+    assert checked >= 200, f"only {checked} counterfactual weeks checked"
+    assert not bad, f"{len(bad)} lineups break the rules: {bad[:6]}"
+    print(f"  {checked} counterfactual lineups keep every rule")
 
 
 def test_sample_recomputes_to_the_exported_column():
