@@ -1099,6 +1099,20 @@ Rules [per user, 2026-10-01]:
   points over weeks a received player started); measured on run 607 it reads
   2.4x the given-up players' plausible-start points on 1-3 player trades, ~10%
   below a full replacement view — recorded, by design.
+  **3-part audit — PASS (2026-10-02): post-merge run 617 (merge `db94b6a`,
+  #460) vs the last pre-merge main run 614** (branch runs 615-616; 615 caught
+  the early pass reading the pick frame's "Final Team" — fixed). Part 1: 554
+  passed / 2 standing skips; no build ERROR; wins added `0 guard warnings,
+  unresolved []`; no exports commit (no roster change); email / rotation
+  skipped. Part 2: Trade impact score recomputed from the exported columns
+  (0.6 × Σ w·z, Wins added ×2.0 as the win term) matches 566 / 566; Wins added
+  identical to run 614 on every row (branch 616); Burrow (AceMatthew
+  2022-09-28) Wins added −4.0 → score −2.1, O-Score 75.9 → 55.9. Part 3: Trade
+  impact score (559 rows), trades O-Score (561 — its change equals the Trade
+  impact score percentile change / 4: corr 1.0, median residual 0.04), Trading
+  skill (54 team_year / 8 all-time), 2 Formulas rows; the rest is the 2026 wk 4
+  Thursday game's stats arriving (player points, dropped / career PPG and the
+  add_drops / pick O-Score and skills reading them). No row added or removed.
 - [x] **Boldness + Lineup Boldness + live-season outcome fixes** (#461, merged
   before a branch build and reverted in e8eaa35; re-landed as #462 / `8c7c207`
   with two fixes from branch build 612). Fix 1: Lineup Boldness fed the single-*current*-position
