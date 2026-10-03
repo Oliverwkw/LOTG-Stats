@@ -208,7 +208,7 @@ _ROWS = [
      "Notes": "Blank only when nothing was dropped."},
     {"Stat": "KTC value difference at deal time", "Sheet": "trades", "Columns": ["KTC value difference at deal time"],
      "Formula": "Which team won the deal's dynasty value on day one. Depth-adjusted KTC received − sent, superflex. DEPTH TAX: on each side the best asset counts full and each next is discounted (2nd ×0.6, 3rd ×0.6², …), since you can only start so many — so a 3-scrubs-for-1-stud package is taxed while a 1-for-1 is the raw difference. FAAB counts at the league-avg KTC-per-$.",
-     "Notes": "Covers players, picks, and FAAB. Positive = this team won the deal. A pick KTC had no quote for on that date (late-2020 deals for 2021+ picks, before KTC priced picks) is estimated from the same pick one to three classes later at the same lead time before its draft, averaged."},
+     "Notes": "Covers players, picks, and FAAB. Positive = this team won the deal. A pick KTC had no quote for on that date (late-2020 deals for 2021+ picks, before KTC priced picks) is estimated from the same pick one to three classes later at the same lead time before its draft, averaged (never a 2020 startup pick: a startup 4th is not a rookie 4th)."},
     {"Stat": "KTC value difference at end of season", "Sheet": "trades", "Columns": ["KTC value difference at end of season"],
      "Formula": "The same depth-adjusted received − sent KTC gap, re-checked at this season's end (Monday after the championship) — how the deal looked once the season played out.",
      "Notes": "Superflex, depth-taxed. Future/pre-history dates are blank."},

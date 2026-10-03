@@ -11207,6 +11207,16 @@ def build_all(repo_root: Path) -> None:
         # by every trades KTC column that values a pick, and by player_additions'
         # Price paid; each estimate is logged once.
         _pick_estimates: Dict[Tuple[str, date], Optional[float]] = {}
+        # The league's first season is the startup draft's class (there is no
+        # rookie draft that year). A startup pick has no later-class twin — a
+        # startup 4th is not a rookie 4th — so it is never estimated; the
+        # drafted-player fallback in _side_values still prices it.
+        try:
+            _startup_class: Optional[int] = min(
+                int(_r.get("Season")) for _r in list(trades_rows) + list(add_drop_rows)
+                if str(_r.get("Season") or "").strip().isdigit())
+        except ValueError:
+            _startup_class = None
 
         def _pick_ktc_estimate(plabel: str, target: date) -> Optional[float]:
             _key = (str(plabel), target)
@@ -11214,6 +11224,8 @@ def build_all(repo_root: Path) -> None:
                 return _pick_estimates[_key]
             _est = None
             _m = re.match(r"^(\d{4})(\s.*)$", str(plabel))
+            if _m and _startup_class is not None and int(_m.group(1)) <= _startup_class:
+                _m = None
             if _m:
                 _got = []
                 for _n in (1, 2, 3):

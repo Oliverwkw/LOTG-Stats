@@ -1261,7 +1261,9 @@ guard-skipped fire), 581→584 (#453), 584→589 (#454), 589→597 (#455).
   (`_pick_ktc_estimate`, inside `_side_values`; logged `pick KTC estimated`),
   so trades' KTC value differences, Pick value received and Change in pick
   value at draft time move on those deals (and O-Score / Trading skill /
-  Trade impact score with them).
+  Trade impact score with them). Startup (2020) picks are never estimated:
+  branch run 37149868441 priced the startup pick swap's 4ths/5ths as rookie
+  4ths (Pick value received 3,350 on T#1 / T#155) — not a similar asset.
 
 ## Phase 15 — TBD: OLD LEAGUES
 - [ ] **TBD.** Placeholder for integrating other historical/old leagues' data (e.g. the
