@@ -1249,9 +1249,19 @@ guard-skipped fire), 581→584 (#453), 584→589 (#454), 589→597 (#455).
   elsewhere). Rate = total ÷ weeks rostered. Price in FAAB $ (FA / $0 claim 0,
   the bid, draft slot's expected draft-day KTC ÷ 100, trade sent side's
   depth-taxed KTC split by depth-taxed share ÷ 100). Additive: no existing
-  column changes. Expected diff: the 3 new columns + 3 Formulas rows. Build log
-  line `points above expectation: N additions, U unpriced, B trade sides off
-  the exported KTC margin` — B must be 0. Guard: `tests/test_acquisition.py`.
+  column changes except as below. Expected diff: the 3 new columns + Formulas
+  rows. Build log line `points above expectation: N additions, U unpriced, B
+  trade sides off the exported KTC margin` — B must be 0. Guard:
+  `tests/test_acquisition.py`.
+  Unquoted picks [per user, 2026-10-03]: branch run 37148919888 left 9 rows (5
+  late-2020 trade sides) unpriced, every unvalued asset a 2021+ pick traded
+  before KTC priced picks — and the trades sheet silently LEFT those picks out
+  of its KTC columns. A pick with no quote on a date is now estimated from the
+  same pick 1-3 classes later at the same lead time before its draft
+  (`_pick_ktc_estimate`, inside `_side_values`; logged `pick KTC estimated`),
+  so trades' KTC value differences, Pick value received and Change in pick
+  value at draft time move on those deals (and O-Score / Trading skill /
+  Trade impact score with them).
 
 ## Phase 15 — TBD: OLD LEAGUES
 - [ ] **TBD.** Placeholder for integrating other historical/old leagues' data (e.g. the

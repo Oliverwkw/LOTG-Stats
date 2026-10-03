@@ -11200,6 +11200,40 @@ def build_all(repo_root: Path) -> None:
                 return None
             return asset_value_at(None, _d[0], target, idx)
 
+        # A pick KTC has no quote for on a date (the late-2020 deals for 2021+
+        # picks, before KTC priced picks) is estimated from similar assets: the
+        # same pick one, two and three classes later at the same lead time
+        # before its draft, averaged over those quoted (user, 2026-10-03). Used
+        # by every trades KTC column that values a pick, and by player_additions'
+        # Price paid; each estimate is logged once.
+        _pick_estimates: Dict[Tuple[str, date], Optional[float]] = {}
+
+        def _pick_ktc_estimate(plabel: str, target: date) -> Optional[float]:
+            _key = (str(plabel), target)
+            if _key in _pick_estimates:
+                return _pick_estimates[_key]
+            _est = None
+            _m = re.match(r"^(\d{4})(\s.*)$", str(plabel))
+            if _m:
+                _got = []
+                for _n in (1, 2, 3):
+                    try:
+                        _d = target.replace(year=target.year + _n)
+                    except ValueError:          # Feb 29
+                        _d = target.replace(year=target.year + _n, day=28)
+                    if _d > today:
+                        break
+                    _v = asset_value_at(f"{int(_m.group(1)) + _n}{_m.group(2)}", None, _d, idx)
+                    if _v is not None:
+                        _got.append(float(_v))
+                if _got:
+                    _est = sum(_got) / len(_got)
+                    _log(debug, f"[{_now_iso()}] INFO pick KTC estimated: {plabel} on {target} = "
+                                f"{_est:.0f} (the same pick in {len(_got)} later class(es) at the "
+                                f"same lead time)")
+            _pick_estimates[_key] = _est
+            return _est
+
         def _side_values(
             target: date,
             player_ids: List[str],
@@ -11230,6 +11264,9 @@ def build_all(repo_root: Path) -> None:
                 if v is None and pick_metas is not None and _pi < len(pick_metas):
                     # Pick slot unpriceable here -> value the drafted player.
                     v = _pick_drafted_value(pick_metas[_pi], target)
+                if v is None:
+                    # Still unquoted -> the same pick in later classes.
+                    v = _pick_ktc_estimate(str(plabel), target)
                 if v is not None:
                     out.append(float(v))
             if faab and faab > 0 and _ktc_per_faab > 0:
@@ -11386,66 +11423,32 @@ def build_all(repo_root: Path) -> None:
                 # Per-asset deal-date prices for player_additions' "Price paid
                 # (FAAB)" and points above expectation (lotg_support.acquisition):
                 # every asset on its own, through the same _side_values as the
-                # difference above. A pick KTC has no quote for on the deal date
-                # (the 2020 deals for 2021+ picks, before KTC priced picks) is
-                # estimated from similar assets: the same pick one, two and
-                # three classes later at the same lead time before its draft,
-                # averaged over those quoted. The raw values are kept too, so
-                # the build log can check them against the exported margin
-                # (which leaves an unvalued asset out).
+                # difference above (unquoted picks estimated there), so the
+                # build log can check them against the exported margin.
                 try:
-                    _pae_notes: List[str] = []
-
-                    def _pae_pick_estimate(_lbl: str, _on: date) -> Optional[float]:
-                        _m = re.match(r"^(\d{4})(\s.*)$", str(_lbl))
-                        if not _m:
-                            return None
-                        _got = []
-                        for _n in (1, 2, 3):
-                            try:
-                                _d = _on.replace(year=_on.year + _n)
-                            except ValueError:          # Feb 29
-                                _d = _on.replace(year=_on.year + _n, day=28)
-                            if _d > today:
-                                break
-                            _v = asset_value_at(f"{int(_m.group(1)) + _n}{_m.group(2)}", None, _d, idx)
-                            if _v is not None:
-                                _got.append(float(_v))
-                        if not _got:
-                            return None
-                        _est = sum(_got) / len(_got)
-                        _pae_notes.append(f"{_lbl} on {_on}: {_est:.0f} (same pick, {len(_got)} later "
-                                          f"class(es) at the same lead time)")
-                        return _est
-
                     def _pae_side(_ids, _labels, _metas, _faab):
-                        _out = []      # ((kind, key), raw value, value used)
+                        _out = []      # ((kind, key), value or None)
                         for _sid in _ids:
                             _v = _side_values(trade_date, [_sid], [])
-                            _raw = _v[0] if _v else None
-                            _out.append((("p", str(_sid)), _raw, _raw))
+                            _out.append((("p", str(_sid)), _v[0] if _v else None))
                         for _lbl, _meta in zip(_labels, _metas):
                             _v = _side_values(trade_date, [], [_lbl], 0.0, [_meta])
-                            _raw = _v[0] if _v else None
-                            _out.append((("k", str(_lbl)), _raw,
-                                         _raw if _raw is not None else _pae_pick_estimate(_lbl, trade_date)))
+                            _out.append((("k", str(_lbl)), _v[0] if _v else None))
                         if _faab > 0:
                             _v = _side_values(trade_date, [], [], _faab)
-                            _raw = _v[0] if _v else None
-                            _out.append((("f", ""), _raw, _raw))
+                            _out.append((("f", ""), _v[0] if _v else None))
                         return _out
 
                     _pae_r = _pae_side(recv_ids, recv_picks, recv_pick_metas, recv_faab)
                     _pae_s = _pae_side(drop_ids, drop_picks, drop_pick_metas, drop_faab)
-                    row["_pae_recv"] = [(_k, _used) for _k, _raw, _used in _pae_r]
+                    row["_pae_recv"] = _pae_r
                     row["_pae_raw_margin"] = round(
-                        _depth_adjusted_value([_raw for _k, _raw, _u in _pae_r if _raw is not None])
-                        - _depth_adjusted_value([_raw for _k, _raw, _u in _pae_s if _raw is not None]), 1)
+                        _depth_adjusted_value([_v for _k, _v in _pae_r if _v is not None])
+                        - _depth_adjusted_value([_v for _k, _v in _pae_s if _v is not None]), 1)
                     # The price needs every sent asset valued (an unvalued one
                     # would understate it).
-                    row["_pae_sent_dep"] = (None if any(_u is None for _k, _r, _u in _pae_s)
-                                            else _depth_adjusted_value([_u for _k, _r, _u in _pae_s]))
-                    row["_pae_notes"] = _pae_notes
+                    row["_pae_sent_dep"] = (None if any(_v is None for _k, _v in _pae_s)
+                                            else _depth_adjusted_value([_v for _k, _v in _pae_s]))
                 except Exception:
                     row["_pae_recv"], row["_pae_sent_dep"] = None, None
 
@@ -11454,13 +11457,15 @@ def build_all(repo_root: Path) -> None:
                 # For pre-KTC-history trades (2020, before dynasty-daddy's
                 # 2021-04-16 floor) the deal-date pick value is unknowable, so
                 # approximate with the value at the KTC floor (≈ 2021 pick
-                # values) — good enough for this one stat. The deal-time KTC
-                # *difference* deliberately stays N/A (not approximated).
+                # values) — good enough for this one stat; a pick with no quote
+                # even there takes the same-pick-later-classes estimate.
                 _pv_date = max(trade_date, KTC_FLOOR)
                 pick_recv_total = 0.0
                 pick_recv_hits = 0
                 for plabel in recv_picks:
                     v = asset_value_at(str(plabel), None, _pv_date, idx)
+                    if v is None:
+                        v = _pick_ktc_estimate(str(plabel), trade_date)
                     if v is not None:
                         pick_recv_total += v
                         pick_recv_hits += 1
@@ -11488,6 +11493,8 @@ def build_all(repo_root: Path) -> None:
                 if post_draft > today:
                     continue
                 v_before = asset_value_at(str(plabel), None, trade_date, idx)
+                if v_before is None:
+                    v_before = _pick_ktc_estimate(str(plabel), trade_date)
                 v_after = asset_value_at(str(plabel), None, post_draft, idx)
                 if v_before is None or v_after is None:
                     continue
@@ -22207,8 +22214,8 @@ def build_all(repo_root: Path) -> None:
                     if not isinstance(_recv, list):
                         continue
                     _where = f"{str(tr.at[_ti, 'Date'])[:10]} ({tr.at[_ti, 'Team']})"
-                    # Guard: the raw per-asset values (no estimates) reproduce
-                    # the exported margin, which is built from the same values.
+                    # Guard: the per-asset values reproduce the exported margin,
+                    # which is built from the same _side_values.
                     _diff = pd.to_numeric(pd.Series([tr.at[_ti, "KTC value difference at deal time"]
                                                      if "KTC value difference at deal time" in tr.columns else None]),
                                           errors="coerce").iloc[0]
@@ -22216,9 +22223,6 @@ def build_all(repo_root: Path) -> None:
                     if pd.notna(_diff) and _rawm is not None and pd.notna(_rawm):
                         if abs(float(_rawm) - float(_diff)) > 0.11:
                             _pae_recon_bad += 1
-                    _notes = tr.at[_ti, "_pae_notes"] if "_pae_notes" in tr.columns else None
-                    for _note in (_notes if isinstance(_notes, list) else []):
-                        _log(debug, f"[{_now_iso()}] INFO price paid: estimated {_note} — {_where}")
                     if _sent is None or pd.isna(_sent):
                         _log(debug, f"[{_now_iso()}] INFO price paid: sent side unvalued on {_where}: "
                                     f"{tr.at[_ti, 'Assets sent'] if 'Assets sent' in tr.columns else ''}")
