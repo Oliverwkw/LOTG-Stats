@@ -78,6 +78,32 @@ def test_slot_price_curve_never_rises_with_the_pick_number():
     assert ACQ.slot_price_curve([]) == {}
 
 
+def test_money_curve_anchors():
+    """Option B (user 2026-10-03): KTC places an asset on the rookie board; a
+    mid first costs $1,000; below the 4.08 it is KTC / 100; dollars only rise
+    with value, steeply at the top."""
+    board = ACQ.slot_price_curve([(1, 7220.0), (2, 6010.0), (3, 5980.0), (4, 5600.0), (5, 5500.0),
+                                  (6, 4860.0), (9, 4790.0), (17, 3380.0), (32, 2080.0)])
+    m = ACQ.MoneyCurve(board, 32)
+    k_mid = (board[4] + board[5]) / 2
+    assert abs(m.faab(k_mid) - ACQ.MID_FIRST_FAAB) < 1.0
+    assert m.faab(1000.0) == 10.0 and abs(m.faab(2080.0) - 20.8) < 1e-9   # the locked 100 KTC per $
+    ks = [500, 1500, 2080, 2500, 3380, 4790, 5600, 6010, 7220, 9000, 9999]
+    dollars = [m.faab(k) for k in ks]
+    assert all(a < b for a, b in zip(dollars, dollars[1:])), dollars
+    # top guys are not in the same hemisphere as a margin guy
+    assert m.faab(9999.0) > 100 * m.faab(1000.0)
+    # above the 1.01 the board continues at its 1.01 -> 1.02 step
+    assert abs(m.slot_of(7220.0 + 1210.0) - 0.0) < 1e-9
+    assert m.faab(None) is None
+
+
+def test_trade_price_feature_is_in_dollars():
+    assert ACQ.price_feature("trade", trade_faab=0.0) == 0.0
+    assert abs(ACQ.price_feature("trade", trade_faab=99.0) - math.log(100.0)) < 1e-12
+    assert ACQ.price_feature("trade", trade_faab=None) is None
+
+
 def test_depth_value_matches_the_trade_margin_rule():
     assert ACQ.depth_value([3000.0]) == 3000.0
     assert abs(ACQ.depth_value([1000.0, 3000.0]) - (3000 + 600)) < 1e-9

@@ -27,21 +27,36 @@ channel    model price                                 `Price paid (FAAB)`
 =========  ==========================================  =====================
 free       0 (free agency, and a $0 waiver claim)      0
 waiver     log(1 + winning bid)                        the bid
-rookie     log(overall pick)                           slot curve (draft-day KTC, isotonic) / KTC-per-$;
-                                                       a 5.0X (a FAAB buy) is locked at $20
-startup    log(overall pick); 2021 vet picks continue  same
-           the startup board (#153+)
-trade      log(1 + price / 1000)                       price / KTC-per-$
+rookie     log(overall pick)                           the money curve at that class's
+                                                       slot value; a 5.0X (a FAAB buy)
+                                                       is locked at $20
+startup    log(overall pick); 2021 vet picks continue  the money curve at that board
+           the startup board (#153+)                   slot's value
+trade      log(1 + price in FAAB $)                    sum of what was sent, in FAAB $
 =========  ==========================================  =====================
 
-A trade's price is the KTC of everything SENT at face value, split across what
-was received by KTC share. Received picks take their share, so a player does
-not carry the cost of draft capital that came back with him. No depth tax: that
-tax is `KTC value difference`'s fairness comparison of two sides (how KTC's own
-calculator judges a trade), not a price per asset — under it Luke's five
-firsts and Fitzpatrick for Dalvin Cook kept 31% of their KTC and priced Cook at
-$101 (user, 2026-10-03; the taxed split calibrated slightly better out of
-sample, 12.7 vs 17.5, and was overruled on principle).
+**The money curve** (`MoneyCurve`, user 2026-10-03, "option B"): the league's
+currency is draft picks, and FAAB scales roughly logarithmically with player
+value — a star is not in the same hemisphere as a margin guy. KTC only places an
+asset on the rookie draft board ("which pick is this worth?"): the board is
+draft-day KTC per overall rookie pick, pooled over every class and made
+non-increasing. Dollars then rise exponentially up the board, from the last
+regular pick (4.08, at its KTC / 100) to a mid first (pick 4.5) at $1,000. Below
+the 4.08 an asset is worth KTC / 100 — the locked 100 KTC per $ that holds for
+depth pieces and add-ons. Above the rookie 1.01 the board is extended at its
+first step (1.01 to 1.02). A draft pick is priced at its own
+class's slot value, so a strong class's first costs a little more than a weak
+one's (pick value moves year to year) — blended, `CLASS_WEIGHT` (25%) from the
+class and the rest from all classes pooled, so the swing stays slight.
+
+A trade's price is the dollars of everything SENT (each asset through the money
+curve; FAAB sent counts as its dollars), split across what was received by their
+dollars. Received picks take their share. Dollars add, so seven depth pieces
+stay cheap and one star is expensive — no depth tax (that is `KTC value
+difference`'s fairness comparison of two sides, not a price per asset; it priced
+Luke's twelve assets for Dalvin Cook at $101), and no flat face value (that
+priced stevenb123's seven depth pieces for Cam Skattebo above Luke's four
+starters for Justin Jefferson).
 
 Y's weekly rate is a Poisson regression fitted per channel on the whole
 dataset (numpy IRLS, ridge 1.0), one row per addition per elapsed week from its
@@ -76,6 +91,16 @@ DEPTH_FACTOR = 0.6
 # rule 2026-10-03). Not the 2020 startup's round 5, a real pick of a 19-round
 # draft, which is priced off the slot curve like the rest of that board.
 ROUND5_PICK_FAAB = 20.0
+# The money curve's anchor: a mid first (rookie pick 4.5, between 1.04 and
+# 1.05) costs this much FAAB (user, 2026-10-03).
+MID_FIRST_SLOT = 4.5
+MID_FIRST_FAAB = 1000.0
+# A rookie pick's board value: this share from its own class's draft-day values,
+# the rest from all classes pooled. Pick value moves "slightly" year to year
+# (user, 2026-10-03); the class alone swung a 1.04 from $476 (2022) to $1,528
+# (2024) because the money curve magnifies a class's KTC level, 25% keeps the
+# swing near +/-10%.
+CLASS_WEIGHT = 0.25
 RIDGE = 1.0
 TIME_KNOTS = np.log([2, 4, 8, 17, 34, 68])
 PRICE_QUANTILES = (0, .2, .4, .6, .8, 1.0)
@@ -106,7 +131,7 @@ def channel(addition_type: str, faab: Optional[float] = None,
 
 
 def price_feature(ch: str, *, faab: Optional[float] = None, overall: Optional[float] = None,
-                  trade_ktc: Optional[float] = None) -> Optional[float]:
+                  trade_faab: Optional[float] = None) -> Optional[float]:
     """The model's price for one addition (None = unpriceable)."""
     if ch == "free":
         return 0.0
@@ -115,7 +140,7 @@ def price_feature(ch: str, *, faab: Optional[float] = None, overall: Optional[fl
     if ch in ("rookie", "startup"):
         return math.log(max(float(overall), 1.0)) if overall is not None else None
     if ch == "trade":
-        return math.log1p(max(float(trade_ktc), 0.0) / 1000.0) if trade_ktc is not None else None
+        return math.log1p(max(float(trade_faab), 0.0)) if trade_faab is not None else None
     return None
 
 
@@ -162,6 +187,52 @@ def slot_price(curve: Dict[int, float], overall: Optional[float]) -> Optional[fl
     if s in curve:
         return curve[s]
     return curve[min(curve)] if s < min(curve) else curve[max(curve)]
+
+
+@dataclass
+class MoneyCurve:
+    """KTC -> FAAB $ through the rookie draft board (see the module docstring).
+    `board` is {overall rookie pick: draft-day KTC}, non-increasing."""
+    board: Dict[int, float]
+    last_slot: int
+    ktc_per_faab: float = 100.0
+    mid_slot: float = MID_FIRST_SLOT
+    mid_faab: float = MID_FIRST_FAAB
+
+    def __post_init__(self):
+        slots = sorted(s for s in self.board if s <= self.last_slot)
+        if not slots:
+            raise ValueError("empty draft board")
+        self._slots = np.array(slots, float)
+        self._ktc = np.array([self.board[s] for s in slots], float)
+        self.k_last = float(self._ktc[-1])
+        self.k_top = float(self._ktc[0])
+        # Above the 1.01 the board continues at its first step (1.01 -> 1.02),
+        # the slope the user signed off on (2026-10-03: Jefferson ~$2,150, the
+        # startup 1.01 ~$2,300 with a mid first at $1,000).
+        k_second = float(self._ktc[1]) if len(self._ktc) > 1 else self.k_top
+        self.top_slope = max(self.k_top - k_second, 1.0)
+        base = self.k_last / self.ktc_per_faab
+        self.r = (self.mid_faab / base) ** (1.0 / (self.last_slot - self.mid_slot))
+
+    def slot_of(self, ktc: float) -> float:
+        """The rookie pick an asset of this KTC is worth (continuous; < 1 above
+        the 1.01, = last_slot at or below the 4.08)."""
+        k = float(ktc)
+        if k >= self.k_top:
+            return float(self._slots[0]) - (k - self.k_top) / self.top_slope
+        if k <= self.k_last:
+            return float(self.last_slot)
+        # the board falls with the slot; np.interp needs rising x
+        return float(np.interp(k, self._ktc[::-1], self._slots[::-1]))
+
+    def faab(self, ktc: Optional[float]) -> Optional[float]:
+        if ktc is None or (isinstance(ktc, float) and math.isnan(ktc)):
+            return None
+        k = max(float(ktc), 0.0)
+        if k <= self.k_last:
+            return k / self.ktc_per_faab
+        return (self.k_last / self.ktc_per_faab) * self.r ** (self.last_slot - self.slot_of(k))
 
 
 def depth_value(values: Iterable[float], factor: float = DEPTH_FACTOR) -> float:

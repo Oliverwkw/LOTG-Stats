@@ -11466,13 +11466,11 @@ def build_all(repo_root: Path) -> None:
                     row["_pae_margin"] = round(
                         _depth_adjusted_value([_v for _k, _v in _pae_r if _v is not None])
                         - _depth_adjusted_value([_v for _k, _v in _pae_s if _v is not None]), 1)
-                    # The PRICE is the sent side at face value — no depth tax
-                    # (that is the margin's fairness comparison, not a price per
-                    # asset). It needs every sent asset valued.
-                    row["_pae_sent_ktc"] = (None if any(_v is None for _k, _v in _pae_s)
-                                            else sum(float(_v) for _k, _v in _pae_s))
+                    # The PRICE is built from these per asset in player_additions
+                    # (each through the money curve, FAAB as its dollars).
+                    row["_pae_sent"] = _pae_s
                 except Exception:
-                    row["_pae_recv"], row["_pae_sent_ktc"] = None, None
+                    row["_pae_recv"], row["_pae_sent"] = None, None
 
                 # 'Pick value received' = sum of received-side pick
                 # values at deal time. Player side intentionally excluded.
@@ -22202,32 +22200,62 @@ def build_all(repo_root: Path) -> None:
                 _o = (_r - 1) * _pae_teams + _s
                 return _o + _pae_n_startup if _pae_kind[_pi] == "vet" else _o
 
-            # A slot's price: draft-day KTC against overall pick, one curve for
-            # the rookie drafts and one for the startup + vet board, made
-            # non-increasing (an earlier pick never costs less). Not the
-            # pick-adjustment baseline: that leaves each pick's own value out,
-            # which priced the 2020 1.04 above the 1.01.
-            _pae_slot_pts: Dict[str, List[Tuple[int, float]]] = defaultdict(list)
+            # Board values: draft-day KTC against overall pick, made
+            # non-increasing (an earlier pick is never worth less) — per rookie
+            # class (pick value moves year to year), pooled over the rookie
+            # classes (the money curve's board), and for the startup + vet board.
+            # Not the pick-adjustment baseline: that leaves each pick's own value
+            # out, which priced the 2020 1.04 above the 1.01.
+            _pae_slot_pts: Dict[Any, List[Tuple[int, float]]] = defaultdict(list)
             for _pi in _pae_rsv:
                 _k0 = pd.to_numeric(pd.Series([ph.at[_pi, "KTC on draft day"] if "KTC on draft day" in ph.columns else None]),
                                     errors="coerce").iloc[0]
-                if pd.notna(_k0):
-                    _pae_slot_pts["rookie" if _pae_kind[_pi] == "rookie" else "nr"].append(
-                        (_pae_overall(_pi), float(_k0)))
+                if pd.isna(_k0):
+                    continue
+                _pt = (_pae_overall(_pi), float(_k0))
+                if _pae_kind[_pi] == "rookie":
+                    if _pae_rsv[_pi][0] <= 4:          # a 5.0X is a FAAB buy, not on the board
+                        _pae_slot_pts["rookie"].append(_pt)
+                        _pae_slot_pts[("rookie", str(ph.at[_pi, "Year"])[:4])].append(_pt)
+                else:
+                    _pae_slot_pts["nr"].append(_pt)
             _pae_curves = {_g: _acq.slot_price_curve(_v) for _g, _v in _pae_slot_pts.items()}
+            # The money curve (lotg_support.acquisition.MoneyCurve): KTC -> FAAB $
+            # through the rookie board, a mid first at $1,000, KTC / 100 below
+            # the last regular pick.
+            _pae_last = max([(_r0 - 1) * _pae_teams + _s0 for _pi, (_r0, _s0) in _pae_rsv.items()
+                             if _pae_kind[_pi] == "rookie" and _r0 <= 4 and _s0 <= _pae_teams] or [32])
+            _pae_money = _acq.MoneyCurve(_pae_curves["rookie"], _pae_last, ktc_per_faab=_pae_kpf)
 
-            def _pae_slot_ktc(_pi):
-                return _acq.slot_price(_pae_curves.get("rookie" if _pae_kind[_pi] == "rookie" else "nr", {}),
-                                       _pae_overall(_pi))
+            def _pae_asset_faab(_key, _v):
+                """One traded asset in FAAB $: FAAB is its dollars, anything
+                else goes through the money curve."""
+                if _v is None:
+                    return None
+                return float(_v) / _pae_kpf if _key[0] == "f" else _pae_money.faab(float(_v))
 
-            # Trade prices: the sent side's KTC at face value, split by KTC share
-            # of what came back (captured in the trades pass). No depth tax.
+            def _pae_pick_faab(_pi):
+                if _pae_kind[_pi] == "rookie":
+                    if _pae_rsv[_pi][0] == 5:
+                        return _acq.ROUND5_PICK_FAAB          # a 5.0X is a FAAB buy, locked
+                    # Mostly the pooled board, CLASS_WEIGHT from its own class.
+                    _o = _pae_overall(_pi)
+                    _pool_k = _acq.slot_price(_pae_curves["rookie"], _o)
+                    _cls = _pae_curves.get(("rookie", str(ph.at[_pi, "Year"])[:4]))
+                    _cls_k = _acq.slot_price(_cls, _o) if _cls else None
+                    _k = (_pool_k if _cls_k is None or _pool_k is None
+                          else (1 - _acq.CLASS_WEIGHT) * _pool_k + _acq.CLASS_WEIGHT * _cls_k)
+                    return _pae_money.faab(_k)
+                return _pae_money.faab(_acq.slot_price(_pae_curves.get("nr", {}), _pae_overall(_pi)))
+
+            # Trade prices: the dollars of everything sent, split across what
+            # came back by their dollars (captured per asset in the trades pass).
             _pae_trade_price: Dict[Tuple[Any, str], Optional[float]] = {}
             _pae_recon_bad = 0
             if "_pae_recv" in tr.columns:
                 for _ti in tr.index:
                     _recv = tr.at[_ti, "_pae_recv"]
-                    _sent = tr.at[_ti, "_pae_sent_ktc"] if "_pae_sent_ktc" in tr.columns else None
+                    _sent_assets = tr.at[_ti, "_pae_sent"] if "_pae_sent" in tr.columns else None
                     if not isinstance(_recv, list):
                         continue
                     _where = f"{str(tr.at[_ti, 'Date'])[:10]} ({tr.at[_ti, 'Team']})"
@@ -22240,11 +22268,14 @@ def build_all(repo_root: Path) -> None:
                     if pd.notna(_diff) and _rawm is not None and pd.notna(_rawm):
                         if abs(float(_rawm) - float(_diff)) > 0.11:
                             _pae_recon_bad += 1
-                    if _sent is None or pd.isna(_sent):
+                    _sent_d = ([_pae_asset_faab(_k, _v) for _k, _v in _sent_assets]
+                               if isinstance(_sent_assets, list) else [None])
+                    if any(_d is None for _d in _sent_d):
                         _log(debug, f"[{_now_iso()}] INFO price paid: sent side unvalued on {_where}: "
                                     f"{tr.at[_ti, 'Assets sent'] if 'Assets sent' in tr.columns else ''}")
                         continue
-                    _vals = [_v for _k, _v in _recv]
+                    _sent = sum(_sent_d)
+                    _vals = [_pae_asset_faab(_k, _v) for _k, _v in _recv]
                     _shares = _acq.value_shares(_vals)
                     if _shares is None and _vals:
                         _unv = [(str((pid_meta.get(_k[1]) or {}).get("full_name") or _k[1]) if _k[0] == "p"
@@ -22275,16 +22306,13 @@ def build_all(repo_root: Path) -> None:
                     _fp = _faab if _r.get("Addition type") != "Commissioner" else None
                 elif _src[0] == "tr":
                     _tk = _pae_trade_price.get((_src[1], _pid))
-                    _fp = (_tk / _pae_kpf) if _tk is not None else None
+                    _fp = _tk
                 elif _src[0] == "ph" and _src[1] in _pae_rsv:
                     _draft_kind = _pae_kind[_src[1]]
                     _overall = _pae_overall(_src[1])
-                    _sk = _pae_slot_ktc(_src[1])
-                    _fp = (_sk / _pae_kpf) if _sk is not None else None
-                    if _draft_kind == "rookie" and _pae_rsv[_src[1]][0] == 5:
-                        _fp = _acq.ROUND5_PICK_FAAB      # a 5.0X is a FAAB buy, locked
+                    _fp = _pae_pick_faab(_src[1])
                 _ch = _acq.channel(_r.get("Addition type"), _faab, _draft_kind)
-                _p = (_acq.price_feature(_ch, faab=_faab, overall=_overall, trade_ktc=_tk)
+                _p = (_acq.price_feature(_ch, faab=_faab, overall=_overall, trade_faab=_tk)
                       if _ch is not None else None)
                 _pae_price[_n] = round(_fp, 1) if _fp is not None else None
                 # Elapsed weeks from the first league week ending on/after the
