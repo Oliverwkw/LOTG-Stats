@@ -410,6 +410,15 @@ and FAAB, against the starter points that came back. **Trades are not priced**
 — `trades` stores its assets as free text — and any write-up using that table
 has to say so.
 
+For "did this pickup / pick / trade beat its price", read player_additions'
+`Price paid (FAAB)` (every channel, trades included) and `Points above
+expectation (total / rate)` (`lotg_support.acquisition`): what he scored for the
+team minus what same-channel, same-price, same-position buys actually scored
+over the same weeks, never-cut. Two things to know: the model refits every build
+(a row moves a little each week), and long holds of hits read high by design.
+`plan/notes/POINTS_ABOVE_EXPECTATION.md` has the evidence and the rejected
+variants.
+
 **What the NFL paid him.** Nothing in `exports/` knows about real-world money,
 so a "does getting paid mean anything" question starts in
 `lotg_support.contracts`, which joins Over The Cap's contract history (via

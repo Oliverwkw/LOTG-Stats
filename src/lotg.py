@@ -2197,6 +2197,11 @@ def _preserve_na(col: str) -> bool:
         # denominator (never rostered, never benched), like "Avg PPG on team".
         "avg points per rostered week on team", "ppg bench on team",
         "adjusted ppg bench on team",
+        # player_additions, lotg_support.acquisition: blank = no price (a
+        # commissioner move, an unpriceable trade); a 0 would claim he met his
+        # price's expectation. (A tenure with no rostered week is a real 0.)
+        "price paid (faab)", "points above expectation (total)",
+        "points above expectation (rate)",
         "average ppg of dropped player over same time",
         "ppg of 5 games before pickup",
         "avg ppg of received players on team",
@@ -11377,6 +11382,30 @@ def build_all(repo_root: Path) -> None:
                                 recv_pick_metas, drop_pick_metas)
                 if diff is not None:
                     row["KTC value difference at deal time"] = diff
+
+                # Per-asset deal-date prices for player_additions' "Price paid
+                # (FAAB)" and points above expectation (lotg_support.acquisition):
+                # every received asset on its own (None = unvalued), and the
+                # depth-taxed value of the SENT side — the same _side_values /
+                # depth tax as the difference above, so the two reconcile.
+                try:
+                    _pae_recv: List[Tuple[Tuple[str, str], Optional[float]]] = []
+                    for _sid in recv_ids:
+                        _v = _side_values(trade_date, [_sid], [])
+                        _pae_recv.append((("p", str(_sid)), _v[0] if _v else None))
+                    for _lbl, _meta in zip(recv_picks, recv_pick_metas):
+                        _v = _side_values(trade_date, [], [_lbl], 0.0, [_meta])
+                        _pae_recv.append((("k", str(_lbl)), _v[0] if _v else None))
+                    if recv_faab > 0:
+                        _v = _side_values(trade_date, [], [], recv_faab)
+                        _pae_recv.append((("f", ""), _v[0] if _v else None))
+                    _pae_sent = _side_values(trade_date, drop_ids, drop_picks, drop_faab, drop_pick_metas)
+                    _pae_sent_n = len(drop_ids) + len(drop_picks) + (1 if drop_faab > 0 else 0)
+                    row["_pae_recv"] = _pae_recv
+                    row["_pae_sent_dep"] = (None if (_pae_sent_n and not _pae_sent)
+                                            else _depth_adjusted_value(_pae_sent))
+                except Exception:
+                    row["_pae_recv"], row["_pae_sent_dep"] = None, None
 
                 # 'Pick value received' = sum of received-side pick
                 # values at deal time. Player side intentionally excluded.
@@ -20817,6 +20846,9 @@ def build_all(repo_root: Path) -> None:
             e["pts"] for e in _weeks if not e["starter"] and not e["bye"] and not e["inj"])
         out["injured_weeks"] = sum(1 for e in _weeks if e.get("injury"))
         out["sum_pts"] = sum(e["pts"] for e in _weeks)
+        # Every rostered week with its points, for player_additions' points
+        # above expectation (which needs them week by week, not summed).
+        out["held"] = [(e["yw"], e["pts"]) for e in _weeks if e.get("yw")]
         out["games_pts"] = sum(e["pts"] for e in _weeks if not e["bye"] and not e["inj"])
         # "Avg PPG on team", the one definition every sheet uses: the LEAGUE's
         # own points (player_week) per game played while rostered here — a bye
@@ -21796,12 +21828,14 @@ def build_all(repo_root: Path) -> None:
             out["_first_start_date"] = st["first_start_ed"]
             out["_n_ros"] = n_ros
             out["_weeks_before_start"] = st["weeks_before_start"]
+            out["_held"] = st.get("held") or []
+            out["_pos"] = pos
             return out
 
         _pa_rows: List[Dict[str, Any]] = []
 
         def _emit(team, name, atype, pickup_raw, season, ref, next_link, tanking=None,
-                  depart_after=None, draft_cuff=None):
+                  depart_after=None, draft_cuff=None, price_src=None):
             if not _pa_is_player(name) or not team:
                 return
             pickup_dt = _pa_to_date(pickup_raw)
@@ -21901,6 +21935,12 @@ def build_all(repo_root: Path) -> None:
                 "KTC change 4 years after pickup": _kdiff(ktc_4, ktc_pick),
                 "Weeks between pickup and start": sc.get("_weeks_before_start"),
                 "Link to next transaction": next_link,
+                # Inputs to the price / points-above-expectation pass below;
+                # popped before the frame is built.
+                "_pae_held": sc.get("_held") or [],
+                "_pae_pos": sc.get("_pos") or pos,
+                "_pae_pid": pid,
+                "_pae_src": price_src,
             }
             _pa_rows.append(row)
 
@@ -21926,7 +21966,8 @@ def build_all(repo_root: Path) -> None:
                 _tank_src = add_drops_df.at[_i, "Tanking"] if "Tanking" in add_drops_df.columns else None
                 _nl = add_drops_df.at[_i, _nl_col] if _nl_col in add_drops_df.columns else None
                 _emit(_tm, str(_add), _TYPE_LABEL.get(_ttype, "Add"),
-                      _pk_raw, _sea, f"#{int(_i) + 1}", _nl, _tank_src)
+                      _pk_raw, _sea, f"#{int(_i) + 1}", _nl, _tank_src,
+                      price_src=("ad", _i))
 
         # --- trade receives (one row per received player) ---
         if isinstance(tr, pd.DataFrame) and not tr.empty:
@@ -21946,7 +21987,8 @@ def build_all(repo_root: Path) -> None:
                         continue
                     _nl = _links[_j] if _j < len(_links) else None
                     _tank_src = tr.at[_i, "Tanking"] if "Tanking" in tr.columns else None
-                    _emit(_tm, _asset, "Trade", _pk_raw, _sea, f"T#{int(_i) + 1}", _nl, _tank_src)
+                    _emit(_tm, _asset, "Trade", _pk_raw, _sea, f"T#{int(_i) + 1}", _nl, _tank_src,
+                          price_src=("tr", _i))
 
         # --- draft picks ---
         if isinstance(ph, pd.DataFrame) and not ph.empty:
@@ -21998,7 +22040,8 @@ def build_all(repo_root: Path) -> None:
                     _dep = None
                 _emit(_tm, str(_pl), "Draft", _pk_raw, _sea, f"PH#{int(_i) + 1}", _nl, _pk_tank,
                       depart_after=_dep,
-                      draft_cuff=(str(_cuff).strip().lower() in ("true", "1", "yes")) if _cuff is not None else None)
+                      draft_cuff=(str(_cuff).strip().lower() in ("true", "1", "yes")) if _cuff is not None else None,
+                      price_src=("ph", _i))
 
         # One stint per departure: two rows of a (team, player) that end at the
         # SAME departure are one stint, so the later-starting row is a
@@ -22022,6 +22065,192 @@ def build_all(repo_root: Path) -> None:
                             f"{len(_pa_rows) - len(_pa_keep)} duplicate arrival(s) "
                             f"sharing an earlier stint's departure")
             _pa_rows[:] = _pa_keep
+
+        # Price paid (FAAB) and points above expectation (rate / total) —
+        # lotg_support.acquisition has the definitions. Each addition gets its
+        # rostered weeks (X, position- and season-scaled) and its "never cut"
+        # series: what the player scored in every league week from the pickup to
+        # the last week played, wherever he was (a league roster, else the NFL
+        # via nflverse scored with that season's settings, else 0).
+        try:
+            from lotg_support import acquisition as _acq
+            from lotg_support import wins_added as _wa_pae
+            try:
+                _pae_kpf = float(_ktc_per_faab) or 100.0
+            except NameError:
+                _pae_kpf = 100.0
+            _pae_yw = pd.DataFrame({"Y": pd.to_numeric(pw["Year"], errors="coerce"),
+                                    "W": pd.to_numeric(pw["Week"], errors="coerce")}).dropna()
+            _pae_cal = _acq.elapsed_calendar(zip(_pae_yw["Y"].astype(int), _pae_yw["W"].astype(int)))
+            _pae_ci = {_yw: _n for _n, _yw in enumerate(_pae_cal)}
+            _pae_end = {_yw: str(_last_game_date(_yw[0], _yw[1]) or "") for _yw in _pae_cal}
+            _pae_scale = _acq.season_scale(_starter_avg_by_season, _pos_baselines[2])
+
+            def _pae_adj(_pts, _yw, _pos):
+                return float(_pts) * _pos_factor(_yw[0], _pos) * _pae_scale.get(int(_yw[0]), 1.0)
+
+            # League points by (player id, week), any roster.
+            # Keyed by Sleeper id, and by name for a row whose id did not resolve.
+            _pae_league: Dict[Tuple[str, Tuple[int, int]], float] = {}
+            _pae_league_nm: Dict[Tuple[str, Tuple[int, int]], float] = {}
+            _pae_ids = (pw["Player ID"].astype(str) if "Player ID" in pw.columns
+                        else pd.Series([""] * len(pw), index=pw.index))
+            for _pid_, _nm_, _y_, _w_, _p_ in zip(_pae_ids, pw["Player"].astype(str), pw["Year"], pw["Week"],
+                                                  pd.to_numeric(pw["Points"], errors="coerce").fillna(0.0)):
+                try:
+                    _yw_ = (int(_y_), int(_w_))
+                except Exception:
+                    continue
+                if _pid_ and _pid_.lower() not in ("nan", "none"):
+                    _pae_league[(_pid_, _yw_)] = float(_p_)
+                _pae_league_nm[(_nm_, _yw_)] = float(_p_)
+            _pae_bridge = {str(_s): str(_m.get("gsis_id")) for _s, _m in pid_meta.items()
+                           if (_m or {}).get("gsis_id") and str(_m.get("gsis_id")).lower() != "nan"}
+            _pae_nfl = _wa_pae.nflverse_points_from_cache(
+                seasons=sorted({_y for _y, _w in _pae_cal}), bridge=_pae_bridge,
+                score=_league_score, score_map=_LEAGUE_SCORE_MAP, cache_dir=cache_dir)
+
+            # Draft slots: overall pick, and the slot's expected draft-day KTC
+            # (the pick-adjustment baseline: KTC on draft day minus its
+            # pick-adjusted difference), for the FAAB price.
+            def _pae_rs(_num):
+                _m = re.match(r"\s*(\d+)\.(\d+)", str(_num))
+                return (int(_m.group(1)), int(_m.group(2))) if _m else None
+
+            _pae_kind: Dict[Any, str] = {}
+            _pae_rsv: Dict[Any, Tuple[int, int]] = {}
+            for _pi in ph.index:
+                _rs = _pae_rs(ph.at[_pi, "Number"]) if "Number" in ph.columns else None
+                if _rs is None:
+                    continue
+                _yr = str(ph.at[_pi, "Year"]) if "Year" in ph.columns else ""
+                _pae_kind[_pi] = ("vet" if "vet" in _yr.lower() else
+                                  "startup" if (_su_row(ph.at[_pi, "_is_startup"]) if "_is_startup" in ph.columns
+                                                else "startup" in _yr.lower()) else "rookie")
+                _pae_rsv[_pi] = _rs
+            _pae_teams = max([_s for (_r, _s) in _pae_rsv.values() if _r == 1] or [1])
+            _pae_n_startup = sum(1 for _k in _pae_kind.values() if _k == "startup")
+
+            def _pae_overall(_pi):
+                _r, _s = _pae_rsv[_pi]
+                _o = (_r - 1) * _pae_teams + _s
+                return _o + _pae_n_startup if _pae_kind[_pi] == "vet" else _o
+
+            _pae_base: Dict[Any, float] = {}
+            _pae_by_slot: Dict[Tuple[str, int], List[float]] = defaultdict(list)
+            for _pi in _pae_rsv:
+                _k0 = pd.to_numeric(pd.Series([ph.at[_pi, "KTC on draft day"] if "KTC on draft day" in ph.columns else None]),
+                                    errors="coerce").iloc[0]
+                _d0 = pd.to_numeric(pd.Series([ph.at[_pi, "Pick-adjusted Difference in KTC on draft day"]
+                                               if "Pick-adjusted Difference in KTC on draft day" in ph.columns else None]),
+                                    errors="coerce").iloc[0]
+                if pd.notna(_k0) and pd.notna(_d0):
+                    _pae_base[_pi] = float(_k0) - float(_d0)
+                    _pae_by_slot[("rookie" if _pae_kind[_pi] == "rookie" else "nr", _pae_overall(_pi))].append(_pae_base[_pi])
+
+            def _pae_slot_ktc(_pi):
+                if _pi in _pae_base:
+                    return _pae_base[_pi]
+                _v = _pae_by_slot.get(("rookie" if _pae_kind[_pi] == "rookie" else "nr", _pae_overall(_pi)))
+                return float(np.mean(_v)) if _v else None
+
+            # Trade prices: the sent side's depth-taxed KTC split by depth-taxed
+            # share of what came back (captured in the trades pass).
+            _pae_trade_price: Dict[Tuple[Any, str], Optional[float]] = {}
+            _pae_recon_bad = 0
+            if "_pae_recv" in tr.columns:
+                for _ti in tr.index:
+                    _recv = tr.at[_ti, "_pae_recv"]
+                    _sent = tr.at[_ti, "_pae_sent_dep"] if "_pae_sent_dep" in tr.columns else None
+                    if not isinstance(_recv, list):
+                        continue
+                    _where = f"{str(tr.at[_ti, 'Date'])[:10]} ({tr.at[_ti, 'Team']})"
+                    if _sent is None or pd.isna(_sent):
+                        _log(debug, f"[{_now_iso()}] INFO price paid: sent side unvalued on {_where}: "
+                                    f"{tr.at[_ti, 'Assets sent'] if 'Assets sent' in tr.columns else ''}")
+                        continue
+                    _vals = [_v for _k, _v in _recv]
+                    _shares = _acq.depth_shares(_vals)
+                    if _shares is None and _vals:
+                        _unv = [(str((pid_meta.get(_k[1]) or {}).get("full_name") or _k[1]) if _k[0] == "p"
+                                 else (_k[1] or "FAAB")) for _k, _v in _recv if _v is None]
+                        _log(debug, f"[{_now_iso()}] INFO price paid: unvalued on {_where}: "
+                                    f"{'; '.join(_unv)}")
+                    for _j, (_key, _v) in enumerate(_recv):
+                        if _key[0] == "p":
+                            _pae_trade_price[(_ti, _key[1])] = (float(_sent) * _shares[_j]
+                                                                if _shares is not None else None)
+                    # Guard: the per-asset prices reproduce the exported margin.
+                    _diff = pd.to_numeric(pd.Series([tr.at[_ti, "KTC value difference at deal time"]
+                                                     if "KTC value difference at deal time" in tr.columns else None]),
+                                          errors="coerce").iloc[0]
+                    if pd.notna(_diff) and _shares is not None:
+                        if abs(_acq.depth_value([_v for _v in _vals]) - float(_sent) - float(_diff)) > 0.11:
+                            _pae_recon_bad += 1
+
+            _pae_adds: List[Any] = []
+            _pae_price: Dict[int, Optional[float]] = {}
+            for _n, _r in enumerate(_pa_rows):
+                _src = _r.get("_pae_src") or (None,)
+                _pid = str(_r.get("_pae_pid") or "")
+                _pos = _r.get("_pae_pos") or ""
+                _faab = None
+                _draft_kind = None
+                _overall = None
+                _tk = None
+                _fp = None
+                if _src[0] == "ad":
+                    _faab = pd.to_numeric(pd.Series([add_drops_df.at[_src[1], "Faab"]
+                                                     if "Faab" in add_drops_df.columns else 0]),
+                                          errors="coerce").fillna(0).iloc[0]
+                    _faab = float(_faab)
+                    _fp = _faab if _r.get("Addition type") != "Commissioner" else None
+                elif _src[0] == "tr":
+                    _tk = _pae_trade_price.get((_src[1], _pid))
+                    _fp = (_tk / _pae_kpf) if _tk is not None else None
+                elif _src[0] == "ph" and _src[1] in _pae_rsv:
+                    _draft_kind = _pae_kind[_src[1]]
+                    _overall = _pae_overall(_src[1])
+                    _sk = _pae_slot_ktc(_src[1])
+                    _fp = (_sk / _pae_kpf) if _sk is not None else None
+                _ch = _acq.channel(_r.get("Addition type"), _faab, _draft_kind)
+                _p = (_acq.price_feature(_ch, faab=_faab, overall=_overall, trade_ktc=_tk)
+                      if _ch is not None else None)
+                _pae_price[_n] = round(_fp, 1) if _fp is not None else None
+                # Elapsed weeks from the first league week ending on/after the
+                # pickup, to the last week played.
+                _pdate = str(_r.get("Date") or "")
+                _k0 = (_acq.first_elapsed_index(_pae_cal, _pae_end, _pdate) if _pdate
+                       else len(_pae_cal))
+                _cf, _noff = [], []
+                for _yw in _pae_cal[_k0:]:
+                    _v = _pae_league.get((_pid, _yw)) if _pid else None
+                    if _v is None:
+                        _v = _pae_league_nm.get((str(_r.get("Player")), _yw))
+                    if _v is None:
+                        _v = (_pae_nfl.get(_pid) or {}).get(_yw, 0.0) if _pid else 0.0
+                    _cf.append(_pae_adj(_v, _yw, _pos))
+                    _noff.append(_yw[0] - _pae_cal[_k0][0])
+                _held = []
+                for _yw, _pts in _r.get("_pae_held") or []:
+                    _yw = (int(_yw[0]), int(_yw[1]))
+                    if _yw in _pae_ci and _pae_ci[_yw] >= _k0:
+                        _held.append((_pae_ci[_yw] - _k0 + 1, _pae_adj(_pts, _yw, _pos)))
+                _pae_adds.append(_acq.Addition(key=_n, ch=_ch, p=_p, pos=_pos,
+                                               held=_held, cf=_cf, noff=_noff))
+            _pae_out = _acq.points_above_expectation(_pae_adds)
+            for _n, _r in enumerate(_pa_rows):
+                _r[_acq.PRICE_COLUMN] = _pae_price.get(_n)
+                for _c in (_acq.RATE_COLUMN, _acq.TOTAL_COLUMN):
+                    _r[_c] = (_pae_out.get(_n) or {}).get(_c)
+            _log(debug, f"[{_now_iso()}] INFO points above expectation: {len(_pae_adds)} additions, "
+                        f"{sum(1 for _a in _pae_adds if _a.ch is not None and _a.p is None)} unpriced, "
+                        f"{_pae_recon_bad} trade sides off the exported KTC margin")
+        except Exception as e:
+            _log_exc(debug, "points_above_expectation", e)
+        for _r in _pa_rows:
+            for _k in ("_pae_held", "_pae_pos", "_pae_pid", "_pae_src"):
+                _r.pop(_k, None)
 
         if _pa_rows:
             player_additions = pd.DataFrame(_pa_rows)

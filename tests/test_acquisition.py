@@ -1,0 +1,191 @@
+"""Guards for `lotg_support.acquisition` — player_additions' "Price paid (FAAB)"
+and "Points above expectation (total / rate)".
+
+Synthetic fixtures pin the arithmetic: the channel rules, the depth-taxed trade
+split, a better price never predicting less, a tenure with no rostered week, and
+rate = total / weeks rostered. Data checks tie the exported columns to numbers
+the build already publishes (add_drops' winning bid, the tenure length) and skip
+when the exports predate the columns; they assert only on completed seasons.
+
+Run: python tests/test_acquisition.py
+"""
+from __future__ import annotations
+
+import math
+import sys
+from pathlib import Path
+
+_ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(_ROOT / "lib"))
+
+import pandas as pd  # noqa: E402
+
+from lotg_support import acquisition as ACQ  # noqa: E402
+
+_PA = _ROOT / "exports" / "player_additions.csv"
+
+
+def _skip(reason: str) -> bool:
+    print(f"  SKIP — {reason}")
+    return True
+
+
+def _additions():
+    """The exported player_additions on completed seasons, or None."""
+    if not _PA.exists():
+        return None
+    pa = pd.read_csv(_PA, low_memory=False)
+    if not set(ACQ.COLUMNS).issubset(pa.columns):
+        return None
+    seasons = pd.to_numeric(pa["Season"], errors="coerce")
+    return pa[seasons < seasons.max()].copy()
+
+
+# --- synthetic -----------------------------------------------------------
+def test_channel_rules():
+    assert ACQ.channel("Commissioner", 0) is None
+    assert ACQ.channel("Free agency", 0) == "free"
+    assert ACQ.channel("Waiver", 0) == "free"          # a $0 claim cost nothing
+    assert ACQ.channel("Waiver", 7) == "waiver"
+    assert ACQ.channel("Trade") == "trade"
+    assert ACQ.channel("Draft", draft_kind="rookie") == "rookie"
+    assert ACQ.channel("Draft", draft_kind="startup") == "startup"
+    assert ACQ.channel("Draft", draft_kind="vet") == "startup"   # continues the startup board
+
+
+def test_depth_shares():
+    assert ACQ.depth_shares([5000.0]) == [1.0]
+    s = ACQ.depth_shares([1000.0, 4000.0, 2000.0])
+    assert abs(sum(s) - 1.0) < 1e-12
+    # 4000 full, 2000 x 0.6, 1000 x 0.36, over their total
+    tot = 4000 + 2000 * 0.6 + 1000 * 0.36
+    assert abs(s[1] - 4000 / tot) < 1e-12 and abs(s[2] - 1200 / tot) < 1e-12 and abs(s[0] - 360 / tot) < 1e-12
+    assert ACQ.depth_shares([3000.0, None]) is None     # one unpriced asset: no guessed split
+    assert ACQ.depth_shares([0.0, 0.0]) == [0.5, 0.5]
+    # the allocated prices add back up to the sent side's price
+    assert abs(sum(9000 * x for x in s) - 9000) < 1e-9
+
+
+def test_depth_value_matches_the_trade_margin_rule():
+    assert ACQ.depth_value([3000.0]) == 3000.0
+    assert abs(ACQ.depth_value([1000.0, 3000.0]) - (3000 + 600)) < 1e-9
+
+
+def _waiver_pool(n_per_bid=12, weeks=20):
+    """Waiver adds at bids 1..40: a bigger bid scores more every week, held
+    `weeks` weeks, never cut."""
+    out = []
+    for bid in (1, 5, 10, 20, 40):
+        for j in range(n_per_bid):
+            rate = 2.0 + 0.25 * bid + (j % 3)
+            cf = [rate] * weeks
+            out.append(ACQ.Addition(key=(bid, j), ch="waiver", p=ACQ.price_feature("waiver", faab=bid),
+                                    pos="WR", held=[(k + 1, rate) for k in range(weeks)],
+                                    cf=cf, noff=[k // 17 for k in range(weeks)]))
+    return out
+
+
+def test_better_price_never_expects_less():
+    pool = _waiver_pool()
+    probe = [ACQ.Addition(key=("probe", b), ch="waiver", p=ACQ.price_feature("waiver", faab=b), pos="WR",
+                          held=[(k + 1, 10.0) for k in range(10)], cf=[10.0] * 20,
+                          noff=[0] * 17 + [1] * 3) for b in (1, 5, 10, 20, 40)]
+    out = ACQ.points_above_expectation(pool + probe)
+    totals = [out[("probe", b)][ACQ.TOTAL_COLUMN] for b in (1, 5, 10, 20, 40)]
+    # same production, higher bid -> higher expectation -> lower points above it
+    assert all(a >= b - 1e-6 for a, b in zip(totals, totals[1:])), totals
+
+
+def test_rate_is_total_over_weeks_rostered_and_empty_tenures():
+    pool = _waiver_pool()
+    never = ACQ.Addition(key="never", ch="waiver", p=ACQ.price_feature("waiver", faab=10), pos="RB",
+                         held=[], cf=[3.0] * 20, noff=[0] * 20)
+    unpriced = ACQ.Addition(key="unpriced", ch="trade", p=None, pos="RB",
+                            held=[(1, 9.0)], cf=[9.0], noff=[0])
+    comm = ACQ.Addition(key="comm", ch=None, p=None, pos="QB", held=[(1, 9.0)], cf=[9.0], noff=[0])
+    out = ACQ.points_above_expectation(pool + [never, unpriced, comm])
+    assert out["never"] == {ACQ.RATE_COLUMN: 0.0, ACQ.TOTAL_COLUMN: 0.0}
+    assert out["unpriced"] == {ACQ.RATE_COLUMN: None, ACQ.TOTAL_COLUMN: None}
+    assert out["comm"] == {ACQ.RATE_COLUMN: None, ACQ.TOTAL_COLUMN: None}
+    for a in pool:
+        r = out[a.key]
+        assert abs(r[ACQ.RATE_COLUMN] - r[ACQ.TOTAL_COLUMN] / len(a.held)) < 0.01
+
+
+def test_expectation_counts_peers_after_they_left():
+    """Y is what peers SCORED in each week since acquisition, held or not: a
+    pool whose players were all cut after week 2 but kept scoring 6 a week
+    elsewhere expects ~6 in week 10, not 0."""
+    pool = [ACQ.Addition(key=j, ch="free", p=0.0, pos="WR",
+                         held=[(1, 6.0), (2, 6.0)], cf=[6.0] * 12, noff=[0] * 12) for j in range(40)]
+    late = ACQ.Addition(key="late", ch="free", p=0.0, pos="WR",
+                        held=[(10, 6.0)], cf=[6.0] * 12, noff=[0] * 12)
+    out = ACQ.points_above_expectation(pool + [late])
+    assert abs(out["late"][ACQ.TOTAL_COLUMN]) < 0.5, out["late"]
+
+
+def test_season_scale_and_calendar():
+    sc = ACQ.season_scale({2020: 10.0, 2021: 12.0, 2026: 12.0}, {2020: 2020, 2021: 2021, 2026: 2021})
+    assert abs(sc[2020] - 1.1) < 1e-9 and abs(sc[2021] - 11 / 12) < 1e-9
+    cal = ACQ.elapsed_calendar([(2021, 2), (2020, 16), (2021, 1), (2021, 1)])
+    assert cal == [(2020, 16), (2021, 1), (2021, 2)]
+    ends = {(2020, 16): "2020-12-28", (2021, 1): "2021-09-13", (2021, 2): "2021-09-20"}
+    assert ACQ.first_elapsed_index(cal, ends, "2021-09-13") == 1      # the week ending that day counts
+    assert ACQ.first_elapsed_index(cal, ends, "2021-09-14") == 2
+    assert ACQ.first_elapsed_index(cal, ends, "2022-01-01") == 3      # nothing played since
+
+
+# --- against the exports ---------------------------------------------------
+def test_export_prices_follow_the_channel_rules():
+    pa = _additions()
+    if pa is None:
+        return _skip("exports predate the points-above-expectation columns")
+    price = pd.to_numeric(pa[ACQ.PRICE_COLUMN], errors="coerce")
+    kind = pa["Addition type"].astype(str)
+    assert price[kind == "Commissioner"].isna().all()
+    assert (price[kind == "Free agency"] == 0).all()
+    ad = pd.read_csv(_ROOT / "exports" / "add_drops.csv", low_memory=False)
+    w = pa[kind == "Waiver"]
+    rows = w["Link to addition"].astype(str).str.lstrip("#").astype(int) - 1
+    bids = pd.to_numeric(ad.loc[rows.values, "Faab"], errors="coerce").fillna(0).values
+    assert (abs(pd.to_numeric(w[ACQ.PRICE_COLUMN], errors="coerce").values - bids) < 1e-6).all()
+    # every priced draft and trade row has a price, and none is negative
+    assert (price.dropna() >= 0).all()
+    assert price[kind == "Draft"].notna().mean() > 0.95
+
+
+def test_export_rate_is_total_over_tenure():
+    pa = _additions()
+    if pa is None:
+        return _skip("exports predate the points-above-expectation columns")
+    tot = pd.to_numeric(pa[ACQ.TOTAL_COLUMN], errors="coerce")
+    rate = pd.to_numeric(pa[ACQ.RATE_COLUMN], errors="coerce")
+    weeks = pd.to_numeric(pa["Tenure (NFL weeks)"], errors="coerce").fillna(0)
+    none = weeks == 0
+    priced = pd.to_numeric(pa[ACQ.PRICE_COLUMN], errors="coerce").notna() | (pa["Addition type"] == "Free agency")
+    assert (tot[none & tot.notna()] == 0).all() and (rate[none & tot.notna()] == 0).all()
+    assert (tot[none & priced].notna()).all()
+    m = (weeks > 0) & tot.notna()
+    assert ((rate[m] - tot[m] / weeks[m]).abs() <= 0.011).all()
+    assert tot[pa["Addition type"] == "Commissioner"].isna().all()
+
+
+def test_export_never_cut_expectation_is_centred_on_short_holds():
+    """Holds of four weeks or fewer are near the expectation on average (the
+    model is fitted on every week, held or not); the reward for long holds is
+    the design, so only the short end is pinned."""
+    pa = _additions()
+    if pa is None:
+        return _skip("exports predate the points-above-expectation columns")
+    tot = pd.to_numeric(pa[ACQ.TOTAL_COLUMN], errors="coerce")
+    weeks = pd.to_numeric(pa["Tenure (NFL weeks)"], errors="coerce")
+    short = tot[(weeks > 0) & (weeks <= 4)].dropna()
+    assert len(short) > 100 and abs(short.mean()) < 10, short.describe()
+
+
+if __name__ == "__main__":
+    for _n, _f in list(globals().items()):
+        if _n.startswith("test_") and callable(_f):
+            print(_n)
+            _f()
+    print("ok")
