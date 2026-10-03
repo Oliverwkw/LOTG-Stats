@@ -43,3 +43,7 @@ exports/LOTG_Stats.xlsx
 # .cache after the test step: without this, ~63 MB of 2010-17 CSVs ride along.
 .cache/nflverse_stats_player_week_200[0-9].csv
 .cache/nflverse_stats_player_week_201[0-7].csv
+
+# nflverse downloads for the KTC proxy experiment (plan/notes/KTC_PROXY_MODEL.md).
+# Public and re-fetchable; the build never reads them. Never commit them.
+.cache/ktc_proxy/
