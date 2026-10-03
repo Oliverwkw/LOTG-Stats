@@ -168,6 +168,36 @@ def test_export_prices_follow_the_channel_rules():
     assert price[kind == "Draft"].notna().mean() > 0.95
 
 
+def test_ktc_per_faab_is_the_locked_rate():
+    """$1 FAAB = 100 KTC is a league rule the trades sheet and Price paid share."""
+    sys.path.insert(0, str(_ROOT / "src"))
+    import lotg  # noqa: E402
+    assert lotg.KTC_PER_FAAB == 100.0
+
+
+def test_export_player_bought_for_faab_alone_costs_the_dollars():
+    """A trade sending only FAAB for one player prices him at exactly those
+    dollars — the 100 KTC per $ in and out of KTC cancels only if both sides use
+    the locked rate (Mason Taylor for $5, D'Onta Foreman for $3)."""
+    pa = _additions()
+    if pa is None:
+        return _skip("exports predate the points-above-expectation columns")
+    import re
+    tr = pd.read_csv(_ROOT / "exports" / "trades.csv", low_memory=False)
+    faab_only = tr["Assets sent"].astype(str).str.fullmatch(r"\$\d+ FAAB")
+    one = ~tr["Assets received"].astype(str).str.contains(";")
+    rows = tr[faab_only & one]
+    checked = 0
+    for i, r in rows.iterrows():
+        dollars = float(re.sub(r"[^0-9.]", "", r["Assets sent"]))
+        hit = pa[(pa["Link to addition"] == f"T#{i + 1}") & (pa["Player"] == r["Assets received"])]
+        if hit.empty:
+            continue
+        assert abs(float(hit[ACQ.PRICE_COLUMN].iloc[0]) - dollars) < 0.051, (r["Assets received"], dollars)
+        checked += 1
+    assert checked >= 5, checked
+
+
 def test_export_rate_is_total_over_tenure():
     pa = _additions()
     if pa is None:

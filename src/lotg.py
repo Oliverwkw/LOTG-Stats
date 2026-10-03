@@ -551,6 +551,13 @@ def _format_pick_number(round_no: Optional[int], pick_in_round: Optional[int]) -
 # Phase 12 #5: re-score nflverse weekly stats with the LEAGUE's own (Sleeper)
 # scoring settings, so "Points (full season)" lives on the same scale as the
 # rostered "Points" (which use Sleeper scoring). Offensive scoring only —
+# The KTC value of $1 FAAB — a locked league rule, not a fit: FAAB moved in a
+# trade is valued at this rate in every trades KTC column, and player_additions'
+# "Price paid (FAAB)" divides KTC prices by it. (The data-derived median of
+# clean FAAB-for-asset trades, ~225-300, is still logged for reference.)
+KTC_PER_FAAB = 100.0
+
+
 # nflverse stats_player_week is offense; the league rosters no K/DST. Each
 # season uses its OWN scoring_settings, so a settings change is handled
 # automatically (a build-time log flags when they differ year-to-year). 2020's
@@ -11288,8 +11295,10 @@ def build_all(repo_root: Path) -> None:
         # --- Fix 3: average KTC value of $1 FAAB ---
         # From "similar trades": a side that is PURE FAAB exchanged for a side of
         # KTC-valued assets implies KTC-per-$ = (asset-side KTC) / FAAB$. Median
-        # across all such clean FAAB-for-asset trades.
-        _ktc_per_faab = 0.0
+        # across all such clean FAAB-for-asset trades — logged only: the rate
+        # used is the locked KTC_PER_FAAB, set first so a failure in the
+        # median below can never leave FAAB valued at 0.
+        _ktc_per_faab = KTC_PER_FAAB
         try:
             _faab_ratios: List[float] = []
             for _r in trades_rows:
@@ -11312,11 +11321,9 @@ def build_all(repo_root: Path) -> None:
             if _faab_ratios:
                 _faab_ratios.sort()
                 _est = _faab_ratios[len(_faab_ratios) // 2]
-            # The data-derived median (~329) over-values FAAB: it's skewed by a
-            # few small-$ overpays. Use a flat 100 KTC per $1 FAAB — arbitrary
-            # but a more accurate, conservative valuation. (Estimate still
-            # logged for reference.)
-            _ktc_per_faab = 100.0
+            # The data-derived median (~225-330) over-values FAAB: it's skewed
+            # by a few small-$ overpays. The locked KTC_PER_FAAB (100) is the
+            # conservative valuation. (Estimate still logged for reference.)
             _log(debug, f"[{_now_iso()}] INFO KTC per $1 FAAB = {_ktc_per_faab:.0f} (fixed; data-derived median {_est:.1f} from {len(_faab_ratios)} FAAB-for-asset trades)")
         except Exception as e:
             _log_exc(debug, "ktc_per_faab", e)
@@ -22136,10 +22143,7 @@ def build_all(repo_root: Path) -> None:
         try:
             from lotg_support import acquisition as _acq
             from lotg_support import wins_added as _wa_pae
-            try:
-                _pae_kpf = float(_ktc_per_faab) or 100.0
-            except NameError:
-                _pae_kpf = 100.0
+            _pae_kpf = KTC_PER_FAAB      # the locked $1 FAAB = 100 KTC trades use
             _pae_yw = pd.DataFrame({"Y": pd.to_numeric(pw["Year"], errors="coerce"),
                                     "W": pd.to_numeric(pw["Week"], errors="coerce")}).dropna()
             _pae_cal = _acq.elapsed_calendar(zip(_pae_yw["Y"].astype(int), _pae_yw["W"].astype(int)))
