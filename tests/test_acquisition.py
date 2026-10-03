@@ -99,9 +99,10 @@ def test_money_curve_anchors():
 
 
 def test_pick_year_discount_is_the_league_fit():
-    """Fitted from the league's pick-for-pick trades (2026-10-03); fixed so a
-    price stays what it was at the move."""
-    assert ACQ.PICK_YEAR_DISCOUNT == 0.80
+    """A small discount per draft out, set by the user (2026-10-03; the
+    league's thin pick-for-pick fit, 0.80, was too steep); fixed so a price
+    stays what it was at the move."""
+    assert ACQ.PICK_YEAR_DISCOUNT == 0.95
 
 
 def test_trade_price_feature_is_in_dollars():

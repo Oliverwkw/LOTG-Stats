@@ -50,8 +50,8 @@ one's (pick value moves year to year) — blended, `CLASS_WEIGHT` (25%) from the
 class and the rest from all classes pooled, so the swing stays slight. A
 TRADED pick is priced on the board too, never by KTC: its slot's price, or the
 average over its round's slots when the slot is not yet known, less
-`PICK_YEAR_DISCOUNT` (0.80) per draft it sits beyond the next one — the league's
-own discount, fitted from its pick-for-pick trades.
+`PICK_YEAR_DISCOUNT` (0.95) per draft it sits beyond the next one — a small
+discount, as the league applies to future picks in trades.
 
 A trade's price is the dollars of everything SENT (each asset through the money
 curve; FAAB sent counts as its dollars), split across what was received by their
@@ -106,11 +106,12 @@ MID_FIRST_FAAB = 1000.0
 # swing near +/-10%.
 CLASS_WEIGHT = 0.25
 # A traded pick loses this factor per draft between the trade and its own draft
-# (the next rookie draft = no discount). From the league's own pick-for-pick
-# trades (2026-10-03): 0.80 balances the 20 of them best (14 swap picks across
-# years; bootstrap 80% range 0.59-1.00, most on draft day, so part may be a
-# pick-now premium). Fixed, not refit per build: a price is locked at the move.
-PICK_YEAR_DISCOUNT = 0.80
+# (the next rookie draft = no discount). Set by the user, 2026-10-03: a small
+# discount, 0.95. The league's pick-for-pick trades fit 0.80, but on only 14
+# cross-year deals (bootstrap 80% range 0.59-1.00), mostly draft-day swaps
+# carrying a pick-now premium — "WAY too big". Fixed, not refit per build: a
+# price is locked at the move.
+PICK_YEAR_DISCOUNT = 0.95
 RIDGE = 1.0
 TIME_KNOTS = np.log([2, 4, 8, 17, 34, 68])
 PRICE_QUANTILES = (0, .2, .4, .6, .8, 1.0)
