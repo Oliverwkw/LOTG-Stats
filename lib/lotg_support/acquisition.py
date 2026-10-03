@@ -27,7 +27,7 @@ channel    model price                                 `Price paid (FAAB)`
 =========  ==========================================  =====================
 free       0 (free agency, and a $0 waiver claim)      0
 waiver     log(1 + winning bid)                        the bid
-rookie     log(overall pick)                           slot's expected draft-day KTC / KTC-per-$
+rookie     log(overall pick)                           slot curve (draft-day KTC, isotonic) / KTC-per-$
 startup    log(overall pick); 2021 vet picks continue  same
            the startup board (#153+)
 trade      log(1 + price / 1000)                       price / KTC-per-$
@@ -111,6 +111,51 @@ def price_feature(ch: str, *, faab: Optional[float] = None, overall: Optional[fl
     if ch == "trade":
         return math.log1p(max(float(trade_ktc), 0.0) / 1000.0) if trade_ktc is not None else None
     return None
+
+
+def slot_price_curve(picks: Iterable[Tuple[float, float]]) -> Dict[int, float]:
+    """{overall pick: price} from (overall pick, draft-day KTC of whoever went
+    there) pairs: the mean per slot, made non-increasing in the pick number by
+    isotonic regression (pool-adjacent-violators, weighted by picks per slot),
+    so an earlier pick never costs less than a later one. Each pick's own value
+    is in (unlike the leave-one-out pick-adjustment baseline, which priced
+    1.04 above 1.01 in the 2020 startup). Slots with no value read off the
+    curve by linear interpolation, held flat beyond its ends."""
+    by: Dict[int, List[float]] = {}
+    for s, v in picks:
+        if s is None or v is None or (isinstance(v, float) and math.isnan(v)):
+            continue
+        by.setdefault(int(s), []).append(float(v))
+    if not by:
+        return {}
+    slots = sorted(by)
+    # PAVA for a non-increasing fit: blocks of (sum, weight, first slot index).
+    blocks: List[List[float]] = []
+    for s in slots:
+        blocks.append([sum(by[s]), float(len(by[s])), 1.0])
+        while len(blocks) > 1 and blocks[-2][0] / blocks[-2][1] < blocks[-1][0] / blocks[-1][1]:
+            t = blocks.pop()
+            blocks[-1][0] += t[0]
+            blocks[-1][1] += t[1]
+            blocks[-1][2] += t[2]
+    fitted: List[float] = []
+    for tot, w, n in blocks:
+        fitted.extend([tot / w] * int(n))
+    out = dict(zip(slots, fitted))
+    for s in range(slots[0], slots[-1] + 1):
+        if s not in out:
+            out[s] = float(np.interp(s, slots, fitted))
+    return out
+
+
+def slot_price(curve: Dict[int, float], overall: Optional[float]) -> Optional[float]:
+    """The curve's price for one pick (flat beyond the curve's ends)."""
+    if not curve or overall is None:
+        return None
+    s = int(overall)
+    if s in curve:
+        return curve[s]
+    return curve[min(curve)] if s < min(curve) else curve[max(curve)]
 
 
 def depth_value(values: Iterable[float], factor: float = DEPTH_FACTOR) -> float:

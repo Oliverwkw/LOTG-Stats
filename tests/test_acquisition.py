@@ -66,6 +66,20 @@ def test_depth_shares():
     assert abs(sum(9000 * x for x in s) - 9000) < 1e-9
 
 
+def test_slot_price_curve_never_rises_with_the_pick_number():
+    # the 2020 startup's top: 1.04 drafted below 1.01-1.03 must not cost more
+    picks = [(1, 9999.0), (2, 9983.0), (3, 8850.0), (4, 8043.0), (5, 9999.0), (6, 9999.0), (9, 8350.0)]
+    c = ACQ.slot_price_curve(picks)
+    vals = [c[s] for s in sorted(c)]
+    assert all(a >= b for a, b in zip(vals, vals[1:])), c
+    assert c[1] >= c[4] and c[6] > c[7] > c[8] > c[9]       # the gap is interpolated
+    assert ACQ.slot_price(c, 20) == c[9] and ACQ.slot_price(c, 0) == c[1]
+    # several classes per slot: the mean per slot, weighted
+    c2 = ACQ.slot_price_curve([(1, 7000.0), (1, 5000.0), (2, 4000.0)])
+    assert c2 == {1: 6000.0, 2: 4000.0}
+    assert ACQ.slot_price_curve([]) == {}
+
+
 def test_depth_value_matches_the_trade_margin_rule():
     assert ACQ.depth_value([3000.0]) == 3000.0
     assert abs(ACQ.depth_value([1000.0, 3000.0]) - (3000 + 600)) < 1e-9

@@ -22171,9 +22171,7 @@ def build_all(repo_root: Path) -> None:
                 seasons=sorted({_y for _y, _w in _pae_cal}), bridge=_pae_bridge,
                 score=_league_score, score_map=_LEAGUE_SCORE_MAP, cache_dir=cache_dir)
 
-            # Draft slots: overall pick, and the slot's expected draft-day KTC
-            # (the pick-adjustment baseline: KTC on draft day minus its
-            # pick-adjusted difference), for the FAAB price.
+            # Draft slots: kind (rookie / startup / vet) and overall pick.
             def _pae_rs(_num):
                 _m = re.match(r"\s*(\d+)\.(\d+)", str(_num))
                 return (int(_m.group(1)), int(_m.group(2))) if _m else None
@@ -22197,23 +22195,23 @@ def build_all(repo_root: Path) -> None:
                 _o = (_r - 1) * _pae_teams + _s
                 return _o + _pae_n_startup if _pae_kind[_pi] == "vet" else _o
 
-            _pae_base: Dict[Any, float] = {}
-            _pae_by_slot: Dict[Tuple[str, int], List[float]] = defaultdict(list)
+            # A slot's price: draft-day KTC against overall pick, one curve for
+            # the rookie drafts and one for the startup + vet board, made
+            # non-increasing (an earlier pick never costs less). Not the
+            # pick-adjustment baseline: that leaves each pick's own value out,
+            # which priced the 2020 1.04 above the 1.01.
+            _pae_slot_pts: Dict[str, List[Tuple[int, float]]] = defaultdict(list)
             for _pi in _pae_rsv:
                 _k0 = pd.to_numeric(pd.Series([ph.at[_pi, "KTC on draft day"] if "KTC on draft day" in ph.columns else None]),
                                     errors="coerce").iloc[0]
-                _d0 = pd.to_numeric(pd.Series([ph.at[_pi, "Pick-adjusted Difference in KTC on draft day"]
-                                               if "Pick-adjusted Difference in KTC on draft day" in ph.columns else None]),
-                                    errors="coerce").iloc[0]
-                if pd.notna(_k0) and pd.notna(_d0):
-                    _pae_base[_pi] = float(_k0) - float(_d0)
-                    _pae_by_slot[("rookie" if _pae_kind[_pi] == "rookie" else "nr", _pae_overall(_pi))].append(_pae_base[_pi])
+                if pd.notna(_k0):
+                    _pae_slot_pts["rookie" if _pae_kind[_pi] == "rookie" else "nr"].append(
+                        (_pae_overall(_pi), float(_k0)))
+            _pae_curves = {_g: _acq.slot_price_curve(_v) for _g, _v in _pae_slot_pts.items()}
 
             def _pae_slot_ktc(_pi):
-                if _pi in _pae_base:
-                    return _pae_base[_pi]
-                _v = _pae_by_slot.get(("rookie" if _pae_kind[_pi] == "rookie" else "nr", _pae_overall(_pi)))
-                return float(np.mean(_v)) if _v else None
+                return _acq.slot_price(_pae_curves.get("rookie" if _pae_kind[_pi] == "rookie" else "nr", {}),
+                                       _pae_overall(_pi))
 
             # Trade prices: the sent side's depth-taxed KTC split by depth-taxed
             # share of what came back (captured in the trades pass).
