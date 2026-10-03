@@ -168,6 +168,38 @@ def test_export_prices_follow_the_channel_rules():
     assert price[kind == "Draft"].notna().mean() > 0.95
 
 
+def _draft_order(number: object):
+    try:
+        r, s = str(number).split(".")
+        return int(r), int(s)
+    except ValueError:
+        return None
+
+
+def test_export_no_pick_costs_more_than_the_pick_before_it():
+    """Within every draft (each rookie class, the 2020 startup, the 2021 vet
+    draft), in draft order, Price paid never rises — the 2020 startup once
+    priced 1.04 (Cook) above 1.01 (CMC)."""
+    pa = _additions()
+    if pa is None:
+        return _skip("exports predate the points-above-expectation columns")
+    d = pa[pa["Addition type"] == "Draft"][["Player", "Team", "Season", ACQ.PRICE_COLUMN]]
+    checked = 0
+    for sheet in ("rookie_picks", "non_rookie_picks"):
+        pk = pd.read_csv(_ROOT / "exports" / f"{sheet}.csv", low_memory=False)
+        pk = pk[pk["Player Picked"].notna()].copy()
+        pk["order"] = pk["Number"].map(_draft_order)
+        pk = pk[pk["order"].notna()]
+        pk["Season"] = pk["Year"].astype(str).str[:4].replace({"star": "2020"}).astype(int)
+        m = pk.merge(d, left_on=["Player Picked", "Team", "Season"], right_on=["Player", "Team", "Season"])
+        for year, g in m.groupby("Year"):
+            prices = g.sort_values("order")[ACQ.PRICE_COLUMN].astype(float).tolist()
+            bumps = [(a, b) for a, b in zip(prices, prices[1:]) if b > a + 1e-9]
+            assert not bumps, (sheet, year, bumps[:3])
+            checked += 1
+    assert checked >= 5, checked
+
+
 def test_ktc_per_faab_is_the_locked_rate():
     """$1 FAAB = 100 KTC is a league rule the trades sheet and Price paid share."""
     sys.path.insert(0, str(_ROOT / "src"))
