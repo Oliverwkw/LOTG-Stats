@@ -98,6 +98,12 @@ def test_money_curve_anchors():
     assert m.faab(None) is None
 
 
+def test_pick_year_discount_is_the_league_fit():
+    """Fitted from the league's pick-for-pick trades (2026-10-03); fixed so a
+    price stays what it was at the move."""
+    assert ACQ.PICK_YEAR_DISCOUNT == 0.80
+
+
 def test_trade_price_feature_is_in_dollars():
     assert ACQ.price_feature("trade", trade_faab=0.0) == 0.0
     assert abs(ACQ.price_feature("trade", trade_faab=99.0) - math.log(100.0)) < 1e-12

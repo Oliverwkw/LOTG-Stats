@@ -22227,26 +22227,69 @@ def build_all(repo_root: Path) -> None:
                              if _pae_kind[_pi] == "rookie" and _r0 <= 4 and _s0 <= _pae_teams] or [32])
             _pae_money = _acq.MoneyCurve(_pae_curves["rookie"], _pae_last, ktc_per_faab=_pae_kpf)
 
-            def _pae_asset_faab(_key, _v):
-                """One traded asset in FAAB $: FAAB is its dollars, anything
-                else goes through the money curve."""
-                if _v is None:
-                    return None
-                return float(_v) / _pae_kpf if _key[0] == "f" else _pae_money.faab(float(_v))
+            def _pae_rookie_slot_faab(_year, _round, _slot):
+                """A rookie pick on the board: a 5.0X is locked; otherwise the
+                pooled board at its overall pick, CLASS_WEIGHT from its own class
+                once that class has been drafted; through the money curve."""
+                if _round >= 5:
+                    return _acq.ROUND5_PICK_FAAB          # a 5.0X is a FAAB buy, locked
+                _o = (_round - 1) * _pae_teams + _slot
+                _pool_k = _acq.slot_price(_pae_curves["rookie"], _o)
+                _cls = _pae_curves.get(("rookie", str(_year)))
+                _cls_k = _acq.slot_price(_cls, _o) if _cls else None
+                _k = (_pool_k if _cls_k is None or _pool_k is None
+                      else (1 - _acq.CLASS_WEIGHT) * _pool_k + _acq.CLASS_WEIGHT * _cls_k)
+                return _pae_money.faab(_k)
 
             def _pae_pick_faab(_pi):
                 if _pae_kind[_pi] == "rookie":
-                    if _pae_rsv[_pi][0] == 5:
-                        return _acq.ROUND5_PICK_FAAB          # a 5.0X is a FAAB buy, locked
-                    # Mostly the pooled board, CLASS_WEIGHT from its own class.
-                    _o = _pae_overall(_pi)
-                    _pool_k = _acq.slot_price(_pae_curves["rookie"], _o)
-                    _cls = _pae_curves.get(("rookie", str(ph.at[_pi, "Year"])[:4]))
-                    _cls_k = _acq.slot_price(_cls, _o) if _cls else None
-                    _k = (_pool_k if _cls_k is None or _pool_k is None
-                          else (1 - _acq.CLASS_WEIGHT) * _pool_k + _acq.CLASS_WEIGHT * _cls_k)
-                    return _pae_money.faab(_k)
+                    _r0, _s0 = _pae_rsv[_pi]
+                    return _pae_rookie_slot_faab(str(ph.at[_pi, "Year"])[:4], _r0, _s0)
                 return _pae_money.faab(_acq.slot_price(_pae_curves.get("nr", {}), _pae_overall(_pi)))
+
+            def _pae_next_draft(_on):
+                """The season of the next rookie draft after a date."""
+                _y = _on.year
+                _end = draft_end_by_season.get(_y)
+                if _end is not None:
+                    return _y if _on <= _end.date() else _y + 1
+                return _y if _on < _date_pa(_y, 7, 1) else _y + 1
+
+            def _pae_traded_pick_faab(_label, _on=None):
+                """A traded pick priced on the board, not by KTC (picks are the
+                league's currency; user 2026-10-03): its slot's price, or the
+                average over the round's slots when the slot is not yet known,
+                x PICK_YEAR_DISCOUNT per draft beyond the next one (the league's
+                own discount). A startup pick is on the startup board."""
+                _m = re.match(r"^\s*(\d{4})\s+(\d+)\.(\d+|\?\?)", str(_label))
+                if not _m:
+                    return None
+                _yr, _rd = int(_m.group(1)), int(_m.group(2))
+                if _yr <= _pa_inaugural:
+                    if not _m.group(3).isdigit():
+                        return None
+                    return _pae_money.faab(_acq.slot_price(
+                        _pae_curves.get("nr", {}), (_rd - 1) * _pae_teams + int(_m.group(3))))
+                if _m.group(3).isdigit():
+                    _d = _pae_rookie_slot_faab(_yr, _rd, int(_m.group(3)))
+                else:
+                    _each = [_pae_rookie_slot_faab(_yr, _rd, _s1) for _s1 in range(1, _pae_teams + 1)]
+                    _each = [_x for _x in _each if _x is not None]
+                    _d = sum(_each) / len(_each) if _each else None
+                if _d is None or _on is None:
+                    return _d
+                return _d * _acq.PICK_YEAR_DISCOUNT ** max(_yr - _pae_next_draft(_on), 0)
+
+            def _pae_asset_faab(_key, _v, _on=None):
+                """One traded asset in FAAB $: FAAB is its dollars, a pick is
+                priced on the board, a player goes through the money curve."""
+                if _key[0] == "k":
+                    _d = _pae_traded_pick_faab(_key[1], _on)
+                    if _d is not None:
+                        return _d
+                if _v is None:
+                    return None
+                return float(_v) / _pae_kpf if _key[0] == "f" else _pae_money.faab(float(_v))
 
             # Trade prices: the dollars of everything sent, split across what
             # came back by their dollars (captured per asset in the trades pass).
@@ -22268,14 +22311,15 @@ def build_all(repo_root: Path) -> None:
                     if pd.notna(_diff) and _rawm is not None and pd.notna(_rawm):
                         if abs(float(_rawm) - float(_diff)) > 0.11:
                             _pae_recon_bad += 1
-                    _sent_d = ([_pae_asset_faab(_k, _v) for _k, _v in _sent_assets]
+                    _on = _pa_to_date(str(tr.at[_ti, "Date"])[:10]) if "Date" in tr.columns else None
+                    _sent_d = ([_pae_asset_faab(_k, _v, _on) for _k, _v in _sent_assets]
                                if isinstance(_sent_assets, list) else [None])
                     if any(_d is None for _d in _sent_d):
                         _log(debug, f"[{_now_iso()}] INFO price paid: sent side unvalued on {_where}: "
                                     f"{tr.at[_ti, 'Assets sent'] if 'Assets sent' in tr.columns else ''}")
                         continue
                     _sent = sum(_sent_d)
-                    _vals = [_pae_asset_faab(_k, _v) for _k, _v in _recv]
+                    _vals = [_pae_asset_faab(_k, _v, _on) for _k, _v in _recv]
                     _shares = _acq.value_shares(_vals)
                     if _shares is None and _vals:
                         _unv = [(str((pid_meta.get(_k[1]) or {}).get("full_name") or _k[1]) if _k[0] == "p"
