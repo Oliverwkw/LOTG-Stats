@@ -26,6 +26,7 @@ roster counts what he scored elsewhere; 0 if he did not play). User definition,
 | $0 waivers | pooled with free agency |
 | 2021 vet draft | continues the startup board (#153+) |
 | reliance on KTC | only where unavoidable: trade prices, and the FAAB display of draft slots |
+| rookie round-5 picks (5.0X FAAB buys) | locked at $20 (not the 2020 startup's real round 5) |
 | draft slot price | draft-day KTC vs overall pick, isotonic (an earlier pick never costs less); not the leave-one-out pick-adjustment baseline, which priced the 2020 1.04 (Cook) above the 1.01 (CMC) |
 
 ## Evidence (prototype on the committed exports, 2020 – 2026 wk3)

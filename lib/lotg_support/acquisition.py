@@ -27,7 +27,8 @@ channel    model price                                 `Price paid (FAAB)`
 =========  ==========================================  =====================
 free       0 (free agency, and a $0 waiver claim)      0
 waiver     log(1 + winning bid)                        the bid
-rookie     log(overall pick)                           slot curve (draft-day KTC, isotonic) / KTC-per-$
+rookie     log(overall pick)                           slot curve (draft-day KTC, isotonic) / KTC-per-$;
+                                                       a 5.0X (a FAAB buy) is locked at $20
 startup    log(overall pick); 2021 vet picks continue  same
            the startup board (#153+)
 trade      log(1 + price / 1000)                       price / KTC-per-$
@@ -70,6 +71,10 @@ COLUMNS = (PRICE_COLUMN, RATE_COLUMN, TOTAL_COLUMN)
 CHANNELS = ("free", "waiver", "rookie", "startup", "trade")
 POSITIONS = ("QB", "RB", "WR", "TE")
 DEPTH_FACTOR = 0.6
+# A rookie-draft round-5 pick (5.0X) is a FAAB buy, locked at this price (user
+# rule 2026-10-03). Not the 2020 startup's round 5, a real pick of a 19-round
+# draft, which is priced off the slot curve like the rest of that board.
+ROUND5_PICK_FAAB = 20.0
 RIDGE = 1.0
 TIME_KNOTS = np.log([2, 4, 8, 17, 34, 68])
 PRICE_QUANTILES = (0, .2, .4, .6, .8, 1.0)

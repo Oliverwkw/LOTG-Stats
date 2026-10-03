@@ -192,6 +192,10 @@ def test_export_no_pick_costs_more_than_the_pick_before_it():
         pk = pk[pk["order"].notna()]
         pk["Season"] = pk["Year"].astype(str).str[:4].replace({"star": "2020"}).astype(int)
         m = pk.merge(d, left_on=["Player Picked", "Team", "Season"], right_on=["Player", "Team", "Season"])
+        if sheet == "rookie_picks":
+            # a rookie-draft 5.0X is a FAAB buy, locked (user rule 2026-10-03)
+            r5 = m["order"].map(lambda o: o[0] == 5)
+            assert (m.loc[r5, ACQ.PRICE_COLUMN].astype(float) == ACQ.ROUND5_PICK_FAAB).all()
         for year, g in m.groupby("Year"):
             prices = g.sort_values("order")[ACQ.PRICE_COLUMN].astype(float).tolist()
             bumps = [(a, b) for a, b in zip(prices, prices[1:]) if b > a + 1e-9]

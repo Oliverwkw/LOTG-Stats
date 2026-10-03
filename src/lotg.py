@@ -22278,6 +22278,8 @@ def build_all(repo_root: Path) -> None:
                     _overall = _pae_overall(_src[1])
                     _sk = _pae_slot_ktc(_src[1])
                     _fp = (_sk / _pae_kpf) if _sk is not None else None
+                    if _draft_kind == "rookie" and _pae_rsv[_src[1]][0] == 5:
+                        _fp = _acq.ROUND5_PICK_FAAB      # a 5.0X is a FAAB buy, locked
                 _ch = _acq.channel(_r.get("Addition type"), _faab, _draft_kind)
                 _p = (_acq.price_feature(_ch, faab=_faab, overall=_overall, trade_ktc=_tk)
                       if _ch is not None else None)
