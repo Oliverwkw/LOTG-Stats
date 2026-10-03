@@ -74,5 +74,10 @@ keeps producing.
 - A peer's off-roster weeks need nflverse; 5 of 1,805 scoring player-seasons
   had no nflverse games in the prototype (name ambiguity — the build bridges by
   Sleeper id).
-- 2020's and 2021's pre-KTC-quote picks are priced by the build's drafted-player
-  fallback, as in `KTC value difference at deal time`.
+- Late-2020 trades of 2021+ picks predate KTC's pick quotes; the build's own
+  margin leaves those picks out. For the price, an unquoted pick (sent or
+  received) is estimated from the same pick one to three classes later at the
+  same lead time before its draft, averaged (user, 2026-10-03; each estimate is
+  logged as `price paid: estimated …`). Branch run 37148919888 before this: 9
+  rows on 5 trade sides unpriced, all such picks. The margin guard checks the
+  raw, un-estimated values.
