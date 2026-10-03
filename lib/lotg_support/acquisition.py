@@ -43,8 +43,11 @@ draft-day KTC per overall rookie pick, pooled over every class and made
 non-increasing. Dollars then rise exponentially up the board, from the last
 regular pick (4.08, at its KTC / 100) to a mid first (pick 4.5) at $1,000. Below
 the 4.08 an asset is worth KTC / 100 — the locked 100 KTC per $ that holds for
-depth pieces and add-ons. Above the rookie 1.01 the board is extended at its
-first step (1.01 to 1.02). A draft pick is priced at its own
+depth pieces and add-ons. At or above a mid first's value the top of the market
+is priced by `FieldCurve` ("option D"): by how far the asset stands above that
+day's top 10, so the best player averages $3,500 (3.5 firsts) but costs more on
+a day he stands far above a thin top and less when the top is bunched — KTC's
+9,999 cap hides that on raw value. A draft pick is priced at its own
 class's slot value, so a strong class's first costs a little more than a weak
 one's (pick value moves year to year) — blended, `CLASS_WEIGHT` (25%) from the
 class and the rest from all classes pooled, so the swing stays slight. A
@@ -76,8 +79,10 @@ lands — the columns are registered in `volatile_columns`.
 """
 from __future__ import annotations
 
+import bisect
 import math
 from dataclasses import dataclass, field
+from datetime import date, timedelta
 from typing import Dict, Iterable, List, Optional, Sequence, Tuple
 
 import numpy as np
@@ -105,6 +110,21 @@ MID_FIRST_FAAB = 1000.0
 # (2024) because the money curve magnifies a class's KTC level, 25% keeps the
 # swing near +/-10%.
 CLASS_WEIGHT = 0.25
+# The best player in the league costs this much ON AVERAGE (3.5 mid firsts;
+# user, 2026-10-03: "most of the time 3,500 is closest" — sometimes more,
+# sometimes less). FIELD_GROWTH is fixed so that holds over league history: on
+# 73 month-ends 2020-09 to 2026-09 the best player's mean height above the
+# field is 1.324, so G = 3.5 ** (1 / 1.324). That puts the best player between
+# $3,124 and $4,616 (median $3,364) depending on how far he stands above the
+# rest. Fixed, not refit per build: a price is locked at the move.
+TOP_PLAYER_FAAB = 3500.0
+FIELD_GROWTH = 2.577
+# A player counts in a day's field only if KTC quoted him within this many days
+# (retired players keep a stale last quote); before KTC's daily history
+# (2021-04-16) quotes are sparse, so the window is a year.
+FIELD_STALE_DAYS = 30
+FIELD_STALE_DAYS_PRE_DAILY = 365
+KTC_DAILY_FLOOR = date(2021, 4, 16)    # the dynasty-daddy mirror's first daily quote
 # A traded pick loses this factor per draft between the trade and its own draft
 # (the next rookie draft = no discount). Set by the user, 2026-10-03: a small
 # discount, 0.95. The league's pick-for-pick trades fit 0.80, but on only 14
@@ -218,6 +238,7 @@ class MoneyCurve:
         self._ktc = np.array([self.board[s] for s in slots], float)
         self.k_last = float(self._ktc[-1])
         self.k_top = float(self._ktc[0])
+        self.k_mid = float(np.interp(self.mid_slot, self._slots, self._ktc))
         # Above the 1.01 the board continues at its first step (1.01 -> 1.02),
         # the slope the user signed off on (2026-10-03: Jefferson ~$2,150, the
         # startup 1.01 ~$2,300 with a mid first at $1,000).
@@ -244,6 +265,64 @@ class MoneyCurve:
         if k <= self.k_last:
             return k / self.ktc_per_faab
         return (self.k_last / self.ktc_per_faab) * self.r ** (self.last_slot - self.slot_of(k))
+
+
+@dataclass
+class FieldCurve:
+    """The top of the market, priced by an asset's standing above the FIELD that
+    day ("option D", user 2026-10-03). KTC is capped at 9,999, so its raw value
+    cannot say how far ahead the best players are; how far they stand above the
+    rest of that day's top 10 can. For an asset at or above a mid first's value
+    `k_mid` (from the money curve's board):
+
+        height = (KTC - k_mid) / (mean of that day's top-10 player values - k_mid)
+        price  = mid_faab x FIELD_GROWTH ^ height
+
+    so a mid first is $1,000 (height 0, where the money curve takes over), an
+    average top-10 player is $1,000 x G, and the best player costs more on a day
+    he stands far above a thin top 10 than on a day the top is bunched. G is
+    fixed so the best player averages TOP_PLAYER_FAAB over league history."""
+    player_values: Sequence[float]
+    k_mid: float
+    growth: float = 0.0
+    mid_faab: float = MID_FIRST_FAAB
+
+    def __post_init__(self):
+        vals = sorted((float(v) for v in self.player_values if v is not None), reverse=True)
+        self.top10 = float(np.mean(vals[:10])) if vals else self.k_mid + 1.0
+        self.spread = max(self.top10 - self.k_mid, 1.0)
+        self.growth = self.growth or FIELD_GROWTH
+
+    def height(self, ktc: float) -> float:
+        return (float(ktc) - self.k_mid) / self.spread
+
+    def faab(self, ktc: float) -> float:
+        return self.mid_faab * self.growth ** max(self.height(ktc), 0.0)
+
+
+def field_values(histories: Dict[str, Tuple[List[str], List[float]]], on: date) -> List[float]:
+    """Every player's KTC on `on` from {id: (sorted dates, values)}, skipping a
+    stale last quote (FIELD_STALE_DAYS; FIELD_STALE_DAYS_PRE_DAILY before KTC's
+    daily history) and zeros."""
+    iso = on.isoformat()
+    win = FIELD_STALE_DAYS if on >= KTC_DAILY_FLOOR else FIELD_STALE_DAYS_PRE_DAILY
+    cut = (on - timedelta(days=win)).isoformat()
+    out = []
+    for ds, vs in histories.values():
+        i = bisect.bisect_right(ds, iso) - 1
+        if i >= 0 and ds[i] >= cut and vs[i] > 0:
+            out.append(vs[i])
+    return out
+
+
+def asset_faab(ktc: Optional[float], money: "MoneyCurve", field: Optional[FieldCurve] = None) -> Optional[float]:
+    """An asset worth `ktc` in FAAB $: by its standing above the field
+    (FieldCurve) at or above a mid first's value, on the money curve below it."""
+    if ktc is None or (isinstance(ktc, float) and math.isnan(ktc)):
+        return None
+    if field is not None and float(ktc) >= field.k_mid:
+        return field.faab(float(ktc))
+    return money.faab(float(ktc))
 
 
 def depth_value(values: Iterable[float], factor: float = DEPTH_FACTOR) -> float:

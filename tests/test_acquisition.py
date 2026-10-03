@@ -105,6 +105,34 @@ def test_pick_year_discount_is_the_league_fit():
     assert ACQ.PICK_YEAR_DISCOUNT == 0.95
 
 
+def test_field_curve_prices_the_top_by_standing_over_the_field():
+    """Option D (user 2026-10-03): above a mid first, price grows with how far
+    an asset stands above that day's top 10 — a dominant #1 over a thin top
+    costs more than a #1 in a bunched top; a mid first is $1,000."""
+    k_mid = 5500.0
+    bunched = ACQ.FieldCurve([9999, 9990, 9980, 9970, 9900, 9850, 9800, 9750, 9700, 9650] + [5000] * 40, k_mid)
+    thin = ACQ.FieldCurve([9999, 9100, 8700, 8300, 8000, 7700, 7400, 7100, 6900, 6700] + [5000] * 40, k_mid)
+    assert abs(bunched.faab(k_mid) - ACQ.MID_FIRST_FAAB) < 1e-9 and abs(thin.faab(k_mid) - 1000.0) < 1e-9
+    assert thin.faab(9999) > bunched.faab(9999)
+    assert abs(thin.faab(thin.top10) - 1000.0 * ACQ.FIELD_GROWTH) < 1e-6        # an average top-10 player
+    money = ACQ.MoneyCurve(ACQ.slot_price_curve([(1, 7220.0), (4, 5600.0), (5, 5400.0), (32, 2080.0)]), 32)
+    # continuous at the mid-first line, the money curve below it
+    f = ACQ.FieldCurve([9999] * 10, money.k_mid)
+    assert abs(ACQ.asset_faab(money.k_mid, money, f) - money.faab(money.k_mid)) < 1.0
+    assert ACQ.asset_faab(3000.0, money, f) == money.faab(3000.0)
+    assert ACQ.asset_faab(None, money, f) is None
+
+
+def test_field_values_skip_stale_quotes():
+    from datetime import date
+    hist = {"a": (["2024-08-01", "2024-09-10"], [9000.0, 9100.0]),
+            "retired": (["2023-01-01"], [8000.0]),          # last quoted long ago
+            "zero": (["2024-09-12"], [0.0])}
+    assert ACQ.field_values(hist, date(2024, 9, 15)) == [9100.0]
+    # before KTC's daily history the window is a year
+    assert sorted(ACQ.field_values({"x": (["2020-05-01"], [7000.0])}, date(2020, 11, 1))) == [7000.0]
+
+
 def test_trade_price_feature_is_in_dollars():
     assert ACQ.price_feature("trade", trade_faab=0.0) == 0.0
     assert abs(ACQ.price_feature("trade", trade_faab=99.0) - math.log(100.0)) < 1e-12

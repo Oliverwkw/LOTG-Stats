@@ -22227,10 +22227,35 @@ def build_all(repo_root: Path) -> None:
                              if _pae_kind[_pi] == "rookie" and _r0 <= 4 and _s0 <= _pae_teams] or [32])
             _pae_money = _acq.MoneyCurve(_pae_curves["rookie"], _pae_last, ktc_per_faab=_pae_kpf)
 
-            def _pae_rookie_slot_faab(_year, _round, _slot):
+            # The field on a date (lotg_support.acquisition.FieldCurve, option
+            # D): every league-relevant player KTC quoted recently, from the
+            # build's own index; it prices assets at or above a mid first by how
+            # far they stand above that day's top 10.
+            try:
+                _pae_hist = {str(_sid): ([_d for _d, _v in _pairs], [_v for _d, _v in _pairs])
+                             for _sid, _pairs in (_ktc_idx.player or {}).items() if _pairs}
+            except NameError:
+                _pae_hist = {}
+            _pae_fields: Dict[Any, Any] = {}
+
+            def _pae_field(_on):
+                if _on is None or not _pae_hist:
+                    return None
+                if _on not in _pae_fields:
+                    _vals = _acq.field_values(_pae_hist, _on)
+                    _pae_fields[_on] = (_acq.FieldCurve(_vals, _pae_money.k_mid)
+                                        if len(_vals) >= 10 else None)
+                return _pae_fields[_on]
+
+            def _pae_ktc_faab(_k, _on):
+                """An asset worth `_k` KTC on `_on` in FAAB $: above a mid first
+                by its standing over that day's field, the money curve below."""
+                return _acq.asset_faab(_k, _pae_money, _pae_field(_on))
+
+            def _pae_rookie_slot_faab(_year, _round, _slot, _on=None):
                 """A rookie pick on the board: a 5.0X is locked; otherwise the
                 pooled board at its overall pick, CLASS_WEIGHT from its own class
-                once that class has been drafted; through the money curve."""
+                once that class has been drafted; priced on `_on`."""
                 if _round >= 5:
                     return _acq.ROUND5_PICK_FAAB          # a 5.0X is a FAAB buy, locked
                 _o = (_round - 1) * _pae_teams + _slot
@@ -22239,13 +22264,13 @@ def build_all(repo_root: Path) -> None:
                 _cls_k = _acq.slot_price(_cls, _o) if _cls else None
                 _k = (_pool_k if _cls_k is None or _pool_k is None
                       else (1 - _acq.CLASS_WEIGHT) * _pool_k + _acq.CLASS_WEIGHT * _cls_k)
-                return _pae_money.faab(_k)
+                return _pae_ktc_faab(_k, _on)
 
-            def _pae_pick_faab(_pi):
+            def _pae_pick_faab(_pi, _on=None):
                 if _pae_kind[_pi] == "rookie":
                     _r0, _s0 = _pae_rsv[_pi]
-                    return _pae_rookie_slot_faab(str(ph.at[_pi, "Year"])[:4], _r0, _s0)
-                return _pae_money.faab(_acq.slot_price(_pae_curves.get("nr", {}), _pae_overall(_pi)))
+                    return _pae_rookie_slot_faab(str(ph.at[_pi, "Year"])[:4], _r0, _s0, _on)
+                return _pae_ktc_faab(_acq.slot_price(_pae_curves.get("nr", {}), _pae_overall(_pi)), _on)
 
             def _pae_next_draft(_on):
                 """The season of the next rookie draft after a date."""
@@ -22256,11 +22281,11 @@ def build_all(repo_root: Path) -> None:
                 return _y if _on < _date_pa(_y, 7, 1) else _y + 1
 
             def _pae_traded_pick_faab(_label, _on=None):
-                """A traded pick priced on the board, not by KTC (picks are the
-                league's currency; user 2026-10-03): its slot's price, or the
-                average over the round's slots when the slot is not yet known,
-                x PICK_YEAR_DISCOUNT per draft beyond the next one (the league's
-                own discount). A startup pick is on the startup board."""
+                """A traded pick priced on the board, not by its own KTC (picks
+                are the league's currency; user 2026-10-03): its slot's price, or
+                the average over the round's slots when the slot is not yet
+                known, x PICK_YEAR_DISCOUNT per draft beyond the next one. A
+                startup pick is on the startup board."""
                 _m = re.match(r"^\s*(\d{4})\s+(\d+)\.(\d+|\?\?)", str(_label))
                 if not _m:
                     return None
@@ -22268,12 +22293,12 @@ def build_all(repo_root: Path) -> None:
                 if _yr <= _pa_inaugural:
                     if not _m.group(3).isdigit():
                         return None
-                    return _pae_money.faab(_acq.slot_price(
-                        _pae_curves.get("nr", {}), (_rd - 1) * _pae_teams + int(_m.group(3))))
+                    return _pae_ktc_faab(_acq.slot_price(
+                        _pae_curves.get("nr", {}), (_rd - 1) * _pae_teams + int(_m.group(3))), _on)
                 if _m.group(3).isdigit():
-                    _d = _pae_rookie_slot_faab(_yr, _rd, int(_m.group(3)))
+                    _d = _pae_rookie_slot_faab(_yr, _rd, int(_m.group(3)), _on)
                 else:
-                    _each = [_pae_rookie_slot_faab(_yr, _rd, _s1) for _s1 in range(1, _pae_teams + 1)]
+                    _each = [_pae_rookie_slot_faab(_yr, _rd, _s1, _on) for _s1 in range(1, _pae_teams + 1)]
                     _each = [_x for _x in _each if _x is not None]
                     _d = sum(_each) / len(_each) if _each else None
                 if _d is None or _on is None:
@@ -22282,14 +22307,14 @@ def build_all(repo_root: Path) -> None:
 
             def _pae_asset_faab(_key, _v, _on=None):
                 """One traded asset in FAAB $: FAAB is its dollars, a pick is
-                priced on the board, a player goes through the money curve."""
+                priced on the board, a player by his KTC that day."""
                 if _key[0] == "k":
                     _d = _pae_traded_pick_faab(_key[1], _on)
                     if _d is not None:
                         return _d
                 if _v is None:
                     return None
-                return float(_v) / _pae_kpf if _key[0] == "f" else _pae_money.faab(float(_v))
+                return float(_v) / _pae_kpf if _key[0] == "f" else _pae_ktc_faab(float(_v), _on)
 
             # Trade prices: the dollars of everything sent, split across what
             # came back by their dollars (captured per asset in the trades pass).
@@ -22354,7 +22379,7 @@ def build_all(repo_root: Path) -> None:
                 elif _src[0] == "ph" and _src[1] in _pae_rsv:
                     _draft_kind = _pae_kind[_src[1]]
                     _overall = _pae_overall(_src[1])
-                    _fp = _pae_pick_faab(_src[1])
+                    _fp = _pae_pick_faab(_src[1], _pa_to_date(str(_r.get("Date") or "")[:10]))
                 _ch = _acq.channel(_r.get("Addition type"), _faab, _draft_kind)
                 _p = (_acq.price_feature(_ch, faab=_faab, overall=_overall, trade_faab=_tk)
                       if _ch is not None else None)
