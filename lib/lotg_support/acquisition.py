@@ -34,13 +34,14 @@ startup    log(overall pick); 2021 vet picks continue  same
 trade      log(1 + price / 1000)                       price / KTC-per-$
 =========  ==========================================  =====================
 
-A trade's price is the depth-taxed KTC of everything SENT (the build's own
-`_depth_adjusted_value`), split across what was received by depth-taxed share:
-each received asset's value x 0.6^(its rank on the side), over the side's total
-of the same. Received picks take their share, so a player does not carry the
-cost of draft capital that came back with him. (Chosen 2026-10 over a plain
-KTC share, an equal split, Shapley over the depth-taxed value and no split:
-best calibrated out of sample.)
+A trade's price is the KTC of everything SENT at face value, split across what
+was received by KTC share. Received picks take their share, so a player does
+not carry the cost of draft capital that came back with him. No depth tax: that
+tax is `KTC value difference`'s fairness comparison of two sides (how KTC's own
+calculator judges a trade), not a price per asset — under it Luke's five
+firsts and Fitzpatrick for Dalvin Cook kept 31% of their KTC and priced Cook at
+$101 (user, 2026-10-03; the taxed split calibrated slightly better out of
+sample, 12.7 vs 17.5, and was overruled on principle).
 
 Y's weekly rate is a Poisson regression fitted per channel on the whole
 dataset (numpy IRLS, ridge 1.0), one row per addition per elapsed week from its
@@ -164,26 +165,25 @@ def slot_price(curve: Dict[int, float], overall: Optional[float]) -> Optional[fl
 
 
 def depth_value(values: Iterable[float], factor: float = DEPTH_FACTOR) -> float:
-    """The build's package value: best asset in full, each next x factor^i."""
+    """The build's package value (`KTC value difference`'s depth tax): best
+    asset in full, each next x factor^i. A fairness comparison of two sides —
+    NOT a price; used here only to check the per-asset values against the
+    exported margin."""
     return sum(v * factor ** i for i, v in enumerate(sorted((float(x) for x in values), reverse=True)))
 
 
-def depth_shares(values: Sequence[Optional[float]], factor: float = DEPTH_FACTOR) -> Optional[List[float]]:
-    """Each received asset's share of the price: its value x factor^(rank on the
-    side) over the side's total of the same. Shares sum to 1. None when any
-    asset is unvalued (the split would be a guess); an all-zero side splits
-    equally."""
+def value_shares(values: Sequence[Optional[float]]) -> Optional[List[float]]:
+    """Each received asset's share of a trade's price: its KTC over the side's
+    total (no depth tax — a price is per asset, user 2026-10-03). Shares sum to
+    1. None when any asset is unvalued (the split would be a guess); an
+    all-zero side splits equally."""
     if not values or any(v is None for v in values):
         return None
     vals = [max(float(v), 0.0) for v in values]
-    order = sorted(range(len(vals)), key=lambda i: -vals[i])
-    w = [0.0] * len(vals)
-    for rank, i in enumerate(order):
-        w[i] = vals[i] * factor ** rank
-    tot = sum(w)
+    tot = sum(vals)
     if tot <= 0:
         return [1.0 / len(vals)] * len(vals)
-    return [x / tot for x in w]
+    return [v / tot for v in vals]
 
 
 # ---------------------------------------------------------------------------

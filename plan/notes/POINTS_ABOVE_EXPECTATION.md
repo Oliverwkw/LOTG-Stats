@@ -25,6 +25,7 @@ roster counts what he scored elsewhere; 0 if he did not play). User definition,
 | rate | total ÷ weeks rostered (one expectation, not a second model); 0 with no rostered week, like the total |
 | $0 waivers | pooled with free agency |
 | 2021 vet draft | continues the startup board (#153+) |
+| trade price | the sent side at face value, split by KTC share — no depth tax. The tax is `KTC value difference`'s fairness comparison (how KTC judges a trade), not a per-asset price: Luke's 12-asset package (five firsts) for Dalvin Cook kept 31% of its KTC under it and priced Cook at $101; untaxed ≈ $329. Overrules the slightly better-calibrated taxed split on principle. |
 | reliance on KTC | only where unavoidable: trade prices, and the FAAB display of draft slots |
 | rookie round-5 picks (5.0X FAAB buys) | locked at $20 (not the 2020 startup's real round 5) |
 | draft slot price | draft-day KTC vs overall pick, isotonic (an earlier pick never costs less); not the leave-one-out pick-adjustment baseline, which priced the 2020 1.04 (Cook) above the 1.01 (CMC) |
@@ -37,12 +38,12 @@ additions; the never-cut series equals X on all 22,101 held weeks.
 **Trade split** (trade rows, 5-fold grouped CV; calibration = n-weighted RMS of
 mean X−Y over price quintile × elapsed band):
 
-| split of the sent side's depth-taxed KTC | MAE | calibration | Spearman |
+| split of the sent side's KTC (prototype) | MAE | calibration | Spearman |
 |---|---|---|---|
-| **depth-taxed share (chosen)** | 115.2 | **12.7** | 0.553 |
+| depth-taxed share (first choice, overruled) | 115.2 | **12.7** | 0.553 |
 | Shapley over the depth-taxed value | 116.9 | 20.0 | 0.567 |
 | plain KTC share | 117.7 | 25.4 | 0.565 |
-| plain share of the untaxed sent total | 117.0 | 17.5 | 0.558 |
+| **plain KTC share of the untaxed sent total (chosen)** | 117.0 | 17.5 | 0.558 |
 | equal split | 121.5 | 19.6 | 0.511 |
 | no split (whole package per player) | 122.0 | 23.9 | 0.489 |
 | *player's own KTC (market value, not price)* | *102.6* | *35.0* | *0.631* |

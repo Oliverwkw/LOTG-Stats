@@ -53,15 +53,13 @@ def test_channel_rules():
     assert ACQ.channel("Draft", draft_kind="vet") == "startup"   # continues the startup board
 
 
-def test_depth_shares():
-    assert ACQ.depth_shares([5000.0]) == [1.0]
-    s = ACQ.depth_shares([1000.0, 4000.0, 2000.0])
+def test_value_shares():
+    assert ACQ.value_shares([5000.0]) == [1.0]
+    s = ACQ.value_shares([1000.0, 4000.0, 2000.0])
     assert abs(sum(s) - 1.0) < 1e-12
-    # 4000 full, 2000 x 0.6, 1000 x 0.36, over their total
-    tot = 4000 + 2000 * 0.6 + 1000 * 0.36
-    assert abs(s[1] - 4000 / tot) < 1e-12 and abs(s[2] - 1200 / tot) < 1e-12 and abs(s[0] - 360 / tot) < 1e-12
-    assert ACQ.depth_shares([3000.0, None]) is None     # one unpriced asset: no guessed split
-    assert ACQ.depth_shares([0.0, 0.0]) == [0.5, 0.5]
+    assert abs(s[1] - 4000 / 7000) < 1e-12 and abs(s[0] - 1000 / 7000) < 1e-12   # no depth tax
+    assert ACQ.value_shares([3000.0, None]) is None     # one unpriced asset: no guessed split
+    assert ACQ.value_shares([0.0, 0.0]) == [0.5, 0.5]
     # the allocated prices add back up to the sent side's price
     assert abs(sum(9000 * x for x in s) - 9000) < 1e-9
 

@@ -1248,7 +1248,7 @@ guard-skipped fire), 581→584 (#453), 584→589 (#454), 589→597 (#455).
   since acquisition, never-cut (a peer's off-roster week counts what he scored
   elsewhere). Rate = total ÷ weeks rostered. Price in FAAB $ (FA / $0 claim 0,
   the bid, draft slot's expected draft-day KTC ÷ 100, trade sent side's
-  depth-taxed KTC split by depth-taxed share ÷ 100). Additive: no existing
+  KTC at face value split by KTC share ÷ 100 — no depth tax, per user: the tax is the margin's fairness test, not a per-asset price). Additive: no existing
   column changes except as below. Expected diff: the 3 new columns + Formulas
   rows. Build log line `points above expectation: N additions, U unpriced, B
   trade sides off the exported KTC margin` — B must be 0. Guard:

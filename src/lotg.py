@@ -11461,15 +11461,18 @@ def build_all(repo_root: Path) -> None:
                     _pae_r = _pae_side(recv_ids, recv_picks, recv_pick_metas, recv_faab)
                     _pae_s = _pae_side(drop_ids, drop_picks, drop_pick_metas, drop_faab)
                     row["_pae_recv"] = _pae_r
-                    row["_pae_raw_margin"] = round(
+                    # The exported margin rebuilt from these values (depth tax
+                    # included), for the build-log check.
+                    row["_pae_margin"] = round(
                         _depth_adjusted_value([_v for _k, _v in _pae_r if _v is not None])
                         - _depth_adjusted_value([_v for _k, _v in _pae_s if _v is not None]), 1)
-                    # The price needs every sent asset valued (an unvalued one
-                    # would understate it).
-                    row["_pae_sent_dep"] = (None if any(_v is None for _k, _v in _pae_s)
-                                            else _depth_adjusted_value([_v for _k, _v in _pae_s]))
+                    # The PRICE is the sent side at face value — no depth tax
+                    # (that is the margin's fairness comparison, not a price per
+                    # asset). It needs every sent asset valued.
+                    row["_pae_sent_ktc"] = (None if any(_v is None for _k, _v in _pae_s)
+                                            else sum(float(_v) for _k, _v in _pae_s))
                 except Exception:
-                    row["_pae_recv"], row["_pae_sent_dep"] = None, None
+                    row["_pae_recv"], row["_pae_sent_ktc"] = None, None
 
                 # 'Pick value received' = sum of received-side pick
                 # values at deal time. Player side intentionally excluded.
@@ -22217,14 +22220,14 @@ def build_all(repo_root: Path) -> None:
                 return _acq.slot_price(_pae_curves.get("rookie" if _pae_kind[_pi] == "rookie" else "nr", {}),
                                        _pae_overall(_pi))
 
-            # Trade prices: the sent side's depth-taxed KTC split by depth-taxed
-            # share of what came back (captured in the trades pass).
+            # Trade prices: the sent side's KTC at face value, split by KTC share
+            # of what came back (captured in the trades pass). No depth tax.
             _pae_trade_price: Dict[Tuple[Any, str], Optional[float]] = {}
             _pae_recon_bad = 0
             if "_pae_recv" in tr.columns:
                 for _ti in tr.index:
                     _recv = tr.at[_ti, "_pae_recv"]
-                    _sent = tr.at[_ti, "_pae_sent_dep"] if "_pae_sent_dep" in tr.columns else None
+                    _sent = tr.at[_ti, "_pae_sent_ktc"] if "_pae_sent_ktc" in tr.columns else None
                     if not isinstance(_recv, list):
                         continue
                     _where = f"{str(tr.at[_ti, 'Date'])[:10]} ({tr.at[_ti, 'Team']})"
@@ -22233,7 +22236,7 @@ def build_all(repo_root: Path) -> None:
                     _diff = pd.to_numeric(pd.Series([tr.at[_ti, "KTC value difference at deal time"]
                                                      if "KTC value difference at deal time" in tr.columns else None]),
                                           errors="coerce").iloc[0]
-                    _rawm = tr.at[_ti, "_pae_raw_margin"] if "_pae_raw_margin" in tr.columns else None
+                    _rawm = tr.at[_ti, "_pae_margin"] if "_pae_margin" in tr.columns else None
                     if pd.notna(_diff) and _rawm is not None and pd.notna(_rawm):
                         if abs(float(_rawm) - float(_diff)) > 0.11:
                             _pae_recon_bad += 1
@@ -22242,7 +22245,7 @@ def build_all(repo_root: Path) -> None:
                                     f"{tr.at[_ti, 'Assets sent'] if 'Assets sent' in tr.columns else ''}")
                         continue
                     _vals = [_v for _k, _v in _recv]
-                    _shares = _acq.depth_shares(_vals)
+                    _shares = _acq.value_shares(_vals)
                     if _shares is None and _vals:
                         _unv = [(str((pid_meta.get(_k[1]) or {}).get("full_name") or _k[1]) if _k[0] == "p"
                                  else (_k[1] or "FAAB")) for _k, _v in _recv if _v is None]
