@@ -1294,22 +1294,24 @@ guard-skipped fire), 581→584 (#453), 584→589 (#454), 589→597 (#455).
   "N years later" checkpoints. Guards: `check_locked_at_move_columns_skip_the_wait`,
   `check_locked_at_move_columns_exist`.
 - [ ] **A gate-rule change is an edit, not news** [per user, 2026-10-03]. The snapshot
-  meta records the locked list it ranked under (`locked_at_move`); `mark_rule_releases`
-  re-ranks this week's frames under the prior run's list (absent = nothing locked) and
-  flags each line that stands only under the new one (`rule_release`), and
-  `email_summary.attribute` sends it to "Changes from edits, not new data" even when the
-  inputs fingerprint is unchanged (digest.py is not fingerprinted). Brand-new moves stay
-  news. A week with no build change and an unchanged rule puts nothing in the edits
-  section. Guard: `check_a_gate_rule_change_goes_to_the_edits_section`.
-  Effect on today's digest (committed exports + snapshot copy): 14 changed lines, all on
-  locked columns of young moves (e.g. 2026 1.01 Jeremiyah Love's 7,573 KTC on draft day);
-  13 flagged by the rule + 1 already a recompute (a 2025 row) — all 14 in the edits
-  section; the lede reads as main's ("44 of the 44 other moves re-value settled history").
-- [ ] **Side finding (not changed): `scripts/build_digest.py` writes to the `--snapshot`
-  file it is given.** Run it on a copy for every side of a by-hand comparison, or the
-  second run diffs against the first run's output. Suggested follow-up: make the write
-  opt-in (`--write-snapshot`), and record every gate setting (5-week / week-8 waits) in
-  the snapshot so any future gate change is attributed the same way.
+  meta records every gate setting it ranked under (`gate_rules`: LOCKED_AT_MOVE, the
+  5-week event wait, the week-8 rookie wait, the yearly week-5 wait).
+  `mark_rule_releases` re-ranks this week's frames under the prior run's rules (a
+  snapshot without them = nothing locked, today's waits) and flags each event line whose
+  place differs under them, plus each all-time player-board line of a rookie the old
+  week-8 rule would still hold (`rule_release`); `email_summary.attribute` sends those
+  to "Changes from edits, not new data" even when the inputs fingerprint is unchanged
+  (digest.py is not fingerprinted). Brand-new moves stay news. Unchanged rules flag
+  nothing, and a week with no build change puts nothing in the edits section (quiet-week
+  replay: 0 / 0). Guard: `check_a_gate_rule_change_goes_to_the_edits_section`.
+  Effect on today's digest (committed exports): 14 changed lines, all on locked columns
+  of young moves (e.g. 2026 1.01 Jeremiyah Love's 7,573 KTC on draft day); 15 lines
+  flagged (the 13 releases + 2 rows they pushed down), all in the edits section with the
+  2025 Mac Jones recompute; 1 item with the news; the lede reads as main's.
+- [ ] **`scripts/build_digest.py` only writes the snapshot with `--write-snapshot`**
+  (CI passes it in build.yml). It used to overwrite whatever `--snapshot` it was given,
+  so a by-hand comparison's second run diffed against the first's output. Guard:
+  `check_year_round_build` step 3 (a run without the flag leaves the file byte-identical).
 
 ## Phase 15 — TBD: OLD LEAGUES
 - [ ] **TBD.** Placeholder for integrating other historical/old leagues' data (e.g. the

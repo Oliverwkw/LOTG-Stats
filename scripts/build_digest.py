@@ -5,7 +5,8 @@ week's rankings, diffs them for all-time leaderboard crossings, projects the
 in-progress season's on-pace ranks (from week 5), and writes:
 
   * `data/digest/ranks_snapshot.json`  — this week's rankings (committed so next
-    week diffs against it).
+    week diffs against it) — only with `--write-snapshot`, which CI passes; a
+    run without it reads the snapshot and leaves it alone.
   * `exports/raw/weekly_digest.html`   — the rendered digest body.
 
 Runs YEAR-ROUND: the identical diff pipeline in-season and off. Offseason weeks
@@ -27,7 +28,7 @@ Delivery is separate — see `scripts/send_digest.py`. This CLI only renders.
 
 Usage:
   PYTHONPATH=src:lib python scripts/build_digest.py [--exports DIR]
-       [--snapshot PATH] [--out PATH] [--force] [--phrasing-csv PATH]
+       [--snapshot PATH] [--write-snapshot] [--out PATH] [--force] [--phrasing-csv PATH]
 """
 from __future__ import annotations
 
@@ -137,6 +138,10 @@ def main(argv=None) -> int:
     ap.add_argument("--replica", default=None,
                     help="write the 'most recent digest' replica (latest completed "
                          "season's post-championship wrap) to this path and exit")
+    ap.add_argument("--write-snapshot", action="store_true",
+                    help="rotate the snapshot: write this week's rankings to --snapshot "
+                         "(CI does). Without it the file is only read, so a by-hand run "
+                         "or a comparison never moves the baseline.")
     args = ap.parse_args(argv)
 
     exports = Path(args.exports)
@@ -291,11 +296,11 @@ def main(argv=None) -> int:
         else:
             event_changes = D.diff_events(prior_events, events,
                                           prior_row_keys=prior.get("row_keys"))
-            # A line only a change to the gate rule let go is an edit, not news.
-            n_rule = D.mark_rule_releases(prior, frames, event_changes)
+            # A line only a change to the gate rules moved is an edit, not news.
+            n_rule = D.mark_rule_releases(prior, frames, event_changes, crossings)
             if n_rule:
                 print(f"[digest] {n_rule} board move(s) let go by a gate-rule change "
-                      f"(LOCKED_AT_MOVE) -> edits section")
+                      f"(digest.gate_rules) -> edits section")
 
     # This week's rows are told once, in the single-week section: a week-board
     # move rides on its record as who it tied or passed, and a running total's
@@ -348,8 +353,11 @@ def main(argv=None) -> int:
           f"{len(record_changes)} record(s), {len(event_changes)} board move(s), "
           f"{len(milestones)} milestone(s), {len(proj_changes)} on-pace change(s) -> {out_path}")
 
-    D.save_snapshot(snap_path, current)
-    print(f"[digest] snapshot saved -> {snap_path}")
+    if args.write_snapshot:
+        D.save_snapshot(snap_path, current)
+        print(f"[digest] snapshot saved -> {snap_path}")
+    else:
+        print(f"[digest] snapshot NOT written (read-only; pass --write-snapshot to rotate it)")
     return 0
 
 
