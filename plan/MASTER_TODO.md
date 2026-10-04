@@ -1283,7 +1283,12 @@ guard-skipped fire), 581→584 (#453), 584→589 (#454), 589→597 (#455).
   (separate PR, per user).
 
 ## Digest: stats locked at the move skip the 5-week gate
-- [ ] **`digest.LOCKED_AT_MOVE`** [per user, 2026-10-03, all sheets]. A trade, add/drop,
+- [x] **#468 3-part audit PASS** (post-merge run 37212429492 vs pre-merge main run 648):
+  code reviewed + 583 guards green; results — the 15 rule-flagged lines (Mooney, Trigg,
+  Okonkwo, Love, Ferguson, Royals, Z. Branch, MarShawn Lloyd…) all in "Changes from edits,
+  not new data", 1 item with the news, lede as before, snapshot written via
+  `--write-snapshot`; diff — 0 cells differ across all 15 export sheets (digest-only change).
+- [x] **`digest.LOCKED_AT_MOVE`** [per user, 2026-10-03, all sheets]. A trade, add/drop,
   pickup or draft-pick row used to stand only on the high end of a counting stat until
   `EVENT_MIN_WEEKS` (5) NFL weeks after the move. Columns the move fixes the moment it is
   made have no sample to wait for and now stand on every end at once: deal-time KTC values,
@@ -1293,7 +1298,7 @@ guard-skipped fire), 581→584 (#453), 584→589 (#454), 589→597 (#455).
   locked: cuff flags (not digest boards), pick-adjusted differences (their pools move),
   "N years later" checkpoints. Guards: `check_locked_at_move_columns_skip_the_wait`,
   `check_locked_at_move_columns_exist`.
-- [ ] **A gate-rule change is an edit, not news** [per user, 2026-10-03]. The snapshot
+- [x] **A gate-rule change is an edit, not news** [per user, 2026-10-03]. The snapshot
   meta records every gate setting it ranked under (`gate_rules`: LOCKED_AT_MOVE, the
   5-week event wait, the week-8 rookie wait, the yearly week-5 wait).
   `mark_rule_releases` re-ranks this week's frames under the prior run's rules (a
@@ -1308,7 +1313,7 @@ guard-skipped fire), 581→584 (#453), 584→589 (#454), 589→597 (#455).
   of young moves (e.g. 2026 1.01 Jeremiyah Love's 7,573 KTC on draft day); 15 lines
   flagged (the 13 releases + 2 rows they pushed down), all in the edits section with the
   2025 Mac Jones recompute; 1 item with the news; the lede reads as main's.
-- [ ] **`scripts/build_digest.py` only writes the snapshot with `--write-snapshot`**
+- [x] **`scripts/build_digest.py` only writes the snapshot with `--write-snapshot`**
   (CI passes it in build.yml). It used to overwrite whatever `--snapshot` it was given,
   so a by-hand comparison's second run diffed against the first's output. Guard:
   `check_year_round_build` step 3 (a run without the flag leaves the file byte-identical).
