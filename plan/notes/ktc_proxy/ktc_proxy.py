@@ -404,9 +404,15 @@ def metrics(y, p):
     from scipy.stats import pearsonr, spearmanr
     y, p = np.asarray(y, float), np.asarray(p, float)
     e = np.abs(y - p); big = y >= 1000
+    # calib: n-weighted RMS of the mean signed error within each KTC quintile (the
+    # calibration check from plan/notes/POINTS_ABOVE_EXPECTATION.md). r and MAE can
+    # look fine while every band is off the same way; bias is the overall mean error.
+    q = pd.qcut(y, 5, labels=False, duplicates="drop")
+    band = pd.DataFrame(dict(q=q, d=p - y)).groupby("q").d.agg(["size", "mean"])
+    calib = np.sqrt((band["size"] * band["mean"] ** 2).sum() / band["size"].sum())
     return dict(n=len(y), r=round(pearsonr(y, p)[0], 4), rho=round(spearmanr(y, p)[0], 4), mae=round(e.mean()),
                 median=round(np.median(e)), w250=round((e <= 250).mean(), 3),
-                within10pct_1k=round((e[big] <= 0.1 * y[big]).mean(), 3))
+                within10pct_1k=round((e[big] <= 0.1 * y[big]).mean(), 3), calib=round(calib), bias=round(np.mean(p - y)))
 
 
 def show(label, m):
