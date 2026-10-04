@@ -1239,6 +1239,32 @@ guard-skipped fire), 581→584 (#453), 584→589 (#454), 589→597 (#455).
   `tests/test_winning_season_streak.py`. Expected diff: team_year `Winning
   season streak` only + its Formulas row.
 
+## Points above expectation (player_additions, follow-up to #389)
+- [ ] **Price paid (FAAB) + Points above expectation (total / rate)** [per user,
+  2026-10-03]. Three new player_additions columns, `lotg_support.acquisition`;
+  design and model-selection evidence in `plan/notes/POINTS_ABOVE_EXPECTATION.md`.
+  Total = X − Y over the weeks he was rostered, Y = what same-channel,
+  same-price, same-position acquisitions actually scored over the same weeks
+  since acquisition, never-cut (a peer's off-roster week counts what he scored
+  elsewhere). Rate = total ÷ weeks rostered. Price in FAAB $ (FA / $0 claim 0,
+  the bid, draft slot's expected draft-day KTC ÷ 100, trade sent side's
+  dollars on the money curve — KTC places an asset on the rookie board, a mid first = $1,000, KTC/100 below the 4.08, set in the day's market — the field's 49th player = $1,000, above by standing over the top 10 (best player averages $3,500), below half that market effect blended with the board; a player priced above replacement (the league's last rostered spot, faded; nearest covered date when KTC data is thin); picks on a market-relative board (draft-day ratio to the anchor × the day's anchor); a traded pick's slot is projected from what was knowable — roster strength preseason, blended into the order stat (record; Max PF within the bottom four from 2026) by week 8 — never the eventual slot; trades sum dollars and split by dollars; every traded pick priced on the board (slot, or round average) × 0.95 per draft beyond the next (user; the league-trade fit of 0.80 was too steep); per user, option B). Additive: no existing
+  column changes except as below. Expected diff: the 3 new columns + Formulas
+  rows. Build log line `points above expectation: N additions, U unpriced, B
+  trade sides off the exported KTC margin` — B must be 0. Guard:
+  `tests/test_acquisition.py`.
+  Unquoted picks [per user, 2026-10-03]: branch run 37148919888 left 9 rows (5
+  late-2020 trade sides) unpriced, every unvalued asset a 2021+ pick traded
+  before KTC priced picks — and the trades sheet silently LEFT those picks out
+  of its KTC columns. A pick with no quote on a date is now estimated from the
+  same pick 1-3 classes later at the same lead time before its draft
+  (`_pick_ktc_estimate`, inside `_side_values`; logged `pick KTC estimated`),
+  so trades' KTC value differences, Pick value received and Change in pick
+  value at draft time move on those deals (and O-Score / Trading skill /
+  Trade impact score with them). Startup (2020) picks are never estimated:
+  branch run 37149868441 priced the startup pick swap's 4ths/5ths as rookie
+  4ths (Pick value received 3,350 on T#1 / T#155) — not a similar asset.
+
 ## Phase 15 — TBD: OLD LEAGUES
 - [ ] **TBD.** Placeholder for integrating other historical/old leagues' data (e.g. the
   separate ESPN leagues seen in the 2020 emails — UChicago '24 = leagueId 57687541, UChi

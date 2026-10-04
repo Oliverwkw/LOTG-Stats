@@ -410,6 +410,15 @@ and FAAB, against the starter points that came back. **Trades are not priced**
 — `trades` stores its assets as free text — and any write-up using that table
 has to say so.
 
+For "did this pickup / pick / trade beat its price", read player_additions'
+`Price paid (FAAB)` (every channel, trades included) and `Points above
+expectation (total / rate)` (`lotg_support.acquisition`): what he scored for the
+team minus what same-channel, same-price, same-position buys actually scored
+over the same weeks, never-cut. Two things to know: the model refits every build
+(a row moves a little each week), and long holds of hits read high by design.
+`plan/notes/POINTS_ABOVE_EXPECTATION.md` has the evidence and the rejected
+variants.
+
 **What the NFL paid him.** Nothing in `exports/` knows about real-world money,
 so a "does getting paid mean anything" question starts in
 `lotg_support.contracts`, which joins Over The Cap's contract history (via
@@ -995,6 +1004,14 @@ list is here so an answer written by hand does not walk into them.
   champion's roster" — for a season with no champion. All N/A while live now
   (`tests/test_live_season_outcomes.py`). Any of these quoted from an older build
   for the in-progress season is wrong.
+- **Roster size changed, and 2025 added a "supertaxi" long shot.** Roster spots
+  (taxi and IR not counted): 21 in 2020 (ESPN), 23 in 2021-23, 26 from 2024.
+  Taxi slots: 0 (2021-22), 2 (2023-24), 3 from 2025 — the third is a
+  shot-in-the-dark slot for players under 50% rostered, so treat it as roughly
+  one zero-value player per team. Any "how deep is the league" or replacement-
+  level question has to say which seasons and whether taxi counts:
+  `player_additions."Price paid (FAAB)"` sets replacement at roster spots × 8,
+  less 8 from 2025 (168 / 184 / 208 / 200).
 - **Taxi status is not tracked, and cannot be — and boldness treats taxi as
   bench, by design.** `rosters.json` holds a `taxi` list only as of the moment
   the snapshot was taken (2023 on, when taxi slots began); there is no weekly
