@@ -110,6 +110,10 @@ the answer, not a silent choice.
 - **You do not have to read this whole file to answer.** Skim the tool table and
   the trap list; come back for the section you actually need. Reading 400 lines
   before running one command is most of the way to blowing the 3-minute budget.
+- **`scripts/build_digest.py` overwrites the `--snapshot` file you pass it.**
+  To compare two digests (main vs a branch, before vs after), copy
+  `data/digest/` once per run and point each run at its own copy; a shared
+  copy makes the second run diff against the first run's output.
 
 ## The tools
 

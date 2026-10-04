@@ -1457,6 +1457,7 @@ def run_all() -> bool:
         check_offseason_move_joins_at_week_5,
         check_locked_at_move_columns_skip_the_wait,
         check_locked_at_move_columns_exist,
+        check_a_gate_rule_change_goes_to_the_edits_section,
         check_week_rows_season_to_date_and_new_stint_wait,
         check_a_running_total_passing_its_own_row_is_not_news,
         check_a_stationary_tie_join_is_not_news,
@@ -1654,8 +1655,58 @@ def check_locked_at_move_columns_skip_the_wait():
     gate = D.BoardGate(young)
     ok &= _ok("the gate holds nothing on a locked column",
               gate.restricted(tr, "trades", "Pick value received") is None)
-    ok &= _ok("Tanking is not locked (it drifts between builds)",
-              "Tanking" not in D.LOCKED_AT_MOVE["trades"])
+    ok &= _ok("Tanking is locked on every event sheet (user, 2026-10-03)",
+              all("Tanking" in cols for cols in D.LOCKED_AT_MOVE.values()))
+    ok &= _ok("cuff flags are not locked (not digest boards)",
+              not any("Cuff" in c for cols in D.LOCKED_AT_MOVE.values() for c in cols))
+    return ok
+
+
+def check_a_gate_rule_change_goes_to_the_edits_section():
+    """#468: a young move a newly locked column lets onto a board is the rule's
+    doing, not news — it goes to the edits section, even though digest.py is
+    not a fingerprinted input. A week with no change to the build sends nothing
+    there."""
+    from lotg_support import email_summary as ES
+    tr = _trades("2026-09-16").assign(**{
+        "KTC value difference at deal time": [100.0, 200.0, 300.0, 400.0, 500.0, -9000.0]})
+    frames = {"trades": tr, "team_week": _weeks(y2025=17, y2026=3)}
+    col = "KTC value difference at deal time"
+    now = [e for e in D.all_board_highlights(frames, gate=D.BoardGate(frames))
+           if e.sheet == "trades" and e.label.startswith("New's")]
+    ok = _ok("the young move stands on the locked column", any(e.column == col for e in now), now)
+
+    def lines():
+        return [D.EventCrossing("trades", e.label, e.column, e.end, e.rank, e.value, key=e.key)
+                for e in now]
+    old = {"meta": {"season": 2026}}                     # before the rule: nothing locked
+    ch = lines()
+    n = D.mark_rule_releases(old, frames, ch)
+    ok &= _ok("an old snapshot's lines on the locked column are flagged",
+              n >= 1 and all(c.rule_release == (c.column in D.LOCKED_AT_MOVE["trades"])
+                             for c in ch), [(c.column, c.end, c.rule_release) for c in ch])
+    same = {"meta": {"season": 2026, D.LOCKED_META_KEY:
+                     {k: sorted(v) for k, v in D.LOCKED_AT_MOVE.items()}}}
+    ch2 = lines()
+    ok &= _ok("an unchanged rule flags nothing", D.mark_rule_releases(same, frames, ch2) == 0
+              and not any(c.rule_release for c in ch2))
+    ch3 = lines()
+    for c in ch3:
+        c.is_new = True
+    D.mark_rule_releases(old, frames, ch3)
+    ok &= _ok("a brand-new move is news whatever the rule", not any(c.rule_release for c in ch3))
+    snap = D.build_snapshot(pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), _weeks(y2026=3))
+    ok &= _ok("the snapshot records the rule it ranked under",
+              snap["meta"].get(D.LOCKED_META_KEY, {}).get("trades") == sorted(D.LOCKED_AT_MOVE["trades"]))
+    quiet = ES.NewData(season=2026, weeks_completed=4, edit_landed=False)
+    ok &= _ok("a flagged line goes to the edits section even with no fingerprinted edit",
+              ES.attribute(ch[0] if ch[0].rule_release else next(c for c in ch if c.rule_release),
+                           "All-time leaderboard moves — trades", quiet) == "edit")
+    old_row = D.EventCrossing("trades", "T1's 2021-10-05 trade for Somebody", "Points added",
+                              "high", 3, 30.0, key="k_t1")
+    _top, edits = D.split_sections([("All-time leaderboard moves — trades", False, ch2 + [old_row])],
+                                   quiet)
+    ok &= _ok("no build change: the edits section is empty", edits == [], edits)
     return ok
 
 

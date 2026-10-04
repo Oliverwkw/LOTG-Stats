@@ -677,6 +677,10 @@ def build_snapshot(
         # Marks a snapshot written after add_drops' post-drop points columns
         # stopped being negated (see `migrate_snapshot_signs`).
         _DROPPED_SIGN_KEY: _DROPPED_SIGN_RAW,
+        # The gate rule this snapshot was ranked under, so next week can tell a
+        # line a change to it let go from one new data brought
+        # (`mark_rule_releases`).
+        LOCKED_META_KEY: {k: sorted(v) for k, v in LOCKED_AT_MOVE.items()},
     }
     held = sorted({str(p) for p in (held_players or ())})
     if held:
@@ -951,6 +955,8 @@ def merge_simultaneous_ties(items: Sequence) -> list:
         head.passed = tuple(sorted({p for x in grp for p in x.passed} - set(movers)))
         if hasattr(head, "is_new"):
             head.is_new = any(x.is_new for x in grp)
+        if hasattr(head, "rule_release"):
+            head.rule_release = all(x.rule_release for x in grp)
         if hasattr(head, "shown"):
             for x in grp[1:]:
                 head.shown.update(x.shown)
@@ -1685,9 +1691,11 @@ _EVENT_SHEETS = ("trades", "add_drops", "player_additions") + _PICK_SHEETS
 # bid, the player's age or form before it. They have no sample to wait for, so
 # a new move stands on every end of them at once instead of waiting
 # EVENT_MIN_WEEKS (user, 2026-10-03, all sheets). Listed explicitly, not
-# guessed from the name: "Tanking" (drifts between builds), pick-adjusted
-# differences (their slot pools move) and the "N years later" checkpoints are
-# not locked. Draft rows' Price paid can still move slightly as a new rookie
+# guessed from the name: pick-adjusted differences (their slot pools move) and
+# the "N years later" checkpoints are not locked. Tanking is a judgement of the
+# move when it was made, so it is locked even though a rebuild can re-score it
+# (user, 2026-10-03). Cuff flags are left out: they are not digest boards.
+# Draft rows' Price paid can still move slightly as a new rookie
 # class joins the board it is priced on; it is treated as locked.
 LOCKED_AT_MOVE: Dict[str, frozenset] = {
     "trades": frozenset({
@@ -1696,20 +1704,53 @@ LOCKED_AT_MOVE: Dict[str, frozenset] = {
         "Avg PPG of received players in 5 games before trade adjusted by position",
         "Asset difference in average age", "Number of assets received",
         "Number of assets traded away", "Total number of assets in trade",
-        "Number of teams involved"}),
+        "Number of teams involved", "Tanking"}),
     "add_drops": frozenset({
         "Faab", "Total FAAB bid", "FAAB difference over second place", "FAAB premium %",
         "Number of bids", "KTC value of player added at deal time",
         "KTC value of player dropped at deal time", "Net KTC value at deal time",
         "PPG of 5 games before pickup", "PPG of 5 games before pickup adjusted by position",
-        "Age difference", "Cuff at time of pickup?"}),
+        "Age difference", "Tanking"}),
     "player_additions": frozenset({
         "Price paid (FAAB)", "KTC at pickup", "Age at pickup",
         "PPG of 5 games before pickup", "PPG of 5 games before pickup adjusted by position",
-        "Cuff at pickup?"}),
-    "rookie_picks": frozenset({"KTC on draft day", "Age when drafted", "Cuff when drafted?"}),
-    "non_rookie_picks": frozenset({"KTC on draft day", "Age when drafted", "Cuff when drafted?"}),
+        "Tanking"}),
+    "rookie_picks": frozenset({"KTC on draft day", "Age when drafted", "Tanking"}),
+    "non_rookie_picks": frozenset({"KTC on draft day", "Age when drafted", "Tanking"}),
 }
+LOCKED_META_KEY = "locked_at_move"
+
+
+def mark_rule_releases(prior: Optional[dict], frames: dict, changes: Sequence,
+                       window: int = WINDOW) -> int:
+    """Flag each line that stands only because `LOCKED_AT_MOVE` changed since
+    the prior snapshot — `rule_release`, which `email_summary.attribute` sends to
+    the edits section: the rule is code, not news. Week 4 of 2026 (#468) let
+    fourteen young moves onto deal-time boards they had been waiting off, and they
+    read as new results.
+
+    This week's frames are ranked again under the prior run's list (a snapshot
+    without one predates the rule: nothing locked); a line whose place exists only
+    under the current list is the rule's doing. A brand-new row is news either
+    way and is left alone. Returns how many lines were flagged."""
+    if not prior or not changes:
+        return 0
+    before_list = (prior.get("meta") or {}).get(LOCKED_META_KEY) or {}
+    now_list = {k: sorted(v) for k, v in LOCKED_AT_MOVE.items()}
+    if {k: sorted(v) for k, v in before_list.items() if v} == {k: v for k, v in now_list.items() if v}:
+        return 0
+    old_rule = {(e.sheet, e.column, e.end, e.key)
+                for e in all_board_highlights(frames, window,
+                                              gate=BoardGate(frames, locked=before_list))}
+    n = 0
+    for c in changes:
+        if (getattr(c, "key", "") and not getattr(c, "is_new", False)
+                and (c.sheet, c.column, c.end, c.key) not in old_rule):
+            c.rule_release = True
+            n += 1
+    return n
+
+
 # player_week tenure columns: an average over the player's CURRENT stint on the
 # team, which began with the move that brought him there.
 _TENURE_MARKERS = ("on team", "team starter", "by this team")
@@ -1822,10 +1863,14 @@ class BoardGate:
     weeks played are team_week's, a season's length the longest before it — so no
     year is named and it turns over to the next season by itself. `lag` pretends
     the last `lag` weeks are unplayed: last week's gate, to see what this week let
-    go (`release_lead`)."""
+    go (`release_lead`). `locked` replaces `LOCKED_AT_MOVE`: the prior run's list,
+    to see what a change to it let go (`mark_rule_releases`)."""
 
-    def __init__(self, frames: dict, lag: int = 0):
+    def __init__(self, frames: dict, lag: int = 0,
+                 locked: Optional[Dict[str, Iterable[str]]] = None):
         frames = frames or {}
+        self.locked = (LOCKED_AT_MOVE if locked is None
+                       else {k: frozenset(v) for k, v in locked.items()})
         tw, ty = frames.get("team_week"), frames.get("team_year")
         weeks: List[Tuple[int, int]] = []
         if tw is not None and not tw.empty and {"Year", "Week"} <= set(tw.columns):
@@ -1912,7 +1957,7 @@ class BoardGate:
         if sheet in _YEARLY_SHEETS:
             kind = "season"
         elif sheet in _EVENT_SHEETS:
-            if column in LOCKED_AT_MOVE.get(sheet, ()):
+            if column in self.locked.get(sheet, ()):
                 return None              # fixed at the move: nothing to wait for
             kind = "event"
         elif sheet == "player_week":
@@ -2406,6 +2451,8 @@ class EventCrossing:
     # The faller's side — see `Crossing.passed_by`. `label` is the row that fell.
     passed_by: bool = False
     by_value: Optional[float] = None
+    # On the board only because the gate rule changed (`mark_rule_releases`).
+    rule_release: bool = False
 
     def _show(self, label: str) -> str:
         return self.shown.get(label, label)

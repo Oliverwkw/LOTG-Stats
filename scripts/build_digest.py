@@ -291,6 +291,11 @@ def main(argv=None) -> int:
         else:
             event_changes = D.diff_events(prior_events, events,
                                           prior_row_keys=prior.get("row_keys"))
+            # A line only a change to the gate rule let go is an edit, not news.
+            n_rule = D.mark_rule_releases(prior, frames, event_changes)
+            if n_rule:
+                print(f"[digest] {n_rule} board move(s) let go by a gate-rule change "
+                      f"(LOCKED_AT_MOVE) -> edits section")
 
     # This week's rows are told once, in the single-week section: a week-board
     # move rides on its record as who it tied or passed, and a running total's

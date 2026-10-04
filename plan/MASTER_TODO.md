@@ -1288,15 +1288,28 @@ guard-skipped fire), 581→584 (#453), 584→589 (#454), 589→597 (#455).
   `EVENT_MIN_WEEKS` (5) NFL weeks after the move. Columns the move fixes the moment it is
   made have no sample to wait for and now stand on every end at once: deal-time KTC values,
   Pick value received, pre-move form (PPG of 5 games before), FAAB bids and margins, Price
-  paid (FAAB), KTC at pickup / on draft day, ages at the move, cuff flags, asset counts.
-  Listed explicitly (not by name pattern); not locked: Tanking (drifts between builds),
-  pick-adjusted differences (their pools move), "N years later" checkpoints. Guards:
-  `check_locked_at_move_columns_skip_the_wait`, `check_locked_at_move_columns_exist`.
-  Effect on today's digest (committed exports + snapshot): +14 lines, all on locked
-  columns of young moves (e.g. 2026 1.01 Jeremiyah Love's 7,573 KTC on draft day); the
-  lede's count of new results changes accordingly; nothing else moves. Side finding (not
-  changed): `scripts/build_digest.py` writes to the `--snapshot` file it is given — run it
-  on a copy when comparing by hand.
+  paid (FAAB), KTC at pickup / on draft day, ages at the move, asset counts, and Tanking
+  (user: a judgement of the move when made). Listed explicitly (not by name pattern); not
+  locked: cuff flags (not digest boards), pick-adjusted differences (their pools move),
+  "N years later" checkpoints. Guards: `check_locked_at_move_columns_skip_the_wait`,
+  `check_locked_at_move_columns_exist`.
+- [ ] **A gate-rule change is an edit, not news** [per user, 2026-10-03]. The snapshot
+  meta records the locked list it ranked under (`locked_at_move`); `mark_rule_releases`
+  re-ranks this week's frames under the prior run's list (absent = nothing locked) and
+  flags each line that stands only under the new one (`rule_release`), and
+  `email_summary.attribute` sends it to "Changes from edits, not new data" even when the
+  inputs fingerprint is unchanged (digest.py is not fingerprinted). Brand-new moves stay
+  news. A week with no build change and an unchanged rule puts nothing in the edits
+  section. Guard: `check_a_gate_rule_change_goes_to_the_edits_section`.
+  Effect on today's digest (committed exports + snapshot copy): 14 changed lines, all on
+  locked columns of young moves (e.g. 2026 1.01 Jeremiyah Love's 7,573 KTC on draft day);
+  13 flagged by the rule + 1 already a recompute (a 2025 row) — all 14 in the edits
+  section; the lede reads as main's ("44 of the 44 other moves re-value settled history").
+- [ ] **Side finding (not changed): `scripts/build_digest.py` writes to the `--snapshot`
+  file it is given.** Run it on a copy for every side of a by-hand comparison, or the
+  second run diffs against the first run's output. Suggested follow-up: make the write
+  opt-in (`--write-snapshot`), and record every gate setting (5-week / week-8 waits) in
+  the snapshot so any future gate change is attributed the same way.
 
 ## Phase 15 — TBD: OLD LEAGUES
 - [ ] **TBD.** Placeholder for integrating other historical/old leagues' data (e.g. the
