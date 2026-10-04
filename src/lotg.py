@@ -22606,8 +22606,16 @@ def build_all(repo_root: Path) -> None:
                     if _yw in _pae_ci and _pae_ci[_yw] >= _k0:
                         _held.append((_pae_ci[_yw] - _k0 + 1, _pae_adj(_pts, _yw, _pos)))
                 _pae_adds.append(_acq.Addition(key=_n, ch=_ch, p=_p, pos=_pos,
-                                               held=_held, cf=_cf, noff=_noff))
+                                               held=_held, cf=_cf, noff=_noff,
+                                               s0=(_pae_cal[_k0][0] if _k0 < len(_pae_cal) else None)))
             _pae_out = _acq.points_above_expectation(_pae_adds)
+            # The model's inputs, for the yearly re-check (scripts/pae_recheck.py).
+            # Artifact only: .gitignore keeps it out of the committed exports.
+            try:
+                from lotg_support import expectation_recheck as _pae_rc
+                _pae_rc.dump_additions(_pae_adds, os.path.join("exports", "raw", _pae_rc.DUMP_NAME))
+            except Exception as _e_rc:
+                _log_exc(debug, "points above expectation inputs dump", _e_rc)
             for _n, _r in enumerate(_pa_rows):
                 _r[_acq.PRICE_COLUMN] = _pae_price.get(_n)
                 for _c in (_acq.RATE_COLUMN, _acq.TOTAL_COLUMN):
