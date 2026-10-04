@@ -147,6 +147,12 @@ rates 0.986; 48 of 1,965 rows move > 25 pts, 7 > 100. Long-held QBs and TEs rise
 Kelce 492 → 608), long-held RBs fall (dear RBs held up better than it said,
 cheap ones far worse: Jacobs 607 → 514, Chubb 49 → −38).
 
+**Re-check.** `lotg_support.expectation_recheck` / `scripts/pae_recheck.py`
+replay the build as of each past season on the inputs every build writes to
+`exports/raw/pae_additions.json.gz` (artifact only); the latest season is
+checked on every build (`test_latest_season_inside_the_retune_limits`), the
+whole replay once a year (plan/MASTER_TODO.md).
+
 ## Known limits
 
 - The model refits every build; every row moves slightly each week
