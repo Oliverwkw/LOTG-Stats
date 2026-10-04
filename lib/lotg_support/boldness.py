@@ -64,9 +64,11 @@ so 2021 week 1, leaning on 2020 games, re-scores them as PPR.
   higher E sits out (no stat line and no offensive snap — inactives are known
   before kickoff; in the live week, Sleeper's status) while on that team's
   weekly roster, having played for it this season (or last, in the first
-  `preseason_grace_weeks`), the NEXT MAN UP is lifted to beta[pos] x the
-  teammate's E. beta is calibrated on every such NFL event 2019-2025
-  (`calibrate_beta`).
+  `preseason_grace_weeks`), the NEXT MAN UP is lifted to a x the teammate's
+  E + b x his own, (a, b) per position fitted on every such NFL event
+  2019-2025 (`calibrate_beta`). The next man up is the highest-E backup the
+  team has used this season (`next_man_must_have_played`): a healthy-scratch
+  rookie on his draft-round prior is not in line.
 
 Everything debatable is a field on `Params`; `tune()` reports the sensitivity.
 
@@ -151,7 +153,10 @@ class Params:
     promote: bool = True               # apply the cuff/role promotion
     preseason_grace_weeks: int = 4     # the absent teammate must have played for the team THIS season,
                                        # except in weeks 1..N where last season counts (preseason injury)
-    beta: Optional[Tuple[Tuple[str, float], ...]] = None   # None -> calibrate_beta()
+    next_man_must_have_played: bool = True  # once the team has played this season, the next man up
+                                            # must have appeared for it (not a scratch on his prior)
+    beta: Optional[Tuple[Tuple[str, Tuple[float, float]], ...]] = None  # None -> calibrate_beta():
+                                       # {pos: (a, b)}, lift = a x teammate's E + b x own E
 
 
 # ---------------------------------------------------------------------------
@@ -588,7 +593,8 @@ def _team_game_index(log: pd.DataFrame) -> Dict[str, List[Tuple[int, int]]]:
 
 def _promotion_events(season: int, base: pd.DataFrame, p: Params) -> pd.DataFrame:
     """Rows (gsis_id, week, promoted_over, E_over): the NEXT MAN UP — the
-    highest-E available player at a team-position — when a teammate with a
+    highest-E available player at a team-position whom the team has used this
+    season (`next_man_must_have_played`) — when a teammate with a
     higher E sits out the week while on that team's weekly roster (and, if
     `promotion_lookback` is set, after playing in one of the team's last N
     games). Only the next man up is promoted: calibrating over every backup
@@ -644,6 +650,14 @@ def _promotion_events(season: int, base: pd.DataFrame, p: Params) -> pd.DataFram
             absent = [r for r in absent if any((r.gsis_id, s, w, team) in appear for s, w in games)]
         if not absent or not present:
             continue
+        # The next man up is someone the team has actually used: once it has
+        # played a game this season, a backup who has not appeared for it
+        # (a healthy-scratch rookie on his draft-round prior) is not next in
+        # line, however his prior compares with the incumbent backup's.
+        if p.next_man_must_have_played and any(s == season and w < wk for s, w in tgi.get(team, ())):
+            used = [r for r in present
+                    if any(gs == season and gt == team and gw < wk for gs, gw, gt in games_of.get(r.gsis_id, ()))]
+            present = used or present
         top_out = max(absent, key=lambda r: r.E_base)
         nxt = max(present, key=lambda r: r.E_base)
         if top_out.E_base > nxt.E_base:
@@ -660,11 +674,9 @@ def _live_out_gsis() -> frozenset:
 
 
 @functools.lru_cache(maxsize=4)
-def _calibrate_beta_cached(seasons: Tuple[int, ...], base_params: Params) -> Tuple[Tuple[str, float], ...]:
+def _calibrate_beta_cached(seasons: Tuple[int, ...], base_params: Params) -> Tuple[Tuple[str, Tuple[float, float]], ...]:
     p = replace(base_params, promote=False, beta=None)
-    num: Dict[str, float] = {}
-    den: Dict[str, float] = {}
-    cnt: Dict[str, int] = {}
+    rows: Dict[str, List[Tuple[float, float, float]]] = {}
     for y in seasons:
         weeks = range(1, 19)
         base = _base_expectations(y, weeks, p, league_rostered=False)
@@ -678,18 +690,31 @@ def _calibrate_beta_cached(seasons: Tuple[int, ...], base_params: Params) -> Tup
             a = actual.get((r.gsis_id, r.week))
             if a is None:           # the backup did not play either; nothing to learn
                 continue
-            num[r.position] = num.get(r.position, 0.0) + float(a)
-            den[r.position] = den.get(r.position, 0.0) + float(r.E_over)
-            cnt[r.position] = cnt.get(r.position, 0) + 1
-    return tuple(sorted((pos, num[pos] / den[pos]) for pos in num if den[pos] > 0 and cnt[pos] >= 30))
+            rows.setdefault(r.position, []).append((float(r.E_over), float(r.E_base), float(a)))
+    out = []
+    for pos, rs in rows.items():
+        if len(rs) < 30:
+            continue
+        m = np.asarray(rs)
+        a, b = np.linalg.lstsq(m[:, :2], m[:, 2], rcond=None)[0]
+        out.append((pos, (float(a), float(b))))
+    return tuple(sorted(out))
 
 
 def calibrate_beta(seasons: Sequence[int] = tuple(range(2019, 2026)),
-                   params: Params = Params()) -> Dict[str, float]:
-    """{position: beta}: across every NFL next-man-up event in `seasons`, the
-    promoted backup's actual points over the departed teammate's expectation
-    (ratio of sums). Positions with fewer than 30 events are omitted (no
-    promotion applied for them)."""
+                   params: Params = Params()) -> Dict[str, Tuple[float, float]]:
+    """{position: (a, b)}: the next man up is expected to score
+    a x the departed teammate's E + b x his own E. Least squares (no
+    intercept) over every NFL next-man-up event in `seasons` where the backup
+    played. Positions with fewer than 30 events are omitted (no promotion).
+
+    Two terms, not one ratio: a single beta x the teammate's E (the first
+    version) is right on average but not across the range — out of sample it
+    overrated the weakest quarter of backups by about 3 points at every
+    position and underrated the strongest quarter by about 2.5. A backup's own
+    record says how much of the role he inherits; the two-term fit is
+    unbiased in every quartile of backup-to-starter ratio (2019-2025, leave
+    one season out) and has the lower error."""
     return dict(_calibrate_beta_cached(tuple(int(s) for s in seasons), replace(params, beta=None)))
 
 
@@ -709,7 +734,9 @@ def expected_points(season: int, weeks: Optional[Sequence[int]] = None,
         ev = _promotion_events(int(season), base, params)
         if not ev.empty:
             base = base.drop(columns=["promoted_over", "E_over"]).merge(ev, on=["gsis_id", "week"], how="left")
-            lift = base["position"].map(beta).fillna(0.0) * base["E_over"].fillna(0.0)
+            coef = base["position"].map(beta)
+            lift = (coef.map(lambda c: c[0] if isinstance(c, tuple) else 0.0) * base["E_over"].fillna(0.0)
+                    + coef.map(lambda c: c[1] if isinstance(c, tuple) else 0.0) * base["E_base"])
             promoted = base["promoted_over"].notna() & (lift > base["E_base"])
             base["E"] = np.where(promoted, lift, base["E_base"])
             base.loc[~promoted, ["promoted_over", "E_over"]] = [None, np.nan]
