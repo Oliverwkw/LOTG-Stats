@@ -176,7 +176,7 @@ def test_every_debatable_choice_is_a_parameter():
     p = B.Params()
     for name in ("prior_season_weight", "recency_half_life", "team_change_weight", "shrink_games",
                  "rookie_shrink_games", "rookie_prior_weeks", "promotion_lookback", "promote",
-                 "preseason_grace_weeks", "next_man_must_have_played", "beta"):
+                 "preseason_grace_weeks", "next_man_must_have_played", "next_man_by", "beta"):
         assert hasattr(p, name), name
     assert 0 < p.prior_season_weight < 1
 
@@ -338,6 +338,24 @@ def test_the_next_man_up_is_a_backup_the_team_has_used():
     # `used or present`: a team whose backups have all yet to appear keeps the
     # highest-E one — allowed, but it must stay rare.
     assert len(bad) <= 0.02 * len(ev), (len(bad), len(ev), bad[:5])
+
+
+def test_the_next_man_up_is_who_got_the_ball_when_both_played():
+    # A split backfield: the backup with the higher E is not always the one
+    # the team feeds. Head to head in games both played, touches decide; E
+    # decides only a pair that never shared a game.
+    from types import SimpleNamespace as R
+    a, b, c = R(gsis_id="a", E_base=6.0), R(gsis_id="b", E_base=5.0), R(gsis_id="c", E_base=9.0)
+    t = {("a", 1): ("MIA", 4.0), ("b", 1): ("MIA", 12.0),
+         ("a", 2): ("MIA", 5.0), ("b", 2): ("MIA", 10.0),
+         ("c", 3): ("MIA", 20.0)}              # c never shared a game with a or b
+    assert B._by_touches([a, b], 2025, 4, "MIA", t).gsis_id == "b"
+    # games before `wk` only, and for this team only
+    assert B._by_touches([a, b], 2025, 2, "MIA", t).gsis_id == "b"
+    assert B._by_touches([a, b], 2025, 4, "NYJ", t).gsis_id == "a"
+    # c beats both on E (no shared games); b beats a on touches -> c has 2 wins
+    assert B._by_touches([a, b, c], 2025, 4, "MIA", t).gsis_id == "c"
+    assert B._by_touches([a], 2025, 4, "MIA", t).gsis_id == "a"
 
 
 def test_the_lift_weighs_the_backups_own_record():
