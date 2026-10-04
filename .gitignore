@@ -43,3 +43,6 @@ exports/LOTG_Stats.xlsx
 # .cache after the test step: without this, ~63 MB of 2010-17 CSVs ride along.
 .cache/nflverse_stats_player_week_200[0-9].csv
 .cache/nflverse_stats_player_week_201[0-7].csv
+# The expectation model's inputs (lotg_support.expectation_recheck): in the run
+# artifact for the re-check, never committed (~0.5 MB a week of churn).
+exports/raw/pae_additions.json.gz

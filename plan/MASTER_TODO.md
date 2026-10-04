@@ -1340,23 +1340,21 @@ guard-skipped fire), 581→584 (#453), 584→589 (#454), 589→597 (#455).
 - [ ] **Yearly re-check of the expectation model** [per user, 2026-10-04] — once a season,
   after the championship. The model refits every build and grows its own hinges/knots,
   but its settings (EXPECTATION_RIDGE 30, MIN_TENURE_ADDITIONS 40, BASE_KNOT_WEEKS,
-  TAIL_QUANTILE 0.95) were tuned on 2020-26 data. Re-check them:
-  1. Dump the model inputs: branch `exp-pae-tenure-dump` (never merge) writes
-     `exports/raw/pae_additions.json` from the `_pae_adds` list in src/lotg.py — rebase it
-     on main and dispatch build.yml on it (send_email=false); download `LOTG_outputs`.
-  2. Replay the build as of the end of each season (out-of-fold, folds by addition,
-     only data known then) and score calibration = expected-points-weighted RMS of
-     log(actual / expected) over position x price tier (top third of the channel's
-     prices vs the rest; free agency apart) x seasons since the move (1, 2, 3-4, 5+), cells
-     with >= 25 additions; plus the oldest two observed tenure seasons by position.
-  3. Baseline (2026-10-04, as of 2022 / 23 / 24 / 25 / 26): calibration 0.040 / 0.032 /
-     0.034 / 0.031 / 0.038; oldest-tenure error <= 0.05. **Act if** the latest year's
-     calibration exceeds ~0.06 or the oldest-tenure error exceeds ~0.10, or it trends up
-     for two years running — sweep the four settings (and the ablations in the note) and
-     change only what the replay supports, as a build PR with the 3-part audit.
-  4. Record the year's numbers here.
-  The 2026 harness (exp2.py / rp.py) was session scratch; rebuild it from this recipe, or
-  move it into lib/ + scripts/ if the re-check is going to recur by hand.
+  TAIL_QUANTILE 0.95) were tuned on 2020-26 data. `lotg_support.expectation_recheck`
+  replays the build as of each past season (out of fold, only what was known then) on the
+  model's inputs, which every build writes to `exports/raw/pae_additions.json.gz`
+  (artifact only, gitignored):
+  ```
+  gh run download <run id> -n LOTG_outputs -D /tmp/lotg
+  PYTHONPATH=lib python scripts/pae_recheck.py --dump /tmp/lotg/raw/pae_additions.json.gz
+  ```
+  Baseline (2026-10-04, as of 2022-26): calibration 0.040 / 0.032 / 0.034 / 0.031 / 0.038,
+  oldest-tenure error <= 0.06. It prints "ok" or "RE-TUNE: ..." — act past calibration 0.06,
+  oldest-tenure 0.10, or calibration rising two seasons running: sweep the four settings
+  (and the ablations in plan/notes/POINTS_ABOVE_EXPECTATION.md), change only what the
+  replay supports, as a build PR with the 3-part audit. Record each year's table here.
+  Weekly early warning: `test_latest_season_inside_the_retune_limits` replays the latest
+  season on every build (~5 s) and fails past the same limits.
 
 ## Phase 15 — TBD: OLD LEAGUES
 - [ ] **TBD.** Placeholder for integrating other historical/old leagues' data (e.g. the

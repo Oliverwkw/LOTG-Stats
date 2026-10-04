@@ -700,7 +700,7 @@ class Addition:
     week that ended on/after the pickup); `cf` = the counterfactual
     ("never cut") points for elapsed weeks 1..len(cf), the held weeks included;
     `noff` = offseasons crossed by each of those weeks (same length as cf).
-    Held weeks lie within 1..len(cf)."""
+    Held weeks lie within 1..len(cf). `s0` = the season of elapsed week 1."""
     key: object
     ch: Optional[str]
     p: Optional[float]
@@ -708,6 +708,9 @@ class Addition:
     held: List[Tuple[int, float]] = field(default_factory=list)
     cf: List[float] = field(default_factory=list)
     noff: List[int] = field(default_factory=list)
+    # Season of elapsed week 1 (None when no week has ended since the pickup):
+    # lets `expectation_recheck` replay the build as of a past season.
+    s0: Optional[int] = None
 
 
 def _norm_pos(pos: object) -> str:
