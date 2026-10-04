@@ -141,6 +141,24 @@ def test_market_curve():
     assert ACQ.asset_faab(3000.0, money, None) == money.faab(3000.0)
 
 
+def test_replacement_line():
+    """User 2026-10-03: the last rostered spot league-wide (taxi and IR not
+    counted), less the 2025+ supertaxi long shot per team; the deduction fades."""
+    assert [ACQ.replacement_rank(sp, 8, y) for sp, y in ((21, 2020), (23, 2021), (23, 2023),
+                                                          (26, 2024), (26, 2025), (26, 2026))] == [168, 184, 184, 208, 200, 200]
+    line = 37.0
+    assert abs(ACQ.above_replacement(1005.0, line) - (1005.0 - line)) < 0.01   # well above: loses the line's price
+    kupp = ACQ.above_replacement(17.0, line)
+    assert 2.0 < kupp < 5.0                                                    # below: fades toward $0, not to it
+    xs = [ACQ.above_replacement(p, line) for p in (1, 5, 17, 37, 60, 200)]
+    assert all(0 < a < b for a, b in zip(xs, xs[1:]))
+    money = ACQ.MoneyCurve(ACQ.slot_price_curve([(1, 7216.0), (4, 5600.0), (5, 5212.0), (32, 2014.0)]), 32)
+    m = ACQ.MarketCurve(_field([9999] * 10, (5400, 3500)), money, replacement_rank=200)
+    assert m.player_faab(3000.0) < m.faab(3000.0)                              # a player is priced above replacement
+    assert ACQ.asset_faab(3000.0, money, m) == m.faab(3000.0)                  # a pick is not
+    assert ACQ.asset_faab(3000.0, money, m, player=True) == m.player_faab(3000.0)
+
+
 def test_field_values_skip_stale_quotes():
     from datetime import date
     hist = {"a": (["2024-08-01", "2024-09-10"], [9000.0, 9100.0]),

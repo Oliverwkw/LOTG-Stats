@@ -22237,20 +22237,33 @@ def build_all(repo_root: Path) -> None:
             except NameError:
                 _pae_hist = {}
             _pae_fields: Dict[Any, Any] = {}
+            # The replacement line by season: the league's last rostered spot
+            # (roster spots, taxi and IR not counted, x teams; less the 2025+
+            # supertaxi long shot) — acquisition.replacement_rank.
+            _pae_spots = {int(_y): len([_x for _x in (_rp or []) if str(_x).upper() != "IR"])
+                          for _y, _rp in (_bold_roster_positions or {}).items()}
 
-            def _pae_field(_on):
+            def _pae_repl_rank(_season):
+                if _season is None or not _pae_spots:
+                    return None
+                _y = int(_season)
+                _sp = _pae_spots.get(_y) or _pae_spots[max(_pae_spots) if _y > max(_pae_spots) else min(_pae_spots)]
+                return _acq.replacement_rank(_sp, _pae_teams, _y)
+
+            def _pae_field(_on, _season=None):
                 if _on is None or not _pae_hist:
                     return None
-                if _on not in _pae_fields:
+                _key = (_on, _pae_repl_rank(_season))
+                if _key not in _pae_fields:
                     _vals = _acq.field_values(_pae_hist, _on)
-                    _pae_fields[_on] = (_acq.MarketCurve(_vals, _pae_money)
-                                        if len(_vals) >= 10 else None)
-                return _pae_fields[_on]
+                    _pae_fields[_key] = (_acq.MarketCurve(_vals, _pae_money, replacement_rank=_key[1])
+                                         if len(_vals) >= 10 else None)
+                return _pae_fields[_key]
 
-            def _pae_ktc_faab(_k, _on):
+            def _pae_ktc_faab(_k, _on, _season=None, _player=False):
                 """An asset worth `_k` KTC on `_on` in FAAB $, on that day's
-                market curve."""
-                return _acq.asset_faab(_k, _pae_money, _pae_field(_on))
+                market curve; a player above that season's replacement line."""
+                return _acq.asset_faab(_k, _pae_money, _pae_field(_on, _season), player=_player)
 
             def _pae_rookie_slot_faab(_year, _round, _slot, _on=None):
                 """A rookie pick on the board: a 5.0X is locked; otherwise the
@@ -22305,16 +22318,19 @@ def build_all(repo_root: Path) -> None:
                     return _d
                 return _d * _acq.PICK_YEAR_DISCOUNT ** max(_yr - _pae_next_draft(_on), 0)
 
-            def _pae_asset_faab(_key, _v, _on=None):
+            def _pae_asset_faab(_key, _v, _on=None, _season=None):
                 """One traded asset in FAAB $: FAAB is its dollars, a pick is
-                priced on the board, a player by his KTC that day."""
+                priced on the board, a player by his KTC that day, above
+                replacement."""
                 if _key[0] == "k":
                     _d = _pae_traded_pick_faab(_key[1], _on)
                     if _d is not None:
                         return _d
                 if _v is None:
                     return None
-                return float(_v) / _pae_kpf if _key[0] == "f" else _pae_ktc_faab(float(_v), _on)
+                if _key[0] == "f":
+                    return float(_v) / _pae_kpf
+                return _pae_ktc_faab(float(_v), _on, _season, _player=True)
 
             # Trade prices: the dollars of everything sent, split across what
             # came back by their dollars (captured per asset in the trades pass).
@@ -22337,14 +22353,18 @@ def build_all(repo_root: Path) -> None:
                         if abs(float(_rawm) - float(_diff)) > 0.11:
                             _pae_recon_bad += 1
                     _on = _pa_to_date(str(tr.at[_ti, "Date"])[:10]) if "Date" in tr.columns else None
-                    _sent_d = ([_pae_asset_faab(_k, _v, _on) for _k, _v in _sent_assets]
+                    try:
+                        _tsea = int(tr.at[_ti, "Season"])
+                    except Exception:
+                        _tsea = _on.year if _on else None
+                    _sent_d = ([_pae_asset_faab(_k, _v, _on, _tsea) for _k, _v in _sent_assets]
                                if isinstance(_sent_assets, list) else [None])
                     if any(_d is None for _d in _sent_d):
                         _log(debug, f"[{_now_iso()}] INFO price paid: sent side unvalued on {_where}: "
                                     f"{tr.at[_ti, 'Assets sent'] if 'Assets sent' in tr.columns else ''}")
                         continue
                     _sent = sum(_sent_d)
-                    _vals = [_pae_asset_faab(_k, _v, _on) for _k, _v in _recv]
+                    _vals = [_pae_asset_faab(_k, _v, _on, _tsea) for _k, _v in _recv]
                     _shares = _acq.value_shares(_vals)
                     if _shares is None and _vals:
                         _unv = [(str((pid_meta.get(_k[1]) or {}).get("full_name") or _k[1]) if _k[0] == "p"

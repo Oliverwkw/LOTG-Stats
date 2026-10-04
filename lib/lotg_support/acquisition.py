@@ -129,6 +129,19 @@ FIELD_ANCHOR_RANK = 49
 FIELD_GROWTH = 2.619
 FIELD_GROWTH_LOW = 8.26
 LOW_STRENGTH = 0.5
+# A PLAYER is priced above replacement (user, 2026-10-03): a guy the league
+# could pick up for free costs no FAAB. The replacement line is the field's
+# player at the league's last rostered spot — roster spots (taxi and IR not
+# counted) x teams, less one per team from SUPERTAXI_FROM, when a third taxi slot
+# for long shots (<50% rostered) arrived, assumed to hold a zero-value player:
+# 168 in 2020, 184 in 2021-23, 208 in 2024, 200 in 2025-26. The deduction is
+# faded, not a hard floor (league opinion and KTC don't always agree): a softplus
+# with scale (line price / REPLACEMENT_FADE), so a player well above the line
+# loses about the line's price and one below it shrinks smoothly toward $0
+# (Cooper Kupp, 2026-10-03: $17 -> ~$3.50). Picks keep their board price — the
+# league pays $20 FAAB for a 5.0X — and FAAB is its dollars.
+SUPERTAXI_FROM = 2025
+REPLACEMENT_FADE = 2.5
 FIELD_STALE_DAYS = 30
 FIELD_STALE_DAYS_PRE_DAILY = 365
 KTC_DAILY_FLOOR = date(2021, 4, 16)    # the dynasty-daddy mirror's first daily quote
@@ -274,6 +287,21 @@ class MoneyCurve:
         return (self.k_last / self.ktc_per_faab) * self.r ** (self.last_slot - self.slot_of(k))
 
 
+def replacement_rank(roster_spots: int, teams: int, season: int) -> int:
+    """The league's last rostered spot in a season (taxi and IR not counted),
+    less the supertaxi long shot from SUPERTAXI_FROM."""
+    return int(roster_spots) * int(teams) - (int(teams) if int(season) >= SUPERTAXI_FROM else 0)
+
+
+def above_replacement(price: float, line_price: float) -> float:
+    """A player's price above the replacement line, faded (softplus)."""
+    if line_price <= 0:
+        return max(float(price), 0.0)
+    s = line_price / REPLACEMENT_FADE
+    e = (float(price) - line_price) / s
+    return s * (math.log1p(math.exp(e)) if e < 30 else e)
+
+
 @dataclass
 class MarketCurve:
     """KTC -> FAAB $ on one date, relative to that day's field (see the
@@ -282,6 +310,7 @@ class MarketCurve:
     player_values: Sequence[float]
     money: "MoneyCurve"
     anchor_faab: float = MID_FIRST_FAAB
+    replacement_rank: Optional[int] = None
 
     def __post_init__(self):
         vals = sorted((float(v) for v in self.player_values if v is not None), reverse=True)
@@ -293,6 +322,14 @@ class MarketCurve:
         self.spread_top = max(self.top10 - self.k0, 1.0)
         self.spread_low = max(self.k0 - self.k100, 1.0)
         self._m0 = self.money.faab(self.k0) or self.anchor_faab
+        self.line_faab = None
+        if self.replacement_rank:
+            self.line_faab = self.faab(vals[min(int(self.replacement_rank), len(vals)) - 1])
+
+    def player_faab(self, ktc: float) -> float:
+        """A PLAYER's price: the market price above the replacement line."""
+        p = self.faab(ktc)
+        return above_replacement(p, self.line_faab) if self.line_faab is not None else p
 
     def faab(self, ktc: float) -> float:
         k = float(ktc)
@@ -318,13 +355,14 @@ def field_values(histories: Dict[str, Tuple[List[str], List[float]]], on: date) 
     return out
 
 
-def asset_faab(ktc: Optional[float], money: "MoneyCurve", market: Optional[MarketCurve] = None) -> Optional[float]:
-    """An asset worth `ktc` in FAAB $ on the day's market curve, or on the
-    money curve alone when there is no field for the date."""
+def asset_faab(ktc: Optional[float], money: "MoneyCurve", market: Optional[MarketCurve] = None,
+               player: bool = False) -> Optional[float]:
+    """An asset worth `ktc` in FAAB $ on the day's market curve (a player above
+    replacement), or on the money curve alone when there is no field."""
     if ktc is None or (isinstance(ktc, float) and math.isnan(ktc)):
         return None
     if market is not None:
-        return market.faab(float(ktc))
+        return market.player_faab(float(ktc)) if player else market.faab(float(ktc))
     return money.faab(float(ktc))
 
 
