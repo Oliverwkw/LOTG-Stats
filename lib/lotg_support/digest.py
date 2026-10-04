@@ -1681,6 +1681,35 @@ _BOARD_SHEETS = {
 # ---------------------------------------------------------------------------
 _WEEK_SHEETS = ("player_week", "team_week", "league_week")
 _EVENT_SHEETS = ("trades", "add_drops", "player_additions") + _PICK_SHEETS
+# Columns a move fixes the moment it is made — a deal-time value, a price, a
+# bid, the player's age or form before it. They have no sample to wait for, so
+# a new move stands on every end of them at once instead of waiting
+# EVENT_MIN_WEEKS (user, 2026-10-03, all sheets). Listed explicitly, not
+# guessed from the name: "Tanking" (drifts between builds), pick-adjusted
+# differences (their slot pools move) and the "N years later" checkpoints are
+# not locked. Draft rows' Price paid can still move slightly as a new rookie
+# class joins the board it is priced on; it is treated as locked.
+LOCKED_AT_MOVE: Dict[str, frozenset] = {
+    "trades": frozenset({
+        "KTC value difference at deal time", "Pick value received",
+        "Avg PPG of received players in 5 games before trade",
+        "Avg PPG of received players in 5 games before trade adjusted by position",
+        "Asset difference in average age", "Number of assets received",
+        "Number of assets traded away", "Total number of assets in trade",
+        "Number of teams involved"}),
+    "add_drops": frozenset({
+        "Faab", "Total FAAB bid", "FAAB difference over second place", "FAAB premium %",
+        "Number of bids", "KTC value of player added at deal time",
+        "KTC value of player dropped at deal time", "Net KTC value at deal time",
+        "PPG of 5 games before pickup", "PPG of 5 games before pickup adjusted by position",
+        "Age difference", "Cuff at time of pickup?"}),
+    "player_additions": frozenset({
+        "Price paid (FAAB)", "KTC at pickup", "Age at pickup",
+        "PPG of 5 games before pickup", "PPG of 5 games before pickup adjusted by position",
+        "Cuff at pickup?"}),
+    "rookie_picks": frozenset({"KTC on draft day", "Age when drafted", "Cuff when drafted?"}),
+    "non_rookie_picks": frozenset({"KTC on draft day", "Age when drafted", "Cuff when drafted?"}),
+}
 # player_week tenure columns: an average over the player's CURRENT stint on the
 # team, which began with the move that brought him there.
 _TENURE_MARKERS = ("on team", "team starter", "by this team")
@@ -1780,7 +1809,10 @@ class BoardGate:
       * the in-progress season's player/team/league season rows: until the season
         is over. "On pace" (week 5 on) reports them meanwhile.
       * trades, add/drops, pickups and draft picks: until `EVENT_MIN_WEEKS` NFL
-        weeks have been played since the move (an offseason move: week 5).
+        weeks have been played since the move (an offseason move: week 5) —
+        except on a column the move fixes the moment it is made
+        (`LOCKED_AT_MOVE`: deal-time values, prices, bids, age and form before
+        it), which stands on every end at once.
       * player_week: a season-to-date column ("... this season") on the
         in-progress season's rows until week `MIN_YEARLY_WEEK` — then all of them,
         week 1's included; a tenure column ("PPG as team starter") until the stint
@@ -1880,6 +1912,8 @@ class BoardGate:
         if sheet in _YEARLY_SHEETS:
             kind = "season"
         elif sheet in _EVENT_SHEETS:
+            if column in LOCKED_AT_MOVE.get(sheet, ()):
+                return None              # fixed at the move: nothing to wait for
             kind = "event"
         elif sheet == "player_week":
             c = column.lower()

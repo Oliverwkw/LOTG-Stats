@@ -1282,6 +1282,22 @@ guard-skipped fire), 581→584 (#453), 584→589 (#454), 589→597 (#455).
   added or removed. Open: digest — exempt stats locked at the move from the 5-week gate
   (separate PR, per user).
 
+## Digest: stats locked at the move skip the 5-week gate
+- [ ] **`digest.LOCKED_AT_MOVE`** [per user, 2026-10-03, all sheets]. A trade, add/drop,
+  pickup or draft-pick row used to stand only on the high end of a counting stat until
+  `EVENT_MIN_WEEKS` (5) NFL weeks after the move. Columns the move fixes the moment it is
+  made have no sample to wait for and now stand on every end at once: deal-time KTC values,
+  Pick value received, pre-move form (PPG of 5 games before), FAAB bids and margins, Price
+  paid (FAAB), KTC at pickup / on draft day, ages at the move, cuff flags, asset counts.
+  Listed explicitly (not by name pattern); not locked: Tanking (drifts between builds),
+  pick-adjusted differences (their pools move), "N years later" checkpoints. Guards:
+  `check_locked_at_move_columns_skip_the_wait`, `check_locked_at_move_columns_exist`.
+  Effect on today's digest (committed exports + snapshot): +14 lines, all on locked
+  columns of young moves (e.g. 2026 1.01 Jeremiyah Love's 7,573 KTC on draft day); the
+  lede's count of new results changes accordingly; nothing else moves. Side finding (not
+  changed): `scripts/build_digest.py` writes to the `--snapshot` file it is given — run it
+  on a copy when comparing by hand.
+
 ## Phase 15 — TBD: OLD LEAGUES
 - [ ] **TBD.** Placeholder for integrating other historical/old leagues' data (e.g. the
   separate ESPN leagues seen in the 2020 emails — UChicago '24 = leagueId 57687541, UChi

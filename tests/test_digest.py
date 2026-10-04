@@ -1455,6 +1455,8 @@ def run_all() -> bool:
         check_in_progress_season_rows_only_on_counting_high_end,
         check_young_moves_only_on_counting_high_end,
         check_offseason_move_joins_at_week_5,
+        check_locked_at_move_columns_skip_the_wait,
+        check_locked_at_move_columns_exist,
         check_week_rows_season_to_date_and_new_stint_wait,
         check_a_running_total_passing_its_own_row_is_not_news,
         check_a_stationary_tie_join_is_not_news,
@@ -1629,6 +1631,43 @@ def check_young_moves_only_on_counting_high_end():
     ok &= _ok("five NFL weeks after the move, all of it stands",
               ("Avg PPG of received players on team", "high") in new2
               and ("Trade addition value", "low") in new2, new2)
+    return ok
+
+
+def check_locked_at_move_columns_skip_the_wait():
+    """User 2026-10-03: a stat fixed the moment a move is made (a deal-time
+    value, a price, a bid) has no sample to wait for, so a young move stands on
+    every end of it at once; its averages and values still wait."""
+    tr = _trades("2026-09-16").assign(**{
+        "KTC value difference at deal time": [100.0, 200.0, 300.0, 400.0, 500.0, -9000.0],
+        "Pick value received": [10.0, 20.0, 30.0, 40.0, 50.0, 9000.0]})
+    young = {"trades": tr, "team_week": _weeks(y2025=17, y2026=3)}
+    new = {(h.column, h.end) for h in D.board_highlights(tr, "trades", window=3, gate=D.BoardGate(young))
+           if h.label.startswith("New's")}
+    ok = _ok("a locked value stands at its LOW end at once (KTC value difference at deal time)",
+             ("KTC value difference at deal time", "low") in new, new)
+    ok &= _ok("and at its high end (Pick value received)", ("Pick value received", "high") in new, new)
+    ok &= _ok("an average still waits (Avg PPG on team)",
+              not any(c.startswith("Avg PPG") for c, _e in new), new)
+    ok &= _ok("a value still waits (lowest Trade addition value)",
+              ("Trade addition value", "low") not in new, new)
+    gate = D.BoardGate(young)
+    ok &= _ok("the gate holds nothing on a locked column",
+              gate.restricted(tr, "trades", "Pick value received") is None)
+    ok &= _ok("Tanking is not locked (it drifts between builds)",
+              "Tanking" not in D.LOCKED_AT_MOVE["trades"])
+    return ok
+
+
+def check_locked_at_move_columns_exist():
+    """Every locked column is a real column of its sheet in the plan, so a
+    rename cannot quietly drop it from the list."""
+    from lotg_support.plan import load_plan_catalog
+    plan = load_plan_catalog(_ROOT / "plan" / "LOTG Plan - Sheet1.csv")
+    ok = True
+    for sheet, cols in D.LOCKED_AT_MOVE.items():
+        have = set(plan.get(sheet, []))
+        ok &= _ok(f"{sheet}: every locked column is on the sheet", cols <= have, sorted(cols - have))
     return ok
 
 
