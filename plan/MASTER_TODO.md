@@ -1417,3 +1417,24 @@ guard-skipped fire), 581→584 (#453), 584→589 (#454), 589→597 (#455).
     starter's E barely matters (a = .09). That is what the data fit.
   - by-design: the fit uses only backups who played that week (the same selection as
     before).
+- [x] **#471 next man up by touches** [per user, 2026-10-04: "the player who got the most
+  touches ... in games where the players being compared were healthy"]. 3-part audit
+  PASS on the boldness change (post-merge run 37220023483, merge `55fea81`, vs #470's
+  run 37217627715; branch run 37219361784 identical cell for cell). Part 1: boldness
+  `7771 starts, 832 lineups`, no ERROR; **1 unrelated failure** —
+  `test_every_sleeper_status_pair_is_classified`: Sleeper started emitting
+  injury_status "Active" (status Active) for one player, free agent Joe Mixon, between
+  the branch run and this one. needs-human-judgment: add a designation or an
+  UNDECIDED_STATUS_PAIRS entry. Boldness treats it as available (not in
+  LIVE_OUT_STATUSES), which is right. Part 2: D'Ernest Johnson 2021 wk 10 (Chubb out,
+  21.7 pts) now gets the CLE lift, so Oliverwkw's lineup 7.17 → 1.91; 2026 wk 4 MIA lifts
+  Gordon (3 v 2 touches in their one shared game); 0 negatives, 0 lineups below their
+  boldest start, team_year = mean of team_week (≤ 0.005); Formulas row updated.
+  Part 3: only player_week Boldness (526), team_week (253) / team_year (42) /
+  team_all_time (8) Lineup Boldness and 1 Formulas row moved.
+  - needs-human-judgment: **WR picks.** On the 102 WR events where the rules disagree,
+    the target-based pick out-targeted the E pick in the absence week only 40% vs 48%,
+    yet the lift RMSE is better (7.22 vs 7.33). RB 62% vs 36%, TE 56% vs 37%, QB 4/5.
+  - needs-human-judgment: **one shared game decides 68 of 242 differing events**, and
+    on those the touch pick wins 51% vs 46% (barely better than a coin flip). Possible
+    fix: require ≥ 2 shared games, otherwise use E. Not built.
