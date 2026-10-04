@@ -9,12 +9,12 @@ created: 4/4 workers
 
 scheduling tests via LoadScheduling
 
-tests/test_boldness.py::test_the_reference_could_legally_have_started 
-tests/test_contracts.py::test_rank_persistence_separates_a_stable_metric_from_a_shuffled_one 
+tests/test_analysis.py::test_starter_points_reconcile_with_the_built_pf 
 tests/test_2020_starter_slots.py::test_slot_order_is_stable_within_a_repeated_slot 
 [gw0] [  0%] PASSED tests/test_2020_starter_slots.py::test_slot_order_is_stable_within_a_repeated_slot 
 tests/test_2020_starter_slots.py::test_an_unknown_slot_sorts_last_rather_than_displacing_a_known_one 
-tests/test_analysis.py::test_starter_points_reconcile_with_the_built_pf 
+tests/test_boldness.py::test_the_reference_could_legally_have_started 
+tests/test_contracts.py::test_rank_persistence_separates_a_stable_metric_from_a_shuffled_one 
 [gw0] [  0%] PASSED tests/test_2020_starter_slots.py::test_an_unknown_slot_sorts_last_rather_than_displacing_a_known_one 
 tests/test_2020_starter_slots.py::test_the_template_order_has_one_source 
 [gw0] [  0%] PASSED tests/test_2020_starter_slots.py::test_the_template_order_has_one_source 
@@ -133,25 +133,31 @@ tests/test_draft_capital.py::test_exchange_rate_exceeds_one
 tests/test_draft_capital.py::test_cost_target_and_baseline_share_a_weeks_basis 
 [gw0] [ 10%] PASSED tests/test_draft_capital.py::test_cost_target_and_baseline_share_a_weeks_basis 
 tests/test_draft_capital.py::test_cost_warns_that_it_is_a_floor 
+[gw1] [ 10%] PASSED tests/test_analysis.py::test_stack_counts_match_the_build 
+tests/test_analysis.py::test_every_named_player_gets_a_position 
 [gw0] [ 10%] PASSED tests/test_draft_capital.py::test_cost_warns_that_it_is_a_floor 
 tests/test_draft_capital.py::test_order_rule_switches_at_the_documented_draft 
 [gw0] [ 10%] PASSED tests/test_draft_capital.py::test_order_rule_switches_at_the_documented_draft 
 tests/test_draft_capital.py::test_order_comparison_prices_both_rules 
 [gw0] [ 10%] PASSED tests/test_draft_capital.py::test_order_comparison_prices_both_rules 
 tests/test_draft_capital.py::test_unknown_rule_raises 
-[gw0] [ 10%] PASSED tests/test_draft_capital.py::test_unknown_rule_raises 
+[gw0] [ 11%] PASSED tests/test_draft_capital.py::test_unknown_rule_raises 
 tests/test_dropped_points_sign.py::test_dropped_points_sign 
 [gw0] [ 11%] PASSED tests/test_dropped_points_sign.py::test_dropped_points_sign 
 tests/test_early_season_windows.py::test_early_season_windows 
 [gw0] [ 11%] PASSED tests/test_early_season_windows.py::test_early_season_windows 
 tests/test_email_summary.py::test_email_summary 
-[gw1] [ 11%] PASSED tests/test_analysis.py::test_stack_counts_match_the_build 
+[gw1] [ 11%] PASSED tests/test_analysis.py::test_every_named_player_gets_a_position 
 [gw0] [ 11%] PASSED tests/test_email_summary.py::test_email_summary 
+tests/test_analysis.py::test_positions_are_per_season_from_the_build 
 tests/test_empty_slot_reference.py::test_empty_slot_reference 
-tests/test_analysis.py::test_every_named_player_gets_a_position 
-[gw0] [ 11%] PASSED tests/test_empty_slot_reference.py::test_empty_slot_reference 
+[gw1] [ 11%] PASSED tests/test_analysis.py::test_positions_are_per_season_from_the_build 
+tests/test_analysis.py::test_position_group_measures_depth_not_just_total 
+[gw1] [ 12%] PASSED tests/test_analysis.py::test_position_group_measures_depth_not_just_total 
+tests/test_analysis.py::test_lineup_stacks_carry_the_ceiling_columns 
+[gw0] [ 12%] PASSED tests/test_empty_slot_reference.py::test_empty_slot_reference 
 tests/test_forecast.py::test_rookie_price_prefers_the_market_and_falls_back_to_the_slot 
-[gw0] [ 11%] PASSED tests/test_forecast.py::test_rookie_price_prefers_the_market_and_falls_back_to_the_slot 
+[gw0] [ 12%] PASSED tests/test_forecast.py::test_rookie_price_prefers_the_market_and_falls_back_to_the_slot 
 tests/test_forecast.py::test_age_curve_only_adjusts_positions_it_fitted 
 [gw0] [ 12%] PASSED tests/test_forecast.py::test_age_curve_only_adjusts_positions_it_fitted 
 tests/test_forecast.py::test_strength_split_never_goes_imaginary 
@@ -159,14 +165,8 @@ tests/test_forecast.py::test_strength_split_never_goes_imaginary
 tests/test_forecast.py::test_models_label_every_assumption 
 [gw0] [ 12%] PASSED tests/test_forecast.py::test_models_label_every_assumption 
 tests/test_forecast.py::test_bracket_pipeline_reproduces_every_built_season 
-[gw0] [ 12%] PASSED tests/test_forecast.py::test_bracket_pipeline_reproduces_every_built_season 
+[gw0] [ 13%] PASSED tests/test_forecast.py::test_bracket_pipeline_reproduces_every_built_season 
 tests/test_forecast.py::test_a_finished_season_forecasts_at_one_hundred_percent 
-[gw1] [ 12%] PASSED tests/test_analysis.py::test_every_named_player_gets_a_position 
-tests/test_analysis.py::test_positions_are_per_season_from_the_build 
-[gw1] [ 12%] PASSED tests/test_analysis.py::test_positions_are_per_season_from_the_build 
-tests/test_analysis.py::test_position_group_measures_depth_not_just_total 
-[gw1] [ 13%] PASSED tests/test_analysis.py::test_position_group_measures_depth_not_just_total 
-tests/test_analysis.py::test_lineup_stacks_carry_the_ceiling_columns 
 [gw1] [ 13%] PASSED tests/test_analysis.py::test_lineup_stacks_carry_the_ceiling_columns 
 tests/test_analysis.py::test_replacement_level_comes_from_what_the_league_starts 
 [gw1] [ 13%] PASSED tests/test_analysis.py::test_replacement_level_comes_from_what_the_league_starts 
@@ -197,43 +197,45 @@ tests/test_analysis.py::test_current_rosters_can_be_aged_and_the_ranking_survive
 tests/test_analysis.py::test_reads_are_pure 
 [gw1] [ 15%] PASSED tests/test_analysis.py::test_reads_are_pure 
 tests/test_audit_weekly.py::test_audit_weekly 
-[gw3] [ 15%] PASSED tests/test_contracts.py::test_derived_league_cap_tracks_the_published_cap 
-tests/test_contracts.py::test_the_cost_guards_pass_on_real_data 
-[gw1] [ 16%] PASSED tests/test_audit_weekly.py::test_audit_weekly 
+[gw1] [ 15%] PASSED tests/test_audit_weekly.py::test_audit_weekly 
 tests/test_bench_health_columns.py::test_player_year_recomputes_from_player_week 
 [gw2] [ 16%] PASSED tests/test_boldness.py::test_the_reference_could_legally_have_started 
 tests/test_boldness.py::test_rookie_slot_prior_learns_only_from_earlier_drafts 
 [gw2] [ 16%] PASSED tests/test_boldness.py::test_rookie_slot_prior_learns_only_from_earlier_drafts 
 tests/test_boldness.py::test_2020_runs_from_the_espn_backfill 
+[gw3] [ 16%] PASSED tests/test_contracts.py::test_derived_league_cap_tracks_the_published_cap 
+tests/test_contracts.py::test_the_cost_guards_pass_on_real_data 
 [gw1] [ 16%] PASSED tests/test_bench_health_columns.py::test_player_year_recomputes_from_player_week 
 tests/test_bench_health_columns.py::test_player_year_internal_identities 
 [gw1] [ 16%] PASSED tests/test_bench_health_columns.py::test_player_year_internal_identities 
 tests/test_bench_health_columns.py::test_all_time_sums_the_seasons 
-[gw3] [ 16%] PASSED tests/test_contracts.py::test_the_cost_guards_pass_on_real_data 
-tests/test_contracts.py::test_summary_reports_fdr_q_values_over_the_whole_family 
-[gw1] [ 17%] PASSED tests/test_bench_health_columns.py::test_all_time_sums_the_seasons 
+[gw1] [ 16%] PASSED tests/test_bench_health_columns.py::test_all_time_sums_the_seasons 
 tests/test_bench_health_columns.py::test_player_additions_reconcile 
-[gw3] [ 17%] PASSED tests/test_contracts.py::test_summary_reports_fdr_q_values_over_the_whole_family 
-tests/test_contracts.py::test_the_permutation_p_is_deterministic_and_two_sided 
-[gw3] [ 17%] PASSED tests/test_contracts.py::test_the_permutation_p_is_deterministic_and_two_sided 
-tests/test_contracts.py::test_big_signings_join_to_real_seasons 
+[gw3] [ 17%] PASSED tests/test_contracts.py::test_the_cost_guards_pass_on_real_data 
+tests/test_contracts.py::test_summary_reports_fdr_q_values_over_the_whole_family 
 [gw1] [ 17%] PASSED tests/test_bench_health_columns.py::test_player_additions_reconcile 
 tests/test_boldness.py::test_draft_rounds_bucket_as_documented 
 [gw1] [ 17%] PASSED tests/test_boldness.py::test_draft_rounds_bucket_as_documented 
 tests/test_boldness.py::test_lineup_fits_allows_a_reshuffle_but_not_an_illegal_lineup 
 [gw1] [ 17%] PASSED tests/test_boldness.py::test_lineup_fits_allows_a_reshuffle_but_not_an_illegal_lineup 
 tests/test_boldness.py::test_the_best_lineup_uses_each_players_eligibility_not_one_position 
-[gw1] [ 18%] PASSED tests/test_boldness.py::test_the_best_lineup_uses_each_players_eligibility_not_one_position 
+[gw1] [ 17%] PASSED tests/test_boldness.py::test_the_best_lineup_uses_each_players_eligibility_not_one_position 
 tests/test_boldness.py::test_lineup_boldness_covers_every_single_start 
+[gw3] [ 17%] PASSED tests/test_contracts.py::test_summary_reports_fdr_q_values_over_the_whole_family 
+tests/test_contracts.py::test_the_permutation_p_is_deterministic_and_two_sided 
+[gw3] [ 18%] PASSED tests/test_contracts.py::test_the_permutation_p_is_deterministic_and_two_sided 
+tests/test_contracts.py::test_big_signings_join_to_real_seasons 
 [gw0] [ 18%] PASSED tests/test_forecast.py::test_a_finished_season_forecasts_at_one_hundred_percent 
 tests/test_forecast.py::test_validate_runs_every_guard_over_every_completed_season 
-[gw0] [ 18%] PASSED tests/test_forecast.py::test_validate_runs_every_guard_over_every_completed_season 
-tests/test_forecast.py::test_schedule_balance_is_reported_not_assumed 
 [gw3] [ 18%] PASSED tests/test_contracts.py::test_big_signings_join_to_real_seasons 
 tests/test_contracts.py::test_matched_cohorts_start_level 
+[gw0] [ 18%] PASSED tests/test_forecast.py::test_validate_runs_every_guard_over_every_completed_season 
+tests/test_forecast.py::test_schedule_balance_is_reported_not_assumed 
+[gw2] [ 18%] PASSED tests/test_boldness.py::test_2020_runs_from_the_espn_backfill 
+tests/test_boldness.py::test_the_build_path_matches_the_inquiry_path 
 [gw0] [ 18%] PASSED tests/test_forecast.py::test_schedule_balance_is_reported_not_assumed 
 tests/test_forecast.py::test_strength_of_schedule_is_zero_when_the_schedule_is_balanced 
-[gw0] [ 18%] PASSED tests/test_forecast.py::test_strength_of_schedule_is_zero_when_the_schedule_is_balanced 
+[gw0] [ 19%] PASSED tests/test_forecast.py::test_strength_of_schedule_is_zero_when_the_schedule_is_balanced 
 tests/test_forecast.py::test_rates_only_ever_look_backwards 
 [gw0] [ 19%] PASSED tests/test_forecast.py::test_rates_only_ever_look_backwards 
 tests/test_forecast.py::test_the_age_curve_says_players_decline 
@@ -243,7 +245,7 @@ tests/test_forecast.py::test_rookies_are_priced_by_the_market_and_the_fit_is_rea
 tests/test_forecast.py::test_rookie_class_strength_compares_like_for_like 
 [gw0] [ 19%] PASSED tests/test_forecast.py::test_rookie_class_strength_compares_like_for_like 
 tests/test_forecast.py::test_taxi_players_are_not_startable 
-[gw0] [ 19%] PASSED tests/test_forecast.py::test_taxi_players_are_not_startable 
+[gw0] [ 20%] PASSED tests/test_forecast.py::test_taxi_players_are_not_startable 
 tests/test_forecast.py::test_injuries_cost_points_and_depth_decides_how_many 
 [gw0] [ 20%] PASSED tests/test_forecast.py::test_injuries_cost_points_and_depth_decides_how_many 
 tests/test_forecast.py::test_preseason_injury_flags_are_stale_and_are_not_believed 
@@ -253,8 +255,6 @@ tests/test_forecast.py::test_the_backtest_may_not_see_the_present
 tests/test_forecast.py::test_the_research_file_is_sourced_dated_and_lands_on_real_players 
 [gw0] [ 20%] PASSED tests/test_forecast.py::test_the_research_file_is_sourced_dated_and_lands_on_real_players 
 tests/test_forecast.py::test_research_moves_the_players_it_names 
-[gw2] [ 20%] PASSED tests/test_boldness.py::test_2020_runs_from_the_espn_backfill 
-tests/test_boldness.py::test_the_build_path_matches_the_inquiry_path 
 [gw0] [ 20%] PASSED tests/test_forecast.py::test_research_moves_the_players_it_names 
 tests/test_forecast.py::test_an_unsigned_player_cannot_score 
 [gw0] [ 21%] SKIPPED tests/test_forecast.py::test_an_unsigned_player_cannot_score 
@@ -267,22 +267,22 @@ tests/test_contracts.py::test_the_contracts_file_is_the_maintained_one
 tests/test_forecast.py::test_a_league_of_identical_teams_comes_out_uniform 
 [gw3] [ 21%] PASSED tests/test_contracts.py::test_the_contracts_file_is_the_maintained_one 
 tests/test_cross_sheet_reconciliation.py::test_cross_sheet_reconciliation 
-[gw0] [ 21%] PASSED tests/test_forecast.py::test_a_league_of_identical_teams_comes_out_uniform 
-tests/test_forecast.py::test_probabilities_close 
-[gw1] [ 22%] PASSED tests/test_boldness.py::test_lineup_boldness_covers_every_single_start 
+[gw1] [ 21%] PASSED tests/test_boldness.py::test_lineup_boldness_covers_every_single_start 
 tests/test_boldness.py::test_filled_slots_drops_empty_markers_and_an_unlisted_tail 
 [gw1] [ 22%] PASSED tests/test_boldness.py::test_filled_slots_drops_empty_markers_and_an_unlisted_tail 
 tests/test_boldness.py::test_empty_slots_carry_no_boldness_and_are_counted 
+[gw0] [ 22%] PASSED tests/test_forecast.py::test_a_league_of_identical_teams_comes_out_uniform 
+tests/test_forecast.py::test_probabilities_close 
 [gw3] [ 22%] PASSED tests/test_cross_sheet_reconciliation.py::test_cross_sheet_reconciliation 
 tests/test_cross_source_and_pad.py::test_cross_source_and_pad 
 [gw3] [ 22%] PASSED tests/test_cross_source_and_pad.py::test_cross_source_and_pad 
 tests/test_cuff_consistency.py::test_cuff_consistency 
-[gw3] [ 22%] PASSED tests/test_cuff_consistency.py::test_cuff_consistency 
-tests/test_cuff_weekly.py::test_weekly_cuff_columns_agree 
 [gw1] [ 22%] PASSED tests/test_boldness.py::test_empty_slots_carry_no_boldness_and_are_counted 
 tests/test_boldness.py::test_a_dead_start_is_judged_like_an_empty_slot 
-[gw1] [ 23%] PASSED tests/test_boldness.py::test_a_dead_start_is_judged_like_an_empty_slot 
+[gw1] [ 22%] PASSED tests/test_boldness.py::test_a_dead_start_is_judged_like_an_empty_slot 
 tests/test_boldness.py::test_the_rookie_slot_prior_fades_out 
+[gw3] [ 23%] PASSED tests/test_cuff_consistency.py::test_cuff_consistency 
+tests/test_cuff_weekly.py::test_weekly_cuff_columns_agree 
 [gw1] [ 23%] PASSED tests/test_boldness.py::test_the_rookie_slot_prior_fades_out 
 tests/test_boldness.py::test_every_debatable_choice_is_a_parameter 
 [gw1] [ 23%] PASSED tests/test_boldness.py::test_every_debatable_choice_is_a_parameter 
@@ -329,10 +329,10 @@ tests/test_digest_missed_week.py::test_the_week_is_named_only_when_more_than_one
 tests/test_digest_missed_week.py::test_the_section_title_names_the_span_it_covers 
 [gw3] [ 27%] PASSED tests/test_digest_missed_week.py::test_the_section_title_names_the_span_it_covers 
 tests/test_digest_missed_week.py::test_a_real_missed_week_is_recovered_from_the_committed_exports 
-[gw1] [ 27%] PASSED tests/test_boldness.py::test_rescored_log_reproduces_the_builds_points 
-tests/test_boldness.py::test_team_boldness_is_never_negative_and_the_lineup_search_matches_max_pf 
 [gw0] [ 27%] PASSED tests/test_forecast.py::test_probabilities_close 
 tests/test_forecast.py::test_odds_track_strength 
+[gw1] [ 27%] PASSED tests/test_boldness.py::test_rescored_log_reproduces_the_builds_points 
+tests/test_boldness.py::test_team_boldness_is_never_negative_and_the_lineup_search_matches_max_pf 
 [gw1] [ 27%] PASSED tests/test_boldness.py::test_team_boldness_is_never_negative_and_the_lineup_search_matches_max_pf 
 tests/test_boldness.py::test_boldness_is_the_positive_part_of_edge 
 [gw1] [ 27%] PASSED tests/test_boldness.py::test_boldness_is_the_positive_part_of_edge 
@@ -381,11 +381,13 @@ tests/test_injury_gap_fill.py::test_no_injury_flag_coincides_with_snaps_played
 tests/test_forecast.py::test_simulated_weekly_spread_matches_history 
 [gw3] [ 31%] PASSED tests/test_digest_missed_week.py::test_a_real_missed_week_is_recovered_from_the_committed_exports 
 tests/test_digest_send.py::test_digest_send 
+[gw0] [ 31%] PASSED tests/test_forecast.py::test_simulated_weekly_spread_matches_history 
+tests/test_forecast.py::test_the_same_seed_gives_the_same_answer 
 [gw3] [ 31%] PASSED tests/test_digest_send.py::test_digest_send 
 tests/test_injury_tracker.py::test_designations 
 [gw3] [ 31%] PASSED tests/test_injury_tracker.py::test_designations 
 tests/test_injury_tracker.py::test_a_teamless_na_pickup_is_a_bye_not_a_suspension 
-[gw3] [ 31%] PASSED tests/test_injury_tracker.py::test_a_teamless_na_pickup_is_a_bye_not_a_suspension 
+[gw3] [ 32%] PASSED tests/test_injury_tracker.py::test_a_teamless_na_pickup_is_a_bye_not_a_suspension 
 tests/test_injury_tracker.py::test_an_exempt_list_week_is_a_suspension_not_an_injury 
 [gw3] [ 32%] PASSED tests/test_injury_tracker.py::test_an_exempt_list_week_is_a_suspension_not_an_injury 
 tests/test_injury_tracker.py::test_a_real_bye_survives_an_injury_designation 
@@ -397,7 +399,7 @@ tests/test_injury_tracker.py::test_week_is_derived_from_the_schedule_not_sleeper
 tests/test_injury_tracker.py::test_missing_weeks_and_dedup 
 [gw3] [ 32%] PASSED tests/test_injury_tracker.py::test_missing_weeks_and_dedup 
 tests/test_injury_tracker.py::test_season_from_date 
-[gw3] [ 32%] PASSED tests/test_injury_tracker.py::test_season_from_date 
+[gw3] [ 33%] PASSED tests/test_injury_tracker.py::test_season_from_date 
 tests/test_injury_tracker.py::test_a_curated_flag_is_never_cleared_or_reclassified 
 [gw3] [ 33%] PASSED tests/test_injury_tracker.py::test_a_curated_flag_is_never_cleared_or_reclassified 
 tests/test_injury_tracker.py::test_the_tracker_is_forward_only 
@@ -407,7 +409,7 @@ tests/test_injury_tracker.py::test_the_schedule_stops_at_the_regular_season
 tests/test_injury_tracker.py::test_sleeper_state_only_shouts_at_a_real_disagreement 
 [gw3] [ 33%] PASSED tests/test_injury_tracker.py::test_sleeper_state_only_shouts_at_a_real_disagreement 
 tests/test_injury_tracker.py::test_sleepers_empty_roster_slot_is_not_a_player 
-[gw3] [ 33%] PASSED tests/test_injury_tracker.py::test_sleepers_empty_roster_slot_is_not_a_player 
+[gw3] [ 34%] PASSED tests/test_injury_tracker.py::test_sleepers_empty_roster_slot_is_not_a_player 
 tests/test_injury_tracker.py::test_a_coachs_decision_inactive_is_an_injury_miss 
 [gw3] [ 34%] PASSED tests/test_injury_tracker.py::test_a_coachs_decision_inactive_is_an_injury_miss 
 tests/test_injury_tracker.py::test_the_capture_resolves_a_gsis_id 
@@ -417,9 +419,9 @@ tests/test_injury_tracker.py::test_a_placeholder_id_is_not_recorded_as_a_gsis
 tests/test_injury_tracker.py::test_every_id_in_the_committed_tracker_is_gsis_shaped 
 [gw3] [ 34%] PASSED tests/test_injury_tracker.py::test_every_id_in_the_committed_tracker_is_gsis_shaped 
 tests/test_injury_tracker.py::test_the_committed_bridge_closes_the_gap_sleeper_leaves 
-[gw0] [ 34%] PASSED tests/test_forecast.py::test_simulated_weekly_spread_matches_history 
-tests/test_forecast.py::test_the_same_seed_gives_the_same_answer 
-[gw3] [ 34%] PASSED tests/test_injury_tracker.py::test_the_committed_bridge_closes_the_gap_sleeper_leaves 
+[gw2] [ 34%] PASSED tests/test_boldness.py::test_the_build_path_matches_the_inquiry_path 
+tests/test_boldness.py::test_beta_is_an_nfl_fit_the_league_rosters_cannot_move 
+[gw3] [ 35%] PASSED tests/test_injury_tracker.py::test_the_committed_bridge_closes_the_gap_sleeper_leaves 
 tests/test_injury_tracker.py::test_the_capture_pins_a_relabelled_position 
 [gw3] [ 35%] PASSED tests/test_injury_tracker.py::test_the_capture_pins_a_relabelled_position 
 tests/test_injury_tracker.py::test_the_committed_tracker_agrees_with_the_pin 
@@ -431,14 +433,12 @@ tests/test_injury_tracker.py::test_the_committed_tracker_carries_few_na_weeks
 tests/test_inquiry.py::test_team_names_are_canonicalised_to_the_exports 
 [gw3] [ 35%] PASSED tests/test_inquiry.py::test_team_names_are_canonicalised_to_the_exports 
 tests/test_inquiry.py::test_player_resolution_prefers_the_fantasy_relevant_match 
-[gw3] [ 35%] PASSED tests/test_inquiry.py::test_player_resolution_prefers_the_fantasy_relevant_match 
+[gw3] [ 36%] PASSED tests/test_inquiry.py::test_player_resolution_prefers_the_fantasy_relevant_match 
 tests/test_inquiry.py::test_season_eligibility_absorbs_position_drift 
 [gw3] [ 36%] PASSED tests/test_inquiry.py::test_season_eligibility_absorbs_position_drift 
 tests/test_inquiry.py::test_week_and_pairings_match_the_league_shape 
 [gw3] [ 36%] PASSED tests/test_inquiry.py::test_week_and_pairings_match_the_league_shape 
 tests/test_inquiry.py::test_semifinal_bonus_explains_every_pf_mismatch 
-[gw2] [ 36%] PASSED tests/test_boldness.py::test_the_build_path_matches_the_inquiry_path 
-tests/test_boldness.py::test_beta_is_an_nfl_fit_the_league_rosters_cannot_move 
 [gw3] [ 36%] PASSED tests/test_inquiry.py::test_semifinal_bonus_explains_every_pf_mismatch 
 tests/test_inquiry.py::test_trades_resolve_both_sides 
 [gw3] [ 36%] PASSED tests/test_inquiry.py::test_trades_resolve_both_sides 
@@ -559,7 +559,13 @@ tests/test_move_season.py::test_the_all_time_sheets_roll_up_the_same_team_year_r
 tests/test_move_season.py::test_a_post_championship_move_is_in_no_week_of_the_season_it_left 
 [gw3] [ 46%] PASSED tests/test_move_season.py::test_a_post_championship_move_is_in_no_week_of_the_season_it_left 
 tests/test_nflverse_drift.py::test_nflverse_drift 
-[gw1] [ 46%] PASSED tests/test_injury_gap_fill.py::test_no_injury_flag_coincides_with_snaps_played 
+[gw3] [ 46%] PASSED tests/test_nflverse_drift.py::test_nflverse_drift 
+tests/test_no_binary_blobs_committed.py::test_no_compressed_or_binary_file_is_committed 
+[gw3] [ 47%] PASSED tests/test_no_binary_blobs_committed.py::test_no_compressed_or_binary_file_is_committed 
+tests/test_no_binary_blobs_committed.py::test_no_tracked_file_is_pathologically_large 
+[gw3] [ 47%] PASSED tests/test_no_binary_blobs_committed.py::test_no_tracked_file_is_pathologically_large 
+tests/test_no_public_emails.py::test_no_personal_email_addresses_are_committed 
+[gw1] [ 47%] PASSED tests/test_injury_gap_fill.py::test_no_injury_flag_coincides_with_snaps_played 
 tests/test_injury_tracker.py::test_synthetic_week_flags 
 [gw1] [ 47%] PASSED tests/test_injury_tracker.py::test_synthetic_week_flags 
 tests/test_injury_tracker.py::test_synthetic_bye_week_flags 
@@ -567,23 +573,19 @@ tests/test_injury_tracker.py::test_synthetic_bye_week_flags
 tests/test_injury_tracker.py::test_rams_are_not_on_a_bye_every_week 
 [gw1] [ 47%] PASSED tests/test_injury_tracker.py::test_rams_are_not_on_a_bye_every_week 
 tests/test_injury_tracker.py::test_participation_is_captured 
-[gw1] [ 47%] PASSED tests/test_injury_tracker.py::test_participation_is_captured 
+[gw1] [ 48%] PASSED tests/test_injury_tracker.py::test_participation_is_captured 
 tests/test_injury_tracker.py::test_nflverse_fallback_clears_when_sleeper_has_no_participation 
-[gw1] [ 47%] PASSED tests/test_injury_tracker.py::test_nflverse_fallback_clears_when_sleeper_has_no_participation 
+[gw1] [ 48%] PASSED tests/test_injury_tracker.py::test_nflverse_fallback_clears_when_sleeper_has_no_participation 
 tests/test_injury_tracker.py::test_the_build_bridges_reject_placeholder_ids_too 
-[gw1] [ 47%] PASSED tests/test_injury_tracker.py::test_the_build_bridges_reject_placeholder_ids_too 
+[gw1] [ 48%] PASSED tests/test_injury_tracker.py::test_the_build_bridges_reject_placeholder_ids_too 
 tests/test_injury_tracker.py::test_every_sleeper_status_pair_is_classified 
+[gw0] [ 48%] PASSED tests/test_forecast.py::test_the_same_seed_gives_the_same_answer 
+tests/test_forecast.py::test_an_unknown_strength_model_is_refused 
 [gw1] [ 48%] PASSED tests/test_injury_tracker.py::test_every_sleeper_status_pair_is_classified 
 tests/test_injury_tracker.py::test_no_rostered_player_carries_unpinned_position_drift 
-[gw3] [ 48%] PASSED tests/test_nflverse_drift.py::test_nflverse_drift 
-tests/test_no_binary_blobs_committed.py::test_no_compressed_or_binary_file_is_committed 
-[gw3] [ 48%] PASSED tests/test_no_binary_blobs_committed.py::test_no_compressed_or_binary_file_is_committed 
-tests/test_no_binary_blobs_committed.py::test_no_tracked_file_is_pathologically_large 
-[gw3] [ 48%] PASSED tests/test_no_binary_blobs_committed.py::test_no_tracked_file_is_pathologically_large 
-tests/test_no_public_emails.py::test_no_personal_email_addresses_are_committed 
 [gw1] [ 48%] PASSED tests/test_injury_tracker.py::test_no_rostered_player_carries_unpinned_position_drift 
 tests/test_injury_tracker.py::test_the_committed_tracker_header_matches_the_schema 
-[gw1] [ 48%] PASSED tests/test_injury_tracker.py::test_the_committed_tracker_header_matches_the_schema 
+[gw1] [ 49%] PASSED tests/test_injury_tracker.py::test_the_committed_tracker_header_matches_the_schema 
 tests/test_injury_tracker.py::test_a_gameday_sweep_merges_with_the_final_capture 
 [gw1] [ 49%] PASSED tests/test_injury_tracker.py::test_a_gameday_sweep_merges_with_the_final_capture 
 tests/test_injury_tracker.py::test_the_merge_never_lets_one_capture_wipe_another 
@@ -595,7 +597,7 @@ tests/test_injury_tracker.py::test_a_midweek_nfl_trade_cannot_invent_a_bye
 tests/test_injury_tracker.py::test_an_empty_tracker_is_a_starting_state_not_damage 
 [gw1] [ 49%] PASSED tests/test_injury_tracker.py::test_an_empty_tracker_is_a_starting_state_not_damage 
 tests/test_injury_tracker.py::test_a_damaged_csv_costs_its_damaged_lines_and_nothing_else 
-[gw1] [ 49%] PASSED tests/test_injury_tracker.py::test_a_damaged_csv_costs_its_damaged_lines_and_nothing_else 
+[gw1] [ 50%] PASSED tests/test_injury_tracker.py::test_a_damaged_csv_costs_its_damaged_lines_and_nothing_else 
 tests/test_injury_tracker.py::test_the_two_reasons_the_schedule_gives_no_week_are_not_the_same 
 [gw1] [ 50%] PASSED tests/test_injury_tracker.py::test_the_two_reasons_the_schedule_gives_no_week_are_not_the_same 
 tests/test_injury_tracker.py::test_capture_script_refuses_to_overwrite_or_reach_backwards 
@@ -607,7 +609,7 @@ tests/test_inquiry.py::test_to_number_handles_build_cells
 tests/test_inquiry.py::test_predicate_parsing_and_matching 
 [gw1] [ 50%] PASSED tests/test_inquiry.py::test_predicate_parsing_and_matching 
 tests/test_inquiry.py::test_filter_rows_is_conjunctive_and_names_near_misses 
-[gw1] [ 50%] PASSED tests/test_inquiry.py::test_filter_rows_is_conjunctive_and_names_near_misses 
+[gw1] [ 51%] PASSED tests/test_inquiry.py::test_filter_rows_is_conjunctive_and_names_near_misses 
 tests/test_inquiry.py::test_season_meta_shape_is_read_not_hardcoded 
 [gw1] [ 51%] PASSED tests/test_inquiry.py::test_season_meta_shape_is_read_not_hardcoded 
 tests/test_inquiry.py::test_sheets_load_and_carry_expected_keys 
@@ -619,10 +621,8 @@ tests/test_inquiry.py::test_top_ranks_numerically_not_lexically
 tests/test_inquiry.py::test_describe_column_reports_extremes 
 [gw1] [ 51%] PASSED tests/test_inquiry.py::test_describe_column_reports_extremes 
 tests/test_pick_sheets_split.py::test_pick_sheets_split 
-[gw1] [ 51%] PASSED tests/test_pick_sheets_split.py::test_pick_sheets_split 
+[gw1] [ 52%] PASSED tests/test_pick_sheets_split.py::test_pick_sheets_split 
 tests/test_player_history_continuity.py::test_no_player_history_continuity_breaks 
-[gw0] [ 52%] PASSED tests/test_forecast.py::test_the_same_seed_gives_the_same_answer 
-tests/test_forecast.py::test_an_unknown_strength_model_is_refused 
 [gw0] [ 52%] PASSED tests/test_forecast.py::test_an_unknown_strength_model_is_refused 
 tests/test_forecast.py::test_as_of_week_rewinds_the_clock 
 [gw3] [ 52%] PASSED tests/test_no_public_emails.py::test_no_personal_email_addresses_are_committed 
@@ -791,10 +791,10 @@ tests/test_schedule_watch.py::test_the_catch_up_runs_when_the_primary_did_not
 tests/test_schedule_watch.py::test_a_primary_that_died_before_rotating_does_not_suppress_the_catch_up 
 [gw3] [ 66%] PASSED tests/test_schedule_watch.py::test_a_primary_that_died_before_rotating_does_not_suppress_the_catch_up 
 tests/test_schedule_watch.py::test_the_guard_fails_open_on_every_unknown 
-[gw3] [ 66%] PASSED tests/test_schedule_watch.py::test_the_guard_fails_open_on_every_unknown 
-tests/test_schedule_watch.py::test_the_cli_prints_a_bare_boolean_and_never_raises 
 [gw2] [ 66%] PASSED tests/test_boldness.py::test_beta_is_an_nfl_fit_the_league_rosters_cannot_move 
 tests/test_boldness.py::test_the_inquiry_path_never_scores_a_week_the_build_has_not_finalized 
+[gw3] [ 66%] PASSED tests/test_schedule_watch.py::test_the_guard_fails_open_on_every_unknown 
+tests/test_schedule_watch.py::test_the_cli_prints_a_bare_boolean_and_never_raises 
 [gw3] [ 67%] PASSED tests/test_schedule_watch.py::test_the_cli_prints_a_bare_boolean_and_never_raises 
 tests/test_schedule_watch.py::test_an_unswept_week_is_a_finding 
 [gw3] [ 67%] PASSED tests/test_schedule_watch.py::test_an_unswept_week_is_a_finding 
@@ -821,14 +821,14 @@ tests/test_scoring_events.py::test_weekly_stats_are_regular_season_only
 tests/test_scoring_events.py::test_touchdown_total_is_the_sum_of_its_kinds 
 [gw3] [ 69%] PASSED tests/test_scoring_events.py::test_touchdown_total_is_the_sum_of_its_kinds 
 tests/test_scoring_events.py::test_the_join_reproduces_the_builds_own_starter_points 
+[gw0] [ 69%] PASSED tests/test_forecast.py::test_the_forecast_beats_guessing_on_seasons_that_happened 
+tests/test_forecast.py::test_the_backtest_is_actually_out_of_sample 
 [gw3] [ 69%] PASSED tests/test_scoring_events.py::test_the_join_reproduces_the_builds_own_starter_points 
 tests/test_scoring_events.py::test_every_lineup_slot_gets_a_starter_row 
 [gw3] [ 69%] PASSED tests/test_scoring_events.py::test_every_lineup_slot_gets_a_starter_row 
 tests/test_scoring_events.py::test_a_starter_with_no_stat_line_is_reported_not_counted_as_zero 
 [gw3] [ 69%] PASSED tests/test_scoring_events.py::test_a_starter_with_no_stat_line_is_reported_not_counted_as_zero 
 tests/test_scoring_events.py::test_the_slot_rule_is_stricter_than_the_position_rule 
-[gw0] [ 69%] PASSED tests/test_forecast.py::test_the_forecast_beats_guessing_on_seasons_that_happened 
-tests/test_forecast.py::test_the_backtest_is_actually_out_of_sample 
 [gw3] [ 69%] PASSED tests/test_scoring_events.py::test_the_slot_rule_is_stricter_than_the_position_rule 
 tests/test_scoring_events.py::test_the_scan_finds_only_lineups_that_really_scored_nothing 
 [gw3] [ 70%] PASSED tests/test_scoring_events.py::test_the_scan_finds_only_lineups_that_really_scored_nothing 
@@ -851,11 +851,9 @@ tests/test_scoring_events.py::test_career_totals_equal_the_rows_the_basis_names
 tests/test_forecast.py::test_a_uniform_forecast_is_exactly_as_confident_as_it_should_be 
 [gw3] [ 71%] PASSED tests/test_scoring_events.py::test_career_totals_equal_the_rows_the_basis_names 
 tests/test_scoring_events.py::test_career_to_date_never_exceeds_the_lifetime_total 
-[gw3] [ 71%] PASSED tests/test_scoring_events.py::test_career_to_date_never_exceeds_the_lifetime_total 
-tests/test_scoring_events.py::test_lowest_careers_is_sorted_and_keeps_ties_at_the_cutoff 
 [gw0] [ 71%] PASSED tests/test_forecast.py::test_a_uniform_forecast_is_exactly_as_confident_as_it_should_be 
 tests/test_forecast.py::test_reads_are_pure 
-[gw0] [ 72%] PASSED tests/test_forecast.py::test_reads_are_pure 
+[gw0] [ 71%] PASSED tests/test_forecast.py::test_reads_are_pure 
 tests/test_forecast.py::test_the_build_does_not_import_the_forecast 
 [gw0] [ 72%] PASSED tests/test_forecast.py::test_the_build_does_not_import_the_forecast 
 tests/test_formulas_coverage.py::test_no_entry_names_a_sheet_that_does_not_exist 
@@ -867,7 +865,7 @@ tests/test_formulas_coverage.py::test_stats_catalog_matches_the_plan
 tests/test_game_day_status.py::test_the_file_is_well_formed 
 [gw0] [ 72%] PASSED tests/test_game_day_status.py::test_the_file_is_well_formed 
 tests/test_game_day_status.py::test_validate_catches_what_it_should 
-[gw0] [ 73%] PASSED tests/test_game_day_status.py::test_validate_catches_what_it_should 
+[gw0] [ 72%] PASSED tests/test_game_day_status.py::test_validate_catches_what_it_should 
 tests/test_game_day_status.py::test_only_active_rows_veto_and_never_in_a_tracker_season 
 [gw0] [ 73%] PASSED tests/test_game_day_status.py::test_only_active_rows_veto_and_never_in_a_tracker_season 
 tests/test_game_day_status.py::test_the_build_wires_it 
@@ -877,7 +875,7 @@ tests/test_game_day_status.py::test_the_exports_honour_every_row
 tests/test_health_email_history.py::test_health_workflow_checks_out_full_history 
 [gw0] [ 73%] PASSED tests/test_health_email_history.py::test_health_workflow_checks_out_full_history 
 tests/test_health_email_history.py::test_code_changes_since_lists_commits_and_warns_on_a_missing_range 
-[gw0] [ 74%] PASSED tests/test_health_email_history.py::test_code_changes_since_lists_commits_and_warns_on_a_missing_range 
+[gw0] [ 73%] PASSED tests/test_health_email_history.py::test_code_changes_since_lists_commits_and_warns_on_a_missing_range 
 tests/test_health_signal.py::test_a_gzip_body_is_cached_as_plain_csv 
 [gw0] [ 74%] PASSED tests/test_health_signal.py::test_a_gzip_body_is_cached_as_plain_csv 
 tests/test_health_signal.py::test_a_gzip_bodied_csv_already_on_disk_still_reads 
@@ -889,7 +887,7 @@ tests/test_health_signal.py::test_an_unexpected_skip_is_a_flag_and_an_expected_o
 tests/test_health_signal.py::test_failures_are_named 
 [gw0] [ 74%] PASSED tests/test_health_signal.py::test_failures_are_named 
 tests/test_health_signal.py::test_no_results_is_a_flag_when_the_suite_should_have_run 
-[gw0] [ 75%] PASSED tests/test_health_signal.py::test_no_results_is_a_flag_when_the_suite_should_have_run 
+[gw0] [ 74%] PASSED tests/test_health_signal.py::test_no_results_is_a_flag_when_the_suite_should_have_run 
 tests/test_health_signal.py::test_the_console_log_fallback_still_counts_failures 
 [gw0] [ 75%] PASSED tests/test_health_signal.py::test_the_console_log_fallback_still_counts_failures 
 tests/test_health_signal.py::test_warnings_from_our_code_are_flagged_and_third_party_ones_are_not 
@@ -901,7 +899,7 @@ tests/test_season_window.py::test_the_opener_only_moves_the_season_that_opened_e
 tests/test_season_window.py::test_the_2026_opener_is_the_boundary_the_build_uses 
 [gw0] [ 75%] PASSED tests/test_season_window.py::test_the_2026_opener_is_the_boundary_the_build_uses 
 tests/test_season_window.py::test_the_swap_predates_its_seasons_kickoff 
-[gw0] [ 76%] PASSED tests/test_season_window.py::test_the_swap_predates_its_seasons_kickoff 
+[gw0] [ 75%] PASSED tests/test_season_window.py::test_the_swap_predates_its_seasons_kickoff 
 tests/test_season_window.py::test_offseason_plus_inseason_equals_total 
 [gw0] [ 76%] PASSED tests/test_season_window.py::test_offseason_plus_inseason_equals_total 
 tests/test_season_window.py::test_the_first_season_counts_its_offseason_trade 
@@ -909,13 +907,11 @@ tests/test_season_window.py::test_the_first_season_counts_its_offseason_trade
 tests/test_season_window.py::test_first_season_roster_turnover_is_still_na 
 [gw0] [ 76%] PASSED tests/test_season_window.py::test_first_season_roster_turnover_is_still_na 
 tests/test_season_window.py::test_no_trade_is_filed_against_the_wrong_side_of_a_boundary 
-[gw3] [ 76%] PASSED tests/test_scoring_events.py::test_lowest_careers_is_sorted_and_keeps_ties_at_the_cutoff 
-tests/test_scoring_events.py::test_lowest_careers_reports_the_earliest_of_equal_starts 
-[gw3] [ 76%] PASSED tests/test_scoring_events.py::test_lowest_careers_reports_the_earliest_of_equal_starts 
-tests/test_scoring_events.py::test_the_career_guards_pass_on_real_data 
-[gw0] [ 77%] PASSED tests/test_season_window.py::test_no_trade_is_filed_against_the_wrong_side_of_a_boundary 
+[gw0] [ 76%] PASSED tests/test_season_window.py::test_no_trade_is_filed_against_the_wrong_side_of_a_boundary 
 tests/test_send_audit_email.py::test_send_audit_email 
-[gw0] [ 77%] PASSED tests/test_send_audit_email.py::test_send_audit_email 
+[gw3] [ 76%] PASSED tests/test_scoring_events.py::test_career_to_date_never_exceeds_the_lifetime_total 
+tests/test_scoring_events.py::test_lowest_careers_is_sorted_and_keeps_ties_at_the_cutoff 
+[gw0] [ 76%] PASSED tests/test_send_audit_email.py::test_send_audit_email 
 tests/test_snapshot_freshness.py::test_missing_or_undated_snapshot_is_stale 
 [gw0] [ 77%] PASSED tests/test_snapshot_freshness.py::test_missing_or_undated_snapshot_is_stale 
 tests/test_snapshot_freshness.py::test_fresh_snapshot_is_not_stale 
@@ -925,9 +921,9 @@ tests/test_snapshot_freshness.py::test_old_snapshot_trips_threshold
 tests/test_snapshot_freshness.py::test_refresh_writes_live_rosters 
 [gw0] [ 77%] PASSED tests/test_snapshot_freshness.py::test_refresh_writes_live_rosters 
 tests/test_snapshot_freshness.py::test_refresh_does_not_clobber_on_empty_fetch 
-[gw0] [ 78%] PASSED tests/test_snapshot_freshness.py::test_refresh_does_not_clobber_on_empty_fetch 
+[gw0] [ 77%] PASSED tests/test_snapshot_freshness.py::test_refresh_does_not_clobber_on_empty_fetch 
 tests/test_startup_draft_order.py::test_slot_from_pick_in_round_reverses_even_rounds 
-[gw0] [ 78%] PASSED tests/test_startup_draft_order.py::test_slot_from_pick_in_round_reverses_even_rounds 
+[gw0] [ 77%] PASSED tests/test_startup_draft_order.py::test_slot_from_pick_in_round_reverses_even_rounds 
 tests/test_startup_draft_order.py::test_slot_mapping_is_an_involution 
 [gw0] [ 78%] PASSED tests/test_startup_draft_order.py::test_slot_mapping_is_an_involution 
 tests/test_startup_draft_order.py::test_slot_mapping_rejects_junk_rather_than_guessing 
@@ -937,9 +933,9 @@ tests/test_startup_draft_order.py::test_every_pick_carries_its_true_position_and
 tests/test_startup_draft_order.py::test_draft_is_a_pure_snake_once_ownership_is_applied 
 [gw0] [ 78%] PASSED tests/test_startup_draft_order.py::test_draft_is_a_pure_snake_once_ownership_is_applied 
 tests/test_startup_draft_order.py::test_the_six_traded_picks_are_exactly_the_known_swap 
-[gw0] [ 79%] PASSED tests/test_startup_draft_order.py::test_the_six_traded_picks_are_exactly_the_known_swap 
+[gw0] [ 78%] PASSED tests/test_startup_draft_order.py::test_the_six_traded_picks_are_exactly_the_known_swap 
 tests/test_startup_draft_order.py::test_untraded_picks_are_owned_by_their_drafter 
-[gw0] [ 79%] PASSED tests/test_startup_draft_order.py::test_untraded_picks_are_owned_by_their_drafter 
+[gw0] [ 78%] PASSED tests/test_startup_draft_order.py::test_untraded_picks_are_owned_by_their_drafter 
 tests/test_startup_draft_order.py::test_each_team_picks_once_per_round 
 [gw0] [ 79%] PASSED tests/test_startup_draft_order.py::test_each_team_picks_once_per_round 
 tests/test_startup_draft_order.py::test_sheet_numbers_startup_picks_by_draft_order 
@@ -947,9 +943,9 @@ tests/test_startup_draft_order.py::test_sheet_numbers_startup_picks_by_draft_ord
 tests/test_startup_draft_order.py::test_sheet_marks_the_traded_picks_and_only_those 
 [gw0] [ 79%] PASSED tests/test_startup_draft_order.py::test_sheet_marks_the_traded_picks_and_only_those 
 tests/test_startup_draft_order.py::test_sheet_records_the_swap_as_a_two_sided_trade 
-[gw0] [ 80%] PASSED tests/test_startup_draft_order.py::test_sheet_records_the_swap_as_a_two_sided_trade 
+[gw0] [ 79%] PASSED tests/test_startup_draft_order.py::test_sheet_records_the_swap_as_a_two_sided_trade 
 tests/test_startup_draft_order.py::test_swap_picks_each_count_one_trade 
-[gw0] [ 80%] PASSED tests/test_startup_draft_order.py::test_swap_picks_each_count_one_trade 
+[gw0] [ 79%] PASSED tests/test_startup_draft_order.py::test_swap_picks_each_count_one_trade 
 tests/test_startup_draft_order.py::test_real_faab_buys_are_still_treated_as_synthetic 
 [gw0] [ 80%] PASSED tests/test_startup_draft_order.py::test_real_faab_buys_are_still_treated_as_synthetic 
 tests/test_startup_draft_order.py::test_startup_remaining_credits_the_drafter_not_the_slot_owner 
@@ -959,9 +955,9 @@ tests/test_startup_draft_order.py::test_2020_week_one_rosters_reconcile_to_the_d
 tests/test_startup_draft_order.py::test_startup_round_five_picks_link_to_their_own_chain 
 [gw0] [ 80%] PASSED tests/test_startup_draft_order.py::test_startup_round_five_picks_link_to_their_own_chain 
 tests/test_startup_league_remaining.py::test_startup_league_remaining 
-[gw0] [ 81%] PASSED tests/test_startup_league_remaining.py::test_startup_league_remaining 
+[gw0] [ 80%] PASSED tests/test_startup_league_remaining.py::test_startup_league_remaining 
 tests/test_synthesized_rows.py::test_team_year_counts_every_row_of_its_detail_sheets 
-[gw0] [ 81%] PASSED tests/test_synthesized_rows.py::test_team_year_counts_every_row_of_its_detail_sheets 
+[gw0] [ 80%] PASSED tests/test_synthesized_rows.py::test_team_year_counts_every_row_of_its_detail_sheets 
 tests/test_synthesized_rows.py::test_the_named_case_is_counted_in_full 
 [gw0] [ 81%] PASSED tests/test_synthesized_rows.py::test_the_named_case_is_counted_in_full 
 tests/test_synthesized_rows.py::test_the_lineage_rows_are_really_there_to_be_counted 
@@ -971,9 +967,9 @@ tests/test_synthesized_rows.py::test_an_in_season_synthesized_row_lands_in_a_wee
 tests/test_tenure_as_of_clock.py::test_the_last_final_week_is_the_one_whose_games_are_over 
 [gw0] [ 81%] PASSED tests/test_tenure_as_of_clock.py::test_the_last_final_week_is_the_one_whose_games_are_over 
 tests/test_tenure_as_of_clock.py::test_no_week_is_final_before_the_first_season_kicks_off 
-[gw0] [ 82%] PASSED tests/test_tenure_as_of_clock.py::test_no_week_is_final_before_the_first_season_kicks_off 
+[gw0] [ 81%] PASSED tests/test_tenure_as_of_clock.py::test_no_week_is_final_before_the_first_season_kicks_off 
 tests/test_tenure_as_of_clock.py::test_the_week_clock_never_runs_ahead_of_now 
-[gw0] [ 82%] PASSED tests/test_tenure_as_of_clock.py::test_the_week_clock_never_runs_ahead_of_now 
+[gw0] [ 81%] PASSED tests/test_tenure_as_of_clock.py::test_the_week_clock_never_runs_ahead_of_now 
 tests/test_tenure_as_of_clock.py::test_a_rebuild_with_no_new_data_gets_the_same_clock 
 [gw0] [ 82%] PASSED tests/test_tenure_as_of_clock.py::test_a_rebuild_with_no_new_data_gets_the_same_clock 
 tests/test_tenure_as_of_clock.py::test_the_latest_event_wins_when_it_is_the_newer_fact 
@@ -983,9 +979,9 @@ tests/test_tenure_as_of_clock.py::test_a_quiet_week_still_advances_with_the_foot
 tests/test_tenure_as_of_clock.py::test_the_clock_is_never_in_the_future_and_falls_back_to_now 
 [gw0] [ 82%] PASSED tests/test_tenure_as_of_clock.py::test_the_clock_is_never_in_the_future_and_falls_back_to_now 
 tests/test_tenure_as_of_clock.py::test_the_wall_clock_really_did_flip_the_ranking 
-[gw0] [ 83%] PASSED tests/test_tenure_as_of_clock.py::test_the_wall_clock_really_did_flip_the_ranking 
+[gw0] [ 82%] PASSED tests/test_tenure_as_of_clock.py::test_the_wall_clock_really_did_flip_the_ranking 
 tests/test_tenure_as_of_clock.py::test_the_as_of_clock_holds_it_still 
-[gw0] [ 83%] PASSED tests/test_tenure_as_of_clock.py::test_the_as_of_clock_holds_it_still 
+[gw0] [ 82%] PASSED tests/test_tenure_as_of_clock.py::test_the_as_of_clock_holds_it_still 
 tests/test_tenure_as_of_clock.py::test_the_ranking_is_not_frozen_forever 
 [gw0] [ 83%] PASSED tests/test_tenure_as_of_clock.py::test_the_ranking_is_not_frozen_forever 
 tests/test_top_team_played_week.py::test_top_team_played_week 
@@ -995,9 +991,9 @@ tests/test_trade_sent_window.py::test_trade_sent_window
 tests/test_two_week_final.py::test_constant_is_2026 
 [gw0] [ 83%] PASSED tests/test_two_week_final.py::test_constant_is_2026 
 tests/test_two_week_final.py::test_finals_weeks_pre_2026_single_week 
-[gw0] [ 84%] PASSED tests/test_two_week_final.py::test_finals_weeks_pre_2026_single_week 
+[gw0] [ 83%] PASSED tests/test_two_week_final.py::test_finals_weeks_pre_2026_single_week 
 tests/test_two_week_final.py::test_finals_weeks_2026_two_weeks 
-[gw0] [ 84%] PASSED tests/test_two_week_final.py::test_finals_weeks_2026_two_weeks 
+[gw0] [ 83%] PASSED tests/test_two_week_final.py::test_finals_weeks_2026_two_weeks 
 tests/test_two_week_final.py::test_finals_weeks_no_playoff_start 
 [gw0] [ 84%] PASSED tests/test_two_week_final.py::test_finals_weeks_no_playoff_start 
 tests/test_two_week_final.py::test_matchup_stage_2026_three_playoff_weeks 
@@ -1007,9 +1003,9 @@ tests/test_two_week_final.py::test_matchup_stage_2020_single_week_final_unchange
 tests/test_two_week_final.py::test_matchup_stage_2025_unchanged 
 [gw0] [ 84%] PASSED tests/test_two_week_final.py::test_matchup_stage_2025_unchanged 
 tests/test_two_week_final.py::test_second_finals_week_only_2026_week17 
-[gw0] [ 85%] PASSED tests/test_two_week_final.py::test_second_finals_week_only_2026_week17 
+[gw0] [ 84%] PASSED tests/test_two_week_final.py::test_second_finals_week_only_2026_week17 
 tests/test_waiver_bid_tally.py::test_waiver_bid_tally 
-[gw0] [ 85%] PASSED tests/test_waiver_bid_tally.py::test_waiver_bid_tally 
+[gw0] [ 84%] PASSED tests/test_waiver_bid_tally.py::test_waiver_bid_tally 
 tests/test_waiver_claim_dedup.py::test_waiver_claim_dedup 
 [gw0] [ 85%] PASSED tests/test_waiver_claim_dedup.py::test_waiver_claim_dedup 
 tests/test_winning_season_streak.py::test_only_decided_seasons_move_the_streak 
@@ -1019,9 +1015,9 @@ tests/test_wins_added.py::test_arrival_displaces_and_players_change_slots
 tests/test_wins_added.py::test_bench_only_fills_open_slots_and_is_capped 
 [gw0] [ 85%] PASSED tests/test_wins_added.py::test_bench_only_fills_open_slots_and_is_capped 
 tests/test_wins_added.py::test_arrival_cap_depends_on_whether_anyone_started_him 
-[gw0] [ 86%] PASSED tests/test_wins_added.py::test_arrival_cap_depends_on_whether_anyone_started_him 
+[gw0] [ 85%] PASSED tests/test_wins_added.py::test_arrival_cap_depends_on_whether_anyone_started_him 
 tests/test_wins_added.py::test_implausible_substitution_is_not_made 
-[gw0] [ 86%] PASSED tests/test_wins_added.py::test_implausible_substitution_is_not_made 
+[gw0] [ 85%] PASSED tests/test_wins_added.py::test_implausible_substitution_is_not_made 
 tests/test_wins_added.py::test_unproven_players_move_in_only_if_they_really_started 
 [gw0] [ 86%] PASSED tests/test_wins_added.py::test_unproven_players_move_in_only_if_they_really_started 
 tests/test_wins_added.py::test_two_open_slots_are_judged_against_the_two_best_options 
@@ -1029,9 +1025,9 @@ tests/test_wins_added.py::test_two_open_slots_are_judged_against_the_two_best_op
 tests/test_wins_added.py::test_a_bench_player_never_replaces_a_starter_by_reshuffling 
 [gw0] [ 86%] PASSED tests/test_wins_added.py::test_a_bench_player_never_replaces_a_starter_by_reshuffling 
 tests/test_wins_added.py::test_a_real_starter_never_sits_behind_a_real_bench_player 
-[gw0] [ 87%] PASSED tests/test_wins_added.py::test_a_real_starter_never_sits_behind_a_real_bench_player 
+[gw0] [ 86%] PASSED tests/test_wins_added.py::test_a_real_starter_never_sits_behind_a_real_bench_player 
 tests/test_wins_added.py::test_every_cleared_slot_is_filled_even_by_a_zero 
-[gw0] [ 87%] PASSED tests/test_wins_added.py::test_every_cleared_slot_is_filled_even_by_a_zero 
+[gw0] [ 86%] PASSED tests/test_wins_added.py::test_every_cleared_slot_is_filled_even_by_a_zero 
 tests/test_wins_added.py::test_four_for_one_fills_every_cleared_slot_with_a_different_player 
 [gw0] [ 87%] PASSED tests/test_wins_added.py::test_four_for_one_fills_every_cleared_slot_with_a_different_player 
 tests/test_wins_added.py::test_dropping_a_player_who_would_have_won_the_game_is_minus_one 
@@ -1041,9 +1037,9 @@ tests/test_wins_added.py::test_opponent_loses_the_player_and_the_mirror_row_agre
 tests/test_wins_added.py::test_lineage_through_a_later_trade_earns_its_ktc_share 
 [gw0] [ 87%] PASSED tests/test_wins_added.py::test_lineage_through_a_later_trade_earns_its_ktc_share 
 tests/test_wins_added.py::test_dropping_ends_the_lineage 
-[gw0] [ 88%] PASSED tests/test_wins_added.py::test_dropping_ends_the_lineage 
+[gw0] [ 87%] PASSED tests/test_wins_added.py::test_dropping_ends_the_lineage 
 tests/test_wins_added.py::test_a_reacquired_player_belongs_to_the_reacquiring_move 
-[gw0] [ 88%] PASSED tests/test_wins_added.py::test_a_reacquired_player_belongs_to_the_reacquiring_move 
+[gw0] [ 87%] PASSED tests/test_wins_added.py::test_a_reacquired_player_belongs_to_the_reacquiring_move 
 tests/test_wins_added.py::test_the_count_stops_once_the_league_lets_him_go 
 [gw0] [ 88%] PASSED tests/test_wins_added.py::test_the_count_stops_once_the_league_lets_him_go 
 tests/test_wins_added.py::test_reacquiring_a_player_ends_the_earlier_moves_count 
@@ -1053,21 +1049,21 @@ tests/test_wins_added.py::test_per_season_rate_is_wins_times_17_over_games_since
 tests/test_wins_added.py::test_the_rate_waits_five_weeks_on_the_email_boards 
 [gw0] [ 88%] PASSED tests/test_wins_added.py::test_the_rate_waits_five_weeks_on_the_email_boards 
 tests/test_wins_added.py::test_real_lineups_are_legal_and_pf_is_starters_plus_bonus 
+[gw3] [ 88%] PASSED tests/test_scoring_events.py::test_lowest_careers_is_sorted_and_keeps_ties_at_the_cutoff 
+tests/test_scoring_events.py::test_lowest_careers_reports_the_earliest_of_equal_starts 
+[gw3] [ 88%] PASSED tests/test_scoring_events.py::test_lowest_careers_reports_the_earliest_of_equal_starts 
+tests/test_scoring_events.py::test_the_career_guards_pass_on_real_data 
 [gw0] [ 89%] PASSED tests/test_wins_added.py::test_real_lineups_are_legal_and_pf_is_starters_plus_bonus 
 tests/test_wins_added.py::test_counterfactual_lineups_keep_the_rules_on_real_moves 
 [gw0] [ 89%] PASSED tests/test_wins_added.py::test_counterfactual_lineups_keep_the_rules_on_real_moves 
 tests/test_wins_added.py::test_sample_recomputes_to_the_exported_column 
-[gw3] [ 89%] PASSED tests/test_scoring_events.py::test_the_career_guards_pass_on_real_data 
-tests/test_scoring_events.py::test_the_season_cache_stays_out_of_the_builds_freshness_gate 
-[gw3] [ 89%] PASSED tests/test_scoring_events.py::test_the_season_cache_stays_out_of_the_builds_freshness_gate 
-tests/test_scoring_events.py::test_the_seam_guard_can_fail 
 [gw0] [ 89%] PASSED tests/test_wins_added.py::test_sample_recomputes_to_the_exported_column 
 tests/test_workflow_schedules.py::test_no_cron_fires_on_the_hour 
 [gw0] [ 89%] PASSED tests/test_workflow_schedules.py::test_no_cron_fires_on_the_hour 
 tests/test_workflow_schedules.py::test_tuesday_send_list_matches_the_tuesday_crons 
-[gw0] [ 90%] PASSED tests/test_workflow_schedules.py::test_tuesday_send_list_matches_the_tuesday_crons 
+[gw0] [ 89%] PASSED tests/test_workflow_schedules.py::test_tuesday_send_list_matches_the_tuesday_crons 
 tests/test_workflow_schedules.py::test_no_gate_hardcodes_a_cron_string 
-[gw0] [ 90%] PASSED tests/test_workflow_schedules.py::test_no_gate_hardcodes_a_cron_string 
+[gw0] [ 89%] PASSED tests/test_workflow_schedules.py::test_no_gate_hardcodes_a_cron_string 
 tests/test_workflow_schedules.py::test_the_send_and_rotation_gates_use_the_shared_flag 
 [gw0] [ 90%] PASSED tests/test_workflow_schedules.py::test_the_send_and_rotation_gates_use_the_shared_flag 
 tests/test_workflow_schedules.py::test_injury_capture_lands_between_the_monday_game_and_the_build 
@@ -1077,9 +1073,9 @@ tests/test_workflow_schedules.py::test_every_sweep_can_reach_an_inactive_report_
 tests/test_workflow_schedules.py::test_every_window_has_a_fire_that_survives_the_delay 
 [gw0] [ 90%] PASSED tests/test_workflow_schedules.py::test_every_window_has_a_fire_that_survives_the_delay 
 tests/test_workflow_schedules.py::test_the_night_game_window_is_swept 
-[gw0] [ 91%] PASSED tests/test_workflow_schedules.py::test_the_night_game_window_is_swept 
+[gw0] [ 90%] PASSED tests/test_workflow_schedules.py::test_the_night_game_window_is_swept 
 tests/test_workflow_schedules.py::test_the_sweep_is_redundant_and_has_delay_headroom 
-[gw0] [ 91%] PASSED tests/test_workflow_schedules.py::test_the_sweep_is_redundant_and_has_delay_headroom 
+[gw0] [ 90%] PASSED tests/test_workflow_schedules.py::test_the_sweep_is_redundant_and_has_delay_headroom 
 tests/test_workflow_schedules.py::test_unrecoverable_work_has_a_catch_up_fire 
 [gw0] [ 91%] PASSED tests/test_workflow_schedules.py::test_unrecoverable_work_has_a_catch_up_fire 
 tests/test_workflow_schedules.py::test_recoverable_work_does_not_get_one 
@@ -1088,9 +1084,9 @@ tests/test_workflow_schedules.py::test_the_catch_up_is_guarded_and_the_guard_can
 [gw0] [ 91%] PASSED tests/test_workflow_schedules.py::test_the_catch_up_is_guarded_and_the_guard_can_only_gate_the_build 
 tests/test_workflow_schedules.py::test_the_health_baseline_carries_what_the_audit_reads_from_it 
 [gw0] [ 91%] PASSED tests/test_workflow_schedules.py::test_the_health_baseline_carries_what_the_audit_reads_from_it 
-[gw2] [ 92%] PASSED tests/test_build_digest.py::test_build_digest 
+[gw2] [ 91%] PASSED tests/test_build_digest.py::test_build_digest 
 tests/test_build_scope.py::test_no_helper_name_is_defined_twice_in_build_all 
-[gw2] [ 92%] PASSED tests/test_build_scope.py::test_no_helper_name_is_defined_twice_in_build_all 
+[gw2] [ 91%] PASSED tests/test_build_scope.py::test_no_helper_name_is_defined_twice_in_build_all 
 tests/test_cache_completeness.py::test_committed_nflverse_cache_is_complete 
 [gw2] [ 92%] PASSED tests/test_cache_completeness.py::test_committed_nflverse_cache_is_complete 
 tests/test_cache_completeness.py::test_committed_nflverse_cache_files_nonempty 
@@ -1100,9 +1096,9 @@ tests/test_combined_matchup.py::test_value_in_winner_row_and_winner_text_in_lose
 tests/test_combined_matchup.py::test_efficiency_and_boom_average_each_teams_own_value 
 [gw2] [ 92%] PASSED tests/test_combined_matchup.py::test_efficiency_and_boom_average_each_teams_own_value 
 tests/test_combined_matchup.py::test_starters_and_points_per_starter_are_pooled 
-[gw2] [ 93%] PASSED tests/test_combined_matchup.py::test_starters_and_points_per_starter_are_pooled 
+[gw2] [ 92%] PASSED tests/test_combined_matchup.py::test_starters_and_points_per_starter_are_pooled 
 tests/test_combined_matchup.py::test_league_points_per_started_divides_by_summed_starts 
-[gw2] [ 93%] PASSED tests/test_combined_matchup.py::test_league_points_per_started_divides_by_summed_starts 
+[gw2] [ 92%] PASSED tests/test_combined_matchup.py::test_league_points_per_started_divides_by_summed_starts 
 tests/test_combined_matchup.py::test_league_per_started_is_a_rate_in_the_digest 
 [gw2] [ 93%] PASSED tests/test_combined_matchup.py::test_league_per_started_is_a_rate_in_the_digest 
 tests/test_combined_matchup.py::test_winner_follows_win_flag_not_pf 
@@ -1110,9 +1106,9 @@ tests/test_combined_matchup.py::test_winner_follows_win_flag_not_pf
 tests/test_combined_matchup.py::test_tie_puts_value_in_both_rows 
 [gw2] [ 93%] PASSED tests/test_combined_matchup.py::test_tie_puts_value_in_both_rows 
 tests/test_combined_matchup.py::test_missing_base_blanks_both_rows 
-[gw2] [ 94%] PASSED tests/test_combined_matchup.py::test_missing_base_blanks_both_rows 
+[gw2] [ 93%] PASSED tests/test_combined_matchup.py::test_missing_base_blanks_both_rows 
 tests/test_combined_matchup.py::test_no_opponent_row_is_blank_and_frame_untouched 
-[gw2] [ 94%] PASSED tests/test_combined_matchup.py::test_no_opponent_row_is_blank_and_frame_untouched 
+[gw2] [ 93%] PASSED tests/test_combined_matchup.py::test_no_opponent_row_is_blank_and_frame_untouched 
 tests/test_combined_matchup.py::test_workbook_topic_and_formats_follow_the_base 
 [gw2] [ 94%] PASSED tests/test_combined_matchup.py::test_workbook_topic_and_formats_follow_the_base 
 tests/test_combined_matchup.py::test_plan_and_formulas_carry_the_block_last 
@@ -1122,9 +1118,9 @@ tests/test_combined_matchup.py::test_email_names_both_teams_on_a_combined_stat
 tests/test_combined_matchup.py::test_committed_exports_one_value_per_game 
 [gw2] [ 94%] PASSED tests/test_combined_matchup.py::test_committed_exports_one_value_per_game 
 tests/test_commissioner_overlay_match.py::test_every_sleeper_overlay_row_names_a_completed_trade 
-[gw2] [ 95%] PASSED tests/test_commissioner_overlay_match.py::test_every_sleeper_overlay_row_names_a_completed_trade 
+[gw2] [ 94%] PASSED tests/test_commissioner_overlay_match.py::test_every_sleeper_overlay_row_names_a_completed_trade 
 tests/test_contracts.py::test_scoring_reconciles_with_the_build 
-[gw2] [ 95%] PASSED tests/test_contracts.py::test_scoring_reconciles_with_the_build 
+[gw2] [ 94%] PASSED tests/test_contracts.py::test_scoring_reconciles_with_the_build 
 tests/test_contracts.py::test_lotg_points_charge_the_fumbles_a_player_got_back 
 [gw2] [ 95%] PASSED tests/test_contracts.py::test_lotg_points_charge_the_fumbles_a_player_got_back 
 tests/test_contracts.py::test_rookie_deals_are_not_signings 
@@ -1134,9 +1130,9 @@ tests/test_contracts.py::test_big_is_ranked_within_position_and_year
 tests/test_contracts.py::test_a_season_never_played_is_zero_points_but_no_rate 
 [gw2] [ 95%] PASSED tests/test_contracts.py::test_a_season_never_played_is_zero_points_but_no_rate 
 tests/test_contracts.py::test_controls_come_from_the_same_position_and_season 
-[gw2] [ 96%] PASSED tests/test_contracts.py::test_controls_come_from_the_same_position_and_season 
+[gw2] [ 95%] PASSED tests/test_contracts.py::test_controls_come_from_the_same_position_and_season 
 tests/test_contracts.py::test_a_signer_with_nobody_close_is_dropped_not_stretched 
-[gw2] [ 96%] PASSED tests/test_contracts.py::test_a_signer_with_nobody_close_is_dropped_not_stretched 
+[gw2] [ 95%] PASSED tests/test_contracts.py::test_a_signer_with_nobody_close_is_dropped_not_stretched 
 tests/test_contracts.py::test_control_pool_excludes_the_other_notable_signings 
 [gw2] [ 96%] PASSED tests/test_contracts.py::test_control_pool_excludes_the_other_notable_signings 
 tests/test_contracts.py::test_cost_panel_does_not_double_count_a_career 
@@ -1145,42 +1141,46 @@ tests/test_contracts.py::test_cost_panel_respects_the_year_window
 [gw2] [ 96%] PASSED tests/test_contracts.py::test_cost_panel_respects_the_year_window 
 tests/test_contracts.py::test_cost_units_guard_catches_a_rescaled_column 
 [gw2] [ 96%] PASSED tests/test_contracts.py::test_cost_units_guard_catches_a_rescaled_column 
+[gw3] [ 96%] PASSED tests/test_scoring_events.py::test_the_career_guards_pass_on_real_data 
+tests/test_scoring_events.py::test_the_season_cache_stays_out_of_the_builds_freshness_gate 
+[gw3] [ 96%] PASSED tests/test_scoring_events.py::test_the_season_cache_stays_out_of_the_builds_freshness_gate 
+tests/test_scoring_events.py::test_the_seam_guard_can_fail 
+[gw3] [ 97%] PASSED tests/test_scoring_events.py::test_the_seam_guard_can_fail 
+tests/test_season_window.py::test_kickoff_matches_the_real_nfl_week_one 
+[gw3] [ 97%] PASSED tests/test_season_window.py::test_kickoff_matches_the_real_nfl_week_one 
+tests/test_season_window.py::test_a_fantasy_week_runs_tuesday_to_monday 
+[gw3] [ 97%] PASSED tests/test_season_window.py::test_a_fantasy_week_runs_tuesday_to_monday 
+tests/test_season_window.py::test_the_2020_backfill_counts_weeks_the_same_way 
+[gw3] [ 97%] PASSED tests/test_season_window.py::test_the_2020_backfill_counts_weeks_the_same_way 
+tests/test_season_window.py::test_kickoff_actually_moves 
+[gw3] [ 97%] PASSED tests/test_season_window.py::test_kickoff_actually_moves 
 [gw1] [ 97%] PASSED tests/test_player_history_continuity.py::test_no_player_history_continuity_breaks 
 tests/test_player_history_coverage.py::test_every_rostered_week_has_a_player_additions_tenure 
-[gw1] [ 97%] PASSED tests/test_player_history_coverage.py::test_every_rostered_week_has_a_player_additions_tenure 
+[gw1] [ 98%] PASSED tests/test_player_history_coverage.py::test_every_rostered_week_has_a_player_additions_tenure 
 tests/test_player_history_coverage.py::test_no_two_tenures_claim_the_same_weeks 
-[gw1] [ 97%] PASSED tests/test_player_history_coverage.py::test_no_two_tenures_claim_the_same_weeks 
+[gw1] [ 98%] PASSED tests/test_player_history_coverage.py::test_no_two_tenures_claim_the_same_weeks 
 tests/test_player_history_coverage.py::test_no_player_on_two_rosters_in_one_week 
-[gw1] [ 97%] PASSED tests/test_player_history_coverage.py::test_no_player_on_two_rosters_in_one_week 
+[gw1] [ 98%] PASSED tests/test_player_history_coverage.py::test_no_player_on_two_rosters_in_one_week 
 tests/test_points_added_consistency.py::test_points_added_consistency 
-[gw1] [ 97%] PASSED tests/test_points_added_consistency.py::test_points_added_consistency 
+[gw1] [ 98%] PASSED tests/test_points_added_consistency.py::test_points_added_consistency 
 tests/test_position_factor.py::test_min_weeks_matches_the_email_gate 
-[gw1] [ 97%] PASSED tests/test_position_factor.py::test_min_weeks_matches_the_email_gate 
+[gw1] [ 98%] PASSED tests/test_position_factor.py::test_min_weeks_matches_the_email_gate 
 tests/test_position_factor.py::test_a_complete_season_uses_its_own_baseline 
 [gw1] [ 98%] PASSED tests/test_position_factor.py::test_a_complete_season_uses_its_own_baseline 
 tests/test_position_factor.py::test_weeks_1_to_4_borrow_the_previous_season_then_switch_at_week_5 
-[gw1] [ 98%] PASSED tests/test_position_factor.py::test_weeks_1_to_4_borrow_the_previous_season_then_switch_at_week_5 
+[gw1] [ 99%] PASSED tests/test_position_factor.py::test_weeks_1_to_4_borrow_the_previous_season_then_switch_at_week_5 
 tests/test_position_factor.py::test_a_season_not_yet_kicked_off_uses_the_latest 
-[gw1] [ 98%] PASSED tests/test_position_factor.py::test_a_season_not_yet_kicked_off_uses_the_latest 
+[gw1] [ 99%] PASSED tests/test_position_factor.py::test_a_season_not_yet_kicked_off_uses_the_latest 
 tests/test_position_factor.py::test_the_first_season_on_record_keeps_its_own_even_when_short 
-[gw1] [ 98%] PASSED tests/test_position_factor.py::test_the_first_season_on_record_keeps_its_own_even_when_short 
+[gw1] [ 99%] PASSED tests/test_position_factor.py::test_the_first_season_on_record_keeps_its_own_even_when_short 
 tests/test_position_factor.py::test_unknown_position_or_season_is_neutral 
-[gw1] [ 98%] PASSED tests/test_position_factor.py::test_unknown_position_or_season_is_neutral 
+[gw1] [ 99%] PASSED tests/test_position_factor.py::test_unknown_position_or_season_is_neutral 
 tests/test_position_pins.py::test_position_pins 
-[gw1] [ 98%] PASSED tests/test_position_pins.py::test_position_pins 
+[gw1] [ 99%] PASSED tests/test_position_pins.py::test_position_pins 
 tests/test_ppg_consistency.py::test_ppg_consistency 
-[gw1] [ 99%] PASSED tests/test_ppg_consistency.py::test_ppg_consistency 
-[gw3] [ 99%] PASSED tests/test_scoring_events.py::test_the_seam_guard_can_fail 
-tests/test_season_window.py::test_kickoff_matches_the_real_nfl_week_one 
-[gw3] [ 99%] PASSED tests/test_season_window.py::test_kickoff_matches_the_real_nfl_week_one 
-tests/test_season_window.py::test_a_fantasy_week_runs_tuesday_to_monday 
-[gw3] [ 99%] PASSED tests/test_season_window.py::test_a_fantasy_week_runs_tuesday_to_monday 
-tests/test_season_window.py::test_the_2020_backfill_counts_weeks_the_same_way 
-[gw3] [ 99%] PASSED tests/test_season_window.py::test_the_2020_backfill_counts_weeks_the_same_way 
-tests/test_season_window.py::test_kickoff_actually_moves 
-[gw3] [100%] PASSED tests/test_season_window.py::test_kickoff_actually_moves 
+[gw1] [100%] PASSED tests/test_ppg_consistency.py::test_ppg_consistency 
 
 =========================== short test summary info ============================
 SKIPPED [1] tests/conftest.py:53: no un-started live season to check
 SKIPPED [1] tests/conftest.py:53: no unsigned players on any roster — nothing to compare
-================== 583 passed, 2 skipped in 197.13s (0:03:17) ==================
+================== 583 passed, 2 skipped in 186.07s (0:03:06) ==================
