@@ -181,17 +181,26 @@ def test_market_relative_board_and_thin_field_line():
     assert abs(fixed.line_ktc - 0.4 * fixed.k0) < 1e-9 and fixed.player_faab(3000) < fixed.faab(3000)
 
 
-def test_pick_info_weight():
-    """Option A (user 2026-10-03): the worst picks are fairly clear from the
-    start (more so under the Max PF order), the playoff block only late; the
-    order is fully known once the season ends."""
-    w = ACQ.pick_info_weight
-    assert w(2, 8, 0.0, False, "placement") == 0.5 and w(2, 8, 0.0, False, "max_pf") == 0.6
-    assert abs(w(2, 8, 0.5, False, "placement") - 0.75) < 1e-12
-    assert w(6, 8, 0.0, False) == 0.0 and abs(w(6, 8, 1.0, False) - 0.5) < 1e-12
-    assert w(9, 8, 0.0, False) == 1.0                                # the 2.09 only exists once its order is final
-    assert w(6, 8, 0.2, True) == 1.0 and w(1, 8, 0.0, True) == 1.0
-    assert all(w(s, 8, p, False) <= w(s, 8, p + 0.1, False) for s in (1, 6) for p in (0.0, 0.4, 0.8))
+def test_pick_slot_projection():
+    """User 2026-10-03: a traded pick's slot is projected from what was
+    knowable — roster strength before the season, blended into the stat that
+    sets the order as it is played; never the eventual slot."""
+    assert ACQ.roster_weight(0) == 1.0 and ACQ.roster_weight(3) == 0.5 and ACQ.roster_weight(8) == 0.0
+    assert ACQ.roster_weight(5) < ACQ.roster_weight(4) < 0.5
+    assert all(ACQ.slot_sigma(k) >= ACQ.slot_sigma(k + 1) for k in range(20))
+    roster = {"weak": 50000.0, "mid1": 70000.0, "mid2": 72000.0, "strong": 90000.0}
+    pre = ACQ.project_slot_odds(roster, 0, playoff_teams=2)
+    assert abs(sum(pre["weak"]) - 1.0) < 1e-12
+    exp = {t: sum((i + 1) * p for i, p in enumerate(v)) for t, v in pre.items()}
+    assert exp["weak"] < exp["mid1"] < exp["strong"]                           # a weak roster projects early
+    # mid-season, the record takes over: the strong roster that is losing projects early
+    rec = {"weak": 6.0, "mid1": 3.0, "mid2": 4.0, "strong": 0.5}
+    late = ACQ.project_slot_odds(roster, 10, record=rec, max_pf={t: 100.0 for t in roster}, playoff_teams=2)
+    e2 = {t: sum((i + 1) * p for i, p in enumerate(v)) for t, v in late.items()}
+    assert e2["strong"] < e2["weak"]
+    # under the Max PF order the bottom block (by record) is ordered by Max PF
+    s = ACQ.inseason_score({"a": 1, "b": 2, "c": 5, "d": 6}, {"a": 900, "b": 700, "c": 1, "d": 2}, "max_pf", 2)
+    assert s["b"] < s["a"] < s["c"] < s["d"]
 
 
 def test_field_values_skip_stale_quotes():

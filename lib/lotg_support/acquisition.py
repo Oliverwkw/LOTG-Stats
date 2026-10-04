@@ -142,20 +142,24 @@ LOW_STRENGTH = 0.5
 # league pays $20 FAAB for a 5.0X — and FAAB is its dollars.
 SUPERTAXI_FROM = 2025
 REPLACEMENT_FADE = 2.5
-# A traded pick's slot is not known when it is traded during the season that
-# decides it (user, 2026-10-03, "option A"): price = (1 - w) x its round's
-# average + w x its eventual slot, w = what was knowable at the trade. w = 1
-# once the order is set (the season's last week). Before that, with p = the
-# share of the deciding regular season played:
-#   * the non-playoff block (the worst picks): w = base + (1 - base) x p — the
-#     worst teams are fairly clear even at the start; base by the draft's order
-#     rule: 0.5 for reverse placement (record; drafts through 2025), 0.6 for
-#     ascending Max PF (roster ceiling, more predictable early; 2026 on);
-#   * the playoff block, decided by the playoffs: w = PLAYOFF_BLOCK_RATE x p.
-# The 2.09 toilet-bowl pick only exists once its order is final, so it is
-# always known (w = 1).
-PICK_INFO_BASE = {"placement": 0.5, "max_pf": 0.6}
-PLAYOFF_BLOCK_RATE = 0.5
+# A traded pick's slot is priced on what was knowable at the trade, never on
+# where it eventually landed (user, 2026-10-03). For a pick whose deciding
+# season (draft year - 1) is in progress or next up, each team's chance of each
+# slot comes from a projection of the final order: the original owner's roster
+# strength (its best ROSTER_TOP players' KTC that day — the 2 weakest rosters on
+# Sept 1 drew a bottom-4 pick 80% of the time, 2021-25) blended with the stat
+# that sets the order, as the season is played. The blend (roster_weight) and
+# the spread of the odds (SLOT_SIGMA) were fitted on the 2021-25 seasons: in-
+# season results overtake roster strength by week 2, the two combined beat
+# either alone through week ~6, and roster adds nothing from week 8-9. The stat
+# follows the draft's order rule (draft_capital.order_rule): record (wins, then
+# points) for reverse placement, drafts through 2025; under ascending Max PF
+# (2026 on) record still decides who makes the playoffs, so a team is placed in
+# a block by record and the bottom block ordered by Max PF to date. Once the
+# order is set the pick is its slot; the 2.09 only exists then. A pick two or
+# more drafts out is its round's average.
+ROSTER_TOP = 15
+SLOT_SIGMA = (2.75, 2.35, 2.00, 1.90, 1.65, 1.55, 1.55, 1.55, 1.55, 1.40, 1.35, 1.35, 1.25, 1.00)
 FIELD_STALE_DAYS = 30
 FIELD_STALE_DAYS_PRE_DAILY = 365
 KTC_DAILY_FLOOR = date(2021, 4, 16)    # the dynasty-daddy mirror's first daily quote
@@ -301,17 +305,65 @@ class MoneyCurve:
         return (self.k_last / self.ktc_per_faab) * self.r ** (self.last_slot - self.slot_of(k))
 
 
-def pick_info_weight(slot: Optional[int], teams: int, progress: float, final: bool,
-                     rule: str = "placement", playoff_teams: int = 4) -> float:
-    """How much of a traded pick's eventual slot was knowable at the trade
-    (see PICK_INFO_BASE)."""
-    if final or (slot is not None and int(slot) > int(teams)):     # the 2.09: created once final
+def roster_weight(weeks_played: int) -> float:
+    """Weight of roster strength (vs in-season results) in the projected
+    order: all of it before week 1, half through week 3, none from week 8."""
+    k = int(weeks_played)
+    if k <= 0:
         return 1.0
-    p = min(max(float(progress), 0.0), 1.0)
-    if slot is not None and int(slot) <= int(teams) - int(playoff_teams):
-        b = PICK_INFO_BASE.get(rule, PICK_INFO_BASE["placement"])
-        return b + (1.0 - b) * p
-    return PLAYOFF_BLOCK_RATE * p
+    if k <= 3:
+        return 0.5
+    return max(0.0, 0.5 * (8 - k) / 5)
+
+
+def slot_sigma(weeks_played: int) -> float:
+    k = max(int(weeks_played), 0)
+    return SLOT_SIGMA[min(k, len(SLOT_SIGMA) - 1)]
+
+
+def inseason_score(record: Dict[str, float], max_pf: Dict[str, float], rule: str,
+                   playoff_teams: int = 4) -> Dict[str, float]:
+    """Higher = projected later pick. `record` is wins (ties broken by points,
+    e.g. wins + PF / 1e5). Under "max_pf" a team is placed in a block by record
+    and the bottom block is ordered by Max PF to date."""
+    if rule != "max_pf":
+        return dict(record)
+    order = sorted(record, key=lambda t: record[t])
+    bottom = set(order[:max(len(order) - int(playoff_teams), 0)])
+    top = 1.0 + max(max_pf.values(), default=0.0)
+    return {t: (max_pf.get(t, 0.0) if t in bottom else top + record[t]) for t in record}
+
+
+def _rank_z(values: Dict[str, float]) -> Dict[str, float]:
+    teams = sorted(values, key=lambda t: values[t])
+    r = np.arange(1, len(teams) + 1, dtype=float)
+    z = (r - r.mean()) / (r.std() or 1.0)
+    return {t: float(z[i]) for i, t in enumerate(teams)}
+
+
+def project_slot_odds(roster_strength: Dict[str, float], weeks_played: int,
+                      record: Optional[Dict[str, float]] = None, max_pf: Optional[Dict[str, float]] = None,
+                      rule: str = "placement", playoff_teams: int = 4) -> Dict[str, List[float]]:
+    """{team: [P(slot 1), ..., P(slot n)]} for a draft whose deciding season
+    has `weeks_played` regular-season weeks done. Teams are ranked by a blend
+    of roster strength and the in-season stat (rank z-scores, roster_weight),
+    1 = projected worst, and each rank spreads over the slots as a discrete
+    normal with slot_sigma."""
+    teams = list(roster_strength)
+    n = len(teams)
+    a = roster_weight(weeks_played)
+    score = _rank_z(roster_strength)
+    if a < 1.0 and record:
+        ins = _rank_z(inseason_score(record, max_pf or {}, rule, playoff_teams))
+        score = {t: a * score[t] + (1 - a) * ins.get(t, 0.0) for t in teams}
+    ranked = sorted(teams, key=lambda t: (score[t], t))
+    sig = slot_sigma(weeks_played)
+    out = {}
+    for i, t in enumerate(ranked):
+        r = i + 1
+        w = np.array([math.exp(-((s - r) ** 2) / (2 * sig * sig)) for s in range(1, n + 1)])
+        out[t] = list(w / w.sum())
+    return out
 
 
 def replacement_rank(roster_spots: int, teams: int, season: int) -> int:

@@ -11458,7 +11458,9 @@ def build_all(repo_root: Path) -> None:
                             _out.append((("p", str(_sid)), _v[0] if _v else None))
                         for _lbl, _meta in zip(_labels, _metas):
                             _v = _side_values(trade_date, [], [_lbl], 0.0, [_meta])
-                            _out.append((("k", str(_lbl)), _v[0] if _v else None))
+                            # (kind, label, original team — whose results set its slot)
+                            _orig = str(_meta[2]) if isinstance(_meta, (list, tuple)) and len(_meta) > 2 else ""
+                            _out.append((("k", str(_lbl), _orig), _v[0] if _v else None))
                         if _faab > 0:
                             _v = _side_values(trade_date, [], [], _faab)
                             _out.append((("f", ""), _v[0] if _v else None))
@@ -22376,36 +22378,75 @@ def build_all(repo_root: Path) -> None:
                     return _y if _on <= _end.date() else _y + 1
                 return _y if _on < _date_pa(_y, 7, 1) else _y + 1
 
-            def _pae_pick_info(_year, _slot, _on):
-                """acquisition.pick_info_weight for a pick of draft `_year` at
-                `_slot`, traded on `_on`: the share of the deciding season
-                (`_year` - 1) played, its regular season ending at the week
-                before its playoffs; 1 once that season's last week is over or
-                when the trade came after it; the draft's order rule from
-                draft_capital (placement through 2025, Max PF from 2026)."""
-                if _on is None:
-                    return 1.0
-                _det = int(_year) - 1
+            # Roster strength and in-season results on a date, for projecting
+            # a traded pick's slot (acquisition.project_slot_odds).
+            _pae_tenures: Dict[str, List[Tuple[str, str, str]]] = defaultdict(list)
+            for _r in _pa_rows:
+                if _r.get("_pae_pid") and _r.get("Date"):
+                    _pae_tenures[str(_r.get("Team"))].append(
+                        (str(_r.get("Date"))[:10], str(_r.get("Date dropped/traded") or "")[:10], str(_r.get("_pae_pid"))))
+
+            def _pae_ktc_on(_pid, _on):
+                _h = _pae_hist.get(str(_pid))
+                if not _h:
+                    return 0.0
+                _iso = _on.isoformat()
+                _i = bisect.bisect_right(_h[0], _iso) - 1
+                _win = _acq.FIELD_STALE_DAYS if _on >= _acq.KTC_DAILY_FLOOR else _acq.FIELD_STALE_DAYS_PRE_DAILY
+                if _i < 0 or _h[0][_i] < (_on - timedelta(days=_win)).isoformat():
+                    return 0.0
+                return float(_h[1][_i])
+
+            def _pae_roster_strength(_on):
+                _iso = _on.isoformat()
+                _out = {}
+                for _tm, _ten in _pae_tenures.items():
+                    _ids = {_p for _st, _en, _p in _ten if _st <= _iso and (not _en or _en > _iso)}
+                    _out[_tm] = sum(sorted((_pae_ktc_on(_p, _on) for _p in _ids), reverse=True)[:_acq.ROSTER_TOP])
+                return _out
+
+            def _pae_season_state(_det, _on):
+                """(order set?, regular-season weeks played) for deciding
+                season `_det` as of `_on`."""
                 _wks = [(_yw, _pae_end.get(_yw, "")) for _yw in _pae_cal if _yw[0] == _det]
-                if not _wks:
-                    return 0.0 if _on < _date_pa(_det + 1, 1, 15) else 1.0
-                _last_end = max(_e for _yw, _e in _wks)
                 _ps = _season_playoff_start.get(_det) or 15
+                if not _wks:
+                    return (_on >= _date_pa(_det + 1, 1, 15)), 0
+                _last_end = max(_e for _yw, _e in _wks)
                 # Over only once its playoff weeks are on the calendar (a season
                 # in progress has only its played weeks there).
-                _season_over = max(_w0 for (_y0, _w0), _e in _wks) >= _ps + 1
-                if _season_over and _last_end and _on.isoformat() > _last_end:
-                    return 1.0
-                _reg = _ps - 1
-                _done = sum(1 for (_y0, _w0), _e in _wks if _w0 <= _reg and _e and _e <= _on.isoformat())
-                try:
-                    from lotg_support.draft_capital import order_rule as _order_rule
-                    _rule = _order_rule(int(_year))
-                except Exception:
-                    _rule = "placement"
-                return _acq.pick_info_weight(_slot, _pae_teams, _done / max(_reg, 1), False, _rule)
+                _over = max(_w0 for (_y0, _w0), _e in _wks) >= _ps + 1
+                if _over and _last_end and _on.isoformat() > _last_end:
+                    return True, _ps - 1
+                return False, sum(1 for (_y0, _w0), _e in _wks if _w0 < _ps and _e and _e <= _on.isoformat())
 
-            def _pae_traded_pick_faab(_label, _on=None):
+            _pae_odds_cache: Dict[Any, Any] = {}
+
+            def _pae_slot_odds(_year, _on):
+                """{original team: [P(slot)]} for draft `_year` as known on `_on`."""
+                _key = (_year, _on)
+                if _key not in _pae_odds_cache:
+                    _det = int(_year) - 1
+                    _set, _k = _pae_season_state(_det, _on)
+                    _rec, _mpf = {}, {}
+                    if _k and isinstance(tw, pd.DataFrame) and not tw.empty:
+                        _g = tw[(pd.to_numeric(tw["Year"], errors="coerce") == _det)
+                                & (pd.to_numeric(tw["Week"], errors="coerce") <= _k)]
+                        for _tm, _gg in _g.groupby("Team"):
+                            _w = _gg["Win?"].astype(str).str.strip().str.lower().isin(["true", "1", "yes"]).sum()
+                            _rec[str(_tm)] = float(_w) + float(pd.to_numeric(_gg["PF"], errors="coerce").sum()) / 1e5
+                            _mpf[str(_tm)] = float(pd.to_numeric(_gg["Max PF"], errors="coerce").sum())
+                    _rs = _pae_roster_strength(_on)
+                    try:
+                        from lotg_support.draft_capital import order_rule as _order_rule
+                        _rule = _order_rule(int(_year))
+                    except Exception:
+                        _rule = "placement"
+                    _pae_odds_cache[_key] = (_acq.project_slot_odds(_rs, _k, _rec or None, _mpf or None, _rule)
+                                             if len(_rs) >= 2 else {})
+                return _pae_odds_cache[_key]
+
+            def _pae_traded_pick_faab(_label, _on=None, _orig=""):
                 """A traded pick priced on the board, not by its own KTC (picks
                 are the league's currency; user 2026-10-03): its slot's price, or
                 the average over the round's slots when the slot is not yet
@@ -22421,17 +22462,22 @@ def build_all(repo_root: Path) -> None:
                     return _pae_ratio_faab(_acq.slot_price(
                         _pae_ratios.get("nr", {}), (_rd - 1) * _pae_teams + int(_m.group(3))), _on)
                 _each = [_pae_rookie_slot_faab(_yr, _rd, _s1, _on) for _s1 in range(1, _pae_teams + 1)]
-                _each = [_x for _x in _each if _x is not None]
-                _avg = sum(_each) / len(_each) if _each else None
-                if _m.group(3).isdigit():
-                    # A slot is only partly known when the pick is traded during
-                    # the season that decides it (option A): blend the round's
-                    # average with the eventual slot by what was knowable.
-                    _sl = int(_m.group(3))
-                    _d = _pae_rookie_slot_faab(_yr, _rd, _sl, _on)
-                    _w = _pae_pick_info(_yr, _sl, _on)
-                    if _d is not None and _avg is not None and _w < 1.0:
-                        _d = (1.0 - _w) * _avg + _w * _d
+                _avg = (sum(_x for _x in _each if _x is not None) / len([_x for _x in _each if _x is not None])
+                        if any(_x is not None for _x in _each) else None)
+                _sl = int(_m.group(3)) if _m.group(3).isdigit() else None
+                _det = _yr - 1
+                _set = (_on is None) or (_sl is not None and _sl > _pae_teams) or _rd >= 5 \
+                    or _pae_season_state(_det, _on)[0]
+                if _set and _sl is not None:
+                    _d = _pae_rookie_slot_faab(_yr, _rd, _sl, _on)        # the order is known
+                elif not _set and _det <= _on.year and _orig and None not in _each:
+                    # Its deciding season is next up or under way: the slot as
+                    # projected from what was knowable that day (roster
+                    # strength, then the stat that sets the order) — never the
+                    # slot it eventually landed in.
+                    _odds = _pae_slot_odds(_yr, _on).get(_orig)
+                    _d = (sum(_p * _x for _p, _x in zip(_odds, _each)) if _odds and len(_odds) == len(_each)
+                          else _avg)
                 else:
                     _d = _avg
                 if _d is None or _on is None:
@@ -22443,7 +22489,7 @@ def build_all(repo_root: Path) -> None:
                 priced on the board, a player by his KTC that day, above
                 replacement."""
                 if _key[0] == "k":
-                    _d = _pae_traded_pick_faab(_key[1], _on)
+                    _d = _pae_traded_pick_faab(_key[1], _on, _key[2] if len(_key) > 2 else "")
                     if _d is not None:
                         return _d
                 if _v is None:
