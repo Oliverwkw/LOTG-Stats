@@ -1391,3 +1391,29 @@ guard-skipped fire), 581→584 (#453), 584→589 (#454), 589→597 (#455).
   league-history endpoint. Unverified until then: whether per-week lineups (not
   just scores) survive for the older seasons, and whether ESPN's player IDs from
   those years map through `player_id_map.csv`.
+
+## Boldness: next man up + two-term lift (from the 2026 wk 4 inquiry)
+- [x] **#470 3-part audit PASS** (post-merge run 37217627715, merge `84edf9d`, vs
+  pre-merge main run 37216195042; branch run 37217067618 identical cell for cell).
+  Part 1: 588 passed / 2 standing skips; no ERROR in this run's build_debug.log;
+  `boldness: 7771 starts, 832 lineups`; email / rotation skipped; no exports commit
+  (code-only merge, lands Tuesday). Part 2: next man up must have appeared for the team
+  (2025: 25 → 5 events off-rule, the 5 are the `used or present` fallback); changed picks
+  match who really started — 2023 wk 9 MIN Jaren Hall (not Dobbs, who had played only
+  for ARI), 2024 wk 10 DAL Cooper Rush (not Trey Lance), 2024 wk 14 SF Isaac Guerendo
+  (not Ke'Shawn Vaughn), 2024 wk 18 CLE Dorian Thompson-Robinson (not Bailey Zappe);
+  lift (a, b) QB .36/.69, RB .37/.84, WR .09/1.14, TE .20/1.01; Mike Davis 2020 wk 3 by
+  hand .373 × 22.80 + .843 × 5.99 = 13.55 = model, Hayden Hurst's exported 6.38 =
+  13.55 − 7.17; 0 negatives, 0 lineups below their boldest start, team_year = mean of
+  team_week (≤ 0.005 rounding); Formulas row updated. Part 3: only player_week
+  Boldness (694), team_week (295) / team_year (49) / team_all_time (8) Lineup Boldness
+  and 1 Formulas row moved; the other 11 sheets identical. Top 3 all-time unchanged;
+  largest move LWebs53 2022 wk 12, 9.98 → 2.54.
+  - needs-human-judgment: which backup is "next" in an ambiguous backfield. 2026 wk 4
+    MIA: the model lifts Ollie Gordon (E 4.72, had the week-3 work) and Sleeper's
+    current depth chart lists Jaylen Wright first. The depth chart is current-only,
+    so it cannot be used historically.
+  - by-design: WR b = 1.14. A promoted WR gets about 14% over his own E, and his
+    starter's E barely matters (a = .09). That is what the data fit.
+  - by-design: the fit uses only backups who played that week (the same selection as
+    before).
