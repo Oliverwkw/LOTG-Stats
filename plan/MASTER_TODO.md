@@ -1319,6 +1319,13 @@ guard-skipped fire), 581→584 (#453), 584→589 (#454), 589→597 (#455).
   `check_year_round_build` step 3 (a run without the flag leaves the file byte-identical).
 
 ## Points above expectation: per-position tenure curves
+- [x] **#469 3-part audit PASS** (post-merge run 37216195042 vs pre-merge main run
+  37212429492): code reviewed, 586 guards green (3 new tenure tests fail on the old model);
+  results — Mahomes −87 → +289, Kelce 492 → 608, Jacobs 607 → 514, Chubb 49 → −38, Watson
+  −702 → −548, matching the pre-merge dump experiment to 0.005; rate = total ÷ weeks, never-
+  rostered 0, commissioner blank all hold; diff — only `Points above expectation (total /
+  rate)` moved (1,624 / 1,613 cells, corr 0.989 / 0.986), every other cell of all 15 sheets
+  identical; the post-merge player_additions equals the branch build's byte for byte.
 - [ ] **`acquisition.points_above_expectation`** [per user, 2026-10-04: "tenure, not age";
   must stay accurate in 10/15/20 years]. Free agency fitted alone; paid channels pooled
   with their own price curves + shared position knots, per-position offseason slope,
@@ -1330,6 +1337,26 @@ guard-skipped fire), 581→584 (#453), 584→589 (#454), 589→597 (#455).
   `test_expectation_keeps_working_as_history_grows` (15-season synthetic league),
   `test_long_held_rb_is_the_surprise_not_the_qb` (all three fail on the old model).
   Evidence: plan/notes/POINTS_ABOVE_EXPECTATION.md "Tenure curves".
+- [ ] **Yearly re-check of the expectation model** [per user, 2026-10-04] — once a season,
+  after the championship. The model refits every build and grows its own hinges/knots,
+  but its settings (EXPECTATION_RIDGE 30, MIN_TENURE_ADDITIONS 40, BASE_KNOT_WEEKS,
+  TAIL_QUANTILE 0.95) were tuned on 2020-26 data. Re-check them:
+  1. Dump the model inputs: branch `exp-pae-tenure-dump` (never merge) writes
+     `exports/raw/pae_additions.json` from the `_pae_adds` list in src/lotg.py — rebase it
+     on main and dispatch build.yml on it (send_email=false); download `LOTG_outputs`.
+  2. Replay the build as of the end of each season (out-of-fold, folds by addition,
+     only data known then) and score calibration = expected-points-weighted RMS of
+     log(actual / expected) over position x price tier (top third of the channel's
+     prices vs the rest; free agency apart) x seasons since the move (1, 2, 3-4, 5+), cells
+     with >= 25 additions; plus the oldest two observed tenure seasons by position.
+  3. Baseline (2026-10-04, as of 2022 / 23 / 24 / 25 / 26): calibration 0.040 / 0.032 /
+     0.034 / 0.031 / 0.038; oldest-tenure error <= 0.05. **Act if** the latest year's
+     calibration exceeds ~0.06 or the oldest-tenure error exceeds ~0.10, or it trends up
+     for two years running — sweep the four settings (and the ablations in the note) and
+     change only what the replay supports, as a build PR with the 3-part audit.
+  4. Record the year's numbers here.
+  The 2026 harness (exp2.py / rp.py) was session scratch; rebuild it from this recipe, or
+  move it into lib/ + scripts/ if the re-check is going to recur by hand.
 
 ## Phase 15 — TBD: OLD LEAGUES
 - [ ] **TBD.** Placeholder for integrating other historical/old leagues' data (e.g. the
