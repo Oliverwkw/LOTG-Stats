@@ -11,24 +11,28 @@ r ≥ 0.98, with this note to be re-tested **at the end of the 2026 season**.
 | Option | What it needs | Pearson r vs KTC | Mean abs. error |
 |---|---|---:|---:|
 | **Stats-only** | nflverse only — no KTC after training | **0.947** (frozen 19 months, scored on later months) | 416 |
-| **Routed anchored**, anchor ≤10 days old (= carry it forward) | last week's KTC | **0.998** | 93 |
-| Routed anchored, anchor 11–45 days old | | **0.992** (carry: 0.990) | 192 (carry: 204) |
-| Routed anchored, anchor 46–120 days old | | **0.972** (carry: 0.959) | 377 (carry: 449) |
-| Routed anchored, anchor 121–400 days old | | **0.952** (carry: 0.883) | 450 (carry: 763) |
+| **Routed anchored**, anchor ≤10 days old | last week's KTC | **0.998** (carry: 0.998) | 91 (carry: 93) |
+| Routed anchored, anchor 11–45 days old | | **0.992** (carry: 0.990) | 182 (carry: 204) |
+| Routed anchored, anchor 46–120 days old | | **0.974** (carry: 0.959) | 359 (carry: 449) |
+| Routed anchored, anchor 121–400 days old | | **0.953** (carry: 0.883) | 447 (carry: 763) |
 
-(Anchored rows: weekly data, players held out, 18k–39k rows per band.)
+(Anchored rows: weekly data, players held out, 18k–39k rows per band;
+2026-10-04 code.)
 
 - **>90%: met** by stats alone (r 0.947 on months the model never saw).
 - **±250 on every point: impossible from these inputs**, and provably so — see
   *Why not ±250 everywhere*.
-- **r ≥ 0.98: met only with a KTC anchor under ~6 weeks old.** With your weekly
-  feed that is the normal case — but at one week, carrying KTC forward unchanged
-  already scores 0.998 and **no model beat it**, so the routed model simply
-  carries it. The model earns its keep as the anchor ages. Stats-only tops out
-  near 0.95: it cannot see news.
-- **The last-season rehearsal disagrees on one point** (n=114, Oct 2025 → Jan
-  2026): with a ~100-day anchor, stats-only (0.935) beat anchored (0.909). See
-  *Rehearsal*. The end-of-season test decides it.
+- **r ≥ 0.98: met only with a KTC anchor under ~6 weeks old.** With a weekly
+  feed that is the normal case, but at one week carrying KTC forward already
+  scores 0.998 — the model's edge there is small (MAE 91 vs 93). It earns its
+  keep as the anchor ages. Stats-only tops out near 0.95: it cannot see news.
+- **Staleness is counted in games, not days** (2026-10-04, from the #467
+  session): across an offseason a months-old KTC barely moves; once games are
+  played it goes stale fast. The routed model moves off the anchor in
+  proportion to NFL weeks played since it — see *Round 4*.
+- **The last-season rehearsal** (n=114, skewed to movers): stats-only r 0.935,
+  anchored 0.920, their mean **0.938 / MAE 248** — the end-of-season test
+  decides between them.
 
 Nothing here changes the build or `exports/`. Code:
 `plan/notes/ktc_proxy/ktc_proxy.py` (run by hand; see *Reproduce*).
@@ -118,8 +122,9 @@ had already seen the move and the anchored model under-used it (Drake Maye
 Jul 2026: anchor 6,601 → KTC 9,362; stats-only 9,236, anchored 6,518). Training
 on anchors of many ages (1 week → 1 year) was tried for this: it helps only for
 anchors over ~4 months old and *hurts* fresh ones (it pulls a 1-week anchor
-toward the stats estimate), so the shipped model routes by anchor age — see
-*Backtest of the consolidated code*.
+toward the stats estimate), so the shipped model routes by anchor age, and
+since 2026-10-04 also by football played since the anchor — see *Backtest of
+the consolidated code* and *Round 4*.
 
 ## Traps found (and fixed) along the way
 
@@ -140,23 +145,30 @@ toward the stats estimate), so the shipped model routes by anchor age — see
 
 ## Backtest of the consolidated code
 
-`python plan/notes/ktc_proxy/ktc_proxy.py backtest` (2026-10-03). Monthly
-stats-only, frozen at 2025-03-01, scored on the 1,986 later rows: **r 0.947,
-MAE 416, 40.8% within ±250**. Weekly anchored, players held out, every anchor
-age (anchors 1, 2, 4, 8, 13, 26 and 52 observations back):
+`python plan/notes/ktc_proxy/ktc_proxy.py backtest` (rerun 2026-10-04 on the
+final code). Monthly stats-only, frozen at 2025-03-01, scored on the 1,986 later
+rows: **r 0.947, MAE 416, 40.8% within ±250, calib 276, bias −235**. Weekly
+anchored, players held out, every anchor age (anchors 1, 2, 4, 8, 13, 26 and 52
+observations back):
 
 | Anchor age | n | Carry forward | Stats-only | Anchored, 1-period training | Anchored, multi-age training | **Routed** |
 |---|---:|---|---|---|---|---|
-| 0–10 days | 18,446 | **0.9979 / 93** | 0.932 / 653 | 0.9978 / 98 | 0.995 / 161 | **0.9979 / 93** |
-| 11–45 days | 38,951 | 0.990 / 204 | 0.932 / 632 | **0.992 / 192** | 0.990 / 228 | **0.992 / 192** |
-| 46–120 days | 34,205 | 0.959 / 449 | 0.934 / 623 | **0.972 / 377** | 0.974 / 378 | **0.972 / 377** |
-| 121–400 days | 28,643 | 0.883 / 763 | 0.937 / 515 | 0.942 / 496 | **0.952 / 450** | **0.952 / 450** |
-| all | 136,892 | 0.920 / 532 | | | | **0.977 / 310** |
+| 0–10 days | 18,446 | 0.9979 / 93 | 0.932 / 653 | 0.9979 / 97 | 0.996 / 152 | **0.9981 / 91** |
+| 11–45 days | 38,951 | 0.990 / 204 | 0.932 / 632 | 0.992 / 189 | 0.990 / 222 | **0.9925 / 182** |
+| 46–120 days | 34,205 | 0.959 / 449 | 0.934 / 623 | 0.974 / 367 | 0.974 / 369 | **0.974 / 359** |
+| 121–400 days | 28,643 | 0.883 / 763 | 0.937 / 515 | 0.944 / 483 | 0.953 / 448 | **0.953 / 447** |
+| no NFL weeks since anchor | 46,431 | 0.992 / 173 | | | | **0.993 / 168** |
+| 1–3 NFL weeks since | 25,367 | 0.984 / 254 | | | | **0.989 / 218** |
+| 4+ NFL weeks since | 65,094 | 0.833 / 897 | | | | **0.956 / 430** |
+| all | 136,892 | 0.920 / 532 | | | | **0.977 / 302** (calib 93) |
 
-(r / MAE.) Routing (`RoutedAnchored`): carry the anchor when ≤10 days old,
-1-period model to 120 days, multi-age model beyond. The 0–10-day band is mostly
-2020–21, the only stretch of dense daily history; on 2022+ weekly rows carry
-forward scored r 0.994, MAE 60 (n 2,994, scratch run).
+(r / MAE.) Routing (`RoutedAnchored`): to 120 days, the 1-period model (with
+games-since-anchor features), moved off the anchor by lam = g ÷ (g + 1), g = NFL
+weeks since the anchor — no games, no move; beyond 120 days, the multi-age model
+unshrunk; capped at KTC's 9,999. Previous version (carry ≤10 days, no games
+features): all 0.977 / 310. The 0–10-day band is mostly 2020–21, the only
+stretch of dense daily history; on 2022+ weekly rows carry forward scored r
+0.994, MAE 60 (n 2,994, scratch run).
 
 ## End-of-season test (pre-registered 2026-10-03)
 
@@ -183,18 +195,23 @@ dates.
 
 | | Option | Backtest (46–120-day band) | 2025 rehearsal (n=114) |
 |---|---|---|---|
-| M1 | Carry 2026-10-03 KTC to season end (~100-day anchor) | r 0.959 / MAE 449 | r 0.769 / MAE 408 |
+| M1 | Carry 2026-10-03 KTC to season end (~100-day anchor, ~14 NFL weeks) | r 0.833 / MAE 897 (4+ NFL weeks band) | r 0.769 / MAE 408 |
 | M2 | Stats-only, frozen | r 0.934 / MAE 623 (held-out players) | r 0.935 / MAE 275 |
-| M3 | Routed anchored on 2026-10-03 KTC, frozen | r 0.972 / MAE 377 | r 0.909 / MAE 278 |
-| M5 | Mean of M2 and M3 *(added after the rehearsal)* | — | r 0.934 / MAE 258 |
-| M4 | Weekly, previous week's KTC: carry vs 1-period anchored | r 0.998 / MAE 93 vs 98 | r 0.993 / MAE 48 vs 49 (n=302) |
+| M3 | Routed anchored on 2026-10-03 KTC, frozen | r 0.956 / MAE 430 (4+ NFL weeks band) | r 0.920 / MAE 259 |
+| M5 | Mean of M2 and M3 *(added after the 2026-10-03 rehearsal)* | — | **r 0.938 / MAE 248** |
+| M4 | Weekly, previous week's KTC: carry vs routed anchored | r 0.998 / MAE 93 vs 91 | r 0.993 / MAE 48 vs 45 (n=302); 80% ranges 84.6% |
+
+*Re-registered 2026-10-04:* M3 and M4 now use the games-weighted routing
+(*Round 4*), and the run prints M4's 80% ranges recalibrated each week on
+earlier weeks' errors. The comparison and the criteria below are unchanged.
 
 **What would count as holding up:** M2 r ≥ 0.90 (the original bar); M3 beats M1
 on both r and MAE. **What would count as failing:** M2 below 0.90, or M3 not
 beating M1 — either means the backtests flattered the model. **Open question
 the test settles:** M3 vs M2 vs M5 for a ~100-day-old anchor in-season (the
-backtest says M3, the rehearsal says M2/M5). **Not expected:** M4 anchored
-beating M4 carry by anything meaningful — a one-week KTC move is news.
+backtest says M3; the rehearsal says M5, then M2). **Not expected:** M4 anchored
+beating M4 carry by much — a one-week KTC move is news (backtest MAE 91 vs 93).
+**Ranges:** M4's recalibrated 80% ranges should cover 75–85%.
 Expect M2's MAE to read high if KTC's overall level shifts during the season;
 the run prints the mean signed error — check it before blaming the
 player-level model.
@@ -204,7 +221,9 @@ player-level model.
 The same command with `--freeze 2025-10-03 --eval 2026-01-13 --tol-days 30`
 (anchor = latest KTC in the 30 days before the freeze; target = KTC within 30
 days of the eval date — the stored history is too sparse for ±4 days: only 9
-players qualified). Results are in the table above.
+players qualified). Results are in the table above (rerun 2026-10-04 on the
+final code; M1/M2 unchanged, M3 0.909 / 278 → 0.920 / 259 with the games-weighted
+routing).
 
 - **The sample is skewed.** After 2021 the repo's KTC values exist mostly at
   transaction dates, so these 114 are players this league traded or picked up —
@@ -213,7 +232,7 @@ players qualified). Results are in the table above.
   the broad backtest is that skew.
 - **On movers, stats beat a stale anchor.** The worst M3 misses are in-season
   role changes the stats model sees and a 3-month-old KTC does not.
-- **Level drift showed up:** mean signed error M2 −156, M3 −76 (both low).
+- **Level drift showed up:** mean signed error M2 −156, M3 −68 (both low).
 - **The season-end run has the full weekly feed** (±4 days, every KTC-listed
   player), so it is the fairer test; the rehearsal is a smoke test of the code
   and a warning about movers.
@@ -274,10 +293,35 @@ months (single model; `calib` = n-weighted RMS of mean error per KTC quintile,
   value rookie picks without KTC, but the repo holds no pick KTC history to
   test it.
 
+## Round 4: ideas from the #467 session — tested 2026-10-04
+
+Read for ideas: the session that built #467 (its last ~7.5 hours, where the
+pricing design was argued out; the first ~24 hours are mostly build logs and
+were not read) and #389's design note. Each idea was tested as below; "future" =
+stats-only frozen at 2025-03-01 scored on later months (single model, baseline
+r 0.9485 / MAE 419), "held-out" = 5-fold by player.
+
+| Idea (source) | Result | Kept? |
+|---|---|---|
+| **Information arrives with games, not days** (#467: pick odds firm up by week 8) | Stale anchors (n 79k): across an offseason, carrying a months-old KTC beat every model (r 0.984 / MAE 278); with 4+ NFL weeks since, carry fell to 0.853 / 870. Moving off the anchor by lam = g ÷ (g + 1) gave the best routing at every age ≤120 days (table in *Backtest*) | **Yes** |
+| Production value: projected PPG above positional replacement, with a position age curve fit on 2012–24 (#467 option D) | held-out r 0.9374 → 0.9405; future MAE 419 → 428 (95% CI of the change −2 to +23) | No |
+| Prior/in-season blend by games played (#467's roster → record blend) | held-out 0.9399 / 509; future MAE 430 | No |
+| Same slot in earlier classes, same career stage (#467's unquoted-pick estimate) | future MAE 424 | No |
+| Separate models per position (#389: pooling hid the slot signal) | future MAE 444 (pooled 419) | No — the trees already split by position |
+| Separate rookie / veteran models | future MAE 442 | No |
+| Blend the stats estimate into stale anchored predictions | MAE ±2 at every weight | No |
+| Cap predictions at KTC's 9,999 | 195 of 137k rows affected; KTC ≥7,500 MAE 425 → 419 | **Yes** |
+| 80% prediction ranges (#467's odds spread) | Frozen widths cover only 52–62% of later values (level drift); recalibrated each month on the previous 3 months' errors: **78% stats-only, 80% anchored**; weekly in the rehearsal: 84.6% | **Yes, recalibrated only** |
+
+**The stats-only backup is at a wall with these inputs.** Every player-level
+feature tried helps on unseen players but not on later months; later-month
+error is dominated by market-level drift (bias −235), which needs the build's
+daily field anchor (see the #467 section above).
+
 ## Not done
 
 - No helper in `lib/` and no tests: this is an archived experiment, per the
-  asker ("no PR for now"). Promoting it means `lib/lotg_support/` + `tests/` +
+  asker (note pushed to main without a PR, 2026-10-04). Promoting it means `lib/lotg_support/` + `tests/` +
   a thin `scripts/` CLI, additive only.
 - Rookie draft picks are not modelled.
 - No offseason news / injury feed, and no non-KTC rankings (ADP) — the two
