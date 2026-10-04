@@ -11,8 +11,20 @@ add it. Each entry has:
            team_week, player_week, etc.).
   Formula: Plain-English or pseudo-code definition of the calculation.
   Notes:   Edge cases, data sources, semantic gotchas.
+The emitted sheet adds an Equation column (formula_equations.py): each stat as
+an equation in raw API fields only, after a glossary of those fields.
 """
 import pandas as pd
+
+try:
+    import formula_equations
+except ImportError:  # loaded by file path (tests/test_formulas_coverage.py) without src/ on sys.path
+    import importlib.util as _ilu
+    from pathlib import Path as _Path
+    _spec = _ilu.spec_from_file_location(
+        "formula_equations", _Path(__file__).resolve().with_name("formula_equations.py"))
+    formula_equations = _ilu.module_from_spec(_spec)
+    _spec.loader.exec_module(formula_equations)
 
 FILE_NAME = "formulas.csv"
 PLAN_KEY = "Formulas"
@@ -1764,11 +1776,28 @@ for _base, _sheet, _how, _note in _POS_TWINS:
 # Output columns of the Formulas sheet (in order). "Columns" is INTERNAL
 # coverage metadata (the exact column names an entry documents, used by
 # the coverage check below + tests/test_formulas_coverage.py) and is NOT emitted.
-_OUTPUT_FIELDS = ["Stat", "Sheet", "Formula", "Notes"]
+_OUTPUT_FIELDS = ["Stat", "Sheet", "Formula", "Notes", formula_equations.COLUMN]
+
+
+def _glossary_rows():
+    """The raw-variable and operator glossary the Equation column is written in.
+    Emitted ahead of the stat rows; not part of _ROWS (no stat to cover)."""
+    col = formula_equations.COLUMN
+    rows = [{"Stat": sym, "Sheet": formula_equations.RAW_SHEET, "Formula": meaning,
+             "Notes": f"Source: {source}", col: "raw API field"}
+            for sym, meaning, source in formula_equations.RAW_VARIABLES]
+    rows += [{"Stat": sym, "Sheet": formula_equations.OPS_SHEET, "Formula": meaning,
+              "Notes": "", col: definition}
+             for sym, definition, meaning in formula_equations.OPERATORS]
+    return rows
 
 
 def build_output(context):
-    return pd.DataFrame([{k: r.get(k, "") for k in _OUTPUT_FIELDS} for r in _ROWS])
+    col = formula_equations.COLUMN
+    rows = [dict(r, **{col: formula_equations.EQUATIONS.get((r["Stat"], r["Sheet"]), "")})
+            for r in _ROWS]
+    return pd.DataFrame([{k: r.get(k, "") for k in _OUTPUT_FIELDS}
+                         for r in _glossary_rows() + rows])
 
 
 # --- Phase 11A coverage check (shared by the build-time assert and the test) ---
