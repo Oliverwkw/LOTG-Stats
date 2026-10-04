@@ -244,6 +244,10 @@ UNDECIDED_STATUS_PAIRS = {
     # on no league roster. Doubtful is a game-time label — a Doubtful player can
     # still suit up — so it decides nothing, exactly as ('Doubtful', 'Active').
     ("Doubtful", "Inactive"): "game-time label, same as ('Doubtful', 'Active')",
+    # First seen 2026-10-04 (week 4, Sunday): Joe Mixon (RB, unsigned, on no
+    # league roster). An injury_status of "Active" asserts the absence of an
+    # injury designation, so it decides exactly what an empty one does.
+    ("Active", "Active"): "explicit 'no designation', same as ('', 'Active')",
 }
 # "na" is the exempt list (above), and it is read LAST — after both explicit
 # vocabularies — because it is the least specific thing Sleeper can say. Sleeper
