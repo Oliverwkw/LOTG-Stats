@@ -33,6 +33,7 @@ _VOLATILE_SUBSTRINGS = (
     "date dropped/traded",
     "year later", "years later",    # rolling: KTC value difference N year(s) later
     "year after", "years after",    # rolling: KTC N year(s) after draft day
+    "above expectation",    # player_additions: the expectation refits on every build's weeks
 )
 _VOLATILE_EXACT = {
     "Luck", "Hardship", "Starter-adjusted Hardship", "Number of teams",
