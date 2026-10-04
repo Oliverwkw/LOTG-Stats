@@ -22442,8 +22442,23 @@ def build_all(repo_root: Path) -> None:
                         _rule = _order_rule(int(_year))
                     except Exception:
                         _rule = "placement"
-                    _pae_odds_cache[_key] = (_acq.project_slot_odds(_rs, _k, _rec or None, _mpf or None, _rule)
-                                             if len(_rs) >= 2 else {})
+                    _ps = _season_playoff_start.get(_det) or 15
+                    if _rec and _k >= _ps - 1:
+                        # Regular season over: the bottom four by the rule, the
+                        # playoff block by the bracket so far (semifinal winners
+                        # once that week's games are done).
+                        _semi_end = _pae_end.get((_det, _ps), "")
+                        _sw = None
+                        if _semi_end and _semi_end < _on.isoformat():
+                            _sg = tw[(pd.to_numeric(tw["Year"], errors="coerce") == _det)
+                                     & (pd.to_numeric(tw["Week"], errors="coerce") == _ps)]
+                            _sw = [str(_t) for _t, _wn in zip(_sg["Team"], _sg["Win?"])
+                                   if str(_wn).strip().lower() in ("true", "1", "yes")]
+                        _pae_odds_cache[_key] = _acq.post_season_slot_odds(_rec, _mpf, int(_year), _rule,
+                                                                           semifinal_winners=_sw)
+                    else:
+                        _pae_odds_cache[_key] = (_acq.project_slot_odds(_rs, _k, _rec or None, _mpf or None, _rule)
+                                                 if len(_rs) >= 2 else {})
                 return _pae_odds_cache[_key]
 
             def _pae_traded_pick_faab(_label, _on=None, _orig=""):

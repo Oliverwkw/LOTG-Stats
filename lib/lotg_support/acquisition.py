@@ -159,6 +159,14 @@ REPLACEMENT_FADE = 2.5
 # order is set the pick is its slot; the 2.09 only exists then. A pick two or
 # more drafts out is its round's average.
 ROSTER_TOP = 15
+# After the regular season (user, 2026-10-03) the order is mostly mechanical:
+# the bottom four go by the rule — Max PF (2026 on) and the 2025 draft's
+# regular-season record are known outright; through the 2024 draft placement
+# still counted the toilet bowl, so a spread of TOILET_BOWL_SIGMA remains until
+# it is played — and the playoff block is revealed by the bracket: four teams
+# over 5-8 before the semifinals, winners over 7-8 and losers over 5-6 after.
+TOILET_BOWL_SIGMA = 0.75
+PLACEMENT_COUNTS_TOILET_BOWL_THROUGH = 2024     # draft year
 SLOT_SIGMA = (2.75, 2.35, 2.00, 1.90, 1.65, 1.55, 1.55, 1.55, 1.55, 1.40, 1.35, 1.35, 1.25, 1.00)
 FIELD_STALE_DAYS = 30
 FIELD_STALE_DAYS_PRE_DAILY = 365
@@ -332,6 +340,47 @@ def inseason_score(record: Dict[str, float], max_pf: Dict[str, float], rule: str
     bottom = set(order[:max(len(order) - int(playoff_teams), 0)])
     top = 1.0 + max(max_pf.values(), default=0.0)
     return {t: (max_pf.get(t, 0.0) if t in bottom else top + record[t]) for t in record}
+
+
+def _normal_odds(rank: int, n: int, sigma: float, slots: Sequence[int]) -> List[float]:
+    out = [0.0] * n
+    if sigma <= 0:
+        out[rank - 1] = 1.0
+        return out
+    w = {s: math.exp(-((s - rank) ** 2) / (2 * sigma * sigma)) for s in slots}
+    tot = sum(w.values())
+    for s, v in w.items():
+        out[s - 1] = v / tot
+    return out
+
+
+def post_season_slot_odds(record: Dict[str, float], max_pf: Dict[str, float], draft_year: int, rule: str,
+                          playoff_teams: int = 4, semifinal_winners: Optional[Sequence[str]] = None) -> Dict[str, List[float]]:
+    """{team: [P(slot)]} once the regular season is over and before the order
+    is final (see TOILET_BOWL_SIGMA)."""
+    teams = sorted(record, key=lambda t: record[t])               # worst record first
+    n = len(teams)
+    nb = max(n - int(playoff_teams), 0)
+    bottom, playoff = teams[:nb], teams[nb:]
+    out: Dict[str, List[float]] = {}
+    if rule == "max_pf":
+        order, sig = sorted(bottom, key=lambda t: max_pf.get(t, 0.0)), 0.0
+    else:
+        order = bottom
+        sig = TOILET_BOWL_SIGMA if int(draft_year) <= PLACEMENT_COUNTS_TOILET_BOWL_THROUGH else 0.0
+    for i, t in enumerate(order):
+        out[t] = _normal_odds(i + 1, n, sig, range(1, nb + 1))
+    if semifinal_winners:
+        win = [t for t in playoff if t in set(semifinal_winners)]
+        lose = [t for t in playoff if t not in set(semifinal_winners)]
+        groups = [(lose, range(nb + 1, nb + 1 + len(lose))), (win, range(nb + 1 + len(lose), n + 1))]
+    else:
+        groups = [(playoff, range(nb + 1, n + 1))]
+    for grp, slots in groups:
+        slots = list(slots)
+        for t in grp:
+            out[t] = [(1.0 / len(slots) if (s + 1) in slots else 0.0) for s in range(n)]
+    return out
 
 
 def _rank_z(values: Dict[str, float]) -> Dict[str, float]:

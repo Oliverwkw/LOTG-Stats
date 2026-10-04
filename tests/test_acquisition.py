@@ -203,6 +203,23 @@ def test_pick_slot_projection():
     assert s["b"] < s["a"] < s["c"] < s["d"]
 
 
+def test_post_season_slot_odds():
+    """After the regular season: bottom four by the rule, the playoff block by
+    the bracket as it is played."""
+    rec = {"a": 2, "b": 3, "c": 4, "d": 5, "e": 8, "f": 9, "g": 10, "h": 11}
+    mpf = {"a": 1500, "b": 1400, "c": 1600, "d": 1300, "e": 0, "f": 0, "g": 0, "h": 0}
+    o = ACQ.post_season_slot_odds(rec, mpf, 2027, "max_pf")
+    assert o["d"][0] == 1.0 and o["b"][1] == 1.0 and o["a"][2] == 1.0 and o["c"][3] == 1.0   # by Max PF
+    assert all(abs(o[t][s] - 0.25) < 1e-12 for t in "efgh" for s in range(4, 8))           # playoff block open
+    o2 = ACQ.post_season_slot_odds(rec, mpf, 2027, "max_pf", semifinal_winners=["f", "h"])
+    assert o2["e"][4] == 0.5 and o2["e"][5] == 0.5 and o2["h"][6] == 0.5 and o2["h"][7] == 0.5
+    p25 = ACQ.post_season_slot_odds(rec, mpf, 2025, "placement")
+    assert p25["a"][0] == 1.0                                                              # record, known
+    p24 = ACQ.post_season_slot_odds(rec, mpf, 2024, "placement")
+    assert 0.4 < p24["a"][0] < 1.0 and sum(p24["a"][4:]) == 0.0                           # toilet bowl still to play
+    assert all(abs(sum(v) - 1.0) < 1e-9 for v in list(o.values()) + list(o2.values()) + list(p24.values()))
+
+
 def test_field_values_skip_stale_quotes():
     from datetime import date
     hist = {"a": (["2024-08-01", "2024-09-10"], [9000.0, 9100.0]),
