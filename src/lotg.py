@@ -12130,7 +12130,7 @@ def build_all(repo_root: Path) -> None:
         _TRADE_CUFF_BONUS = 5.0  # mirror the transaction CUFF_BONUS
         # Item 7E (pick value): future draft picks received/sent are valued with
         # the SAME round weights tanking uses (_FUTURE_PICK_WEIGHTS: 1st=0.25,
-        # 2nd=0.09, 3rd=0.03, 4th=0.01, next-3-seasons only) and converted to a
+        # 2nd=0.09, 3rd=0.03, 4th=0.01; every future pick, no cap) and converted to a
         # PPG-equivalent by this coefficient, then added to Trade addition value
         # so pick-heavy hauls register. 20.0 => a future 1st ≈ +5 (≈ one cuff
         # bonus). TUNABLE — adjust to taste.

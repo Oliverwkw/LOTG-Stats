@@ -3,7 +3,7 @@
 `formulas.py` documents each stat in prose. This module restates each one as an
 equation whose variables are only fields pulled straight from the source APIs
 (Sleeper, ESPN for 2020, nflverse, KeepTradeCut), plus the few hand-curated
-data/ files the build reads, which are flagged as such.
+data/ files the build reads.
 
 Two kinds of shorthand keep the equations readable without leaving raw data:
 
@@ -79,7 +79,7 @@ RAW_VARIABLES = [
     ("ID bridge", "sleeper_id ↔ gsis_id ↔ KTC id crosswalk (a join key, not a stat).",
      "DynastyProcess db_playerids.csv, nflverse players.csv"),
     ("SUSP(p,y,w), GDS(p,y,w), CPM, MTX",
-     "NOT an API: hand-curated suspensions, game-day active/inactive status for zero-snap weeks, off-platform commissioner pick moves, manual transactions.",
+     "Hand-curated suspensions, game-day active/inactive status for zero-snap weeks, off-platform commissioner pick moves, manual transactions.",
      "data/suspensions.csv, data/game_day_status.csv, data/commissioner_pick_trades.csv, data/manual_transactions.csv"),
 ]
 
