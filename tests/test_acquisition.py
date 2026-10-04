@@ -105,22 +105,40 @@ def test_pick_year_discount_is_the_league_fit():
     assert ACQ.PICK_YEAR_DISCOUNT == 0.95
 
 
-def test_field_curve_prices_the_top_by_standing_over_the_field():
-    """Option D (user 2026-10-03): above a mid first, price grows with how far
-    an asset stands above that day's top 10 — a dominant #1 over a thin top
-    costs more than a #1 in a bunched top; a mid first is $1,000."""
-    k_mid = 5500.0
-    bunched = ACQ.FieldCurve([9999, 9990, 9980, 9970, 9900, 9850, 9800, 9750, 9700, 9650] + [5000] * 40, k_mid)
-    thin = ACQ.FieldCurve([9999, 9100, 8700, 8300, 8000, 7700, 7400, 7100, 6900, 6700] + [5000] * 40, k_mid)
-    assert abs(bunched.faab(k_mid) - ACQ.MID_FIRST_FAAB) < 1e-9 and abs(thin.faab(k_mid) - 1000.0) < 1e-9
-    assert thin.faab(9999) > bunched.faab(9999)
-    assert abs(thin.faab(thin.top10) - 1000.0 * ACQ.FIELD_GROWTH) < 1e-6        # an average top-10 player
-    money = ACQ.MoneyCurve(ACQ.slot_price_curve([(1, 7220.0), (4, 5600.0), (5, 5400.0), (32, 2080.0)]), 32)
-    # continuous at the mid-first line, the money curve below it
-    f = ACQ.FieldCurve([9999] * 10, money.k_mid)
-    assert abs(ACQ.asset_faab(money.k_mid, money, f) - money.faab(money.k_mid)) < 1.0
-    assert ACQ.asset_faab(3000.0, money, f) == money.faab(3000.0)
-    assert ACQ.asset_faab(None, money, f) is None
+def _field(top, mid_to_100, rest=300):
+    """A field: 10 top values, players 11-100 spread down to `mid_to_100`'s
+    end, then a tail."""
+    import numpy as np
+    return (list(top) + list(np.linspace(top[-1] - 50, mid_to_100[0], 39))
+            + list(np.linspace(mid_to_100[0] - 10, mid_to_100[1], 51)) + list(np.linspace(mid_to_100[1] - 10, 300, rest)))
+
+
+def test_market_curve():
+    """User 2026-10-03: the field's 49th player is $1,000 (a mid first floats);
+    the top is priced by standing over the day's top 10; below the anchor half
+    that market effect is blended with the board curve."""
+    money = ACQ.MoneyCurve(ACQ.slot_price_curve([(1, 7216.0), (4, 5600.0), (5, 5212.0), (8, 4800.0),
+                                                 (16, 3600.0), (24, 2700.0), (32, 2014.0)]), 32)
+    base = ACQ.MarketCurve(_field([9999, 9950, 9900, 9850, 9800, 9700, 9600, 9500, 9400, 9300], (5400, 3500)), money)
+    assert abs(base.faab(base.k0) - ACQ.MID_FIRST_FAAB) < 1e-9
+    assert abs(base.faab(base.k0 - 1e-6) - 1000.0) < 0.01                  # continuous at the anchor
+    ks = [500, 1500, 2000, 3000, 4000, 5000, base.k0, 6000, 7500, 9000, 9999]
+    p = [base.faab(k) for k in ks]
+    assert all(a < b for a, b in zip(p, p[1:])), p
+    # a dominant #1 over a thin top 10 costs more than a #1 in a bunched top
+    thin = ACQ.MarketCurve(_field([9999, 9000, 8600, 8200, 7900, 7600, 7300, 7000, 6800, 6600], (5400, 3500)), money)
+    assert thin.faab(9999) > base.faab(9999)
+    # a thin middle (the 100th player close to the anchor) makes a 3,000-KTC
+    # piece dearer than a deep one; half strength keeps it near the board
+    shallow = ACQ.MarketCurve(_field([9999] * 10, (5400, 4600)), money)
+    deep = ACQ.MarketCurve(_field([9999] * 10, (5400, 2600)), money)
+    assert deep.faab(3000) != shallow.faab(3000)
+    full = lambda m, k: 1000.0 * ACQ.FIELD_GROWTH_LOW ** ((k - m.k0) / m.spread_low)
+    board = lambda m, k: money.faab(k) * 1000.0 / money.faab(m.k0)
+    for m in (shallow, deep):        # exactly half the market effect, in log terms
+        assert abs(m.faab(3000) - (full(m, 3000) * board(m, 3000)) ** 0.5) < 1e-6
+    assert ACQ.asset_faab(None, money, base) is None
+    assert ACQ.asset_faab(3000.0, money, None) == money.faab(3000.0)
 
 
 def test_field_values_skip_stale_quotes():

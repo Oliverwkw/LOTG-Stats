@@ -22227,10 +22227,10 @@ def build_all(repo_root: Path) -> None:
                              if _pae_kind[_pi] == "rookie" and _r0 <= 4 and _s0 <= _pae_teams] or [32])
             _pae_money = _acq.MoneyCurve(_pae_curves["rookie"], _pae_last, ktc_per_faab=_pae_kpf)
 
-            # The field on a date (lotg_support.acquisition.FieldCurve, option
-            # D): every league-relevant player KTC quoted recently, from the
-            # build's own index; it prices assets at or above a mid first by how
-            # far they stand above that day's top 10.
+            # The market on a date (lotg_support.acquisition.MarketCurve): every
+            # league-relevant player KTC quoted recently, from the build's own
+            # index. Its 49th player is $1,000; above, standing over the top
+            # 10; below, half that market effect blended with the board curve.
             try:
                 _pae_hist = {str(_sid): ([_d for _d, _v in _pairs], [_v for _d, _v in _pairs])
                              for _sid, _pairs in (_ktc_idx.player or {}).items() if _pairs}
@@ -22243,13 +22243,13 @@ def build_all(repo_root: Path) -> None:
                     return None
                 if _on not in _pae_fields:
                     _vals = _acq.field_values(_pae_hist, _on)
-                    _pae_fields[_on] = (_acq.FieldCurve(_vals, _pae_money.k_mid)
+                    _pae_fields[_on] = (_acq.MarketCurve(_vals, _pae_money)
                                         if len(_vals) >= 10 else None)
                 return _pae_fields[_on]
 
             def _pae_ktc_faab(_k, _on):
-                """An asset worth `_k` KTC on `_on` in FAAB $: above a mid first
-                by its standing over that day's field, the money curve below."""
+                """An asset worth `_k` KTC on `_on` in FAAB $, on that day's
+                market curve."""
                 return _acq.asset_faab(_k, _pae_money, _pae_field(_on))
 
             def _pae_rookie_slot_faab(_year, _round, _slot, _on=None):

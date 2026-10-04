@@ -43,11 +43,12 @@ draft-day KTC per overall rookie pick, pooled over every class and made
 non-increasing. Dollars then rise exponentially up the board, from the last
 regular pick (4.08, at its KTC / 100) to a mid first (pick 4.5) at $1,000. Below
 the 4.08 an asset is worth KTC / 100 — the locked 100 KTC per $ that holds for
-depth pieces and add-ons. At or above a mid first's value the top of the market
-is priced by `FieldCurve` ("option D"): by how far the asset stands above that
-day's top 10, so the best player averages $3,500 (3.5 firsts) but costs more on
-a day he stands far above a thin top and less when the top is bunched — KTC's
-9,999 cap hides that on raw value. A draft pick is priced at its own
+depth pieces and add-ons. On each date that board curve is folded into the
+day's market (`MarketCurve`): the field's 49th player is $1,000 (a mid first
+floats with its class and the market), the top is priced by standing over the
+day's top 10 (the best player averages $3,500 — KTC's 9,999 cap hides how far
+ahead he is on raw value), and below the anchor half the same market effect is
+blended with the board curve. A draft pick is priced at its own
 class's slot value, so a strong class's first costs a little more than a weak
 one's (pick value moves year to year) — blended, `CLASS_WEIGHT` (25%) from the
 class and the rest from all classes pooled, so the swing stays slight. A
@@ -110,18 +111,24 @@ MID_FIRST_FAAB = 1000.0
 # (2024) because the money curve magnifies a class's KTC level, 25% keeps the
 # swing near +/-10%.
 CLASS_WEIGHT = 0.25
-# The best player in the league costs this much ON AVERAGE (3.5 mid firsts;
-# user, 2026-10-03: "most of the time 3,500 is closest" — sometimes more,
-# sometimes less). FIELD_GROWTH is fixed so that holds over league history: on
-# 73 month-ends 2020-09 to 2026-09 the best player's mean height above the
-# field is 1.324, so G = 3.5 ** (1 / 1.324). That puts the best player between
-# $3,124 and $4,616 (median $3,364) depending on how far he stands above the
-# rest. Fixed, not refit per build: a price is locked at the move.
+# The market curve (MarketCurve, user 2026-10-03). On each date:
+#   * the field's FIELD_ANCHOR_RANK-th player costs MID_FIRST_FAAB ($1,000) —
+#     where a mid first sits on average (rank 49, range 30-77 over 65
+#     month-ends), so a real mid first floats with its class and the market;
+#   * above it, $1,000 x FIELD_GROWTH ^ (standing over the day's top-10 average),
+#     G fixed so the best player averages TOP_PLAYER_FAAB ($3,500, "3-4 firsts",
+#     more on a day he stands far above a thin top, less when it is bunched);
+#   * below it, HALF the same market effect: the geometric blend (weight
+#     LOW_STRENGTH) of $1,000 x FIELD_GROWTH_LOW ^ (standing against the day's
+#     100th player) — G fixed so a 2,000-KTC piece averages $20 — and the money
+#     curve rescaled to $1,000 at the anchor.
+# Fitted on 73 month-ends 2020-09 to 2026-09; fixed, not refit per build: a
+# price is locked at the move.
 TOP_PLAYER_FAAB = 3500.0
-FIELD_GROWTH = 2.577
-# A player counts in a day's field only if KTC quoted him within this many days
-# (retired players keep a stale last quote); before KTC's daily history
-# (2021-04-16) quotes are sparse, so the window is a year.
+FIELD_ANCHOR_RANK = 49
+FIELD_GROWTH = 2.619
+FIELD_GROWTH_LOW = 8.26
+LOW_STRENGTH = 0.5
 FIELD_STALE_DAYS = 30
 FIELD_STALE_DAYS_PRE_DAILY = 365
 KTC_DAILY_FLOOR = date(2021, 4, 16)    # the dynasty-daddy mirror's first daily quote
@@ -268,36 +275,32 @@ class MoneyCurve:
 
 
 @dataclass
-class FieldCurve:
-    """The top of the market, priced by an asset's standing above the FIELD that
-    day ("option D", user 2026-10-03). KTC is capped at 9,999, so its raw value
-    cannot say how far ahead the best players are; how far they stand above the
-    rest of that day's top 10 can. For an asset at or above a mid first's value
-    `k_mid` (from the money curve's board):
-
-        height = (KTC - k_mid) / (mean of that day's top-10 player values - k_mid)
-        price  = mid_faab x FIELD_GROWTH ^ height
-
-    so a mid first is $1,000 (height 0, where the money curve takes over), an
-    average top-10 player is $1,000 x G, and the best player costs more on a day
-    he stands far above a thin top 10 than on a day the top is bunched. G is
-    fixed so the best player averages TOP_PLAYER_FAAB over league history."""
+class MarketCurve:
+    """KTC -> FAAB $ on one date, relative to that day's field (see the
+    constants above). `player_values` is every league-relevant player's KTC that
+    day; `money` is the board curve used, at half strength, below the anchor."""
     player_values: Sequence[float]
-    k_mid: float
-    growth: float = 0.0
-    mid_faab: float = MID_FIRST_FAAB
+    money: "MoneyCurve"
+    anchor_faab: float = MID_FIRST_FAAB
 
     def __post_init__(self):
         vals = sorted((float(v) for v in self.player_values if v is not None), reverse=True)
-        self.top10 = float(np.mean(vals[:10])) if vals else self.k_mid + 1.0
-        self.spread = max(self.top10 - self.k_mid, 1.0)
-        self.growth = self.growth or FIELD_GROWTH
-
-    def height(self, ktc: float) -> float:
-        return (float(ktc) - self.k_mid) / self.spread
+        if not vals:
+            raise ValueError("empty field")
+        self.k0 = vals[min(FIELD_ANCHOR_RANK, len(vals)) - 1]
+        self.top10 = float(np.mean(vals[:10]))
+        self.k100 = vals[min(100, len(vals)) - 1]
+        self.spread_top = max(self.top10 - self.k0, 1.0)
+        self.spread_low = max(self.k0 - self.k100, 1.0)
+        self._m0 = self.money.faab(self.k0) or self.anchor_faab
 
     def faab(self, ktc: float) -> float:
-        return self.mid_faab * self.growth ** max(self.height(ktc), 0.0)
+        k = float(ktc)
+        if k >= self.k0:
+            return self.anchor_faab * FIELD_GROWTH ** ((k - self.k0) / self.spread_top)
+        market = self.anchor_faab * FIELD_GROWTH_LOW ** ((k - self.k0) / self.spread_low)
+        board = self.money.faab(max(k, 0.0)) * self.anchor_faab / self._m0
+        return market ** LOW_STRENGTH * board ** (1.0 - LOW_STRENGTH)
 
 
 def field_values(histories: Dict[str, Tuple[List[str], List[float]]], on: date) -> List[float]:
@@ -315,13 +318,13 @@ def field_values(histories: Dict[str, Tuple[List[str], List[float]]], on: date) 
     return out
 
 
-def asset_faab(ktc: Optional[float], money: "MoneyCurve", field: Optional[FieldCurve] = None) -> Optional[float]:
-    """An asset worth `ktc` in FAAB $: by its standing above the field
-    (FieldCurve) at or above a mid first's value, on the money curve below it."""
+def asset_faab(ktc: Optional[float], money: "MoneyCurve", market: Optional[MarketCurve] = None) -> Optional[float]:
+    """An asset worth `ktc` in FAAB $ on the day's market curve, or on the
+    money curve alone when there is no field for the date."""
     if ktc is None or (isinstance(ktc, float) and math.isnan(ktc)):
         return None
-    if field is not None and float(ktc) >= field.k_mid:
-        return field.faab(float(ktc))
+    if market is not None:
+        return market.faab(float(ktc))
     return money.faab(float(ktc))
 
 
