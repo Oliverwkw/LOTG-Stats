@@ -4810,6 +4810,9 @@ def build_all(repo_root: Path) -> None:
     # after the team sheets exist — see "Boldness / Lineup Boldness".
     _bold_matchups: Dict[int, Dict[int, List[Dict[str, Any]]]] = {}
     _bold_roster_positions: Dict[int, List[str]] = {}
+    # Each season's first playoff week (player_additions' pick pricing: the
+    # share of a deciding regular season played when a pick was traded).
+    _season_playoff_start: Dict[int, int] = {}
     _bold_scoring: Dict[int, Dict[str, Any]] = {}
 
     for lg in leagues:
@@ -5785,6 +5788,9 @@ def build_all(repo_root: Path) -> None:
         # Boldness inputs for this season (late-listing corrected, as above).
         _bold_matchups[int(season)] = {int(_w): list(_m or []) for _w, _m in matchups_by_week.items()}
         _bold_roster_positions[int(season)] = list(lg.get("roster_positions") or [])
+        _ps = _to_int(((lg.get("settings") or {}).get("playoff_week_start")), None)
+        if _ps:
+            _season_playoff_start[int(season)] = int(_ps)
         _bold_scoring[int(season)] = dict(lg.get("scoring_settings") or {})
 
         # ------------- Manual 2021 botched-trade merge -------------
@@ -22370,6 +22376,35 @@ def build_all(repo_root: Path) -> None:
                     return _y if _on <= _end.date() else _y + 1
                 return _y if _on < _date_pa(_y, 7, 1) else _y + 1
 
+            def _pae_pick_info(_year, _slot, _on):
+                """acquisition.pick_info_weight for a pick of draft `_year` at
+                `_slot`, traded on `_on`: the share of the deciding season
+                (`_year` - 1) played, its regular season ending at the week
+                before its playoffs; 1 once that season's last week is over or
+                when the trade came after it; the draft's order rule from
+                draft_capital (placement through 2025, Max PF from 2026)."""
+                if _on is None:
+                    return 1.0
+                _det = int(_year) - 1
+                _wks = [(_yw, _pae_end.get(_yw, "")) for _yw in _pae_cal if _yw[0] == _det]
+                if not _wks:
+                    return 0.0 if _on < _date_pa(_det + 1, 1, 15) else 1.0
+                _last_end = max(_e for _yw, _e in _wks)
+                _ps = _season_playoff_start.get(_det) or 15
+                # Over only once its playoff weeks are on the calendar (a season
+                # in progress has only its played weeks there).
+                _season_over = max(_w0 for (_y0, _w0), _e in _wks) >= _ps + 1
+                if _season_over and _last_end and _on.isoformat() > _last_end:
+                    return 1.0
+                _reg = _ps - 1
+                _done = sum(1 for (_y0, _w0), _e in _wks if _w0 <= _reg and _e and _e <= _on.isoformat())
+                try:
+                    from lotg_support.draft_capital import order_rule as _order_rule
+                    _rule = _order_rule(int(_year))
+                except Exception:
+                    _rule = "placement"
+                return _acq.pick_info_weight(_slot, _pae_teams, _done / max(_reg, 1), False, _rule)
+
             def _pae_traded_pick_faab(_label, _on=None):
                 """A traded pick priced on the board, not by its own KTC (picks
                 are the league's currency; user 2026-10-03): its slot's price, or
@@ -22385,12 +22420,20 @@ def build_all(repo_root: Path) -> None:
                         return None
                     return _pae_ratio_faab(_acq.slot_price(
                         _pae_ratios.get("nr", {}), (_rd - 1) * _pae_teams + int(_m.group(3))), _on)
+                _each = [_pae_rookie_slot_faab(_yr, _rd, _s1, _on) for _s1 in range(1, _pae_teams + 1)]
+                _each = [_x for _x in _each if _x is not None]
+                _avg = sum(_each) / len(_each) if _each else None
                 if _m.group(3).isdigit():
-                    _d = _pae_rookie_slot_faab(_yr, _rd, int(_m.group(3)), _on)
+                    # A slot is only partly known when the pick is traded during
+                    # the season that decides it (option A): blend the round's
+                    # average with the eventual slot by what was knowable.
+                    _sl = int(_m.group(3))
+                    _d = _pae_rookie_slot_faab(_yr, _rd, _sl, _on)
+                    _w = _pae_pick_info(_yr, _sl, _on)
+                    if _d is not None and _avg is not None and _w < 1.0:
+                        _d = (1.0 - _w) * _avg + _w * _d
                 else:
-                    _each = [_pae_rookie_slot_faab(_yr, _rd, _s1, _on) for _s1 in range(1, _pae_teams + 1)]
-                    _each = [_x for _x in _each if _x is not None]
-                    _d = sum(_each) / len(_each) if _each else None
+                    _d = _avg
                 if _d is None or _on is None:
                     return _d
                 return _d * _acq.PICK_YEAR_DISCOUNT ** max(_yr - _pae_next_draft(_on), 0)

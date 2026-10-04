@@ -181,6 +181,19 @@ def test_market_relative_board_and_thin_field_line():
     assert abs(fixed.line_ktc - 0.4 * fixed.k0) < 1e-9 and fixed.player_faab(3000) < fixed.faab(3000)
 
 
+def test_pick_info_weight():
+    """Option A (user 2026-10-03): the worst picks are fairly clear from the
+    start (more so under the Max PF order), the playoff block only late; the
+    order is fully known once the season ends."""
+    w = ACQ.pick_info_weight
+    assert w(2, 8, 0.0, False, "placement") == 0.5 and w(2, 8, 0.0, False, "max_pf") == 0.6
+    assert abs(w(2, 8, 0.5, False, "placement") - 0.75) < 1e-12
+    assert w(6, 8, 0.0, False) == 0.0 and abs(w(6, 8, 1.0, False) - 0.5) < 1e-12
+    assert w(9, 8, 0.0, False) == 1.0                                # the 2.09 only exists once its order is final
+    assert w(6, 8, 0.2, True) == 1.0 and w(1, 8, 0.0, True) == 1.0
+    assert all(w(s, 8, p, False) <= w(s, 8, p + 0.1, False) for s in (1, 6) for p in (0.0, 0.4, 0.8))
+
+
 def test_field_values_skip_stale_quotes():
     from datetime import date
     hist = {"a": (["2024-08-01", "2024-09-10"], [9000.0, 9100.0]),

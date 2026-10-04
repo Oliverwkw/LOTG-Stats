@@ -142,6 +142,20 @@ LOW_STRENGTH = 0.5
 # league pays $20 FAAB for a 5.0X — and FAAB is its dollars.
 SUPERTAXI_FROM = 2025
 REPLACEMENT_FADE = 2.5
+# A traded pick's slot is not known when it is traded during the season that
+# decides it (user, 2026-10-03, "option A"): price = (1 - w) x its round's
+# average + w x its eventual slot, w = what was knowable at the trade. w = 1
+# once the order is set (the season's last week). Before that, with p = the
+# share of the deciding regular season played:
+#   * the non-playoff block (the worst picks): w = base + (1 - base) x p — the
+#     worst teams are fairly clear even at the start; base by the draft's order
+#     rule: 0.5 for reverse placement (record; drafts through 2025), 0.6 for
+#     ascending Max PF (roster ceiling, more predictable early; 2026 on);
+#   * the playoff block, decided by the playoffs: w = PLAYOFF_BLOCK_RATE x p.
+# The 2.09 toilet-bowl pick only exists once its order is final, so it is
+# always known (w = 1).
+PICK_INFO_BASE = {"placement": 0.5, "max_pf": 0.6}
+PLAYOFF_BLOCK_RATE = 0.5
 FIELD_STALE_DAYS = 30
 FIELD_STALE_DAYS_PRE_DAILY = 365
 KTC_DAILY_FLOOR = date(2021, 4, 16)    # the dynasty-daddy mirror's first daily quote
@@ -285,6 +299,19 @@ class MoneyCurve:
         if k <= self.k_last:
             return k / self.ktc_per_faab
         return (self.k_last / self.ktc_per_faab) * self.r ** (self.last_slot - self.slot_of(k))
+
+
+def pick_info_weight(slot: Optional[int], teams: int, progress: float, final: bool,
+                     rule: str = "placement", playoff_teams: int = 4) -> float:
+    """How much of a traded pick's eventual slot was knowable at the trade
+    (see PICK_INFO_BASE)."""
+    if final or (slot is not None and int(slot) > int(teams)):     # the 2.09: created once final
+        return 1.0
+    p = min(max(float(progress), 0.0), 1.0)
+    if slot is not None and int(slot) <= int(teams) - int(playoff_teams):
+        b = PICK_INFO_BASE.get(rule, PICK_INFO_BASE["placement"])
+        return b + (1.0 - b) * p
+    return PLAYOFF_BLOCK_RATE * p
 
 
 def replacement_rank(roster_spots: int, teams: int, season: int) -> int:
