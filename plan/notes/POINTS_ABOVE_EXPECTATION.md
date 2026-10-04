@@ -76,6 +76,77 @@ players (late weeks averaged over the survivors). The never-cut Y avoids both:
 corr 0.43 with weeks held, which is the intended reward for keeping a player who
 keeps producing.
 
+## Tenure curves (user, 2026-10-04)
+
+User: a QB still producing years after the move is expected, an RB still
+producing is a surprise — the expectation must follow each position's tenure
+("tenure, not age"), and keep doing so in 10, 15, 20 years.
+
+The 2026-10-03 model shared one elapsed-week curve across positions (each only
+tilted it), froze it past the 95th-percentile tenure, charged every offseason
+the same at every position, and let price change the decline the same way at
+every position. Out of fold, actual ÷ expected:
+
+| paid channels, seasons 5+ | old | new |
+|---|---|---|
+| cheap QBs (bottom ⅔ of the channel's prices) | 1.83 | 1.18 |
+| dear QBs (top ⅓) | 0.82 | 0.90 |
+| cheap RBs | 0.60 | 0.93 |
+| dear RBs | 1.05 | 1.04 |
+| free agency, any position, seasons 5+ | 0.41 – 1.39 | 0.98 – 1.04 |
+
+The cheap-QB excess is not a few outliers — 2020 startup QBs (Stafford,
+Mayfield, Goff, Allen): 1.57 without the top three, median addition 1.09.
+
+**The model now** (`acquisition._design`):
+
+- **Free agency** on its own; **the paid channels pooled** (waiver, rookie,
+  startup, trade), each keeping its own level, elapsed-week and offseason curve,
+  price ramps and position level/slope. Pooling the position *level* was
+  tried and rejected — a startup QB's price carries the superflex premium
+  (Mahomes' Y 1,735 → 1,329).
+- Shared by the channels in a fit: each position's own elapsed-week curve
+  (knots per position), a per-position slope per offseason, and — paid —
+  position × price-percentile × tenure (percentile within the channel, so the
+  four channels' prices share one scale).
+- The offseason curve is piecewise linear with a hinge at every offseason
+  `MIN_TENURE_ADDITIONS` (40) additions have reached; its last slope carries on.
+  Elapsed-week knots double past 68 (136, 272, …) once tenures that long are in
+  the data. No season or horizon is named anywhere.
+- Ridge 30 (was 1; the test harness had not been applying it).
+
+**Robustness over time.** The build never predicts a tenure it has not seen (it
+scores weeks that have happened), so the test that matters is replaying the
+build as of each past season — out-of-fold within the data known then:
+
+| as of | old: calibration RMS / oldest-tenure error | new | new deviance vs old |
+|---|---|---|---|
+| 2022 | 0.071 / 0.03 | 0.040 / 0.03 | +0.23% |
+| 2023 | 0.075 / 0.08 | 0.032 / 0.02 | −0.14% |
+| 2024 | 0.116 / 0.18 | 0.034 / 0.03 | −0.22% |
+| 2025 | 0.130 / 0.25 | 0.031 / 0.05 | −0.35% |
+| 2026 | 0.132 / 0.33 | 0.038 / 0.05 | −0.38% |
+
+The old model got worse with every season of data; the new one does not. On a
+synthetic 15-season league (`test_expectation_keeps_working_as_history_grows`)
+the old model's 10th-season-on expectation was off by up to 8× (RBs 0.12),
+the new one within 1.5% at every position. Ablations (2026 replay calibration):
+without the price-percentile terms 0.086, without the tail slope 0.056,
+without per-position offseason hinges for free agency 0.042, without per-
+position knots 0.044 — each part earns its place.
+
+A stress test the build never faces — fit on the seasons known at 2022 / 23 / 24
+and predict the seasons after — is worse for the new model at the 2022 cut (3
+seasons known: extending the last offseason slope overshoots; level 0.46 vs
+0.92) and similar after. It would matter only if the build ever scored
+unplayed weeks.
+
+**Effect** (branch dump of the build's inputs): corr with the old totals 0.989,
+rates 0.986; 48 of 1,965 rows move > 25 pts, 7 > 100. Long-held QBs and TEs rise
+(their peers aged worse than the old shared curve said: Mahomes −87 → +289,
+Kelce 492 → 608), long-held RBs fall (dear RBs held up better than it said,
+cheap ones far worse: Jacobs 607 → 514, Chubb 49 → −38).
+
 ## Known limits
 
 - The model refits every build; every row moves slightly each week
