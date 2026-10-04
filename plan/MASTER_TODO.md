@@ -1326,7 +1326,7 @@ guard-skipped fire), 581→584 (#453), 584→589 (#454), 589→597 (#455).
   rostered 0, commissioner blank all hold; diff — only `Points above expectation (total /
   rate)` moved (1,624 / 1,613 cells, corr 0.989 / 0.986), every other cell of all 15 sheets
   identical; the post-merge player_additions equals the branch build's byte for byte.
-- [ ] **`acquisition.points_above_expectation`** [per user, 2026-10-04: "tenure, not age";
+- [x] **`acquisition.points_above_expectation`** [per user, 2026-10-04: "tenure, not age";
   must stay accurate in 10/15/20 years]. Free agency fitted alone; paid channels pooled
   with their own price curves + shared position knots, per-position offseason slope,
   position × price-percentile × tenure; piecewise-linear offseason curve with data-driven
