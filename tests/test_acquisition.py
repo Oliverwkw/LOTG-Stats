@@ -159,6 +159,28 @@ def test_replacement_line():
     assert ACQ.asset_faab(3000.0, money, m, player=True) == m.player_faab(3000.0)
 
 
+def test_market_relative_board_and_thin_field_line():
+    """User 2026-10-03: a pick keeps its standing in the market — its draft-day
+    ratio to the anchor x the day's anchor — and the board half of the curve
+    reads an asset relative to the anchor, so a high-KTC era (2020) does not
+    make picks look cheap. A field thinner than the replacement rank takes the
+    line from a ratio supplied by the caller."""
+    money = ACQ.MoneyCurve(ACQ.slot_price_curve([(1, 7216.0), (4, 5600.0), (5, 5212.0), (32, 2014.0)]), 32)
+    low = ACQ.MarketCurve(_field([9999] * 10, (5100, 3300)), money, board_anchor=5100.0)
+    high = ACQ.MarketCurve(_field([9999] * 10, (5900, 3800)), money, board_anchor=5100.0)
+    # the same draft-day standing prices about the same in either era
+    r = 0.95
+    assert abs(low.pick_ktc(r) - r * low.k0) < 1e-9
+    assert abs(low.faab(low.pick_ktc(r)) - high.faab(high.pick_ktc(r))) / low.faab(low.pick_ktc(r)) < 0.15
+    for m in (low, high):
+        xs = [m.faab(k) for k in (800, 2000, 3000, 4000, m.k0 - 1e-6, m.k0, 8000)]
+        assert all(a < b for a, b in zip(xs, xs[1:])) and abs(xs[-3] - 1000.0) < 0.05
+    thin = ACQ.MarketCurve([9000 - 30 * i for i in range(150)], money, replacement_rank=200)
+    assert thin.line_faab is None and not thin.covers(200)       # no line invented from a thin field
+    fixed = ACQ.MarketCurve([9000 - 30 * i for i in range(150)], money, replacement_rank=200, line_ratio=0.4)
+    assert abs(fixed.line_ktc - 0.4 * fixed.k0) < 1e-9 and fixed.player_faab(3000) < fixed.faab(3000)
+
+
 def test_field_values_skip_stale_quotes():
     from datetime import date
     hist = {"a": (["2024-08-01", "2024-09-10"], [9000.0, 9100.0]),

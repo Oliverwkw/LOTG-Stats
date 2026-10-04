@@ -22200,33 +22200,6 @@ def build_all(repo_root: Path) -> None:
                 _o = (_r - 1) * _pae_teams + _s
                 return _o + _pae_n_startup if _pae_kind[_pi] == "vet" else _o
 
-            # Board values: draft-day KTC against overall pick, made
-            # non-increasing (an earlier pick is never worth less) — per rookie
-            # class (pick value moves year to year), pooled over the rookie
-            # classes (the money curve's board), and for the startup + vet board.
-            # Not the pick-adjustment baseline: that leaves each pick's own value
-            # out, which priced the 2020 1.04 above the 1.01.
-            _pae_slot_pts: Dict[Any, List[Tuple[int, float]]] = defaultdict(list)
-            for _pi in _pae_rsv:
-                _k0 = pd.to_numeric(pd.Series([ph.at[_pi, "KTC on draft day"] if "KTC on draft day" in ph.columns else None]),
-                                    errors="coerce").iloc[0]
-                if pd.isna(_k0):
-                    continue
-                _pt = (_pae_overall(_pi), float(_k0))
-                if _pae_kind[_pi] == "rookie":
-                    if _pae_rsv[_pi][0] <= 4:          # a 5.0X is a FAAB buy, not on the board
-                        _pae_slot_pts["rookie"].append(_pt)
-                        _pae_slot_pts[("rookie", str(ph.at[_pi, "Year"])[:4])].append(_pt)
-                else:
-                    _pae_slot_pts["nr"].append(_pt)
-            _pae_curves = {_g: _acq.slot_price_curve(_v) for _g, _v in _pae_slot_pts.items()}
-            # The money curve (lotg_support.acquisition.MoneyCurve): KTC -> FAAB $
-            # through the rookie board, a mid first at $1,000, KTC / 100 below
-            # the last regular pick.
-            _pae_last = max([(_r0 - 1) * _pae_teams + _s0 for _pi, (_r0, _s0) in _pae_rsv.items()
-                             if _pae_kind[_pi] == "rookie" and _r0 <= 4 and _s0 <= _pae_teams] or [32])
-            _pae_money = _acq.MoneyCurve(_pae_curves["rookie"], _pae_last, ktc_per_faab=_pae_kpf)
-
             # The market on a date (lotg_support.acquisition.MarketCurve): every
             # league-relevant player KTC quoted recently, from the build's own
             # index. Its 49th player is $1,000; above, standing over the top
@@ -22236,6 +22209,70 @@ def build_all(repo_root: Path) -> None:
                              for _sid, _pairs in (_ktc_idx.player or {}).items() if _pairs}
             except NameError:
                 _pae_hist = {}
+            _pae_vals_cache: Dict[Any, List[float]] = {}
+
+            def _pae_vals(_on):
+                """The day's field, best first."""
+                if _on not in _pae_vals_cache:
+                    _pae_vals_cache[_on] = sorted(_acq.field_values(_pae_hist, _on), reverse=True)
+                return _pae_vals_cache[_on]
+
+            def _pae_anchor(_on):
+                _v = _pae_vals(_on) if (_on is not None and _pae_hist) else []
+                return _v[min(_acq.FIELD_ANCHOR_RANK, len(_v)) - 1] if len(_v) >= 10 else None
+
+            # Board values: draft-day KTC against overall pick, made
+            # non-increasing (an earlier pick is never worth less) — per rookie
+            # class (pick value moves year to year), pooled over the rookie
+            # classes, and for the startup + vet board. Kept two ways: in KTC
+            # (the money curve's shape) and as a RATIO to that draft day's
+            # anchor, so a pick keeps its standing in the market on any date —
+            # KTC's level drifts (2020's anchor ~5,900 vs ~5,100 on the 2021-26
+            # draft days), and a raw board priced the 2021 1.06 at $562 in Nov
+            # 2020 when it sat at ~0.98 of the anchor on draft days (user,
+            # 2026-10-03). Not the pick-adjustment baseline: that leaves each
+            # pick's own value out, which priced the 2020 1.04 above the 1.01.
+            _pae_ph_day: Dict[Any, Any] = {}
+            for _r in _pa_rows:
+                _src = _r.get("_pae_src") or (None,)
+                if _src[0] == "ph":
+                    _pae_ph_day[_src[1]] = _pa_to_date(str(_r.get("Date") or "")[:10])
+            _pae_slot_pts: Dict[Any, List[Tuple[int, float]]] = defaultdict(list)
+            _pae_ratio_pts: Dict[Any, List[Tuple[int, float]]] = defaultdict(list)
+            _pae_draft_anchors: Dict[Any, float] = {}
+            for _pi in _pae_rsv:
+                _k0 = pd.to_numeric(pd.Series([ph.at[_pi, "KTC on draft day"] if "KTC on draft day" in ph.columns else None]),
+                                    errors="coerce").iloc[0]
+                if pd.isna(_k0):
+                    continue
+                _a0 = _pae_anchor(_pae_ph_day.get(_pi))
+                _o = _pae_overall(_pi)
+                _groups = []
+                if _pae_kind[_pi] == "rookie":
+                    if _pae_rsv[_pi][0] <= 4:          # a 5.0X is a FAAB buy, not on the board
+                        _groups = ["rookie", ("rookie", str(ph.at[_pi, "Year"])[:4])]
+                        if _a0:
+                            _pae_draft_anchors[str(ph.at[_pi, "Year"])[:4]] = _a0
+                else:
+                    _groups = ["nr"]
+                for _g in _groups:
+                    _pae_slot_pts[_g].append((_o, float(_k0)))
+                    if _a0:
+                        _pae_ratio_pts[_g].append((_o, float(_k0) / _a0))
+            _pae_curves = {_g: _acq.slot_price_curve(_v) for _g, _v in _pae_slot_pts.items()}
+            _pae_ratios = {_g: _acq.slot_price_curve(_v) for _g, _v in _pae_ratio_pts.items()}
+            # The KTC level the rookie board was measured at (its draft days'
+            # mean anchor): the money curve reads an asset at its standing
+            # relative to that.
+            _pae_board_anchor = (float(np.mean(list(_pae_draft_anchors.values())))
+                                 if _pae_draft_anchors else None)
+            # The money curve (lotg_support.acquisition.MoneyCurve): KTC -> FAAB $
+            # through the rookie board, a mid first at $1,000, KTC / 100 below
+            # the last regular pick.
+            _pae_last = max([(_r0 - 1) * _pae_teams + _s0 for _pi, (_r0, _s0) in _pae_rsv.items()
+                             if _pae_kind[_pi] == "rookie" and _r0 <= 4 and _s0 <= _pae_teams] or [32])
+            _pae_money = _acq.MoneyCurve(_pae_curves["rookie"], _pae_last, ktc_per_faab=_pae_kpf)
+
             _pae_fields: Dict[Any, Any] = {}
             # The replacement line by season: the league's last rostered spot
             # (roster spots, taxi and IR not counted, x teams; less the 2025+
@@ -22250,14 +22287,44 @@ def build_all(repo_root: Path) -> None:
                 _sp = _pae_spots.get(_y) or _pae_spots[max(_pae_spots) if _y > max(_pae_spots) else min(_pae_spots)]
                 return _acq.replacement_rank(_sp, _pae_teams, _y)
 
+            _pae_line_cache: Dict[Any, Optional[float]] = {}
+
+            def _pae_line_ratio(_on, _rank):
+                """When the day's field is thinner than the replacement rank
+                (KTC's daily data covered only ~195-200 league players mid-2021
+                to early 2022), the line as a fraction of the anchor from the
+                nearest date that covers it."""
+                _key = (_on, _rank)
+                if _key not in _pae_line_cache:
+                    _r = None
+                    for _step in range(1, 53):
+                        for _sign in (-1, 1):
+                            _d = _on + timedelta(days=7 * _step * _sign)
+                            if _d > _pa_today:
+                                continue
+                            _v = _pae_vals(_d)
+                            if len(_v) >= _rank:
+                                _r = _v[_rank - 1] / _v[_acq.FIELD_ANCHOR_RANK - 1]
+                                break
+                        if _r is not None:
+                            break
+                    _pae_line_cache[_key] = _r
+                return _pae_line_cache[_key]
+
             def _pae_field(_on, _season=None):
                 if _on is None or not _pae_hist:
                     return None
-                _key = (_on, _pae_repl_rank(_season))
+                _rank = _pae_repl_rank(_season)
+                _key = (_on, _rank)
                 if _key not in _pae_fields:
-                    _vals = _acq.field_values(_pae_hist, _on)
-                    _pae_fields[_key] = (_acq.MarketCurve(_vals, _pae_money, replacement_rank=_key[1])
-                                         if len(_vals) >= 10 else None)
+                    _vals = _pae_vals(_on)
+                    _mc = None
+                    if len(_vals) >= 10:
+                        _lr = (_pae_line_ratio(_on, _rank)
+                               if _rank is not None and len(_vals) < _rank else None)
+                        _mc = _acq.MarketCurve(_vals, _pae_money, replacement_rank=_rank,
+                                               board_anchor=_pae_board_anchor, line_ratio=_lr)
+                    _pae_fields[_key] = _mc
                 return _pae_fields[_key]
 
             def _pae_ktc_faab(_k, _on, _season=None, _player=False):
@@ -22265,25 +22332,35 @@ def build_all(repo_root: Path) -> None:
                 market curve; a player above that season's replacement line."""
                 return _acq.asset_faab(_k, _pae_money, _pae_field(_on, _season), player=_player)
 
+            def _pae_ratio_faab(_ratio, _on):
+                """A pick at `_ratio` of the draft-day anchor, priced on `_on`:
+                that ratio x the day's anchor, on the day's market curve."""
+                if _ratio is None:
+                    return None
+                _mc = _pae_field(_on)
+                if _mc is None:
+                    return _pae_money.faab(_ratio * (_pae_board_anchor or _pae_money.k_mid))
+                return _mc.faab(_mc.pick_ktc(_ratio))
+
             def _pae_rookie_slot_faab(_year, _round, _slot, _on=None):
                 """A rookie pick on the board: a 5.0X is locked; otherwise the
-                pooled board at its overall pick, CLASS_WEIGHT from its own class
-                once that class has been drafted; priced on `_on`."""
+                pooled board's ratio at its overall pick, CLASS_WEIGHT from its
+                own class once that class has been drafted; priced on `_on`."""
                 if _round >= 5:
                     return _acq.ROUND5_PICK_FAAB          # a 5.0X is a FAAB buy, locked
                 _o = (_round - 1) * _pae_teams + _slot
-                _pool_k = _acq.slot_price(_pae_curves["rookie"], _o)
-                _cls = _pae_curves.get(("rookie", str(_year)))
-                _cls_k = _acq.slot_price(_cls, _o) if _cls else None
-                _k = (_pool_k if _cls_k is None or _pool_k is None
-                      else (1 - _acq.CLASS_WEIGHT) * _pool_k + _acq.CLASS_WEIGHT * _cls_k)
-                return _pae_ktc_faab(_k, _on)
+                _pool = _acq.slot_price(_pae_ratios.get("rookie", {}), _o)
+                _cls = _pae_ratios.get(("rookie", str(_year)))
+                _cls_r = _acq.slot_price(_cls, _o) if _cls else None
+                _ratio = (_pool if _cls_r is None or _pool is None
+                          else (1 - _acq.CLASS_WEIGHT) * _pool + _acq.CLASS_WEIGHT * _cls_r)
+                return _pae_ratio_faab(_ratio, _on)
 
             def _pae_pick_faab(_pi, _on=None):
                 if _pae_kind[_pi] == "rookie":
                     _r0, _s0 = _pae_rsv[_pi]
                     return _pae_rookie_slot_faab(str(ph.at[_pi, "Year"])[:4], _r0, _s0, _on)
-                return _pae_ktc_faab(_acq.slot_price(_pae_curves.get("nr", {}), _pae_overall(_pi)), _on)
+                return _pae_ratio_faab(_acq.slot_price(_pae_ratios.get("nr", {}), _pae_overall(_pi)), _on)
 
             def _pae_next_draft(_on):
                 """The season of the next rookie draft after a date."""
@@ -22306,8 +22383,8 @@ def build_all(repo_root: Path) -> None:
                 if _yr <= _pa_inaugural:
                     if not _m.group(3).isdigit():
                         return None
-                    return _pae_ktc_faab(_acq.slot_price(
-                        _pae_curves.get("nr", {}), (_rd - 1) * _pae_teams + int(_m.group(3))), _on)
+                    return _pae_ratio_faab(_acq.slot_price(
+                        _pae_ratios.get("nr", {}), (_rd - 1) * _pae_teams + int(_m.group(3))), _on)
                 if _m.group(3).isdigit():
                     _d = _pae_rookie_slot_faab(_yr, _rd, int(_m.group(3)), _on)
                 else:

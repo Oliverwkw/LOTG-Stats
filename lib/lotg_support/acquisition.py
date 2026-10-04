@@ -306,25 +306,50 @@ def above_replacement(price: float, line_price: float) -> float:
 class MarketCurve:
     """KTC -> FAAB $ on one date, relative to that day's field (see the
     constants above). `player_values` is every league-relevant player's KTC that
-    day; `money` is the board curve used, at half strength, below the anchor."""
+    day; `money` is the board curve used, at half strength, below the anchor.
+
+    Market-relative (user 2026-10-03): the board was measured on draft days
+    whose anchor averaged `board_anchor`; KTC's level drifts (the anchor ran
+    ~5,900 in 2020, ~4,700 in 2022-23, ~5,300 in 2025-26), so the board half
+    reads an asset at its standing relative to the day's anchor, and a pick is
+    priced at its draft-day ratio x the day's anchor (`pick_ktc`).
+    `line_ratio` overrides the replacement line (as a fraction of the anchor)
+    when the day's field is thinner than the replacement rank."""
     player_values: Sequence[float]
     money: "MoneyCurve"
     anchor_faab: float = MID_FIRST_FAAB
     replacement_rank: Optional[int] = None
+    board_anchor: Optional[float] = None
+    line_ratio: Optional[float] = None
 
     def __post_init__(self):
         vals = sorted((float(v) for v in self.player_values if v is not None), reverse=True)
         if not vals:
             raise ValueError("empty field")
+        self.size = len(vals)
         self.k0 = vals[min(FIELD_ANCHOR_RANK, len(vals)) - 1]
         self.top10 = float(np.mean(vals[:10]))
         self.k100 = vals[min(100, len(vals)) - 1]
         self.spread_top = max(self.top10 - self.k0, 1.0)
         self.spread_low = max(self.k0 - self.k100, 1.0)
-        self._m0 = self.money.faab(self.k0) or self.anchor_faab
+        self._scale = (self.board_anchor / self.k0) if self.board_anchor else 1.0
+        self._m0 = self.money.faab(self.k0 * self._scale) or self.anchor_faab
         self.line_faab = None
-        if self.replacement_rank:
-            self.line_faab = self.faab(vals[min(int(self.replacement_rank), len(vals)) - 1])
+        self.line_ktc = None
+        if self.line_ratio is not None:
+            self.line_ktc = self.line_ratio * self.k0
+        elif self.replacement_rank and len(vals) >= int(self.replacement_rank):
+            self.line_ktc = vals[int(self.replacement_rank) - 1]
+        if self.line_ktc is not None:
+            self.line_faab = self.faab(self.line_ktc)
+
+    def covers(self, rank: Optional[int]) -> bool:
+        """True when the field is deep enough to read rank `rank` off it."""
+        return rank is None or self.size >= int(rank)
+
+    def pick_ktc(self, ratio: Optional[float]) -> Optional[float]:
+        """A pick's value on this date from its draft-day ratio to the anchor."""
+        return None if ratio is None else float(ratio) * self.k0
 
     def player_faab(self, ktc: float) -> float:
         """A PLAYER's price: the market price above the replacement line."""
@@ -336,7 +361,7 @@ class MarketCurve:
         if k >= self.k0:
             return self.anchor_faab * FIELD_GROWTH ** ((k - self.k0) / self.spread_top)
         market = self.anchor_faab * FIELD_GROWTH_LOW ** ((k - self.k0) / self.spread_low)
-        board = self.money.faab(max(k, 0.0)) * self.anchor_faab / self._m0
+        board = self.money.faab(max(k, 0.0) * self._scale) * self.anchor_faab / self._m0
         return market ** LOW_STRENGTH * board ** (1.0 - LOW_STRENGTH)
 
 
