@@ -219,7 +219,7 @@ _ROWS = [
      "Formula": "Total points the dropped player put up over those next 17 played games — higher = more given away. Same window as Dropped avg points.",
      "Notes": "Blank only when nothing was dropped."},
     {"Stat": "KTC value difference at deal time", "Sheet": "trades", "Columns": ["KTC value difference at deal time"],
-     "Formula": "Which team won the deal's dynasty value on day one. Depth-adjusted KTC received − sent, superflex. DEPTH TAX: on each side the best asset counts full and each next is discounted (2nd ×0.6, 3rd ×0.6², …), since you can only start so many — so a 3-scrubs-for-1-stud package is taxed while a 1-for-1 is the raw difference. FAAB counts at the league-avg KTC-per-$.",
+     "Formula": "Which team won the deal's dynasty value on day one. Depth-adjusted KTC received − sent, superflex. DEPTH TAX: on each side the best asset counts full and each next is discounted (2nd ×0.6, 3rd ×0.6², …), since you can only start so many — so a 3-scrubs-for-1-stud package is taxed while a 1-for-1 is the raw difference. FAAB counts at a locked 100 KTC per $1.",
      "Notes": "Covers players, picks, and FAAB. Positive = this team won the deal. A pick KTC had no quote for on that date (late-2020 deals for 2021+ picks, before KTC priced picks) is estimated from the same pick one to three classes later at the same lead time before its draft, averaged (never a 2020 startup pick: a startup 4th is not a rookie 4th)."},
     {"Stat": "KTC value difference at end of season", "Sheet": "trades", "Columns": ["KTC value difference at end of season"],
      "Formula": "The same depth-adjusted received − sent KTC gap, re-checked at this season's end (Monday after the championship) — how the deal looked once the season played out.",
@@ -1545,34 +1545,34 @@ _ROWS = [
      "Notes": "Blank for an unmade pick or a still-future checkpoint."},
     {"Stat": "Pick-adjusted Difference in Player addition value", "Sheet": "non_rookie_picks / rookie_picks", "Columns": ["Pick-adjusted Difference in Player addition value"],
      "Formula": "Did the pick beat what its draft slot usually returns? Its Player addition value − the average for that slot's comparison set. Positive = beat the slot.",
-     "Notes": "Slot baseline = the 3-pick window around it + a 4th outer pick (from 1.05 on); 1.01–1.04 use the pooled mean."},
+     "Notes": "rookie_picks: slot baseline = the 3-pick window around it + a 4th outer pick (from 1.05 on); 1.01–1.04 use the pooled mean. non_rookie_picks: the mean of the 8 nearest other picks by overall position, on the same side of the startup / vet seam."},
     {"Stat": "Pick-adjusted Difference in Avg PPG on team adjusted by position", "Sheet": "non_rookie_picks / rookie_picks", "Columns": ["Pick-adjusted Difference in Avg PPG on team adjusted by position"],
      "Formula": "Whether the pick out-produced its draft slot on the drafting team. Its Avg PPG on team adjusted by position − the slot's average. Positive = beat the slot.",
-     "Notes": "Slot baseline = the 3-pick window around it + a 4th outer pick (from 1.05 on); 1.01–1.04 use the pooled mean."},
+     "Notes": "rookie_picks: slot baseline = the 3-pick window around it + a 4th outer pick (from 1.05 on); 1.01–1.04 use the pooled mean. non_rookie_picks: the mean of the 8 nearest other picks by overall position, on the same side of the startup / vet seam."},
     {"Stat": "Pick-adjusted Difference in Avg career PPG adjusted by position", "Sheet": "non_rookie_picks / rookie_picks", "Columns": ["Pick-adjusted Difference in Avg career PPG adjusted by position"],
      "Formula": "Whether the player's whole-career production beat his draft slot. His Avg career PPG adjusted by position − the slot's average. Positive = beat the slot.",
-     "Notes": "Slot baseline = the 3-pick window around it + a 4th outer pick (from 1.05 on); 1.01–1.04 use the pooled mean."},
+     "Notes": "rookie_picks: slot baseline = the 3-pick window around it + a 4th outer pick (from 1.05 on); 1.01–1.04 use the pooled mean. non_rookie_picks: the mean of the 8 nearest other picks by overall position, on the same side of the startup / vet seam."},
     {"Stat": "Pick-adjusted Difference in Avg points added adjusted by position", "Sheet": "non_rookie_picks / rookie_picks", "Columns": ["Pick-adjusted Difference in Avg points added adjusted by position"],
      "Formula": "Whether the pick's started-week output beat its draft slot. Its Avg points added adjusted by position − the slot's average. Positive = beat the slot.",
-     "Notes": "Slot baseline = the 3-pick window around it + a 4th outer pick (from 1.05 on); 1.01–1.04 use the pooled mean."},
+     "Notes": "rookie_picks: slot baseline = the 3-pick window around it + a 4th outer pick (from 1.05 on); 1.01–1.04 use the pooled mean. non_rookie_picks: the mean of the 8 nearest other picks by overall position, on the same side of the startup / vet seam."},
     {"Stat": "Pick-adjusted Difference in KTC on draft day", "Sheet": "non_rookie_picks / rookie_picks", "Columns": ["Pick-adjusted Difference in KTC on draft day"],
      "Formula": "Whether the player was valued above his draft slot's norm at the draft. His KTC on draft day − the slot's average. Positive = above expectation.",
-     "Notes": "Slot baseline = the 3-pick window around it + a 4th outer pick (from 1.05 on); 1.01–1.04 use the pooled mean."},
+     "Notes": "rookie_picks: slot baseline = the 3-pick window around it + a 4th outer pick (from 1.05 on); 1.01–1.04 use the pooled mean. non_rookie_picks: the mean of the 8 nearest other picks by overall position, on the same side of the startup / vet seam."},
     {"Stat": "Pick-adjusted Difference in KTC at end of rookie year", "Sheet": "non_rookie_picks / rookie_picks", "Columns": ["Pick-adjusted Difference in KTC at end of rookie year"],
      "Formula": "Whether the player beat his draft slot one rookie season in. His KTC at end of rookie year − the slot's average. Positive = above expectation.",
-     "Notes": "Slot baseline = the 3-pick window around it + a 4th outer pick (from 1.05 on); 1.01–1.04 use the pooled mean."},
+     "Notes": "rookie_picks: slot baseline = the 3-pick window around it + a 4th outer pick (from 1.05 on); 1.01–1.04 use the pooled mean. non_rookie_picks: the mean of the 8 nearest other picks by overall position, on the same side of the startup / vet seam."},
     {"Stat": "Pick-adjusted Difference in KTC 1 year after draft day", "Sheet": "non_rookie_picks / rookie_picks", "Columns": ["Pick-adjusted Difference in KTC 1 year after draft day"],
      "Formula": "His KTC 1 year after draft day − the slot's average at that checkpoint. Positive = above slot expectation a year out.",
-     "Notes": "Slot baseline = the 3-pick window around it + a 4th outer pick (from 1.05 on); 1.01–1.04 use the pooled mean."},
+     "Notes": "rookie_picks: slot baseline = the 3-pick window around it + a 4th outer pick (from 1.05 on); 1.01–1.04 use the pooled mean. non_rookie_picks: the mean of the 8 nearest other picks by overall position, on the same side of the startup / vet seam."},
     {"Stat": "Pick-adjusted Difference in KTC 2 years after draft day", "Sheet": "non_rookie_picks / rookie_picks", "Columns": ["Pick-adjusted Difference in KTC 2 years after draft day"],
      "Formula": "His KTC 2 years after draft day − the slot's average at that checkpoint. Positive = above slot expectation two years out.",
-     "Notes": "Slot baseline = the 3-pick window around it + a 4th outer pick (from 1.05 on); 1.01–1.04 use the pooled mean."},
+     "Notes": "rookie_picks: slot baseline = the 3-pick window around it + a 4th outer pick (from 1.05 on); 1.01–1.04 use the pooled mean. non_rookie_picks: the mean of the 8 nearest other picks by overall position, on the same side of the startup / vet seam."},
     {"Stat": "Pick-adjusted Difference in KTC 3 years after draft day", "Sheet": "non_rookie_picks / rookie_picks", "Columns": ["Pick-adjusted Difference in KTC 3 years after draft day"],
      "Formula": "His KTC 3 years after draft day − the slot's average at that checkpoint. Positive = above slot expectation three years out.",
-     "Notes": "Slot baseline = the 3-pick window around it + a 4th outer pick (from 1.05 on); 1.01–1.04 use the pooled mean."},
+     "Notes": "rookie_picks: slot baseline = the 3-pick window around it + a 4th outer pick (from 1.05 on); 1.01–1.04 use the pooled mean. non_rookie_picks: the mean of the 8 nearest other picks by overall position, on the same side of the startup / vet seam."},
     {"Stat": "Pick-adjusted Difference in KTC 4 years after draft day", "Sheet": "non_rookie_picks / rookie_picks", "Columns": ["Pick-adjusted Difference in KTC 4 years after draft day"],
      "Formula": "His KTC 4 years after draft day − the slot's average at that checkpoint. Positive = above slot expectation four years out.",
-     "Notes": "Slot baseline = the 3-pick window around it + a 4th outer pick (from 1.05 on); 1.01–1.04 use the pooled mean."},
+     "Notes": "rookie_picks: slot baseline = the 3-pick window around it + a 4th outer pick (from 1.05 on); 1.01–1.04 use the pooled mean. non_rookie_picks: the mean of the 8 nearest other picks by overall position, on the same side of the startup / vet seam."},
 
     # --- player_additions: every player GAINED, by channel, on one ruler ---
     {"Stat": "Addition type", "Sheet": "player_additions", "Columns": ["Addition type"],
@@ -1780,22 +1780,16 @@ _OUTPUT_FIELDS = ["Stat", "Sheet", "Formula", "Notes", formula_equations.COLUMN]
 
 
 def _glossary_rows():
-    """The raw-variable and operator glossary the Equation column is written in.
-    Emitted ahead of the stat rows; not part of _ROWS (no stat to cover)."""
+    """The symbols used by 5+ equations (formula_equations.glossary), emitted
+    ahead of the stat rows; not part of _ROWS (no stat to cover)."""
     col = formula_equations.COLUMN
-    rows = [{"Stat": sym, "Sheet": formula_equations.RAW_SHEET, "Formula": meaning,
-             "Notes": f"Source: {source}", col: "raw API field"}
-            for sym, meaning, source in formula_equations.RAW_VARIABLES]
-    rows += [{"Stat": sym, "Sheet": formula_equations.OPS_SHEET, "Formula": meaning,
-              "Notes": "", col: definition}
-             for sym, definition, meaning in formula_equations.OPERATORS]
-    return rows
+    return [{"Stat": sym, "Sheet": sheet, "Formula": meaning, "Notes": "", col: definition}
+            for sheet, sym, meaning, definition in formula_equations.glossary()]
 
 
 def build_output(context):
     col = formula_equations.COLUMN
-    rows = [dict(r, **{col: formula_equations.EQUATIONS.get((r["Stat"], r["Sheet"]), "")})
-            for r in _ROWS]
+    rows = [dict(r, **{col: formula_equations.expanded((r["Stat"], r["Sheet"]))}) for r in _ROWS]
     return pd.DataFrame([{k: r.get(k, "") for k in _OUTPUT_FIELDS}
                          for r in _glossary_rows() + rows])
 

@@ -1,128 +1,343 @@
-"""Formulas sheet — the 'Equation' column: every stat as an equation in raw API data.
+"""Formulas sheet — the Equation column: every stat as an equation in raw API data.
 
 `formulas.py` documents each stat in prose. This module restates each one as an
 equation whose variables are only fields pulled straight from the source APIs
-(Sleeper, ESPN for 2020, nflverse, KeepTradeCut), plus the few hand-curated
-data/ files the build reads.
+(Sleeper, ESPN for 2020, nflverse, KeepTradeCut) and the hand-curated data/
+files the build reads.
 
-Two kinds of shorthand keep the equations readable without leaving raw data:
+* ENTRIES — one row per symbol: the raw API variables, the operators defined
+  purely in them, the per-row context symbols, and the fitted / simulated models
+  (Wins added's counterfactual lineup, Boldness's expected points, Price paid's
+  money curve, Points above expectation's Poisson fit) written out in full.
+* A symbol used by MIN_USES (5) or more equations — directly or through another
+  entry's definition — is a glossary row at the top of the sheet; any other is
+  defined in-cell, after the equation ("— where …"), in every cell that uses it.
+* ⟨Stat⟩ — substitute the equation of that row of the Formulas sheet.
 
-* OPERATORS — named functions (PF, OPT, F, CUFF, E_h, ...) each defined below
-  purely in raw variables. They are definitions, not export columns.
-* ⟨Stat⟩ — substitute the equation of that row of the Formulas sheet. Every
-  ⟨⟩ chain bottoms out in raw variables, so each equation expands fully.
-
-The glossary is emitted as the first rows of the sheet (Sheet = 'Raw API
-variables' / 'Defined operators'); every `formulas._ROWS` entry has exactly one
-equation in EQUATIONS (tests/test_formula_equations.py holds that 1:1).
-
-A few stats are model outputs (Wins added's counterfactual lineup, Boldness's
-expected points, Price paid's money curve, Points above expectation's fit). Their
-equations state the top-level arithmetic over raw variables and name the
-lotg_support module holding the fitted / solved part.
+Every formulas._ROWS entry has exactly one equation in EQUATIONS, keyed by
+(Stat, Sheet) (tests/test_formula_equations.py holds that 1:1).
 """
 
 COLUMN = "Equation (API stats only)"
 RAW_SHEET = "Raw API variables"
 OPS_SHEET = "Defined operators"
+CTX_SHEET = "Row context symbols"
+MODEL_SHEET = "Model definitions"
 
-# (symbol, meaning, source endpoint / field)
-RAW_VARIABLES = [
-    ("p, t, y, w, d, x, k",
+import functools as _ft
+import re as _re
+
+# A symbol gets a glossary row only when MIN_USES or more equations use it,
+# directly or through another glossary row's definition (user rule,
+# 2026-10-04). Every other symbol is defined in-cell, appended to each
+# equation that uses it ("— where …"). One symbol per row, so the rule is
+# applied symbol by symbol.
+MIN_USES = 5
+
+_FN = r"(?<![\w$]){}\("          # function-style use: name(
+_BARE = r"(?<![\w$']){}(?![\w'(])"   # bare use
+
+
+def _fn(*names):
+    return tuple(_FN.format(_re.escape(n)) for n in names)
+
+
+def _bare(*names):
+    return tuple(_BARE.format(_re.escape(n)) for n in names)
+
+
+ALWAYS = None   # an entry whose pattern is ALWAYS is notation: always a glossary row
+
+RAW, OPS, CTX, MOD = "raw", "ops", "ctx", "model"
+SHEET_OF = {RAW: RAW_SHEET, OPS: OPS_SHEET, CTX: CTX_SHEET, MOD: MODEL_SHEET}
+
+# (block, symbol, meaning, definition — for a raw variable its API source, patterns)
+ENTRIES = [
+    # ---- raw API variables ----
+    (RAW, "p, t, y, w, d, x, k",
      "Indices: p player (Sleeper player_id), t team (Sleeper roster_id, labelled by its owner's display_name), y season, w week, d date (league / Eastern time), x transaction, k scoring stat.",
-     "Sleeper /league/{id}/rosters (roster_id, owner_id), /users (display_name)"),
-    ("pts(p,w)", "Fantasy points the league scored player p in week w.",
-     "Sleeper GET /league/{id}/matchups/{w} → players_points[p]; 2020: ESPN mMatchup per-player appliedTotal"),
-    ("S(t,w)", "Starting lineup of roster t in week w, in slot order; '0' marks an empty slot.",
-     "Sleeper matchups → starters; 2020: ESPN lineupSlotId ≠ bench"),
-    ("R(t,w)", "Every player on roster t in week w (starters + bench + taxi + IR).",
-     "Sleeper matchups → players; 2020: ESPN mRoster"),
-    ("P(t,w)", "Roster t's raw matchup score in week w (Σ starters' points).",
-     "Sleeper matchups → points; 2020: ESPN pointsByScoringPeriod"),
-    ("o(t,w)", "Opponent: the other roster sharing t's matchup_id in week w.",
-     "Sleeper matchups → matchup_id; 2020: ESPN schedule"),
-    ("slots(y), pws(y), rules(y,k)",
-     "Lineup slots; first playoff week; points per unit of scoring stat k.",
-     "Sleeper GET /league/{id} → roster_positions, settings.playoff_week_start, scoring_settings; 2018-20: the ESPN league's scoring table"),
-    ("WB(y), LB(y)", "Winners' / losers' bracket matchups (round, t1, t2, winner, loser).",
-     "Sleeper /league/{id}/winners_bracket, /losers_bracket"),
-    ("type(x), status(x), d(x), ts(x)",
-     "Transaction type (waiver / free_agent / commissioner / trade), status (complete / failed), ET date, timestamp.",
-     "Sleeper /league/{id}/transactions/{round} → type, status, status_updated; 2020: ESPN mTransactions2"),
-    ("adds(x), drops(x), rosters(x)", "Player → roster maps of the move; rosters involved.",
-     "Sleeper transactions → adds, drops, roster_ids"),
-    ("bid(x)", "FAAB bid on a waiver claim.", "Sleeper transactions → settings.waiver_bid"),
-    ("dp(x), wb(x)", "Draft picks traded (season, round, roster_id = original owner, previous_owner_id, owner_id); FAAB traded (sender, receiver, amount).",
-     "Sleeper transactions → draft_picks, waiver_budget"),
-    ("pk: round, pick_no, slot, pl, by",
-     "A draft pick: round, overall pick number, draft slot, player picked, roster that picked.",
-     "Sleeper /draft/{id}/picks → round, pick_no, draft_slot, player_id, roster_id/picked_by"),
-    ("dd(Y), slot_to_roster_id", "Draft day of the season-Y draft; slot → original roster.",
-     "Sleeper /draft/{id} → start_time, slot_to_roster_id"),
-    ("own(Y,r,t0)", "Current owner of the season-Y round-r pick originally t0's.",
-     "Sleeper /league/{id}/traded_picks → season, round, roster_id, owner_id"),
-    ("birth(p), posS(p), teamS(p), yexp(p), rookie_year(p), injS(p)",
-     "Birth date, fantasy position, NFL team, years of experience, rookie year, injury status.",
-     "Sleeper /players/nfl → birth_date, position, team, years_exp, metadata, injury_status"),
-    ("s(p,y,w,k)", "Player p's NFL stat k in week w of season y.",
-     "nflverse stats_player_week_{y} (player_stats)"),
-    ("npts(p,y,w)", "Σ_k rules(y,k)·s(p,y,w,k) — the NFL stat line scored with that season's league rules.",
-     "nflverse stats_player_week × Sleeper scoring_settings (2018-20: the ESPN table)"),
-    ("posN(p,y,w), teamN(p,y,w)", "Position and NFL team on the stat line.",
-     "nflverse stats_player_week → position, team"),
-    ("snap(p,y,w)", "Offense + defense + special-teams snaps.", "nflverse snap_counts_{y}"),
-    ("wr(p,y,w)", "Weekly NFL roster row (team, status, position).", "nflverse roster_weekly_{y}"),
-    ("gd(team,y,w)", "Game date (ET) of the NFL team's week-w game; none = bye.",
-     "nflverse schedules games.csv → gameday"),
-    ("K(a,d)", "KeepTradeCut superflex value of asset a (player or pick) on date d.",
-     "keeptradecut.com history (playerSuperflex / sf_trade_value), mirrored by dynasty-daddy.com from 2021-04-16"),
-    ("ID bridge", "sleeper_id ↔ gsis_id ↔ KTC id crosswalk (a join key, not a stat).",
-     "DynastyProcess db_playerids.csv, nflverse players.csv"),
-    ("SUSP(p,y,w), GDS(p,y,w), CPM, MTX",
-     "Hand-curated suspensions, game-day active/inactive status for zero-snap weeks, off-platform commissioner pick moves, manual transactions.",
-     "data/suspensions.csv, data/game_day_status.csv, data/commissioner_pick_trades.csv, data/manual_transactions.csv"),
+     "Sleeper /league/{id}/rosters (roster_id, owner_id), /users (display_name)", ALWAYS),
+    (RAW, "pts(p,w)", "Fantasy points the league scored player p in week w.",
+     "Sleeper GET /league/{id}/matchups/{w} → players_points[p]; 2020: ESPN mMatchup per-player appliedTotal", _fn("pts")),
+    (RAW, "S(t,w)", "Starting lineup of roster t in week w, in slot order; '0' marks an empty slot.",
+     "Sleeper matchups → starters; 2020: ESPN lineupSlotId ≠ bench", _fn("S")),
+    (RAW, "R(t,w)", "Every player on roster t in week w (starters + bench + taxi + IR).",
+     "Sleeper matchups → players; 2020: ESPN mRoster", _fn("R")),
+    (RAW, "P(t,w)", "Roster t's raw matchup score in week w (Σ starters' points).",
+     "Sleeper matchups → points; 2020: ESPN pointsByScoringPeriod", _fn("P")),
+    (RAW, "o(t,w)", "Opponent: the other roster sharing t's matchup_id in week w.",
+     "Sleeper matchups → matchup_id; 2020: ESPN schedule", _fn("o") + _bare("o")),
+    (RAW, "slots(y)", "Lineup slots of season y, each a set of eligible positions.", "Sleeper GET /league/{id} → roster_positions", _fn("slots")),
+    (RAW, "pws(y)", "First playoff week of season y.", "Sleeper GET /league/{id} → settings.playoff_week_start", _fn("pws")),
+    (RAW, "rules(y,k)", "Points per unit of scoring stat k in season y.",
+     "Sleeper GET /league/{id} → scoring_settings; 2018-20: the ESPN league's scoring table", _fn("rules")),
+    (RAW, "WB(y)", "Winners' bracket matchups (round, t1, t2, winner, loser).", "Sleeper /league/{id}/winners_bracket", _fn("WB") + _bare("WB")),
+    (RAW, "LB(y)", "Losers' bracket matchups.", "Sleeper /league/{id}/losers_bracket", _fn("LB") + _bare("LB")),
+    (RAW, "type(x)", "Transaction type: waiver / free_agent / commissioner / trade.", "Sleeper /league/{id}/transactions/{round} → type; 2020: ESPN mTransactions2", _fn("type")),
+    (RAW, "status(x)", "Transaction status: complete / failed.", "Sleeper transactions → status", _fn("status") + (r"status = complete", r"status complete")),
+    (RAW, "d(x)", "Transaction date (ET).", "Sleeper transactions → status_updated", _fn("d")),
+    (RAW, "ts(x)", "Transaction timestamp.", "Sleeper transactions → status_updated", _fn("ts")),
+    (RAW, "adds(x)", "Player → roster map of players added.", "Sleeper transactions → adds", _fn("adds")),
+    (RAW, "drops(x)", "Player → roster map of players dropped.", "Sleeper transactions → drops", _fn("drops")),
+    (RAW, "rosters(x)", "Rosters involved in the transaction.", "Sleeper transactions → roster_ids", _fn("rosters")),
+    (RAW, "bid(x)", "FAAB bid on a waiver claim.", "Sleeper transactions → settings.waiver_bid", _fn("bid")),
+    (RAW, "dp(x)", "Draft picks traded: season, round, roster_id (original owner), previous_owner_id, owner_id.", "Sleeper transactions → draft_picks", _fn("dp")),
+    (RAW, "wb(x)", "FAAB traded: sender, receiver, amount.", "Sleeper transactions → waiver_budget", _fn("wb")),
+    (RAW, "round(pk)", "Round of draft pick pk.", "Sleeper /draft/{id}/picks → round", _fn("round")),
+    (RAW, "pick_no(pk)", "Overall pick number.", "Sleeper /draft/{id}/picks → pick_no", _fn("pick_no") + _bare("pick_no")),
+    (RAW, "dslot(pk)", "Draft slot of the pick.", "Sleeper /draft/{id}/picks → draft_slot", _fn("dslot", "draft_slot") + _bare("dslot")),
+    (RAW, "pl(pk)", "Player picked.", "Sleeper /draft/{id}/picks → player_id", _fn("pl") + _bare("pl")),
+    (RAW, "by(pk)", "Roster that made the pick.", "Sleeper /draft/{id}/picks → roster_id / picked_by", _fn("by") + _bare("by")),
+    (RAW, "dd(Y)", "Draft day of the season-Y draft.", "Sleeper /draft/{id} → start_time", _fn("dd") + _bare("dd")),
+    (RAW, "slot_to_roster_id", "Draft slot → original roster.", "Sleeper /draft/{id} → slot_to_roster_id", _fn("slot_to_roster_id") + _bare("slot_to_roster_id")),
+    (RAW, "own(Y,r,t0)", "Current owner of the season-Y round-r pick originally t0's.", "Sleeper /league/{id}/traded_picks → season, round, roster_id, owner_id", _fn("own")),
+    (RAW, "birth(p)", "Birth date.", "Sleeper /players/nfl → birth_date", _fn("birth")),
+    (RAW, "posS(p)", "Fantasy position.", "Sleeper /players/nfl → position", _fn("posS") + _bare("posS")),
+    (RAW, "teamS(p)", "NFL team.", "Sleeper /players/nfl → team", _fn("teamS")),
+    (RAW, "yexp(p)", "Years of NFL experience.", "Sleeper /players/nfl → years_exp", _fn("yexp")),
+    (RAW, "rookie_year(p)", "Rookie season.", "Sleeper /players/nfl → metadata (rookie year)", _fn("rookie_year")),
+    (RAW, "injS(p)", "Injury status.", "Sleeper /players/nfl → injury_status", _fn("injS") + _bare("injS")),
+    (RAW, "s(p,y,w,k)", "Player p's NFL stat k in week w of season y.", "nflverse stats_player_week_{y}", _fn("s")),
+    (RAW, "npts(p,y,w)", "Σ_k rules(y,k)·s(p,y,w,k) — the NFL stat line scored with that season's league rules.",
+     "nflverse stats_player_week × Sleeper scoring_settings (2018-20: the ESPN table)", _fn("npts") + _bare("npts")),
+    (RAW, "posN(p,y,w)", "Position on the stat line.", "nflverse stats_player_week → position", _fn("posN")),
+    (RAW, "teamN(p,y,w)", "NFL team on the stat line.", "nflverse stats_player_week → team", _fn("teamN") + _bare("teamN")),
+    (RAW, "snap(p,y,w)", "Offense + defense + special-teams snaps.", "nflverse snap_counts_{y}", _fn("snap")),
+    (RAW, "wr(p,y,w)", "Weekly NFL roster row (team, status, position).", "nflverse roster_weekly_{y}", _fn("wr")),
+    (RAW, "gd(team,y,w)", "Game date (ET) of the NFL team's week-w game; none = bye.", "nflverse schedules games.csv → gameday", _fn("gd") + _bare("gd")),
+    (RAW, "K(a,d)", "KeepTradeCut superflex value of asset a (player or pick) on date d.",
+     "keeptradecut.com history (playerSuperflex / sf_trade_value), mirrored by dynasty-daddy.com from 2021-04-16", _fn("K")),
+    (RAW, "ID bridge", "sleeper_id ↔ gsis_id ↔ KTC id crosswalk (a join key, not a stat).",
+     "DynastyProcess db_playerids.csv, nflverse players.csv", ALWAYS),
+    (RAW, "SUSP(p,y,w)", "Hand-curated suspension weeks.", "data/suspensions.csv", _fn("SUSP")),
+    (RAW, "GDS(p,y,w)", "Hand-curated game-day active / inactive status for zero-snap weeks (2020-25).", "data/game_day_status.csv", _fn("GDS")),
+    (RAW, "CPM", "Hand-curated off-platform commissioner pick moves.", "data/commissioner_pick_trades.csv", _bare("CPM")),
+    (RAW, "MTX", "Hand-curated manual transactions.", "data/manual_transactions.csv", _bare("MTX")),
+    # ---- defined operators ----
+    (OPS, "[c]", "Iverson bracket.", "1 if condition c holds, else 0.", ALWAYS),
+    (OPS, "⟨Stat⟩", "Cross-reference.", "Substitute that row's equation from this column.", ALWAYS),
+    (OPS, "st(p,t,w)", "Started.", "[p ∈ S(t,w)].", _fn("st") + _bare("st")),
+    (OPS, "ro(p,t,w)", "Rostered.", "[p ∈ R(t,w)]; bench = ro ∧ ¬st.", _fn("ro") + _bare("ro")),
+    (OPS, "pos(p,y,w)", "Position that week.", "posN(p,y,w) if the stat line exists, else posS(p) (Travis Hunter pinned WR).", _fn("pos") + _bare("pos")),
+    (OPS, "nfl(p,y,w)", "NFL team that week.", "teamN(p,y,w) → p's season teamN → wr(p,y,w).team → 'NFL' (no NFL team).", _fn("nfl")),
+    (OPS, "APP(p,y,w)", "Appeared in the NFL game.", "[p has a stat line in s(·,y,w)] ∨ [snap(p,y,w) > 0].", _fn("APP") + _bare("APP")),
+    (OPS, "BYE(p,w)", "Bye?", "[pts(p,w) = 0 ∧ (nfl(p,y,w) = 'NFL' ∨ no gd(nfl(p,y,w), y, w))].", _fn("BYE") + _bare("BYE")),
+    (OPS, "SUS(p,w)", "Suspension?", "¬BYE(p,w) ∧ (SUSP(p,y,w) ∨ injS(p) = 'NA' that week).", _fn("SUS") + _bare("SUS")),
+    (OPS, "INJ(p,w)", "Injury?", "ro ∧ pts(p,w) = 0 ∧ ¬APP(p,y,w) ∧ ¬BYE ∧ ¬SUS ∧ ¬[GDS(p,y,w) = active].", _fn("INJ") + _bare("INJ")),
+    (OPS, "H(p,w)", "Healthy / played week.", "¬BYE(p,w) ∧ ¬INJ(p,w) ∧ ¬SUS(p,w).", _fn("H") + _bare("H")),
+    (OPS, "seed(t,y)", "Regular-season standing.", "Rank of t by (Σ_{w ∈ REG} win(t,w), Σ_{w ∈ REG} P(t,w)), descending.", _fn("seed")),
+    (OPS, "PF(t,w)", "Points for, with the semifinal +5.", "P(t,w) + 5·[w = pws(y) ∧ t is the better seed of a top-4 semifinal pair].", _fn("PF") + _bare("PF")),
+    (OPS, "PA(t,w)", "Points against.", "PF(o(t,w), w).", _fn("PA") + _bare("PA")),
+    (OPS, "win(t,w)", "Result.", "[PF > PA] + ½[PF = PA] (2026+ two-week final: PF summed over both weeks).", _fn("win") + _bare("win")),
+    (OPS, "REG", "Regular-season weeks.", "{w < pws(y)}.", _bare("REG")),
+    (OPS, "stage(t,w)", "Game type.", "From WB(y) / LB(y) rounds: Semifinal, Final, 3rd Place, Toilet Semis, Toilet Final, Toilet losers; 'Week N' for w ∈ REG.", _fn("stage")),
+    (OPS, "PO", "Championship-bracket games.", "{w : stage(t,w) ∈ {Semifinal, Final}}.", _bare("PO")),
+    (OPS, "champ(y)", "Champion.", "The winner of WB(y)'s Final.", _fn("champ")),
+    (OPS, "N", "Number of teams.", "|{roster_id}|.", _bare("N")),
+    (OPS, "OPT(X, y)", "Optimal lineup.", "Greedy best lineup of point set X by posS: top 1 QB, 2 RB, 3 WR, 1 TE, then FLEX from RB/WR/TE (2 FLEX from 2024), then 1 SUPERFLEX from QB/RB/WR/TE; returns the sum.", _fn("OPT")),
+    (OPS, "MaxPF(t,w)", "Max PF.", "OPT({pts(p,w) : p ∈ R(t,w)}, y).", _fn("MaxPF") + _bare("MaxPF")),
+    (OPS, "F(y,q)", "Position factor.", "mean{pts(p,w) : st, season y'} / mean{pts(p,w) : st, season y', pos(p) = q}; y' = y once week 5 of y is played, else y − 1.", _fn("F") + _bare("F")),
+    (OPS, "age(p,d)", "Age.", "(d − birth(p)) / 365.25.", _fn("age")),
+    (OPS, "agepk(Y,d)", "Age of a future season-Y pick.", "(d − Sep 1 of (Y − 22)) / 365.25.", _fn("agepk")),
+    (OPS, "dw(y,w)", "Date a week is aged at.", "Sep 1 of y + 7(w − 1).", _fn("dw") + _bare("dw")),
+    (OPS, "fw(d)", "Week of a date.", "The fantasy week whose Tuesday-Monday span contains d (a Tue/Wed move counts toward the coming week).", _fn("fw")),
+    (OPS, "eos(y)", "Season end.", "The Monday after season y's championship week.", _fn("eos")),
+    (OPS, "GL(p)", "NFL game log.", "p's games {(gd, npts(p,y,w)) : APP(p,y,w)} in date order.", _fn("GL") + _bare("GL")),
+    (OPS, "avgN(p,d,n)", "Average of recent NFL games.", "Mean npts of the last min(n, available) GL(p) games with gd < d (ET day).", _fn("avgN")),
+    (OPS, "ppg_nfl(p,[a,b))", "NFL points per game in a window.", "mean{npts(p,y,w) : APP(p,y,w), gd(nfl(p),y,w) ∈ [a,b)}.", _fn("ppg_nfl")),
+    (OPS, "T", "Tenure.", "[start, e) of p on t from its acquisition.", _bare("T")),
+    (OPS, "e", "Tenure end.", "The first date after the start with drops(x)[p] = t or p sent by t in a trade; else today.", _bare("e")),
+    (OPS, "Wk(p,t,T)", "Tenure weeks.", "{w in T : ro(p,t,w) = 1}.", _fn("Wk") + _bare("Wk")),
+    (OPS, "ppg_on(p,t,T)", "On-team points per game.", "Σ_{w ∈ Wk : H(p,w)} pts(p,w) / |{w ∈ Wk : H(p,w)}|.", _fn("ppg_on")),
+    (OPS, "nst", "Tenure starts.", "Σ_{w ∈ Wk} st(p,t,w).", _bare("nst")),
+    (OPS, "nH", "Tenure healthy weeks.", "|{w ∈ Wk : H(p,w)}|.", _bare("nH")),
+    (OPS, "nstH", "Tenure healthy starts.", "Σ_{w ∈ Wk : H(p,w)} st(p,t,w).", _bare("nstH")),
+    (OPS, "ω(r)", "Future-pick round weight.", "{1: 0.25, 2: 0.09, 3: 0.03, 4: 0.01}, 0 otherwise.", _fn("ω")),
+    (OPS, "E_h(p,w)", "Hardship expectation.", "Over p's last 6 healthy weeks before w (league weeks with H, plus nflverse-only weeks at npts), drop the most recent and average the rest (one week: that week).", _fn("E_h") + _bare("E_h")),
+    (OPS, "s_h(p,w)", "Hardship start share.", "Mean st over the same weeks as E_h (nflverse-only weeks = 0); 0 → mean st over p's next ≤ 5 healthy weeks of the season, for w ≥ 2 with < 5 prior league weeks.", _fn("s_h") + _bare("s_h")),
+    (OPS, "TEST(q,p,w)", "Handcuff test.", "pos(q) = pos(p), nfl(q) = nfl(p), and (avg8(q) − avg8(p) ≥ 10, or avg8(q)·F(y,pos q) ≥ 13·F(y,TE), or q a top-12 pick of season y's rookie draft once held (2020: the first 12 NFL rookies of the startup)); avg8 = avgN(·, d, 8), q needing 8 games.", _fn("TEST")),
+    (OPS, "CUFF(p,t,d)", "Handcuff at a move.", "∃ q ∈ R(t) at d with TEST(q,p).", _fn("CUFF")),
+    (OPS, "Q_q", "Positional starter-score pool.", "{pts(p,w) : st, H, pos(p) = q, all seasons}.", _bare("Q_q", "Q_pos") + _fn("Q_pos")),
+    (OPS, "qN", "Positional percentile bars.", "The N-th percentile of Q_q (q10, q25, q75, q90).", _bare("q10", "q25", "q75", "q90")),
+    (OPS, "tier", "Positional scoring tier.", "Bust ≤ q10 < Lower < q25 ≤ Middle < q75 ≤ Upper < q90 ≤ Boom.", _bare("tier") + _fn("tier")),
+    (OPS, "RL(q,w)", "Replacement level.", "Mean of the lowest third of {pts(p,w) : st, pos(p) = q} in week w.", _fn("RL")),
+    (OPS, "pctl(v ; V)", "Percentile.", "100 · (average rank of v in V, ascending) / |V|; ties share the average rank.", _fn("pctl")),
+    (OPS, "RUN", "Streak encoding.", "Terminal encoding of a boolean sequence: on a run's last element its length, 'In Progress' on earlier elements, 0 where false; skipped weeks read blank.", _bare("RUN") + (r"RUN_",)),
+    (OPS, "z_wk", "Week standardiser.", "clip((v − mean_{y,w} v) / sd_{y,w} v, ±2.5) / 2.5 within each league week.", _fn("z_wk")),
+    (OPS, "z_all", "Standardiser.", "(v − mean v) / sd v over all rows.", _fn("z_all")),
+    (OPS, "DT(X,d)", "Depth-taxed KTC.", "Σ_i 0.6^(i−1)·K(X_(i), d), assets sorted by K descending; a FAAB amount valued at κ·amount.", _fn("DT")),
+    (OPS, "κ", "KTC per FAAB $.", "100 (a locked league rule).", _bare("κ")),
+    (OPS, "sd", "Standard deviation.", "Sample standard deviation (n − 1).", (r"(?<![\w$])sd[({_]",)),
+    (OPS, "median", "Median.", "The middle value (mean of the two middle values for an even count).", _bare("median") + (r"median_",)),
+    (OPS, "rank_X", "Rank.", "Rank by X, 1 = highest.", (r"rank_",)),
+    (OPS, "clamp(v,a,b)", "Clamp.", "min(max(v,a),b).", _fn("clamp")),
+    # ---- row context symbols ----
+    (CTX, "a, r (add_drops)", "The added and dropped player.", "a = the p with adds(x)[p] = t; r = the p with drops(x)[p] = t.", ALWAYS),
+    (CTX, "d0", "Move date.", "d(x).", _bare("d0")),
+    (CTX, "y0", "Move season.", "The season the move is filed under.", _bare("y0")),
+    (CTX, "e_a", "Added player's tenure end.", "e for a's tenure on t from d0.", _bare("e_a")),
+    (CTX, "St", "Started tenure weeks.", "{w ∈ Wk(a,t,T) : st(a,t,w) = 1}.", _bare("St")),
+    (CTX, "w*", "First start.", "min St (or the first started tenure week).", (r"w\*",)),
+    (CTX, "Bd", "Waiver bidders.", "Rosters u with a counted claim on a in x's waiver run (type = waiver on a, status complete or failed, not failed for roster limit / insufficient FAAB / an already-played drop).", _bare("Bd")),
+    (CTX, "c_u", "A bidder's counted claim.", "u's winning claim, else u's last-created claim on a.", _bare("c_u")),
+    (CTX, "A", "Assets received (trades).", "adds(x)[p] = t, dp(x).owner_id = t, wb(x).receiver = t.", _bare("A")),
+    (CTX, "B", "Assets sent (trades).", "drops(x)[p] = t, dp(x).previous_owner_id = t, wb(x).sender = t.", _bare("B")),
+    (CTX, "A'", "Received players who played here.", "{q ∈ A players : Wk(q,t,T_q) ≠ ∅} ∪ {pl(pk) : pk ∈ A, by(pk) = t, own(pk) = t from d0 to the draft, Wk ≠ ∅}.", (r"A'",)),
+    (CTX, "T_q", "A received player's tenure.", "[d0 (dd for a drafted pick), e_q).", (r"T_q",)),
+    (CTX, "e*", "End of the received side.", "max_{q ∈ A'} e_q (open → today); A' = ∅ → min(today, d0 + 4 years).", (r"e\*",)),
+    (CTX, "k_w", "Received starters in week w.", "Σ_{q ∈ A'} st(q,t,w).", _bare("k_w")),
+    (CTX, "M", "Matched weeks.", "|{w : k_w ≥ 1}|.", _bare("M")),
+    (CTX, "pk, Y (pick rows)", "The pick and its draft season.", "pk = the pick, Y = its draft season.", ALWAYS),
+    (CTX, "ov", "Overall pick.", "(round − 1)·N + dslot; 2021 vet picks continue after the startup's last.", _bare("ov") + _fn("ov")),
+    (CTX, "base(v)", "Draft-slot baseline.", "rookie_picks: window S_ov = {ov−1, ov, ov+1} (ov = 1 → {1,2}; last → the last three), all classes pooled; m_s = mean of v over picks at slot s; base = mean(m_{ov−1}, m_ov, m_{ov+1}, ½(m_{ov−1} + m_{ov+1})) for ov ≥ 5, else the mean of every v in S_ov. non_rookie_picks: the mean of v over the 8 nearest other picks by ov on the same side of the startup / vet seam.", _fn("base")),
+    (CTX, "d_a", "Acquisition date (player_additions).", "The date the tenure starts.", _bare("d_a")),
+    (CTX, "y_w", "Season of week w.", "y such that w is a week of season y.", _bare("y_w")),
+    (CTX, "N_w", "Teams playing in week w.", "|{t : o(t,w) defined}|.", _bare("N_w")),
+    (CTX, "n(t,o)", "Head-to-head games.", "|{w : o(t,w) = o}|.", _fn("n")),
+    (CTX, "last(y)", "Last place.", "The roster with seed(·,y) = N.", _fn("last")),
+    (CTX, "w1", "Week 1.", "The first week of the season.", _bare("w1")),
+    (CTX, "wF", "Championship week.", "The season's last week.", _bare("wF")),
+    (CTX, "w_final(y)", "Final's week.", "The week of WB(y)'s Final.", _fn("w_final")),
+    (CTX, "kick(y)", "Season kickoff.", "min over teams of gd(team, y, 1).", _fn("kick")),
+    (CTX, "w_kick", "Week's first kickoff.", "The roster as of week w's first game.", _bare("w_kick")),
+    (CTX, "asof", "As-of clock.", "The latest week whose games are final, or the latest roster move if later.", _bare("asof")),
+    (CTX, "ref", "Start/sit reference player.", "For a starter, the best startable bench player by pts; for a bench player, the worst benchable starter.", _bare("ref")),
+    (CTX, "avg5(q)", "5-game regular-season average.", "Mean npts(q) over q's last 5 regular-season NFL games before week w (APP; a snap with no stat line = 0).", _fn("avg5")),
+    (CTX, "U", "Player-team tenure weeks.", "p's weeks with ro(p,t,w) = 1 in this stint run.", _bare("U")),
+    (CTX, "τ", "A tier.", "τ ∈ {Boom, Upper, Middle, Lower, Bust}.", _bare("τ")),
+    (CTX, "age*(q,d)", "Asset age.", "age(q,d) for a player; agepk(Y,d) for a season-Y pick.", (r"age\*",)),
+    (CTX, "SIS", "Sisenzweig flag.", "⟨Sisenzweig⟩(t,w).", _bare("SIS")),
+    (CTX, "BROS", "Brosenzweig flag.", "⟨Brosenzweig⟩(t,w).", _bare("BROS")),
+    (CTX, "LFH", "Loss from hardship flag.", "⟨Loss from hardship?⟩(t,w).", _bare("LFH")),
+    (CTX, "Hard", "Hardship.", "⟨Hardship⟩(t,w).", _bare("Hard")),
+    (CTX, "SAHard", "Starter-adjusted Hardship.", "⟨Starter-adjusted Hardship⟩(t,w).", _bare("SAHard")),
+    (CTX, "μPF, μMax, μwin", "Season means.", "Means of PF, MaxPF, win over all of t's games in season y (subscript o: the opponent's).", (r"μPF", r"μMax", r"μwin")),
+    # ---- model definitions: Wins added (lotg_support.wins_added) ----
+    (MOD, "RES(a,b)", "Result of a score pair.", "[a > b] + ½[a = b] after rounding both to 0.01.", _fn("RES")),
+    (MOD, "w0", "Move's first week.", "The first league week whose last game is on or after d0.", _bare("w0")),
+    (MOD, "G", "The move's games.", "t's games from w0 through the latest week (each week one game; 2026+: the two Final weeks against the same opponent are one game, PF summed).", _bare("G")),
+    (MOD, "GU(move)", "Given-up players.",
+     "For each player g the move sent (a sent pick: pl of that pick, from his first week as a rookie): active in weeks [max(w0, start), end], end = the earlier of (a) the week completing a run of 4 straight weeks with g in no R(·,w), (b) the week before t's later move that receives g back.", _fn("GU") + _bare("GU")),
+    (MOD, "LIN(move)", "Received lineage.",
+     "Items (player, share s, group j, acquired, ended). Start: every asset received, s = 1, j = 0. Walk t's later moves m' in time order: a received pick drafted by t becomes pl(pick) at dd (same s, j); every live item that m' sends ends at d(m'); a drop ends the lineage; a trade's received assets join as group j+1 with s' = clamp(Σ_{items i sent} s_i·K(i, d(m')) / Σ_{assets t sent in m'} K(·, d(m')), 0, 1) (FAAB valued 0; no K on the side → Σ s_i / |sent|). Present in week w: on R(t,w), acquired ≤ w's last game day, ended after w's start.", _fn("LIN") + _bare("LIN")),
+    (MOD, "a3(p,w)", "3-game average.", "Mean npts(p) over p's last 3 NFL games before week w (undefined with < 3).", _fn("a3") + _bare("a3")),
+    (MOD, "val(p,w)", "Entry value.", "pts(p,w) (any roster, else npts(p,y,w), else 0) if p ∈ ∪_u S(u,w), else min(that, 1.5·a3(p,w)).", _fn("val")),
+    (MOD, "proven(p,w)", "Proven player.", "a3(p,w) defined or p ∈ ∪_u S(u,w).", _fn("proven") + _bare("proven")),
+    (MOD, "elig_y(p)", "Season eligibility.", "{posS(p)} ∪ {the single position of every one-position slot p started in during season y}.", _fn("elig_y") + _bare("elig_y")),
+    (MOD, "LEGAL(L, y)", "Legal lineup.", "A matching of the players of L into slots(y) exists, each into a slot whose positions meet elig_y(p).", _fn("LEGAL") + _bare("LEGAL")),
+    (MOD, "LCF(t,w; OUT, IN)", "Counterfactual lineup points.",
+     "Kp = S(t,w) ∖ OUT (kept starters), C = slots of starters in OUT (cleared), E_r = slots really empty; arrivals Arr = proven players of IN not on R(t,w) (or on it via OUT); bench Bn = proven players of R(t,w) ∖ S(t,w) ∖ OUT ∖ Arr. Fill bar f = the |C|-th highest a3 among Arr ∪ Bn able to take a cleared slot; plausible(q) = a3(q) ≥ f − 5. Candidates L = (Kp ∖ Dp) ∪ Ar ∪ Fl: Ar ⊆ Arr; Dp ⊆ Kp matched one-to-one to displacers in Ar with val(u) > val(k) and a3(u) ≥ a3(k) − 5; |Ar| − |Dp| ≤ |C| + |E_r|; Fl ⊆ Bn of size ≤ max(0, |C| − (|Ar| − |Dp|)) taken greedily (plausible first, then val) while LEGAL; L must be LEGAL and, if it holds any real bench player, all of Kp. LCF = Σ_{q ∈ L*} val(q,w), L* maximising (|L|, −#implausible entrants, Σ val) lexicographically.", _fn("LCF") + _bare("LCF")),
+    (MOD, "WA(move)", "Wins added.",
+     "Σ_{g ∈ G} Σ_{b ∈ {0,1}^J} Π_j s_j^{b_j}(1 − s_j)^{1 − b_j} · [RES(PF_t(g), PF_o(g)) − RES(PF^cf_t(g,b), PF^cf_o(g))]. J = LIN groups with 0 < s_j < 1 that had a starter in g (largest 6; others with s ≥ ½ and all s = 1 groups counted removed). PF^cf_t(g,b) = Σ_{w ∈ g} [LCF(t,w; OUT_w(b), IN_w) + PF(t,w) − Σ_{q ∈ S(t,w)} pts(q,w)], OUT_w(b) = present LIN players of removed groups, IN_w = GU players active in w. PF^cf_o(g) = Σ_{w ∈ g} [LCF(o,w; GU players on R(o,w), group-0 received players o sent and no longer holds) + PF(o,w) − Σ_{S(o,w)} pts], or PF(o,w) when both sets are empty. A game where no lineup can change returns 0.", _fn("WA") + _bare("WA")),
+    # ---- model definitions: Boldness (lotg_support.boldness) ----
+    (MOD, "GLb(p,y,w)", "Boldness game log.", "p's nflverse games in seasons y−2, y−1 and y before week w, each scored with season y's rules, with (season y_g, NFL team team_g, points npts_g); n_g = p's games after g in that window.", _fn("GLb") + _bare("GLb")),
+    (MOD, "π_pos(y)", "Veteran prior.", "Mean npts per appearance at pos in season y−1 (y−2 if empty), scored with season y's rules.", _fn("π_pos")),
+    (MOD, "π_R(y,pos,b)", "NFL-round rookie prior.", "Mean rookie-season npts per appearance of NFL rookies at (pos, NFL draft bucket b ∈ {R1, R2, R3, R4-7, UDFA}) over seasons 2018..y−1 (≥ 20 appearances, else the pos mean, else π_pos(y)).", _fn("π_R")),
+    (MOD, "SP_y(ov,pos)", "Rookie-draft slot prior.", "max(0, β0 + β1·ln ov + β_pos), (β) = least squares weighted by √games over earlier seasons' LOTG rookie picks (rookie-year npts per game; needs ≥ 30 picks).", _fn("SP_y")),
+    (MOD, "E_base(p,y,w)", "Base expectation.",
+     "(Σ_{g ∈ GLb} ω_g·npts_g + k·π) / (Σ_g ω_g + k), ω_g = 0.5^(y − y_g) · 0.5^(n_g/8) · (0.5 if y_g < y and team_g ≠ p's team in week w, else 1). Veteran: k = 2, π = π_pos(y). Rookie (rookie_season = y): fd = max(0, 1 − (w − 1)/4), k = 3·fd + 2(1 − fd), π = (3·fd·π_r + 2(1 − fd)·π_pos(y)) / k, π_r = SP_y(ov,pos) if drafted in that season's LOTG rookie draft, else π_R(y,pos,b).", _fn("E_base") + _bare("E_base")),
+    (MOD, "touch(p,w)", "Touches.", "QB: attempts + sacks + carries; RB: carries + receptions; WR / TE: targets + carries (regular season, s(p,y,w,k)).", _fn("touch") + _bare("touch")),
+    (MOD, "NMU(team,pos,w)", "Next man up.", "Among the players at (team, pos) present in w and (once the team has played) used by it this season, the one with the most head-to-head wins, a pair compared on Σ touch over the season's earlier weeks both played for the team (no shared game or a tie → E_base), then E_base.", _bare("NMU") + _fn("NMU")),
+    (MOD, "XP(p,y,w)", "Expected points.",
+     "max(E_base(p), a_pos·E_base(q) + b_pos·E_base(p)) if p = NMU and q = the absent teammate with the highest E_base, where q sat out (no game-log row in w; a live week: injS(q) ∈ {Out, IR, PUP, Sus, NA, DNR}), is on wr(·,y,w) for that team, played for it earlier this season (last season counts when w ≤ 4), and E_base(q) > E_base(p); else E_base(p). (a_pos, b_pos) = least squares without intercept of the backup's actual npts on (E_base(q), E_base(p)) over every NFL next-man-up event 2019-2025 (≥ 30 per position).", _fn("XP")),
+    (MOD, "FITS(L, Σ)", "Startable together.", "L can be matched into the slot list Σ by elig_y (bipartite matching).", _fn("FITS") + _bare("FITS")),
+    (MOD, "BLV(V, Σ)", "Best lineup value.", "Σ of values taken best-first, each kept while FITS still holds and its value > 0 (exact: the startable sets form a matroid).", _fn("BLV")),
+    # ---- model definitions: Price paid (lotg_support.acquisition) ----
+    (MOD, "Field_d", "The day's market.", "K(p, last quote ≤ d) over every player quoted within 30 days of d (365 before 2021-04-16), K > 0, sorted descending.", _bare("Field_d")),
+    (MOD, "k0(d)", "Market anchor.", "Field_d's 49th value.", _fn("k0") + _bare("k0")),
+    (MOD, "k10(d)", "Top-10 level.", "Mean of Field_d's top 10.", _fn("k10") + _bare("k10")),
+    (MOD, "k100(d)", "Depth level.", "Field_d's 100th value.", _fn("k100") + _bare("k100")),
+    (MOD, "Ā", "Board anchor.", "Mean of k0(dd) over the rookie draft days.", _bare("Ā")),
+    (MOD, "bd(ov)", "Draft board.", "Per-slot mean of K(pl, dd) over rookie picks (rounds 1-4, all classes), made non-increasing in ov by isotonic regression (pool adjacent violators, weighted by picks per slot), linear between observed slots, flat beyond.", _fn("bd") + _bare("bd")),
+    (MOD, "ρ(ov)", "Ratio board.", "The bd curve built on K(pl, dd)/k0(dd), all rookie classes.", _fn("ρ")),
+    (MOD, "ρ_Y(ov)", "Class ratio board.", "ρ on rookie class Y only.", _fn("ρ_Y")),
+    (MOD, "ρ_nr(ov)", "Startup ratio board.", "ρ on the startup + 2021 vet board.", _fn("ρ_nr")),
+    (MOD, "MC(k)", "Money curve.", "o_L = the last regular slot (4.08 → 32), k_L = bd(o_L), k_1 = bd(1); r = (1000 / (k_L/κ))^(1/(o_L − 4.5)); slotk(k) = 1 − (k − k_1)/max(bd(1) − bd(2), 1) if k ≥ k_1, o_L if k ≤ k_L, else bd⁻¹(k) by interpolation. MC(k) = k/κ if k ≤ k_L, else (k_L/κ)·r^(o_L − slotk(k)).", _fn("MC")),
+    (MOD, "$_d(k)", "Market curve.", "1000·2.619^((k − k0)/max(k10 − k0, 1)) if k ≥ k0; else [1000·8.26^((k − k0)/max(k0 − k100, 1))]^0.5 · [MC(k·Ā/k0)·1000/MC(Ā)]^0.5 (no field that day: MC(k)).", (r"\$_d\(",)),
+    (MOD, "ℓ_d(y)", "Replacement line.", "n_rep(y) = (|slots(y)| excl. IR)·N − (N if y ≥ 2025, else 0); ℓ = $_d(Field_d[n_rep]) (a thinner field: the ratio Field_d'[n_rep]/k0(d') from the nearest covering date d' = d ± 7j, times k0(d)).", (r"ℓ",)),
+    (MOD, "P_d(k)", "Price above replacement.", "s·ln(1 + e^(($_d(k) − ℓ_d)/s)), s = ℓ_d/2.5.", (r"P_d\(",)),
+    (MOD, "$pick_d(Y, r, sl)", "A pick on the board.", "r ≥ 5 (a 5.0X): 20. Else ov = (r − 1)·N + sl, ρ* = 0.75·ρ(ov) + 0.25·ρ_Y(ov) (ρ(ov) before class Y is drafted), $pick = $_d(ρ*·k0(d)) (no field: MC(ρ*·Ā)). Startup / vet pick: $_d(ρ_nr(ov)·k0(d)).", (r"\$pick",)),
+    (MOD, "π_d(t0, sl)", "Projected slot odds.", "Before Y−1's regular season ends (k weeks played): score = α_k·z(RS) + (1 − α_k)·z(IS), z = rank z-score, RS = Σ of t0's top 15 K on d, IS = wins + Σ PF/10⁵ (Max-PF-ordered drafts, 2026 on: the bottom N−4 by record then ordered by Σ MaxPF), α_k = 1 (k = 0), ½ (k ≤ 3), max(0, ½(8 − k)/5); rank i (1 = projected worst) → π(sl) ∝ exp(−(sl − i)²/(2σ_k²)), σ_k = (2.75, 2.35, 2.00, 1.90, 1.65, 1.55, 1.55, 1.55, 1.55, 1.40, 1.35, 1.35, 1.25, 1.00)[min(k,13)]. After it: the bottom four by the draft's rule (σ = 0.75 for placement drafts through 2024, else exact), the playoff four uniform over 5-8, after the semifinals losers over 5-6 and winners over 7-8.", (r"π_d\(",)),
+    (MOD, "$asset_d(q)", "An asset in FAAB $.", "FAAB: its amount. A player: P_d(K(q,d)). A traded pick (Y, r, sl?): order set and sl known → $pick_d(Y,r,sl); deciding season Y−1 next up or under way → Σ_sl π_d(t0,sl)·$pick_d(Y,r,sl); else mean_sl $pick_d(Y,r,sl); then × 0.95^max(Y − the next draft after d, 0).", (r"\$asset",)),
+    # ---- model definitions: Points above expectation (lotg_support.acquisition) ----
+    (MOD, "φ_c", "Price feature.", "Free 0, waiver ln(1 + bid), rookie / startup ln(ov), trade ln(1 + Price paid).", (r"φ",)),
+    (MOD, "q_c", "Price percentile.", "The within-channel percentile of sgn_c·φ_c (sgn = −1 for picks, +1 otherwise).", (r"q_c",)),
+    (MOD, "σ_y", "Season scale.", "S̄ / S_y, S_y = mean{pts(p,w) : st, season y}, S̄ = mean of S_y over seasons on their own baseline.", (r"σ_y", r"σ_\{")),
+    (MOD, "cf_k", "Never-cut series.", "Elapsed week k = 1, 2, … counts league weeks from the first whose last game is on or after d_a; cf_k = (pts(p,w_k) on any roster, else npts(p,y,w_k), else 0)·F(y_{w_k}, pos)·σ_{y_{w_k}} up to the last week played.", (r"cf_k",)),
+    (MOD, "held", "Held weeks.", "{(k, x_k = pts(p,w_k)·F(y_{w_k}, pos)·σ_{y_{w_k}}) : w_k ∈ Wk}.", (r"∈ held", r"\|held\|", r"_\{held\}", r"_\{\(k, x_k\) ∈ held\}")),
+    (MOD, "no_k", "Offseasons crossed.", "y_{w_k} − y_{w_1}.", _bare("no_k")),
+    (MOD, "xd(k, no, φ, q, pos, c)", "Expectation design.", "Per channel c (indicator m_c): m_c·[1, ℓk, (ℓk − κ_j)_+, no, (no − h)_+ for h = 1..S_off−1] and, paid channels, m_c·[sgn_c·clip(φ − e_i, 0, e_{i+1} − e_i), φ·ℓk, φ·no] (e_i = φ's quintile edges in c), plus m_c·[pos₃, pos₃·ℓk]; shared: pos₃·(ln k − κ_j)_+ (global knots), pos₄·no, and (paid) pos₄·q·no, pos₄·q·ln k (free fit: pos₃·(no − h)_+). ℓk = min(ln k, ln kmax_c), kmax_c = max(8, 95th percentile of k in c); knots κ_j = ln{2, 4, 8, 17, 34, 68, 136, …} < kmax; S_off = the most offseasons reached by ≥ 40 additions; pos₃ = RB/WR/TE dummies, pos₄ = all four.", _fn("xd") + _bare("xd")),
+    (MOD, "λ̂(xd)", "Fitted expectation.", "exp(clip(xd·β̂, −20, 10)), β̂ maximising Σ_rows [cf_k·xd·β − e^(xd·β)] − 15‖β‖² (Newton / IRLS, ridge 30) over every never-cut week of every priced addition, fitted separately for free agency and for the paid channels pooled; a price-ramp coefficient with the wrong sign is pinned at 0 and the fit repeated until none is.", (r"λ̂",)),
 ]
 
-# (symbol, definition in raw variables, meaning)
-OPERATORS = [
-    ("[c]", "1 if condition c holds, else 0 (Iverson bracket).", "Notation"),
-    ("st, ro", "st(p,t,w) = [p ∈ S(t,w)], ro(p,t,w) = [p ∈ R(t,w)]; bench = ro ∧ ¬st.", "Started / rostered"),
-    ("pos(p,y,w)", "posN(p,y,w) if the stat line exists, else posS(p) (Travis Hunter pinned WR).", "Position that week"),
-    ("nfl(p,y,w)", "teamN(p,y,w) → p's season teamN → wr(p,y,w).team → 'NFL' (no NFL team).", "NFL team that week"),
-    ("APP(p,y,w)", "[p has a stat line in s(·,y,w)] ∨ [snap(p,y,w) > 0].", "Appeared in the NFL game"),
-    ("BYE(p,w)", "[pts(p,w) = 0 ∧ (nfl(p,y,w) = 'NFL' ∨ no gd(nfl(p,y,w), y, w))].", "Bye?"),
-    ("SUS(p,w)", "¬BYE(p,w) ∧ (SUSP(p,y,w) ∨ injS(p) = 'NA' that week).", "Suspension?"),
-    ("INJ(p,w)", "ro ∧ pts(p,w) = 0 ∧ ¬APP(p,y,w) ∧ ¬BYE ∧ ¬SUS ∧ ¬[GDS(p,y,w) = active].", "Injury?"),
-    ("H(p,w)", "¬BYE(p,w) ∧ ¬INJ(p,w) ∧ ¬SUS(p,w).", "Healthy / played week"),
-    ("seed(t,y)", "Rank of t by (Σ_{w ∈ REG} win(t,w), Σ_{w ∈ REG} P(t,w)), descending.", "Regular-season standing"),
-    ("PF(t,w)", "P(t,w) + 5·[w = pws(y) ∧ t is the better seed of a top-4 semifinal pair].", "Points for, with the semifinal +5"),
-    ("PA(t,w), win(t,w)", "PA = PF(o(t,w), w); win = [PF > PA] + ½[PF = PA] (2026+ two-week final: PF summed over both weeks).", "Points against, result"),
-    ("REG, PO, stage(t,w)", "REG = {w < pws(y)}; stage from WB/LB rounds: Semifinal, Final, 3rd Place, Toilet Semis, Toilet Final, Toilet losers; PO = {Semifinal, Final}.", "Game type"),
-    ("champ(y), N", "champ = winner of WB(y)'s Final; N = number of teams.", "Champion"),
-    ("OPT(X, y)", "Greedy best lineup of point set X by posS: top 1 QB, 2 RB, 3 WR, 1 TE, then FLEX from RB/WR/TE (2 FLEX from 2024), then 1 SUPERFLEX from QB/RB/WR/TE; returns the sum.", "Optimal lineup"),
-    ("MaxPF(t,w)", "OPT({pts(p,w) : p ∈ R(t,w)}, y).", "Max PF"),
-    ("F(y,q)", "mean{pts(p,w) : st, season y'} / mean{pts(p,w) : st, season y', pos(p) = q}; y' = y once week 5 of y is played, else y − 1.", "Position factor"),
-    ("age(p,d), agepk(Y,d), dw(y,w)", "age = (d − birth(p)) / 365.25; agepk = (d − Sep 1 of (Y − 22)) / 365.25 for a future season-Y pick; dw = Sep 1 of y + 7(w − 1).", "Ages"),
-    ("fw(d)", "The fantasy week whose Tuesday-Monday span contains d (a Tue/Wed move counts toward the coming week).", "Week of a date"),
-    ("eos(y)", "The Monday after season y's championship week.", "Season end"),
-    ("GL(p), avgN(p,d,n)", "GL = p's games {(gd, npts(p,y,w)) : APP(p,y,w)} in date order; avgN = mean npts of the last min(n, available) GL games with gd < d (ET day).", "NFL game log"),
-    ("ppg_nfl(p,[a,b))", "mean{npts(p,y,w) : APP(p,y,w), gd(nfl(p),y,w) ∈ [a,b)}.", "NFL points per game in a window"),
-    ("T, e, Wk", "Tenure of p on t from acquisition date a: T = [a, e), e = first later date with drops(x)[p] = t or p sent by t in a trade, else today; Wk = Wk(p,t,T) = {w in T : ro(p,t,w) = 1}.", "Tenure"),
-    ("ppg_on(p,t,T)", "Σ_{w ∈ Wk : H(p,w)} pts(p,w) / |{w ∈ Wk : H(p,w)}|.", "On-team points per game"),
-    ("nst, nH, nstH", "nst = Σ_{Wk} st(p,t,w); nH = |{w ∈ Wk : H}|; nstH = Σ_{w ∈ Wk : H} st(p,t,w).", "Tenure start counts"),
-    ("ω(r)", "{1: 0.25, 2: 0.09, 3: 0.03, 4: 0.01}, 0 otherwise.", "Future-pick round weight"),
-    ("E_h(p,w), s_h(p,w)", "Over p's last 6 healthy weeks before w (league weeks with H, plus nflverse-only weeks: npts, starter = 0), drop the most recent: E_h = mean points of the rest (one week: that week), s_h = mean st of the same weeks (0 → mean st over p's next ≤ 5 healthy weeks of the season, for w ≥ 2 with < 5 prior league weeks).", "Hardship expectation, start share"),
-    ("TEST(q,p,w), CUFF(p,t,d)", "TEST: pos(q) = pos(p), nfl(q) = nfl(p), and (avg8(q) − avg8(p) ≥ 10 or avg8(q)·F(y,pos q) ≥ 13·F(y,TE) or q a top-12 pick of season y's rookie draft once held (2020: first 12 NFL rookies of the startup)); avg8 = avgN(·, d, 8), q needing 8 games. CUFF(p,t,d) = ∃ q ∈ R(t) at d with TEST(q,p).", "Handcuff test"),
-    ("Q_q, q10…q90, tier", "Q_q = {pts(p,w) : st, H, pos(p) = q, all seasons}; qN = its N-th percentile; tier = Bust ≤ q10 < Lower < q25 ≤ Middle < q75 ≤ Upper < q90 ≤ Boom.", "Positional scoring tiers"),
-    ("RL(q,w)", "Mean of the lowest third of {pts(p,w) : st, pos(p) = q} in week w.", "Replacement level"),
-    ("pctl(v ; V)", "100 · (average rank of v in V, ascending) / |V|; ties share the average rank.", "Percentile"),
-    ("RUN", "Terminal encoding of a boolean sequence: on a run's last element its length, 'In Progress' on earlier elements, 0 where false; skipped weeks read blank.", "Streak encoding"),
-    ("z_wk, z_all", "z_wk(v) = clip((v − mean_{y,w} v) / sd_{y,w} v, ±2.5) / 2.5 within each league week; z_all(v) = (v − mean v) / sd v over all rows.", "Standardisers"),
-    ("DT(X,d)", "Σ_i 0.6^(i−1)·K(X_(i), d), assets sorted by K descending; FAAB at the league-average K per $.", "Depth-taxed KTC"),
-    ("XP(p,y,w)", "Shrunk weighted mean of p's GL before w: game weight 0.5^(games since/8) · 0.5^(seasons back) · (0.5 if another NFL team in an earlier season), shrunk 2 pseudo-games toward a prior; rookies start from their rookie-draft slot's rookie-year PPG (fades out by week 4); cuff lift a·XP(starter) + b·XP(own) when the starter sits (lotg_support.boldness).", "Expected points"),
-    ("LCF(t,w)", "Counterfactual lineup over R(t,w) − received lineage + given-up lineage, filling every cleared slot (lotg_support.wins_added).", "Wins added lineup"),
-    ("⟨Stat⟩", "Substitute that row's equation from this column.", "Cross-reference"),
-]
+
+@_ft.lru_cache(maxsize=1)
+def _compiled():
+    return [(sym, None if pats is ALWAYS else [_re.compile(p) for p in pats])
+            for _b, sym, _m, _d, pats in ENTRIES]
+
+
+@_ft.lru_cache(maxsize=None)
+def _uses(text):
+    """Glossary symbols the text mentions directly."""
+    return frozenset(sym for sym, pats in _compiled() if pats and any(p.search(text) for p in pats))
+
+
+@_ft.lru_cache(maxsize=None)
+def _closure(text):
+    """Symbols the text needs, directly or through their definitions."""
+    defs = {sym: (m + " " + d if b == RAW else d) for b, sym, m, d, _p in ENTRIES}
+    seen, stack = set(), list(_uses(text))
+    while stack:
+        sym = stack.pop()
+        if sym in seen:
+            continue
+        seen.add(sym)
+        stack += list(_uses(defs[sym]) - seen)
+    return frozenset(seen)
+
+
+def usage():
+    """{symbol: number of equations that need it}."""
+    count = {sym: 0 for _b, sym, _m, _d, _p in ENTRIES}
+    for eq in EQUATIONS.values():
+        for sym in _closure(eq):
+            count[sym] += 1
+    return count
+
+
+@_ft.lru_cache(maxsize=1)
+def kept_symbols():
+    n = usage()
+    return frozenset(sym for _b, sym, _m, _d, pats in ENTRIES if pats is ALWAYS or n[sym] >= MIN_USES)
+
+
+def glossary():
+    """[(sheet, symbol, meaning, definition)] for the symbols that earn a row."""
+    keep = kept_symbols()
+    return [(SHEET_OF[b], sym, m, (f"API field: {d}" if b == RAW else d))
+            for b, sym, m, d, _p in ENTRIES if sym in keep]
+
+
+def expanded(key):
+    """A row's equation with every symbol below MIN_USES defined in-cell."""
+    eq = EQUATIONS[key]
+    need = _closure(eq) - kept_symbols()
+    if not need:
+        return eq
+    parts = [(f"{sym} = {_clause(m)} ({d})" if b == RAW else f"{sym} = {_clause(d)}")
+             for b, sym, m, d, _p in ENTRIES if sym in need]
+    return eq + "  — where " + "; ".join(parts)
+
+
+def _clause(text):
+    """A definition as an in-cell clause: no closing period, a leading plain
+    capitalised word ('The', 'Mean', …) lower-cased."""
+    t = text.strip().rstrip(".")
+    first = t.split(" ", 1)[0]
+    if first[:1].isupper() and first[1:].isalpha() and first[1:].islower():
+        t = first.lower() + t[len(first):]
+    return t
 
 
 # {(Stat, Sheet) of a formulas._ROWS entry: its equation}
@@ -130,13 +345,13 @@ EQUATIONS = {
     ('Faab', 'add_drops'):
         'bid(x) if type(x) = waiver; 0 if type(x) ∈ {free_agent, commissioner}',
     ('Total FAAB bid', 'add_drops'):
-        "Σ_{u ∈ B} bid(c_u), B = {teams u with a valid waiver claim on a in x's waiver run}, c_u = u's winning claim, else u's last-created claim on a (claims = transactions with type = waiver, status ∈ {complete, failed}, adds[a] = u; invalid = failed for roster limit / insufficient FAAB / locked drop)",
+        "Σ_{u ∈ Bd} bid(c_u), Bd = {teams u with a valid waiver claim on a in x's waiver run}, c_u = u's winning claim, else u's last-created claim on a (claims = transactions with type = waiver, status ∈ {complete, failed}, adds[a] = u; invalid = failed for roster limit / insufficient FAAB / locked drop)",
     ('FAAB difference over second place', 'add_drops'):
-        'bid(x) − max({bid(c_u) : u ∈ B∖{t}, bid(c_u) ≤ bid(x)} ∪ {0})',
+        'bid(x) − max({bid(c_u) : u ∈ Bd∖{t}, bid(c_u) ≤ bid(x)} ∪ {0})',
     ('FAAB premium %', 'add_drops'):
-        '100 · (bid(x) − max({bid(c_u) : u ∈ B∖{t}, bid(c_u) ≤ bid(x)} ∪ {0})) / bid(x); blank if bid(x) = 0',
+        '100 · (bid(x) − max({bid(c_u) : u ∈ Bd∖{t}, bid(c_u) ≤ bid(x)} ∪ {0})) / bid(x); blank if bid(x) = 0',
     ('Number of bids', 'add_drops'):
-        "|B|  (B as in 'Total FAAB bid')",
+        '|Bd|',
     ('Average PPG on team', 'add_drops'):
         'ppg_on(a, t, T) = Σ_{w ∈ Wk : H(a,w)} pts(a,w) / |{w ∈ Wk : H(a,w)}|; blank if Wk = ∅, 0 if no H week',
     ('Average PPG of dropped player over same time', 'add_drops'):
@@ -240,9 +455,9 @@ EQUATIONS = {
     ('Trade impact score', 'trades'):
         '0.6 · Σ_j w_j · (v_j − μ_j) / σ_j  (μ_j, σ_j = mean and population sd of v_j over all trade rows; a missing WA / pick value = 0, other missing terms skipped), (v_j, w_j) = (⟨Wins added⟩, 2.0), (⟨Avg net points⟩, 0.8), (⟨Trade addition value⟩, 0.5), (Σ_{picks recv} K(pick, d0), 0.5), (mean_A age*(·,d0) − mean_B age*(·,d0), −0.3)',
     ('Wins added', 'add_drops / trades'):
-        'WA = Σ_{w ≥ fw(d0), w ≤ now} (win(t,w) − win_cf(t,w)),  win_cf = win computed with PF_cf(t,w) = Σ pts of LCF(t,w) and PF_cf(opp) likewise; LCF = counterfactual lineup over R(t,w) − received lineage + given-up lineage (lotg_support.wins_added), off-roster players scored npts(p,y,w); received assets later traded on weigh by their K-share of that trade',
+        'WA(move)',
     ('Wins added per season', 'add_drops / trades'):
-        'WA × 17 / |{games of t with week ≥ fw(d0)}|  (two-week final = 1 game); N/A before the first game',
+        "WA(move) × 17 / |G|  (|G| = t's games from w0 to now; the 2026+ two-week final counts once); N/A when |G| = 0",
     ('O-Score', 'add_drops / trades / non_rookie_picks / rookie_picks'):
         "mean_{j=1..4} pctl(v_j ; v_j over the sheet's rows), a v_j of exactly 0 ranked lowest in its tie; add_drops v = ⟨Avg net points adjusted by position⟩, ⟨Player addition value⟩, latest K checkpoint, ⟨% of starts made while rostered⟩; trades v = ⟨Avg net points adjusted by position⟩, ⟨Trade addition value⟩, latest K checkpoint, ⟨Trade impact score⟩; pick sheets v = ⟨Avg points added adjusted by position⟩, ⟨Pick-adjusted Difference in Player addition value⟩, latest pick-adjusted K, ⟨Pick-adjusted Difference in Avg career PPG adjusted by position⟩ (each pick sheet ranked separately); pure drop: ½ · the same mean",
     ('O-Score draft-slot de-trend', 'non_rookie_picks'):
@@ -252,7 +467,7 @@ EQUATIONS = {
     ('Dropped total points', 'add_drops'):
         'Σ{ npts(r,y,w) : the first ≤ 17 games of GL(r) with gd ≥ d0 }',
     ('KTC value difference at deal time', 'trades'):
-        'DT(A ∪ $A·κ, d0) − DT(B ∪ $B·κ, d0),  DT(X,d) = Σ_i 0.6^(i−1) · K(X_(i), d) with K(X_(1),d) ≥ K(X_(2),d) ≥ …, κ = league-average K per FAAB $',
+        'DT(A, d0) − DT(B, d0),  DT(X,d) = Σ_i 0.6^(i−1)·K(X_(i), d) with K(X_(1)) ≥ K(X_(2)) ≥ …, a FAAB amount valued at κ·amount (κ = 100); a pick with no quote on d0 = the mean K of the same pick 1-3 classes later at the same lead time',
     ('KTC value difference at end of season', 'trades'):
         'DT(A, eos(y0)) − DT(B, eos(y0))',
     ('KTC value difference 1 year later', 'trades'):
@@ -372,7 +587,7 @@ EQUATIONS = {
     ('Tanking', 'team_week / team_year / team_all_time'):
         "(1/6)(1 − (P̄F_t − ⅔L̄)/(L̄/3)) + (1/6)(1 − (M̄ax_t − L̄)/(L̄max − L̄)) + (1/6)(1 − (Āge_t − 21)/(L̄age − 21)) + (1/6)·Σ_{pk : by(pk) = t, draft of y} 1/(pick_no(pk) + 1) + (1/9)·Σ_{picks held, seasons y+1 … y+5} ω(round); P̄F_t, M̄ax_t, Āge_t = t's season-to-date means of PF, MaxPF and team age incl. picks, L̄ = league means; team_year = the final week's value, team_all_time = mean of seasons",
     ("Luck (team_all_time: 'Avg yearly luck')", 'team_week / team_year (Luck); team_all_time (Avg yearly luck)'):
-        'Luck(t,w) = (0.27·OUT + 0.14·SIS − 0.14·BROS)·(1.8 if stage ∈ PO else 1) + (0.36·OPP + 0.10·OWN)·GATE − 0.36·ADV + 0.12·EFF + 0.16·CLOSE − 0.25·LFH; OUT = win − 1/(1+e^(−1.5·δ)), δ = ⅓[z_all(μMax_t − μMax_o) + z_all(μPF_t − μPF_o) + z_all(μwin_t − μwin_o)] (μ = full-season means), OPP = z_wk(−(PA − μPF_o)), OWN = z_wk(PF − μPF_t), ADV = z_wk(Hard + SAHard + 3·Σ_{R} BYE), EFF = z_wk(PF/MaxPF), CLOSE = sgn(m)·max(0, 1 − |m|/8), GATE = 1/(1 + |m|/15), m = PF − PA; team_year = Σ_w, all-time = mean of season sums',
+        "Luck(t,w) = (0.27·OUT + 0.14·SIS − 0.14·BROS)·(1.8 if stage(t,w) ∈ PO else 1) + (0.36·OPP + 0.10·OWN)·GATE − 0.36·ADV + 0.12·EFF + 0.16·CLOSE − 0.25·LFH; OUT = win(t,w) − 1/(1 + e^(−1.5·δ)), δ = ⅓[z_all(μMax_t − μMax_o) + z_all(μPF_t − μPF_o) + z_all(μwin_t − μwin_o)] (z_all over every team-week row), OPP = z_wk(−(PA(t,w) − μPF_o)), OWN = z_wk(PF(t,w) − μPF_t), ADV = z_wk(Hard + SAHard + 3·Σ_{p ∈ R(t,w)} BYE(p,w)), EFF = z_wk(PF/MaxPF), CLOSE = sgn(m)·max(0, 1 − |m|/8), GATE = 1/(1 + |m|/15), m = PF − PA; 0 with no opponent; team_year = Σ_w Luck(t,w), team_all_time 'Avg yearly luck' = mean over seasons of Σ_w Luck",
     ('Hardship', 'team_week / team_year / team_all_time / league_week'):
         'Σ_{p ∈ R(t,w)} [pts(p,w) = 0 ∧ (INJ ∨ SUS) ∧ ¬BYE] · max(0, E_h(p,w)); year/all-time/league = Σ',
     ('Win Variance', 'team_year / team_all_time'):
@@ -584,7 +799,7 @@ EQUATIONS = {
     ('Total trades', 'team_year / team_all_time / league_year / league_all_time'):
         '|{ts(x) : type(x) = trade, t ∈ rosters(x), season(x) = y}|',
     ('Top team', 'player_all_time'):
-        'argmax_t Σ_{tenures T of p on t} min(e, asof) − start, reconciled with |{w : ro(p,t,w)}|',
+        'argmax_t [Σ_{tenures of p on t} (in-season seconds of the tenure, open tenures to asof) + 604800·|{w : ro(p,t,w)}|]',
     ('Top Team', 'player_year'):
         'argmax_t Σ_{tenures of p on t within season y} days on t',
     ('Last team', 'player_year / player_all_time'):
@@ -762,9 +977,9 @@ EQUATIONS = {
     ('Efficiency', 'team_week / team_year / team_all_time / league_week / league_year / league_all_time'):
         'PF / MaxPF  (period: Σ PF / Σ MaxPF)',
     ('Boldness', 'player_week'):
-        'max(0, max_{b startable for p} XP(b,y,w) − XP(p,y,w)) if st(p,t,w) ∧ ¬(¬H ∧ pts = 0), else N/A; b ∈ (R∖S)(t,w) ∪ taxi with H(b,w)',
+        'max(0, max{XP(b,y,w) : b ∈ R(t,w) ∖ S(t,w), H(b,w), FITS(Fs ∖ {p} ∪ {b}, Σ_Fs)} − XP(p,y,w)) for a starter p; Fs = S(t,w) minus empty slots and dead starts (¬H ∧ pts = 0), Σ_Fs = their slots; N/A on bench rows, empty slots and dead starts',
     ('Lineup Boldness', 'team_week / team_year / team_all_time'):
-        'OPT_XP(filled slots of S(t,w), R(t,w)) − Σ_{p ∈ S(t,w), filled} XP(p,y,w)  (dead starts judged as empty); year/all-time = mean over weeks',
+        "max(0, BLV({XP(q,y,w) : q ∈ Fs ∪ {b ∈ R(t,w) ∖ S(t,w) : H(b,w)}}, Σ_Fs) − Σ_{q ∈ Fs} XP(q,y,w)), Fs = S(t,w) minus empty slots and dead starts, Σ_Fs = the filled slots; team_year / team_all_time = mean over weeks played; N/A before the season's first game",
     ('Empty slots', 'team_week / team_year / team_all_time'):
         "|{i : S(t,w)[i] = '0'}|  (2020: ESPN slots left empty); year/all-time = Σ",
     ('Brosenzweig', 'team_week'):
@@ -826,7 +1041,7 @@ EQUATIONS = {
     ('Starter-adjusted Hardship', 'team_week / team_year / team_all_time / league_week'):
         'Σ_{p ∈ R(t,w)} [pts(p,w) = 0 ∧ (INJ ∨ SUS) ∧ ¬BYE] · max(0, E_h(p,w)) · s_h(p,w)',
     ('Luck', 'team_week / team_year'):
-        'Luck(t,w) = (0.27·OUT + 0.14·SIS − 0.14·BROS)·(1.8 if stage ∈ PO else 1) + (0.36·OPP + 0.10·OWN)·GATE − 0.36·ADV + 0.12·EFF + 0.16·CLOSE − 0.25·LFH; OUT = win − 1/(1+e^(−1.5·δ)), δ = ⅓[z_all(μMax_t − μMax_o) + z_all(μPF_t − μPF_o) + z_all(μwin_t − μwin_o)] (μ = full-season means), OPP = z_wk(−(PA − μPF_o)), OWN = z_wk(PF − μPF_t), ADV = z_wk(Hard + SAHard + 3·Σ_{R} BYE), EFF = z_wk(PF/MaxPF), CLOSE = sgn(m)·max(0, 1 − |m|/8), GATE = 1/(1 + |m|/15), m = PF − PA; team_year = Σ_w Luck(t,w)',
+        'Luck(t,w) = (0.27·OUT + 0.14·SIS − 0.14·BROS)·(1.8 if stage(t,w) ∈ PO else 1) + (0.36·OPP + 0.10·OWN)·GATE − 0.36·ADV + 0.12·EFF + 0.16·CLOSE − 0.25·LFH; OUT = win(t,w) − 1/(1 + e^(−1.5·δ)), δ = ⅓[z_all(μMax_t − μMax_o) + z_all(μPF_t − μPF_o) + z_all(μwin_t − μwin_o)] (z_all over every team-week row), OPP = z_wk(−(PA(t,w) − μPF_o)), OWN = z_wk(PF(t,w) − μPF_t), ADV = z_wk(Hard + SAHard + 3·Σ_{p ∈ R(t,w)} BYE(p,w)), EFF = z_wk(PF/MaxPF), CLOSE = sgn(m)·max(0, 1 − |m|/8), GATE = 1/(1 + |m|/15), m = PF − PA; 0 with no opponent; team_year = Σ_w Luck(t,w)',
     ('Win %', 'team_year'):
         'Σ_{w ∈ y} win(t,w) / |{games of t in y}|',
     ('Record', 'team_year'):
@@ -878,7 +1093,7 @@ EQUATIONS = {
     ('Result', 'team_year'):
         '1st-4th = place in WB(y) (Final winner/loser, 3rd-place winner/loser); 5th-8th = rank of non-playoff teams by (Σ win, Σ PF) (2020-24 incl. toilet bracket games, 2025+ REG only)',
     ('Week of playoff elimination', 'team_year'):
-        'min{w ∈ REG : |{u ≠ t : Σ_{≤w} win(u) > Σ_{≤w} win(t) + (pws(y) − 1 − w)}| ≥ 4}; 0 if seed(t,y) ≤ 4',
+        "0 if seed(t,y) ≤ 4; else min{w ∈ REG : |{u ≠ t : W_u(w)/n_u > (W_t(w) + n_t − g_t(w))/n_t}| ≥ 4}, W_u(w) = Σ_{w' ≤ w, REG} win(u,w'), g_u(w) = REG games played through w, n_u = REG games; no such week → the last REG week; blank for an incomplete season",
     ('Championships', 'team_all_time'):
         'Σ_y [t = champ(y)]',
     ('Number of playoff appearances', 'team_all_time'):
@@ -888,9 +1103,9 @@ EQUATIONS = {
     ('Number of last place finishes', 'team_all_time'):
         'Σ_y [seed(t,y) = N]  (last in the regular-season standings; completed seasons)',
     ('Average weekly roster turnover', 'team_year / team_all_time'):
-        'mean_w (max(|R_w|, |R_{w−1}|) − |R_w ∩ R_{w−1}|); all-time = mean of season values',
+        'mean_w (max(|R(t,w)|, |R(t,w−1)|) − |R(t,w) ∩ R(t,w−1)|); all-time = mean of season values',
     ('Average weekly starter turnover', 'team_year / team_all_time'):
-        'mean_w (max(|S_w|, |S_{w−1}|) − |S_w ∩ S_{w−1}|)',
+        'mean_w (max(|S(t,w)|, |S(t,w−1)|) − |S(t,w) ∩ S(t,w−1)|)',
     ('Inseason roster turnover', 'team_year / team_all_time / league_year'):
         '|R(t,w1) ∖ R(t,wF)| + |R(t,wF) ∖ R(t,w1)|,  w1 = week 1, wF = championship week; all-time = mean',
     ('Inseason starter turnover', 'team_year / team_all_time / league_year'):
@@ -900,7 +1115,7 @@ EQUATIONS = {
     ('Offseason starter turnover', 'team_year / team_all_time / league_year'):
         '|S(t,wF of y−1) ∖ S(t,w1 of y)| + |S(t,w1 of y) ∖ S(t,wF of y−1)|',
     ('Draft Value', 'team_year / team_all_time'):
-        'Σ_{pk : by(pk) = t, rookie draft of y} 1 / (slot(pk) + 1),  slot = pick in round (2.09 → 8, 5.0X → 8)',
+        'Σ_{pk : by(pk) = t, rookie draft of y} 1 / (dslot(pk) + 1),  dslot = pick in round (2.09 → 8, 5.0X → 8)',
     ('Number of first round picks made', 'team_year / team_all_time'):
         '|{pk : by(pk) = t, rookie draft of y, round(pk) = 1}|',
     ('Total number of picks made', 'team_year / team_all_time'):
@@ -1122,35 +1337,35 @@ EQUATIONS = {
     ('KTC 4 years after draft day', 'non_rookie_picks / rookie_picks'):
         'K(pl, dd(Y) + 4 years)',
     ('Pick-adjusted Difference in Player addition value', 'non_rookie_picks / rookie_picks'):
-        "v(pk) − mean{v(pk') : pk' ∈ W(pk)},  v = ⟨Player addition value⟩, W(pk) = the 3 picks around pk's overall slot + 1 outer pick (pooled 1.01-1.04 for those)",
+        'v(pk) − base(v), v = ⟨Player addition value⟩ of each pick',
     ('Pick-adjusted Difference in Avg PPG on team adjusted by position', 'non_rookie_picks / rookie_picks'):
-        'v(pk) − mean_{W(pk)} v,  v = ppg_on(pl,by,[dd,e))·F(Y,pos pl)',
+        'v(pk) − base(v), v = ⟨Avg PPG on team adjusted by position⟩ of each pick',
     ('Pick-adjusted Difference in Avg career PPG adjusted by position', 'non_rookie_picks / rookie_picks'):
-        'v(pk) − mean_{W(pk)} v,  v = mean{npts(pl) : APP, gd ≥ dd}·F(Y,pos pl)',
+        'v(pk) − base(v), v = ⟨Avg career PPG adjusted by position⟩ of each pick',
     ('Pick-adjusted Difference in Avg points added adjusted by position', 'non_rookie_picks / rookie_picks'):
-        'v(pk) − mean_{W(pk)} v,  v = Σ_{Wk} st·pts·F / Σ_{Wk} st',
+        'v(pk) − base(v), v = ⟨Avg points added adjusted by position⟩ of each pick',
     ('Pick-adjusted Difference in KTC on draft day', 'non_rookie_picks / rookie_picks'):
-        "K(pl,dd) − mean_{W(pk)} K(pl',dd')",
+        'v(pk) − base(v), v = ⟨KTC on draft day⟩ of each pick',
     ('Pick-adjusted Difference in KTC at end of rookie year', 'non_rookie_picks / rookie_picks'):
-        "K(pl, Feb 1 Y+1) − mean_{W(pk)} K(pl', Feb 1 Y'+1)",
+        'v(pk) − base(v), v = ⟨KTC at end of rookie year⟩ of each pick',
     ('Pick-adjusted Difference in KTC 1 year after draft day', 'non_rookie_picks / rookie_picks'):
-        "K(pl, dd+1y) − mean_{W(pk)} K(pl', dd'+1y)",
+        'v(pk) − base(v), v = ⟨KTC 1 year after draft day⟩ of each pick',
     ('Pick-adjusted Difference in KTC 2 years after draft day', 'non_rookie_picks / rookie_picks'):
-        "K(pl, dd+2y) − mean_{W(pk)} K(pl', dd'+2y)",
+        'v(pk) − base(v), v = ⟨KTC 2 years after draft day⟩ of each pick',
     ('Pick-adjusted Difference in KTC 3 years after draft day', 'non_rookie_picks / rookie_picks'):
-        "K(pl, dd+3y) − mean_{W(pk)} K(pl', dd'+3y)",
+        'v(pk) − base(v), v = ⟨KTC 3 years after draft day⟩ of each pick',
     ('Pick-adjusted Difference in KTC 4 years after draft day', 'non_rookie_picks / rookie_picks'):
-        "K(pl, dd+4y) − mean_{W(pk)} K(pl', dd'+4y)",
+        'v(pk) − base(v), v = ⟨KTC 4 years after draft day⟩ of each pick',
     ('Addition type', 'player_additions'):
         'type(x) ∈ {waiver, free_agent, commissioner} → Waiver / Free agency / Commissioner; trade → Trade; draft pick → Draft',
     ('Link to addition', 'player_additions'):
         'row of the source event (add_drops x, trade x, or pick pk) that started tenure T',
     ('Number of times added by this team', 'player_additions'):
-        '|{acquisitions of p by t with date ≤ a}|',
+        '|{acquisitions of p by t with date ≤ d_a}|',
     ('Tenure (days)', 'player_additions'):
-        'e − a (days),  e = first exit of p from t after a, else build date',
+        'e − d_a (days),  e = first exit of p from t after d_a, else build date',
     ('Tenure (NFL weeks)', 'player_additions'):
-        '|Wk(p,t,T)| = |{w : ro(p,t,w) = 1, w within [a, e)}|',
+        '|Wk(p,t,T)| = |{w : ro(p,t,w) = 1, w within [d_a, e)}|',
     ('Games played on team', 'player_additions'):
         '|{w ∈ Wk : H(p,w)}|',
     ('Injured weeks on team', 'player_additions'):
@@ -1164,23 +1379,23 @@ EQUATIONS = {
     ('Player addition value', 'player_additions'):
         '(Σ_{Wk} st·pts·F(y_w, pos p) / Σ_{Wk} st) · (1 + Σ_{Wk} st / 170) · (1 + Σ_{Wk} st / |Wk|); 0 with no start',
     ('Price paid (FAAB)', 'player_additions'):
-        "waiver: bid(x); free agency / $0 claim: 0; draft: $(B(pk)·A(a)); trade: Σ_{sent} $(·) split over received in proportion to $(·); $(asset) = market curve on K(asset, a): above the day's 49th-ranked player m: 1000·2.619^((K − K_m)/(K̄_top10 − K_m)); below: √(1000·8.26^((K − K_m)/(K_m − K_100)) · board(K)·1000/board(K_m)); board = $ rising exponentially from K(4.08)/100 to $1000 at pick 4.5 on the pooled draft-day K-by-pick curve; player price −= $(K at the league's last rostered spot, 168/184/208/200), faded; future picks ×0.95 per draft beyond the next; slot odds from projected order (lotg_support.acquisition)",
+        'waiver with bid > 0: bid(x); free agency or a $0 claim: 0; commissioner: N/A; draft: $pick_dd(Y, r, slot) (startup / vet: the startup board); trade: (Σ_{u ∈ B} $asset_d0(u)) · $asset_d0(p) / Σ_{q ∈ A} $asset_d0(q), N/A if any asset is unvalued',
     ('Points above expectation (total)', 'player_additions'):
-        'Σ_{w ∈ Wk} pts(p,w)·F(y_w,pos p)·σ_y − Σ_{w ∈ Wk} λ̂(c, k_w, price, pos),  λ̂ = per-channel Poisson fit of position-adjusted weekly points of every acquisition on weeks-since-acquisition k (offseasons crossed), price (monotone) and position, over all weeks whether still held (pts) or not (npts / other roster pts, 0 if no game); σ_y = cross-season scale (lotg_support.acquisition)',
+        'Σ_{(k, x_k) ∈ held} x_k − Σ_{(k, ·) ∈ held} λ̂(xd(k, no_k, φ_c, q_c, pos, c)); 0 with no held week; N/A without a channel or price',
     ('Points above expectation (rate)', 'player_additions'):
-        '⟨Points above expectation (total)⟩ / |Wk|',
+        '[Σ_{held} x_k − Σ_{held} λ̂(xd(k, no_k, φ_c, q_c, pos, c))] / |held|',
     ('Age at pickup', 'player_additions'):
-        'age(p, a) = (a − birth(p)) / 365.25',
+        'age(p, d_a) = (d_a − birth(p)) / 365.25',
     ('Cuff at pickup?', 'player_additions'):
-        'CUFF(p, t, a)  (Draft row: CUFF at the draft)',
+        'CUFF(p, t, d_a)  (Draft row: CUFF at the draft)',
     ('KTC at pickup', 'player_additions'):
-        'K(p, a)',
+        'K(p, d_a)',
     ('KTC at end of season', 'player_additions'):
-        'K(p, Feb 1 of y(a)+1); blank if in the future',
+        'K(p, Feb 1 of y(d_a)+1); blank if in the future',
     ('KTC 1 year after pickup', 'player_additions'):
-        'K(p, a + N years), N = 1..4; blank if in the future',
+        'K(p, d_a + N years), N = 1..4; blank if in the future',
     ('KTC change by end of season', 'player_additions'):
-        'K(p, checkpoint) − K(p, a)',
+        'K(p, checkpoint) − K(p, d_a)',
     ('PPG starter per rostered week', 'player_year / player_all_time'):
         'Σ_w st(p,·,w)·pts(p,w) / Σ_w ro(p,·,w)',
     ('Adjusted PPG starter per rostered week', 'player_year / player_all_time'):
@@ -1268,17 +1483,17 @@ EQUATIONS = {
     ('Avg PPG of received players in 5 games before trade adjusted by position', 'trades'):
         'mean_{q ∈ A} avgN(q,d0,5)·F(y0, pos q)',
     ('Adjusted Avg points added adjusted by position', 'player_additions'):
-        'Σ_{w ∈ Wk : H} st·pts(p,w) / Σ_{w ∈ Wk : H} st · F(y(a), pos p)',
+        'Σ_{w ∈ Wk : H} st·pts(p,w) / Σ_{w ∈ Wk : H} st · F(y(d_a), pos p)',
     ('Avg points added per rostered week adjusted by position', 'player_additions'):
-        'Σ_{w ∈ Wk} st·pts(p,w) / |Wk| · F(y(a), pos p)',
+        'Σ_{w ∈ Wk} st·pts(p,w) / |Wk| · F(y(d_a), pos p)',
     ('Adjusted Avg points added per rostered week adjusted by position', 'player_additions'):
-        'Σ_{w ∈ Wk : H} st·pts(p,w) / |{w ∈ Wk : H}| · F(y(a), pos p)',
+        'Σ_{w ∈ Wk : H} st·pts(p,w) / |{w ∈ Wk : H}| · F(y(d_a), pos p)',
     ('Avg points per rostered week on team adjusted by position', 'player_additions'):
-        'Σ_{w ∈ Wk} pts(p,w) / |Wk| · F(y(a), pos p)',
+        'Σ_{w ∈ Wk} pts(p,w) / |Wk| · F(y(d_a), pos p)',
     ('PPG bench on team adjusted by position', 'player_additions'):
-        'Σ_{Wk} (1 − st)·pts / Σ_{Wk} (1 − st) · F(y(a), pos p)',
+        'Σ_{Wk} (1 − st)·pts / Σ_{Wk} (1 − st) · F(y(d_a), pos p)',
     ('Adjusted PPG bench on team adjusted by position', 'player_additions'):
-        'Σ_{Wk : H} (1 − st)·pts / Σ_{Wk : H} (1 − st) · F(y(a), pos p)',
+        'Σ_{Wk : H} (1 − st)·pts / Σ_{Wk : H} (1 − st) · F(y(d_a), pos p)',
     ('Regular-season PPG starter adjusted by position', 'player_all_time'):
         'Σ_{w ∈ REG : st} pts(p,w)·F(y_w,pos p) / Σ_{w ∈ REG} st',
     ('Playoff PPG starter adjusted by position', 'player_all_time'):

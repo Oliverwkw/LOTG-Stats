@@ -40,6 +40,29 @@ def test_cross_references_resolve():
     assert not bad, f"⟨⟩ references to no Formulas row: {bad}"
 
 
+def test_glossary_cross_references_resolve():
+    f, e = _load("formulas"), _load("formula_equations")
+    stats = {part.strip() for r in f._ROWS for part in [r["Stat"]] + r["Stat"].split("/")}
+    bad = sorted({ref for _b, _s, m, d, _p in e.ENTRIES for ref in re.findall(r"⟨([^⟩]+)⟩", m + " " + d)
+                  if ref not in stats and ref != "Stat"})
+    assert not bad, f"glossary ⟨⟩ references to no Formulas row: {bad}"
+
+
+def test_glossary_rows_are_the_5_use_symbols():
+    """User rule: a symbol is a glossary row only if MIN_USES+ equations need
+    it; every other symbol is defined in each cell that uses it."""
+    e = _load("formula_equations")
+    n = e.usage()
+    always = {s for _b, s, _m, _d, p in e.ENTRIES if p is e.ALWAYS}
+    rows = {s for _sheet, s, _m, _d in e.glossary()}
+    assert all(n[s] >= e.MIN_USES for s in rows - always)
+    assert not [s for s in n if n[s] >= e.MIN_USES and s not in rows]
+    for key in e.EQUATIONS:
+        cell = e.expanded(key)
+        for sym in e._closure(e.EQUATIONS[key]) - set(rows):
+            assert f"{sym} = " in cell, f"{key}: {sym} is neither a glossary row nor defined in-cell"
+
+
 def test_output_leads_with_glossary_and_matches_plan():
     f, e = _load("formulas"), _load("formula_equations")
     out = f.build_output({})
@@ -48,14 +71,15 @@ def test_output_leads_with_glossary_and_matches_plan():
     i = rows[0].index("Formulas")
     plan_cols = [r[i] for r in rows[1:] if len(r) > i and r[i]]
     assert list(out.columns) == plan_cols
-    n_gloss = len(e.RAW_VARIABLES) + len(e.OPERATORS)
-    assert set(out["Sheet"].iloc[:n_gloss]) == {e.RAW_SHEET, e.OPS_SHEET}
+    n_gloss = len(e.glossary())
+    assert set(out["Sheet"].iloc[:n_gloss]) <= {e.RAW_SHEET, e.OPS_SHEET, e.CTX_SHEET, e.MODEL_SHEET}
     assert len(out) == n_gloss + len(f._ROWS)
     assert out[e.COLUMN].astype(str).str.strip().ne("").all()
 
 
 if __name__ == "__main__":
     for fn in (test_every_stat_has_one_equation, test_cross_references_resolve,
+               test_glossary_cross_references_resolve, test_glossary_rows_are_the_5_use_symbols,
                test_output_leads_with_glossary_and_matches_plan):
         fn()
         print(f"ok  {fn.__name__}")

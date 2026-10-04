@@ -3640,8 +3640,9 @@ def build_all(repo_root: Path) -> None:
 
                     def _fcat(sv):
                         s = str(sv).lower()
-                        if s in (formulas.formula_equations.RAW_SHEET.lower(),
-                                 formulas.formula_equations.OPS_SHEET.lower()):
+                        _fe = formulas.formula_equations
+                        if s in (_fe.RAW_SHEET.lower(), _fe.OPS_SHEET.lower(),
+                                 _fe.CTX_SHEET.lower(), _fe.MODEL_SHEET.lower()):
                             return "Equation glossary"
                         if "player" in s: return "Player sheets"
                         if "team" in s: return "Team sheets"
