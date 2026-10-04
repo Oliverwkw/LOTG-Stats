@@ -339,6 +339,25 @@ class StatsModel:
 ANCHOR_LAGS = (1, 2, 4, 8, 13, 26, 52)  # augmentation: anchors 1 period to ~1 year old
 
 
+def nfl_weeks_between(a, b):
+    """Regular-season NFL weeks played between dates a and b (vectorised). The
+    information since an anchor arrives with games, not calendar days: across an
+    offseason a months-old KTC barely goes stale (see the note)."""
+    a = np.asarray(a, "datetime64[ns]"); b = np.asarray(b, "datetime64[ns]"); n = np.zeros(len(a))
+    for ko in KO.values():
+        s = np.datetime64(pd.Timestamp(ko)); e = np.datetime64(pd.Timestamp(ko) + pd.Timedelta(days=7 * 18))
+        lo = np.maximum(a, s); hi = np.minimum(b, e)
+        n += np.clip((hi - lo) / np.timedelta64(1, "D"), 0, None) / 7
+    return n
+
+
+def add_anchor_info(x):
+    """g_since: NFL weeks since the anchor; g_frac: share of the gap that was in season."""
+    x["g_since"] = nfl_weeks_between(x.date - pd.to_timedelta(x.gap, unit="D"), x.date)
+    x["g_frac"] = x.g_since / np.maximum(x.gap / 7, 1)
+    return x
+
+
 def anchor_rows(d, lags=(1,)):
     """One row per (row, lag): the player's KTC `lag` observations earlier as the anchor."""
     out = []
@@ -352,14 +371,14 @@ def anchor_rows(d, lags=(1,)):
     x["ranc"] = np.sqrt(x.anc)
     x["res_anc"] = x.ranc - x.sest_anc  # how far KTC sat from the stats estimate at the anchor
     x["dsest"] = x.sest - x.sest_anc    # how much the stats estimate moved since the anchor
-    return x
+    return add_anchor_info(x)
 
 
 class AnchoredModel:
     """KTC from the player's last known KTC (any age) plus the stats features."""
 
     def __init__(self, F):
-        self.F = F + ["ranc", "gap", "sest", "res_anc", "dsest"]
+        self.F = F + ["ranc", "gap", "sest", "res_anc", "dsest", "g_since", "g_frac"]
 
     def fit(self, x):
         self.m = _gbm(max_iter=800).fit(x[self.F], np.sqrt(x.ktc) - x.ranc, sample_weight=_recency(x))
@@ -370,11 +389,13 @@ class AnchoredModel:
 
 
 class RoutedAnchored:
-    """What the backtest picked per anchor age (see the note): carry the anchor
-    forward when it is <=10 days old (nothing beat it), the 1-period-trained
-    anchored model to 120 days, the multi-age-trained one beyond."""
+    """What the backtest picked per anchor age (see the note). Up to 120 days: the
+    1-period-trained anchored model, moved off the anchor only in proportion to
+    the football played since it, lam = g / (g + H) with g = NFL weeks since the
+    anchor (no games -> carry the anchor). Beyond 120 days: the multi-age-trained
+    model, unshrunk (the shrink cost accuracy there)."""
 
-    SHORT, LONG = 10, 120
+    LONG, H = 120, 1.0
 
     def __init__(self, F):
         self.one, self.multi = AnchoredModel(F), AnchoredModel(F)
@@ -384,10 +405,14 @@ class RoutedAnchored:
         self.multi.fit(anchor_rows(d, ANCHOR_LAGS))
         return self
 
+    @classmethod
+    def combine(cls, x, p_one, p_multi):
+        lam = x.g_since.values / (x.g_since.values + cls.H)
+        near = x.anc.values + lam * (np.asarray(p_one) - x.anc.values)
+        return np.minimum(np.where(x.gap.values <= cls.LONG, near, np.asarray(p_multi)), 9999)  # KTC's cap
+
     def predict(self, x):
-        g = x.gap.values
-        return np.where(g <= self.SHORT, x.anc.values,
-                        np.where(g <= self.LONG, self.one.predict(x), self.multi.predict(x)))
+        return self.combine(x, self.one.predict(x), self.multi.predict(x))
 
 
 def stats_oof(d, F, folds=5):
@@ -439,9 +464,8 @@ def cmd_backtest(a):
             te = xa.sid.isin(te_sids).values
             p[te] = m.predict(xa[te])
         xa["p_" + name] = p
-    xa["p_routed"] = np.where(xa.gap <= RoutedAnchored.SHORT, xa.anc,
-                              np.where(xa.gap <= RoutedAnchored.LONG, xa["p_anchored (lag-1 training)"],
-                                       xa["p_anchored (multi-lag training)"]))
+    xa["p_routed"] = RoutedAnchored.combine(xa, xa["p_anchored (lag-1 training)"],
+                                            xa["p_anchored (multi-lag training)"])
     show("ALL anchor ages | carry forward", metrics(xa.ktc, xa.anc))
     show("ALL anchor ages | routed", metrics(xa.ktc, xa.p_routed))
     for lo, hi in ((0, 10), (11, 45), (46, 120), (121, 400)):
@@ -451,6 +475,29 @@ def cmd_backtest(a):
         show("   stats-only (held-out player)", metrics(s.ktc, np.square(s.sest)))
         for name in ("anchored (lag-1 training)", "anchored (multi-lag training)", "routed"):
             show("   " + name, metrics(s.ktc, s["p_" + name]))
+    for label, m in (("no NFL weeks since anchor", xa.g_since < 0.5),
+                     ("1-3 NFL weeks since anchor", (xa.g_since >= 0.5) & (xa.g_since < 3.5)),
+                     ("4+ NFL weeks since anchor", xa.g_since >= 3.5)):
+        s = xa[m]
+        print(f"-- {label}")
+        show("   carry forward", metrics(s.ktc, s.anc))
+        show("   routed", metrics(s.ktc, s.p_routed))
+
+
+def rolling_coverage(x, p, q=0.8, min_n=30):
+    """Coverage of an 80% range whose width (relative error, floored at 300 KTC)
+    is re-set each week from all earlier weeks' errors — how the ranges would be
+    used live. Frozen widths under-cover badly when the market level drifts."""
+    d = pd.DataFrame(dict(date=x.date.values, y=np.asarray(x.ktc, float), p=np.asarray(p, float))).sort_values("date")
+    d["rel"] = (d.y - d.p).abs() / np.maximum(d.p, 300)
+    hits = []
+    for t in sorted(d.date.unique()):
+        prev = d[d.date < t]
+        if len(prev) < min_n:
+            continue
+        w = np.quantile(prev.rel, q) * np.maximum(d.p[d.date == t], 300)
+        hits += list(((d.y[d.date == t] - d.p[d.date == t]).abs() <= w).values)
+    return float(np.mean(hits)) if hits else float("nan")
 
 
 def _player_folds(d, k=5):
@@ -480,10 +527,11 @@ def cmd_season_end(a):
     x["anc"] = a0.loc[both, "ktc"].values; x["gap"] = (x.date - a0.loc[both, "date"].values).dt.days
     x["ranc"] = np.sqrt(x.anc); x["sest_anc"] = a0.loc[both, "sest"].values
     x["res_anc"] = x.ranc - x.sest_anc; x["dsest"] = x.sest - x.sest_anc
+    x = add_anchor_info(x)
     print(f"players with KTC near both {T0.date()} and {T1.date()}: {len(x)}")
     show("M1 carry KTC from freeze date", metrics(x.ktc, x.anc))
-    show("M2 stats-only, frozen model", metrics(x.ktc, sm.predict(x)))
     m2, m3 = sm.predict(x), am.predict(x)
+    show("M2 stats-only, frozen model", metrics(x.ktc, m2))
     show("M3 anchored on freeze-date KTC, frozen model", metrics(x.ktc, m3))
     # M5 was added after the 2025 rehearsal (see the note) — not part of the original registration.
     show("M5 mean of M2 and M3", metrics(x.ktc, (m2 + m3) / 2))
@@ -494,7 +542,9 @@ def cmd_season_end(a):
     xw = xw[xw.date.isin(wk.date) & (xw.gap <= 10)]
     if len(xw):
         show("M4 weekly: carry last week's KTC", metrics(xw.ktc, xw.anc))
-        show("M4 weekly: anchored (1-period model), frozen", metrics(xw.ktc, am.one.predict(xw)))
+        p4 = am.predict(xw)
+        show("M4 weekly: routed anchored, frozen", metrics(xw.ktc, p4))
+        print(f"M4 80% ranges recalibrated weekly on earlier weeks' errors: coverage {rolling_coverage(xw, p4):.1%}")
     if a.out:
         x.assign(m1=x.anc, m2=m2, m3=m3, m5=(m2 + m3) / 2)[["sid", "name", "pos", "date", "ktc", "m1", "m2", "m3", "m5"]] \
             .to_csv(a.out, index=False)
