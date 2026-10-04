@@ -50,7 +50,7 @@ def check_year_round_build():
         #    nothing is diffed (no prior), and only a played week may add its
         #    single-week records (`_weeks_to_cover` reports the latest week on a
         #    baseline run).
-        rc0 = B.main(["--exports", str(exports), "--snapshot", str(snap), "--out", str(h0)])
+        rc0 = B.main(["--exports", str(exports), "--snapshot", str(snap), "--write-snapshot", "--out", str(h0)])
         ok = _ok("baseline build returns 0 (not skipped)", rc0 == 0)
         ok &= _ok("snapshot written", snap.exists())
         meta = json.loads(snap.read_text())["meta"]
@@ -72,9 +72,16 @@ def check_year_round_build():
                       "Single-week records" in html0 or _EMPTY in html0)
 
         # 2) Re-build against that snapshot, unchanged data → still empty (no movement).
-        rc1 = B.main(["--exports", str(exports), "--snapshot", str(snap), "--out", str(h1)])
+        rc1 = B.main(["--exports", str(exports), "--snapshot", str(snap), "--write-snapshot", "--out", str(h1)])
         ok &= _ok("no-movement rebuild returns 0", rc1 == 0)
         ok &= _ok("no-movement digest empty → send suppressed", _EMPTY in h1.read_text())
+
+        # 3) Without --write-snapshot the snapshot is only read (#468): a by-hand
+        #    run or a comparison never moves the baseline.
+        before = snap.read_bytes()
+        B.main(["--exports", str(exports), "--snapshot", str(snap), "--out", str(h1)])
+        ok &= _ok("a run without --write-snapshot leaves the snapshot alone",
+                  snap.read_bytes() == before)
         return ok
 
 
@@ -88,7 +95,7 @@ def check_movement_makes_nonempty():
     with tempfile.TemporaryDirectory() as d:
         snap = Path(d) / "snap.json"
         h = Path(d) / "d.html"
-        B.main(["--exports", str(exports), "--snapshot", str(snap), "--out", str(h)])
+        B.main(["--exports", str(exports), "--snapshot", str(snap), "--write-snapshot", "--out", str(h)])
         data = json.loads(snap.read_text())
         if not data.get("event_board"):
             print("  [SKIP] no event board in snapshot to perturb")
@@ -114,7 +121,7 @@ def check_movement_makes_nonempty():
         a["key"], b["key"] = b["key"], a["key"]
         a["label"], b["label"] = b["label"], a["label"]
         snap.write_text(json.dumps(data))
-        B.main(["--exports", str(exports), "--snapshot", str(snap), "--out", str(h)])
+        B.main(["--exports", str(exports), "--snapshot", str(snap), "--write-snapshot", "--out", str(h)])
         html = h.read_text()
         ok &= _ok("an overtake → non-empty digest with the event sections",
                   _EMPTY not in html and "All-time leaderboard moves —" in html,
@@ -134,12 +141,12 @@ def check_legacy_snapshot_rebaselines():
         return True
     with tempfile.TemporaryDirectory() as d:
         snap, h = Path(d) / "snap.json", Path(d) / "d.html"
-        B.main(["--exports", str(exports), "--snapshot", str(snap), "--out", str(h)])
+        B.main(["--exports", str(exports), "--snapshot", str(snap), "--write-snapshot", "--out", str(h)])
         data = json.loads(snap.read_text())
         data.pop("event_board", None)
         data["event_keys"] = ["trades|someone's 2020-01-01 trade|O-Score|high:1"]
         snap.write_text(json.dumps(data))
-        B.main(["--exports", str(exports), "--snapshot", str(snap), "--out", str(h)])
+        B.main(["--exports", str(exports), "--snapshot", str(snap), "--write-snapshot", "--out", str(h)])
         return _ok("legacy snapshot re-baselines (empty digest, no mass email)",
                    _EMPTY in h.read_text())
 

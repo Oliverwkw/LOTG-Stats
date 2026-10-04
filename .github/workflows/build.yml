@@ -359,7 +359,7 @@ jobs:
           set -o pipefail
           python scripts/build_digest.py \
             --exports exports \
-            --snapshot data/digest/ranks_snapshot.json \
+            --snapshot data/digest/ranks_snapshot.json --write-snapshot \
             --out exports/raw/weekly_digest.html 2>&1 | tee exports/raw/digest.log
 
       - name: Commit refreshed exports on roster change (or weekly cadence)

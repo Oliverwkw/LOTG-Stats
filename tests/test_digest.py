@@ -1455,6 +1455,9 @@ def run_all() -> bool:
         check_in_progress_season_rows_only_on_counting_high_end,
         check_young_moves_only_on_counting_high_end,
         check_offseason_move_joins_at_week_5,
+        check_locked_at_move_columns_skip_the_wait,
+        check_locked_at_move_columns_exist,
+        check_a_gate_rule_change_goes_to_the_edits_section,
         check_week_rows_season_to_date_and_new_stint_wait,
         check_a_running_total_passing_its_own_row_is_not_news,
         check_a_stationary_tie_join_is_not_news,
@@ -1629,6 +1632,107 @@ def check_young_moves_only_on_counting_high_end():
     ok &= _ok("five NFL weeks after the move, all of it stands",
               ("Avg PPG of received players on team", "high") in new2
               and ("Trade addition value", "low") in new2, new2)
+    return ok
+
+
+def check_locked_at_move_columns_skip_the_wait():
+    """User 2026-10-03: a stat fixed the moment a move is made (a deal-time
+    value, a price, a bid) has no sample to wait for, so a young move stands on
+    every end of it at once; its averages and values still wait."""
+    tr = _trades("2026-09-16").assign(**{
+        "KTC value difference at deal time": [100.0, 200.0, 300.0, 400.0, 500.0, -9000.0],
+        "Pick value received": [10.0, 20.0, 30.0, 40.0, 50.0, 9000.0]})
+    young = {"trades": tr, "team_week": _weeks(y2025=17, y2026=3)}
+    new = {(h.column, h.end) for h in D.board_highlights(tr, "trades", window=3, gate=D.BoardGate(young))
+           if h.label.startswith("New's")}
+    ok = _ok("a locked value stands at its LOW end at once (KTC value difference at deal time)",
+             ("KTC value difference at deal time", "low") in new, new)
+    ok &= _ok("and at its high end (Pick value received)", ("Pick value received", "high") in new, new)
+    ok &= _ok("an average still waits (Avg PPG on team)",
+              not any(c.startswith("Avg PPG") for c, _e in new), new)
+    ok &= _ok("a value still waits (lowest Trade addition value)",
+              ("Trade addition value", "low") not in new, new)
+    gate = D.BoardGate(young)
+    ok &= _ok("the gate holds nothing on a locked column",
+              gate.restricted(tr, "trades", "Pick value received") is None)
+    ok &= _ok("Tanking is locked on every event sheet (user, 2026-10-03)",
+              all("Tanking" in cols for cols in D.LOCKED_AT_MOVE.values()))
+    ok &= _ok("cuff flags are not locked (not digest boards)",
+              not any("Cuff" in c for cols in D.LOCKED_AT_MOVE.values() for c in cols))
+    return ok
+
+
+def check_a_gate_rule_change_goes_to_the_edits_section():
+    """#468: a young move a newly locked column lets onto a board is the rules'
+    doing, not news — it goes to the edits section, even though digest.py is
+    not a fingerprinted input. So does one a changed wait lets go. A week with no
+    change to the build sends nothing there."""
+    from lotg_support import email_summary as ES
+    tr = _trades("2026-09-16").assign(**{
+        "KTC value difference at deal time": [100.0, 200.0, 300.0, 400.0, 500.0, -9000.0]})
+    frames = {"trades": tr, "team_week": _weeks(y2025=17, y2026=3)}
+    now = [e for e in D.all_board_highlights(frames, gate=D.BoardGate(frames))
+           if e.sheet == "trades" and e.label.startswith("New's")]
+    ok = _ok("the young move stands on the locked column",
+             any(e.column == "KTC value difference at deal time" for e in now), now)
+
+    def lines():
+        return [D.EventCrossing("trades", e.label, e.column, e.end, e.rank, e.value, key=e.key)
+                for e in now]
+    old = {"meta": {"season": 2026}}                     # before #468: nothing locked
+    ch = lines()
+    n = D.mark_rule_releases(old, frames, ch)
+    ok &= _ok("an old snapshot's lines on the locked column are flagged",
+              n >= 1 and all(c.rule_release == (c.column in D.LOCKED_AT_MOVE["trades"])
+                             for c in ch), [(c.column, c.end, c.rule_release) for c in ch])
+    same = {"meta": {"season": 2026, D.GATE_META_KEY: D.gate_rules()}}
+    ch2 = lines()
+    ok &= _ok("unchanged rules flag nothing", D.mark_rule_releases(same, frames, ch2) == 0
+              and not any(c.rule_release for c in ch2))
+    ch3 = lines()
+    for c in ch3:
+        c.is_new = True
+    D.mark_rule_releases(old, frames, ch3)
+    ok &= _ok("a brand-new move is news whatever the rules", not any(c.rule_release for c in ch3))
+    # A changed wait: a 3-week-old move (week 1) on a non-locked average, let go
+    # by a (hypothetical) 3-week rule where the prior snapshot waited 5.
+    frames3 = {"trades": _trades("2026-09-09"), "team_week": _weeks(y2025=17, y2026=3)}
+    try:
+        D.EVENT_MIN_WEEKS, keep = 3, D.EVENT_MIN_WEEKS
+        now3 = [e for e in D.all_board_highlights(frames3, gate=D.BoardGate(frames3))
+                if e.label.startswith("New's") and e.column == "Avg PPG of received players on team"]
+        ch4 = [D.EventCrossing("trades", e.label, e.column, e.end, e.rank, e.value, key=e.key)
+               for e in now3]
+        waited = {"meta": {"season": 2026, D.GATE_META_KEY: dict(D.gate_rules(), event_min_weeks=5)}}
+        ok &= _ok("a shorter wait's releases are flagged too",
+                  bool(ch4) and D.mark_rule_releases(waited, frames3, ch4) == len(ch4)
+                  and all(c.rule_release for c in ch4), ch4)
+    finally:
+        D.EVENT_MIN_WEEKS = keep
+    snap = D.build_snapshot(pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), _weeks(y2026=3))
+    ok &= _ok("the snapshot records the rules it ranked under",
+              snap["meta"].get(D.GATE_META_KEY) == D.gate_rules())
+    quiet = ES.NewData(season=2026, weeks_completed=4, edit_landed=False)
+    flagged = next(c for c in ch if c.rule_release)
+    ok &= _ok("a flagged line goes to the edits section even with no fingerprinted edit",
+              ES.attribute(flagged, "All-time leaderboard moves — trades", quiet) == "edit")
+    old_row = D.EventCrossing("trades", "T1's 2021-10-05 trade for Somebody", "Points added",
+                              "high", 3, 30.0, key="k_t1")
+    _top, edits = D.split_sections([("All-time leaderboard moves — trades", False, ch2 + [old_row])],
+                                   quiet)
+    ok &= _ok("no build change: the edits section is empty", edits == [], edits)
+    return ok
+
+
+def check_locked_at_move_columns_exist():
+    """Every locked column is a real column of its sheet in the plan, so a
+    rename cannot quietly drop it from the list."""
+    from lotg_support.plan import load_plan_catalog
+    plan = load_plan_catalog(_ROOT / "plan" / "LOTG Plan - Sheet1.csv")
+    ok = True
+    for sheet, cols in D.LOCKED_AT_MOVE.items():
+        have = set(plan.get(sheet, []))
+        ok &= _ok(f"{sheet}: every locked column is on the sheet", cols <= have, sorted(cols - have))
     return ok
 
 
