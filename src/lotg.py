@@ -22215,7 +22215,7 @@ def build_all(repo_root: Path) -> None:
             try:
                 _pae_hist = {str(_sid): ([_d for _d, _v in _pairs], [_v for _d, _v in _pairs])
                              for _sid, _pairs in (_ktc_idx.player or {}).items() if _pairs}
-            except NameError:
+            except (NameError, AttributeError):      # no KTC index this build
                 _pae_hist = {}
             _pae_vals_cache: Dict[Any, List[float]] = {}
 
@@ -22380,6 +22380,7 @@ def build_all(repo_root: Path) -> None:
 
             # Roster strength and in-season results on a date, for projecting
             # a traded pick's slot (acquisition.project_slot_odds).
+            from bisect import bisect_right as _bisect_right_pae
             _pae_tenures: Dict[str, List[Tuple[str, str, str]]] = defaultdict(list)
             for _r in _pa_rows:
                 if _r.get("_pae_pid") and _r.get("Date"):
@@ -22391,7 +22392,7 @@ def build_all(repo_root: Path) -> None:
                 if not _h:
                     return 0.0
                 _iso = _on.isoformat()
-                _i = bisect.bisect_right(_h[0], _iso) - 1
+                _i = _bisect_right_pae(_h[0], _iso) - 1
                 _win = _acq.FIELD_STALE_DAYS if _on >= _acq.KTC_DAILY_FLOOR else _acq.FIELD_STALE_DAYS_PRE_DAILY
                 if _i < 0 or _h[0][_i] < (_on - timedelta(days=_win)).isoformat():
                     return 0.0
