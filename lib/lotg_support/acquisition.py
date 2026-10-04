@@ -179,10 +179,19 @@ KTC_DAILY_FLOOR = date(2021, 4, 16)    # the dynasty-daddy mirror's first daily 
 # price is locked at the move.
 PICK_YEAR_DISCOUNT = 0.95
 RIDGE = 1.0
-TIME_KNOTS = np.log([2, 4, 8, 17, 34, 68])
 PRICE_QUANTILES = (0, .2, .4, .6, .8, 1.0)
 TAIL_QUANTILE = 0.95
 MIN_KMAX = 8
+# The expectation's tenure curve (2026-10-04; plan/notes/POINTS_ABOVE_EXPECTATION.md).
+# Elapsed-week knots double past 68 as the data grows, and only those inside the
+# observed range (TAIL_QUANTILE of the rows) are used; the offseason curve is
+# piecewise linear with a hinge at every offseason at least MIN_TENURE_ADDITIONS
+# additions have reached, its last slope carrying on. Nothing names a season or
+# a horizon, so in 2036 the curve has ten seasons of shape where today it has six.
+BASE_KNOT_WEEKS = (2, 4, 8, 17, 34, 68)
+MIN_TENURE_ADDITIONS = 40
+EXPECTATION_RIDGE = 30.0
+PAID_CHANNELS = ("waiver", "rookie", "startup", "trade")
 # A better price moves the expectation this way: down the pick number, up the
 # bid / trade price.
 _PRICE_SIGN = {"rookie": -1, "startup": -1, "waiver": 1, "trade": 1}
@@ -558,14 +567,15 @@ def _poisson(X: np.ndarray, y: np.ndarray, lam: float = RIDGE, it: int = 60) -> 
     return b
 
 
-def _monotone_poisson(X: np.ndarray, y: np.ndarray, ramp_cols: Sequence[int], sign: int) -> np.ndarray:
+def _monotone_poisson(X: np.ndarray, y: np.ndarray, ramp_cols: Sequence[int], sign: int,
+                      lam: float = RIDGE) -> np.ndarray:
     """Poisson fit whose price-ramp coefficients all point `sign`'s way: the
     most wrong-signed ramp is pinned at 0 and the fit repeated until none is."""
     keep = np.ones(X.shape[1], bool)
     b = np.zeros(X.shape[1])
     for _ in range(len(ramp_cols) + 1):
         b = np.zeros(X.shape[1])
-        b[keep] = _poisson(X[:, keep], y)
+        b[keep] = _poisson(X[:, keep], y, lam)
         bad = [i for i in ramp_cols if keep[i] and sign * b[i] < 0]
         if not bad:
             break
@@ -581,24 +591,106 @@ def _ramps(p: np.ndarray, edges: np.ndarray) -> List[np.ndarray]:
     return [np.clip(p - lo, 0, hi - lo) for lo, hi in zip(edges[:-1], edges[1:])]
 
 
-def _pos_cols(pos: np.ndarray) -> List[np.ndarray]:
-    return [(pos == P).astype(float) for P in POSITIONS[1:]]
+def _knots(kmax: float) -> np.ndarray:
+    """Log elapsed-week knots inside the observed range: the base set, then
+    doubling past 68 (136, 272, ...) as tenures that long appear."""
+    weeks = list(BASE_KNOT_WEEKS) + [BASE_KNOT_WEEKS[-1] * 2 ** i for i in range(1, 12)]
+    return np.log([w for w in weeks if w < kmax])
 
 
-def _total_design(ch: str, k: np.ndarray, noff: np.ndarray, p: np.ndarray, pos: np.ndarray,
-                  edges: np.ndarray, kmax: int) -> Tuple[np.ndarray, List[int]]:
-    lk = np.minimum(np.log(k), math.log(kmax))
-    no = np.minimum(noff, 3)
-    cols = [np.ones(len(k)), lk] + [np.maximum(lk - c, 0) for c in TIME_KNOTS]
-    cols += [(no == i).astype(float) for i in (1, 2, 3)]
-    ramp_idx: List[int] = []
-    if ch != "free":
-        r = _ramps(p, edges)
-        ramp_idx = list(range(len(cols), len(cols) + len(r)))
-        cols += r + [p * lk, p * no]
-    pc = _pos_cols(pos)
-    cols += pc + [c * lk for c in pc]
-    return np.column_stack(cols), ramp_idx
+def _horizon(no: np.ndarray, aid: np.ndarray) -> int:
+    """The longest tenure, in offseasons, that MIN_TENURE_ADDITIONS additions
+    have reached — where the offseason curve may still bend."""
+    reach = pd.Series(aid).groupby(no).nunique()
+    ok = reach[reach >= MIN_TENURE_ADDITIONS]
+    return max(1, int(ok.index.max()) if len(ok) else 1)
+
+
+_POS3 = POSITIONS[1:]      # RB, WR, TE against a QB baseline
+
+
+def _design(r: Dict[str, np.ndarray], chans: Sequence[str], st: dict) -> Tuple[np.ndarray, List[int]]:
+    """The expectation's design over rows `r` (k, no, p, pos, ch, q).
+
+    Per channel, as before: a level, an elapsed-week curve (capped at the
+    channel's own TAIL_QUANTILE), a piecewise-linear offseason curve, price
+    ramps (signed so a better price never expects less) with price x tenure, and
+    a level and slope per position. Shared by the channels in the fit: each
+    position's own elapsed-week curve (uncapped), a per-position slope per
+    offseason, and — paid channels — position x price-percentile x tenure, so a
+    cheap QB and a dear RB each age as their own peers did."""
+    k, no, p, pos, ch, q = r["k"], r["no"], r["p"], r["pos"], r["ch"], r["q"]
+    S = st["S"]
+    hinges = [np.maximum(no - h, 0) for h in range(1, S)]
+    cols: List[np.ndarray] = []
+    ramp: List[int] = []
+    for c in chans:
+        m = (ch == c).astype(float)
+        lk = np.minimum(np.log(k), math.log(st["kmax"][c]))
+        cols += [m, m * lk] + [m * np.maximum(lk - x, 0) for x in st["knots"][c]]
+        cols += [m * no] + [m * h for h in hinges]
+        if c != "free":
+            rr = _ramps(p, st["edges"][c])
+            ramp += list(range(len(cols), len(cols) + len(rr)))
+            cols += [m * _PRICE_SIGN[c] * x for x in rr] + [m * p * lk, m * p * no]
+        pc = [(pos == P).astype(float) for P in _POS3]
+        cols += [m * x for x in pc] + [m * x * lk for x in pc]
+    lk = np.log(k)
+    pc = [(pos == P).astype(float) for P in _POS3]
+    pc4 = [(pos == P).astype(float) for P in POSITIONS]
+    cols += [x * np.maximum(lk - kn, 0) for x in pc for kn in st["knots_all"]]
+    if tuple(chans) == ("free",):
+        cols += [x * h for x in pc for h in hinges]
+    cols += [x * no for x in pc4]
+    if tuple(chans) != ("free",):
+        cols += [x * q * no for x in pc4] + [x * q * lk for x in pc4]
+    return np.column_stack(cols), ramp
+
+
+def _rows(group: Sequence["Addition"], q: Dict[object, float]) -> Dict[str, np.ndarray]:
+    out: Dict[str, list] = {c: [] for c in ("k", "no", "p", "pos", "ch", "q", "y", "aid")}
+    for i, a in enumerate(group):
+        n = len(a.cf)
+        out["k"] += range(1, n + 1)
+        out["no"] += list(a.noff[:n])
+        out["p"] += [a.p] * n
+        out["pos"] += [_norm_pos(a.pos)] * n
+        out["ch"] += [a.ch] * n
+        out["q"] += [q.get(a.key, 0.5)] * n
+        out["y"] += list(a.cf)
+        out["aid"] += [i] * n
+    return {c: np.array(v, dtype=object if c in ("pos", "ch") else float) for c, v in out.items()}
+
+
+def _price_percentile(usable: Sequence["Addition"]) -> Dict[object, float]:
+    """Each addition's price as a percentile within its channel (1 = dearest),
+    the common scale the paid channels share their tenure terms on."""
+    s = pd.Series([a.p * _PRICE_SIGN.get(a.ch, 1) for a in usable])
+    pct = s.groupby(pd.Series([a.ch for a in usable])).rank(pct=True)
+    return {a.key: float(v) for a, v in zip(usable, pct)}
+
+
+def _fit_expectation(group: Sequence["Addition"], q: Dict[object, float]):
+    """Fit one group (free, or the paid channels pooled); a predictor of the
+    expected points for rows, or None when the group is empty."""
+    r = _rows(group, q)
+    if not len(r["k"]):
+        return None
+    chans = tuple(c for c in CHANNELS if (r["ch"] == c).any())
+    st = {"kmax": {}, "edges": {}, "knots": {}}
+    for c in chans:
+        kc, pcn = r["k"][r["ch"] == c], r["p"][r["ch"] == c]
+        st["kmax"][c] = max(MIN_KMAX, int(np.quantile(kc, TAIL_QUANTILE)))
+        st["edges"][c] = _edges(pcn)
+        st["knots"][c] = _knots(st["kmax"][c])
+    st["knots_all"] = _knots(max(MIN_KMAX, int(np.quantile(r["k"], TAIL_QUANTILE))))
+    st["S"] = _horizon(r["no"], r["aid"])
+    X, ramp = _design(r, chans, st)
+    b = _monotone_poisson(X, r["y"], ramp, 1, EXPECTATION_RIDGE)
+
+    def predict(rr: Dict[str, np.ndarray]) -> np.ndarray:
+        return np.exp(np.clip(_design(rr, chans, st)[0] @ b, -20, 10))
+    return predict
 
 
 @dataclass
@@ -627,7 +719,11 @@ def _norm_pos(pos: object) -> str:
 
 def points_above_expectation(additions: Sequence[Addition]) -> Dict[object, Dict[str, Optional[float]]]:
     """{key: {RATE_COLUMN, TOTAL_COLUMN}} for every addition. Both None when it
-    has no channel or no price; both 0.0 with no rostered week."""
+    has no channel or no price; both 0.0 with no rostered week.
+
+    Y is fit on every never-cut week of every priced addition: free agency on
+    its own, the paid channels (waiver, rookie, startup, trade) pooled with
+    their own price curves and shared position x tenure terms (`_design`)."""
     out: Dict[object, Dict[str, Optional[float]]] = {}
     usable = [a for a in additions if a.ch in CHANNELS and a.p is not None]
     for a in additions:
@@ -635,43 +731,24 @@ def points_above_expectation(additions: Sequence[Addition]) -> Dict[object, Dict
             out[a.key] = {RATE_COLUMN: None, TOTAL_COLUMN: None}
         elif not a.held:
             out[a.key] = {RATE_COLUMN: 0.0, TOTAL_COLUMN: 0.0}
-    for ch in CHANNELS:
-        group = [a for a in usable if a.ch == ch]
-        if not group:
-            continue
-        sign = _PRICE_SIGN.get(ch, 1)
-        # --- total: one row per elapsed week, held or not ------------------
-        tk, tn, tp, tpos, ty = [], [], [], [], []
-        for a in group:
-            n = len(a.cf)
-            tk.extend(range(1, n + 1))
-            tn.extend(a.noff[:n])
-            tp.extend([a.p] * n)
-            tpos.extend([_norm_pos(a.pos)] * n)
-            ty.extend(a.cf)
-        tot_b = None
-        if tk:
-            tk_a = np.array(tk, float)
-            kmax = max(MIN_KMAX, int(np.quantile(tk_a, TAIL_QUANTILE)))
-            tedges = _edges(np.array(tp, float))
-            Xt, tidx = _total_design(ch, tk_a, np.array(tn, float), np.array(tp, float),
-                                     np.array(tpos), tedges, kmax)
-            tot_b = _monotone_poisson(Xt, np.array(ty, float), tidx, sign)
+    q = _price_percentile(usable)
+    for chans in (("free",), PAID_CHANNELS):
+        group = [a for a in usable if a.ch in chans]
+        predict = _fit_expectation(group, q) if group else None
         for a in group:
             if not a.held:
                 continue
-            pos = _norm_pos(a.pos)
             x = sum(pts for _k, pts in a.held)
-            n_held = len(a.held)
             total = None
-            if tot_b is not None:
-                ks = np.array([k for k, _ in a.held], float)
-                no = np.array([a.noff[int(k) - 1] if int(k) - 1 < len(a.noff) else a.noff[-1]
-                               for k in ks], float)
-                Xa, _ = _total_design(ch, ks, no, np.full(len(ks), a.p), np.full(len(ks), pos),
-                                      tedges, kmax)
-                total = x - float(np.exp(np.clip(Xa @ tot_b, -20, 10)).sum())
-            rate = round(total / n_held, 2) if total is not None else None
+            if predict is not None:
+                ks = [int(k) for k, _ in a.held]
+                n = len(ks)
+                rr = {"k": np.array(ks, float),
+                      "no": np.array([a.noff[k - 1] if k - 1 < len(a.noff) else a.noff[-1] for k in ks], float),
+                      "p": np.full(n, float(a.p)), "pos": np.array([_norm_pos(a.pos)] * n, dtype=object),
+                      "ch": np.array([a.ch] * n, dtype=object), "q": np.full(n, q.get(a.key, 0.5))}
+                total = x - float(predict(rr).sum())
+            rate = round(total / len(a.held), 2) if total is not None else None
             total = round(total, 2) if total is not None else None
             out[a.key] = {RATE_COLUMN: rate, TOTAL_COLUMN: total}
     return out

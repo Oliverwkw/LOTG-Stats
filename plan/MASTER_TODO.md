@@ -1318,6 +1318,19 @@ guard-skipped fire), 581→584 (#453), 584→589 (#454), 589→597 (#455).
   so a by-hand comparison's second run diffed against the first's output. Guard:
   `check_year_round_build` step 3 (a run without the flag leaves the file byte-identical).
 
+## Points above expectation: per-position tenure curves
+- [ ] **`acquisition.points_above_expectation`** [per user, 2026-10-04: "tenure, not age";
+  must stay accurate in 10/15/20 years]. Free agency fitted alone; paid channels pooled
+  with their own price curves + shared position knots, per-position offseason slope,
+  position × price-percentile × tenure; piecewise-linear offseason curve with data-driven
+  hinges (`MIN_TENURE_ADDITIONS`) and doubling knots — no named horizon. Ridge 30.
+  Replay of the build as of 2022-26: calibration RMS 0.03-0.04 every year (old drifted
+  0.071 → 0.132; oldest-tenure error 0.03 → 0.33). Guards:
+  `test_each_position_ages_on_its_own_tenure_curve`,
+  `test_expectation_keeps_working_as_history_grows` (15-season synthetic league),
+  `test_long_held_rb_is_the_surprise_not_the_qb` (all three fail on the old model).
+  Evidence: plan/notes/POINTS_ABOVE_EXPECTATION.md "Tenure curves".
+
 ## Phase 15 — TBD: OLD LEAGUES
 - [ ] **TBD.** Placeholder for integrating other historical/old leagues' data (e.g. the
   separate ESPN leagues seen in the 2020 emails — UChicago '24 = leagueId 57687541, UChi

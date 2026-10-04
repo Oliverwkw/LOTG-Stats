@@ -294,6 +294,91 @@ def test_expectation_counts_peers_after_they_left():
     assert abs(out["late"][ACQ.TOTAL_COLUMN]) < 0.5, out["late"]
 
 
+# A synthetic league: `seasons` of 17 weeks, `per_season` additions a season
+# per channel, never-cut points drawn Poisson around a position's own tenure
+# curve. QBs last, RBs fade fast, and in the paid channel a dear RB lasts
+# longer than a cheap one while a cheap QB lasts as well as a dear one.
+_DECAY = {"QB": 0.97, "RB": 0.55, "WR": 0.80, "TE": 0.85}
+_LEVEL = {"QB": 16.0, "RB": 12.0, "WR": 11.0, "TE": 8.0}
+
+
+def _league(seasons: int, per_season: int = 40, seed: int = 7):
+    import numpy as np
+    rng = np.random.default_rng(seed)
+    adds, n = [], 0
+    for s0 in range(seasons):
+        for ch in ("free", "waiver"):
+            for j in range(per_season):
+                pos = ("QB", "RB", "WR", "TE")[j % 4]
+                bid = 0 if ch == "free" else int(rng.integers(1, 60))
+                q = bid / 60
+                decay = _DECAY[pos] + (0.25 * q * (1 - _DECAY[pos]) if pos == "RB" else 0.0)
+                lvl = _LEVEL[pos] * (0.5 if ch == "free" else 0.7 + 0.6 * q)
+                cf, noff = [], []
+                for s in range(s0, seasons):
+                    for _w in range(17):
+                        cf.append(float(rng.poisson(lvl * decay ** (s - s0))))
+                        noff.append(s - s0)
+                held = [(k + 1, cf[k]) for k in range(min(len(cf), 17 * 2))]
+                p = 0.0 if ch == "free" else ACQ.price_feature("waiver", faab=bid)
+                adds.append(ACQ.Addition(key=n, ch=ch, p=p, pos=pos, held=held, cf=cf, noff=noff))
+                n += 1
+    return adds
+
+
+def _tenure_calibration(adds, seasons_from: int):
+    """actual / expected never-cut points, by position, over tenures of
+    `seasons_from` seasons and longer, with each addition held for its whole
+    never-cut run (so the expectation is scored on every week it fits)."""
+    full = [ACQ.Addition(key=a.key, ch=a.ch, p=a.p, pos=a.pos, cf=a.cf, noff=a.noff,
+                         held=[(k + 1, a.cf[k]) for k in range(len(a.cf)) if a.noff[k] >= seasons_from])
+            for a in adds]
+    out = ACQ.points_above_expectation(full)
+    ratio = {}
+    for pos in ("QB", "RB", "WR", "TE"):
+        x = sum(sum(p for _k, p in a.held) for a in full if a.pos == pos and a.held)
+        tot = sum(out[a.key][ACQ.TOTAL_COLUMN] for a in full if a.pos == pos and a.held)
+        ratio[pos] = x / (x - tot)
+    return ratio
+
+
+def test_each_position_ages_on_its_own_tenure_curve():
+    """User 2026-10-04: a QB still producing years after the move is expected; an
+    RB still producing is a surprise. Late-tenure expectation holds per position."""
+    r = _tenure_calibration(_league(8), seasons_from=4)
+    assert all(abs(v - 1) < 0.12 for v in r.values()), r
+
+
+def test_expectation_keeps_working_as_history_grows():
+    """Nothing in the model names a season or a horizon: with fifteen seasons of
+    history (a league in 2035) the knots and offseason hinges extend with the
+    data and the far tenures stay calibrated by position."""
+    import numpy as np
+    assert len(ACQ._knots(17 * 15)) > len(ACQ._knots(17 * 6))        # 136-week knot appears
+    noff = np.repeat(np.arange(15), 50); aid = np.tile(np.arange(50), 15)
+    assert ACQ._horizon(noff, aid) == 14
+    r = _tenure_calibration(_league(15, per_season=24), seasons_from=9)
+    assert all(abs(v - 1) < 0.15 for v in r.values()), r
+
+
+def test_long_held_rb_is_the_surprise_not_the_qb():
+    """The same 10 a week in seasons 5-6 after a $30 waiver claim: a QB was
+    expected to do better (negative), an RB to be long gone (large positive).
+    Both land within 15 points of the synthetic league's true X - Y; the model
+    before 2026-10-04 missed by about 40."""
+    pool = _league(8)
+    probe = [ACQ.Addition(key=("probe", pos), ch="waiver", p=ACQ.price_feature("waiver", faab=30), pos=pos,
+                          cf=[10.0] * (17 * 6), noff=[k // 17 for k in range(17 * 6)],
+                          held=[(k + 1, 10.0) for k in range(17 * 4, 17 * 6)]) for pos in ("QB", "RB")]
+    out = ACQ.points_above_expectation(pool + probe)
+    for pos in ("QB", "RB"):
+        d = _DECAY[pos] + (0.25 * 0.5 * (1 - _DECAY[pos]) if pos == "RB" else 0.0)
+        truth = 340 - sum(_LEVEL[pos] * (0.7 + 0.6 * 0.5) * d ** s for s in (4, 5)) * 17
+        got = out[("probe", pos)][ACQ.TOTAL_COLUMN]
+        assert abs(got - truth) < 15, (pos, got, truth)
+    assert out[("probe", "RB")][ACQ.TOTAL_COLUMN] > 0 > out[("probe", "QB")][ACQ.TOTAL_COLUMN]
+
+
 def test_season_scale_and_calendar():
     sc = ACQ.season_scale({2020: 10.0, 2021: 12.0, 2026: 12.0}, {2020: 2020, 2021: 2021, 2026: 2021})
     assert abs(sc[2020] - 1.1) < 1e-9 and abs(sc[2021] - 11 / 12) < 1e-9
