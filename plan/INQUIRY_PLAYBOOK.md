@@ -480,9 +480,12 @@ week 4, then he is judged on his own games (Achane 2023: not bold to start after
 his breakout); a next man up whose higher-E teammate sits out is lifted to
 a x the teammate's E + b x his own, (a, b) fitted per position on NFL events
 2019-2025 (one beta x the teammate's E overrated weak backups by ~3 points and
-underrated strong ones by ~2.5); the next man up is the highest-E backup the
-team has USED this season, so a healthy-scratch rookie on his draft-round prior
-is not in line (2026 wk 4: the Jets' lift went to one over Braelon Allen). `check_calibration` holds the
+underrated strong ones by ~2.5); the next man up is a backup the team has USED
+this season, so a healthy-scratch rookie on his draft-round prior is not in line
+(2026 wk 4: the Jets' lift went to one over Braelon Allen), and among those the
+one who got the ball more in the games where both played — touches for backs
+and QBs, targets for receivers and tight ends — not the higher E (Sleeper's
+depth chart is current-only, so it cannot say who was next in 2022). `check_calibration` holds the
 slope of (starter - reference) actual points on Edge near -1.
 
 A rostered player with no game in the three-season window (Philip Rivers'

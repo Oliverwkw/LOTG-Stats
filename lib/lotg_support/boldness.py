@@ -66,9 +66,11 @@ so 2021 week 1, leaning on 2020 games, re-scores them as PPR.
   weekly roster, having played for it this season (or last, in the first
   `preseason_grace_weeks`), the NEXT MAN UP is lifted to a x the teammate's
   E + b x his own, (a, b) per position fitted on every such NFL event
-  2019-2025 (`calibrate_beta`). The next man up is the highest-E backup the
-  team has used this season (`next_man_must_have_played`): a healthy-scratch
-  rookie on his draft-round prior is not in line.
+  2019-2025 (`calibrate_beta`). The next man up is a backup the team has used
+  this season (`next_man_must_have_played`: a healthy-scratch rookie on his
+  draft-round prior is not in line), and among those the one who got the
+  ball more when both played (`next_man_by="touches"`, `_by_touches`) — not
+  the higher E, which in a split backfield is often the wrong back.
 
 Everything debatable is a field on `Params`; `tune()` reports the sensitivity.
 
@@ -155,6 +157,9 @@ class Params:
                                        # except in weeks 1..N where last season counts (preseason injury)
     next_man_must_have_played: bool = True  # once the team has played this season, the next man up
                                             # must have appeared for it (not a scratch on his prior)
+    next_man_by: str = "touches"       # who is next among those backups: "touches" = most touches in
+                                       # head-to-head games this season (both played), E where they
+                                       # never shared a game; "E" = highest E_base
     beta: Optional[Tuple[Tuple[str, Tuple[float, float]], ...]] = None  # None -> calibrate_beta():
                                        # {pos: (a, b)}, lift = a x teammate's E + b x own E
 
@@ -593,8 +598,9 @@ def _team_game_index(log: pd.DataFrame) -> Dict[str, List[Tuple[int, int]]]:
 
 def _promotion_events(season: int, base: pd.DataFrame, p: Params) -> pd.DataFrame:
     """Rows (gsis_id, week, promoted_over, E_over): the NEXT MAN UP — the
-    highest-E available player at a team-position whom the team has used this
-    season (`next_man_must_have_played`) — when a teammate with a
+    available player at a team-position whom the team has used this season
+    (`next_man_must_have_played`) and who out-touched the other backups when
+    both played (`next_man_by`, `_by_touches`) — when a teammate with a
     higher E sits out the week while on that team's weekly roster (and, if
     `promotion_lookback` is set, after playing in one of the team's last N
     games). Only the next man up is promoted: calibrating over every backup
@@ -612,6 +618,7 @@ def _promotion_events(season: int, base: pd.DataFrame, p: Params) -> pd.DataFram
     tgi = _team_game_index(log)
     on_roster = _weekly_teams(season)
     live_out = _live_out_gsis()
+    touches = _touches(season) if p.next_man_by == "touches" else {}
     games_of: Dict[str, List[Tuple[int, int, str]]] = {}
     for g, gs, gw, gt in appear:
         games_of.setdefault(g, []).append((int(gs), int(gw), str(gt)))
@@ -659,10 +666,55 @@ def _promotion_events(season: int, base: pd.DataFrame, p: Params) -> pd.DataFram
                     if any(gs == season and gt == team and gw < wk for gs, gw, gt in games_of.get(r.gsis_id, ()))]
             present = used or present
         top_out = max(absent, key=lambda r: r.E_base)
-        nxt = max(present, key=lambda r: r.E_base)
+        nxt = (_by_touches(present, season, wk, team, touches) if p.next_man_by == "touches"
+               else max(present, key=lambda r: r.E_base))
         if top_out.E_base > nxt.E_base:
             rows.append((nxt.gsis_id, wk, top_out.gsis_id, top_out.E_base))
     return pd.DataFrame(rows, columns=["gsis_id", "week", "promoted_over", "E_over"])
+
+
+@functools.lru_cache(maxsize=16)
+def _touches(season: int) -> Dict[Tuple[str, int], Tuple[str, float]]:
+    """{(gsis_id, week): (team, touches)} for the regular season — the ball
+    going to him: a back's carries + receptions, a quarterback's dropbacks
+    (pass attempts + sacks) + carries, a receiver's or tight end's targets +
+    carries. Targets, not receptions, for a pass catcher: on 2019-2025
+    next-man-up events receptions picked the WR2 worse than E did (lift RMSE
+    7.38 vs 7.33), targets better (7.22)."""
+    raw = SE.weekly_stats(int(season))
+    if "season_type" in raw.columns:
+        raw = raw[raw["season_type"].astype(str).str.upper() == "REG"]
+    num = lambda c: pd.to_numeric(raw[c], errors="coerce").fillna(0.0) if c in raw.columns else 0.0
+    pos = raw["player_id"].astype(str).map(_player_ids()["pos"])
+    t = np.where(pos == "QB", num("attempts") + num("sacks_suffered") + num("carries"),
+                 np.where(pos == "RB", num("carries") + num("receptions"), num("targets") + num("carries")))
+    return {(str(g), int(w)): (tm, float(x))
+            for g, w, tm, x in zip(raw["player_id"], raw["week"], raw["team"], t)}
+
+
+def _by_touches(cands: list, season: int, wk: int, team: str,
+                touches: Dict[Tuple[str, int], Tuple[str, float]]):
+    """The next man up among `cands` (rows with gsis_id, E_base): the one who
+    out-touched the others head to head — in this season's games before `wk`
+    where both played for `team` — with E_base deciding a pair that never
+    shared a game, and the most head-to-head wins (then E_base) deciding the
+    whole. A depth chart is only Sleeper's current one; this is who the team
+    actually gave the ball to while both were healthy."""
+    if len(cands) < 2:
+        return cands[0]
+    games = {r.gsis_id: {w: t for w in range(1, wk)
+                         for tm, t in [touches.get((r.gsis_id, w), (None, None))] if tm == team}
+             for r in cands}
+    wins = {r.gsis_id: 0 for r in cands}
+    for i, a in enumerate(cands):
+        for b in cands[i + 1:]:
+            shared = set(games[a.gsis_id]) & set(games[b.gsis_id])
+            ta = sum(games[a.gsis_id][w] for w in shared)
+            tb = sum(games[b.gsis_id][w] for w in shared)
+            if not shared or ta == tb:
+                ta, tb = a.E_base, b.E_base
+            wins[a.gsis_id if ta > tb else b.gsis_id] += 1
+    return max(cands, key=lambda r: (wins[r.gsis_id], r.E_base))
 
 
 @functools.lru_cache(maxsize=1)
