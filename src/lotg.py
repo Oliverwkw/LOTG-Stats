@@ -3635,10 +3635,15 @@ def build_all(repo_root: Path) -> None:
                 # sheet each stat belongs to, with a styled header and wrapped
                 # Formula/Notes. (CSV row order is unchanged; this is xlsx-only.)
                 if sheet_name == "formulas" and {"Stat", "Sheet", "Formula", "Notes"}.issubset(set(d.columns)):
-                    _fcols = ["Stat", "Sheet", "Formula", "Notes"]
+                    _fcols = ["Stat", "Sheet", "Formula", "Notes"] + [
+                        c for c in (formulas.formula_equations.COLUMN,) if c in d.columns]
 
                     def _fcat(sv):
                         s = str(sv).lower()
+                        _fe = formulas.formula_equations
+                        if s in (_fe.RAW_SHEET.lower(), _fe.OPS_SHEET.lower(),
+                                 _fe.CTX_SHEET.lower(), _fe.MODEL_SHEET.lower()):
+                            return "Equation glossary"
                         if "player" in s: return "Player sheets"
                         if "team" in s: return "Team sheets"
                         if "league" in s: return "League sheets"
@@ -3646,9 +3651,10 @@ def build_all(repo_root: Path) -> None:
                         if "trade" in s: return "Trades"
                         if "pick" in s: return "Picks"
                         return "Other"
-                    _forder = ["Player sheets", "Team sheets", "League sheets",
+                    _forder = ["Equation glossary", "Player sheets", "Team sheets", "League sheets",
                                "Transactions", "Trades", "Picks", "Other"]
                     _fband = {  # (row fill, section-header fill)
+                        "Equation glossary": ("EDEDED", "A5A5A5"),
                         "Player sheets": ("DDEBF7", "9DC3E6"),
                         "Team sheets":   ("E2EFDA", "A9D08E"),
                         "League sheets": ("FFF2CC", "FFD966"),
@@ -3692,7 +3698,8 @@ def build_all(repo_root: Path) -> None:
                                     cell.font = Font(bold=True)
                     for j, col in enumerate(_fcols, 1):
                         ws.column_dimensions[get_column_letter(j)].width = {
-                            "Stat": 36, "Sheet": 30, "Formula": 90, "Notes": 70}.get(col, 20)
+                            "Stat": 36, "Sheet": 30, "Formula": 90, "Notes": 70,
+                            formulas.formula_equations.COLUMN: 90}.get(col, 20)
                     ws.freeze_panes = "A2"
                     ws.sheet_properties.tabColor = _FAMILY_TAB["formulas"]
                     continue
@@ -12124,7 +12131,7 @@ def build_all(repo_root: Path) -> None:
         _TRADE_CUFF_BONUS = 5.0  # mirror the transaction CUFF_BONUS
         # Item 7E (pick value): future draft picks received/sent are valued with
         # the SAME round weights tanking uses (_FUTURE_PICK_WEIGHTS: 1st=0.25,
-        # 2nd=0.09, 3rd=0.03, 4th=0.01, next-3-seasons only) and converted to a
+        # 2nd=0.09, 3rd=0.03, 4th=0.01; every future pick, no cap) and converted to a
         # PPG-equivalent by this coefficient, then added to Trade addition value
         # so pick-heavy hauls register. 20.0 => a future 1st ≈ +5 (≈ one cuff
         # bonus). TUNABLE — adjust to taste.

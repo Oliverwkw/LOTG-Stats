@@ -3,7 +3,7 @@ Player,Player,Player,Team,Team,Team,Year,Year,PF,Team,Player,Team,Year,Year,Stat
 Team,Year,Top team,Week,Year,All time win %,Week Name,(smallest) Playoff tiebreaker,Avg PF,Player Added,Team,Team's traded with 1,Number,Number,Sheet
 Year,Top Team,Last team,Week Name,Result,Regular season record,Week,PF,PF Range,Player Dropped,Addition type,Team's traded with 2,Player Picked,Player Picked,Formula
 Week,Last team,Number of teams,Year,Win %,Regular season win %,PF,Avg PF,Avg margin,type of add/drop (waiver/free agency),Date,Assets received,Team,Team,Notes
-Week Name,Rookie?,Taxi-eligible,Opponent,Regular season record,Playoff record,Avg margin,Avg margin,Margin range,Date,Link to addition,Assets sent,Original Team,Original Team,
+Week Name,Rookie?,Taxi-eligible,Opponent,Regular season record,Playoff record,Avg margin,Avg margin,Margin range,Date,Link to addition,Assets sent,Original Team,Original Team,Equation (API stats only)
 Starter/Bench,Age,Points,Win?,Regular season win %,Playoff win %,Margin range,Margin range,Number of games within 10,Season,Season,Number of assets received,Number of starts before next transaction,Number of starts before next transaction,
 Position started in (if starter),Points,Points (full career),Margin,All-play win %,Toilet bowl record,Number of games within 10,Number of games within 10,Number of games within 5,Date dropped/traded,Date dropped/traded,Number of assets traded away,Number of trades,Number of trades,
 Position,Points (full season),Avg points,UPST,All-play win % minus Win %,Toilet bowl win %,Number of games within 5,Number of games within 5,UPST,Faab,Number of starts before next drop,Total number of assets in trade,Commissioner moved?,Commissioner moved?,
