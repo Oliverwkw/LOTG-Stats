@@ -1240,7 +1240,7 @@ guard-skipped fire), 581→584 (#453), 584→589 (#454), 589→597 (#455).
   season streak` only + its Formulas row.
 
 ## Points above expectation (player_additions, follow-up to #389)
-- [ ] **Price paid (FAAB) + Points above expectation (total / rate)** [per user,
+- [x] **Price paid (FAAB) + Points above expectation (total / rate)** (#467 / `764f709`) [per user,
   2026-10-03]. Three new player_additions columns, `lotg_support.acquisition`;
   design and model-selection evidence in `plan/notes/POINTS_ABOVE_EXPECTATION.md`.
   Total = X − Y over the weeks he was rostered, Y = what same-channel,
@@ -1264,6 +1264,23 @@ guard-skipped fire), 581→584 (#453), 584→589 (#454), 589→597 (#455).
   Trade impact score with them). Startup (2020) picks are never estimated:
   branch run 37149868441 priced the startup pick swap's 4ths/5ths as rookie
   4ths (Pick value received 3,350 on T#1 / T#155) — not a similar asset.
+  **3-part audit — PASS (2026-10-04): post-merge run 648 vs the last pre-merge main run
+  627** (branch runs 37148919888 … 37170007545). Part 1: 583 passed / 2 standing skips, no
+  build ERROR (the only matches are "data-quality sanity: 0 ERROR"), log line `1971
+  additions, 0 unpriced, 0 trade sides off the exported KTC margin`; exports committed
+  (`0602a63`, roster change). Part 2 (15 checks, all pass): free agency $0 (611), waiver =
+  winning bid (489), commissioner blank (6), rookie 5.0X = $20 (9), FAAB-only buys = the
+  dollars (33 trades); no pick above the one before it in all 8 drafts, startup 1.01 CMC
+  $3,457 > 1.04 Cook $2,686; Cook (Luke, 2020-11-29) the top price $5,605, McBride for a
+  2025 4th $20.5, the 2026-07-10 Oliverwkw trade fully priced; rate = total ÷ weeks, never-
+  rostered 0 / 0 (337), this week's move 0, short holds centred (mean −1.2 over 755),
+  Formulas rows present. Part 3: only the 3 new columns and 3 Formulas rows, plus — by
+  design — the 5 late-2020 trades' KTC margins / Pick value received / Change in pick
+  value (pick estimate) and their relative ripple (Trade impact score 61, O-Score 279,
+  Trading skill 28, Add/Drop skill 7); clock / rolling drift (Tenure days 247, Length of
+  tenure, KTC N years later incl. a 2024-10-03 trade reaching its 2-year mark). No row
+  added or removed. Open: digest — exempt stats locked at the move from the 5-week gate
+  (separate PR, per user).
 
 ## Phase 15 — TBD: OLD LEAGUES
 - [ ] **TBD.** Placeholder for integrating other historical/old leagues' data (e.g. the
