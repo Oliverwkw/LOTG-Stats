@@ -176,7 +176,7 @@ def test_every_debatable_choice_is_a_parameter():
     p = B.Params()
     for name in ("prior_season_weight", "recency_half_life", "team_change_weight", "shrink_games",
                  "rookie_shrink_games", "rookie_prior_weeks", "promotion_lookback", "promote",
-                 "preseason_grace_weeks", "beta"):
+                 "preseason_grace_weeks", "next_man_must_have_played", "beta"):
         assert hasattr(p, name), name
     assert 0 < p.prior_season_weight < 1
 
@@ -314,6 +314,47 @@ def test_beta_is_an_nfl_fit_the_league_rosters_cannot_move():
     finally:
         B._clear_caches()
     assert plain and plain == no_league, (plain, no_league)
+
+
+def test_the_next_man_up_is_a_backup_the_team_has_used():
+    # 2026 week 4: Breece Hall out, and the Jets' lift went to a rookie who had
+    # not played a snap, on a draft-round prior 0.3 above Braelon Allen's — the
+    # back who had played all three games. Once a team has played this season
+    # its next man up must have appeared for it.
+    y = _season()
+    if y is None:
+        return _skip("no completed season with exports and the nflverse cache")
+    p = B.Params()
+    base = B._base_expectations(y, range(1, 19), _FAST, league_rostered=False)
+    ev = B._promotion_events(y, base, p)
+    assert len(ev) > 100, len(ev)
+    log = B.game_log([y], scoring_season=y)
+    team_of = dict(zip(zip(base["gsis_id"], base["week"]), base["team"]))
+    apps = set(zip(log["gsis_id"], log["week"], log["team"]))
+    first = log.groupby("team")["week"].min().to_dict()
+    bad = [(r.gsis_id, r.week) for r in ev.itertuples()
+           if r.week > first.get(team_of[(r.gsis_id, r.week)], 99)
+           and not any((r.gsis_id, w, team_of[(r.gsis_id, r.week)]) in apps for w in range(1, r.week))]
+    # `used or present`: a team whose backups have all yet to appear keeps the
+    # highest-E one — allowed, but it must stay rare.
+    assert len(bad) <= 0.02 * len(ev), (len(bad), len(ev), bad[:5])
+
+
+def test_the_lift_weighs_the_backups_own_record():
+    # A single beta x the starter's E overrated weak backups by ~3 points and
+    # underrated strong ones by ~2.5 (2019-2025, out of sample). The two-term
+    # fit must give a weak backup less than a strong one behind the same
+    # starter, and always lift a backup above his own E.
+    y = _season()
+    if y is None:
+        return _skip("no completed season with exports and the nflverse cache")
+    coef = B.calibrate_beta(seasons=(y - 1, y))
+    assert set(coef) >= {"RB", "WR"}, coef
+    for pos, (a, b) in coef.items():
+        assert 0 < a < 1 and b > 0, (pos, a, b)
+        weak, strong = a * 14 + b * 4, a * 14 + b * 10
+        assert weak < strong, (pos, weak, strong)
+        assert weak > 4, (pos, weak)
 
 
 def test_the_inquiry_path_never_scores_a_week_the_build_has_not_finalized():

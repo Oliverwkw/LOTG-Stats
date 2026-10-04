@@ -477,8 +477,12 @@ are discounted again, a game for another NFL team more; a rookie drafted here is
 priced from his LOTG rookie-draft slot, fitted on earlier picks' ROOKIE-YEAR
 points only, for his first few weeks — the slot's weight fades to nothing by
 week 4, then he is judged on his own games (Achane 2023: not bold to start after
-his breakout); a next man up whose higher-E teammate sits out is lifted to beta x
-the teammate's E, beta calibrated per position. `check_calibration` holds the
+his breakout); a next man up whose higher-E teammate sits out is lifted to
+a x the teammate's E + b x his own, (a, b) fitted per position on NFL events
+2019-2025 (one beta x the teammate's E overrated weak backups by ~3 points and
+underrated strong ones by ~2.5); the next man up is the highest-E backup the
+team has USED this season, so a healthy-scratch rookie on his draft-round prior
+is not in line (2026 wk 4: the Jets' lift went to one over Braelon Allen). `check_calibration` holds the
 slope of (starter - reference) actual points on Edge near -1.
 
 A rostered player with no game in the three-season window (Philip Rivers'
@@ -492,7 +496,7 @@ invariant: Lineup Boldness >= the boldest single start of that lineup.
 
 **Inquiry = export, to the cent.** `scripts/boldness.py` reproduces the exported
 column because:
-- beta is a pure NFL fit (the no-history fallback is kept out of the
+- the lift (a, b) is a pure NFL fit (the no-history fallback is kept out of the
   calibration, so the league's rosters cannot move it);
 - outside the build, weeks stop at the last one the committed build finalized
   (its team_week rows). "Any points" alone counts a week in progress from
