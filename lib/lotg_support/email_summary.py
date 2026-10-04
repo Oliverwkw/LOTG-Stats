@@ -727,6 +727,10 @@ def _provenance(cand: "_Cand", season: Optional[int],
     # before the family check (an "Age when drafted" self-pass is not drift).
     if _self_reference(cand):
         return "recompute"
+    # Let onto its board by a change to the gate rule, not by anything played or
+    # transacted (digest.mark_rule_releases).
+    if getattr(cand.item, "rule_release", False):
+        return "recompute"
     if _is_new_data_family(cand.column, cand.family):
         return "drift"
     if new_data is not None:
@@ -769,7 +773,11 @@ def attribute(item, title: str, new_data: Optional["NewData"]) -> str:
     (a caller that doesn't supply one, such as the replica), no season, or a
     fingerprint proving the build's inputs did not change since the last digest,
     in which case historical rows that moved did so on upstream data, not on an
-    edit. Cannot raise: an item it can't classify stays with the news."""
+    edit — except a line a gate-rule change let go (`rule_release`): digest.py
+    is not a fingerprinted input, so that edit never shows in the fingerprint.
+    Cannot raise: an item it can't classify stays with the news."""
+    if new_data is not None and getattr(item, "rule_release", False):
+        return "edit"
     if new_data is None or new_data.edit_landed is False or not new_data.season:
         return "new"
     try:

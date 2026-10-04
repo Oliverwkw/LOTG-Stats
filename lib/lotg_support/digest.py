@@ -677,6 +677,10 @@ def build_snapshot(
         # Marks a snapshot written after add_drops' post-drop points columns
         # stopped being negated (see `migrate_snapshot_signs`).
         _DROPPED_SIGN_KEY: _DROPPED_SIGN_RAW,
+        # The gate rules this snapshot was ranked under, so next week can tell a
+        # line a change to them let go from one new data brought
+        # (`mark_rule_releases`).
+        GATE_META_KEY: gate_rules(),
     }
     held = sorted({str(p) for p in (held_players or ())})
     if held:
@@ -729,6 +733,9 @@ class Crossing:
     # place they took, `by_value` the best of their values.
     passed_by: bool = False
     by_value: Optional[float] = None
+    # Off a board, or back on it, only because the gate rules changed
+    # (`mark_rule_releases`).
+    rule_release: bool = False
 
     def group(self) -> str:
         return _name_list((self.mover,) + tuple(self.co_movers))
@@ -951,6 +958,8 @@ def merge_simultaneous_ties(items: Sequence) -> list:
         head.passed = tuple(sorted({p for x in grp for p in x.passed} - set(movers)))
         if hasattr(head, "is_new"):
             head.is_new = any(x.is_new for x in grp)
+        if hasattr(head, "rule_release"):
+            head.rule_release = all(x.rule_release for x in grp)
         if hasattr(head, "shown"):
             for x in grp[1:]:
                 head.shown.update(x.shown)
@@ -1681,6 +1690,106 @@ _BOARD_SHEETS = {
 # ---------------------------------------------------------------------------
 _WEEK_SHEETS = ("player_week", "team_week", "league_week")
 _EVENT_SHEETS = ("trades", "add_drops", "player_additions") + _PICK_SHEETS
+# Columns a move fixes the moment it is made — a deal-time value, a price, a
+# bid, the player's age or form before it. They have no sample to wait for, so
+# a new move stands on every end of them at once instead of waiting
+# EVENT_MIN_WEEKS (user, 2026-10-03, all sheets). Listed explicitly, not
+# guessed from the name: pick-adjusted differences (their slot pools move) and
+# the "N years later" checkpoints are not locked. Tanking is a judgement of the
+# move when it was made, so it is locked even though a rebuild can re-score it
+# (user, 2026-10-03). Cuff flags are left out: they are not digest boards.
+# Draft rows' Price paid can still move slightly as a new rookie
+# class joins the board it is priced on; it is treated as locked.
+LOCKED_AT_MOVE: Dict[str, frozenset] = {
+    "trades": frozenset({
+        "KTC value difference at deal time", "Pick value received",
+        "Avg PPG of received players in 5 games before trade",
+        "Avg PPG of received players in 5 games before trade adjusted by position",
+        "Asset difference in average age", "Number of assets received",
+        "Number of assets traded away", "Total number of assets in trade",
+        "Number of teams involved", "Tanking"}),
+    "add_drops": frozenset({
+        "Faab", "Total FAAB bid", "FAAB difference over second place", "FAAB premium %",
+        "Number of bids", "KTC value of player added at deal time",
+        "KTC value of player dropped at deal time", "Net KTC value at deal time",
+        "PPG of 5 games before pickup", "PPG of 5 games before pickup adjusted by position",
+        "Age difference", "Tanking"}),
+    "player_additions": frozenset({
+        "Price paid (FAAB)", "KTC at pickup", "Age at pickup",
+        "PPG of 5 games before pickup", "PPG of 5 games before pickup adjusted by position",
+        "Tanking"}),
+    "rookie_picks": frozenset({"KTC on draft day", "Age when drafted", "Tanking"}),
+    "non_rookie_picks": frozenset({"KTC on draft day", "Age when drafted", "Tanking"}),
+}
+GATE_META_KEY = "gate_rules"
+
+
+def gate_rules() -> dict:
+    """Every setting `BoardGate` reads, as stored in the snapshot meta."""
+    return {"locked_at_move": {k: sorted(v) for k, v in LOCKED_AT_MOVE.items()},
+            "event_min_weeks": EVENT_MIN_WEEKS,
+            "rookie_oscore_week": ROOKIE_OSCORE_WEEK,
+            "min_yearly_week": MIN_YEARLY_WEEK}
+
+
+def prior_gate_rules(prior: Optional[dict]) -> dict:
+    """The rules the prior snapshot was ranked under. A snapshot from before
+    they were recorded (#468) had nothing locked and today's waits."""
+    rules = gate_rules()
+    rules["locked_at_move"] = {}
+    rules.update(((prior or {}).get("meta") or {}).get(GATE_META_KEY) or {})
+    return rules
+
+
+def _same_rules(a: dict, b: dict) -> bool:
+    def norm(r):
+        r = dict(r)
+        r["locked_at_move"] = {k: sorted(v) for k, v in (r.get("locked_at_move") or {}).items() if v}
+        return r
+    return norm(a) == norm(b)
+
+
+def mark_rule_releases(prior: Optional[dict], frames: dict, changes: Sequence,
+                       crossings: Sequence = (), window: int = WINDOW) -> int:
+    """Flag each line that moved only because the gate rules (`gate_rules`:
+    `LOCKED_AT_MOVE` and the 5-week / week-8 / yearly waits) changed since the
+    prior snapshot — `rule_release`, which `email_summary.attribute` sends to the
+    edits section: the rules are code, not news. Week 4 of 2026 (#468) let
+    fourteen young moves onto deal-time boards they had been waiting off, and they
+    read as new results.
+
+    This week's frames are ranked again under the prior run's rules; an event
+    line whose place differs under them is the rules' doing — let on, let off, or
+    moved by a row that was. A brand-new row is news either way. On the all-time
+    player boards, a rookie the old week-8 rule would still hold is let go by the
+    rule, not by his games. Unchanged rules flag nothing. Returns how many lines
+    were flagged."""
+    if not prior:
+        return 0
+    before = prior_gate_rules(prior)
+    if _same_rules(before, gate_rules()):
+        return 0
+    old_gate = BoardGate(frames, rules=before)
+    n = 0
+    if changes:
+        old_rank = {(e.sheet, e.column, e.end, e.key): e.rank
+                    for e in all_board_highlights(frames, window, gate=old_gate)}
+        for c in changes:
+            if (getattr(c, "key", "") and not getattr(c, "is_new", False)
+                    and old_rank.get((c.sheet, c.column, c.end, c.key)) != c.rank):
+                c.rule_release = True
+                n += 1
+    if crossings:
+        held_before = set(((prior.get("meta") or {}).get("held_players")) or ())
+        # Held under the old rule, let go under the new one.
+        still_held = (old_gate.held_rookies() & held_before) - BoardGate(frames).held_rookies()
+        for c in crossings:
+            if c.section == "players" and c.mover in still_held:
+                c.rule_release = True
+                n += 1
+    return n
+
+
 # player_week tenure columns: an average over the player's CURRENT stint on the
 # team, which began with the move that brought him there.
 _TENURE_MARKERS = ("on team", "team starter", "by this team")
@@ -1780,7 +1889,10 @@ class BoardGate:
       * the in-progress season's player/team/league season rows: until the season
         is over. "On pace" (week 5 on) reports them meanwhile.
       * trades, add/drops, pickups and draft picks: until `EVENT_MIN_WEEKS` NFL
-        weeks have been played since the move (an offseason move: week 5).
+        weeks have been played since the move (an offseason move: week 5) —
+        except on a column the move fixes the moment it is made
+        (`LOCKED_AT_MOVE`: deal-time values, prices, bids, age and form before
+        it), which stands on every end at once.
       * player_week: a season-to-date column ("... this season") on the
         in-progress season's rows until week `MIN_YEARLY_WEEK` — then all of them,
         week 1's included; a tenure column ("PPG as team starter") until the stint
@@ -1790,10 +1902,16 @@ class BoardGate:
     weeks played are team_week's, a season's length the longest before it — so no
     year is named and it turns over to the next season by itself. `lag` pretends
     the last `lag` weeks are unplayed: last week's gate, to see what this week let
-    go (`release_lead`)."""
+    go (`release_lead`). `rules` replaces `gate_rules()`: the prior run's, to see
+    what a change to them let go (`mark_rule_releases`)."""
 
-    def __init__(self, frames: dict, lag: int = 0):
+    def __init__(self, frames: dict, lag: int = 0, rules: Optional[dict] = None):
         frames = frames or {}
+        rules = dict(gate_rules(), **(rules or {}))
+        self.locked = {k: frozenset(v) for k, v in (rules["locked_at_move"] or {}).items()}
+        self.event_min_weeks = int(rules["event_min_weeks"])
+        self.rookie_oscore_week = int(rules["rookie_oscore_week"])
+        self.min_yearly_week = int(rules["min_yearly_week"])
         tw, ty = frames.get("team_week"), frames.get("team_year")
         weeks: List[Tuple[int, int]] = []
         if tw is not None and not tw.empty and {"Year", "Week"} <= set(tw.columns):
@@ -1827,7 +1945,7 @@ class BoardGate:
         Rostered upper quartile % (50)"). Read off player_week's `Rookie?` flag, so
         an undrafted rookie is held too."""
         pw = self._player_week
-        if (not self.season_open or self.played >= ROOKIE_OSCORE_WEEK or pw is None
+        if (not self.season_open or self.played >= self.rookie_oscore_week or pw is None
                 or pw.empty or not {"Year", "Player", "Rookie?"} <= set(pw.columns)):
             return set()
         this = pw[pd.to_numeric(pw["Year"], errors="coerce") == self.season]
@@ -1844,7 +1962,7 @@ class BoardGate:
         return pd.to_numeric(df["Year"], errors="coerce") == self.season
 
     def _young_events(self, df: pd.DataFrame,
-                      min_weeks: int = EVENT_MIN_WEEKS) -> Optional["pd.Series"]:
+                      min_weeks: Optional[int] = None) -> Optional["pd.Series"]:
         if not self.weeks:
             return None
         if "Date" in df.columns:
@@ -1856,6 +1974,8 @@ class BoardGate:
                 starts.append((int(yv), 1) if yv is not None else None)
         else:
             return None
+        if min_weeks is None:
+            min_weeks = self.event_min_weeks
         return pd.Series([s is not None and self.elapsed_since(s) < min_weeks
                           for s in starts], index=df.index)
 
@@ -1871,7 +1991,7 @@ class BoardGate:
                 young.append(False)
                 continue
             start = self._pos.get((int(y), int(w)), n) - (int(k) - 1)
-            young.append(n - start < EVENT_MIN_WEEKS)
+            young.append(n - start < self.event_min_weeks)
         return pd.Series(young, index=df.index)
 
     def restricted(self, df: pd.DataFrame, sheet: str, column: str) -> Optional["pd.Series"]:
@@ -1880,11 +2000,13 @@ class BoardGate:
         if sheet in _YEARLY_SHEETS:
             kind = "season"
         elif sheet in _EVENT_SHEETS:
+            if column in self.locked.get(sheet, ()):
+                return None              # fixed at the move: nothing to wait for
             kind = "event"
         elif sheet == "player_week":
             c = column.lower()
             if "this season" in c:
-                if self.played >= MIN_YEARLY_WEEK:
+                if self.played >= self.min_yearly_week:
                     return None
                 kind = "season"
             elif any(m in c for m in _TENURE_MARKERS):
@@ -1896,7 +2018,7 @@ class BoardGate:
         # This year's rookie class waits for the week the build first grades it
         # (its O-Score, `ROOKIE_OSCORE_WEEK`), not the five weeks a trade or
         # pickup does: week 1 of 2026 put ten picks on the boards off one game.
-        weeks = ROOKIE_OSCORE_WEEK if sheet == "rookie_picks" else EVENT_MIN_WEEKS
+        weeks = self.rookie_oscore_week if sheet == "rookie_picks" else self.event_min_weeks
         key = (id(df), kind, weeks)
         if key not in self._memo:
             if kind == "event":
@@ -2372,6 +2494,8 @@ class EventCrossing:
     # The faller's side — see `Crossing.passed_by`. `label` is the row that fell.
     passed_by: bool = False
     by_value: Optional[float] = None
+    # On the board only because the gate rule changed (`mark_rule_releases`).
+    rule_release: bool = False
 
     def _show(self, label: str) -> str:
         return self.shown.get(label, label)

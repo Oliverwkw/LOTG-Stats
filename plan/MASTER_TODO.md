@@ -1282,6 +1282,37 @@ guard-skipped fire), 581→584 (#453), 584→589 (#454), 589→597 (#455).
   added or removed. Open: digest — exempt stats locked at the move from the 5-week gate
   (separate PR, per user).
 
+## Digest: stats locked at the move skip the 5-week gate
+- [ ] **`digest.LOCKED_AT_MOVE`** [per user, 2026-10-03, all sheets]. A trade, add/drop,
+  pickup or draft-pick row used to stand only on the high end of a counting stat until
+  `EVENT_MIN_WEEKS` (5) NFL weeks after the move. Columns the move fixes the moment it is
+  made have no sample to wait for and now stand on every end at once: deal-time KTC values,
+  Pick value received, pre-move form (PPG of 5 games before), FAAB bids and margins, Price
+  paid (FAAB), KTC at pickup / on draft day, ages at the move, asset counts, and Tanking
+  (user: a judgement of the move when made). Listed explicitly (not by name pattern); not
+  locked: cuff flags (not digest boards), pick-adjusted differences (their pools move),
+  "N years later" checkpoints. Guards: `check_locked_at_move_columns_skip_the_wait`,
+  `check_locked_at_move_columns_exist`.
+- [ ] **A gate-rule change is an edit, not news** [per user, 2026-10-03]. The snapshot
+  meta records every gate setting it ranked under (`gate_rules`: LOCKED_AT_MOVE, the
+  5-week event wait, the week-8 rookie wait, the yearly week-5 wait).
+  `mark_rule_releases` re-ranks this week's frames under the prior run's rules (a
+  snapshot without them = nothing locked, today's waits) and flags each event line whose
+  place differs under them, plus each all-time player-board line of a rookie the old
+  week-8 rule would still hold (`rule_release`); `email_summary.attribute` sends those
+  to "Changes from edits, not new data" even when the inputs fingerprint is unchanged
+  (digest.py is not fingerprinted). Brand-new moves stay news. Unchanged rules flag
+  nothing, and a week with no build change puts nothing in the edits section (quiet-week
+  replay: 0 / 0). Guard: `check_a_gate_rule_change_goes_to_the_edits_section`.
+  Effect on today's digest (committed exports): 14 changed lines, all on locked columns
+  of young moves (e.g. 2026 1.01 Jeremiyah Love's 7,573 KTC on draft day); 15 lines
+  flagged (the 13 releases + 2 rows they pushed down), all in the edits section with the
+  2025 Mac Jones recompute; 1 item with the news; the lede reads as main's.
+- [ ] **`scripts/build_digest.py` only writes the snapshot with `--write-snapshot`**
+  (CI passes it in build.yml). It used to overwrite whatever `--snapshot` it was given,
+  so a by-hand comparison's second run diffed against the first's output. Guard:
+  `check_year_round_build` step 3 (a run without the flag leaves the file byte-identical).
+
 ## Phase 15 — TBD: OLD LEAGUES
 - [ ] **TBD.** Placeholder for integrating other historical/old leagues' data (e.g. the
   separate ESPN leagues seen in the 2020 emails — UChicago '24 = leagueId 57687541, UChi
