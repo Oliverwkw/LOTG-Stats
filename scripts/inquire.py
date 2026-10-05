@@ -118,6 +118,11 @@ def cmd_describe(args) -> None:
         print(f"{key:<{width}} : {val}")
 
 
+def cmd_formula(args) -> None:
+    docs = Q.formula(args.column, sheet=args.sheet)
+    print(("\n\n" + "-" * 72 + "\n\n").join(d.text(with_glossary=not args.no_glossary) for d in docs))
+
+
 def cmd_rows(args) -> None:
     df = _select(Q.rows(args.sheet, *args.where), args.select)
     _emit(df, args.csv, args.limit)
@@ -455,6 +460,12 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("sheet")
     p.add_argument("column")
     p.set_defaults(func=cmd_describe)
+
+    p = sub.add_parser("formula", help="a stat's formula in words and as an equation in raw API variables")
+    p.add_argument("column", help="the column name, e.g. 'Luck' or 'Wins added'")
+    p.add_argument("--sheet", default=None, help="narrow to one sheet when several document it")
+    p.add_argument("--no-glossary", action="store_true", help="omit the glossary symbols it uses")
+    p.set_defaults(func=cmd_formula)
 
     p = sub.add_parser("rows", help="filtered rows of a sheet")
     p.add_argument("sheet")
