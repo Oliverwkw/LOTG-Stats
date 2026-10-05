@@ -1444,7 +1444,7 @@ guard-skipped fire), 581→584 (#453), 584→589 (#454), 589→597 (#455).
   nflverse cache, not the audit source): 26 dead starts (= #464's audited 26) on 23
   team-weeks; team_week total 13 → 39 (2020: 2 → 10; 2021–25: 11 → 29).
   Merged #476 / `6d74c1f` after branch run 667 (all steps green, no error annotation).
-  **3-part audit — Parts 1–2 PASS, Part 3 PARTIAL (2026-10-05): post-merge run 668
+  **3-part audit — PASS (2026-10-05; Part 3 completed by a second session): post-merge run 668
   (exports committed `db7948e`) vs pre-merge main run 666 (`64bbf48`).** The run-666
   artifact could not be read in-session (the proxy blocks `*.blob.core.windows.net`, so
   artifacts and job logs are unreachable). Run 668's committed exports and raw logs were
@@ -1464,11 +1464,18 @@ guard-skipped fire), 581→584 (#453), 584→589 (#454), 589→597 (#455).
   - the Formulas Empty slots / Lineup Boldness text and the Empty slots equation read the new
     definition.
 
-  Part 3 (column-level only): `Empty slots` moved only on those 23 team-weeks / 14
-  team-years / 6 all-time rows. NOT done: the every-sheet sweep vs 666. Lineup Boldness
-  is untouched by the diff (only `n_empty`'s source changed), but that is checked by
-  reading the code, not by data: its 312 cells that differ vs 653 come from #470 / #471.
-  - needs-human-judgment: re-run Part 3 against the run-666 artifact once the environment
-    allows `*.blob.core.windows.net`.
+  Part 3 — PASS (full every-sheet sweep, artifacts 668 vs 666 downloaded with `gh run
+  download`; also branch run 667 vs 666). Run 668 = run 667 cell for cell on all 15 CSVs.
+  The build_debug.log error/warn profile is identical to 666 (old nflverse 404s + KTC proxy).
+  Changed cells vs 666:
+  - intended: `Empty slots` team_week 23 / team_year 14 / team_all_time 7 (every team but
+    shmuel256; the earlier note said 6); formulas 2 Formula + 1 Equation. Lineup Boldness:
+    0 cells changed (now checked against the data, not just the code). Excel sheets total 39.
+  - by-design (KTC calendar roll, not this PR): add_drops KTC 1y/2y on 6 rows + O-Score
+    ±0.1 on 5; player_additions KTC N-years-after on 16 rows. All are forward horizons that
+    land on 2026-10-04/05 (today), so they read the intraday KTC value. 3 of them go 354 → 0.0
+    (Thompkins, Gus Edwards, Zach Wilson, 2023-10-04 +3y) = the absent-from-today's-directory
+    artifact.
+  - no other sheet changed.
   - by-design: 2026 has no dead start yet (weeks 1–3), so the live season does not exercise
     the change.
