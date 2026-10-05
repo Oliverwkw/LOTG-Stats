@@ -142,6 +142,9 @@ sheets' "Lineup Boldness" (the build feeds it its own data through
 #    column names AND their documented notes are searched)
 python scripts/inquire.py columns 'efficien|max pf'
 python scripts/inquire.py describe team_week Efficiency
+python scripts/inquire.py formula 'Wins added'          # in words AND as an equation in raw API
+                                                       # variables (+ the glossary symbols it uses);
+                                                       # --sheet to pick one, --no-glossary to trim
 
 # 2. Rank it, filter it
 python scripts/inquire.py top player_year Points -n 10 --where Year=2025

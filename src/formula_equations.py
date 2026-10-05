@@ -87,7 +87,7 @@ ENTRIES = [
     (RAW, "pick_no(pk)", "Overall pick number.", "Sleeper /draft/{id}/picks → pick_no", _fn("pick_no") + _bare("pick_no")),
     (RAW, "dslot(pk)", "Draft slot of the pick.", "Sleeper /draft/{id}/picks → draft_slot", _fn("dslot", "draft_slot") + _bare("dslot")),
     (RAW, "pl(pk)", "Player picked.", "Sleeper /draft/{id}/picks → player_id", _fn("pl") + _bare("pl")),
-    (RAW, "by(pk)", "Roster that made the pick.", "Sleeper /draft/{id}/picks → roster_id / picked_by", _fn("by") + _bare("by")),
+    (RAW, "by(pk)", "Roster that made the pick.", "Sleeper /draft/{id}/picks → roster_id / picked_by", _fn("by") + (r"[(,] ?by ?[,)]", r"by = ", r"= by\b")),
     (RAW, "dd(Y)", "Draft day of the season-Y draft.", "Sleeper /draft/{id} → start_time", _fn("dd") + _bare("dd")),
     (RAW, "slot_to_roster_id", "Draft slot → original roster.", "Sleeper /draft/{id} → slot_to_roster_id", _fn("slot_to_roster_id") + _bare("slot_to_roster_id")),
     (RAW, "own(Y,r,t0)", "Current owner of the season-Y round-r pick originally t0's.", "Sleeper /league/{id}/traded_picks → season, round, roster_id, owner_id", _fn("own")),
@@ -133,7 +133,7 @@ ENTRIES = [
     (OPS, "stage(t,w)", "Game type.", "From WB(y) / LB(y) rounds: Semifinal, Final, 3rd Place, Toilet Semis, Toilet Final, Toilet losers; 'Week N' for w ∈ REG.", _fn("stage")),
     (OPS, "PO", "Championship-bracket games.", "{w : stage(t,w) ∈ {Semifinal, Final}}.", _bare("PO")),
     (OPS, "champ(y)", "Champion.", "The winner of WB(y)'s Final.", _fn("champ")),
-    (OPS, "N", "Number of teams.", "|{roster_id}|.", _bare("N")),
+    (OPS, "N", "Number of teams.", "|{roster_id}|.", (r"(?<![\w$'])N(?![\w'(/])",)),
     (OPS, "OPT(X, y)", "Optimal lineup.", "Greedy best lineup of point set X by posS: top 1 QB, 2 RB, 3 WR, 1 TE, then FLEX from RB/WR/TE (2 FLEX from 2024), then 1 SUPERFLEX from QB/RB/WR/TE; returns the sum.", _fn("OPT")),
     (OPS, "MaxPF(t,w)", "Max PF.", "OPT({pts(p,w) : p ∈ R(t,w)}, y).", _fn("MaxPF") + _bare("MaxPF")),
     (OPS, "F(y,q)", "Position factor.", "mean{pts(p,w) : st, season y'} / mean{pts(p,w) : st, season y', pos(p) = q}; y' = y once week 5 of y is played, else y − 1.", _fn("F") + _bare("F")),
@@ -146,7 +146,7 @@ ENTRIES = [
     (OPS, "avgN(p,d,n)", "Average of recent NFL games.", "Mean npts of the last min(n, available) GL(p) games with gd < d (ET day).", _fn("avgN")),
     (OPS, "ppg_nfl(p,[a,b))", "NFL points per game in a window.", "mean{npts(p,y,w) : APP(p,y,w), gd(nfl(p),y,w) ∈ [a,b)}.", _fn("ppg_nfl")),
     (OPS, "T", "Tenure.", "[start, e) of p on t from its acquisition.", _bare("T")),
-    (OPS, "e", "Tenure end.", "The first date after the start with drops(x)[p] = t or p sent by t in a trade; else today.", _bare("e")),
+    (OPS, "e", "Tenure end.", "The first date after the start with drops(x)[p] = t or p sent by t in a trade; else today.", (r"(?<![\w$'])e(?![\w'(^])",)),
     (OPS, "Wk(p,t,T)", "Tenure weeks.", "{w in T : ro(p,t,w) = 1}.", _fn("Wk") + _bare("Wk")),
     (OPS, "ppg_on(p,t,T)", "On-team points per game.", "Σ_{w ∈ Wk : H(p,w)} pts(p,w) / |{w ∈ Wk : H(p,w)}|.", _fn("ppg_on")),
     (OPS, "nst", "Tenure starts.", "Σ_{w ∈ Wk} st(p,t,w).", _bare("nst")),
@@ -180,8 +180,8 @@ ENTRIES = [
     (CTX, "w*", "First start.", "min St (or the first started tenure week).", (r"w\*",)),
     (CTX, "Bd", "Waiver bidders.", "Rosters u with a counted claim on a in x's waiver run (type = waiver on a, status complete or failed, not failed for roster limit / insufficient FAAB / an already-played drop).", _bare("Bd")),
     (CTX, "c_u", "A bidder's counted claim.", "u's winning claim, else u's last-created claim on a.", _bare("c_u")),
-    (CTX, "A", "Assets received (trades).", "adds(x)[p] = t, dp(x).owner_id = t, wb(x).receiver = t.", _bare("A")),
-    (CTX, "B", "Assets sent (trades).", "drops(x)[p] = t, dp(x).previous_owner_id = t, wb(x).sender = t.", _bare("B")),
+    (CTX, "A", "Assets received (trades).", "adds(x)[p] = t, dp(x).owner_id = t, wb(x).receiver = t.", (r"(?<![\w$'/])A(?![\w'(])",)),
+    (CTX, "B", "Assets sent (trades).", "drops(x)[p] = t, dp(x).previous_owner_id = t, wb(x).sender = t.", (r"(?<![\w$'/])B(?![\w'(])",)),
     (CTX, "A'", "Received players who played here.", "{q ∈ A players : Wk(q,t,T_q) ≠ ∅} ∪ {pl(pk) : pk ∈ A, by(pk) = t, own(pk) = t from d0 to the draft, Wk ≠ ∅}.", (r"A'",)),
     (CTX, "T_q", "A received player's tenure.", "[d0 (dd for a drafted pick), e_q).", (r"T_q",)),
     (CTX, "e*", "End of the received side.", "max_{q ∈ A'} e_q (open → today); A' = ∅ → min(today, d0 + 4 years).", (r"e\*",)),
@@ -331,13 +331,27 @@ def expanded(key):
 
 
 def _clause(text):
-    """A definition as an in-cell clause: no closing period, a leading plain
-    capitalised word ('The', 'Mean', …) lower-cased."""
+    """A definition as an in-cell clause: no closing period, and a leading
+    capitalised word lower-cased only when it opens a sentence ('The first
+    league week …' → 'the first …'). A symbol or a name that leads the text
+    ('Kp = …', 'Sep 1 …', 'Bust ≤ q10 …') keeps its case: the word after it
+    does not start with a lower-case letter."""
     t = text.strip().rstrip(".")
-    first = t.split(" ", 1)[0]
-    if first[:1].isupper() and first[1:].isalpha() and first[1:].islower():
+    words = t.split(" ", 2)
+    first = words[0]
+    nxt = words[1] if len(words) > 1 else ""
+    if (first[:1].isupper() and first[1:].isalpha() and first[1:].islower()
+            and nxt[:1].islower()):
         t = first.lower() + t[len(first):]
     return t
+
+
+def glossary_for(key):
+    """[(sheet, symbol, meaning, definition)] — the glossary rows the equation
+    of (Stat, Sheet) `key` relies on, in glossary order (the symbols it defines
+    in-cell are already in its text)."""
+    need = _closure(EQUATIONS[key]) & kept_symbols()
+    return [g for g in glossary() if g[1] in need]
 
 
 # {(Stat, Sheet) of a formulas._ROWS entry: its equation}

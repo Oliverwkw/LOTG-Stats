@@ -294,20 +294,105 @@ class ColumnHit:
         return f"{self.sheet}.{self.column}{tail}"
 
 
+# The data sheets a Formulas row can name; its Sheet field is free text that
+# often lists several ('add_drops / trades', 'team_week / team_year (Luck); …').
+_FORMULA_SHEETS = tuple(s for s in SHEETS if s not in ("picks", "formulas"))
+
+
+def _formula_keys(stat: str, sheet_field: str) -> List[Tuple[str, str]]:
+    """(sheet, column) pairs a Formulas row documents: every data sheet named in
+    its Sheet field x every '/'-separated name in its Stat."""
+    field = str(sheet_field or "")
+    sheets = [s for s in _FORMULA_SHEETS if re.search(rf"(?<![\w]){re.escape(s)}(?![\w])", field)]
+    names = [n.strip() for n in str(stat or "").split("/") if n.strip()]
+    return [(s, n) for s in sheets for n in names]
+
+
 @functools.lru_cache(maxsize=1)
 def _formula_index(root: str) -> Dict[Tuple[str, str], Tuple[str, str]]:
-    """{(sheet, Stat): (formula, notes)} from formulas.csv, sheet-canonicalised."""
+    """{(sheet, column): (formula, notes)} from formulas.csv. A row whose Sheet
+    names several sheets (or whose Stat lists several names) indexes under each;
+    the first row to claim a key wins."""
     try:
         df = _load_sheet_cached("formulas", root)
     except FileNotFoundError:
         return {}
     out: Dict[Tuple[str, str], Tuple[str, str]] = {}
     for _, r in df.iterrows():
-        try:
-            key = (sheet_name(r.get("Sheet", "")), str(r.get("Stat", "")))
-        except KeyError:
+        for key in _formula_keys(r.get("Stat", ""), r.get("Sheet", "")):
+            out.setdefault(key, (str(r.get("Formula", "")), str(r.get("Notes", ""))))
+    return out
+
+
+@dataclass(frozen=True)
+class FormulaDoc:
+    """One stat's definition, in words and as an equation over raw API data."""
+    stat: str
+    sheets: str
+    english: str                      # the Formulas sheet's Formula
+    notes: str
+    math: str                         # the Equation column, in-cell definitions included
+    glossary: Tuple[Tuple[str, str, str, str], ...]   # (block, symbol, meaning, definition) it relies on
+
+    def text(self, with_glossary: bool = True) -> str:  # pragma: no cover - display only
+        out = [f"{self.stat}  [{self.sheets}]", "", "In words:", f"  {self.english}"]
+        if self.notes:
+            out += ["", "Notes:", f"  {self.notes}"]
+        out += ["", "As an equation (raw API variables only):", f"  {self.math}"]
+        if with_glossary and self.glossary:
+            out += ["", "Glossary symbols it uses:"]
+            out += [f"  {sym} = {m} ({d})" if d.startswith("API field") else f"  {sym} = {d}"
+                    for _b, sym, m, d in self.glossary]
+        return "\n".join(out)
+
+
+@functools.lru_cache(maxsize=1)
+def _formula_modules():
+    """src/formulas.py and src/formula_equations.py, loaded from the code (not
+    exports/formulas.csv), so an answer reflects the current definitions even
+    before the next build commits the sheet."""
+    import importlib.util
+    import sys
+    src = repo_root() / "src"
+    if str(src) not in sys.path:
+        sys.path.insert(0, str(src))
+    mods = []
+    for name in ("formula_equations", "formulas"):
+        spec = importlib.util.spec_from_file_location(name, src / f"{name}.py")
+        m = importlib.util.module_from_spec(spec)
+        sys.modules.setdefault(name, m)
+        spec.loader.exec_module(m)
+        mods.append(m)
+    return tuple(mods)
+
+
+def formula(column: str, sheet: Optional[str] = None) -> List[FormulaDoc]:
+    """A stat's definition in words AND as an equation in raw API variables.
+
+    `column` matches a documented column name (case-insensitive; a Formulas
+    row's Stat may list several names separated by '/'); `sheet` narrows to one
+    sheet. One FormulaDoc per matching Formulas row — a column documented
+    separately on two sheets returns both. Raises KeyError with suggestions when
+    nothing matches."""
+    eqs, fm = _formula_modules()
+    want = column.strip().lower()
+    only = sheet_name(sheet) if sheet else None
+    out: List[FormulaDoc] = []
+    names_seen: List[str] = []
+    for r in fm._ROWS:
+        names = [n.strip() for n in r["Stat"].split("/") if n.strip()] + list(r.get("Columns") or [])
+        names_seen += names
+        if want not in {n.lower() for n in names}:
             continue
-        out[key] = (str(r.get("Formula", "")), str(r.get("Notes", "")))
+        if only and only not in {s for s, _n in _formula_keys(r["Stat"], r["Sheet"])}:
+            continue
+        key = (r["Stat"], r["Sheet"])
+        out.append(FormulaDoc(stat=r["Stat"], sheets=r["Sheet"], english=r.get("Formula", ""),
+                              notes=r.get("Notes", ""), math=eqs.expanded(key),
+                              glossary=tuple((b, s, m, d) for b, s, m, d in eqs.glossary_for(key))))
+    if not out:
+        raise KeyError(f"no Formulas row documents {column!r}"
+                       + (f" on {only}" if only else "") + _suggest(column, sorted(set(names_seen))))
     return out
 
 
