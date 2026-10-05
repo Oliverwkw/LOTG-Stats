@@ -995,7 +995,7 @@ EQUATIONS = {
     ('Lineup Boldness', 'team_week / team_year / team_all_time'):
         "max(0, BLV({XP(q,y,w) : q ∈ Fs ∪ {b ∈ R(t,w) ∖ S(t,w) : H(b,w)}}, Σ_Fs) − Σ_{q ∈ Fs} XP(q,y,w)), Fs = S(t,w) minus empty slots and dead starts, Σ_Fs = the filled slots; team_year / team_all_time = mean over weeks played; N/A before the season's first game",
     ('Empty slots', 'team_week / team_year / team_all_time'):
-        "|{i : S(t,w)[i] = '0'}|  (2020: ESPN slots left empty); year/all-time = Σ",
+        "|{i : S(t,w)[i] = '0' ∨ (¬H(S(t,w)[i],w) ∧ pts(S(t,w)[i],w) = 0)}|  (2020: ESPN slots left empty); year/all-time = Σ",
     ('Brosenzweig', 'team_week'):
         '[win(t,w) = 0 ∧ |{u : PF(u,w) > PF(t,w)}| = 1]',
     ('Sisenzweig', 'team_week'):
