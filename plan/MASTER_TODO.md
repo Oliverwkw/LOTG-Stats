@@ -1443,6 +1443,32 @@ guard-skipped fire), 581→584 (#453), 584→589 (#454), 589→597 (#455).
   unchanged — dead starts were already out of the comparison. Local preview (snapshot +
   nflverse cache, not the audit source): 26 dead starts (= #464's audited 26) on 23
   team-weeks; team_week total 13 → 39 (2020: 2 → 10; 2021–25: 11 → 29).
-  **3-part audit: pending** (post-merge CI run vs the last pre-merge main run). Expect only
-  `Empty slots` on team_week / team_year / team_all_time and 2 Formulas rows (Lineup Boldness, Empty
-  slots) to move.
+  Merged #476 / `6d74c1f` after branch run 667 (all steps green, no error annotation).
+  **3-part audit — Parts 1–2 PASS, Part 3 PARTIAL (2026-10-05): post-merge run 668
+  (exports committed `db7948e`) vs pre-merge main run 666 (`64bbf48`).** The run-666
+  artifact could not be read in-session (the proxy blocks `*.blob.core.windows.net`, so
+  artifacts and job logs are unreachable). Run 668's committed exports and raw logs were
+  used instead, and `Empty slots` was checked against run 653's committed exports
+  (`e6ebe27`). The column has not changed since #464, so 653 still holds the old
+  definition there. Part 1: 606 passed / 2 standing skips; 0 ERROR lines in run 668's section of
+  build_debug.log; `boldness: 7771 starts, 832 lineups`; no email / rotation. Part 2:
+  - all 26 dead starts in player_week (flag + 0 pts) have N/A Boldness;
+  - on every completed team-week (832 rows, same keys), new = old + dead starts, 0 mismatches;
+  - exactly 23 team-weeks changed, all of them dead-start weeks (2020 6, 2021 8, 2022 4,
+    2023 2, 2024 1, 2025 2); total 13 → 39;
+  - team_year (56) / team_all_time (8) = Σ team_week, 0 mismatches; 14 team-years moved;
+  - cases: JacobRosenzweig 2020 wk12 0 → 2 (Julio Jones, Mark Andrews), wk14 0 → 2 (Cooks,
+    Julio Jones); BROsenzweig 2021 wk9 0 → 2 (Hopkins, Sermon); plehv79 2025 wk6 0 → 1
+    (Quentin Johnston); LWebs53 2025 wk15 0 → 1 (Chris Rodriguez); plehv79 2022 wk16 stays 6,
+    LWebs53 2025 wk9 stays 1, shmuel256 2020 Final stays 2 (no dead start);
+  - the Formulas Empty slots / Lineup Boldness text and the Empty slots equation read the new
+    definition.
+
+  Part 3 (column-level only): `Empty slots` moved only on those 23 team-weeks / 14
+  team-years / 6 all-time rows. NOT done: the every-sheet sweep vs 666. Lineup Boldness
+  is untouched by the diff (only `n_empty`'s source changed), but that is checked by
+  reading the code, not by data: its 312 cells that differ vs 653 come from #470 / #471.
+  - needs-human-judgment: re-run Part 3 against the run-666 artifact once the environment
+    allows `*.blob.core.windows.net`.
+  - by-design: 2026 has no dead start yet (weeks 1–3), so the live season does not exercise
+    the change.
