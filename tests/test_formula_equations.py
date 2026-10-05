@@ -77,9 +77,22 @@ def test_output_leads_with_glossary_and_matches_plan():
     assert out[e.COLUMN].astype(str).str.strip().ne("").all()
 
 
+def test_in_cell_clauses_keep_symbol_case():
+    """A where-clause lower-cases a leading sentence word ('The …' → 'the …')
+    but never a symbol or name ('Kp = …', 'Sep 1 …', 'Bust ≤ …')."""
+    e = _load("formula_equations")
+    assert e._clause("The first league week.") == "the first league week"
+    assert e._clause("Kp = S(t,w) ∖ OUT") == "Kp = S(t,w) ∖ OUT"
+    assert e._clause("Sep 1 of y + 7(w − 1).") == "Sep 1 of y + 7(w − 1)"
+    assert e._clause("Bust ≤ q10 < Lower") == "Bust ≤ q10 < Lower"
+    for key in e.EQUATIONS:
+        cell = e.expanded(key)
+        assert "kp = S(t,w)" not in cell and "= sep 1" not in cell and "= bust ≤" not in cell, key
+
+
 if __name__ == "__main__":
     for fn in (test_every_stat_has_one_equation, test_cross_references_resolve,
-               test_glossary_cross_references_resolve, test_glossary_rows_are_the_5_use_symbols,
+               test_glossary_cross_references_resolve, test_glossary_rows_are_the_5_use_symbols, test_in_cell_clauses_keep_symbol_case,
                test_output_leads_with_glossary_and_matches_plan):
         fn()
         print(f"ok  {fn.__name__}")
