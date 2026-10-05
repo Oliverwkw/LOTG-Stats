@@ -18960,8 +18960,8 @@ def build_all(repo_root: Path) -> None:
     # build's own matchups, flags, rookie picks, scorer and gsis bridge, never
     # the committed exports. player_week = starters only; team_year /
     # team_all_time = the AVERAGE per lineup over the weeks played. Empty slots
-    # are not boldness: they are counted in "Empty slots" (team_week), SUMMED
-    # on team_year / team_all_time.
+    # (and dead starts: ruled out, scored 0) are not boldness: they are counted
+    # in "Empty slots" (team_week), SUMMED on team_year / team_all_time.
     try:
         from lotg_support import boldness as _bold
         _t0 = datetime.now()

@@ -32,7 +32,8 @@ shmuel256 emptying two slots in the 2020 Final once it was won), not a
 start/sit gamble. Both halves judge the lineup on the slots that were FILLED
 only: the ex-ante max fills only those, and a starter's reference must be able
 to take his place among them. Empty slots are counted instead (`Empty slots`).
-A dead start (below) is judged the same way, but is not counted as empty.
+A dead start (below) is judged the same way, and is counted as empty too
+[per user, 2026-10-05].
 An empty-slot row still appears in `boldness()` (its reference shows what could
 have filled it) but carries no Boldness.
 
@@ -96,8 +97,9 @@ Everything debatable is a field on `Params`; `tune()` reports the sensitivity.
   a name share flags. Rare; counted nowhere.
 * A DEAD START — a starter flagged unavailable (bye / injured / suspended) who
   scored 0 — is treated exactly like an empty slot [per user, 2026-10-02]: no
-  Boldness, and his slot drops out of the lineup comparison. Flagged
-  `Dead start?`. A flagged starter who did score keeps his Boldness.
+  Boldness, his slot drops out of the lineup comparison, and it counts in
+  `Empty slots` [per user, 2026-10-05]. Flagged `Dead start?`. A flagged
+  starter who did score keeps his Boldness.
 * nflverse's position is a player's, not his role's (Taysom Hill), and an
   offseason depth-chart change is not an injury (Jordan Love 2023): both read
   bold in week 1.
@@ -1103,7 +1105,8 @@ def team_boldness(season: int, weeks: Optional[Sequence[int]] = None,
                   params: Params = Params(), include_live: bool = True) -> pd.DataFrame:
     """One row per team-week: the ex-ante Max PF (best lineup E allowed,
     `best_lineup_value`, over the slots the manager FILLED) minus the expected
-    points of the lineup set, and how many slots were left empty."""
+    points of the lineup set, and how many slots were left empty (a dead
+    start counts as empty)."""
     season = int(season)
     played, live = season_weeks(season, include_live)
     wks = list(weeks) if weeks is not None else played + ([live] if live else [])
@@ -1119,9 +1122,9 @@ def team_boldness(season: int, weeks: Optional[Sequence[int]] = None,
         is_live = wk == live
         unavail = _live_unavailable(season, wk) if is_live else {pid for pid, w in unavail_hist if w == wk}
         for rid, wr in week_rows(season, wk).items():
-            _, _, n_empty = filled_slots(wr.starters, slots)
             dead = dead_starts(wr, unavail, is_live)
-            starters, filled_sl, _ = filled_slots(
+            # a dead start counts as an empty slot [per user, 2026-10-05]
+            starters, filled_sl, n_empty = filled_slots(
                 [Q.EMPTY_SLOT if p in dead else p for p in wr.starters], slots)
             pool = starters + [b for b in wr.bench if b not in unavail]
             e = {p: E_idx.get((bridge.get(p), wk)) for p in pool}

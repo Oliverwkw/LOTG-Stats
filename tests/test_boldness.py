@@ -139,10 +139,13 @@ def test_empty_slots_carry_no_boldness_and_are_counted():
     assert empty["Boldness"].isna().all()
     tb = B.team_boldness(y, params=_FAST, include_live=False)
     slots = B.season_slots(y)
+    # a dead start counts as an empty slot [per user, 2026-10-05]
+    n_dead = b[b["Dead start?"]].groupby(["Week", "Team"]).size().to_dict()
     for _, r in tb.iterrows():
         wr = {B.season_teams(y).get(rid): w for rid, w in B.week_rows(y, int(r["Week"])).items()}[r["Team"]]
         listed = list(wr.starters)[:len(slots)]
-        assert r["Empty slots"] == len(slots) - sum(p != Q.EMPTY_SLOT for p in listed)
+        n_dead_here = n_dead.get((r["Week"], r["Team"]), 0)
+        assert r["Empty slots"] == len(slots) - sum(p != Q.EMPTY_SLOT for p in listed) + n_dead_here
 
 
 def test_a_dead_start_is_judged_like_an_empty_slot():

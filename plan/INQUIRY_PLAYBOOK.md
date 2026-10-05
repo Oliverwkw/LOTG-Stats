@@ -523,7 +523,7 @@ Final once it was won) is counted in team_week `Empty slots`, summed on
 team_year / team_all_time, and `boldness()` keeps its row with no Boldness. A DEAD START (a starter
 flagged bye / injured / suspended who scored 0) is judged exactly like an empty
 slot — no Boldness, slot out of the comparison, `Dead start?` in `boldness()` —
-but is not counted in `Empty slots`.
+and is counted in `Empty slots` too [per user, 2026-10-05].
 
 ## The season that has not happened yet
 

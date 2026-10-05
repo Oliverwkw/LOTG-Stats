@@ -1436,3 +1436,13 @@ guard-skipped fire), 581→584 (#453), 584→589 (#454), 589→597 (#455).
   - needs-human-judgment: **one shared game decides 68 of 242 differing events**, and
     on those the touch pick wins 51% vs 46% (barely better than a coin flip). Possible
     fix: require ≥ 2 shared games, otherwise use E. Not built.
+- [ ] **`Empty slots` counts dead starts** [per user, 2026-10-05: "count starting out
+  (injured, suspended, bye) players as an empty slot"]. Reverses #464's "dead starts are not
+  counted". A dead start is unchanged: a starter flagged bye / injured / suspended who scored
+  0 (a flagged starter who scored keeps his slot and is not counted). Lineup Boldness is
+  unchanged — dead starts were already out of the comparison. Local preview (snapshot +
+  nflverse cache, not the audit source): 26 dead starts (= #464's audited 26) on 23
+  team-weeks; team_week total 13 → 39 (2020: 2 → 10; 2021–25: 11 → 29).
+  **3-part audit: pending** (post-merge CI run vs the last pre-merge main run). Expect only
+  `Empty slots` on team_week / team_year / team_all_time and 2 Formulas rows (Lineup Boldness, Empty
+  slots) to move.
