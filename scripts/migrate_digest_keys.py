@@ -39,7 +39,7 @@ def main(argv=None) -> int:
         by_sheet[k.split("|")[0]] = by_sheet.get(k.split("|")[0], 0) + 1
     print(f"re-dated rows: {len(kmap)} {by_sheet}")
     snap = json.loads(a.snapshot.read_text())
-    before = sum(1 for e in snap.get("event_board") or [] if e.get("key") in kmap)
+    before = sum(1 for e in D._snapshot_board_entries(snap) if e.get("key") in kmap)
     snap = D.apply_key_map(snap, kmap, new)
     print(f"board entries re-keyed: {before}")
     if not a.dry_run:

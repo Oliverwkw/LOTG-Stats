@@ -45,6 +45,7 @@ import re
 import pandas as pd
 
 from .email_summary import NewData, attribute, stat_relevance
+from . import number_format as _number_format
 
 
 
@@ -209,10 +210,22 @@ def note_percent_columns(frames: dict) -> set:
 
 
 def _fmt_stat(column: Optional[str], value: float) -> str:
-    """`_fmt`, as a percentage when `column` is a 0-1 fraction column."""
-    if column is not None and column in _PERCENT_COLUMNS:
-        return f"{_fmt(value * 100)}%"
-    return _fmt(value)
+    """`value` as the spreadsheet shows `column`: the same decimal places as the
+    workbook's number format (`number_format.col_number_format` — 0 for counts
+    and streaks, 4 for Tanking, 2 for everything else), with a "%" where the
+    workbook shows one (a 0-1 fraction column printed x100). Thousands keep
+    their commas. A column the workbook leaves General falls back to `_fmt`."""
+    fmt = _number_format.col_number_format(column) if column else None
+    places = _number_format.decimals(fmt)
+    fraction = column is not None and column in _PERCENT_COLUMNS
+    if places is None:
+        return f"{_fmt(value * 100)}%" if fraction else _fmt(value)
+    v = value * 100 if fraction else value
+    out = f"{v:,.{places}f}"
+    # A tiny negative that rounds to zero reads as a signed zero: drop the sign.
+    if out.startswith("-") and not out.strip("-0.,"):
+        out = out[1:]
+    return out + ("%" if fraction or "%" in fmt else "")
 
 
 # How a column is NAMED in the email, where the spreadsheet's neighbouring
@@ -597,15 +610,31 @@ def _crossing_detail(joined: bool, others: Sequence[str], passed: Sequence[str],
 
 def _passed_by_detail(passers: Sequence[str], place: str, column: str,
                       by_value: Optional[float], value: Optional[float],
-                      sheet: str = "") -> str:
+                      sheet: str = "", end: str = "high") -> str:
     """The faller's side of an overtake by rows that stood still: "was passed by
     X for 2nd-highest Difference of averages (21.1), falling to 21.0". The rows
     that passed it did not move — it fell below them — so they are not the
-    subject (user rule, 2026-09-23; `_column_crossings`)."""
+    subject (user rule, 2026-09-23; `_column_crossings`).
+
+    On a LOWEST board falling behind means going UP: "was passed by Jacob Cowing
+    for 5th-lowest Adjusted Avg points (-0.3), rising to 5.3" — the 2026 week-4
+    email said "falling to 5.3"."""
     by = f" ({_fmt_stat(column, by_value)})" if by_value is not None else ""
-    fell = f", falling to {_fmt_stat(column, value)}" if value is not None else ""
+    verb = "rising" if end == "low" else "falling"
+    fell = f", {verb} to {_fmt_stat(column, value)}" if value is not None else ""
     return (f"was passed by {_name_list(passers)} for {place} "
             f"{display_column(column, sheet)}{by}{fell}")
+
+
+def _fell_off_detail(place: str, column: str, was: Optional[float],
+                     value: Optional[float], sheet: str = "") -> str:
+    """A row whose own value fell so far it left the board: "drops off the board
+    for highest Rostered middle 50% streak (11), now 8". `place` is the one it
+    held. "now", not "falling to": on a lowest board leaving means going UP."""
+    held = f" ({_fmt_stat(column, was)})" if was is not None else ""
+    fell = f", now {_fmt_stat(column, value)}" if value is not None else ""
+    return (f"drops off the board for {place} {display_column(column, sheet)}"
+            f"{held}{fell}")
 
 
 def _rankings_for(df: pd.DataFrame, entity_col: str,
@@ -744,7 +773,8 @@ class Crossing:
         if self.passed_by:
             return _passed_by_detail(self.passed, _place(self.rank, self.end), self.column,
                                      self.by_value, self.value,
-                                     _SECTION_SHEET.get(("crossing", self.section), ""))
+                                     _SECTION_SHEET.get(("crossing", self.section), ""),
+                                     self.end)
         return _crossing_detail(self.joined, self.others, self.passed,
                                 _place(self.rank, self.end), self.column, self.value,
                                 _SECTION_SHEET.get(("crossing", self.section), ""),
@@ -803,7 +833,33 @@ def _column_crossings(section: str, column: str,
                 continue
             mover_prev = None if arrived else prev_val[mover]
             old_rank = n + 1 if arrived else prev_rank.get(mover_prev)
-            if old_rank is None or new_rank >= old_rank:
+            # Last week's tie partners at the place it holds again now, and now
+            # behind it. Only a tie that stood on the board: one beyond it (Kaleb
+            # Johnson among a hundred-odd players level at the bottom of a
+            # percentile) held no place to break or fall out of.
+            split: List[str] = []
+            if old_rank is not None and new_rank == old_rank and mover_prev is not None:
+                size = sum(1 for xv in prev_val.values() if xv == mover_prev)
+                if size <= _MAX_JOIN_TIE and _tie_fits(old_rank, size, window):
+                    split = [x for x in curr_val
+                             if x != mover and x in prev_val
+                             and prev_rank.get(prev_val[x]) == old_rank
+                             and curr_rank[curr_val[x]] > new_rank]
+            if split and not _improved(v, mover_prev, end):
+                # Holds the place it shared last week, alone now, without its own
+                # value improving: whoever shared it fell out of the tie, and that
+                # is told from their side ("was passed by"), as on the event boards
+                # (`diff_events`' tie split).
+                for x in split:
+                    if (_improved(prev_val[x], curr_val[x], end)
+                            and not _indistinguishable(v, [curr_val[x]], column)):
+                        fell.setdefault((end, x), []).append((new_rank, mover, v))
+                continue
+            # Its own value improved and left a tie partner behind on the same
+            # place: an overtake the rank number cannot show (`_broke_tie` on the
+            # event boards). A player tied for a record who breaks it.
+            tie_break = bool(split)
+            if (old_rank is None or new_rank >= old_rank) and not tie_break:
                 continue  # not improved toward this end
             # Nor did it climb if its own value did not move toward this end: the
             # rows above it fell. Week 2 of 2026, Christian Watson won his first
@@ -825,6 +881,8 @@ def _column_crossings(section: str, column: str,
                       and new_rank <= prev_rank.get(prev_val[x], n + 1) <= last
                       and prev_rank.get(prev_val[x], n + 1) < old_rank
                       and curr_rank[curr_val[x]] > new_rank]
+            if tie_break:
+                passed = [x for x in split if x not in others]
 
             def faller_side():
                 # Only rows whose own value moved away from this end lost the
@@ -1483,6 +1541,9 @@ class EventHighlight:
     # it is (`_row_entity`) — rather than the row.
     running: bool = False
     entity: str = ""
+    # A tie too big to fit at the bottom of the board (see `_overflow_places`):
+    # snapshotted so next week can name it as passed, never shown or diffed itself.
+    overflow: bool = False
 
     def group(self) -> str:
         return self.label
@@ -1775,6 +1836,12 @@ def mark_rule_releases(prior: Optional[dict], frames: dict, changes: Sequence,
         old_rank = {(e.sheet, e.column, e.end, e.key): e.rank
                     for e in all_board_highlights(frames, window, gate=old_gate)}
         for c in changes:
+            if getattr(c, "fell_off", False):
+                # Left the board: the rules' doing if the old ones still keep it.
+                if old_rank.get((c.sheet, c.column, c.end, c.key)) is not None:
+                    c.rule_release = True
+                    n += 1
+                continue
             if (getattr(c, "key", "") and not getattr(c, "is_new", False)
                     and old_rank.get((c.sheet, c.column, c.end, c.key)) != c.rank):
                 c.rule_release = True
@@ -2072,9 +2139,27 @@ def _board_places(pool: "pd.Series", end: str, window: int,
             if r <= window and counts[v] <= max_ties and _tie_fits(r, counts[v], window)}
 
 
+def _overflow_places(pool: "pd.Series", end: str, window: int,
+                     max_ties: int) -> Dict[float, int]:
+    """value -> competition rank for the tie that starts inside the top/bottom
+    `window` but does not fit in it (`_tie_fits`), so `_board_places` leaves it
+    off. At most one per end: whatever ranks after it starts past the window.
+
+    Stefon Diggs and Nick Chubb shared 5th-highest Weeks rostered by this team at
+    101 after 2026 week 3: off the board, so when Diggs went to 102 for 5th alone
+    in week 4 there was nobody on last week's board for him to have passed.
+    Kept in the snapshot, the tie lets the diff say he passed Chubb."""
+    if len(pool) < window:
+        return {}
+    counts = pool.value_counts()
+    return {v: r for v, r in competition_ranks(pool.tolist(), end).items()
+            if r <= window and counts[v] <= max_ties and not _tie_fits(r, counts[v], window)}
+
+
 def board_highlights(df: pd.DataFrame, sheet: str, window: int = WINDOW,
                      max_ties: int = _MAX_HIGHLIGHT_TIES,
-                     gate: Optional[BoardGate] = None) -> List[EventHighlight]:
+                     gate: Optional[BoardGate] = None,
+                     overflow: bool = False) -> List[EventHighlight]:
     """The top/bottom-`window` rows of every numeric column on one sheet, ranked
     against every row of that sheet ever (mirrored columns: positive side only).
 
@@ -2086,7 +2171,10 @@ def board_highlights(df: pd.DataFrame, sheet: str, window: int = WINDOW,
 
     `gate` holds rows still being written to the high end of a counting stat (see
     `BoardGate`); they are ranked nowhere else, so the places they would have
-    taken go to rows with a sample. Without a gate every row ranks everywhere."""
+    taken go to rows with a sample. Without a gate every row ranks everywhere.
+
+    `overflow` also returns each end's overflowing tie (`_overflow_places`),
+    flagged `overflow=True`, for the snapshot."""
     cfg = _BOARD_SHEETS.get(sheet)
     if cfg is None or df is None or df.empty:
         return []
@@ -2115,35 +2203,42 @@ def board_highlights(df: pd.DataFrame, sheet: str, window: int = WINDOW,
         # the top and bottom five overlap).
         lo = ({v: r for v, r in _board_places(lo_s, "low", window, max_ties).items()
                if v not in hi} if low_on_board else {})
-        if not hi and not lo:
+        hi_o = _overflow_places(hi_s, "high", window, max_ties) if overflow else {}
+        lo_o = ({v: r for v, r in _overflow_places(lo_s, "low", window, max_ties).items()
+                 if v not in hi and v not in hi_o}
+                if overflow and low_on_board else {})
+        if not hi and not lo and not hi_o and not lo_o:
             continue
         place: Dict[object, tuple] = {}
-        if hi:
-            for idx, v in hi_s[hi_s.isin(list(hi))].items():
-                place[idx] = ("high", hi[v])
-        if lo:
-            for idx, v in lo_s[lo_s.isin(list(lo))].items():
-                place.setdefault(idx, ("low", lo[v]))
+        for ser, end, places, spill in ((hi_s, "high", hi, False), (lo_s, "low", lo, False),
+                                        (hi_s, "high", hi_o, True), (lo_s, "low", lo_o, True)):
+            if places:
+                for idx, v in ser[ser.isin(list(places))].items():
+                    place.setdefault(idx, (end, places[v], spill))
         for idx, value in s[s.index.isin(list(place))].items():
             row = df.loc[idx]
-            end, rank = place[idx]
+            end, rank, spill = place[idx]
             is_run = col in running
             out.append(EventHighlight(sheet, _board_label(sheet, row), col,
                                       end, rank, float(value),
                                       _board_row_key(sheet, row),
                                       running=is_run,
-                                      entity=_row_entity(sheet, col, row) if is_run else ""))
+                                      entity=_row_entity(sheet, col, row) if is_run else "",
+                                      overflow=spill))
     return out
 
 
 def all_board_highlights(frames: dict, window: int = WINDOW,
-                         gate: Optional[BoardGate] = None) -> List[EventHighlight]:
+                         gate: Optional[BoardGate] = None,
+                         overflow: bool = False) -> List[EventHighlight]:
     """Every board across every sheet that has rows to rank — what the weekly
     digest snapshots and diffs. `gate` holds back rows still being written (see
-    `BoardGate`); without one every row ranks everywhere."""
+    `BoardGate`); without one every row ranks everywhere. `overflow` adds each
+    board's overflowing ties for the snapshot (see `_overflow_places`)."""
     out: List[EventHighlight] = []
     for sheet in _BOARD_SHEETS:
-        out += board_highlights(frames.get(sheet, pd.DataFrame()), sheet, window, gate=gate)
+        out += board_highlights(frames.get(sheet, pd.DataFrame()), sheet, window, gate=gate,
+                                overflow=overflow)
     return out
 
 
@@ -2496,6 +2591,10 @@ class EventCrossing:
     by_value: Optional[float] = None
     # On the board only because the gate rule changed (`mark_rule_releases`).
     rule_release: bool = False
+    # The faller's side when it left the board altogether (`_board_dropouts`):
+    # `label` is the row that held `rank` last week, `prev_value` what it held
+    # it with, `value` what it reads now.
+    fell_off: bool = False
 
     def _show(self, label: str) -> str:
         return self.shown.get(label, label)
@@ -2504,10 +2603,13 @@ class EventCrossing:
         return _name_list([self._show(x) for x in (self.label,) + tuple(self.co_movers)])
 
     def detail(self) -> str:
+        if self.fell_off:
+            return _fell_off_detail(_place(self.rank, self.end), self.column,
+                                    self.prev_value, self.value, self.sheet)
         if self.passed_by:
             return _passed_by_detail(tuple(map(self._show, self.passed)),
                                      _place(self.rank, self.end), self.column,
-                                     self.by_value, self.value, self.sheet)
+                                     self.by_value, self.value, self.sheet, self.end)
         return _crossing_detail(self.joined, tuple(map(self._show, self.others)),
                                 tuple(map(self._show, self.passed)),
                                 _place(self.rank, self.end), self.column, self.value,
@@ -2525,8 +2627,39 @@ def event_board(events: Sequence[EventHighlight]) -> list:
           "end": e.end, "rank": e.rank, "value": e.value,
           # Whose run a running-total place is, so next week's diff can tell a
           # run's new row from a rival (`running_columns`).
-          **({"entity": e.entity} if e.running else {})} for e in events),
+          **({"entity": e.entity} if e.running else {}),
+          # Not a place: a tie that overflowed the board (`_overflow_places`).
+          **({"overflow": True} if e.overflow else {})} for e in events),
         key=lambda d: (d["sheet"], d["column"], d["end"], d["rank"], d["key"]))
+
+
+# Where the snapshot keeps the overflowing ties (`_overflow_places`): beside the
+# board, not in it. Code from before they existed reads `event_board` as places
+# only; an overflow entry in there would read as a real place if this were ever
+# reverted with such a snapshot committed. `diff_events` takes both, joined
+# (`snapshot_event_board`).
+_EVENT_OVERFLOW_KEY = "event_overflow"
+
+
+def store_event_board(snapshot: dict, board: Sequence[dict]) -> None:
+    """Write `event_board(...)` into `snapshot`: places under "event_board", the
+    overflowing ties under "event_overflow"."""
+    snapshot["event_board"] = [d for d in board if not d.get("overflow")]
+    snapshot[_EVENT_OVERFLOW_KEY] = [d for d in board if d.get("overflow")]
+
+
+def snapshot_event_board(snapshot: Optional[dict]) -> Optional[list]:
+    """The prior board `diff_events` reads: the snapshot's places plus its
+    overflowing ties. None when the snapshot predates the event boards."""
+    if not isinstance(snapshot, dict) or snapshot.get("event_board") is None:
+        return None
+    return list(snapshot["event_board"]) + list(snapshot.get(_EVENT_OVERFLOW_KEY) or ())
+
+
+def _snapshot_board_entries(snapshot: dict):
+    """Every stored board entry, places and overflowing ties, for the migrations."""
+    yield from snapshot.get("event_board") or ()
+    yield from snapshot.get(_EVENT_OVERFLOW_KEY) or ()
 
 
 def _prior_board(prior_board) -> Optional[Dict[tuple, dict]]:
@@ -2545,7 +2678,24 @@ def _prior_board(prior_board) -> Optional[Dict[tuple, dict]]:
             slot = out.setdefault((d["sheet"], d["column"], d["end"]),
                                   {"by_rank": {}, "by_key": {}, "val_by_key": {}})
             rank = int(d["rank"])
+            if d.get("overflow"):
+                # A tie that overflowed the board: no place, so nothing a row can
+                # have climbed past or fallen from — only who a row off the
+                # board now passed (`_overflow_places`). Its labels' values and
+                # entities still go in the by-label maps, which are lookups.
+                _label = migrate_board_label(d["sheet"], d.get("label", d["key"]))
+                slot.setdefault("overflow", []).append(_label)
+                if d.get("value") is not None:
+                    slot.setdefault("ov_val_by_key", {})[d["key"]] = d["value"]
+                    slot.setdefault("val_by_label", {})[_label] = d["value"]
+                    if d.get("entity") is not None:
+                        slot.setdefault("ov_val_by_entity", {})[d["entity"]] = d["value"]
+                if d.get("entity") is not None:
+                    slot.setdefault("entity_by_label", {})[_label] = d["entity"]
+                continue
             slot["by_key"][d["key"]] = rank
+            slot.setdefault("label_by_key", {})[d["key"]] = migrate_board_label(
+                d["sheet"], d.get("label", d["key"]))
             # Last week's value, for the lede's live-vs-recompute split. Absent
             # in an older snapshot, which simply leaves prev_value None.
             if d.get("value") is not None:
@@ -2633,8 +2783,31 @@ def _nobody_moved(mover_prev: Optional[float], mover_now: float, end: str,
     return True
 
 
+def _broke_tie(e: "EventHighlight", was: int, slot: dict, own, rank_now) -> bool:
+    """True when `e` shared place `was` last week, holds it alone now, and got
+    there by its own value improving — an overtake the rank number cannot show.
+
+    AceMatthew's Top half streak tied LWebs53's record at 10 in 2026 week 3 and
+    went to 11 in week 4: 1st both weeks, so the rank test read it as unmoved and
+    the new record never reached the email. `own` is the running-total test from
+    `diff_events` (None for an ordinary row); `rank_now(lbl)` is where a label
+    of last week's stands now (see `diff_events`)."""
+    labels = slot["by_rank"].get(was, [])
+    if own is not None:
+        mine = [lbl for lbl in labels if own(lbl)]
+        prev = slot.get("val_by_label", {}).get(mine[0]) if mine else None
+        rivals = [lbl for lbl in labels if not own(lbl)]
+    else:
+        prev = slot["val_by_key"].get(e.key)
+        rivals = [lbl for lbl in labels if lbl != e.label]
+    if prev is None or e.value is None or not _improved(e.value, prev, e.end):
+        return False
+    return any(rank_now(lbl) > e.rank for lbl in rivals)
+
+
 def diff_events(prior_board, events: Sequence[EventHighlight],
-                prior_row_keys: Optional[Sequence[str]] = None) -> List[EventCrossing]:
+                prior_row_keys: Optional[Sequence[str]] = None,
+                current_value=None) -> List[EventCrossing]:
     """Overtakes on the event boards since `prior_board`.
 
     An event is reported when it now holds a place nearer the watched end than it
@@ -2652,6 +2825,8 @@ def diff_events(prior_board, events: Sequence[EventHighlight],
     prior = _prior_board(prior_board)
     if prior is None:
         return []
+    # An overflowing tie (`_overflow_places`) is snapshot-only: it holds no place.
+    events = [e for e in events if not e.overflow]
     # A row is brand-new when its key was in the prior snapshot's FULL row set
     # (`prior_row_keys`) — not merely absent from the prior board, which would
     # also catch an old row climbing into the top five for the first time, and a
@@ -2677,6 +2852,37 @@ def diff_events(prior_board, events: Sequence[EventHighlight],
     value_of_label = {(e.sheet, e.column, e.end, e.label): e.value for e in events}
     rank_of_label = {(e.sheet, e.column, e.end, e.label): e.rank for e in events}
     key_of_label = {(e.sheet, e.column, e.end, e.label): e.key for e in events}
+    # Each running-total entity's best place NOW (see `rank_now`).
+    entity_rank: Dict[tuple, int] = {}
+    for e in events:
+        if e.running:
+            k = (e.sheet, e.column, e.end, e.entity or _label_entity(e.sheet, e.label))
+            entity_rank[k] = min(entity_rank.get(k, e.rank), e.rank)
+
+    def rank_now(e, lbl, slot):
+        """Where last week's `lbl` stands NOW on `e`'s board (10**9: off it). A
+        running total's place is its entity's, not its old row's: the run moved
+        on to a new row as well, so last week's label is off the board without
+        the run falling. Read by label, Dak Prescott, Josh Allen, Josh Jacobs and
+        Patrick Mahomes (104 -> 105 weeks rostered, tied 1st) were "passed" by
+        Stefon Diggs going 101 -> 102 for 5th in the 2026 week-4 email."""
+        if e.running:
+            ent = (entity_now.get((e.sheet, e.column, lbl))
+                   or slot.get("entity_by_label", {}).get(lbl)
+                   or _label_entity(e.sheet, lbl))
+            return entity_rank.get((e.sheet, e.column, e.end, ent), 10 ** 9)
+        return rank_of_label.get((e.sheet, e.column, e.end, lbl), 10 ** 9)
+
+    def prev_of(e, slot):
+        """`e`'s value last week: its board place's, else — a row in an
+        overflowing tie, off the board but with a known value — that tie's
+        (by row, or for a running total by whose run it is)."""
+        v = slot["val_by_key"].get(e.key)
+        if v is None:
+            v = slot.get("ov_val_by_key", {}).get(e.key)
+        if v is None and e.running:
+            v = slot.get("ov_val_by_entity", {}).get(e.entity or _label_entity(e.sheet, e.label))
+        return v
     out: List[EventCrossing] = []
     # (sheet, column, end, faller label) -> stand-still rows that passed it.
     fell: Dict[tuple, List[tuple]] = {}
@@ -2692,6 +2898,21 @@ def diff_events(prior_board, events: Sequence[EventHighlight],
                     and not _indistinguishable(e.value, [now_v], e.column)):
                 fell.setdefault((e.sheet, e.column, e.end, lbl), []).append(
                     (e.rank, e.label, e.value))
+
+    def _tie_split(e, was, slot, own):
+        """`e` holds the place it shared last week, alone now, without its own
+        value improving: whoever it shared it with fell out of the tie. Told
+        from their side, as `_broke_tie` tells the improving case from the
+        mover's: Oliverwkw 2023's Add/Drop skill went 30.6 -> 30.7 and left
+        AceMatthew 2023 alone in 2nd-lowest, and the 2026 week-4 email said
+        nothing."""
+        prev = prev_of(e, slot)
+        if prev is None or e.value is None or _improved(e.value, prev, e.end):
+            return
+        faller_side(e, [lbl for lbl in slot["by_rank"].get(was, [])
+                        if lbl != e.label and not (own is not None and own(lbl))
+                        and rank_now(e, lbl, slot) > e.rank])
+
     for e in events:
         slot = prior.get((e.sheet, e.column, e.end))
         if not slot:
@@ -2718,13 +2939,21 @@ def diff_events(prior_board, events: Sequence[EventHighlight],
             mine = [r for r, labels in slot["by_rank"].items() if any(own(x) for x in labels)]
             if mine:
                 was = min(mine) if was is None else min(was, min(mine))
-        if was is not None and e.rank >= was:
+        if was is not None and e.rank >= was \
+                and not (e.rank == was and _broke_tie(
+                    e, was, slot, own, lambda lbl: rank_now(e, lbl, slot))):
+            if e.rank == was:
+                _tie_split(e, was, slot, own)
             continue                       # unmoved, or pushed down by someone else
         # A row that arrived from off the board with a value strictly worse than
         # last week's last place did not climb on: the board shortened above it.
-        # It stood still, and a row that stood still passes nobody.
-        if (not _is_new(e) and slot["val_by_key"].get(e.key) is None and e.value is not None
-                and slot.get("cutoff") is not None and not e.running
+        # It stood still, and a row that stood still passes nobody. A running
+        # total counts too when its run held no place last week (`was` None):
+        # "E 2020 week 9 passes A 2023 week 4" was a streak that never moved,
+        # and naming A there kept A's own fall off the board (`_board_dropouts`)
+        # out of the email.
+        if (not _is_new(e) and prev_of(e, slot) is None and e.value is not None
+                and slot.get("cutoff") is not None and (not e.running or was is None)
                 and _improved(slot["cutoff"], e.value, e.end)):
             continue
         ck = (e.sheet, e.column, e.end)
@@ -2753,16 +2982,16 @@ def diff_events(prior_board, events: Sequence[EventHighlight],
                 for lbl in labels
                 if lbl != e.label and lbl not in others
                 and not (own is not None and own(lbl))
-                and rank_of_label.get((e.sheet, e.column, e.end, lbl), 10 ** 9) > e.rank})
+                and rank_now(e, lbl, slot) > e.rank})
             # A row whose own value did not change joined nothing: the row above
             # it fell to it. That is the faller's news, told from its side.
-            _prev_v = slot["val_by_key"].get(e.key)
+            _prev_v = prev_of(e, slot)
             if (not _is_new(e) and _prev_v is not None and e.value is not None
                     and not _improved(e.value, _prev_v, e.end)):
                 faller_side(e, pushed)
                 continue
             if not _is_new(e) and _nobody_moved(
-                    slot["val_by_key"].get(e.key), e.value, e.end, slot.get("cutoff"),
+                    prev_of(e, slot), e.value, e.end, slot.get("cutoff"),
                     [(slot.get("val_by_label", {}).get(lbl),
                       value_of_label.get((e.sheet, e.column, e.end, lbl))) for lbl in others]):
                 continue
@@ -2770,7 +2999,7 @@ def diff_events(prior_board, events: Sequence[EventHighlight],
                                      e.value, joined=True, others=tuple(others),
                                      passed=tuple(pushed),
                                      is_new=_is_new(e),
-                                     prev_value=slot["val_by_key"].get(e.key),
+                                     prev_value=prev_of(e, slot),
                                      key=e.key))
             continue
         # Landed alone: overtook every prior holder of the slot it now occupies —
@@ -2778,21 +3007,30 @@ def diff_events(prior_board, events: Sequence[EventHighlight],
         # whoever held a board place above its old one and is now behind it.
         passed = [lbl for lbl in slot["by_rank"].get(e.rank, [])
                   if lbl != e.label and not (own is not None and own(lbl))
-                  and rank_of_label.get((e.sheet, e.column, e.end, lbl), 10 ** 9) > e.rank]
+                  and rank_now(e, lbl, slot) > e.rank]
         if not passed:
             _was = was if was is not None else 10 ** 9
             passed = sorted(
                 lbl for r, labels in slot["by_rank"].items() if r < _was
                 for lbl in labels
                 if lbl != e.label and not (own is not None and own(lbl))
-                and rank_of_label.get((e.sheet, e.column, e.end, lbl), 10 ** 9) > e.rank)
+                and rank_now(e, lbl, slot) > e.rank)
+        if not passed and was is None:
+            # Off the board last week, alone on it now, and no board place above
+            # it changed hands: whoever shared the tie that overflowed the board
+            # (`_overflow_places`) and now stands below it was passed — Stefon
+            # Diggs (101 -> 102) passing Nick Chubb (101) for 5th.
+            passed = sorted(
+                lbl for lbl in slot.get("overflow", ())
+                if lbl != e.label and not (own is not None and own(lbl))
+                and rank_now(e, lbl, slot) > e.rank)
         if not passed:
             continue
         # A row that climbed without its own value moving toward this end was
         # carried up by a row above it falling — see `_column_crossings`. Told
         # from the faller's side: each passed row whose own value fell (and is
         # still on the board to say by how much) "was passed by" this one.
-        _prev_v = slot["val_by_key"].get(e.key)
+        _prev_v = prev_of(e, slot)
         if (not _is_new(e) and _prev_v is not None and e.value is not None
                 and not _improved(e.value, _prev_v, e.end)):
             faller_side(e, passed)
@@ -2809,14 +3047,14 @@ def diff_events(prior_board, events: Sequence[EventHighlight],
         # An overtake in which neither side moved is a cascade, not news — see
         # _nobody_moved. A brand-new row is exempt: it is new data by definition.
         if not _is_new(e) and _nobody_moved(
-                slot["val_by_key"].get(e.key), e.value, e.end, slot.get("cutoff"),
+                prev_of(e, slot), e.value, e.end, slot.get("cutoff"),
                 [(slot.get("val_by_label", {}).get(lbl), cur)
                  for lbl, cur in zip(passed, _passed_vals)]):
             continue
         out.append(EventCrossing(e.sheet, e.label, e.column, e.end, e.rank,
                                  e.value, joined=False, passed=tuple(sorted(passed)),
                                  is_new=_is_new(e),
-                                 prev_value=slot["val_by_key"].get(e.key),
+                                 prev_value=prev_of(e, slot),
                                  key=e.key))
     told = {(c.sheet, c.column, c.end, x) for c in out for x in c.passed}
     for (sheet, column, end, lbl), by in sorted(fell.items()):
@@ -2829,7 +3067,185 @@ def diff_events(prior_board, events: Sequence[EventHighlight],
             prev_value=prior[(sheet, column, end)].get("val_by_label", {}).get(lbl),
             key=key_of_label.get((sheet, column, end, lbl), ""),
             passed_by=True, by_value=by[0][2]))
+    if current_value is not None:
+        on_now = {(e.sheet, e.column, e.end, e.key) for e in events}
+        running_boards = {(e.sheet, e.column, e.end) for e in events if e.running}
+        # Which rows of each running-total entity hold a place NOW.
+        run_keys_now: Dict[tuple, set] = {}
+        for e in events:
+            if e.running:
+                run_keys_now.setdefault(
+                    (e.sheet, e.column, e.end, e.entity or _label_entity(e.sheet, e.label)),
+                    set()).add(e.key)
+        told = {(c.sheet, c.column, c.end, x) for c in out for x in c.passed}
+        out += _board_dropouts(prior, on_now, run_keys_now, running_boards, told,
+                               current_value)
     return merge_simultaneous_ties(out)
+
+
+def _board_dropouts(prior: Dict[tuple, dict], on_now: set, run_keys_now: Dict[tuple, set],
+                    running_boards: set, told: set, current_value) -> List[EventCrossing]:
+    """Every row that held a place on a board last week, is on no place of it
+    now, and got there by its OWN value falling — told from its side, because
+    nothing else in the diff can: "was passed by" needs it still on the board to
+    say where it stands, and the rows it fell below stood still, so they pass
+    nobody. Pat Freiermuth's 2022 Rostered middle 50% streak re-split from 11 to
+    8 in 2026 week 4, taking him off a board he tied for 1st, and the email said
+    nothing about it.
+
+    A row pushed off by others climbing (its value unchanged) is their news, not
+    this; a row with no value to read now (deleted, no longer ranked) is skipped
+    rather than guessed at, and so is one whose fall the email's rounding hides
+    (`_indistinguishable`).
+
+    `current_value(sheet, column, end, key, entity, skip=keys)` reads the row's
+    value now — for a running total (`entity` set), where its RUN stands now: a
+    running total's run moves on to newer rows, so it is judged by the run, but
+    NOT by the entity's other runs. A team with two streaks on one board holds two
+    places, and its record streak recomputed from 10 to 4 is a fall even while its
+    other streak still stands 3rd. `skip` names the entity's other places, for a
+    lookup that can only answer by entity; `board_value_lookup` follows the run
+    itself, and its `run_key` says which row the run stands on now."""
+    out: List[EventCrossing] = []
+    # Where a run stands now, when the lookup can say (`board_value_lookup`);
+    # else the entity's other places on the board are the best guess.
+    run_key = getattr(current_value, "run_key", None)
+    for (sheet, column, end), slot in sorted(prior.items()):
+        running = (sheet, column, end) in running_boards \
+            or bool(slot.get("entity_by_label"))
+        labels = slot.get("label_by_key", {})
+
+        def entity_of(key, slot=slot, labels=labels, sheet=sheet):
+            lbl = labels.get(key, key)
+            return slot.get("entity_by_label", {}).get(lbl) or _label_entity(sheet, lbl)
+        for key, rank in sorted(slot["by_key"].items(), key=lambda kv: kv[1]):
+            label = labels.get(key, key)
+            if (sheet, column, end, label) in told:
+                continue       # an active line already names it
+            entity, skip = None, frozenset()
+            if running:
+                entity = entity_of(key)
+                skip = frozenset(k for k in slot["by_key"] if k != key and entity_of(k) == entity)
+                rk = run_key(sheet, column, key) if run_key is not None else None
+                if rk is not None:
+                    if (sheet, column, end, rk) in on_now:
+                        continue   # its run is still on the board, on a newer row
+                elif run_keys_now.get((sheet, column, end, entity), set()) - skip:
+                    continue   # its run is still on the board
+            elif (sheet, column, end, key) in on_now:
+                continue
+            was = slot["val_by_key"].get(key)
+            now = current_value(sheet, column, end, key, entity, skip=skip)
+            if was is None or now is None or not _improved(was, now, end):
+                continue
+            if _indistinguishable(now, [was], column):
+                continue       # a fall the email cannot show (-9.8 "now -9.8")
+            out.append(EventCrossing(sheet, label, column, end, rank, now,
+                                     prev_value=was, key=key, fell_off=True))
+    return out
+
+
+def board_value_lookup(frames: dict, gate: Optional[BoardGate] = None):
+    """`current_value` for `diff_events`: a board row's value in this week's
+    frames, ranked as the boards rank it — by row key, or for a running total by
+    entity (its best, toward `end`). None when the row (or the entity) has no
+    rankable value at that end now. Built lazily: only boards with a dropout
+    candidate are read.
+
+    Pass the board's `gate`: a row it holds stands nowhere but the high end of a
+    counting stat (`board_highlights`), so at any other end it has no value to
+    have fallen to. Without that, every in-progress season row the gate took off
+    the boards in week 2 of 2026 read as having "dropped off" — 261 lines."""
+    pools: Dict[tuple, "pd.Series"] = {}
+    row_keys: Dict[str, Dict[object, str]] = {}
+    # (sheet, column) -> entity -> [(row index, value)], oldest first
+    ent_rows: Dict[tuple, Dict[str, List[tuple]]] = {}
+
+    def pool(sheet, column, end):
+        """The rows ranked at `end` of this board, as `board_highlights` ranks them."""
+        if (sheet, column, end) not in pools:
+            df = frames.get(sheet)
+            out = pd.Series(dtype=float)
+            if df is not None and not df.empty and column in df.columns:
+                out = rankable_series(df, column, column in mirrored_columns(df, sheet), sheet)
+                if end == "low" and sheet in _YEARLY_SHEETS and is_yearly_counting_stat(column):
+                    out = pd.Series(dtype=float)       # no low board for these
+                held = gate.restricted(df, sheet, column) if gate is not None else None
+                if held is not None and not out.empty \
+                        and not (end == "high" and is_counting_stat(column)):
+                    held = held.reindex(out.index, fill_value=False).astype(bool)
+                    out = out[~held]
+            pools[(sheet, column, end)] = out
+        return pools[(sheet, column, end)]
+
+    def keys_of(sheet, df):
+        if sheet not in row_keys:
+            row_keys[sheet] = {_board_row_key(sheet, r): idx for idx, r in df.iterrows()}
+        return row_keys[sheet]
+
+    def run_value(sheet, column, df, idx):
+        """Where the run that `idx` was part of stands now, as (row, value): a
+        running total's run moves on to newer rows (`running_columns`), and only
+        its own later rows say how far — not the entity's other runs (another
+        season's, another stint's). Walk the entity's rows forward from `idx`:
+        a streak continues while it counts up by one; a terminal-encoded total
+        ("In Progress" until the run ends) lands on its first number. Any other
+        running count keeps a value on every row, so the row is its own answer."""
+        k = (sheet, column)
+        if k not in ent_rows:
+            order = [c for c in ("Year", "Season", "Week", "Date") if c in df.columns]
+            seq = df.sort_values(order, kind="stable") if order else df
+            rows: Dict[str, List[tuple]] = {}
+            for i, r in seq.iterrows():
+                rows.setdefault(_row_entity(sheet, column, r), []).append((i, _to_float(r[column])))
+            ent_rows[k] = rows
+        ent = _row_entity(sheet, column, df.loc[idx])
+        chain = ent_rows[k].get(ent, [])
+        pos = next((n for n, (i, _v) in enumerate(chain) if i == idx), None)
+        if pos is None:
+            return None
+        if "streak" in column.lower():
+            i, v = chain[pos]
+            for j, w in chain[pos + 1:]:
+                if v is None or w is None or abs(w - (v + 1)) > 1e-9:
+                    break
+                i, v = j, w
+            return (i, v) if v is not None else None
+        terminal = not pd.api.types.is_numeric_dtype(df[column]) \
+            and (df[column].astype(str).str.strip() == "In Progress").any()
+        if terminal:
+            return next(((i, v) for i, v in chain[pos:] if v is not None), None)
+        # Any other running count (Age, Startup draft players remaining, a
+        # "number of times" tally) keeps its value on every row, and the board
+        # ranks those rows themselves: the row's own value is where it stands.
+        i, v = chain[pos]
+        return (i, v) if v is not None else None
+
+    def lookup(sheet, column, end, key, entity=None, skip=frozenset()):
+        s = pool(sheet, column, end)
+        if s.empty:
+            return None
+        df = frames[sheet]
+        idx = keys_of(sheet, df).get(key)
+        if idx is None:
+            return None
+        if entity is not None:
+            # Read where the run stands — and only if that row ranks at this end
+            # (the gate may hold it).
+            at = run_value(sheet, column, df, idx)
+            return float(s[at[0]]) if at is not None and at[0] in s.index else None
+        return float(s[idx]) if idx in s.index else None
+
+    def run_key(sheet, column, key):
+        """The row key the run of `key`'s row stands on now (`run_value`), or None."""
+        df = frames.get(sheet)
+        if df is None or df.empty or column not in df.columns:
+            return None
+        idx = keys_of(sheet, df).get(key)
+        at = run_value(sheet, column, df, idx) if idx is not None else None
+        return _board_row_key(sheet, df.loc[at[0]]) if at is not None else None
+    lookup.run_key = run_key
+    return lookup
 
 
 # ---------------------------------------------------------------------------
@@ -2955,7 +3371,7 @@ def fold_week_boards(highlights: Sequence[WeeklyHighlight],
 
     for e in events:
         wk = _week_of(e.label) if e.sheet in _WEEK_SHEET_SECTION else None
-        if not wk or (wk[1], wk[2]) not in weeks or e.passed_by:
+        if not wk or (wk[1], wk[2]) not in weeks or e.passed_by or e.fell_off:
             rest.append(e)
             continue
         section = _WEEK_SHEET_SECTION[e.sheet]
@@ -3121,9 +3537,10 @@ class Milestone:
     def _tail(self) -> str:
         # A total landing exactly on the round number would read "passes
         # 500,000 (now 500,000)"; say "reaches" and drop the echo instead.
+        # The round number as a round number; the total as the spreadsheet shows it.
         if _fmt(self.value) == _fmt(self.milestone):
             return f"reaches {_fmt(self.milestone)}."
-        return f"passes {_fmt(self.milestone)} (now {_fmt(self.value)})."
+        return f"passes {_fmt(self.milestone)} (now {_fmt_stat(self.stat, self.value)})."
 
     def sentence(self) -> str:
         return f"League {self.stat} {self._tail()}"
@@ -3739,7 +4156,7 @@ def migrate_snapshot_columns(snapshot: Optional[dict]) -> Optional[dict]:
         return snapshot
     if isinstance(snapshot.get("teams"), dict):
         snapshot["teams"] = {migrate_count_column(k): v for k, v in snapshot["teams"].items()}
-    for e in snapshot.get("event_board") or ():
+    for e in _snapshot_board_entries(snapshot):
         if isinstance(e, dict) and e.get("sheet") in _COUNT_RENAME_SHEETS:
             e["column"] = migrate_count_column(e.get("column"))
     for part in ("pace", "yearly_records"):
@@ -3775,7 +4192,7 @@ def migrate_snapshot_signs(snapshot: Optional[dict]) -> Optional[dict]:
     meta = snapshot.setdefault("meta", {})
     if not isinstance(meta, dict) or meta.get(_DROPPED_SIGN_KEY) == _DROPPED_SIGN_RAW:
         return snapshot
-    for e in snapshot.get("event_board") or ():
+    for e in _snapshot_board_entries(snapshot):
         if (isinstance(e, dict) and e.get("sheet") == "add_drops"
                 and e.get("column") in _DROPPED_SIGN_COLUMNS):
             v = _to_float(e.get("value"))
@@ -3866,7 +4283,7 @@ def apply_key_map(snapshot: dict, key_map: Dict[str, str], new_frames: dict) -> 
             if k in targets:
                 labels[k] = _board_label(sheet, r)
     snapshot["row_keys"] = sorted({key_map.get(k, k) for k in snapshot.get("row_keys") or []})
-    for e in snapshot.get("event_board") or []:
+    for e in _snapshot_board_entries(snapshot):
         nk = key_map.get(e.get("key"))
         if nk:
             e["key"] = nk
