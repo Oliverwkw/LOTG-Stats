@@ -2406,6 +2406,60 @@ def test_overflowing_tie_is_snapshotted_and_named_as_passed():
         [c.sentence() for c in got]
 
 
+def test_a_row_that_falls_off_the_board_is_reported():
+    """Pat Freiermuth's 2022 Rostered middle 50% streak was re-split from 11 to 8
+    in 2026 week 4, taking him off a board he tied for 1st. The rows he fell
+    below stood still and "was passed by" needs him still on the board, so the
+    email said nothing. A drop off the board is told from the faller's side."""
+    from lotg_support import digest as D
+
+    def run(rows, overflow=()):
+        return [D.EventHighlight("player_week", lbl, "Rostered middle 50% streak", "high", r, v,
+                                 key=lbl, running=True, entity=lbl.rsplit(" ", 3)[0],
+                                 overflow=lbl in overflow)
+                for lbl, r, v in rows]
+    # As the boards stood: four tied at 11, Montgomery and Thomas's 10s the tie
+    # overflowing 5th. With Freiermuth gone they stand on 4th without moving.
+    top = [("DJ Moore 2025 week 8", 1, 11.), ("Jakobi Meyers 2021 week 8", 1, 11.),
+           ("Ryan Tannehill 2021 week 10", 1, 11.)]
+    tens = [("David Montgomery 2024 week 2", 5, 10.), ("Michael Thomas 2023 week 8", 5, 10.)]
+    prior = D.event_board(run(top + [("Pat Freiermuth 2022 week 4", 1, 11.)] + tens,
+                              {lbl for lbl, _r, _v in tens}))
+    now = run(top + [(lbl, 4, v) for lbl, _r, v in tens])
+    best = {"Pat Freiermuth": 8.0}
+    got = [c.sentence() for c in D.diff_events(
+        prior, now, current_value=lambda sh, col, end, key, ent: best.get(ent))]
+    assert got == ["Pat Freiermuth 2022 week 4 drops off the board for highest "
+                   "Rostered middle 50% streak (11), now 8."], got
+    # Without a way to read values now (an older caller), nothing new is said.
+    assert D.diff_events(prior, now) == []
+
+    def ev(rows, overflow=()):
+        return [D.EventHighlight("team_year", k, "Trading skill", "low", r, v, key=k,
+                                 overflow=k in overflow)
+                for k, r, v in rows]
+    vals = {"A": 30., "B": 35., "C": 44.1, "D": 40.}
+    lookup = lambda sh, col, end, key, ent: vals.get(key)  # noqa: E731
+    # D stood still just off the board (an overflowing tie) and C fell past it.
+    prior = D.event_board(ev([("A", 1, 30.), ("B", 2, 35.), ("C", 3, 39.4), ("D", 4, 40.)], {"D"}))
+    got = [c.sentence() for c in D.diff_events(
+        prior, ev([("A", 1, 30.), ("B", 2, 35.), ("D", 3, 40.)]), current_value=lookup)]
+    # Leaving a LOWEST board means going up: "now", not "falling to".
+    assert got == ["C drops off the board for 3rd-lowest Trading skill (39.4), now 44.1."], got
+    # Pushed off by a row climbing past it, its own value unchanged: that row's
+    # news ("D passes C"), not a drop.
+    vals["C"], vals["D"] = 39.4, 38.
+    got = [c.sentence() for c in D.diff_events(
+        prior, ev([("A", 1, 30.), ("B", 2, 35.), ("D", 3, 38.)]), current_value=lookup)]
+    assert got == ["D passes C for 3rd-lowest Trading skill (38)."], got
+    # A fall the email's rounding hides is not a line.
+    prior = D.event_board(ev([("A", 1, 30.), ("B", 2, 35.), ("C", 3, 39.40), ("D", 4, 39.42)], {"D"}))
+    vals["C"], vals["D"] = 39.43, 39.42
+    got = [c.sentence() for c in D.diff_events(
+        prior, ev([("A", 1, 30.), ("B", 2, 35.), ("D", 3, 39.42)]), current_value=lookup)]
+    assert not any("drops off" in s for s in got), got
+
+
 def test_digest_engine():
     assert run_all()
 

@@ -297,7 +297,8 @@ def main(argv=None) -> int:
             event_changes = []
         else:
             event_changes = D.diff_events(prior_events, events,
-                                          prior_row_keys=prior.get("row_keys"))
+                                          prior_row_keys=prior.get("row_keys"),
+                                          current_value=D.board_value_lookup(frames))
             # A line only a change to the gate rules moved is an edit, not news.
             n_rule = D.mark_rule_releases(prior, frames, event_changes, crossings)
             if n_rule:
