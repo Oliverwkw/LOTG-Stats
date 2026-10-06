@@ -2633,6 +2633,38 @@ def _nobody_moved(mover_prev: Optional[float], mover_now: float, end: str,
     return True
 
 
+def _broke_tie(e: "EventHighlight", was: int, slot: dict, own,
+               rank_of_label: dict, entity_rank: dict) -> bool:
+    """True when `e` shared place `was` last week, holds it alone now, and got
+    there by its own value improving — an overtake the rank number cannot show.
+
+    AceMatthew's Top half streak tied LWebs53's record at 10 in 2026 week 3 and
+    went to 11 in week 4: 1st both weeks, so the rank test read it as unmoved and
+    the new record never reached the email. `own` is the running-total test from
+    `diff_events` (None for an ordinary row). A running rival is placed by
+    whose run it is (`entity_rank`), not by last week's row: its run has moved
+    on to a new row too, so the old label is off the board without it falling —
+    Dak Prescott, Josh Allen, Josh Jacobs and Patrick Mahomes all going from 104
+    to 105 weeks on team broke no tie."""
+    labels = slot["by_rank"].get(was, [])
+    if own is not None:
+        mine = [lbl for lbl in labels if own(lbl)]
+        prev = slot.get("val_by_label", {}).get(mine[0]) if mine else None
+        rivals = [lbl for lbl in labels if not own(lbl)]
+    else:
+        prev = slot["val_by_key"].get(e.key)
+        rivals = [lbl for lbl in labels if lbl != e.label]
+    if prev is None or e.value is None or not _improved(e.value, prev, e.end):
+        return False
+
+    def rank_now(lbl):
+        if own is not None:
+            ent = slot.get("entity_by_label", {}).get(lbl) or _label_entity(e.sheet, lbl)
+            return entity_rank.get((e.sheet, e.column, e.end, ent), 10 ** 9)
+        return rank_of_label.get((e.sheet, e.column, e.end, lbl), 10 ** 9)
+    return any(rank_now(lbl) > e.rank for lbl in rivals)
+
+
 def diff_events(prior_board, events: Sequence[EventHighlight],
                 prior_row_keys: Optional[Sequence[str]] = None) -> List[EventCrossing]:
     """Overtakes on the event boards since `prior_board`.
@@ -2677,6 +2709,12 @@ def diff_events(prior_board, events: Sequence[EventHighlight],
     value_of_label = {(e.sheet, e.column, e.end, e.label): e.value for e in events}
     rank_of_label = {(e.sheet, e.column, e.end, e.label): e.rank for e in events}
     key_of_label = {(e.sheet, e.column, e.end, e.label): e.key for e in events}
+    # Each running-total entity's best place NOW, for `_broke_tie`.
+    entity_rank: Dict[tuple, int] = {}
+    for e in events:
+        if e.running:
+            k = (e.sheet, e.column, e.end, e.entity or _label_entity(e.sheet, e.label))
+            entity_rank[k] = min(entity_rank.get(k, e.rank), e.rank)
     out: List[EventCrossing] = []
     # (sheet, column, end, faller label) -> stand-still rows that passed it.
     fell: Dict[tuple, List[tuple]] = {}
@@ -2718,7 +2756,9 @@ def diff_events(prior_board, events: Sequence[EventHighlight],
             mine = [r for r, labels in slot["by_rank"].items() if any(own(x) for x in labels)]
             if mine:
                 was = min(mine) if was is None else min(was, min(mine))
-        if was is not None and e.rank >= was:
+        if was is not None and e.rank >= was \
+                and not (e.rank == was and _broke_tie(e, was, slot, own, rank_of_label,
+                                                  entity_rank)):
             continue                       # unmoved, or pushed down by someone else
         # A row that arrived from off the board with a value strictly worse than
         # last week's last place did not climb on: the board shortened above it.

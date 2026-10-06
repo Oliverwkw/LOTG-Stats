@@ -2298,6 +2298,51 @@ def test_a_tie_with_own_last_week_is_not_reported():
     assert len(out) == 1, [h.line() for h in out]
 
 
+def test_breaking_a_tie_one_held_is_an_overtake():
+    """AceMatthew's Top half streak tied LWebs53's record at 10 in 2026 week 3 and
+    went to 11 in week 4. 1st both weeks, so the rank alone read it as unmoved
+    and the new record was missing from the week-4 email."""
+    from lotg_support import digest as D
+
+    def run(rows):
+        return [D.EventHighlight("team_week", lbl, "Top half streak", "high", r, v,
+                                 key=lbl, running=True, entity=lbl.split()[0])
+                for lbl, r, v in rows]
+    prior = D.event_board(run([("AceMatthew 2026 week 3", 1, 10.), ("LWebs53 2023 week 4", 1, 10.),
+                               ("shmuel256 2025 week 5", 3, 9.)]))
+    got = [c.sentence() for c in D.diff_events(
+        prior, run([("AceMatthew 2026 week 4", 1, 11.), ("LWebs53 2023 week 4", 2, 10.),
+                    ("shmuel256 2025 week 5", 3, 9.)]),
+        prior_row_keys=["AceMatthew 2026 week 3", "LWebs53 2023 week 4", "shmuel256 2025 week 5"])]
+    assert got == ["AceMatthew 2026 week 4 passes LWebs53 2023 week 4 "
+                   "for highest Top half streak (11)."], got
+
+    # Runs that tick up TOGETHER break no tie: each rival's run moved to a new
+    # row too, so its old label being gone is not it falling behind.
+    def tenure(rows):
+        return [D.EventHighlight("player_week", lbl, "Number of weeks on team", "high", r, v,
+                                 key=lbl, running=True, entity=lbl.rsplit(" ", 3)[0])
+                for lbl, r, v in rows]
+    prior = D.event_board(tenure([("Dak Prescott 2026 week 3", 1, 104.),
+                                  ("Josh Allen 2026 week 3", 1, 104.)]))
+    got = D.diff_events(prior, tenure([("Dak Prescott 2026 week 4", 1, 105.),
+                                       ("Josh Allen 2026 week 4", 1, 105.)]),
+                        prior_row_keys=["Dak Prescott 2026 week 3", "Josh Allen 2026 week 3"])
+    assert got == [], [c.sentence() for c in got]
+
+    # An ordinary row whose own value breaks the tie it shared.
+    def ev(rows):
+        return [D.EventHighlight("trades", k, "KTC", "high", r, v, key=k) for k, r, v in rows]
+    prior = D.event_board(ev([("A", 1, 50.), ("B", 1, 50.), ("C", 3, 30.)]))
+    got = [c.sentence() for c in D.diff_events(
+        prior, ev([("A", 1, 55.), ("B", 2, 50.), ("C", 3, 30.)]), prior_row_keys=["A", "B", "C"])]
+    assert got == ["A passes B for highest KTC (55)."], got
+    # Left alone at the top because the co-holder FELL is not A's news.
+    got = [c.sentence() for c in D.diff_events(
+        prior, ev([("A", 1, 50.), ("B", 2, 45.), ("C", 3, 30.)]), prior_row_keys=["A", "B", "C"])]
+    assert not any(s.startswith("A passes") for s in got), got
+
+
 def test_digest_engine():
     assert run_all()
 
