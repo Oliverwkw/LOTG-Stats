@@ -19025,6 +19025,34 @@ def build_all(repo_root: Path) -> None:
     except Exception as e:
         _log_exc(debug, "boldness", e)
 
+    # Game times (lotg_support.gametime): player_week "Game slot", and team_week
+    # margins entering SNF / Monday / the matchup's last game with the comeback
+    # from each (vs the opponent's final). Week grain only — no rollups.
+    try:
+        from lotg_support import gametime as _gt
+        _sched = _gt.load_schedule(games if isinstance(games, pd.DataFrame) else pd.DataFrame())
+        if _sched.kickoff and isinstance(pw, pd.DataFrame) and not pw.empty:
+            pw[_gt.GAME_SLOT_COLUMN] = [_gt.player_slot(_sched, y, w, t)
+                                        for y, w, t in zip(pw["Year"], pw["Week"], pw["NFL team"])]
+            if isinstance(tw, pd.DataFrame) and not tw.empty:
+                _gcols = _gt.team_week_columns(tw, pw, _sched)
+                _gmap = {(str(t), int(y), int(w)): r for t, y, w, *r in
+                         _gcols[["Team", "Year", "Week", *_gt.TEAM_WEEK_COLUMNS]].itertuples(index=False, name=None)}
+                _tw_keys = [(str(t), int(y), int(w)) if pd.notna(y) and pd.notna(w) else None
+                            for t, y, w in zip(tw["Team"], pd.to_numeric(tw["Year"], errors="coerce"),
+                                               pd.to_numeric(tw["Week"], errors="coerce"))]
+                for _i, _c in enumerate(_gt.TEAM_WEEK_COLUMNS):
+                    tw[_c] = [(_gmap[k][_i] if k in _gmap else _gt.NA) for k in _tw_keys]
+            _nogame = int(((pw["Starter/Bench"].astype(str) == "Starter")
+                           & pw[_gt.GAME_SLOT_COLUMN].isin(["Bye", _gt.NA])
+                           & (pd.to_numeric(pw["Points"], errors="coerce").fillna(0) != 0)).sum())
+            _log(debug, f"[{_now_iso()}] INFO gametime: {len(_sched.kickoff)} team-games; "
+                        f"{_nogame} scoring starter(s) with no game on the schedule")
+        else:
+            _log(debug, f"[{_now_iso()}] WARNING gametime: no schedule — Game slot / margin columns left out")
+    except Exception as e:
+        _log_exc(debug, "gametime", e)
+
     # League rollups
     # League-wide unique extras (Phase 5B item 2): rookies and NFL-team counts
     # at year / all-time must be DISTINCT across the whole period, not summed

@@ -1056,6 +1056,13 @@ class WeekRow:
         return tuple(p for p in self.players if p not in started)
 
 
+def schedule() -> pd.DataFrame:
+    """The nflverse schedule the build caches (`.cache/nfldata_games.csv`), or an
+    empty frame without it. Feed it to `lotg_support.gametime.load_schedule`."""
+    path = repo_root() / ".cache" / "nfldata_games.csv"
+    return pd.read_csv(path, low_memory=False) if path.exists() else pd.DataFrame()
+
+
 @functools.lru_cache(maxsize=None)
 def _week_last_game_days(root: str) -> Dict[Tuple[int, int], str]:
     """(season, week) -> the day of its last regular-season game, from the
