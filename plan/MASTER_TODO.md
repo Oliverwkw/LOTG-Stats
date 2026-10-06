@@ -1481,7 +1481,7 @@ guard-skipped fire), 581→584 (#453), 584→589 (#454), 589→597 (#455).
     the change.
 
 ## Game-time columns (from the 2026 wk 4 MNF-comeback inquiry)
-- [ ] **player_week `Game slot` + team_week margins / comebacks by stage** [per user,
+- [x] **player_week `Game slot` + team_week margins / comebacks by stage** [per user,
   2026-10-05]. `lotg_support.gametime`, week grain only (no rollups); `inquire.py
   gametime` is the inquiry side (margin entering any stage, `--slots` points by slot).
   - `Game slot`: Thursday / Friday / Saturday / (Christmas) Wednesday, Sunday morning
@@ -1510,4 +1510,29 @@ guard-skipped fire), 581→584 (#453), 584→589 (#454), 589→597 (#455).
     Empty slots 1 → 0 and Chase's Boldness blank → 0.0, Luck ±0.01 that week.
   - Local recompute on the committed exports (completed seasons): 832 team-weeks;
     Monday comebacks 98, SNF 165, last game 97; #1 Monday = LWebs53 2021 wk 2 (63.78,
-    49.4%, 33.1%, 21.26 per player). Verify with the CI branch build + 3-part audit.
+    49.4%, 33.1%, 21.26 per player).
+  Merged #477 / `be459ac` after branch run 671 (artifact checked). **3-part audit — PASS
+  (2026-10-06): post-merge main run 672 (exports committed `6395ca3`, roster change) vs
+  pre-merge main run 668.**
+  - Part 1: 620 passed / 2 standing skips (incl. test_gametime export = recompute and
+    test_struck_games on real data); 0 ERROR lines in run 672's section; `schedule:
+    restored 1 struck game(s)`, `gametime: 14480 team-games; 0 scoring starter(s) with no
+    game`. The 2 PerformanceWarnings at lotg.py ~21629/21663 are pre-existing (run 668 has
+    the same pair at 21578/21612).
+  - Part 2 cases: LWebs53 2021 wk2 Monday −63.78 → margin/points overcome 63.78, 49.4%,
+    33.1%, 21.26/player; plehv79 2023 Semifinal +3.68 going in → margin overcome blank,
+    points overcome 55.12; BROsenzweig 2020 wk6 margin overcome 44.04 vs points overcome
+    56.04 (opponent's 12 MNF pts); 2023 wk17 Monday blank (no game); AceMatthew 2025 semi
+    SNF margin 51.28 = raw 46.28 + the +5; 2020 wk5 BUF/TEN slot Tuesday (COVID makeup);
+    Chase 2022 wk17 MNF / not bye / not injured / Boldness 0.0, BROsenzweig Empty slots 0;
+    Hurst 2022 full season 141.0; 0 comebacks on a loss; 46 blank last-game margins.
+  - Part 3: run 672 = branch run 671 cell for cell on all 15 CSVs. vs 668 (235 sheet/column
+    entries): intended — the Hamlin restoration (4 Bye? flags clear, 4 played 0-pt weeks
+    and their PPG / bust / floor / donut / streak / percentile cascade, Empty slots, Luck
+    ±0.005, Hurst / Beasley / McKenzie 2022, Boldness / prev-5 / PAE / cuff windows, 2 Diggs
+    Wins added trades, a few trade / add_drop / pick rows); by-design live drift — 2026 wk4
+    DET @ CAR SNF stats that landed after run 668 (13 player_year rows, 4 career-only
+    players, Hubbard trade row 283), tenure +1 day, KTC forward horizons (incl. 0.0 roll
+    artifacts); formulas +3 rows. Nothing else.
+  - `scripts/audit_weekly.py` Part 2 flagged the stale schema pin (also missing #464 / #469
+    / Price paid columns); re-pinned from run 672 (`data/audit/schema_baseline.json`).
