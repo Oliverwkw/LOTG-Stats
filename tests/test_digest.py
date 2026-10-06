@@ -2353,6 +2353,59 @@ def test_breaking_a_tie_one_held_is_an_overtake():
     assert not any(s.startswith("A passes") for s in got), got
 
 
+def test_overflowing_tie_is_snapshotted_and_named_as_passed():
+    """Stefon Diggs and Nick Chubb shared 5th-highest Weeks rostered by this team
+    at 101 after 2026 week 3 — a tie that does not fit a top 5, so off the board.
+    Diggs went to 102 for 5th alone in week 4 and the email had nobody to say he
+    passed. The overflowing tie is snapshotted so the diff can name Chubb."""
+    from lotg_support import digest as D
+
+    pool = pd.Series([105., 105., 105., 105., 101., 101., 95.])
+    assert D._board_places(pool, "high", 5, 5) == {105.0: 1}
+    assert D._overflow_places(pool, "high", 5, 5) == {101.0: 5}
+    # A tie that fits is a place, not overflow; one past the window is neither.
+    assert D._overflow_places(pd.Series([9., 8., 7., 6., 6., 4.]), "high", 5, 5) == {}
+    assert D._overflow_places(pd.Series([9., 8., 7., 6., 5., 4., 4.]), "high", 5, 5) == {}
+
+    def run(rows, overflow=()):
+        return [D.EventHighlight("player_week", lbl, "Weeks rostered by this team", "high", r, v,
+                                 key=lbl, running=True, entity=lbl.rsplit(" ", 3)[0],
+                                 overflow=lbl in overflow)
+                for lbl, r, v in rows]
+    week3 = [("Dak Prescott 2026 week 3", 1, 104.), ("Josh Allen 2026 week 3", 1, 104.),
+             ("Josh Jacobs 2026 week 3", 1, 104.), ("Patrick Mahomes 2026 week 3", 1, 104.),
+             ("Stefon Diggs 2026 week 3", 5, 101.), ("Nick Chubb 2025 week 17", 5, 101.)]
+    spill = {"Stefon Diggs 2026 week 3", "Nick Chubb 2025 week 17"}
+    week4 = run([("Dak Prescott 2026 week 4", 1, 105.), ("Josh Allen 2026 week 4", 1, 105.),
+                 ("Josh Jacobs 2026 week 4", 1, 105.), ("Patrick Mahomes 2026 week 4", 1, 105.),
+                 ("Stefon Diggs 2026 week 4", 5, 102.)])
+    keys = [lbl for lbl, _r, _v in week3]
+    prior = D.event_board(run(week3, spill))
+    assert sum(1 for d in prior if d.get("overflow")) == 2, prior
+    got = [c.sentence() for c in D.diff_events(prior, week4, prior_row_keys=keys)]
+    assert got == ["Stefon Diggs 2026 week 4 passes Nick Chubb 2025 week 17 for "
+                   "5th-highest Weeks rostered by this team (102)."], got
+    # A snapshot written before overflow was stored: nobody to name, no line.
+    got = D.diff_events(D.event_board(run(week3[:4])), week4, prior_row_keys=keys)
+    assert got == [], [c.sentence() for c in got]
+    # An overflowing tie holds no place: diffing a week against itself is silent.
+    same = run(week3, spill)
+    assert D.diff_events(D.event_board(same), same, prior_row_keys=keys) == []
+
+    # An ordinary row that sat in the overflowing tie and did not move, lifted
+    # onto the board by a row above it falling off, passed nobody.
+    def ev(rows, overflow=()):
+        return [D.EventHighlight("trades", k, "KTC", "high", r, v, key=k, overflow=k in overflow)
+                for k, r, v in rows]
+    prior = D.event_board(ev([("A", 1, 50.), ("B", 2, 40.), ("C", 3, 30.), ("D", 4, 20.),
+                              ("E", 5, 10.), ("F", 5, 10.)], {"E", "F"}))
+    got = D.diff_events(prior, ev([("A", 1, 50.), ("B", 2, 40.), ("C", 3, 30.),
+                                   ("E", 4, 10.), ("F", 4, 10.)]),
+                        prior_row_keys=list("ABCDEF"))
+    assert not any(c.label in ("E", "F") and not c.passed_by for c in got), \
+        [c.sentence() for c in got]
+
+
 def test_digest_engine():
     assert run_all()
 

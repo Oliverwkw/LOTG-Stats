@@ -258,7 +258,9 @@ def main(argv=None) -> int:
     # row ever — a season, a week, a pick, a trade, a transaction. A recompute
     # that re-values history reshuffles an all-time top/bottom 5, and that
     # reshuffle is the thing to report, whichever sheet it lands on.
-    events = D.all_board_highlights(frames, gate=gate)
+    # With each board's overflowing tie too: snapshot-only, so next week can name
+    # who a row coming onto the board passed (see digest._overflow_places).
+    events = D.all_board_highlights(frames, gate=gate, overflow=True)
     current["event_board"] = D.event_board(events)
     # The full row set of the transaction/pick sheets, so next week's diff can
     # tell a brand-new row (a trade/add just made) from an old one that only just
