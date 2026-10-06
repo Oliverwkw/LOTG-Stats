@@ -56,6 +56,8 @@ def col_number_format(col: str) -> Optional[str]:
     if (n.endswith("%") or n.startswith("win % vs ") or "win %" in n or n == "efficiency"
             or "% of points" in n or "% of team points" in n or "% of league points" in n
             or "% of starts" in n
+            # team_week comeback shares (lotg_support.gametime.PERCENT_COLUMNS)
+            or n.startswith("% of own points scored ") or n.startswith("% of opponent's ")
             or "all-play win" in n
             or n in ("highest win % vs a team", "lowest win % vs a team")):
         return "0.00%"

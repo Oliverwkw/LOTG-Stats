@@ -991,8 +991,10 @@ EQUATIONS = {
         'PF(t,w) − PA(t,w)',
     ('Margin entering SNF / Monday / last game', 'team_week'):
         "IN(t,w,T) − IN(o(t,w),w,T), IN(t,w,T) = PF(t,w) − Σ_{p ∈ S(t,w), ko(nfl(p,y,w),y,w) ≥ T} pts(p,w); T = first Sunday ko ≥ 19:00 (SNF) / first ko after Sunday (Monday) / max ko over S(t,w) ∪ S(o,w) if ≥ Sunday 19:00 (last game); no such T → N/A",
-    ('Down entering SNF / Monday / last game comeback', 'team_week'):
-        "margin overcome = −M when win(t,w) = 1 ∧ M < 0, M = IN(t,w,T) − IN(o(t,w),w,T); points overcome D = PF(o(t,w),w) − IN(t,w,T) when win(t,w) = 1 ∧ D > 0; else N/A; % versions D / IN(t,w,T) × 100 and D / PF(o(t,w),w) × 100; per player left D / |{p ∈ S(t,w) : ko(nfl(p,y,w),y,w) ≥ T}| — IN as in ⟨Margin entering SNF / Monday / last game⟩",
+    ('Comebacks entering SNF / Monday / last game', 'team_week'):
+        "M = IN(t,w,T) − IN(o(t,w),w,T); margin overcome MO = −M when win(t,w) = 1 ∧ M < 0; points overcome D = PF(o(t,w),w) − IN(t,w,T) when win(t,w) = 1 ∧ D > 0; else N/A; D / PF(o(t,w),w); MO / IN(o(t,w),w,T); D / L and MO / L, L = |{p ∈ S(t,w) : ko(nfl(p,y,w),y,w) ≥ T}| (N/A when L = 0); own share (PF(t,w) − IN(t,w,T)) / PF(t,w) — IN as in ⟨Margin entering SNF / Monday / last game⟩",
+    ('Comeback size', 'team_week'):
+        "μ(p,w) = (Σ_{w'<w, same season} pts(p,w') + 4·avg_{y−1}(p) + 6·m_pos(<w)) / (n + 4·[played y−1] + 6); z(T) = (IN(t,w,T) − IN(o,w,T) + Σ_{p ∈ S(t,w), ko ≥ T} μ − Σ_{p ∈ S(o,w), ko ≥ T} μ) / (2.1·√Σ_{p ∈ S(t,w) ∪ S(o,w), ko ≥ T} max(μ,1)); size = max_{i<j} max(0, −z(T_i)) · Φ(z(T_j)), z(T_end) ↦ Φ = win(t,w); stage: i = T only; plain: T_i over every matchup kickoff but the first",
     ('Win?', 'team_week'):
         'win(t,w) = [PF > PA] + ½[PF = PA]  (2026+ two-week final: PF summed over both weeks)',
     ('Efficiency', 'team_week / team_year / team_all_time / league_week / league_year / league_all_time'):

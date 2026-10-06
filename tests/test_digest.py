@@ -862,6 +862,37 @@ def check_renamed_count_columns_keep_their_prior():
     return ok
 
 
+def check_comeback_columns_renamed_and_high_end_only():
+    """#477's comeback columns renamed 2026-10-06: the scale-preserving ones keep
+    their board history; the 0-100 % columns (fractions now) start fresh; and
+    what a comeback overcame is ranked at the high end only — its low end is a
+    pile of 0.1-point wins, not records (12 such lines in the 2026 week-4 run)."""
+    snap = {"event_board": [
+        {"sheet": "team_week", "column": "Down entering Monday comeback (points overcome)",
+         "end": "high", "key": "k1", "rank": 1, "label": "x", "value": 63.78},
+        {"sheet": "team_week", "column": "Down entering SNF comeback (per player left)",
+         "end": "high", "key": "k2", "rank": 1, "label": "y", "value": 27.34},
+        {"sheet": "team_week", "column": "Down entering Monday comeback (% of opponent's final)",
+         "end": "high", "key": "k3", "rank": 1, "label": "z", "value": 46.2}]}
+    cols = [e["column"] for e in D.migrate_snapshot_columns(snap)["event_board"]]
+    ok = _ok("renamed comeback boards keep their prior",
+             cols == ["Points overcome (entering Monday)", "Points overcome per player left (entering SNF)",
+                      "Down entering Monday comeback (% of opponent's final)"], str(cols))
+    col = "Points overcome (entering Monday)"
+    tw = pd.DataFrame({"Team": list("ABCDEFG"), "Year": [2025] * 6 + [2026], "Week": [1, 2, 3, 4, 5, 6, 1],
+                       col: [30.0, 40.0, 50.0, 60.0, 70.0, 80.0, 0.1],
+                       "PF": [100.0, 101, 102, 103, 104, 105, 50]})
+    ty = pd.DataFrame({"Team": ["G"], "Year": [2026]})
+    empty = pd.DataFrame({"Player": [], "Year": [], "Week": []})
+    got = [(h.column, h.end) for h in D.weekly_highlights(empty, tw, pd.DataFrame({"Year": [], "Week": []}),
+                                                           ty, window=2)]
+    ok &= _ok("a 0.1-pt comeback is not the lowest ever", (col, "low") not in got, str(got))
+    ok &= _ok("other columns keep both ends", ("PF", "low") in got, str(got))
+    ends = {(h.column, h.end) for h in D.board_highlights(tw, "team_week", window=2)}
+    ok &= _ok("event board: high end only", (col, "high") in ends and (col, "low") not in ends, str(ends))
+    return ok
+
+
 def check_digest_title():
     """In-season names the week (and never says "through"); the offseason names
     the build date instead of the meaningless "week 0"."""
@@ -1443,6 +1474,7 @@ def run_all() -> bool:
         check_records_and_leaderboard_changes_are_four_parts,
         check_milestone_landing_exactly_does_not_echo,
         check_renamed_count_columns_keep_their_prior,
+        check_comeback_columns_renamed_and_high_end_only,
         check_digest_title,
         check_an_invisible_overtake_is_not_reported,
         check_a_tie_join_is_never_suppressed,

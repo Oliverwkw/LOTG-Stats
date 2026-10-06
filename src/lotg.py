@@ -18991,8 +18991,9 @@ def build_all(repo_root: Path) -> None:
         _log_exc(debug, "boldness", e)
 
     # Game times (lotg_support.gametime): player_week "Game slot", and team_week
-    # margins entering SNF / Monday / the matchup's last game with the comeback
-    # from each (vs the opponent's final). Week grain only — no rollups.
+    # margins entering SNF / Monday / the matchup's last game, what each comeback
+    # overcame (vs the opponent's final) and the modelled Comeback size. Week
+    # grain only — no rollups.
     try:
         from lotg_support import gametime as _gt
         _sched = _gt_schedule
