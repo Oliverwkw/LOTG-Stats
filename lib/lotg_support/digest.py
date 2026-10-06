@@ -45,6 +45,7 @@ import re
 import pandas as pd
 
 from .email_summary import NewData, attribute, stat_relevance
+from . import number_format as _number_format
 
 
 
@@ -209,10 +210,22 @@ def note_percent_columns(frames: dict) -> set:
 
 
 def _fmt_stat(column: Optional[str], value: float) -> str:
-    """`_fmt`, as a percentage when `column` is a 0-1 fraction column."""
-    if column is not None and column in _PERCENT_COLUMNS:
-        return f"{_fmt(value * 100)}%"
-    return _fmt(value)
+    """`value` as the spreadsheet shows `column`: the same decimal places as the
+    workbook's number format (`number_format.col_number_format` — 0 for counts
+    and streaks, 4 for Tanking, 2 for everything else), with a "%" where the
+    workbook shows one (a 0-1 fraction column printed x100). Thousands keep
+    their commas. A column the workbook leaves General falls back to `_fmt`."""
+    fmt = _number_format.col_number_format(column) if column else None
+    places = _number_format.decimals(fmt)
+    fraction = column is not None and column in _PERCENT_COLUMNS
+    if places is None:
+        return f"{_fmt(value * 100)}%" if fraction else _fmt(value)
+    v = value * 100 if fraction else value
+    out = f"{v:,.{places}f}"
+    # A tiny negative that rounds to zero reads as a signed zero: drop the sign.
+    if out.startswith("-") and not out.strip("-0.,"):
+        out = out[1:]
+    return out + ("%" if fraction or "%" in fmt else "")
 
 
 # How a column is NAMED in the email, where the spreadsheet's neighbouring
@@ -820,24 +833,33 @@ def _column_crossings(section: str, column: str,
                 continue
             mover_prev = None if arrived else prev_val[mover]
             old_rank = n + 1 if arrived else prev_rank.get(mover_prev)
-            if old_rank is not None and new_rank == old_rank and mover_prev is not None \
-                    and not _improved(v, mover_prev, end):
+            # Last week's tie partners at the place it holds again now, and now
+            # behind it. Only a tie that stood on the board: one beyond it (Kaleb
+            # Johnson among a hundred-odd players level at the bottom of a
+            # percentile) held no place to break or fall out of.
+            split: List[str] = []
+            if old_rank is not None and new_rank == old_rank and mover_prev is not None:
+                size = sum(1 for xv in prev_val.values() if xv == mover_prev)
+                if size <= _MAX_JOIN_TIE and _tie_fits(old_rank, size, window):
+                    split = [x for x in curr_val
+                             if x != mover and x in prev_val
+                             and prev_rank.get(prev_val[x]) == old_rank
+                             and curr_rank[curr_val[x]] > new_rank]
+            if split and not _improved(v, mover_prev, end):
                 # Holds the place it shared last week, alone now, without its own
                 # value improving: whoever shared it fell out of the tie, and that
                 # is told from their side ("was passed by"), as on the event boards
-                # (`diff_events`' tie split). Only a tie that stood on the board:
-                # one beyond it (Kaleb Johnson among a hundred-odd players level at
-                # the bottom of a percentile) held no place to fall out of.
-                size = sum(1 for xv in prev_val.values() if xv == mover_prev)
-                for x in (curr_val if size <= _MAX_JOIN_TIE
-                          and _tie_fits(old_rank, size, window) else ()):
-                    if (x != mover and x in prev_val
-                            and prev_rank.get(prev_val[x]) == old_rank
-                            and curr_rank[curr_val[x]] > new_rank
-                            and _improved(prev_val[x], curr_val[x], end)
+                # (`diff_events`' tie split).
+                for x in split:
+                    if (_improved(prev_val[x], curr_val[x], end)
                             and not _indistinguishable(v, [curr_val[x]], column)):
                         fell.setdefault((end, x), []).append((new_rank, mover, v))
-            if old_rank is None or new_rank >= old_rank:
+                continue
+            # Its own value improved and left a tie partner behind on the same
+            # place: an overtake the rank number cannot show (`_broke_tie` on the
+            # event boards). A player tied for a record who breaks it.
+            tie_break = bool(split)
+            if (old_rank is None or new_rank >= old_rank) and not tie_break:
                 continue  # not improved toward this end
             # Nor did it climb if its own value did not move toward this end: the
             # rows above it fell. Week 2 of 2026, Christian Watson won his first
@@ -859,6 +881,8 @@ def _column_crossings(section: str, column: str,
                       and new_rank <= prev_rank.get(prev_val[x], n + 1) <= last
                       and prev_rank.get(prev_val[x], n + 1) < old_rank
                       and curr_rank[curr_val[x]] > new_rank]
+            if tie_break:
+                passed = [x for x in split if x not in others]
 
             def faller_side():
                 # Only rows whose own value moved away from this end lost the
@@ -3075,13 +3099,17 @@ def _board_dropouts(prior: Dict[tuple, dict], on_now: set, run_keys_now: Dict[tu
     (`_indistinguishable`).
 
     `current_value(sheet, column, end, key, entity, skip=keys)` reads the row's
-    value now — for a running total (`entity` set), its entity's best over every
-    row but `skip`. A running total's run moves on to a new row each week, so it
-    is judged by its entity, but NOT by the entity's other runs: a team with two
-    streaks on one board holds two places, and its record streak recomputed from
-    10 to 4 is a fall even while its other streak still stands 3rd. Those other
-    places (`skip`) neither keep the run on the board nor lend it their value."""
+    value now — for a running total (`entity` set), where its RUN stands now: a
+    running total's run moves on to newer rows, so it is judged by the run, but
+    NOT by the entity's other runs. A team with two streaks on one board holds two
+    places, and its record streak recomputed from 10 to 4 is a fall even while its
+    other streak still stands 3rd. `skip` names the entity's other places, for a
+    lookup that can only answer by entity; `board_value_lookup` follows the run
+    itself, and its `run_key` says which row the run stands on now."""
     out: List[EventCrossing] = []
+    # Where a run stands now, when the lookup can say (`board_value_lookup`);
+    # else the entity's other places on the board are the best guess.
+    run_key = getattr(current_value, "run_key", None)
     for (sheet, column, end), slot in sorted(prior.items()):
         running = (sheet, column, end) in running_boards \
             or bool(slot.get("entity_by_label"))
@@ -3098,7 +3126,11 @@ def _board_dropouts(prior: Dict[tuple, dict], on_now: set, run_keys_now: Dict[tu
             if running:
                 entity = entity_of(key)
                 skip = frozenset(k for k in slot["by_key"] if k != key and entity_of(k) == entity)
-                if run_keys_now.get((sheet, column, end, entity), set()) - skip:
+                rk = run_key(sheet, column, key) if run_key is not None else None
+                if rk is not None:
+                    if (sheet, column, end, rk) in on_now:
+                        continue   # its run is still on the board, on a newer row
+                elif run_keys_now.get((sheet, column, end, entity), set()) - skip:
                     continue   # its run is still on the board
             elif (sheet, column, end, key) in on_now:
                 continue
@@ -3113,56 +3145,106 @@ def _board_dropouts(prior: Dict[tuple, dict], on_now: set, run_keys_now: Dict[tu
     return out
 
 
-def board_value_lookup(frames: dict):
+def board_value_lookup(frames: dict, gate: Optional[BoardGate] = None):
     """`current_value` for `diff_events`: a board row's value in this week's
-    frames, ranked as the boards rank it (`rankable_series`) — by row key, or for
-    a running total by entity (its best, toward `end`). None when the row (or the
-    entity) has no rankable value now. Built lazily: only boards with a dropout
-    candidate are read."""
+    frames, ranked as the boards rank it — by row key, or for a running total by
+    entity (its best, toward `end`). None when the row (or the entity) has no
+    rankable value at that end now. Built lazily: only boards with a dropout
+    candidate are read.
+
+    Pass the board's `gate`: a row it holds stands nowhere but the high end of a
+    counting stat (`board_highlights`), so at any other end it has no value to
+    have fallen to. Without that, every in-progress season row the gate took off
+    the boards in week 2 of 2026 read as having "dropped off" — 261 lines."""
     pools: Dict[tuple, "pd.Series"] = {}
     row_keys: Dict[str, Dict[object, str]] = {}
-    # (sheet, column) -> entity -> [(row key, value)]
+    # (sheet, column) -> entity -> [(row index, value)], oldest first
     ent_rows: Dict[tuple, Dict[str, List[tuple]]] = {}
 
-    def pool(sheet, column):
-        if (sheet, column) not in pools:
+    def pool(sheet, column, end):
+        """The rows ranked at `end` of this board, as `board_highlights` ranks them."""
+        if (sheet, column, end) not in pools:
             df = frames.get(sheet)
-            if df is None or df.empty or column not in df.columns:
-                pools[(sheet, column)] = pd.Series(dtype=float)
-            else:
-                pools[(sheet, column)] = rankable_series(
-                    df, column, column in mirrored_columns(df, sheet), sheet)
-        return pools[(sheet, column)]
+            out = pd.Series(dtype=float)
+            if df is not None and not df.empty and column in df.columns:
+                out = rankable_series(df, column, column in mirrored_columns(df, sheet), sheet)
+                if end == "low" and sheet in _YEARLY_SHEETS and is_yearly_counting_stat(column):
+                    out = pd.Series(dtype=float)       # no low board for these
+                held = gate.restricted(df, sheet, column) if gate is not None else None
+                if held is not None and not out.empty \
+                        and not (end == "high" and is_counting_stat(column)):
+                    held = held.reindex(out.index, fill_value=False).astype(bool)
+                    out = out[~held]
+            pools[(sheet, column, end)] = out
+        return pools[(sheet, column, end)]
 
     def keys_of(sheet, df):
         if sheet not in row_keys:
             row_keys[sheet] = {_board_row_key(sheet, r): idx for idx, r in df.iterrows()}
         return row_keys[sheet]
 
+    def run_value(sheet, column, df, idx):
+        """Where the run that `idx` was part of stands now, as (row, value): a
+        running total's run moves on to newer rows (`running_columns`), and only
+        its own later rows say how far — not the entity's other runs (another
+        season's, another stint's). Walk the entity's rows forward from `idx`:
+        a streak continues while it counts up by one; a terminal-encoded total
+        ("In Progress" until the run ends) lands on its first number. Any other
+        running count keeps a value on every row, so the row is its own answer."""
+        k = (sheet, column)
+        if k not in ent_rows:
+            order = [c for c in ("Year", "Season", "Week", "Date") if c in df.columns]
+            seq = df.sort_values(order, kind="stable") if order else df
+            rows: Dict[str, List[tuple]] = {}
+            for i, r in seq.iterrows():
+                rows.setdefault(_row_entity(sheet, column, r), []).append((i, _to_float(r[column])))
+            ent_rows[k] = rows
+        ent = _row_entity(sheet, column, df.loc[idx])
+        chain = ent_rows[k].get(ent, [])
+        pos = next((n for n, (i, _v) in enumerate(chain) if i == idx), None)
+        if pos is None:
+            return None
+        if "streak" in column.lower():
+            i, v = chain[pos]
+            for j, w in chain[pos + 1:]:
+                if v is None or w is None or abs(w - (v + 1)) > 1e-9:
+                    break
+                i, v = j, w
+            return (i, v) if v is not None else None
+        terminal = not pd.api.types.is_numeric_dtype(df[column]) \
+            and (df[column].astype(str).str.strip() == "In Progress").any()
+        if terminal:
+            return next(((i, v) for i, v in chain[pos:] if v is not None), None)
+        # Any other running count (Age, Startup draft players remaining, a
+        # "number of times" tally) keeps its value on every row, and the board
+        # ranks those rows themselves: the row's own value is where it stands.
+        i, v = chain[pos]
+        return (i, v) if v is not None else None
+
     def lookup(sheet, column, end, key, entity=None, skip=frozenset()):
-        s = pool(sheet, column)
+        s = pool(sheet, column, end)
         if s.empty:
             return None
         df = frames[sheet]
-        if entity is not None:
-            k = (sheet, column)
-            if k not in ent_rows:
-                key_at = {idx: rk for rk, idx in keys_of(sheet, df).items()}
-                rows: Dict[str, List[tuple]] = {}
-                for idx, v in s.items():
-                    rows.setdefault(_row_entity(sheet, column, df.loc[idx]), []).append(
-                        (key_at.get(idx), float(v)))
-                ent_rows[k] = rows
-            vals = [v for rk, v in ent_rows[k].get(entity, ()) if rk not in skip]
-            if not vals:
-                return None
-            best = vals[0]
-            for v in vals[1:]:
-                if _improved(v, best, end):
-                    best = v
-            return best
         idx = keys_of(sheet, df).get(key)
-        return float(s[idx]) if idx is not None and idx in s.index else None
+        if idx is None:
+            return None
+        if entity is not None:
+            # Read where the run stands — and only if that row ranks at this end
+            # (the gate may hold it).
+            at = run_value(sheet, column, df, idx)
+            return float(s[at[0]]) if at is not None and at[0] in s.index else None
+        return float(s[idx]) if idx in s.index else None
+
+    def run_key(sheet, column, key):
+        """The row key the run of `key`'s row stands on now (`run_value`), or None."""
+        df = frames.get(sheet)
+        if df is None or df.empty or column not in df.columns:
+            return None
+        idx = keys_of(sheet, df).get(key)
+        at = run_value(sheet, column, df, idx) if idx is not None else None
+        return _board_row_key(sheet, df.loc[at[0]]) if at is not None else None
+    lookup.run_key = run_key
     return lookup
 
 
@@ -3455,9 +3537,10 @@ class Milestone:
     def _tail(self) -> str:
         # A total landing exactly on the round number would read "passes
         # 500,000 (now 500,000)"; say "reaches" and drop the echo instead.
+        # The round number as a round number; the total as the spreadsheet shows it.
         if _fmt(self.value) == _fmt(self.milestone):
             return f"reaches {_fmt(self.milestone)}."
-        return f"passes {_fmt(self.milestone)} (now {_fmt(self.value)})."
+        return f"passes {_fmt(self.milestone)} (now {_fmt_stat(self.stat, self.value)})."
 
     def sentence(self) -> str:
         return f"League {self.stat} {self._tail()}"
