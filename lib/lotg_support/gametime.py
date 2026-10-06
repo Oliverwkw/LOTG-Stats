@@ -26,12 +26,15 @@ Rules [per user, 2026-10-05]:
 - **Margin entering X** = own points going in minus the opponent's points going
   in. The semifinal +5 counts: points going in are PF minus the starters'
   points from that kickoff on, so the bonus is in from the start.
-- **Down entering X comeback** = the opponent's FINAL score minus own points
-  going in, when that is above 0 and the team won (whatever the margin then:
-  it is judged against the final, so the opponent's own late players count).
-  N/A otherwise. Two % versions: of own points going in, and of the
+- **Down entering X comeback (margin overcome)** = how far behind the team was
+  at that moment (−Margin entering X), when it was behind and won.
+- **Down entering X comeback (points overcome)** = the opponent's FINAL score
+  minus own points going in, when that is above 0 and the team won (whatever
+  the margin then: it is judged against the final, so the opponent's own late
+  players count). Two % versions of it: of own points going in, and of the
   opponent's final; and a per-player version: divided by the team's own
   starters still to play from that kickoff on.
+  All N/A otherwise.
 """
 from __future__ import annotations
 
@@ -52,7 +55,8 @@ STAGES = ("SNF", "Monday", "last game")
 # Team-week columns, in sheet order.
 MARGIN_COLUMNS = {s: f"Margin entering {s}" for s in STAGES}
 COMEBACK_COLUMNS = {
-    s: (f"Down entering {s} comeback",
+    s: (f"Down entering {s} comeback (margin overcome)",
+        f"Down entering {s} comeback (points overcome)",
         f"Down entering {s} comeback (% of points going in)",
         f"Down entering {s} comeback (% of opponent's final)",
         f"Down entering {s} comeback (per player left)")
@@ -271,9 +275,11 @@ def stage_rows(team_week: pd.DataFrame, player_week: pd.DataFrame, schedule: Sch
             "Stage kickoff": t.strftime("%a %Y-%m-%d %H:%M") if t else None,
             "Points going in": m["in"], "Opponent going in": m["opp_in"],
             "Margin entering": m["margin"], "Players left": m["left"],
+            "Margin overcome": (-m["margin"] if won and m["margin"] is not None and m["margin"] < 0
+                                else None),
             "Points after": round(pf - m["in"], 2) if m["in"] is not None else None,
             "Opponent after": round(pa - m["opp_in"], 2) if m["opp_in"] is not None else None,
-            "Comeback": cb[0] if cb else None,
+            "Points overcome": cb[0] if cb else None,
             "Comeback (% of points going in)": cb[1] if cb else None,
             "Comeback (% of opponent's final)": cb[2] if cb else None,
             "Comeback (per player left)": cb[3] if cb else None,
@@ -290,11 +296,11 @@ def team_week_columns(team_week: pd.DataFrame, player_week: pd.DataFrame,
         r = stage_rows(team_week, player_week, schedule, stage)
         if r.empty:
             return pd.DataFrame(columns=["Team", "Year", "Week", *TEAM_WEEK_COLUMNS])
-        pts, pct_in, pct_opp, per_pl = COMEBACK_COLUMNS[stage]
+        mo, pts, pct_in, pct_opp, per_pl = COMEBACK_COLUMNS[stage]
         part = pd.DataFrame({
             "Team": r["Team"], "Year": r["Year"], "Week": r["Week"],
             MARGIN_COLUMNS[stage]: r["Margin entering"],
-            pts: r["Comeback"], pct_in: r["Comeback (% of points going in)"],
+            mo: r["Margin overcome"], pts: r["Points overcome"], pct_in: r["Comeback (% of points going in)"],
             pct_opp: r["Comeback (% of opponent's final)"],
             per_pl: r["Comeback (per player left)"],
         })

@@ -126,7 +126,7 @@ the answer, not a silent choice.
 | `scripts/contract_study.py` (`lotg_support.contracts`) | the *real world* side: what an NFL contract predicts about fantasy production — signings ranked inside their position's market, matched against comparable players who did not get paid |
 | `scripts/forecast.py` (`lotg_support.forecast`) | the season that has not happened yet: project rosters (rates, ageing, market-priced rookies, availability and depth), calibrate against completed seasons, simulate championship / playoff / seeding odds |
 | `scripts/touchdowns.py` (`lotg_support.scoring_events`) | what a player actually DID rather than what he was worth: nflverse's stat lines joined onto this league's starters — touchdowns scored (and thrown) per starter-week, the scan for lineups that reached the end zone with nobody, and career totals in any nflverse stat, both as of a start and lifetime |
-| `inquire.py gametime` (`lotg_support.gametime`) | when in the week the points came: the margin entering ANY stage (`--entering SNF / Monday / 'last game'` or any game slot — `'Sunday late'`, `Thursday`, …), comebacks against the opponent's final (points, both %s, per player left), and starter points per team-week by game slot (`--slots`); Thanksgiving / Christmas / doubleheader weeks fall out of the schedule |
+| `inquire.py gametime` (`lotg_support.gametime`) | when in the week the points came: the margin entering ANY stage (`--entering SNF / Monday / 'last game'` or any game slot — `'Sunday late'`, `Thursday`, …), comebacks: margin overcome (behind at the time) and points overcome (vs the opponent's final, with both %s and per player left; `--comebacks --by margin|points`), and starter points per team-week by game slot (`--slots`); Thanksgiving / Christmas / doubleheader weeks fall out of the schedule |
 | `scripts/boldness.py` (`lotg_support.boldness`) | how bold a lineup call was, 2020 on: each start against the best STARTABLE bench player (taxi counts as bench), on PRE-KICKOFF expected points (recency-weighted history scored with the judged season's rules, LOTG rookie-slot prior for a rookie's first weeks, next-man-up cuff promotion), plus bust odds; every week counts, tank weeks included; and team-week ex-ante Max PF minus expected PF |
 
 All of them are additive and read-only. None is imported by the build or run by
@@ -728,8 +728,9 @@ list is here so an answer written by hand does not walk into them.
 - **A comeback is measured against the opponent's FINAL score, not the margin
   at the time** [per user, 2026-10-05]. So a team AHEAD going into Monday whose
   opponent then pulled clear on Monday night has a "Down entering Monday
-  comeback" too (plehv79, 2023 Semifinal: +3.68 going in, 55.12 overcome). The
-  "Margin entering …" columns are the at-the-time score. Monday includes 2020's
+  comeback (points overcome)" too (plehv79, 2023 Semifinal: +3.68 going in, 55.12
+  overcome). "(margin overcome)" is the at-the-time deficit (old definition), as are
+  the "Margin entering …" columns. Monday includes 2020's
   Tuesday / Wednesday makeups; the abandoned 2022 week 17 Bills-Bengals game,
   struck from the nflverse schedule, is put back as the Monday night game it
   was (`gametime._STRUCK_GAMES`) — without it 5 scoring starters land on a bye.

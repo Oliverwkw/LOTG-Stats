@@ -352,7 +352,8 @@ def cmd_gametime(args) -> None:
     if args.team:
         df = df[df["Team"] == args.team]
     if args.comebacks:
-        df = df[df["Comeback"].notna()].sort_values("Comeback", ascending=False)
+        col = "Margin overcome" if args.by == "margin" else "Points overcome"
+        df = df[df[col].notna()].sort_values(col, ascending=False)
     elif args.sort:
         df = df.sort_values(args.sort, ascending=args.ascending, na_position="last")
     _emit(df, args.csv, args.limit)
@@ -655,6 +656,9 @@ def build_parser() -> argparse.ArgumentParser:
                    help="SNF, Monday, 'last game', or a game slot: Thursday, Saturday, 'Sunday morning', "
                         "'Sunday early', 'Sunday late', MNF ... (default Monday)")
     p.add_argument("--comebacks", action="store_true", help="only comebacks, biggest first")
+    p.add_argument("--by", choices=("points", "margin"), default="points",
+                   help="with --comebacks: points overcome (vs the opponent's final, default) "
+                        "or margin overcome (behind at the time)")
     p.add_argument("--slots", action="store_true", help="starter points per team-week by game slot instead")
     p.add_argument("--team")
     p.add_argument("--season", type=int)

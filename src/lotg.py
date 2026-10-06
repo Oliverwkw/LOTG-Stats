@@ -3060,6 +3060,14 @@ def build_all(repo_root: Path) -> None:
         timeout=120,
         debug=debug,
     )
+    # Kickoffs for the game-time columns, taken now: `games` is rebound to a
+    # player's game list further down build_all.
+    try:
+        from lotg_support import gametime as _gt
+        _gt_schedule = _gt.load_schedule(games if isinstance(games, pd.DataFrame) else pd.DataFrame())
+    except Exception as e:
+        _log_exc(debug, "gametime_schedule", e)
+        _gt_schedule = None
     played_by_week_by_season: Dict[int, Dict[int, set]] = {}
     if not games.empty:
         try:
@@ -19030,8 +19038,8 @@ def build_all(repo_root: Path) -> None:
     # from each (vs the opponent's final). Week grain only — no rollups.
     try:
         from lotg_support import gametime as _gt
-        _sched = _gt.load_schedule(games if isinstance(games, pd.DataFrame) else pd.DataFrame())
-        if _sched.kickoff and isinstance(pw, pd.DataFrame) and not pw.empty:
+        _sched = _gt_schedule
+        if _sched is not None and _sched.kickoff and isinstance(pw, pd.DataFrame) and not pw.empty:
             pw[_gt.GAME_SLOT_COLUMN] = [_gt.player_slot(_sched, y, w, t)
                                         for y, w, t in zip(pw["Year"], pw["Week"], pw["NFL team"])]
             if isinstance(tw, pd.DataFrame) and not tw.empty:
@@ -19049,7 +19057,14 @@ def build_all(repo_root: Path) -> None:
             _log(debug, f"[{_now_iso()}] INFO gametime: {len(_sched.kickoff)} team-games; "
                         f"{_nogame} scoring starter(s) with no game on the schedule")
         else:
-            _log(debug, f"[{_now_iso()}] WARNING gametime: no schedule — Game slot / margin columns left out")
+            # Without a schedule there are no kickoffs: N/A, never the 0 a
+            # missing catalog column would otherwise be written as.
+            _log(debug, f"[{_now_iso()}] WARNING gametime: no schedule — Game slot / margin columns N/A")
+            if isinstance(pw, pd.DataFrame) and not pw.empty:
+                pw[_gt.GAME_SLOT_COLUMN] = _gt.NA
+            if isinstance(tw, pd.DataFrame) and not tw.empty:
+                for _c in _gt.TEAM_WEEK_COLUMNS:
+                    tw[_c] = _gt.NA
     except Exception as e:
         _log_exc(debug, "gametime", e)
 

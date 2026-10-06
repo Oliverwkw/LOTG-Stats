@@ -992,7 +992,7 @@ EQUATIONS = {
     ('Margin entering SNF / Monday / last game', 'team_week'):
         "IN(t,w,T) − IN(o(t,w),w,T), IN(t,w,T) = PF(t,w) − Σ_{p ∈ S(t,w), ko(nfl(p,y,w),y,w) ≥ T} pts(p,w); T = first Sunday ko ≥ 19:00 (SNF) / first ko after Sunday (Monday) / max ko over S(t,w) ∪ S(o,w) if ≥ Sunday 19:00 (last game); no such T → N/A",
     ('Down entering SNF / Monday / last game comeback', 'team_week'):
-        "D = PF(o(t,w),w) − IN(t,w,T) when win(t,w) = 1 ∧ D > 0, else N/A; % versions D / IN(t,w,T) × 100 and D / PF(o(t,w),w) × 100; per player left D / |{p ∈ S(t,w) : ko(nfl(p,y,w),y,w) ≥ T}| — IN as in ⟨Margin entering SNF / Monday / last game⟩",
+        "margin overcome = −M when win(t,w) = 1 ∧ M < 0, M = IN(t,w,T) − IN(o(t,w),w,T); points overcome D = PF(o(t,w),w) − IN(t,w,T) when win(t,w) = 1 ∧ D > 0; else N/A; % versions D / IN(t,w,T) × 100 and D / PF(o(t,w),w) × 100; per player left D / |{p ∈ S(t,w) : ko(nfl(p,y,w),y,w) ≥ T}| — IN as in ⟨Margin entering SNF / Monday / last game⟩",
     ('Win?', 'team_week'):
         'win(t,w) = [PF > PA] + ½[PF = PA]  (2026+ two-week final: PF summed over both weeks)',
     ('Efficiency', 'team_week / team_year / team_all_time / league_week / league_year / league_all_time'):

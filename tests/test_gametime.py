@@ -108,16 +108,19 @@ def test_margins_and_comebacks():
     # entering Monday: A 65 v B 70
     assert a["Margin entering Monday"] == -5.0
     # A was AHEAD entering SNF, but B's final (71) was above A's 65: still a comeback, of 6
-    assert a["Down entering SNF comeback"] == 6.0
+    assert a["Down entering SNF comeback (points overcome)"] == 6.0
+    assert a["Down entering SNF comeback (margin overcome)"] == G.NA   # ahead at the time
     assert a["Down entering SNF comeback (% of points going in)"] == round(6 / 65 * 100, 1)
     assert a["Down entering SNF comeback (% of opponent's final)"] == round(6 / 71 * 100, 1)
-    assert a["Down entering Monday comeback"] == 6.0
+    assert a["Down entering Monday comeback (points overcome)"] == 6.0
+    assert a["Down entering Monday comeback (margin overcome)"] == 5.0   # 65 v 70 at the time
     # per player left: A had one starter (Tuesday's) still to play at both stages
     assert a["Down entering SNF comeback (per player left)"] == 6.0
     assert a["Down entering Monday comeback (per player left)"] == 6.0
     # last game = Tuesday's (A's makeup) — the latest kickoff with a starter in it
     assert a["Margin entering last game"] == round(65 - 71, 2)
-    assert a["Down entering last game comeback"] == 6.0
+    assert a["Down entering last game comeback (points overcome)"] == 6.0
+    assert a["Down entering last game comeback (margin overcome)"] == 6.0
     # the loser never has a comeback
     for col in G.COMEBACK_COLUMNS["SNF"] + G.COMEBACK_COLUMNS["Monday"]:
         assert b[col] == G.NA, col
@@ -130,10 +133,11 @@ def test_last_game_needs_sunday_night_or_later():
     pw = _pw([("A", 2020, 5, "Starter", "CLE", 30.0), ("B", 2020, 5, "Starter", "SF", 20.0)])
     c = G.team_week_columns(tw, pw, s).set_index("Team")
     assert c.loc["A", "Margin entering last game"] == G.NA
-    assert c.loc["A", "Down entering last game comeback"] == G.NA
+    assert c.loc["A", "Down entering last game comeback (points overcome)"] == G.NA
     # SNF / Monday are league-wide: they exist although neither side played in them
     assert c.loc["A", "Margin entering SNF"] == 10.0 and c.loc["A", "Margin entering Monday"] == 10.0
-    assert c.loc["A", "Down entering SNF comeback"] == G.NA   # never trailed the final
+    assert c.loc["A", "Down entering SNF comeback (points overcome)"] == G.NA   # never trailed the final
+    assert c.loc["A", "Down entering SNF comeback (margin overcome)"] == G.NA
 
 
 # --------------------------------------------------------------------------- #
@@ -176,8 +180,8 @@ def test_known_monday_comeback():
         return _skip("no exports or schedule cache")
     tw, pw, s = _data()
     r = G.stage_rows(tw, pw, s, "Monday").set_index(["Team", "Year", "Week"]).loc[("LWebs53", 2021, 2)]
-    assert (r["Comeback"], r["Comeback (% of points going in)"], r["Comeback (% of opponent's final)"],
-            r["Players left"], r["Comeback (per player left)"]) == (63.78, 49.4, 33.1, 3, 21.26), r
+    assert (r["Margin overcome"], r["Points overcome"], r["Comeback (% of points going in)"], r["Comeback (% of opponent's final)"],
+            r["Players left"], r["Comeback (per player left)"]) == (63.78, 63.78, 49.4, 33.1, 3, 21.26), r
 
 
 def test_exports_match_the_recompute():
@@ -196,7 +200,8 @@ def test_exports_match_the_recompute():
                 if a != b and not (a != G.NA and b != G.NA and abs(float(a) - float(b)) < 0.006)]
         assert not diff, (col, diff[:5])
     slot = [G.player_slot(s, y, w, t) for y, w, t in zip(pw["Year"], pw["Week"], pw["NFL team"])]
-    assert list(pw[G.GAME_SLOT_COLUMN].astype(str)) == slot
+    # the export writes every N/A as a blank cell
+    assert list(pw[G.GAME_SLOT_COLUMN].astype(str).replace({"": G.NA, "nan": G.NA})) == slot
 
 
 if __name__ == "__main__":

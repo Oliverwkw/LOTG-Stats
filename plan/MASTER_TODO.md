@@ -1492,10 +1492,12 @@ guard-skipped fire), 581→584 (#453), 584→589 (#454), 589→597 (#455).
     Monday = first game after Sunday (COVID makeups included); last game = latest
     kickoff with a starter from either side, only if SNF or later. N/A when the stage
     did not happen.
-  - `Down entering {SNF, Monday, last game} comeback` + `(% of points going in)` +
-    `(% of opponent's final)` + `(per player left)`: opponent's FINAL − own going in,
-    when > 0 and the team won (a lead going in still counts); per player left = ÷ own
-    starters still to play. N/A otherwise.
+  - `Down entering {SNF, Monday, last game} comeback` ×5: `(margin overcome)` =
+    −Margin entering when behind then and won (old definition); `(points overcome)` =
+    opponent's FINAL − own going in, when > 0 and the team won (a lead going in still
+    counts); `(% of points going in)` / `(% of opponent's final)` / `(per player left)`
+    = points overcome ÷ own going in / opponent's final / own starters still to play.
+    N/A otherwise.
   - The abandoned 2022 wk 17 Bills-Bengals game (struck from nflverse) is restored as
     Monday 2023-01-02 20:30.
   - Local recompute on the committed exports (completed seasons): 832 team-weeks;
