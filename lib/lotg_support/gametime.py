@@ -71,34 +71,8 @@ _TEAM_ALIASES = {"LAR": "LA", "JAC": "JAX", "WSH": "WAS", "LVR": "LV", "OAK": "L
                  "SD": "LAC", "STL": "LA"}
 
 
-# Games nflverse struck from the schedule whose points Sleeper kept: the 2022
-# week 17 Bills at Bengals Monday night game (Damar Hamlin's cardiac arrest),
-# suspended in the 1st quarter and declared a no-contest — the NFL voided its
-# stats, so nflverse has no game, box score or snap counts for it. For this
-# league it was played: Sleeper scored the 1st quarter [per user, 2026-10-05:
-# "it shouldn't be deleted"]. Restored wherever the schedule is read, so byes,
-# game days and game slots see it. The voided stat lines stay absent.
-STRUCK_GAMES = (
-    {"game_id": "2022_17_BUF_CIN", "season": 2022, "game_type": "REG", "week": 17,
-     "gameday": "2023-01-02", "weekday": "Monday", "gametime": "20:30",
-     "away_team": "BUF", "home_team": "CIN"},
-)
-
-
-def restore_struck_games(games: pd.DataFrame) -> pd.DataFrame:
-    """`games` (the nfldata schedule) with STRUCK_GAMES put back where missing."""
-    if games is None or games.empty or not {"season", "week", "home_team", "away_team"}.issubset(games.columns):
-        return games
-    have = {(int(s), int(w), str(h)) for s, w, h in
-            games[["season", "week", "home_team"]].dropna().itertuples(index=False)}
-    add = [g for g in STRUCK_GAMES if (g["season"], g["week"], g["home_team"]) not in have]
-    if not add:
-        return games
-    extra = pd.DataFrame([{c: g.get(c) for c in games.columns} for g in add])
-    for c in ("season", "week"):
-        if c in extra.columns:
-            extra[c] = extra[c].astype(games[c].dtype)
-    return pd.concat([games, extra], ignore_index=True)
+# Games nflverse struck but the league played: see lotg_support.struck_games.
+from lotg_support.struck_games import STRUCK_GAMES, restore_struck_games  # noqa: E402,F401
 
 
 def norm_team(team) -> str:

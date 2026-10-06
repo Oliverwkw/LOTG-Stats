@@ -1499,9 +1499,11 @@ guard-skipped fire), 581→584 (#453), 584→589 (#454), 589→597 (#455).
     = points overcome ÷ own going in / opponent's final / own starters still to play.
     N/A otherwise.
   - The abandoned 2022 wk 17 Bills-Bengals game (struck from nflverse) is restored as
-    Monday 2023-01-02 20:30 wherever the schedule is read (build, inquiry), and
+    Monday 2023-01-02 20:30 wherever the schedule is read (build, inquiry), its 29
+    real stat lines (Sleeper stats API → data/struck_game_stats.csv) go into the
+    nflverse weekly stats + season totals (`lotg_support.struck_games`), and
     data/game_day_status.csv marks Chase / Knox / Gabe Davis / Perine active for it
-    [per user: "it shouldn't be deleted"]. Offline A/B diff (smoke, not audit): their
+    [per user: a normal game with a short stat pool]. Offline A/B diff (smoke, not audit): their
     4 Bye? flags clear (no Injury? set); every other change follows from 4 more
     played 0-point weeks — PPG / bust / floor / donut / streak columns for those 4,
     Positional scoring percentile (1394 cells, pool grew by 4), BROsenzweig 2022 wk 17

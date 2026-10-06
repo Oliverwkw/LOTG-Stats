@@ -733,14 +733,17 @@ list is here so an answer written by hand does not walk into them.
   the "Margin entering …" columns. Monday includes 2020's
   Tuesday / Wednesday makeups; the abandoned 2022 week 17 Bills-Bengals game,
   struck from the nflverse schedule (the Damar Hamlin no-contest), is put back
-  as the Monday night game it was (`gametime.STRUCK_GAMES`, applied wherever the
-  schedule is read) [per user, 2026-10-05: "it shouldn't be deleted"]. Without
-  it 5 scoring starters had no game, and the 4 who dressed and scored 0 (Chase,
-  Knox, Gabe Davis, Perine) were flagged `Bye?` — Chase a dead start, so
-  BROsenzweig's 2022 3rd-place game showed 1 Empty slot. Their snaps were voided
-  too, so data/game_day_status.csv marks them active (none was on either
-  inactive list). The voided nflverse STAT lines stay absent: nflverse-based
-  numbers (pre-pickup PPG, expected points, cuff tests) treat it as unplayed.
+  as a NORMAL game with a short stat pool [per user, 2026-10-05: "same thing as
+  if all the players got injured midgame"] — `lotg_support.struck_games`: the
+  schedule row goes back wherever the schedule is read, the 29 real stat lines
+  (Sleeper's stats API → `data/struck_game_stats.csv`, nflverse schema, written
+  by `scripts/struck_game_stats.py`) go back into the weekly stats and season
+  totals, and the 4 who dressed and recorded nothing (Chase, Knox, Gabe Davis,
+  Perine) are `active` in data/game_day_status.csv (snaps were voided too; none
+  was on either inactive list). Before this, those 4 were flagged `Bye?` (Chase
+  a dead start: BROsenzweig's 2022 3rd-place game showed 1 Empty slot) and every
+  nflverse-based number (pre-pickup PPG, Wins added, expected points, cuffs)
+  treated the game as unplayed — Hayden Hurst's 4.5 in it was in no dataset.
 
 - **`team_week.PF` is not Sleeper's raw `points`.** The league gives the higher
   seed in each semifinal +5 (home field) and the build bakes it into `PF`.
