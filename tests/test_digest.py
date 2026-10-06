@@ -2329,6 +2329,16 @@ def test_breaking_a_tie_one_held_is_an_overtake():
                                        ("Josh Allen 2026 week 4", 1, 105.)]),
                         prior_row_keys=["Dak Prescott 2026 week 3", "Josh Allen 2026 week 3"])
     assert got == [], [c.sentence() for c in got]
+    # Nor did a run below them pass them: Stefon Diggs going 101 -> 102 for 5th
+    # read "passing Dak Prescott 2026 week 3, Josh Allen 2026 week 3" in the
+    # week-4 email, because those labels had left the board for week 4's rows.
+    got = D.diff_events(prior, tenure([("Dak Prescott 2026 week 4", 1, 105.),
+                                       ("Josh Allen 2026 week 4", 1, 105.),
+                                       ("Stefon Diggs 2026 week 4", 3, 102.)]),
+                        prior_row_keys=["Dak Prescott 2026 week 3", "Josh Allen 2026 week 3",
+                                        "Stefon Diggs 2026 week 3"])
+    assert not any("Dak Prescott" in p or "Josh Allen" in p for c in got for p in c.passed), \
+        [c.sentence() for c in got]
 
     # An ordinary row whose own value breaks the tie it shared.
     def ev(rows):
