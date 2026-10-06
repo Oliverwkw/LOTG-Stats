@@ -733,11 +733,13 @@ list is here so an answer written by hand does not walk into them.
   overcome" is the at-the-time deficit (old definition), as are the "Margin
   entering …" columns. (Names before 2026-10-06: "Down entering X comeback (…)".)
   **Comeback size is a model, not a count** [per user, 2026-10-06]: standard
-  deviations behind the expected finish (starters' expected points: this season
-  so far, padded with last season and the position average — nothing from later
-  weeks) × the win chance the team later reached. It counts a lead held while the
-  opponent's late players flopped (own players left: 0) — quote the margin columns
-  too when that matters. The % columns are fractions. Monday includes 2020's
+  deviations behind the expected finish (starters' expected points = Boldness'
+  pre-kickoff E: recency, that season's scoring, rookie slot prior, next-man-up
+  cuffs, known outs at 0) × the win chance the team later reached × how much of
+  the turnaround its OWN players made (¼ floor). A lead held while the opponent's
+  late players flopped counts, but only a quarter [per user]. From the exports
+  the inquiry side recomputes E with `gametime.boldness_expectations` (~1 min
+  for every season, cached after). The % columns are fractions. Monday includes 2020's
   Tuesday / Wednesday makeups; the abandoned 2022 week 17 Bills-Bengals game,
   struck from the nflverse schedule (the Damar Hamlin no-contest), is put back
   as a NORMAL game with a short stat pool [per user, 2026-10-05: "same thing as

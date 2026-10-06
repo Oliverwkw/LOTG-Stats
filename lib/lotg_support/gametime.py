@@ -51,17 +51,24 @@ Comeback columns, per stage X [renamed and extended per user, 2026-10-06]:
 Comeback size model [per user, 2026-10-06; chosen by log loss over 2020-25]:
 at any kickoff, the team's expected final margin is the margin going in plus
 the expected points of its starters still to play minus the opponent's. A
-starter's expectation is his points per game earlier this season, padded with 4
-games at his last-season average (when he has one) and 6 games at the position
-average of every start before that week (20 starts of a fixed prior seed it), so
-a week's value only uses what was known by that week. The spread is
-2.1 × √(sum of the expected points still to play) — each player's points vary
-like 2.1·√(his expectation). z = expected final margin ÷ spread; win chance =
-Φ(z). Depth of a hole = −z when z < 0 (standard deviations behind the expected
-finish, capped at 10). Comeback size = the largest depth × the win chance at any
-later point (1 at the end for a win, 0 for a loss): a win from the hole scores
-its whole depth; a loss scores the comeback it was on course for at its best
-moment.
+starter's expectation is boldness' pre-kickoff E (`lotg_support.boldness`: his
+recency-weighted NFL games scored with that season's rules, the LOTG rookie-slot
+prior, the next-man-up cuff lift) — the same prediction Boldness judges lineups
+on; a starter known to be out (boldness' dead start: flagged bye / injured /
+suspended, scored 0) expects 0. A start boldness lacks falls back to his
+season-to-date points per game padded with last season and the position
+(`expected_points`). Each player's points vary like 2.0·√(his expectation);
+z = expected final margin ÷ the spread of everything still to play; win chance
+= Φ(z). Depth of a hole = −z when z < 0 (standard deviations behind the
+expected finish, capped at 10). Comeback size = the largest depth × the win
+chance at any later point (1 at the end for a win, 0 for a loss) × how much of
+the turnaround in between the team's own players made: HOLD_SHARE (¼) + ¾ × own
+share, own share = own points over expectation ÷ (that + the opponent's points
+short of expectation), clipped to 0-1. A win from the hole on the team's own
+players scores its whole depth; a lead that survived only because the
+opponent's late players fell short counts a quarter [per user: a hold is a
+comeback, "but not as a big one"]; a loss scores the comeback it was on course
+for at its best moment.
 """
 from __future__ import annotations
 
@@ -121,13 +128,16 @@ LEGACY_COLUMNS = {
 }
 
 # Comeback size model (see the module docstring).
+SD_PER_ROOT_POINT = 2.0        # a starter's points vary like 2.0·√(his expectation)
+HOLD_SHARE = 0.25              # what a turnaround counts for when the team's own players did none of it
+Z_CAP = 10.0
+# Fallback expectation, for a starter boldness has none for (or a build where
+# boldness failed): season-to-date PPG padded with last season and the position.
 EXPECT_POSITION_GAMES = 6      # games' worth of the position average in a starter's expectation
 EXPECT_LAST_SEASON_GAMES = 4   # games' worth of his last-season average, when he has one
 POSITION_PRIOR_STARTS = 20     # starts' worth of the fixed seed in the position average
 POSITION_SEED = {"QB": 18.0, "RB": 15.0, "WR": 14.0, "TE": 11.5}   # starter PPG, 2020-25, rounded
 SEED_OTHER = 14.0
-SD_PER_ROOT_POINT = 2.1
-Z_CAP = 10.0
 GAME_SLOT_COLUMN = "Game slot"
 
 # Sleeper / ESPN spellings the nflverse schedule writes differently.
@@ -235,8 +245,18 @@ def late_threshold(sunday: Optional[date]) -> Optional[datetime]:
     return datetime.combine(sunday, time(SNF_HOUR)) if sunday else None
 
 
-# A starter's week: (kickoff or None, points, expected points).
-Play = Tuple[Optional[datetime], float, float]
+# A starter's week: (kickoff or None, points, expected points, known out?).
+# Known out (boldness' dead start: flagged bye / injured / suspended, scored 0)
+# expects 0 with no spread — the lineup's manager could see it before kickoff.
+Play = Tuple[Optional[datetime], float, float, bool]
+
+
+def _mu(s: Sequence) -> float:
+    return 0.0 if len(s) > 3 and s[3] else s[2]
+
+
+def _var(s: Sequence) -> float:
+    return 0.0 if len(s) > 3 and s[3] else SD_PER_ROOT_POINT ** 2 * max(s[2], 1.0)
 
 
 def points_from(starters: Iterable[Sequence], t: datetime) -> float:
@@ -268,8 +288,8 @@ def win_z(own_in: float, opp_in: float, own_left: Sequence[Sequence],
           opp_left: Sequence[Sequence]) -> float:
     """Expected final margin ÷ its spread, from points going in and the
     expected points of the starters still to play (capped at ±Z_CAP)."""
-    mean = own_in - opp_in + sum(s[2] for s in own_left) - sum(s[2] for s in opp_left)
-    var = SD_PER_ROOT_POINT ** 2 * sum(max(s[2], 1.0) for s in list(own_left) + list(opp_left))
+    mean = own_in - opp_in + sum(_mu(s) for s in own_left) - sum(_mu(s) for s in opp_left)
+    var = sum(_var(s) for s in list(own_left) + list(opp_left))
     if var <= 0:
         z = Z_CAP if mean > 0 else (-Z_CAP if mean < 0 else 0.0)
     else:
@@ -277,16 +297,34 @@ def win_z(own_in: float, opp_in: float, own_left: Sequence[Sequence],
     return max(-Z_CAP, min(Z_CAP, z))
 
 
-def comeback_size(zs: Sequence[float], final: float, from_first: bool = False) -> float:
-    """Largest depth (−z, when behind) × the win chance at any later point,
-    the end counting as `final` (1 win, 0 loss, ½ tie). `zs` in time order;
-    `from_first` = only the first point's depth counts (a stage's version)."""
-    best = deep = 0.0
-    for i, z in enumerate(zs):
-        best = max(best, deep * _phi(z))
-        if i == 0 or not from_first:
-            deep = max(deep, -z)
-    return round(max(best, deep * final), 2)
+def _own_part(hole: Sequence[float], later: Sequence[float]) -> float:
+    """HOLD_SHARE + the rest × the share of the turnaround between two points
+    that the team's own players made (points over their expectation), against
+    the opponent's falling short of theirs. 1 = all its own doing; HOLD_SHARE =
+    none (a lead that survived the opponent's late players, own side done)."""
+    own = hole[1] - later[1]
+    turn = own + (hole[2] - later[2])
+    share = min(1.0, max(0.0, own / turn)) if turn > 0 else 0.0
+    return HOLD_SHARE + (1.0 - HOLD_SHARE) * share
+
+
+def comeback_size(points: Sequence[Sequence[float]], final: float, from_first: bool = False) -> float:
+    """Largest depth (−z, when behind) × the win chance at any later point ×
+    the own-doing factor (`_own_part`) between them; the end counts as win
+    chance `final` (1 win, 0 loss, ½ tie). `points` in time order, each
+    (z, own players' points over expectation still to come, the opponent's
+    shortfall still to come) — a bare z means no split is known (factor 1).
+    `from_first` = only the first point's hole counts (a stage's version)."""
+    split = [p for p in points if isinstance(p, (tuple, list))]
+    pts = [p if isinstance(p, (tuple, list)) else (p, 0.0, 0.0) for p in points]
+    later = [(_phi(p[0]), p) for p in pts] + [(final, (None, 0.0, 0.0))]
+    best = 0.0
+    for i, hole in enumerate(pts[:1] if from_first else pts):
+        depth = max(0.0, -hole[0])
+        for chance, p in later[i + 1:]:
+            if depth:
+                best = max(best, depth * chance * (_own_part(hole, p) if split else 1.0))
+    return round(best, 2)
 
 
 def matchup_stage(own: Sequence[Sequence], opp: Sequence[Sequence],
@@ -307,6 +345,15 @@ def checkpoint_z(own: Sequence[Sequence], opp: Sequence[Sequence], own_final: fl
     """win_z entering kickoff t."""
     return win_z(own_final - points_from(own, t), opp_final - points_from(opp, t),
                  _left(own, t), _left(opp, t))
+
+
+def checkpoint(own: Sequence[Sequence], opp: Sequence[Sequence], own_final: float,
+               opp_final: float, t: datetime) -> Tuple[float, float, float]:
+    """(z, own points over expectation still to come, opponent's shortfall
+    still to come) entering kickoff t — a `comeback_size` point."""
+    ol, pl = _left(own, t), _left(opp, t)
+    return (checkpoint_z(own, opp, own_final, opp_final, t),
+            sum(s[1] - _mu(s) for s in ol), sum(_mu(s) - s[1] for s in pl))
 
 
 def kickoffs(own: Sequence[Sequence], opp: Sequence[Sequence]) -> List[datetime]:
@@ -388,21 +435,56 @@ def expected_points(player_week: pd.DataFrame, schedule: Schedule) -> pd.Series:
     return out
 
 
-def starter_plays(player_week: pd.DataFrame, schedule: Schedule) -> Dict[Tuple[str, int, int], List[Play]]:
-    """(Team, Year, Week) -> [(kickoff or None, points, expected points)] over
-    the week's starters."""
+def boldness_expectations(seasons: Sequence[int]) -> pd.DataFrame:
+    """Every start's pre-kickoff expectation from `lotg_support.boldness` (the
+    one the build hands `team_week_columns`), read off the committed exports and
+    snapshot: Year, Week, Team, Player, Player ID, E starter, Dead start?."""
+    from lotg_support import boldness as B
+    frames = []
+    for season in sorted({int(x) for x in seasons}):
+        b = B.boldness(season, include_live=False)
+        if not b.empty:
+            frames.append(b[b["Starter ID"].notna()][["Year", "Week", "Team", "Starter", "Starter ID",
+                                                       "E starter", "Dead start?"]])
+    if not frames:
+        return pd.DataFrame(columns=["Year", "Week", "Team", "Player", "Player ID", "E starter", "Dead start?"])
+    return pd.concat(frames, ignore_index=True).rename(columns={"Starter": "Player", "Starter ID": "Player ID"})
+
+
+def starter_plays(player_week: pd.DataFrame, schedule: Schedule,
+                  expected: Optional[pd.DataFrame] = None) -> Dict[Tuple[str, int, int], List[Play]]:
+    """(Team, Year, Week) -> [(kickoff or None, points, expected points, known
+    out?)] over the week's starters. `expected` = boldness' pre-kickoff
+    expectation per start (Year, Week, Team, Player ID or Player, E starter,
+    Dead start?: the build's `boldness.build_columns`, or
+    `boldness_expectations`); a start it lacks falls back to `expected_points`."""
     out: Dict[Tuple[str, int, int], List[Play]] = {}
     if player_week is None or player_week.empty:
         return out
     mu = expected_points(player_week, schedule)
     st = player_week[player_week["Starter/Bench"].astype(str).str.lower() == "starter"]
-    for i, team, y, w, nfl, pts in zip(st.index, st["Team"], st["Year"], st["Week"], st["NFL team"], st["Points"]):
+    known: Dict[tuple, Tuple[float, bool]] = {}
+    key_col = None
+    if expected is not None and not expected.empty:
+        key_col = next((c for c in ("Player ID", "Player") if c in expected.columns and c in st.columns), None)
+    if key_col:
+        for y, w, t, k, e, d in expected[["Year", "Week", "Team", key_col, "E starter", "Dead start?"]] \
+                .itertuples(index=False, name=None):
+            e_ = _num(e)
+            if _num(y) is not None and _num(w) is not None and e_ is not None:
+                known[(int(_num(y)), int(_num(w)), str(t), str(k))] = (e_, _won(d))
+    keys = st[key_col].astype(str) if key_col else pd.Series("", index=st.index)
+    for i, team, y, w, nfl, pts, k in zip(st.index, st["Team"], st["Year"], st["Week"], st["NFL team"],
+                                          st["Points"], keys):
         y_, w_ = _num(y), _num(w)
         if y_ is None or w_ is None:
             continue
-        m = mu.get(i)
+        e = known.get((int(y_), int(w_), str(team), k))
+        if e is None:
+            m = mu.get(i)
+            e = (m if m is not None and m == m else 0.0, False)
         out.setdefault((str(team), int(y_), int(w_)), []).append(
-            (schedule.team_kickoff(y_, w_, nfl), _num(pts) or 0.0, m if m == m and m is not None else 0.0))
+            (schedule.team_kickoff(y_, w_, nfl), _num(pts) or 0.0, e[0], e[1]))
     return out
 
 
@@ -416,11 +498,12 @@ def _pct(num, den) -> Optional[float]:
 
 
 def stage_rows(team_week: pd.DataFrame, player_week: pd.DataFrame, schedule: Schedule,
-               stage: str, plays: Optional[Dict] = None) -> pd.DataFrame:
+               stage: str, plays: Optional[Dict] = None,
+               expected: Optional[pd.DataFrame] = None) -> pd.DataFrame:
     """Every team-week entering one stage: points going in on both sides, the
     margin, the comeback (vs the opponent's final) and its size. `stage` is
     'SNF', 'Monday', 'last game' or any game slot name. Percents are fractions."""
-    starts = plays if plays is not None else starter_plays(player_week, schedule)
+    starts = plays if plays is not None else starter_plays(player_week, schedule, expected)
     rows = []
     cols = list(team_week.columns)
     for vals in team_week.itertuples(index=False, name=None):
@@ -447,8 +530,8 @@ def stage_rows(team_week: pd.DataFrame, player_week: pd.DataFrame, schedule: Sch
             # so later points start after that one (never the same state twice).
             ks = kickoffs(own, opp)
             k0 = next((k for k in ks if k >= t), None)
-            zs = [checkpoint_z(own, opp, pf, pa, t)] + \
-                 [checkpoint_z(own, opp, pf, pa, k) for k in ks if k0 is not None and k > k0]
+            zs = [checkpoint(own, opp, pf, pa, t)] + \
+                 [checkpoint(own, opp, pf, pa, k) for k in ks if k0 is not None and k > k0]
             size = comeback_size(zs, final, from_first=True)
         rows.append({
             "Team": rec["Team"], "Year": y, "Week": w, "Week Name": rec.get("Week Name"),
@@ -466,17 +549,18 @@ def stage_rows(team_week: pd.DataFrame, player_week: pd.DataFrame, schedule: Sch
             "Margin overcome per player left": (round(margin_over / m["left"], 2)
                                                 if margin_over is not None and m["left"] else None),
             "% of opponent's score overcome": _pct(margin_over, m["opp_in"]),
-            "Win chance going in": round(_phi(zs[0]), 4) if t is not None else None,
+            "Win chance going in": round(_phi(zs[0][0]), 4) if t is not None else None,
             "Comeback size": size,
         })
     return pd.DataFrame(rows)
 
 
 def week_comeback_size(team_week: pd.DataFrame, player_week: pd.DataFrame, schedule: Schedule,
-                       plays: Optional[Dict] = None) -> pd.DataFrame:
+                       plays: Optional[Dict] = None,
+                       expected: Optional[pd.DataFrame] = None) -> pd.DataFrame:
     """Team, Year, Week, Comeback size over every kickoff of the matchup but the
     first (nothing has been scored entering it), plus the lowest win chance."""
-    starts = plays if plays is not None else starter_plays(player_week, schedule)
+    starts = plays if plays is not None else starter_plays(player_week, schedule, expected)
     rows = []
     cols = list(team_week.columns)
     for vals in team_week.itertuples(index=False, name=None):
@@ -491,19 +575,19 @@ def week_comeback_size(team_week: pd.DataFrame, player_week: pd.DataFrame, sched
         ks = kickoffs(own, opp)
         won = _won(rec.get("Win?"))
         final = 1.0 if won else (0.5 if pf == pa else 0.0)
-        zs = [checkpoint_z(own, opp, pf, pa, k) for k in ks[1:]]
+        zs = [checkpoint(own, opp, pf, pa, k) for k in ks[1:]]
         rows.append({"Team": rec["Team"], "Year": y, "Week": w, "Opponent": rec["Opponent"],
                      "Win?": won, "PF": pf, "Points against": pa,
-                     "Lowest win chance": round(min(_phi(z) for z in zs), 4) if zs else None,
+                     "Lowest win chance": round(min(_phi(z[0]) for z in zs), 4) if zs else None,
                      COMEBACK_SIZE_COLUMN: comeback_size(zs, final) if ks else None})
     return pd.DataFrame(rows)
 
 
 def team_week_columns(team_week: pd.DataFrame, player_week: pd.DataFrame,
-                      schedule: Schedule) -> pd.DataFrame:
+                      schedule: Schedule, expected: Optional[pd.DataFrame] = None) -> pd.DataFrame:
     """Team, Year, Week + TEAM_WEEK_COLUMNS, N/A where the stage did not happen
-    or there was no comeback."""
-    plays = starter_plays(player_week, schedule)
+    or there was no comeback. `expected`: see `starter_plays`."""
+    plays = starter_plays(player_week, schedule, expected)
     base = None
     for stage in STAGES:
         r = stage_rows(team_week, player_week, schedule, stage, plays)

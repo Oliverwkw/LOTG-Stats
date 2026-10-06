@@ -1546,10 +1546,15 @@ guard-skipped fire), 581→584 (#453), 584→589 (#454), 589→597 (#455).
   every kickoff of the matchup but the first. % columns now fractions with a percent
   format (fixes #477's `% of points going in` rendering ×100 — 86.0 → 8600.00%).
   - Comeback size = depth (−z, standard deviations behind the expected finish) × the
-    win chance later reached (1 = won). Expected points: season-to-date PPG padded with
-    4 games of last season and 6 of the position's starter average to date (leak-free).
-    Spread 2.1·√(expected points left). Picked by log loss over 2020-25 kickoffs: 0.390
-    vs 0.410 for flat position averages; win-chance under 10% predicted 2.3% v won 2.1%.
+    win chance later reached (1 = won) × (¼ + ¾ × the share of the turnaround made by
+    the team's own players) [per user: a hold counts, "but not as a big one"].
+    Expected points = Boldness' pre-kickoff E (recency, that season's scoring, rookie
+    slot prior, next-man-up cuffs; dead starts 0) [per user: "account for cuffs and
+    everything else we've done in past predictions"], handed over by the build from
+    `boldness.build_columns`; fallback season-to-date PPG + last season + position.
+    Spread 2.0·√E. Log loss over 2020-25 kickoffs: 0.393 (Boldness E) v 0.398
+    (season-average model) v 0.410 (flat position averages); under-10% win chances
+    predicted 2.1% v won 2.2%.
     Rejected: log2(1/win chance) (a hopeless loser rallying to 2% scored 11.5, the
     league's biggest); 1 − win chance (squashes the big comebacks together).
   - Digest: the three scale-preserving renames carry their board history

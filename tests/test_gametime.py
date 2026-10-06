@@ -159,9 +159,9 @@ def test_margins_and_comebacks():
 def test_win_z_and_comeback_size():
     # 10 behind, nobody left on either side: certain loss, capped
     assert G.win_z(50, 60, [], []) == -G.Z_CAP
-    # 10 behind, one own player expected 16 (spread 2.1·4 = 8.4) -> z = 6 / 8.4
+    # 10 behind, one own player expected 16 (spread c·√16 = 4c) -> z = 6 / 4c
     z = G.win_z(50, 60, [(None, 0, 16.0)], [])
-    assert abs(z - 6 / 8.4) < 1e-9
+    assert abs(z - 6 / (4 * G.SD_PER_ROOT_POINT)) < 1e-9
     # never behind its expected finish -> 0, win or lose
     assert G.comeback_size([0.5, 1.2, 3.0], 1.0) == 0.0
     assert G.comeback_size([0.5, 1.0, 0.4], 0.0) == 0.0
@@ -177,6 +177,31 @@ def test_win_z_and_comeback_size():
     # a stage's version only counts the hole at the stage itself
     assert G.comeback_size([-0.2, -1.5], 1.0, from_first=True) == 0.2
     assert G.comeback_size([], 1.0) == 0.0
+
+
+def test_a_hold_counts_but_small():
+    # (z, own points over expectation still to come, opponent's shortfall still to come)
+    # 1.2 SDs down; the team's own players then beat expectation by 20, the
+    # opponent's matched theirs: all its own doing -> the whole depth.
+    assert G.comeback_size([(-1.2, 20.0, 0.0)], 1.0) == 1.2
+    # Same hole, nobody left on its side: the lead survived because the
+    # opponent's late players fell 15 short -> a quarter [per user].
+    assert G.comeback_size([(-1.2, 0.0, 15.0)], 1.0) == round(1.2 * G.HOLD_SHARE, 2)
+    # Half and half -> 1/4 + 3/4 x 1/2
+    assert G.comeback_size([(-1.2, 10.0, 10.0)], 1.0) == round(1.2 * (G.HOLD_SHARE + (1 - G.HOLD_SHARE) / 2), 2)
+    # Own players fell short too, the opponent's fell shorter: a hold
+    assert G.comeback_size([(-1.2, -5.0, 25.0)], 1.0) == round(1.2 * G.HOLD_SHARE, 2)
+    # The share is of the turnaround BETWEEN the two points: a later point's
+    # remaining over/short is taken off (here 10 own v 0 opponent -> all own).
+    assert G.comeback_size([(-1.0, 12.0, 8.0), (0.5, 2.0, 8.0)], 0.0) == round(1.0 * G._phi(0.5), 2)
+
+
+def test_known_outs_expect_nothing():
+    # A starter known to be out (dead start) adds no expectation and no spread.
+    out = (None, 0.0, 15.0, True)
+    assert G.win_z(50, 60, [out], []) == -G.Z_CAP
+    z = G.win_z(50, 60, [(None, 0.0, 16.0, False), out], [])
+    assert abs(z - 6 / (G.SD_PER_ROOT_POINT * 4)) < 1e-9
 
 
 def test_expected_points_use_only_earlier_weeks():
@@ -228,6 +253,17 @@ def _data():
     return tw, pw, G.load_schedule(Q.schedule())
 
 
+_EXPECTED = []
+
+
+def _expected():
+    """Boldness' pre-kickoff E for every completed season (the build's input to
+    Comeback size), once per run."""
+    if not _EXPECTED:
+        _EXPECTED.append(G.boldness_expectations(Q.completed_seasons()))
+    return _EXPECTED[0]
+
+
 def test_every_scoring_starter_has_a_game():
     if not (_HAVE_EXPORTS and _HAVE_SCHEDULE):
         return _skip("no exports or schedule cache")
@@ -272,7 +308,7 @@ def test_exports_match_the_recompute():
     tw, pw, s = _data()
     if not set(G.TEAM_WEEK_COLUMNS) <= set(tw.columns) or G.GAME_SLOT_COLUMN not in pw.columns:
         return _skip("exports predate the game-time columns")
-    want = G.team_week_columns(tw, pw, s).set_index(["Team", "Year", "Week"])
+    want = G.team_week_columns(tw, pw, s, _expected()).set_index(["Team", "Year", "Week"])
     have = tw.assign(Year=Q.numeric(tw, "Year").astype(int), Week=Q.numeric(tw, "Week").astype(int)) \
         .set_index(["Team", "Year", "Week"])
     for col in G.TEAM_WEEK_COLUMNS:
@@ -288,14 +324,15 @@ def test_exports_match_the_recompute():
 
 def test_win_chance_is_calibrated():
     # The comeback-size model's win chances, at every kickoff but the first of
-    # every completed-season matchup, against what happened. Picked by log loss
-    # (0.392 over 2020-25 vs 0.410 for flat position averages); a change that
-    # breaks the expectations or the spread shows up here first.
+    # every completed-season matchup, against what happened. Expectations are
+    # Boldness' (0.393 log loss over 2020-25, vs 0.398 for the season-average
+    # fallback and 0.410 for flat position averages); a change that breaks the
+    # expectations, the cuff lift or the spread shows up here first.
     if not (_HAVE_EXPORTS and _HAVE_SCHEDULE):
         return _skip("no exports or schedule cache")
     import math
     tw, pw, s = _data()
-    plays = G.starter_plays(pw, s)
+    plays = G.starter_plays(pw, s, _expected())
     ps, ys = [], []
     for team, opp, y, w, pf, pa, won in zip(tw["Team"], tw["Opponent"], Q.numeric(tw, "Year"),
                                             Q.numeric(tw, "Week"), Q.numeric(tw, "PF"),
@@ -318,7 +355,7 @@ def test_comeback_size_bounds():
     if not (_HAVE_EXPORTS and _HAVE_SCHEDULE):
         return _skip("no exports or schedule cache")
     tw, pw, s = _data()
-    c = G.team_week_columns(tw, pw, s).replace(G.NA, float("nan"))
+    c = G.team_week_columns(tw, pw, s, _expected()).replace(G.NA, float("nan"))
     size = pd.to_numeric(c["Comeback size"], errors="coerce")
     assert size.notna().all() and (size >= 0).all()
     for st in G.STAGES:
