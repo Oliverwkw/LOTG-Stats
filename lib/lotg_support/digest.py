@@ -376,6 +376,16 @@ def is_yearly_counting_stat(column: str) -> bool:
     return any(m in c for m in _YEARLY_COUNTING_MARKERS)
 
 
+def low_on_board(sheet: str, column: str) -> bool:
+    """Whether a column's LOW end is ranked on the all-time boards. Not for a
+    season-accumulating count (its low end is the on-pace projection's), nor
+    for what a comeback overcame (`gametime.HIGH_END_ONLY`: its low end is
+    0.1-point wins). One rule for the boards and the drop-off lookup."""
+    if sheet in _YEARLY_SHEETS and is_yearly_counting_stat(column):
+        return False
+    return column not in _gametime.HIGH_END_ONLY
+
+
 # Columns with no rate marker that are still not tallies: a score, a value, a
 # market price, a change against another period, a slot number. One game in they
 # are as thin as an average, so they wait with the rates (see `BoardGate`).
@@ -2200,17 +2210,16 @@ def board_highlights(df: pd.DataFrame, sheet: str, window: int = WINDOW,
         # not ranked on the all-time board — "fewest pure drops" is a preseason
         # artifact, not a record. Only its HIGH end stays here. Same for what a
         # comeback overcame (gametime.HIGH_END_ONLY): its low end is 0.1-point wins.
-        low_on_board = not (sheet in _YEARLY_SHEETS and is_yearly_counting_stat(col)) \
-            and col not in _gametime.HIGH_END_ONLY
+        low_ranked = low_on_board(sheet, col)
         hi = _board_places(hi_s, "high", window, max_ties)
         # The high end wins when a value qualifies at both (a short board where
         # the top and bottom five overlap).
         lo = ({v: r for v, r in _board_places(lo_s, "low", window, max_ties).items()
-               if v not in hi} if low_on_board else {})
+               if v not in hi} if low_ranked else {})
         hi_o = _overflow_places(hi_s, "high", window, max_ties) if overflow else {}
         lo_o = ({v: r for v, r in _overflow_places(lo_s, "low", window, max_ties).items()
                  if v not in hi and v not in hi_o}
-                if overflow and low_on_board else {})
+                if overflow and low_ranked else {})
         if not hi and not lo and not hi_o and not lo_o:
             continue
         place: Dict[object, tuple] = {}
@@ -3172,7 +3181,7 @@ def board_value_lookup(frames: dict, gate: Optional[BoardGate] = None):
             out = pd.Series(dtype=float)
             if df is not None and not df.empty and column in df.columns:
                 out = rankable_series(df, column, column in mirrored_columns(df, sheet), sheet)
-                if end == "low" and sheet in _YEARLY_SHEETS and is_yearly_counting_stat(column):
+                if end == "low" and not low_on_board(sheet, column):
                     out = pd.Series(dtype=float)       # no low board for these
                 held = gate.restricted(df, sheet, column) if gate is not None else None
                 if held is not None and not out.empty \

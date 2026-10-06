@@ -890,6 +890,14 @@ def check_comeback_columns_renamed_and_high_end_only():
     ok &= _ok("other columns keep both ends", ("PF", "low") in got, str(got))
     ends = {(h.column, h.end) for h in D.board_highlights(tw, "team_week", window=2)}
     ok &= _ok("event board: high end only", (col, "high") in ends and (col, "low") not in ends, str(ends))
+    # The drop-off lookup shares the rule: a renamed low-end place from an old
+    # snapshot has no value to fall from, so no false "drops off … lowest" line.
+    lk = D.board_value_lookup({"team_week": tw})
+    key = D._board_row_key("team_week", tw.iloc[6])
+    ok &= _ok("drop-off lookup: no low end either",
+              lk("team_week", col, "low", key, None) is None
+              and lk("team_week", col, "high", key, None) == 0.1)
+    ok &= _ok("one rule", not D.low_on_board("team_week", col) and D.low_on_board("team_week", "PF"))
     return ok
 
 
