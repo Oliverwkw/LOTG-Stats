@@ -3060,6 +3060,22 @@ def build_all(repo_root: Path) -> None:
         timeout=120,
         debug=debug,
     )
+    # Kickoffs for the game-time columns, taken now: `games` is rebound to a
+    # player's game list further down build_all. First, put back the games
+    # nflverse struck but Sleeper scored (the 2022 wk 17 Bills-Bengals game) so
+    # byes, game days and game slots all see them.
+    try:
+        from lotg_support import gametime as _gt
+        if isinstance(games, pd.DataFrame) and not games.empty:
+            _n0 = len(games)
+            games = _gt.restore_struck_games(games)
+            if len(games) != _n0:
+                _log(debug, f"[{_now_iso()}] INFO schedule: restored {len(games) - _n0} struck game(s) "
+                            f"({', '.join(g['game_id'] for g in _gt.STRUCK_GAMES)})")
+        _gt_schedule = _gt.load_schedule(games if isinstance(games, pd.DataFrame) else pd.DataFrame())
+    except Exception as e:
+        _log_exc(debug, "gametime_schedule", e)
+        _gt_schedule = None
     played_by_week_by_season: Dict[int, Dict[int, set]] = {}
     if not games.empty:
         try:
@@ -19024,6 +19040,41 @@ def build_all(repo_root: Path) -> None:
                     f"in {(datetime.now() - _t0).total_seconds():.0f}s")
     except Exception as e:
         _log_exc(debug, "boldness", e)
+
+    # Game times (lotg_support.gametime): player_week "Game slot", and team_week
+    # margins entering SNF / Monday / the matchup's last game with the comeback
+    # from each (vs the opponent's final). Week grain only — no rollups.
+    try:
+        from lotg_support import gametime as _gt
+        _sched = _gt_schedule
+        if _sched is not None and _sched.kickoff and isinstance(pw, pd.DataFrame) and not pw.empty:
+            pw[_gt.GAME_SLOT_COLUMN] = [_gt.player_slot(_sched, y, w, t)
+                                        for y, w, t in zip(pw["Year"], pw["Week"], pw["NFL team"])]
+            if isinstance(tw, pd.DataFrame) and not tw.empty:
+                _gcols = _gt.team_week_columns(tw, pw, _sched)
+                _gmap = {(str(t), int(y), int(w)): r for t, y, w, *r in
+                         _gcols[["Team", "Year", "Week", *_gt.TEAM_WEEK_COLUMNS]].itertuples(index=False, name=None)}
+                _tw_keys = [(str(t), int(y), int(w)) if pd.notna(y) and pd.notna(w) else None
+                            for t, y, w in zip(tw["Team"], pd.to_numeric(tw["Year"], errors="coerce"),
+                                               pd.to_numeric(tw["Week"], errors="coerce"))]
+                for _i, _c in enumerate(_gt.TEAM_WEEK_COLUMNS):
+                    tw[_c] = [(_gmap[k][_i] if k in _gmap else _gt.NA) for k in _tw_keys]
+            _nogame = int(((pw["Starter/Bench"].astype(str) == "Starter")
+                           & pw[_gt.GAME_SLOT_COLUMN].isin(["Bye", _gt.NA])
+                           & (pd.to_numeric(pw["Points"], errors="coerce").fillna(0) != 0)).sum())
+            _log(debug, f"[{_now_iso()}] INFO gametime: {len(_sched.kickoff)} team-games; "
+                        f"{_nogame} scoring starter(s) with no game on the schedule")
+        else:
+            # Without a schedule there are no kickoffs: N/A, never the 0 a
+            # missing catalog column would otherwise be written as.
+            _log(debug, f"[{_now_iso()}] WARNING gametime: no schedule — Game slot / margin columns N/A")
+            if isinstance(pw, pd.DataFrame) and not pw.empty:
+                pw[_gt.GAME_SLOT_COLUMN] = _gt.NA
+            if isinstance(tw, pd.DataFrame) and not tw.empty:
+                for _c in _gt.TEAM_WEEK_COLUMNS:
+                    tw[_c] = _gt.NA
+    except Exception as e:
+        _log_exc(debug, "gametime", e)
 
     # League rollups
     # League-wide unique extras (Phase 5B item 2): rookies and NFL-team counts

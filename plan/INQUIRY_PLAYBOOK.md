@@ -126,6 +126,7 @@ the answer, not a silent choice.
 | `scripts/contract_study.py` (`lotg_support.contracts`) | the *real world* side: what an NFL contract predicts about fantasy production — signings ranked inside their position's market, matched against comparable players who did not get paid |
 | `scripts/forecast.py` (`lotg_support.forecast`) | the season that has not happened yet: project rosters (rates, ageing, market-priced rookies, availability and depth), calibrate against completed seasons, simulate championship / playoff / seeding odds |
 | `scripts/touchdowns.py` (`lotg_support.scoring_events`) | what a player actually DID rather than what he was worth: nflverse's stat lines joined onto this league's starters — touchdowns scored (and thrown) per starter-week, the scan for lineups that reached the end zone with nobody, and career totals in any nflverse stat, both as of a start and lifetime |
+| `inquire.py gametime` (`lotg_support.gametime`) | when in the week the points came: the margin entering ANY stage (`--entering SNF / Monday / 'last game'` or any game slot — `'Sunday late'`, `Thursday`, …), comebacks: margin overcome (behind at the time) and points overcome (vs the opponent's final, with both %s and per player left; `--comebacks --by margin|points`), and starter points per team-week by game slot (`--slots`); Thanksgiving / Christmas / doubleheader weeks fall out of the schedule |
 | `scripts/boldness.py` (`lotg_support.boldness`) | how bold a lineup call was, 2020 on: each start against the best STARTABLE bench player (taxi counts as bench), on PRE-KICKOFF expected points (recency-weighted history scored with the judged season's rules, LOTG rookie-slot prior for a rookie's first weeks, next-man-up cuff promotion), plus bust odds; every week counts, tank weeks included; and team-week ex-ante Max PF minus expected PF |
 
 All of them are additive and read-only. None is imported by the build or run by
@@ -133,7 +134,9 @@ any workflow — except `lotg_support.wins_added`, which IS the build's `Wins
 added` column; its `explain()` is the inquiry entry point (see "Counterfactuals"),
 and `lotg_support.boldness`, which IS `player_week` "Boldness" and the team
 sheets' "Lineup Boldness" (the build feeds it its own data through
-`build_inputs`). A change to either is a build change.
+`build_inputs`). A change to either is a build change. So is
+`lotg_support.gametime`: it IS `player_week` "Game slot" and the team_week
+"Margin entering …" / "Down entering … comeback" columns.
 
 ## Start here, not with a script
 
@@ -721,6 +724,26 @@ guard fails, fix that before quoting any number.
 
 Each of these has cost real time at least once. They are handled in code — the
 list is here so an answer written by hand does not walk into them.
+
+- **A comeback is measured against the opponent's FINAL score, not the margin
+  at the time** [per user, 2026-10-05]. So a team AHEAD going into Monday whose
+  opponent then pulled clear on Monday night has a "Down entering Monday
+  comeback (points overcome)" too (plehv79, 2023 Semifinal: +3.68 going in, 55.12
+  overcome). "(margin overcome)" is the at-the-time deficit (old definition), as are
+  the "Margin entering …" columns. Monday includes 2020's
+  Tuesday / Wednesday makeups; the abandoned 2022 week 17 Bills-Bengals game,
+  struck from the nflverse schedule (the Damar Hamlin no-contest), is put back
+  as a NORMAL game with a short stat pool [per user, 2026-10-05: "same thing as
+  if all the players got injured midgame"] — `lotg_support.struck_games`: the
+  schedule row goes back wherever the schedule is read, the 29 real stat lines
+  (Sleeper's stats API → `data/struck_game_stats.csv`, nflverse schema, written
+  by `scripts/struck_game_stats.py`) go back into the weekly stats and season
+  totals, and the 4 who dressed and recorded nothing (Chase, Knox, Gabe Davis,
+  Perine) are `active` in data/game_day_status.csv (snaps were voided too; none
+  was on either inactive list). Before this, those 4 were flagged `Bye?` (Chase
+  a dead start: BROsenzweig's 2022 3rd-place game showed 1 Empty slot) and every
+  nflverse-based number (pre-pickup PPG, Wins added, expected points, cuffs)
+  treated the game as unplayed — Hayden Hurst's 4.5 in it was in no dataset.
 
 - **`team_week.PF` is not Sleeper's raw `points`.** The league gives the higher
   seed in each semifinal +5 (home field) and the build bakes it into `PF`.

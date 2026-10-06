@@ -104,6 +104,7 @@ ENTRIES = [
     (RAW, "teamN(p,y,w)", "NFL team on the stat line.", "nflverse stats_player_week → team", _fn("teamN") + _bare("teamN")),
     (RAW, "snap(p,y,w)", "Offense + defense + special-teams snaps.", "nflverse snap_counts_{y}", _fn("snap")),
     (RAW, "wr(p,y,w)", "Weekly NFL roster row (team, status, position).", "nflverse roster_weekly_{y}", _fn("wr")),
+    (RAW, "ko(team,y,w)", "Kickoff (ET date and time) of the NFL team's week-w game; none = bye.", "nflverse schedules games.csv → gameday + gametime", _fn("ko")),
     (RAW, "gd(team,y,w)", "Game date (ET) of the NFL team's week-w game; none = bye.", "nflverse schedules games.csv → gameday", _fn("gd") + _bare("gd")),
     (RAW, "K(a,d)", "KeepTradeCut superflex value of asset a (player or pick) on date d.",
      "keeptradecut.com history (playerSuperflex / sf_trade_value), mirrored by dynasty-daddy.com from 2021-04-16", _fn("K")),
@@ -592,6 +593,8 @@ EQUATIONS = {
         'drop the tx set X if ∃ commissioner tx in X ∧ ∀ (p, roster): Σ_{x ∈ X, same ET day} ([adds(x)[p] = roster] − [drops(x)[p] = roster]) = 0  (trades: every asset returns)',
     ('NFL team', 'player_week'):
         "nfl(p,y,w) = teamN(p,y,w) → teamN(p,y,·) season → wr(p,y,w).team → 'NFL'",
+    ('Game slot', 'player_week'):
+        "slot(ko(nfl(p,y,w),y,w)) by ET weekday and hour, relative to the week's Sunday: before Sunday → weekday; Sunday <13 morning, <16 early, <19 late, else SNF; after Sunday → MNF (Monday) / weekday; no game → Bye; nfl = 'NFL' → N/A",
     ('Activated Cuff?', 'player_week'):
         'st(p,t,w) ∧ ∃ q ∈ R(t,w_kick): nfl(q)=nfl(p), pos(q)=pos(p), TEST(q,p,w) ∧ INJ(q,w)',
     ('Difference from best startable bench', 'player_week'):
@@ -986,6 +989,10 @@ EQUATIONS = {
         'MaxPF(t,w) = OPT({pts(p,w) : p ∈ R(t,w)}, y); year/all-time/league = Σ',
     ('Margin', 'team_week'):
         'PF(t,w) − PA(t,w)',
+    ('Margin entering SNF / Monday / last game', 'team_week'):
+        "IN(t,w,T) − IN(o(t,w),w,T), IN(t,w,T) = PF(t,w) − Σ_{p ∈ S(t,w), ko(nfl(p,y,w),y,w) ≥ T} pts(p,w); T = first Sunday ko ≥ 19:00 (SNF) / first ko after Sunday (Monday) / max ko over S(t,w) ∪ S(o,w) if ≥ Sunday 19:00 (last game); no such T → N/A",
+    ('Down entering SNF / Monday / last game comeback', 'team_week'):
+        "margin overcome = −M when win(t,w) = 1 ∧ M < 0, M = IN(t,w,T) − IN(o(t,w),w,T); points overcome D = PF(o(t,w),w) − IN(t,w,T) when win(t,w) = 1 ∧ D > 0; else N/A; % versions D / IN(t,w,T) × 100 and D / PF(o(t,w),w) × 100; per player left D / |{p ∈ S(t,w) : ko(nfl(p,y,w),y,w) ≥ T}| — IN as in ⟨Margin entering SNF / Monday / last game⟩",
     ('Win?', 'team_week'):
         'win(t,w) = [PF > PA] + ½[PF = PA]  (2026+ two-week final: PF summed over both weeks)',
     ('Efficiency', 'team_week / team_year / team_all_time / league_week / league_year / league_all_time'):

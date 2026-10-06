@@ -388,7 +388,9 @@ def load_nflverse_stats_player_week(cfg: ExternalConfig, season: int, force_refr
     ]
     path = cfg.cache_dir / f"nflverse_stats_player_week_{season}.csv"
     _ensure(cfg, path, urls, force_refresh=force_refresh)
-    return apply_position_pins(read_cached_csv(path, low_memory=False))
+    # Games nflverse struck but the league played (lotg_support.struck_games).
+    from lotg_support.struck_games import add_struck_stat_rows
+    return apply_position_pins(add_struck_stat_rows(read_cached_csv(path, low_memory=False), season))
 
 
 def load_nflverse_snap_counts(cfg: ExternalConfig, season: int, force_refresh: bool = False) -> pd.DataFrame:

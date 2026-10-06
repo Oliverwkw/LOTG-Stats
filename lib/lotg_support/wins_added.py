@@ -96,6 +96,7 @@ from typing import Any, Callable, Dict, FrozenSet, Iterable, List, Optional, Seq
 
 import pandas as pd
 
+from lotg_support.struck_games import add_struck_stat_rows
 from lotg_support import inquiry as Q
 from lotg_support.replay import is_legal
 
@@ -444,7 +445,7 @@ def nflverse_points_from_cache(seasons: Optional[Sequence[int]] = None,
             if first_table is None:
                 first_table = _espn_2020()["league"]["scoring_settings"]
             scoring = first_table
-        df = pd.read_csv(path, low_memory=False)
+        df = add_struck_stat_rows(pd.read_csv(path, low_memory=False), season)
         if "season_type" in df.columns:
             df = df[df["season_type"].astype(str).str.upper() == "REG"]
         cols = [c for cs in score_map.values() for c in cs if c in df.columns]
