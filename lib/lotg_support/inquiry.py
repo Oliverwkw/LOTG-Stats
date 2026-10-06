@@ -1059,8 +1059,9 @@ class WeekRow:
 def schedule() -> pd.DataFrame:
     """The nflverse schedule the build caches (`.cache/nfldata_games.csv`), or an
     empty frame without it. Feed it to `lotg_support.gametime.load_schedule`."""
+    from lotg_support.gametime import restore_struck_games
     path = repo_root() / ".cache" / "nfldata_games.csv"
-    return pd.read_csv(path, low_memory=False) if path.exists() else pd.DataFrame()
+    return restore_struck_games(pd.read_csv(path, low_memory=False)) if path.exists() else pd.DataFrame()
 
 
 @functools.lru_cache(maxsize=None)
@@ -1070,7 +1071,9 @@ def _week_last_game_days(root: str) -> Dict[Tuple[int, int], str]:
     path = Path(root) / ".cache" / "nfldata_games.csv"
     if not path.exists():
         return {}
-    games = pd.read_csv(path, usecols=["season", "week", "game_type", "gameday"], low_memory=False)
+    from lotg_support.gametime import restore_struck_games
+    games = restore_struck_games(pd.read_csv(path, usecols=["season", "week", "game_type", "gameday",
+                                                            "home_team", "away_team"], low_memory=False))
     games = games[games["game_type"].astype(str).str.upper() == "REG"].dropna(subset=["gameday"])
     games = games.assign(day=games["gameday"].astype(str).str[:10])
     return {(int(s), int(w)): str(d) for (s, w), d in games.groupby(["season", "week"])["day"].max().items()}

@@ -732,8 +732,15 @@ list is here so an answer written by hand does not walk into them.
   overcome). "(margin overcome)" is the at-the-time deficit (old definition), as are
   the "Margin entering …" columns. Monday includes 2020's
   Tuesday / Wednesday makeups; the abandoned 2022 week 17 Bills-Bengals game,
-  struck from the nflverse schedule, is put back as the Monday night game it
-  was (`gametime._STRUCK_GAMES`) — without it 5 scoring starters land on a bye.
+  struck from the nflverse schedule (the Damar Hamlin no-contest), is put back
+  as the Monday night game it was (`gametime.STRUCK_GAMES`, applied wherever the
+  schedule is read) [per user, 2026-10-05: "it shouldn't be deleted"]. Without
+  it 5 scoring starters had no game, and the 4 who dressed and scored 0 (Chase,
+  Knox, Gabe Davis, Perine) were flagged `Bye?` — Chase a dead start, so
+  BROsenzweig's 2022 3rd-place game showed 1 Empty slot. Their snaps were voided
+  too, so data/game_day_status.csv marks them active (none was on either
+  inactive list). The voided nflverse STAT lines stay absent: nflverse-based
+  numbers (pre-pickup PPG, expected points, cuff tests) treat it as unplayed.
 
 - **`team_week.PF` is not Sleeper's raw `points`.** The league gives the higher
   seed in each semifinal +5 (home field) and the build bakes it into `PF`.

@@ -3061,9 +3061,17 @@ def build_all(repo_root: Path) -> None:
         debug=debug,
     )
     # Kickoffs for the game-time columns, taken now: `games` is rebound to a
-    # player's game list further down build_all.
+    # player's game list further down build_all. First, put back the games
+    # nflverse struck but Sleeper scored (the 2022 wk 17 Bills-Bengals game) so
+    # byes, game days and game slots all see them.
     try:
         from lotg_support import gametime as _gt
+        if isinstance(games, pd.DataFrame) and not games.empty:
+            _n0 = len(games)
+            games = _gt.restore_struck_games(games)
+            if len(games) != _n0:
+                _log(debug, f"[{_now_iso()}] INFO schedule: restored {len(games) - _n0} struck game(s) "
+                            f"({', '.join(g['game_id'] for g in _gt.STRUCK_GAMES)})")
         _gt_schedule = _gt.load_schedule(games if isinstance(games, pd.DataFrame) else pd.DataFrame())
     except Exception as e:
         _log_exc(debug, "gametime_schedule", e)

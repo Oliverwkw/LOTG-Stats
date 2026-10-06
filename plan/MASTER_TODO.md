@@ -1499,7 +1499,13 @@ guard-skipped fire), 581→584 (#453), 584→589 (#454), 589→597 (#455).
     = points overcome ÷ own going in / opponent's final / own starters still to play.
     N/A otherwise.
   - The abandoned 2022 wk 17 Bills-Bengals game (struck from nflverse) is restored as
-    Monday 2023-01-02 20:30.
+    Monday 2023-01-02 20:30 wherever the schedule is read (build, inquiry), and
+    data/game_day_status.csv marks Chase / Knox / Gabe Davis / Perine active for it
+    [per user: "it shouldn't be deleted"]. Offline A/B diff (smoke, not audit): their
+    4 Bye? flags clear (no Injury? set); every other change follows from 4 more
+    played 0-point weeks — PPG / bust / floor / donut / streak columns for those 4,
+    Positional scoring percentile (1394 cells, pool grew by 4), BROsenzweig 2022 wk 17
+    Empty slots 1 → 0 and Chase's Boldness blank → 0.0, Luck ±0.01 that week.
   - Local recompute on the committed exports (completed seasons): 832 team-weeks;
     Monday comebacks 98, SNF 165, last game 97; #1 Monday = LWebs53 2021 wk 2 (63.78,
     49.4%, 33.1%, 21.26 per player). Verify with the CI branch build + 3-part audit.

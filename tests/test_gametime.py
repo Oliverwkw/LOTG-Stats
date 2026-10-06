@@ -80,6 +80,9 @@ def test_struck_bills_bengals_game_is_monday_night():
     assert G.player_slot(s, 2022, 17, "BUF") == "MNF"
     assert G.player_slot(s, 2022, 17, "CIN") == "MNF"
     assert s.stage_start(2022, 17, "Monday") == datetime(2023, 1, 2, 20, 30)
+    # put back once, and only where it is missing
+    g = G.restore_struck_games(_games([(2022, 17, "REG", "2023-01-01", "13:00", "NE", "MIA")]))
+    assert len(g) == 2 and len(G.restore_struck_games(g)) == 2
 
 
 def _tw(rows):
