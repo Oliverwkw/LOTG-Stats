@@ -261,7 +261,7 @@ def main(argv=None) -> int:
     # With each board's overflowing tie too: snapshot-only, so next week can name
     # who a row coming onto the board passed (see digest._overflow_places).
     events = D.all_board_highlights(frames, gate=gate, overflow=True)
-    current["event_board"] = D.event_board(events)
+    D.store_event_board(current, D.event_board(events))
     # The full row set of the transaction/pick sheets, so next week's diff can
     # tell a brand-new row (a trade/add just made) from an old one that only just
     # climbed onto a board. Stored here; consumed as `prior_row_keys` next run.
@@ -291,7 +291,7 @@ def main(argv=None) -> int:
         # A snapshot from before the all-seasons board (it carried `event_keys`,
         # current-season only) has no `event_board`, so the first run after the
         # change re-baselines silently rather than emailing the whole board.
-        prior_events = prior.get("event_board")
+        prior_events = D.snapshot_event_board(prior)
         if prior_events is None:
             print("[digest] baselining event boards this week (no diff yet).")
             event_changes = []

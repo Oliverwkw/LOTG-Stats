@@ -2428,7 +2428,7 @@ def test_a_row_that_falls_off_the_board_is_reported():
     now = run(top + [(lbl, 4, v) for lbl, _r, v in tens])
     best = {"Pat Freiermuth": 8.0}
     got = [c.sentence() for c in D.diff_events(
-        prior, now, current_value=lambda sh, col, end, key, ent: best.get(ent))]
+        prior, now, current_value=lambda sh, col, end, key, ent, skip=(): best.get(ent))]
     assert got == ["Pat Freiermuth 2022 week 4 drops off the board for highest "
                    "Rostered middle 50% streak (11), now 8."], got
     # Without a way to read values now (an older caller), nothing new is said.
@@ -2439,7 +2439,7 @@ def test_a_row_that_falls_off_the_board_is_reported():
                                  overflow=k in overflow)
                 for k, r, v in rows]
     vals = {"A": 30., "B": 35., "C": 44.1, "D": 40.}
-    lookup = lambda sh, col, end, key, ent: vals.get(key)  # noqa: E731
+    lookup = lambda sh, col, end, key, ent, skip=(): vals.get(key)  # noqa: E731
     # D stood still just off the board (an overflowing tie) and C fell past it.
     prior = D.event_board(ev([("A", 1, 30.), ("B", 2, 35.), ("C", 3, 39.4), ("D", 4, 40.)], {"D"}))
     got = [c.sentence() for c in D.diff_events(
@@ -2458,6 +2458,134 @@ def test_a_row_that_falls_off_the_board_is_reported():
     got = [c.sentence() for c in D.diff_events(
         prior, ev([("A", 1, 30.), ("B", 2, 35.), ("D", 3, 39.42)]), current_value=lookup)]
     assert not any("drops off" in s for s in got), got
+
+
+def test_a_streak_falls_off_though_its_team_holds_another():
+    """A team with two streaks on one board holds two places. Its record streak
+    recomputed from 10 to 4 left the board, and the drop went untold because
+    the team's OTHER streak (3rd) still stood — the check asked whether the
+    entity was on the board, not whether this run was."""
+    import pandas as pd
+    from lotg_support import digest as D
+
+    def run(rows):
+        return [D.EventHighlight("team_week", lbl, "Top half streak", "high", r, v,
+                                 key=lbl, running=True, entity=lbl.split()[0])
+                for lbl, r, v in rows]
+    prior = D.event_board(run([("A 2023 week 4", 1, 10.), ("B 2024 week 2", 2, 9.),
+                               ("A 2022 week 1", 3, 8.), ("C 2021 week 3", 4, 7.),
+                               ("D 2025 week 5", 5, 6.)]))
+    now = run([("B 2024 week 2", 1, 9.), ("A 2022 week 1", 2, 8.), ("C 2021 week 3", 3, 7.),
+               ("D 2025 week 5", 4, 6.)])
+    rows = {"A 2023 week 4": 4., "A 2022 week 1": 8.}
+
+    def lookup(sh, col, end, key, ent, skip=()):
+        # A's best over its rows, less the other places it held (`skip`).
+        vals = [v for k, v in rows.items() if k.split()[0] == ent and k not in skip]
+        return max(vals) if vals else None
+    got = [c.sentence() for c in D.diff_events(prior, now, current_value=lookup)]
+    # "now 4", the run's own value — not 8, its other streak's.
+    assert got == ["A 2023 week 4 drops off the board for highest Top half streak (10), now 4."], got
+
+    # board_value_lookup's `skip`: an entity's best over its rows, less those.
+    df = pd.DataFrame({"Team": ["A", "A", "B"], "Year": [2023, 2022, 2024], "Week": [4, 1, 2],
+                       "Top half streak": [4, 8, 9]})
+    lk = D.board_value_lookup({"team_week": df})
+    k23, k22 = (D._board_row_key("team_week", r) for _, r in df.head(2).iterrows())
+    assert lk("team_week", "Top half streak", "high", k23, "A") == 8.0
+    assert lk("team_week", "Top half streak", "high", k23, "A", skip=frozenset([k22])) == 4.0
+    assert lk("team_week", "Top half streak", "high", k23, "A", skip=frozenset([k22, k23])) is None
+
+
+def test_a_streak_carried_onto_the_board_passes_nobody():
+    """E's streak stood still at 5.5, off the board, and was carried on to 5th
+    when A's 10 recomputed to 4. "E passes A" was false, and naming A there kept
+    A's own drop off the board out of the email."""
+    from lotg_support import digest as D
+
+    def run(rows):
+        return [D.EventHighlight("team_week", lbl, "Top half streak", "high", r, v,
+                                 key=lbl, running=True, entity=lbl.split()[0])
+                for lbl, r, v in rows]
+    prior = D.event_board(run([("A 2023 week 4", 1, 10.), ("B 2024 week 2", 2, 9.),
+                               ("Z 2022 week 1", 3, 8.), ("C 2021 week 3", 4, 7.),
+                               ("D 2025 week 5", 5, 6.)]))
+    now = run([("B 2024 week 2", 1, 9.), ("Z 2022 week 1", 2, 8.), ("C 2021 week 3", 3, 7.),
+               ("D 2025 week 5", 4, 6.), ("E 2020 week 9", 5, 5.5)])
+    best = {"A": 4., "B": 9., "C": 7., "D": 6., "Z": 8., "E": 5.5}
+    got = [c.sentence() for c in D.diff_events(
+        prior, now, current_value=lambda sh, col, end, key, ent, skip=(): best.get(ent))]
+    assert got == ["A 2023 week 4 drops off the board for highest Top half streak (10), now 4."], got
+
+
+def test_overflow_ties_are_stored_beside_the_board():
+    """The overflowing ties go under their own snapshot key: code from before
+    them reads `event_board` as places, so one in there would read as a real
+    place if this change were reverted with such a snapshot committed."""
+    from lotg_support import digest as D
+    ev = [D.EventHighlight("add_drops", k, "Dropped total points", "high", r, v, key=k,
+                           overflow=k == "C")
+          for k, r, v in [("A", 1, 50.), ("B", 2, 40.), ("C", 3, 30.)]]
+    snap = {"meta": {}}
+    D.store_event_board(snap, D.event_board(ev))
+    assert [d["key"] for d in snap["event_board"]] == ["A", "B"], snap
+    assert [d["key"] for d in snap["event_overflow"]] == ["C"], snap
+    assert [d["key"] for d in D.snapshot_event_board(snap)] == ["A", "B", "C"]
+    assert D.snapshot_event_board({"teams": {}}) is None
+    # The migrations reach the overflow entries too (here: the dropped-points sign).
+    D.migrate_snapshot_signs(snap)
+    assert snap["event_overflow"][0]["end"] == "low" and snap["event_overflow"][0]["value"] == -30.
+    assert all(d["end"] == "low" for d in snap["event_board"])
+
+
+def test_passed_by_on_a_lowest_board_rises():
+    """Falling behind on a LOWEST board means going up: the 2026 week-4 email had
+    "was passed by Jacob Cowing for 5th-lowest Adjusted Avg points (-0.3),
+    falling to 5.3"."""
+    from lotg_support import digest as D
+    c = D.Crossing("players", "Adjusted Avg points", "low", 5, "Roman Wilson", 5.2667,
+                   passed=("Jacob Cowing",), prev_value=-0.3, passed_by=True, by_value=-0.2857)
+    assert c.detail().endswith("(-0.3), rising to 5.3"), c.detail()
+    e = D.EventCrossing("trades", "T", "O-Score", "low", 2, 11.0, passed=("U",),
+                        prev_value=8.0, passed_by=True, by_value=8.5)
+    assert e.detail().endswith("(8.5), rising to 11"), e.detail()
+    e.end = "high"
+    assert e.detail().endswith("falling to 11"), e.detail()
+
+
+def test_a_row_that_falls_out_of_a_tie_is_reported():
+    """Oliverwkw 2023's Add/Drop skill went 30.6 -> 30.7 in 2026 week 4 and left
+    AceMatthew 2023 alone in 2nd-lowest. AceMatthew stood still on the same
+    place, so neither rank moved toward the end and the email said nothing.
+    Told from the faller's side, on the event boards and the all-time ones."""
+    from lotg_support import digest as D
+
+    def ev(rows):
+        return [D.EventHighlight("team_year", k, "Add/Drop skill", "low", r, v, key=k)
+                for k, r, v in rows]
+    prior = D.event_board(ev([("LWebs53 2021", 1, 26.0), ("AceMatthew 2023", 2, 30.6),
+                              ("Oliverwkw 2023", 2, 30.6), ("LWebs53 2023", 4, 30.9)]))
+    got = [c.sentence() for c in D.diff_events(
+        prior, ev([("LWebs53 2021", 1, 26.0), ("AceMatthew 2023", 2, 30.6),
+                   ("Oliverwkw 2023", 3, 30.7), ("LWebs53 2023", 4, 30.9)]))]
+    assert got == ["Oliverwkw 2023 was passed by AceMatthew 2023 for 2nd-lowest "
+                   "Add/Drop skill (30.6), rising to 30.7."], got
+    # Breaking the tie by its OWN improvement is the mover's line, told once.
+    got = [c.sentence() for c in D.diff_events(
+        prior, ev([("LWebs53 2021", 1, 26.0), ("AceMatthew 2023", 2, 30.5),
+                   ("Oliverwkw 2023", 3, 30.6), ("LWebs53 2023", 4, 30.9)]))]
+    assert got == ["AceMatthew 2023 passes Oliverwkw 2023 for 2nd-lowest Add/Drop skill (30.5)."], got
+    # A fall the email's rounding hides is not a line.
+    assert D.diff_events(prior, ev([("LWebs53 2021", 1, 26.0), ("AceMatthew 2023", 2, 30.6),
+                                    ("Oliverwkw 2023", 3, 30.61), ("LWebs53 2023", 4, 30.9)])) == []
+
+    def rows(pairs):
+        return [{"entity": e, "value": v} for e, v in pairs]
+    rest = [("C", 8.), ("D", 7.), ("E", 6.), ("F", 1.), ("G", .5), ("H", .2), ("I", .1), ("J", 0.)]
+    got = [c.sentence() for c in D._column_crossings(
+        "players", "Points", rows([("A", 10.), ("B", 10.)] + rest),
+        rows([("A", 10.), ("B", 9.)] + rest), ["high"], 5, False)]
+    assert got == ["B was passed by A for highest Points (10), falling to 9."], got
 
 
 def test_digest_engine():
