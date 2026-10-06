@@ -26,6 +26,11 @@ rediscovering the same handful of traps. All of that is one command here.
     python scripts/inquire.py age                      # current rosters, oldest first
     python scripts/inquire.py ownership --min-trades 3 --max-teams 2
 
+    # game times: margin entering any stage, comebacks, points by slot
+    python scripts/inquire.py gametime --entering Monday --comebacks -n 10
+    python scripts/inquire.py gametime --entering 'Sunday late' --team AceMatthew
+    python scripts/inquire.py gametime --slots --season 2025
+
     # over-inclusive: rank on EVERY column, don't curate which stats to check
     python scripts/inquire.py sweep team_year --where Team=shmuel256 --where Year=2025 \
         --within Year=2025 --window 2
@@ -326,6 +331,34 @@ def cmd_spend(args) -> None:
               "say so in any write-up that uses this table.")
 
 
+def cmd_gametime(args) -> None:
+    from lotg_support import gametime as G
+
+    games = Q.schedule()
+    if games.empty:
+        raise LookupError(".cache/nfldata_games.csv is missing — the build caches it")
+    sched = G.load_schedule(games)
+    pw, tw = Q.load_sheet("player_week"), Q.load_sheet("team_week")
+    for k, v in (("Year", args.season), ("Week", args.week)):
+        if v is not None:
+            pw, tw = pw[pd.to_numeric(pw[k], errors="coerce") == v], tw[pd.to_numeric(tw[k], errors="coerce") == v]
+    if args.slots:
+        df = G.slot_points(pw, sched)
+        if args.team:
+            df = df[df["Team"] == args.team]
+        _emit(df, args.csv, args.limit)
+        return
+    df = G.stage_rows(tw, pw, sched, args.entering)
+    if args.team:
+        df = df[df["Team"] == args.team]
+    if args.comebacks:
+        col = "Margin overcome" if args.by == "margin" else "Points overcome"
+        df = df[df[col].notna()].sort_values(col, ascending=False)
+    elif args.sort:
+        df = df.sort_values(args.sort, ascending=args.ascending, na_position="last")
+    _emit(df, args.csv, args.limit)
+
+
 def cmd_player(args) -> None:
     dossier = Q.player_dossier(args.name)
     print(f"=== {dossier['player']} ===")
@@ -615,6 +648,26 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("-n", "--limit", type=int, default=0)
     p.add_argument("--csv", action="store_true")
     p.set_defaults(func=cmd_spend)
+
+    p = sub.add_parser("gametime",
+                       help="margin entering any stage of a week (SNF, Monday, last game, any game slot), "
+                            "comebacks vs the opponent's final, or starter points by game slot")
+    p.add_argument("--entering", default="Monday",
+                   help="SNF, Monday, 'last game', or a game slot: Thursday, Saturday, 'Sunday morning', "
+                        "'Sunday early', 'Sunday late', MNF ... (default Monday)")
+    p.add_argument("--comebacks", action="store_true", help="only comebacks, biggest first")
+    p.add_argument("--by", choices=("points", "margin"), default="points",
+                   help="with --comebacks: points overcome (vs the opponent's final, default) "
+                        "or margin overcome (behind at the time)")
+    p.add_argument("--slots", action="store_true", help="starter points per team-week by game slot instead")
+    p.add_argument("--team")
+    p.add_argument("--season", type=int)
+    p.add_argument("--week", type=int)
+    p.add_argument("--sort", help="column to sort by, e.g. 'Margin entering'")
+    p.add_argument("--ascending", action="store_true")
+    p.add_argument("-n", "--limit", type=int, default=0)
+    p.add_argument("--csv", action="store_true")
+    p.set_defaults(func=cmd_gametime)
 
     p = sub.add_parser("player", help="everything the exports know about a player")
     p.add_argument("name")

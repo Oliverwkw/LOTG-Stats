@@ -1479,3 +1479,35 @@ guard-skipped fire), 581→584 (#453), 584→589 (#454), 589→597 (#455).
   - no other sheet changed.
   - by-design: 2026 has no dead start yet (weeks 1–3), so the live season does not exercise
     the change.
+
+## Game-time columns (from the 2026 wk 4 MNF-comeback inquiry)
+- [ ] **player_week `Game slot` + team_week margins / comebacks by stage** [per user,
+  2026-10-05]. `lotg_support.gametime`, week grain only (no rollups); `inquire.py
+  gametime` is the inquiry side (margin entering any stage, `--slots` points by slot).
+  - `Game slot`: Thursday / Friday / Saturday / (Christmas) Wednesday, Sunday morning
+    (< 1 pm ET), Sunday early, Sunday late, SNF (≥ 7 pm), MNF, Tuesday / Wednesday
+    (after Monday); Bye; N/A on the 'NFL' sentinel. Bench rows too.
+  - `Margin entering SNF` / `Monday` / `last game`: own going in − opponent going in;
+    going in = PF − starters' points from that kickoff on (semifinal +5 counts).
+    Monday = first game after Sunday (COVID makeups included); last game = latest
+    kickoff with a starter from either side, only if SNF or later. N/A when the stage
+    did not happen.
+  - `Down entering {SNF, Monday, last game} comeback` ×5: `(margin overcome)` =
+    −Margin entering when behind then and won (old definition); `(points overcome)` =
+    opponent's FINAL − own going in, when > 0 and the team won (a lead going in still
+    counts); `(% of points going in)` / `(% of opponent's final)` / `(per player left)`
+    = points overcome ÷ own going in / opponent's final / own starters still to play.
+    N/A otherwise.
+  - The abandoned 2022 wk 17 Bills-Bengals game (struck from nflverse) is restored as
+    Monday 2023-01-02 20:30 wherever the schedule is read (build, inquiry), its 29
+    real stat lines (Sleeper stats API → data/struck_game_stats.csv) go into the
+    nflverse weekly stats + season totals (`lotg_support.struck_games`), and
+    data/game_day_status.csv marks Chase / Knox / Gabe Davis / Perine active for it
+    [per user: a normal game with a short stat pool]. Offline A/B diff (smoke, not audit): their
+    4 Bye? flags clear (no Injury? set); every other change follows from 4 more
+    played 0-point weeks — PPG / bust / floor / donut / streak columns for those 4,
+    Positional scoring percentile (1394 cells, pool grew by 4), BROsenzweig 2022 wk 17
+    Empty slots 1 → 0 and Chase's Boldness blank → 0.0, Luck ±0.01 that week.
+  - Local recompute on the committed exports (completed seasons): 832 team-weeks;
+    Monday comebacks 98, SNF 165, last game 97; #1 Monday = LWebs53 2021 wk 2 (63.78,
+    49.4%, 33.1%, 21.26 per player). Verify with the CI branch build + 3-part audit.

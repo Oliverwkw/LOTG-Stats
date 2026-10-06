@@ -502,7 +502,9 @@ def _seasonal(season: int, root: str) -> Optional[pd.DataFrame]:
         return None
     df["player_id"] = df["player_id"].astype(str)
     df["season_type"] = df["season_type"].astype(str).str.upper()
-    return df
+    # Games nflverse struck but the league played (lotg_support.struck_games).
+    from lotg_support.struck_games import add_struck_season_totals
+    return add_struck_season_totals(df, season)
 
 
 def _basis_types(basis: str) -> Tuple[str, ...]:
