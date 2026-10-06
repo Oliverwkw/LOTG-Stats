@@ -141,7 +141,7 @@ def test_email_names_both_teams_on_a_combined_stat():
                           passed=("LWebs53 2022 week 2",))]
     out, _rest = D.fold_week_boards(hl, ev, {"team_week": tw}, [(2026, 4)])
     line = out[0].line()
-    assert "380.5 vs LWebs53" in line, line
+    assert "380.50 vs LWebs53" in line, line
     assert "LWebs53 2022 week 2 (vs stevenb123)" in line, line
 
 

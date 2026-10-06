@@ -258,8 +258,10 @@ def main(argv=None) -> int:
     # row ever — a season, a week, a pick, a trade, a transaction. A recompute
     # that re-values history reshuffles an all-time top/bottom 5, and that
     # reshuffle is the thing to report, whichever sheet it lands on.
-    events = D.all_board_highlights(frames, gate=gate)
-    current["event_board"] = D.event_board(events)
+    # With each board's overflowing tie too: snapshot-only, so next week can name
+    # who a row coming onto the board passed (see digest._overflow_places).
+    events = D.all_board_highlights(frames, gate=gate, overflow=True)
+    D.store_event_board(current, D.event_board(events))
     # The full row set of the transaction/pick sheets, so next week's diff can
     # tell a brand-new row (a trade/add just made) from an old one that only just
     # climbed onto a board. Stored here; consumed as `prior_row_keys` next run.
@@ -289,13 +291,14 @@ def main(argv=None) -> int:
         # A snapshot from before the all-seasons board (it carried `event_keys`,
         # current-season only) has no `event_board`, so the first run after the
         # change re-baselines silently rather than emailing the whole board.
-        prior_events = prior.get("event_board")
+        prior_events = D.snapshot_event_board(prior)
         if prior_events is None:
             print("[digest] baselining event boards this week (no diff yet).")
             event_changes = []
         else:
             event_changes = D.diff_events(prior_events, events,
-                                          prior_row_keys=prior.get("row_keys"))
+                                          prior_row_keys=prior.get("row_keys"),
+                                          current_value=D.board_value_lookup(frames, gate=gate))
             # A line only a change to the gate rules moved is an edit, not news.
             n_rule = D.mark_rule_releases(prior, frames, event_changes, crossings)
             if n_rule:
