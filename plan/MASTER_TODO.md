@@ -1495,6 +1495,17 @@ guard-skipped fire), 581→584 (#453), 584→589 (#454), 589→597 (#455).
     all-time rollups), whether Comeback size / Boldness should switch to it, and how the
     build caches it (weekly files in .cache like nflverse; live week refetched).
   - Build risk: undocumented endpoint — must degrade to N/A (never 0) when unreachable.
+  - **Use a 50/50 blend of Sleeper and Boldness E** as the projection [per user, 2026-10-07]
+    — for Comeback size and any projection column; Boldness alone where Sleeper has no
+    projection (missing, adp-only, or ~0 for a player who was not ruled out). 2020-25,
+    7,475 starts: MAE 6.354 v Sleeper 6.418 v Boldness 6.428; best in all six seasons;
+    out of sample (weight fit on one half, scored on the other) 50/50 matches the fitted
+    weight; beats Sleeper alone in 100% of 2,000 bootstrap resamples. The errors offset
+    (Sleeper +0.31 high, Boldness −1.28 low and blind to role changes like Taysom Hill /
+    Jalen Hurts 2020-21). Gain is small (~0.06 pts/start, ~1%). Caveat: by RMSE the best
+    mix is 70-80% Sleeper (bias ~0, 8.08 v 8.10) — 50/50 keeps a −0.49 bias. Re-tune the
+    win-chance spread (SD_PER_ROOT_POINT) and re-check the 2.5·√n projection band on the
+    blend before shipping.
 
 ## Game-time columns (from the 2026 wk 4 MNF-comeback inquiry)
 - [x] **player_week `Game slot` + team_week margins / comebacks by stage** [per user,
