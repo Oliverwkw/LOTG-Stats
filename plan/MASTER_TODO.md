@@ -1495,17 +1495,41 @@ guard-skipped fire), 581→584 (#453), 584→589 (#454), 589→597 (#455).
     all-time rollups), whether Comeback size / Boldness should switch to it, and how the
     build caches it (weekly files in .cache like nflverse; live week refetched).
   - Build risk: undocumented endpoint — must degrade to N/A (never 0) when unreachable.
-  - **Use a 50/50 blend of Sleeper and Boldness E** as the projection [per user, 2026-10-07]
-    — for Comeback size and any projection column; Boldness alone where Sleeper has no
-    projection (missing, adp-only, or ~0 for a player who was not ruled out). 2020-25,
-    7,475 starts: MAE 6.354 v Sleeper 6.418 v Boldness 6.428; best in all six seasons;
-    out of sample (weight fit on one half, scored on the other) 50/50 matches the fitted
-    weight; beats Sleeper alone in 100% of 2,000 bootstrap resamples. The errors offset
-    (Sleeper +0.31 high, Boldness −1.28 low and blind to role changes like Taysom Hill /
-    Jalen Hurts 2020-21). Gain is small (~0.06 pts/start, ~1%). Caveat: by RMSE the best
-    mix is 70-80% Sleeper (bias ~0, 8.08 v 8.10) — 50/50 keeps a −0.49 bias. Re-tune the
-    win-chance spread (SD_PER_ROOT_POINT) and re-check the 2.5·√n projection band on the
-    blend before shipping.
+  - **Use the EQUAL AVERAGE of four projections** [per user, 2026-10-07: "find the maximally
+    accurate blend of Boldness, Sleeper, and other projections out there"; supersedes the
+    50/50 Sleeper + Boldness note]: Sleeper (Rotowire), ESPN, FantasyPros consensus, and
+    Boldness E — each where it has a projection, averaging whatever is available
+    (Boldness always is). For Comeback size and any projection column.
+    - Sources (all historical, pre-game, 2020+):
+      - ESPN: `lm-api-reads.fantasy.espn.com/apis/v3/games/ffl/seasons/{y}/segments/0/
+        leaguedefaults/3?view=kona_player_info&scoringPeriodId={w}`, header X-Fantasy-Filter
+        `filterStatsForTopScoringPeriodIds` additionalValue `["11{y}{w}"]` (11 = projected
+        week); stats statSourceId 1. Stat ids → Sleeper keys: 3 pass_yd, 4 pass_td, 19
+        pass_2pt, 20 pass_int, 24 rush_yd, 25 rush_td, 26 rush_2pt, 42 rec_yd, 43 rec_td, 44
+        rec_2pt, 53 rec, 68 fum, 72 fum_lost (re-scores ESPN's own PPR total within 0.05 on
+        96%, rest return TDs); score with `boldness.scoring_table(y)`. espn_id → sleeper_id
+        via dynastyprocess playerids. 100% of starts.
+      - FantasyPros weekly positional ECR (`ecr_type == "wp"`) from DynastyProcess
+        `files/db_fpecr.parquet` (mostly Friday snapshots): take the last snapshot ≤ the
+        week's Sunday, DROP it for a player whose game kicked off before the snapshot
+        (587 Thursday-night ranks), rank → points per position as a + b·ln(rank) fitted on
+        OTHER seasons. fantasypros_id → sleeper_id via dynastyprocess. 86% of starts
+        (2024 weeks 1-3 missing).
+      - Sleeper's own endpoint takes `company=` but only `rotowire` has data.
+      - NFL.com's fantasy API is gone (503); FantasyPros' own projection pages render
+        client-side (not scraped).
+    - Accuracy 2020-25, 6,452 starts with all four, every weight graded on seasons it was
+      not fitted on: equal 4-way MAE 6.343 / RMSE 8.063 / bias −0.19 — v best fitted
+      4-way 6.346 (Sleeper .22, ESPN .13, FP .33, Boldness .32), 50/50 Sleeper+Boldness
+      6.358 / 8.116, singles FP 6.400, Sleeper 6.420, ESPN 6.423, Boldness 6.430. Fitting
+      gives nothing over equal weights; season-average / last-5 / position / team
+      averages take 0 weight. Best or within 0.02 of best in every season. Averaging
+      what is available, all 7,506 starts: MAE 6.344 / RMSE 8.051 (Boldness alone 6.432).
+    - Loss matters: MAE favours a low shift (fantasy points skew right, so the median
+      sits below the mean — why Boldness' −1.3 bias "helps" MAE); RMSE wants an unbiased
+      mean (best fit .37/.28/.30/.04 = 8.057). Comeback size sums expectations, so it
+      wants the unbiased one: equal 4-way is 8.063 there too. Re-tune SD_PER_ROOT_POINT
+      and re-check the 2.5·√n band on the blend before shipping.
 
 ## Game-time columns (from the 2026 wk 4 MNF-comeback inquiry)
 - [x] **player_week `Game slot` + team_week margins / comebacks by stage** [per user,
