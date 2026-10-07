@@ -13483,6 +13483,7 @@ def build_all(repo_root: Path) -> None:
                 espn={_s: _proj.load_espn(ext, _s, _cur) for _s in _seasons},
                 fantasypros=_proj.load_fantasypros(ext), key="Player ID")
             _proj_res = _proj.project(_inp)
+            pw["_claude_raw"] = _proj_res["_claude_raw"]
             for _x in _proj.NAMES:
                 pw[_proj.proj_col(_x)] = _proj_res[_proj.proj_col(_x)]
                 pw[_proj.above_col(_x)] = (pd.to_numeric(pw["Points"], errors="coerce") - pw[_proj.proj_col(_x)]).round(2)
@@ -13882,6 +13883,7 @@ def build_all(repo_root: Path) -> None:
         # the SA baseline window). Used for "Weeks of starter injuries/
         # suspensions".
         was_recent_starter: List[int] = [0] * len(pw)
+        eff_starter_share: List[float] = [0.0] * len(pw)
 
         # Early-season forward-looking starter capture (user spec). In the very
         # first weeks of the first season a player has no backward LOTG active
@@ -13989,6 +13991,7 @@ def build_all(repo_root: Path) -> None:
             # for this week when eff_starter_pct > 0. Drives "Weeks of starter
             # injuries/suspensions" too, keeping the two in lockstep.
             was_recent_starter[i] = 1 if eff_starter_pct > 0.0 else 0
+            eff_starter_share[i] = float(eff_starter_pct)
             missed = (pts == 0.0) and (inj or susp) and (not bye)
             if missed and expected is not None:
                 # Clamp expected ≥ 0 (negative-baseline edge case).
@@ -14018,6 +14021,19 @@ def build_all(repo_root: Path) -> None:
         pw["_was_recent_starter_injsusp"] = was_recent_starter
         pw["_points_lost_bye"] = points_lost_bye
         pw["_starter_adj_points_lost_bye"] = starter_adj_lost_bye
+        # Hardship (Claude Projections) [per user, 2026-10-07]: the same missed
+        # weeks valued at the player's Claude projection BEFORE the known-out
+        # zeroing (an "if healthy" figure), weighted by the same starter share.
+        try:
+            _cr = pd.to_numeric(pw.get("_claude_raw"), errors="coerce") if "_claude_raw" in pw.columns \
+                else pd.Series(np.nan, index=pw.index)
+            _ptc = pd.to_numeric(pw["Points"], errors="coerce").fillna(0.0)
+            _fl = lambda c: pw[c].map(lambda v: safe_bool(v, default=False)) if c in pw.columns else pd.Series(False, index=pw.index)
+            _missc = (_ptc == 0.0) & (_fl("Injury?") | _fl("Suspension?")) & ~_fl("Bye?") & _cr.notna()
+            pw["_points_lost_claude"] = np.where(_missc, _cr.clip(lower=0.0), 0.0)
+            pw["_starter_adj_points_lost_claude"] = pw["_points_lost_claude"] * pd.Series(eff_starter_share, index=pw.index)
+        except Exception as e:
+            _log_exc(debug, "hardship_claude_baseline", e)
 
         # Healthy-lineup score per team-week for the "Loss from hardship?" flag.
         # Pool = the team's ACTUAL STARTERS (at their real points) + the hurt
@@ -14028,6 +14044,50 @@ def build_all(repo_root: Path) -> None:
         # slots, nets the replacement). Healthy bench players are deliberately
         # EXCLUDED: this asks "what if their hurt guys were available?", NOT
         # "what if they had also start/sat optimally".
+        def _hardship_counterfactuals(sa_col: str):
+            """(healthy-lineup score, two-sided hardship gain) per team-week with
+            the hurt would-be-starters valued at `sa_col` — the logic of the two
+            blocks below, for the Claude-projection Hardship columns."""
+            _ho_d: Dict[Tuple[str, str, str], float] = {}
+            _hg_d: Dict[Tuple[str, str, str], float] = {}
+            _nd = {"Team", "Year", "Week", "Position", "Points", "Injury?", "Suspension?",
+                   "Starter/Bench", "Player ID", sa_col}
+            if not _nd.issubset(pw.columns):
+                return _ho_d, _hg_d
+            _f = pw[list(_nd)].copy()
+            _f["_pt"] = pd.to_numeric(_f["Points"], errors="coerce").fillna(0.0)
+            _f["_sa"] = pd.to_numeric(_f[sa_col], errors="coerce")
+            _f["_st"] = _f["Starter/Bench"].astype(str).str.strip().str.lower().eq("starter")
+            _f["_hurt"] = (
+                (_f["Injury?"].astype(str).str.strip().str.lower().isin(["true", "1"])
+                 | _f["Suspension?"].astype(str).str.strip().str.lower().isin(["true", "1"]))
+                & (_f["_pt"] == 0.0) & _f["_sa"].notna() & (_f["_sa"] > 0))
+            _f = _f[_f["_st"] | _f["_hurt"]]
+            for (_tm, _yr, _wk), _g in _f.groupby(["Team", "Year", "Week"]):
+                _full, _base, _pp = {}, {}, {}
+                for _pid, _pos, _st, _pt, _sa in zip(_g["Player ID"].astype(str), _g["Position"].astype(str),
+                                                     _g["_st"], _g["_pt"], _g["_sa"]):
+                    if not _pid or _pid in ("None", "nan"):
+                        continue
+                    _pp[_pid] = _pos
+                    _full[_pid] = float(_pt) if _st else float(_sa)
+                    if _st:
+                        _base[_pid] = float(_pt)
+                if not _full:
+                    continue
+                _yri = int(_yr) if str(_yr).strip().isdigit() else _yr
+                try:
+                    _fo = compute_optimal_lineup(_full, _pp, _yri)
+                    _bo = compute_optimal_lineup(_base, {p: _pp[p] for p in _base}, _yri) if _base else None
+                except Exception:
+                    _fo = _bo = None
+                _key = (str(_tm), str(_yr), str(_wk))
+                if _fo is not None:
+                    _ho_d[_key] = float(_fo)
+                if _fo is not None and _bo is not None:
+                    _hg_d[_key] = max(0.0, float(_fo) - float(_bo))
+            return _ho_d, _hg_d
+
         _healthy_opt_by_tw: Dict[Tuple[str, str, str], float] = {}
         try:
             _need = {"Team", "Year", "Week", "Position", "Points", "Injury?",
@@ -14157,6 +14217,12 @@ def build_all(repo_root: Path) -> None:
                         _hardship_gain_by_tw[(str(_tm), str(_yr), str(_wk))] = max(0.0, float(_fo) - float(_bo))
         except Exception as e:
             _log_exc(debug, "hardship_gain_lineup", e)
+
+        try:
+            _healthy_opt_by_tw_cl, _hardship_gain_by_tw_cl = _hardship_counterfactuals("_starter_adj_points_lost_claude")
+        except Exception as e:
+            _healthy_opt_by_tw_cl, _hardship_gain_by_tw_cl = {}, {}
+            _log_exc(debug, "hardship_claude_counterfactuals", e)
 
         # --------------------------
         # Weekly handcuffs (user rule, 2026-09-23)
@@ -14411,6 +14477,29 @@ def build_all(repo_root: Path) -> None:
             )
         except Exception as e:
             _log_exc(debug, "loss_from_hardship_flag", e)
+        # Every Hardship column again on the Claude projections [per user,
+        # 2026-10-07: "replicate all hardship columns and add '(Claude
+        # Projections)' at end"]. Luck keeps reading the originals.
+        try:
+            _CP = " (Claude Projections)"
+            if "_points_lost_claude" in pw.columns:
+                _hc = pw.groupby(["Team", "Year", "Week"], as_index=False).agg(
+                    _hl=("_points_lost_claude", "sum"), _hsa=("_starter_adj_points_lost_claude", "sum"))
+                _hc = tw[["Team", "Year", "Week"]].merge(_hc, on=["Team", "Year", "Week"], how="left")
+                tw["Hardship" + _CP] = pd.to_numeric(_hc["_hl"], errors="coerce").fillna(0.0).round(4).to_numpy()
+                tw["Starter-adjusted Hardship" + _CP] = pd.to_numeric(_hc["_hsa"], errors="coerce").fillna(0.0).round(4).to_numpy()
+                _won_c = tw.get("Win?").astype(str).str.lower().isin(["true", "1", "yes"])
+                _pa_c = pd.to_numeric(tw.get("Points against"), errors="coerce")
+                _pf_c = pd.to_numeric(tw.get("PF"), errors="coerce")
+                _k = lambda col: [(str(a), str(y), str(w)) for a, y, w in zip(tw.get(col), tw.get("Year"), tw.get("Week"))]
+                _ho_c = pd.Series([_healthy_opt_by_tw_cl.get(k) for k in _k("Team")], index=tw.index, dtype="float64")
+                _hg_c = pd.Series([_hardship_gain_by_tw_cl.get(k, 0.0) for k in _k("Team")], index=tw.index, dtype="float64")
+                _hgo_c = pd.Series([_hardship_gain_by_tw_cl.get(k, 0.0) for k in _k("Opponent")], index=tw.index, dtype="float64")
+                tw["Loss from hardship?" + _CP] = (~_won_c) & _pa_c.notna() & _ho_c.notna() & (_ho_c > _pa_c)
+                tw["Loss from hardship (2-sided)?" + _CP] = (~_won_c) & _pa_c.notna() & _pf_c.notna() & ((_pf_c + _hg_c) > (_pa_c + _hgo_c))
+                tw["Win from hardship (2-sided)?" + _CP] = _won_c & _pa_c.notna() & _pf_c.notna() & ((_pf_c + _hg_c) < (_pa_c + _hgo_c))
+        except Exception as e:
+            _log_exc(debug, "hardship_claude_columns", e)
         # (Previously had a defensive SA ≤ H clamp here for a
         # plehv79 2022 wk3 anomaly. Audit traced it to negative
         # `expected` from a single-game-history rookie baseline;
@@ -22874,6 +22963,34 @@ def build_all(repo_root: Path) -> None:
             team_year = _attach(team_year, tw, ["Team", "Year"], "Times ")
             team_all = _attach(team_all, tw, ["Team"], "Times ")
             league_year = _attach(league_year, _lwp, ["Year"], None)
+            # Hardship (Claude Projections) rollups: sums and flag counts, as the originals
+            _CP = " (Claude Projections)"
+            if "Hardship" + _CP in tw.columns:
+                _hcols = {"Hardship" + _CP: "Hardship" + _CP,
+                          "Starter-adjusted Hardship" + _CP: "Starter-adjusted Hardship" + _CP,
+                          "Loss from hardship?" + _CP: "Losses from hardship" + _CP,
+                          "Loss from hardship (2-sided)?" + _CP: "Losses from hardship (2-sided)" + _CP,
+                          "Win from hardship (2-sided)?" + _CP: "Wins from hardship (2-sided)" + _CP}
+                _ht = tw[["Team", "Year", "Week"] + list(_hcols)].copy()
+                for _c in _hcols:
+                    _ht[_c] = pd.to_numeric(_ht[_c].map(lambda v: 1.0 if v is True else (0.0 if v is False else v)), errors="coerce")
+                for _frame_name, _keys in (("team_year", ["Team", "Year"]), ("team_all", ["Team"])):
+                    _fr = team_year if _frame_name == "team_year" else team_all
+                    if isinstance(_fr, pd.DataFrame) and not _fr.empty:
+                        _agg = _ht.groupby(_keys, as_index=False)[list(_hcols)].sum().rename(columns=_hcols)
+                        for _c in _agg.columns:
+                            if _c.startswith(("Losses", "Wins")):
+                                _agg[_c] = _agg[_c].round(0).astype("Int64")
+                            elif _c not in _keys:
+                                _agg[_c] = _agg[_c].round(4)
+                        _fr = _fr.drop(columns=[c for c in _hcols.values() if c in _fr.columns]).merge(_agg, on=_keys, how="left")
+                        if _frame_name == "team_year":
+                            team_year = _fr
+                        else:
+                            team_all = _fr
+                _lwh = _ht.groupby(["Year", "Week"], as_index=False)[["Hardship" + _CP, "Starter-adjusted Hardship" + _CP]].sum()
+                league_week = league_week.drop(columns=[c for c in _lwh.columns if c not in ("Year", "Week") and c in league_week.columns]) \
+                    .merge(_lwh.round(4), on=["Year", "Week"], how="left")
             if isinstance(league_all, pd.DataFrame) and not league_all.empty:
                 _la = _proj.rollup(_lwp.assign(_k=1), ["_k"], None).drop(columns="_k")
                 for _c in _la.columns:

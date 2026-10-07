@@ -1023,6 +1023,8 @@ EQUATIONS = {
         "XP(t,w) + XP(o(t,w),w); same for PF − XP",
     ('Sleeper Boldness / Sleeper Lineup Boldness', 'player_week (Sleeper Boldness); team_week / team_year / team_all_time (Sleeper Lineup Boldness)'):
         "⟨Boldness⟩ and ⟨Lineup Boldness⟩ with XP = SP(p,w), the Sleeper Projection",
+    ('Hardship (Claude Projections)', 'team_week / team_year / team_all_time / league_week'):
+        "⟨Hardship⟩ and its family with each missed player's expected-if-healthy points = max(0, CP(p,w)) taken before the OUT zeroing",
     ('Empty slots', 'team_week / team_year / team_all_time'):
         "|{i : S(t,w)[i] = '0' ∨ (¬H(S(t,w)[i],w) ∧ pts(S(t,w)[i],w) = 0)}|  (2020: ESPN slots left empty); year/all-time = Σ",
     ('Brosenzweig', 'team_week'):

@@ -518,6 +518,9 @@ def project(inp: Inputs) -> pd.DataFrame:
     for c in ("Sleeper Projection", "Claude Projection", "Enhanced Projection"):
         res.loc[src["out"], c] = 0.0
         res[c] = res[c].round(2)
+    # The Claude projection BEFORE the known-out zeroing: an "if healthy" figure
+    # for the Hardship (Claude Projections) columns — never read the zeroed one.
+    res["_claude_raw"] = claude
     res["_sources"] = src[list(SOURCES_FULL)].notna().sum(axis=1)
     res["_sleeper_fallback"] = src["sleeper"].isna() & ~src["out"]
     return res

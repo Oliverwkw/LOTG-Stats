@@ -192,6 +192,27 @@ def test_exports_sleeper_boldness():
     assert (lb.dropna() >= 0).all() and lb.notna().mean() > 0.9
 
 
+def test_exports_claude_hardship():
+    # Hardship (Claude Projections) [per user, 2026-10-07]: never negative, the
+    # starter-adjusted one never above it, a loss flip only on a loss and a win
+    # flip only on a win — and it is NOT zero wherever Hardship is not (the
+    # out-week trap: a projection read after the known-out zeroing is 0).
+    if not _HAVE_EXPORTS:
+        return _skip("no exports")
+    tw = Q.load_sheet("team_week")
+    cp = " (Claude Projections)"
+    if "Hardship" + cp not in tw.columns:
+        return _skip("exports predate Hardship (Claude Projections)")
+    h, sa = Q.numeric(tw, "Hardship" + cp), Q.numeric(tw, "Starter-adjusted Hardship" + cp)
+    assert (h >= 0).all() and (sa <= h + 0.01).all()
+    old = Q.numeric(tw, "Hardship")
+    assert ((old > 5) & (h == 0)).mean() < 0.02, "Claude hardship reads 0 where Hardship is not"
+    won = tw["Win?"].astype(str).str.lower().isin(("true", "1", "1.0"))
+    flag = lambda c: tw[c + cp].astype(str).str.lower().isin(("true", "1", "1.0"))
+    assert not (flag("Loss from hardship?") & won).any()
+    assert not (flag("Win from hardship (2-sided)?") & ~won).any()
+
+
 if __name__ == "__main__":
     for name, fn in list(globals().items()):
         if name.startswith("test_") and callable(fn):
