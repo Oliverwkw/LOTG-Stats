@@ -1489,16 +1489,19 @@ guard-skipped fire), 581→584 (#453), 584→589 (#454), 589→597 (#455).
   Score each row's `stats` with that season's league rules (`boldness.scoring_table(y)`);
   a row with no `pts_ppr` is NO projection (Brady 2021 = adp only), never 0.
   - Covers 7,795 / 7,851 starts 2020-26. Accuracy 2020-25 per start: MAE 6.42, corr 0.373,
-    bias +0.30 — best of everything tested (Boldness E 6.43 / 0.345 / −1.28).
+    bias +0.30 — best of everything tested (Claude projections 6.43 / 0.345 / −1.28).
   - To decide with the user: which sheets/columns (player_week "Sleeper projection",
     "Points v Sleeper projection"; team_week projected PF / PA, "Beat projection?"; year /
     all-time rollups), whether Comeback size / Boldness should switch to it, and how the
     build caches it (weekly files in .cache like nflverse; live week refetched).
   - Build risk: undocumented endpoint — must degrade to N/A (never 0) when unreachable.
+  - Naming [per user, 2026-10-07]: the pre-kickoff expected points `lotg_support.boldness`
+    computes are the **Claude projections** everywhere outside that module (columns,
+    formulas, docs, answers) — never "Boldness projections", which reads as the stat.
   - **Use the EQUAL AVERAGE of four projections** [per user, 2026-10-07: "find the maximally
     accurate blend of Boldness, Sleeper, and other projections out there"; supersedes the
     50/50 Sleeper + Boldness note]: Sleeper (Rotowire), ESPN, FantasyPros consensus, and
-    Boldness E — each where it has a projection, averaging whatever is available
+    the Claude projections — each where it has a projection, averaging whatever is available
     (Boldness always is). For Comeback size and any projection column.
     - Sources (all historical, pre-game, 2020+):
       - ESPN: `lm-api-reads.fantasy.espn.com/apis/v3/games/ffl/seasons/{y}/segments/0/
@@ -1526,7 +1529,7 @@ guard-skipped fire), 581→584 (#453), 584→589 (#454), 589→597 (#455).
       averages take 0 weight. Best or within 0.02 of best in every season. Averaging
       what is available, all 7,506 starts: MAE 6.344 / RMSE 8.051 (Boldness alone 6.432).
     - Loss matters: MAE favours a low shift (fantasy points skew right, so the median
-      sits below the mean — why Boldness' −1.3 bias "helps" MAE); RMSE wants an unbiased
+      sits below the mean — why the Claude projections' −1.3 bias "helps" MAE); RMSE wants an unbiased
       mean (best fit .37/.28/.30/.04 = 8.057). Comeback size sums expectations, so it
       wants the unbiased one: equal 4-way is 8.063 there too. Re-tune SD_PER_ROOT_POINT
       and re-check the 2.5·√n band on the blend before shipping.
@@ -1599,11 +1602,11 @@ guard-skipped fire), 581→584 (#453), 584→589 (#454), 589→597 (#455).
   - Comeback size = depth (−z, standard deviations behind the expected finish) × the
     win chance later reached (1 = won) × (¼ + ¾ × the share of the turnaround made by
     the team's own players) [per user: a hold counts, "but not as a big one"].
-    Expected points = Boldness' pre-kickoff E (recency, that season's scoring, rookie
+    Expected points = the Claude projections (Boldness' pre-kickoff E) (recency, that season's scoring, rookie
     slot prior, next-man-up cuffs; dead starts 0) [per user: "account for cuffs and
     everything else we've done in past predictions"], handed over by the build from
     `boldness.build_columns`; fallback season-to-date PPG + last season + position.
-    Spread 2.0·√E. Log loss over 2020-25 kickoffs: 0.393 (Boldness E) v 0.398
+    Spread 2.0·√E. Log loss over 2020-25 kickoffs: 0.393 (Claude projections) v 0.398
     (season-average model) v 0.410 (flat position averages); under-10% win chances
     predicted 2.1% v won 2.2%.
   - Points in time are kickoff WINDOWS [per user: "is this taking into account
@@ -1650,7 +1653,7 @@ guard-skipped fire), 581→584 (#453), 584→589 (#454), 589→597 (#455).
   - Set from projection disagreement at 1,601 trailing windows (2020-26): Sleeper's own
     weekly projections (api.sleeper.com/projections, Rotowire, scored with each season's
     league rules; fetched for the test only; 56 starts with no projection left out) v
-    Boldness E — median 1.4·√n, 75th pct 2.43·√n (5.4 pts at 4 left). Per-starter
+    the Claude projections — median 1.4·√n, 75th pct 2.43·√n (5.4 pts at 4 left). Per-starter
     accuracy: Sleeper MAE 6.42 / corr 0.373 / bias +0.30; Boldness 6.43 / 0.345 / −1.28;
     season-average 6.51 / 0.311; last-5 7.17 / 0.255; team strength 6.91 / 0.119;
     position average 6.76 / 0.212.

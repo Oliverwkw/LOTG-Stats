@@ -290,10 +290,10 @@ _EXPECTED = []
 
 
 def _expected():
-    """Boldness' pre-kickoff E for every completed season (the build's input to
+    """The Claude projections for every completed season (the build's input to
     Comeback size), once per run."""
     if not _EXPECTED:
-        _EXPECTED.append(G.boldness_expectations(Q.completed_seasons()))
+        _EXPECTED.append(G.claude_projections(Q.completed_seasons()))
     return _EXPECTED[0]
 
 
@@ -359,7 +359,7 @@ def test_exports_match_the_recompute():
 def test_win_chance_is_calibrated():
     # The comeback-size model's win chances, at every kickoff but the first of
     # every completed-season matchup, against what happened. Expectations are
-    # Boldness' (0.393 log loss over 2020-25, vs 0.398 for the season-average
+    # the Claude projections (0.393 log loss over 2020-25, vs 0.398 for the season-average
     # fallback and 0.410 for flat position averages); a change that breaks the
     # expectations, the cuff lift or the spread shows up here first.
     if not (_HAVE_EXPORTS and _HAVE_SCHEDULE):

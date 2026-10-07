@@ -739,7 +739,7 @@ list is here so an answer written by hand does not walk into them.
   left) projection-error band) × the win chance the team later reached × how much of
   the turnaround its OWN players made (¼ floor). A lead held while the opponent's
   late players flopped counts, but only a quarter [per user]. From the exports
-  the inquiry side recomputes E with `gametime.boldness_expectations` (~1 min
+  the inquiry side recomputes E with `gametime.claude_projections` (~1 min
   for every season, cached after). The % columns are fractions. Monday includes 2020's
   Tuesday / Wednesday makeups; the abandoned 2022 week 17 Bills-Bengals game,
   struck from the nflverse schedule (the Damar Hamlin no-contest), is put back
