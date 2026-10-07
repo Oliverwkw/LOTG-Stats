@@ -350,12 +350,12 @@ def cmd_gametime(args) -> None:
             df = df[df["Team"] == args.team]
         _emit(df, args.csv, args.limit)
         return
-    # Comeback size (Claude projections) reads the Claude projections, as the build does
+    # Comeback size (Claude Projection) reads the Claude projections, as the build does
     # (~1 min for every season; --quick uses the season-average fallback).
     seasons = sorted({int(y) for y in pd.to_numeric(tw["Year"], errors="coerce").dropna()})
     expected = None if args.quick else G.claude_expectations(pw)
     if args.whole_week:
-        # every kickoff of the matchup: the plain "Comeback size (Claude projections)" column
+        # every kickoff of the matchup: the plain "Comeback size (Claude Projection)" column
         df = G.week_comeback_size(tw, pw, sched, expected=expected)
         if args.team:
             df = df[df["Team"] == args.team]

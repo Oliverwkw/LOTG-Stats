@@ -19265,11 +19265,11 @@ def build_all(repo_root: Path) -> None:
             pw[_gt.GAME_SLOT_COLUMN] = [_gt.player_slot(_sched, y, w, t)
                                         for y, w, t in zip(pw["Year"], pw["Week"], pw["NFL team"])]
             if isinstance(tw, pd.DataFrame) and not tw.empty:
-                # Comeback size (Claude projections) reads player_week's Claude
+                # Comeback size (Claude Projection) reads player_week's Claude
                 # Projection (recency, season scoring, rookie slot priors,
-                # next-man-up cuffs, known outs) [per user, 2026-10-07: back
-                # from Enhanced, renamed]; a start without one falls back to
-                # gametime.expected_points.
+                # next-man-up cuffs, known outs); a start without one falls
+                # back to gametime.expected_points. The Sleeper and Enhanced
+                # sets follow below [per user, 2026-10-07: one per projection].
                 _claude_exp = _gt.claude_expectations(pw)
                 _gcols = _gt.team_week_columns(tw, pw, _sched, _claude_exp)
                 _gmap = {(str(t), int(y), int(w)): r for t, y, w, *r in
@@ -19289,11 +19289,13 @@ def build_all(repo_root: Path) -> None:
                         _wp, on=["Team", "Year", "Week"], how="left")
                     for _c in _gt.WIN_PCT_COLUMNS:
                         tw[_c] = _wp[_c].to_numpy()
-                    _scb = _gt.sleeper_comeback_columns(tw, pw, _sched)
-                    _smap = {(str(t), int(y), int(w)): r for t, y, w, *r in
-                             _scb[["Team", "Year", "Week", *_gt.SLEEPER_COMEBACK_COLUMNS]].itertuples(index=False, name=None)}
-                    for _i, _c in enumerate(_gt.SLEEPER_COMEBACK_COLUMNS):
-                        tw[_c] = [(_smap[k][_i] if k in _smap else _gt.NA) for k in _tw_keys]
+                    for _x in ("Sleeper", "Enhanced"):
+                        _scb = _gt.projection_comeback_columns(tw, pw, _sched, _x)
+                        _names = _gt.comeback_names(_x)
+                        _smap = {(str(t), int(y), int(w)): r for t, y, w, *r in
+                                 _scb[["Team", "Year", "Week", *_names]].itertuples(index=False, name=None)}
+                        for _i, _c in enumerate(_names):
+                            tw[_c] = [(_smap[k][_i] if k in _smap else _gt.NA) for k in _tw_keys]
                 except Exception as e:
                     _log_exc(debug, "gametime_win_pct", e)
             _nogame = int(((pw["Starter/Bench"].astype(str) == "Starter")

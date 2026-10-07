@@ -41,7 +41,7 @@ have filled it) but carries no Boldness.
 
 Outside this module (columns, formulas, docs, inquiry answers) these are called
 the CLAUDE PROJECTIONS [per user, 2026-10-07], so they are never confused with
-the Boldness stat built on them. team_week's Comeback size (Claude projections)
+the Boldness stat built on them. team_week's Comeback size (Claude Projection)
 uses them too (through player_week's "Claude Projection"); the Boldness stat
 itself now judges lineups on the Enhanced projection (`expect_override`).
 
