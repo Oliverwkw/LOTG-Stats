@@ -251,6 +251,11 @@ _PHRASING = {
         "position-adjusted avg net points per week",
     ("trades", "Asset difference in average age"): "Age change (received − sent assets)",
     ("add_drops", "Difference of averages"): "PPG difference (added − dropped player)",
+    # [per user, 2026-10-07: "rename this so it's clearer what it is in the digest"]
+    ("player_week", "Difference in averages of best/worst startables over previous 5 games"):
+        "Start/sit miss by previous 5-game averages",
+    ("player_week", "Difference in averages of best/worst startables over previous 5 games adjusted by position"):
+        "position-adjusted start/sit miss by previous 5-game averages",
     ("add_drops", "Difference of averages adjusted by position"):
         "position-adjusted PPG difference (added − dropped player)",
     ("add_drops", "Points Added"): "Points added by the added player's starts",

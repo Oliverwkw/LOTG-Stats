@@ -54,23 +54,24 @@ Comeback columns, per stage X [renamed and extended per user, 2026-10-06]:
 Comeback size model [per user, 2026-10-06; chosen by log loss over 2020-25]:
 at any kickoff, the team's expected final margin is the margin going in plus
 the expected points of its starters still to play minus the opponent's. A
-starter's expectation is his CLAUDE PROJECTION — the pre-kickoff expected
-points `lotg_support.boldness` computes (named so not to be confused with the
-Boldness stat) [per user, 2026-10-07]: his
+starter's expectation is his ENHANCED PROJECTION (`lotg_support.projections`,
+read from player_week; approved by the user 2026-10-07 — before that the
+Claude projection, the pre-kickoff expected points `lotg_support.boldness`
+computes): built on the Claude projection —
 recency-weighted NFL games scored with that season's rules, the LOTG rookie-slot
 prior, the next-man-up cuff lift) — the same prediction Boldness judges lineups
 on; a starter known to be out (a dead start: flagged bye / injured /
 suspended, scored 0) expects 0. A start boldness lacks falls back to his
 season-to-date points per game padded with last season and the position
-(`expected_points`). Each player's points vary like 2.0·√(his expectation);
+(`expected_points`). Each player's points vary like 1.8·√(his expectation);
 z = expected final margin ÷ the spread of everything still to play; win chance
 = Φ(z), taken at the start of each kickoff window (never with a game half
 played). A team BEHIND ON THE SCOREBOARD has its hole measured from the
-projection less a band for projection error, 2.5 × √(starters still to play)
+projection less a band for projection error, 1.6 × √(starters still to play)
 (`projection_band`) [per user, 2026-10-07]: down 57.38 with 4 left and
 projected 58 or 60 is a comeback, projected 69.4 is not. The band is the 75th
-percentile of how far the Claude and Sleeper projections (what the league
-sees live; Sleeper's are fetched only for that test, never by the build)
+percentile of how far the Enhanced and Sleeper projections (what the league
+sees live)
 disagree on the final margin. Depth of a hole = −z when z < 0 (standard deviations behind the
 expected finish, capped at 10). Comeback size = the largest depth × the win
 chance at any later point (1 at the end for a win, 0 for a loss) × how much of
@@ -90,6 +91,7 @@ from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta
 from typing import Dict, Iterable, List, Optional, Sequence, Tuple
 
+import numpy as np
 import pandas as pd
 
 NA = "N/A"
@@ -140,10 +142,16 @@ LEGACY_COLUMNS = {
 }
 
 # Comeback size model (see the module docstring).
-SD_PER_ROOT_POINT = 2.0        # a starter's points vary like 2.0·√(his expectation)
+SD_PER_ROOT_POINT = 1.8        # a starter's points vary like 1.8·√(his Enhanced projection):
+                               # under-10% win chances 2.1% predicted v 2.1% won, 2020-25
+                               # (2.0 on the Claude projections, before 2026-10-07)
 HOLD_SHARE = 0.25              # what a turnaround counts for when the team's own players did none of it
 Z_CAP = 10.0
-BAND_PER_ROOT_STARTER = 2.5    # projection-error band for a team behind on the scoreboard
+BAND_PER_ROOT_STARTER = 1.6    # projection-error band for a team behind on the scoreboard
+                               # (2.5 on the Claude projections; 1.6 on Enhanced, per user)
+# Win chances: "calibrated" (Φ of the projected margin over 1.8·√ projected
+# points — Comeback size) or "app" (the Sleeper app-style A^k/(A^k+B^k), k = APP_WIN_EXPONENT
+# — Comeback size (Sleeper projections)) [per user, 2026-10-07: keep separate].
 GAME_HOURS = 3.0               # a game is over this long after kickoff (see `windows`)
 # Fallback expectation, for a starter boldness has none for (or a build where
 # boldness failed): season-to-date PPG padded with last season and the position.
@@ -316,9 +324,11 @@ def projection_band(own_in: float, opp_in: float, own_left: Sequence[Sequence],
     """Points of projection error a team BEHIND ON THE SCOREBOARD is allowed:
     BAND_PER_ROOT_STARTER × √(starters still to play on both sides, known outs
     aside); 0 when level or ahead. [per user, 2026-10-07] down 57.38 with 4
-    starters projected 58 or 60 is a comeback, projected 69.4 is not: the band
-    for 4 left is 5.0 — the 75th percentile of how far the Claude and Sleeper
-    own projections (what the league sees live) disagree on the final margin."""
+    starters projected 58 or 60 is a comeback, projected 69.4 is not. The band
+    is the 75th percentile of how far the projection in use and Sleeper's (what
+    the league sees live) disagree on the final margin: 2.5·√n on the Claude
+    projections, 1.6·√n on Enhanced [per user, 2026-10-07: "switch to 1.6 since
+    we switched to enhanced"] — 3.2 for 4 left."""
     if own_in - opp_in >= 0:
         return 0.0
     n = sum(1 for s in list(own_left) + list(opp_left) if not (len(s) > 3 and s[3]))
@@ -378,15 +388,31 @@ def checkpoint_z(own: Sequence[Sequence], opp: Sequence[Sequence], own_final: fl
 
 
 def checkpoint(own: Sequence[Sequence], opp: Sequence[Sequence], own_final: float,
-               opp_final: float, t: datetime) -> Tuple[float, float, float, float]:
+               opp_final: float, t: datetime, model: str = "calibrated") -> Tuple[float, float, float, float]:
     """(z, own points over expectation still to come, opponent's shortfall
     still to come, the hole's z with the projection band) entering kickoff t —
     a `comeback_size` point."""
     ol, pl = _left(own, t), _left(opp, t)
     own_in, opp_in = own_final - points_from(own, t), opp_final - points_from(opp, t)
-    return (win_z(own_in, opp_in, ol, pl),
-            sum(s[1] - _mu(s) for s in ol), sum(_mu(s) - s[1] for s in pl),
+    rest = (sum(s[1] - _mu(s) for s in ol), sum(_mu(s) - s[1] for s in pl))
+    if model == "app":
+        # The app-style win % [per user, 2026-10-07: "use app-style win % inside
+        # it"], read on the same z scale (z = Φ⁻¹(win %)) so a hole still reads
+        # in standard deviations: own and opponent projected finals = points so
+        # far + the remaining starters' projections; the band comes off ours.
+        a = own_in + sum(_mu(s) for s in ol)
+        b = opp_in + sum(_mu(s) for s in pl)
+        band = projection_band(own_in, opp_in, ol, pl)
+        return (_app_z(a, b), rest[0], rest[1], _app_z(a - band, b))
+    return (win_z(own_in, opp_in, ol, pl), rest[0], rest[1],
             win_z(own_in, opp_in, ol, pl, projection_band(own_in, opp_in, ol, pl)))
+
+
+def _app_z(own_final: float, opp_final: float) -> float:
+    """The app-style win % as a z: Φ⁻¹(A^k / (A^k + B^k)), capped at ±Z_CAP."""
+    from statistics import NormalDist
+    p = min(max(app_win_pct(own_final, opp_final), 1e-9), 1 - 1e-9)
+    return max(-Z_CAP, min(Z_CAP, NormalDist().inv_cdf(p)))
 
 
 def kickoffs(own: Sequence[Sequence], opp: Sequence[Sequence]) -> List[datetime]:
@@ -502,6 +528,25 @@ def claude_projections(seasons: Sequence[int]) -> pd.DataFrame:
     return pd.concat(frames, ignore_index=True).rename(columns={"Starter": "Player", "Starter ID": "Player ID"})
 
 
+def enhanced_projections(player_week: pd.DataFrame) -> pd.DataFrame:
+    """Every start's Enhanced projection — what the build's Comeback size reads
+    [approved by the user, 2026-10-07] — from player_week's own "Enhanced
+    Projection" column: Year, Week, Team, Player, E starter, Dead start? (a
+    starter flagged bye / injured / suspended who scored 0)."""
+    cols = ["Year", "Week", "Team", "Player", "E starter", "Dead start?"]
+    if player_week is None or player_week.empty or "Enhanced Projection" not in player_week.columns:
+        return pd.DataFrame(columns=cols)
+    st = player_week[player_week["Starter/Bench"].astype(str).str.lower() == "starter"]
+    flag = pd.Series(False, index=st.index)
+    for c in ("Bye?", "Injury?", "Suspension?"):
+        if c in st.columns:
+            flag = flag | st[c].astype(str).str.lower().isin(("true", "1", "1.0"))
+    dead = flag & (pd.to_numeric(st["Points"], errors="coerce").fillna(0) == 0)
+    return pd.DataFrame({"Year": st["Year"], "Week": st["Week"], "Team": st["Team"], "Player": st["Player"],
+                         "E starter": pd.to_numeric(st["Enhanced Projection"], errors="coerce"),
+                         "Dead start?": dead})
+
+
 def starter_plays(player_week: pd.DataFrame, schedule: Schedule,
                   expected: Optional[pd.DataFrame] = None) -> Dict[Tuple[str, int, int], List[Play]]:
     """(Team, Year, Week) -> [(kickoff or None, points, expected points, known
@@ -550,7 +595,7 @@ def _pct(num, den) -> Optional[float]:
 
 def stage_rows(team_week: pd.DataFrame, player_week: pd.DataFrame, schedule: Schedule,
                stage: str, plays: Optional[Dict] = None,
-               expected: Optional[pd.DataFrame] = None) -> pd.DataFrame:
+               expected: Optional[pd.DataFrame] = None, model: str = "calibrated") -> pd.DataFrame:
     """Every team-week entering one stage: points going in on both sides, the
     margin, the comeback (vs the opponent's final) and its size. `stage` is
     'SNF', 'Monday', 'last game' or any game slot name. Percents are fractions."""
@@ -582,8 +627,8 @@ def stage_rows(team_week: pd.DataFrame, player_week: pd.DataFrame, schedule: Sch
             # only window starts are moments with every earlier game over.
             ks = windows(own, opp)
             k0 = next((k for k in ks if k >= t), None)
-            zs = [checkpoint(own, opp, pf, pa, t)] + \
-                 [checkpoint(own, opp, pf, pa, k) for k in ks if k0 is not None and k > k0]
+            zs = [checkpoint(own, opp, pf, pa, t, model)] + \
+                 [checkpoint(own, opp, pf, pa, k, model) for k in ks if k0 is not None and k > k0]
             size = comeback_size(zs, final, from_first=True)
         rows.append({
             "Team": rec["Team"], "Year": y, "Week": w, "Week Name": rec.get("Week Name"),
@@ -609,7 +654,7 @@ def stage_rows(team_week: pd.DataFrame, player_week: pd.DataFrame, schedule: Sch
 
 def week_comeback_size(team_week: pd.DataFrame, player_week: pd.DataFrame, schedule: Schedule,
                        plays: Optional[Dict] = None,
-                       expected: Optional[pd.DataFrame] = None) -> pd.DataFrame:
+                       expected: Optional[pd.DataFrame] = None, model: str = "calibrated") -> pd.DataFrame:
     """Team, Year, Week, Comeback size over every kickoff of the matchup but the
     first (nothing has been scored entering it), plus the lowest win chance."""
     starts = plays if plays is not None else starter_plays(player_week, schedule, expected)
@@ -627,7 +672,7 @@ def week_comeback_size(team_week: pd.DataFrame, player_week: pd.DataFrame, sched
         ks = windows(own, opp)
         won = _won(rec.get("Win?"))
         final = 1.0 if won else (0.5 if pf == pa else 0.0)
-        zs = [checkpoint(own, opp, pf, pa, k) for k in ks[1:]]
+        zs = [checkpoint(own, opp, pf, pa, k, model) for k in ks[1:]]
         rows.append({"Team": rec["Team"], "Year": y, "Week": w, "Opponent": rec["Opponent"],
                      "Win?": won, "PF": pf, "Points against": pa,
                      "Lowest win chance": round(min(_phi(z[0]) for z in zs), 4) if zs else None,
@@ -673,3 +718,148 @@ def slot_points(player_week: pd.DataFrame, schedule: Schedule) -> pd.DataFrame:
                         aggfunc="sum", fill_value=0.0)
     pv = pv[[c for c in order if c in pv.columns] + [c for c in pv.columns if c not in order]]
     return pv.round(2).reset_index()
+
+
+# ---------------------------------------------------------------------------
+# App-style win % [per user, 2026-10-07]
+# ---------------------------------------------------------------------------
+# The Sleeper app's matchup win %, replicated: A^k / (A^k + B^k) on the two
+# teams' projected finals (points so far + the remaining starters'
+# projections). k fitted to the app's own numbers for the 2026 weeks 5-14
+# matchups, read off the app by the user on 2026-10-07: every k in 3.751-3.764
+# reproduces all 40 to the whole percent (31 where the app matched k = 3.81,
+# plus 9 it showed 1 lower); 3.757 is the middle. Applied to each of the
+# three projections. Whole percents, stored as fractions (0.77).
+APP_WIN_EXPONENT = 3.757
+WIN_PCT_PROJECTIONS: Tuple[str, ...] = ("Sleeper", "Claude", "Enhanced")
+
+
+def app_win_pct(own_final: float, opp_final: float) -> float:
+    """The app-style win chance of a team projected to finish at `own_final`
+    against `opp_final` (unrounded, 0-1)."""
+    a, b = max(float(own_final), 0.01), max(float(opp_final), 0.01)
+    ra = (b / a) ** APP_WIN_EXPONENT
+    return 1.0 / (1.0 + ra)
+
+
+def win_pct_names(x: str) -> Tuple[str, ...]:
+    p = f"({x} Projection)"
+    return (f"Pre-week Win % {p}", f"Difference in pre-week Win % {p}",
+            f"Pre-week Win % overcome {p}", f"Largest Win % overcome {p}",
+            f"Win % overcome entering SNF {p}", f"Win % overcome entering Monday {p}",
+            f"Win % overcome entering last game {p}")
+
+
+WIN_PCT_COLUMNS: Tuple[str, ...] = tuple(c for x in WIN_PCT_PROJECTIONS for c in win_pct_names(x))
+
+
+def projection_expectations(player_week: pd.DataFrame, column: str) -> pd.DataFrame:
+    """`enhanced_projections` for any projection column of player_week."""
+    if column not in player_week.columns:
+        return pd.DataFrame(columns=["Year", "Week", "Team", "Player", "E starter", "Dead start?"])
+    return enhanced_projections(player_week.assign(**{"Enhanced Projection": player_week[column]}))
+
+
+def _live_final(starters: Sequence[Sequence], final: float, t: Optional[datetime]) -> float:
+    """Projected final entering `t`: points so far + the remaining starters'
+    projections (all of them pre-week, t None)."""
+    if t is None:
+        return sum(_mu(s) for s in starters) + (final - sum(s[1] for s in starters))
+    return final - points_from(starters, t) + sum(_mu(s) for s in _left(starters, t))
+
+
+def win_pct_rows(team_week: pd.DataFrame, plays: Dict, schedule: Schedule) -> pd.DataFrame:
+    """Team, Year, Week + the seven win % columns of one projection (`plays`
+    from `starter_plays` with that projection). Overcome = 1 − the live win %
+    at that point, when the team won from below 50%; else N/A. Pre-week keeps
+    PF's non-starter points (the semifinal bonus) in the projected total."""
+    rows = []
+    cols = list(team_week.columns)
+    for vals in team_week.itertuples(index=False, name=None):
+        rec = dict(zip(cols, vals))
+        y, w = _num(rec.get("Year")), _num(rec.get("Week"))
+        pf, pa = _num(rec.get("PF")), _num(rec.get("Points against"))
+        if y is None or w is None or pf is None or pa is None:
+            continue
+        y, w = int(y), int(w)
+        own = plays.get((str(rec["Team"]), y, w), [])
+        opp = plays.get((str(rec["Opponent"]), y, w), [])
+        if not own or not opp:
+            continue
+        won = _won(rec.get("Win?"))
+        p_pre = app_win_pct(_live_final(own, pf, None), _live_final(opp, pa, None))
+        r = {"Team": rec["Team"], "Year": y, "Week": w, "pre": p_pre, "diff": 2 * p_pre - 1.0}
+        over = lambda p: (1.0 - p) if (won and p < 0.5) else None
+        r["pre_over"] = over(p_pre)
+        live = [p_pre] + [app_win_pct(_live_final(own, pf, k), _live_final(opp, pa, k))
+                          for k in windows(own, opp)[1:]]
+        lows = [1.0 - p for p in live if p < 0.5]
+        r["largest"] = max(lows) if (won and lows) else None
+        for stage, key in (("SNF", "snf"), ("Monday", "mon"), ("last game", "last")):
+            t = last_game_start(schedule, y, w, own, opp) if stage == "last game" else schedule.stage_start(y, w, stage)
+            r[key] = over(app_win_pct(_live_final(own, pf, t), _live_final(opp, pa, t))) if t is not None else None
+        rows.append(r)
+    out = pd.DataFrame(rows)
+    return out
+
+
+def win_pct_columns(team_week: pd.DataFrame, player_week: pd.DataFrame,
+                    schedule: Schedule) -> pd.DataFrame:
+    """Team, Year, Week + WIN_PCT_COLUMNS for the three projections (whole
+    percents as fractions; N/A where there is no comeback / no stage)."""
+    base = team_week[["Team", "Year", "Week"]].copy()
+    base["Year"] = pd.to_numeric(base["Year"], errors="coerce")
+    base["Week"] = pd.to_numeric(base["Week"], errors="coerce")
+    for x in WIN_PCT_PROJECTIONS:
+        names = win_pct_names(x)
+        exp = projection_expectations(player_week, f"{x} Projection")
+        if exp.empty:
+            for n in names:
+                base[n] = np.nan
+            continue
+        r = win_pct_rows(team_week, starter_plays(player_week, schedule, exp), schedule)
+        if r.empty:
+            for n in names:
+                base[n] = np.nan
+            continue
+        r = r.rename(columns=dict(zip(("pre", "diff", "pre_over", "largest", "snf", "mon", "last"), names)))
+        for n in names:
+            r[n] = pd.to_numeric(r[n], errors="coerce").round(2)
+        base = base.merge(r[["Team", "Year", "Week", *names]], on=["Team", "Year", "Week"], how="left")
+    return base
+
+
+# ---------------------------------------------------------------------------
+# Comeback size (Sleeper projections) [per user, 2026-10-07: "keep them
+# separate — Comeback size, and Comeback size (Sleeper projections)"]
+# ---------------------------------------------------------------------------
+SLEEPER_COMEBACK_COLUMNS: Tuple[str, ...] = (
+    "Comeback size (Sleeper projections)",
+    "Comeback size (entering SNF, Sleeper projections)",
+    "Comeback size (entering Monday, Sleeper projections)",
+    "Comeback size (entering last game, Sleeper projections)")
+
+
+def sleeper_comeback_columns(team_week: pd.DataFrame, player_week: pd.DataFrame,
+                             schedule: Schedule) -> pd.DataFrame:
+    """Comeback size as the Sleeper app sees the game: the Sleeper Projection
+    and the app-style win % (model "app") in place of the Enhanced projection
+    and the calibrated win chance; every other rule (kickoff windows, the
+    projection band, the own-doing share) as Comeback size."""
+    cols = ["Team", "Year", "Week", *SLEEPER_COMEBACK_COLUMNS]
+    exp = projection_expectations(player_week, "Sleeper Projection")
+    if exp.empty:
+        return pd.DataFrame(columns=cols)
+    plays = starter_plays(player_week, schedule, exp)
+    base = week_comeback_size(team_week, player_week, schedule, plays, model="app")
+    base = base[["Team", "Year", "Week", COMEBACK_SIZE_COLUMN]].rename(
+        columns={COMEBACK_SIZE_COLUMN: SLEEPER_COMEBACK_COLUMNS[0]})
+    for stage, name in zip(STAGES, SLEEPER_COMEBACK_COLUMNS[1:]):
+        r = stage_rows(team_week, player_week, schedule, stage, plays, model="app")
+        if not r.empty:
+            base = base.merge(r[["Team", "Year", "Week", "Comeback size"]].rename(columns={"Comeback size": name}),
+                              on=["Team", "Year", "Week"], how="left")
+        else:
+            base[name] = np.nan
+    out = base[cols].astype(object)
+    return out.where(pd.notna(out), NA)

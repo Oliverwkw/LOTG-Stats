@@ -167,6 +167,7 @@ class Params:
     next_man_by: str = "touches"       # who is next among those backups: "touches" = most touches in
                                        # head-to-head games this season (both played), E where they
                                        # never shared a game; "E" = highest E_base
+    use_override: bool = True          # read build_inputs' expect_override (the Enhanced projection)
     beta: Optional[Tuple[Tuple[str, Tuple[float, float]], ...]] = None  # None -> calibrate_beta():
                                        # {pos: (a, b)}, lift = a x teammate's E + b x own E
 
@@ -196,7 +197,8 @@ def build_inputs(*, matchups: Dict[int, Dict[int, List[dict]]],
                  scoring: Dict[int, Dict[str, float]],
                  score: Callable[..., float],
                  score_map: Dict[str, Tuple[str, ...]],
-                 bridge: Dict[str, str]):
+                 bridge: Dict[str, str],
+                 expect_override: Optional[Dict[Tuple[int, int, str], float]] = None):
     """Point the module at the build's own data for the duration.
 
     matchups {season: {week: Sleeper matchup dicts}} (late-listing corrected),
@@ -204,11 +206,16 @@ def build_inputs(*, matchups: Dict[int, Dict[int, List[dict]]],
     {roster_id: team}}, unavailable {season: {(player_id, week)}} from the
     build's own Bye?/Injury?/Suspension? flags, rookie_picks with Year / Number /
     Player Picked (rookie drafts only), scoring {season: settings}, the build's
-    `_league_score` and score map, and its sleeper->gsis bridge."""
+    `_league_score` and score map, and its sleeper->gsis bridge.
+    `expect_override` {(season, week, gsis): E}: the projection the stat judges
+    lineups on where given — the build passes the Enhanced projection
+    (lotg_support.projections) [approved by the user, 2026-10-07]; a player it
+    lacks keeps this module's own E (the Claude projection)."""
     global _INJECTED
     _INJECTED = dict(matchups=matchups, roster_positions=roster_positions, teams=teams,
                      unavailable=unavailable, rookie_picks=rookie_picks, scoring=scoring,
-                     score=score, score_map=score_map, bridge=bridge)
+                     score=score, score_map=score_map, bridge=bridge,
+                     expect_override=dict(expect_override or {}))
     _clear_caches()
     try:
         yield
@@ -801,6 +808,12 @@ def expected_points(season: int, weeks: Optional[Sequence[int]] = None,
             promoted = base["promoted_over"].notna() & (lift > base["E_base"])
             base["E"] = np.where(promoted, lift, base["E_base"])
             base.loc[~promoted, ["promoted_over", "E_over"]] = [None, np.nan]
+    ov = (_INJECTED or {}).get("expect_override") if params.use_override else None
+    if ov and not base.empty:
+        o = pd.Series([ov.get((int(season), int(w), g)) for w, g in zip(base["week"], base["gsis_id"])],
+                      index=base.index, dtype=float)
+        base["E_claude"] = base["E"]
+        base["E"] = o.where(o.notna(), base["E"])
     return base
 
 

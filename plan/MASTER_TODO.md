@@ -1585,7 +1585,13 @@ guard-skipped fire), 581→584 (#453), 584→589 (#454), 589→597 (#455).
   - **Sleeper** = Sleeper's own projection; where Sleeper has none or a weird one (no
     pts_ppr / adp-only, ~0 for a player not ruled out — Brady 2021 etc.) → "weakened"
     Enhanced (the same model fitted WITHOUT Sleeper), then Claude.
-- [ ] **Everything that uses a projection switches to Enhanced** (with that fallback):
+- [ ] **Everything that uses a projection switches to Enhanced** (with that fallback).
+  Comeback size's projection band → 1.6·√n on Enhanced [per user, 2026-10-07: "switch to
+  1.6 since we switched to enhanced"]; its win-chance spread re-tuned 2.0 → 1.8.
+  Comeback size + Boldness / Lineup Boldness are APPROVED [per user, 2026-10-07: "I've
+  already approved for comeback size and boldness, others will need my approval"]; any
+  OTHER existing stat changes only after the user approves it ("don't change any stats
+  without my approval"):
   team_week Comeback size (re-tune SD_PER_ROOT_POINT + the 2.5·√n band on Enhanced) and
   Boldness / Lineup Boldness (re-fit bust odds) — confirm the list with the user before
   switching; PAE's career expectation and the forecast's season sims are different kinds
@@ -1599,6 +1605,88 @@ guard-skipped fire), 581→584 (#453), 584→589 (#454), 589→597 (#455).
   - **Collapse rule**: if over the last 5 seasons the awards are identical or near-identical
     across the three projections, drop the parentheses — one Overachiever / Underachiever
     (+ streaks) column on Enhanced.
+  - **Decisions [per user, 2026-10-07]**: league_week / league_year / league_all_time get
+    TOTALS ONLY (X Projection, Points above X Projection) — no awards, no streaks.
+    Switch list = Comeback size + Boldness / Lineup Boldness (PAE and the forecast stay).
+    Collapse rule checked 2021-25 (85 weeks): all three projections agree on the player
+    Overachiever 72%, player Underachiever 36%, team Overachiever 68%, team Underachiever
+    80% — NOT near-identical, so all three keep their own parenthesised awards + streaks.
+  - **Averages** [per user]: every rollup also gets average versions (avg X Projection,
+    avg Points above X Projection per week).
+- [ ] **Projection versions of the stats that estimate a player's week** [per user,
+  2026-10-07: "a projection version (all 3) for any of the other stats … that use
+  previous-5-games or other tools … some more advanced ones might be better to just
+  replace with enhanced"]. Proposed (confirm with the user before building):
+  - ADD ×3: player_week "Difference in averages of best/worst startables over previous 5
+    games" (+ by-position) → "Difference in X Projections of best/worst startables";
+    team_week "Difference in pregame avg max PF from opponent" → "Difference in X
+    Projection from opponent"; UPST → an X-projection upset (won while projected lower).
+  - **Hardship stays as it is** [per user: "won't work because projections for out weeks
+    are always 0 — careful of this trap"]. Every projection of a week the player was OUT
+    is 0 by design (Sleeper drops him, ESPN zeroes him, the known-out rule zeroes all
+    three), so no projection can stand in for an "expected if healthy" baseline.
+  - Luck: undecided [per user: "not sure"] — leave its pregame talent estimate unchanged.
+  - Already covered: "Change from previous 5 weeks avg" ≈ Points above X Projection.
+  - User's call: add_drops / trades "PPG of 5 games before pickup / trade" — recent form,
+    not a weekly estimate; an "X Projection at pickup" would be the projection version.
+  - Leave: PAE, Tanking, KTC slot comparisons (not weekly score estimates).
+- [ ] **Other columns that could switch — user decisions 2026-10-07** (after a pros / cons /
+  methods list):
+  1. team_week "Difference in pregame avg max PF from opponent": KEEP, ADD projection
+     versions (×3).
+  2. UPST: SWITCH to Enhanced — a win while projected 8-10+ points worse than the opponent
+     (threshold picked from the data within 8-10); league sums follow.
+  3. player_week "Difference in averages of best/worst startables over previous 5 games"
+     (+ by position): ADD projection versions (×3), and RENAME the original so the digest
+     reads clearly (needs digest.migrate_snapshot_columns).
+  4. add_drops / trades "PPG of 5 games before pickup / trade": leave as is.
+  5. Luck: show before/after numbers on an Enhanced pregame estimate; likely stays.
+  6. Hardship: show what a Claude-projection "if healthy" baseline does (the Claude E
+     BEFORE the known-out zeroing — never the 0-projection columns); maybe keep both
+     Hardship and an Enhanced/Claude Hardship.
+  7. Projected Max PF: no.  8. Combined (matchup) projection columns: ADD.  9. Forecast: no.
+- [ ] **App-style win % columns** [per user, 2026-10-07]: team_week Pre-week Win %,
+  Difference in pre-week Win %, Pre-week / Largest / entering SNF / Monday / last game
+  Win % overcome, each per projection (X Projection); team_year / team_all_time Avg
+  pre-week Win %. Whole percents. Formula = the Sleeper app's, A^k / (A^k + B^k) on
+  projected totals, for all three projections. k = 3.757: the user read the app's win %
+  for all 40 matchups of 2026 weeks 5-14 (totals confirmed equal); every k in
+  3.751-3.764 reproduces all 40 (3.81, from week 5 alone, was 1 high on 9 of them).
+  `tests/test_win_pct.py` holds the 40.
+  **Open question — live win %:** the SNF / Monday / last-game "Win % overcome" columns
+  apply the same formula to live totals (points so far + remaining projections), which
+  ignores how little game is left — down 30 entering Monday with one starter projected
+  15 still reads ~37%, so late "overcome" values stay small (max ~0.67 entering SNF,
+  ~0.64 Monday / last game, 2020-26). Calibrated only on pre-week numbers; the user is
+  reading the app's live % during 2026 weeks 5+ to check.
+
+  **Tweaking the app-style win % (as more app readings come in):**
+  1. Pre-week readings (before any game that week): append `(week, total A, total B,
+     app % for A)` to `APP_MATCHUPS` in `tests/test_win_pct.py`. Only rows where the
+     app's projected totals equal ours (the Sleeper Projection totals) — otherwise
+     enter the app's totals.
+     Live readings (mid-week): append `(label, app total A, app total B, app % for A)`
+     to `LIVE_MATCHUPS`, using the projected totals the app shows at that moment.
+  2. Run `python tests/test_win_pct.py`: it prints the exponent range that reproduces
+     every row ("pre-week fits k in", "live fits k in", "both fit k in") before the
+     tests.
+  3. A range that still contains `APP_WIN_EXPONENT` (lib/lotg_support/gametime.py):
+     nothing to do. A range that moved: set `APP_WIN_EXPONENT` to its middle and update
+     the fitted range in `test_exponent_sits_inside_the_fitted_range`, the gametime
+     comment, and the Formulas text / equation (src/formulas.py "Pre-week Win % (X
+     Projection)", src/formula_equations.py — both quote the number). This changes
+     every win % column and Comeback size (Sleeper projections) for all years: it is
+     a stat change, so it needs the user's approval, then a branch build.
+  4. No single exponent fits (the range prints None): the formula's shape is wrong.
+     If pre-week fits but live does not, the app's live % uses the time left — add a
+     live model (e.g. scale the exponent with how much of the projected points are
+     still to play, fitted on LIVE_MATCHUPS) for the SNF / Monday / last-game /
+     Largest overcome columns and Comeback size (Sleeper projections), keeping the
+     pre-week columns on this formula. That too needs the user's approval.
+- [ ] **Comeback size (Sleeper projections)** [per user, 2026-10-07: keep separate from
+  Comeback size]: overall + entering SNF / Monday / last game, on Sleeper Projections
+  and the app-style win % (z = Φ⁻¹(win %)); Comeback size itself stays on Enhanced and
+  the calibrated Φ(z).
 - [ ] **Then: build time** — profile the build and cut it.
 
 ## Game-time columns (from the 2026 wk 4 MNF-comeback inquiry)

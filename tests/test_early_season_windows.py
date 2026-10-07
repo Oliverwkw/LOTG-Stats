@@ -3,7 +3,8 @@
 * team_week "Difference in pregame avg max PF from opponent" averaged Max PF over
   the season's earlier weeks, so week 2 compared ONE game each: shmuel256's +75
   went straight to the top of the all-time board. It is now blank before week
-  `_PREGAME_MIN_WEEK` (4), and the UPST flag built on it is N/A there too.
+  `_PREGAME_MIN_WEEK` (4). (UPST, once built on it and N/A there too, runs on
+  the Enhanced projection since 2026-10-07 and is called from week 1.)
 * player_week "Difference in averages of best/worst startables over previous 5
   games" reset its window every season, so week 2 averaged one game: Kaleb
   Johnson, Kyle Pitts, Jaylen Waddle, Ja'Kobi Lane and Jake Ferguson filled the
@@ -122,7 +123,13 @@ def check_exports_hold_both_windows():
     ok = _ok("no completed season has a pregame difference before week 4", not filled.any(),
              f"{int(filled.sum())} rows")
     upst = pd.to_numeric(tw.loc[early, "UPST"], errors="coerce")
-    ok &= _ok("nor an upset call (N/A)", upst.isna().all(), f"{int(upst.notna().sum())} rows")
+    if "Enhanced Projection" in tw.columns:
+        # UPST runs on the Enhanced projection now [per user, 2026-10-07], which
+        # exists from week 1: an upset call every week.
+        ok &= _ok("UPST is called from week 1 on the Enhanced projection", upst.notna().all(),
+                  f"{int(upst.isna().sum())} blank rows")
+    else:
+        ok &= _ok("nor an upset call (N/A)", upst.isna().all(), f"{int(upst.notna().sum())} rows")
     ok &= _ok("week 4 on still has them",
               pd.to_numeric(tw.loc[~early, _PREGAME], errors="coerce").notna().any())
 

@@ -52,6 +52,10 @@ def col_number_format(col: str) -> Optional[str]:
                 and any(_w in n for _w in _tier_words))
             or n.startswith("% of starters ")):
         return '0.00"%"'
+    # App-style win % columns (lotg_support.gametime): whole percents [per user].
+    if n.startswith(("pre-week win %", "difference in pre-week win %", "largest win % overcome",
+                     "win % overcome", "avg pre-week win %")):
+        return "0%"
     # Percent columns stored 0-1 -> Excel percent (x100).
     if (n.endswith("%") or n.startswith("win % vs ") or "win %" in n or n == "efficiency"
             or "% of points" in n or "% of team points" in n or "% of league points" in n
