@@ -41,7 +41,9 @@ have filled it) but carries no Boldness.
 
 Outside this module (columns, formulas, docs, inquiry answers) these are called
 the CLAUDE PROJECTIONS [per user, 2026-10-07], so they are never confused with
-the Boldness stat built on them. team_week's Comeback size uses them too.
+the Boldness stat built on them. team_week's Comeback size (Claude Projection)
+uses them too (through player_week's "Claude Projection"); the Boldness stat
+itself now judges lineups on the Enhanced projection (`expect_override`).
 
 
 A shrunk, weighted average of the player's own NFL games, scored with the
@@ -244,8 +246,6 @@ def build_columns(params: "Params" = None) -> Tuple[pd.DataFrame, pd.DataFrame]:
             # not N/A. A starter with no expectation (unresolved) and a dead
             # start (ruled out, scored 0 — judged as an empty slot) stay N/A.
             b.loc[b["Boldness"].isna() & b["E starter"].notna() & ~b["Dead start?"], "Boldness"] = 0.0
-            # E starter / Dead start? also feed team_week's Comeback size
-            # (lotg_support.gametime), so both read one pre-kickoff expectation.
             starts.append(b[["Year", "Week", "Team", "Starter ID", "Boldness", "E starter", "Dead start?"]]
                           .rename(columns={"Starter ID": "Player ID"}))
         t = team_boldness(season, params=params, include_live=False)

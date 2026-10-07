@@ -76,8 +76,8 @@ def test_column_names():
     assert len(gametime.WIN_PCT_COLUMNS) == 21
     assert "Pre-week Win % (Sleeper Projection)" in gametime.WIN_PCT_COLUMNS
     assert "Win % overcome entering last game (Enhanced Projection)" in gametime.WIN_PCT_COLUMNS
-    assert gametime.SLEEPER_COMEBACK_COLUMNS[0] == "Comeback size (Sleeper projections)"
-    assert len(gametime.SLEEPER_COMEBACK_COLUMNS) == 4
+    assert gametime.comeback_names("Sleeper")[0] == "Comeback size (Sleeper Projection)"
+    assert len(gametime.PROJECTION_COMEBACK_COLUMNS) == 8
 
 
 if __name__ == "__main__":
