@@ -1025,6 +1025,14 @@ EQUATIONS = {
         "⟨Boldness⟩ and ⟨Lineup Boldness⟩ with XP = SP(p,w), the Sleeper Projection",
     ('Hardship (Claude Projections)', 'team_week / team_year / team_all_time / league_week'):
         "⟨Hardship⟩ and its family with each missed player's expected-if-healthy points = max(0, CP(p,w)) taken before the OUT zeroing",
+    ('Comeback size (Sleeper projections)', 'team_week'):
+        "⟨Comeback size⟩ with μ = SP(p,w), the Sleeper Projection, and z(T) = Φ⁻¹(WP_T), WP_T = ⟨Pre-week Win % (X Projection)⟩ on (IN(t,w,T) + Σ_{S(t,w), ko ≥ T} SP) v the opponent's; zb(T) = the same with 1.6·√|{p left, not out}| off the team's side when IN(t,w,T) < IN(o,w,T)",
+    ('Pre-week Win % (X Projection)', 'team_week'):
+        "WP(t,w) = XA^3.757 / (XA^3.757 + XB^3.757), XA = Σ_{S(t,w)} XP + (PF − Σ_{S(t,w)} pts), XB the opponent's; difference = WP(t,w) − WP(o(t,w),w)",
+    ('Win % overcome (X Projection)', 'team_week'):
+        "1 − WP_T(t,w) when win(t,w) = 1 ∧ WP_T < ½, WP_T = WP on (IN(t,w,T) + Σ_{S(t,w), ko ≥ T} XP) v the opponent's, T = pre-week / SNF / Monday / last game; largest = max over pre-week and every window start; else N/A",
+    ('Avg pre-week Win % (X Projection)', 'team_year / team_all_time'):
+        "mean_w WP(t,w)",
     ('Empty slots', 'team_week / team_year / team_all_time'):
         "|{i : S(t,w)[i] = '0' ∨ (¬H(S(t,w)[i],w) ∧ pts(S(t,w)[i],w) = 0)}|  (2020: ESPN slots left empty); year/all-time = Σ",
     ('Brosenzweig', 'team_week'):

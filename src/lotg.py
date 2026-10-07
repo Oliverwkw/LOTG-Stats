@@ -19280,6 +19280,23 @@ def build_all(repo_root: Path) -> None:
                                                pd.to_numeric(tw["Week"], errors="coerce"))]
                 for _i, _c in enumerate(_gt.TEAM_WEEK_COLUMNS):
                     tw[_c] = [(_gmap[k][_i] if k in _gmap else _gt.NA) for k in _tw_keys]
+                # App-style win % on each projection [per user, 2026-10-07]:
+                # pre-week, its difference, and what a comeback overcame.
+                try:
+                    _wp = _gt.win_pct_columns(tw, pw, _sched)
+                    _wp = tw[["Team", "Year", "Week"]].assign(
+                        Year=pd.to_numeric(tw["Year"], errors="coerce"),
+                        Week=pd.to_numeric(tw["Week"], errors="coerce")).merge(
+                        _wp, on=["Team", "Year", "Week"], how="left")
+                    for _c in _gt.WIN_PCT_COLUMNS:
+                        tw[_c] = _wp[_c].to_numpy()
+                    _scb = _gt.sleeper_comeback_columns(tw, pw, _sched)
+                    _smap = {(str(t), int(y), int(w)): r for t, y, w, *r in
+                             _scb[["Team", "Year", "Week", *_gt.SLEEPER_COMEBACK_COLUMNS]].itertuples(index=False, name=None)}
+                    for _i, _c in enumerate(_gt.SLEEPER_COMEBACK_COLUMNS):
+                        tw[_c] = [(_smap[k][_i] if k in _smap else _gt.NA) for k in _tw_keys]
+                except Exception as e:
+                    _log_exc(debug, "gametime_win_pct", e)
             _nogame = int(((pw["Starter/Bench"].astype(str) == "Starter")
                            & pw[_gt.GAME_SLOT_COLUMN].isin(["Bye", _gt.NA])
                            & (pd.to_numeric(pw["Points"], errors="coerce").fillna(0) != 0)).sum())
@@ -22974,6 +22991,20 @@ def build_all(repo_root: Path) -> None:
             team_year = _attach(team_year, tw, ["Team", "Year"], "Times ")
             team_all = _attach(team_all, tw, ["Team"], "Times ")
             league_year = _attach(league_year, _lwp, ["Year"], None)
+            # Avg pre-week Win % per projection (team_year / team_all_time)
+            from lotg_support import gametime as _gtw
+            _pre = [f"Pre-week Win % ({_x} Projection)" for _x in _gtw.WIN_PCT_PROJECTIONS]
+            if all(c in tw.columns for c in _pre):
+                _wt = tw[["Team", "Year"] + _pre].copy()
+                for _c in _pre:
+                    _wt[_c] = pd.to_numeric(_wt[_c], errors="coerce")
+                for _keys in (["Team", "Year"], ["Team"]):
+                    _a = _wt.groupby(_keys, as_index=False)[_pre].mean().round(2) \
+                        .rename(columns={c: "Avg pre-week Win %" + c[len("Pre-week Win %"):] for c in _pre})
+                    if _keys == ["Team", "Year"] and isinstance(team_year, pd.DataFrame) and not team_year.empty:
+                        team_year = team_year.drop(columns=[c for c in _a.columns if c not in _keys and c in team_year.columns]).merge(_a, on=_keys, how="left")
+                    if _keys == ["Team"] and isinstance(team_all, pd.DataFrame) and not team_all.empty:
+                        team_all = team_all.drop(columns=[c for c in _a.columns if c not in _keys and c in team_all.columns]).merge(_a, on=_keys, how="left")
             # Hardship (Claude Projections) rollups: sums and flag counts, as the originals
             _CP = " (Claude Projections)"
             if "Hardship" + _CP in tw.columns:

@@ -1645,6 +1645,18 @@ guard-skipped fire), 581→584 (#453), 584→589 (#454), 589→597 (#455).
      BEFORE the known-out zeroing — never the 0-projection columns); maybe keep both
      Hardship and an Enhanced/Claude Hardship.
   7. Projected Max PF: no.  8. Combined (matchup) projection columns: ADD.  9. Forecast: no.
+- [ ] **App-style win % columns** [per user, 2026-10-07]: team_week Pre-week Win %,
+  Difference in pre-week Win %, Pre-week / Largest / entering SNF / Monday / last game
+  Win % overcome, each per projection (X Projection); team_year / team_all_time Avg
+  pre-week Win %. Whole percents. Formula = the Sleeper app's, A^k / (A^k + B^k) on
+  projected totals, for all three projections. k = 3.757: the user read the app's win %
+  for all 40 matchups of 2026 weeks 5-14 (totals confirmed equal); every k in
+  3.751-3.764 reproduces all 40 (3.81, from week 5 alone, was 1 high on 9 of them).
+  `tests/test_win_pct.py` holds the 40.
+- [ ] **Comeback size (Sleeper projections)** [per user, 2026-10-07: keep separate from
+  Comeback size]: overall + entering SNF / Monday / last game, on Sleeper Projections
+  and the app-style win % (z = Φ⁻¹(win %)); Comeback size itself stays on Enhanced and
+  the calibrated Φ(z).
 - [ ] **Then: build time** — profile the build and cut it.
 
 ## Game-time columns (from the 2026 wk 4 MNF-comeback inquiry)
