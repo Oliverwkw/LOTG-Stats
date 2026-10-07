@@ -1551,6 +1551,55 @@ guard-skipped fire), 581→584 (#453), 584→589 (#454), 589→597 (#455).
       gives MAE 6.218 — so < 6.0 is out of reach pre-game; 6.27 is within 0.05 of hindsight.
     - Use it for a "typical outcome" column; for sums / win chances (Comeback size) keep
       an unbiased mean (equal 4-way, RMSE 8.051) — the median runs 0.8 low per start.
+  - **Best broad-use projection = "Enhanced"** [per user, 2026-10-07: "closest to accurate
+    … without too many big misses … for single player-week stats and huge team all-time
+    stats"]: the √-scale MEAN model — least squares on √points over the four sources (a
+    missing one reads the average of the rest) + their √ values, disagreement, Vegas implied
+    / opponent implied / spread, player's record v projections, opponent v position, home,
+    dome, wind; back to points by smearing (mean of (fit + training residual)², clipped ≥ 0).
+    2020-25 held out: per start MAE 6.307 / RMSE 8.008 / bias 0.00; misses > 15 pts 5.4%,
+    > 20 pts 1.6% (fewest); team-week total RMSE 24.2 (Claude projections alone 28.0, bias
+    −11.8); team-season bias +0.1 (median model −131, Claude −199); all-time per team avg
+    off 161 (≈ noise for ~900 starts).
+  - **In-season** [per user: "would this work in season?"]: yes. 2026 wks 1-4 (319 starts,
+    fit on 2020-25 only): Enhanced 6.405 / 8.179 / −0.16, team-week RMSE 19.9 / −1.6;
+    Sleeper 8.154, equal 4-way 8.174, Claude 8.471 / team bias −18.4. Too few starts to
+    separate the top three yet; the bias fix is clear. Coverage 2026: Sleeper 99%, ESPN
+    100%, FantasyPros 91%, Claude 100%. Rules: refit once a year at season rollover on
+    completed seasons only (this season's rows stay put; history moves once a year — an
+    EDIT in the digest); fetch a week's projections after it is played (Tuesday build =
+    the tested path; a live week's unstarted players can still move); a missing source
+    reads the average of the rest, all three outside sources gone → Claude projections,
+    never 0. Known limit: in-season source drift (Claude −1.85 in 2026 v −1.28) waits for
+    the yearly refit.
+
+## Projections framework: Sleeper, Claude, Enhanced [per user, 2026-10-07 — next PR after #480]
+- [ ] **Framework + cache.** Build-side fetch + `.cache` for Sleeper projections
+  (api.sleeper.com, 4 req/week), ESPN projections (1 req/week), FantasyPros weekly ECR
+  (DynastyProcess db_fpecr — or a slimmer weekly file), Vegas lines (nflverse schedule,
+  already cached); each degrades to missing (never 0) when unreachable. New
+  `lotg_support.projections`: the three projections per player-week (starters AND bench):
+  - **Claude** = Boldness' pre-kickoff E (as now).
+  - **Enhanced** = the √-scale mean model above, refit at rollover on completed seasons;
+    fallback chain: a missing outside source → average of the rest; none → Claude.
+  - **Sleeper** = Sleeper's own projection; where Sleeper has none or a weird one (no
+    pts_ppr / adp-only, ~0 for a player not ruled out — Brady 2021 etc.) → "weakened"
+    Enhanced (the same model fitted WITHOUT Sleeper), then Claude.
+- [ ] **Everything that uses a projection switches to Enhanced** (with that fallback):
+  team_week Comeback size (re-tune SD_PER_ROOT_POINT + the 2.5·√n band on Enhanced) and
+  Boldness / Lineup Boldness (re-fit bust odds) — confirm the list with the user before
+  switching; PAE's career expectation and the forecast's season sims are different kinds
+  of projection and stay as they are unless the user says otherwise.
+- [ ] **Columns**, X ∈ {Sleeper, Claude, Enhanced}:
+  - player_week / team_week / league_week: `X Projection`, `Points above X Projection`
+    (can be negative), `Overachiever (X Projection)` [award: the week's highest Points above
+    X Projection], `Underachiever (X Projection)` [award: the lowest], `Overachiever (X
+    Projection) streak`, `Underachiever (X Projection) streak`.
+  - player / team / league _year and _all_time: rollups of all of those except the streaks.
+  - **Collapse rule**: if over the last 5 seasons the awards are identical or near-identical
+    across the three projections, drop the parentheses — one Overachiever / Underachiever
+    (+ streaks) column on Enhanced.
+- [ ] **Then: build time** — profile the build and cut it.
 
 ## Game-time columns (from the 2026 wk 4 MNF-comeback inquiry)
 - [x] **player_week `Game slot` + team_week margins / comebacks by stage** [per user,
