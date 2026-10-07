@@ -8,11 +8,6 @@
    "reason": ""
   },
   {
-   "test": "tests/test_contracts.py::test_the_permutation_p_is_deterministic_and_two_sided",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
    "test": "tests/test_2020_starter_slots.py::test_an_unknown_slot_sorts_last_rather_than_displacing_a_known_one",
    "outcome": "passed",
    "reason": ""
@@ -128,12 +123,97 @@
    "reason": ""
   },
   {
+   "test": "tests/test_analysis.py::test_every_named_player_gets_a_position",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_analysis.py::test_positions_are_per_season_from_the_build",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_analysis.py::test_position_group_measures_depth_not_just_total",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
    "test": "tests/test_acquisition.py::test_each_position_ages_on_its_own_tenure_curve",
    "outcome": "passed",
    "reason": ""
   },
   {
+   "test": "tests/test_analysis.py::test_lineup_stacks_carry_the_ceiling_columns",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_analysis.py::test_replacement_level_comes_from_what_the_league_starts",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_analysis.py::test_value_curve_ranks_within_position",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_contracts.py::test_the_contracts_file_is_the_maintained_one",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_analysis.py::test_spend_by_position_covers_every_team_and_flags_its_gap",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_analysis.py::test_fdr_q_values_control_the_family",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_analysis.py::test_compare_all_tests_every_column_and_reports_the_family",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_analysis.py::test_correlate_all_ranks_by_strength_and_is_symmetric",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_analysis.py::test_best_stretch_finds_contiguous_runs",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_analysis.py::test_best_stretch_labels_are_clean_and_span_shows_gaps",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_analysis.py::test_timeline_merges_three_sheets_in_date_order",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_cross_sheet_reconciliation.py::test_cross_sheet_reconciliation",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
    "test": "tests/test_acquisition.py::test_expectation_keeps_working_as_history_grows",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_cross_source_and_pad.py::test_cross_source_and_pad",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_cuff_consistency.py::test_cuff_consistency",
    "outcome": "passed",
    "reason": ""
   },
@@ -178,266 +258,6 @@
    "reason": ""
   },
   {
-   "test": "tests/test_analysis.py::test_stack_counts_match_the_build",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_add_drop_breakdown.py::test_add_drop_breakdown",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_analysis.py::test_placeholders_are_recognised",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_analysis.py::test_compare_reports_both_sides_and_the_breakdown",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_analysis.py::test_compare_refuses_columns_it_cannot_see",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_analysis.py::test_permutation_p_is_deterministic",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_analysis.py::test_every_named_player_gets_a_position",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_analysis.py::test_positions_are_per_season_from_the_build",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_analysis.py::test_position_group_measures_depth_not_just_total",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_analysis.py::test_lineup_stacks_carry_the_ceiling_columns",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_analysis.py::test_starter_points_reconcile_with_the_built_pf",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_draft_cache_bypass.py::test_registered_live_draft_bypasses_cache",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_draft_cache_bypass.py::test_unregistered_past_draft_still_caches",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_draft_cache_bypass.py::test_empty_registry_caches_all_drafts",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_draft_cache_bypass.py::test_current_league_and_players_still_never_cache",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_draft_cache_bypass.py::test_no_cache_dir_never_caches",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_analysis.py::test_replacement_level_comes_from_what_the_league_starts",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_analysis.py::test_value_curve_ranks_within_position",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_draft_capital.py::test_max_pf_matches_build",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_analysis.py::test_spend_by_position_covers_every_team_and_flags_its_gap",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_analysis.py::test_fdr_q_values_control_the_family",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_draft_capital.py::test_bottom_four_order_matches_picks",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_draft_capital.py::test_rule_actually_changed",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_draft_capital.py::test_haul_table_reconciles",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_analysis.py::test_compare_all_tests_every_column_and_reports_the_family",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_draft_capital.py::test_validate_runs_clean",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_draft_capital.py::test_startup_and_unmade_picks_are_excluded_and_counted",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_draft_capital.py::test_unplayed_draft_is_excluded_by_default",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_draft_capital.py::test_reward_picks_are_flagged_not_silently_dropped",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_draft_capital.py::test_haul_total_is_the_sum_of_its_rounds",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_draft_capital.py::test_bust_rate_is_a_share",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_draft_capital.py::test_rate_metric_is_never_summed_across_rounds",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_draft_capital.py::test_cohorts_report_both_sides_and_a_breakdown",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_draft_capital.py::test_stripping_nobody_reproduces_the_baseline",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_draft_capital.py::test_stripping_lowers_the_ceiling_monotonically",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_analysis.py::test_correlate_all_ranks_by_strength_and_is_symmetric",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_analysis.py::test_best_stretch_finds_contiguous_runs",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_draft_capital.py::test_exchange_rate_exceeds_one",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_analysis.py::test_best_stretch_labels_are_clean_and_span_shows_gaps",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_draft_capital.py::test_cost_target_and_baseline_share_a_weeks_basis",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_draft_capital.py::test_cost_warns_that_it_is_a_floor",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_draft_capital.py::test_order_rule_switches_at_the_documented_draft",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_draft_capital.py::test_order_comparison_prices_both_rules",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_draft_capital.py::test_unknown_rule_raises",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_dropped_points_sign.py::test_dropped_points_sign",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_analysis.py::test_timeline_merges_three_sheets_in_date_order",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_contracts.py::test_big_signings_join_to_real_seasons",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_early_season_windows.py::test_early_season_windows",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_email_summary.py::test_email_summary",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_empty_slot_reference.py::test_empty_slot_reference",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_expectation_recheck.py::test_inputs_round_trip",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_expectation_recheck.py::test_as_of_keeps_only_what_was_known",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
    "test": "tests/test_analysis.py::test_roster_age_reproduces_the_builds_column",
    "outcome": "passed",
    "reason": ""
@@ -449,96 +269,6 @@
   },
   {
    "test": "tests/test_analysis.py::test_current_rosters_can_be_aged_and_the_ranking_survives_the_pool",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_expectation_recheck.py::test_replay_is_calibrated_on_a_league_the_model_fits",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_expectation_recheck.py::test_verdict_names_what_to_retune",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_analysis.py::test_reads_are_pure",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_audit_weekly.py::test_audit_weekly",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_boldness.py::test_the_next_man_up_is_a_backup_the_team_has_used",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_boldness.py::test_the_next_man_up_is_who_got_the_ball_when_both_played",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_contracts.py::test_matched_cohorts_start_level",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_bench_health_columns.py::test_player_year_recomputes_from_player_week",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_bench_health_columns.py::test_player_year_internal_identities",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_bench_health_columns.py::test_all_time_sums_the_seasons",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_bench_health_columns.py::test_player_additions_reconcile",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_boldness.py::test_draft_rounds_bucket_as_documented",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_boldness.py::test_lineup_fits_allows_a_reshuffle_but_not_an_illegal_lineup",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_boldness.py::test_the_best_lineup_uses_each_players_eligibility_not_one_position",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_contracts.py::test_the_contracts_file_is_the_maintained_one",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_cross_sheet_reconciliation.py::test_cross_sheet_reconciliation",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_cross_source_and_pad.py::test_cross_source_and_pad",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_cuff_consistency.py::test_cuff_consistency",
    "outcome": "passed",
    "reason": ""
   },
@@ -599,6 +329,36 @@
   },
   {
    "test": "tests/test_digest.py::test_numbers_print_to_the_spreadsheets_decimal_places",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_add_drop_breakdown.py::test_add_drop_breakdown",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_analysis.py::test_placeholders_are_recognised",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_analysis.py::test_compare_reports_both_sides_and_the_breakdown",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_analysis.py::test_compare_refuses_columns_it_cannot_see",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_analysis.py::test_permutation_p_is_deterministic",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_analysis.py::test_reads_are_pure",
    "outcome": "passed",
    "reason": ""
   },
@@ -698,7 +458,167 @@
    "reason": ""
   },
   {
-   "test": "tests/test_boldness.py::test_the_lift_weighs_the_backups_own_record",
+   "test": "tests/test_audit_weekly.py::test_audit_weekly",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_analysis.py::test_starter_points_reconcile_with_the_built_pf",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_bench_health_columns.py::test_player_year_recomputes_from_player_week",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_bench_health_columns.py::test_player_year_internal_identities",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_bench_health_columns.py::test_all_time_sums_the_seasons",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_bench_health_columns.py::test_player_additions_reconcile",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_boldness.py::test_draft_rounds_bucket_as_documented",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_boldness.py::test_lineup_fits_allows_a_reshuffle_but_not_an_illegal_lineup",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_boldness.py::test_the_best_lineup_uses_each_players_eligibility_not_one_position",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_analysis.py::test_stack_counts_match_the_build",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_draft_cache_bypass.py::test_no_cache_dir_never_caches",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_draft_capital.py::test_max_pf_matches_build",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_draft_capital.py::test_bottom_four_order_matches_picks",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_draft_capital.py::test_rule_actually_changed",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_draft_capital.py::test_haul_table_reconciles",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_draft_capital.py::test_validate_runs_clean",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_draft_capital.py::test_startup_and_unmade_picks_are_excluded_and_counted",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_draft_capital.py::test_unplayed_draft_is_excluded_by_default",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_draft_capital.py::test_reward_picks_are_flagged_not_silently_dropped",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_draft_capital.py::test_haul_total_is_the_sum_of_its_rounds",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_draft_capital.py::test_bust_rate_is_a_share",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_draft_capital.py::test_rate_metric_is_never_summed_across_rounds",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_draft_capital.py::test_cohorts_report_both_sides_and_a_breakdown",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_draft_capital.py::test_stripping_nobody_reproduces_the_baseline",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_draft_capital.py::test_stripping_lowers_the_ceiling_monotonically",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_draft_capital.py::test_exchange_rate_exceeds_one",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_draft_capital.py::test_cost_target_and_baseline_share_a_weeks_basis",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_draft_capital.py::test_cost_warns_that_it_is_a_floor",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_draft_capital.py::test_order_rule_switches_at_the_documented_draft",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_draft_capital.py::test_order_comparison_prices_both_rules",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_draft_capital.py::test_unknown_rule_raises",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_dropped_points_sign.py::test_dropped_points_sign",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_early_season_windows.py::test_early_season_windows",
    "outcome": "passed",
    "reason": ""
   },
@@ -708,7 +628,152 @@
    "reason": ""
   },
   {
+   "test": "tests/test_email_summary.py::test_email_summary",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
    "test": "tests/test_digest_send.py::test_digest_send",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_draft_cache_bypass.py::test_registered_live_draft_bypasses_cache",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_draft_cache_bypass.py::test_unregistered_past_draft_still_caches",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_draft_cache_bypass.py::test_empty_registry_caches_all_drafts",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_draft_cache_bypass.py::test_current_league_and_players_still_never_cache",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_forecast.py::test_the_build_does_not_import_the_forecast",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_formula_equations.py::test_every_stat_has_one_equation",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_formula_equations.py::test_cross_references_resolve",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_empty_slot_reference.py::test_empty_slot_reference",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_formula_equations.py::test_glossary_cross_references_resolve",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_formula_equations.py::test_glossary_rows_are_the_5_use_symbols",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_expectation_recheck.py::test_inputs_round_trip",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_expectation_recheck.py::test_as_of_keeps_only_what_was_known",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_formula_equations.py::test_output_leads_with_glossary_and_matches_plan",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_formula_equations.py::test_in_cell_clauses_keep_symbol_case",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_formulas_coverage.py::test_no_entry_names_a_sheet_that_does_not_exist",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_formulas_coverage.py::test_every_nonobvious_column_is_documented",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_formulas_coverage.py::test_stats_catalog_matches_the_plan",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_game_day_status.py::test_the_file_is_well_formed",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_game_day_status.py::test_validate_catches_what_it_should",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_game_day_status.py::test_only_active_rows_veto_and_never_in_a_tracker_season",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_game_day_status.py::test_the_build_wires_it",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_game_day_status.py::test_the_exports_honour_every_row",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_gametime.py::test_game_slots",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_gametime.py::test_stage_starts",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_gametime.py::test_struck_bills_bengals_game_is_monday_night",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_gametime.py::test_column_names",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_gametime.py::test_margins_and_comebacks",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_gametime.py::test_win_z_and_comeback_size",
    "outcome": "passed",
    "reason": ""
   },
@@ -719,6 +784,11 @@
   },
   {
    "test": "tests/test_gametime.py::test_overlapping_games_are_one_window",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_gametime.py::test_projection_band_for_a_team_behind_on_the_scoreboard",
    "outcome": "passed",
    "reason": ""
   },
@@ -739,331 +809,6 @@
   },
   {
    "test": "tests/test_gametime.py::test_every_scoring_starter_has_a_game",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_boldness.py::test_lineup_boldness_covers_every_single_start",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_boldness.py::test_filled_slots_drops_empty_markers_and_an_unlisted_tail",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_boldness.py::test_the_inquiry_path_never_scores_a_week_the_build_has_not_finalized",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_boldness.py::test_empty_slots_carry_no_boldness_and_are_counted",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_boldness.py::test_a_dead_start_is_judged_like_an_empty_slot",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_gametime.py::test_points_going_in_are_ordered",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_boldness.py::test_the_rookie_slot_prior_fades_out",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_boldness.py::test_every_debatable_choice_is_a_parameter",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_boldness.py::test_rescored_log_reproduces_the_builds_points",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_gametime.py::test_known_monday_comeback",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_boldness.py::test_team_boldness_is_never_negative_and_the_lineup_search_matches_max_pf",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_boldness.py::test_boldness_is_the_positive_part_of_edge",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_boldness.py::test_expected_points_mean_something",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_boldness.py::test_the_reference_could_legally_have_started",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_boldness.py::test_rookie_slot_prior_learns_only_from_earlier_drafts",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_boldness.py::test_2020_runs_from_the_espn_backfill",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_boldness.py::test_the_build_path_matches_the_inquiry_path",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_expectation_recheck.py::test_latest_season_inside_the_retune_limits",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_forecast.py::test_rookie_price_prefers_the_market_and_falls_back_to_the_slot",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_forecast.py::test_age_curve_only_adjusts_positions_it_fitted",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_forecast.py::test_strength_split_never_goes_imaginary",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_forecast.py::test_models_label_every_assumption",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_forecast.py::test_bracket_pipeline_reproduces_every_built_season",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_forecast.py::test_a_finished_season_forecasts_at_one_hundred_percent",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_forecast.py::test_validate_runs_every_guard_over_every_completed_season",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_forecast.py::test_schedule_balance_is_reported_not_assumed",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_forecast.py::test_strength_of_schedule_is_zero_when_the_schedule_is_balanced",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_forecast.py::test_rates_only_ever_look_backwards",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_forecast.py::test_the_age_curve_says_players_decline",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_forecast.py::test_rookies_are_priced_by_the_market_and_the_fit_is_real",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_forecast.py::test_rookie_class_strength_compares_like_for_like",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_forecast.py::test_taxi_players_are_not_startable",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_gametime.py::test_exports_match_the_recompute",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_boldness.py::test_beta_is_an_nfl_fit_the_league_rosters_cannot_move",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_gametime.py::test_win_chance_is_calibrated",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_forecast.py::test_injuries_cost_points_and_depth_decides_how_many",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_forecast.py::test_preseason_injury_flags_are_stale_and_are_not_believed",
-   "outcome": "skipped",
-   "reason": "no un-started live season to check"
-  },
-  {
-   "test": "tests/test_forecast.py::test_the_backtest_may_not_see_the_present",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_forecast.py::test_the_research_file_is_sourced_dated_and_lands_on_real_players",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_forecast.py::test_research_moves_the_players_it_names",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_forecast.py::test_an_unsigned_player_cannot_score",
-   "outcome": "skipped",
-   "reason": "no unsigned players on any roster \u2014 nothing to compare"
-  },
-  {
-   "test": "tests/test_forecast.py::test_every_roster_gets_a_projection_and_unplaced_players_are_counted",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_forecast.py::test_calibration_says_the_projection_beats_a_coin_flip",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_gametime.py::test_comeback_size_bounds",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_health_email_history.py::test_health_workflow_checks_out_full_history",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_health_email_history.py::test_code_changes_since_lists_commits_and_warns_on_a_missing_range",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_health_signal.py::test_a_gzip_body_is_cached_as_plain_csv",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_health_signal.py::test_a_gzip_bodied_csv_already_on_disk_still_reads",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_health_signal.py::test_an_unreadable_nflverse_file_is_reported_not_skipped",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_health_signal.py::test_an_unexpected_skip_is_a_flag_and_an_expected_one_a_note",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_health_signal.py::test_failures_are_named",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_health_signal.py::test_no_results_is_a_flag_when_the_suite_should_have_run",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_health_signal.py::test_the_console_log_fallback_still_counts_failures",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_health_signal.py::test_warnings_from_our_code_are_flagged_and_third_party_ones_are_not",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_health_signal.py::test_the_email_shows_the_suite_every_week",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_history_reconcile.py::test_top_team_teleport_wins_via_pw_weeks",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_history_reconcile.py::test_top_team_subweek_tenure_still_counts",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_history_reconcile.py::test_top_team_agreement_unchanged",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_history_reconcile.py::test_last_team_stale_tenure_loses_to_pw",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_history_reconcile.py::test_last_team_recent_tenure_wins",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_history_reconcile.py::test_week_scale_constant",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_in_season_freshness.py::test_kickoff_thursday_2026",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_in_season_freshness.py::test_week1_cutoff_is_tuesday_0800_utc",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_in_season_freshness.py::test_week_in_progress_not_complete",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_in_season_freshness.py::test_week_complete_after_cutoff",
    "outcome": "passed",
    "reason": ""
   },
@@ -1113,22 +858,62 @@
    "reason": ""
   },
   {
-   "test": "tests/test_forecast.py::test_a_league_of_identical_teams_comes_out_uniform",
+   "test": "tests/test_expectation_recheck.py::test_replay_is_calibrated_on_a_league_the_model_fits",
    "outcome": "passed",
    "reason": ""
   },
   {
-   "test": "tests/test_forecast.py::test_probabilities_close",
+   "test": "tests/test_expectation_recheck.py::test_verdict_names_what_to_retune",
    "outcome": "passed",
    "reason": ""
   },
   {
-   "test": "tests/test_forecast.py::test_odds_track_strength",
+   "test": "tests/test_boldness.py::test_the_lift_weighs_the_backups_own_record",
    "outcome": "passed",
    "reason": ""
   },
   {
-   "test": "tests/test_forecast.py::test_the_same_seed_gives_the_same_answer",
+   "test": "tests/test_boldness.py::test_the_inquiry_path_never_scores_a_week_the_build_has_not_finalized",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_boldness.py::test_lineup_boldness_covers_every_single_start",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_boldness.py::test_filled_slots_drops_empty_markers_and_an_unlisted_tail",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_boldness.py::test_empty_slots_carry_no_boldness_and_are_counted",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_boldness.py::test_a_dead_start_is_judged_like_an_empty_slot",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_boldness.py::test_the_rookie_slot_prior_fades_out",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_boldness.py::test_every_debatable_choice_is_a_parameter",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_boldness.py::test_rescored_log_reproduces_the_builds_points",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_boldness.py::test_expected_points_mean_something",
    "outcome": "passed",
    "reason": ""
   },
@@ -1174,71 +959,6 @@
   },
   {
    "test": "tests/test_injury_tracker.py::test_an_exempt_list_week_is_a_suspension_not_an_injury",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_injury_tracker.py::test_a_sweep_runs_only_on_a_gameday",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_injury_tracker.py::test_a_midweek_nfl_trade_cannot_invent_a_bye",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_injury_tracker.py::test_an_empty_tracker_is_a_starting_state_not_damage",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_injury_tracker.py::test_a_damaged_csv_costs_its_damaged_lines_and_nothing_else",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_injury_tracker.py::test_the_two_reasons_the_schedule_gives_no_week_are_not_the_same",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_injury_tracker.py::test_capture_script_refuses_to_overwrite_or_reach_backwards",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_inquiry.py::test_sheet_name_aliases",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_inquiry.py::test_to_number_handles_build_cells",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_inquiry.py::test_predicate_parsing_and_matching",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_inquiry.py::test_filter_rows_is_conjunctive_and_names_near_misses",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_inquiry.py::test_season_meta_shape_is_read_not_hardcoded",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_inquiry.py::test_sheets_load_and_carry_expected_keys",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_forecast.py::test_simulated_weekly_spread_matches_history",
    "outcome": "passed",
    "reason": ""
   },
@@ -1303,6 +1023,151 @@
    "reason": ""
   },
   {
+   "test": "tests/test_injury_tracker.py::test_a_placeholder_id_is_not_recorded_as_a_gsis",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_injury_tracker.py::test_every_id_in_the_committed_tracker_is_gsis_shaped",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_injury_tracker.py::test_the_committed_bridge_closes_the_gap_sleeper_leaves",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_boldness.py::test_team_boldness_is_never_negative_and_the_lineup_search_matches_max_pf",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_boldness.py::test_boldness_is_the_positive_part_of_edge",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_boldness.py::test_the_reference_could_legally_have_started",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_boldness.py::test_rookie_slot_prior_learns_only_from_earlier_drafts",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_injury_tracker.py::test_the_capture_pins_a_relabelled_position",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_injury_tracker.py::test_the_committed_tracker_agrees_with_the_pin",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_injury_tracker.py::test_the_na_population_is_still_small_and_mostly_teamless",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_injury_tracker.py::test_the_committed_tracker_carries_few_na_weeks",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_injury_tracker.py::test_the_build_bridges_reject_placeholder_ids_too",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_injury_tracker.py::test_every_sleeper_status_pair_is_classified",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_injury_tracker.py::test_no_rostered_player_carries_unpinned_position_drift",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_injury_tracker.py::test_the_committed_tracker_header_matches_the_schema",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_injury_tracker.py::test_a_gameday_sweep_merges_with_the_final_capture",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_injury_tracker.py::test_the_merge_never_lets_one_capture_wipe_another",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_injury_tracker.py::test_a_sweep_runs_only_on_a_gameday",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_injury_tracker.py::test_a_midweek_nfl_trade_cannot_invent_a_bye",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_injury_tracker.py::test_an_empty_tracker_is_a_starting_state_not_damage",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_injury_tracker.py::test_a_damaged_csv_costs_its_damaged_lines_and_nothing_else",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_injury_tracker.py::test_the_two_reasons_the_schedule_gives_no_week_are_not_the_same",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_injury_tracker.py::test_capture_script_refuses_to_overwrite_or_reach_backwards",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_inquiry.py::test_sheet_name_aliases",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_inquiry.py::test_to_number_handles_build_cells",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_inquiry.py::test_predicate_parsing_and_matching",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_inquiry.py::test_filter_rows_is_conjunctive_and_names_near_misses",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_inquiry.py::test_season_meta_shape_is_read_not_hardcoded",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_inquiry.py::test_sheets_load_and_carry_expected_keys",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
    "test": "tests/test_inquiry.py::test_find_columns_searches_names_and_notes",
    "outcome": "passed",
    "reason": ""
@@ -1338,51 +1203,6 @@
    "reason": ""
   },
   {
-   "test": "tests/test_injury_tracker.py::test_a_placeholder_id_is_not_recorded_as_a_gsis",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_injury_tracker.py::test_every_id_in_the_committed_tracker_is_gsis_shaped",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_injury_tracker.py::test_the_committed_bridge_closes_the_gap_sleeper_leaves",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_injury_tracker.py::test_the_capture_pins_a_relabelled_position",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_injury_tracker.py::test_the_committed_tracker_agrees_with_the_pin",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_injury_tracker.py::test_the_na_population_is_still_small_and_mostly_teamless",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_forecast.py::test_an_unknown_strength_model_is_refused",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_injury_tracker.py::test_the_committed_tracker_carries_few_na_weeks",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_injury_tracker.py::test_the_build_bridges_reject_placeholder_ids_too",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
    "test": "tests/test_inquiry.py::test_semifinal_bonus_explains_every_pf_mismatch",
    "outcome": "passed",
    "reason": ""
@@ -1403,32 +1223,92 @@
    "reason": ""
   },
   {
-   "test": "tests/test_injury_tracker.py::test_every_sleeper_status_pair_is_classified",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
    "test": "tests/test_inquiry.py::test_sweep_reports_every_end_and_flags_volatile",
    "outcome": "passed",
    "reason": ""
   },
   {
-   "test": "tests/test_injury_tracker.py::test_no_rostered_player_carries_unpinned_position_drift",
+   "test": "tests/test_inquiry.py::test_sweep_window_bounds_what_is_reported",
    "outcome": "passed",
    "reason": ""
   },
   {
-   "test": "tests/test_injury_tracker.py::test_the_committed_tracker_header_matches_the_schema",
+   "test": "tests/test_inquiry.py::test_extremes_covers_both_ends_of_each_column",
    "outcome": "passed",
    "reason": ""
   },
   {
-   "test": "tests/test_injury_tracker.py::test_a_gameday_sweep_merges_with_the_final_capture",
+   "test": "tests/test_inquiry.py::test_reads_are_pure",
    "outcome": "passed",
    "reason": ""
   },
   {
-   "test": "tests/test_injury_tracker.py::test_the_merge_never_lets_one_capture_wipe_another",
+   "test": "tests/test_inquiry.py::test_played_weeks_never_include_the_week_in_progress",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_inquiry_formula.py::test_formula_gives_words_and_equation",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_inquiry_formula.py::test_formula_is_case_insensitive_and_lists_every_documenting_row",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_inquiry_formula.py::test_model_rows_carry_their_math_in_cell",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_inquiry_formula.py::test_unknown_column_suggests",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_inquiry_formula.py::test_formula_keys_expand_multi_sheet_rows",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_inquiry_formula.py::test_describe_finds_multi_sheet_formulas",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_ktc_pick_labels.py::test_a_fantasy_position_yields_exactly_one_slug",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_ktc_pick_labels.py::test_a_non_fantasy_label_falls_back_through_the_fantasy_positions",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_ktc_pick_labels.py::test_no_name_or_no_position_still_yields_nothing",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_ktc_pick_labels.py::test_clean_slot_labels",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_ktc_pick_labels.py::test_parenthetical_rider_matches_clean_form",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_ktc_pick_labels.py::test_bare_round_equals_unknown_slot",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_ktc_pick_labels.py::test_unknown_slot_spans_round",
    "outcome": "passed",
    "reason": ""
   },
@@ -1488,11 +1368,6 @@
    "reason": ""
   },
   {
-   "test": "tests/test_inquiry.py::test_sweep_window_bounds_what_is_reported",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
    "test": "tests/test_ktc_pick_labels.py::test_no_stray_aug28_draft_anchors",
    "outcome": "passed",
    "reason": ""
@@ -1514,21 +1389,6 @@
   },
   {
    "test": "tests/test_ktc_prefetch.py::test_prefetch_fetches_only_stale_and_writes_same_files",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_inquiry.py::test_extremes_covers_both_ends_of_each_column",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_inquiry.py::test_reads_are_pure",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_inquiry.py::test_played_weeks_never_include_the_week_in_progress",
    "outcome": "passed",
    "reason": ""
   },
@@ -1673,76 +1533,6 @@
    "reason": ""
   },
   {
-   "test": "tests/test_inquiry_formula.py::test_formula_gives_words_and_equation",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_inquiry_formula.py::test_formula_is_case_insensitive_and_lists_every_documenting_row",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_inquiry_formula.py::test_model_rows_carry_their_math_in_cell",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_inquiry_formula.py::test_unknown_column_suggests",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_inquiry_formula.py::test_formula_keys_expand_multi_sheet_rows",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_inquiry_formula.py::test_describe_finds_multi_sheet_formulas",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_ktc_pick_labels.py::test_a_fantasy_position_yields_exactly_one_slug",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_ktc_pick_labels.py::test_a_non_fantasy_label_falls_back_through_the_fantasy_positions",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_ktc_pick_labels.py::test_no_name_or_no_position_still_yields_nothing",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_ktc_pick_labels.py::test_clean_slot_labels",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_ktc_pick_labels.py::test_parenthetical_rider_matches_clean_form",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_ktc_pick_labels.py::test_bare_round_equals_unknown_slot",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_ktc_pick_labels.py::test_unknown_slot_spans_round",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_pick_sheets_split.py::test_pick_sheets_split",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
    "test": "tests/test_nflverse_drift.py::test_nflverse_drift",
    "outcome": "passed",
    "reason": ""
@@ -1758,7 +1548,7 @@
    "reason": ""
   },
   {
-   "test": "tests/test_forecast.py::test_as_of_week_rewinds_the_clock",
+   "test": "tests/test_boldness.py::test_2020_runs_from_the_espn_backfill",
    "outcome": "passed",
    "reason": ""
   },
@@ -1858,57 +1648,157 @@
    "reason": ""
   },
   {
-   "test": "tests/test_ppg_position_adjusted.py::test_player_year_change_columns",
+   "test": "tests/test_pick_sheets_split.py::test_pick_sheets_split",
    "outcome": "passed",
    "reason": ""
   },
   {
-   "test": "tests/test_ppg_position_adjusted.py::test_all_time_pools_the_seasons",
+   "test": "tests/test_boldness.py::test_the_build_path_matches_the_inquiry_path",
    "outcome": "passed",
    "reason": ""
   },
   {
-   "test": "tests/test_ppg_position_adjusted.py::test_blank_exactly_where_base_is",
+   "test": "tests/test_expectation_recheck.py::test_latest_season_inside_the_retune_limits",
    "outcome": "passed",
    "reason": ""
   },
   {
-   "test": "tests/test_ppg_position_adjusted.py::test_player_additions_grid",
+   "test": "tests/test_forecast.py::test_rookie_price_prefers_the_market_and_falls_back_to_the_slot",
    "outcome": "passed",
    "reason": ""
   },
   {
-   "test": "tests/test_ppg_position_adjusted.py::test_difference_columns_split_into_their_twins",
+   "test": "tests/test_forecast.py::test_age_curve_only_adjusts_positions_it_fitted",
    "outcome": "passed",
    "reason": ""
   },
   {
-   "test": "tests/test_ppg_position_adjusted.py::test_add_drops_twins_use_each_players_factor",
+   "test": "tests/test_gametime.py::test_points_going_in_are_ordered",
    "outcome": "passed",
    "reason": ""
   },
   {
-   "test": "tests/test_ppg_position_adjusted.py::test_playoff_split_recomputes_from_player_week",
+   "test": "tests/test_gametime.py::test_known_monday_comeback",
    "outcome": "passed",
    "reason": ""
   },
   {
-   "test": "tests/test_ppg_position_adjusted.py::test_team_playoff_points_recompute_from_team_week",
+   "test": "tests/test_gametime.py::test_exports_match_the_recompute",
    "outcome": "passed",
    "reason": ""
   },
   {
-   "test": "tests/test_ppg_position_adjusted.py::test_no_playoff_mask_counts_the_3rd_place_game",
+   "test": "tests/test_gametime.py::test_win_chance_is_calibrated",
    "outcome": "passed",
    "reason": ""
   },
   {
-   "test": "tests/test_ppg_position_adjusted.py::test_player_week_twins",
+   "test": "tests/test_gametime.py::test_comeback_size_bounds",
    "outcome": "passed",
    "reason": ""
   },
   {
-   "test": "tests/test_pre_season_blanking.py::test_manager_skills_blank_not_zero_when_no_moves",
+   "test": "tests/test_health_email_history.py::test_health_workflow_checks_out_full_history",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_health_email_history.py::test_code_changes_since_lists_commits_and_warns_on_a_missing_range",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_health_signal.py::test_a_gzip_body_is_cached_as_plain_csv",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_health_signal.py::test_a_gzip_bodied_csv_already_on_disk_still_reads",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_health_signal.py::test_an_unreadable_nflverse_file_is_reported_not_skipped",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_health_signal.py::test_an_unexpected_skip_is_a_flag_and_an_expected_one_a_note",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_health_signal.py::test_failures_are_named",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_health_signal.py::test_no_results_is_a_flag_when_the_suite_should_have_run",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_health_signal.py::test_the_console_log_fallback_still_counts_failures",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_health_signal.py::test_warnings_from_our_code_are_flagged_and_third_party_ones_are_not",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_health_signal.py::test_the_email_shows_the_suite_every_week",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_history_reconcile.py::test_top_team_teleport_wins_via_pw_weeks",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_history_reconcile.py::test_top_team_subweek_tenure_still_counts",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_history_reconcile.py::test_top_team_agreement_unchanged",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_history_reconcile.py::test_last_team_stale_tenure_loses_to_pw",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_history_reconcile.py::test_last_team_recent_tenure_wins",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_history_reconcile.py::test_week_scale_constant",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_in_season_freshness.py::test_kickoff_thursday_2026",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_in_season_freshness.py::test_week1_cutoff_is_tuesday_0800_utc",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_in_season_freshness.py::test_week_in_progress_not_complete",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_in_season_freshness.py::test_week_complete_after_cutoff",
    "outcome": "passed",
    "reason": ""
   },
@@ -1929,6 +1819,66 @@
   },
   {
    "test": "tests/test_pre_season_blanking.py::test_noop_when_season_started_or_unknown",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_projections.py::test_column_names",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_projections.py::test_ids_match_however_the_table_was_loaded",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_projections.py::test_scoring_uses_the_league_table",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_projections.py::test_player_awards_one_winner_alphabetical",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_projections.py::test_team_projection_carries_the_semifinal_bonus",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_projections.py::test_rollup_sums_averages_and_counts",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_projections.py::test_upset_and_opponent_gap",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_projections.py::test_startsit_miss_uses_the_same_reference",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_projections.py::test_exports_projection_accuracy",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_projections.py::test_exports_rules_hold",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_projections.py::test_exports_sleeper_boldness",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_projections.py::test_exports_claude_hardship",
    "outcome": "passed",
    "reason": ""
   },
@@ -1968,7 +1918,7 @@
    "reason": ""
   },
   {
-   "test": "tests/test_forecast.py::test_the_forecast_beats_guessing_on_seasons_that_happened",
+   "test": "tests/test_boldness.py::test_beta_is_an_nfl_fit_the_league_rosters_cannot_move",
    "outcome": "passed",
    "reason": ""
   },
@@ -2173,11 +2123,6 @@
    "reason": ""
   },
   {
-   "test": "tests/test_forecast.py::test_the_backtest_is_actually_out_of_sample",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
    "test": "tests/test_schedule_watch.py::test_the_guard_fails_open_on_every_unknown",
    "outcome": "passed",
    "reason": ""
@@ -2268,6 +2213,31 @@
    "reason": ""
   },
   {
+   "test": "tests/test_boldness.py::test_the_next_man_up_is_a_backup_the_team_has_used",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_boldness.py::test_the_next_man_up_is_who_got_the_ball_when_both_played",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_forecast.py::test_strength_split_never_goes_imaginary",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_forecast.py::test_models_label_every_assumption",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_forecast.py::test_bracket_pipeline_reproduces_every_built_season",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
    "test": "tests/test_scoring_events.py::test_the_scan_finds_only_lineups_that_really_scored_nothing",
    "outcome": "passed",
    "reason": ""
@@ -2298,127 +2268,107 @@
    "reason": ""
   },
   {
-   "test": "tests/test_forecast.py::test_a_uniform_forecast_is_exactly_as_confident_as_it_should_be",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
    "test": "tests/test_scoring_events.py::test_career_totals_equal_the_rows_the_basis_names",
    "outcome": "passed",
    "reason": ""
   },
   {
-   "test": "tests/test_forecast.py::test_reads_are_pure",
+   "test": "tests/test_forecast.py::test_a_finished_season_forecasts_at_one_hundred_percent",
    "outcome": "passed",
    "reason": ""
   },
   {
-   "test": "tests/test_forecast.py::test_the_build_does_not_import_the_forecast",
+   "test": "tests/test_forecast.py::test_validate_runs_every_guard_over_every_completed_season",
    "outcome": "passed",
    "reason": ""
   },
   {
-   "test": "tests/test_formula_equations.py::test_every_stat_has_one_equation",
+   "test": "tests/test_forecast.py::test_schedule_balance_is_reported_not_assumed",
    "outcome": "passed",
    "reason": ""
   },
   {
-   "test": "tests/test_formula_equations.py::test_cross_references_resolve",
+   "test": "tests/test_forecast.py::test_strength_of_schedule_is_zero_when_the_schedule_is_balanced",
    "outcome": "passed",
    "reason": ""
   },
   {
-   "test": "tests/test_formula_equations.py::test_glossary_cross_references_resolve",
+   "test": "tests/test_forecast.py::test_rates_only_ever_look_backwards",
    "outcome": "passed",
    "reason": ""
   },
   {
-   "test": "tests/test_formula_equations.py::test_glossary_rows_are_the_5_use_symbols",
+   "test": "tests/test_forecast.py::test_the_age_curve_says_players_decline",
    "outcome": "passed",
    "reason": ""
   },
   {
-   "test": "tests/test_formula_equations.py::test_output_leads_with_glossary_and_matches_plan",
+   "test": "tests/test_forecast.py::test_rookies_are_priced_by_the_market_and_the_fit_is_real",
    "outcome": "passed",
    "reason": ""
   },
   {
-   "test": "tests/test_formula_equations.py::test_in_cell_clauses_keep_symbol_case",
+   "test": "tests/test_forecast.py::test_rookie_class_strength_compares_like_for_like",
    "outcome": "passed",
    "reason": ""
   },
   {
-   "test": "tests/test_formulas_coverage.py::test_no_entry_names_a_sheet_that_does_not_exist",
+   "test": "tests/test_forecast.py::test_taxi_players_are_not_startable",
    "outcome": "passed",
    "reason": ""
   },
   {
-   "test": "tests/test_formulas_coverage.py::test_every_nonobvious_column_is_documented",
+   "test": "tests/test_forecast.py::test_injuries_cost_points_and_depth_decides_how_many",
    "outcome": "passed",
    "reason": ""
   },
   {
-   "test": "tests/test_formulas_coverage.py::test_stats_catalog_matches_the_plan",
+   "test": "tests/test_forecast.py::test_preseason_injury_flags_are_stale_and_are_not_believed",
+   "outcome": "skipped",
+   "reason": "no un-started live season to check"
+  },
+  {
+   "test": "tests/test_forecast.py::test_the_backtest_may_not_see_the_present",
    "outcome": "passed",
    "reason": ""
   },
   {
-   "test": "tests/test_game_day_status.py::test_the_file_is_well_formed",
+   "test": "tests/test_forecast.py::test_the_research_file_is_sourced_dated_and_lands_on_real_players",
    "outcome": "passed",
    "reason": ""
   },
   {
-   "test": "tests/test_game_day_status.py::test_validate_catches_what_it_should",
+   "test": "tests/test_forecast.py::test_research_moves_the_players_it_names",
    "outcome": "passed",
    "reason": ""
   },
   {
-   "test": "tests/test_game_day_status.py::test_only_active_rows_veto_and_never_in_a_tracker_season",
-   "outcome": "passed",
-   "reason": ""
+   "test": "tests/test_forecast.py::test_an_unsigned_player_cannot_score",
+   "outcome": "skipped",
+   "reason": "no unsigned players on any roster \u2014 nothing to compare"
   },
   {
-   "test": "tests/test_game_day_status.py::test_the_build_wires_it",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_game_day_status.py::test_the_exports_honour_every_row",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_gametime.py::test_game_slots",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_gametime.py::test_stage_starts",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_gametime.py::test_struck_bills_bengals_game_is_monday_night",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_gametime.py::test_column_names",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_gametime.py::test_margins_and_comebacks",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_gametime.py::test_win_z_and_comeback_size",
+   "test": "tests/test_forecast.py::test_every_roster_gets_a_projection_and_unplaced_players_are_counted",
    "outcome": "passed",
    "reason": ""
   },
   {
    "test": "tests/test_scoring_events.py::test_career_to_date_never_exceeds_the_lifetime_total",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_forecast.py::test_calibration_says_the_projection_beats_a_coin_flip",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_forecast.py::test_a_league_of_identical_teams_comes_out_uniform",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_forecast.py::test_probabilities_close",
    "outcome": "passed",
    "reason": ""
   },
@@ -2429,6 +2379,726 @@
   },
   {
    "test": "tests/test_scoring_events.py::test_lowest_careers_reports_the_earliest_of_equal_starts",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_forecast.py::test_odds_track_strength",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_forecast.py::test_simulated_weekly_spread_matches_history",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_forecast.py::test_the_same_seed_gives_the_same_answer",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_forecast.py::test_an_unknown_strength_model_is_refused",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_forecast.py::test_as_of_week_rewinds_the_clock",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_scoring_events.py::test_the_career_guards_pass_on_real_data",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_scoring_events.py::test_the_season_cache_stays_out_of_the_builds_freshness_gate",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_player_history_continuity.py::test_no_player_history_continuity_breaks",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_player_history_coverage.py::test_every_rostered_week_has_a_player_additions_tenure",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_player_history_coverage.py::test_no_two_tenures_claim_the_same_weeks",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_player_history_coverage.py::test_no_player_on_two_rosters_in_one_week",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_points_added_consistency.py::test_points_added_consistency",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_position_factor.py::test_min_weeks_matches_the_email_gate",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_position_factor.py::test_a_complete_season_uses_its_own_baseline",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_position_factor.py::test_weeks_1_to_4_borrow_the_previous_season_then_switch_at_week_5",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_position_factor.py::test_a_season_not_yet_kicked_off_uses_the_latest",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_position_factor.py::test_the_first_season_on_record_keeps_its_own_even_when_short",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_position_factor.py::test_unknown_position_or_season_is_neutral",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_position_pins.py::test_position_pins",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_ppg_consistency.py::test_ppg_consistency",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_ppg_position_adjusted.py::test_player_year_recomputes_from_player_week",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_ppg_position_adjusted.py::test_player_year_change_columns",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_ppg_position_adjusted.py::test_all_time_pools_the_seasons",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_ppg_position_adjusted.py::test_blank_exactly_where_base_is",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_ppg_position_adjusted.py::test_player_additions_grid",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_ppg_position_adjusted.py::test_difference_columns_split_into_their_twins",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_ppg_position_adjusted.py::test_add_drops_twins_use_each_players_factor",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_ppg_position_adjusted.py::test_playoff_split_recomputes_from_player_week",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_ppg_position_adjusted.py::test_team_playoff_points_recompute_from_team_week",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_ppg_position_adjusted.py::test_no_playoff_mask_counts_the_3rd_place_game",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_ppg_position_adjusted.py::test_player_week_twins",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_pre_season_blanking.py::test_manager_skills_blank_not_zero_when_no_moves",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_season_window.py::test_the_opener_only_moves_the_season_that_opened_early",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_season_window.py::test_the_2026_opener_is_the_boundary_the_build_uses",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_season_window.py::test_the_swap_predates_its_seasons_kickoff",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_season_window.py::test_offseason_plus_inseason_equals_total",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_season_window.py::test_the_first_season_counts_its_offseason_trade",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_season_window.py::test_first_season_roster_turnover_is_still_na",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_season_window.py::test_no_trade_is_filed_against_the_wrong_side_of_a_boundary",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_send_audit_email.py::test_send_audit_email",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_snapshot_freshness.py::test_missing_or_undated_snapshot_is_stale",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_snapshot_freshness.py::test_fresh_snapshot_is_not_stale",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_snapshot_freshness.py::test_old_snapshot_trips_threshold",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_snapshot_freshness.py::test_refresh_writes_live_rosters",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_snapshot_freshness.py::test_refresh_does_not_clobber_on_empty_fetch",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_startup_draft_order.py::test_slot_from_pick_in_round_reverses_even_rounds",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_startup_draft_order.py::test_slot_mapping_is_an_involution",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_startup_draft_order.py::test_slot_mapping_rejects_junk_rather_than_guessing",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_startup_draft_order.py::test_every_pick_carries_its_true_position_and_owner",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_startup_draft_order.py::test_draft_is_a_pure_snake_once_ownership_is_applied",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_startup_draft_order.py::test_the_six_traded_picks_are_exactly_the_known_swap",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_startup_draft_order.py::test_untraded_picks_are_owned_by_their_drafter",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_startup_draft_order.py::test_each_team_picks_once_per_round",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_startup_draft_order.py::test_sheet_numbers_startup_picks_by_draft_order",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_startup_draft_order.py::test_sheet_marks_the_traded_picks_and_only_those",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_startup_draft_order.py::test_sheet_records_the_swap_as_a_two_sided_trade",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_startup_draft_order.py::test_swap_picks_each_count_one_trade",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_startup_draft_order.py::test_real_faab_buys_are_still_treated_as_synthetic",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_startup_draft_order.py::test_startup_remaining_credits_the_drafter_not_the_slot_owner",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_startup_draft_order.py::test_2020_week_one_rosters_reconcile_to_the_draft_and_the_ledger",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_startup_draft_order.py::test_startup_round_five_picks_link_to_their_own_chain",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_startup_league_remaining.py::test_startup_league_remaining",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_struck_games.py::test_stat_lines_rescore_to_the_league_points",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_struck_games.py::test_rostered_players_match_player_week",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_struck_games.py::test_added_once_and_only_where_missing",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_struck_games.py::test_season_totals_gain_the_game",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_struck_games.py::test_dressed_without_a_stat_are_active",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_synthesized_rows.py::test_team_year_counts_every_row_of_its_detail_sheets",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_synthesized_rows.py::test_the_named_case_is_counted_in_full",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_synthesized_rows.py::test_the_lineage_rows_are_really_there_to_be_counted",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_synthesized_rows.py::test_an_in_season_synthesized_row_lands_in_a_week",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_tenure_as_of_clock.py::test_the_last_final_week_is_the_one_whose_games_are_over",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_tenure_as_of_clock.py::test_no_week_is_final_before_the_first_season_kicks_off",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_tenure_as_of_clock.py::test_the_week_clock_never_runs_ahead_of_now",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_tenure_as_of_clock.py::test_a_rebuild_with_no_new_data_gets_the_same_clock",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_tenure_as_of_clock.py::test_the_latest_event_wins_when_it_is_the_newer_fact",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_tenure_as_of_clock.py::test_a_quiet_week_still_advances_with_the_football",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_tenure_as_of_clock.py::test_the_clock_is_never_in_the_future_and_falls_back_to_now",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_tenure_as_of_clock.py::test_the_wall_clock_really_did_flip_the_ranking",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_tenure_as_of_clock.py::test_the_as_of_clock_holds_it_still",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_tenure_as_of_clock.py::test_the_ranking_is_not_frozen_forever",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_top_team_played_week.py::test_top_team_played_week",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_trade_sent_window.py::test_trade_sent_window",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_two_week_final.py::test_constant_is_2026",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_two_week_final.py::test_finals_weeks_pre_2026_single_week",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_two_week_final.py::test_finals_weeks_2026_two_weeks",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_two_week_final.py::test_finals_weeks_no_playoff_start",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_two_week_final.py::test_matchup_stage_2026_three_playoff_weeks",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_two_week_final.py::test_matchup_stage_2020_single_week_final_unchanged",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_two_week_final.py::test_matchup_stage_2025_unchanged",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_two_week_final.py::test_second_finals_week_only_2026_week17",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_waiver_bid_tally.py::test_waiver_bid_tally",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_waiver_claim_dedup.py::test_waiver_claim_dedup",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_win_pct.py::test_app_win_pct_reproduces_the_app",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_win_pct.py::test_app_win_pct_reproduces_the_app_live",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_win_pct.py::test_app_win_pct_is_symmetric",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_win_pct.py::test_exponent_sits_inside_the_fitted_range",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_win_pct.py::test_column_names",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_winning_season_streak.py::test_only_decided_seasons_move_the_streak",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_wins_added.py::test_arrival_displaces_and_players_change_slots",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_wins_added.py::test_bench_only_fills_open_slots_and_is_capped",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_wins_added.py::test_arrival_cap_depends_on_whether_anyone_started_him",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_wins_added.py::test_implausible_substitution_is_not_made",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_wins_added.py::test_unproven_players_move_in_only_if_they_really_started",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_wins_added.py::test_two_open_slots_are_judged_against_the_two_best_options",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_wins_added.py::test_a_bench_player_never_replaces_a_starter_by_reshuffling",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_wins_added.py::test_a_real_starter_never_sits_behind_a_real_bench_player",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_wins_added.py::test_every_cleared_slot_is_filled_even_by_a_zero",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_wins_added.py::test_four_for_one_fills_every_cleared_slot_with_a_different_player",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_wins_added.py::test_dropping_a_player_who_would_have_won_the_game_is_minus_one",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_wins_added.py::test_opponent_loses_the_player_and_the_mirror_row_agrees",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_wins_added.py::test_lineage_through_a_later_trade_earns_its_ktc_share",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_wins_added.py::test_dropping_ends_the_lineage",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_wins_added.py::test_a_reacquired_player_belongs_to_the_reacquiring_move",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_wins_added.py::test_the_count_stops_once_the_league_lets_him_go",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_wins_added.py::test_reacquiring_a_player_ends_the_earlier_moves_count",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_wins_added.py::test_per_season_rate_is_wins_times_17_over_games_since_the_move",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_wins_added.py::test_the_rate_waits_five_weeks_on_the_email_boards",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_wins_added.py::test_real_lineups_are_legal_and_pf_is_starters_plus_bonus",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_forecast.py::test_the_forecast_beats_guessing_on_seasons_that_happened",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_wins_added.py::test_counterfactual_lineups_keep_the_rules_on_real_moves",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_scoring_events.py::test_the_seam_guard_can_fail",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_season_window.py::test_kickoff_matches_the_real_nfl_week_one",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_season_window.py::test_a_fantasy_week_runs_tuesday_to_monday",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_season_window.py::test_the_2020_backfill_counts_weeks_the_same_way",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_season_window.py::test_kickoff_actually_moves",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_season_window.py::test_the_opener_lookup_reads_week_one_and_nothing_else",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_workflow_schedules.py::test_tuesday_send_list_matches_the_tuesday_crons",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_workflow_schedules.py::test_no_gate_hardcodes_a_cron_string",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_workflow_schedules.py::test_the_send_and_rotation_gates_use_the_shared_flag",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_workflow_schedules.py::test_injury_capture_lands_between_the_monday_game_and_the_build",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_workflow_schedules.py::test_every_sweep_can_reach_an_inactive_report_window",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_workflow_schedules.py::test_every_window_has_a_fire_that_survives_the_delay",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_workflow_schedules.py::test_the_night_game_window_is_swept",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_workflow_schedules.py::test_the_sweep_is_redundant_and_has_delay_headroom",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_workflow_schedules.py::test_unrecoverable_work_has_a_catch_up_fire",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_workflow_schedules.py::test_recoverable_work_does_not_get_one",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_workflow_schedules.py::test_the_catch_up_is_guarded_and_the_guard_can_only_gate_the_build",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_workflow_schedules.py::test_the_health_baseline_carries_what_the_audit_reads_from_it",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_forecast.py::test_the_backtest_is_actually_out_of_sample",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_wins_added.py::test_sample_recomputes_to_the_exported_column",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_workflow_schedules.py::test_no_cron_fires_on_the_hour",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_forecast.py::test_a_uniform_forecast_is_exactly_as_confident_as_it_should_be",
+   "outcome": "passed",
+   "reason": ""
+  },
+  {
+   "test": "tests/test_forecast.py::test_reads_are_pure",
    "outcome": "passed",
    "reason": ""
   },
@@ -2588,432 +3258,12 @@
    "reason": ""
   },
   {
-   "test": "tests/test_scoring_events.py::test_the_career_guards_pass_on_real_data",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_scoring_events.py::test_the_season_cache_stays_out_of_the_builds_freshness_gate",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_season_window.py::test_the_2026_opener_is_the_boundary_the_build_uses",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_season_window.py::test_the_swap_predates_its_seasons_kickoff",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_season_window.py::test_offseason_plus_inseason_equals_total",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_season_window.py::test_the_first_season_counts_its_offseason_trade",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_season_window.py::test_first_season_roster_turnover_is_still_na",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_season_window.py::test_no_trade_is_filed_against_the_wrong_side_of_a_boundary",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
    "test": "tests/test_contracts.py::test_weekly_value_is_the_season_value_divided_by_games",
    "outcome": "passed",
    "reason": ""
   },
   {
-   "test": "tests/test_scoring_events.py::test_the_seam_guard_can_fail",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_season_window.py::test_kickoff_matches_the_real_nfl_week_one",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_season_window.py::test_a_fantasy_week_runs_tuesday_to_monday",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_season_window.py::test_the_2020_backfill_counts_weeks_the_same_way",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_season_window.py::test_kickoff_actually_moves",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_season_window.py::test_the_opener_lookup_reads_week_one_and_nothing_else",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_season_window.py::test_the_opener_only_moves_the_season_that_opened_early",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_startup_draft_order.py::test_sheet_records_the_swap_as_a_two_sided_trade",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_startup_draft_order.py::test_swap_picks_each_count_one_trade",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_startup_draft_order.py::test_real_faab_buys_are_still_treated_as_synthetic",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
    "test": "tests/test_contracts.py::test_derived_league_cap_tracks_the_published_cap",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_startup_draft_order.py::test_startup_remaining_credits_the_drafter_not_the_slot_owner",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_send_audit_email.py::test_send_audit_email",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_snapshot_freshness.py::test_missing_or_undated_snapshot_is_stale",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_snapshot_freshness.py::test_fresh_snapshot_is_not_stale",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_snapshot_freshness.py::test_old_snapshot_trips_threshold",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_startup_draft_order.py::test_draft_is_a_pure_snake_once_ownership_is_applied",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_startup_draft_order.py::test_the_six_traded_picks_are_exactly_the_known_swap",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_startup_draft_order.py::test_untraded_picks_are_owned_by_their_drafter",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_startup_draft_order.py::test_each_team_picks_once_per_round",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_startup_draft_order.py::test_2020_week_one_rosters_reconcile_to_the_draft_and_the_ledger",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_startup_draft_order.py::test_sheet_numbers_startup_picks_by_draft_order",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_startup_draft_order.py::test_sheet_marks_the_traded_picks_and_only_those",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_struck_games.py::test_dressed_without_a_stat_are_active",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_startup_draft_order.py::test_startup_round_five_picks_link_to_their_own_chain",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_startup_league_remaining.py::test_startup_league_remaining",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_struck_games.py::test_stat_lines_rescore_to_the_league_points",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_synthesized_rows.py::test_team_year_counts_every_row_of_its_detail_sheets",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_synthesized_rows.py::test_the_named_case_is_counted_in_full",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_synthesized_rows.py::test_the_lineage_rows_are_really_there_to_be_counted",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_synthesized_rows.py::test_an_in_season_synthesized_row_lands_in_a_week",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_tenure_as_of_clock.py::test_the_last_final_week_is_the_one_whose_games_are_over",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_tenure_as_of_clock.py::test_no_week_is_final_before_the_first_season_kicks_off",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_tenure_as_of_clock.py::test_the_week_clock_never_runs_ahead_of_now",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_tenure_as_of_clock.py::test_a_rebuild_with_no_new_data_gets_the_same_clock",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_tenure_as_of_clock.py::test_the_latest_event_wins_when_it_is_the_newer_fact",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_tenure_as_of_clock.py::test_a_quiet_week_still_advances_with_the_football",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_tenure_as_of_clock.py::test_the_clock_is_never_in_the_future_and_falls_back_to_now",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_tenure_as_of_clock.py::test_the_wall_clock_really_did_flip_the_ranking",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_tenure_as_of_clock.py::test_the_as_of_clock_holds_it_still",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_tenure_as_of_clock.py::test_the_ranking_is_not_frozen_forever",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_top_team_played_week.py::test_top_team_played_week",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_trade_sent_window.py::test_trade_sent_window",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_two_week_final.py::test_constant_is_2026",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_two_week_final.py::test_finals_weeks_pre_2026_single_week",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_two_week_final.py::test_finals_weeks_2026_two_weeks",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_two_week_final.py::test_finals_weeks_no_playoff_start",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_two_week_final.py::test_matchup_stage_2026_three_playoff_weeks",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_two_week_final.py::test_matchup_stage_2020_single_week_final_unchanged",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_two_week_final.py::test_matchup_stage_2025_unchanged",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_two_week_final.py::test_second_finals_week_only_2026_week17",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_waiver_bid_tally.py::test_waiver_bid_tally",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_waiver_claim_dedup.py::test_waiver_claim_dedup",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_struck_games.py::test_rostered_players_match_player_week",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_struck_games.py::test_added_once_and_only_where_missing",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_winning_season_streak.py::test_only_decided_seasons_move_the_streak",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_wins_added.py::test_arrival_displaces_and_players_change_slots",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_wins_added.py::test_unproven_players_move_in_only_if_they_really_started",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_wins_added.py::test_two_open_slots_are_judged_against_the_two_best_options",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_wins_added.py::test_a_bench_player_never_replaces_a_starter_by_reshuffling",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_wins_added.py::test_a_real_starter_never_sits_behind_a_real_bench_player",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_wins_added.py::test_every_cleared_slot_is_filled_even_by_a_zero",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_wins_added.py::test_four_for_one_fills_every_cleared_slot_with_a_different_player",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_wins_added.py::test_dropping_a_player_who_would_have_won_the_game_is_minus_one",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_wins_added.py::test_opponent_loses_the_player_and_the_mirror_row_agrees",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_wins_added.py::test_lineage_through_a_later_trade_earns_its_ktc_share",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_wins_added.py::test_dropping_ends_the_lineage",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_wins_added.py::test_a_reacquired_player_belongs_to_the_reacquiring_move",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_wins_added.py::test_the_count_stops_once_the_league_lets_him_go",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_wins_added.py::test_reacquiring_a_player_ends_the_earlier_moves_count",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_wins_added.py::test_per_season_rate_is_wins_times_17_over_games_since_the_move",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_wins_added.py::test_the_rate_waits_five_weeks_on_the_email_boards",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_struck_games.py::test_season_totals_gain_the_game",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_wins_added.py::test_bench_only_fills_open_slots_and_is_capped",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_wins_added.py::test_arrival_cap_depends_on_whether_anyone_started_him",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_wins_added.py::test_implausible_substitution_is_not_made",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_wins_added.py::test_real_lineups_are_legal_and_pf_is_starters_plus_bonus",
    "outcome": "passed",
    "reason": ""
   },
@@ -3028,177 +3278,17 @@
    "reason": ""
   },
   {
-   "test": "tests/test_snapshot_freshness.py::test_refresh_writes_live_rosters",
+   "test": "tests/test_contracts.py::test_the_permutation_p_is_deterministic_and_two_sided",
    "outcome": "passed",
    "reason": ""
   },
   {
-   "test": "tests/test_snapshot_freshness.py::test_refresh_does_not_clobber_on_empty_fetch",
+   "test": "tests/test_contracts.py::test_big_signings_join_to_real_seasons",
    "outcome": "passed",
    "reason": ""
   },
   {
-   "test": "tests/test_startup_draft_order.py::test_slot_from_pick_in_round_reverses_even_rounds",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_startup_draft_order.py::test_slot_mapping_is_an_involution",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_startup_draft_order.py::test_slot_mapping_rejects_junk_rather_than_guessing",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_startup_draft_order.py::test_every_pick_carries_its_true_position_and_owner",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_workflow_schedules.py::test_no_gate_hardcodes_a_cron_string",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_workflow_schedules.py::test_the_send_and_rotation_gates_use_the_shared_flag",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_workflow_schedules.py::test_injury_capture_lands_between_the_monday_game_and_the_build",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_workflow_schedules.py::test_every_sweep_can_reach_an_inactive_report_window",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_workflow_schedules.py::test_every_window_has_a_fire_that_survives_the_delay",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_workflow_schedules.py::test_the_night_game_window_is_swept",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_workflow_schedules.py::test_the_sweep_is_redundant_and_has_delay_headroom",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_workflow_schedules.py::test_unrecoverable_work_has_a_catch_up_fire",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_workflow_schedules.py::test_recoverable_work_does_not_get_one",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_workflow_schedules.py::test_the_catch_up_is_guarded_and_the_guard_can_only_gate_the_build",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_workflow_schedules.py::test_the_health_baseline_carries_what_the_audit_reads_from_it",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_wins_added.py::test_sample_recomputes_to_the_exported_column",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_workflow_schedules.py::test_no_cron_fires_on_the_hour",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_wins_added.py::test_counterfactual_lineups_keep_the_rules_on_real_moves",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_workflow_schedules.py::test_tuesday_send_list_matches_the_tuesday_crons",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_player_history_continuity.py::test_no_player_history_continuity_breaks",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_player_history_coverage.py::test_every_rostered_week_has_a_player_additions_tenure",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_player_history_coverage.py::test_no_two_tenures_claim_the_same_weeks",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_player_history_coverage.py::test_no_player_on_two_rosters_in_one_week",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_points_added_consistency.py::test_points_added_consistency",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_position_factor.py::test_min_weeks_matches_the_email_gate",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_position_factor.py::test_a_complete_season_uses_its_own_baseline",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_position_factor.py::test_weeks_1_to_4_borrow_the_previous_season_then_switch_at_week_5",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_position_factor.py::test_a_season_not_yet_kicked_off_uses_the_latest",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_position_factor.py::test_the_first_season_on_record_keeps_its_own_even_when_short",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_position_factor.py::test_unknown_position_or_season_is_neutral",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_position_pins.py::test_position_pins",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_ppg_consistency.py::test_ppg_consistency",
-   "outcome": "passed",
-   "reason": ""
-  },
-  {
-   "test": "tests/test_ppg_position_adjusted.py::test_player_year_recomputes_from_player_week",
+   "test": "tests/test_contracts.py::test_matched_cohorts_start_level",
    "outcome": "passed",
    "reason": ""
   }
