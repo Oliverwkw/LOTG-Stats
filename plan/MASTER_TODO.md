@@ -1480,6 +1480,22 @@ guard-skipped fire), 581→584 (#453), 584→589 (#454), 589→597 (#455).
   - by-design: 2026 has no dead start yet (weeks 1–3), so the live season does not exercise
     the change.
 
+## Sleeper projection columns (from the #480 projection-band work)
+- [ ] **Sleeper's own weekly projections as columns** [per user, 2026-10-07: "make sleeper
+  projection columns"]. Source: `api.sleeper.com/projections/nfl/{season}/{week}?season_type=regular&position[]=QB|RB|WR|TE`
+  (undocumented — the endpoint Sleeper's app uses; Rotowire). Week-specific back to 2018,
+  thin in 2018 (~85 WRs/wk), full from 2019; verified NOT today's numbers re-served (per-week
+  team/opponent, retired players present, injured weeks absent, corr with past weeks > future).
+  Score each row's `stats` with that season's league rules (`boldness.scoring_table(y)`);
+  a row with no `pts_ppr` is NO projection (Brady 2021 = adp only), never 0.
+  - Covers 7,795 / 7,851 starts 2020-26. Accuracy 2020-25 per start: MAE 6.42, corr 0.373,
+    bias +0.30 — best of everything tested (Boldness E 6.43 / 0.345 / −1.28).
+  - To decide with the user: which sheets/columns (player_week "Sleeper projection",
+    "Points v Sleeper projection"; team_week projected PF / PA, "Beat projection?"; year /
+    all-time rollups), whether Comeback size / Boldness should switch to it, and how the
+    build caches it (weekly files in .cache like nflverse; live week refetched).
+  - Build risk: undocumented endpoint — must degrade to N/A (never 0) when unreachable.
+
 ## Game-time columns (from the 2026 wk 4 MNF-comeback inquiry)
 - [x] **player_week `Game slot` + team_week margins / comebacks by stage** [per user,
   2026-10-05]. `lotg_support.gametime`, week grain only (no rollups); `inquire.py
