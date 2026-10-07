@@ -1916,8 +1916,8 @@ def _preserve_na(col: str) -> bool:
     if col_l in {"sleeper boldness", "sleeper lineup boldness"}:
         return True
     if "projection" in col_l and "streak" not in col_l \
-            and not col_l.startswith(("overachiever", "underachiever", "times ")):
-        return True
+            and not col_l.startswith(("overachiever", "underachiever", "times ", "combined ")):
+        return True   # (the Combined block keeps its own "winner" convention)
     if col_l.startswith("change from ") or col_l.startswith("change in "):
         return True
     # Draft-origin shares (team/league sheets): "% of 3rd year+ players drafted"

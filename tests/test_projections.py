@@ -188,6 +188,10 @@ def test_exports_sleeper_boldness():
     bench = pw["Starter/Bench"].astype(str) != "Starter"
     assert (v.dropna() >= 0).all() and v[bench].isna().all()
     tw = Q.load_sheet("team_week")
+    # the Combined projection columns keep the matchup convention: the loser's row
+    # points at the winner's ("winner"), never blank (branch run 689 blanked it)
+    cmb = tw["Combined Enhanced Projection"].astype(str)
+    assert (cmb.isin(["winner"]) | Q.numeric(tw, "Combined Enhanced Projection").notna()).mean() > 0.99
     lb = Q.numeric(tw, "Sleeper Lineup Boldness")
     assert (lb.dropna() >= 0).all() and lb.notna().mean() > 0.9
 
