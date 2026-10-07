@@ -3025,6 +3025,8 @@ def build_all(repo_root: Path) -> None:
     except Exception as e:
         _log_exc(debug, "gametime_schedule", e)
         _gt_schedule = None
+    # The schedule (with Vegas lines) for the projections, before `games` is rebound.
+    _proj_games = games.copy() if isinstance(games, pd.DataFrame) else pd.DataFrame()
     played_by_week_by_season: Dict[int, Dict[int, set]] = {}
     if not games.empty:
         try:
@@ -13431,9 +13433,79 @@ def build_all(repo_root: Path) -> None:
 
             stats[key] = st
 
+        # Projections (lotg_support.projections) [per user, 2026-10-07]: Sleeper,
+        # Claude and Enhanced Projection on every player_week row, before the
+        # awards so the Overachiever / Underachiever awards and their streaks
+        # ride the same machinery. The Claude projections are boldness'
+        # pre-kickoff E for every rostered player (bench too), computed here on
+        # the build's own inputs; Enhanced also feeds Boldness and Comeback size
+        # below (approved). A failure leaves the columns N/A, never 0.
+        _proj_res = None
+        try:
+            from lotg_support import projections as _proj
+            from lotg_support import boldness as _bold
+            _t0 = datetime.now()
+            _pflag = pd.Series(False, index=pw.index)
+            for _c in ("Bye?", "Injury?", "Suspension?"):
+                if _c in pw.columns:
+                    _pflag = _pflag | pw[_c].map(lambda v: safe_bool(v, default=False))
+            pw["_proj_out"] = _pflag & (pd.to_numeric(pw["Points"], errors="coerce").fillna(0) == 0)
+            _proj_unavail: Dict[int, Set[Tuple[str, int]]] = defaultdict(set)
+            for _pid, _y, _w in pw.loc[_pflag, ["Player ID", "Year", "Week"]].itertuples(index=False, name=None):
+                if pd.notna(_y) and pd.notna(_w):
+                    _proj_unavail[int(_y)].add((str(_pid), int(_w)))
+            _proj_bridge = {str(_sid): str(_m.get("gsis_id")).strip() for _sid, _m in pid_meta.items()
+                            if (_m or {}).get("gsis_id") and str(_m.get("gsis_id")).lower() != "nan"}
+            _rk0 = ph[~pick_history.non_rookie_mask(ph)] if isinstance(ph, pd.DataFrame) and not ph.empty else pd.DataFrame()
+            _seasons = sorted(int(y) for y in pd.to_numeric(pw["Year"], errors="coerce").dropna().unique())
+            _cur = max(_seasons)
+            _g2s = {g: s_ for s_, g in _proj_bridge.items()}
+            _cl = []
+            with _bold.build_inputs(
+                    matchups=_bold_matchups, roster_positions=_bold_roster_positions,
+                    teams={int(k): dict(v) for k, v in season_roster_to_team.items()},
+                    unavailable=dict(_proj_unavail),
+                    rookie_picks=_rk0[["Year", "Number", "Player Picked"]] if not _rk0.empty else pd.DataFrame(columns=["Year", "Number", "Player Picked"]),
+                    scoring=_bold_scoring, score=_league_score, score_map=_LEAGUE_SCORE_MAP,
+                    bridge=_proj_bridge):
+                for _s in _seasons:
+                    _e = _bold.expected_points(_s)
+                    if not _e.empty:
+                        _cl.append(pd.DataFrame({"Year": _s, "Week": _e["week"].astype(int),
+                                                 "Player ID": _e["gsis_id"].map(_g2s), "E": _e["E"]}))
+                _scoring_tables = {_s: dict(_bold.scoring_table(_s)) for _s in _seasons}
+            _claude = pd.concat(_cl, ignore_index=True).dropna(subset=["Player ID"]) if _cl else pd.DataFrame(columns=["Year", "Week", "Player ID", "E"])
+            _ids = _safe_df(load_dynastyprocess_playerids(ext))
+            _inp = _proj.Inputs(
+                player_week=pw.assign(out=pw["_proj_out"]), claude=_claude, games=_proj_games,
+                ids=_ids.astype(str), scoring=lambda y: _scoring_tables.get(int(y), {}), current_season=_cur,
+                sleeper={_s: _proj.load_sleeper(ext, _s, _cur) for _s in _seasons},
+                espn={_s: _proj.load_espn(ext, _s, _cur) for _s in _seasons},
+                fantasypros=_proj.load_fantasypros(ext), key="Player ID")
+            _proj_res = _proj.project(_inp)
+            for _x in _proj.NAMES:
+                pw[_proj.proj_col(_x)] = _proj_res[_proj.proj_col(_x)]
+                pw[_proj.above_col(_x)] = (pd.to_numeric(pw["Points"], errors="coerce") - pw[_proj.proj_col(_x)]).round(2)
+            _log(debug, f"[{_now_iso()}] INFO projections: {len(_claude)} Claude projections; "
+                        f"{int(_proj_res['_sources'].ge(2).sum())}/{len(pw)} rows with an outside source; "
+                        f"{int(_proj_res['_sleeper_fallback'].sum())} Sleeper fallbacks "
+                        f"in {(datetime.now() - _t0).total_seconds():.0f}s")
+        except Exception as e:
+            _log_exc(debug, "projections", e)
+            _proj_res = None
+
         # Awards (league + team). Ties -> all winners.
         # We compute off pw itself to avoid any mismatched ids.
         pw = pw.sort_values(["Year", "Week", "Team", "Player"]).reset_index(drop=True)
+        # Overachiever / Underachiever per projection (lotg_support.projections).
+        try:
+            from lotg_support import projections as _proj
+            if _proj_res is not None:
+                _paw = _proj.player_week_awards(pw, pw["_proj_out"])
+                for _c in _proj.AWARD_COLUMNS:
+                    pw[_c] = _paw[_c]
+        except Exception as e:
+            _log_exc(debug, "projection_awards", e)
 
         award_cols = [
             "Player of the week?",
@@ -13638,6 +13710,11 @@ def build_all(repo_root: Path) -> None:
             _pts = pd.to_numeric(pw["Points"], errors="coerce").fillna(0.0).to_numpy()
             for _t in (10, 20, 30, 40, 50):
                 _specs[f"{_t}+ point streak"] = (_pts >= _t)
+            # Overachiever / Underachiever (X Projection) streaks
+            from lotg_support import projections as _proj
+            for _c in _proj.AWARD_COLUMNS:
+                if _c in pw.columns:
+                    _specs[_proj.streak_col(_c)] = (pd.to_numeric(pw[_c], errors="coerce").fillna(0) == 1).to_numpy()
             pw = _encode_player_streaks(pw, _grp_key, ["Year", "Week"], _played, _specs)
         except Exception as e:
             _log_exc(debug, "player_streaks", e)
@@ -14851,6 +14928,22 @@ def build_all(repo_root: Path) -> None:
             ("Most bench points?", "Most bench points streak"),
             ("Most injured?", "Most injured streak"),
         ]
+        # Team projections + Overachiever / Underachiever (lotg_support.projections):
+        # the starters' projections summed (+ the semifinal bonus), PF above them,
+        # and the week's highest / lowest — streaked like the other team awards.
+        try:
+            from lotg_support import projections as _proj
+            if _proj.proj_col("Enhanced") in pw.columns:
+                _tp = _proj.team_week_projection(tw, pw)
+                _tp = tw[["Team", "Year", "Week"]].merge(_tp, on=["Team", "Year", "Week"], how="left")
+                for _c in _tp.columns[3:]:
+                    tw[_c] = _tp[_c].to_numpy()
+                _taw = _proj.team_week_awards(tw)
+                for _c in _proj.AWARD_COLUMNS:
+                    tw[_c] = _taw[_c].to_numpy()
+                    _team_award_streaks.append((_c, _proj.streak_col(_c)))
+        except Exception as e:
+            _log_exc(debug, "projection_team_week", e)
         _ts_dedicated = ["Bottom half streak", "150+ PF streak",
                          "Standings leader streak", "Quiet streak",
                          "Win streak vs this opponent"]
@@ -18943,13 +19036,21 @@ def build_all(repo_root: Path) -> None:
         _rk = ph[~pick_history.non_rookie_mask(ph)] if isinstance(ph, pd.DataFrame) and not ph.empty else pd.DataFrame()
         _bold_bridge = {str(_sid): str(_m.get("gsis_id")).strip() for _sid, _m in pid_meta.items()
                         if (_m or {}).get("gsis_id") and str(_m.get("gsis_id")).lower() != "nan"}
+        # Boldness judges lineups on the Enhanced projection [approved by the
+        # user, 2026-10-07]; a player without one keeps the Claude projection.
+        _bold_override = {}
+        if "Enhanced Projection" in pw.columns:
+            for _pid, _y, _w, _e in pw[["Player ID", "Year", "Week", "Enhanced Projection"]].itertuples(index=False, name=None):
+                _g = _bold_bridge.get(str(_pid))
+                if _g and pd.notna(_e) and pd.notna(_y) and pd.notna(_w):
+                    _bold_override[(int(_y), int(_w), _g)] = float(_e)
         with _bold.build_inputs(
                 matchups=_bold_matchups, roster_positions=_bold_roster_positions,
                 teams={int(k): dict(v) for k, v in season_roster_to_team.items()},
                 unavailable=dict(_bold_unavail),
                 rookie_picks=_rk[["Year", "Number", "Player Picked"]] if not _rk.empty else pd.DataFrame(columns=["Year", "Number", "Player Picked"]),
                 scoring=_bold_scoring, score=_league_score, score_map=_LEAGUE_SCORE_MAP,
-                bridge=_bold_bridge):
+                bridge=_bold_bridge, expect_override=_bold_override):
             _bstarts, _blineups = _bold.build_columns()
         _bold_expected = _bstarts.assign(**{"Player ID": _bstarts["Player ID"].astype(str)})
         if not pw.empty:
@@ -19003,8 +19104,9 @@ def build_all(repo_root: Path) -> None:
             pw[_gt.GAME_SLOT_COLUMN] = [_gt.player_slot(_sched, y, w, t)
                                         for y, w, t in zip(pw["Year"], pw["Week"], pw["NFL team"])]
             if isinstance(tw, pd.DataFrame) and not tw.empty:
-                # Comeback size reads the Claude projections — the pre-kickoff
-                # expected points boldness computes (recency,
+                # Comeback size reads the Enhanced projection (lotg_support.
+                # projections) through boldness' starts [approved by the user,
+                # 2026-10-07] — before that the Claude projections (recency,
                 # season scoring, rookie slot priors, next-man-up cuffs, known
                 # outs); a start it lacks falls back to gametime.expected_points.
                 _gcols = _gt.team_week_columns(tw, pw, _sched, _bold_expected)
@@ -19020,7 +19122,7 @@ def build_all(repo_root: Path) -> None:
                            & (pd.to_numeric(pw["Points"], errors="coerce").fillna(0) != 0)).sum())
             _log(debug, f"[{_now_iso()}] INFO gametime: {len(_sched.kickoff)} team-games; "
                         f"{_nogame} scoring starter(s) with no game on the schedule; "
-                        f"{0 if _bold_expected is None else len(_bold_expected)} Claude projections "
+                        f"{0 if _bold_expected is None else len(_bold_expected)} Enhanced projections "
                         f"for {int((pw['Starter/Bench'].astype(str) == 'Starter').sum())} starts")
         else:
             # Without a schedule there are no kickoffs: N/A, never the 0 a
@@ -22688,6 +22790,33 @@ def build_all(repo_root: Path) -> None:
             _log(debug, f"[{_now_iso()}] ktc provenance: {len(_pdf)} lookups -> {_mix}")
     except Exception as e:
         _log_exc(debug, "ktc_provenance", e)
+
+    # Projection rollups (lotg_support.projections), attached last so padded
+    # rows read N/A, never 0: league totals per week, then year / all-time sums,
+    # per-week averages and award counts.
+    try:
+        from lotg_support import projections as _proj
+        if _proj.proj_col("Enhanced") in pw.columns and _proj.proj_col("Enhanced") in tw.columns:
+            _lwp = tw.groupby(["Year", "Week"], as_index=False)[list(_proj.LEAGUE_WEEK_COLUMNS)].sum(min_count=1)
+            league_week = league_week.drop(columns=[c for c in _proj.LEAGUE_WEEK_COLUMNS if c in league_week.columns]) \
+                .merge(_lwp, on=["Year", "Week"], how="left")
+            def _attach(frame, src, keys, prefix):
+                if not isinstance(frame, pd.DataFrame) or frame.empty:
+                    return frame
+                _r = _proj.rollup(src, keys, prefix)
+                frame = frame.drop(columns=[c for c in _r.columns if c not in keys and c in frame.columns])
+                return frame.merge(_r, on=keys, how="left")
+            player_year = _attach(player_year, pw, ["Player ID", "Year"], "Times as ")
+            player_all = _attach(player_all, pw, ["Player ID"], "Times as ")
+            team_year = _attach(team_year, tw, ["Team", "Year"], "Times ")
+            team_all = _attach(team_all, tw, ["Team"], "Times ")
+            league_year = _attach(league_year, _lwp, ["Year"], None)
+            if isinstance(league_all, pd.DataFrame) and not league_all.empty:
+                _la = _proj.rollup(_lwp.assign(_k=1), ["_k"], None).drop(columns="_k")
+                for _c in _la.columns:
+                    league_all[_c] = _la[_c].iloc[0]
+    except Exception as e:
+        _log_exc(debug, "projection_rollups", e)
 
     context = {
         "player_week": pw,

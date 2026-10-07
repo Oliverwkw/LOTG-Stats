@@ -994,7 +994,7 @@ EQUATIONS = {
     ('Comebacks entering SNF / Monday / last game', 'team_week'):
         "M = IN(t,w,T) − IN(o(t,w),w,T); margin overcome MO = −M when win(t,w) = 1 ∧ M < 0; points overcome D = PF(o(t,w),w) − IN(t,w,T) when win(t,w) = 1 ∧ D > 0; else N/A; D / PF(o(t,w),w); MO / IN(o(t,w),w,T); D / L and MO / L, L = |{p ∈ S(t,w) : ko(nfl(p,y,w),y,w) ≥ T}| (N/A when L = 0); own share (PF(t,w) − IN(t,w,T)) / PF(t,w) — IN as in ⟨Margin entering SNF / Monday / last game⟩",
     ('Comeback size', 'team_week'):
-        "μ(p,w) = CP(p,w) (0 if out: flagged ∧ pts = 0), else (Σ_{w'<w, same season} pts(p,w') + 4·avg_{y−1}(p) + 6·m_pos(<w)) / (n + 4·[played y−1] + 6); z(T) = (IN(t,w,T) − IN(o,w,T) + Σ_{p ∈ S(t,w), ko ≥ T} μ − Σ_{p ∈ S(o,w), ko ≥ T} μ) / (2.0·√Σ_{p ∈ S(t,w) ∪ S(o,w), ko ≥ T, not out} max(μ,1)); own share s(i,j) = clip(A / (A + B), 0, 1), A = Σ_{own, T_i ≤ ko < T_j} (pts − μ), B = Σ_{opp, T_i ≤ ko < T_j} (μ − pts) (0 when A + B ≤ 0); zb(T) = z(T) with the numerator − 2.5·√|{p left, not out}| when IN(t,w,T) < IN(o,w,T), else z(T); size = max_{i<j} max(0, −zb(T_i)) · Φ(z(T_j)) · (¼ + ¾·s(i,j)), Φ(z(T_end)) ↦ win(t,w); T over kickoff windows (a ko opens one iff ≥ 3h after the previous ko); stage: i = T only; plain: T_i over every matchup window but the first",
+        "μ(p,w) = EP(p,w) (Enhanced Projection; 0 if out: flagged ∧ pts = 0), else (Σ_{w'<w, same season} pts(p,w') + 4·avg_{y−1}(p) + 6·m_pos(<w)) / (n + 4·[played y−1] + 6); z(T) = (IN(t,w,T) − IN(o,w,T) + Σ_{p ∈ S(t,w), ko ≥ T} μ − Σ_{p ∈ S(o,w), ko ≥ T} μ) / (1.8·√Σ_{p ∈ S(t,w) ∪ S(o,w), ko ≥ T, not out} max(μ,1)); own share s(i,j) = clip(A / (A + B), 0, 1), A = Σ_{own, T_i ≤ ko < T_j} (pts − μ), B = Σ_{opp, T_i ≤ ko < T_j} (μ − pts) (0 when A + B ≤ 0); zb(T) = z(T) with the numerator − 2.5·√|{p left, not out}| when IN(t,w,T) < IN(o,w,T), else z(T); size = max_{i<j} max(0, −zb(T_i)) · Φ(z(T_j)) · (¼ + ¾·s(i,j)), Φ(z(T_end)) ↦ win(t,w); T over kickoff windows (a ko opens one iff ≥ 3h after the previous ko); stage: i = T only; plain: T_i over every matchup window but the first",
     ('Win?', 'team_week'):
         'win(t,w) = [PF > PA] + ½[PF = PA]  (2026+ two-week final: PF summed over both weeks)',
     ('Efficiency', 'team_week / team_year / team_all_time / league_week / league_year / league_all_time'):
@@ -1003,6 +1003,18 @@ EQUATIONS = {
         'max(0, max{XP(b,y,w) : b ∈ R(t,w) ∖ S(t,w), H(b,w), FITS(Fs ∖ {p} ∪ {b}, Σ_Fs)} − XP(p,y,w)) for a starter p; Fs = S(t,w) minus empty slots and dead starts (¬H ∧ pts = 0), Σ_Fs = their slots; N/A on bench rows, empty slots and dead starts',
     ('Lineup Boldness', 'team_week / team_year / team_all_time'):
         "max(0, BLV({XP(q,y,w) : q ∈ Fs ∪ {b ∈ R(t,w) ∖ S(t,w) : H(b,w)}}, Σ_Fs) − Σ_{q ∈ Fs} XP(q,y,w)), Fs = S(t,w) minus empty slots and dead starts, Σ_Fs = the filled slots; team_year / team_all_time = mean over weeks played; N/A before the season's first game",
+    ('Sleeper / Claude / Enhanced Projection', 'player_week / player_year / player_all_time / team_week / team_year / team_all_time / league_week / league_year / league_all_time'):
+        "SP(p,w) = Sleeper's projection scored with season y's rules, else EPw(p,w) (Enhanced without Sleeper), else CP(p,w); CP(p,w) = boldness E; EP(p,w) = mean_r (max(0, xᵀβ + r))², β least squares of √pts on x = [1, the 4 sources (missing → mean of the rest), √sources, sd, avg·sd, implied, avg·implied/24, opp implied, spread, spread·avg/15, form, form3, dvp, home, dome, wind] over completed seasons ≠ y; all three 0 if OUT(p,w) = flagged ∧ pts(p,w) = 0; team: Σ_{S(t,w)} + (PF − Σ_{S(t,w)} pts); league: Σ_t; year / all-time: Σ_w",
+    ('Points above Sleeper / Claude / Enhanced Projection', 'player_week / player_year / player_all_time / team_week / team_year / team_all_time / league_week / league_year / league_all_time'):
+        "pts(p,w) − XP(p,w); team: PF(t,w) − XP(t,w); league: Σ_t; year / all-time: Σ_w",
+    ('Avg Sleeper / Claude / Enhanced Projection and Avg Points above it', 'player_year / player_all_time / team_year / team_all_time / league_year / league_all_time'):
+        "mean over the period's weeks of XP and of pts − XP",
+    ('Overachiever / Underachiever (X Projection)', 'player_week / team_week'):
+        "player: [p = argmax / argmin_{q ∈ S(·,w), ¬OUT(q,w)} (pts(q,w) − XP(q,w))], one winner, alphabetical tie-break; team: [PF(t,w) − XP(t,w) = max / min over teams]",
+    ('Overachiever / Underachiever (X Projection) streak', 'player_week / team_week'):
+        "run length of consecutive award weeks, all-time, terminal-encoded; player runs skip ¬H weeks",
+    ('Times as / Times Overachiever / Underachiever (X Projection)', 'player_year / player_all_time / team_year / team_all_time'):
+        "Σ_w award(·,w)",
     ('Empty slots', 'team_week / team_year / team_all_time'):
         "|{i : S(t,w)[i] = '0' ∨ (¬H(S(t,w)[i],w) ∧ pts(S(t,w)[i],w) = 0)}|  (2020: ESPN slots left empty); year/all-time = Σ",
     ('Brosenzweig', 'team_week'):

@@ -290,10 +290,10 @@ _EXPECTED = []
 
 
 def _expected():
-    """The Claude projections for every completed season (the build's input to
+    """The Enhanced projections for every completed season (the build's input to
     Comeback size), once per run."""
     if not _EXPECTED:
-        _EXPECTED.append(G.claude_projections(Q.completed_seasons()))
+        _EXPECTED.append(G.enhanced_projections(Q.load_sheet("player_week")))
     return _EXPECTED[0]
 
 
@@ -339,6 +339,8 @@ def test_known_monday_comeback():
 def test_exports_match_the_recompute():
     if not (_HAVE_EXPORTS and _HAVE_SCHEDULE):
         return _skip("no exports or schedule cache")
+    if not _have_enhanced():
+        return _skip("exports predate the projection columns")
     tw, pw, s = _data()
     if not set(G.TEAM_WEEK_COLUMNS) <= set(tw.columns) or G.GAME_SLOT_COLUMN not in pw.columns:
         return _skip("exports predate the game-time columns")
@@ -356,14 +358,20 @@ def test_exports_match_the_recompute():
     assert list(pw[G.GAME_SLOT_COLUMN].astype(str).replace({"": G.NA, "nan": G.NA})) == slot
 
 
+def _have_enhanced() -> bool:
+    return "Enhanced Projection" in Q.load_sheet("player_week").columns
+
+
 def test_win_chance_is_calibrated():
     # The comeback-size model's win chances, at every kickoff but the first of
     # every completed-season matchup, against what happened. Expectations are
-    # the Claude projections (0.393 log loss over 2020-25, vs 0.398 for the season-average
-    # fallback and 0.410 for flat position averages); a change that breaks the
-    # expectations, the cuff lift or the spread shows up here first.
+    # the Enhanced projections (log loss 0.375 over 2020-25 at a 1.8 spread, v 0.404
+    # on the Claude projections); a change that breaks the projections or the
+    # spread shows up here first.
     if not (_HAVE_EXPORTS and _HAVE_SCHEDULE):
         return _skip("no exports or schedule cache")
+    if not _have_enhanced():
+        return _skip("exports predate the projection columns")
     import math
     tw, pw, s = _data()
     plays = G.starter_plays(pw, s, _expected())
@@ -380,7 +388,7 @@ def test_win_chance_is_calibrated():
     hi = [(p, y) for p, y in zip(ps, ys) if p > 0.9]
     print(f"  {len(ps)} kickoff windows, log loss {ll:.4f}; under 10%: predicted "
           f"{sum(p for p, _ in lo) / len(lo):.3f} v won {sum(y for _, y in lo) / len(lo):.3f}")
-    assert ll < 0.40, ll
+    assert ll < 0.39, ll
     assert abs(sum(p for p, _ in lo) / len(lo) - sum(y for _, y in lo) / len(lo)) < 0.03
     assert abs(sum(p for p, _ in hi) / len(hi) - sum(y for _, y in hi) / len(hi)) < 0.03
 
@@ -388,6 +396,8 @@ def test_win_chance_is_calibrated():
 def test_comeback_size_bounds():
     if not (_HAVE_EXPORTS and _HAVE_SCHEDULE):
         return _skip("no exports or schedule cache")
+    if not _have_enhanced():
+        return _skip("exports predate the projection columns")
     tw, pw, s = _data()
     c = G.team_week_columns(tw, pw, s, _expected()).replace(G.NA, float("nan"))
     size = pd.to_numeric(c["Comeback size"], errors="coerce")

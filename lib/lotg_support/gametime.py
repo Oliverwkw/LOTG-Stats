@@ -54,15 +54,16 @@ Comeback columns, per stage X [renamed and extended per user, 2026-10-06]:
 Comeback size model [per user, 2026-10-06; chosen by log loss over 2020-25]:
 at any kickoff, the team's expected final margin is the margin going in plus
 the expected points of its starters still to play minus the opponent's. A
-starter's expectation is his CLAUDE PROJECTION — the pre-kickoff expected
-points `lotg_support.boldness` computes (named so not to be confused with the
-Boldness stat) [per user, 2026-10-07]: his
+starter's expectation is his ENHANCED PROJECTION (`lotg_support.projections`,
+read from player_week; approved by the user 2026-10-07 — before that the
+Claude projection, the pre-kickoff expected points `lotg_support.boldness`
+computes): built on the Claude projection —
 recency-weighted NFL games scored with that season's rules, the LOTG rookie-slot
 prior, the next-man-up cuff lift) — the same prediction Boldness judges lineups
 on; a starter known to be out (a dead start: flagged bye / injured /
 suspended, scored 0) expects 0. A start boldness lacks falls back to his
 season-to-date points per game padded with last season and the position
-(`expected_points`). Each player's points vary like 2.0·√(his expectation);
+(`expected_points`). Each player's points vary like 1.8·√(his expectation);
 z = expected final margin ÷ the spread of everything still to play; win chance
 = Φ(z), taken at the start of each kickoff window (never with a game half
 played). A team BEHIND ON THE SCOREBOARD has its hole measured from the
@@ -140,7 +141,9 @@ LEGACY_COLUMNS = {
 }
 
 # Comeback size model (see the module docstring).
-SD_PER_ROOT_POINT = 2.0        # a starter's points vary like 2.0·√(his expectation)
+SD_PER_ROOT_POINT = 1.8        # a starter's points vary like 1.8·√(his Enhanced projection):
+                               # under-10% win chances 2.1% predicted v 2.1% won, 2020-25
+                               # (2.0 on the Claude projections, before 2026-10-07)
 HOLD_SHARE = 0.25              # what a turnaround counts for when the team's own players did none of it
 Z_CAP = 10.0
 BAND_PER_ROOT_STARTER = 2.5    # projection-error band for a team behind on the scoreboard
@@ -500,6 +503,25 @@ def claude_projections(seasons: Sequence[int]) -> pd.DataFrame:
     if not frames:
         return pd.DataFrame(columns=["Year", "Week", "Team", "Player", "Player ID", "E starter", "Dead start?"])
     return pd.concat(frames, ignore_index=True).rename(columns={"Starter": "Player", "Starter ID": "Player ID"})
+
+
+def enhanced_projections(player_week: pd.DataFrame) -> pd.DataFrame:
+    """Every start's Enhanced projection — what the build's Comeback size reads
+    [approved by the user, 2026-10-07] — from player_week's own "Enhanced
+    Projection" column: Year, Week, Team, Player, E starter, Dead start? (a
+    starter flagged bye / injured / suspended who scored 0)."""
+    cols = ["Year", "Week", "Team", "Player", "E starter", "Dead start?"]
+    if player_week is None or player_week.empty or "Enhanced Projection" not in player_week.columns:
+        return pd.DataFrame(columns=cols)
+    st = player_week[player_week["Starter/Bench"].astype(str).str.lower() == "starter"]
+    flag = pd.Series(False, index=st.index)
+    for c in ("Bye?", "Injury?", "Suspension?"):
+        if c in st.columns:
+            flag = flag | st[c].astype(str).str.lower().isin(("true", "1", "1.0"))
+    dead = flag & (pd.to_numeric(st["Points"], errors="coerce").fillna(0) == 0)
+    return pd.DataFrame({"Year": st["Year"], "Week": st["Week"], "Team": st["Team"], "Player": st["Player"],
+                         "E starter": pd.to_numeric(st["Enhanced Projection"], errors="coerce"),
+                         "Dead start?": dead})
 
 
 def starter_plays(player_week: pd.DataFrame, schedule: Schedule,
