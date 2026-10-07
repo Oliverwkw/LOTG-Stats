@@ -1649,9 +1649,10 @@ guard-skipped fire), 581→584 (#453), 584→589 (#454), 589→597 (#455).
   outs aside) when trailing on the scoreboard (`gametime.projection_band`).
   - Set from projection disagreement at 1,601 trailing windows (2020-26): Sleeper's own
     weekly projections (api.sleeper.com/projections, Rotowire, scored with each season's
-    league rules; fetched for the test only) v Boldness E — median 1.4·√n, 75th pct
-    2.5·√n (5.5 pts at 4 left, 8.7 at 9+). Per-starter accuracy: Sleeper MAE 6.44 /
-    corr 0.368 / bias +0.24; Boldness 6.45 / 0.347 / −1.23; season-average 6.54 / 0.313;
-    last-5 7.18 / 0.258; team strength 6.95 / 0.118; position average 6.79 / 0.215.
+    league rules; fetched for the test only; 56 starts with no projection left out) v
+    Boldness E — median 1.4·√n, 75th pct 2.43·√n (5.4 pts at 4 left). Per-starter
+    accuracy: Sleeper MAE 6.42 / corr 0.373 / bias +0.30; Boldness 6.43 / 0.345 / −1.28;
+    season-average 6.51 / 0.311; last-5 7.17 / 0.255; team strength 6.91 / 0.119;
+    position average 6.76 / 0.212.
   - Effect: 346 Comeback size rows rise, 58 from 0.00; every comeback from a scoreboard
     deficit gains the band (≈ +0.2-0.35; Peter 2021 wk 5 2.20 → 2.54, order unchanged).
