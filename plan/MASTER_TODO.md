@@ -1715,6 +1715,24 @@ guard-skipped fire), 581→584 (#453), 584→589 (#454), 589→597 (#455).
     Live drift (by design): add_drops / player_additions KTC "1 year later" etc. — 2025-10-07
     adds hit their 1-year mark today — plus O-Score (21 rows) and stevenb123 2025 Add/Drop
     skill 38.3 → 38.1 from those KTC values. Formulas 684 → 708 rows. Nothing UNEXPECTED.
+- [ ] **Comeback size: one set per projection** [per user, 2026-10-07, after the #481
+  audit: "make the comeback size columns separate for all three projections like others"
+  + "fix band to match each"]. "Comeback size (X Projection)" and "Comeback size entering
+  SNF / Monday / last game (X Projection)", X = Sleeper / Claude / Enhanced, replacing the
+  four "Comeback size" columns and the four "(Sleeper projections)" ones
+  (`gametime.COMEBACK_MODELS`):
+  - Claude: Claude Projection, 2.0 spread, 2.5·√n band — the pre-#481 values (840 × 4
+    equal to run 682); the digest's old "Comeback size" boards map to it.
+  - Enhanced: Enhanced Projection, 1.8 spread, 1.6·√n band — #481's values (equal to run
+    692's "Comeback size").
+  - Sleeper: Sleeper Projection + the app-style win %, band 0 (was 1.6): 338 week totals
+    fall, none rise; max 0.65 → 0.53; 40 go to 0.
+  - Band per projection = 75th percentile of how far it and Sleeper's disagree on the
+    final margin, 2020-26 trailing windows: Claude 2.42·√n (2.5), Enhanced 1.60·√n,
+    Sleeper 0 (it is what the league sees).
+  Boldness / Lineup Boldness / Sleeper Boldness untouched (nothing else reads boldness'
+  output) [per user: "make sure that where the boldness etc stuff was used it uses new
+  versions of boldness"].
 - [ ] **Then: build time** — profile the build and cut it.
 
 ## Game-time columns (from the 2026 wk 4 MNF-comeback inquiry)
