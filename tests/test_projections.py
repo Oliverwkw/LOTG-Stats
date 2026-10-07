@@ -133,6 +133,68 @@ def _data():
     return pw[Q.numeric(pw, "Year").isin(done)]
 
 
+def _dnp_case():
+    """A small player_week, its gsis ids, an appearance log and a schedule:
+    BUF / CIN 2022 wk 17 is the struck Hamlin game, LV 2026 wk 4 played,
+    NYJ 2026 wk 4 on a bye, MIA 2026 wk 4 played but its stats not in yet."""
+    pw = pd.DataFrame([
+        (2026, 4, "LV", 0.0),    # 0 Mendoza: no stat line, no snap, LV played  -> True
+        (2026, 4, "LV", 0.0),    # 1 Cousins: appeared                          -> False
+        (2026, 4, "LV", 6.4),    # 2 scored points (a stat line the log missed) -> False
+        (2026, 4, "NYJ", 0.0),   # 3 bye                                        -> False
+        (2026, 4, "MIA", 0.0),   # 4 MIA's stats have not landed                -> False
+        (2022, 17, "CIN", 0.0),  # 5 Ja'Marr Chase, the struck game [per user] -> False
+        (2026, 4, "LV", 0.0),    # 6 no gsis id                                 -> False
+        (2026, 4, "", 0.0),      # 7 no NFL team (free agent)                   -> False
+    ], columns=["Year", "Week", "NFL team", "Points"])
+    gsis = pd.Series(["00-M", "00-C", "00-X", "00-J", "00-T", "00-JC", None, "00-F"])
+    log = pd.DataFrame([("00-C", 2026, 4, "LV"), ("00-O", 2026, 4, "LV"),
+                        ("00-B", 2022, 17, "BUF"), ("00-H", 2022, 17, "CIN")],
+                       columns=["gsis_id", "season", "week", "team"])
+    games = pd.DataFrame([
+        ("2026_04_KC_LV", 2026, "REG", 4, "KC", "LV", np.nan, np.nan),   # score not in the cached schedule yet
+        ("2026_04_MIA_BUF", 2026, "REG", 4, "MIA", "BUF", 20.0, 27.0),
+        ("2022_17_BUF_CIN", 2022, "REG", 17, "BUF", "CIN", np.nan, np.nan),
+    ], columns=["game_id", "season", "game_type", "week", "away_team", "home_team", "away_score", "home_score"])
+    return pw, gsis, log, games
+
+
+def test_did_not_play_rule():
+    # [per user, 2026-10-07] no stat line and no offensive snap in a game the
+    # team played projects 0 — but never the voided Hamlin game.
+    pw, gsis, log, games = _dnp_case()
+    assert P.did_not_play(pw, gsis, log, games).tolist() == [True, False, False, False, False, False, False, False]
+    # nothing to judge against -> nothing flagged
+    assert not P.did_not_play(pw, gsis, log.iloc[0:0], games).any()
+    assert not P.did_not_play(pw, gsis, log, games.iloc[0:0]).any()
+    # an LV game nflverse already marks as struck would not count either
+    struck = games.assign(game_id=games["game_id"].where(games["game_id"] != "2026_04_KC_LV", "2022_17_BUF_CIN"))
+    assert not P.did_not_play(pw, gsis, log, struck).any()
+
+
+def test_exports_did_not_play_projects_zero():
+    # On a build with the rule (its log line says so): Desmond Ridder's 2022
+    # weeks 1-13 (no snap behind Mariota) and Jake Browning's 2024 weeks 1-7
+    # project 0 under all three; Browning's wk 8 (3 kneel-down snaps) does not,
+    # nor does Ja'Marr Chase's start in the voided 2022 wk 17 game [per user].
+    if not _HAVE_EXPORTS:
+        return _skip("no exports")
+    log = _ROOT / "exports" / "raw" / "build_debug.log"
+    if not log.exists() or "did-not-play weeks zeroed" not in log.read_text(errors="ignore"):
+        return _skip("exports predate the did-not-play rule")
+    pw = _data()
+    if pw is None:
+        return _skip("exports predate the projection columns")
+    yr, wk = Q.numeric(pw, "Year"), Q.numeric(pw, "Week")
+    row = lambda n, y: (pw["Player"] == n) & (yr == y)
+    for x in P.NAMES:
+        v = Q.numeric(pw, P.proj_col(x))
+        assert (v[row("Desmond Ridder", 2022) & wk.between(1, 13)] == 0).all(), x
+        assert (v[row("Jake Browning", 2024) & wk.between(1, 7)] == 0).all(), x
+        assert (v[row("Jake Browning", 2024) & (wk == 8)] > 0).all(), x
+        assert (v[row("Ja'Marr Chase", 2022) & (wk == 17)] > 0).all(), x
+
+
 def test_exports_projection_accuracy():
     # Enhanced is the best broad-use projection: on completed seasons' starters it
     # must beat the Claude projection on RMSE and stay unbiased (2020-25 at build

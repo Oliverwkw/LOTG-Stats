@@ -1752,6 +1752,43 @@ guard-skipped fire), 581→584 (#453), 584→589 (#454), 589→597 (#455).
     "(Sleeper projections)" ×4) +12 (the three sets); Formulas 708 → 709; nothing else
     changed on any sheet (no live drift this run). Nothing UNEXPECTED.
 - [ ] **Then: build time** — profile the build and cut it.
+- [ ] **Did not play → projects 0** [per user, 2026-10-07: "make that change to the
+  projections, but not for the Hamlin game"]. From the Mendoza inquiry: Fernando Mendoza
+  (2026 1.02, LV's QB3 behind Cousins / O'Connell, 0 snaps wks 1-4, on no injury report)
+  projected 17.46 / 16.64 / 15.65 / 14.45 (Claude) as Oliverwkw's bench QB — Sleeper
+  publishes no row for him, ESPN only wk 1 (0.58), so all three fell back to the
+  draft-slot prior, an "if he plays" figure. The known-out rule only zeroed a player
+  FLAGGED bye / injured / suspended; a healthy scratch or a dressed backup who never got
+  in (game_day_status.csv `active` rows deliberately stay un-flagged) kept a full
+  projection. Same pattern: Desmond Ridder 2022 wks 1-13 (his −181 season "record"),
+  Jake Browning 2024 wks 1-7 (15.01 every week), Michael Penix / Kenny Pickett 2024 …
+  - Rule (`projections.did_not_play`): pts = 0 ∧ no stat line and no offensive snap
+    (`boldness.game_log`, the next-man-up "sat out" test) ∧ his NFL team has a REG game
+    that week whose stats have landed (someone on the team is in the log — never a week
+    still being played; the schedule's final score is not required, a cached schedule
+    lags) ∧ not a `struck_games` game (2022 wk 17 BUF@CIN: Ja'Marr Chase started it and
+    keeps his projection [per user]). Zeroes the three published projections only; the
+    model fits, form and FantasyPros curves still read `out` alone, and `_claude_raw` (the
+    Hardship (Claude Projections) baseline) is untouched.
+  - Dry run on the run-695 exports (inquiry-side ids, 95.9% mapped — the build's own
+    Player ID bridge maps more): 279 player-weeks newly 0 (2020 14 / 2021 31 / 2022 55 /
+    2023 30 / 2024 75 / 2025 47 / 2026 27; QB 182, RB 65, WR 17, TE 7), 154 of them had
+    a Claude projection ≥ 8. Two are STARTERS: Donovan Peoples-Jones (stevenb123) 2021 wk 7
+    (dressed, no snap; Enhanced 8.83) and Ronnie Rivers (plehv79) 2022 wk 9 (Enhanced
+    6.87) — their team projections / win % / opponent gaps move. Browning 2024 wk 8 is NOT
+    zeroed (3 kneel-down snaps).
+  - Expected cascade (verify in the audit): player_week X Projection / Points above X
+    for those rows → year / all-time sums and averages (Ridder 2022 Points above Claude
+    −175.45 → −17.63: his zeroed wks 1-13 carried 157.82); Start/sit miss (X) on those rows and on any starter whose reference
+    is one of them; Boldness / Lineup Boldness / Sleeper Boldness where one of them was
+    the best startable bench player (Boldness reads the Enhanced projection; Sleeper
+    Boldness the Sleeper one); the two starters' team_week projection columns, win %,
+    opponent gaps, Combined, UPST and Comeback size sets. Hardship (Claude Projections)
+    must NOT move.
+  - Tests: `test_did_not_play_rule` (synthetic: played / appeared / scored / bye / stats
+    not landed / struck game / no id / no team); `test_exports_did_not_play_projects_zero`
+    (Ridder 2022 1-13 and Browning 2024 1-7 = 0 under all three, Browning wk 8 and Chase
+    2022 wk 17 > 0; skips until the build log carries "did-not-play weeks zeroed").
 
 ## Game-time columns (from the 2026 wk 4 MNF-comeback inquiry)
 - [x] **player_week `Game slot` + team_week margins / comebacks by stage** [per user,
