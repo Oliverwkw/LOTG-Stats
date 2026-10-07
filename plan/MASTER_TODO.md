@@ -1599,6 +1599,30 @@ guard-skipped fire), 581→584 (#453), 584→589 (#454), 589→597 (#455).
   - **Collapse rule**: if over the last 5 seasons the awards are identical or near-identical
     across the three projections, drop the parentheses — one Overachiever / Underachiever
     (+ streaks) column on Enhanced.
+  - **Decisions [per user, 2026-10-07]**: league_week / league_year / league_all_time get
+    TOTALS ONLY (X Projection, Points above X Projection) — no awards, no streaks.
+    Switch list = Comeback size + Boldness / Lineup Boldness (PAE and the forecast stay).
+    Collapse rule checked 2021-25 (85 weeks): all three projections agree on the player
+    Overachiever 72%, player Underachiever 36%, team Overachiever 68%, team Underachiever
+    80% — NOT near-identical, so all three keep their own parenthesised awards + streaks.
+  - **Averages** [per user]: every rollup also gets average versions (avg X Projection,
+    avg Points above X Projection per week).
+- [ ] **Projection versions of the stats that estimate a player's week** [per user,
+  2026-10-07: "a projection version (all 3) for any of the other stats … that use
+  previous-5-games or other tools … some more advanced ones might be better to just
+  replace with enhanced"]. Proposed (confirm with the user before building):
+  - ADD ×3: player_week "Difference in averages of best/worst startables over previous 5
+    games" (+ by-position) → "Difference in X Projections of best/worst startables";
+    team_week "Difference in pregame avg max PF from opponent" → "Difference in X
+    Projection from opponent"; UPST → an X-projection upset (won while projected lower).
+  - REPLACE with Enhanced: Hardship's expected-if-healthy baseline (+ Starter-adjusted
+    Hardship, hardship win/loss flags) — Enhanced as if healthy (outside sources do not
+    project an injured player, so in practice the Claude projection); Luck's pregame
+    talent component → Enhanced projected PF (moves Luck everywhere — needs an OK).
+  - Already covered: "Change from previous 5 weeks avg" ≈ Points above X Projection.
+  - User's call: add_drops / trades "PPG of 5 games before pickup / trade" — recent form,
+    not a weekly estimate; an "X Projection at pickup" would be the projection version.
+  - Leave: PAE, Tanking, KTC slot comparisons (not weekly score estimates).
 - [ ] **Then: build time** — profile the build and cut it.
 
 ## Game-time columns (from the 2026 wk 4 MNF-comeback inquiry)
