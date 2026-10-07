@@ -103,14 +103,25 @@ def test_column_names():
         "Margin overcome (entering SNF)", "Points overcome (entering SNF)",
         "% of own points scored SNF or later", "% of opponent's final points overcome (entering SNF)",
         "Points overcome per player left (entering SNF)", "Margin overcome per player left (entering SNF)",
-        "% of opponent's score overcome (SNF or later)", "Comeback size (entering SNF)")
+        "% of opponent's score overcome (SNF or later)", "Comeback size (entering SNF, Claude projections)")
     assert G.COMEBACK_COLUMNS["last game"][2] == "% of own points scored in last game"
     assert G.COMEBACK_COLUMNS["last game"][6] == "% of opponent's score overcome (last game)"
-    assert G.TEAM_WEEK_COLUMNS[-1] == "Comeback size" and len(G.TEAM_WEEK_COLUMNS) == 3 + 3 * 8 + 1
+    assert G.TEAM_WEEK_COLUMNS[-1] == "Comeback size (Claude projections)" and len(G.TEAM_WEEK_COLUMNS) == 3 + 3 * 8 + 1
     # only the scale-preserving renames carry digest history over
     assert G.LEGACY_COLUMNS["Down entering Monday comeback (per player left)"] == \
         "Points overcome per player left (entering Monday)"
     assert not any("%" in old for old in G.LEGACY_COLUMNS)
+    # Comeback size went back to the Claude projections under a new name
+    # [per user, 2026-10-07]: the digest's boards follow it
+    assert G.LEGACY_COLUMNS["Comeback size"] == "Comeback size (Claude projections)"
+    assert G.LEGACY_COLUMNS["Comeback size (entering last game)"] == \
+        "Comeback size (entering last game, Claude projections)"
+    from lotg_support import digest
+    assert digest.migrate_count_column("Comeback size (entering SNF)") == \
+        "Comeback size (entering SNF, Claude projections)"
+    assert digest.migrate_count_column("Comeback size (Sleeper projections)") == \
+        "Comeback size (Sleeper projections)"
+    assert G.SD_PER_ROOT_POINT == 2.0 and G.BAND_PER_ROOT_STARTER == 2.5
 
 
 def test_margins_and_comebacks():
@@ -153,7 +164,7 @@ def test_margins_and_comebacks():
         assert isinstance(b[_c(stage, 7)], float) and isinstance(a[_c(stage, 7)], float)
     # A was behind its expected finish entering Monday and won: a real size;
     # it was ahead entering SNF (expected) — 0 from there unless the hole came at SNF
-    assert a[_c("Monday", 7)] > 0 and a["Comeback size"] >= a[_c("Monday", 7)]
+    assert a[_c("Monday", 7)] > 0 and a[G.COMEBACK_SIZE_COLUMN] >= a[_c("Monday", 7)]
 
 
 def test_win_z_and_comeback_size():
@@ -213,9 +224,11 @@ def test_projection_band_for_a_team_behind_on_the_scoreboard():
     # [per user, 2026-10-07] Steve (stevenb123) 2026 wk 4 entering SNF: down
     # 57.38 with 4 starters left, opponent done. Projected 69.4 (+12): not a
     # comeback. Projected 58 or 60 (+0.6 / +2.6): inside the band -> one. The
-    # band is 1.6·√n on the Enhanced projection [per user]: 3.2 for 4 left.
+    # band is 2.5·√n on the Claude projection: 5.0 for 4 left; 1.6·√n (3.2) for
+    # the Sleeper version [per user].
     band = G.BAND_PER_ROOT_STARTER * 2
-    assert abs(band - 3.2) < 1e-9
+    assert abs(band - 5.0) < 1e-9
+    assert abs(G.SLEEPER_BAND_PER_ROOT_STARTER * 2 - 3.2) < 1e-9
     def hole(projected):
         left = [(None, 0.0, projected / 4, False)] * 4
         return G.win_z(76.50, 133.88, left, [], G.projection_band(76.50, 133.88, left, []))
@@ -291,10 +304,10 @@ _EXPECTED = []
 
 
 def _expected():
-    """The Enhanced projections for every completed season (the build's input to
-    Comeback size), once per run."""
+    """The Claude projections for every completed season (the build's input to
+    Comeback size (Claude projections)), once per run."""
     if not _EXPECTED:
-        _EXPECTED.append(G.enhanced_projections(Q.load_sheet("player_week")))
+        _EXPECTED.append(G.claude_expectations(Q.load_sheet("player_week")))
     return _EXPECTED[0]
 
 
@@ -360,15 +373,15 @@ def test_exports_match_the_recompute():
 
 
 def _have_enhanced() -> bool:
-    return "Enhanced Projection" in Q.load_sheet("player_week").columns
+    return "Claude Projection" in Q.load_sheet("player_week").columns
 
 
 def test_win_chance_is_calibrated():
     # The comeback-size model's win chances, at every kickoff but the first of
     # every completed-season matchup, against what happened. Expectations are
-    # the Enhanced projections (log loss 0.375 over 2020-25 at a 1.8 spread, v 0.404
-    # on the Claude projections); a change that breaks the projections or the
-    # spread shows up here first.
+    # the Claude projections (0.393 log loss over 2020-25 at a 2.0 spread, vs 0.398
+    # for the season-average fallback); a change that breaks the projections or
+    # the spread shows up here first.
     if not (_HAVE_EXPORTS and _HAVE_SCHEDULE):
         return _skip("no exports or schedule cache")
     if not _have_enhanced():
@@ -389,7 +402,7 @@ def test_win_chance_is_calibrated():
     hi = [(p, y) for p, y in zip(ps, ys) if p > 0.9]
     print(f"  {len(ps)} kickoff windows, log loss {ll:.4f}; under 10%: predicted "
           f"{sum(p for p, _ in lo) / len(lo):.3f} v won {sum(y for _, y in lo) / len(lo):.3f}")
-    assert ll < 0.39, ll
+    assert ll < 0.40, ll
     assert abs(sum(p for p, _ in lo) / len(lo) - sum(y for _, y in lo) / len(lo)) < 0.03
     assert abs(sum(p for p, _ in hi) / len(hi) - sum(y for _, y in hi) / len(hi)) < 0.03
 
@@ -401,7 +414,7 @@ def test_comeback_size_bounds():
         return _skip("exports predate the projection columns")
     tw, pw, s = _data()
     c = G.team_week_columns(tw, pw, s, _expected()).replace(G.NA, float("nan"))
-    size = pd.to_numeric(c["Comeback size"], errors="coerce")
+    size = pd.to_numeric(c[G.COMEBACK_SIZE_COLUMN], errors="coerce")
     assert size.notna().all() and (size >= 0).all()
     for st in G.STAGES:
         stage = pd.to_numeric(c[G.COMEBACK_COLUMNS[st][7]], errors="coerce")

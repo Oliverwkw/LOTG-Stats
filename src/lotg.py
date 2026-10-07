@@ -13449,7 +13449,7 @@ def build_all(repo_root: Path) -> None:
         # awards so the Overachiever / Underachiever awards and their streaks
         # ride the same machinery. The Claude projections are boldness'
         # pre-kickoff E for every rostered player (bench too), computed here on
-        # the build's own inputs; Enhanced also feeds Boldness and Comeback size
+        # the build's own inputs; Enhanced also feeds Boldness
         # below (approved). A failure leaves the columns N/A, never 0.
         _proj_res = None
         try:
@@ -19138,7 +19138,6 @@ def build_all(repo_root: Path) -> None:
     # team_all_time = the AVERAGE per lineup over the weeks played. Empty slots
     # (and dead starts: ruled out, scored 0) are not boldness: they are counted
     # in "Empty slots" (team_week), SUMMED on team_year / team_all_time.
-    _bold_expected = None   # each start's pre-kickoff E, for the gametime block below
     try:
         from lotg_support import boldness as _bold
         _t0 = datetime.now()
@@ -19170,7 +19169,6 @@ def build_all(repo_root: Path) -> None:
                 scoring=_bold_scoring, score=_league_score, score_map=_LEAGUE_SCORE_MAP,
                 bridge=_bold_bridge, expect_override=_bold_override):
             _bstarts, _blineups = _bold.build_columns()
-        _bold_expected = _bstarts.assign(**{"Player ID": _bstarts["Player ID"].astype(str)})
         if not pw.empty:
             _bs = _bstarts.assign(Year=pd.to_numeric(_bstarts["Year"]).astype(int),
                                   Week=pd.to_numeric(_bstarts["Week"]).astype(int),
@@ -19267,12 +19265,13 @@ def build_all(repo_root: Path) -> None:
             pw[_gt.GAME_SLOT_COLUMN] = [_gt.player_slot(_sched, y, w, t)
                                         for y, w, t in zip(pw["Year"], pw["Week"], pw["NFL team"])]
             if isinstance(tw, pd.DataFrame) and not tw.empty:
-                # Comeback size reads the Enhanced projection (lotg_support.
-                # projections) through boldness' starts [approved by the user,
-                # 2026-10-07] — before that the Claude projections (recency,
-                # season scoring, rookie slot priors, next-man-up cuffs, known
-                # outs); a start it lacks falls back to gametime.expected_points.
-                _gcols = _gt.team_week_columns(tw, pw, _sched, _bold_expected)
+                # Comeback size (Claude projections) reads player_week's Claude
+                # Projection (recency, season scoring, rookie slot priors,
+                # next-man-up cuffs, known outs) [per user, 2026-10-07: back
+                # from Enhanced, renamed]; a start without one falls back to
+                # gametime.expected_points.
+                _claude_exp = _gt.claude_expectations(pw)
+                _gcols = _gt.team_week_columns(tw, pw, _sched, _claude_exp)
                 _gmap = {(str(t), int(y), int(w)): r for t, y, w, *r in
                          _gcols[["Team", "Year", "Week", *_gt.TEAM_WEEK_COLUMNS]].itertuples(index=False, name=None)}
                 _tw_keys = [(str(t), int(y), int(w)) if pd.notna(y) and pd.notna(w) else None
@@ -19302,7 +19301,7 @@ def build_all(repo_root: Path) -> None:
                            & (pd.to_numeric(pw["Points"], errors="coerce").fillna(0) != 0)).sum())
             _log(debug, f"[{_now_iso()}] INFO gametime: {len(_sched.kickoff)} team-games; "
                         f"{_nogame} scoring starter(s) with no game on the schedule; "
-                        f"{0 if _bold_expected is None else len(_bold_expected)} Enhanced projections "
+                        f"{int(pd.to_numeric(_claude_exp['E starter'], errors='coerce').notna().sum()) if isinstance(tw, pd.DataFrame) and not tw.empty else 0} Claude projections "
                         f"for {int((pw['Starter/Bench'].astype(str) == 'Starter').sum())} starts")
         else:
             # Without a schedule there are no kickoffs: N/A, never the 0 a

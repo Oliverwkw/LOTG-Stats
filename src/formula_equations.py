@@ -993,8 +993,8 @@ EQUATIONS = {
         "IN(t,w,T) − IN(o(t,w),w,T), IN(t,w,T) = PF(t,w) − Σ_{p ∈ S(t,w), ko(nfl(p,y,w),y,w) ≥ T} pts(p,w); T = first Sunday ko ≥ 19:00 (SNF) / first ko after Sunday (Monday) / start of the last kickoff window over S(t,w) ∪ S(o,w) (a ko opens a window iff ≥ 3h after the previous ko) if ≥ Sunday 19:00 (last game); no such T → N/A",
     ('Comebacks entering SNF / Monday / last game', 'team_week'):
         "M = IN(t,w,T) − IN(o(t,w),w,T); margin overcome MO = −M when win(t,w) = 1 ∧ M < 0; points overcome D = PF(o(t,w),w) − IN(t,w,T) when win(t,w) = 1 ∧ D > 0; else N/A; D / PF(o(t,w),w); MO / IN(o(t,w),w,T); D / L and MO / L, L = |{p ∈ S(t,w) : ko(nfl(p,y,w),y,w) ≥ T}| (N/A when L = 0); own share (PF(t,w) − IN(t,w,T)) / PF(t,w) — IN as in ⟨Margin entering SNF / Monday / last game⟩",
-    ('Comeback size', 'team_week'):
-        "μ(p,w) = EP(p,w) (Enhanced Projection; 0 if out: flagged ∧ pts = 0), else (Σ_{w'<w, same season} pts(p,w') + 4·avg_{y−1}(p) + 6·m_pos(<w)) / (n + 4·[played y−1] + 6); z(T) = (IN(t,w,T) − IN(o,w,T) + Σ_{p ∈ S(t,w), ko ≥ T} μ − Σ_{p ∈ S(o,w), ko ≥ T} μ) / (1.8·√Σ_{p ∈ S(t,w) ∪ S(o,w), ko ≥ T, not out} max(μ,1)); own share s(i,j) = clip(A / (A + B), 0, 1), A = Σ_{own, T_i ≤ ko < T_j} (pts − μ), B = Σ_{opp, T_i ≤ ko < T_j} (μ − pts) (0 when A + B ≤ 0); zb(T) = z(T) with the numerator − 1.6·√|{p left, not out}| when IN(t,w,T) < IN(o,w,T), else z(T); size = max_{i<j} max(0, −zb(T_i)) · Φ(z(T_j)) · (¼ + ¾·s(i,j)), Φ(z(T_end)) ↦ win(t,w); T over kickoff windows (a ko opens one iff ≥ 3h after the previous ko); stage: i = T only; plain: T_i over every matchup window but the first",
+    ('Comeback size (Claude projections)', 'team_week'):
+        "μ(p,w) = CP(p,w) (0 if out: flagged ∧ pts = 0), else (Σ_{w'<w, same season} pts(p,w') + 4·avg_{y−1}(p) + 6·m_pos(<w)) / (n + 4·[played y−1] + 6); z(T) = (IN(t,w,T) − IN(o,w,T) + Σ_{p ∈ S(t,w), ko ≥ T} μ − Σ_{p ∈ S(o,w), ko ≥ T} μ) / (2.0·√Σ_{p ∈ S(t,w) ∪ S(o,w), ko ≥ T, not out} max(μ,1)); own share s(i,j) = clip(A / (A + B), 0, 1), A = Σ_{own, T_i ≤ ko < T_j} (pts − μ), B = Σ_{opp, T_i ≤ ko < T_j} (μ − pts) (0 when A + B ≤ 0); zb(T) = z(T) with the numerator − 2.5·√|{p left, not out}| when IN(t,w,T) < IN(o,w,T), else z(T); size = max_{i<j} max(0, −zb(T_i)) · Φ(z(T_j)) · (¼ + ¾·s(i,j)), Φ(z(T_end)) ↦ win(t,w); T over kickoff windows (a ko opens one iff ≥ 3h after the previous ko); stage: i = T only; plain: T_i over every matchup window but the first",
     ('Win?', 'team_week'):
         'win(t,w) = [PF > PA] + ½[PF = PA]  (2026+ two-week final: PF summed over both weeks)',
     ('Efficiency', 'team_week / team_year / team_all_time / league_week / league_year / league_all_time'):
@@ -1026,7 +1026,7 @@ EQUATIONS = {
     ('Hardship (Claude Projections)', 'team_week / team_year / team_all_time / league_week'):
         "⟨Hardship⟩ and its family with each missed player's expected-if-healthy points = max(0, CP(p,w)) taken before the OUT zeroing",
     ('Comeback size (Sleeper projections)', 'team_week'):
-        "⟨Comeback size⟩ with μ = SP(p,w), the Sleeper Projection, and z(T) = Φ⁻¹(WP_T), WP_T = ⟨Pre-week Win % (X Projection)⟩ on (IN(t,w,T) + Σ_{S(t,w), ko ≥ T} SP) v the opponent's; zb(T) = the same with 1.6·√|{p left, not out}| off the team's side when IN(t,w,T) < IN(o,w,T)",
+        "⟨Comeback size (Claude projections)⟩ with μ = SP(p,w), the Sleeper Projection, and z(T) = Φ⁻¹(WP_T), WP_T = ⟨Pre-week Win % (X Projection)⟩ on (IN(t,w,T) + Σ_{S(t,w), ko ≥ T} SP) v the opponent's; zb(T) = the same with 1.6·√|{p left, not out}| (not 2.5) off the team's side when IN(t,w,T) < IN(o,w,T)",
     ('Pre-week Win % (X Projection)', 'team_week'):
         "WP(t,w) = XA^3.757 / (XA^3.757 + XB^3.757), XA = Σ_{S(t,w)} XP + (PF − Σ_{S(t,w)} pts), XB the opponent's; difference = WP(t,w) − WP(o(t,w),w)",
     ('Win % overcome (X Projection)', 'team_week'):

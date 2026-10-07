@@ -47,30 +47,31 @@ Comeback columns, per stage X [renamed and extended per user, 2026-10-06]:
   opponent's points going in.
   The overcome columns are N/A unless the team won from behind; % columns are
   fractions (the workbook shows them as percents).
-- **Comeback size (entering X)** and **Comeback size** (every kickoff in the
-  week) — every game, comeback or not; see `comeback_size`. 0.00 = never
-  behind its expected finish (a blowout that never got close).
+- **Comeback size (entering X, Claude projections)** and **Comeback size
+  (Claude projections)** (every kickoff in the week) — every game, comeback or
+  not; see `comeback_size`. 0.00 = never behind its expected finish (a blowout
+  that never got close). Named for their projection [per user, 2026-10-07]
+  beside **Comeback size (Sleeper projections)** (`sleeper_comeback_columns`).
 
 Comeback size model [per user, 2026-10-06; chosen by log loss over 2020-25]:
 at any kickoff, the team's expected final margin is the margin going in plus
 the expected points of its starters still to play minus the opponent's. A
-starter's expectation is his ENHANCED PROJECTION (`lotg_support.projections`,
-read from player_week; approved by the user 2026-10-07 — before that the
-Claude projection, the pre-kickoff expected points `lotg_support.boldness`
-computes): built on the Claude projection —
-recency-weighted NFL games scored with that season's rules, the LOTG rookie-slot
-prior, the next-man-up cuff lift) — the same prediction Boldness judges lineups
-on; a starter known to be out (a dead start: flagged bye / injured /
-suspended, scored 0) expects 0. A start boldness lacks falls back to his
+starter's expectation is his CLAUDE PROJECTION — the pre-kickoff expected
+points `lotg_support.boldness` computes, player_week's "Claude Projection"
+(`claude_expectations`): recency-weighted NFL games scored with that season's
+rules, the LOTG rookie-slot prior, the next-man-up cuff lift; a starter known
+to be out (a dead start: flagged bye / injured / suspended, scored 0) expects
+0. [#481 moved this to the Enhanced projection; the user had it put back on
+Claude and renamed, 2026-10-07.] A start without one falls back to his
 season-to-date points per game padded with last season and the position
-(`expected_points`). Each player's points vary like 1.8·√(his expectation);
+(`expected_points`). Each player's points vary like 2.0·√(his expectation);
 z = expected final margin ÷ the spread of everything still to play; win chance
 = Φ(z), taken at the start of each kickoff window (never with a game half
 played). A team BEHIND ON THE SCOREBOARD has its hole measured from the
-projection less a band for projection error, 1.6 × √(starters still to play)
+projection less a band for projection error, 2.5 × √(starters still to play)
 (`projection_band`) [per user, 2026-10-07]: down 57.38 with 4 left and
 projected 58 or 60 is a comeback, projected 69.4 is not. The band is the 75th
-percentile of how far the Enhanced and Sleeper projections (what the league
+percentile of how far the Claude and Sleeper projections (what the league
 sees live)
 disagree on the final margin. Depth of a hole = −z when z < 0 (standard deviations behind the
 expected finish, capped at 10). Comeback size = the largest depth × the win
@@ -116,11 +117,11 @@ def _stage_columns(s: str) -> Tuple[str, ...]:
             f"Points overcome per player left (entering {s})",
             f"Margin overcome per player left (entering {s})",
             f"% of opponent's score overcome ({after})",
-            f"Comeback size (entering {s})")
+            f"Comeback size (entering {s}, Claude projections)")
 
 
 COMEBACK_COLUMNS = {s: _stage_columns(s) for s in STAGES}
-COMEBACK_SIZE_COLUMN = "Comeback size"
+COMEBACK_SIZE_COLUMN = "Comeback size (Claude projections)"
 TEAM_WEEK_COLUMNS: Tuple[str, ...] = tuple(
     [MARGIN_COLUMNS[s] for s in STAGES] + [c for s in STAGES for c in COMEBACK_COLUMNS[s]]
     + [COMEBACK_SIZE_COLUMN])
@@ -138,20 +139,25 @@ LEGACY_COLUMNS = {
     old: new for s in STAGES for old, new in (
         (f"Down entering {s} comeback (margin overcome)", COMEBACK_COLUMNS[s][0]),
         (f"Down entering {s} comeback (points overcome)", COMEBACK_COLUMNS[s][1]),
-        (f"Down entering {s} comeback (per player left)", COMEBACK_COLUMNS[s][4]))
-}
+        (f"Down entering {s} comeback (per player left)", COMEBACK_COLUMNS[s][4]),
+        # #479-#481's names: on the Claude projections until #481 moved them to
+        # Enhanced; back on Claude and renamed 2026-10-07 [per user], so the
+        # digest's boards carry over (their values are the pre-#481 ones).
+        (f"Comeback size (entering {s})", COMEBACK_COLUMNS[s][7]))
+} | {"Comeback size": "Comeback size (Claude projections)"}
 
 # Comeback size model (see the module docstring).
-SD_PER_ROOT_POINT = 1.8        # a starter's points vary like 1.8·√(his Enhanced projection):
-                               # under-10% win chances 2.1% predicted v 2.1% won, 2020-25
-                               # (2.0 on the Claude projections, before 2026-10-07)
+SD_PER_ROOT_POINT = 2.0        # a starter's points vary like 2.0·√(his Claude projection)
 HOLD_SHARE = 0.25              # what a turnaround counts for when the team's own players did none of it
 Z_CAP = 10.0
-BAND_PER_ROOT_STARTER = 1.6    # projection-error band for a team behind on the scoreboard
-                               # (2.5 on the Claude projections; 1.6 on Enhanced, per user)
-# Win chances: "calibrated" (Φ of the projected margin over 1.8·√ projected
-# points — Comeback size) or "app" (the Sleeper app-style A^k/(A^k+B^k), k = APP_WIN_EXPONENT
-# — Comeback size (Sleeper projections)) [per user, 2026-10-07: keep separate].
+BAND_PER_ROOT_STARTER = 2.5    # projection-error band for a team behind on the scoreboard (Claude)
+SLEEPER_BAND_PER_ROOT_STARTER = 1.6   # the same band for Comeback size (Sleeper projections)
+# Win chances: "calibrated" (Φ of the projected margin over 2.0·√ projected
+# points — Comeback size (Claude projections)) or "app" (the Sleeper app-style
+# A^k/(A^k+B^k), k = APP_WIN_EXPONENT — Comeback size (Sleeper projections))
+# [per user, 2026-10-07: keep separate]. (#481 briefly ran the calibrated
+# model on the Enhanced projections, 1.8 spread / 1.6 band; the user had it put
+# back on Claude and renamed, 2026-10-07.)
 GAME_HOURS = 3.0               # a game is over this long after kickoff (see `windows`)
 # Fallback expectation, for a starter boldness has none for (or a build where
 # boldness failed): season-to-date PPG padded with last season and the position.
@@ -320,19 +326,20 @@ def win_z(own_in: float, opp_in: float, own_left: Sequence[Sequence],
 
 
 def projection_band(own_in: float, opp_in: float, own_left: Sequence[Sequence],
-                    opp_left: Sequence[Sequence]) -> float:
+                    opp_left: Sequence[Sequence], per_root: float = BAND_PER_ROOT_STARTER) -> float:
     """Points of projection error a team BEHIND ON THE SCOREBOARD is allowed:
     BAND_PER_ROOT_STARTER × √(starters still to play on both sides, known outs
     aside); 0 when level or ahead. [per user, 2026-10-07] down 57.38 with 4
     starters projected 58 or 60 is a comeback, projected 69.4 is not. The band
     is the 75th percentile of how far the projection in use and Sleeper's (what
     the league sees live) disagree on the final margin: 2.5·√n on the Claude
-    projections, 1.6·√n on Enhanced [per user, 2026-10-07: "switch to 1.6 since
-    we switched to enhanced"] — 3.2 for 4 left."""
+    projections (5.0 for 4 left); 1.6·√n for the Sleeper version [per user,
+    2026-10-07: "switch to 1.6 since we switched to enhanced", kept there when
+    the Claude version came back]."""
     if own_in - opp_in >= 0:
         return 0.0
     n = sum(1 for s in list(own_left) + list(opp_left) if not (len(s) > 3 and s[3]))
-    return BAND_PER_ROOT_STARTER * math.sqrt(n)
+    return per_root * math.sqrt(n)
 
 
 def _own_part(hole: Sequence[float], later: Sequence[float]) -> float:
@@ -402,7 +409,7 @@ def checkpoint(own: Sequence[Sequence], opp: Sequence[Sequence], own_final: floa
         # far + the remaining starters' projections; the band comes off ours.
         a = own_in + sum(_mu(s) for s in ol)
         b = opp_in + sum(_mu(s) for s in pl)
-        band = projection_band(own_in, opp_in, ol, pl)
+        band = projection_band(own_in, opp_in, ol, pl, SLEEPER_BAND_PER_ROOT_STARTER)
         return (_app_z(a, b), rest[0], rest[1], _app_z(a - band, b))
     return (win_z(own_in, opp_in, ol, pl), rest[0], rest[1],
             win_z(own_in, opp_in, ol, pl, projection_band(own_in, opp_in, ol, pl)))
@@ -528,9 +535,17 @@ def claude_projections(seasons: Sequence[int]) -> pd.DataFrame:
     return pd.concat(frames, ignore_index=True).rename(columns={"Starter": "Player", "Starter ID": "Player ID"})
 
 
+def claude_expectations(player_week: pd.DataFrame) -> pd.DataFrame:
+    """Every start's Claude projection — what the build's Comeback size (Claude
+    projections) reads — from player_week's "Claude Projection" (0 for a dead
+    start, which `Dead start?` also marks): the pre-kickoff E boldness
+    computes, the same one it judged lineups on before #481."""
+    return projection_expectations(player_week, "Claude Projection")
+
+
 def enhanced_projections(player_week: pd.DataFrame) -> pd.DataFrame:
-    """Every start's Enhanced projection — what the build's Comeback size reads
-    [approved by the user, 2026-10-07] — from player_week's own "Enhanced
+    """Every start's Enhanced projection (`projection_expectations` reads any
+    projection column through it) from player_week's own "Enhanced
     Projection" column: Year, Week, Team, Player, E starter, Dead start? (a
     starter flagged bye / injured / suspended who scored 0)."""
     cols = ["Year", "Week", "Team", "Player", "E starter", "Dead start?"]
@@ -843,9 +858,9 @@ SLEEPER_COMEBACK_COLUMNS: Tuple[str, ...] = (
 def sleeper_comeback_columns(team_week: pd.DataFrame, player_week: pd.DataFrame,
                              schedule: Schedule) -> pd.DataFrame:
     """Comeback size as the Sleeper app sees the game: the Sleeper Projection
-    and the app-style win % (model "app") in place of the Enhanced projection
-    and the calibrated win chance; every other rule (kickoff windows, the
-    projection band, the own-doing share) as Comeback size."""
+    and the app-style win % (model "app") in place of the Claude projection
+    and the calibrated win chance, with a 1.6·√n band; every other rule
+    (kickoff windows, the own-doing share) as Comeback size (Claude projections)."""
     cols = ["Team", "Year", "Week", *SLEEPER_COMEBACK_COLUMNS]
     exp = projection_expectations(player_week, "Sleeper Projection")
     if exp.empty:

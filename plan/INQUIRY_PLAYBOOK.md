@@ -137,7 +137,7 @@ sheets' "Lineup Boldness" (the build feeds it its own data through
 `build_inputs`). A change to either is a build change. So is
 `lotg_support.gametime`: it IS `player_week` "Game slot" and the team_week
 "Margin entering …", "… overcome (entering …)", "% of own points scored …" and
-"Comeback size" columns.
+"Comeback size (Claude projections)" / "Comeback size (Sleeper projections)" columns.
 
 ## Start here, not with a script
 
@@ -732,15 +732,17 @@ list is here so an answer written by hand does not walk into them.
   Monday)" too (plehv79, 2023 Semifinal: +3.68 going in, 55.12 overcome). "Margin
   overcome" is the at-the-time deficit (old definition), as are the "Margin
   entering …" columns. (Names before 2026-10-06: "Down entering X comeback (…)".)
-  **Comeback size is a model, not a count** [per user, 2026-10-06]: standard
-  deviations behind the expected finish (starters' expected points = Boldness'
-  pre-kickoff E: recency, that season's scoring, rookie slot prior, next-man-up
-  cuffs, known outs at 0; a team behind on the scoreboard gets a 1.6·√(starters
+  **Comeback size (Claude projections) is a model, not a count** [per user,
+  2026-10-06; renamed 2026-10-07]: standard
+  deviations behind the expected finish (starters' expected points = the Claude
+  projection: recency, that season's scoring, rookie slot prior, next-man-up
+  cuffs, known outs at 0; a team behind on the scoreboard gets a 2.5·√(starters
   left) projection-error band) × the win chance the team later reached × how much of
   the turnaround its OWN players made (¼ floor). A lead held while the opponent's
   late players flopped counts, but only a quarter [per user]. From the exports
-  the inquiry side recomputes E with `gametime.claude_projections` (~1 min
-  for every season, cached after). The % columns are fractions. Monday includes 2020's
+  the inquiry side reads E from player_week's "Claude Projection"
+  (`gametime.claude_expectations`). Comeback size (Sleeper projections) is the
+  same on the Sleeper Projection and the app-style win % (1.6·√n band). The % columns are fractions. Monday includes 2020's
   Tuesday / Wednesday makeups; the abandoned 2022 week 17 Bills-Bengals game,
   struck from the nflverse schedule (the Damar Hamlin no-contest), is put back
   as a NORMAL game with a short stat pool [per user, 2026-10-05: "same thing as

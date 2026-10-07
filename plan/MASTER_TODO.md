@@ -1715,6 +1715,17 @@ guard-skipped fire), 581→584 (#453), 584→589 (#454), 589→597 (#455).
     Live drift (by design): add_drops / player_additions KTC "1 year later" etc. — 2025-10-07
     adds hit their 1-year mark today — plus O-Score (21 rows) and stevenb123 2025 Add/Drop
     skill 38.3 → 38.1 from those KTC values. Formulas 684 → 708 rows. Nothing UNEXPECTED.
+- [ ] **Comeback size back on the Claude projections, renamed** [per user, 2026-10-07,
+  after the #481 audit: "Remove Comeback size on Enhanced and return it to what we had
+  before, but change its name"]. The four columns are now "Comeback size (Claude
+  projections)" and "Comeback size (entering SNF / Monday / last game, Claude
+  projections)": the Claude projection (player_week "Claude Projection", 0 for a dead
+  start), 2.0 spread, 2.5·√n band — exactly the pre-#481 values (recomputed from run 692's
+  exports: 840 × 4 equal to run 682). Comeback size (Sleeper projections) keeps its 1.6·√n
+  band (`SLEEPER_BAND_PER_ROOT_STARTER`). Boldness / Lineup Boldness / Sleeper Boldness
+  stay on their #481 versions [per user: "make sure that where the boldness etc stuff was
+  used it uses new versions of boldness"] — nothing else in the build reads boldness'
+  output. Digest boards carry over via `gametime.LEGACY_COLUMNS`.
 - [ ] **Then: build time** — profile the build and cut it.
 
 ## Game-time columns (from the 2026 wk 4 MNF-comeback inquiry)
