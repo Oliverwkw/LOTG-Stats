@@ -46,6 +46,7 @@ import pandas as pd
 
 from .email_summary import NewData, attribute, stat_relevance
 from . import number_format as _number_format
+from . import gametime as _gametime
 
 
 
@@ -373,6 +374,16 @@ def is_yearly_counting_stat(column: str) -> bool:
         return False
     c = column.lower()
     return any(m in c for m in _YEARLY_COUNTING_MARKERS)
+
+
+def low_on_board(sheet: str, column: str) -> bool:
+    """Whether a column's LOW end is ranked on the all-time boards. Not for a
+    season-accumulating count (its low end is the on-pace projection's), nor
+    for what a comeback overcame (`gametime.HIGH_END_ONLY`: its low end is
+    0.1-point wins). One rule for the boards and the drop-off lookup."""
+    if sheet in _YEARLY_SHEETS and is_yearly_counting_stat(column):
+        return False
+    return column not in _gametime.HIGH_END_ONLY
 
 
 # Columns with no rate marker that are still not tallies: a score, a value, a
@@ -1478,7 +1489,8 @@ def _highlights_for_frame(section: str, wk_df: pd.DataFrame, entity_col: str,
                 if _tie_fits(high_rank[v], counts[v], window):
                     out.append(WeeklyHighlight(section, entity, col, "high", high_rank[v], v,
                                                week=int(week), tied=tied))
-            elif low_rank[v] <= window and _tie_fits(low_rank[v], counts[v], window):
+            elif (low_rank[v] <= window and _tie_fits(low_rank[v], counts[v], window)
+                  and col not in _gametime.HIGH_END_ONLY):   # 0.1-pt "comebacks"
                 out.append(WeeklyHighlight(section, entity, col, "low", low_rank[v], v,
                                            week=int(week), tied=tied))
     return out
@@ -2196,17 +2208,18 @@ def board_highlights(df: pd.DataFrame, sheet: str, window: int = WINDOW,
         hi_s = s if is_counting_stat(col) else lo_s
         # A season-accumulating count's LOW end is left to the on-pace projection,
         # not ranked on the all-time board — "fewest pure drops" is a preseason
-        # artifact, not a record. Only its HIGH end stays here.
-        low_on_board = not (sheet in _YEARLY_SHEETS and is_yearly_counting_stat(col))
+        # artifact, not a record. Only its HIGH end stays here. Same for what a
+        # comeback overcame (gametime.HIGH_END_ONLY): its low end is 0.1-point wins.
+        low_ranked = low_on_board(sheet, col)
         hi = _board_places(hi_s, "high", window, max_ties)
         # The high end wins when a value qualifies at both (a short board where
         # the top and bottom five overlap).
         lo = ({v: r for v, r in _board_places(lo_s, "low", window, max_ties).items()
-               if v not in hi} if low_on_board else {})
+               if v not in hi} if low_ranked else {})
         hi_o = _overflow_places(hi_s, "high", window, max_ties) if overflow else {}
         lo_o = ({v: r for v, r in _overflow_places(lo_s, "low", window, max_ties).items()
                  if v not in hi and v not in hi_o}
-                if overflow and low_on_board else {})
+                if overflow and low_ranked else {})
         if not hi and not lo and not hi_o and not lo_o:
             continue
         place: Dict[object, tuple] = {}
@@ -3168,7 +3181,7 @@ def board_value_lookup(frames: dict, gate: Optional[BoardGate] = None):
             out = pd.Series(dtype=float)
             if df is not None and not df.empty and column in df.columns:
                 out = rankable_series(df, column, column in mirrored_columns(df, sheet), sheet)
-                if end == "low" and sheet in _YEARLY_SHEETS and is_yearly_counting_stat(column):
+                if end == "low" and not low_on_board(sheet, column):
                     out = pd.Series(dtype=float)       # no low board for these
                 held = gate.restricted(df, sheet, column) if gate is not None else None
                 if held is not None and not out.empty \
@@ -4139,9 +4152,12 @@ _COUNT_RENAME_SHEETS = frozenset(("team_week", "team_year", "team_all_time",
 
 
 def migrate_count_column(column: str) -> str:
-    """A pre-2026-09-26 team / league count column in today's name (idempotent)."""
+    """A pre-2026-09-26 team / league count column, or a #477 team_week comeback
+    column renamed 2026-10-06, in today's name (idempotent)."""
     if not isinstance(column, str):
         return column
+    if column in _gametime.LEGACY_COLUMNS:
+        return _gametime.LEGACY_COLUMNS[column]
     for pat, new in _LEGACY_COUNT_COLUMN:
         if pat.match(column):
             return pat.sub(new, column)

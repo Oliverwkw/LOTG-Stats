@@ -28,6 +28,8 @@ rediscovering the same handful of traps. All of that is one command here.
 
     # game times: margin entering any stage, comebacks, points by slot
     python scripts/inquire.py gametime --entering Monday --comebacks -n 10
+    python scripts/inquire.py gametime --entering SNF --comebacks --by size -n 10
+    python scripts/inquire.py gametime --whole-week -n 10
     python scripts/inquire.py gametime --entering 'Sunday late' --team AceMatthew
     python scripts/inquire.py gametime --slots --season 2025
 
@@ -348,11 +350,23 @@ def cmd_gametime(args) -> None:
             df = df[df["Team"] == args.team]
         _emit(df, args.csv, args.limit)
         return
-    df = G.stage_rows(tw, pw, sched, args.entering)
+    # Comeback size reads Boldness' pre-kickoff expectations, as the build does
+    # (~1 min for every season; --quick uses the season-average fallback).
+    seasons = sorted({int(y) for y in pd.to_numeric(tw["Year"], errors="coerce").dropna()})
+    expected = None if args.quick else G.boldness_expectations(seasons)
+    if args.whole_week:
+        # every kickoff of the matchup: the plain "Comeback size" column
+        df = G.week_comeback_size(tw, pw, sched, expected=expected)
+        if args.team:
+            df = df[df["Team"] == args.team]
+        df = df.sort_values(G.COMEBACK_SIZE_COLUMN, ascending=args.ascending, na_position="last")
+        _emit(df, args.csv, args.limit)
+        return
+    df = G.stage_rows(tw, pw, sched, args.entering, expected=expected)
     if args.team:
         df = df[df["Team"] == args.team]
     if args.comebacks:
-        col = "Margin overcome" if args.by == "margin" else "Points overcome"
+        col = {"margin": "Margin overcome", "points": "Points overcome", "size": "Comeback size"}[args.by]
         df = df[df[col].notna()].sort_values(col, ascending=False)
     elif args.sort:
         df = df.sort_values(args.sort, ascending=args.ascending, na_position="last")
@@ -656,10 +670,15 @@ def build_parser() -> argparse.ArgumentParser:
                    help="SNF, Monday, 'last game', or a game slot: Thursday, Saturday, 'Sunday morning', "
                         "'Sunday early', 'Sunday late', MNF ... (default Monday)")
     p.add_argument("--comebacks", action="store_true", help="only comebacks, biggest first")
-    p.add_argument("--by", choices=("points", "margin"), default="points",
-                   help="with --comebacks: points overcome (vs the opponent's final, default) "
-                        "or margin overcome (behind at the time)")
+    p.add_argument("--by", choices=("points", "margin", "size"), default="points",
+                   help="with --comebacks: points overcome (vs the opponent's final, default), "
+                        "margin overcome (behind at the time) or comeback size (every game)")
+    p.add_argument("--whole-week", action="store_true",
+                   help="Comeback size over every kickoff of the matchup, biggest first")
     p.add_argument("--slots", action="store_true", help="starter points per team-week by game slot instead")
+    p.add_argument("--quick", action="store_true",
+                   help="Comeback size on the season-average fallback instead of Boldness' expectations "
+                        "(seconds instead of ~1 min; differs from the sheet)")
     p.add_argument("--team")
     p.add_argument("--season", type=int)
     p.add_argument("--week", type=int)

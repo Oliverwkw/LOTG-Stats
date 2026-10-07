@@ -18927,6 +18927,7 @@ def build_all(repo_root: Path) -> None:
     # team_all_time = the AVERAGE per lineup over the weeks played. Empty slots
     # (and dead starts: ruled out, scored 0) are not boldness: they are counted
     # in "Empty slots" (team_week), SUMMED on team_year / team_all_time.
+    _bold_expected = None   # each start's pre-kickoff E, for the gametime block below
     try:
         from lotg_support import boldness as _bold
         _t0 = datetime.now()
@@ -18950,6 +18951,7 @@ def build_all(repo_root: Path) -> None:
                 scoring=_bold_scoring, score=_league_score, score_map=_LEAGUE_SCORE_MAP,
                 bridge=_bold_bridge):
             _bstarts, _blineups = _bold.build_columns()
+        _bold_expected = _bstarts.assign(**{"Player ID": _bstarts["Player ID"].astype(str)})
         if not pw.empty:
             _bs = _bstarts.assign(Year=pd.to_numeric(_bstarts["Year"]).astype(int),
                                   Week=pd.to_numeric(_bstarts["Week"]).astype(int),
@@ -18991,8 +18993,9 @@ def build_all(repo_root: Path) -> None:
         _log_exc(debug, "boldness", e)
 
     # Game times (lotg_support.gametime): player_week "Game slot", and team_week
-    # margins entering SNF / Monday / the matchup's last game with the comeback
-    # from each (vs the opponent's final). Week grain only — no rollups.
+    # margins entering SNF / Monday / the matchup's last game, what each comeback
+    # overcame (vs the opponent's final) and the modelled Comeback size. Week
+    # grain only — no rollups.
     try:
         from lotg_support import gametime as _gt
         _sched = _gt_schedule
@@ -19000,7 +19003,10 @@ def build_all(repo_root: Path) -> None:
             pw[_gt.GAME_SLOT_COLUMN] = [_gt.player_slot(_sched, y, w, t)
                                         for y, w, t in zip(pw["Year"], pw["Week"], pw["NFL team"])]
             if isinstance(tw, pd.DataFrame) and not tw.empty:
-                _gcols = _gt.team_week_columns(tw, pw, _sched)
+                # Comeback size reads boldness' pre-kickoff expectation (recency,
+                # season scoring, rookie slot priors, next-man-up cuffs, known
+                # outs); a start it lacks falls back to gametime.expected_points.
+                _gcols = _gt.team_week_columns(tw, pw, _sched, _bold_expected)
                 _gmap = {(str(t), int(y), int(w)): r for t, y, w, *r in
                          _gcols[["Team", "Year", "Week", *_gt.TEAM_WEEK_COLUMNS]].itertuples(index=False, name=None)}
                 _tw_keys = [(str(t), int(y), int(w)) if pd.notna(y) and pd.notna(w) else None
@@ -19012,7 +19018,9 @@ def build_all(repo_root: Path) -> None:
                            & pw[_gt.GAME_SLOT_COLUMN].isin(["Bye", _gt.NA])
                            & (pd.to_numeric(pw["Points"], errors="coerce").fillna(0) != 0)).sum())
             _log(debug, f"[{_now_iso()}] INFO gametime: {len(_sched.kickoff)} team-games; "
-                        f"{_nogame} scoring starter(s) with no game on the schedule")
+                        f"{_nogame} scoring starter(s) with no game on the schedule; "
+                        f"{0 if _bold_expected is None else len(_bold_expected)} boldness expectations "
+                        f"for {int((pw['Starter/Bench'].astype(str) == 'Starter').sum())} starts")
         else:
             # Without a schedule there are no kickoffs: N/A, never the 0 a
             # missing catalog column would otherwise be written as.
