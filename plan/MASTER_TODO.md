@@ -1712,7 +1712,7 @@ guard-skipped fire), 581→584 (#453), 584→589 (#454), 589→597 (#455).
   - Digest: the three scale-preserving renames carry their board history
     (`gametime.LEGACY_COLUMNS` via `migrate_count_column`); the % boards start fresh;
     the overcome columns rank at the high end only (`gametime.HIGH_END_ONLY`).
-- [ ] **Comeback size: projection-error band for a team behind on the scoreboard** [per user,
+- [x] **Comeback size: projection-error band for a team behind on the scoreboard** [per user,
   2026-10-07: "down by real margin and up by projection … give a point band"; Steve
   (stevenb123) 2026 wk 4, down 57.38 with 4 left, stays 0.00 at a 69.4 projection but
   58 / 60 would count]. Hole measured from the projection − 2.5·√(starters left, known
@@ -1725,4 +1725,21 @@ guard-skipped fire), 581→584 (#453), 584→589 (#454), 589→597 (#455).
     season-average 6.51 / 0.311; last-5 7.17 / 0.255; team strength 6.91 / 0.119;
     position average 6.76 / 0.212.
   - Effect: 346 Comeback size rows rise, 58 from 0.00; every comeback from a scoreboard
-    deficit gains the band (≈ +0.2-0.35; Peter 2021 wk 5 2.20 → 2.54, order unchanged).
+    deficit gains the band (≈ +0.2-0.35; Peter 2021 wk 5 2.20 → 2.54). CORRECTION: the top 3
+    and 7th hold but the top 10 reshuffles (BROsenzweig 2024 wk 9 6th → 4th, shmuel256 2020
+    wk 2 12th → 9th, plehv79 2022 wk 15 10th → 11th) — the band grows with starters left.
+  Also renamed Boldness' pre-kickoff E → "Claude projections" everywhere user-facing [per user].
+  Merged #480 / `673c4e1` after branch runs 680 / 681 (artifacts checked). **3-part audit —
+  PASS (2026-10-07): post-merge main run 682 v run 679.**
+  - Part 1: 639 passed / 2 standing skips (incl. the band test, export = recompute); 0
+    ERROR lines; `gametime: … 7851 Claude projections for 7851 starts`. The 5
+    PerformanceWarnings (lotg.py 19017 + 21587 ×2 / 21598 / 21621) are identical in run 679:
+    19016/7 came with #479 (28 team_week columns assigned one by one) — speed only, to fix in
+    the build-time work.
+  - Part 2 cases: Steve (stevenb123) 2026 wk 4 stays 0.00; Peter 2021 wk 5 2.54; 346 sizes
+    rose, 0 fell, 58 from 0.00; no other team_week column moved; formulas carry "Claude
+    projection(s)" in 3 entries.
+  - Part 3 (`audit_weekly.py`): team_week 355 rows, only the 4 Comeback size columns
+    (intended); add_drops / player_additions 6 rows, KTC only (daily KTC roll + the Will
+    Shipley waiver's KTC at pickup 0.0 → 1785, filled in since run 679) — live drift.
+    Schema unchanged.
