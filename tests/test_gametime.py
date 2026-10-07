@@ -196,6 +196,19 @@ def test_a_hold_counts_but_small():
     assert G.comeback_size([(-1.0, 12.0, 8.0), (0.5, 2.0, 8.0)], 0.0) == round(1.0 * G._phi(0.5), 2)
 
 
+def test_overlapping_games_are_one_window():
+    # 4:05 and 4:25 overlap, as do a Monday doubleheader's 7:15 and 8:15: no
+    # moment has the first done and the second not started.
+    d = lambda h, m=0, day=11: datetime(2020, 10, day, h, m)
+    own = [(d(13), 10.0, 10.0, False), (d(16, 5), 10.0, 10.0, False), (d(19, 15, 12), 5.0, 9.0, False)]
+    opp = [(d(16, 25), 20.0, 10.0, False), (d(20, 20), 9.0, 9.0, False), (d(20, 15, 12), 3.0, 9.0, False)]
+    assert G.windows(own, opp) == [d(13), d(16, 5), d(20, 20), d(19, 15, 12)]
+    # ...so "entering last game" is entering the doubleheader's first kickoff
+    s = G.load_schedule(_WEEK)
+    rows = [(d(19, 5, 12), 1.0, 1.0, False), (d(20, 50, 12), 1.0, 1.0, False)]
+    assert G.last_game_start(s, 2020, 5, rows[:1], rows[1:]) == d(19, 5, 12)
+
+
 def test_known_outs_expect_nothing():
     # A starter known to be out (dead start) adds no expectation and no spread.
     out = (None, 0.0, 15.0, True)
@@ -338,13 +351,13 @@ def test_win_chance_is_calibrated():
                                             Q.numeric(tw, "Week"), Q.numeric(tw, "PF"),
                                             Q.numeric(tw, "Points against"), tw["Win?"]):
         own, op = plays.get((team, int(y), int(w)), []), plays.get((opp, int(y), int(w)), [])
-        for k in G.kickoffs(own, op)[1:]:
+        for k in G.windows(own, op)[1:]:
             ps.append(min(max(G._phi(G.checkpoint_z(own, op, pf, pa, k)), 1e-6), 1 - 1e-6))
             ys.append(1.0 if G._won(won) else 0.0)
     ll = -sum(y * math.log(p) + (1 - y) * math.log(1 - p) for p, y in zip(ps, ys)) / len(ps)
     lo = [(p, y) for p, y in zip(ps, ys) if p < 0.1]
     hi = [(p, y) for p, y in zip(ps, ys) if p > 0.9]
-    print(f"  {len(ps)} kickoffs, log loss {ll:.4f}; under 10%: predicted "
+    print(f"  {len(ps)} kickoff windows, log loss {ll:.4f}; under 10%: predicted "
           f"{sum(p for p, _ in lo) / len(lo):.3f} v won {sum(y for _, y in lo) / len(lo):.3f}")
     assert ll < 0.40, ll
     assert abs(sum(p for p, _ in lo) / len(lo) - sum(y for _, y in lo) / len(lo)) < 0.03

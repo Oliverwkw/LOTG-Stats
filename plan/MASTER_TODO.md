@@ -1555,6 +1555,11 @@ guard-skipped fire), 581→584 (#453), 584→589 (#454), 589→597 (#455).
     Spread 2.0·√E. Log loss over 2020-25 kickoffs: 0.393 (Boldness E) v 0.398
     (season-average model) v 0.410 (flat position averages); under-10% win chances
     predicted 2.1% v won 2.2%.
+  - Points in time are kickoff WINDOWS [per user: "is this taking into account
+    overlapping games"]: a kickoff opens one only ≥ 3h after the previous one, so 4:05
+    + 4:25 (590 checkpoints) and Monday doubleheaders (~50) are one window — no game is
+    counted finished while still being played. Also moves #477's "entering last game"
+    to the window start in 44 team-weeks (late half of a Monday doubleheader).
     Rejected: log2(1/win chance) (a hopeless loser rallying to 2% scored 11.5, the
     league's biggest); 1 − win chance (squashes the big comebacks together).
   - Digest: the three scale-preserving renames carry their board history

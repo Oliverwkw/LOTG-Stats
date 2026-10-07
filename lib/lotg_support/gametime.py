@@ -21,7 +21,10 @@ Rules [per user, 2026-10-05]:
   SNF = the first Sunday game at 7 pm or later; Monday = the first game after
   the week's Sunday, so 2020's Tuesday/Wednesday makeups are part of Monday;
   last game = the latest kickoff with a starter from either side of the
-  matchup, and only when it is SNF or later (else N/A). A week with no such
+  matchup, pulled back to the start of its window (`windows`: a game is over
+  GAME_HOURS after kickoff, so the late half of a Monday doubleheader is
+  entered when the early half kicks off), and only when it is SNF or later
+  (else N/A). A week with no such
   game is N/A. Games that kick off together all count as that stage.
 - **Margin entering X** = own points going in minus the opponent's points going
   in. The semifinal +5 counts: points going in are PF minus the starters'
@@ -59,7 +62,8 @@ suspended, scored 0) expects 0. A start boldness lacks falls back to his
 season-to-date points per game padded with last season and the position
 (`expected_points`). Each player's points vary like 2.0·√(his expectation);
 z = expected final margin ÷ the spread of everything still to play; win chance
-= Φ(z). Depth of a hole = −z when z < 0 (standard deviations behind the
+= Φ(z), taken at the start of each kickoff window (never with a game half
+played). Depth of a hole = −z when z < 0 (standard deviations behind the
 expected finish, capped at 10). Comeback size = the largest depth × the win
 chance at any later point (1 at the end for a win, 0 for a loss) × how much of
 the turnaround in between the team's own players made: HOLD_SHARE (¼) + ¾ × own
@@ -131,6 +135,7 @@ LEGACY_COLUMNS = {
 SD_PER_ROOT_POINT = 2.0        # a starter's points vary like 2.0·√(his expectation)
 HOLD_SHARE = 0.25              # what a turnaround counts for when the team's own players did none of it
 Z_CAP = 10.0
+GAME_HOURS = 3.0               # a game is over this long after kickoff (see `windows`)
 # Fallback expectation, for a starter boldness has none for (or a build where
 # boldness failed): season-to-date PPG padded with last season and the position.
 EXPECT_POSITION_GAMES = 6      # games' worth of the position average in a starter's expectation
@@ -361,14 +366,31 @@ def kickoffs(own: Sequence[Sequence], opp: Sequence[Sequence]) -> List[datetime]
     return sorted({s[0] for s in list(own) + list(opp) if s[0] is not None})
 
 
+def windows(own: Sequence[Sequence], opp: Sequence[Sequence]) -> List[datetime]:
+    """The matchup's kickoff windows, by their first kickoff: a kickoff opens a
+    new window only when every earlier game is over (GAME_HOURS after its
+    kickoff). 4:05 + 4:25, or a Monday doubleheader, is one window: entering
+    the 4:25 game, the 4:05 game is still being played, so no moment has the
+    one done and the other not started [per user, 2026-10-06]."""
+    out: List[datetime] = []
+    prev = None
+    for k in kickoffs(own, opp):
+        if prev is None or k - prev >= timedelta(hours=GAME_HOURS):
+            out.append(k)
+        prev = k
+    return out
+
+
 def last_game_start(schedule: Schedule, season: int, week: int,
                     own: Sequence[Sequence], opp: Sequence[Sequence]) -> Optional[datetime]:
-    """Latest kickoff with a starter from either side, if SNF or later."""
-    ks = kickoffs(own, opp)
+    """Start of the matchup's last window (`windows`: the latest kickoff with a
+    starter from either side, pulled back to the first kickoff of any game still
+    being played then), if SNF or later."""
+    ws = windows(own, opp)
     thr = late_threshold(schedule.sunday.get((int(season), int(week))))
-    if not ks or thr is None:
+    if not ws or thr is None:
         return None
-    return ks[-1] if ks[-1] >= thr else None
+    return ws[-1] if ws[-1] >= thr else None
 
 
 def _won(v) -> bool:
@@ -526,9 +548,10 @@ def stage_rows(team_week: pd.DataFrame, player_week: pd.DataFrame, schedule: Sch
         margin_over = -m["margin"] if won and m["margin"] is not None and m["margin"] < 0 else None
         size = None
         if t is not None:
-            # Nothing changes between the stage and the matchup's next kickoff,
-            # so later points start after that one (never the same state twice).
-            ks = kickoffs(own, opp)
+            # Nothing changes between the stage and the matchup's next window,
+            # so later points start after that one (never the same state twice);
+            # only window starts are moments with every earlier game over.
+            ks = windows(own, opp)
             k0 = next((k for k in ks if k >= t), None)
             zs = [checkpoint(own, opp, pf, pa, t)] + \
                  [checkpoint(own, opp, pf, pa, k) for k in ks if k0 is not None and k > k0]
@@ -572,7 +595,7 @@ def week_comeback_size(team_week: pd.DataFrame, player_week: pd.DataFrame, sched
         y, w = int(y), int(w)
         own = starts.get((str(rec["Team"]), y, w), [])
         opp = starts.get((str(rec["Opponent"]), y, w), [])
-        ks = kickoffs(own, opp)
+        ks = windows(own, opp)
         won = _won(rec.get("Win?"))
         final = 1.0 if won else (0.5 if pf == pa else 0.0)
         zs = [checkpoint(own, opp, pf, pa, k) for k in ks[1:]]
