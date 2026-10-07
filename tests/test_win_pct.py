@@ -27,10 +27,38 @@ APP_MATCHUPS = [
 ]
 
 
+# The app's LIVE win % during a week, read off the app mid-week: (when, the two
+# projected totals the app shows then — points so far + the remaining
+# starters' projections — and the app's win % for the first team). Add rows as
+# you read them; see "Tweaking the app-style win %" in plan/MASTER_TODO.md.
+LIVE_MATCHUPS = []   # e.g. ("2026 wk5 entering MNF", 118.4, 131.0, 31)
+
+
+def _pct(a, b, k):
+    return round(100 / (1 + (b / a) ** k))
+
+
+def exponent_range(rows, lo=2.0, hi=6.0, step=0.001):
+    """(lowest, highest) exponent reproducing every row's app % to the whole
+    percent, or None when no single exponent does (the formula's shape is off)."""
+    ks = [round(lo + i * step, 3) for i in range(int((hi - lo) / step) + 1)]
+    ok = [k for k in ks if all(_pct(r[-3], r[-2], k) == r[-1] for r in rows)]
+    return (ok[0], ok[-1]) if ok else None
+
+
+def _misses(rows):
+    return [r + (round(100 * gametime.app_win_pct(r[-3], r[-2])),) for r in rows
+            if round(100 * gametime.app_win_pct(r[-3], r[-2])) != r[-1]]
+
+
 def test_app_win_pct_reproduces_the_app():
-    misses = [(w, a, b, app, round(100 * gametime.app_win_pct(a, b)))
-              for w, a, b, app in APP_MATCHUPS if round(100 * gametime.app_win_pct(a, b)) != app]
-    assert not misses, f"app-style win % off the app's own numbers: {misses}"
+    misses = _misses(APP_MATCHUPS)
+    assert not misses, f"app-style win % off the app's own pre-week numbers (last = ours): {misses}"
+
+
+def test_app_win_pct_reproduces_the_app_live():
+    misses = _misses(LIVE_MATCHUPS)
+    assert not misses, f"app-style win % off the app's own live numbers (last = ours): {misses}"
 
 
 def test_app_win_pct_is_symmetric():
@@ -53,6 +81,12 @@ def test_column_names():
 
 
 if __name__ == "__main__":
+    # Fit report first, so a failing row still shows what exponent would fit.
+    print("APP_WIN_EXPONENT =", gametime.APP_WIN_EXPONENT)
+    print("pre-week fits k in", exponent_range(APP_MATCHUPS))
+    if LIVE_MATCHUPS:
+        print("live fits k in", exponent_range(LIVE_MATCHUPS))
+        print("both fit k in", exponent_range(APP_MATCHUPS + LIVE_MATCHUPS))
     for _name, _fn in list(globals().items()):
         if _name.startswith("test_") and callable(_fn):
             _fn()
