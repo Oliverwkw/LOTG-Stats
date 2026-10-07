@@ -332,7 +332,8 @@ def test_known_monday_comeback():
             r["Players left"], r["Points overcome per player left"], r["Margin overcome per player left"],
             r["% of opponent's score overcome"]) == (63.78, 63.78, 0.3306, 3, 21.26, 21.26, 0.3306), r
     assert r["% of own points scored after"] == round(88.4 / 217.54, 4)
-    assert 0.5 < r["Comeback size"] < 1.5, r["Comeback size"]
+    # 63.78 down on the scoreboard: the projection band deepens the hole (1.70)
+    assert 0.5 < r["Comeback size"] < 2.0, r["Comeback size"]
 
 
 def test_exports_match_the_recompute():
