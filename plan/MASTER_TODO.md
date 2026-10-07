@@ -1536,3 +1536,32 @@ guard-skipped fire), 581→584 (#453), 584→589 (#454), 589→597 (#455).
     artifacts); formulas +3 rows. Nothing else.
   - `scripts/audit_weekly.py` Part 2 flagged the stale schema pin (also missing #464 / #469
     / Price paid columns); re-pinned from run 672 (`data/audit/schema_baseline.json`).
+- [ ] **Comeback columns renamed + extended, Comeback size** [per user, 2026-10-06].
+  Per stage X ∈ {SNF, Monday, last game}: `Margin overcome (entering X)`, `Points
+  overcome (entering X)`, `% of own points scored X or later` (`in last game`; every
+  game, not just comebacks), `% of opponent's final points overcome (entering X)`,
+  `Points overcome per player left (entering X)`, NEW `Margin overcome per player left
+  (entering X)`, NEW `% of opponent's score overcome (X or later)` (margin overcome ÷
+  opponent going in), NEW `Comeback size (entering X)`; plus NEW `Comeback size` over
+  every kickoff of the matchup but the first. % columns now fractions with a percent
+  format (fixes #477's `% of points going in` rendering ×100 — 86.0 → 8600.00%).
+  - Comeback size = depth (−z, standard deviations behind the expected finish) × the
+    win chance later reached (1 = won) × (¼ + ¾ × the share of the turnaround made by
+    the team's own players) [per user: a hold counts, "but not as a big one"].
+    Expected points = Boldness' pre-kickoff E (recency, that season's scoring, rookie
+    slot prior, next-man-up cuffs; dead starts 0) [per user: "account for cuffs and
+    everything else we've done in past predictions"], handed over by the build from
+    `boldness.build_columns`; fallback season-to-date PPG + last season + position.
+    Spread 2.0·√E. Log loss over 2020-25 kickoffs: 0.393 (Boldness E) v 0.398
+    (season-average model) v 0.410 (flat position averages); under-10% win chances
+    predicted 2.1% v won 2.2%.
+  - Points in time are kickoff WINDOWS [per user: "is this taking into account
+    overlapping games"]: a kickoff opens one only ≥ 3h after the previous one, so 4:05
+    + 4:25 (590 checkpoints) and Monday doubleheaders (~50) are one window — no game is
+    counted finished while still being played. Also moves #477's "entering last game"
+    to the window start in 44 team-weeks (late half of a Monday doubleheader).
+    Rejected: log2(1/win chance) (a hopeless loser rallying to 2% scored 11.5, the
+    league's biggest); 1 − win chance (squashes the big comebacks together).
+  - Digest: the three scale-preserving renames carry their board history
+    (`gametime.LEGACY_COLUMNS` via `migrate_count_column`); the % boards start fresh;
+    the overcome columns rank at the high end only (`gametime.HIGH_END_ONLY`).

@@ -215,8 +215,8 @@ def build_inputs(*, matchups: Dict[int, Dict[int, List[dict]]],
 def build_columns(params: "Params" = None) -> Tuple[pd.DataFrame, pd.DataFrame]:
     """The exported columns, for every season the build handed over.
 
-    Returns (starts, lineups): starts = Year, Week, Team, Player ID, Boldness
-    (one row per filled starting slot); lineups = Year, Week, Team, Lineup
+    Returns (starts, lineups): starts = Year, Week, Team, Player ID, Boldness,
+    E starter, Dead start? (one row per filled starting slot); lineups = Year, Week, Team, Lineup
     Boldness, Empty slots. Call inside `build_inputs`."""
     if _INJECTED is None:
         raise RuntimeError("build_columns() needs build_inputs(...)")
@@ -232,14 +232,16 @@ def build_columns(params: "Params" = None) -> Tuple[pd.DataFrame, pd.DataFrame]:
             # not N/A. A starter with no expectation (unresolved) and a dead
             # start (ruled out, scored 0 — judged as an empty slot) stay N/A.
             b.loc[b["Boldness"].isna() & b["E starter"].notna() & ~b["Dead start?"], "Boldness"] = 0.0
-            starts.append(b[["Year", "Week", "Team", "Starter ID", "Boldness"]]
+            # E starter / Dead start? also feed team_week's Comeback size
+            # (lotg_support.gametime), so both read one pre-kickoff expectation.
+            starts.append(b[["Year", "Week", "Team", "Starter ID", "Boldness", "E starter", "Dead start?"]]
                           .rename(columns={"Starter ID": "Player ID"}))
         t = team_boldness(season, params=params, include_live=False)
         if not t.empty:
             lineups.append(t[["Year", "Week", "Team", "Team boldness", "Empty slots"]]
                            .rename(columns={"Team boldness": "Lineup Boldness"}))
     cat = lambda fr, cols: pd.concat(fr, ignore_index=True) if fr else pd.DataFrame(columns=cols)
-    return (cat(starts, ["Year", "Week", "Team", "Player ID", "Boldness"]),
+    return (cat(starts, ["Year", "Week", "Team", "Player ID", "Boldness", "E starter", "Dead start?"]),
             cat(lineups, ["Year", "Week", "Team", "Lineup Boldness", "Empty slots"]))
 
 
