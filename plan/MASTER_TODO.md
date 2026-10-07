@@ -1615,10 +1615,11 @@ guard-skipped fire), 581→584 (#453), 584→589 (#454), 589→597 (#455).
     games" (+ by-position) → "Difference in X Projections of best/worst startables";
     team_week "Difference in pregame avg max PF from opponent" → "Difference in X
     Projection from opponent"; UPST → an X-projection upset (won while projected lower).
-  - REPLACE with Enhanced: Hardship's expected-if-healthy baseline (+ Starter-adjusted
-    Hardship, hardship win/loss flags) — Enhanced as if healthy (outside sources do not
-    project an injured player, so in practice the Claude projection); Luck's pregame
-    talent component → Enhanced projected PF (moves Luck everywhere — needs an OK).
+  - **Hardship stays as it is** [per user: "won't work because projections for out weeks
+    are always 0 — careful of this trap"]. Every projection of a week the player was OUT
+    is 0 by design (Sleeper drops him, ESPN zeroes him, the known-out rule zeroes all
+    three), so no projection can stand in for an "expected if healthy" baseline.
+  - Luck: undecided [per user: "not sure"] — leave its pregame talent estimate unchanged.
   - Already covered: "Change from previous 5 weeks avg" ≈ Points above X Projection.
   - User's call: add_drops / trades "PPG of 5 games before pickup / trade" — recent form,
     not a weekly estimate; an "X Projection at pickup" would be the projection version.
