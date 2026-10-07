@@ -19003,7 +19003,8 @@ def build_all(repo_root: Path) -> None:
             pw[_gt.GAME_SLOT_COLUMN] = [_gt.player_slot(_sched, y, w, t)
                                         for y, w, t in zip(pw["Year"], pw["Week"], pw["NFL team"])]
             if isinstance(tw, pd.DataFrame) and not tw.empty:
-                # Comeback size reads boldness' pre-kickoff expectation (recency,
+                # Comeback size reads the Claude projections — the pre-kickoff
+                # expected points boldness computes (recency,
                 # season scoring, rookie slot priors, next-man-up cuffs, known
                 # outs); a start it lacks falls back to gametime.expected_points.
                 _gcols = _gt.team_week_columns(tw, pw, _sched, _bold_expected)
@@ -19019,7 +19020,7 @@ def build_all(repo_root: Path) -> None:
                            & (pd.to_numeric(pw["Points"], errors="coerce").fillna(0) != 0)).sum())
             _log(debug, f"[{_now_iso()}] INFO gametime: {len(_sched.kickoff)} team-games; "
                         f"{_nogame} scoring starter(s) with no game on the schedule; "
-                        f"{0 if _bold_expected is None else len(_bold_expected)} boldness expectations "
+                        f"{0 if _bold_expected is None else len(_bold_expected)} Claude projections "
                         f"for {int((pw['Starter/Bench'].astype(str) == 'Starter').sum())} starts")
         else:
             # Without a schedule there are no kickoffs: N/A, never the 0 a

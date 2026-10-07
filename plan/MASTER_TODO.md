@@ -1489,16 +1489,19 @@ guard-skipped fire), 581→584 (#453), 584→589 (#454), 589→597 (#455).
   Score each row's `stats` with that season's league rules (`boldness.scoring_table(y)`);
   a row with no `pts_ppr` is NO projection (Brady 2021 = adp only), never 0.
   - Covers 7,795 / 7,851 starts 2020-26. Accuracy 2020-25 per start: MAE 6.42, corr 0.373,
-    bias +0.30 — best of everything tested (Boldness E 6.43 / 0.345 / −1.28).
+    bias +0.30 — best of everything tested (Claude projections 6.43 / 0.345 / −1.28).
   - To decide with the user: which sheets/columns (player_week "Sleeper projection",
     "Points v Sleeper projection"; team_week projected PF / PA, "Beat projection?"; year /
     all-time rollups), whether Comeback size / Boldness should switch to it, and how the
     build caches it (weekly files in .cache like nflverse; live week refetched).
   - Build risk: undocumented endpoint — must degrade to N/A (never 0) when unreachable.
+  - Naming [per user, 2026-10-07]: the pre-kickoff expected points `lotg_support.boldness`
+    computes are the **Claude projections** everywhere outside that module (columns,
+    formulas, docs, answers) — never "Boldness projections", which reads as the stat.
   - **Use the EQUAL AVERAGE of four projections** [per user, 2026-10-07: "find the maximally
     accurate blend of Boldness, Sleeper, and other projections out there"; supersedes the
     50/50 Sleeper + Boldness note]: Sleeper (Rotowire), ESPN, FantasyPros consensus, and
-    Boldness E — each where it has a projection, averaging whatever is available
+    the Claude projections — each where it has a projection, averaging whatever is available
     (Boldness always is). For Comeback size and any projection column.
     - Sources (all historical, pre-game, 2020+):
       - ESPN: `lm-api-reads.fantasy.espn.com/apis/v3/games/ffl/seasons/{y}/segments/0/
@@ -1526,10 +1529,77 @@ guard-skipped fire), 581→584 (#453), 584→589 (#454), 589→597 (#455).
       averages take 0 weight. Best or within 0.02 of best in every season. Averaging
       what is available, all 7,506 starts: MAE 6.344 / RMSE 8.051 (Boldness alone 6.432).
     - Loss matters: MAE favours a low shift (fantasy points skew right, so the median
-      sits below the mean — why Boldness' −1.3 bias "helps" MAE); RMSE wants an unbiased
+      sits below the mean — why the Claude projections' −1.3 bias "helps" MAE); RMSE wants an unbiased
       mean (best fit .37/.28/.30/.04 = 8.057). Comeback size sums expectations, so it
       wants the unbiased one: equal 4-way is 8.063 there too. Re-tune SD_PER_ROOT_POINT
       and re-check the 2.5·√n band on the blend before shipping.
+  - **Best single-start projection: a median model on top of the four** [per user, 2026-10-07:
+    "push the envelope … under 6.3 is a win, under 6 amazing"]. Median (least-absolute-
+    deviation) regression, refit each season on completed seasons, inputs: the four
+    projections (a missing one reads the average of the rest), their disagreement (sd,
+    avg·sd), Vegas implied team total (avg·implied/24), opponent implied total, game script
+    (spread, spread·avg), the player's record v projections (his past points − average,
+    shrunk with 8 pseudo-starts at 0; last 3), opponent v position (points allowed over
+    league average to the position's top 2, season to date), home, dome, wind.
+    Leave-one-season-out 2020-25, 7,506 starts: **MAE 6.269** (per season 6.06-6.63), RMSE
+    8.063, bias −0.8 (a median, by design). Equal 4-way average 6.344; +Vegas alone 6.296.
+    - Tried, no better: the literal "least-squares weights only when the sources are
+      far apart" switch (best 6.315 at sd > 2.0 — mean-type weights cost MAE); per-position
+      models 6.283; gradient-boosted median trees 6.346-6.418 (overfit at ~6k starts);
+      pooled + per-position ensemble 6.261 (not worth two models).
+    - **Floor**: knowing each player's ACTUAL whole-season average, this game included,
+      gives MAE 6.218 — so < 6.0 is out of reach pre-game; 6.27 is within 0.05 of hindsight.
+    - Use it for a "typical outcome" column; for sums / win chances (Comeback size) keep
+      an unbiased mean (equal 4-way, RMSE 8.051) — the median runs 0.8 low per start.
+  - **Best broad-use projection = "Enhanced"** [per user, 2026-10-07: "closest to accurate
+    … without too many big misses … for single player-week stats and huge team all-time
+    stats"]: the √-scale MEAN model — least squares on √points over the four sources (a
+    missing one reads the average of the rest) + their √ values, disagreement, Vegas implied
+    / opponent implied / spread, player's record v projections, opponent v position, home,
+    dome, wind; back to points by smearing (mean of (fit + training residual)², clipped ≥ 0).
+    2020-25 held out: per start MAE 6.307 / RMSE 8.008 / bias 0.00; misses > 15 pts 5.4%,
+    > 20 pts 1.6% (fewest); team-week total RMSE 24.2 (Claude projections alone 28.0, bias
+    −11.8); team-season bias +0.1 (median model −131, Claude −199); all-time per team avg
+    off 161 (≈ noise for ~900 starts).
+  - **In-season** [per user: "would this work in season?"]: yes. 2026 wks 1-4 (319 starts,
+    fit on 2020-25 only): Enhanced 6.405 / 8.179 / −0.16, team-week RMSE 19.9 / −1.6;
+    Sleeper 8.154, equal 4-way 8.174, Claude 8.471 / team bias −18.4. Too few starts to
+    separate the top three yet; the bias fix is clear. Coverage 2026: Sleeper 99%, ESPN
+    100%, FantasyPros 91%, Claude 100%. Rules: refit once a year at season rollover on
+    completed seasons only (this season's rows stay put; history moves once a year — an
+    EDIT in the digest); fetch a week's projections after it is played (Tuesday build =
+    the tested path; a live week's unstarted players can still move); a missing source
+    reads the average of the rest, all three outside sources gone → Claude projections,
+    never 0. Known limit: in-season source drift (Claude −1.85 in 2026 v −1.28) waits for
+    the yearly refit.
+
+## Projections framework: Sleeper, Claude, Enhanced [per user, 2026-10-07 — next PR after #480]
+- [ ] **Framework + cache.** Build-side fetch + `.cache` for Sleeper projections
+  (api.sleeper.com, 4 req/week), ESPN projections (1 req/week), FantasyPros weekly ECR
+  (DynastyProcess db_fpecr — or a slimmer weekly file), Vegas lines (nflverse schedule,
+  already cached); each degrades to missing (never 0) when unreachable. New
+  `lotg_support.projections`: the three projections per player-week (starters AND bench):
+  - **Claude** = Boldness' pre-kickoff E (as now).
+  - **Enhanced** = the √-scale mean model above, refit at rollover on completed seasons;
+    fallback chain: a missing outside source → average of the rest; none → Claude.
+  - **Sleeper** = Sleeper's own projection; where Sleeper has none or a weird one (no
+    pts_ppr / adp-only, ~0 for a player not ruled out — Brady 2021 etc.) → "weakened"
+    Enhanced (the same model fitted WITHOUT Sleeper), then Claude.
+- [ ] **Everything that uses a projection switches to Enhanced** (with that fallback):
+  team_week Comeback size (re-tune SD_PER_ROOT_POINT + the 2.5·√n band on Enhanced) and
+  Boldness / Lineup Boldness (re-fit bust odds) — confirm the list with the user before
+  switching; PAE's career expectation and the forecast's season sims are different kinds
+  of projection and stay as they are unless the user says otherwise.
+- [ ] **Columns**, X ∈ {Sleeper, Claude, Enhanced}:
+  - player_week / team_week / league_week: `X Projection`, `Points above X Projection`
+    (can be negative), `Overachiever (X Projection)` [award: the week's highest Points above
+    X Projection], `Underachiever (X Projection)` [award: the lowest], `Overachiever (X
+    Projection) streak`, `Underachiever (X Projection) streak`.
+  - player / team / league _year and _all_time: rollups of all of those except the streaks.
+  - **Collapse rule**: if over the last 5 seasons the awards are identical or near-identical
+    across the three projections, drop the parentheses — one Overachiever / Underachiever
+    (+ streaks) column on Enhanced.
+- [ ] **Then: build time** — profile the build and cut it.
 
 ## Game-time columns (from the 2026 wk 4 MNF-comeback inquiry)
 - [x] **player_week `Game slot` + team_week margins / comebacks by stage** [per user,
@@ -1599,11 +1669,11 @@ guard-skipped fire), 581→584 (#453), 584→589 (#454), 589→597 (#455).
   - Comeback size = depth (−z, standard deviations behind the expected finish) × the
     win chance later reached (1 = won) × (¼ + ¾ × the share of the turnaround made by
     the team's own players) [per user: a hold counts, "but not as a big one"].
-    Expected points = Boldness' pre-kickoff E (recency, that season's scoring, rookie
+    Expected points = the Claude projections (Boldness' pre-kickoff E) (recency, that season's scoring, rookie
     slot prior, next-man-up cuffs; dead starts 0) [per user: "account for cuffs and
     everything else we've done in past predictions"], handed over by the build from
     `boldness.build_columns`; fallback season-to-date PPG + last season + position.
-    Spread 2.0·√E. Log loss over 2020-25 kickoffs: 0.393 (Boldness E) v 0.398
+    Spread 2.0·√E. Log loss over 2020-25 kickoffs: 0.393 (Claude projections) v 0.398
     (season-average model) v 0.410 (flat position averages); under-10% win chances
     predicted 2.1% v won 2.2%.
   - Points in time are kickoff WINDOWS [per user: "is this taking into account
@@ -1642,3 +1712,17 @@ guard-skipped fire), 581→584 (#453), 584→589 (#454), 589→597 (#455).
   - Digest: the three scale-preserving renames carry their board history
     (`gametime.LEGACY_COLUMNS` via `migrate_count_column`); the % boards start fresh;
     the overcome columns rank at the high end only (`gametime.HIGH_END_ONLY`).
+- [ ] **Comeback size: projection-error band for a team behind on the scoreboard** [per user,
+  2026-10-07: "down by real margin and up by projection … give a point band"; Steve
+  (stevenb123) 2026 wk 4, down 57.38 with 4 left, stays 0.00 at a 69.4 projection but
+  58 / 60 would count]. Hole measured from the projection − 2.5·√(starters left, known
+  outs aside) when trailing on the scoreboard (`gametime.projection_band`).
+  - Set from projection disagreement at 1,601 trailing windows (2020-26): Sleeper's own
+    weekly projections (api.sleeper.com/projections, Rotowire, scored with each season's
+    league rules; fetched for the test only; 56 starts with no projection left out) v
+    the Claude projections — median 1.4·√n, 75th pct 2.43·√n (5.4 pts at 4 left). Per-starter
+    accuracy: Sleeper MAE 6.42 / corr 0.373 / bias +0.30; Boldness 6.43 / 0.345 / −1.28;
+    season-average 6.51 / 0.311; last-5 7.17 / 0.255; team strength 6.91 / 0.119;
+    position average 6.76 / 0.212.
+  - Effect: 346 Comeback size rows rise, 58 from 0.00; every comeback from a scoreboard
+    deficit gains the band (≈ +0.2-0.35; Peter 2021 wk 5 2.20 → 2.54, order unchanged).
