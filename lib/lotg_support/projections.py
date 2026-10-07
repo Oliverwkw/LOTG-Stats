@@ -642,3 +642,76 @@ def rollup(frame: pd.DataFrame, keys: List[str], times_prefix: Optional[str]) ->
         if c not in keys:
             out[c] = out[c].round(2)
     return out
+
+
+# ---------------------------------------------------------------------------
+# Projection versions of other stats [per user, 2026-10-07]
+# ---------------------------------------------------------------------------
+UPSET_GAP = 9.0     # UPST: a win while projected this many points (or more) behind
+                    # [per user: Enhanced, "8-10 point threshold"; underdogs that far
+                    # behind won 26% at 8, 9 and 10 alike over 2020-26 — 9 is the middle]
+
+
+def startsit_col(x: str, adjusted: bool = False) -> str:
+    return f"Start/sit miss ({x} Projection)" + (" adjusted by position" if adjusted else "")
+
+
+def opp_gap_col(x: str) -> str:
+    return f"Difference in {x} Projection from opponent"
+
+
+STARTSIT_COLUMNS: Tuple[str, ...] = tuple(startsit_col(x, a) for x in NAMES for a in (False, True))
+OPP_GAP_COLUMNS: Tuple[str, ...] = tuple(opp_gap_col(x) for x in NAMES)
+COMBINED_SPECS: Tuple[Tuple[str, str, str], ...] = tuple(
+    (f"Combined {c}", c, "sum") for x in NAMES for c in (proj_col(x), above_col(x)))
+
+
+def startsit_miss(pw: pd.DataFrame, pos_factor: Callable[[int, str], float]) -> pd.DataFrame:
+    """The 'best/worst startables over previous 5 games' comparison on each
+    projection instead of 5-game averages, against the SAME reference player
+    (player_week "Reference player ID"): a starter's reference (the best
+    startable bench player) minus him, a bench player minus his reference (the
+    worst benchable starter). Positive = the lineup call went against the
+    projection. Adjusted twin: each side × its position factor for the season."""
+    out = pd.DataFrame(np.nan, index=pw.index, columns=list(STARTSIT_COLUMNS))
+    if "Reference player ID" not in pw.columns:
+        return out
+    pid = _id_str(pw["Player ID"])
+    yr = pd.to_numeric(pw["Year"], errors="coerce")
+    wk = pd.to_numeric(pw["Week"], errors="coerce")
+    pos = pw["Position"].astype(str) if "Position" in pw.columns else pd.Series("", index=pw.index)
+    pos_of = dict(zip(pid, pos))
+    ref = _id_str(pw["Reference player ID"])
+    started = pw["Starter/Bench"].astype(str).eq("Starter").to_numpy()
+    for x in NAMES:
+        v = pd.to_numeric(pw[proj_col(x)], errors="coerce")
+        look = {(p, int(y), int(w)): e for p, y, w, e in zip(pid, yr, wk, v)
+                if pd.notna(p) and pd.notna(y) and pd.notna(w) and pd.notna(e)}
+        mine = v.to_numpy(dtype=float)
+        theirs = np.array([look.get((r, int(y), int(w)), np.nan) if pd.notna(r) and pd.notna(y) and pd.notna(w)
+                           else np.nan for r, y, w in zip(ref, yr, wk)])
+        out[startsit_col(x)] = np.round(np.where(started, theirs - mine, mine - theirs), 2)
+        fac_me = np.array([pos_factor(int(y), p_) if pd.notna(y) else np.nan for y, p_ in zip(yr, pos)])
+        fac_ref = np.array([pos_factor(int(y), pos_of.get(r, "")) if pd.notna(y) and pd.notna(r) else np.nan
+                            for y, r in zip(yr, ref)])
+        a_me, a_ref = mine * fac_me, theirs * fac_ref
+        out[startsit_col(x, True)] = np.round(np.where(started, a_ref - a_me, a_me - a_ref), 2)
+    return out
+
+
+def opponent_gaps(tw: pd.DataFrame) -> pd.DataFrame:
+    """Per projection: the team's X Projection minus its opponent's (the
+    projection version of 'Difference in pregame avg max PF from opponent'),
+    and UPST on Enhanced: 1 for a win while projected UPSET_GAP+ behind."""
+    opp = tw[["Team", "Year", "Week"] + [proj_col(x) for x in NAMES]].rename(
+        columns={"Team": "Opponent", **{proj_col(x): f"_o{x}" for x in NAMES}})
+    t = tw[["Opponent", "Year", "Week"] + [proj_col(x) for x in NAMES]].merge(
+        opp, on=["Opponent", "Year", "Week"], how="left")
+    out = pd.DataFrame(index=tw.index)
+    for x in NAMES:
+        out[opp_gap_col(x)] = (pd.to_numeric(t[proj_col(x)], errors="coerce")
+                               - pd.to_numeric(t[f"_o{x}"], errors="coerce")).round(2).to_numpy()
+    won = tw["Win?"].astype(str).str.lower().isin(("true", "1", "1.0")).to_numpy()
+    gap = out[opp_gap_col("Enhanced")].to_numpy(dtype=float)
+    out["UPST"] = np.where(np.isnan(gap), np.nan, (won & (gap <= -UPSET_GAP)).astype(float))
+    return out

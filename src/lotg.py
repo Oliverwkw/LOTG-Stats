@@ -14785,6 +14785,16 @@ def build_all(repo_root: Path) -> None:
             pw["Cuff adjusted difference adjusted by position"] = cuff_adj_adj
         except Exception as e:
             _log_exc(debug, "player_week_rolling_diffs", e)
+        # The same comparison on each projection [per user, 2026-10-07]: added
+        # beside the previous-5 versions, which stay.
+        try:
+            from lotg_support import projections as _proj
+            if _proj.proj_col("Enhanced") in pw.columns:
+                _ss = _proj.startsit_miss(pw, lambda _y, _p: _pos_factor(_y, _p))
+                for _c in _proj.STARTSIT_COLUMNS:
+                    pw[_c] = _ss[_c].to_numpy()
+        except Exception as e:
+            _log_exc(debug, "projection_startsit", e)
 
     # --------------------------
     # Team-week: Tanking (math formula computed earlier in build_all by
@@ -14942,6 +14952,14 @@ def build_all(repo_root: Path) -> None:
                 for _c in _proj.AWARD_COLUMNS:
                     tw[_c] = _taw[_c].to_numpy()
                     _team_award_streaks.append((_c, _proj.streak_col(_c)))
+                # Pregame gap on each projection (beside the avg Max PF one), and
+                # UPST on Enhanced [per user, 2026-10-07]: a win while projected
+                # UPSET_GAP+ points behind; every week, not just weeks 4+.
+                _og = _proj.opponent_gaps(tw)
+                for _c in _proj.OPP_GAP_COLUMNS:
+                    tw[_c] = _og[_c].to_numpy()
+                _new_upst = _og["UPST"].to_numpy()
+                tw["UPST"] = np.where(np.isnan(_new_upst), pd.to_numeric(tw["UPST"], errors="coerce"), _new_upst)
         except Exception as e:
             _log_exc(debug, "projection_team_week", e)
         _ts_dedicated = ["Bottom half streak", "150+ PF streak",

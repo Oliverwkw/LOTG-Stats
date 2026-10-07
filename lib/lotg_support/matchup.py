@@ -74,6 +74,13 @@ COMBINED_COLUMNS: Tuple[Tuple[str, str, str], ...] = (
     ("Combined starter-adjusted Hardship", "Starter-adjusted Hardship", "sum"),
     ("Combined rookies started", "Number of rookies started", "sum"),
     ("Combined starter turnover from previous week", "Starter turnover from previous week", "sum"),
+    # the three projections and points above them [per user, 2026-10-07]
+    ("Combined Sleeper Projection", "Sleeper Projection", "sum"),
+    ("Combined Points above Sleeper Projection", "Points above Sleeper Projection", "sum"),
+    ("Combined Claude Projection", "Claude Projection", "sum"),
+    ("Combined Points above Claude Projection", "Points above Claude Projection", "sum"),
+    ("Combined Enhanced Projection", "Enhanced Projection", "sum"),
+    ("Combined Points above Enhanced Projection", "Points above Enhanced Projection", "sum"),
 )
 
 COMBINED_NAMES: Tuple[str, ...] = tuple(c for c, _, _ in COMBINED_COLUMNS)

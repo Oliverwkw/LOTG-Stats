@@ -802,7 +802,7 @@ EQUATIONS = {
     ('Team for lowest Win %', 'team_all_time'):
         'argmin_{o : n(t,o) ≥ 1} Σ_{o(t,w)=o} win / n(t,o)',
     ('UPST', 'team_week / league_week / league_year / league_all_time'):
-        "team_week: [win(t,w) = 1 ∧ pavg(t,w) < pavg(o,w)], pavg(t,w) = mean_{w' < w, same y} MaxPF(t,w'); N/A for w ≤ 3. league: Σ_t of it",
+        "team_week: [win(t,w) = 1 ∧ EP(t,w) − EP(o(t,w),w) ≤ −9], EP = the team's Enhanced Projection (falls back to [win ∧ pavg(t,w) < pavg(o,w)], pavg = mean_{w' < w, same y} MaxPF, where it is missing). league: Σ_t of it",
     ('Donuts (starters)', 'league_week / league_year / league_all_time'):
         'Σ_t Σ_w Σ_{p ∈ S(t,w)} [pts(p,w) = 0]',
     ('Highest starter score', 'league_week / league_year / league_all_time'):
@@ -1015,6 +1015,12 @@ EQUATIONS = {
         "run length of consecutive award weeks, all-time, terminal-encoded; player runs skip ¬H weeks",
     ('Times as / Times Overachiever / Underachiever (X Projection)', 'player_year / player_all_time / team_year / team_all_time'):
         "Σ_w award(·,w)",
+    ('Start/sit miss (X Projection)', 'player_week'):
+        "starter: XP(ref,w) − XP(p,w); bench: XP(p,w) − XP(ref,w), ref = Reference player ID; adjusted: each side × F(y, pos(·))",
+    ('Difference in X Projection from opponent', 'team_week'):
+        "XP(t,w) − XP(o(t,w),w)",
+    ('Combined X Projection and Combined Points above it', 'team_week'):
+        "XP(t,w) + XP(o(t,w),w); same for PF − XP",
     ('Empty slots', 'team_week / team_year / team_all_time'):
         "|{i : S(t,w)[i] = '0' ∨ (¬H(S(t,w)[i],w) ∧ pts(S(t,w)[i],w) = 0)}|  (2020: ESPN slots left empty); year/all-time = Σ",
     ('Brosenzweig', 'team_week'):

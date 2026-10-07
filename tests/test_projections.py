@@ -104,6 +104,26 @@ def test_rollup_sums_averages_and_counts():
     assert r["Times Overachiever (Claude Projection)"] == 1 and r["Times Underachiever (Claude Projection)"] == 1
 
 
+def test_upset_and_opponent_gap():
+    tw = pd.DataFrame({"Team": ["A", "B", "C", "D"], "Opponent": ["B", "A", "D", "C"], "Year": 2025, "Week": 1,
+                       "Win?": [True, False, True, False],
+                       **{P.proj_col(x): [100.0, 110.0, 100.0, 108.0] for x in P.NAMES}})
+    g = P.opponent_gaps(tw)
+    assert g[P.opp_gap_col("Enhanced")].tolist() == [-10.0, 10.0, -8.0, 8.0]
+    # A won 10 behind (an upset); C won only 8 behind (under the 9-point bar)
+    assert g["UPST"].tolist() == [1.0, 0.0, 0.0, 0.0]
+
+
+def test_startsit_miss_uses_the_same_reference():
+    pw = pd.DataFrame({"Player ID": ["s", "b"], "Year": 2025, "Week": 3, "Position": ["WR", "WR"],
+                       "Starter/Bench": ["Starter", "Bench"], "Reference player ID": ["b", "s"],
+                       **{P.proj_col(x): [12.0, 15.0] for x in P.NAMES}})
+    m = P.startsit_miss(pw, lambda y, p: 1.0)
+    # the starter's best bench option was projected 3 more; the bench player 3 more than his starter
+    assert m[P.startsit_col("Enhanced")].tolist() == [3.0, 3.0]
+    assert m[P.startsit_col("Claude", True)].tolist() == [3.0, 3.0]
+
+
 # --------------------------------------------------------------------------- #
 def _data():
     pw = Q.load_sheet("player_week")
