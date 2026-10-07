@@ -19108,6 +19108,51 @@ def build_all(repo_root: Path) -> None:
             team_all["Empty slots"] = [_aemap.get(str(t)) for t in team_all["Team"]]
         _log(debug, f"[{_now_iso()}] INFO boldness: {len(_bstarts)} starts, {len(_blineups)} lineups "
                     f"in {(datetime.now() - _t0).total_seconds():.0f}s")
+        # Sleeper Boldness / Sleeper Lineup Boldness [per user, 2026-10-07: "since
+        # we see sleeper projections in the app"]: the same stat judged on the
+        # Sleeper Projection (its fallbacks where Sleeper has none) — how bold the
+        # call looked in the app. Same rules, a second pass.
+        if "Sleeper Projection" in pw.columns:
+            _t1 = datetime.now()
+            _sl_override = {}
+            for _pid, _y, _w, _e in pw[["Player ID", "Year", "Week", "Sleeper Projection"]].itertuples(index=False, name=None):
+                _g = _bold_bridge.get(str(_pid))
+                if _g and pd.notna(_e) and pd.notna(_y) and pd.notna(_w):
+                    _sl_override[(int(_y), int(_w), _g)] = float(_e)
+            with _bold.build_inputs(
+                    matchups=_bold_matchups, roster_positions=_bold_roster_positions,
+                    teams={int(k): dict(v) for k, v in season_roster_to_team.items()},
+                    unavailable=dict(_bold_unavail),
+                    rookie_picks=_rk[["Year", "Number", "Player Picked"]] if not _rk.empty else pd.DataFrame(columns=["Year", "Number", "Player Picked"]),
+                    scoring=_bold_scoring, score=_league_score, score_map=_LEAGUE_SCORE_MAP,
+                    bridge=_bold_bridge, expect_override=_sl_override):
+                _sstarts, _slineups = _bold.build_columns()
+            _ss = _sstarts.assign(Year=pd.to_numeric(_sstarts["Year"]).astype(int),
+                                  Week=pd.to_numeric(_sstarts["Week"]).astype(int),
+                                  **{"Player ID": _sstarts["Player ID"].astype(str)})
+            _smap = {(y, w, p): b for y, w, p, b in _ss[["Year", "Week", "Player ID", "Boldness"]].itertuples(index=False, name=None)}
+            _is_start = pw["Starter/Bench"].astype(str) == "Starter"
+            pw["Sleeper Boldness"] = [
+                (_smap.get((int(y), int(w), str(p))) if (s_ and pd.notna(y) and pd.notna(w)) else None)
+                for y, w, p, s_ in zip(pw["Year"], pw["Week"], pw["Player ID"], _is_start)]
+            _sl = _slineups.assign(Year=pd.to_numeric(_slineups["Year"]).astype(int),
+                                   Week=pd.to_numeric(_slineups["Week"]).astype(int))
+            if isinstance(tw, pd.DataFrame) and not tw.empty:
+                _slmap = {(y, w, str(t)): v for y, w, t, v in _sl[["Year", "Week", "Team", "Lineup Boldness"]].itertuples(index=False, name=None)}
+                tw["Sleeper Lineup Boldness"] = [
+                    (_slmap.get((int(y), int(w), str(t))) if pd.notna(y) and pd.notna(w) else None)
+                    for y, w, t in zip(pd.to_numeric(tw["Year"], errors="coerce"),
+                                       pd.to_numeric(tw["Week"], errors="coerce"), tw["Team"])]
+            if isinstance(team_year, pd.DataFrame) and not team_year.empty:
+                _sym = _sl.groupby(["Team", "Year"])["Lineup Boldness"].mean().round(2).to_dict()
+                team_year["Sleeper Lineup Boldness"] = [
+                    _sym.get((str(t), int(y))) if pd.notna(y) else None
+                    for t, y in zip(team_year["Team"], pd.to_numeric(team_year["Year"], errors="coerce"))]
+            if isinstance(team_all, pd.DataFrame) and not team_all.empty:
+                _sam = _sl.groupby("Team")["Lineup Boldness"].mean().round(2).to_dict()
+                team_all["Sleeper Lineup Boldness"] = [_sam.get(str(t)) for t in team_all["Team"]]
+            _log(debug, f"[{_now_iso()}] INFO sleeper boldness: {len(_sstarts)} starts, {len(_slineups)} lineups "
+                        f"in {(datetime.now() - _t1).total_seconds():.0f}s")
     except Exception as e:
         _log_exc(debug, "boldness", e)
 

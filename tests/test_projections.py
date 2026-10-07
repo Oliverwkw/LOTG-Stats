@@ -176,6 +176,22 @@ def test_exports_rules_hold():
         assert (n == 1).all(), (x, n[n != 1].head())
 
 
+def test_exports_sleeper_boldness():
+    # Boldness judged on the Sleeper Projection [per user, 2026-10-07]: never
+    # negative, starters only, and the lineup version never negative.
+    if not _HAVE_EXPORTS:
+        return _skip("no exports")
+    pw = Q.load_sheet("player_week")
+    if "Sleeper Boldness" not in pw.columns:
+        return _skip("exports predate Sleeper Boldness")
+    v = Q.numeric(pw, "Sleeper Boldness")
+    bench = pw["Starter/Bench"].astype(str) != "Starter"
+    assert (v.dropna() >= 0).all() and v[bench].isna().all()
+    tw = Q.load_sheet("team_week")
+    lb = Q.numeric(tw, "Sleeper Lineup Boldness")
+    assert (lb.dropna() >= 0).all() and lb.notna().mean() > 0.9
+
+
 if __name__ == "__main__":
     for name, fn in list(globals().items()):
         if name.startswith("test_") and callable(fn):
