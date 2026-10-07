@@ -1907,6 +1907,17 @@ def _preserve_na(col: str) -> bool:
     # N/A when the base does, and takes the base's 0-fill otherwise.
     if col_l.endswith(" adjusted by position"):
         return _preserve_na(col_l[:-len(" adjusted by position")])
+    # The Claude-projection Hardship family follows its original column.
+    if col_l.endswith(" (claude projections)"):
+        return _preserve_na(col_l[:-len(" (claude projections)")])
+    # Projection columns (lotg_support.projections) and Sleeper Boldness: blank
+    # = no projection / not a start / no game — never a 0. The award flags,
+    # their streaks and "Times …" counts keep the 0 fill like the other awards.
+    if col_l in {"sleeper boldness", "sleeper lineup boldness"}:
+        return True
+    if "projection" in col_l and "streak" not in col_l \
+            and not col_l.startswith(("overachiever", "underachiever", "times ")):
+        return True
     if col_l.startswith("change from ") or col_l.startswith("change in "):
         return True
     # Draft-origin shares (team/league sheets): "% of 3rd year+ players drafted"
