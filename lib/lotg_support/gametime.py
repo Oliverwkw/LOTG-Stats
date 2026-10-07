@@ -67,11 +67,11 @@ season-to-date points per game padded with last season and the position
 z = expected final margin ÷ the spread of everything still to play; win chance
 = Φ(z), taken at the start of each kickoff window (never with a game half
 played). A team BEHIND ON THE SCOREBOARD has its hole measured from the
-projection less a band for projection error, 2.5 × √(starters still to play)
+projection less a band for projection error, 1.6 × √(starters still to play)
 (`projection_band`) [per user, 2026-10-07]: down 57.38 with 4 left and
 projected 58 or 60 is a comeback, projected 69.4 is not. The band is the 75th
-percentile of how far the Claude and Sleeper projections (what the league
-sees live; Sleeper's are fetched only for that test, never by the build)
+percentile of how far the Enhanced and Sleeper projections (what the league
+sees live)
 disagree on the final margin. Depth of a hole = −z when z < 0 (standard deviations behind the
 expected finish, capped at 10). Comeback size = the largest depth × the win
 chance at any later point (1 at the end for a win, 0 for a loss) × how much of
@@ -146,7 +146,8 @@ SD_PER_ROOT_POINT = 1.8        # a starter's points vary like 1.8·√(his Enhan
                                # (2.0 on the Claude projections, before 2026-10-07)
 HOLD_SHARE = 0.25              # what a turnaround counts for when the team's own players did none of it
 Z_CAP = 10.0
-BAND_PER_ROOT_STARTER = 2.5    # projection-error band for a team behind on the scoreboard
+BAND_PER_ROOT_STARTER = 1.6    # projection-error band for a team behind on the scoreboard
+                               # (2.5 on the Claude projections; 1.6 on Enhanced, per user)
 GAME_HOURS = 3.0               # a game is over this long after kickoff (see `windows`)
 # Fallback expectation, for a starter boldness has none for (or a build where
 # boldness failed): season-to-date PPG padded with last season and the position.
@@ -319,9 +320,11 @@ def projection_band(own_in: float, opp_in: float, own_left: Sequence[Sequence],
     """Points of projection error a team BEHIND ON THE SCOREBOARD is allowed:
     BAND_PER_ROOT_STARTER × √(starters still to play on both sides, known outs
     aside); 0 when level or ahead. [per user, 2026-10-07] down 57.38 with 4
-    starters projected 58 or 60 is a comeback, projected 69.4 is not: the band
-    for 4 left is 5.0 — the 75th percentile of how far the Claude and Sleeper
-    own projections (what the league sees live) disagree on the final margin."""
+    starters projected 58 or 60 is a comeback, projected 69.4 is not. The band
+    is the 75th percentile of how far the projection in use and Sleeper's (what
+    the league sees live) disagree on the final margin: 2.5·√n on the Claude
+    projections, 1.6·√n on Enhanced [per user, 2026-10-07: "switch to 1.6 since
+    we switched to enhanced"] — 3.2 for 4 left."""
     if own_in - opp_in >= 0:
         return 0.0
     n = sum(1 for s in list(own_left) + list(opp_left) if not (len(s) > 3 and s[3]))

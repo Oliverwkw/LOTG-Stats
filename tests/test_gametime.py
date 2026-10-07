@@ -212,9 +212,10 @@ def test_overlapping_games_are_one_window():
 def test_projection_band_for_a_team_behind_on_the_scoreboard():
     # [per user, 2026-10-07] Steve (stevenb123) 2026 wk 4 entering SNF: down
     # 57.38 with 4 starters left, opponent done. Projected 69.4 (+12): not a
-    # comeback. Projected 58 or 60 (+0.6 / +2.6): inside the 5.0 band -> one.
+    # comeback. Projected 58 or 60 (+0.6 / +2.6): inside the band -> one. The
+    # band is 1.6·√n on the Enhanced projection [per user]: 3.2 for 4 left.
     band = G.BAND_PER_ROOT_STARTER * 2
-    assert abs(band - 5.0) < 1e-9
+    assert abs(band - 3.2) < 1e-9
     def hole(projected):
         left = [(None, 0.0, projected / 4, False)] * 4
         return G.win_z(76.50, 133.88, left, [], G.projection_band(76.50, 133.88, left, []))

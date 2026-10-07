@@ -1586,6 +1586,8 @@ guard-skipped fire), 581→584 (#453), 584→589 (#454), 589→597 (#455).
     pts_ppr / adp-only, ~0 for a player not ruled out — Brady 2021 etc.) → "weakened"
     Enhanced (the same model fitted WITHOUT Sleeper), then Claude.
 - [ ] **Everything that uses a projection switches to Enhanced** (with that fallback).
+  Comeback size's projection band → 1.6·√n on Enhanced [per user, 2026-10-07: "switch to
+  1.6 since we switched to enhanced"]; its win-chance spread re-tuned 2.0 → 1.8.
   Comeback size + Boldness / Lineup Boldness are APPROVED [per user, 2026-10-07: "I've
   already approved for comeback size and boldness, others will need my approval"]; any
   OTHER existing stat changes only after the user approves it ("don't change any stats
