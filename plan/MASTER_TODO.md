@@ -1533,6 +1533,24 @@ guard-skipped fire), 581→584 (#453), 584→589 (#454), 589→597 (#455).
       mean (best fit .37/.28/.30/.04 = 8.057). Comeback size sums expectations, so it
       wants the unbiased one: equal 4-way is 8.063 there too. Re-tune SD_PER_ROOT_POINT
       and re-check the 2.5·√n band on the blend before shipping.
+  - **Best single-start projection: a median model on top of the four** [per user, 2026-10-07:
+    "push the envelope … under 6.3 is a win, under 6 amazing"]. Median (least-absolute-
+    deviation) regression, refit each season on completed seasons, inputs: the four
+    projections (a missing one reads the average of the rest), their disagreement (sd,
+    avg·sd), Vegas implied team total (avg·implied/24), opponent implied total, game script
+    (spread, spread·avg), the player's record v projections (his past points − average,
+    shrunk with 8 pseudo-starts at 0; last 3), opponent v position (points allowed over
+    league average to the position's top 2, season to date), home, dome, wind.
+    Leave-one-season-out 2020-25, 7,506 starts: **MAE 6.269** (per season 6.06-6.63), RMSE
+    8.063, bias −0.8 (a median, by design). Equal 4-way average 6.344; +Vegas alone 6.296.
+    - Tried, no better: the literal "least-squares weights only when the sources are
+      far apart" switch (best 6.315 at sd > 2.0 — mean-type weights cost MAE); per-position
+      models 6.283; gradient-boosted median trees 6.346-6.418 (overfit at ~6k starts);
+      pooled + per-position ensemble 6.261 (not worth two models).
+    - **Floor**: knowing each player's ACTUAL whole-season average, this game included,
+      gives MAE 6.218 — so < 6.0 is out of reach pre-game; 6.27 is within 0.05 of hindsight.
+    - Use it for a "typical outcome" column; for sums / win chances (Comeback size) keep
+      an unbiased mean (equal 4-way, RMSE 8.051) — the median runs 0.8 low per start.
 
 ## Game-time columns (from the 2026 wk 4 MNF-comeback inquiry)
 - [x] **player_week `Game slot` + team_week margins / comebacks by stage** [per user,
