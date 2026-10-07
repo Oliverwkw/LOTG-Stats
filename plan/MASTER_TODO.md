@@ -1585,7 +1585,9 @@ guard-skipped fire), 581→584 (#453), 584→589 (#454), 589→597 (#455).
   - **Sleeper** = Sleeper's own projection; where Sleeper has none or a weird one (no
     pts_ppr / adp-only, ~0 for a player not ruled out — Brady 2021 etc.) → "weakened"
     Enhanced (the same model fitted WITHOUT Sleeper), then Claude.
-- [ ] **Everything that uses a projection switches to Enhanced** (with that fallback):
+- [ ] **Everything that uses a projection switches to Enhanced** (with that fallback) —
+  **only after the user approves the before/after numbers** [per user, 2026-10-07: "don't
+  change any stats without my approval"]; the first framework PR adds columns only:
   team_week Comeback size (re-tune SD_PER_ROOT_POINT + the 2.5·√n band on Enhanced) and
   Boldness / Lineup Boldness (re-fit bust odds) — confirm the list with the user before
   switching; PAE's career expectation and the forecast's season sims are different kinds
