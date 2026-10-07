@@ -1536,7 +1536,7 @@ guard-skipped fire), 581→584 (#453), 584→589 (#454), 589→597 (#455).
     artifacts); formulas +3 rows. Nothing else.
   - `scripts/audit_weekly.py` Part 2 flagged the stale schema pin (also missing #464 / #469
     / Price paid columns); re-pinned from run 672 (`data/audit/schema_baseline.json`).
-- [ ] **Comeback columns renamed + extended, Comeback size** [per user, 2026-10-06].
+- [x] **Comeback columns renamed + extended, Comeback size** [per user, 2026-10-06].
   Per stage X ∈ {SNF, Monday, last game}: `Margin overcome (entering X)`, `Points
   overcome (entering X)`, `% of own points scored X or later` (`in last game`; every
   game, not just comebacks), `% of opponent's final points overcome (entering X)`,
@@ -1560,6 +1560,32 @@ guard-skipped fire), 581→584 (#453), 584→589 (#454), 589→597 (#455).
     + 4:25 (590 checkpoints) and Monday doubleheaders (~50) are one window — no game is
     counted finished while still being played. Also moves #477's "entering last game"
     to the window start in 44 team-weeks (late half of a Monday doubleheader).
+  Merged #479 / `6e3c1ed` on top of #478 (`0c4edc8`, ancestor verified; #479's diff
+  removes no #478 line) after branch runs 676 / 677 / 678 (artifacts checked).
+  **3-part audit — PASS (2026-10-07): post-merge main run 679 (exports committed
+  `9617dae`, roster change) vs run 673** (last pre-merge main build; 674 was a skipped
+  schedule run with no artifact). Covers #478 + #479 together.
+  - Part 1: 638 passed / 2 standing skips (incl. test_gametime export = recompute,
+    calibration, overlapping windows; #478's digest tests); 0 ERROR lines in run 679's
+    section; `gametime: … 7851 boldness expectations for 7851 starts`.
+  - Part 2 cases: the 9 scale-preserving renames carry 673's values exactly (0 differ);
+    % of opponent's final = 673's 0-100 value ÷ 100; % of own points scored SNF or later
+    on all 840 games; LWebs53 2021 wk 2 Monday: own share 0.4064 (88.40 / 217.54), margin
+    per player 21.26, % of opponent's score overcome 0.3306 (63.78 / 192.92); Peter
+    (plehv79) 2021 wk 5 Comeback size 2.20; hold plehv79 2025 wk 3 0.31; BROsenzweig
+    2024 wk 14 0.00 (hole only mid-4 pm window); 840/840 sizes, none negative; 44
+    last-game margins moved, all now = Margin entering Monday (doubleheader's first
+    kickoff), 0 value↔N/A flips. Workbook: the 4 % columns 0.00%, the rest 0.00.
+  - Part 3 (`audit_weekly.py`, 11 flags, all classified): intended — team_week schema
+    (15 old names out, 25 in; re-pinned from run 679) and the 44 Margin entering last
+    game rows; live drift — AceMatthew's 2026-10-06 Will Shipley waiver (Tank Bigsby drop:
+    player_all_time / player_year Number of drops, team / league FAAB +17) and 514
+    player_additions PAE rows ±0.01-0.05 (volatile_columns: the expectation refits on
+    every build; branch run 678 with the same code already showed it, `acquisition.py`
+    imports nothing either PR touched). Nothing else.
+  - Digest (run 679): 2 lines, both the windows fix to Margin entering last game, filed
+    under "Changes from edits" with #478's drop-off wording and workbook decimals; 0
+    comeback-column lines (rename migration + high-end-only held).
     Rejected: log2(1/win chance) (a hopeless loser rallying to 2% scored 11.5, the
     league's biggest); 1 − win chance (squashes the big comebacks together).
   - Digest: the three scale-preserving renames carry their board history
