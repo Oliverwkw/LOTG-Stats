@@ -1630,6 +1630,21 @@ guard-skipped fire), 581→584 (#453), 584→589 (#454), 589→597 (#455).
   - User's call: add_drops / trades "PPG of 5 games before pickup / trade" — recent form,
     not a weekly estimate; an "X Projection at pickup" would be the projection version.
   - Leave: PAE, Tanking, KTC slot comparisons (not weekly score estimates).
+- [ ] **Other columns that could switch — user decisions 2026-10-07** (after a pros / cons /
+  methods list):
+  1. team_week "Difference in pregame avg max PF from opponent": KEEP, ADD projection
+     versions (×3).
+  2. UPST: SWITCH to Enhanced — a win while projected 8-10+ points worse than the opponent
+     (threshold picked from the data within 8-10); league sums follow.
+  3. player_week "Difference in averages of best/worst startables over previous 5 games"
+     (+ by position): ADD projection versions (×3), and RENAME the original so the digest
+     reads clearly (needs digest.migrate_snapshot_columns).
+  4. add_drops / trades "PPG of 5 games before pickup / trade": leave as is.
+  5. Luck: show before/after numbers on an Enhanced pregame estimate; likely stays.
+  6. Hardship: show what a Claude-projection "if healthy" baseline does (the Claude E
+     BEFORE the known-out zeroing — never the 0-projection columns); maybe keep both
+     Hardship and an Enhanced/Claude Hardship.
+  7. Projected Max PF: no.  8. Combined (matchup) projection columns: ADD.  9. Forecast: no.
 - [ ] **Then: build time** — profile the build and cut it.
 
 ## Game-time columns (from the 2026 wk 4 MNF-comeback inquiry)
