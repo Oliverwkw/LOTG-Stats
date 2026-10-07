@@ -52,7 +52,7 @@ def test_ids_match_however_the_table_was_loaded():
     # projected 23.9 as a backup).
     num = pd.Series([4837248.0, np.nan, 28013.0])
     assert P._id_str(num).tolist()[0] == "4837248" and pd.isna(P._id_str(num).tolist()[1])
-    assert P._id_str(num.astype(str)).tolist() == P._id_str(num).tolist()
+    assert P._id_str(num.astype(str)).fillna("-").tolist() == P._id_str(num).fillna("-").tolist()
 
 
 def test_scoring_uses_the_league_table():
