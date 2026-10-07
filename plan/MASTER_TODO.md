@@ -1687,6 +1687,34 @@ guard-skipped fire), 581→584 (#453), 584→589 (#454), 589→597 (#455).
   Comeback size]: overall + entering SNF / Monday / last game, on Sleeper Projections
   and the app-style win % (z = Φ⁻¹(win %)); Comeback size itself stays on Enhanced and
   the calibrated Φ(z).
+- [x] **Merged #481 / `596f1f3`** (projections framework + win % + Comeback size (Sleeper
+  projections)) after branch runs 683-691 (artifacts checked). **3-part audit — PASS
+  (2026-10-07): post-merge main run 692 v run 682.**
+  - Part 1: CI 656 passed / 2 standing skips (no un-started season; no unsigned players);
+    data-quality sanity 0 ERROR / 0 WARN; `gametime: … 7851 Enhanced projections for 7851
+    starts`. Warnings identical to branch run 691: 86 PerformanceWarnings (lotg.py, mostly
+    19282 ×28 / 19292 ×21 — columns assigned one at a time; speed only, for the build-time
+    work) and 2 "Mean of empty slice" (projections.py `_features`, rows with no source
+    projection — they fall back as designed).
+  - Part 2 cases (all pass): (1) UPST = win ∧ Enhanced gap ≤ −9 on all 840 team-weeks;
+    (2) league_week UPST = Σ team_week; (3) each matchup's two pre-week win % sum to 100%
+    and Difference = own − opponent, all three projections; (4) Largest Win % overcome ≥
+    every stage value, never on a loss; (5) team_year Avg pre-week Win % = the mean of its
+    weeks; (6) Points above Enhanced = Points − Enhanced; (7) Sleeper Boldness N/A on every
+    bench row — and on 26 starters, all dead starts (out, 0 pts; Boldness N/A too, by
+    the boldness rules); (8) JacobRosenzweig 2020 wk 16: Largest Win % overcome (Sleeper)
+    77%, Comeback size 0.52, Sleeper version 0.27; (9) Comeback size (Sleeper projections)
+    max 0.65, corr 0.72 with Comeback size; (10) Hardship (Claude Projections) family
+    present (team_week 6 / team_year 5 / all-time 5 / league_week 2 columns), mean 42.7 v
+    Hardship 45.2. test_win_pct.py (the 40 app readings) passed in CI.
+  - Part 3 (diff, every sheet): new columns only (team_week +59, player_week +25,
+    team_year / all-time +27, player_year / all-time +18, league +8/+12/+12); existing
+    columns moved = the approved ones only — Boldness (2663 player-weeks), Lineup Boldness,
+    Comeback size ×4 (Enhanced + 1.6 band), UPST (75 lost, 7 gained; weeks 1-3 were N/A
+    with no pregame averages and are now scored — 168 rows, 13 upsets; total 128 → 73).
+    Live drift (by design): add_drops / player_additions KTC "1 year later" etc. — 2025-10-07
+    adds hit their 1-year mark today — plus O-Score (21 rows) and stevenb123 2025 Add/Drop
+    skill 38.3 → 38.1 from those KTC values. Formulas 684 → 708 rows. Nothing UNEXPECTED.
 - [ ] **Then: build time** — profile the build and cut it.
 
 ## Game-time columns (from the 2026 wk 4 MNF-comeback inquiry)
