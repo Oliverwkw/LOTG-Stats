@@ -258,6 +258,14 @@ class Inputs:
     key: str = "Player ID"
 
 
+def _id_str(v) -> pd.Series:
+    """An id column as clean strings: a numeric load turns 28013 into
+    "28013.0" and a missing id into "nan" — neither may match anything
+    (the build reads the DynastyProcess id table with numeric dtypes)."""
+    s = pd.Series(v).astype(str).str.strip().str.replace(r"\.0$", "", regex=True)
+    return s.where(~s.str.lower().isin(("nan", "none", "", "<na>")))
+
+
 def _norm_team(t) -> str:
     from lotg_support.gametime import norm_team
     return norm_team(t)
@@ -301,7 +309,7 @@ def source_frame(inp: Inputs) -> pd.DataFrame:
     ids = inp.ids
     # The Sleeper id of every row: the build's Player ID; from the exports, via names.
     if inp.key == "Player ID":
-        sid = key
+        sid = _id_str(key)
     else:
         sid = pd.Series(np.nan, index=pw.index, dtype=object)
     # Claude
@@ -315,20 +323,21 @@ def source_frame(inp: Inputs) -> pd.DataFrame:
     out["claude"] = [cl.get((int(y), int(w), k)) if pd.notna(y) and pd.notna(w) else np.nan
                      for y, w, k in zip(yr, wk, key)]
     # Sleeper / ESPN, scored with each season's league rules
-    espn2sl = dict(zip(ids["espn_id"].astype(str), ids["sleeper_id"].astype(str)))
-    fp2sl = dict(zip(ids["fantasypros_id"].astype(str), ids["sleeper_id"].astype(str)))
+    _sl = _id_str(ids["sleeper_id"])
+    espn2sl = {e: s_ for e, s_ in zip(_id_str(ids["espn_id"]), _sl) if pd.notna(e) and pd.notna(s_)}
+    fp2sl = {f: s_ for f, s_ in zip(_id_str(ids["fantasypros_id"]), _sl) if pd.notna(f) and pd.notna(s_)}
     sl_pts, es_pts = {}, {}
     for season, df in inp.sleeper.items():
         if df is None or df.empty:
             continue
         df = df[df["has_projection"].astype(str).str.lower().isin(("true", "1"))]
         pts = score_stats(df, inp.scoring(int(season)))
-        sl_pts.update({(int(season), int(w), str(p)): v for w, p, v in zip(df.week, df.sleeper_id, pts)})
+        sl_pts.update({(int(season), int(w), p): v for w, p, v in zip(df.week, _id_str(df.sleeper_id), pts)})
     for season, df in inp.espn.items():
         if df is None or df.empty:
             continue
         pts = score_stats(df, inp.scoring(int(season)))
-        for w, e, v in zip(df.week, df.espn_id.astype(str), pts):
+        for w, e, v in zip(df.week, _id_str(df.espn_id), pts):
             s_ = espn2sl.get(e)
             if s_:
                 es_pts[(int(season), int(w), s_)] = v
@@ -350,7 +359,7 @@ def source_frame(inp: Inputs) -> pd.DataFrame:
     out["fp_rank"] = np.nan
     fp = inp.fantasypros
     if fp is not None and not fp.empty:
-        fp = fp.assign(sid=fp["fantasypros_id"].astype(str).map(fp2sl),
+        fp = fp.assign(sid=_id_str(fp["fantasypros_id"]).map(fp2sl),
                        sd=pd.to_datetime(fp["scrape_date"]))
         fp = fp[fp.sid.notna()]
         wk_of = {}

@@ -44,6 +44,17 @@ def test_column_names():
     assert not any("achiever" in c for c in P.rollup_columns(None))     # league: totals only
 
 
+def test_ids_match_however_the_table_was_loaded():
+    # The build reads the DynastyProcess id table with numeric dtypes: 4837248
+    # comes back as "4837248.0". Unnormalised, ESPN / FantasyPros never matched
+    # a player (branch run 683: outside-source coverage 77% instead of 99%, and
+    # the model fit on near-duplicate columns blew up — Justin Fields 2024 wk 12
+    # projected 23.9 as a backup).
+    num = pd.Series([4837248.0, np.nan, 28013.0])
+    assert P._id_str(num).tolist()[0] == "4837248" and pd.isna(P._id_str(num).tolist()[1])
+    assert P._id_str(num.astype(str)).tolist() == P._id_str(num).tolist()
+
+
 def test_scoring_uses_the_league_table():
     stats = pd.DataFrame([{"pass_yd": 250, "pass_td": 2, "rec": 5, "rec_yd": 60, "kr_yd": 99}])
     table = {"pass_yd": 0.04, "pass_td": 4, "rec": 1, "rec_yd": 0.1}
@@ -117,6 +128,9 @@ def test_exports_projection_accuracy():
     bias = float((Q.numeric(st, P.proj_col("Enhanced")) - pts).mean())
     print(f"  starters RMSE {({k: round(v, 3) for k, v in rmse.items()})}, Enhanced bias {bias:+.2f}")
     assert rmse["Enhanced"] < rmse["Claude"] and rmse["Enhanced"] < 8.2
+    # and it must clearly beat Sleeper alone (8.006 v 8.103 when every source
+    # joins; a broken source join left only 8.058 v 8.103)
+    assert rmse["Sleeper"] - rmse["Enhanced"] > 0.06, rmse
     assert abs(bias) < 0.3
 
 
