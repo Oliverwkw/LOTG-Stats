@@ -37,7 +37,12 @@ A dead start (below) is judged the same way, and is counted as empty too
 An empty-slot row still appears in `boldness()` (its reference shows what could
 have filled it) but carries no Boldness.
 
-## Expected points
+## Expected points — the "Claude projections"
+
+Outside this module (columns, formulas, docs, inquiry answers) these are called
+the CLAUDE PROJECTIONS [per user, 2026-10-07], so they are never confused with
+the Boldness stat built on them. team_week's Comeback size uses them too.
+
 
 A shrunk, weighted average of the player's own NFL games, scored with the
 league's settings FOR THE SEASON BEING JUDGED (the build's `lotg._league_score`
