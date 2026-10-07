@@ -1715,7 +1715,7 @@ guard-skipped fire), 581→584 (#453), 584→589 (#454), 589→597 (#455).
     Live drift (by design): add_drops / player_additions KTC "1 year later" etc. — 2025-10-07
     adds hit their 1-year mark today — plus O-Score (21 rows) and stevenb123 2025 Add/Drop
     skill 38.3 → 38.1 from those KTC values. Formulas 684 → 708 rows. Nothing UNEXPECTED.
-- [ ] **Comeback size: one set per projection** [per user, 2026-10-07, after the #481
+- [x] **Comeback size: one set per projection** [per user, 2026-10-07, after the #481
   audit: "make the comeback size columns separate for all three projections like others"
   + "fix band to match each"]. "Comeback size (X Projection)" and "Comeback size entering
   SNF / Monday / last game (X Projection)", X = Sleeper / Claude / Enhanced, replacing the
@@ -1733,6 +1733,24 @@ guard-skipped fire), 581→584 (#453), 584→589 (#454), 589→597 (#455).
   Boldness / Lineup Boldness / Sleeper Boldness untouched (nothing else reads boldness'
   output) [per user: "make sure that where the boldness etc stuff was used it uses new
   versions of boldness"].
+- [x] **Merged #482 / `c58de17`** after branch run 694 (artifacts checked). **3-part audit —
+  PASS (2026-10-07): post-merge main run 695 v run 692.**
+  - Part 1: CI 657 passed / 2 standing skips (incl. test_exports_match_the_recompute for all
+    three sets and test_each_projection_has_its_own_model, both PASSED); data-quality 0 ERROR /
+    0 WARN; `gametime: … 7851 Claude projections for 7851 starts`; exports committed
+    (e8528cf). 90 PerformanceWarnings (86 in 692 + the extra set's loop) — speed only.
+  - Part 2 cases (all pass): (1) Claude set = run 682's Comeback size, 840 × 4 identical;
+    (2) Enhanced set = run 692's Comeback size, 840 × 4 identical; (3) Sleeper set v 692's
+    "(Sleeper projections)": 338 / 130 / 31 / 23 fell, none rose (band 1.6 → 0); (4) Steve
+    (stevenb123) 2026 wk 4 is 0.00 in all 12 columns; (5) LWebs53 2021 wk 2 entering Monday
+    (63.78 down, 3 starters left): Claude 1.35 / Enhanced 0.15 / Sleeper 0.00 — the Enhanced
+    and Sleeper projections had those 3 starters at about the 63.78 needed, Claude well
+    short (by design: each set reads its own projection); (6) every set: whole week ≥ each
+    stage, no negatives, all 840 filled; (7) digest maps "Comeback size" / "(entering X)"
+    to the Claude set; (8) Formulas carries the three entries.
+  - Part 3 (diff, every sheet v 692): team_week −8 columns (old Comeback size ×4,
+    "(Sleeper projections)" ×4) +12 (the three sets); Formulas 708 → 709; nothing else
+    changed on any sheet (no live drift this run). Nothing UNEXPECTED.
 - [ ] **Then: build time** — profile the build and cut it.
 
 ## Game-time columns (from the 2026 wk 4 MNF-comeback inquiry)
