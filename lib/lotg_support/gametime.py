@@ -63,7 +63,13 @@ season-to-date points per game padded with last season and the position
 (`expected_points`). Each player's points vary like 2.0·√(his expectation);
 z = expected final margin ÷ the spread of everything still to play; win chance
 = Φ(z), taken at the start of each kickoff window (never with a game half
-played). Depth of a hole = −z when z < 0 (standard deviations behind the
+played). A team BEHIND ON THE SCOREBOARD has its hole measured from the
+projection less a band for projection error, 2.5 × √(starters still to play)
+(`projection_band`) [per user, 2026-10-07]: down 57.38 with 4 left and
+projected 58 or 60 is a comeback, projected 69.4 is not. The band is the 75th
+percentile of how far Boldness' and Sleeper's projections (what the league
+sees live; Sleeper's are fetched only for that test, never by the build)
+disagree on the final margin. Depth of a hole = −z when z < 0 (standard deviations behind the
 expected finish, capped at 10). Comeback size = the largest depth × the win
 chance at any later point (1 at the end for a win, 0 for a loss) × how much of
 the turnaround in between the team's own players made: HOLD_SHARE (¼) + ¾ × own
@@ -135,6 +141,7 @@ LEGACY_COLUMNS = {
 SD_PER_ROOT_POINT = 2.0        # a starter's points vary like 2.0·√(his expectation)
 HOLD_SHARE = 0.25              # what a turnaround counts for when the team's own players did none of it
 Z_CAP = 10.0
+BAND_PER_ROOT_STARTER = 2.5    # projection-error band for a team behind on the scoreboard
 GAME_HOURS = 3.0               # a game is over this long after kickoff (see `windows`)
 # Fallback expectation, for a starter boldness has none for (or a build where
 # boldness failed): season-to-date PPG padded with last season and the position.
@@ -290,16 +297,30 @@ def _phi(z: float) -> float:
 
 
 def win_z(own_in: float, opp_in: float, own_left: Sequence[Sequence],
-          opp_left: Sequence[Sequence]) -> float:
-    """Expected final margin ÷ its spread, from points going in and the
-    expected points of the starters still to play (capped at ±Z_CAP)."""
-    mean = own_in - opp_in + sum(_mu(s) for s in own_left) - sum(_mu(s) for s in opp_left)
+          opp_left: Sequence[Sequence], band: float = 0.0) -> float:
+    """Expected final margin (less `band`) ÷ its spread, from points going in
+    and the expected points of the starters still to play (capped at ±Z_CAP)."""
+    mean = own_in - opp_in + sum(_mu(s) for s in own_left) - sum(_mu(s) for s in opp_left) - band
     var = sum(_var(s) for s in list(own_left) + list(opp_left))
     if var <= 0:
         z = Z_CAP if mean > 0 else (-Z_CAP if mean < 0 else 0.0)
     else:
         z = mean / math.sqrt(var)
     return max(-Z_CAP, min(Z_CAP, z))
+
+
+def projection_band(own_in: float, opp_in: float, own_left: Sequence[Sequence],
+                    opp_left: Sequence[Sequence]) -> float:
+    """Points of projection error a team BEHIND ON THE SCOREBOARD is allowed:
+    BAND_PER_ROOT_STARTER × √(starters still to play on both sides, known outs
+    aside); 0 when level or ahead. [per user, 2026-10-07] down 57.38 with 4
+    starters projected 58 or 60 is a comeback, projected 69.4 is not: the band
+    for 4 left is 5.0 — the 75th percentile of how far Boldness' and Sleeper's
+    own projections (what the league sees live) disagree on the final margin."""
+    if own_in - opp_in >= 0:
+        return 0.0
+    n = sum(1 for s in list(own_left) + list(opp_left) if not (len(s) > 3 and s[3]))
+    return BAND_PER_ROOT_STARTER * math.sqrt(n)
 
 
 def _own_part(hole: Sequence[float], later: Sequence[float]) -> float:
@@ -318,14 +339,16 @@ def comeback_size(points: Sequence[Sequence[float]], final: float, from_first: b
     the own-doing factor (`_own_part`) between them; the end counts as win
     chance `final` (1 win, 0 loss, ½ tie). `points` in time order, each
     (z, own players' points over expectation still to come, the opponent's
-    shortfall still to come) — a bare z means no split is known (factor 1).
+    shortfall still to come[, the hole's z: z with the projection band]) — a
+    bare z means no split is known (factor 1). The hole's depth reads the
+    banded z (`projection_band`), the later win chance the plain one.
     `from_first` = only the first point's hole counts (a stage's version)."""
     split = [p for p in points if isinstance(p, (tuple, list))]
     pts = [p if isinstance(p, (tuple, list)) else (p, 0.0, 0.0) for p in points]
     later = [(_phi(p[0]), p) for p in pts] + [(final, (None, 0.0, 0.0))]
     best = 0.0
     for i, hole in enumerate(pts[:1] if from_first else pts):
-        depth = max(0.0, -hole[0])
+        depth = max(0.0, -(hole[3] if len(hole) > 3 else hole[0]))
         for chance, p in later[i + 1:]:
             if depth:
                 best = max(best, depth * chance * (_own_part(hole, p) if split else 1.0))
@@ -353,12 +376,15 @@ def checkpoint_z(own: Sequence[Sequence], opp: Sequence[Sequence], own_final: fl
 
 
 def checkpoint(own: Sequence[Sequence], opp: Sequence[Sequence], own_final: float,
-               opp_final: float, t: datetime) -> Tuple[float, float, float]:
+               opp_final: float, t: datetime) -> Tuple[float, float, float, float]:
     """(z, own points over expectation still to come, opponent's shortfall
-    still to come) entering kickoff t — a `comeback_size` point."""
+    still to come, the hole's z with the projection band) entering kickoff t —
+    a `comeback_size` point."""
     ol, pl = _left(own, t), _left(opp, t)
-    return (checkpoint_z(own, opp, own_final, opp_final, t),
-            sum(s[1] - _mu(s) for s in ol), sum(_mu(s) - s[1] for s in pl))
+    own_in, opp_in = own_final - points_from(own, t), opp_final - points_from(opp, t)
+    return (win_z(own_in, opp_in, ol, pl),
+            sum(s[1] - _mu(s) for s in ol), sum(_mu(s) - s[1] for s in pl),
+            win_z(own_in, opp_in, ol, pl, projection_band(own_in, opp_in, ol, pl)))
 
 
 def kickoffs(own: Sequence[Sequence], opp: Sequence[Sequence]) -> List[datetime]:

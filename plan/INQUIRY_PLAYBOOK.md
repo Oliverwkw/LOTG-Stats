@@ -735,7 +735,8 @@ list is here so an answer written by hand does not walk into them.
   **Comeback size is a model, not a count** [per user, 2026-10-06]: standard
   deviations behind the expected finish (starters' expected points = Boldness'
   pre-kickoff E: recency, that season's scoring, rookie slot prior, next-man-up
-  cuffs, known outs at 0) × the win chance the team later reached × how much of
+  cuffs, known outs at 0; a team behind on the scoreboard gets a 2.5·√(starters
+  left) projection-error band) × the win chance the team later reached × how much of
   the turnaround its OWN players made (¼ floor). A lead held while the opponent's
   late players flopped counts, but only a quarter [per user]. From the exports
   the inquiry side recomputes E with `gametime.boldness_expectations` (~1 min

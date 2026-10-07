@@ -1642,3 +1642,16 @@ guard-skipped fire), 581→584 (#453), 584→589 (#454), 589→597 (#455).
   - Digest: the three scale-preserving renames carry their board history
     (`gametime.LEGACY_COLUMNS` via `migrate_count_column`); the % boards start fresh;
     the overcome columns rank at the high end only (`gametime.HIGH_END_ONLY`).
+- [ ] **Comeback size: projection-error band for a team behind on the scoreboard** [per user,
+  2026-10-07: "down by real margin and up by projection … give a point band"; Steve
+  (stevenb123) 2026 wk 4, down 57.38 with 4 left, stays 0.00 at a 69.4 projection but
+  58 / 60 would count]. Hole measured from the projection − 2.5·√(starters left, known
+  outs aside) when trailing on the scoreboard (`gametime.projection_band`).
+  - Set from projection disagreement at 1,601 trailing windows (2020-26): Sleeper's own
+    weekly projections (api.sleeper.com/projections, Rotowire, scored with each season's
+    league rules; fetched for the test only) v Boldness E — median 1.4·√n, 75th pct
+    2.5·√n (5.5 pts at 4 left, 8.7 at 9+). Per-starter accuracy: Sleeper MAE 6.44 /
+    corr 0.368 / bias +0.24; Boldness 6.45 / 0.347 / −1.23; season-average 6.54 / 0.313;
+    last-5 7.18 / 0.258; team strength 6.95 / 0.118; position average 6.79 / 0.215.
+  - Effect: 346 Comeback size rows rise, 58 from 0.00; every comeback from a scoreboard
+    deficit gains the band (≈ +0.2-0.35; Peter 2021 wk 5 2.20 → 2.54, order unchanged).

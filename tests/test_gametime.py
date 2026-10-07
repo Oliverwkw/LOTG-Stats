@@ -209,6 +209,26 @@ def test_overlapping_games_are_one_window():
     assert G.last_game_start(s, 2020, 5, rows[:1], rows[1:]) == d(19, 5, 12)
 
 
+def test_projection_band_for_a_team_behind_on_the_scoreboard():
+    # [per user, 2026-10-07] Steve (stevenb123) 2026 wk 4 entering SNF: down
+    # 57.38 with 4 starters left, opponent done. Projected 69.4 (+12): not a
+    # comeback. Projected 58 or 60 (+0.6 / +2.6): inside the 5.0 band -> one.
+    band = G.BAND_PER_ROOT_STARTER * 2
+    assert abs(band - 5.0) < 1e-9
+    def hole(projected):
+        left = [(None, 0.0, projected / 4, False)] * 4
+        return G.win_z(76.50, 133.88, left, [], G.projection_band(76.50, 133.88, left, []))
+    assert hole(69.4) > 0                    # still ahead after the band: depth 0
+    assert hole(60.0) < 0 and hole(58.0) < 0   # behind once the band is applied
+    # ahead (or level) on the scoreboard: no band
+    assert G.projection_band(80.0, 70.0, [(None, 0, 10.0, False)], []) == 0.0
+    # known outs carry no projection error
+    assert G.projection_band(60.0, 70.0, [(None, 0, 10.0, True)], []) == 0.0
+    # the band deepens the hole; the later win chance stays unbanded
+    pts = [(0.2, 10.0, 0.0, -0.3)]
+    assert G.comeback_size(pts, 1.0) == 0.3
+
+
 def test_known_outs_expect_nothing():
     # A starter known to be out (dead start) adds no expectation and no spread.
     out = (None, 0.0, 15.0, True)
