@@ -378,6 +378,54 @@ def test_the_lift_weighs_the_backups_own_record():
         assert weak > 4, (pos, weak)
 
 
+def test_a_swapped_override_equals_a_fresh_block():
+    # The build runs Boldness then Sleeper Boldness in ONE build_inputs block,
+    # swapping only the projection (set_expect_override) so the second pass
+    # reuses the first's caches. That is only safe while no cached reader
+    # depends on the override: the swapped pass must equal a fresh block.
+    y = _season()
+    if y is None:
+        return _skip("no completed season with exports and the nflverse cache")
+    import json
+    from lotg_support import scoring_events as SE
+    weeks = B.played_weeks(y)
+    matchups = {y: {w: [dict(roster_id=rid, matchup_id=r.matchup_id, points=r.points,
+                             starters=list(r.starters), players=list(r.players),
+                             players_points=dict(r.players_points))
+                        for rid, r in B.week_rows(y, w).items()] for w in weeks}}
+    league = json.loads((_ROOT / "exports" / "snapshot" / f"season_{y}" / "league.json").read_text())
+    score, score_map = B._build_scorer()
+    kw = dict(matchups=matchups, roster_positions={y: league["roster_positions"]},
+              teams={y: B.season_teams(y)}, unavailable={y: Q.unavailable(y)},
+              rookie_picks=Q.load_sheet("rookie_picks"),
+              scoring={y: dict(B.scoring_table(y))}, score=score, score_map=score_map,
+              bridge=SE.gsis_bridge())
+    with B.build_inputs(**kw):
+        e = B.expected_points(y)
+    # Two different projections: A = the module's own E, B = every other
+    # player cut to 60% (enough to change who the reference is).
+    ov_a = {(y, int(w), str(g)): float(v) for w, g, v in zip(e["week"], e["gsis_id"], e["E"])}
+    ov_b = {k: (v * 0.6 if i % 2 else v) for i, (k, v) in enumerate(sorted(ov_a.items()))}
+    with B.build_inputs(**kw, expect_override=ov_a):
+        B.build_columns(_FAST)
+        B.set_expect_override(ov_b)
+        swapped_starts, swapped_lineups = B.build_columns(_FAST)
+    with B.build_inputs(**kw, expect_override=ov_b):
+        fresh_starts, fresh_lineups = B.build_columns(_FAST)
+    with B.build_inputs(**kw, expect_override=ov_a):
+        a_starts, _ = B.build_columns(_FAST)
+    key = ["Year", "Week", "Team", "Player ID"]
+    m = swapped_starts.merge(fresh_starts, on=key, suffixes=("_s", "_f"))
+    assert len(m) == len(swapped_starts) == len(fresh_starts)
+    assert ((m["Boldness_s"].fillna(-1) - m["Boldness_f"].fillna(-1)).abs() < 1e-9).all()
+    lm = swapped_lineups.merge(fresh_lineups, on=["Year", "Week", "Team"], suffixes=("_s", "_f"))
+    assert len(lm) == len(fresh_lineups)
+    assert ((lm["Lineup Boldness_s"] - lm["Lineup Boldness_f"]).abs() < 1e-9).all()
+    # ... and the swap really changed something (the test can fail).
+    d = a_starts.merge(fresh_starts, on=key, suffixes=("_a", "_b"))
+    assert ((d["Boldness_a"].fillna(-1) - d["Boldness_b"].fillna(-1)).abs() > 1e-9).any()
+
+
 def test_the_inquiry_path_never_scores_a_week_the_build_has_not_finalized():
     # "any points" also catches the week in progress (Thursday night is
     # enough); the inquiry path stops where the committed build did.

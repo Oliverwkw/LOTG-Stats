@@ -3178,6 +3178,28 @@ def board_value_lookup(frames: dict, gate: Optional[BoardGate] = None):
     row_keys: Dict[str, Dict[object, str]] = {}
     # (sheet, column) -> entity -> [(row index, value)], oldest first
     ent_rows: Dict[tuple, Dict[str, List[tuple]]] = {}
+    # (sheet, column) -> row index -> (entity, position in its chain)
+    ent_pos: Dict[tuple, Dict[object, tuple]] = {}
+    terminal_cols: Dict[tuple, bool] = {}
+    # sheet -> [(row index, row as a dict)] in run order (Year / Season / Week /
+    # Date), read ONCE per sheet. This used to be an `iterrows` walk per board
+    # column — ~970k pandas rows built per digest, 62 of its 73 seconds. The
+    # dicts are cut from `df.values`, exactly as `iterrows` builds its rows, so
+    # every cell keeps its spelling: an all-numeric sheet still reads Year as
+    # "2023.0" (league_year's committed row keys depend on it — not
+    # `to_dict("records")`, which would give "2023"). `_event_cell` reads a dict
+    # through the same `.get`.
+    recs: Dict[str, List[tuple]] = {}
+    rec_by_idx: Dict[str, Dict[object, dict]] = {}
+
+    def records(sheet, df):
+        if sheet not in recs:
+            order = [c for c in ("Year", "Season", "Week", "Date") if c in df.columns]
+            seq = df.sort_values(order, kind="stable") if order else df
+            cols = list(seq.columns)
+            recs[sheet] = [(i, dict(zip(cols, v))) for i, v in zip(seq.index, seq.values)]
+            rec_by_idx[sheet] = dict(recs[sheet])
+        return recs[sheet]
 
     def pool(sheet, column, end):
         """The rows ranked at `end` of this board, as `board_highlights` ranks them."""
@@ -3198,7 +3220,9 @@ def board_value_lookup(frames: dict, gate: Optional[BoardGate] = None):
 
     def keys_of(sheet, df):
         if sheet not in row_keys:
-            row_keys[sheet] = {_board_row_key(sheet, r): idx for idx, r in df.iterrows()}
+            records(sheet, df)
+            by_idx = rec_by_idx[sheet]
+            row_keys[sheet] = {_board_row_key(sheet, by_idx[idx]): idx for idx in df.index}
         return row_keys[sheet]
 
     def run_value(sheet, column, df, idx):
@@ -3211,17 +3235,18 @@ def board_value_lookup(frames: dict, gate: Optional[BoardGate] = None):
         running count keeps a value on every row, so the row is its own answer."""
         k = (sheet, column)
         if k not in ent_rows:
-            order = [c for c in ("Year", "Season", "Week", "Date") if c in df.columns]
-            seq = df.sort_values(order, kind="stable") if order else df
             rows: Dict[str, List[tuple]] = {}
-            for i, r in seq.iterrows():
-                rows.setdefault(_row_entity(sheet, column, r), []).append((i, _to_float(r[column])))
-            ent_rows[k] = rows
-        ent = _row_entity(sheet, column, df.loc[idx])
-        chain = ent_rows[k].get(ent, [])
-        pos = next((n for n, (i, _v) in enumerate(chain) if i == idx), None)
-        if pos is None:
+            where: Dict[object, tuple] = {}
+            for i, r in records(sheet, df):
+                ent = _row_entity(sheet, column, r)
+                chain = rows.setdefault(ent, [])
+                where[i] = (ent, len(chain))
+                chain.append((i, _to_float(r[column])))
+            ent_rows[k], ent_pos[k] = rows, where
+        if idx not in ent_pos[k]:
             return None
+        ent, pos = ent_pos[k][idx]
+        chain = ent_rows[k][ent]
         if "streak" in column.lower():
             i, v = chain[pos]
             for j, w in chain[pos + 1:]:
@@ -3229,9 +3254,10 @@ def board_value_lookup(frames: dict, gate: Optional[BoardGate] = None):
                     break
                 i, v = j, w
             return (i, v) if v is not None else None
-        terminal = not pd.api.types.is_numeric_dtype(df[column]) \
-            and (df[column].astype(str).str.strip() == "In Progress").any()
-        if terminal:
+        if k not in terminal_cols:
+            terminal_cols[k] = not pd.api.types.is_numeric_dtype(df[column]) \
+                and (df[column].astype(str).str.strip() == "In Progress").any()
+        if terminal_cols[k]:
             return next(((i, v) for i, v in chain[pos:] if v is not None), None)
         # Any other running count (Age, Startup draft players remaining, a
         # "number of times" tally) keeps its value on every row, and the board
@@ -3261,7 +3287,7 @@ def board_value_lookup(frames: dict, gate: Optional[BoardGate] = None):
             return None
         idx = keys_of(sheet, df).get(key)
         at = run_value(sheet, column, df, idx) if idx is not None else None
-        return _board_row_key(sheet, df.loc[at[0]]) if at is not None else None
+        return _board_row_key(sheet, rec_by_idx[sheet][at[0]]) if at is not None else None
     lookup.run_key = run_key
     return lookup
 

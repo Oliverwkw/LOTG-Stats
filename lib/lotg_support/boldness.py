@@ -226,6 +226,20 @@ def build_inputs(*, matchups: Dict[int, Dict[int, List[dict]]],
         _clear_caches()
 
 
+def set_expect_override(expect_override: Optional[Dict[Tuple[int, int, str], float]]) -> None:
+    """Swap only `expect_override` inside `build_inputs`, keeping its caches.
+
+    No cached reader depends on the override — only `expected_points` reads
+    it, uncached — so a second `build_columns()` on another projection (the
+    build's Sleeper Boldness pass) reuses the game logs, priors, touches and
+    eligibility the first pass built instead of re-deriving them: ~1 minute of
+    the build. tests/test_boldness.py pins that a swapped pass equals a fresh
+    `build_inputs` block."""
+    if _INJECTED is None:
+        raise RuntimeError("set_expect_override() needs build_inputs(...)")
+    _INJECTED["expect_override"] = dict(expect_override or {})
+
+
 def build_columns(params: "Params" = None) -> Tuple[pd.DataFrame, pd.DataFrame]:
     """The exported columns, for every season the build handed over.
 

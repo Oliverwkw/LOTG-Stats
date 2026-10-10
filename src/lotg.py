@@ -3785,6 +3785,10 @@ def build_all(repo_root: Path) -> None:
                                           if _ref_re.match(t.strip())), None)
                             if first:
                                 _set_ref_link(cell, first)
+                # The sheet's size, read ONCE: nothing below adds a row or a
+                # column, and openpyxl's max_row / max_column rescan every cell
+                # on each read — ~1,800 reads here cost ~25s of the build.
+                _nr, _nc = ws.max_row, ws.max_column
                 # Phase 11C-2: freeze through the pinned columns (team_week also
                 # pins Opponent -> 5 cols). trades pins just its first 3 (Team,
                 # Team's traded with 1, Assets received) — the extra counterparty
@@ -3808,14 +3812,14 @@ def build_all(repo_root: Path) -> None:
                     _inprog_fill = PatternFill("solid", fgColor="C6EFCE")  # opaque light green (#33)
                     _topics = [(_col_topic(ws.cell(row=1, column=j).value)
                                 if ws.cell(row=1, column=j).value else "Identity")
-                               for j in range(1, ws.max_column + 1)]
+                               for j in range(1, _nc + 1)]
                     # Parity of each column within its contiguous same-topic run.
                     _parity = []
                     _runi = 0
                     for _ci in range(len(_topics)):
                         _runi = _runi + 1 if (_ci and _topics[_ci] == _topics[_ci - 1]) else 0
                         _parity.append(_runi % 2)
-                    for j in range(1, ws.max_column + 1):
+                    for j in range(1, _nc + 1):
                         hc = ws.cell(row=1, column=j)
                         topic = _topics[j - 1]
                         hc.fill = PatternFill("solid", fgColor=_TOPIC_FILL.get(topic, "D9D9D9"))
@@ -3856,7 +3860,7 @@ def build_all(repo_root: Path) -> None:
                         # it), copy the result onto the rest. Assigning styles
                         # cell by cell was the slowest part of the workbook.
                         _style_memo: Dict[Tuple[Any, int], Any] = {}
-                        for r in range(2, ws.max_row + 1):
+                        for r in range(2, _nr + 1):
                             dc = ws.cell(row=r, column=j)
                             _inprog = str(dc.value).strip() == "In Progress"
                             _mk = (None if dc._style is None else tuple(dc._style), 1 if _inprog else 0)
@@ -3892,7 +3896,7 @@ def build_all(repo_root: Path) -> None:
                     if sheet_name == "player_week":
                         _link_pw.append("Reference player name")
                     if _link_pat or _link_pw:
-                        _hdr = [ws.cell(row=1, column=j).value for j in range(1, ws.max_column + 1)]
+                        _hdr = [ws.cell(row=1, column=j).value for j in range(1, _nc + 1)]
                         _yr_j = _hdr.index("Year") + 1 if "Year" in _hdr else None
                         _wk_j = _hdr.index("Week") + 1 if "Week" in _hdr else None
                         _bluefont = Font(color="0563C1")
@@ -3905,7 +3909,7 @@ def build_all(repo_root: Path) -> None:
                             if colname not in _hdr:
                                 continue
                             j = _hdr.index(colname) + 1
-                            for r in range(2, ws.max_row + 1):
+                            for r in range(2, _nr + 1):
                                 nm = str(ws.cell(row=r, column=j).value or "").strip()
                                 if not nm or nm.lower() in ("nan", "n/a"):
                                     continue
@@ -3916,7 +3920,7 @@ def build_all(repo_root: Path) -> None:
                             if colname not in _hdr or _yr_j is None or _wk_j is None:
                                 continue
                             j = _hdr.index(colname) + 1
-                            for r in range(2, ws.max_row + 1):
+                            for r in range(2, _nr + 1):
                                 nm = str(ws.cell(row=r, column=j).value or "").strip()
                                 if not nm or nm.lower() in ("nan", "n/a"):
                                     continue
@@ -3936,7 +3940,7 @@ def build_all(repo_root: Path) -> None:
                 #     for highest/lowest %/Win%) -> that team's team_all_time row.
                 _bluefont2 = Font(color="0563C1")
                 _hdr2 = [str(ws.cell(row=1, column=j).value or "")
-                         for j in range(1, ws.max_column + 1)]
+                         for j in range(1, _nc + 1)]
 
                 def _hcol(name):
                     return _hdr2.index(name) + 1 if name in _hdr2 else None
@@ -3946,11 +3950,11 @@ def build_all(repo_root: Path) -> None:
                     if sheet_name == "team_week" and {"Opponent", "Year", "Week"} <= set(_hdr2):
                         _tj, _yj, _wj, _oj = _hcol("Team"), _hcol("Year"), _hcol("Week"), _hcol("Opponent")
                         _twrow: Dict[Tuple[str, str, str], int] = {}
-                        for r in range(2, ws.max_row + 1):
+                        for r in range(2, _nr + 1):
                             _twrow[(str(ws.cell(row=r, column=_tj).value or "").strip(),
                                     _yw(ws.cell(row=r, column=_yj).value),
                                     _yw(ws.cell(row=r, column=_wj).value))] = r
-                        for r in range(2, ws.max_row + 1):
+                        for r in range(2, _nr + 1):
                             _opp = str(ws.cell(row=r, column=_oj).value or "").strip()
                             _row = _twrow.get((_opp, _yw(ws.cell(row=r, column=_yj).value),
                                                _yw(ws.cell(row=r, column=_wj).value)))
@@ -3963,7 +3967,7 @@ def build_all(repo_root: Path) -> None:
                         for _cn in [c for c in _hdr2 if matchup.base_column(c)]:
                             _cj = _hcol(_cn)
                             _cl = get_column_letter(_cj)
-                            for r in range(2, ws.max_row + 1):
+                            for r in range(2, _nr + 1):
                                 _c = ws.cell(row=r, column=_cj)
                                 if str(_c.value or "").strip() != matchup.WINNER_TEXT:
                                     continue
@@ -3977,12 +3981,12 @@ def build_all(repo_root: Path) -> None:
                     if sheet_name == "trades" and "Date" in _hdr2:
                         _dj, _tj = _hcol("Date"), _hcol("Team")
                         _trrow: Dict[Tuple[str, str], int] = {}
-                        for r in range(2, ws.max_row + 1):
+                        for r in range(2, _nr + 1):
                             _trrow[(str(ws.cell(row=r, column=_dj).value or "").strip(),
                                     str(ws.cell(row=r, column=_tj).value or "").strip())] = r
                         for _cn in [c for c in _hdr2 if c.startswith("Team's traded with")]:
                             _cj = _hcol(_cn)
-                            for r in range(2, ws.max_row + 1):
+                            for r in range(2, _nr + 1):
                                 _ct = str(ws.cell(row=r, column=_cj).value or "").strip()
                                 if not _ct:
                                     continue
@@ -4012,7 +4016,7 @@ def build_all(repo_root: Path) -> None:
                             if not _nb or any(v not in _teams for v in _nb):
                                 continue  # not an all-team reference column
                             j = _hdr2.index(_cn) + 1
-                            for r in range(2, ws.max_row + 1):
+                            for r in range(2, _nr + 1):
                                 if ws.cell(row=r, column=j).hyperlink is not None:
                                     continue
                                 _row = team_to_tatrow.get(str(ws.cell(row=r, column=j).value or "").strip())
@@ -4055,7 +4059,7 @@ def build_all(repo_root: Path) -> None:
                                 _attach_hist(ws.cell(row=_ri + 2, column=1), _txt)
                     elif sheet_name == "player_all_time" and player_history_text and "Player" in d.columns:
                         _pj = list(d.columns).index("Player") + 1
-                        for _r in range(2, ws.max_row + 1):
+                        for _r in range(2, _nr + 1):
                             _nm = str(ws.cell(row=_r, column=_pj).value or "").strip()
                             _txt = player_history_text.get(_nm)
                             if _txt:
@@ -4076,11 +4080,11 @@ def build_all(repo_root: Path) -> None:
                     }
                     _scol = _scale_cols.get(sheet_name)
                     if _scol:
-                        _hdr2 = [ws.cell(row=1, column=j).value for j in range(1, ws.max_column + 1)]
-                        if _scol in _hdr2 and ws.max_row >= 2:
+                        _hdr2 = [ws.cell(row=1, column=j).value for j in range(1, _nc + 1)]
+                        if _scol in _hdr2 and _nr >= 2:
                             _cl = get_column_letter(_hdr2.index(_scol) + 1)
                             ws.conditional_formatting.add(
-                                f"{_cl}2:{_cl}{ws.max_row}",
+                                f"{_cl}2:{_cl}{_nr}",
                                 ColorScaleRule(
                                     start_type="percentile", start_value=5, start_color="F8696B",
                                     mid_type="percentile", mid_value=50, mid_color="FFEB84",
@@ -4097,12 +4101,12 @@ def build_all(repo_root: Path) -> None:
                 # (e.g. the thousands of 0-point weeks on player_week) — that's the
                 # common value, not a record, so it's skipped to avoid flooding.
                 try:
-                    if ws.max_row >= 3:
+                    if _nr >= 3:
                         _hi_fill = PatternFill("solid", fgColor="FFD966")  # record high
                         _lo_fill = PatternFill("solid", fgColor="BDD7EE")  # record low
                         _rec_skip = {"player id", "season", "year", "week", "number"}
                         _hdr2 = [str(ws.cell(row=1, column=k).value or "")
-                                 for k in range(1, ws.max_column + 1)]
+                                 for k in range(1, _nc + 1)]
                         _hpos = {c: i + 1 for i, c in enumerate(_hdr2)}
                         for _cn in d.columns:
                             if str(_cn).strip().lower() in _rec_skip or _cn not in _hpos:
@@ -4131,8 +4135,8 @@ def build_all(repo_root: Path) -> None:
                 # Auto-filter every sheet (incl. trades) so the tables stay
                 # sortable/re-orderable. The per-asset expansion no longer
                 # merges header cells, so the filter applies cleanly.
-                if ws.max_column >= 1:
-                    ws.auto_filter.ref = f"A1:{get_column_letter(ws.max_column)}{max(1, ws.max_row)}"
+                if _nc >= 1:
+                    ws.auto_filter.ref = f"A1:{get_column_letter(_nc)}{max(1, _nr)}"
 
                 try:
                     # Phase 13: scan the FULL column (every data row), not just the
@@ -4143,15 +4147,15 @@ def build_all(repo_root: Path) -> None:
                     # cells). iter_rows(values_only=True) iterates row-major in C, which
                     # is fast even for player_week's 10k+ rows x dozens of columns.
                     _maxlen = [len(str(ws.cell(row=1, column=j).value or ""))
-                               for j in range(1, ws.max_column + 1)]
-                    for _row in ws.iter_rows(min_row=2, max_col=ws.max_column,
+                               for j in range(1, _nc + 1)]
+                    for _row in ws.iter_rows(min_row=2, max_col=_nc,
                                              values_only=True):
                         for _i, _v in enumerate(_row):
                             if _v is not None:
                                 _l = len(str(_v))
                                 if _l > _maxlen[_i]:
                                     _maxlen[_i] = _l
-                    for j in range(1, ws.max_column + 1):
+                    for j in range(1, _nc + 1):
                         ws.column_dimensions[get_column_letter(j)].width = \
                             min(40, max(10, _maxlen[j - 1] + 2))
                 except Exception:
@@ -4161,12 +4165,12 @@ def build_all(repo_root: Path) -> None:
                 # the blank-header slot columns and hide any that are fully empty.
                 if sheet_name == "trades":
                     try:
-                        for j in range(1, ws.max_column + 1):
+                        for j in range(1, _nc + 1):
                             if (ws.cell(row=1, column=j).value or "") != "":
                                 continue  # only the exploded (blank-header) slots
                             letter = get_column_letter(j)
                             ws.column_dimensions[letter].width = 16
-                            if all((ws.cell(row=r, column=j).value in (None, "")) for r in range(2, ws.max_row + 1)):
+                            if all((ws.cell(row=r, column=j).value in (None, "")) for r in range(2, _nr + 1)):
                                 ws.column_dimensions[letter].hidden = True
                     except Exception:
                         pass
@@ -19178,6 +19182,19 @@ def build_all(repo_root: Path) -> None:
                 _g = _bold_bridge.get(str(_pid))
                 if _g and pd.notna(_e) and pd.notna(_y) and pd.notna(_w):
                     _bold_override[(int(_y), int(_w), _g)] = float(_e)
+        # Sleeper Boldness / Sleeper Lineup Boldness [per user, 2026-10-07: "since
+        # we see sleeper projections in the app"]: the same stat judged on the
+        # Sleeper Projection (its fallbacks where Sleeper has none) — how bold the
+        # call looked in the app. Same rules, a second pass in the SAME block:
+        # only the projection differs, so the pass reuses the first one's caches
+        # (boldness.set_expect_override) instead of rebuilding them (~1 min).
+        _sl_override = None
+        if "Sleeper Projection" in pw.columns:
+            _sl_override = {}
+            for _pid, _y, _w, _e in pw[["Player ID", "Year", "Week", "Sleeper Projection"]].itertuples(index=False, name=None):
+                _g = _bold_bridge.get(str(_pid))
+                if _g and pd.notna(_e) and pd.notna(_y) and pd.notna(_w):
+                    _sl_override[(int(_y), int(_w), _g)] = float(_e)
         with _bold.build_inputs(
                 matchups=_bold_matchups, roster_positions=_bold_roster_positions,
                 teams={int(k): dict(v) for k, v in season_roster_to_team.items()},
@@ -19186,6 +19203,12 @@ def build_all(repo_root: Path) -> None:
                 scoring=_bold_scoring, score=_league_score, score_map=_LEAGUE_SCORE_MAP,
                 bridge=_bold_bridge, expect_override=_bold_override):
             _bstarts, _blineups = _bold.build_columns()
+            _bold_secs = (datetime.now() - _t0).total_seconds()
+            _t1 = datetime.now()
+            if _sl_override is not None:
+                _bold.set_expect_override(_sl_override)
+                _sstarts, _slineups = _bold.build_columns()
+                _sl_secs = (datetime.now() - _t1).total_seconds()
         if not pw.empty:
             _bs = _bstarts.assign(Year=pd.to_numeric(_bstarts["Year"]).astype(int),
                                   Week=pd.to_numeric(_bstarts["Week"]).astype(int),
@@ -19223,26 +19246,9 @@ def build_all(repo_root: Path) -> None:
             _aemap = _bl.groupby("Team")["Empty slots"].sum().astype(int).to_dict()
             team_all["Empty slots"] = [_aemap.get(str(t)) for t in team_all["Team"]]
         _log(debug, f"[{_now_iso()}] INFO boldness: {len(_bstarts)} starts, {len(_blineups)} lineups "
-                    f"in {(datetime.now() - _t0).total_seconds():.0f}s")
-        # Sleeper Boldness / Sleeper Lineup Boldness [per user, 2026-10-07: "since
-        # we see sleeper projections in the app"]: the same stat judged on the
-        # Sleeper Projection (its fallbacks where Sleeper has none) — how bold the
-        # call looked in the app. Same rules, a second pass.
-        if "Sleeper Projection" in pw.columns:
-            _t1 = datetime.now()
-            _sl_override = {}
-            for _pid, _y, _w, _e in pw[["Player ID", "Year", "Week", "Sleeper Projection"]].itertuples(index=False, name=None):
-                _g = _bold_bridge.get(str(_pid))
-                if _g and pd.notna(_e) and pd.notna(_y) and pd.notna(_w):
-                    _sl_override[(int(_y), int(_w), _g)] = float(_e)
-            with _bold.build_inputs(
-                    matchups=_bold_matchups, roster_positions=_bold_roster_positions,
-                    teams={int(k): dict(v) for k, v in season_roster_to_team.items()},
-                    unavailable=dict(_bold_unavail),
-                    rookie_picks=_rk[["Year", "Number", "Player Picked"]] if not _rk.empty else pd.DataFrame(columns=["Year", "Number", "Player Picked"]),
-                    scoring=_bold_scoring, score=_league_score, score_map=_LEAGUE_SCORE_MAP,
-                    bridge=_bold_bridge, expect_override=_sl_override):
-                _sstarts, _slineups = _bold.build_columns()
+                    f"in {_bold_secs:.0f}s")
+        # Sleeper Boldness columns (computed in the block above).
+        if _sl_override is not None:
             _ss = _sstarts.assign(Year=pd.to_numeric(_sstarts["Year"]).astype(int),
                                   Week=pd.to_numeric(_sstarts["Week"]).astype(int),
                                   **{"Player ID": _sstarts["Player ID"].astype(str)})
@@ -19269,7 +19275,7 @@ def build_all(repo_root: Path) -> None:
                 _sam = _sl.groupby("Team")["Lineup Boldness"].mean().round(2).to_dict()
                 team_all["Sleeper Lineup Boldness"] = [_sam.get(str(t)) for t in team_all["Team"]]
             _log(debug, f"[{_now_iso()}] INFO sleeper boldness: {len(_sstarts)} starts, {len(_slineups)} lineups "
-                        f"in {(datetime.now() - _t1).total_seconds():.0f}s")
+                        f"in {_sl_secs:.0f}s (caches shared with the first pass)")
     except Exception as e:
         _log_exc(debug, "boldness", e)
 
