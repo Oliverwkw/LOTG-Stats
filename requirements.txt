@@ -6,6 +6,10 @@ requests>=2.31.0
 pyyaml>=6.0.2
 python-dateutil>=2.9.0
 openpyxl>=3.1.5
+# openpyxl serialises through lxml when it is installed: the workbook save was
+# ~a third of the Excel step. Same xlsx (every part canonically identical, the
+# comment XML byte for byte — _bold_comment_verbs regex-edits it).
+lxml==6.1.3
 tqdm>=4.66.5
 ortools>=9.10.4067
 # FantasyPros weekly ECR archive (DynastyProcess db_fpecr.parquet) — lotg_support.projections.

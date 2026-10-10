@@ -197,6 +197,9 @@ jobs:
           # suite over the runner's cores (-n auto): it was half the job's
           # wall time run serially. tests/conftest.py writes the results file
           # from the controller only, so the record is still the whole suite.
+          # --dist worksteal: an idle worker takes queued tests from a busy one,
+          # so one long test no longer holds a chunk hostage; --durations=30
+          # prints where the suite's time goes.
           pip install --no-cache-dir pytest==9.1.1 pytest-xdist==3.8.0 pyarrow==25.0.1 2>&1 | tail -n 2
           # test_contracts.py's data tests need Over The Cap's contract history,
           # which the build never fetches — without this they have skipped on
@@ -207,7 +210,7 @@ jobs:
           # A results file committed by an earlier run must never stand in for
           # this one: if pytest dies before writing, the audit sees nothing.
           rm -f exports/raw/pytest_results.json
-          python -m pytest tests/ -v -n auto 2>&1 | tee exports/raw/pytest.log
+          python -m pytest tests/ -v -n auto --dist worksteal --durations=30 2>&1 | tee exports/raw/pytest.log
 
       - name: Injury-tracker coverage report
         continue-on-error: true
