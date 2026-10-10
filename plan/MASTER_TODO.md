@@ -1840,6 +1840,17 @@ guard-skipped fire), 581→584 (#453), 584→589 (#454), 589→597 (#455).
       the two career guards now fetch the 1999-2024 seasonal files themselves instead of
       losing an xdist race to the career tests. Branch run 699 and main run 700 both ==
       run 698 cell for cell; 0 own-code warnings; 660 passed / 2 expected skips.
+    - [x] **Build speed — PR #485 (6d483a7): 16.3 -> ~8 min, outputs unchanged; 3-part audit CLEAN
+      (run 705 v 700).** Main run 705: 8m08s (build 4m54s, tests 2m35s, digest 6s; was 8.5 /
+      6.2 / 0.8). One Boldness block + warm caches carried over from the projection pass
+      (64s -> 11s); column-wise league scoring in boldness._season_log (867k rows, 0 diffs);
+      Wins added over forked workers merged in order (provenance too); digest board lookup
+      O(rows) + _to_float fast path; xlsx sheet sizes read once + lxml; the history guard
+      reads the xlsx XML (162s -> 0.5s); career guard indexed; test_build_digest split;
+      pytest --dist worksteal --durations=30; KTC prefetch 12 workers. Runs 701-705 == run
+      700 on every CSV, the xlsx (canonical) and the digest HTML. Note: raw/ktc_provenance.csv
+      row ORDER already varies between main runs (698/699/700) — same rows, not from #485.
+      GitHub runner speed still swings run to run (same code 8-18 min before this).
   - **Options — user's call, none started** [logged per user, 2026-10-10]:
     - [ ] **Fantasy starters keep their projection?** The zero-snap rule zeroes two
       fantasy STARTERS — Donovan Peoples-Jones (stevenb123) 2021 wk 7 (dressed, no snap;
