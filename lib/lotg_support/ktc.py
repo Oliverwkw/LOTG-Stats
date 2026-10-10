@@ -662,6 +662,23 @@ def get_provenance() -> List[Tuple[str, str, Optional[str], str, Optional[float]
     return list(_PROVENANCE)
 
 
+PROVENANCE_COLUMNS = ["asset", "target_date", "quote_date_used", "source", "value"]
+
+
+def provenance_frame() -> "pd.DataFrame":
+    """`get_provenance()` as the build dumps it (raw/ktc_provenance.csv), sorted
+    on every column so the file is the same from run to run. The lookups arrive
+    in whatever order the build's callers walk their assets — some iterate sets,
+    whose order changes with each process's hash seed — so the same 28k rows
+    came out shuffled between identical builds (main runs 698 / 699 / 700).
+    Every row is kept, duplicates included; only the order is fixed."""
+    import pandas as pd
+    df = pd.DataFrame(get_provenance(), columns=PROVENANCE_COLUMNS)
+    key = df.astype(str)       # one total order whatever the cells hold (None, NaN, floats)
+    order = key.sort_values(PROVENANCE_COLUMNS, kind="stable").index
+    return df.loc[order].reset_index(drop=True)
+
+
 def _note(asset: str, target: date, quote_date: Optional[str],
           source: str, value: Optional[float]) -> None:
     _PROVENANCE.append((str(asset), target.isoformat(), quote_date, source, value))
