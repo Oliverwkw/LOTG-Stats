@@ -14044,6 +14044,7 @@ def build_all(repo_root: Path) -> None:
         pw["_was_recent_starter_injsusp"] = was_recent_starter
         pw["_points_lost_bye"] = points_lost_bye
         pw["_starter_adj_points_lost_bye"] = starter_adj_lost_bye
+        pw = pw.copy()  # defragment first (pandas PerformanceWarning); same data
         # Hardship (Claude Projections) [per user, 2026-10-07]: the same missed
         # weeks valued at the player's Claude projection BEFORE the known-out
         # zeroing (an "if healthy" figure), weighted by the same starter share.
@@ -14295,6 +14296,7 @@ def build_all(repo_root: Path) -> None:
                 cuff_rostered[pos_i] = 1
                 if _sb.iloc[pos_i] == "starter" and any(_k + (r,) in _wk_injured for r in _refs):
                     activated[pos_i] = 1
+            pw = pw.copy()  # defragment first (pandas PerformanceWarning); same data
             pw["_cuff_rostered_flag"] = cuff_rostered
             pw[cuff_col] = activated
         except Exception as e:
@@ -14338,6 +14340,7 @@ def build_all(repo_root: Path) -> None:
     unique_cuffs_by_team_all: Dict[Tuple, Dict[str, int]] = {}
     unique_cuffs_by_year: Dict[Tuple, Dict[str, int]] = {}
     unique_cuffs_league_all: Dict[str, int] = {}
+    pw = pw.copy()  # defragment first (pandas PerformanceWarning); same data
     if not pw.empty:
         try:
             unique_cuffs_by_team_year = _build_unique_cuff_counts(pw, ["Team", "Year"])
@@ -14891,6 +14894,7 @@ def build_all(repo_root: Path) -> None:
                 diff_adj = (adj_r-adj_p) if started else (adj_p-adj_r)
                 diffs_adj.append(round(float(diff_adj),2))
                 cuff_adj_adj.append(round(float(diff_adj) * (0.5 if cuff else 1.0), 2))
+            pw = pw.copy()  # defragment first (pandas PerformanceWarning); same data
             pw["Difference in averages of best/worst startables over previous 5 games"] = diffs
             pw["Cuff adjusted difference"] = cuff_adj
             pw["Difference in averages of best/worst startables over previous 5 games adjusted by position"] = diffs_adj
@@ -15283,6 +15287,7 @@ def build_all(repo_root: Path) -> None:
             tw_keys[col] = pd.to_numeric(tw_keys[col], errors="coerce").astype("Int64").astype(object)
         win_map = tw_keys.set_index(["Team", "Year", "Week"])["Win?"].to_dict()
 
+        pw = pw.copy()  # defragment first (pandas PerformanceWarning); same data
         pw_keys = pw[["Team", "Year", "Week"]].copy()
         pw_keys["Team"] = pw_keys["Team"].astype(str)
         for col in ["Year", "Week"]:
@@ -19186,6 +19191,7 @@ def build_all(repo_root: Path) -> None:
                                   Week=pd.to_numeric(_bstarts["Week"]).astype(int),
                                   **{"Player ID": _bstarts["Player ID"].astype(str)})
             _bmap = {(y, w, p): b for y, w, p, b in _bs[["Year", "Week", "Player ID", "Boldness"]].itertuples(index=False, name=None)}
+            pw, tw = pw.copy(), tw.copy()  # defragment first (pandas PerformanceWarning); same data
             _is_start = pw["Starter/Bench"].astype(str) == "Starter"
             pw["Boldness"] = [
                 (_bmap.get((int(y), int(w), str(p))) if (s_ and pd.notna(y) and pd.notna(w)) else None)
@@ -19241,6 +19247,7 @@ def build_all(repo_root: Path) -> None:
                                   Week=pd.to_numeric(_sstarts["Week"]).astype(int),
                                   **{"Player ID": _sstarts["Player ID"].astype(str)})
             _smap = {(y, w, p): b for y, w, p, b in _ss[["Year", "Week", "Player ID", "Boldness"]].itertuples(index=False, name=None)}
+            pw, tw = pw.copy(), tw.copy()  # defragment first (pandas PerformanceWarning); same data
             _is_start = pw["Starter/Bench"].astype(str) == "Starter"
             pw["Sleeper Boldness"] = [
                 (_smap.get((int(y), int(w), str(p))) if (s_ and pd.notna(y) and pd.notna(w)) else None)
@@ -19274,9 +19281,11 @@ def build_all(repo_root: Path) -> None:
         from lotg_support import gametime as _gt
         _sched = _gt_schedule
         if _sched is not None and _sched.kickoff and isinstance(pw, pd.DataFrame) and not pw.empty:
+            pw = pw.copy()  # defragment first (pandas PerformanceWarning); same data
             pw[_gt.GAME_SLOT_COLUMN] = [_gt.player_slot(_sched, y, w, t)
                                         for y, w, t in zip(pw["Year"], pw["Week"], pw["NFL team"])]
             if isinstance(tw, pd.DataFrame) and not tw.empty:
+                tw = tw.copy()  # defragment first (pandas PerformanceWarning); same data
                 # Comeback size (Claude Projection) reads player_week's Claude
                 # Projection (recency, season scoring, rookie slot priors,
                 # next-man-up cuffs, known outs); a start without one falls
@@ -19369,6 +19378,7 @@ def build_all(repo_root: Path) -> None:
                 "Number of NFL teams among starting players", "Number of NFL teams among rostered players"]
     league_extra_by_year: Dict[Tuple, Dict[str, int]] = {}
     league_extra_all: Dict[str, int] = {}
+    pw = pw.copy()  # defragment first (pandas PerformanceWarning); same data
     if not pw.empty:
         try:
             league_extra_by_year = _league_unique_extras(pw, ["Year"])
@@ -21886,6 +21896,7 @@ def build_all(repo_root: Path) -> None:
 
         # team_week / league_week: per (season, week), keyed off the *-by_tsw dicts.
         if isinstance(tw, pd.DataFrame) and not tw.empty:
+            tw = tw.copy()  # defragment first (pandas PerformanceWarning); same data
             _t = tw["Team"].astype(str)
             _y = pd.to_numeric(tw["Year"], errors="coerce")
             _w = pd.to_numeric(tw["Week"], errors="coerce")
@@ -21910,6 +21921,7 @@ def build_all(repo_root: Path) -> None:
 
         # team_year: per (team, season) off *-by_ts.
         if isinstance(team_year, pd.DataFrame) and not team_year.empty:
+            team_year = team_year.copy()  # defragment first (pandas PerformanceWarning); same data
             _t = team_year["Team"].astype(str)
             _y = pd.to_numeric(team_year["Year"], errors="coerce")
             for _col, _d_ts, _d_tsw in _BREAK:
@@ -21921,6 +21933,7 @@ def build_all(repo_root: Path) -> None:
 
         # team_all_time: per team, summed across seasons.
         if isinstance(team_all, pd.DataFrame) and not team_all.empty:
+            team_all = team_all.copy()  # defragment first (pandas PerformanceWarning); same data
             _t = team_all["Team"].astype(str)
             for _col, _d_ts, _d_tsw in _BREAK:
                 _agg_t: Dict[str, int] = defaultdict(int)

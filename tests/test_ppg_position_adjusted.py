@@ -77,7 +77,9 @@ def _skip(reason: str) -> bool:
 
 def _read(name: str):
     p = _EXP / f"{name}.csv"
-    return pd.read_csv(p, low_memory=False) if p.exists() else None
+    # .copy(): pandas 3's read_csv leaves one block per column, so the first
+    # column these tests add raised a PerformanceWarning ("highly fragmented").
+    return pd.read_csv(p, low_memory=False).copy() if p.exists() else None
 
 
 def _num(s):

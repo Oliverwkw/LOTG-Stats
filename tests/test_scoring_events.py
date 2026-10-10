@@ -187,7 +187,7 @@ def _seasonal_file(season: int):
 
 #: One finished season, fetched if it is not cached (~400KB), so the structural
 #: career checks are real in CI rather than permanently skipped. The guards that
-#: need the whole 1999-> history stay skip-if-absent, like test_contracts.py.
+#: need the whole 1999-> history fetch it too (`_have_full_seasonal_history`).
 _PROBE_SEASON = 2015
 
 
@@ -205,9 +205,20 @@ def _have_seasonal() -> int:
 
 
 def _have_full_seasonal_history() -> bool:
-    """Every season a career can span is cached — the whole-history guards."""
-    return all((_seasonal_file(y).exists() and _seasonal_file(y).stat().st_size > 0)
-               for y in range(SE.FIRST_NFLVERSE_SEASON, 2025))
+    """Every season a career can span is cached — the whole-history guards —
+    fetching what is missing. These used to skip unless another test had
+    already pulled the history: under pytest-xdist that is a race, and on
+    main runs 696 / 698 the guards lost it and skipped while the career tests
+    on another worker downloaded the same 26 files minutes later."""
+    def have(y):
+        return _seasonal_file(y).exists() and _seasonal_file(y).stat().st_size > 0
+    for y in range(SE.FIRST_NFLVERSE_SEASON, 2025):
+        if not have(y):
+            try:
+                SE._seasonal(y, str(_ROOT))
+            except Exception:
+                pass
+    return all(have(y) for y in range(SE.FIRST_NFLVERSE_SEASON, 2025))
 
 
 def test_basis_measure_and_years_rule_reject_junk():
