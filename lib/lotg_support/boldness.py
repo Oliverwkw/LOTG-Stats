@@ -358,6 +358,38 @@ def _season_log(season: int, scoring_season: Optional[int] = None) -> pd.DataFra
     return stats.drop_duplicates(["gsis_id", "week"]).reset_index(drop=True)
 
 
+def snap_shares(seasons: Sequence[int]) -> pd.DataFrame:
+    """Regular-season offensive snap shares (nflverse snap counts), by gsis id:
+    gsis_id, season, week, team, offense_pct — every row the feed carries,
+    0-snap rows included. Ids bridged pfr -> gsis as in `_season_log`."""
+    frames = []
+    for season in seasons:
+        try:
+            snaps = X.load_nflverse_snap_counts(_config(), int(season))
+        except Exception:
+            continue
+        if snaps is None or snaps.empty:
+            continue
+        snaps = snaps[snaps["game_type"].astype(str).str.upper() == "REG"]
+        pfr_to_gsis = {v: k for k, v in _player_ids()["pfr_id"].dropna().items()}
+        try:
+            wr = X.load_nflverse_weekly_rosters(_config(), int(season))
+            for p, g in zip(wr["pfr_id"], wr["gsis_id"]):
+                if isinstance(p, str) and isinstance(g, str):
+                    pfr_to_gsis.setdefault(p, g)
+        except Exception:
+            pass
+        frames.append(pd.DataFrame({
+            "gsis_id": snaps["pfr_player_id"].map(pfr_to_gsis).to_numpy(),
+            "season": int(season), "week": pd.to_numeric(snaps["week"], errors="coerce").to_numpy(),
+            "team": snaps["team"].to_numpy(),
+            "offense_pct": pd.to_numeric(snaps["offense_pct"], errors="coerce").to_numpy()}))
+    if not frames:
+        return pd.DataFrame(columns=["gsis_id", "season", "week", "team", "offense_pct"])
+    out = pd.concat(frames, ignore_index=True)
+    return out[out["gsis_id"].notna() & out["week"].notna()].reset_index(drop=True)
+
+
 def game_log(seasons: Sequence[int], scoring_season: Optional[int] = None) -> pd.DataFrame:
     """The appearance log for several seasons, oldest first, every game scored
     with `scoring_season`'s settings (default: each game's own season)."""

@@ -13485,10 +13485,21 @@ def build_all(repo_root: Path) -> None:
                         _cl.append(pd.DataFrame({"Year": _s, "Week": _e["week"].astype(int),
                                                  "Player ID": _e["gsis_id"].map(_g2s), "E": _e["E"]}))
                 _scoring_tables = {_s: dict(_bold.scoring_table(_s)) for _s in _seasons}
+                # Who took the field (stat line or offensive snap) — for the
+                # did-not-play zeroing [per user, 2026-10-07]. A failure here
+                # zeroes nothing extra rather than losing the projections.
+                try:
+                    _appeared = _bold.game_log(_seasons)
+                    _snap_shares = _bold.snap_shares(_seasons)     # the QB-cameo half
+                except Exception as e:
+                    _log_exc(debug, "projections_did_not_play", e)
+                    _appeared, _snap_shares = pd.DataFrame(), pd.DataFrame()
             _claude = pd.concat(_cl, ignore_index=True).dropna(subset=["Player ID"]) if _cl else pd.DataFrame(columns=["Year", "Week", "Player ID", "E"])
             _ids = _safe_df(load_dynastyprocess_playerids(ext))
+            _proj_dnp = _proj.did_not_play(pw, pw["Player ID"].astype(str).map(_proj_bridge),
+                                           _appeared, _proj_games, snaps=_snap_shares)
             _inp = _proj.Inputs(
-                player_week=pw.assign(out=pw["_proj_out"]), claude=_claude, games=_proj_games,
+                player_week=pw.assign(out=pw["_proj_out"], did_not_play=_proj_dnp), claude=_claude, games=_proj_games,
                 ids=_ids.astype(str), scoring=lambda y: _scoring_tables.get(int(y), {}), current_season=_cur,
                 sleeper={_s: _proj.load_sleeper(ext, _s, _cur) for _s in _seasons},
                 espn={_s: _proj.load_espn(ext, _s, _cur) for _s in _seasons},
@@ -13500,7 +13511,8 @@ def build_all(repo_root: Path) -> None:
                 pw[_proj.above_col(_x)] = (pd.to_numeric(pw["Points"], errors="coerce") - pw[_proj.proj_col(_x)]).round(2)
             _log(debug, f"[{_now_iso()}] INFO projections: {len(_claude)} Claude projections; "
                         f"{int(_proj_res['_sources'].ge(2).sum())}/{len(pw)} rows with an outside source; "
-                        f"{int(_proj_res['_sleeper_fallback'].sum())} Sleeper fallbacks "
+                        f"{int(_proj_res['_sleeper_fallback'].sum())} Sleeper fallbacks; "
+                        f"{int(_proj_res['_did_not_play'].sum())} did-not-play weeks zeroed "
                         f"in {(datetime.now() - _t0).total_seconds():.0f}s")
         except Exception as e:
             _log_exc(debug, "projections", e)
