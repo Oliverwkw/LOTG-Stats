@@ -29,6 +29,16 @@ A player KNOWN OUT that week (flagged bye / injured / suspended and scored 0)
 projects 0 under all three. That is also why no projection can stand in for an
 "expected if healthy" baseline [per user: the out-week trap].
 
+So does a player who DID NOT PLAY (`did_not_play`) [per user, 2026-10-07]: his
+NFL team's game was played and its stats are in, and he has no stat line and
+no offensive snap and scored 0 — a healthy scratch or a dressed backup who
+never got on the field (Fernando Mendoza 2026, LV's third quarterback,
+projected 14-17 a week on his draft-slot prior; Desmond Ridder 2022's 13
+weeks behind Mariota). Only the published columns are zeroed: the models
+still fit on the same rows. The voided 2022 week 17 Bills at Bengals game
+(`struck_games`) never counts — Ja'Marr Chase started it and keeps his
+projection [per user].
+
 Sources are fetched by the build and cached as slim per-season CSVs under
 `.cache/projections/` with `external`'s freshness rules: a completed season is
 fetched once, the current one again when its copy is over a week old, and a
@@ -243,7 +253,9 @@ DVP_TOP = 2             # the position's top N scorers against a defence ~ what 
 class Inputs:
     """What the projections read. `player_week` needs Year, Week, Team, Player,
     Position, NFL team, Points, Starter/Bench, a key column (`key`: Player ID in
-    the build, Player in the exports) and `out` (known out: flagged and 0 pts).
+    the build, Player in the exports), `out` (known out: flagged and 0 pts) and
+    optionally `did_not_play` (`did_not_play()`; zeroes the published columns
+    only).
     `claude`: Year, Week, <key>, E. `games`: the nfldata schedule. `ids`:
     DynastyProcess player ids. `scoring(season)` -> {stat: points}."""
     player_week: pd.DataFrame
@@ -388,6 +400,106 @@ def source_frame(inp: Inputs) -> pd.DataFrame:
     return out
 
 
+# QB cameo [per user, 2026-10-10]: a quarterback who only came in for a kneel-down
+# or a mop-up snap or two did not really play either. 2020-26 QB appearances on
+# this league's rosters: <=5% of the offense's snaps scored 0.14 a game (93%
+# under 1 point), 5-10% 1.39 (65%), over half 16.76 (1%).
+QB_CAMEO_SHARE = 0.10        # at most this share of his team's offensive snaps ...
+QB_CAMEO_POINTS = 1.0        # ... and under this many points ...
+QB_ROLE_SHARE = 0.5          # ... and NOT his team's quarterback going in (under this
+                             # share of its previous game this season): the starter
+                             # hurt on the first drive (Kyler Murray 2022 wk 14,
+                             # Aaron Rodgers 2023 wk 1) is a bust, not a cameo
+
+
+def did_not_play(pw: pd.DataFrame, gsis: pd.Series, appeared: pd.DataFrame,
+                 games: pd.DataFrame, snaps: Optional[pd.DataFrame] = None) -> pd.Series:
+    """Per player_week row: True when the player did not take the field in a
+    game his NFL team played — no stat line and no offensive snap (`appeared`:
+    `boldness.game_log` rows, gsis_id / season / week / team, the same "sat
+    out" the next-man-up lift uses) — and he scored 0. `gsis`: each row's gsis
+    id; `pw` needs Year, Week, NFL team and Points.
+
+    Only weeks whose result is known count: the team has a regular-season game
+    in the schedule AND somebody on that team appears in the log that week (its
+    stats have landed — never a week still being played; the schedule's final
+    score is not required, a cached schedule lags the stats). No game (a bye),
+    no gsis id or no NFL team: False. The struck 2022 week 17 Bills at Bengals
+    game never counts [per user].
+
+    With `snaps` (`boldness.snap_shares`: gsis_id / season / week / team /
+    offense_pct) a QB CAMEO counts too: a quarterback with at most
+    QB_CAMEO_SHARE of his team's offensive snaps who scored under
+    QB_CAMEO_POINTS, unless he was its quarterback going in — QB_ROLE_SHARE or
+    more of its snaps in its previous game this season (in its first game, his
+    last game of the season before). Jake Browning 2024 wk 8 (3 kneel-downs,
+    Burrow had every snap the week before) is a cameo."""
+    from lotg_support.struck_games import STRUCK_GAME_IDS
+    res = pd.Series(False, index=pw.index)
+    if appeared is None or appeared.empty or games is None or games.empty:
+        return res
+    g = games
+    if "game_type" in g.columns:
+        g = g[g["game_type"].astype(str).str.upper() == "REG"]
+    if "game_id" in g.columns:
+        g = g[~g["game_id"].astype(str).isin(STRUCK_GAME_IDS)]
+    played = set()
+    for s, w, h, a in g[["season", "week", "home_team", "away_team"]].itertuples(index=False):
+        if pd.notna(s) and pd.notna(w):
+            played.add((int(s), int(w), _norm_team(h)))
+            played.add((int(s), int(w), _norm_team(a)))
+    ap = appeared.dropna(subset=["gsis_id", "season", "week"])
+    seen = set(zip(ap["gsis_id"].astype(str), ap["season"].astype(int), ap["week"].astype(int)))
+    landed = {(int(s), int(w), _norm_team(t)) for s, w, t in
+              zip(ap["season"], ap["week"], ap["team"]) if pd.notna(t)}
+    yr = pd.to_numeric(pw["Year"], errors="coerce")
+    wk = pd.to_numeric(pw["Week"], errors="coerce")
+    zero = pd.to_numeric(pw["Points"], errors="coerce").fillna(0) == 0
+    if "Position" in pw.columns:              # the log only carries these positions
+        zero &= pw["Position"].astype(str).str.upper().isin(POSITIONS)
+    gs = _id_str(gsis.reindex(pw.index))
+    for i, y, w, t, g_, z in zip(pw.index, yr, wk, pw["NFL team"], gs, zero):
+        if not z or pd.isna(y) or pd.isna(w) or pd.isna(g_) or not str(t or "").strip():
+            continue
+        key = (int(y), int(w), _norm_team(t))
+        if key in played and key in landed and (str(g_), int(y), int(w)) not in seen:
+            res.at[i] = True
+    if snaps is not None and not snaps.empty and "Position" in pw.columns:
+        res |= _qb_cameo(pw, gs, yr, wk, snaps, played)
+    return res
+
+
+def _qb_cameo(pw, gs, yr, wk, snaps, played) -> pd.Series:
+    """The QB-cameo half of `did_not_play` (see there)."""
+    out = pd.Series(False, index=pw.index)
+    sn = snaps.dropna(subset=["gsis_id", "season", "week"])
+    pct = {(str(g), int(s), int(w)): (float(p) if pd.notna(p) else 0.0, _norm_team(t))
+           for g, s, w, t, p in zip(sn["gsis_id"], sn["season"], sn["week"], sn["team"], sn["offense_pct"])}
+    team_weeks: Dict[Tuple[int, str], List[int]] = {}
+    last_share: Dict[Tuple[str, int], Tuple[int, float]] = {}
+    for (g, s, w), (p, t) in pct.items():
+        team_weeks.setdefault((s, t), []).append(w)
+        if p > 0 and w >= last_share.get((g, s), (-1, 0.0))[0]:
+            last_share[(g, s)] = (w, p)
+    for k in team_weeks:
+        team_weeks[k] = sorted(set(team_weeks[k]))
+    qb = pw["Position"].astype(str).str.upper().eq("QB")
+    low = pd.to_numeric(pw["Points"], errors="coerce").fillna(0) < QB_CAMEO_POINTS
+    for i, y, w, g_ in zip(pw.index, yr, wk, gs):
+        if not (qb.at[i] and low.at[i]) or pd.isna(y) or pd.isna(w) or pd.isna(g_):
+            continue
+        y, w, g_ = int(y), int(w), str(g_)
+        p, team = pct.get((g_, y, w), (0.0, ""))
+        if not (0 < p <= QB_CAMEO_SHARE) or (y, w, team) not in played:
+            continue
+        prev = [x for x in team_weeks.get((y, team), []) if x < w]
+        role = (pct.get((g_, y, prev[-1]), (0.0, ""))[0] if prev
+                else last_share.get((g_, y - 1), (0, 0.0))[1])
+        if role < QB_ROLE_SHARE:
+            out.at[i] = True
+    return out
+
+
 def _sqrt(v):
     return np.sqrt(np.clip(v, 0, None))
 
@@ -515,14 +627,20 @@ def project(inp: Inputs) -> pd.DataFrame:
     res["Enhanced Projection"] = enh.where(outside & enh.notna(), claude)
     weak_ok = src[["espn", "fp"]].notna().any(axis=1) & weak.notna()
     res["Sleeper Projection"] = src["sleeper"].where(src["sleeper"].notna(), weak.where(weak_ok, claude))
+    # Known out, or did not play (no stat line / snap in a played game): 0.
+    # Only here — the fits above keep reading `out` alone.
+    dnp = (pw["did_not_play"].fillna(False).astype(bool) if "did_not_play" in pw.columns
+           else pd.Series(False, index=pw.index))
+    zero = src["out"] | dnp
     for c in ("Sleeper Projection", "Claude Projection", "Enhanced Projection"):
-        res.loc[src["out"], c] = 0.0
+        res.loc[zero, c] = 0.0
         res[c] = res[c].round(2)
     # The Claude projection BEFORE the known-out zeroing: an "if healthy" figure
     # for the Hardship (Claude Projections) columns — never read the zeroed one.
     res["_claude_raw"] = claude
     res["_sources"] = src[list(SOURCES_FULL)].notna().sum(axis=1)
-    res["_sleeper_fallback"] = src["sleeper"].isna() & ~src["out"]
+    res["_sleeper_fallback"] = src["sleeper"].isna() & ~zero
+    res["_did_not_play"] = dnp & ~src["out"]
     return res
 
 
