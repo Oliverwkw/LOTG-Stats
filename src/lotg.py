@@ -22993,11 +22993,9 @@ def build_all(repo_root: Path) -> None:
     # add_drops rows beside it had one. `audit_weekly.KtcAttribution` needs the
     # whole build's lookups, so the dump has to be the last thing that touches it.
     try:
-        from lotg_support.ktc import get_provenance
-        _prov = get_provenance()
-        if _prov:
-            _pdf = pd.DataFrame(_prov, columns=["asset", "target_date",
-                                                "quote_date_used", "source", "value"])
+        from lotg_support.ktc import get_provenance, provenance_frame
+        if get_provenance():
+            _pdf = provenance_frame()        # sorted: the same file from run to run
             _praw = repo_root / "exports" / "raw"
             _praw.mkdir(parents=True, exist_ok=True)
             _pdf.to_csv(_praw / "ktc_provenance.csv", index=False)
