@@ -62,10 +62,10 @@
   },
   "avatar": "bacf626c72ab39f35077ce4a4f99a149",
   "company_id": null,
-  "sport": "nfl",
-  "season_type": "regular",
-  "season": "2024",
   "shard": 970,
+  "season": "2024",
+  "season_type": "regular",
+  "sport": "nfl",
   "scoring_settings": {
     "sack": 1.0,
     "fgm_40_49": 4.0,
