@@ -1772,7 +1772,7 @@ guard-skipped fire), 581→584 (#453), 584→589 (#454), 589→597 (#455).
     Hardship (Claude Projections) baseline) is untouched.
   - Dry run on the run-695 exports (inquiry-side ids, 95.9% mapped — the build's own
     Player ID bridge maps more): 279 player-weeks newly 0 (2020 14 / 2021 31 / 2022 55 /
-    2023 30 / 2024 75 / 2025 47 / 2026 27; QB 182, RB 65, WR 17, TE 7), 154 of them had
+    2023 30 / 2024 75 / 2025 47 / 2026 27; QB 189, RB 66, WR 17, TE 7), 154 of them had
     a Claude projection ≥ 8. Two are STARTERS: Donovan Peoples-Jones (stevenb123) 2021 wk 7
     (dressed, no snap; Enhanced 8.83) and Ronnie Rivers (plehv79) 2022 wk 9 (Enhanced
     6.87) — their team projections / win % / opponent gaps move. Browning 2024 wk 8 is NOT
@@ -1785,10 +1785,34 @@ guard-skipped fire), 581→584 (#453), 584→589 (#454), 589→597 (#455).
     Boldness the Sleeper one); the two starters' team_week projection columns, win %,
     opponent gaps, Combined, UPST and Comeback size sets. Hardship (Claude Projections)
     must NOT move.
+  - **QB cameo** [per user, 2026-10-10: "does this increase Browning's projection for the
+    kneel-down game … maybe also limit to QBs"; approved the two-tier plan]. The zero-snap
+    rule stays for every position (90 of its 279 rows are RB / WR / TE healthy scratches);
+    added for QBs only: ≤ 10% of the team's offensive snaps ∧ under 1 point ∧ NOT the team's
+    QB going in (< 50% of its snaps in its previous game this season; in its first game,
+    his last game of last season) → 0 too (`projections.QB_CAMEO_*`, `boldness.snap_shares`).
+    - Thresholds from the 2020-26 QB appearances on league rosters: ≤ 5% of snaps 30
+      games, 0.14 pts a game, 93% under 1 pt; 5-10% 17, 1.39, 65%; 10-25% 33, 1.74, 48%;
+      over half 2,568, 16.76, 1%. Kneels and single plays scored −2.4 to +0.8; every
+      ≤ 10% cameo that scored 1.7+ keeps its projection.
+    - The role guard is what keeps a starter hurt on the first drive a BUST: without it
+      the 39 sub-10% / sub-1-pt QB weeks include Kyler Murray 2022 wk 14 (ACL, 3 snaps),
+      Aaron Rodgers 2023 wk 1 (Achilles, 4), Teddy Bridgewater 2022 wk 5 (1 snap) and
+      Matthew Stafford 2020 wk 16 — all fantasy starters, all kept. A guard on his OWN
+      last game was rejected: it kept Browning (his last snaps were 2023 relief starts)
+      and Jordan Love 2021 wk 11. With the team's-previous-game guard: 31 zeroed, all
+      bench (Browning 2024 wk 8, Milroe / Dart / Gabriel / Shough 2025 rookies …), 8 kept
+      — the 4 injured starters, Sam Darnold 2026 wk 1 (SEA's starter in 2025), and three
+      QBs benched after starting their team's previous game (Bryce Perkins 2022 wk 13,
+      Malik Willis 2022 wk 10, Russell Wilson 2025 wk 4): borderline, kept.
+    - Dry run total: 310 player-weeks newly 0 (279 + 31), still 2 starters
+      (Peoples-Jones, Rivers — both zero-snap).
   - Tests: `test_did_not_play_rule` (synthetic: played / appeared / scored / bye / stats
-    not landed / struck game / no id / no team); `test_exports_did_not_play_projects_zero`
-    (Ridder 2022 1-13 and Browning 2024 1-7 = 0 under all three, Browning wk 8 and Chase
-    2022 wk 17 > 0; skips until the build log carries "did-not-play weeks zeroed").
+    not landed / struck game / no id / no team); `test_qb_cameo_rule` (cameo / injured
+    starter / scoring cameo / non-QB / 15% / team's first game / rookie);
+    `test_exports_did_not_play_projects_zero` (Ridder 2022 1-13 and Browning 2024 1-8 = 0
+    under all three, Kyler Murray 2022 wk 14 and Chase 2022 wk 17 > 0; skips until the
+    build log carries "did-not-play weeks zeroed").
 
 ## Game-time columns (from the 2026 wk 4 MNF-comeback inquiry)
 - [x] **player_week `Game slot` + team_week margins / comebacks by stage** [per user,

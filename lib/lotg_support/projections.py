@@ -400,8 +400,20 @@ def source_frame(inp: Inputs) -> pd.DataFrame:
     return out
 
 
+# QB cameo [per user, 2026-10-10]: a quarterback who only came in for a kneel-down
+# or a mop-up snap or two did not really play either. 2020-26 QB appearances on
+# this league's rosters: <=5% of the offense's snaps scored 0.14 a game (93%
+# under 1 point), 5-10% 1.39 (65%), over half 16.76 (1%).
+QB_CAMEO_SHARE = 0.10        # at most this share of his team's offensive snaps ...
+QB_CAMEO_POINTS = 1.0        # ... and under this many points ...
+QB_ROLE_SHARE = 0.5          # ... and NOT his team's quarterback going in (under this
+                             # share of its previous game this season): the starter
+                             # hurt on the first drive (Kyler Murray 2022 wk 14,
+                             # Aaron Rodgers 2023 wk 1) is a bust, not a cameo
+
+
 def did_not_play(pw: pd.DataFrame, gsis: pd.Series, appeared: pd.DataFrame,
-                 games: pd.DataFrame) -> pd.Series:
+                 games: pd.DataFrame, snaps: Optional[pd.DataFrame] = None) -> pd.Series:
     """Per player_week row: True when the player did not take the field in a
     game his NFL team played — no stat line and no offensive snap (`appeared`:
     `boldness.game_log` rows, gsis_id / season / week / team, the same "sat
@@ -413,7 +425,15 @@ def did_not_play(pw: pd.DataFrame, gsis: pd.Series, appeared: pd.DataFrame,
     stats have landed — never a week still being played; the schedule's final
     score is not required, a cached schedule lags the stats). No game (a bye),
     no gsis id or no NFL team: False. The struck 2022 week 17 Bills at Bengals
-    game never counts [per user]."""
+    game never counts [per user].
+
+    With `snaps` (`boldness.snap_shares`: gsis_id / season / week / team /
+    offense_pct) a QB CAMEO counts too: a quarterback with at most
+    QB_CAMEO_SHARE of his team's offensive snaps who scored under
+    QB_CAMEO_POINTS, unless he was its quarterback going in — QB_ROLE_SHARE or
+    more of its snaps in its previous game this season (in its first game, his
+    last game of the season before). Jake Browning 2024 wk 8 (3 kneel-downs,
+    Burrow had every snap the week before) is a cameo."""
     from lotg_support.struck_games import STRUCK_GAME_IDS
     res = pd.Series(False, index=pw.index)
     if appeared is None or appeared.empty or games is None or games.empty:
@@ -444,7 +464,40 @@ def did_not_play(pw: pd.DataFrame, gsis: pd.Series, appeared: pd.DataFrame,
         key = (int(y), int(w), _norm_team(t))
         if key in played and key in landed and (str(g_), int(y), int(w)) not in seen:
             res.at[i] = True
+    if snaps is not None and not snaps.empty and "Position" in pw.columns:
+        res |= _qb_cameo(pw, gs, yr, wk, snaps, played)
     return res
+
+
+def _qb_cameo(pw, gs, yr, wk, snaps, played) -> pd.Series:
+    """The QB-cameo half of `did_not_play` (see there)."""
+    out = pd.Series(False, index=pw.index)
+    sn = snaps.dropna(subset=["gsis_id", "season", "week"])
+    pct = {(str(g), int(s), int(w)): (float(p) if pd.notna(p) else 0.0, _norm_team(t))
+           for g, s, w, t, p in zip(sn["gsis_id"], sn["season"], sn["week"], sn["team"], sn["offense_pct"])}
+    team_weeks: Dict[Tuple[int, str], List[int]] = {}
+    last_share: Dict[Tuple[str, int], Tuple[int, float]] = {}
+    for (g, s, w), (p, t) in pct.items():
+        team_weeks.setdefault((s, t), []).append(w)
+        if p > 0 and w >= last_share.get((g, s), (-1, 0.0))[0]:
+            last_share[(g, s)] = (w, p)
+    for k in team_weeks:
+        team_weeks[k] = sorted(set(team_weeks[k]))
+    qb = pw["Position"].astype(str).str.upper().eq("QB")
+    low = pd.to_numeric(pw["Points"], errors="coerce").fillna(0) < QB_CAMEO_POINTS
+    for i, y, w, g_ in zip(pw.index, yr, wk, gs):
+        if not (qb.at[i] and low.at[i]) or pd.isna(y) or pd.isna(w) or pd.isna(g_):
+            continue
+        y, w, g_ = int(y), int(w), str(g_)
+        p, team = pct.get((g_, y, w), (0.0, ""))
+        if not (0 < p <= QB_CAMEO_SHARE) or (y, w, team) not in played:
+            continue
+        prev = [x for x in team_weeks.get((y, team), []) if x < w]
+        role = (pct.get((g_, y, prev[-1]), (0.0, ""))[0] if prev
+                else last_share.get((g_, y - 1), (0, 0.0))[1])
+        if role < QB_ROLE_SHARE:
+            out.at[i] = True
+    return out
 
 
 def _sqrt(v):

@@ -13490,13 +13490,14 @@ def build_all(repo_root: Path) -> None:
                 # zeroes nothing extra rather than losing the projections.
                 try:
                     _appeared = _bold.game_log(_seasons)
+                    _snap_shares = _bold.snap_shares(_seasons)     # the QB-cameo half
                 except Exception as e:
                     _log_exc(debug, "projections_did_not_play", e)
-                    _appeared = pd.DataFrame()
+                    _appeared, _snap_shares = pd.DataFrame(), pd.DataFrame()
             _claude = pd.concat(_cl, ignore_index=True).dropna(subset=["Player ID"]) if _cl else pd.DataFrame(columns=["Year", "Week", "Player ID", "E"])
             _ids = _safe_df(load_dynastyprocess_playerids(ext))
             _proj_dnp = _proj.did_not_play(pw, pw["Player ID"].astype(str).map(_proj_bridge),
-                                           _appeared, _proj_games)
+                                           _appeared, _proj_games, snaps=_snap_shares)
             _inp = _proj.Inputs(
                 player_week=pw.assign(out=pw["_proj_out"], did_not_play=_proj_dnp), claude=_claude, games=_proj_games,
                 ids=_ids.astype(str), scoring=lambda y: _scoring_tables.get(int(y), {}), current_season=_cur,
