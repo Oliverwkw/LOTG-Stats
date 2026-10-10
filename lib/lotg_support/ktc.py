@@ -138,7 +138,7 @@ def load_history(repo_root: Path, name_id: str) -> List[Dict]:
 # file, so a handful in flight is safe. `LOTG_KTC_FETCH_WORKERS=1` restores the
 # old serial behaviour. A failed fetch is exactly as before: load_history keeps
 # the cached copy, and the serial pass in build_index retries it.
-_FETCH_WORKERS = max(1, int(os.environ.get("LOTG_KTC_FETCH_WORKERS", "6") or 6))
+_FETCH_WORKERS = max(1, int(os.environ.get("LOTG_KTC_FETCH_WORKERS", "12") or 12))
 
 
 def _history_is_fresh(repo_root: Path, name_id: str) -> bool:

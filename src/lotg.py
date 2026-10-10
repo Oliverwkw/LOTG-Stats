@@ -19202,6 +19202,7 @@ def build_all(repo_root: Path) -> None:
                 rookie_picks=_rk[["Year", "Number", "Player Picked"]] if not _rk.empty else pd.DataFrame(columns=["Year", "Number", "Player Picked"]),
                 scoring=_bold_scoring, score=_league_score, score_map=_LEAGUE_SCORE_MAP,
                 bridge=_bold_bridge, expect_override=_bold_override):
+            _bold_warm = _bold.LAST_BLOCK_REUSED
             _bstarts, _blineups = _bold.build_columns()
             _bold_secs = (datetime.now() - _t0).total_seconds()
             _t1 = datetime.now()
@@ -19246,7 +19247,9 @@ def build_all(repo_root: Path) -> None:
             _aemap = _bl.groupby("Team")["Empty slots"].sum().astype(int).to_dict()
             team_all["Empty slots"] = [_aemap.get(str(t)) for t in team_all["Team"]]
         _log(debug, f"[{_now_iso()}] INFO boldness: {len(_bstarts)} starts, {len(_blineups)} lineups "
-                    f"in {_bold_secs:.0f}s")
+                    f"in {_bold_secs:.0f}s"
+                    + (" (caches carried over from the projection pass)" if _bold_warm
+                       else " (cold: inputs differ from the projection pass)"))
         # Sleeper Boldness columns (computed in the block above).
         if _sl_override is not None:
             _ss = _sstarts.assign(Year=pd.to_numeric(_sstarts["Year"]).astype(int),

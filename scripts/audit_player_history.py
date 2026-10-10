@@ -44,7 +44,97 @@ _RE_CMOVE = re.compile(r"^(\d{4}): Commissioner moved to (\S+)$")
 _RE_PICKHOP = re.compile(r"^(\d{4}-\d{2}-\d{2}): pick traded to ")
 
 
+_MAIN = "{http://schemas.openxmlformats.org/spreadsheetml/2006/main}"
+_DOCREL = "{http://schemas.openxmlformats.org/officeDocument/2006/relationships}"
+_PKGREL = "{http://schemas.openxmlformats.org/package/2006/relationships}"
+
+
+def _ooxml_text(node) -> str:
+    """openpyxl's `Text.content`: the plain <t> then every run's <t>, joined."""
+    parts = []
+    t = node.find(f"{_MAIN}t")
+    if t is not None and t.text is not None:
+        parts.append(t.text)
+    for r in node.findall(f"{_MAIN}r"):
+        rt = r.find(f"{_MAIN}t")
+        if rt is not None and rt.text is not None:
+            parts.append(rt.text)
+    return "".join(parts)
+
+
 def load_history_comments(xlsx_path: Path) -> dict[str, str]:
+    """{"<sheet>:<column-A value>": comment text} for the history sheets, read
+    straight from the workbook's XML parts. openpyxl.load_workbook parsed all 15
+    sheets with their styles to reach these comments — ~2.5 minutes of every
+    CI test run. Same answer as `_load_history_comments_openpyxl` (kept as the
+    reference): values cast as openpyxl casts them, comment text as its
+    `Text.content` joins it, the first row seen kept."""
+    import posixpath
+    import zipfile
+    import xml.etree.ElementTree as ET
+
+    with zipfile.ZipFile(xlsx_path) as z:
+        names = set(z.namelist())
+        rels = {r.get("Id"): r.get("Target") for r in
+                ET.fromstring(z.read("xl/_rels/workbook.xml.rels")).iter(f"{_PKGREL}Relationship")}
+
+        def part(base: str, target: str) -> str:
+            return target.lstrip("/") if target.startswith("/") else \
+                posixpath.normpath(posixpath.join(posixpath.dirname(base), target))
+        sheets = {sh.get("name"): part("xl/workbook.xml", rels[sh.get(f"{_DOCREL}id")])
+                  for sh in ET.fromstring(z.read("xl/workbook.xml")).iter(f"{_MAIN}sheet")}
+        shared = []
+        if "xl/sharedStrings.xml" in names:
+            shared = [_ooxml_text(si).replace("x005F_", "") for si in
+                      ET.fromstring(z.read("xl/sharedStrings.xml")).iter(f"{_MAIN}si")]
+        out: dict[str, str] = {}
+        for sheet in ("player_all_time", "non_rookie_picks", "rookie_picks"):
+            sp = sheets.get(sheet)
+            if sp is None:
+                continue
+            rp = posixpath.join(posixpath.dirname(sp), "_rels", posixpath.basename(sp) + ".rels")
+            if rp not in names:
+                continue
+            cp = next((part(sp, r.get("Target")) for r in ET.fromstring(z.read(rp)).iter(f"{_PKGREL}Relationship")
+                       if r.get("Type", "").endswith("/comments")), None)
+            if cp is None:
+                continue
+            by_row: dict[int, str] = {}
+            for c in ET.fromstring(z.read(cp)).iter(f"{_MAIN}comment"):
+                m = re.fullmatch(r"([A-Z]+)(\d+)", c.get("ref", ""))
+                if m and m.group(1) == "A":
+                    by_row[int(m.group(2))] = _ooxml_text(c.find(f"{_MAIN}text"))
+            vals: dict[int, object] = {}
+            for _, el in ET.iterparse(z.open(sp)):
+                if el.tag == f"{_MAIN}c":
+                    m = re.fullmatch(r"A(\d+)", el.get("r", ""))
+                    if m and int(m.group(1)) in by_row:
+                        kind, v = el.get("t", "n"), el.find(f"{_MAIN}v")
+                        raw = v.text if v is not None else None
+                        if kind == "inlineStr":
+                            is_ = el.find(f"{_MAIN}is")
+                            val = _ooxml_text(is_) if is_ is not None else None
+                        elif raw is None:
+                            val = None
+                        elif kind == "s":
+                            val = shared[int(raw)]
+                        elif kind == "n":
+                            val = float(raw) if any(ch in raw for ch in ".Ee") else int(raw)
+                        elif kind == "b":
+                            val = bool(int(raw))
+                        else:
+                            val = raw
+                        vals[int(m.group(1))] = val
+                elif el.tag == f"{_MAIN}row":
+                    el.clear()
+            for row in sorted(by_row):
+                out.setdefault(f"{sheet}:{vals.get(row)}", by_row[row])
+    return out
+
+
+def _load_history_comments_openpyxl(xlsx_path: Path) -> dict[str, str]:
+    """The reference reader `load_history_comments` replaced (slow: loads the
+    whole workbook). Kept for the equivalence check."""
     import openpyxl
 
     wb = openpyxl.load_workbook(xlsx_path, read_only=False)

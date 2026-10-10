@@ -402,18 +402,16 @@ def test_a_swapped_override_equals_a_fresh_block():
               bridge=SE.gsis_bridge())
     with B.build_inputs(**kw):
         e = B.expected_points(y)
-    # Two different projections: A = the module's own E, B = every other
-    # player cut to 60% (enough to change who the reference is).
-    ov_a = {(y, int(w), str(g)): float(v) for w, g, v in zip(e["week"], e["gsis_id"], e["E"])}
-    ov_b = {k: (v * 0.6 if i % 2 else v) for i, (k, v) in enumerate(sorted(ov_a.items()))}
-    with B.build_inputs(**kw, expect_override=ov_a):
-        B.build_columns(_FAST)
+        # Two different projections: A = the module's own E, B = every other
+        # player cut to 60% (enough to change who the reference is).
+        ov_a = {(y, int(w), str(g)): float(v) for w, g, v in zip(e["week"], e["gsis_id"], e["E"])}
+        ov_b = {k: (v * 0.6 if i % 2 else v) for i, (k, v) in enumerate(sorted(ov_a.items()))}
+        B.set_expect_override(ov_a)
+        a_starts, _ = B.build_columns(_FAST)
         B.set_expect_override(ov_b)
         swapped_starts, swapped_lineups = B.build_columns(_FAST)
     with B.build_inputs(**kw, expect_override=ov_b):
         fresh_starts, fresh_lineups = B.build_columns(_FAST)
-    with B.build_inputs(**kw, expect_override=ov_a):
-        a_starts, _ = B.build_columns(_FAST)
     key = ["Year", "Week", "Team", "Player ID"]
     m = swapped_starts.merge(fresh_starts, on=key, suffixes=("_s", "_f"))
     assert len(m) == len(swapped_starts) == len(fresh_starts)
@@ -424,6 +422,53 @@ def test_a_swapped_override_equals_a_fresh_block():
     # ... and the swap really changed something (the test can fail).
     d = a_starts.merge(fresh_starts, on=key, suffixes=("_a", "_b"))
     assert ((d["Boldness_a"].fillna(-1) - d["Boldness_b"].fillna(-1)).abs() > 1e-9).any()
+
+
+def test_a_block_with_the_same_inputs_starts_warm_and_agrees():
+    # build_inputs hands a block's caches to the next block only when every
+    # input but the override is equal (the build's projection pass -> Boldness
+    # pass). Same answer warm as cold; different inputs start cold; and code run
+    # OUTSIDE a block still reads nothing a block computed.
+    y = _season()
+    if y is None:
+        return _skip("no completed season with exports and the nflverse cache")
+    import json
+    from lotg_support import scoring_events as SE
+    B._clear_caches()
+    B._WARM = None
+    inquiry_before = B.team_boldness(y, params=_FAST, include_live=False)
+    weeks = B.played_weeks(y)
+    league = json.loads((_ROOT / "exports" / "snapshot" / f"season_{y}" / "league.json").read_text())
+    score, score_map = B._build_scorer()
+
+    def kw():   # fresh but equal objects each time, as the build passes them
+        return dict(matchups={y: {w: [dict(roster_id=rid, matchup_id=r.matchup_id, points=r.points,
+                                           starters=list(r.starters), players=list(r.players),
+                                           players_points=dict(r.players_points))
+                                      for rid, r in B.week_rows(y, w).items()] for w in weeks}},
+                    roster_positions={y: league["roster_positions"]},
+                    teams={y: B.season_teams(y)}, unavailable={y: set(Q.unavailable(y))},
+                    rookie_picks=Q.load_sheet("rookie_picks"),
+                    scoring={y: dict(B.scoring_table(y))}, score=score, score_map=score_map,
+                    bridge=SE.gsis_bridge())
+    first = kw()
+    with B.build_inputs(**first):
+        assert not B.LAST_BLOCK_REUSED
+        cold, cold_l = B.build_columns(_FAST)
+    with B.build_inputs(**kw()):
+        assert B.LAST_BLOCK_REUSED, "equal inputs should carry the caches over"
+        warm, warm_l = B.build_columns(_FAST)
+    key = ["Year", "Week", "Team", "Player ID"]
+    m = cold.merge(warm, on=key, suffixes=("_c", "_w"))
+    assert len(m) == len(cold) == len(warm)
+    assert ((m["Boldness_c"].fillna(-1) - m["Boldness_w"].fillna(-1)).abs() < 1e-9).all()
+    assert cold_l.reset_index(drop=True).equals(warm_l.reset_index(drop=True))
+    changed = kw()
+    changed["unavailable"] = {y: set(list(changed["unavailable"][y])[1:])}   # one flag fewer
+    with B.build_inputs(**changed):
+        assert not B.LAST_BLOCK_REUSED, "different inputs must start cold"
+    after = B.team_boldness(y, params=_FAST, include_live=False)
+    assert after.reset_index(drop=True).equals(inquiry_before.reset_index(drop=True))
 
 
 def test_the_inquiry_path_never_scores_a_week_the_build_has_not_finalized():

@@ -184,10 +184,56 @@ class Params:
 _INJECTED: Optional[Dict[str, Any]] = None
 
 
+def _cached_names() -> List[str]:
+    return [name for name, obj in list(globals().items())
+            if callable(getattr(obj, "cache_clear", None)) and name.startswith(("_", "scoring_table"))]
+
+
 def _clear_caches() -> None:
-    for name, obj in list(globals().items()):
-        if callable(getattr(obj, "cache_clear", None)) and name.startswith(("_", "scoring_table")):
-            obj.cache_clear()
+    for name in _cached_names():
+        globals()[name].cache_clear()
+
+
+# The caches one build_inputs block built, kept for the next block when its
+# inputs are the same: the build's Claude-projection pass and its Boldness pass
+# hand over identical matchups / flags / picks / scoring / bridge, and the
+# Boldness pass used to re-derive every game log and prior from cold (~45s).
+# (inputs, {name: warm cached function}); see build_inputs.
+_WARM: Optional[Tuple[Dict[str, Any], Dict[str, Any]]] = None
+LAST_BLOCK_REUSED = False        # did the last build_inputs block start warm? (logged)
+
+
+def _same_inputs(a: Dict[str, Any], b: Dict[str, Any]) -> bool:
+    """Every injected input but the projection override, compared by value."""
+    try:
+        for k in set(a) | set(b):
+            x, y = a.get(k), b.get(k)
+            if k == "score":
+                if x is not y:
+                    return False
+            elif isinstance(x, pd.DataFrame) or isinstance(y, pd.DataFrame):
+                if not (isinstance(x, pd.DataFrame) and isinstance(y, pd.DataFrame)
+                        and list(x.columns) == list(y.columns) and x.equals(y)):
+                    return False
+            elif x != y:
+                return False
+        return True
+    except Exception:
+        return False
+
+
+def _stash_caches(inputs: Dict[str, Any]) -> None:
+    """Set the block's warm caches aside and put empty ones in their place, so
+    anything run outside a block reads nothing the block computed (as the old
+    clear on exit guaranteed)."""
+    global _WARM
+    warm = {}
+    for name in _cached_names():
+        obj = globals()[name]
+        warm[name] = obj
+        globals()[name] = functools.wraps(obj.__wrapped__)(
+            functools.lru_cache(**obj.cache_parameters())(obj.__wrapped__))
+    _WARM = (inputs, warm)
 
 
 @contextlib.contextmanager
@@ -213,17 +259,22 @@ def build_inputs(*, matchups: Dict[int, Dict[int, List[dict]]],
     lineups on where given — the build passes the Enhanced projection
     (lotg_support.projections) [approved by the user, 2026-10-07]; a player it
     lacks keeps this module's own E (the Claude projection)."""
-    global _INJECTED
-    _INJECTED = dict(matchups=matchups, roster_positions=roster_positions, teams=teams,
-                     unavailable=unavailable, rookie_picks=rookie_picks, scoring=scoring,
-                     score=score, score_map=score_map, bridge=bridge,
-                     expect_override=dict(expect_override or {}))
-    _clear_caches()
+    global _INJECTED, _WARM, LAST_BLOCK_REUSED
+    inputs = dict(matchups=matchups, roster_positions=roster_positions, teams=teams,
+                  unavailable=unavailable, rookie_picks=rookie_picks, scoring=scoring,
+                  score=score, score_map=score_map, bridge=bridge)
+    LAST_BLOCK_REUSED = _WARM is not None and _same_inputs(_WARM[0], inputs)
+    if LAST_BLOCK_REUSED:
+        globals().update(_WARM[1])      # the previous block's caches, same inputs
+    else:
+        _clear_caches()
+    _WARM = None
+    _INJECTED = dict(inputs, expect_override=dict(expect_override or {}))
     try:
         yield
     finally:
         _INJECTED = None
-        _clear_caches()
+        _stash_caches(inputs)
 
 
 def set_expect_override(expect_override: Optional[Dict[Tuple[int, int, str], float]]) -> None:
