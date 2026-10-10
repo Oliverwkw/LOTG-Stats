@@ -834,6 +834,19 @@ def check_career_to_date_arithmetic(stat: str = "rushing_yards",
             by_week[season] = table
         return by_week[season]
 
+    # Each season's table grouped by player, in the table's own order, so a row
+    # reads its player's weeks instead of scanning every player's (the scan was
+    # most of this guard's ~40s). Same values summed in the same order.
+    by_pid: Dict[int, Dict[str, List[Tuple[int, float]]]] = {}
+
+    def player_weeks(season: int, pid: str) -> List[Tuple[int, float]]:
+        if season not in by_pid:
+            grouped: Dict[str, List[Tuple[int, float]]] = {}
+            for (p, wk), v in index(season).items():
+                grouped.setdefault(p, []).append((wk, v))
+            by_pid[season] = grouped
+        return by_pid[season].get(pid, [])
+
     checked: set = set()
     off: Dict[str, str] = {}
     for row in frame.itertuples(index=False):
@@ -843,8 +856,7 @@ def check_career_to_date_arithmetic(stat: str = "rushing_yards",
         total = 0.0
         for season in range(int(rookie), int(row.Year) + 1):
             limit = int(row.Week) if season == int(row.Year) else 99
-            total += sum(v for (pid, wk), v in index(season).items()
-                         if pid == row.gsis_id and wk < limit)
+            total += sum(v for wk, v in player_weeks(season, row.gsis_id) if wk < limit)
         checked.add(row.gsis_id)
         if abs(total - float(row.career_to_date)) > 0.5 and row.gsis_id not in off:
             off[row.gsis_id] = (f"{row.Player} {row.Year} wk{row.Week}: "

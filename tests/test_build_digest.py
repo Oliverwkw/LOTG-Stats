@@ -183,8 +183,23 @@ def run_all() -> bool:
     return all_ok
 
 
-def test_build_digest():
-    assert run_all()
+# One test per check (it was a single test_build_digest running all four): each
+# runs the digest over the full exports, so pytest-xdist can spread them over
+# workers instead of one worker carrying the lot — it was the suite's floor.
+def test_year_round_build():
+    assert check_year_round_build()
+
+
+def test_movement_makes_nonempty():
+    assert check_movement_makes_nonempty()
+
+
+def test_legacy_snapshot_rebaselines():
+    assert check_legacy_snapshot_rebaselines()
+
+
+def test_manual_run_addresses_the_maintainer():
+    assert check_manual_run_addresses_the_maintainer()
 
 
 if __name__ == "__main__":

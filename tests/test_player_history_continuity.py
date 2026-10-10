@@ -68,3 +68,47 @@ def test_no_player_history_continuity_breaks():
 
     detail = "\n".join(f"  {b[0]} {b[1]} {b[2]}: {b[4]}" for b in sorted(breaks)[:60])
     assert not breaks, f"{len(breaks)} player-history continuity break(s):\n{detail}"
+
+
+def test_the_xml_comment_reader_matches_openpyxl(tmp_path=None):
+    """`load_history_comments` reads the comments straight from the xlsx XML
+    (openpyxl.load_workbook took ~2.5 of CI's test minutes). It must answer
+    exactly as the openpyxl reader it replaced: str(value) keys (numbers cast
+    as openpyxl casts them), the first row kept, column A only, and rich-text
+    comments (the build bolds verbs into runs) joined to plain text."""
+    openpyxl = pytest.importorskip("openpyxl")
+    import sys
+    import tempfile
+    from openpyxl.comments import Comment
+
+    sys.path.insert(0, str(REPO / "scripts"))
+    sys.path.insert(0, str(REPO / "src"))
+    import audit_player_history as aud
+    from lotg import _bold_comment_verbs
+
+    wb = openpyxl.Workbook()
+    wb.remove(wb.active)
+    pa = wb.create_sheet("player_all_time")
+    pa.append(["Player", "Points"])
+    rows = [("Ja'Marr Chase", "2021-04-29: drafted by plehv79 (1.01)\n2023-01-02: traded to AceMatthew (x)"),
+            ("Tyler Conklin", "2022-09-01: added by LWebs53 (free agent)\n2022-10-01: dropped by LWebs53"),
+            ("Ja'Marr Chase", "a second row with the same name — the first one wins"),
+            (None, "a comment on an empty name cell")]
+    for i, (name, text) in enumerate(rows, start=2):
+        pa.append([name, 1.5])
+        pa.cell(row=i, column=1).comment = Comment(text, "LOTG")
+    pa.cell(row=2, column=2).comment = Comment("column B — never read", "LOTG")
+    rk = wb.create_sheet("rookie_picks")
+    rk.append(["Year", "Number"])
+    rk.append([2024, 3])
+    rk.cell(row=2, column=1).comment = Comment("2024 rookie draft: plehv79 took Malik Nabers", "LOTG")
+    wb.create_sheet("team_week").append(["Team"])
+    with tempfile.TemporaryDirectory() as d:
+        path = Path(d) / "w.xlsx"
+        wb.save(path)
+        _bold_comment_verbs(path)              # rich-text runs, as the build writes them
+        fast = aud.load_history_comments(path)
+        slow = aud._load_history_comments_openpyxl(path)
+    assert fast == slow, (fast, slow)
+    assert fast["player_all_time:Ja'Marr Chase"].startswith("2021-04-29: drafted by")
+    assert "rookie_picks:2024" in fast and "player_all_time:None" in fast

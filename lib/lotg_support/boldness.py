@@ -122,6 +122,7 @@ from __future__ import annotations
 
 import contextlib
 import functools
+import sys
 import json
 from dataclasses import dataclass, asdict, replace
 from typing import Any, Callable, Dict, List, Optional, Sequence, Set, Tuple
@@ -184,10 +185,56 @@ class Params:
 _INJECTED: Optional[Dict[str, Any]] = None
 
 
+def _cached_names() -> List[str]:
+    return [name for name, obj in list(globals().items())
+            if callable(getattr(obj, "cache_clear", None)) and name.startswith(("_", "scoring_table"))]
+
+
 def _clear_caches() -> None:
-    for name, obj in list(globals().items()):
-        if callable(getattr(obj, "cache_clear", None)) and name.startswith(("_", "scoring_table")):
-            obj.cache_clear()
+    for name in _cached_names():
+        globals()[name].cache_clear()
+
+
+# The caches one build_inputs block built, kept for the next block when its
+# inputs are the same: the build's Claude-projection pass and its Boldness pass
+# hand over identical matchups / flags / picks / scoring / bridge, and the
+# Boldness pass used to re-derive every game log and prior from cold (~45s).
+# (inputs, {name: warm cached function}); see build_inputs.
+_WARM: Optional[Tuple[Dict[str, Any], Dict[str, Any]]] = None
+LAST_BLOCK_REUSED = False        # did the last build_inputs block start warm? (logged)
+
+
+def _same_inputs(a: Dict[str, Any], b: Dict[str, Any]) -> bool:
+    """Every injected input but the projection override, compared by value."""
+    try:
+        for k in set(a) | set(b):
+            x, y = a.get(k), b.get(k)
+            if k == "score":
+                if x is not y:
+                    return False
+            elif isinstance(x, pd.DataFrame) or isinstance(y, pd.DataFrame):
+                if not (isinstance(x, pd.DataFrame) and isinstance(y, pd.DataFrame)
+                        and list(x.columns) == list(y.columns) and x.equals(y)):
+                    return False
+            elif x != y:
+                return False
+        return True
+    except Exception:
+        return False
+
+
+def _stash_caches(inputs: Dict[str, Any]) -> None:
+    """Set the block's warm caches aside and put empty ones in their place, so
+    anything run outside a block reads nothing the block computed (as the old
+    clear on exit guaranteed)."""
+    global _WARM
+    warm = {}
+    for name in _cached_names():
+        obj = globals()[name]
+        warm[name] = obj
+        globals()[name] = functools.wraps(obj.__wrapped__)(
+            functools.lru_cache(**obj.cache_parameters())(obj.__wrapped__))
+    _WARM = (inputs, warm)
 
 
 @contextlib.contextmanager
@@ -213,17 +260,36 @@ def build_inputs(*, matchups: Dict[int, Dict[int, List[dict]]],
     lineups on where given — the build passes the Enhanced projection
     (lotg_support.projections) [approved by the user, 2026-10-07]; a player it
     lacks keeps this module's own E (the Claude projection)."""
-    global _INJECTED
-    _INJECTED = dict(matchups=matchups, roster_positions=roster_positions, teams=teams,
-                     unavailable=unavailable, rookie_picks=rookie_picks, scoring=scoring,
-                     score=score, score_map=score_map, bridge=bridge,
-                     expect_override=dict(expect_override or {}))
-    _clear_caches()
+    global _INJECTED, _WARM, LAST_BLOCK_REUSED
+    inputs = dict(matchups=matchups, roster_positions=roster_positions, teams=teams,
+                  unavailable=unavailable, rookie_picks=rookie_picks, scoring=scoring,
+                  score=score, score_map=score_map, bridge=bridge)
+    LAST_BLOCK_REUSED = _WARM is not None and _same_inputs(_WARM[0], inputs)
+    if LAST_BLOCK_REUSED:
+        globals().update(_WARM[1])      # the previous block's caches, same inputs
+    else:
+        _clear_caches()
+    _WARM = None
+    _INJECTED = dict(inputs, expect_override=dict(expect_override or {}))
     try:
         yield
     finally:
         _INJECTED = None
-        _clear_caches()
+        _stash_caches(inputs)
+
+
+def set_expect_override(expect_override: Optional[Dict[Tuple[int, int, str], float]]) -> None:
+    """Swap only `expect_override` inside `build_inputs`, keeping its caches.
+
+    No cached reader depends on the override — only `expected_points` reads
+    it, uncached — so a second `build_columns()` on another projection (the
+    build's Sleeper Boldness pass) reuses the game logs, priors, touches and
+    eligibility the first pass built instead of re-deriving them: ~1 minute of
+    the build. tests/test_boldness.py pins that a swapped pass equals a fresh
+    `build_inputs` block."""
+    if _INJECTED is None:
+        raise RuntimeError("set_expect_override() needs build_inputs(...)")
+    _INJECTED["expect_override"] = dict(expect_override or {})
 
 
 def build_columns(params: "Params" = None) -> Tuple[pd.DataFrame, pd.DataFrame]:
@@ -311,6 +377,54 @@ def scoring_table(season: int) -> Tuple[Tuple[str, float], ...]:
     return tuple(sorted((str(k), float(v)) for k, v in table.items() if v is not None))
 
 
+def _score_rows_loop(raw: pd.DataFrame, cols: List[str], table: Dict[str, float], pos: pd.Series,
+                     score: Callable[..., float]) -> List[float]:
+    """The league scorer applied row by row (the reference)."""
+    return [score({k: (None if pd.isna(v) else v) for k, v in zip(cols, vals)}, table, pos.get(str(g)))
+            for g, vals in zip(raw["player_id"].astype(str), raw[cols].itertuples(index=False, name=None))]
+
+
+def _score_rows(raw: pd.DataFrame, cols: List[str], table: Dict[str, float], pos: pd.Series,
+                score: Callable[..., float], score_map: Dict[str, Tuple[str, ...]]) -> List[float]:
+    """`_score_rows_loop`, column-wise, when `score` is the build's own
+    `lotg._league_score`: the same float operations in the same order on every
+    row (a blank stat adds nothing, Python's round to 2 places at the end), so
+    each point total is the same float. The row loop was 2.6 million Python
+    calls per test run and most of the build's cold game-log time.
+    tests/test_boldness.py compares the two on every season and scoring table.
+    Anything it cannot vouch for (another scorer, a non-numeric stat column)
+    takes the loop."""
+    mod = sys.modules.get(getattr(score, "__module__", ""), None)
+    bonus = getattr(mod, "_LEAGUE_SCORE_BONUS", None)
+    if (getattr(score, "__name__", "") != "_league_score" or bonus is None
+            or getattr(mod, "_LEAGUE_SCORE_MAP", None) is not score_map
+            or not all(pd.api.types.is_numeric_dtype(raw[c]) for c in cols)):
+        return _score_rows_loop(raw, cols, table, pos, score)
+    n = len(raw)
+    col = {c: raw[c].to_numpy(dtype=float) for c in cols}
+    zero = np.zeros(n)
+    pts = np.zeros(n)
+    for key, kcols in score_map.items():
+        mult = table.get(key)
+        if not mult:
+            continue
+        val = np.zeros(n)
+        for c in kcols:
+            if c in col:
+                v = col[c]
+                val = val + np.where(np.isnan(v), 0.0, v)
+        pts = pts + float(mult) * val
+    def filled(c):
+        return np.where(np.isnan(col[c]), 0.0, col[c]) if c in col else zero
+    if table.get("bonus_rec_te"):
+        te = (raw["player_id"].astype(str).map(pos) == "TE").to_numpy()
+        pts = np.where(te, pts + float(table["bonus_rec_te"]) * filled("receptions"), pts)
+    for bkey, c, thresh in bonus:
+        if table.get(bkey):
+            pts = np.where(filled(c) >= thresh, pts + float(table[bkey]), pts)
+    return [round(x, 2) for x in pts.tolist()]
+
+
 @functools.lru_cache(maxsize=128)
 def _season_log(season: int, scoring_season: Optional[int] = None) -> pd.DataFrame:
     """One row per (gsis_id, week) the player TOOK THE FIELD in a regular-season
@@ -325,8 +439,7 @@ def _season_log(season: int, scoring_season: Optional[int] = None) -> pd.DataFra
     raw = SE.weekly_stats(season)
     pos = _player_ids()["pos"]
     cols = [c for cs in score_map.values() for c in cs if c in raw.columns]
-    pts = [score({k: (None if pd.isna(v) else v) for k, v in zip(cols, vals)}, table, pos.get(str(g)))
-           for g, vals in zip(raw["player_id"].astype(str), raw[cols].itertuples(index=False, name=None))]
+    pts = _score_rows(raw, cols, table, pos, score, score_map)
     stats = pd.DataFrame({"gsis_id": raw["player_id"].astype(str).to_numpy(),
                           "week": raw["week"].astype(int).to_numpy(),
                           "team": raw["team"].to_numpy(), "points": pts})

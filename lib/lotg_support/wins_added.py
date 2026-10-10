@@ -86,6 +86,7 @@ from __future__ import annotations
 import bisect
 import itertools
 import json
+import os
 import re
 import sys
 from collections import defaultdict
@@ -1267,6 +1268,64 @@ def per_season(wins: float, games: int) -> Optional[float]:
     return round(float(wins) * SEASON_GAMES / int(games), 2) if games else None
 
 
+# Worker processes for `compute` (Linux only — fork; elsewhere, or with
+# LOTG_WINS_ADDED_WORKERS=1, the moves run serially as before).
+_WORKERS = max(1, int(os.environ.get("LOTG_WINS_ADDED_WORKERS", "0") or 0) or min(4, os.cpu_count() or 1))
+_CHUNKS_PER_WORKER = 4
+_FORK_CONTEXT: Dict[str, Any] = {}
+
+
+def _evaluate_chunk(span: Tuple[int, int]):
+    """One contiguous run of moves in a forked worker: the rows, its report
+    counts and the KTC provenance it noted (in order)."""
+    todo, later, league, value_fn = (_FORK_CONTEXT[k] for k in ("todo", "later", "league", "value_fn"))
+    from lotg_support import ktc as _K
+    start = len(_K._PROVENANCE)
+    part = Report()
+    rows = []
+    for mv in todo[span[0]:span[1]]:
+        wins = round(wins_added_for(mv, later[id(mv)], league, value_fn, part), 2)
+        rows.append((mv.sheet, mv.index, wins, per_season(wins, games_elapsed(mv, league))))
+    return rows, part.optimised_weeks, part.unproven_blocked, list(_K._PROVENANCE[start:])
+
+
+def _evaluate(todo: List["Move"], later, league: League, value_fn: Optional[ValueFn],
+              report: Report) -> List[Tuple[str, Any, float, Optional[float]]]:
+    """`wins_added_for` over `todo`, in order. Every move's answer depends only
+    on its own lineage and the league (the lineup cache only saves repeats), so
+    contiguous chunks run in forked workers and are merged back in order: the
+    same rows, the report's counts summed and its blocked set unioned, and the
+    KTC provenance each chunk noted appended in chunk order — the very list a
+    serial run writes. Wins added was ~50s of the build on one core."""
+    import multiprocessing as _mp
+    workers = _WORKERS if sys.platform.startswith("linux") else 1
+    if workers <= 1 or len(todo) < 2 * workers:
+        rows = []
+        for mv in todo:
+            wins = round(wins_added_for(mv, later[id(mv)], league, value_fn, report), 2)
+            rows.append((mv.sheet, mv.index, wins, per_season(wins, games_elapsed(mv, league))))
+        report.rows += len(rows)
+        return rows
+    from lotg_support import ktc as _K
+    n = min(len(todo), workers * _CHUNKS_PER_WORKER)
+    bounds = [round(i * len(todo) / n) for i in range(n + 1)]
+    spans = [(bounds[i], bounds[i + 1]) for i in range(n) if bounds[i] < bounds[i + 1]]
+    _FORK_CONTEXT.update(todo=todo, later=later, league=league, value_fn=value_fn)
+    try:
+        with _mp.get_context("fork").Pool(workers) as pool:
+            parts = pool.map(_evaluate_chunk, spans, chunksize=1)
+    finally:
+        _FORK_CONTEXT.clear()
+    rows = []
+    for chunk_rows, optimised, blocked, provenance in parts:
+        rows.extend(chunk_rows)
+        report.optimised_weeks += optimised
+        report.unproven_blocked |= blocked
+        _K._PROVENANCE.extend(provenance)
+    report.rows += len(rows)
+    return rows
+
+
 def compute(trades: pd.DataFrame, add_drops: pd.DataFrame, league: League,
             picks: Sequence[pd.DataFrame], value_fn: Optional[ValueFn] = None,
             report: Optional[Report] = None,
@@ -1282,13 +1341,10 @@ def compute(trades: pd.DataFrame, add_drops: pd.DataFrame, league: League,
     later = later_moves(moves)
     out: Dict[str, Dict[str, Dict[Any, Optional[float]]]] = {
         "trades": {COLUMN: {}, RATE_COLUMN: {}}, "add_drops": {COLUMN: {}, RATE_COLUMN: {}}}
-    for mv in moves:
-        if only is not None and (mv.sheet, mv.index) not in only:
-            continue
-        wins = round(wins_added_for(mv, later[id(mv)], league, value_fn, report), 2)
-        out[mv.sheet][COLUMN][mv.index] = wins
-        out[mv.sheet][RATE_COLUMN][mv.index] = per_season(wins, games_elapsed(mv, league))
-        report.rows += 1
+    todo = [mv for mv in moves if only is None or (mv.sheet, mv.index) in only]
+    for sheet, index, wins, rate in _evaluate(todo, later, league, value_fn, report):
+        out[sheet][COLUMN][index] = wins
+        out[sheet][RATE_COLUMN][index] = rate
     report.unresolved_names = sorted(set(resolver.unresolved))
 
     def frame(sheet: str, index: pd.Index) -> pd.DataFrame:
