@@ -1813,6 +1813,58 @@ guard-skipped fire), 581→584 (#453), 584→589 (#454), 589→597 (#455).
     `test_exports_did_not_play_projects_zero` (Ridder 2022 1-13 and Browning 2024 1-8 = 0
     under all three, Kyler Murray 2022 wk 14 and Chase 2022 wk 17 > 0; skips until the
     build log carries "did-not-play weeks zeroed").
+  - **Remaining to ship (PR #483, draft)** [logged per user, 2026-10-10]:
+    - [ ] Branch build run of `claude/new-columns-best-worst-zjrt0j` (build.yml does not run
+      on PRs): check the log reports ~310 did-not-play weeks zeroed (dry run 279 + 31; the
+      build's Player ID bridge may map a few more), the Boldness / Lineup Boldness / Sleeper
+      Boldness diff, and that Hardship (Claude Projections) does not move.
+    - [ ] Mark ready, merge (main had only data refreshes since the branch — no conflict).
+    - [ ] **3-part audit** — post-merge main run v run 695.
+  - **Options — user's call, none started** [logged per user, 2026-10-10]:
+    - [ ] **Fantasy starters keep their projection?** The zero-snap rule zeroes two
+      fantasy STARTERS — Donovan Peoples-Jones (stevenb123) 2021 wk 7 (dressed, no snap;
+      Enhanced 8.83) and Ronnie Rivers (plehv79) 2022 wk 9 (6.87) — which moves those
+      team-weeks' projections, win %, opponent gaps, Combined, UPST and Comeback size.
+      Option: exempt `Starter/Bench = Starter` rows from the rule (one condition in
+      `projections.did_not_play`). Shipped as: zeroed.
+    - [ ] **The three benched QBs.** Kept by the QB-cameo role guard because they started
+      their team's previous game, though benched before kickoff: Bryce Perkins 2022 wk 13,
+      Malik Willis 2022 wk 10, Russell Wilson 2025 wk 4 (Dart named the starter). Option:
+      zero them (needs a pre-kickoff "named starter" signal the snap counts do not carry —
+      e.g. the team's QB in the game itself, which is hindsight, or a curated list).
+      Shipped as: kept.
+    - [ ] **Bench shrink where Sleeper publishes no projection.** A missing Sleeper
+      projection is a strong pre-kickoff "won't play" signal: 15.8% of such not-out rows
+      are did-not-play v 0.6% where Sleeper has one (2020-25), but Enhanced reads a missing
+      source as the average of the rest. After the #483 zeroing, BENCH rows with no Sleeper
+      projection still run +1.36 high (538 rows, ~6% of bench rows; starters +0.06, fine).
+      A season-held-out constant shrink on them: RMSE 7.437 → 7.309 (374 played rows) —
+      < 2% on a small slice; moves bench projections only (Boldness references, Start/sit
+      miss, player Points above), not team projections / win % / Comeback size.
+      Recommendation at the time: leave Enhanced as is. Options: build it (its own PR),
+      or drop.
+    - [ ] **Expected-snap-share projections** (the principled fix). Project a player from
+      his expected playing time pre-kickoff — e.g. the projection × his share of the
+      team's recent snaps at the position — so a QB2 projects ~0 BEFORE the game instead
+      of being zeroed after it. Pre-kickoff, so no hindsight; would change Claude and
+      Enhanced for everyone and must be reconciled with the next-man-up cuff lift
+      (`boldness._promotion_events`), which already lifts a backup when the starter sits.
+      Also: the Claude projection CLIMBS while a backup sits (Desmond Ridder 2022
+      7.89 → 13.28 over wks 1-13 without a snap) as his rookie-slot prior fades toward a
+      QB average — this would fix that too. Large; a phase of its own.
+  - **Follow-ups from the inquiries that led here — optional** [logged per user,
+    2026-10-10]:
+    - [ ] A `plan/notes/` write-up of the 2026-10-07 inquiry answers: best / worst of
+      every column added 2026-10-06/07 (#479-#482; 2026 excluded from year sheets,
+      minimum-sample versions of the player averages), the records held by 2026 rows,
+      the ongoing streaks, and the Mendoza investigation.
+    - [ ] Helper (`lotg_support.analysis` + `inquire.py`): consecutive team-weeks beating /
+      missing each projection (Points above X > 0 / < 0), runs across seasons, active runs
+      flagged. As of 2026 wk 4 (run 695): AceMatthew had beaten the Claude projection 10
+      straight (record 11, stevenb123 2020 wk 14 – 2021 wk 8) — kept alive by +0.02 in the
+      2025 Final; note the Claude projection's −1.27/starter bias makes "beating" it easy.
+      Player-level version needs a rule for bye / injury weeks (bridge them, as the
+      player_week streak columns do?).
 
 ## Game-time columns (from the 2026 wk 4 MNF-comeback inquiry)
 - [x] **player_week `Game slot` + team_week margins / comebacks by stage** [per user,
