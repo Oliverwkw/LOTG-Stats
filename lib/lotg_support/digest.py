@@ -142,8 +142,10 @@ def _to_float(value) -> Optional[float]:
     """Parse a cell to float, or None for sentinels / unparseable values."""
     if value is None:
         return None
-    if isinstance(value, float) and math.isnan(value):
-        return None
+    if isinstance(value, float):          # a parsed number already: float(str(x)) == x
+        return None if math.isnan(value) else float(value)
+    if type(value) is int:                # (not bool: "True" stays unparseable)
+        return float(value)
     s = str(value).strip()
     if s in _MISSING:
         return None

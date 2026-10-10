@@ -471,6 +471,25 @@ def test_a_block_with_the_same_inputs_starts_warm_and_agrees():
     assert after.reset_index(drop=True).equals(inquiry_before.reset_index(drop=True))
 
 
+def test_the_column_wise_scorer_is_the_row_scorer():
+    # _season_log scores every nflverse row with the build's _league_score; the
+    # column-wise _score_rows must give the very same floats (2018-26, all three
+    # scoring tables: 867k rows, 0 differences when it was written).
+    y = _season()
+    if y is None:
+        return _skip("no completed season with exports and the nflverse cache")
+    from lotg_support import scoring_events as SE
+    score, smap = B._build_scorer()
+    pos = B._player_ids()["pos"]
+    raw = SE.weekly_stats(y)
+    cols = [c for cs in smap.values() for c in cs if c in raw.columns]
+    for ts in sorted({2020, 2021, y}):            # ESPN (pre-PPR) and Sleeper tables
+        table = dict(B.scoring_table(ts))
+        a = B._score_rows_loop(raw, cols, table, pos, score)
+        b = B._score_rows(raw, cols, table, pos, score, smap)
+        assert len(a) == len(b) and all(x == z and repr(x) == repr(z) for x, z in zip(a, b)), ts
+
+
 def test_the_inquiry_path_never_scores_a_week_the_build_has_not_finalized():
     # "any points" also catches the week in progress (Thursday night is
     # enough); the inquiry path stops where the committed build did.

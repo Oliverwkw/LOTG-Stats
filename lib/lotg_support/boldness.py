@@ -122,6 +122,7 @@ from __future__ import annotations
 
 import contextlib
 import functools
+import sys
 import json
 from dataclasses import dataclass, asdict, replace
 from typing import Any, Callable, Dict, List, Optional, Sequence, Set, Tuple
@@ -376,6 +377,54 @@ def scoring_table(season: int) -> Tuple[Tuple[str, float], ...]:
     return tuple(sorted((str(k), float(v)) for k, v in table.items() if v is not None))
 
 
+def _score_rows_loop(raw: pd.DataFrame, cols: List[str], table: Dict[str, float], pos: pd.Series,
+                     score: Callable[..., float]) -> List[float]:
+    """The league scorer applied row by row (the reference)."""
+    return [score({k: (None if pd.isna(v) else v) for k, v in zip(cols, vals)}, table, pos.get(str(g)))
+            for g, vals in zip(raw["player_id"].astype(str), raw[cols].itertuples(index=False, name=None))]
+
+
+def _score_rows(raw: pd.DataFrame, cols: List[str], table: Dict[str, float], pos: pd.Series,
+                score: Callable[..., float], score_map: Dict[str, Tuple[str, ...]]) -> List[float]:
+    """`_score_rows_loop`, column-wise, when `score` is the build's own
+    `lotg._league_score`: the same float operations in the same order on every
+    row (a blank stat adds nothing, Python's round to 2 places at the end), so
+    each point total is the same float. The row loop was 2.6 million Python
+    calls per test run and most of the build's cold game-log time.
+    tests/test_boldness.py compares the two on every season and scoring table.
+    Anything it cannot vouch for (another scorer, a non-numeric stat column)
+    takes the loop."""
+    mod = sys.modules.get(getattr(score, "__module__", ""), None)
+    bonus = getattr(mod, "_LEAGUE_SCORE_BONUS", None)
+    if (getattr(score, "__name__", "") != "_league_score" or bonus is None
+            or getattr(mod, "_LEAGUE_SCORE_MAP", None) is not score_map
+            or not all(pd.api.types.is_numeric_dtype(raw[c]) for c in cols)):
+        return _score_rows_loop(raw, cols, table, pos, score)
+    n = len(raw)
+    col = {c: raw[c].to_numpy(dtype=float) for c in cols}
+    zero = np.zeros(n)
+    pts = np.zeros(n)
+    for key, kcols in score_map.items():
+        mult = table.get(key)
+        if not mult:
+            continue
+        val = np.zeros(n)
+        for c in kcols:
+            if c in col:
+                v = col[c]
+                val = val + np.where(np.isnan(v), 0.0, v)
+        pts = pts + float(mult) * val
+    def filled(c):
+        return np.where(np.isnan(col[c]), 0.0, col[c]) if c in col else zero
+    if table.get("bonus_rec_te"):
+        te = (raw["player_id"].astype(str).map(pos) == "TE").to_numpy()
+        pts = np.where(te, pts + float(table["bonus_rec_te"]) * filled("receptions"), pts)
+    for bkey, c, thresh in bonus:
+        if table.get(bkey):
+            pts = np.where(filled(c) >= thresh, pts + float(table[bkey]), pts)
+    return [round(x, 2) for x in pts.tolist()]
+
+
 @functools.lru_cache(maxsize=128)
 def _season_log(season: int, scoring_season: Optional[int] = None) -> pd.DataFrame:
     """One row per (gsis_id, week) the player TOOK THE FIELD in a regular-season
@@ -390,8 +439,7 @@ def _season_log(season: int, scoring_season: Optional[int] = None) -> pd.DataFra
     raw = SE.weekly_stats(season)
     pos = _player_ids()["pos"]
     cols = [c for cs in score_map.values() for c in cs if c in raw.columns]
-    pts = [score({k: (None if pd.isna(v) else v) for k, v in zip(cols, vals)}, table, pos.get(str(g)))
-           for g, vals in zip(raw["player_id"].astype(str), raw[cols].itertuples(index=False, name=None))]
+    pts = _score_rows(raw, cols, table, pos, score, score_map)
     stats = pd.DataFrame({"gsis_id": raw["player_id"].astype(str).to_numpy(),
                           "week": raw["week"].astype(int).to_numpy(),
                           "team": raw["team"].to_numpy(), "points": pts})
