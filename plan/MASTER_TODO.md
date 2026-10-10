@@ -1851,6 +1851,12 @@ guard-skipped fire), 581→584 (#453), 584→589 (#454), 589→597 (#455).
       700 on every CSV, the xlsx (canonical) and the digest HTML. Note: raw/ktc_provenance.csv
       row ORDER already varies between main runs (698/699/700) — same rows, not from #485.
       GitHub runner speed still swings run to run (same code 8-18 min before this).
+    - [x] **KTC provenance dump in a fixed order — PR #486 (1ed1477); 3-part audit CLEAN (run 707
+      v 705).** ktc.provenance_frame() sorts raw/ktc_provenance.csv on every column; runs 706 and
+      707 wrote byte-identical files. Speed checked by alternating runs: with #486 707 12.5m /
+      709 11.5m / 710 7.7m, without 708 8.0m / 711 7.2m. The slow runs were slower in every
+      phase #486 never touches; 710 v 711 differ 5-20% evenly across phases, and the dump step
+      itself is 0.08s v 0.04s. Runner speed, not the code.
   - **Options — user's call, none started** [logged per user, 2026-10-10]:
     - [ ] **Fantasy starters keep their projection?** The zero-snap rule zeroes two
       fantasy STARTERS — Donovan Peoples-Jones (stevenb123) 2021 wk 7 (dressed, no snap;
