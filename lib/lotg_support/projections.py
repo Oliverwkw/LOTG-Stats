@@ -49,6 +49,7 @@ from __future__ import annotations
 import io
 import json
 import math
+import warnings
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -525,7 +526,9 @@ def _fp_points(src: pd.DataFrame, pw: pd.DataFrame, train_seasons: Sequence[int]
 
 def _features(src: pd.DataFrame, pw: pd.DataFrame, sources: Sequence[str]) -> np.ndarray:
     S = src[list(sources)].values.astype(float)
-    m = np.nanmean(S, axis=1)
+    with warnings.catch_warnings():      # a row with no source at all is NaN by design
+        warnings.simplefilter("ignore", RuntimeWarning)   # ("Mean of empty slice")
+        m = np.nanmean(S, axis=1)
     S = np.where(np.isnan(S), m[:, None], S)          # a missing source reads the average of the rest
     sd = S.std(axis=1)
     f = lambda c, d=0.0: src[c].fillna(d).values.astype(float)
