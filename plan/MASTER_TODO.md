@@ -1832,6 +1832,14 @@ guard-skipped fire), 581→584 (#453), 584→589 (#454), 589→597 (#455).
       schema-pin flags (#479-#482 columns never re-pinned in data/audit/schema_baseline.json
       — 696 v 696 raises the same 9), the same 27 code warnings, and the 2 main-cache
       "seasonal history not fully cached" skips (696 had them too).
+    - [x] **Those three pre-existing flags fixed — PR #484 (4cb1119); 3-part audit CLEAN
+      (run 700 v 698), the first fully clean audit since #480.** Schema re-pinned (+210
+      columns from #480/#481, none dropped); the 26 pandas fragmentation warnings cleared
+      (a defragmenting `.copy()` above each insert cluster in build_all; the PPG test's CSV
+      reader consolidates); the projections "Mean of empty slice" silenced at its one call;
+      the two career guards now fetch the 1999-2024 seasonal files themselves instead of
+      losing an xdist race to the career tests. Branch run 699 and main run 700 both ==
+      run 698 cell for cell; 0 own-code warnings; 660 passed / 2 expected skips.
   - **Options — user's call, none started** [logged per user, 2026-10-10]:
     - [ ] **Fantasy starters keep their projection?** The zero-snap rule zeroes two
       fantasy STARTERS — Donovan Peoples-Jones (stevenb123) 2021 wk 7 (dressed, no snap;
