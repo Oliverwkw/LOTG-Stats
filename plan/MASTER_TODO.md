@@ -1813,13 +1813,25 @@ guard-skipped fire), 581→584 (#453), 584→589 (#454), 589→597 (#455).
     `test_exports_did_not_play_projects_zero` (Ridder 2022 1-13 and Browning 2024 1-8 = 0
     under all three, Kyler Murray 2022 wk 14 and Chase 2022 wk 17 > 0; skips until the
     build log carries "did-not-play weeks zeroed").
-  - **Remaining to ship (PR #483, draft)** [logged per user, 2026-10-10]:
-    - [ ] Branch build run of `claude/new-columns-best-worst-zjrt0j` (build.yml does not run
-      on PRs): check the log reports ~310 did-not-play weeks zeroed (dry run 279 + 31; the
-      build's Player ID bridge may map a few more), the Boldness / Lineup Boldness / Sleeper
-      Boldness diff, and that Hardship (Claude Projections) does not move.
-    - [ ] Mark ready, merge (main had only data refreshes since the branch — no conflict).
-    - [ ] **3-part audit** — post-merge main run v run 695.
+  - **Shipped — PR #483 merged 2026-10-10 (c123a1b); 3-part audit PASS (run 698 v 696)**:
+    - [x] Branch build run 697: 317 did-not-play weeks zeroed (QB 220 incl. 22 cameos ≤0.8 pts,
+      RB 73, WR 17, TE 7; 315 bench + the 2 starters); 660 passed / 2 skipped. Ridder 2022
+      1-13 and Browning 2024 1-8 = 0; Murray 2022 wk 14, Chase 2022 wk 17, Rodgers 2023 wk 1,
+      Bridgewater 2022 wk 5, Stafford 2020 wk 16 and the three benched QBs keep theirs.
+      Hardship (Claude Projections) unmoved on every sheet; team projections moved only at
+      stevenb123 2021 wk 7 / plehv79 2022 wk 9 (+ their opponents' gap / win % / Combined).
+      Knock-on, by design: 2021 wk 7 team Overachiever (Enhanced) passes BROsenzweig (+21.33)
+      → stevenb123 (+21.92), streaks follow; Sleeper fallbacks 394 → 175 (zeroed rows no
+      longer count as fallbacks).
+    - [x] Merged (squash) — main had only data refreshes since the branch.
+    - [x] **3-part audit** — run 698 v run 696 (the last pre-merge main run, before TNF
+      wk 5 DAL@TB). Run 698 == branch run 697 cell for cell on every CSV, and committed
+      exports (56c3250, roster change). Every other move is TNF live drift (13 DAL/TB
+      player-years' full-season points → picks / trades / add_drops PPG + O-Score); no week 5
+      rows yet, so the rule doesn't touch the part-played week. Pre-existing, not #483: 9
+      schema-pin flags (#479-#482 columns never re-pinned in data/audit/schema_baseline.json
+      — 696 v 696 raises the same 9), the same 27 code warnings, and the 2 main-cache
+      "seasonal history not fully cached" skips (696 had them too).
   - **Options — user's call, none started** [logged per user, 2026-10-10]:
     - [ ] **Fantasy starters keep their projection?** The zero-snap rule zeroes two
       fantasy STARTERS — Donovan Peoples-Jones (stevenb123) 2021 wk 7 (dressed, no snap;
