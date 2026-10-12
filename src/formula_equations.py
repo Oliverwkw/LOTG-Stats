@@ -1025,6 +1025,8 @@ EQUATIONS = {
         "⟨Boldness⟩ and ⟨Lineup Boldness⟩ with XP = SP(p,w), the Sleeper Projection",
     ('Hardship (Claude Projections)', 'team_week / team_year / team_all_time / league_week'):
         "⟨Hardship⟩ and its family with each missed player's expected-if-healthy points = max(0, CP(p,w)) taken before the OUT zeroing",
+    ('Choke size (X Projection)', 'team_week'):
+        "⟨Comeback size (Claude Projection)⟩ (on that projection: ⟨Comeback size (Sleeper Projection)⟩, ⟨Comeback size (Enhanced Projection)⟩) of the opponent o(t,w), taken with i only over windows where IN(o,w,T_i) > IN(t,w,T_i), when win(o,w) = 1; else 0 (Comeback size itself takes i only where IN(t,w,T_i) < IN(o,w,T_i))",
     ('Comeback size (Sleeper Projection)', 'team_week'):
         "⟨Comeback size (Claude Projection)⟩ with μ = SP(p,w), the Sleeper Projection, z(T) = Φ⁻¹(WP_T), WP_T = ⟨Pre-week Win % (X Projection)⟩ on (IN(t,w,T) + Σ_{S(t,w), ko ≥ T} SP) v the opponent's, and no band: zb(T) = z(T)",
     ('Comeback size (Enhanced Projection)', 'team_week'):

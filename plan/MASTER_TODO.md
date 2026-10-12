@@ -1770,6 +1770,18 @@ guard-skipped fire), 581→584 (#453), 584→589 (#454), 589→597 (#455).
     Boldness 2 rows, Boldness 1); 3 players' NFL team; transaction sheets' to-today PPG /
     tenure / O-Score and the team_year skills built on them (Drafting 21, Trading 16,
     Add/Drop 16 rows). Nothing UNEXPECTED.
+- [ ] **Comeback size split into comeback v choke** [per user, 2026-10-12: "If coming from
+  down points, not expected to win, and win, its a comeback. If coming from up points, not
+  expected to win, its a choke by the opponent"]. Scope [per user]: only the columns named
+  "comeback" (the 12 Comeback size columns) — not the Win % overcome / Margin / Points
+  overcome columns; Pre-week stays unsplit. Comeback size (X Projection) now takes holes
+  only while BEHIND on the scoreboard; the winner's holes while AHEAD on it become "Choke
+  size (X Projection)" / "Choke size entering SNF / Monday / last game (X Projection)" on
+  the LOSER's row [per user: the choker's row] (`gametime.comeback_size(side=)`,
+  `choke_on_loser`, `CHOKE_COLUMNS`). Level scoreboard = neither; a projected-to-lose team
+  that lost from ahead keeps nothing. Committed exports: Comeback size > 0 on 504 → 395
+  rows (Claude; none rose), 85 chokes, biggest shmuel256 2022 wk 8 (1.03: behind plehv79
+  by 27 entering SNF but projected to win, lost by 25).
 - [ ] **Then: build time** — profile the build and cut it.
 - [ ] **Did not play → projects 0** [per user, 2026-10-07: "make that change to the
   projections, but not for the Hamlin game"]. From the Mendoza inquiry: Fernando Mendoza
