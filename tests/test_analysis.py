@@ -298,6 +298,73 @@ def test_best_stretch_labels_are_clean_and_span_shows_gaps():
     assert all(row.total >= row.mean for row in out.itertuples())
 
 
+def _streak_frame():
+    # Team a: +, + (2021 wk 13-14), then 2022 wk 1 + (crosses seasons), 0 (breaks),
+    # -, - ; team b: -, + . Weeks are text, as the loader returns them.
+    return pd.DataFrame({
+        "Team": ["a"] * 6 + ["b"] * 2,
+        "Year": [2021, 2021, 2022, 2022, 2022, 2022, 2022, 2022],
+        "Week": ["13", "14", "1", "2", "3", "10"] + ["1", "2"],
+        "Week Name": ["Week 13", "Semifinal", "Week 1", "Week 2", "Week 3", "Week 10",
+                      "Week 1", "Week 2"],
+        "Points above Claude Projection": [1.5, 0.2, 3.0, 0.0, -2.0, -1.0, -4.0, 6.0],
+    })
+
+
+def test_projection_streaks_runs_cross_seasons_and_ties_break_them():
+    res = A.projection_streaks(_streak_frame(), projections=["Claude"])
+    runs = res.runs
+    top = runs.iloc[0]
+    assert (top.Team, top.direction, top.length) == ("a", "beat", 3), runs
+    assert top.span == "2021 wk13 -> 2022 wk1" and top.seasons == 2
+    assert top.closest == 0.2 and top.playoff_weeks == 1 and not top.active
+    miss = runs[(runs.Team == "a") & (runs.direction == "miss")].iloc[0]
+    assert miss.length == 2 and miss.active and miss.current_week, "the 0 ended the beat run"
+    b = runs[runs.Team == "b"]
+    assert set(b.direction) == {"beat", "miss"}
+    b_beat = b[b.direction == "beat"].iloc[0]
+    assert b_beat.active and not b_beat.current_week, "b's last week is 2022 wk2, not wk10"
+    assert res.tie_rows == 1
+    assert A.check_streaks_reconcile(res, _streak_frame()) == []
+
+
+def test_projection_streaks_bridge_bench_and_dead_starts_for_players():
+    frame = pd.DataFrame({
+        "Player": ["p"] * 4, "Team": ["t"] * 4, "Year": [2023] * 4,
+        "Week": [1, 2, 3, 4], "Week Name": [f"Week {w}" for w in range(1, 5)],
+        "Starter/Bench": ["Starter", "Bench", "Starter", "Starter"],
+        "Points": [12.0, 30.0, 0.0, 9.0],
+        **{f"{x} Projection": [10.0, 10.0, 0.0, 8.0] for x in A.PROJECTIONS},
+        **{f"Points above {x} Projection": [2.0, 20.0, 0.0, 1.0] for x in A.PROJECTIONS},
+    })
+    res = A.projection_streaks(frame, level="player", projections=["Enhanced"])
+    run = res.runs.iloc[0]
+    assert len(res.runs) == 1 and run.length == 2, res.runs
+    assert run.span == "2023 wk1 -> 2023 wk4", "bench wk 2 and dead start wk 3 are bridged"
+    assert res.skipped_rows == 1 and res.tie_rows == 0
+
+
+def test_projection_streaks_flag_the_thrown_2022_toilet_semis():
+    frame = pd.DataFrame({"Team": ["plehv79"] * 2, "Year": [2022, 2022], "Week": [15, 16],
+                          "Week Name": ["Week 15", "Toilet Semis"],
+                          "Points above Sleeper Projection": [1.0, 2.0]})
+    run = A.projection_streaks(frame, projections=["Sleeper"]).runs.iloc[0]
+    assert run.length == 2 and run.thrown_game
+
+
+def test_projection_streaks_reconcile_with_the_builds_points_above():
+    if not _HAVE_EXPORTS:
+        return _skip("no exports")
+    done = set(_seasons())
+    for level, sheet in (("team", "team_week"), ("player", "player_week")):
+        frame = Q.load_sheet(sheet)
+        frame = frame[pd.to_numeric(frame["Year"], errors="coerce").isin(done)]
+        res = A.projection_streaks(frame, level=level)
+        assert not res.runs.empty
+        problems = A.check_streaks_reconcile(res, frame, level=level)
+        assert problems == [], problems[:5]
+
+
 def test_timeline_merges_three_sheets_in_date_order():
     if not _HAVE_EXPORTS:
         return _skip("no exports")
@@ -421,6 +488,10 @@ TESTS = [
     test_correlate_all_ranks_by_strength_and_is_symmetric,
     test_best_stretch_finds_contiguous_runs,
     test_best_stretch_labels_are_clean_and_span_shows_gaps,
+    test_projection_streaks_runs_cross_seasons_and_ties_break_them,
+    test_projection_streaks_bridge_bench_and_dead_starts_for_players,
+    test_projection_streaks_flag_the_thrown_2022_toilet_semis,
+    test_projection_streaks_reconcile_with_the_builds_points_above,
     test_timeline_merges_three_sheets_in_date_order,
     test_roster_age_reproduces_the_builds_column,
     test_pick_and_player_ages_use_the_builds_arithmetic,
