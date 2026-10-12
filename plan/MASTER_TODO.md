@@ -1645,9 +1645,18 @@ guard-skipped fire), 581→584 (#453), 584→589 (#454), 589→597 (#455).
      BEFORE the known-out zeroing — never the 0-projection columns); maybe keep both
      Hardship and an Enhanced/Claude Hardship.
   7. Projected Max PF: no.  8. Combined (matchup) projection columns: ADD.  9. Forecast: no.
-  - [ ] Leftover from 3 [found 2026-10-12]: the original startables column was NOT renamed
+  - [x] Leftover from 3 [found 2026-10-12]: the original startables column was NOT renamed
     (player_week still has "Difference in averages of best/worst startables over previous 5
     games"; the projection versions shipped as "Start/sit miss (X Projection)").
+    **Merged #490 / `e75b088`** [per user, 2026-10-12: name "Start/sit miss (5-game avg)"
+    (+ "adjusted by position")] after branch run 717 (artifact checked: 675 passed, values
+    = main on all 22,373 rows, Value header band). **3-part audit — PASS: post-merge main
+    run 718 (exports `31743bd`) v run 716.** Part 1: every sheet cell-for-cell equal to
+    716 with the rename applied; Formulas 5 cells (2 stat names + 3 prose). Part 2: schema
+    flagged 12 team_week Choke size columns — pre-existing (#488's, present in 716; its
+    audit never re-pinned) → re-pinned from 718. Part 3: 675 passed / 2 standing skips, 0
+    ERROR / 0 WARN. Digest: CI's 29 board moves / 8 crossings = the local replay; the
+    snapshot's player_week boards are renamed on read (`_LEGACY_SHEET_COLUMNS`).
   - [x] Leftover from 5 [found 2026-10-12]: the Luck before/after numbers on an Enhanced
     pregame estimate were never shown; Luck is unchanged. Decided [per user, 2026-10-12]:
     no need — Luck stays as it is.
