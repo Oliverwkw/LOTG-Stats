@@ -121,7 +121,7 @@ the answer, not a silent choice.
 |---|---|
 | `scripts/inquire.py` (`lotg_support.inquiry`) | finding, filtering and ranking anything in the fourteen export sheets, and reading the raw Sleeper snapshot |
 | `scripts/whatif.py` (`lotg_support.replay`) | counterfactual seasons: rewind a trade (3-team deals included) — or a whole sequence of them — or move a player, replay every week under four lineup models (incl. the `Wins added` rule), re-seed, re-run the bracket |
-| `lotg_support.analysis` (via `inquire.py group/stacks/compare/compare-all/correlate/stretch/timeline/ownership/scarcity/spend/age`) | the joins and comparisons a judgement question needs: position attached to any sheet, roster-group depth, lineup composition, cohort tests with FDR control, arbitrary time windows, entity timelines, who owned whom and in what order, positional scarcity, spend vs return, roster age (including the in-progress season) |
+| `lotg_support.analysis` (via `inquire.py group/stacks/compare/compare-all/correlate/stretch/streaks/timeline/ownership/scarcity/spend/age`) | the joins and comparisons a judgement question needs: position attached to any sheet, roster-group depth, lineup composition, cohort tests with FDR control, arbitrary time windows, runs beating / missing a projection, entity timelines, who owned whom and in what order, positional scarcity, spend vs return, roster age (including the in-progress season) |
 | `scripts/draft_capital.py` (`lotg_support.draft_capital`) | what a draft slot returns across *all* rounds, who gets which slot under each era's ordering rule, and what moving up the order costs in roster ceiling |
 | `scripts/contract_study.py` (`lotg_support.contracts`) | the *real world* side: what an NFL contract predicts about fantasy production — signings ranked inside their position's market, matched against comparable players who did not get paid |
 | `scripts/forecast.py` (`lotg_support.forecast`) | the season that has not happened yet: project rosters (rates, ageing, market-priced rookies, availability and depth), calibrate against completed seasons, simulate championship / playoff / seeding odds |
@@ -315,6 +315,27 @@ python scripts/inquire.py stretch team_week --metric PF --length 5
 run. Contiguity is by row order *within the entity*, so a missing week makes its
 neighbours adjacent — the `span` column shows the real endpoints, so a run that
 jumped a gap is visible rather than hidden.
+
+**Beating / missing a projection, week after week.** `projection_streaks()`
+lists every run of consecutive weeks with Points above X Projection > 0 (beat)
+or < 0 (miss), for Sleeper / Claude / Enhanced, across seasons and playoffs:
+
+```bash
+# runs still alive, every team and projection
+python scripts/inquire.py streaks --active
+# a player's starts in a row beating the Enhanced projection
+python scripts/inquire.py streaks --level player --projection Enhanced --direction beat
+```
+
+An exact 0 is neither and ends a run. Team projections already carry the
+semifinal +5, so it never "beats" one. Player level counts starts only (bench
+weeks and dead starts — projected 0, scored 0 — are bridged; `span` shows the
+real endpoints) and follows the player across fantasy teams. `closest` is the
+smallest margin inside the run; `thrown_game` flags a run through the 2022
+Toilet Semis tank. **Read the bias note it prints**: the Claude projection runs
+about +12 points per team-week low (67% of team-weeks beat it), so a Claude
+"beat" streak is far easier than a Sleeper or Enhanced one. `check_streaks_reconcile`
+ties the run lengths to the sign counts of the build's Points above columns.
 
 **The story of one entity.** `timeline()` merges draft picks, adds/drops and
 trades — three sheets, three date columns — into one chronological log:
