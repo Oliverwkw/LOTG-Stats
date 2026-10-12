@@ -266,6 +266,33 @@ def test_each_projection_has_its_own_model():
         assert abs(z - 6 / (4 * M[x].sd)) < 1e-9
 
 
+def test_comebacks_from_behind_chokes_from_ahead():
+    # [per user, 2026-10-12] projected to lose and won: from BEHIND on the
+    # scoreboard it is a comeback; from AHEAD on it, the opponent's choke.
+    behind = (-1.5, 10.0, 0.0, -1.5, -20.0)    # z, own over, opp short, banded z, margin
+    ahead = (-1.0, 0.0, 10.0, -1.0, 15.0)
+    assert G.comeback_size([behind], 1.0, side="down") == 1.5
+    assert G.comeback_size([behind], 1.0, side="up") == 0.0
+    assert G.comeback_size([ahead], 1.0, side="down") == 0.0
+    assert G.comeback_size([ahead], 1.0, side="up") == round(1.0 * G.HOLD_SHARE, 2)
+    # both kinds in one week: each side keeps its own deepest hole
+    assert G.comeback_size([ahead, behind], 1.0, side="down") == 1.5
+    assert G.comeback_size([ahead, behind], 1.0, side="up") > 0
+    # the choke moves to the loser's row
+    rows = pd.DataFrame({"Team": ["A", "B"], "Opponent": ["B", "A"], "Year": [2024, 2024], "Week": [3, 3],
+                         "Choke given": [0.8, 0.0]})
+    got = G.choke_on_loser(rows, "Choke size (Claude Projection)").set_index("Team")["Choke size (Claude Projection)"]
+    assert got["B"] == 0.8 and got["A"] == 0.0
+    assert G.choke_names("Sleeper")[2] == "Choke size entering Monday (Sleeper Projection)"
+    assert len(G.CHOKE_COLUMNS) == 12
+    # the sheet's scale: 3.5 standard deviations = 100, capped [per user, 2026-10-12]
+    assert G.comeback_size([behind], 1.0, side="down", scaled=True) == round(1.5 * 100 / 3.5, 2)
+    assert G.comeback_size([(-4.0, 10.0, 0.0, -4.0, -30.0)], 1.0, scaled=True) == 100.0
+    assert G.comeback_size([ahead], 1.0, side="up", scaled=True) == round(G.HOLD_SHARE * 100 / 3.5, 2)
+    # the size columns read the app's win % below its 1% floor [per user]
+    assert G._app_z(60.0, 200.0, 0.9) < -2.4 and G.app_win_pct(60.0, 200.0, 0.9) == 0.01
+
+
 def test_known_outs_expect_nothing():
     # A starter known to be out (dead start) adds no expectation and no spread.
     out = (None, 0.0, 15.0, True)
@@ -370,7 +397,7 @@ def test_known_monday_comeback():
             r["% of opponent's score overcome"]) == (63.78, 63.78, 0.3306, 3, 21.26, 21.26, 0.3306), r
     assert r["% of own points scored after"] == round(88.4 / 217.54, 4)
     # 63.78 down on the scoreboard: the projection band deepens the hole (1.70)
-    assert 0.5 < r["Comeback size"] < 2.0, r["Comeback size"]
+    assert 50 / 3.5 < r["Comeback size"] < 200 / 3.5, r["Comeback size"]   # 0.5-2.0 SD, out of 100
 
 
 def test_exports_match_the_recompute():
@@ -384,7 +411,8 @@ def test_exports_match_the_recompute():
     want = G.team_week_columns(tw, pw, s, _expected()).set_index(["Team", "Year", "Week"])
     have = tw.assign(Year=Q.numeric(tw, "Year").astype(int), Week=Q.numeric(tw, "Week").astype(int)) \
         .set_index(["Team", "Year", "Week"])
-    for col in G.TEAM_WEEK_COLUMNS:
+    cols = list(G.TEAM_WEEK_COLUMNS) + [c for c in G.choke_names("Claude") if c in have.columns]
+    for col in cols:
         h = have[col].astype(str).replace({"": G.NA, "nan": G.NA})
         w = want[col].reindex(have.index).astype(str)
         diff = [(k, a, b) for k, a, b in zip(have.index, h, w)
@@ -396,7 +424,7 @@ def test_exports_match_the_recompute():
             want = G.projection_comeback_columns(tw, pw, s, x).assign(
                 Year=lambda d: Q.numeric(d, "Year").astype(int), Week=lambda d: Q.numeric(d, "Week").astype(int)
             ).set_index(["Team", "Year", "Week"])
-            for col in G.comeback_names(x):
+            for col in [*G.comeback_names(x), *(c for c in G.choke_names(x) if c in have.columns)]:
                 h = have[col].astype(str).replace({"": G.NA, "nan": G.NA})
                 w = want[col].reindex(have.index).astype(str)
                 diff = [(k, a, b) for k, a, b in zip(have.index, h, w)
@@ -459,8 +487,18 @@ def test_comeback_size_bounds():
         # every comeback (won from behind entering the stage) has a size above 0
         mo = pd.to_numeric(c[G.COMEBACK_COLUMNS[st][0]], errors="coerce")
         assert (stage[mo.notna()] >= 0).all()
+    # [per user, 2026-10-12] chokes sit on the loser's row only; a stage's
+    # choke is never bigger than the whole week's
+    choke = pd.to_numeric(c[G.choke_names("Claude")[0]], errors="coerce")
+    won = tw.assign(Year=Q.numeric(tw, "Year").astype(int), Week=Q.numeric(tw, "Week").astype(int)) \
+        .set_index(["Team", "Year", "Week"])["Win?"].astype(str).str.lower().eq("true")
+    won = won.reindex(pd.MultiIndex.from_frame(c[["Team", "Year", "Week"]].astype({"Year": int, "Week": int}))).values
+    assert choke.notna().all() and (choke >= 0).all() and not (choke[won] > 0).any()
+    for i, st in enumerate(G.STAGES, start=1):
+        sc = pd.to_numeric(c[G.choke_names("Claude")[i]], errors="coerce")
+        assert (choke[sc.notna()] >= sc[sc.notna()] - 1e-9).all(), st
     print(f"  Comeback size: median {size.median():.2f}, max {size.max():.2f}; "
-          f"{int((size == 0).sum())} of {len(size)} at 0")
+          f"{int((size == 0).sum())} of {len(size)} at 0; chokes {int((choke > 0).sum())}, max {choke.max():.2f}")
 
 
 if __name__ == "__main__":

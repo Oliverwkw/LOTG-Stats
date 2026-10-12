@@ -19302,12 +19302,15 @@ def build_all(repo_root: Path) -> None:
                 # sets follow below [per user, 2026-10-07: one per projection].
                 _claude_exp = _gt.claude_expectations(pw)
                 _gcols = _gt.team_week_columns(tw, pw, _sched, _claude_exp)
+                # + the Claude Choke size set (the loser's side of a win from
+                # ahead on points while projected to lose) [per user, 2026-10-12]
+                _gall = (*_gt.TEAM_WEEK_COLUMNS, *_gt.choke_names("Claude"))
                 _gmap = {(str(t), int(y), int(w)): r for t, y, w, *r in
-                         _gcols[["Team", "Year", "Week", *_gt.TEAM_WEEK_COLUMNS]].itertuples(index=False, name=None)}
+                         _gcols[["Team", "Year", "Week", *_gall]].itertuples(index=False, name=None)}
                 _tw_keys = [(str(t), int(y), int(w)) if pd.notna(y) and pd.notna(w) else None
                             for t, y, w in zip(tw["Team"], pd.to_numeric(tw["Year"], errors="coerce"),
                                                pd.to_numeric(tw["Week"], errors="coerce"))]
-                for _i, _c in enumerate(_gt.TEAM_WEEK_COLUMNS):
+                for _i, _c in enumerate(_gall):
                     tw[_c] = [(_gmap[k][_i] if k in _gmap else _gt.NA) for k in _tw_keys]
                 # App-style win % on each projection [per user, 2026-10-07]:
                 # pre-week, its difference, and what a comeback overcame.
@@ -19321,7 +19324,7 @@ def build_all(repo_root: Path) -> None:
                         tw[_c] = _wp[_c].to_numpy()
                     for _x in ("Sleeper", "Enhanced"):
                         _scb = _gt.projection_comeback_columns(tw, pw, _sched, _x)
-                        _names = _gt.comeback_names(_x)
+                        _names = (*_gt.comeback_names(_x), *_gt.choke_names(_x))
                         _smap = {(str(t), int(y), int(w)): r for t, y, w, *r in
                                  _scb[["Team", "Year", "Week", *_names]].itertuples(index=False, name=None)}
                         for _i, _c in enumerate(_names):
@@ -19342,7 +19345,7 @@ def build_all(repo_root: Path) -> None:
             if isinstance(pw, pd.DataFrame) and not pw.empty:
                 pw[_gt.GAME_SLOT_COLUMN] = _gt.NA
             if isinstance(tw, pd.DataFrame) and not tw.empty:
-                for _c in _gt.TEAM_WEEK_COLUMNS:
+                for _c in (*_gt.TEAM_WEEK_COLUMNS, *_gt.choke_names("Claude")):
                     tw[_c] = _gt.NA
     except Exception as e:
         _log_exc(debug, "gametime", e)

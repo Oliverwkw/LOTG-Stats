@@ -1770,6 +1770,23 @@ guard-skipped fire), 581→584 (#453), 584→589 (#454), 589→597 (#455).
     Boldness 2 rows, Boldness 1); 3 players' NFL team; transaction sheets' to-today PPG /
     tenure / O-Score and the team_year skills built on them (Drafting 21, Trading 16,
     Add/Drop 16 rows). Nothing UNEXPECTED.
+- [ ] **Comeback size split into comeback v choke** [per user, 2026-10-12: "If coming from
+  down points, not expected to win, and win, its a comeback. If coming from up points, not
+  expected to win, its a choke by the opponent"]. Scope [per user]: only the columns named
+  "comeback" (the 12 Comeback size columns) — not the Win % overcome / Margin / Points
+  overcome columns; Pre-week stays unsplit. Comeback size (X Projection) now takes holes
+  only while BEHIND on the scoreboard; the winner's holes while AHEAD on it become "Choke
+  size (X Projection)" / "Choke size entering SNF / Monday / last game (X Projection)" on
+  the LOSER's row [per user: the choker's row] (`gametime.comeback_size(side=)`,
+  `choke_on_loser`, `CHOKE_COLUMNS`). Level scoreboard = neither; a projected-to-lose team
+  that lost from ahead keeps nothing. Committed exports: Comeback size > 0 on 504 → 395
+  rows (Claude; none rose), 85 chokes, biggest shmuel256 2022 wk 8 (1.03: behind plehv79
+  by 27 entering SNF but projected to win, lost by 25).
+  **Out of 100** [per user, 2026-10-12: "rebase all of these size columns so they're out
+  of 100 (set 100 as 3 which I assume is basically unreachable)", then 3.5]: every Comeback /
+  Choke size column = standard deviations × 100/3.5, capped at 100 (`SIZE_FULL_SCALE`); 2020-26's
+  biggest (Enhanced, 2.9) reads 82.86. The Sleeper set's app-style win % is NOT held to 1-99%
+  inside the size columns [per user, 2026-10-12], so it can pass Φ⁻¹(1%) = 2.33. `comeback_size(scaled=True)`; raw SD otherwise.
 - [ ] **Then: build time** — profile the build and cut it.
 - [ ] **Did not play → projects 0** [per user, 2026-10-07: "make that change to the
   projections, but not for the Hamlin game"]. From the Mendoza inquiry: Fernando Mendoza
