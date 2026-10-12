@@ -5,8 +5,8 @@
   went straight to the top of the all-time board. It is now blank before week
   `_PREGAME_MIN_WEEK` (4). (UPST, once built on it and N/A there too, runs on
   the Enhanced projection since 2026-10-07 and is called from week 1.)
-* player_week "Difference in averages of best/worst startables over previous 5
-  games" reset its window every season, so week 2 averaged one game: Kaleb
+* player_week "Start/sit miss (5-game avg)" (then "Difference in averages of
+  best/worst startables over previous 5 games") reset its window every season, so week 2 averaged one game: Kaleb
   Johnson, Kyle Pitts, Jaylen Waddle, Ja'Kobi Lane and Jake Ferguson filled the
   all-time bottom 5 in one week. The window is now the player's last 5
   regular-season NFL games (nflverse, rostered or not), across seasons; a
@@ -32,7 +32,7 @@ sys.modules["lotg"] = lotg          # dataclasses resolve types via sys.modules
 _spec.loader.exec_module(lotg)
 
 _EXPORTS = _ROOT / "exports"
-_STARTABLES = "Difference in averages of best/worst startables over previous 5 games"
+_STARTABLES = "Start/sit miss (5-game avg)"
 _PREGAME = "Difference in pregame avg max PF from opponent"
 
 

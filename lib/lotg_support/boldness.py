@@ -1,7 +1,7 @@
 """Boldness — how far a lineup call went against what the manager could see.
 
-`player_week` already carries a start/sit signal, "Difference in averages of
-best/worst startables over previous 5 games": each starter against the best
+`player_week` already carries a start/sit signal, "Start/sit miss (5-game
+avg)": each starter against the best
 startable bench player, on 5-game averages. This is the same comparison, built
 out so that it measures boldness rather than hindsight:
 

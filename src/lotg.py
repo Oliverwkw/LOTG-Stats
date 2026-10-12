@@ -1215,7 +1215,8 @@ def _col_topic(col: str) -> str:
         return "Roster"
     if any(k in n for k in ("injur", "suspensi", "bye", "hardship", "luck", "weeks missed", "weeks of ")):
         return "Hardship & Luck"
-    if any(k in n for k in ("startable bench", "benchable starter", "startables", "cuff adjusted",
+    if any(k in n for k in ("startable bench", "benchable starter", "startables", "start/sit miss (5-game avg)",
+                            "cuff adjusted",
                             "% of points", "ppg", "par", "volatility", "scoring floor", "scoring ceiling",
                             "boom", "bust", "addition value", "points added", "net points", "points lost",
                             "avg net", "o-score", "skill", "difference of averages", "% of starts",
@@ -2001,7 +2002,7 @@ def _preserve_na(col: str) -> bool:
     # Start/sit difference on 5-game averages: N/A until both players have five
     # played games behind them. Filled, the 3,455 rows with no window read 0.00 —
     # "the call was a wash" — every player's week 1 among them.
-    if col_l in {"difference in averages of best/worst startables over previous 5 games",
+    if col_l in {"start/sit miss (5-game avg)",
                  "cuff adjusted difference"}:
         return True
     # UPST: N/A before week 4, when there is no pregame average to call an
@@ -2733,7 +2734,7 @@ def _previous_nfl_avgs(pw: pd.DataFrame, games_by_sid: Dict[str, Dict[Tuple[int,
 
     Read off player_week it only ever saw ROSTERED weeks, and reset each season,
     so week 2 of 2026 compared one-game "averages" and filled the all-time
-    bottom 5 of the best/worst startables difference. Fewer than `window` games
+    bottom 5 of Start/sit miss (5-game avg). Fewer than `window` games
     behind him is None, except on a ROOKIE's row (`rookie_mask`), which averages
     the games he has. `pw` needs Player ID, Year, Week.
 
@@ -7048,7 +7049,7 @@ def build_all(repo_root: Path) -> None:
                             # reference's id, so the window below joins on it.
                             "Reference player ID": (best_bench_pid if started else worst_starter_pid)
                                                    if ref_player is not None else None,
-                            "Difference in averages of best/worst startables over previous 5 games": None,
+                            "Start/sit miss (5-game avg)": None,
                             "Cuff adjusted difference": None,
                             "Rookie?": 1 if rookie else 0,
                             "Age": age,
@@ -14899,9 +14900,9 @@ def build_all(repo_root: Path) -> None:
                 diffs_adj.append(round(float(diff_adj),2))
                 cuff_adj_adj.append(round(float(diff_adj) * (0.5 if cuff else 1.0), 2))
             pw = pw.copy()  # defragment first (pandas PerformanceWarning); same data
-            pw["Difference in averages of best/worst startables over previous 5 games"] = diffs
+            pw["Start/sit miss (5-game avg)"] = diffs
             pw["Cuff adjusted difference"] = cuff_adj
-            pw["Difference in averages of best/worst startables over previous 5 games adjusted by position"] = diffs_adj
+            pw["Start/sit miss (5-game avg) adjusted by position"] = diffs_adj
             pw["Cuff adjusted difference adjusted by position"] = cuff_adj_adj
         except Exception as e:
             _log_exc(debug, "player_week_rolling_diffs", e)

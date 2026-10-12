@@ -65,7 +65,7 @@ _NEW = {
                                 "Avg PPG of sent players over same time",
                                 "Avg PPG of received players in 5 games before trade")],
     "player_week": ["PPG as team starter" + _A, "PPG as team starter adjusted by position this season",
-                    "Difference in averages of best/worst startables over previous 5 games" + _A,
+                    "Start/sit miss (5-game avg)" + _A,
                     "Cuff adjusted difference" + _A],
 }
 
@@ -435,8 +435,8 @@ def test_player_week_twins():
     bad = base.notna() & ((adj - base * f).abs() > 0.006 + 0.005 * f)
     assert not bad.any(), f"PPG as team starter this season: {int(bad.sum())} twins are not base x factor"
     # The 5-game start/sit difference: same-position calls scale by the factor.
-    d, da = (_num(pw["Difference in averages of best/worst startables over previous 5 games"]),
-             _num(pw["Difference in averages of best/worst startables over previous 5 games" + _A]))
+    d, da = (_num(pw["Start/sit miss (5-game avg)"]),
+             _num(pw["Start/sit miss (5-game avg)" + _A]))
     c, ca = _num(pw["Cuff adjusted difference"]), _num(pw["Cuff adjusted difference" + _A])
     assert (d.isna() == da.isna()).all() and (c.isna() == ca.isna()).all(), "5-game twins blank where base is not"
     pos_by_name = w.groupby("Player")["Position"].first()
