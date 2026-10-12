@@ -1144,7 +1144,7 @@ _TOPIC_FILL = {
     "Combined": "C4BD97",
     # [per user, 2026-10-12: "more variation ok … blocks, no random floaters"]
     "Projections": "B4A7D6", "Win odds": "9FC5E8", "Comebacks": "E59A9A",
-    "Lineup": "D5E8A4",
+    "Lineup": "D5E8A4", "Partners": "BFBFBF",
 }
 _FAMILY_TAB = {
     "player": "5B9BD5", "team": "70AD47", "league": "FFC000",
@@ -1157,7 +1157,7 @@ _TOPIC_IDENTITY = {
     "position started in (if starter)", "nfl team", "opponent", "opponent team (raw)",
     "starter/bench", "season", "date", "date dropped/traded", "top team", "last team",
     "top team points", "player picked", "player added", "player dropped",
-    "reference player name", "team's traded with", "age", "rookie?", "taxi-eligible",
+    "team's traded with", "age", "rookie?", "taxi-eligible",
     "type of add/drop (waiver/free agency)", "etc", "number", "original team",
 }
 
@@ -1173,12 +1173,21 @@ def _col_topic(col: str, default: Optional[str] = "Identity") -> Optional[str]:
     A name no rule recognises gets `default` (`_header_topics` passes None so
     it can take its block's topic instead)."""
     n = re.sub(r"\s+", " ", str(col).strip().lower())
+    # A multi-team trade's 2nd+ counterparty sits at the far right of trades
+    # (`_append_traded_with_columns`), so it has a band of its own.
+    if re.fullmatch(r"team's traded with ([2-9]|\d\d+)", n):
+        return "Partners"
     if n in _TOPIC_IDENTITY or n.startswith("team's traded with"):
         return "Identity"
     # One band for the whole combined-matchup block, whatever each column's
     # base stat would otherwise be (points, roster counts, hardship, ...).
     if matchup.base_column(col):
         return "Combined"
+    # Named one-offs that a generic keyword below would send elsewhere.
+    if n in ("% of points (if starter)", "positional scoring percentile"):
+        return "Scoring"
+    if "pick value" in n:
+        return "Activity"
     # The game-time families, each one band whatever its members' keywords:
     # win odds (pre-week and live win %, per projection), comebacks / chokes
     # (margins entering a stage, what was overcome, comeback / choke sizes),
@@ -1223,6 +1232,23 @@ def _col_topic(col: str, default: Optional[str] = "Identity") -> Optional[str]:
         return "Roster"
     if n.endswith("?") and ("hardship" in n or n.startswith(("loss from", "win from"))):
         return "Hardship & Luck"
+    if "champion" in n:
+        return "Outcome"
+    # A player's stint on his current fantasy team (player_week): one block with
+    # its weeks / starts, not split across Scoring and Value.
+    if not n.endswith("?") and ("team starter" in n or "% of team points" in n
+                                or "% of starts on team" in n or "starter on team" in n):
+        return "Tenure"
+    if n in ("% of starts", "healthy % of starts"):
+        return "Tenure"
+    if "pregame" in n:
+        return "Projections"
+    if "points" in n and "on team" in n:
+        return "Value"
+    if "impact score" in n:
+        return "Value"
+    if "teams involved" in n:
+        return "Activity"
     if "% of starts" in n or n.startswith("points above expectation"):
         return "Value"
     if n == "commissioner moved?":
@@ -1253,7 +1279,7 @@ def _col_topic(col: str, default: Optional[str] = "Identity") -> Optional[str]:
                             "difference from best", "difference from worst", "weeks as starter",
                             "games started")):
         return "Value"
-    if any(k in n for k in ("age", "number of qb", "number of rb", "number of wr", "number of te",
+    if re.search(r"\bage\b", n) or any(k in n for k in ("number of qb", "number of rb", "number of wr", "number of te",
                             "number of rookies", "number of cuff", "donut", "under 10", "over 20",
                             "over 30", "over 40", "over 50", "nfl team", "rostered from same",
                             "started from same", "startup draft", "difference between highest and lowest",
@@ -1275,18 +1301,14 @@ def _col_topic(col: str, default: Optional[str] = "Identity") -> Optional[str]:
     return default
 
 
-def _header_topics(cols: Sequence[object]) -> List[str]:
-    """One topic per header, in BLOCKS [per user, 2026-10-12: "should be blocks —
-    no random floaters"]. The column order is authored in sections; per-column
-    keywords alone scatter single odd-coloured headers through them. So:
-      1. a name no rule recognises takes the topic of the block it sits in
-         (the column before it; the first column, the one after);
-      2. a single-column run is absorbed — into its neighbours when both sides
-         agree, otherwise into the block before it (a lone column is usually a
-         section's tail), or the block after it when the one before is the
-         leading key (Identity) block, which never takes a column unless both
-         neighbours are Identity.
-    Repeated until no single-column run is left that can move."""
+def _header_topics(cols: List[object]) -> List[str]:
+    """One topic per header [per user, 2026-10-12: "organized blocks for
+    readability, not colors for organization — no color repeated in more than
+    one block per sheet"]. The plan CSV lists each sheet's columns grouped by
+    topic, so a topic's colour marks one contiguous block; a name no rule
+    recognises takes the topic of the block it sits in (the column before it;
+    the first column, the one after). `tests/test_header_topics.py` holds every
+    sheet to one block per topic."""
     topics: List[Optional[str]] = [(_col_topic(c, default=None) if c else None) for c in cols]
     for i, t in enumerate(topics):
         if t is None:
@@ -1296,34 +1318,6 @@ def _header_topics(cols: Sequence[object]) -> List[str]:
         if topics[i] is None:
             topics[i] = nxt or "Identity"
         nxt = topics[i]
-    def _lone(i: int) -> bool:
-        return (topics[i] != topics[i - 1]
-                and (i + 1 == len(topics) or topics[i] != topics[i + 1]))
-
-    # Sandwiched singles first (both neighbours agree), so a lone column next to
-    # one never decides which way that one goes; then the rest.
-    for sandwiched_only in (True, False):
-        for _ in range(len(topics)):
-            moved = False
-            for i in range(1, len(topics)):
-                if not _lone(i):
-                    continue
-                prev = topics[i - 1]
-                after = topics[i + 1] if i + 1 < len(topics) else None
-                if after is not None and prev == after:
-                    new = prev
-                elif sandwiched_only:
-                    continue
-                elif prev != "Identity":
-                    new = prev
-                elif after is not None and after != "Identity":
-                    new = after
-                else:
-                    continue
-                topics[i] = new
-                moved = True
-            if not moved:
-                break
     return [str(t) for t in topics]
 
 
