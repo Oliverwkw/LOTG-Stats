@@ -1032,7 +1032,7 @@ EQUATIONS = {
     ('Pre-week Win % (X Projection)', 'team_week'):
         "WP(t,w) = XA^3.757 / (XA^3.757 + XB^3.757), XA = Σ_{S(t,w)} XP + (PF − Σ_{S(t,w)} pts), XB the opponent's; difference = WP(t,w) − WP(o(t,w),w)",
     ('Win % overcome (X Projection)', 'team_week'):
-        "1 − WP_T(t,w) when win(t,w) = 1 ∧ WP_T < ½, WP_T = WP on (IN(t,w,T) + Σ_{S(t,w), ko ≥ T} XP) v the opponent's, T = pre-week / SNF / Monday / last game; largest = max over pre-week and every window start; else N/A",
+        "1 − WP_T(t,w) when win(t,w) = 1 ∧ WP_T < ½, WP_T = clip(XA_T^k / (XA_T^k + XB_T^k), 0.01, 0.99), XA_T = IN(t,w,T) + Σ_{S(t,w), ko ≥ T} XP, XB_T the opponent's, k = 3.757 / (1 − (IN(t,w,T) + IN(o,w,T)) / (XA_T + XB_T))^0.6, T = pre-week / SNF / Monday / last game; largest = max over pre-week and every window start; else N/A",
     ('Avg pre-week Win % (X Projection)', 'team_year / team_all_time'):
         "mean_w WP(t,w)",
     ('Empty slots', 'team_week / team_year / team_all_time'):

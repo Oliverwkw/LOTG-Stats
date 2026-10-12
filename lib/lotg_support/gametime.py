@@ -439,15 +439,17 @@ def checkpoint(own: Sequence[Sequence], opp: Sequence[Sequence], own_final: floa
         # far + the remaining starters' projections; any band comes off ours.
         a = own_in + sum(_mu(s) for s in ol)
         b = opp_in + sum(_mu(s) for s in pl)
-        return (_app_z(a, b), rest[0], rest[1], _app_z(a - band, b))
+        done = _scored_share(own_in, opp_in, a, b)
+        return (_app_z(a, b, done), rest[0], rest[1], _app_z(a - band, b, done))
     return (win_z(own_in, opp_in, ol, pl, sd=m.sd), rest[0], rest[1],
             win_z(own_in, opp_in, ol, pl, band, sd=m.sd))
 
 
-def _app_z(own_final: float, opp_final: float) -> float:
-    """The app-style win % as a z: Φ⁻¹(A^k / (A^k + B^k)), capped at ±Z_CAP."""
+def _app_z(own_final: float, opp_final: float, scored: float = 0.0) -> float:
+    """The app-style win % (`app_win_pct`, as the app shows it: 1-99% while
+    any game is left) as a z: Φ⁻¹, capped at ±Z_CAP."""
     from statistics import NormalDist
-    p = min(max(app_win_pct(own_final, opp_final), 1e-9), 1 - 1e-9)
+    p = min(max(app_win_pct(own_final, opp_final, scored), 1e-9), 1 - 1e-9)
     return max(-Z_CAP, min(Z_CAP, NormalDist().inv_cdf(p)))
 
 
@@ -769,21 +771,52 @@ def slot_points(player_week: pd.DataFrame, schedule: Schedule) -> pd.DataFrame:
 # ---------------------------------------------------------------------------
 # The Sleeper app's matchup win %, replicated: A^k / (A^k + B^k) on the two
 # teams' projected finals (points so far + the remaining starters'
-# projections). k fitted to the app's own numbers for the 2026 weeks 5-14
-# matchups, read off the app by the user on 2026-10-07: every k in 3.751-3.764
-# reproduces all 40 to the whole percent (31 where the app matched k = 3.81,
-# plus 9 it showed 1 lower); 3.757 is the middle. Applied to each of the
-# three projections. Whole percents, stored as fractions (0.77).
+# projections), k = APP_WIN_EXPONENT / (1 − f)^APP_TIME_POWER, f = the share
+# of the two projected finals already scored — the app grows more sure as the
+# week is played. Pre-week (f = 0) k = 3.757: fitted to the app's own numbers
+# for the 2026 weeks 5-14 matchups, read off the app by the user on 2026-10-07
+# (every k in 3.751-3.764 reproduces all 40 to the whole percent). The time
+# power 0.6 [per user, 2026-10-11]: 20 live readings of 2026 week 5 (Saturday
+# after TNF through Sunday before SNF, f up to 0.74) — with them every
+# (k, power) in 3.751-3.763 x 0.60-0.62 matches 59 of the 60 readings, the
+# 60th (79.47 v the app's 80) two hundredths short of rounding up; the fixed
+# k matched 6 of the 20 live ones. The app shows 1-99% until a matchup is
+# over (APP_MIN). Applied to each of the three projections. Whole percents,
+# stored as fractions (0.77).
 APP_WIN_EXPONENT = 3.757
+APP_TIME_POWER = 0.6
+APP_MIN = 0.01
 WIN_PCT_PROJECTIONS: Tuple[str, ...] = ("Sleeper", "Claude", "Enhanced")
 
 
-def app_win_pct(own_final: float, opp_final: float) -> float:
+def app_exponent(scored: float = 0.0) -> float:
+    """k once `scored` (0-1) of the two projected finals is in."""
+    f = min(max(float(scored), 0.0), 0.999)
+    return APP_WIN_EXPONENT / (1.0 - f) ** APP_TIME_POWER
+
+
+def app_win_pct(own_final: float, opp_final: float, scored: float = 0.0) -> float:
     """The app-style win chance of a team projected to finish at `own_final`
-    against `opp_final` (unrounded, 0-1)."""
+    against `opp_final`, `scored` (0-1) of the two projected finals already
+    in (0 pre-week); unrounded, held to APP_MIN-(1 − APP_MIN) like the app
+    while any game is left."""
     a, b = max(float(own_final), 0.01), max(float(opp_final), 0.01)
-    ra = (b / a) ** APP_WIN_EXPONENT
-    return 1.0 / (1.0 + ra)
+    x = min(max(app_exponent(scored) * math.log(b / a), -700.0), 700.0)
+    p = 1.0 / (1.0 + math.exp(x))
+    return min(max(p, APP_MIN), 1.0 - APP_MIN)
+
+
+def _scored_share(own_in: float, opp_in: float, own_final: float, opp_final: float) -> float:
+    """Share of the two projected finals already scored (0 when there is none)."""
+    tot = own_final + opp_final
+    return (own_in + opp_in) / tot if tot > 0 else 0.0
+
+
+def _live_pct(own: Sequence[Sequence], opp: Sequence[Sequence], pf: float, pa: float,
+              t: datetime) -> float:
+    """The app-style win % entering kickoff t."""
+    a, b = _live_final(own, pf, t), _live_final(opp, pa, t)
+    return app_win_pct(a, b, _scored_share(pf - points_from(own, t), pa - points_from(opp, t), a, b))
 
 
 def win_pct_names(x: str) -> Tuple[str, ...]:
@@ -835,13 +868,12 @@ def win_pct_rows(team_week: pd.DataFrame, plays: Dict, schedule: Schedule) -> pd
         r = {"Team": rec["Team"], "Year": y, "Week": w, "pre": p_pre, "diff": 2 * p_pre - 1.0}
         over = lambda p: (1.0 - p) if (won and p < 0.5) else None
         r["pre_over"] = over(p_pre)
-        live = [p_pre] + [app_win_pct(_live_final(own, pf, k), _live_final(opp, pa, k))
-                          for k in windows(own, opp)[1:]]
+        live = [p_pre] + [_live_pct(own, opp, pf, pa, k) for k in windows(own, opp)[1:]]
         lows = [1.0 - p for p in live if p < 0.5]
         r["largest"] = max(lows) if (won and lows) else None
         for stage, key in (("SNF", "snf"), ("Monday", "mon"), ("last game", "last")):
             t = last_game_start(schedule, y, w, own, opp) if stage == "last game" else schedule.stage_start(y, w, stage)
-            r[key] = over(app_win_pct(_live_final(own, pf, t), _live_final(opp, pa, t))) if t is not None else None
+            r[key] = over(_live_pct(own, opp, pf, pa, t)) if t is not None else None
         rows.append(r)
     out = pd.DataFrame(rows)
     return out
