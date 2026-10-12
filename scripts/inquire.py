@@ -261,6 +261,26 @@ def cmd_stretch(args) -> None:
               "that jumped a gap.")
 
 
+def cmd_streaks(args) -> None:
+    from lotg_support import analysis as A
+
+    res = A.projection_streaks(level=args.level,
+                               projections=args.projection or A.PROJECTIONS,
+                               min_length=args.min_length)
+    runs = res.runs
+    if args.direction:
+        runs = runs[runs["direction"] == args.direction]
+    if args.active:
+        runs = runs[runs["active"]]
+    if args.entity:
+        key = "Team" if args.level == "team" else "Player"
+        runs = runs[runs[key].astype(str).str.contains(args.entity, case=False, regex=True)]
+    _emit(runs.drop(columns=["start", "end"]), args.csv, args.limit or 20)
+    if not args.csv:
+        for w in res.warnings:
+            print(f"  note: {w}")
+
+
 def cmd_timeline(args) -> None:
     from lotg_support import analysis as A
 
@@ -611,6 +631,20 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--order", default="Year,Week",
                    help="comma-separated ordering columns; absent ones are ignored")
     p.set_defaults(func=cmd_stretch)
+
+    p = sub.add_parser("streaks",
+                       help="consecutive weeks beating / missing each projection, across seasons")
+    p.add_argument("--level", choices=["team", "player"], default="team",
+                   help="team-weeks (default) or a player's starts")
+    p.add_argument("--projection", action="append", choices=["Sleeper", "Claude", "Enhanced"],
+                   help="repeatable; default all three")
+    p.add_argument("--direction", choices=["beat", "miss"], help="only one direction")
+    p.add_argument("--active", action="store_true", help="only runs still unbroken")
+    p.add_argument("--entity", default="", help="regex on the team / player name")
+    p.add_argument("--min-length", type=int, default=1)
+    p.add_argument("-n", "--limit", type=int, default=0, help="max rows (default 20)")
+    p.add_argument("--csv", action="store_true", help="CSV instead of a grid")
+    p.set_defaults(func=cmd_streaks)
 
     p = sub.add_parser("timeline", help="every recorded event for a player or team, in order")
     p.add_argument("--player")

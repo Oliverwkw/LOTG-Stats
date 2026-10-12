@@ -42,6 +42,12 @@ single export sheet holds:
     season, so the built column cannot. `check_roster_age_matches_build` ties it
     back to that column for every team-week the build did compute.
 
+  * **Projection streaks.** `projection_streaks()` lists every run of
+    consecutive weeks a team (or a player's starts) beat or missed each
+    projection, across seasons, with the closest call and whether the run is
+    still alive. `check_streaks_reconcile` ties the run lengths to the sign
+    counts of the build's Points above columns.
+
   * **Spend by position.** `spend_by_position()` joins draft capital (pick slot
     and KTC on draft day) and FAAB outlay to the points that came back, per
     team, so "am I valuing QBs differently from the league" is answerable per
@@ -622,6 +628,183 @@ def best_stretch(frame: pd.DataFrame, value_column: str, length: int,
             .groupby(entity_columns, sort=False).head(1)
             .sort_values(metric, ascending=False))
     return best.head(n).reset_index(drop=True)
+
+
+# ---------------------------------------------------------------------------
+# Projection streaks: consecutive weeks beating / missing a projection
+# ---------------------------------------------------------------------------
+PROJECTIONS: Tuple[str, ...] = ("Sleeper", "Claude", "Enhanced")
+
+# plehv79 threw the 2022 Toilet Semis against shmuel256 (wk 16); a run through
+# that week is flagged, never dropped.
+THROWN_GAMES: Tuple[Tuple[str, int, int], ...] = (("plehv79", 2022, 16), ("shmuel256", 2022, 16))
+
+
+@dataclass
+class StreakResult:
+    runs: pd.DataFrame
+    skipped_rows: int = 0
+    tie_rows: int = 0
+    warnings: List[str] = field(default_factory=list)
+
+
+def _streak_rows(frame: pd.DataFrame, level: str, starters_only: bool,
+                 skip_dead_starts: bool) -> Tuple[pd.DataFrame, int, str]:
+    """The rows a streak walks over, the count skipped, and the entity column."""
+    if level == "team":
+        return frame, 0, "Team"
+    work = frame
+    if starters_only:
+        work = work[work["Starter/Bench"].astype(str).eq("Starter")]
+    skipped = 0
+    if skip_dead_starts:
+        # A dead start (out / bye / did not play) projects 0 and scores 0 under
+        # every projection: no claim either way, so it is bridged, not a break.
+        zero = pd.Series(True, index=work.index)
+        for x in PROJECTIONS:
+            col = f"{x} Projection"
+            if col in work.columns:
+                zero &= pd.to_numeric(work[col], errors="coerce").fillna(0).eq(0)
+        dead = zero & pd.to_numeric(work["Points"], errors="coerce").fillna(0).eq(0)
+        skipped = int(dead.sum())
+        work = work[~dead]
+    return work, skipped, "Player"
+
+
+def projection_streaks(frame: Optional[pd.DataFrame] = None, level: str = "team",
+                       projections: Sequence[str] = PROJECTIONS,
+                       min_length: int = 1, starters_only: bool = True,
+                       skip_dead_starts: bool = True) -> StreakResult:
+    """Every run of consecutive weeks beating (Points above X Projection > 0) or
+    missing (< 0) each projection, one row per run.
+
+    `level="team"` walks `team_week` per team; `"player"` walks `player_week`
+    per player, following him across fantasy teams. Runs cross seasons and
+    playoff weeks (a run is broken only by the opposite sign or an exact 0, which
+    counts as neither and is reported as `tie_rows`). Team projections already
+    carry the semifinal +5 (`projections.team_week_projection`), so it never
+    counts as "beating" one.
+
+    Player level, the assumptions (named parameters):
+      * `starters_only` (default True): bench weeks are not a claim the manager
+        acted on, so only starts count and non-start weeks are bridged — the
+        run is contiguous in *starts*, not calendar weeks. `span` shows the
+        real endpoints.
+      * `skip_dead_starts` (default True): a start that projected 0 under every
+        projection and scored 0 (out / bye / did not play) is bridged too.
+
+    Each run: entity, projection, direction (beat / miss), length, start / end /
+    span, seasons it touches, total and smallest |Points above| (the closest
+    call that kept it alive), playoff weeks inside it, `thrown_game` (a run
+    through plehv79 v shmuel256 2022 Toilet Semis), `active` (unbroken — it
+    ends on the entity's latest row) and `current_week` (that row is the latest
+    exported week). Sorted longest first.
+
+    No build column counts these runs; `check_streaks_reconcile` ties the run
+    lengths to the sign counts of the build's own Points above columns.
+    `warnings` carries each projection's mean Points above per row — a biased
+    projection (Claude runs low on starters) makes one direction easy.
+    """
+    if level not in ("team", "player"):
+        raise ValueError("level must be 'team' or 'player'")
+    if frame is None:
+        frame = Q.load_sheet("team_week" if level == "team" else "player_week")
+    work, skipped, entity = _streak_rows(frame, level, starters_only, skip_dead_starts)
+    # The loader may hand back text: order on the numbers, never the strings.
+    work = work.assign(Year=pd.to_numeric(work["Year"], errors="coerce"),
+                       Week=pd.to_numeric(work["Week"], errors="coerce")) \
+        .dropna(subset=["Year", "Week"]) \
+        .sort_values([entity, "Year", "Week"]).reset_index(drop=True)
+
+    key = list(zip(work["Year"].astype(int), work["Week"].astype(int)))
+    work = work.assign(_key=key)
+    latest = max(key) if key else None
+    entity_last = work.groupby(entity)["_key"].max()
+    week_name = work["Week Name"].astype(str) if "Week Name" in work.columns \
+        else pd.Series("", index=work.index)
+    playoff = week_name.ne("") & ~week_name.str.match(r"^Week \d+$")
+    teams = work["Team"].astype(str) if "Team" in work.columns else pd.Series("", index=work.index)
+    thrown = pd.Series([(t, y, w) in THROWN_GAMES for t, (y, w) in zip(teams, key)],
+                       index=work.index)
+
+    out: List[pd.DataFrame] = []
+    ties = 0
+    warnings: List[str] = []
+    for x in projections:
+        col = f"Points above {x} Projection"
+        if col not in work.columns:
+            warnings.append(f"no column {col!r} on the {level} sheet")
+            continue
+        v = pd.to_numeric(work[col], errors="coerce")
+        sign = pd.Series(0, index=work.index).mask(v > 0, 1).mask(v < 0, -1)
+        ties += int((sign == 0).sum())
+        warnings.append(f"{x}: mean Points above = {v.mean():+.2f} per {level}-week "
+                        f"({(sign > 0).mean():.0%} beat / {(sign < 0).mean():.0%} miss)")
+        run_id = ((sign != sign.shift()) | (work[entity] != work[entity].shift())).cumsum()
+        d = pd.DataFrame({"entity": work[entity], "key": work["_key"], "Year": work["Year"],
+                          "sign": sign, "v": v, "run": run_id,
+                          "playoff": playoff, "thrown": thrown})[sign != 0]
+        g = d.groupby("run", sort=False)
+        first, last = g["key"].first(), g["key"].last()
+        runs = pd.DataFrame({
+            entity: g["entity"].first(),
+            "projection": x,
+            "direction": g["sign"].first().map({1: "beat", -1: "miss"}),
+            "length": g.size(),
+            "start": first.map(lambda k: f"{k[0]} wk{k[1]}"),
+            "end": last.map(lambda k: f"{k[0]} wk{k[1]}"),
+            "seasons": g["Year"].nunique(),
+            "total": g["v"].sum().round(2),
+            "closest": g["v"].apply(lambda s: round(float(s.abs().min()), 2)),
+            "playoff_weeks": g["playoff"].sum().astype(int),
+            "thrown_game": g["thrown"].any(),
+        })
+        runs["span"] = runs["start"] + " -> " + runs["end"]
+        # Unbroken: the run ends on the entity's latest row.
+        runs["active"] = [k == entity_last[e] for e, k in zip(runs[entity], last)]
+        runs["current_week"] = runs["active"] & pd.Series([k == latest for k in last], index=runs.index)
+        out.append(runs.reset_index(drop=True))
+    runs = pd.concat(out, ignore_index=True) if out else pd.DataFrame()
+    if not runs.empty:
+        runs = (runs[runs["length"] >= min_length]
+                .assign(_size=runs["total"].abs())
+                .sort_values(["length", "_size"], ascending=False)
+                .drop(columns="_size").reset_index(drop=True))
+    if skipped:
+        warnings.append(f"{skipped} dead start(s) bridged (projected 0 everywhere, scored 0)")
+    if ties:
+        warnings.append(f"{ties} row(s) exactly 0 above a projection: neither beat nor "
+                        "miss, they end a run")
+    return StreakResult(runs=runs, skipped_rows=skipped, tie_rows=ties, warnings=warnings)
+
+
+def check_streaks_reconcile(result: StreakResult, frame: Optional[pd.DataFrame] = None,
+                            level: str = "team") -> List[str]:
+    """Run lengths must add up, per entity and projection, to the number of rows
+    the build's own Points above column has > 0 (beat) and < 0 (miss), and no
+    run may continue past an opposite sign. Needs a `min_length=1` result. Empty
+    when they reconcile."""
+    if frame is None:
+        frame = Q.load_sheet("team_week" if level == "team" else "player_week")
+    work, _, entity = _streak_rows(frame, level, True, True)
+    problems: List[str] = []
+    for x in result.runs["projection"].unique() if not result.runs.empty else []:
+        v = pd.to_numeric(work[f"Points above {x} Projection"], errors="coerce")
+        want = pd.DataFrame({"e": work[entity], "beat": v > 0, "miss": v < 0}) \
+            .groupby("e")[["beat", "miss"]].sum()
+        r = result.runs[result.runs["projection"] == x]
+        got = r.pivot_table(index=entity, columns="direction", values="length",
+                            aggfunc="sum", fill_value=0) \
+            .reindex(index=want.index, columns=["beat", "miss"], fill_value=0)
+        order = [(a, b) for a, b in zip(r["start"], r["end"])
+                 if tuple(map(int, a.split(" wk"))) > tuple(map(int, b.split(" wk")))]
+        if order:
+            problems.append(f"{x}: {len(order)} run(s) end before they start, e.g. {order[0]}")
+        bad = (got != want).any(axis=1)
+        for e in want.index[bad][:5]:
+            problems.append(f"{x} {e}: runs total {got.loc[e].to_dict()} v "
+                            f"sign counts {want.loc[e].to_dict()}")
+    return problems
 
 
 def timeline(player: Optional[str] = None, team: Optional[str] = None,
