@@ -1996,6 +1996,24 @@ guard-skipped fire), 581→584 (#453), 584→589 (#454), 589→597 (#455).
       the Points above sign counts. Reproduces the stevenb123 11 record; AceMatthew's
       Claude run is 10 and active (closest 0.05) as of 2026 wk 4.
 
+## Workbook layout: topic blocks [per user, 2026-10-12]
+- [x] **Columns grouped into topic blocks — one block per topic per sheet** [per user:
+  "organized blocks for readability, not colors for organization. No color repeated in
+  more than one block per sheet, most columns should be part of big blocks organized by
+  topic (O-score maybe an exception)"]. #491 (`11dbd4b`) first tried colour smoothing over
+  the old order (148 lone columns -> 0; audit CLEAN run 720 v 718) — the wrong goal;
+  **#492 (`99e6b0c`) reorders the plan CSV** instead: key columns, then each topic in
+  first-appearance order, existing order kept inside a topic (Win odds after
+  Projections; extra trade partners last). New topics Projections / Win odds /
+  Comebacks / Lineup / Partners; `_col_topic` fixes ("age" as a word — "Average weekly
+  turnover", "free agency adds" were Roster). `tests/test_header_topics.py` holds plan +
+  exports to one block per topic. Branch run 721: 679 passed, every sheet cell-for-cell
+  = main with only positions moved, links / freeze panes / header notes unchanged, digest
+  replays byte-identical (two snapshots); schema re-pinned. **3-part audit — CLEAN:
+  post-merge run 722 (exports `bae943a`) v run 720.** Small blocks kept as their own
+  topics: age / cuff / tanking on transaction sheets, team Lineup Boldness + Empty slots,
+  team Avg pre-week Win %, extra trade partners.
+
 ## Game-time columns (from the 2026 wk 4 MNF-comeback inquiry)
 - [x] **player_week `Game slot` + team_week margins / comebacks by stage** [per user,
   2026-10-05]. `lotg_support.gametime`, week grain only (no rollups); `inquire.py
