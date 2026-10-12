@@ -1142,6 +1142,9 @@ _TOPIC_FILL = {
     # team_week's combined-matchup block (lotg_support.matchup): its own colour
     # so the two-team section reads apart from the team's own stats.
     "Combined": "C4BD97",
+    # [per user, 2026-10-12: "more variation ok … blocks, no random floaters"]
+    "Projections": "B4A7D6", "Win odds": "9FC5E8", "Comebacks": "E59A9A",
+    "Lineup": "D5E8A4",
 }
 _FAMILY_TAB = {
     "player": "5B9BD5", "team": "70AD47", "league": "FFC000",
@@ -1165,8 +1168,10 @@ _TOPIC_IDENTITY = {
 from lotg_support.number_format import EXTRA_COUNT_PREFIXES as _EXTRA_COUNT_PREFIXES  # noqa: E402
 
 
-def _col_topic(col: str) -> str:
-    """Topic group for header color-banding — mirrors the 11C-1 reorder classifier."""
+def _col_topic(col: str, default: Optional[str] = "Identity") -> Optional[str]:
+    """Topic group for header color-banding — mirrors the 11C-1 reorder classifier.
+    A name no rule recognises gets `default` (`_header_topics` passes None so
+    it can take its block's topic instead)."""
     n = re.sub(r"\s+", " ", str(col).strip().lower())
     if n in _TOPIC_IDENTITY or n.startswith("team's traded with"):
         return "Identity"
@@ -1174,6 +1179,22 @@ def _col_topic(col: str) -> str:
     # base stat would otherwise be (points, roster counts, hardship, ...).
     if matchup.base_column(col):
         return "Combined"
+    # The game-time families, each one band whatever its members' keywords:
+    # win odds (pre-week and live win %, per projection), comebacks / chokes
+    # (margins entering a stage, what was overcome, comeback / choke sizes),
+    # the projection block (projections, points above them, the over- /
+    # underachiever awards, their streaks and counts), and the lineup calls
+    # (start/sit, Boldness, the reference player, empty slots).
+    if "pre-week win %" in n or "win % overcome" in n:
+        return "Win odds"
+    if ("margin entering" in n or "overcome" in n or "comeback" in n or "choke size" in n
+            or n.startswith("% of own points scored")):
+        return "Comebacks"
+    if any(k in n for k in ("boldness", "start/sit", "startable", "benchable", "empty slot",
+                            "reference player", "cuff adjusted difference")):
+        return "Lineup"
+    if "projection" in n and not any(k in n for k in ("hardship", "luck")):
+        return "Projections"
     if n.startswith("change from") or n.startswith("change in"):
         return "Change"
     if "streak" in n:
@@ -1198,8 +1219,12 @@ def _col_topic(col: str) -> str:
         return "Hardship & Luck"
     if n == "win?":
         return "Outcome"
-    if n in ("cuff when drafted?", "cuff at time of pickup?"):
+    if n in ("cuff when drafted?", "cuff at time of pickup?", "cuff at pickup?"):
         return "Roster"
+    if n.endswith("?") and ("hardship" in n or n.startswith(("loss from", "win from"))):
+        return "Hardship & Luck"
+    if "% of starts" in n or n.startswith("points above expectation"):
+        return "Value"
     if n == "commissioner moved?":
         return "Activity"
     if n.endswith("?") or n.startswith("times ") or n.startswith("times as ") or n in ("brosenzweig", "sisenzweig"):
@@ -1209,10 +1234,15 @@ def _col_topic(col: str) -> str:
     if (n.startswith("link to") or "tenure" in n or "weeks on team" in n
             or "weeks as team starter" in n or "weeks on bench" in n
             or "consecutive weeks on bench" in n or "weeks before first start" in n
-            or "weeks between pickup" in n):
+            or "weeks between pickup" in n or n.startswith("weeks rostered")
+            or n.startswith("healthy weeks rostered") or n == "weeks as starter"):
         return "Tenure"
-    if n == "tanking":
+    if n == "tanking" or n == "stacks" or "players drafted" in n:
         return "Roster"
+    if (n.startswith("number of") and n.endswith(" adds")) or n == "number of teams":
+        return "Activity"
+    if n.startswith("wins added") or n.startswith("dropped "):
+        return "Value"
     if any(k in n for k in ("injur", "suspensi", "bye", "hardship", "luck", "weeks missed", "weeks of ")):
         return "Hardship & Luck"
     if any(k in n for k in ("startable bench", "benchable starter", "startables", "start/sit miss (5-game avg)",
@@ -1242,7 +1272,59 @@ def _col_topic(col: str) -> str:
     if any(k in n for k in ("pf", "points against", "max pf", "efficiency", "points", "avg points",
                             "highest starter score", "lowest starter score", "increase in points")):
         return "Scoring"
-    return "Identity"
+    return default
+
+
+def _header_topics(cols: Sequence[object]) -> List[str]:
+    """One topic per header, in BLOCKS [per user, 2026-10-12: "should be blocks —
+    no random floaters"]. The column order is authored in sections; per-column
+    keywords alone scatter single odd-coloured headers through them. So:
+      1. a name no rule recognises takes the topic of the block it sits in
+         (the column before it; the first column, the one after);
+      2. a single-column run is absorbed — into its neighbours when both sides
+         agree, otherwise into the block before it (a lone column is usually a
+         section's tail), or the block after it when the one before is the
+         leading key (Identity) block, which never takes a column unless both
+         neighbours are Identity.
+    Repeated until no single-column run is left that can move."""
+    topics: List[Optional[str]] = [(_col_topic(c, default=None) if c else None) for c in cols]
+    for i, t in enumerate(topics):
+        if t is None:
+            topics[i] = topics[i - 1] if i else None
+    nxt = None
+    for i in range(len(topics) - 1, -1, -1):
+        if topics[i] is None:
+            topics[i] = nxt or "Identity"
+        nxt = topics[i]
+    def _lone(i: int) -> bool:
+        return (topics[i] != topics[i - 1]
+                and (i + 1 == len(topics) or topics[i] != topics[i + 1]))
+
+    # Sandwiched singles first (both neighbours agree), so a lone column next to
+    # one never decides which way that one goes; then the rest.
+    for sandwiched_only in (True, False):
+        for _ in range(len(topics)):
+            moved = False
+            for i in range(1, len(topics)):
+                if not _lone(i):
+                    continue
+                prev = topics[i - 1]
+                after = topics[i + 1] if i + 1 < len(topics) else None
+                if after is not None and prev == after:
+                    new = prev
+                elif sandwiched_only:
+                    continue
+                elif prev != "Identity":
+                    new = prev
+                elif after is not None and after != "Identity":
+                    new = after
+                else:
+                    continue
+                topics[i] = new
+                moved = True
+            if not moved:
+                break
+    return [str(t) for t in topics]
 
 
 # Per-(player, team) tenure metrics are TERMINAL-ENCODED like the streak
@@ -3811,9 +3893,8 @@ def build_all(repo_root: Path) -> None:
                     _data_wrap = Alignment(wrap_text=True, vertical="top")  # Phase 12 #7: wrap ALL cells
                     _band_fill = PatternFill("solid", fgColor="F2F2F2")  # 2nd tone (light gray)
                     _inprog_fill = PatternFill("solid", fgColor="C6EFCE")  # opaque light green (#33)
-                    _topics = [(_col_topic(ws.cell(row=1, column=j).value)
-                                if ws.cell(row=1, column=j).value else "Identity")
-                               for j in range(1, _nc + 1)]
+                    _topics = _header_topics([ws.cell(row=1, column=j).value
+                                              for j in range(1, _nc + 1)])
                     # Parity of each column within its contiguous same-topic run.
                     _parity = []
                     _runi = 0
