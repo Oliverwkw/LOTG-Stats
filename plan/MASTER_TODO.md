@@ -1750,6 +1750,26 @@ guard-skipped fire), 581→584 (#453), 584→589 (#454), 589→597 (#455).
   - Part 3 (diff, every sheet v 692): team_week −8 columns (old Comeback size ×4,
     "(Sleeper projections)" ×4) +12 (the three sets); Formulas 708 → 709; nothing else
     changed on any sheet (no live drift this run). Nothing UNEXPECTED.
+- [x] **Merged #487 / `5bf8fea`** (live win %: k = 3.757 / (1 − f)^0.6, 1-99% hold) after
+  branch run 712 (artifacts checked). **3-part audit — PASS (2026-10-12): post-merge main
+  run 713 v run 710.**
+  - Part 1: CI 670 passed / 2 standing skips (incl. test_exports_match_the_recompute,
+    test_app_win_pct_reproduces_the_app_live, test_the_app_holds_1_to_99_and_grows_surer —
+    PASSED); data-quality 0 ERROR / 0 WARN; exports committed (92c95ca); 0
+    PerformanceWarnings. Run 713 = branch run 712 cell for cell on every keyed sheet.
+  - Part 2 cases (all pass): (1) Pre-week Win %, its Difference and Pre-week Win % overcome
+    unchanged for all three projections, and team_year Avg pre-week Win %; (2) every win %
+    value within 1-99%; (3) Largest ≥ every stage value; (4) no overcome on a loss; (5)
+    biggest Monday comeback now plehv79 2021 wk 5 (down 30.12, Sleeper 59% → 91% overcome)
+    and it tops Comeback size (Sleeper Projection) 0.24 → 1.35; (6) plehv79 2025 wk 3 up
+    12.06 entering Monday yet 12% to win (the opponent had more left) → 88% overcome.
+  - Part 3 (diff v 710): pre-2026 history moved only in the intended team_week columns
+    (live Win % overcome ×9, Largest ×3, Comeback size (Sleeper Projection) ×4 — 26-429
+    rows each). Live drift since 710 (Friday): week-5 games in player_year full-season
+    points; Enhanced refit moving a few 2026 wk 3-4 projections (+ Start/sit miss, Lineup
+    Boldness 2 rows, Boldness 1); 3 players' NFL team; transaction sheets' to-today PPG /
+    tenure / O-Score and the team_year skills built on them (Drafting 21, Trading 16,
+    Add/Drop 16 rows). Nothing UNEXPECTED.
 - [ ] **Then: build time** — profile the build and cut it.
 - [ ] **Did not play → projects 0** [per user, 2026-10-07: "make that change to the
   projections, but not for the Hamlin game"]. From the Mendoza inquiry: Fernando Mendoza
