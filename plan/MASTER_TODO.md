@@ -1782,6 +1782,11 @@ guard-skipped fire), 581→584 (#453), 584→589 (#454), 589→597 (#455).
   that lost from ahead keeps nothing. Committed exports: Comeback size > 0 on 504 → 395
   rows (Claude; none rose), 85 chokes, biggest shmuel256 2022 wk 8 (1.03: behind plehv79
   by 27 entering SNF but projected to win, lost by 25).
+  **Out of 100** [per user, 2026-10-12: "rebase all of these size columns so they're out
+  of 100 (set 100 as 3 which I assume is basically unreachable)", then 3.5]: every Comeback /
+  Choke size column = standard deviations × 100/3.5, capped at 100 (`SIZE_FULL_SCALE`); 2020-26's
+  biggest (Enhanced, 2.9) reads 82.86. The Sleeper set's app-style win % is NOT held to 1-99%
+  inside the size columns [per user, 2026-10-12], so it can pass Φ⁻¹(1%) = 2.33. `comeback_size(scaled=True)`; raw SD otherwise.
 - [ ] **Then: build time** — profile the build and cut it.
 - [ ] **Did not play → projects 0** [per user, 2026-10-07: "make that change to the
   projections, but not for the Hamlin game"]. From the Mendoza inquiry: Fernando Mendoza

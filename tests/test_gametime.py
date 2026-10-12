@@ -285,6 +285,12 @@ def test_comebacks_from_behind_chokes_from_ahead():
     assert got["B"] == 0.8 and got["A"] == 0.0
     assert G.choke_names("Sleeper")[2] == "Choke size entering Monday (Sleeper Projection)"
     assert len(G.CHOKE_COLUMNS) == 12
+    # the sheet's scale: 3.5 standard deviations = 100, capped [per user, 2026-10-12]
+    assert G.comeback_size([behind], 1.0, side="down", scaled=True) == round(1.5 * 100 / 3.5, 2)
+    assert G.comeback_size([(-4.0, 10.0, 0.0, -4.0, -30.0)], 1.0, scaled=True) == 100.0
+    assert G.comeback_size([ahead], 1.0, side="up", scaled=True) == round(G.HOLD_SHARE * 100 / 3.5, 2)
+    # the size columns read the app's win % below its 1% floor [per user]
+    assert G._app_z(60.0, 200.0, 0.9) < -2.4 and G.app_win_pct(60.0, 200.0, 0.9) == 0.01
 
 
 def test_known_outs_expect_nothing():
@@ -391,7 +397,7 @@ def test_known_monday_comeback():
             r["% of opponent's score overcome"]) == (63.78, 63.78, 0.3306, 3, 21.26, 21.26, 0.3306), r
     assert r["% of own points scored after"] == round(88.4 / 217.54, 4)
     # 63.78 down on the scoreboard: the projection band deepens the hole (1.70)
-    assert 0.5 < r["Comeback size"] < 2.0, r["Comeback size"]
+    assert 50 / 3.5 < r["Comeback size"] < 200 / 3.5, r["Comeback size"]   # 0.5-2.0 SD, out of 100
 
 
 def test_exports_match_the_recompute():

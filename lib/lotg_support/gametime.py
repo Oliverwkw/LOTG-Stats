@@ -152,6 +152,11 @@ LEGACY_COLUMNS = {
 # Comeback size model (see the module docstring).
 SD_PER_ROOT_POINT = 2.0        # a starter's points vary like 2.0·√(his Claude projection)
 HOLD_SHARE = 0.25              # what a turnaround counts for when the team's own players did none of it
+# The sheet's Comeback / Choke size is out of 100: SIZE_FULL_SCALE standard
+# deviations = 100, capped there [per user, 2026-10-12: "set 100 as 3 which I
+# assume is basically unreachable"; then 3.5] — a win from a 1-in-4,300 spot,
+# all on the team's own players; 2020-26's biggest is 2.9 (82.86).
+SIZE_FULL_SCALE = 3.5
 Z_CAP = 10.0
 BAND_PER_ROOT_STARTER = 2.5    # projection-error band for a team behind on the scoreboard (Claude)
 
@@ -374,7 +379,7 @@ def _own_part(hole: Sequence[float], later: Sequence[float]) -> float:
 
 
 def comeback_size(points: Sequence[Sequence[float]], final: float, from_first: bool = False,
-                  side: Optional[str] = None) -> float:
+                  side: Optional[str] = None, scaled: bool = False) -> float:
     """Largest depth (−z, when behind) × the win chance at any later point ×
     the own-doing factor (`_own_part`) between them; the end counts as win
     chance `final` (1 win, 0 loss, ½ tie). `points` in time order, each
@@ -387,7 +392,9 @@ def comeback_size(points: Sequence[Sequence[float]], final: float, from_first: b
     BEHIND on the scoreboard (a comeback), "up" = only holes it was in while
     AHEAD on it (projected to lose all the same — the opponent's choke, when
     the team won); a point needs its scoreboard margin (5th item) to count
-    for either. None = every hole."""
+    for either. None = every hole. `scaled` = on the sheet's 0-100 scale
+    (`SIZE_FULL_SCALE` standard deviations = 100, capped) instead of
+    standard deviations."""
     split = [p for p in points if isinstance(p, (tuple, list))]
     pts = [p if isinstance(p, (tuple, list)) else (p, 0.0, 0.0) for p in points]
     later = [(_phi(p[0]), p) for p in pts] + [(final, (None, 0.0, 0.0))]
@@ -399,6 +406,8 @@ def comeback_size(points: Sequence[Sequence[float]], final: float, from_first: b
         for chance, p in later[i + 1:]:
             if depth:
                 best = max(best, depth * chance * (_own_part(hole, p) if split else 1.0))
+    if scaled:
+        return round(min(100.0, best * 100.0 / SIZE_FULL_SCALE), 2)
     return round(best, 2)
 
 
@@ -454,10 +463,11 @@ def checkpoint(own: Sequence[Sequence], opp: Sequence[Sequence], own_final: floa
 
 
 def _app_z(own_final: float, opp_final: float, scored: float = 0.0) -> float:
-    """The app-style win % (`app_win_pct`, as the app shows it: 1-99% while
-    any game is left) as a z: Φ⁻¹, capped at ±Z_CAP."""
+    """The app-style win % as a z: Φ⁻¹, capped at ±Z_CAP. NOT held to the
+    app's 1-99% [per user, 2026-10-12: the size columns only may go below 1%],
+    so a Sleeper-projection hole can run deeper than Φ⁻¹(1%) = 2.33."""
     from statistics import NormalDist
-    p = min(max(app_win_pct(own_final, opp_final, scored), 1e-9), 1 - 1e-9)
+    p = min(max(app_win_pct(own_final, opp_final, scored, hold=False), 1e-12), 1 - 1e-12)
     return max(-Z_CAP, min(Z_CAP, NormalDist().inv_cdf(p)))
 
 
@@ -683,8 +693,8 @@ def stage_rows(team_week: pd.DataFrame, player_week: pd.DataFrame, schedule: Sch
             k0 = next((k for k in ks if k >= t), None)
             zs = [checkpoint(own, opp, pf, pa, t, model)] + \
                  [checkpoint(own, opp, pf, pa, k, model) for k in ks if k0 is not None and k > k0]
-            size = comeback_size(zs, final, from_first=True, side="down")
-            choke = comeback_size(zs, final, from_first=True, side="up") if won else 0.0
+            size = comeback_size(zs, final, from_first=True, side="down", scaled=True)
+            choke = comeback_size(zs, final, from_first=True, side="up", scaled=True) if won else 0.0
         rows.append({
             "Team": rec["Team"], "Year": y, "Week": w, "Week Name": rec.get("Week Name"),
             "Opponent": rec["Opponent"], "Win?": won, "PF": pf, "Points against": pa,
@@ -733,8 +743,8 @@ def week_comeback_size(team_week: pd.DataFrame, player_week: pd.DataFrame, sched
         rows.append({"Team": rec["Team"], "Year": y, "Week": w, "Opponent": rec["Opponent"],
                      "Win?": won, "PF": pf, "Points against": pa,
                      "Lowest win chance": round(min(_phi(z[0]) for z in zs), 4) if zs else None,
-                     COMEBACK_SIZE_COLUMN: comeback_size(zs, final, side="down") if ks else None,
-                     "Choke given": (comeback_size(zs, final, side="up") if won else 0.0) if ks else None})
+                     COMEBACK_SIZE_COLUMN: comeback_size(zs, final, side="down", scaled=True) if ks else None,
+                     "Choke given": (comeback_size(zs, final, side="up", scaled=True) if won else 0.0) if ks else None})
     return pd.DataFrame(rows)
 
 
@@ -821,15 +831,15 @@ def app_exponent(scored: float = 0.0) -> float:
     return APP_WIN_EXPONENT / (1.0 - f) ** APP_TIME_POWER
 
 
-def app_win_pct(own_final: float, opp_final: float, scored: float = 0.0) -> float:
+def app_win_pct(own_final: float, opp_final: float, scored: float = 0.0, hold: bool = True) -> float:
     """The app-style win chance of a team projected to finish at `own_final`
     against `opp_final`, `scored` (0-1) of the two projected finals already
     in (0 pre-week); unrounded, held to APP_MIN-(1 − APP_MIN) like the app
-    while any game is left."""
+    while any game is left (`hold`; the size columns pass False)."""
     a, b = max(float(own_final), 0.01), max(float(opp_final), 0.01)
     x = min(max(app_exponent(scored) * math.log(b / a), -700.0), 700.0)
     p = 1.0 / (1.0 + math.exp(x))
-    return min(max(p, APP_MIN), 1.0 - APP_MIN)
+    return min(max(p, APP_MIN), 1.0 - APP_MIN) if hold else p
 
 
 def _scored_share(own_in: float, opp_in: float, own_final: float, opp_final: float) -> float:
