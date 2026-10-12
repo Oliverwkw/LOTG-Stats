@@ -1436,7 +1436,7 @@ guard-skipped fire), 581→584 (#453), 584→589 (#454), 589→597 (#455).
   - needs-human-judgment: **one shared game decides 68 of 242 differing events**, and
     on those the touch pick wins 51% vs 46% (barely better than a coin flip). Possible
     fix: require ≥ 2 shared games, otherwise use E. Not built.
-- [ ] **`Empty slots` counts dead starts** [per user, 2026-10-05: "count starting out
+- [x] **`Empty slots` counts dead starts** [per user, 2026-10-05: "count starting out
   (injured, suspended, bye) players as an empty slot"]. Reverses #464's "dead starts are not
   counted". A dead start is unchanged: a starter flagged bye / injured / suspended who scored
   0 (a flagged starter who scored keeps his slot and is not counted). Lineup Boldness is
@@ -1481,7 +1481,7 @@ guard-skipped fire), 581→584 (#453), 584→589 (#454), 589→597 (#455).
     the change.
 
 ## Sleeper projection columns (from the #480 projection-band work)
-- [ ] **Sleeper's own weekly projections as columns** [per user, 2026-10-07: "make sleeper
+- [x] **Sleeper's own weekly projections as columns** [per user, 2026-10-07: "make sleeper
   projection columns"]. Source: `api.sleeper.com/projections/nfl/{season}/{week}?season_type=regular&position[]=QB|RB|WR|TE`
   (undocumented — the endpoint Sleeper's app uses; Rotowire). Week-specific back to 2018,
   thin in 2018 (~85 WRs/wk), full from 2019; verified NOT today's numbers re-served (per-week
@@ -1574,7 +1574,7 @@ guard-skipped fire), 581→584 (#453), 584→589 (#454), 589→597 (#455).
     the yearly refit.
 
 ## Projections framework: Sleeper, Claude, Enhanced [per user, 2026-10-07 — next PR after #480]
-- [ ] **Framework + cache.** Build-side fetch + `.cache` for Sleeper projections
+- [x] **Framework + cache.** Build-side fetch + `.cache` for Sleeper projections
   (api.sleeper.com, 4 req/week), ESPN projections (1 req/week), FantasyPros weekly ECR
   (DynastyProcess db_fpecr — or a slimmer weekly file), Vegas lines (nflverse schedule,
   already cached); each degrades to missing (never 0) when unreachable. New
@@ -1585,7 +1585,7 @@ guard-skipped fire), 581→584 (#453), 584→589 (#454), 589→597 (#455).
   - **Sleeper** = Sleeper's own projection; where Sleeper has none or a weird one (no
     pts_ppr / adp-only, ~0 for a player not ruled out — Brady 2021 etc.) → "weakened"
     Enhanced (the same model fitted WITHOUT Sleeper), then Claude.
-- [ ] **Everything that uses a projection switches to Enhanced** (with that fallback).
+- [x] **Everything that uses a projection switches to Enhanced** (with that fallback).
   Comeback size's projection band → 1.6·√n on Enhanced [per user, 2026-10-07: "switch to
   1.6 since we switched to enhanced"]; its win-chance spread re-tuned 2.0 → 1.8.
   Comeback size + Boldness / Lineup Boldness are APPROVED [per user, 2026-10-07: "I've
@@ -1596,7 +1596,7 @@ guard-skipped fire), 581→584 (#453), 584→589 (#454), 589→597 (#455).
   Boldness / Lineup Boldness (re-fit bust odds) — confirm the list with the user before
   switching; PAE's career expectation and the forecast's season sims are different kinds
   of projection and stay as they are unless the user says otherwise.
-- [ ] **Columns**, X ∈ {Sleeper, Claude, Enhanced}:
+- [x] **Columns**, X ∈ {Sleeper, Claude, Enhanced}:
   - player_week / team_week / league_week: `X Projection`, `Points above X Projection`
     (can be negative), `Overachiever (X Projection)` [award: the week's highest Points above
     X Projection], `Underachiever (X Projection)` [award: the lowest], `Overachiever (X
@@ -1613,7 +1613,7 @@ guard-skipped fire), 581→584 (#453), 584→589 (#454), 589→597 (#455).
     80% — NOT near-identical, so all three keep their own parenthesised awards + streaks.
   - **Averages** [per user]: every rollup also gets average versions (avg X Projection,
     avg Points above X Projection per week).
-- [ ] **Projection versions of the stats that estimate a player's week** [per user,
+- [x] **Projection versions of the stats that estimate a player's week** [per user,
   2026-10-07: "a projection version (all 3) for any of the other stats … that use
   previous-5-games or other tools … some more advanced ones might be better to just
   replace with enhanced"]. Proposed (confirm with the user before building):
@@ -1630,7 +1630,7 @@ guard-skipped fire), 581→584 (#453), 584→589 (#454), 589→597 (#455).
   - User's call: add_drops / trades "PPG of 5 games before pickup / trade" — recent form,
     not a weekly estimate; an "X Projection at pickup" would be the projection version.
   - Leave: PAE, Tanking, KTC slot comparisons (not weekly score estimates).
-- [ ] **Other columns that could switch — user decisions 2026-10-07** (after a pros / cons /
+- [x] **Other columns that could switch — user decisions 2026-10-07** (after a pros / cons /
   methods list):
   1. team_week "Difference in pregame avg max PF from opponent": KEEP, ADD projection
      versions (×3).
@@ -1645,7 +1645,12 @@ guard-skipped fire), 581→584 (#453), 584→589 (#454), 589→597 (#455).
      BEFORE the known-out zeroing — never the 0-projection columns); maybe keep both
      Hardship and an Enhanced/Claude Hardship.
   7. Projected Max PF: no.  8. Combined (matchup) projection columns: ADD.  9. Forecast: no.
-- [ ] **App-style win % columns** [per user, 2026-10-07]: team_week Pre-week Win %,
+  - [ ] Leftover from 3 [found 2026-10-12]: the original startables column was NOT renamed
+    (player_week still has "Difference in averages of best/worst startables over previous 5
+    games"; the projection versions shipped as "Start/sit miss (X Projection)").
+  - [ ] Leftover from 5 [found 2026-10-12]: the Luck before/after numbers on an Enhanced
+    pregame estimate were never shown; Luck is unchanged.
+- [x] **App-style win % columns** [per user, 2026-10-07]: team_week Pre-week Win %,
   Difference in pre-week Win %, Pre-week / Largest / entering SNF / Monday / last game
   Win % overcome, each per projection (X Projection); team_year / team_all_time Avg
   pre-week Win %. Whole percents. Formula = the Sleeper app's, A^k / (A^k + B^k) on
@@ -1682,7 +1687,7 @@ guard-skipped fire), 581→584 (#453), 584→589 (#454), 589→597 (#455).
   4. Misses that no (k, power) clears: the formula's shape is off for those readings
      (e.g. a 99 → 100 the app shows only once every game is over) — look at which ones
      before changing anything.
-- [ ] **Comeback size (Sleeper projections)** [per user, 2026-10-07: keep separate from
+- [x] **Comeback size (Sleeper projections)** [per user, 2026-10-07: keep separate from
   Comeback size]: overall + entering SNF / Monday / last game, on Sleeper Projections
   and the app-style win % (z = Φ⁻¹(win %)); Comeback size itself stays on Enhanced and
   the calibrated Φ(z).
@@ -1808,8 +1813,8 @@ guard-skipped fire), 581→584 (#453), 584→589 (#454), 589→597 (#455).
     and a handful of Enhanced / Claude win % cells; transaction to-today values and the
     team_year skills built on them. Nothing UNEXPECTED (no column outside the projection
     chain or the size columns moved).
-- [ ] **Then: build time** — profile the build and cut it.
-- [ ] **Did not play → projects 0** [per user, 2026-10-07: "make that change to the
+- [x] **Then: build time** — profile the build and cut it.
+- [x] **Did not play → projects 0** [per user, 2026-10-07: "make that change to the
   projections, but not for the Hamlin game"]. From the Mendoza inquiry: Fernando Mendoza
   (2026 1.02, LV's QB3 behind Cousins / O'Connell, 0 snaps wks 1-4, on no injury report)
   projected 17.46 / 16.64 / 15.65 / 14.45 (Claude) as Oliverwkw's bench QB — Sleeper
@@ -1914,20 +1919,22 @@ guard-skipped fire), 581→584 (#453), 584→589 (#454), 589→597 (#455).
       709 11.5m / 710 7.7m, without 708 8.0m / 711 7.2m. The slow runs were slower in every
       phase #486 never touches; 710 v 711 differ 5-20% evenly across phases, and the dump step
       itself is 0.08s v 0.04s. Runner speed, not the code.
-  - **Options — user's call, none started** [logged per user, 2026-10-10]:
-    - [ ] **Fantasy starters keep their projection?** The zero-snap rule zeroes two
+  - **Options — user's call** [logged per user, 2026-10-10; decided 2026-10-12]:
+    - [x] **Fantasy starters keep their projection?** The zero-snap rule zeroes two
       fantasy STARTERS — Donovan Peoples-Jones (stevenb123) 2021 wk 7 (dressed, no snap;
       Enhanced 8.83) and Ronnie Rivers (plehv79) 2022 wk 9 (6.87) — which moves those
       team-weeks' projections, win %, opponent gaps, Combined, UPST and Comeback size.
       Option: exempt `Starter/Bench = Starter` rows from the rule (one condition in
       `projections.did_not_play`). Shipped as: zeroed.
-    - [ ] **The three benched QBs.** Kept by the QB-cameo role guard because they started
+      Decided [per user, 2026-10-12]: keep 0 — starters stay zeroed.
+    - [x] **The three benched QBs.** Kept by the QB-cameo role guard because they started
       their team's previous game, though benched before kickoff: Bryce Perkins 2022 wk 13,
       Malik Willis 2022 wk 10, Russell Wilson 2025 wk 4 (Dart named the starter). Option:
       zero them (needs a pre-kickoff "named starter" signal the snap counts do not carry —
       e.g. the team's QB in the game itself, which is hindsight, or a curated list).
       Shipped as: kept.
-    - [ ] **Bench shrink where Sleeper publishes no projection.** A missing Sleeper
+      Decided [per user, 2026-10-12]: keep their projection — stays as shipped.
+    - [x] **Bench shrink where Sleeper publishes no projection.** A missing Sleeper
       projection is a strong pre-kickoff "won't play" signal: 15.8% of such not-out rows
       are did-not-play v 0.6% where Sleeper has one (2020-25), but Enhanced reads a missing
       source as the average of the rest. After the #483 zeroing, BENCH rows with no Sleeper
@@ -1937,6 +1944,7 @@ guard-skipped fire), 581→584 (#453), 584→589 (#454), 589→597 (#455).
       miss, player Points above), not team projections / win % / Comeback size.
       Recommendation at the time: leave Enhanced as is. Options: build it (its own PR),
       or drop.
+      Decided [per user, 2026-10-12]: leave Enhanced as is — no shrink.
     - [ ] **Expected-snap-share projections** (the principled fix). Project a player from
       his expected playing time pre-kickoff — e.g. the projection × his share of the
       team's recent snaps at the position — so a QB2 projects ~0 BEFORE the game instead
