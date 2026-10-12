@@ -254,9 +254,9 @@ _PHRASING = {
     ("trades", "Asset difference in average age"): "Age change (received − sent assets)",
     ("add_drops", "Difference of averages"): "PPG difference (added − dropped player)",
     # [per user, 2026-10-07: "rename this so it's clearer what it is in the digest"]
-    ("player_week", "Difference in averages of best/worst startables over previous 5 games"):
+    ("player_week", "Start/sit miss (5-game avg)"):
         "Start/sit miss by previous 5-game averages",
-    ("player_week", "Difference in averages of best/worst startables over previous 5 games adjusted by position"):
+    ("player_week", "Start/sit miss (5-game avg) adjusted by position"):
         "position-adjusted start/sit miss by previous 5-game averages",
     ("add_drops", "Difference of averages adjusted by position"):
         "position-adjusted PPG difference (added − dropped player)",
@@ -4184,6 +4184,18 @@ _COUNT_RENAME_SHEETS = frozenset(("team_week", "team_year", "team_all_time",
                                   "league_week", "league_year", "league_all_time"))
 
 
+# Other renamed columns, by (sheet, old name) [per user, 2026-10-12: the 5-game
+# start/sit column took its projection siblings' "Start/sit miss" name]. Only
+# event boards carry them; migrated on read like the count columns above.
+_LEGACY_SHEET_COLUMNS = {
+    ("player_week", "Difference in averages of best/worst startables over previous 5 games"):
+        "Start/sit miss (5-game avg)",
+    ("player_week", "Difference in averages of best/worst startables over previous 5 games "
+                    "adjusted by position"):
+        "Start/sit miss (5-game avg) adjusted by position",
+}
+
+
 def migrate_count_column(column: str) -> str:
     """A pre-2026-09-26 team / league count column, or a #477 team_week comeback
     column renamed 2026-10-06, in today's name (idempotent)."""
@@ -4200,7 +4212,8 @@ def migrate_count_column(column: str) -> str:
 def migrate_snapshot_columns(snapshot: Optional[dict]) -> Optional[dict]:
     """`snapshot` with the renamed team / league count columns in today's names:
     the team_all_time ranks, the event boards on team / league sheets, and the
-    teams / league halves of the on-pace and single-season-record maps."""
+    teams / league halves of the on-pace and single-season-record maps — and
+    the `_LEGACY_SHEET_COLUMNS` renames on any sheet's event boards."""
     if not isinstance(snapshot, dict):
         return snapshot
     if isinstance(snapshot.get("teams"), dict):
@@ -4208,6 +4221,8 @@ def migrate_snapshot_columns(snapshot: Optional[dict]) -> Optional[dict]:
     for e in _snapshot_board_entries(snapshot):
         if isinstance(e, dict) and e.get("sheet") in _COUNT_RENAME_SHEETS:
             e["column"] = migrate_count_column(e.get("column"))
+        if isinstance(e, dict):
+            e["column"] = _LEGACY_SHEET_COLUMNS.get((e.get("sheet"), e.get("column")), e.get("column"))
     for part in ("pace", "yearly_records"):
         m = snapshot.get(part)
         if isinstance(m, dict):

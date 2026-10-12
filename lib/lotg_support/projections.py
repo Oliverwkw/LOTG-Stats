@@ -791,7 +791,7 @@ COMBINED_SPECS: Tuple[Tuple[str, str, str], ...] = tuple(
 
 
 def startsit_miss(pw: pd.DataFrame, pos_factor: Callable[[int, str], float]) -> pd.DataFrame:
-    """The 'best/worst startables over previous 5 games' comparison on each
+    """The 'Start/sit miss (5-game avg)' comparison on each
     projection instead of 5-game averages, against the SAME reference player
     (player_week "Reference player ID"): a starter's reference (the best
     startable bench player) minus him, a bench player minus his reference (the

@@ -862,6 +862,34 @@ def check_renamed_count_columns_keep_their_prior():
     return ok
 
 
+def check_startsit_column_rename_keeps_its_prior():
+    """The 5-game start/sit columns renamed 2026-10-12 ("Difference in averages
+    of best/worst startables over previous 5 games" -> "Start/sit miss (5-game
+    avg)", + its position-adjusted twin): their player_week boards keep their
+    prior; the same name on another sheet is left alone; idempotent."""
+    import json
+    old = "Difference in averages of best/worst startables over previous 5 games"
+    snap = {"event_board": [
+        {"sheet": "player_week", "column": old, "end": "low",
+         "key": "k1", "rank": 1, "label": "x", "value": -30.0},
+        {"sheet": "player_week", "column": old + " adjusted by position", "end": "high",
+         "key": "k2", "rank": 1, "label": "y", "value": 25.0},
+        {"sheet": "trades", "column": old, "end": "high",
+         "key": "k3", "rank": 1, "label": "z", "value": 1.0}]}
+    s = D.migrate_snapshot_columns(snap)
+    cols = [e["column"] for e in s["event_board"]]
+    ok = _ok("player_week boards renamed",
+             cols[:2] == ["Start/sit miss (5-game avg)",
+                          "Start/sit miss (5-game avg) adjusted by position"], str(cols))
+    ok &= _ok("other sheets untouched", cols[2] == old, str(cols))
+    ok &= _ok("idempotent", D.migrate_snapshot_columns(json.loads(json.dumps(s))) == s)
+    ok &= _ok("_prior_board finds the renamed slot",
+              ("player_week", "Start/sit miss (5-game avg)", "low") in D._prior_board(s["event_board"]))
+    ok &= _ok("digest phrasing follows the rename",
+              ("player_week", "Start/sit miss (5-game avg)") in D._PHRASING)
+    return ok
+
+
 def check_comeback_columns_renamed_and_high_end_only():
     """#477's comeback columns renamed 2026-10-06: the scale-preserving ones keep
     their board history; the 0-100 % columns (fractions now) start fresh; and
@@ -1482,6 +1510,7 @@ def run_all() -> bool:
         check_records_and_leaderboard_changes_are_four_parts,
         check_milestone_landing_exactly_does_not_echo,
         check_renamed_count_columns_keep_their_prior,
+        check_startsit_column_rename_keeps_its_prior,
         check_comeback_columns_renamed_and_high_end_only,
         check_digest_title,
         check_an_invisible_overtake_is_not_reported,

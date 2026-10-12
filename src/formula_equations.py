@@ -865,7 +865,7 @@ EQUATIONS = {
         'if ¬st(p,t,w): pts(p,w) − min{pts(s,w) : s ∈ S(t,w), p eligible for slot(s)} (empty slot = 0)',
     ('Reference player name', 'player_week'):
         "the argmax b (starter row) / argmin s (bench row) of the two equations above; 'Empty slot' if S(t,w) has a '0'",
-    ('Difference in averages of best/worst startables over previous 5 games', 'player_week'):
+    ('Start/sit miss (5-game avg)', 'player_week'):
         "avg5(p) − avg5(ref),  avg5(q) = mean of npts(q,·,·) over q's last 5 regular-season NFL games before week w (stat line or snap; snap-only = 0); ref = the best startable bench / worst benchable starter",
     ('Cuff adjusted difference', 'player_week'):
         '(pts(p,w) − pts(ref,w)) · (½ if ⟨Activated Cuff?⟩(p,w) else 1)',
@@ -1521,7 +1521,7 @@ EQUATIONS = {
         "Σ_{w ∈ U : st} pts(p,w)·F(y_w,pos p) / Σ_{w ∈ U} st,  U = p's tenure weeks on t (RUN encoding)",
     ('PPG as team starter adjusted by position this season', 'player_week'):
         'Σ_{w ∈ U ∩ y : st} pts(p,w)·F(y,pos p) / Σ_{w ∈ U ∩ y} st',
-    ('Difference in averages of best/worst startables over previous 5 games adjusted by position', 'player_week'):
+    ('Start/sit miss (5-game avg) adjusted by position', 'player_week'):
         'avg5(p)·F(y,pos p) − avg5(ref)·F(y,pos ref)',
     ('Cuff adjusted difference adjusted by position', 'player_week'):
         '(avg5(p)·F(y,pos p) − avg5(ref)·F(y,pos ref)) · (½ if ⟨Activated Cuff?⟩ else 1)',
