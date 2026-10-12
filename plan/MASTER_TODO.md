@@ -1653,36 +1653,35 @@ guard-skipped fire), 581→584 (#453), 584→589 (#454), 589→597 (#455).
   for all 40 matchups of 2026 weeks 5-14 (totals confirmed equal); every k in
   3.751-3.764 reproduces all 40 (3.81, from week 5 alone, was 1 high on 9 of them).
   `tests/test_win_pct.py` holds the 40.
-  **Open question — live win %:** the SNF / Monday / last-game "Win % overcome" columns
-  apply the same formula to live totals (points so far + remaining projections), which
-  ignores how little game is left — down 30 entering Monday with one starter projected
-  15 still reads ~37%, so late "overcome" values stay small (max ~0.67 entering SNF,
-  ~0.64 Monday / last game, 2020-26). Calibrated only on pre-week numbers; the user is
-  reading the app's live % during 2026 weeks 5+ to check.
+  **Live win % — RESOLVED [per user, 2026-10-11, PR "live win %"]:** the app grows surer
+  as the week is played. k = 3.757 / (1 − f)^0.6, f = share of the two projected totals
+  already scored; held to 1-99% while a game is left (`gametime.app_exponent`,
+  `APP_TIME_POWER`, `APP_MIN`). Fitted on 20 live week-5 readings (Saturday after TNF to
+  Sunday before SNF, f up to 0.74; BROsenzweig v Shmuel256 at f 0.74: 76.7 v the app's 77,
+  the fixed k said 63): with the 40 pre-week ones, 59 of 60 to the whole percent (the
+  60th 79.47 v 80). Pre-week columns unchanged; the live "Win % overcome" columns, Largest
+  and Comeback size (Sleeper Projection) grow (maxes ~0.65 → ~0.9; Sleeper size 0.53 → 1.35).
 
   **Tweaking the app-style win % (as more app readings come in):**
   1. Pre-week readings (before any game that week): append `(week, total A, total B,
-     app % for A)` to `APP_MATCHUPS` in `tests/test_win_pct.py`. Only rows where the
-     app's projected totals equal ours (the Sleeper Projection totals) — otherwise
-     enter the app's totals.
-     Live readings (mid-week): append `(label, app total A, app total B, app % for A)`
-     to `LIVE_MATCHUPS`, using the projected totals the app shows at that moment.
-  2. Run `python tests/test_win_pct.py`: it prints the exponent range that reproduces
-     every row ("pre-week fits k in", "live fits k in", "both fit k in") before the
-     tests.
-  3. A range that still contains `APP_WIN_EXPONENT` (lib/lotg_support/gametime.py):
-     nothing to do. A range that moved: set `APP_WIN_EXPONENT` to its middle and update
-     the fitted range in `test_exponent_sits_inside_the_fitted_range`, the gametime
-     comment, and the Formulas text / equation (src/formulas.py "Pre-week Win % (X
-     Projection)", src/formula_equations.py — both quote the number). This changes
-     every win % column and Comeback size (Sleeper projections) for all years: it is
-     a stat change, so it needs the user's approval, then a branch build.
-  4. No single exponent fits (the range prints None): the formula's shape is wrong.
-     If pre-week fits but live does not, the app's live % uses the time left — add a
-     live model (e.g. scale the exponent with how much of the projected points are
-     still to play, fitted on LIVE_MATCHUPS) for the SNF / Monday / last-game /
-     Largest overcome columns and Comeback size (Sleeper projections), keeping the
-     pre-week columns on this formula. That too needs the user's approval.
+     app % for A)` to `APP_MATCHUPS` in `tests/test_win_pct.py` (the app's totals if they
+     differ from ours). Live readings (mid-week): append `(label, A's projected total,
+     A's points so far, B's projected total, B's points so far, app % for A)` to
+     `LIVE_MATCHUPS`, as the app shows them at that moment.
+  2. Run `python tests/test_win_pct.py`: it prints the pre-week k range and the best
+     (k, time power) over every reading ("best leaves N of M off, at k …, time power …")
+     before the tests.
+  3. A best fit that still contains `APP_WIN_EXPONENT` / `APP_TIME_POWER`
+     (lib/lotg_support/gametime.py): nothing to do. One that moved: set them inside it and
+     update the ranges in `test_exponent_sits_inside_the_fitted_range`, the gametime
+     comment, and the Formulas text / equations (src/formulas.py "Pre-week Win % (X
+     Projection)" and "Win % overcome (X Projection)", src/formula_equations.py — they
+     quote the numbers). This changes win % columns and Comeback size (Sleeper
+     Projection) for all years: a stat change, so it needs the user's approval, then a
+     branch build.
+  4. Misses that no (k, power) clears: the formula's shape is off for those readings
+     (e.g. a 99 → 100 the app shows only once every game is over) — look at which ones
+     before changing anything.
 - [ ] **Comeback size (Sleeper projections)** [per user, 2026-10-07: keep separate from
   Comeback size]: overall + entering SNF / Monday / last game, on Sleeper Projections
   and the app-style win % (z = Φ⁻¹(win %)); Comeback size itself stays on Enhanced and
