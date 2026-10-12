@@ -1648,8 +1648,9 @@ guard-skipped fire), 581→584 (#453), 584→589 (#454), 589→597 (#455).
   - [ ] Leftover from 3 [found 2026-10-12]: the original startables column was NOT renamed
     (player_week still has "Difference in averages of best/worst startables over previous 5
     games"; the projection versions shipped as "Start/sit miss (X Projection)").
-  - [ ] Leftover from 5 [found 2026-10-12]: the Luck before/after numbers on an Enhanced
-    pregame estimate were never shown; Luck is unchanged.
+  - [x] Leftover from 5 [found 2026-10-12]: the Luck before/after numbers on an Enhanced
+    pregame estimate were never shown; Luck is unchanged. Decided [per user, 2026-10-12]:
+    no need — Luck stays as it is.
 - [x] **App-style win % columns** [per user, 2026-10-07]: team_week Pre-week Win %,
   Difference in pre-week Win %, Pre-week / Largest / entering SNF / Monday / last game
   Win % overcome, each per projection (X Projection); team_year / team_all_time Avg
@@ -1945,7 +1946,7 @@ guard-skipped fire), 581→584 (#453), 584→589 (#454), 589→597 (#455).
       Recommendation at the time: leave Enhanced as is. Options: build it (its own PR),
       or drop.
       Decided [per user, 2026-10-12]: leave Enhanced as is — no shrink.
-    - [ ] **Expected-snap-share projections** (the principled fix). Project a player from
+    - [x] **Expected-snap-share projections** (the principled fix). Project a player from
       his expected playing time pre-kickoff — e.g. the projection × his share of the
       team's recent snaps at the position — so a QB2 projects ~0 BEFORE the game instead
       of being zeroed after it. Pre-kickoff, so no hindsight; would change Claude and
@@ -1954,19 +1955,37 @@ guard-skipped fire), 581→584 (#453), 584→589 (#454), 589→597 (#455).
       Also: the Claude projection CLIMBS while a backup sits (Desmond Ridder 2022
       7.89 → 13.28 over wks 1-13 without a snap) as his rookie-slot prior fades toward a
       QB average — this would fix that too. Large; a phase of its own.
+      **Decided [per user, 2026-10-12]: don't build — the effect is negligible.** Inquiry
+      estimate (scratch, not shipped): pre-kickoff share = mean offense snap % over the
+      player's last 3 team games (2021-25 snap counts, gsis via the snapshot rosters +
+      DynastyProcess map, 99.98% of player_week rows; the 4 unmapped are Jack Strand 2026
+      wks 1-4, a 2026 UDFA whose DP row has no sleeper_id yet), skipping weeks he was
+      Out / Doubtful / RES; factor = scored ÷ projected per position × share bucket, shrink
+      only, fitted season-held-out. Enhanced RMSE 7.129 → 7.127 (bench 6.361 → 6.344,
+      starters 7.981 → 7.993 — worse); Sleeper / Claude the same within ±0.02; 526 of
+      14,230 rows move > 1 pt; team projections / win % / Comeback size barely move. Why:
+      #483's hindsight zeroing already takes the 253 did-not-play rows, and only 55% of them
+      looked < 10% share pre-kickoff, so the snap signal cannot replace the zeroing. It
+      also misfires on injury returns and new starters (Kyler Murray 2021 wk 13 28.82,
+      Jameis Winston 2021 wk 1 29.62). Keep the zeroing as is.
   - **Follow-ups from the inquiries that led here — optional** [logged per user,
     2026-10-10]:
     - [ ] A `plan/notes/` write-up of the 2026-10-07 inquiry answers: best / worst of
       every column added 2026-10-06/07 (#479-#482; 2026 excluded from year sheets,
       minimum-sample versions of the player averages), the records held by 2026 rows,
       the ongoing streaks, and the Mendoza investigation.
-    - [ ] Helper (`lotg_support.analysis` + `inquire.py`): consecutive team-weeks beating /
+    - [x] Helper (`lotg_support.analysis` + `inquire.py`): consecutive team-weeks beating /
       missing each projection (Points above X > 0 / < 0), runs across seasons, active runs
       flagged. As of 2026 wk 4 (run 695): AceMatthew had beaten the Claude projection 10
       straight (record 11, stevenb123 2020 wk 14 – 2021 wk 8) — kept alive by +0.02 in the
       2025 Final; note the Claude projection's −1.27/starter bias makes "beating" it easy.
       Player-level version needs a rule for bye / injury weeks (bridge them, as the
       player_week streak columns do?).
+      **Merged #489 / `7b28d08`** (inquiry-only): `analysis.projection_streaks` +
+      `inquire.py streaks`, team and player level (starts only; bench weeks and dead
+      starts bridged), exact 0 ends a run; `check_streaks_reconcile` ties run lengths to
+      the Points above sign counts. Reproduces the stevenb123 11 record; AceMatthew's
+      Claude run is 10 and active (closest 0.05) as of 2026 wk 4.
 
 ## Game-time columns (from the 2026 wk 4 MNF-comeback inquiry)
 - [x] **player_week `Game slot` + team_week margins / comebacks by stage** [per user,
