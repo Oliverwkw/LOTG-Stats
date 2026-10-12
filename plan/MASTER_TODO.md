@@ -1770,7 +1770,7 @@ guard-skipped fire), 581→584 (#453), 584→589 (#454), 589→597 (#455).
     Boldness 2 rows, Boldness 1); 3 players' NFL team; transaction sheets' to-today PPG /
     tenure / O-Score and the team_year skills built on them (Drafting 21, Trading 16,
     Add/Drop 16 rows). Nothing UNEXPECTED.
-- [ ] **Comeback size split into comeback v choke** [per user, 2026-10-12: "If coming from
+- [x] **Comeback size split into comeback v choke** [per user, 2026-10-12: "If coming from
   down points, not expected to win, and win, its a comeback. If coming from up points, not
   expected to win, its a choke by the opponent"]. Scope [per user]: only the columns named
   "comeback" (the 12 Comeback size columns) — not the Win % overcome / Margin / Points
@@ -1787,6 +1787,27 @@ guard-skipped fire), 581→584 (#453), 584→589 (#454), 589→597 (#455).
   Choke size column = standard deviations × 100/3.5, capped at 100 (`SIZE_FULL_SCALE`); 2020-26's
   biggest (Enhanced, 2.9) reads 82.86. The Sleeper set's app-style win % is NOT held to 1-99%
   inside the size columns [per user, 2026-10-12], so it can pass Φ⁻¹(1%) = 2.33. `comeback_size(scaled=True)`; raw SD otherwise.
+- [x] **Merged #488 / `ec053ad`** (comeback v choke split; sizes out of 100, 3.5 SD = 100;
+  Sleeper size not held to the app's 1%) after branch runs 714 (cancelled) / 715
+  (artifacts checked). **3-part audit — PASS (2026-10-12): post-merge main run 716 v run 713.**
+  - Part 1: CI 671 passed / 2 standing skips (test_exports_match_the_recompute incl. the 12
+    Choke columns, test_comebacks_from_behind_chokes_from_ahead, test_comeback_size_bounds
+    PASSED); data-quality 0 ERROR / 0 WARN; exports committed (21b38f9). Run 716 = branch
+    run 715 on every team_week cell.
+  - Part 2 cases (all pass): (1) 12 Choke size columns, each set after its Comeback set;
+    (2) no choke on a winner; (3) nothing above 100, whole week ≥ every stage; (4) records
+    plehv79 2021 wk 5 = old SD × 100/3.5 (Claude 2.54 → 72.57; Enhanced 82.72 from the
+    unrounded 2.895; Sleeper 38.50); (5) chokes: Claude 86 rows (max shmuel256 2022 wk 8,
+    29.43), Enhanced 85 (plehv79 2022 wk 12, 34.68), Sleeper 90 (21.89); (6) Steve
+    (stevenb123) 2026 wk 4 = 0 in all 24 size columns.
+  - Part 3 (diff v 713): team_week +12 Choke columns; the 12 Comeback size columns split
+    and rescaled (intended). Live drift: run 713 ran during Sunday night's game, 715/716
+    after it — the boldness cuff calibration and the Enhanced fit read every season, so
+    Claude / Enhanced projections moved 0.01-0.02 on ~2,000 / ~1,600 player-weeks (mostly
+    2024-25) and with them Boldness, Lineup Boldness (131), Start/sit miss, Claude Hardship
+    and a handful of Enhanced / Claude win % cells; transaction to-today values and the
+    team_year skills built on them. Nothing UNEXPECTED (no column outside the projection
+    chain or the size columns moved).
 - [ ] **Then: build time** — profile the build and cut it.
 - [ ] **Did not play → projects 0** [per user, 2026-10-07: "make that change to the
   projections, but not for the Hamlin game"]. From the Mendoza inquiry: Fernando Mendoza
