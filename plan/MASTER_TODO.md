@@ -2158,7 +2158,7 @@ guard-skipped fire), 581→584 (#453), 584→589 (#454), 589→597 (#455).
     Schema unchanged.
 
 ## Podium columns (from the 2026-10-13 weekly top-3 streak inquiry)
-- [ ] **Podium? / Podium streak / Times Podium?** [per user, 2026-10-13: "call this podium,
+- [x] **Podium? / Podium streak / Times Podium?** [per user, 2026-10-13: "call this podium,
   so podium and podium streak. Same as top half but 3 instead of 4. All places where top
   half is tracked"]. The top-3 twin of the Top half family, same rules throughout:
   team_week `Podium?` = PF ≥ the week's 3rd-highest PF (ties shared, so a tie for 3rd
@@ -2180,7 +2180,25 @@ guard-skipped fire), 581→584 (#453), 584→589 (#454), 589→597 (#455).
     the build's flag uses PF with the bonus and all weeks, so streaks that touch a
     semifinal week can differ): stevenb123 2025 wk 5-10 (6), AceMatthew 2025 wk 11-16,
     shmuel256 2025 wk 1-5 (5), LWebs53 2022 wk 12 → 2023 wk 4 broken by 2022 wk 17 (4th).
-  - [ ] **3-part audit** (code / results / diff) on the first post-merge build.
-    Expected diff: the 4 new columns on team_week / team_year / team_all_time and their
-    Formulas rows, nothing else. The first Tuesday digest after merge lists the new
-    team_year column's on-pace standings once (new column vs the prior snapshot).
+  Merged #494 / `ca20df6`. Run 723 (post-merge, `ca20df6`) succeeded but did not commit
+  exports (non-roster churn, snapshot <6d) and its artifact is unreachable from the
+  session (blob host denied by the egress policy), so the audit uses forced-refresh run
+  724 (`6b0fe1b`, includes the merge; exports `bde48bb`) v run 722 (exports `bae943a`).
+  - [x] **3-part audit — PASS (2026-10-13): run 724 v run 722.**
+    - Part 1: 682 passed / 2 standing skips (incl. the 3 podium tests); 0 ERROR lines,
+      0 PerformanceWarnings, 0 tracebacks in run 724's build job.
+    - Part 2 cases (CI exports): Podium? = PF ≥ 3rd-highest on all 840 team-weeks; exactly
+      3 per week in all 105 weeks (no tie at 3rd yet); 0 podium rows outside the top half;
+      Times Podium? = Σ weekly (48 completed team-seasons, 8 all-time); stevenb123 2025 wk
+      10 = 6; AceMatthew 2025 wk 16 (Semifinal, bonus in) = 6 then 0 at wk 17 (4th);
+      shmuel256 2024 wk 16 Semifinal 166.18 not on it even with the +5; shmuel256 2026 wk 4
+      = 8 (active, the record; wk 3 'In Progress'), spanning 2025 wk 14 → 2026 wk 4;
+      columns sit right after their Top half twins; 3 Formulas rows present.
+    - Part 3 (`audit_weekly.py`, 4 flags, all classified live drift from the date
+      rolling to 2026-10-13, none from #494): KTC checkpoints coming due today (add_drops
+      Ray-Ray McCloud 2024-10-13 '2 years later' 459 → O-Score 33.0 → 27.9; trade
+      2025-10-13 '1 year later' ±244; player_additions 1/2/3-year KTC), the percentile
+      O-Score re-ranking ±0.1 on 104 trades / 58 add_drops rows, and the skill means
+      that average it (team_year 5, team_all_time 1); tenure lengths +1 day. team_week /
+      team_year / team_all_time: only the 4 new columns. Schema pin matches.
+    - 2026 wk 5 is not in either build (nflverse gate, `last_completed_week`).
