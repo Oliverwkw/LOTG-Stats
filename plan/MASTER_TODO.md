@@ -2204,7 +2204,7 @@ guard-skipped fire), 581→584 (#453), 584→589 (#454), 589→597 (#455).
     - 2026 wk 5 is not in either build (nflverse gate, `last_completed_week`).
 
 ## Filtered stats in the weekly email [per user, 2026-10-13]
-- [ ] **Digest-only "filtered stats"**: an exported column with a row filter, ranked
+- [x] **Digest-only "filtered stats"**: an exported column with a row filter, ranked
   in the email as if it were a column of its own (boards, records, single-week
   highlights, drop-offs) but never exported [per user: "stats like this that can be
   found by filtering columns and so don't get their own column, but which should
@@ -2234,3 +2234,15 @@ guard-skipped fire), 581→584 (#453), 584→589 (#454), 589→597 (#455).
   - Same PR fixes email percents to follow the workbook: Efficiency / Combined
     efficiency printed 0.99 as "0.99%" (now "99.00%"); "3-year roster retention
     rate" printed "22.99%" where the workbook shows 0.23 (now "0.23").
+  - **#495 merged (`00d9cbf`); 3-part audit PASS — post-merge run 728 (exports
+    `365cec8`) v run 724.** Code: build clean, schema pin (player_week `Win?`) holds,
+    693 passed / 2 expected skips; one PerformanceWarning from add_filtered_stats ->
+    fixed in #496. Results: player_week `Win?` = team_week on 22,625/22,625 rows,
+    winning weeks = All-time record wins for 8/8 teams, after Game slot in csv + xlsx;
+    digest reads "PF in a loss (199.48) — highest ever" (shmuel256 2026 wk 5, past
+    JacobRosenzweig's 195.56), ranks verified against the data, no line at an
+    excluded end, Efficiency printed as a percent. Branch run 726 caught on-pace
+    ranking both ends ("on pace for 5th-lowest Avg points by a rookie") — fixed
+    before merge, run 727 clean. Diff: only player_week `Win?` + 1 Formulas row from
+    the PR; everything else is 2026 wk 5 arriving + by-design re-ranking drift
+    (positional percentile, career averages, tier streaks, Luck).
