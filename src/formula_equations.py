@@ -729,6 +729,8 @@ EQUATIONS = {
         'RUN_t,w [PF/MaxPF(t,w) = min_u PF/MaxPF(u,w)]',
     ('Top half streak', 'team_week'):
         'RUN_t,w [PF(t,w) ≥ median_u PF(u,w)]',
+    ('Podium streak', 'team_week'):
+        'RUN_t,w [PF(t,w) ≥ 3rd-highest_u PF(u,w)]',
     ('One-man army streak', 'team_week'):
         'RUN_t,w ⟨One-man army?⟩',
     ('Most bench points streak', 'team_week'):
@@ -1075,6 +1077,10 @@ EQUATIONS = {
         '[PF(t,w) ≥ median_u PF(u,w)]',
     ('Times Top half of league?', 'team_year / team_all_time'):
         'Σ_w [PF(t,w) ≥ median_u PF(u,w)]',
+    ('Podium?', 'team_week'):
+        '[PF(t,w) ≥ 3rd-highest_u PF(u,w)]',
+    ('Times Podium?', 'team_year / team_all_time'):
+        'Σ_w [PF(t,w) ≥ 3rd-highest_u PF(u,w)]',
     ('Increase in points from previous week', 'team_week / league_week / league_year'):
         "PF(t,w) − PF(t,w−1)  (w = 1: previous season's last week); league: Σ_t; year = mean",
     ('Increase in efficiency from previous week', 'team_week'):
