@@ -66,6 +66,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import re
 import sys
 from datetime import date, datetime, timezone
 from pathlib import Path
@@ -109,6 +110,13 @@ def _esc(s: str) -> str:
     return (str(s).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;"))
 
 
+def _md(s: str) -> str:
+    """Escape, then render the audit report's markdown bold (`**name**`) as <b>.
+    The flags are written for the markdown report, so without this the email
+    showed the asterisks literally."""
+    return re.sub(r"\*\*(.+?)\*\*", r"<b>\1</b>", _esc(s))
+
+
 def _breakage_html(flags) -> str:
     if not flags:
         return ('<p style="color:#137333;margin:0;">✅ Nothing unaccounted for — '
@@ -130,9 +138,9 @@ def _breakage_html(flags) -> str:
             dropped = len(f["details"]) - len(shown)
             if dropped > 0:
                 shown.append(f"… and {dropped} more line(s)")
-            lis = "".join(f'<li style="margin:0;">{_esc(d)}</li>' for d in shown)
+            lis = "".join(f'<li style="margin:0;">{_md(d)}</li>' for d in shown)
             sub = f'<ul style="margin:2px 0 6px;padding-left:18px;color:#555;">{lis}</ul>'
-        items.append(f'<li style="margin:4px 0;">{_esc(f["text"])}{sec}{sub}</li>')
+        items.append(f'<li style="margin:4px 0;">{_md(f["text"])}{sec}{sub}</li>')
     return ('<ul style="margin:0;padding-left:20px;color:#8a1c1c;">'
             + "".join(items) + "</ul>")
 

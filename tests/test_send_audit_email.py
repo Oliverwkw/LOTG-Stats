@@ -77,6 +77,13 @@ def check_issues_email():
     ok &= _ok("breakage detail rendered with the moved column",
               "Year=2024 — PF: 100 → 999" in html)
     ok &= _ok("injury gap weeks rendered", "weeks 2, 3" in html)
+    # The audit writes its flags in markdown; the email must not show the asterisks.
+    _, bold, _ = E.render_email(flags=[{"section": "Part 2 — schema", "details": ["**x** <y>"],
+                                        "text": "**player_week**: 3 column(s) not in the pinned baseline"}],
+                                gaps={}, captures_present=True)
+    ok &= _ok("markdown bold rendered as <b>, no literal asterisks",
+              "<b>player_week</b>: 3 column(s)" in bold and "**" not in bold
+              and "<b>x</b> &lt;y&gt;" in bold)
     return ok
 
 
