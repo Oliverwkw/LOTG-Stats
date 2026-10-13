@@ -131,6 +131,23 @@ def test_percent_only_where_the_workbook_shows_one():
     assert D._fmt_stat("Win %", 0.5) == "50.00%"
 
 
+def test_on_pace_projects_one_end_only():
+    """player_year "Avg points by a rookie" is ranked high only, so a rookie on
+    pace for one of the LOWEST is not reported (the base column's board is)."""
+    rows = [{"Player": f"P{y}{i}", "Year": y, "Rookie?": True, "Avg points": float(5 + i)}
+            for y in (2023, 2024, 2025) for i in range(5)]
+    rows += [{"Player": "Low", "Year": 2026, "Rookie?": True, "Avg points": 0.5},
+             {"Player": "High", "Year": 2026, "Rookie?": True, "Avg points": 40.0}]
+    py = pd.DataFrame(rows)
+    frames = {"player_year": py}
+    F.add_filtered_stats(frames)
+    got = {(p.entity, p.column, p.end) for p in
+           D._project_frame("players", frames["player_year"], "Player", 2026, 2.0, 5)}
+    assert ("High", "Avg points by a rookie", "high") in got, got
+    assert ("Low", "Avg points by a rookie", "low") not in got, got
+    assert ("Low", "Avg points", "low") in got, got
+
+
 def _player_week():
     """Two teams' rosters for 2026 week 1 of `_team_week` (B lost, C won)."""
     return pd.DataFrame([

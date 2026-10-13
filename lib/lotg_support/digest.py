@@ -1162,17 +1162,21 @@ def _project_frame(
         high_rank = competition_ranks(pool, "high")
         low_rank = competition_ranks(pool, "low")
         total = len(pool)
+        # A filtered stat is projected at its one ranked end only
+        # (`filtered_stats`): "on pace for lowest Avg points by a rookie" is just
+        # the lowest Avg points.
+        one_end = _filtered.ranked_end(_SECTION_SHEET.get(("year", section), ""), col)
         for entity, projected in proj_by_entity:
             if counts[projected] > _MAX_HIGHLIGHT_TIES:
                 continue
             tied = counts[projected] > 1
-            if high_rank[projected] <= window:
+            if high_rank[projected] <= window and one_end != "low":
                 if _tie_fits(high_rank[projected], counts[projected], window):
                     projections.append(Projection(section, entity, col, "high",
                                                   high_rank[projected], total, projected,
                                                   tied=tied))
-            elif low_rank[projected] <= window and _tie_fits(low_rank[projected],
-                                                              counts[projected], window):
+            elif low_rank[projected] <= window and one_end != "high" \
+                    and _tie_fits(low_rank[projected], counts[projected], window):
                 projections.append(Projection(section, entity, col, "low",
                                               low_rank[projected], total, projected,
                                               tied=tied))
