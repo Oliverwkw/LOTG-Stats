@@ -46,6 +46,7 @@ import pandas as pd
 
 from .email_summary import NewData, attribute, stat_relevance
 from . import number_format as _number_format
+from . import filtered_stats as _filtered
 from . import gametime as _gametime
 
 
@@ -193,7 +194,8 @@ _PERCENT_COLUMNS: set = set()
 
 
 def note_percent_columns(frames: dict) -> set:
-    """Record which "%" / "rate" columns hold 0-1 fractions in EVERY sheet that
+    """Record which percent columns — a "%" in the name, or a column the workbook
+    formats as a percent (Efficiency) — hold 0-1 fractions in EVERY sheet that
     carries them (a name that is 0-100 anywhere is left alone), and return them."""
     fraction, scaled = set(), set()
     for df in (frames or {}).values():
@@ -201,7 +203,15 @@ def note_percent_columns(frames: dict) -> set:
             continue
         for c in df.columns:
             name = str(c).lower()
-            if "%" not in name and not name.endswith(" rate"):
+            # A "%" goes where the workbook shows one. Efficiency carries no "%"
+            # in its name but the workbook shows it as one ("0.00%", an Excel
+            # percent: the cell holds a 0-1 fraction), and so does a filtered
+            # stat of it ("Efficiency in a loss"); the email printed 0.99 as
+            # "0.99%". A " rate" the workbook shows as a plain 0.23 ("3-year
+            # roster retention rate") is printed as one, not as "22.99%".
+            fmt = _number_format.col_number_format(_filtered.base_column(str(c)) or str(c))
+            excel_pct = bool(fmt) and fmt.endswith("%") and not fmt.endswith('"%"')
+            if "%" not in name and not excel_pct:
                 continue
             s = numeric_series(df, c)
             if len(s) < 2:
@@ -217,7 +227,9 @@ def _fmt_stat(column: Optional[str], value: float) -> str:
     workbook's number format (`number_format.col_number_format` — 0 for counts
     and streaks, 4 for Tanking, 2 for everything else), with a "%" where the
     workbook shows one (a 0-1 fraction column printed x100). Thousands keep
-    their commas. A column the workbook leaves General falls back to `_fmt`."""
+    their commas. A column the workbook leaves General falls back to `_fmt`.
+    A filtered stat (`filtered_stats`) is printed as the column it filters."""
+    column = (_filtered.base_column(column) or column) if column else column
     fmt = _number_format.col_number_format(column) if column else None
     places = _number_format.decimals(fmt)
     fraction = column is not None and column in _PERCENT_COLUMNS
@@ -387,10 +399,21 @@ def low_on_board(sheet: str, column: str) -> bool:
     """Whether a column's LOW end is ranked on the all-time boards. Not for a
     season-accumulating count (its low end is the on-pace projection's), nor
     for what a comeback overcame (`gametime.HIGH_END_ONLY`: its low end is
-    0.1-point wins). One rule for the boards and the drop-off lookup."""
+    0.1-point wins), nor for a filtered stat ranked at its high end only
+    (`filtered_stats`). One rule for the boards, the single-week highlights and
+    the drop-off lookup."""
     if sheet in _YEARLY_SHEETS and is_yearly_counting_stat(column):
         return False
+    if _filtered.ranked_end(sheet, column) == "high":
+        return False
     return column not in _gametime.HIGH_END_ONLY
+
+
+def high_on_board(sheet: str, column: str) -> bool:
+    """Whether a column's HIGH end is ranked: every column's is, except a
+    filtered stat ranked at its low end only ("PF in a win": its high end is
+    just the highest PF)."""
+    return _filtered.ranked_end(sheet, column) != "low"
 
 
 # Columns with no rate marker that are still not tallies: a score, a value, a
@@ -1478,6 +1501,7 @@ def _highlights_for_frame(section: str, wk_df: pd.DataFrame, entity_col: str,
         # value shared by more than _MAX_HIGHLIGHT_TIES rows (that's how booleans
         # and heavily-tied cumulative extremes fall out — per the >5-tied rule).
         counts = _Counter(all_vals)
+        high_ranked = high_on_board(sheet, col)
         # Competition ("1224") ranks so tied weeks take up the requisite slots:
         # a two-way tie for the record makes the next value the 3rd-best ever.
         high_rank = competition_ranks(all_vals, "high")
@@ -1492,12 +1516,12 @@ def _highlights_for_frame(section: str, wk_df: pd.DataFrame, entity_col: str,
                 continue
             entity = str(r[entity_col]) if has_entity else "The league"
             tied = counts[v] > 1
-            if high_rank[v] <= window:
+            if high_rank[v] <= window and high_ranked:
                 if _tie_fits(high_rank[v], counts[v], window):
                     out.append(WeeklyHighlight(section, entity, col, "high", high_rank[v], v,
                                                week=int(week), tied=tied))
             elif (low_rank[v] <= window and _tie_fits(low_rank[v], counts[v], window)
-                  and col not in _gametime.HIGH_END_ONLY):   # 0.1-pt "comebacks"
+                  and low_on_board(sheet, col)):   # e.g. 0.1-pt "comebacks"
                 out.append(WeeklyHighlight(section, entity, col, "low", low_rank[v], v,
                                            week=int(week), tied=tied))
     return out
@@ -2218,12 +2242,14 @@ def board_highlights(df: pd.DataFrame, sheet: str, window: int = WINDOW,
         # artifact, not a record. Only its HIGH end stays here. Same for what a
         # comeback overcame (gametime.HIGH_END_ONLY): its low end is 0.1-point wins.
         low_ranked = low_on_board(sheet, col)
-        hi = _board_places(hi_s, "high", window, max_ties)
+        high_ranked = high_on_board(sheet, col)
+        hi = _board_places(hi_s, "high", window, max_ties) if high_ranked else {}
         # The high end wins when a value qualifies at both (a short board where
         # the top and bottom five overlap).
         lo = ({v: r for v, r in _board_places(lo_s, "low", window, max_ties).items()
                if v not in hi} if low_ranked else {})
-        hi_o = _overflow_places(hi_s, "high", window, max_ties) if overflow else {}
+        hi_o = (_overflow_places(hi_s, "high", window, max_ties)
+                if overflow and high_ranked else {})
         lo_o = ({v: r for v, r in _overflow_places(lo_s, "low", window, max_ties).items()
                  if v not in hi and v not in hi_o}
                 if overflow and low_ranked else {})
@@ -3210,8 +3236,9 @@ def board_value_lookup(frames: dict, gate: Optional[BoardGate] = None):
             out = pd.Series(dtype=float)
             if df is not None and not df.empty and column in df.columns:
                 out = rankable_series(df, column, column in mirrored_columns(df, sheet), sheet)
-                if end == "low" and not low_on_board(sheet, column):
-                    out = pd.Series(dtype=float)       # no low board for these
+                if (end == "low" and not low_on_board(sheet, column)) \
+                        or (end == "high" and not high_on_board(sheet, column)):
+                    out = pd.Series(dtype=float)       # no board at this end
                 held = gate.restricted(df, sheet, column) if gate is not None else None
                 if held is not None and not out.empty \
                         and not (end == "high" and is_counting_stat(column)):
