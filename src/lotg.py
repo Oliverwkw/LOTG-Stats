@@ -6822,6 +6822,7 @@ def build_all(repo_root: Path) -> None:
                         "Win streak counting previous season": None,
                         "Loss streak counting previous season": None,
                         "Top half of league?": None,
+                        "Podium?": None,
                         "Highest score?": None,
                         "Lowest score?": None,
                         "Narrowest victory?": None,
@@ -15014,6 +15015,7 @@ def build_all(repo_root: Path) -> None:
         tw["Most efficient?"] = 0
         tw["Least efficient?"] = 0
         tw["Top half of league?"] = 0
+        tw["Podium?"] = 0
 
         for (yr, wk), g in tw.groupby(["Year", "Week"]):
             g2 = g.copy()
@@ -15044,6 +15046,10 @@ def build_all(repo_root: Path) -> None:
                 # top half of league by PF
                 median_pf = g2["PF"].median()
                 tw.loc[(tw["Year"] == yr) & (tw["Week"] == wk) & (tw["PF"] >= median_pf), "Top half of league?"] = 1
+
+                # podium: top 3 of the league by PF (ties at 3rd shared)
+                third_pf = g2["PF"].nlargest(3).min()
+                tw.loc[(tw["Year"] == yr) & (tw["Week"] == wk) & (tw["PF"] >= third_pf), "Podium?"] = 1
 
         # Three new weekly team awards derived from player_week:
         #   One-man army?  = the team whose single top starter supplied the
@@ -15130,6 +15136,7 @@ def build_all(repo_root: Path) -> None:
             ("Most efficient?", "Most efficient streak"),
             ("Least efficient?", "Least efficient streak"),
             ("Top half of league?", "Top half streak"),
+            ("Podium?", "Podium streak"),
             ("One-man army?", "One-man army streak"),
             ("Most bench points?", "Most bench points streak"),
             ("Most injured?", "Most injured streak"),
@@ -15161,6 +15168,9 @@ def build_all(repo_root: Path) -> None:
         _ts_dedicated = ["Bottom half streak", "150+ PF streak",
                          "Standings leader streak", "Quiet streak",
                          "Win streak vs this opponent"]
+        # The flag/award columns above were added one at a time; consolidate
+        # before adding ~25 more so pandas does not warn about fragmentation.
+        tw = tw.copy()
         for _fc, _sc in _team_award_streaks:
             tw[_sc] = 0
         for _sc in _ts_dedicated:
@@ -18339,6 +18349,7 @@ def build_all(repo_root: Path) -> None:
                     "Times Most efficient?": ("Most efficient?", "sum"),
                     "Times Least efficient?": ("Least efficient?", "sum"),
                     "Times Top half of league?": ("Top half of league?", "sum"),
+                    "Times Podium?": ("Podium?", "sum"),
                     "Times One-man army?": ("One-man army?", "sum"),
                     "Times Most bench points?": ("Most bench points?", "sum"),
                     "Times Most injured?": ("Most injured?", "sum"),
@@ -18773,6 +18784,7 @@ def build_all(repo_root: Path) -> None:
                     "Times Most efficient?": ("Most efficient?", "sum"),
                     "Times Least efficient?": ("Least efficient?", "sum"),
                     "Times Top half of league?": ("Top half of league?", "sum"),
+                    "Times Podium?": ("Podium?", "sum"),
                     "Times One-man army?": ("One-man army?", "sum"),
                     "Times Most bench points?": ("Most bench points?", "sum"),
                     "Times Most injured?": ("Most injured?", "sum"),

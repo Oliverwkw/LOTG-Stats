@@ -2156,3 +2156,31 @@ guard-skipped fire), 581→584 (#453), 584→589 (#454), 589→597 (#455).
     (intended); add_drops / player_additions 6 rows, KTC only (daily KTC roll + the Will
     Shipley waiver's KTC at pickup 0.0 → 1785, filled in since run 679) — live drift.
     Schema unchanged.
+
+## Podium columns (from the 2026-10-13 weekly top-3 streak inquiry)
+- [ ] **Podium? / Podium streak / Times Podium?** [per user, 2026-10-13: "call this podium,
+  so podium and podium streak. Same as top half but 3 instead of 4. All places where top
+  half is tracked"]. The top-3 twin of the Top half family, same rules throughout:
+  team_week `Podium?` = PF ≥ the week's 3rd-highest PF (ties shared, so a tie for 3rd
+  puts 4+ teams on it; PF keeps the +5 semifinal bonus; every week counts, playoffs and
+  toilet bracket included); `Podium streak` = all-time run of Podium? weeks (no season
+  reset), terminal-encoded via `_team_award_streaks`; `Times Podium?` on team_year +
+  team_all_time = Σ weekly. Each column sits right after its Top half counterpart. No
+  Bottom-half-style inverse (Top half's dedicated `Bottom half streak` is not mirrored —
+  not asked for). Plan CSV + `stats_catalog.json` + Formulas + equations + schema pin +
+  phrasing reference rows; the digest picks the columns up by name (no change). Guard:
+  `tests/test_podium_columns.py` recomputes all three from team_week PF (skips on
+  pre-merge exports; fails on a partial set). Also `tw = tw.copy()` before the streak
+  columns are added: the one extra flag pushed team_week past pandas' fragmentation
+  threshold (a new PerformanceWarning at the `tw[_sc] = 0` loop); output-neutral.
+  - Offline smoke test (NOT the audit — see the top of this file): this branch v main,
+    both offline-built: every sheet cell-for-cell identical except the 4 new columns and
+    3 new Formulas rows; 303 podium finishes in 101 weeks (no ties at 3rd).
+  - Inquiry figures to check in the results audit (regular-season ranks, bonus removed —
+    the build's flag uses PF with the bonus and all weeks, so streaks that touch a
+    semifinal week can differ): stevenb123 2025 wk 5-10 (6), AceMatthew 2025 wk 11-16,
+    shmuel256 2025 wk 1-5 (5), LWebs53 2022 wk 12 → 2023 wk 4 broken by 2022 wk 17 (4th).
+  - [ ] **3-part audit** (code / results / diff) on the first post-merge build.
+    Expected diff: the 4 new columns on team_week / team_year / team_all_time and their
+    Formulas rows, nothing else. The first Tuesday digest after merge lists the new
+    team_year column's on-pace standings once (new column vs the prior snapshot).
