@@ -999,6 +999,8 @@ EQUATIONS = {
         "μ(p,w) = CP(p,w) (0 if out: flagged ∧ pts = 0), else (Σ_{w'<w, same season} pts(p,w') + 4·avg_{y−1}(p) + 6·m_pos(<w)) / (n + 4·[played y−1] + 6); z(T) = (IN(t,w,T) − IN(o,w,T) + Σ_{p ∈ S(t,w), ko ≥ T} μ − Σ_{p ∈ S(o,w), ko ≥ T} μ) / (2.0·√Σ_{p ∈ S(t,w) ∪ S(o,w), ko ≥ T, not out} max(μ,1)); own share s(i,j) = clip(A / (A + B), 0, 1), A = Σ_{own, T_i ≤ ko < T_j} (pts − μ), B = Σ_{opp, T_i ≤ ko < T_j} (μ − pts) (0 when A + B ≤ 0); zb(T) = z(T) with the numerator − 2.5·√|{p left, not out}| when IN(t,w,T) < IN(o,w,T), else z(T); size = min(100, (100/3.5) · max_{i<j: IN(t,w,T_i) < IN(o,w,T_i)} max(0, −zb(T_i)) · Φ(z(T_j)) · (¼ + ¾·s(i,j))), Φ(z(T_end)) ↦ win(t,w); T over kickoff windows (a ko opens one iff ≥ 3h after the previous ko); stage: i = T only; plain: T_i over every matchup window but the first",
     ('Win?', 'team_week'):
         'win(t,w) = [PF > PA] + ½[PF = PA]  (2026+ two-week final: PF summed over both weeks)',
+    ('Win?', 'player_week'):
+        'win(t,w), t = the team rostering p in week w  — ⟨Win?⟩ (team_week)',
     ('Efficiency', 'team_week / team_year / team_all_time / league_week / league_year / league_all_time'):
         'PF / MaxPF  (period: Σ PF / Σ MaxPF)',
     ('Boldness', 'player_week'):

@@ -131,6 +131,63 @@ def test_percent_only_where_the_workbook_shows_one():
     assert D._fmt_stat("Win %", 0.5) == "50.00%"
 
 
+def _player_week():
+    """Two teams' rosters for 2026 week 1 of `_team_week` (B lost, C won)."""
+    return pd.DataFrame([
+        {"Player": "QB1", "Team": "B", "Year": 2026, "Week": 1, "Starter/Bench": "Starter",
+         "Position": "QB", "Rookie?": False, "Points": 40.0},
+        {"Player": "RB1", "Team": "B", "Year": 2026, "Week": 1, "Starter/Bench": "Bench",
+         "Position": "RB", "Rookie?": True, "Points": 30.0},
+        {"Player": "WR1", "Team": "C", "Year": 2026, "Week": 1, "Starter/Bench": "Starter",
+         "Position": "WR", "Rookie?": True, "Points": 35.0},
+        {"Player": "TE1", "Team": "C", "Year": 2026, "Week": 1, "Starter/Bench": "Bench",
+         "Position": "TE", "Rookie?": False, "Points": 20.0},
+    ])
+
+
+def test_player_week_stats_by_role_position_and_result():
+    for with_column in (False, True):          # team_week lookup, then player_week's Win?
+        pw = _player_week()
+        if with_column:
+            pw["Win?"] = [False, False, True, True]
+        frames = {"team_week": _team_week(), "player_week": pw}
+        F.add_filtered_stats(frames)
+        pw = frames["player_week"].set_index("Player")
+
+        def has(col):
+            return sorted(pw.index[pw[col].notna()])
+        assert has("Points as starter") == ["QB1", "WR1"]
+        assert has("Points on bench") == ["RB1", "TE1"]
+        assert has("QB points") == ["QB1"] and has("QB points on bench") == []
+        assert has("RB points on bench") == ["RB1"] and has("WR points as starter") == ["WR1"]
+        assert has("Points by a rookie starter") == ["WR1"]
+        assert has("Points by a starter in a loss") == ["QB1"], with_column
+        assert has("Points on bench in a loss") == ["RB1"], with_column
+    # Every player_week stat is ranked at its high end only.
+    assert all(f.end == "high" for f in F.FILTERED_STATS if f.sheet == "player_week")
+
+
+def test_player_week_win_matches_team_week():
+    """The exported player_week `Win?` is its team's team_week result (build data)."""
+    pw_p, tw_p = _ROOT / "exports" / "player_week.csv", _ROOT / "exports" / "team_week.csv"
+    pw = pd.read_csv(pw_p, low_memory=False) if pw_p.exists() else None
+    if pw is None or "Win?" not in pw.columns:
+        try:
+            import pytest
+            pytest.skip("exports/ has no player_week Win? yet (built before the column)")
+        except ImportError:
+            print("  SKIP — exports/ has no player_week Win? yet")
+            return
+    tw = pd.read_csv(tw_p, low_memory=False)
+    keys = ["Team", "Year", "Week"]
+    m = pw[keys + ["Win?"]].merge(tw[keys + ["Win?"]], on=keys, how="left",
+                                  suffixes=("", "_team"))
+    done = pd.to_numeric(m["Year"], errors="coerce") < pd.to_numeric(m["Year"], errors="coerce").max()
+    assert len(m) == len(pw)
+    bad = m[done & (m["Win?"].astype(str) != m["Win?_team"].astype(str))]
+    assert bad.empty, bad.head()
+
+
 if __name__ == "__main__":
     fails = 0
     for name, fn in list(globals().items()):
@@ -141,4 +198,8 @@ if __name__ == "__main__":
             except AssertionError as exc:
                 fails += 1
                 print(f"  [FAIL] {name} — {exc}")
+            except BaseException as exc:      # pytest.skip outside pytest
+                if type(exc).__name__ != "Skipped":
+                    raise
+                print(f"  [SKIP] {name} — {exc}")
     sys.exit(1 if fails else 0)

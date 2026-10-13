@@ -34,31 +34,114 @@ def _result_is(df: pd.DataFrame, won: bool) -> pd.Series:
     return s.isin(("true", "1", "1.0") if won else ("false", "0", "0.0"))
 
 
+def _is(df: pd.DataFrame, column: str, value: str) -> pd.Series:
+    """Rows whose `column` reads `value` (case-insensitive; "True" for a flag)."""
+    if column not in df.columns:
+        return pd.Series(False, index=df.index)
+    return df[column].astype(str).str.strip().str.lower() == value.lower()
+
+
+def _team_lost(df: pd.DataFrame, frames: dict) -> pd.Series:
+    """player_week rows whose team lost that week: its own `Win?` column, or
+    (exports built before it existed) team_week's by (Team, Year, Week)."""
+    if "Win?" in df.columns:
+        return _result_is(df, False)
+    tw = frames.get("team_week")
+    keys = ["Team", "Year", "Week"]
+    if tw is None or tw.empty or any(k not in df.columns or k not in tw.columns for k in keys):
+        return pd.Series(False, index=df.index)
+    lost = tw.loc[_result_is(tw, False), keys].drop_duplicates()
+    lost = set(map(tuple, lost.astype(str).values))
+    return pd.Series([tuple(r) in lost for r in df[keys].astype(str).values], index=df.index)
+
+
 @dataclass(frozen=True)
 class FilteredStat:
     sheet: str                                   # the sheet it is ranked on
     column: str                                  # its name in the email
     base: str                                    # the column it filters
-    keep: Callable[[pd.DataFrame], pd.Series]    # rows that count
+    keep: Callable[[pd.DataFrame, dict], pd.Series]   # rows that count (sheet, all frames)
     end: str                                     # "high" | "low": the end ranked
     description: str
 
 
+def _team(column, base, won, end, description):
+    return FilteredStat("team_week", column, base, lambda df, fr: _result_is(df, won),
+                        end, description)
+
+
+_POSITIONS = ("QB", "RB", "WR", "TE")
+
+
+def _player_week_stats():
+    """Points by role and position. Position is Sleeper's current one (the
+    playbook's position-drift trap applies)."""
+    starter = lambda df: _is(df, "Starter/Bench", "Starter")      # noqa: E731
+    bench = lambda df: _is(df, "Starter/Bench", "Bench")          # noqa: E731
+    out = [
+        FilteredStat("player_week", "Points as starter", "Points",
+                     lambda df, fr: starter(df), "high", "Most points by a starter."),
+        FilteredStat("player_week", "Points on bench", "Points",
+                     lambda df, fr: bench(df), "high", "Most points left on a bench."),
+    ]
+    for pos in _POSITIONS:
+        out += [
+            FilteredStat("player_week", f"{pos} points", "Points",
+                         lambda df, fr, pos=pos: _is(df, "Position", pos),
+                         "high", f"Most points by a {pos}, started or not."),
+            FilteredStat("player_week", f"{pos} points as starter", "Points",
+                         lambda df, fr, pos=pos: starter(df) & _is(df, "Position", pos),
+                         "high", f"Most points by a starting {pos}."),
+            FilteredStat("player_week", f"{pos} points on bench", "Points",
+                         lambda df, fr, pos=pos: bench(df) & _is(df, "Position", pos),
+                         "high", f"Most points by a benched {pos}."),
+        ]
+    out += [
+        FilteredStat("player_week", "Points by a rookie starter", "Points",
+                     lambda df, fr: starter(df) & _is(df, "Rookie?", "True"),
+                     "high", "Most points by a starting rookie."),
+        FilteredStat("player_week", "Points by a starter in a loss", "Points",
+                     lambda df, fr: starter(df) & _team_lost(df, fr),
+                     "high", "Most points by a starter whose team lost."),
+        FilteredStat("player_week", "Points on bench in a loss", "Points",
+                     lambda df, fr: bench(df) & _team_lost(df, fr),
+                     "high", "Most points left on the bench of a team that lost."),
+    ]
+    return out
+
+
 FILTERED_STATS = (
-    FilteredStat("team_week", "PF in a loss", "PF", lambda df: _result_is(df, False),
-                 "high", "Most points scored in a losing week."),
-    FilteredStat("team_week", "PF in a win", "PF", lambda df: _result_is(df, True),
-                 "low", "Fewest points scored in a winning week."),
-    FilteredStat("team_week", "Max PF in a loss", "Max PF", lambda df: _result_is(df, False),
-                 "high", "Highest optimal-lineup score in a losing week."),
-    FilteredStat("team_week", "Max PF in a win", "Max PF", lambda df: _result_is(df, True),
-                 "low", "Lowest optimal-lineup score in a winning week."),
-    FilteredStat("team_week", "Efficiency in a loss", "Efficiency",
-                 lambda df: _result_is(df, False),
-                 "high", "Best lineup efficiency (PF / Max PF) in a losing week."),
-    FilteredStat("team_week", "Efficiency in a win", "Efficiency",
-                 lambda df: _result_is(df, True),
-                 "low", "Worst lineup efficiency (PF / Max PF) in a winning week."),
+    _team("PF in a loss", "PF", False, "high", "Most points scored in a losing week."),
+    _team("PF in a win", "PF", True, "low", "Fewest points scored in a winning week."),
+    _team("Max PF in a loss", "Max PF", False, "high",
+          "Highest optimal-lineup score in a losing week."),
+    _team("Max PF in a win", "Max PF", True, "low",
+          "Lowest optimal-lineup score in a winning week."),
+    _team("Efficiency in a loss", "Efficiency", False, "high",
+          "Best lineup efficiency (PF / Max PF) in a losing week."),
+    _team("Efficiency in a win", "Efficiency", True, "low",
+          "Worst lineup efficiency (PF / Max PF) in a winning week."),
+    *(_team(f"Points from {p}s in a loss", f"Points from {p}s", False, "high",
+            f"Most points from {p}s in a losing week.") for p in _POSITIONS),
+    *(x for proj in ("Sleeper", "Claude", "Enhanced") for x in (
+        _team(f"Points above {proj} Projection in a loss", f"Points above {proj} Projection",
+              False, "high", f"Most points above the {proj} projection in a losing week."),
+        _team(f"Points above {proj} Projection in a win", f"Points above {proj} Projection",
+              True, "low", f"Furthest below the {proj} projection in a winning week."))),
+    _team("Lineup Boldness in a win", "Lineup Boldness", True, "high",
+          "Boldest lineup that won."),
+    _team("Lineup Boldness in a loss", "Lineup Boldness", False, "high",
+          "Boldest lineup that lost."),
+    _team("Players under 10 pts (starters) in a win", "Players under 10 pts (starters)", True,
+          "high", "Most starters under 10 points in a winning week."),
+    _team("Players over 30 pts (starters) in a loss", "Players over 30 pts (starters)", False,
+          "high", "Most 30-point starters in a losing week."),
+    _team("Number of rookies started in a win", "Number of rookies started", True, "high",
+          "Most rookies started in a winning week."),
+    *_player_week_stats(),
+    FilteredStat("player_year", "Avg points by a rookie", "Avg points",
+                 lambda df, fr: _is(df, "Rookie?", "True"), "high",
+                 "Best points per game in a rookie season."),
 )
 
 _BY_KEY: Dict[tuple, FilteredStat] = {(f.sheet, f.column): f for f in FILTERED_STATS}
@@ -88,6 +171,6 @@ def add_filtered_stats(frames: dict) -> List[str]:
         if df is None or df.empty or f.base not in df.columns:
             continue
         base = pd.to_numeric(df[f.base], errors="coerce")
-        df[f.column] = base.where(f.keep(df).astype(bool))
+        df[f.column] = base.where(f.keep(df, frames).astype(bool))
         added.append(f.column)
     return added

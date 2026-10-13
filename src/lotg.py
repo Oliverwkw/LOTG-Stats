@@ -23164,6 +23164,23 @@ def build_all(repo_root: Path) -> None:
     except Exception as e:
         _log_exc(debug, "projection_rollups", e)
 
+    # player_week "Win?": the player's team's result that week, read from
+    # team_week [per user, 2026-10-13: "for easy use, add a win-loss column to
+    # player week"]. Added here, at write time, so no helper above that merges
+    # player_week with team_week sees two "Win?" columns.
+    try:
+        if (isinstance(pw, pd.DataFrame) and not pw.empty and isinstance(tw, pd.DataFrame)
+                and {"Team", "Year", "Week"}.issubset(pw.columns)
+                and {"Team", "Year", "Week", "Win?"}.issubset(tw.columns)):
+            _wk = lambda f: list(zip(f["Team"].astype(str),                     # noqa: E731
+                                     pd.to_numeric(f["Year"], errors="coerce"),
+                                     pd.to_numeric(f["Week"], errors="coerce")))
+            _team_result = dict(zip(_wk(tw), tw["Win?"]))
+            pw = pw.copy()
+            pw["Win?"] = [_team_result.get(k) for k in _wk(pw)]
+    except Exception as e:
+        _log_exc(debug, "player_week_win", e)
+
     context = {
         "player_week": pw,
         "player_year": player_year,

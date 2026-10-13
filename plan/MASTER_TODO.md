@@ -2217,6 +2217,20 @@ guard-skipped fire), 581→584 (#453), 584→589 (#454), 589→597 (#455).
   - team_week `Efficiency in a loss` (high) / `Efficiency in a win` (low)
   - Lowest PF / Efficiency in a win is shmuel256 2022 wk 16 — the thrown Toilet Semi;
     left on the board for now [per user].
+  - team_week, each `in a loss` (high) / `in a win` (low) unless noted: Points from
+    QBs/RBs/WRs/TEs in a loss; Points above Sleeper/Claude/Enhanced Projection in a
+    loss / in a win; Lineup Boldness in a win AND in a loss (both high); Players under
+    10 pts (starters) in a win; Players over 30 pts (starters) in a loss; Number of
+    rookies started in a win.
+  - player_week (all high): Points as starter / on bench; QB/RB/WR/TE points, … as
+    starter, … on bench; Points by a rookie starter; Points by a starter in a loss;
+    Points on bench in a loss. Position = Sleeper's current one (drift trap).
+  - player_year: Avg points by a rookie (high).
+  - Some boards share a #1 by construction (QB points = QB points as starter; Points
+    on bench = … in a loss) — one big week can read on two or three of them.
+  - **player_week `Win?`** (export column, after Game slot) — the team's result that
+    week [per user: "for easy use, add a win-loss column to player week"]; added at
+    write time from team_week. The "in a loss" player stats read it.
   - Same PR fixes email percents to follow the workbook: Efficiency / Combined
     efficiency printed 0.99 as "0.99%" (now "99.00%"); "3-year roster retention
     rate" printed "22.99%" where the workbook shows 0.23 (now "0.23").
