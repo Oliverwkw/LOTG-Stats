@@ -11080,6 +11080,8 @@ asset,target_date,quote_date_used,source,value
 4111,2025-12-28,,off-rolls,0.0
 4111,2026-04-23,,off-rolls,0.0
 4111,2026-09-05,,off-rolls,0.0
+4111,2026-10-13,2026-02-07,trailing-edge-carry,353.0
+4111,2026-10-13,2026-02-07,trailing-edge-carry,353.0
 4131,2020-09-09,2020-09-09,backfill-carry,7175.0
 4131,2020-09-09,2020-09-09,backfill-carry,7175.0
 4131,2020-09-09,2020-09-09,backfill-carry,7175.0
@@ -13342,6 +13344,9 @@ asset,target_date,quote_date_used,source,value
 4981,2026-08-07,2026-08-07,mirror,1718.0
 4981,2026-08-07,2026-08-07,mirror,1718.0
 4981,2026-08-07,2026-08-07,mirror,1718.0
+4981,2026-10-13,2026-10-12,trailing-edge-carry,1083.0
+4981,2026-10-13,2026-10-12,trailing-edge-carry,1083.0
+4981,2026-10-13,2026-10-12,trailing-edge-carry,1083.0
 4983,2020-09-09,2020-09-09,backfill-carry,7417.0
 4983,2020-09-09,2020-09-09,backfill-carry,7417.0
 4983,2020-09-09,2020-09-09,backfill-carry,7417.0
@@ -14466,6 +14471,8 @@ asset,target_date,quote_date_used,source,value
 5096,2026-09-12,,off-rolls,0.0
 5096,2026-09-12,,off-rolls,0.0
 5096,2026-09-25,,off-rolls,0.0
+5096,2026-10-13,2026-09-26,trailing-edge-carry,459.0
+5096,2026-10-13,2026-09-26,trailing-edge-carry,459.0
 5100,2020-11-28,2020-11-28,backfill-carry,658.0
 5100,2020-11-28,2020-11-28,backfill-carry,658.0
 5100,2020-12-04,2020-12-04,backfill-carry,622.0
@@ -15174,6 +15181,7 @@ asset,target_date,quote_date_used,source,value
 5248,2026-09-15,,off-rolls,0.0
 5248,2026-09-22,,off-rolls,0.0
 5248,2026-10-04,,off-rolls,0.0
+5248,2026-10-13,2026-01-06,trailing-edge-carry,354.0
 5257,2023-11-29,2023-11-29,mirror,355.0
 5257,2023-11-29,2023-11-29,mirror,355.0
 5257,2023-12-06,2023-12-06,mirror,297.0
@@ -17345,6 +17353,7 @@ asset,target_date,quote_date_used,source,value
 5987,2026-08-06,2026-08-06,mirror,750.0
 5987,2026-08-06,2026-08-06,mirror,750.0
 5987,2026-08-06,2026-08-06,mirror,750.0
+5987,2026-10-13,2026-10-07,trailing-edge-carry,453.0
 5995,2022-09-29,2022-09-29,mirror,874.0
 5995,2022-09-29,2022-09-29,mirror,874.0
 5995,2022-10-07,2022-10-07,mirror,1172.0
@@ -17437,6 +17446,7 @@ asset,target_date,quote_date_used,source,value
 5995,2026-10-09,2026-10-09,mirror,1541.0
 5995,2026-10-11,2026-10-11,mirror,1571.0
 5995,2026-10-11,2026-10-11,mirror,1571.0
+5995,2026-10-13,2026-10-12,trailing-edge-carry,1593.0
 6001,2020-09-26,2020-09-23,backfill-carry,306.0
 6001,2020-09-26,2020-09-23,backfill-carry,306.0
 6001,2020-10-15,2020-10-14,backfill-carry,1400.0
@@ -20697,6 +20707,7 @@ asset,target_date,quote_date_used,source,value
 6938,2026-09-24,,off-rolls,0.0
 6938,2026-09-27,,off-rolls,0.0
 6938,2026-09-27,,off-rolls,0.0
+6938,2026-10-13,2026-07-25,trailing-edge-carry,483.0
 6943,2021-09-15,2021-09-15,mirror,2943.0
 6943,2021-09-15,2021-09-15,mirror,2943.0
 6943,2021-09-23,2021-09-23,mirror,2306.0
@@ -23844,6 +23855,7 @@ asset,target_date,quote_date_used,source,value
 7611,2026-08-02,2026-08-02,mirror,3022.0
 7611,2026-08-02,2026-08-02,mirror,3022.0
 7611,2026-08-02,2026-08-02,mirror,3022.0
+7611,2026-10-13,2026-10-12,trailing-edge-carry,3205.0
 7612,2024-11-17,,off-rolls,0.0
 7612,2025-02-05,,off-rolls,0.0
 7612,2025-08-29,,off-rolls,0.0
@@ -24465,6 +24477,9 @@ asset,target_date,quote_date_used,source,value
 8122,2026-02-01,,off-rolls,0.0
 8122,2026-10-12,2026-10-12,mirror,839.0
 8122,2026-10-12,2026-10-12,mirror,839.0
+8122,2026-10-13,2026-10-12,trailing-edge-carry,839.0
+8122,2026-10-13,2026-10-12,trailing-edge-carry,839.0
+8122,2026-10-13,2026-10-12,trailing-edge-carry,839.0
 8123,2022-09-18,2022-09-18,mirror,1338.0
 8123,2022-09-18,2022-09-18,mirror,1338.0
 8123,2022-09-27,2022-09-27,mirror,1575.0
