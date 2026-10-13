@@ -41,6 +41,7 @@ import pandas as pd
 
 from lotg_support import digest as D
 from lotg_support import email_summary as DS
+from lotg_support.filtered_stats import add_filtered_stats
 
 _ROOT = Path(__file__).resolve().parent.parent
 
@@ -155,6 +156,10 @@ def main(argv=None) -> int:
     if any(frames[n].empty for n in required):
         print(f"[digest] no build found under {exports} — nothing to do.")
         return 0
+    # Stats that are an exported column with a row filter ("PF in a loss") have
+    # no column of their own; added here, they rank like every other column.
+    added = add_filtered_stats(frames)
+    print(f"[digest] {len(added)} filtered stat(s) added: {', '.join(added)}")
     # "% of points from WRs" is stored 0-1: print it as 10.4%, not a rounded 0.1.
     pct = D.note_percent_columns(frames)
     print(f"[digest] {len(pct)} percent column(s) stored as 0-1 fractions")

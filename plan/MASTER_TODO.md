@@ -2202,3 +2202,35 @@ guard-skipped fire), 581→584 (#453), 584→589 (#454), 589→597 (#455).
       that average it (team_year 5, team_all_time 1); tenure lengths +1 day. team_week /
       team_year / team_all_time: only the 4 new columns. Schema pin matches.
     - 2026 wk 5 is not in either build (nflverse gate, `last_completed_week`).
+
+## Filtered stats in the weekly email [per user, 2026-10-13]
+- [ ] **Digest-only "filtered stats"**: an exported column with a row filter, ranked
+  in the email as if it were a column of its own (boards, records, single-week
+  highlights, drop-offs) but never exported [per user: "stats like this that can be
+  found by filtering columns and so don't get their own column, but which should
+  appear in the weekly email ... as if they are columns like any other"]. The list
+  is `FILTERED_STATS` in `lib/lotg_support/filtered_stats.py`; each is ranked at ONE
+  end (the other end is the base column's own board over a subset). Printed in its
+  base column's number format.
+  - team_week `PF in a loss` (high) / `PF in a win` (low)
+  - team_week `Max PF in a loss` (high) / `Max PF in a win` (low)
+  - team_week `Efficiency in a loss` (high) / `Efficiency in a win` (low)
+  - Lowest PF / Efficiency in a win is shmuel256 2022 wk 16 — the thrown Toilet Semi;
+    left on the board for now [per user].
+  - team_week, each `in a loss` (high) / `in a win` (low) unless noted: Points from
+    QBs/RBs/WRs/TEs in a loss; Points above Sleeper/Claude/Enhanced Projection in a
+    loss / in a win; Lineup Boldness in a win AND in a loss (both high); Players under
+    10 pts (starters) in a win; Players over 30 pts (starters) in a loss; Number of
+    rookies started in a win.
+  - player_week (all high): Points as starter / on bench; QB/RB/WR/TE points, … as
+    starter, … on bench; Points by a rookie starter; Points by a starter in a loss;
+    Points on bench in a loss. Position = Sleeper's current one (drift trap).
+  - player_year: Avg points by a rookie (high).
+  - Some boards share a #1 by construction (QB points = QB points as starter; Points
+    on bench = … in a loss) — one big week can read on two or three of them.
+  - **player_week `Win?`** (export column, after Game slot) — the team's result that
+    week [per user: "for easy use, add a win-loss column to player week"]; added at
+    write time from team_week. The "in a loss" player stats read it.
+  - Same PR fixes email percents to follow the workbook: Efficiency / Combined
+    efficiency printed 0.99 as "0.99%" (now "99.00%"); "3-year roster retention
+    rate" printed "22.99%" where the workbook shows 0.23 (now "0.23").
