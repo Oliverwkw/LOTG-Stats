@@ -162,15 +162,21 @@ def base_column(column: str) -> Optional[str]:
 
 
 def add_filtered_stats(frames: dict) -> List[str]:
-    """Add every filtered stat to its sheet in `frames` (in place): the base
-    column's value on the rows it keeps, blank elsewhere. Returns the names
+    """Add every filtered stat to its sheet in `frames`: the base column's value
+    on the rows it keeps, blank elsewhere. Each sheet's new columns are joined
+    in one go (one at a time fragmented player_week: a pandas PerformanceWarning
+    in run 728's test log); `frames` gets the widened frame. Returns the names
     added; a stat whose sheet or base column is missing is skipped."""
-    added = []
+    added: List[str] = []
+    new: Dict[str, Dict[str, pd.Series]] = {}
     for f in FILTERED_STATS:
         df = frames.get(f.sheet)
         if df is None or df.empty or f.base not in df.columns:
             continue
         base = pd.to_numeric(df[f.base], errors="coerce")
-        df[f.column] = base.where(f.keep(df, frames).astype(bool))
+        new.setdefault(f.sheet, {})[f.column] = base.where(f.keep(df, frames).astype(bool))
         added.append(f.column)
+    for sheet, cols in new.items():
+        df = frames[sheet].drop(columns=[c for c in cols if c in frames[sheet].columns])
+        frames[sheet] = pd.concat([df, pd.DataFrame(cols, index=df.index)], axis=1)
     return added
