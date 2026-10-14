@@ -26,13 +26,21 @@ _BASES = ("Total weeks as team starter", "Total weeks on bench", "Weeks rostered
           "Total times highest starter on team", "Total times lowest starter on team")
 
 
+# Its player_additions name, where it differs from player_week's.
+_PA_NAME = {"% of team points on team": "All time % of team points"}
+
+
+def _pa(base):
+    return _PA_NAME.get(base, base) + _S
+
+
 def _load():
     pa_p, pw_p = _EXP / "player_additions.csv", _EXP / "player_week.csv"
     if not (pa_p.exists() and pw_p.exists()):
         print("  SKIP — exports absent")
         return None, None
     pa = pd.read_csv(pa_p, low_memory=False)
-    if "PPG as team starter" + _S not in pa.columns:
+    if "All time % of team points" + _S not in pa.columns:
         print("  SKIP — the multiple-stints family is not built yet")
         return None, None
     return pa, pd.read_csv(pw_p, low_memory=False)
@@ -44,7 +52,7 @@ def test_the_lifetime_family_left_player_week_for_player_additions():
         return
     for b in _BASES:
         assert b not in pw.columns, f"{b} still on player_week"
-        assert b + _S in pa.columns, f"{b}{_S} missing from player_additions"
+        assert _pa(b) in pa.columns, f"{_pa(b)} missing from player_additions"
         assert b + " this season" in pw.columns or b == "PPG as team starter adjusted by position", b
     assert "PPG as team starter adjusted by position this season" in pw.columns
 
@@ -90,7 +98,7 @@ def test_each_recomputes_from_player_week_on_the_latest_stint():
     latest = set(pa.assign(_k=key).drop_duplicates("_k", keep="last").index)
     bad, checked = [], {}
     for base, exp_s in want.items():
-        col = pa[base + _S]
+        col = pa[_pa(base)]
         tol = 0.00011 if base.startswith("%") else 0.011
         for i, k in enumerate(key):
             v, exp = col.iat[i], exp_s.get(k, np.nan)
@@ -124,4 +132,51 @@ if __name__ == "__main__":
     test_the_lifetime_family_left_player_week_for_player_additions()
     test_each_recomputes_from_player_week_on_the_latest_stint()
     test_the_adjusted_twin_is_blank_exactly_where_its_base_is()
+    test_the_per_stint_shares_add_up_and_recompute()
     print("PASS")
+
+
+def test_the_per_stint_shares_add_up_and_recompute():
+    """"% of team points" is this stint's starter points over the team's starter
+    points in the stint's own weeks; "All time % of team points" over the team's
+    all-time. A player-team's stints' all-time shares add to its "(multiple
+    stints)" one, and a single-stint player-team recomputes exactly."""
+    pa, pw = _load()
+    if pa is None or "% of team points" not in pa.columns:
+        return
+    per = pd.to_numeric(pa["% of team points"], errors="coerce")
+    allt = pd.to_numeric(pa["All time % of team points"], errors="coerce")
+    both = per.notna() & allt.notna()
+    assert both.sum() > 1000, int(both.sum())
+    assert (per[both] + 1e-4 >= allt[both]).all(), "a stint's share of its own weeks below its all-time share"
+    key = list(zip(pa["Team"].astype(str), pa["Player"].astype(str)))
+    pa = pa.assign(_k=key, _a=allt)
+    multi = pd.to_numeric(pa["All time % of team points" + _S], errors="coerce")
+    latest = pa.drop_duplicates("_k", keep="last").index
+    sums = pa.groupby("_k")["_a"].sum(min_count=1)
+    n_stints = pa.groupby("_k").size()
+    bad = [(k, multi[i], sums[k]) for i, k in zip(latest, pa.loc[latest, "_k"])
+           if pd.notna(multi[i]) and pd.notna(sums[k])
+           and abs(multi[i] - sums[k]) > 0.0001 * n_stints[k] + 0.0001]
+    assert not bad, bad[:10]
+    # One stint: its weeks are every player_week row of the pair.
+    pts = pd.to_numeric(pw["Points"], errors="coerce").fillna(0.0)
+    st = pw["Starter/Bench"].astype(str).eq("Starter")
+    w = pw.assign(_sp=pts.where(st, 0.0))
+    team_wk = w.groupby(["Team", "Year", "Week"])["_sp"].sum()
+    single = set(n_stints[n_stints == 1].index)
+    checked, bad = 0, []
+    for (t, p), g in w.groupby(["Team", "Player"]):
+        if (str(t), str(p)) not in single:
+            continue
+        i = pa.index[pa["_k"] == (str(t), str(p))][0]
+        if pd.isna(per[i]):
+            continue
+        den = sum(team_wk.get((t, y, k), 0.0) for y, k in zip(g["Year"], g["Week"]))
+        if den <= 0:
+            continue
+        checked += 1
+        if abs(per[i] - g["_sp"].sum() / den) > 0.00011:
+            bad.append(((t, p), per[i], round(g["_sp"].sum() / den, 4)))
+    assert checked > 300, checked
+    assert not bad, bad[:10]

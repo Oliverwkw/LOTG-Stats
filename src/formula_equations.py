@@ -848,7 +848,11 @@ EQUATIONS = {
     ('Per-team tenure metrics this season (terminal-encoded)', 'player_week'):
         "over p's weeks on t in season y, U = {w ∈ y : ro(p,t,w)}: % of starts = Σ_U st / |U|; % of team points = Σ_U st·pts(p,w) / Σ_{w ∈ y} Σ_{q ∈ S(t,w)} pts(q,w) (the team's whole season); weeks = |U|; points/PPG as starter = Σ_U st·pts, ÷ Σ_U st; bench = same with (1 − st); top/bottom starter weeks = Σ_U [p = argmax/argmin_{S(t,w)} pts]; value shown on his last week on t that season (RUN encoding)",
     ('Per-team tenure metrics over every stint (multiple stints)', 'player_additions'):
-        "over every week p was on t, all stints, U = {w : ro(p,t,w)}: % of starts = Σ_U st / |U|; % of team points = Σ_U st·pts(p,w) / Σ_w Σ_{q ∈ S(t,w)} pts(q,w) (all of t's seasons); weeks = |U|; points/PPG as starter = Σ_U st·pts, ÷ Σ_U st; bench = same with (1 − st); top/bottom starter weeks = Σ_U [p = argmax/argmin_{S(t,w)} pts]; on t's latest stint row for p, In Progress on its earlier ones",
+        "over every week p was on t, all stints, U = {w : ro(p,t,w)}: % of starts = Σ_U st / |U|; All time % of team points = Σ_U st·pts(p,w) / Σ_w Σ_{q ∈ S(t,w)} pts(q,w) (all of t's seasons); weeks = |U|; points/PPG as starter = Σ_U st·pts, ÷ Σ_U st; bench = same with (1 − st); top/bottom starter weeks = Σ_U [p = argmax/argmin_{S(t,w)} pts]; on t's latest stint row for p, In Progress on its earlier ones",
+    ('% of team points', 'player_additions'):
+        "Σ_{w ∈ V} st·pts(p,w) / Σ_{w ∈ V} Σ_{q ∈ S(t,w)} pts(q,w),  V = the stint's rostered weeks",
+    ('All time % of team points', 'player_additions'):
+        "Σ_{w ∈ V} st·pts(p,w) / Σ_w Σ_{q ∈ S(t,w)} pts(q,w),  V = the stint's rostered weeks, w over all of t's seasons",
     ('Player tenure totals (not per team)', 'player_year / player_all_time'):
         'rostered = Σ_w ro(p,·,w); % of starts = Σ st / Σ ro; total points as starter = Σ st·pts(p,w); % of league points = Σ st·pts / Σ_{t,w} Σ_{q ∈ S(t,w)} pts(q,w)',
     ('Healthy weeks rostered', 'player_year / player_all_time'):

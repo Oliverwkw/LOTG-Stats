@@ -1236,6 +1236,8 @@ def _col_topic(col: str, default: Optional[str] = "Identity") -> Optional[str]:
         return "Outcome"
     # player_additions' every-stint tenure columns: the weeks counts in its
     # Tenure block, the rest with its per-stint "Avg PPG on team" in Value.
+    if n in ("% of team points", "all time % of team points"):
+        return "Value"     # player_additions' per-stint shares, beside the every-stint one
     if n.endswith(" (multiple stints)"):
         base = n[: -len(" (multiple stints)")]
         return "Tenure" if base in ("total weeks as team starter", "total weeks on bench",
@@ -1337,6 +1339,7 @@ _TERMINAL_TEAM_TENURE_BASES = (
     "total points as team starter", "ppg as team starter",
     "ppg as team starter adjusted by position",
     "total times highest starter on team", "total times lowest starter on team",
+    "all time % of team points",
 )
 
 # The lifetime (every stint) player-team tenure family: off player_week, onto
@@ -1354,6 +1357,15 @@ _TEAM_TENURE_VALUE_COLS = ("% of starts on team", "% of team points on team",
                            "Total times highest starter on team",
                            "Total times lowest starter on team")
 _TEAM_TENURE_LIFETIME_COLS = _TEAM_TENURE_WEEK_COLS + _TEAM_TENURE_VALUE_COLS
+# Its name on player_additions, where it differs (user, 2026-10-13): the share is
+# of the team's points over ALL its seasons, so it says "all time" — beside the
+# per-stint "% of team points" (the team's points over that stint's weeks) and
+# "All time % of team points" (that stint's points / the team's all-time).
+_MULTI_STINT_NAMES = {"% of team points on team": "All time % of team points"}
+
+
+def _multi_stint_name(base: str) -> str:
+    return _MULTI_STINT_NAMES.get(base, base) + _MULTI_STINT_SFX
 
 
 def _is_terminal_team_col(col: str) -> bool:
@@ -10403,6 +10415,11 @@ def build_all(repo_root: Path) -> None:
     # was injured.
     # ------------------------------------------------------------------
     _CUFF_GAMES, _CUFF_MARGIN, _CUFF_TE_PPG, _CUFF_TOP_PICKS = 8, 3.0, 13.0, 12
+    # A reference who has not played for this long backs nobody up any more
+    # (user, 2026-10-13): Tank Dell's last game was 2024 week 16, and Jaylin Noel
+    # still read as his activated cuff in 2026 week 5. No other activation in the
+    # league's history came within months of it.
+    _CUFF_STALE_DAYS = 365
     _cuff_cache: Dict[str, Any] = {}
 
     def _cuff_utc(x: Any, eastern: bool = False) -> Optional[datetime]:
@@ -10584,6 +10601,23 @@ def build_all(repo_root: Path) -> None:
             _cuff_memo[_k] = [e for e in g if e[0] < day][-_CUFF_GAMES:]
         return _cuff_memo[_k]
 
+    def _cuff_last_game(sid: str, day: str) -> Optional[str]:
+        """The day of his last NFL game before `day`, or None."""
+        g = [e for e in _cuff_build()["games"].get(str(sid), []) if e[0] < day]
+        return g[-1][0] if g else None
+
+    def _cuff_stale(sid: str, day: str) -> bool:
+        """He last played more than `_CUFF_STALE_DAYS` before `day` (never having
+        played is not stale: a top-12 rookie pick qualifies before his debut)."""
+        last = _cuff_last_game(sid, day)
+        if not last:
+            return False
+        try:
+            return (date.fromisoformat(str(day)[:10]) - date.fromisoformat(str(last)[:10])).days \
+                > _CUFF_STALE_DAYS
+        except ValueError:
+            return False
+
     def _cuff_refs(pid: Any, day: str, roster: set, top: frozenset, first: bool = False) -> List[str]:
         """Which of `roster` make `pid` a handcuff on league day `day`: same NFL
         team and position, and 3+ PPG better than him, or 13 TE-equivalent, or
@@ -10598,6 +10632,8 @@ def build_all(repo_root: Path) -> None:
         out: List[str] = []
         for ref in sorted(roster):
             if ref == sid or (pid_pos.get(ref) or "").upper() != pos or _cuff_nfl_team(ref, day) != nfl:
+                continue
+            if _cuff_stale(ref, day):
                 continue
             hit = ref in top
             if not hit:
@@ -14431,6 +14467,23 @@ def build_all(repo_root: Path) -> None:
                         _cuff_utc(pd.Timestamp(_day, tz="America/New_York").to_pydatetime()))
                 _k = (str(_t), _yi, _wi)
                 _refs = _cuff_refs(str(_pp), _day, _wk_roster.get(_k, set()), _tops[(_yi, _wi)])
+                # While a teammate he backs up is OUT, he stays that teammate's
+                # cuff for the whole absence (user, 2026-10-13): the test is
+                # judged as of the teammate's last game, so the backup's own
+                # starts in the gap cannot argue him out of it. Jerome Ford read
+                # as Nick Chubb's activated cuff only in 2023 weeks 3, 4 and 7 —
+                # Chubb was out from week 2 — because each Ford start raised his
+                # own average toward Chubb's frozen one. Still capped by
+                # `_CUFF_STALE_DAYS` since that last game.
+                for _r in sorted(_wk_roster.get(_k, set())):
+                    if _r in _refs or _r == str(_pp) or (_k + (_r,)) not in _wk_injured:
+                        continue
+                    _last = _cuff_last_game(_r, _day)
+                    if not _last or _cuff_stale(_r, _day):
+                        continue
+                    _then = (date.fromisoformat(str(_last)[:10]) + timedelta(days=1)).isoformat()
+                    if _cuff_refs(str(_pp), _then, {_r}, _tops[(_yi, _wi)], first=True):
+                        _refs = list(_refs) + [_r]
                 if not _refs:
                     continue
                 cuff_rostered[pos_i] = 1
@@ -21335,6 +21388,16 @@ def build_all(repo_root: Path) -> None:
                 _pw_ten[_k].sort(key=lambda e: e["ed"])
     except Exception as e:
         _log_exc(debug, "pw_tenure_index", e)
+    # The team's starter points by (season, week) and over all its seasons:
+    # player_additions' "% of team points" (over the stint's weeks) and "All time
+    # % of team points" denominators — starter points, as the tenure family's.
+    _team_spts_yw: Dict[Tuple[str, Tuple[int, int]], float] = defaultdict(float)
+    _team_spts_all: Dict[str, float] = defaultdict(float)
+    for (_tk, _pk_), _es in _pw_ten.items():
+        for _e in _es:
+            if _e["starter"] and _e.get("yw"):
+                _team_spts_yw[(_tk, _e["yw"])] += _e["pts"]
+                _team_spts_all[_tk] += _e["pts"]
 
     _team_acq_cache: Dict[Tuple[str, str], List[str]] = {}
 
@@ -22328,6 +22391,15 @@ def build_all(repo_root: Path) -> None:
             out["Bench points on team"] = round(st["points_benched"], 2)
             out["Number of starts before next drop"] = n_start
             out["% of starts made while rostered"] = round(n_start / n_ros, 4) if n_ros else None
+            # His starter points this stint, as a share of the team's starter
+            # points over the stint's own weeks / over all the team's seasons.
+            _yws = {_yw for _yw, _p in st.get("held", [])}
+            _den = sum(_team_spts_yw.get((str(_team), _yw), 0.0) for _yw in _yws)
+            _all = _team_spts_all.get(str(_team), 0.0)
+            out["% of team points"] = (round(st["points_started"] / _den, 4)
+                                       if n_ros and _den > 0 else None)
+            out["All time % of team points"] = (round(st["points_started"] / _all, 4)
+                                                if n_ros and _all > 0 else None)
             out["Injury adjusted % of starts made while rostered"] = (
                 round(st["inj_starts"] / st["inj_weeks"], 4) if st["inj_weeks"] else None)
             avg_ppg = st["ppg"]
@@ -22472,6 +22544,8 @@ def build_all(repo_root: Path) -> None:
                 "% of starts made while rostered": sc.get("% of starts made while rostered"),
                 "Injury adjusted % of starts made while rostered":
                     sc.get("Injury adjusted % of starts made while rostered"),
+                "% of team points": sc.get("% of team points"),
+                "All time % of team points": sc.get("All time % of team points"),
                 "Avg PPG on team": sc.get("Avg PPG on team"),
                 "Avg PPG on team adjusted by position": sc.get("Avg PPG on team adjusted by position"),
                 "Points added": sc.get("Points added"),
@@ -23136,7 +23210,7 @@ def build_all(repo_root: Path) -> None:
                         for _i, _k in enumerate(_pa_key):
                             _v = (_team_tenure_lifetime.get(_k) or {}).get(_base)
                             _vals.append(None if _v is None else (_v if _i in _pa_latest else "In Progress"))
-                        player_additions.insert(_anchor + _j, _base + _MULTI_STINT_SFX, _vals)
+                        player_additions.insert(_anchor + _j, _multi_stint_name(_base), _vals)
             except Exception as _e_ms:
                 _log_exc(debug, "player_additions multi-stint tenure", _e_ms)
         _log(debug, f"[{_now_iso()}] INFO player_additions: {len(player_additions)} addition events "

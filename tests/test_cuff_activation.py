@@ -61,7 +61,56 @@ def test_cuffs_started_counts_distinct_activated_players():
     assert not bad, bad[:10]
 
 
+def _act(pw):
+    return pw[pd.to_numeric(pw[_ACT], errors="coerce").fillna(0) > 0]
+
+
+def test_a_cuff_stays_activated_for_the_whole_absence():
+    """Once activated by a teammate's injury, he is activated every week he
+    starts until that teammate plays again — his own play in the gap cannot argue
+    him out (user, 2026-10-13). Jerome Ford, Nick Chubb out from 2023 week 3."""
+    pw = _pw()
+    if pw is None:
+        return
+    act = _act(pw)
+    inj = pw[_flag(pw["Injury?"])]
+    k = ["Team", "NFL team", "Position"]
+    hurt = {}
+    for r in inj[k + ["Year", "Week", "Player"]].astype(str).values.tolist():
+        hurt.setdefault(tuple(r[:3]) + (r[3],), {}).setdefault(int(r[4]), set()).add(r[5])
+    starts = pw[pw["Starter/Bench"].astype(str).eq("Starter")]
+    started = set(map(tuple, starts[["Player", "Team", "Year", "Week"]].astype(str).values.tolist()))
+    activated = set(map(tuple, act[["Player", "Team", "Year", "Week"]].astype(str).values.tolist()))
+    missed = []
+    for p, t, y, w in sorted(activated):
+        nfl, pos = act.loc[(act["Player"].astype(str) == p) & (act["Team"].astype(str) == t)
+                           & (act["Year"].astype(str) == y) & (act["Week"].astype(str) == w),
+                           ["NFL team", "Position"]].astype(str).values[0]
+        spell = hurt.get((t, nfl, pos, y), {})
+        who = spell.get(int(w), set())
+        nxt = int(w) + 1
+        while who & spell.get(nxt, set()):      # the same teammate still out
+            who = who & spell[nxt]
+            if (p, t, y, str(nxt)) in started and (p, t, y, str(nxt)) not in activated:
+                missed.append((p, t, y, nxt))
+            nxt += 1
+    assert not missed, missed[:10]
+    ford = {int(w) for p, t, y, w in activated if p == "Jerome Ford" and y == "2023"}
+    assert {3, 4, 7} <= ford and len(ford) > 3, sorted(ford)
+
+
+def test_a_teammate_out_over_a_year_backs_nobody_up():
+    pw = _pw()
+    if pw is None:
+        return
+    act = _act(pw)
+    noel = act[(act["Player"] == "Jaylin Noel") & (act["Year"] == 2026)]
+    assert noel.empty, noel[["Week"]].values.tolist()
+
+
 if __name__ == "__main__":
+    test_a_cuff_stays_activated_for_the_whole_absence()
+    test_a_teammate_out_over_a_year_backs_nobody_up()
     test_every_activation_is_a_start_with_an_injured_teammate()
     test_cuffs_started_counts_distinct_activated_players()
     print("PASS")
