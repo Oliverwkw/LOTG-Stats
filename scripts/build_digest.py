@@ -240,6 +240,7 @@ def main(argv=None) -> int:
     )
     # A finished season keeps no on-pace standing to diff against.
     current["pace"] = D.pace_rank_map(projections) if in_pace else {}
+    meta[D.PACE_RULES_KEY] = D.PACE_RULES_VERSION
     print(f"[digest] on pace: {len(projections)} standing(s)"
           f"{' — full list resent' if pace_resend and not pace_final else ''}"
           f"{' — final standings' if pace_final else ''}")
@@ -320,6 +321,11 @@ def main(argv=None) -> int:
         dropped_pace = D.pace_dropouts(prior_pace, projections,
                                        {"league": D._league_window(frames["league_year"])}) \
             if in_pace else []
+        if not pace_resend:
+            n_pace = D.mark_pace_rule_change(prior, list(proj_changes) + list(dropped_pace))
+            if n_pace:
+                print(f"[digest] {n_pace} on-pace line(s) moved by an on-pace rule change "
+                      f"(digest.PACE_RULES_VERSION) -> edits section")
         prior_records = prior.get("yearly_records")
         if prior_records is None:
             print("[digest] baselining yearly records this week (no diff yet).")

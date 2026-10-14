@@ -90,7 +90,9 @@ def counted_summary(sections: Sequence[Tuple[str, str, list]]) -> str:
 
 def _short(title: str) -> str:
     """Section title as it reads mid-sentence: "All-time leaderboard moves —
-    draft picks" is "draft picks"."""
+    draft picks" is "draft picks"; "No longer on pace" is "the on-pace list"."""
+    if title.lower().startswith("no longer on pace"):
+        return "the on-pace list"
     return title.split("—")[-1].strip().rstrip(")").lower() if "—" in title else title.lower()
 
 

@@ -1167,6 +1167,9 @@ class Projection:
     projected: float
     final: bool = False  # season complete -> "finished Nth" instead of "on pace"
     tied: bool = False   # the projected value is shared on the board
+    # Moved only because the on-pace rules changed (`PACE_RULES_VERSION`): an
+    # edit, told in the edits section.
+    rule_release: bool = False
 
     def group(self) -> str:
         return "The league" if self.section == "league" else self.entity
@@ -1357,6 +1360,25 @@ def _league_window(league_year: pd.DataFrame) -> int:
     return min(LEAGUE_WINDOW_CAP, n_seasons // 3)
 
 
+# The on-pace rules a snapshot's standings were ranked under. Bump it whenever
+# `pace_mode` / `lotg_support.pace` changes what a column projects to: the next
+# digest then tells the standings that moved, and the ones that left, as edits
+# (`mark_pace_rule_change`) — not as league news.
+PACE_RULES_KEY = "pace_rules"
+PACE_RULES_VERSION = "2026-10-13"
+
+
+def mark_pace_rule_change(prior: Optional[dict], items: Sequence) -> int:
+    """Flag on-pace items as edits when the prior snapshot was ranked under other
+    pace rules; returns how many."""
+    then = ((prior or {}).get("meta", {}) or {}).get(PACE_RULES_KEY)
+    if prior is None or then == PACE_RULES_VERSION:
+        return 0
+    for it in items:
+        it.rule_release = True
+    return len(items)
+
+
 # Every this-many weeks after on-pace begins, the whole list goes out again
 # (user, 2026-10-13: weeks 9, 13 and 17), the season's last as its final results.
 PACE_RESEND_EVERY = 4
@@ -1477,6 +1499,7 @@ class PaceDropout:
     end: str
     was_rank: int
     window: int = WINDOW
+    rule_release: bool = False   # see Projection.rule_release
 
     @property
     def rank(self) -> int:

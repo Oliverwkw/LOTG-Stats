@@ -139,6 +139,17 @@ def test_no_longer_on_pace():
     assert D.part_of(D.pace_dropouts(prior, now)[0]) == D.PACE_BOARDS_TITLE
 
 
+def test_a_pace_rule_change_is_told_as_an_edit():
+    items = [D.Projection("teams", "A", "Tanking", "high", 1, 50, 1.0),
+             D.PaceDropout("teams", "B", "Offseason trades", "high", 1)]
+    old = {"meta": {}}
+    assert D.mark_pace_rule_change(old, items) == 2 and all(i.rule_release for i in items)
+    same = {"meta": {D.PACE_RULES_KEY: D.PACE_RULES_VERSION}}
+    fresh = [D.Projection("teams", "A", "Tanking", "high", 1, 50, 1.0)]
+    assert D.mark_pace_rule_change(same, fresh) == 0 and not fresh[0].rule_release
+    assert D.mark_pace_rule_change(None, fresh) == 0
+
+
 def test_player_team_season_columns_ride_on_pace_and_lock_when_he_leaves():
     rows = [{"Player": f"P{i}", "Team": "X", "Year": 2025, "Week": 17,
              "PPG as team starter this season": 10.0 + i} for i in range(6)]
