@@ -65,7 +65,7 @@ _NEW = {
                                 "Avg PPG of sent players over same time",
                                 "Avg PPG of received players in 5 games before trade")],
     # The lifetime "PPG as team starter" pair moved to player_additions as
-    # "... (multiple stints)" (2026-10-13; tests/test_multi_stint_ppg.py).
+    # "... (all stints)" (2026-10-13; tests/test_multi_stint_ppg.py).
     "player_week": ["PPG as team starter adjusted by position this season",
                     "Start/sit miss (5-game avg)" + _A,
                     "Cuff adjusted difference" + _A],

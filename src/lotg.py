@@ -1236,8 +1236,10 @@ def _col_topic(col: str, default: Optional[str] = "Identity") -> Optional[str]:
         return "Outcome"
     # player_additions' every-stint tenure columns: the weeks counts in its
     # Tenure block, the rest with its per-stint "Avg PPG on team" in Value.
-    if n.endswith(" (multiple stints)"):
-        base = n[: -len(" (multiple stints)")]
+    if n in ("% of team points", "% of all time team points"):
+        return "Value"     # player_additions' per-stint shares, beside the every-stint one
+    if n.endswith(" (all stints)"):
+        base = n[: -len(" (all stints)")]
         return "Tenure" if base in ("total weeks as team starter", "total weeks on bench",
                                     "weeks rostered by this team") else "Value"
     # A player's stint on his current fantasy team (player_week): one block with
@@ -1337,15 +1339,16 @@ _TERMINAL_TEAM_TENURE_BASES = (
     "total points as team starter", "ppg as team starter",
     "ppg as team starter adjusted by position",
     "total times highest starter on team", "total times lowest starter on team",
+    "% of all time team points",
 )
 
 # The lifetime (every stint) player-team tenure family: off player_week, onto
-# player_additions as "<name> (multiple stints)" on the player-team's latest
+# player_additions as "<name> (all stints)" on the player-team's latest
 # stint, "In Progress" on its earlier ones (per user, 2026-10-13: its natural
 # home is the sheet with one row per stint). The per-season family stays on
 # player_week ("... this season"). Weeks counts join player_additions' Tenure
 # block; the rest sit with its "Avg PPG on team" in Value.
-_MULTI_STINT_SFX = " (multiple stints)"
+_MULTI_STINT_SFX = " (all stints)"
 _TEAM_TENURE_WEEK_COLS = ("Total weeks as team starter", "Total weeks on bench",
                           "Weeks rostered by this team")
 _TEAM_TENURE_VALUE_COLS = ("% of starts on team", "% of team points on team",
@@ -1354,6 +1357,15 @@ _TEAM_TENURE_VALUE_COLS = ("% of starts on team", "% of team points on team",
                            "Total times highest starter on team",
                            "Total times lowest starter on team")
 _TEAM_TENURE_LIFETIME_COLS = _TEAM_TENURE_WEEK_COLS + _TEAM_TENURE_VALUE_COLS
+# Its name on player_additions, where it differs (user, 2026-10-13): the share is
+# of the team's points over ALL its seasons, so it says "all time" — beside the
+# per-stint "% of team points" (the team's points over that stint's weeks) and
+# "% of all time team points" (that stint's points / the team's all-time).
+_MULTI_STINT_NAMES = {"% of team points on team": "% of all time team points"}
+
+
+def _multi_stint_name(base: str) -> str:
+    return _MULTI_STINT_NAMES.get(base, base) + _MULTI_STINT_SFX
 
 
 def _is_terminal_team_col(col: str) -> bool:
@@ -10403,6 +10415,12 @@ def build_all(repo_root: Path) -> None:
     # was injured.
     # ------------------------------------------------------------------
     _CUFF_GAMES, _CUFF_MARGIN, _CUFF_TE_PPG, _CUFF_TOP_PICKS = 8, 3.0, 13.0, 12
+    # A reference two offseasons past his last game backs nobody up any more
+    # (user, 2026-10-13): Tank Dell's last game was 2024 week 16, and Jaylin Noel
+    # still read as his activated cuff in 2026 week 5. One offseason is not
+    # enough — Nick Chubb (out from 2023 week 3 to 2024 week 7) kept Jerome Ford
+    # his cuff into 2024, a year and more after Chubb's last game.
+    _CUFF_STALE_SEASONS = 2
     _cuff_cache: Dict[str, Any] = {}
 
     def _cuff_utc(x: Any, eastern: bool = False) -> Optional[datetime]:
@@ -10584,29 +10602,120 @@ def build_all(repo_root: Path) -> None:
             _cuff_memo[_k] = [e for e in g if e[0] < day][-_CUFF_GAMES:]
         return _cuff_memo[_k]
 
+    def _cuff_last_game(sid: str, day: str) -> Optional[str]:
+        """The day of his last NFL game before `day`, or None."""
+        g = [e for e in _cuff_build()["games"].get(str(sid), []) if e[0] < day]
+        return g[-1][0] if g else None
+
+    def _cuff_stale(sid: str, day: str) -> bool:
+        """`_CUFF_STALE_SEASONS` offseasons have passed since his last game: the
+        season of `day` is that many past his last game's (never having played
+        is not stale: a top-12 rookie pick qualifies before his debut)."""
+        g = [e for e in _cuff_build()["games"].get(str(sid), []) if e[0] < day]
+        if not g:
+            return False
+        try:
+            _d = date.fromisoformat(str(day)[:10])
+        except ValueError:
+            return False
+        return (_d.year if _d.month >= 3 else _d.year - 1) - int(g[-1][3]) >= _CUFF_STALE_SEASONS
+
+    def _cuff_enh() -> Dict[Tuple[str, int], List[Tuple[int, float]]]:
+        """(player id, season) -> [(week, Enhanced Projection)] off player_week,
+        once projections are on it (`_proj`); {} before."""
+        if "enh" in _cuff_memo:
+            return _cuff_memo["enh"]
+        out: Dict[Tuple[str, int], List[Tuple[int, float]]] = defaultdict(list)
+        _col = "Enhanced Projection"
+        if isinstance(pw, pd.DataFrame) and _col in pw.columns:
+            _v = pd.to_numeric(pw[_col], errors="coerce")
+            for _p, _y, _w, _x in zip(pw["Player ID"].astype(str), pd.to_numeric(pw["Year"], errors="coerce"),
+                                      pd.to_numeric(pw["Week"], errors="coerce"), _v):
+                if pd.notna(_y) and pd.notna(_w) and pd.notna(_x):
+                    out[(_p, int(_y))].append((int(_w), float(_x)))
+            for _k in out:
+                out[_k].sort()
+            _cuff_memo["enh"] = out          # only memoised once it exists
+        return out
+
+    def _cuff_week_of(day: str) -> Optional[Tuple[int, int]]:
+        """(season, fantasy week) a league day is judged in: the first week whose
+        last game is on/after it (a move before kickoff -> week 1)."""
+        try:
+            _d = date.fromisoformat(str(day)[:10])
+        except ValueError:
+            return None
+        _s = _d.year if _d.month >= 3 else _d.year - 1
+        for _w in range(1, 19):
+            _ld = _last_game_date(_s, _w)
+            if _ld and str(_ld)[:10] >= str(day)[:10]:
+                return _s, _w
+        return _s + 1, 1
+
+    def _cuff_proj(sid: str, day: str, forward: bool) -> Optional[float]:
+        """His Enhanced Projection for the week `day` is judged in — or, with
+        `forward`, his first positive one from then on (a rookie's first
+        projected week). An out week projects 0, never an 'if healthy' figure, so
+        0 is no answer. None without one."""
+        sw = _cuff_week_of(day)
+        if sw is None:
+            return None
+        enh = _cuff_enh()
+        # That season only: a later season's projection is another role (Riley
+        # Leonard, never on the field in 2025, read off his 2026 one).
+        for _w, _x in enh.get((str(sid), sw[0]), []):
+            if _w >= sw[1] and (forward or _w == sw[1]):
+                if _x > 0:
+                    return _x
+                if not forward:
+                    return None
+        return None
+
     def _cuff_refs(pid: Any, day: str, roster: set, top: frozenset, first: bool = False) -> List[str]:
         """Which of `roster` make `pid` a handcuff on league day `day`: same NFL
         team and position, and 3+ PPG better than him, or 13 TE-equivalent, or
-        in `top` (that season's top-12 rookie picks). `first`: stop at one."""
+        in `top` (that season's top-12 rookie picks). `first`: stop at one.
+
+        A player with no NFL games yet (a rookie, a never-used backup) has no
+        average to compare, and comparing to 0 made any teammate his starter —
+        Tetairoa McMillan, the #8 pick, "Jalen Coker's cuff" in 2025. He is
+        judged on his Enhanced Projection instead, against the teammate's
+        Enhanced Projection that week, or the teammate's last-8 when he is out
+        (user, 2026-10-13: Makai Lemon behind DeVonta Smith would be a cuff,
+        McMillan behind Coker is not)."""
         sid = str(pid)
         pos = (pid_pos.get(sid) or "").upper()
         nfl = _cuff_nfl_team(sid, day)
         if not pos or not nfl:
             return []
         own = _cuff_last8(sid, day)
-        own_avg = (sum(e[1] for e in own) / len(own)) if own else 0.0
+        # Not for a quarterback: a QB's projection is his ROLE — filling in, he
+        # is projected like the starter (Aidan O'Connell 2023, 13.2 the week
+        # Garoppolo was out) — so a QB with no games stays any real starter's
+        # cuff on the empty average (user, 2026-10-13: careful with backup QBs).
+        rookie_proj = None if (own or pos == "QB") else _cuff_proj(sid, day, forward=True)
+        own_avg = (sum(e[1] for e in own) / len(own)) if own else (rookie_proj or 0.0)
         out: List[str] = []
         for ref in sorted(roster):
             if ref == sid or (pid_pos.get(ref) or "").upper() != pos or _cuff_nfl_team(ref, day) != nfl:
                 continue
+            if _cuff_stale(ref, day):
+                continue
             hit = ref in top
             if not hit:
                 last8 = _cuff_last8(ref, day)
-                if len(last8) >= _CUFF_GAMES:
-                    avg = sum(e[1] for e in last8) / _CUFF_GAMES
+                full = len(last8) >= _CUFF_GAMES
+                avg = sum(e[1] for e in last8) / _CUFF_GAMES if full else None
+                if rookie_proj is not None:
+                    ref_val = _cuff_proj(ref, day, forward=False)
+                    if ref_val is None:
+                        ref_val = avg
+                    hit = ref_val is not None and ref_val >= own_avg + _CUFF_MARGIN
+                elif full:
+                    hit = avg >= own_avg + _CUFF_MARGIN
+                if not hit and full:
                     _season = last8[-1][3]
-                    hit = (avg >= own_avg + _CUFF_MARGIN
-                           or avg * _pos_factor(_season, pos) >= _CUFF_TE_PPG * _pos_factor(_season, "TE"))
+                    hit = avg * _pos_factor(_season, pos) >= _CUFF_TE_PPG * _pos_factor(_season, "TE")
             if hit:
                 out.append(ref)
                 if first:
@@ -11743,6 +11852,111 @@ def build_all(repo_root: Path) -> None:
     add_drops_df = pd.DataFrame(add_drop_rows)
     tr = pd.DataFrame(trades_rows)
     ph = pd.DataFrame(pick_rows)
+
+    # Projections (lotg_support.projections) [per user, 2026-10-07]: Sleeper,
+    # Claude and Enhanced Projection on every player_week row, before the
+    # awards so the Overachiever / Underachiever awards and their streaks
+    # ride the same machinery. The Claude projections are boldness'
+    # pre-kickoff E for every rostered player (bench too), computed here on
+    # the build's own inputs; Enhanced also feeds Boldness
+    # below (approved). A failure leaves the columns N/A, never 0.
+    # HERE, as soon as the pick sheet exists (its rookie slots feed Claude's
+    # prior), so the handcuff test can read a rookie's Enhanced projection for
+    # the pick, trade and pickup flags as well as the weekly ones (user,
+    # 2026-10-13). Nothing between here and the awards adds or drops a
+    # player_week row.
+    _proj_res = None
+    try:
+        from lotg_support import projections as _proj
+        from lotg_support import boldness as _bold
+        _t0 = datetime.now()
+        _pflag = pd.Series(False, index=pw.index)
+        for _c in ("Bye?", "Injury?", "Suspension?"):
+            if _c in pw.columns:
+                _pflag = _pflag | pw[_c].map(lambda v: safe_bool(v, default=False))
+        pw["_proj_out"] = _pflag & (pd.to_numeric(pw["Points"], errors="coerce").fillna(0) == 0)
+        _proj_unavail: Dict[int, Set[Tuple[str, int]]] = defaultdict(set)
+        for _pid, _y, _w in pw.loc[_pflag, ["Player ID", "Year", "Week"]].itertuples(index=False, name=None):
+            if pd.notna(_y) and pd.notna(_w):
+                _proj_unavail[int(_y)].add((str(_pid), int(_w)))
+        _proj_bridge = {str(_sid): str(_m.get("gsis_id")).strip() for _sid, _m in pid_meta.items()
+                        if (_m or {}).get("gsis_id") and str(_m.get("gsis_id")).lower() != "nan"}
+        _rk0 = ph[~pick_history.non_rookie_mask(ph)] if isinstance(ph, pd.DataFrame) and not ph.empty else pd.DataFrame()
+        _seasons = sorted(int(y) for y in pd.to_numeric(pw["Year"], errors="coerce").dropna().unique())
+        _cur = max(_seasons)
+        _g2s = {g: s_ for s_, g in _proj_bridge.items()}
+        _cl = []
+        with _bold.build_inputs(
+                matchups=_bold_matchups, roster_positions=_bold_roster_positions,
+                teams={int(k): dict(v) for k, v in season_roster_to_team.items()},
+                unavailable=dict(_proj_unavail),
+                rookie_picks=_rk0[["Year", "Number", "Player Picked"]] if not _rk0.empty else pd.DataFrame(columns=["Year", "Number", "Player Picked"]),
+                scoring=_bold_scoring, score=_league_score, score_map=_LEAGUE_SCORE_MAP,
+                bridge=_proj_bridge):
+            for _s in _seasons:
+                _e = _bold.expected_points(_s)
+                if not _e.empty:
+                    _cl.append(pd.DataFrame({"Year": _s, "Week": _e["week"].astype(int),
+                                             "Player ID": _e["gsis_id"].map(_g2s), "E": _e["E"]}))
+            _scoring_tables = {_s: dict(_bold.scoring_table(_s)) for _s in _seasons}
+            # Who took the field (stat line or offensive snap) — for the
+            # did-not-play zeroing [per user, 2026-10-07]. A failure here
+            # zeroes nothing extra rather than losing the projections.
+            try:
+                _appeared = _bold.game_log(_seasons)
+                _snap_shares = _bold.snap_shares(_seasons)     # the QB-cameo half
+            except Exception as e:
+                _log_exc(debug, "projections_did_not_play", e)
+                _appeared, _snap_shares = pd.DataFrame(), pd.DataFrame()
+        _claude = pd.concat(_cl, ignore_index=True).dropna(subset=["Player ID"]) if _cl else pd.DataFrame(columns=["Year", "Week", "Player ID", "E"])
+        _ids = _safe_df(load_dynastyprocess_playerids(ext))
+        _proj_dnp = _proj.did_not_play(pw, pw["Player ID"].astype(str).map(_proj_bridge),
+                                       _appeared, _proj_games, snaps=_snap_shares)
+        _inp = _proj.Inputs(
+            player_week=pw.assign(out=pw["_proj_out"], did_not_play=_proj_dnp), claude=_claude, games=_proj_games,
+            ids=_ids.astype(str), scoring=lambda y: _scoring_tables.get(int(y), {}), current_season=_cur,
+            sleeper={_s: _proj.load_sleeper(ext, _s, _cur) for _s in _seasons},
+            espn={_s: _proj.load_espn(ext, _s, _cur) for _s in _seasons},
+            fantasypros=_proj.load_fantasypros(ext), key="Player ID")
+        _proj_res = _proj.project(_inp)
+        pw["_claude_raw"] = _proj_res["_claude_raw"]
+        for _x in _proj.NAMES:
+            pw[_proj.proj_col(_x)] = _proj_res[_proj.proj_col(_x)]
+            pw[_proj.above_col(_x)] = (pd.to_numeric(pw["Points"], errors="coerce") - pw[_proj.proj_col(_x)]).round(2)
+        _log(debug, f"[{_now_iso()}] INFO projections: {len(_claude)} Claude projections; "
+                    f"{int(_proj_res['_sources'].ge(2).sum())}/{len(pw)} rows with an outside source; "
+                    f"{int(_proj_res['_sleeper_fallback'].sum())} Sleeper fallbacks; "
+                    f"{int(_proj_res['_did_not_play'].sum())} did-not-play weeks zeroed "
+                    f"in {(datetime.now() - _t0).total_seconds():.0f}s")
+    except Exception as e:
+        _log_exc(debug, "projections", e)
+        _proj_res = None
+
+    # The pickups' handcuff flags were judged before projections existed, so a
+    # player with no NFL games yet was compared to 0. Judge those again now that
+    # his Enhanced Projection is on player_week (`_cuff_refs`); everyone else's
+    # flag cannot change. Player addition value reads the flag later.
+    try:
+        if isinstance(add_drops_df, pd.DataFrame) and not add_drops_df.empty \
+                and {"_added_pid", "Date", "Team"} <= set(add_drops_df.columns):
+            _n_rejudged = _n_flipped = 0
+            for _i in add_drops_df.index:
+                _apid = add_drops_df.at[_i, "_added_pid"]
+                if _apid is None or str(_apid).strip() in ("", "nan", "None"):
+                    continue
+                _w = _cuff_utc(add_drops_df.at[_i, "Date"])
+                if _w is None or _cuff_last8(str(_apid), _league_day(_w).isoformat()):
+                    continue
+                _n_rejudged += 1
+                _new = bool(_is_cuff(add_drops_df.at[_i, "Team"], _apid, add_drops_df.at[_i, "Date"]))
+                _old = str(add_drops_df.at[_i, "Cuff at time of pickup?"]).strip().lower() in ("true", "1")
+                if _new != _old:
+                    add_drops_df.at[_i, "Cuff at time of pickup?"] = _new
+                    _n_flipped += 1
+            _log(debug, f"[{_now_iso()}] INFO cuff: {_n_rejudged} no-games pickups re-judged on "
+                        f"projections, {_n_flipped} flag(s) changed")
+    except Exception as e:
+        _log_exc(debug, "cuff_rejudge_pickups", e)
 
     # `_is_startup` is set only on the 152 startup rows, so every other row holds
     # NaN — and NaN is TRUTHY. A bare `bool(row.get("_is_startup"))` therefore
@@ -13573,79 +13787,6 @@ def build_all(repo_root: Path) -> None:
 
             stats[key] = st
 
-        # Projections (lotg_support.projections) [per user, 2026-10-07]: Sleeper,
-        # Claude and Enhanced Projection on every player_week row, before the
-        # awards so the Overachiever / Underachiever awards and their streaks
-        # ride the same machinery. The Claude projections are boldness'
-        # pre-kickoff E for every rostered player (bench too), computed here on
-        # the build's own inputs; Enhanced also feeds Boldness
-        # below (approved). A failure leaves the columns N/A, never 0.
-        _proj_res = None
-        try:
-            from lotg_support import projections as _proj
-            from lotg_support import boldness as _bold
-            _t0 = datetime.now()
-            _pflag = pd.Series(False, index=pw.index)
-            for _c in ("Bye?", "Injury?", "Suspension?"):
-                if _c in pw.columns:
-                    _pflag = _pflag | pw[_c].map(lambda v: safe_bool(v, default=False))
-            pw["_proj_out"] = _pflag & (pd.to_numeric(pw["Points"], errors="coerce").fillna(0) == 0)
-            _proj_unavail: Dict[int, Set[Tuple[str, int]]] = defaultdict(set)
-            for _pid, _y, _w in pw.loc[_pflag, ["Player ID", "Year", "Week"]].itertuples(index=False, name=None):
-                if pd.notna(_y) and pd.notna(_w):
-                    _proj_unavail[int(_y)].add((str(_pid), int(_w)))
-            _proj_bridge = {str(_sid): str(_m.get("gsis_id")).strip() for _sid, _m in pid_meta.items()
-                            if (_m or {}).get("gsis_id") and str(_m.get("gsis_id")).lower() != "nan"}
-            _rk0 = ph[~pick_history.non_rookie_mask(ph)] if isinstance(ph, pd.DataFrame) and not ph.empty else pd.DataFrame()
-            _seasons = sorted(int(y) for y in pd.to_numeric(pw["Year"], errors="coerce").dropna().unique())
-            _cur = max(_seasons)
-            _g2s = {g: s_ for s_, g in _proj_bridge.items()}
-            _cl = []
-            with _bold.build_inputs(
-                    matchups=_bold_matchups, roster_positions=_bold_roster_positions,
-                    teams={int(k): dict(v) for k, v in season_roster_to_team.items()},
-                    unavailable=dict(_proj_unavail),
-                    rookie_picks=_rk0[["Year", "Number", "Player Picked"]] if not _rk0.empty else pd.DataFrame(columns=["Year", "Number", "Player Picked"]),
-                    scoring=_bold_scoring, score=_league_score, score_map=_LEAGUE_SCORE_MAP,
-                    bridge=_proj_bridge):
-                for _s in _seasons:
-                    _e = _bold.expected_points(_s)
-                    if not _e.empty:
-                        _cl.append(pd.DataFrame({"Year": _s, "Week": _e["week"].astype(int),
-                                                 "Player ID": _e["gsis_id"].map(_g2s), "E": _e["E"]}))
-                _scoring_tables = {_s: dict(_bold.scoring_table(_s)) for _s in _seasons}
-                # Who took the field (stat line or offensive snap) — for the
-                # did-not-play zeroing [per user, 2026-10-07]. A failure here
-                # zeroes nothing extra rather than losing the projections.
-                try:
-                    _appeared = _bold.game_log(_seasons)
-                    _snap_shares = _bold.snap_shares(_seasons)     # the QB-cameo half
-                except Exception as e:
-                    _log_exc(debug, "projections_did_not_play", e)
-                    _appeared, _snap_shares = pd.DataFrame(), pd.DataFrame()
-            _claude = pd.concat(_cl, ignore_index=True).dropna(subset=["Player ID"]) if _cl else pd.DataFrame(columns=["Year", "Week", "Player ID", "E"])
-            _ids = _safe_df(load_dynastyprocess_playerids(ext))
-            _proj_dnp = _proj.did_not_play(pw, pw["Player ID"].astype(str).map(_proj_bridge),
-                                           _appeared, _proj_games, snaps=_snap_shares)
-            _inp = _proj.Inputs(
-                player_week=pw.assign(out=pw["_proj_out"], did_not_play=_proj_dnp), claude=_claude, games=_proj_games,
-                ids=_ids.astype(str), scoring=lambda y: _scoring_tables.get(int(y), {}), current_season=_cur,
-                sleeper={_s: _proj.load_sleeper(ext, _s, _cur) for _s in _seasons},
-                espn={_s: _proj.load_espn(ext, _s, _cur) for _s in _seasons},
-                fantasypros=_proj.load_fantasypros(ext), key="Player ID")
-            _proj_res = _proj.project(_inp)
-            pw["_claude_raw"] = _proj_res["_claude_raw"]
-            for _x in _proj.NAMES:
-                pw[_proj.proj_col(_x)] = _proj_res[_proj.proj_col(_x)]
-                pw[_proj.above_col(_x)] = (pd.to_numeric(pw["Points"], errors="coerce") - pw[_proj.proj_col(_x)]).round(2)
-            _log(debug, f"[{_now_iso()}] INFO projections: {len(_claude)} Claude projections; "
-                        f"{int(_proj_res['_sources'].ge(2).sum())}/{len(pw)} rows with an outside source; "
-                        f"{int(_proj_res['_sleeper_fallback'].sum())} Sleeper fallbacks; "
-                        f"{int(_proj_res['_did_not_play'].sum())} did-not-play weeks zeroed "
-                        f"in {(datetime.now() - _t0).total_seconds():.0f}s")
-        except Exception as e:
-            _log_exc(debug, "projections", e)
-            _proj_res = None
 
         # Awards (league + team). Ties -> all winners.
         # We compute off pw itself to avoid any mismatched ids.
@@ -14431,6 +14572,31 @@ def build_all(repo_root: Path) -> None:
                         _cuff_utc(pd.Timestamp(_day, tz="America/New_York").to_pydatetime()))
                 _k = (str(_t), _yi, _wi)
                 _refs = _cuff_refs(str(_pp), _day, _wk_roster.get(_k, set()), _tops[(_yi, _wi)])
+                # While a teammate he backs up is OUT, he stays that teammate's
+                # cuff for the whole absence (user, 2026-10-13): the test is
+                # judged as of the teammate's last game, so the backup's own
+                # starts in the gap cannot argue him out of it. Jerome Ford read
+                # as Nick Chubb's activated cuff only in 2023 weeks 3, 4 and 7 —
+                # Chubb was out from week 2 — because each Ford start raised his
+                # own average toward Chubb's frozen one. Still capped by
+                # `_CUFF_STALE_SEASONS` since that last game.
+                for _r in sorted(_wk_roster.get(_k, set())):
+                    if _r in _refs or _r == str(_pp) or (_k + (_r,)) not in _wk_injured:
+                        continue
+                    _last = _cuff_last_game(_r, _day)
+                    if not _last or _cuff_stale(_r, _day):
+                        continue
+                    # Still his teammate: same position and NFL team NOW (Curtis
+                    # Samuel, hurt after leaving CAR for WAS, backs up no Panther).
+                    if ((pid_pos.get(_r) or "").upper() != (pid_pos.get(str(_pp)) or "").upper()
+                            or _cuff_nfl_team(_r, _day) != _cuff_nfl_team(str(_pp), _day)):
+                        continue
+                    # A backup who had not yet played by then (a never-used QB2, a
+                    # rookie filling in) is judged on an empty average — still his
+                    # cuff (user, 2026-10-13: "be careful" with exactly those).
+                    _then = (date.fromisoformat(str(_last)[:10]) + timedelta(days=1)).isoformat()
+                    if _cuff_refs(str(_pp), _then, {_r}, _tops[(_yi, _wi)], first=True):
+                        _refs = list(_refs) + [_r]
                 if not _refs:
                     continue
                 cuff_rostered[pos_i] = 1
@@ -21335,6 +21501,16 @@ def build_all(repo_root: Path) -> None:
                 _pw_ten[_k].sort(key=lambda e: e["ed"])
     except Exception as e:
         _log_exc(debug, "pw_tenure_index", e)
+    # The team's starter points by (season, week) and over all its seasons:
+    # player_additions' "% of team points" (over the stint's weeks) and "All time
+    # % of team points" denominators — starter points, as the tenure family's.
+    _team_spts_yw: Dict[Tuple[str, Tuple[int, int]], float] = defaultdict(float)
+    _team_spts_all: Dict[str, float] = defaultdict(float)
+    for (_tk, _pk_), _es in _pw_ten.items():
+        for _e in _es:
+            if _e["starter"] and _e.get("yw"):
+                _team_spts_yw[(_tk, _e["yw"])] += _e["pts"]
+                _team_spts_all[_tk] += _e["pts"]
 
     _team_acq_cache: Dict[Tuple[str, str], List[str]] = {}
 
@@ -22328,6 +22504,15 @@ def build_all(repo_root: Path) -> None:
             out["Bench points on team"] = round(st["points_benched"], 2)
             out["Number of starts before next drop"] = n_start
             out["% of starts made while rostered"] = round(n_start / n_ros, 4) if n_ros else None
+            # His starter points this stint, as a share of the team's starter
+            # points over the stint's own weeks / over all the team's seasons.
+            _yws = {_yw for _yw, _p in st.get("held", [])}
+            _den = sum(_team_spts_yw.get((str(_team), _yw), 0.0) for _yw in _yws)
+            _all = _team_spts_all.get(str(_team), 0.0)
+            out["% of team points"] = (round(st["points_started"] / _den, 4)
+                                       if n_ros and _den > 0 else None)
+            out["% of all time team points"] = (round(st["points_started"] / _all, 4)
+                                                if n_ros and _all > 0 else None)
             out["Injury adjusted % of starts made while rostered"] = (
                 round(st["inj_starts"] / st["inj_weeks"], 4) if st["inj_weeks"] else None)
             avg_ppg = st["ppg"]
@@ -22472,6 +22657,8 @@ def build_all(repo_root: Path) -> None:
                 "% of starts made while rostered": sc.get("% of starts made while rostered"),
                 "Injury adjusted % of starts made while rostered":
                     sc.get("Injury adjusted % of starts made while rostered"),
+                "% of team points": sc.get("% of team points"),
+                "% of all time team points": sc.get("% of all time team points"),
                 "Avg PPG on team": sc.get("Avg PPG on team"),
                 "Avg PPG on team adjusted by position": sc.get("Avg PPG on team adjusted by position"),
                 "Points added": sc.get("Points added"),
@@ -23136,7 +23323,7 @@ def build_all(repo_root: Path) -> None:
                         for _i, _k in enumerate(_pa_key):
                             _v = (_team_tenure_lifetime.get(_k) or {}).get(_base)
                             _vals.append(None if _v is None else (_v if _i in _pa_latest else "In Progress"))
-                        player_additions.insert(_anchor + _j, _base + _MULTI_STINT_SFX, _vals)
+                        player_additions.insert(_anchor + _j, _multi_stint_name(_base), _vals)
             except Exception as _e_ms:
                 _log_exc(debug, "player_additions multi-stint tenure", _e_ms)
         _log(debug, f"[{_now_iso()}] INFO player_additions: {len(player_additions)} addition events "

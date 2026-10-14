@@ -62,6 +62,7 @@ def col_number_format(col: str) -> Optional[str]:
             # week", "Change in efficiency from previous season") are 0-1 fractions.
             or "efficiency" in n
             or "% of points" in n or "% of team points" in n or "% of league points" in n
+            or n.startswith("% of all time team points")
             or "% of starts" in n
             # team_week comeback shares (lotg_support.gametime.PERCENT_COLUMNS)
             or n.startswith("% of own points scored ") or n.startswith("% of opponent's ")
