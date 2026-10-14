@@ -128,12 +128,6 @@ def test_the_adjusted_twin_is_blank_exactly_where_its_base_is():
     assert ip.eq(pa["PPG as team starter adjusted by position" + _S].astype(str).eq("In Progress")).all()
 
 
-if __name__ == "__main__":
-    test_the_lifetime_family_left_player_week_for_player_additions()
-    test_each_recomputes_from_player_week_on_the_latest_stint()
-    test_the_adjusted_twin_is_blank_exactly_where_its_base_is()
-    test_the_per_stint_shares_add_up_and_recompute()
-    print("PASS")
 
 
 def test_the_per_stint_shares_add_up_and_recompute():
@@ -148,7 +142,8 @@ def test_the_per_stint_shares_add_up_and_recompute():
     allt = pd.to_numeric(pa["All time % of team points"], errors="coerce")
     both = per.notna() & allt.notna()
     assert both.sum() > 1000, int(both.sum())
-    assert (per[both] + 1e-4 >= allt[both]).all(), "a stint's share of its own weeks below its all-time share"
+    assert (per[both].abs() + 1e-4 >= allt[both].abs()).all(), \
+        "a stint's share of its own weeks smaller than its all-time share"
     key = list(zip(pa["Team"].astype(str), pa["Player"].astype(str)))
     pa = pa.assign(_k=key, _a=allt)
     multi = pd.to_numeric(pa["All time % of team points" + _S], errors="coerce")
@@ -180,3 +175,11 @@ def test_the_per_stint_shares_add_up_and_recompute():
             bad.append(((t, p), per[i], round(g["_sp"].sum() / den, 4)))
     assert checked > 300, checked
     assert not bad, bad[:10]
+
+
+if __name__ == "__main__":
+    test_the_lifetime_family_left_player_week_for_player_additions()
+    test_each_recomputes_from_player_week_on_the_latest_stint()
+    test_the_adjusted_twin_is_blank_exactly_where_its_base_is()
+    test_the_per_stint_shares_add_up_and_recompute()
+    print("PASS")

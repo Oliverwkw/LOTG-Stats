@@ -10415,11 +10415,12 @@ def build_all(repo_root: Path) -> None:
     # was injured.
     # ------------------------------------------------------------------
     _CUFF_GAMES, _CUFF_MARGIN, _CUFF_TE_PPG, _CUFF_TOP_PICKS = 8, 3.0, 13.0, 12
-    # A reference who has not played for this long backs nobody up any more
+    # A reference two offseasons past his last game backs nobody up any more
     # (user, 2026-10-13): Tank Dell's last game was 2024 week 16, and Jaylin Noel
-    # still read as his activated cuff in 2026 week 5. No other activation in the
-    # league's history came within months of it.
-    _CUFF_STALE_DAYS = 365
+    # still read as his activated cuff in 2026 week 5. One offseason is not
+    # enough — Nick Chubb (out from 2023 week 3 to 2024 week 7) kept Jerome Ford
+    # his cuff into 2024, a year and more after Chubb's last game.
+    _CUFF_STALE_SEASONS = 2
     _cuff_cache: Dict[str, Any] = {}
 
     def _cuff_utc(x: Any, eastern: bool = False) -> Optional[datetime]:
@@ -10607,16 +10608,17 @@ def build_all(repo_root: Path) -> None:
         return g[-1][0] if g else None
 
     def _cuff_stale(sid: str, day: str) -> bool:
-        """He last played more than `_CUFF_STALE_DAYS` before `day` (never having
-        played is not stale: a top-12 rookie pick qualifies before his debut)."""
-        last = _cuff_last_game(sid, day)
-        if not last:
+        """`_CUFF_STALE_SEASONS` offseasons have passed since his last game: the
+        season of `day` is that many past his last game's (never having played
+        is not stale: a top-12 rookie pick qualifies before his debut)."""
+        g = [e for e in _cuff_build()["games"].get(str(sid), []) if e[0] < day]
+        if not g:
             return False
         try:
-            return (date.fromisoformat(str(day)[:10]) - date.fromisoformat(str(last)[:10])).days \
-                > _CUFF_STALE_DAYS
+            _d = date.fromisoformat(str(day)[:10])
         except ValueError:
             return False
+        return (_d.year if _d.month >= 3 else _d.year - 1) - int(g[-1][3]) >= _CUFF_STALE_SEASONS
 
     def _cuff_refs(pid: Any, day: str, roster: set, top: frozenset, first: bool = False) -> List[str]:
         """Which of `roster` make `pid` a handcuff on league day `day`: same NFL
@@ -14474,12 +14476,17 @@ def build_all(repo_root: Path) -> None:
                 # as Nick Chubb's activated cuff only in 2023 weeks 3, 4 and 7 —
                 # Chubb was out from week 2 — because each Ford start raised his
                 # own average toward Chubb's frozen one. Still capped by
-                # `_CUFF_STALE_DAYS` since that last game.
+                # `_CUFF_STALE_SEASONS` since that last game.
                 for _r in sorted(_wk_roster.get(_k, set())):
                     if _r in _refs or _r == str(_pp) or (_k + (_r,)) not in _wk_injured:
                         continue
                     _last = _cuff_last_game(_r, _day)
                     if not _last or _cuff_stale(_r, _day):
+                        continue
+                    # Still his teammate: same position and NFL team NOW (Curtis
+                    # Samuel, hurt after leaving CAR for WAS, backs up no Panther).
+                    if ((pid_pos.get(_r) or "").upper() != (pid_pos.get(str(_pp)) or "").upper()
+                            or _cuff_nfl_team(_r, _day) != _cuff_nfl_team(str(_pp), _day)):
                         continue
                     _then = (date.fromisoformat(str(_last)[:10]) + timedelta(days=1)).isoformat()
                     if _cuff_refs(str(_pp), _then, {_r}, _tops[(_yi, _wi)], first=True):

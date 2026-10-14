@@ -99,18 +99,21 @@ def test_a_cuff_stays_activated_for_the_whole_absence():
     assert {3, 4, 7} <= ford and len(ford) > 3, sorted(ford)
 
 
-def test_a_teammate_out_over_a_year_backs_nobody_up():
+def test_a_teammate_two_offseasons_out_backs_nobody_up():
     pw = _pw()
     if pw is None:
         return
     act = _act(pw)
+    # Tank Dell's last game: 2024 week 16. One offseason on (2025) Noel is still
+    # his cuff; two on (2026) he is not.
     noel = act[(act["Player"] == "Jaylin Noel") & (act["Year"] == 2026)]
     assert noel.empty, noel[["Week"]].values.tolist()
+    assert not act[(act["Player"] == "Jaylin Noel") & (act["Year"] == 2025)].empty
 
 
 if __name__ == "__main__":
     test_a_cuff_stays_activated_for_the_whole_absence()
-    test_a_teammate_out_over_a_year_backs_nobody_up()
+    test_a_teammate_two_offseasons_out_backs_nobody_up()
     test_every_activation_is_a_start_with_an_injured_teammate()
     test_cuffs_started_counts_distinct_activated_players()
     print("PASS")
