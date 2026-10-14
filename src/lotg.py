@@ -14488,6 +14488,13 @@ def build_all(repo_root: Path) -> None:
                     if ((pid_pos.get(_r) or "").upper() != (pid_pos.get(str(_pp)) or "").upper()
                             or _cuff_nfl_team(_r, _day) != _cuff_nfl_team(str(_pp), _day)):
                         continue
+                    # Only a comparison that existed then: he had played by that
+                    # last game. Jalen Coker was hurt before Tetairoa McMillan's
+                    # first game, and an empty average read the #8 pick as Coker's
+                    # "cuff" through 2025 week 6.
+                    if not _cuff_last_game(str(_pp), (date.fromisoformat(str(_last)[:10])
+                                                      + timedelta(days=1)).isoformat()):
+                        continue
                     _then = (date.fromisoformat(str(_last)[:10]) + timedelta(days=1)).isoformat()
                     if _cuff_refs(str(_pp), _then, {_r}, _tops[(_yi, _wi)], first=True):
                         _refs = list(_refs) + [_r]
