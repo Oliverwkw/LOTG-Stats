@@ -5,7 +5,9 @@ This mirrors the Apps Script approach that already worked for LOTG.
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Optional, Tuple
+
+from lotg_support.position_pins import MAX_PF_POSITION_PINS, max_pf_position
 
 
 def _to_float(v: Any) -> float:
@@ -15,7 +17,8 @@ def _to_float(v: Any) -> float:
         return 0.0
 
 
-def compute_optimal_lineup(points_dict: Dict[str, Any], pos_map: Dict[str, str], season: int) -> float:
+def compute_optimal_lineup(points_dict: Dict[str, Any], pos_map: Dict[str, str], season: int,
+                           week: Optional[int] = None) -> float:
     """Compute Max PF for LOTG.
 
     Lineup model:
@@ -28,6 +31,11 @@ def compute_optimal_lineup(points_dict: Dict[str, Any], pos_map: Dict[str, str],
     - 1 SUPERFLEX (best remaining from QB/RB/WR/TE)
 
     Unknown positions are treated as FLEX-eligible.
+
+    Pass `week` for the Max PF column and anything that must reproduce it: the
+    player's position is then the one Sleeper scored him at that week where
+    `position_pins.MAX_PF_POSITION_PINS` records a relabel. Without `week`,
+    `pos_map` alone decides (counterfactual pools built on their own labels).
     """
     if not isinstance(points_dict, dict) or not points_dict:
         return 0.0
@@ -36,7 +44,9 @@ def compute_optimal_lineup(points_dict: Dict[str, Any], pos_map: Dict[str, str],
 
     for pid, pts in points_dict.items():
         v = _to_float(pts)
-        pos = (pos_map.get(str(pid)) or "").upper()
+        pos = ((week is not None and str(pid) in MAX_PF_POSITION_PINS
+                and max_pf_position(pid, season, week))
+               or pos_map.get(str(pid)) or "").upper()
         if pos in ("QB", "RB", "WR", "TE"):
             pos_points[pos].append(v)
         else:

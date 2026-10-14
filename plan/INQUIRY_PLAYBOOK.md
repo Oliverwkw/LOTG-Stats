@@ -879,8 +879,19 @@ list is here so an answer written by hand does not walk into them.
   Cordarrelle Patterson is listed RB today but filled a strict WR slot in 2021 —
   which makes three real lineups look illegal. Use
   `season_eligibility(year)`, which adds every strict slot a player was actually
-  fielded in. (`Max PF` in the exports is built from current positions, so
-  `lineup.compute_optimal_lineup` is deliberately left alone.)
+  fielded in. (`Max PF` is built from current positions EXCEPT where
+  `position_pins.MAX_PF_POSITION_PINS` records the label Sleeper scored a
+  player at that week; pass `week=` to `lineup.compute_optimal_lineup` to
+  reproduce the column.)
+- **Taysom Hill changes position under you.** Sleeper lists him TE today but
+  scored him as a QB for all of 2021 and in single weeks since (2023 week 9,
+  2024 week 11), while he filled strict TE slots in other 2023-24 weeks. Those
+  labels moved Max PF by up to 15.10 in a week (LWebs53 2021 week 14). With the
+  Hill and Patterson pins, regular-season Max PF matches Sleeper's own season
+  max points (`rosters[].settings.ppts`) on 39 of 40 team-seasons, 2021-2025;
+  the 40th, stevenb123 2024 (+1.00), is a stat correction Sleeper's frozen
+  season totals never picked up (week 6 or 13), not a position. Any position
+  question involving Hill: check the week. `plan/notes/MAX_PF_SLEEPER_RECONCILE.md`.
 - **Sleeper writes `"0"` for an empty start slot** (`inquiry.EMPTY_SLOT`) — a
   legal lineup, not a bug.
 - **`Injury?` means "missed the week, and it was not a bye or a suspension" —
