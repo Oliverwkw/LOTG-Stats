@@ -7132,3 +7132,119 @@ INFO league scoring settings changed in 2022: {'st_td': (0.0, 6.0), 'fum_ret_yd'
 [2026-10-14T04:17:54.001902+00:00] INFO bolded comment verbs in cell history popups
 [2026-10-14T04:17:54.874020+00:00] ===== Build end =====
 [2026-10-14T04:17:57.271136+00:00] INFO data-quality sanity: 0 ERROR, 0 WARN across 0 findings
+[2026-10-14T13:54:33.595422+00:00] INFO snapshot: mode=both captured_at=2026-10-14T13:54:33.586848+00:00 age=0.00d auto_refreshed=False
+
+[2026-10-14T13:54:33.596815+00:00] ===== Build start =====
+formulas coverage: all non-obvious columns documented
+injury tracker rows loaded: 1259
+[2026-10-14T13:54:33.897471+00:00] INFO schedule: restored 1 struck game(s) (2022_17_BUF_CIN)
+[2026-10-14T13:54:35.334612+00:00] INFO gsis_correction sid=5133 name='Tyler Conklin' sleeper_gsis=00-0034439 -> 00-0034270
+[2026-10-14T13:54:35.349304+00:00] INFO gsis_correction sid=5094 name='Ryan Izzo' sleeper_gsis=00-0034270 -> 00-0034439
+[2026-10-14T13:54:35.614616+00:00] INFO Phase 13: injected ESPN 2020 season (8 teams, 152 draft picks, 222 transactions; 0 player-meta backfilled)
+[2026-10-14T13:54:35.621282+00:00] INFO position_pin sid=12530 name='Travis Hunter' 'DB' -> 'WR' (Sleeper map)
+[2026-10-14T13:54:36.341161+00:00] INFO commissioner pick-trade overlay: 51 pick-hops loaded
+[2026-10-14T13:54:37.955038+00:00] INFO snap_appearances season=2020 added=3522 player-weeks the event file did not carry (bridge=7837 pfr->gsis)
+[2026-10-14T13:54:39.107464+00:00] INFO game_day_status season=2020 dressed=12 player-weeks read as active-did-not-play
+INFO league scoring settings changed in 2021: {'fum_lost': (None, -1.0), 'fum': (-2.0, -1.0), 'st_td': (6.0, 0.0)}
+[2026-10-14T13:54:41.210822+00:00] INFO snap_appearances season=2021 added=3643 player-weeks the event file did not carry (bridge=7836 pfr->gsis)
+[2026-10-14T13:54:42.358908+00:00] INFO game_day_status season=2021 dressed=27 player-weeks read as active-did-not-play
+[2026-10-14T13:54:42.397823+00:00] INFO late-listing 2021 wk6: undid moves completed after the week (+2410@r1)
+[2026-10-14T13:54:42.399417+00:00] INFO late-listing 2021 wk8: undid moves completed after the week (+6789@r1)
+[2026-10-14T13:54:42.402760+00:00] INFO late-listing 2021 wk13: undid moves completed after the week (+2359@r1)
+[2026-10-14T13:54:42.408027+00:00] INFO late-listing 2021 wk14: undid moves completed after the week (+1034@r4)
+[2026-10-14T13:54:42.410288+00:00] INFO merged the 2021 phantom Carter/Stevenson player swap into the pick trade
+INFO league scoring settings changed in 2022: {'fum_ret_yd': (None, 0.1), 'st_td': (0.0, 6.0)}
+[2026-10-14T13:54:44.339339+00:00] INFO snap_appearances season=2022 added=3618 player-weeks the event file did not carry (bridge=7836 pfr->gsis)
+[2026-10-14T13:54:45.387573+00:00] INFO game_day_status season=2022 dressed=54 player-weeks read as active-did-not-play
+[2026-10-14T13:54:45.428177+00:00] INFO late-listing 2022 wk6: undid moves completed after the week (-7569@r6)
+[2026-10-14T13:54:45.429785+00:00] INFO late-listing 2022 wk7: undid moves completed after the week (-3178@r4)
+[2026-10-14T13:54:45.432083+00:00] INFO late-listing 2022 wk9: undid moves completed after the week (-2078@r7)
+[2026-10-14T13:54:45.436841+00:00] INFO commissioner-wash 2022: excluded 11 no-op txns
+[2026-10-14T13:54:47.291144+00:00] INFO snap_appearances season=2023 added=3872 player-weeks the event file did not carry (bridge=7836 pfr->gsis)
+[2026-10-14T13:54:48.456427+00:00] INFO game_day_status season=2023 dressed=16 player-weeks read as active-did-not-play
+[2026-10-14T13:54:48.497852+00:00] INFO late-listing 2023 wk5: undid moves completed after the week (-8136@r1, +8136@r6)
+[2026-10-14T13:54:48.503645+00:00] INFO commissioner-wash 2023: excluded 1 no-op txns
+[2026-10-14T13:54:50.418661+00:00] INFO snap_appearances season=2024 added=3627 player-weeks the event file did not carry (bridge=7836 pfr->gsis)
+[2026-10-14T13:54:51.693351+00:00] INFO game_day_status season=2024 dressed=64 player-weeks read as active-did-not-play
+[2026-10-14T13:54:51.738267+00:00] INFO commissioner-wash 2024: excluded 3 no-op txns
+[2026-10-14T13:54:51.751460+00:00] INFO draft-day synthetic picks 2024: 1 commish-add(s) -> picks, removed from transactions
+[2026-10-14T13:54:53.823025+00:00] INFO snap_appearances season=2025 added=3094 player-weeks the event file did not carry (bridge=7838 pfr->gsis)
+[2026-10-14T13:54:55.013937+00:00] INFO game_day_status season=2025 dressed=39 player-weeks read as active-did-not-play
+[2026-10-14T13:54:55.061597+00:00] INFO draft-day synthetic picks 2025: 8 commish-add(s) -> picks, removed from transactions
+[2026-10-14T13:54:57.080182+00:00] INFO snap_appearances season=2026 added=847 player-weeks the event file did not carry (bridge=7836 pfr->gsis)
+[2026-10-14T13:54:57.517421+00:00] INFO game_day_status season=2026 dressed=0 player-weeks read as active-did-not-play
+[2026-10-14T13:55:00.697608+00:00] INFO commissioner-wash 2026: excluded 6 no-op txns
+[2026-10-14T13:55:00.699043+00:00] INFO draft-day synthetic picks 2026: 3 commish-add(s) -> picks, removed from transactions
+[2026-10-14T13:55:00.791666+00:00] INFO commissioner pick-trade overlay: all 51 pick-hops injected
+[2026-10-14T13:55:00.812036+00:00] INFO 2020 startup draft: emitted 152 picks into pick_history
+[2026-10-14T13:55:01.299033+00:00] INFO merged 1 manual transaction(s) from data/manual_transactions.csv
+[2026-10-14T13:55:01.472904+00:00] INFO synthesized 2 terminal roster-diff departures (dead-end cuts, never re-acquired)
+[2026-10-14T13:55:01.515969+00:00] INFO synthesized 1 terminal roster-diff arrivals (snapshot-only pickups, no recorded add)
+[2026-10-14T13:55:01.925307+00:00] INFO commissioner-correction cleanup: removed 8 rows (5 commissioner corrections + 3 fully-reverted mistakes), cancelled 5 mistake leg(s) (commissioner add/drop reverses a same-player move within 24h)
+[2026-10-14T13:55:02.390343+00:00] INFO player_week Number of Add/Drops rebuilt from add_drop_rows on the Tuesday-Monday league week: 1056 -> 1033
+[2026-10-14T13:55:02.969447+00:00] INFO team_week Number of Add/Drops rebuilt from add_drop_rows on the Tuesday-Monday league week: 1545 -> 1350
+[2026-10-14T13:55:02.972745+00:00] INFO team_week Amount of FAAB spent rebuilt from add_drop_rows on the Tuesday-Monday league week: $2,990 -> $2,969
+[2026-10-14T13:55:02.981915+00:00] INFO team_week Number of trades rebuilt from trades_rows on the Tuesday-Monday league week: 260 -> 260
+[2026-10-14T13:55:02.995058+00:00] INFO synthesized 72 missing departures + 19 missing arrivals as transactions rows to close orphaned roster lineage
+[2026-10-14T13:55:06.588074+00:00] INFO ktc value column: sf_trade_value (superflex, always)
+[2026-10-14T13:55:12.702024+00:00] INFO pick KTC estimated: 2021 4.?? on 2020-10-29 = 1822 (the same pick in 3 later class(es) at the same lead time)
+[2026-10-14T13:55:12.703666+00:00] INFO pick KTC estimated: 2021 3.?? on 2020-10-29 = 3015 (the same pick in 3 later class(es) at the same lead time)
+[2026-10-14T13:55:12.708629+00:00] INFO pick KTC estimated: 2021 1.?? on 2020-11-29 = 5509 (the same pick in 3 later class(es) at the same lead time)
+[2026-10-14T13:55:12.709983+00:00] INFO pick KTC estimated: 2021 2.?? on 2020-11-29 = 4040 (the same pick in 3 later class(es) at the same lead time)
+[2026-10-14T13:55:12.713712+00:00] INFO pick KTC estimated: 2021 4.?? on 2020-11-29 = 1900 (the same pick in 3 later class(es) at the same lead time)
+[2026-10-14T13:55:12.715844+00:00] INFO pick KTC estimated: 2022 1.?? on 2020-11-29 = 5112 (the same pick in 3 later class(es) at the same lead time)
+[2026-10-14T13:55:12.717857+00:00] INFO pick KTC estimated: 2022 3.?? on 2020-11-29 = 2857 (the same pick in 3 later class(es) at the same lead time)
+[2026-10-14T13:55:12.720049+00:00] INFO pick KTC estimated: 2023 1.?? on 2020-11-29 = 4728 (the same pick in 3 later class(es) at the same lead time)
+[2026-10-14T13:55:12.724120+00:00] INFO pick KTC estimated: 2024 1.?? on 2020-11-29 = 4728 (the same pick in 3 later class(es) at the same lead time)
+[2026-10-14T13:55:12.726203+00:00] INFO pick KTC estimated: 2024 3.?? on 2020-11-29 = 2612 (the same pick in 3 later class(es) at the same lead time)
+[2026-10-14T13:55:12.728381+00:00] INFO pick KTC estimated: 2025 1.?? on 2020-11-29 = 4728 (the same pick in 3 later class(es) at the same lead time)
+[2026-10-14T13:55:12.732326+00:00] INFO pick KTC estimated: 2025 3.?? on 2020-11-29 = 2612 (the same pick in 3 later class(es) at the same lead time)
+[2026-10-14T13:55:12.735355+00:00] INFO pick KTC estimated: 2021 1.?? on 2020-12-01 = 5542 (the same pick in 3 later class(es) at the same lead time)
+[2026-10-14T13:55:12.837436+00:00] INFO pick KTC estimated: 2021 2.?? on 2020-12-16 = 4079 (the same pick in 3 later class(es) at the same lead time)
+[2026-10-14T13:55:12.912652+00:00] INFO KTC per $1 FAAB = 100 (fixed; data-derived median 297.0 from 74 FAAB-for-asset trades)
+[2026-10-14T13:55:12.927904+00:00] INFO pick KTC estimated: 2021 4.01 on 2020-10-29 = 1889 (the same pick in 3 later class(es) at the same lead time)
+[2026-10-14T13:55:13.244540+00:00] INFO pick KTC estimated: 2021 3.03 on 2020-10-29 = 3236 (the same pick in 3 later class(es) at the same lead time)
+[2026-10-14T13:55:13.248034+00:00] INFO pick KTC estimated: 2021 4.01 on 2021-01-04 = 2023 (the same pick in 3 later class(es) at the same lead time)
+[2026-10-14T13:55:13.249768+00:00] INFO pick KTC estimated: 2021 3.03 on 2021-01-04 = 3158 (the same pick in 3 later class(es) at the same lead time)
+[2026-10-14T13:55:13.256833+00:00] INFO pick KTC estimated: 2021 1.06 on 2020-11-29 = 4964 (the same pick in 3 later class(es) at the same lead time)
+[2026-10-14T13:55:13.258109+00:00] INFO pick KTC estimated: 2021 2.03 on 2020-11-29 = 4522 (the same pick in 3 later class(es) at the same lead time)
+[2026-10-14T13:55:13.259693+00:00] INFO pick KTC estimated: 2021 4.03 on 2020-11-29 = 1942 (the same pick in 3 later class(es) at the same lead time)
+[2026-10-14T13:55:13.266029+00:00] INFO pick KTC estimated: 2021 1.06 on 2021-01-04 = 5132 (the same pick in 3 later class(es) at the same lead time)
+[2026-10-14T13:55:13.267302+00:00] INFO pick KTC estimated: 2021 2.03 on 2021-01-04 = 4467 (the same pick in 3 later class(es) at the same lead time)
+[2026-10-14T13:55:13.295269+00:00] INFO pick KTC estimated: 2021 4.03 on 2021-01-04 = 2023 (the same pick in 3 later class(es) at the same lead time)
+[2026-10-14T13:55:13.297826+00:00] INFO pick KTC estimated: 2022 1.?? on 2021-01-04 = 5198 (the same pick in 3 later class(es) at the same lead time)
+[2026-10-14T13:55:13.299841+00:00] INFO pick KTC estimated: 2022 3.?? on 2021-01-04 = 2818 (the same pick in 3 later class(es) at the same lead time)
+[2026-10-14T13:55:13.303945+00:00] INFO pick KTC estimated: 2023 1.?? on 2021-01-04 = 4771 (the same pick in 3 later class(es) at the same lead time)
+[2026-10-14T13:55:13.306122+00:00] INFO pick KTC estimated: 2024 1.?? on 2021-01-04 = 4771 (the same pick in 3 later class(es) at the same lead time)
+[2026-10-14T13:55:13.308241+00:00] INFO pick KTC estimated: 2024 3.?? on 2021-01-04 = 2593 (the same pick in 3 later class(es) at the same lead time)
+[2026-10-14T13:55:13.312272+00:00] INFO pick KTC estimated: 2025 1.?? on 2021-01-04 = 4771 (the same pick in 3 later class(es) at the same lead time)
+[2026-10-14T13:55:13.314305+00:00] INFO pick KTC estimated: 2025 3.?? on 2021-01-04 = 2593 (the same pick in 3 later class(es) at the same lead time)
+[2026-10-14T13:55:13.321646+00:00] INFO pick KTC estimated: 2021 1.05 on 2020-12-01 = 4980 (the same pick in 3 later class(es) at the same lead time)
+[2026-10-14T13:55:13.323313+00:00] INFO pick KTC estimated: 2021 1.05 on 2021-01-04 = 5132 (the same pick in 3 later class(es) at the same lead time)
+[2026-10-14T13:55:13.332307+00:00] INFO pick KTC estimated: 2021 2.08 on 2020-12-16 = 3614 (the same pick in 3 later class(es) at the same lead time)
+[2026-10-14T13:55:13.334045+00:00] INFO pick KTC estimated: 2021 2.08 on 2021-01-04 = 3634 (the same pick in 3 later class(es) at the same lead time)
+[2026-10-14T13:55:13.907962+00:00] WARN ktc fetch: info: merged KTC backfill for 373 players
+[2026-10-14T13:55:52.394973+00:00] INFO projections: 119656 Claude projections; 19056/22625 rows with an outside source; 176 Sleeper fallbacks; 325 did-not-play weeks zeroed in 38s
+[2026-10-14T13:55:52.505588+00:00] INFO cuff: 81 no-games pickups re-judged on projections, 0 flag(s) changed
+[2026-10-14T13:55:52.566758+00:00] pick_to_drafted: 344 made picks, 160 unmade ('Unknown') skipped
+[2026-10-14T13:55:53.269277+00:00] INFO pick-adjustment: holding 35 current-class picks out of the reference pools until week 8
+[2026-10-14T13:56:16.159767+00:00] INFO wins added: 2196 rows over 106 weeks; 9877 lineups searched; 555 entries blocked as unproven (<3 prior games); 0 guard warnings; unresolved names: []
+[2026-10-14T13:56:38.135829+00:00] tenure as-of clock = 2026-10-13T08:00:00+00:00 (wall clock 2026-10-14T13:56:38.134271+00:00)
+[2026-10-14T13:56:39.107306+00:00] INFO seeded 241 player_year rows for tx-only player×year combos
+[2026-10-14T13:56:39.404997+00:00] INFO seeded 34 player_all_time rows for tx-only players
+[2026-10-14T13:57:11.358394+00:00] INFO boldness: 7931 starts, 848 lineups in 14s (caches carried over from the projection pass)
+[2026-10-14T13:57:11.407280+00:00] INFO sleeper boldness: 7931 starts, 848 lineups in 14s (caches shared with the first pass)
+[2026-10-14T13:57:18.530902+00:00] INFO gametime: 14480 team-games; 0 scoring starter(s) with no game on the schedule; 7931 Claude projections for 7931 starts
+[2026-10-14T13:57:22.072830+00:00] INFO built asset history: 548 picks, 705 players
+[2026-10-14T13:57:24.357879+00:00] INFO non-rookie O-Score de-trend: {'rows': 184, 'lambda': 0.75, 'intercept': 74.4788, 'slope': -6.0224, 'mean_expected': 48.9793, 'max_abs_shift': 19.1}
+[2026-10-14T13:57:24.367879+00:00] INFO pure-drop O-Score: 504 drop-only txns detected (cols: _added_pid=True, Player Added=True)
+[2026-10-14T13:57:24.372074+00:00] INFO pure-drop O-Score: scored 504 drop-only transactions (ceiling 50)
+[2026-10-14T13:57:24.513976+00:00] INFO 2020 startup picks: relabeled Year='startup' on 152 rows
+[2026-10-14T13:57:26.073061+00:00] INFO player_additions: dropped 3 duplicate arrival(s) sharing an earlier stint's departure
+[2026-10-14T13:57:33.282434+00:00] INFO points above expectation: 1988 additions, 0 unpriced, 0 trade sides off the exported KTC margin
+[2026-10-14T13:57:33.315466+00:00] INFO player_additions: 1988 addition events (477 trade, 388 draft, 1123 add/drop)
+[2026-10-14T13:57:33.395898+00:00] ktc provenance: 28328 lookups -> {'mirror': 22990, 'off-rolls': 3234, 'backfill-carry': 2093, 'trailing-edge-carry': 11}
+[2026-10-14T13:57:38.094977+00:00] INFO pick ref index: 548 PH# refs -> raw/pick_ref_index.csv
+[2026-10-14T13:58:26.004978+00:00] INFO bolded comment verbs in cell history popups
+[2026-10-14T13:58:26.872945+00:00] ===== Build end =====
+[2026-10-14T13:58:29.333708+00:00] INFO data-quality sanity: 0 ERROR, 0 WARN across 0 findings

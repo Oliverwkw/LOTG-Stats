@@ -16,12 +16,12 @@
     "adds": {
       "2391": 1
     },
-    "consenter_ids": [
-      1
-    ],
     "drops": {
       "4111": 1
     },
+    "consenter_ids": [
+      1
+    ],
     "roster_ids": [
       1
     ],
@@ -41,12 +41,12 @@
     "adds": {
       "2168": 6
     },
-    "consenter_ids": [
-      6
-    ],
     "drops": {
       "6012": 6
     },
+    "consenter_ids": [
+      6
+    ],
     "roster_ids": [
       6
     ],
@@ -66,12 +66,12 @@
     "adds": {
       "4985": 1
     },
-    "consenter_ids": [
-      1
-    ],
     "drops": {
       "7562": 1
     },
+    "consenter_ids": [
+      1
+    ],
     "roster_ids": [
       1
     ],
@@ -91,12 +91,12 @@
     "adds": {
       "6012": 6
     },
-    "consenter_ids": [
-      6
-    ],
     "drops": {
       "538": 6
     },
+    "consenter_ids": [
+      6
+    ],
     "roster_ids": [
       6
     ],
@@ -116,12 +116,12 @@
     "adds": {
       "5284": 6
     },
-    "consenter_ids": [
-      6
-    ],
     "drops": {
       "7609": 6
     },
+    "consenter_ids": [
+      6
+    ],
     "roster_ids": [
       6
     ],
@@ -141,12 +141,12 @@
     "adds": {
       "4111": 1
     },
-    "consenter_ids": [
-      1
-    ],
     "drops": {
       "3664": 1
     },
+    "consenter_ids": [
+      1
+    ],
     "roster_ids": [
       1
     ],
@@ -166,12 +166,12 @@
     "adds": {
       "7562": 1
     },
-    "consenter_ids": [
-      1
-    ],
     "drops": {
       "4351": 1
     },
+    "consenter_ids": [
+      1
+    ],
     "roster_ids": [
       1
     ],
@@ -191,12 +191,12 @@
     "adds": {
       "7612": 1
     },
-    "consenter_ids": [
-      1
-    ],
     "drops": {
       "5110": 1
     },
+    "consenter_ids": [
+      1
+    ],
     "roster_ids": [
       1
     ],
@@ -216,10 +216,10 @@
     "adds": {
       "7609": 6
     },
+    "drops": null,
     "consenter_ids": [
       6
     ],
-    "drops": null,
     "roster_ids": [
       6
     ],
@@ -239,12 +239,12 @@
     "adds": {
       "2711": 6
     },
-    "consenter_ids": [
-      6
-    ],
     "drops": {
       "333": 6
     },
+    "consenter_ids": [
+      6
+    ],
     "roster_ids": [
       6
     ],
