@@ -123,7 +123,23 @@ def test_a_rookie_is_judged_on_his_projection():
     assert tm.empty, sorted(tm["Week"])
 
 
+def test_a_backup_qb_with_no_games_is_still_a_cuff():
+    """A QB's projection is his role, so a never-used QB2 stays a cuff: Riley
+    Leonard (2025, behind Daniel Jones) and Aidan O'Connell (2023, picked up the
+    week he filled in for Jimmy Garoppolo)."""
+    p = _EXP / "add_drops.csv"
+    if not p.exists():
+        return
+    ad = pd.read_csv(p, low_memory=False)
+    for who, team, day in (("Riley Leonard", "JacobRosenzweig", "2025-09-01"),
+                           ("Aidan O'Connell", "Oliverwkw", "2023-10-01")):
+        r = ad[(ad["Player Added"] == who) & (ad["Team"] == team)
+               & ad["Date"].astype(str).str.startswith(day)]
+        assert len(r) == 1 and _flag(r["Cuff at time of pickup?"]).all(), (who, r.values.tolist())
+
+
 if __name__ == "__main__":
+    test_a_backup_qb_with_no_games_is_still_a_cuff()
     test_a_cuff_stays_activated_for_the_whole_absence()
     test_a_teammate_two_offseasons_out_backs_nobody_up()
     test_a_rookie_is_judged_on_his_projection()

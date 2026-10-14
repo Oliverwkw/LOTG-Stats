@@ -10661,13 +10661,14 @@ def build_all(repo_root: Path) -> None:
         if sw is None:
             return None
         enh = _cuff_enh()
-        for _s in (sw[0], sw[0] + 1) if forward else (sw[0],):
-            for _w, _x in enh.get((str(sid), _s), []):
-                if (_s > sw[0] or _w >= sw[1]) and (forward or _w == sw[1]):
-                    if _x > 0:
-                        return _x
-                    if not forward:
-                        return None
+        # That season only: a later season's projection is another role (Riley
+        # Leonard, never on the field in 2025, read off his 2026 one).
+        for _w, _x in enh.get((str(sid), sw[0]), []):
+            if _w >= sw[1] and (forward or _w == sw[1]):
+                if _x > 0:
+                    return _x
+                if not forward:
+                    return None
         return None
 
     def _cuff_refs(pid: Any, day: str, roster: set, top: frozenset, first: bool = False) -> List[str]:
@@ -10688,7 +10689,11 @@ def build_all(repo_root: Path) -> None:
         if not pos or not nfl:
             return []
         own = _cuff_last8(sid, day)
-        rookie_proj = None if own else _cuff_proj(sid, day, forward=True)
+        # Not for a quarterback: a QB's projection is his ROLE — filling in, he
+        # is projected like the starter (Aidan O'Connell 2023, 13.2 the week
+        # Garoppolo was out) — so a QB with no games stays any real starter's
+        # cuff on the empty average (user, 2026-10-13: careful with backup QBs).
+        rookie_proj = None if (own or pos == "QB") else _cuff_proj(sid, day, forward=True)
         own_avg = (sum(e[1] for e in own) / len(own)) if own else (rookie_proj or 0.0)
         out: List[str] = []
         for ref in sorted(roster):
