@@ -1049,6 +1049,8 @@ EQUATIONS = {
         "mean_w WP(t,w)",
     ('Empty slots', 'team_week / team_year / team_all_time'):
         "|{i : S(t,w)[i] = '0' ∨ (¬H(S(t,w)[i],w) ∧ pts(S(t,w)[i],w) = 0)}|  (2020: ESPN slots left empty); year/all-time = Σ",
+    ('% of FLX / % of SFLX by position', 'team_year / team_all_time / league_year / league_all_time'):
+        "100 · |{(t,w,i) : slot_i ∈ K ∧ pos(S(t,w)[i]) = P}| / |{(t,w,i) : slot_i ∈ K ∧ S(t,w)[i] ≠ '0'}|, K = {FLX1, FLX2} (% of FLX P, P ∈ {WR, RB, TE}) or {SFLX} (% of SFLX P, P ∈ {WR, RB, TE, QB}), pooled over the team's (team sheets) or every team's (league sheets) weeks in the period",
     ('Brosenzweig', 'team_week'):
         '[win(t,w) = 0 ∧ |{u : PF(u,w) > PF(t,w)}| = 1]',
     ('Sisenzweig', 'team_week'):

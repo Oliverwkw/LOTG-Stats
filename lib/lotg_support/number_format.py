@@ -50,7 +50,7 @@ def col_number_format(col: str) -> Optional[str]:
     if (n in ("faab premium %",)
             or (n.endswith(" %") and (n.startswith("starter ") or n.startswith("rostered "))
                 and any(_w in n for _w in _tier_words))
-            or n.startswith("% of starters ")):
+            or n.startswith(("% of starters ", "% of flx ", "% of sflx "))):
         return '0.00"%"'
     # App-style win % columns (lotg_support.gametime): whole percents [per user].
     if n.startswith(("pre-week win %", "difference in pre-week win %", "largest win % overcome",
