@@ -111,9 +111,10 @@ def test_a_teammate_two_offseasons_out_backs_nobody_up():
     assert not act[(act["Player"] == "Jaylin Noel") & (act["Year"] == 2025)].empty
 
 
-def test_a_top_rookie_pick_is_no_ones_cuff():
-    """Tetairoa McMillan (2025, a top-12 rookie pick) filled in for an injured
-    Jalen Coker but was never his cuff (user, 2026-10-13)."""
+def test_a_rookie_is_judged_on_his_projection():
+    """A player with no NFL games is judged on his Enhanced Projection, not an
+    empty 0: Tetairoa McMillan (projected ~13) filled in for an injured Jalen
+    Coker (last-8 ~7) in 2025 but was never his cuff (user, 2026-10-13)."""
     pw = _pw()
     if pw is None:
         return
@@ -125,7 +126,7 @@ def test_a_top_rookie_pick_is_no_ones_cuff():
 if __name__ == "__main__":
     test_a_cuff_stays_activated_for_the_whole_absence()
     test_a_teammate_two_offseasons_out_backs_nobody_up()
-    test_a_top_rookie_pick_is_no_ones_cuff()
+    test_a_rookie_is_judged_on_his_projection()
     test_every_activation_is_a_start_with_an_injured_teammate()
     test_cuffs_started_counts_distinct_activated_players()
     print("PASS")

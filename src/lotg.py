@@ -10620,24 +10620,76 @@ def build_all(repo_root: Path) -> None:
             return False
         return (_d.year if _d.month >= 3 else _d.year - 1) - int(g[-1][3]) >= _CUFF_STALE_SEASONS
 
+    def _cuff_enh() -> Dict[Tuple[str, int], List[Tuple[int, float]]]:
+        """(player id, season) -> [(week, Enhanced Projection)] off player_week,
+        once projections are on it (`_proj`); {} before."""
+        if "enh" in _cuff_memo:
+            return _cuff_memo["enh"]
+        out: Dict[Tuple[str, int], List[Tuple[int, float]]] = defaultdict(list)
+        _col = "Enhanced Projection"
+        if isinstance(pw, pd.DataFrame) and _col in pw.columns:
+            _v = pd.to_numeric(pw[_col], errors="coerce")
+            for _p, _y, _w, _x in zip(pw["Player ID"].astype(str), pd.to_numeric(pw["Year"], errors="coerce"),
+                                      pd.to_numeric(pw["Week"], errors="coerce"), _v):
+                if pd.notna(_y) and pd.notna(_w) and pd.notna(_x):
+                    out[(_p, int(_y))].append((int(_w), float(_x)))
+            for _k in out:
+                out[_k].sort()
+            _cuff_memo["enh"] = out          # only memoised once it exists
+        return out
+
+    def _cuff_week_of(day: str) -> Optional[Tuple[int, int]]:
+        """(season, fantasy week) a league day is judged in: the first week whose
+        last game is on/after it (a move before kickoff -> week 1)."""
+        try:
+            _d = date.fromisoformat(str(day)[:10])
+        except ValueError:
+            return None
+        _s = _d.year if _d.month >= 3 else _d.year - 1
+        for _w in range(1, 19):
+            _ld = _last_game_date(_s, _w)
+            if _ld and str(_ld)[:10] >= str(day)[:10]:
+                return _s, _w
+        return _s + 1, 1
+
+    def _cuff_proj(sid: str, day: str, forward: bool) -> Optional[float]:
+        """His Enhanced Projection for the week `day` is judged in — or, with
+        `forward`, his first positive one from then on (a rookie's first
+        projected week). An out week projects 0, never an 'if healthy' figure, so
+        0 is no answer. None without one."""
+        sw = _cuff_week_of(day)
+        if sw is None:
+            return None
+        enh = _cuff_enh()
+        for _s in (sw[0], sw[0] + 1) if forward else (sw[0],):
+            for _w, _x in enh.get((str(sid), _s), []):
+                if (_s > sw[0] or _w >= sw[1]) and (forward or _w == sw[1]):
+                    if _x > 0:
+                        return _x
+                    if not forward:
+                        return None
+        return None
+
     def _cuff_refs(pid: Any, day: str, roster: set, top: frozenset, first: bool = False) -> List[str]:
         """Which of `roster` make `pid` a handcuff on league day `day`: same NFL
         team and position, and 3+ PPG better than him, or 13 TE-equivalent, or
-        in `top` (that season's top-12 rookie picks). `first`: stop at one."""
+        in `top` (that season's top-12 rookie picks). `first`: stop at one.
+
+        A player with no NFL games yet (a rookie, a never-used backup) has no
+        average to compare, and comparing to 0 made any teammate his starter —
+        Tetairoa McMillan, the #8 pick, "Jalen Coker's cuff" in 2025. He is
+        judged on his Enhanced Projection instead, against the teammate's
+        Enhanced Projection that week, or the teammate's last-8 when he is out
+        (user, 2026-10-13: Makai Lemon behind DeVonta Smith would be a cuff,
+        McMillan behind Coker is not)."""
         sid = str(pid)
         pos = (pid_pos.get(sid) or "").upper()
         nfl = _cuff_nfl_team(sid, day)
         if not pos or not nfl:
             return []
         own = _cuff_last8(sid, day)
-        # A top-12 pick of the season's rookie draft is a starter-in-waiting, not
-        # a handcuff — until he has played, his empty average says nothing (user,
-        # 2026-10-13: "Tet wasn't a cuff" — Tetairoa McMillan, #8 overall, filling
-        # in for an injured Jalen Coker in 2025). A never-used QB2 or a later
-        # rookie with no games still qualifies.
-        if not own and sid in top:
-            return []
-        own_avg = (sum(e[1] for e in own) / len(own)) if own else 0.0
+        rookie_proj = None if own else _cuff_proj(sid, day, forward=True)
+        own_avg = (sum(e[1] for e in own) / len(own)) if own else (rookie_proj or 0.0)
         out: List[str] = []
         for ref in sorted(roster):
             if ref == sid or (pid_pos.get(ref) or "").upper() != pos or _cuff_nfl_team(ref, day) != nfl:
@@ -10647,11 +10699,18 @@ def build_all(repo_root: Path) -> None:
             hit = ref in top
             if not hit:
                 last8 = _cuff_last8(ref, day)
-                if len(last8) >= _CUFF_GAMES:
-                    avg = sum(e[1] for e in last8) / _CUFF_GAMES
+                full = len(last8) >= _CUFF_GAMES
+                avg = sum(e[1] for e in last8) / _CUFF_GAMES if full else None
+                if rookie_proj is not None:
+                    ref_val = _cuff_proj(ref, day, forward=False)
+                    if ref_val is None:
+                        ref_val = avg
+                    hit = ref_val is not None and ref_val >= own_avg + _CUFF_MARGIN
+                elif full:
+                    hit = avg >= own_avg + _CUFF_MARGIN
+                if not hit and full:
                     _season = last8[-1][3]
-                    hit = (avg >= own_avg + _CUFF_MARGIN
-                           or avg * _pos_factor(_season, pos) >= _CUFF_TE_PPG * _pos_factor(_season, "TE"))
+                    hit = avg * _pos_factor(_season, pos) >= _CUFF_TE_PPG * _pos_factor(_season, "TE")
             if hit:
                 out.append(ref)
                 if first:
@@ -11788,6 +11847,111 @@ def build_all(repo_root: Path) -> None:
     add_drops_df = pd.DataFrame(add_drop_rows)
     tr = pd.DataFrame(trades_rows)
     ph = pd.DataFrame(pick_rows)
+
+    # Projections (lotg_support.projections) [per user, 2026-10-07]: Sleeper,
+    # Claude and Enhanced Projection on every player_week row, before the
+    # awards so the Overachiever / Underachiever awards and their streaks
+    # ride the same machinery. The Claude projections are boldness'
+    # pre-kickoff E for every rostered player (bench too), computed here on
+    # the build's own inputs; Enhanced also feeds Boldness
+    # below (approved). A failure leaves the columns N/A, never 0.
+    # HERE, as soon as the pick sheet exists (its rookie slots feed Claude's
+    # prior), so the handcuff test can read a rookie's Enhanced projection for
+    # the pick, trade and pickup flags as well as the weekly ones (user,
+    # 2026-10-13). Nothing between here and the awards adds or drops a
+    # player_week row.
+    _proj_res = None
+    try:
+        from lotg_support import projections as _proj
+        from lotg_support import boldness as _bold
+        _t0 = datetime.now()
+        _pflag = pd.Series(False, index=pw.index)
+        for _c in ("Bye?", "Injury?", "Suspension?"):
+            if _c in pw.columns:
+                _pflag = _pflag | pw[_c].map(lambda v: safe_bool(v, default=False))
+        pw["_proj_out"] = _pflag & (pd.to_numeric(pw["Points"], errors="coerce").fillna(0) == 0)
+        _proj_unavail: Dict[int, Set[Tuple[str, int]]] = defaultdict(set)
+        for _pid, _y, _w in pw.loc[_pflag, ["Player ID", "Year", "Week"]].itertuples(index=False, name=None):
+            if pd.notna(_y) and pd.notna(_w):
+                _proj_unavail[int(_y)].add((str(_pid), int(_w)))
+        _proj_bridge = {str(_sid): str(_m.get("gsis_id")).strip() for _sid, _m in pid_meta.items()
+                        if (_m or {}).get("gsis_id") and str(_m.get("gsis_id")).lower() != "nan"}
+        _rk0 = ph[~pick_history.non_rookie_mask(ph)] if isinstance(ph, pd.DataFrame) and not ph.empty else pd.DataFrame()
+        _seasons = sorted(int(y) for y in pd.to_numeric(pw["Year"], errors="coerce").dropna().unique())
+        _cur = max(_seasons)
+        _g2s = {g: s_ for s_, g in _proj_bridge.items()}
+        _cl = []
+        with _bold.build_inputs(
+                matchups=_bold_matchups, roster_positions=_bold_roster_positions,
+                teams={int(k): dict(v) for k, v in season_roster_to_team.items()},
+                unavailable=dict(_proj_unavail),
+                rookie_picks=_rk0[["Year", "Number", "Player Picked"]] if not _rk0.empty else pd.DataFrame(columns=["Year", "Number", "Player Picked"]),
+                scoring=_bold_scoring, score=_league_score, score_map=_LEAGUE_SCORE_MAP,
+                bridge=_proj_bridge):
+            for _s in _seasons:
+                _e = _bold.expected_points(_s)
+                if not _e.empty:
+                    _cl.append(pd.DataFrame({"Year": _s, "Week": _e["week"].astype(int),
+                                             "Player ID": _e["gsis_id"].map(_g2s), "E": _e["E"]}))
+            _scoring_tables = {_s: dict(_bold.scoring_table(_s)) for _s in _seasons}
+            # Who took the field (stat line or offensive snap) — for the
+            # did-not-play zeroing [per user, 2026-10-07]. A failure here
+            # zeroes nothing extra rather than losing the projections.
+            try:
+                _appeared = _bold.game_log(_seasons)
+                _snap_shares = _bold.snap_shares(_seasons)     # the QB-cameo half
+            except Exception as e:
+                _log_exc(debug, "projections_did_not_play", e)
+                _appeared, _snap_shares = pd.DataFrame(), pd.DataFrame()
+        _claude = pd.concat(_cl, ignore_index=True).dropna(subset=["Player ID"]) if _cl else pd.DataFrame(columns=["Year", "Week", "Player ID", "E"])
+        _ids = _safe_df(load_dynastyprocess_playerids(ext))
+        _proj_dnp = _proj.did_not_play(pw, pw["Player ID"].astype(str).map(_proj_bridge),
+                                       _appeared, _proj_games, snaps=_snap_shares)
+        _inp = _proj.Inputs(
+            player_week=pw.assign(out=pw["_proj_out"], did_not_play=_proj_dnp), claude=_claude, games=_proj_games,
+            ids=_ids.astype(str), scoring=lambda y: _scoring_tables.get(int(y), {}), current_season=_cur,
+            sleeper={_s: _proj.load_sleeper(ext, _s, _cur) for _s in _seasons},
+            espn={_s: _proj.load_espn(ext, _s, _cur) for _s in _seasons},
+            fantasypros=_proj.load_fantasypros(ext), key="Player ID")
+        _proj_res = _proj.project(_inp)
+        pw["_claude_raw"] = _proj_res["_claude_raw"]
+        for _x in _proj.NAMES:
+            pw[_proj.proj_col(_x)] = _proj_res[_proj.proj_col(_x)]
+            pw[_proj.above_col(_x)] = (pd.to_numeric(pw["Points"], errors="coerce") - pw[_proj.proj_col(_x)]).round(2)
+        _log(debug, f"[{_now_iso()}] INFO projections: {len(_claude)} Claude projections; "
+                    f"{int(_proj_res['_sources'].ge(2).sum())}/{len(pw)} rows with an outside source; "
+                    f"{int(_proj_res['_sleeper_fallback'].sum())} Sleeper fallbacks; "
+                    f"{int(_proj_res['_did_not_play'].sum())} did-not-play weeks zeroed "
+                    f"in {(datetime.now() - _t0).total_seconds():.0f}s")
+    except Exception as e:
+        _log_exc(debug, "projections", e)
+        _proj_res = None
+
+    # The pickups' handcuff flags were judged before projections existed, so a
+    # player with no NFL games yet was compared to 0. Judge those again now that
+    # his Enhanced Projection is on player_week (`_cuff_refs`); everyone else's
+    # flag cannot change. Player addition value reads the flag later.
+    try:
+        if isinstance(add_drops_df, pd.DataFrame) and not add_drops_df.empty \
+                and {"_added_pid", "Date", "Team"} <= set(add_drops_df.columns):
+            _n_rejudged = _n_flipped = 0
+            for _i in add_drops_df.index:
+                _apid = add_drops_df.at[_i, "_added_pid"]
+                if _apid is None or str(_apid).strip() in ("", "nan", "None"):
+                    continue
+                _w = _cuff_utc(add_drops_df.at[_i, "Date"])
+                if _w is None or _cuff_last8(str(_apid), _league_day(_w).isoformat()):
+                    continue
+                _n_rejudged += 1
+                _new = bool(_is_cuff(add_drops_df.at[_i, "Team"], _apid, add_drops_df.at[_i, "Date"]))
+                _old = str(add_drops_df.at[_i, "Cuff at time of pickup?"]).strip().lower() in ("true", "1")
+                if _new != _old:
+                    add_drops_df.at[_i, "Cuff at time of pickup?"] = _new
+                    _n_flipped += 1
+            _log(debug, f"[{_now_iso()}] INFO cuff: {_n_rejudged} no-games pickups re-judged on "
+                        f"projections, {_n_flipped} flag(s) changed")
+    except Exception as e:
+        _log_exc(debug, "cuff_rejudge_pickups", e)
 
     # `_is_startup` is set only on the 152 startup rows, so every other row holds
     # NaN — and NaN is TRUTHY. A bare `bool(row.get("_is_startup"))` therefore
@@ -13618,79 +13782,6 @@ def build_all(repo_root: Path) -> None:
 
             stats[key] = st
 
-        # Projections (lotg_support.projections) [per user, 2026-10-07]: Sleeper,
-        # Claude and Enhanced Projection on every player_week row, before the
-        # awards so the Overachiever / Underachiever awards and their streaks
-        # ride the same machinery. The Claude projections are boldness'
-        # pre-kickoff E for every rostered player (bench too), computed here on
-        # the build's own inputs; Enhanced also feeds Boldness
-        # below (approved). A failure leaves the columns N/A, never 0.
-        _proj_res = None
-        try:
-            from lotg_support import projections as _proj
-            from lotg_support import boldness as _bold
-            _t0 = datetime.now()
-            _pflag = pd.Series(False, index=pw.index)
-            for _c in ("Bye?", "Injury?", "Suspension?"):
-                if _c in pw.columns:
-                    _pflag = _pflag | pw[_c].map(lambda v: safe_bool(v, default=False))
-            pw["_proj_out"] = _pflag & (pd.to_numeric(pw["Points"], errors="coerce").fillna(0) == 0)
-            _proj_unavail: Dict[int, Set[Tuple[str, int]]] = defaultdict(set)
-            for _pid, _y, _w in pw.loc[_pflag, ["Player ID", "Year", "Week"]].itertuples(index=False, name=None):
-                if pd.notna(_y) and pd.notna(_w):
-                    _proj_unavail[int(_y)].add((str(_pid), int(_w)))
-            _proj_bridge = {str(_sid): str(_m.get("gsis_id")).strip() for _sid, _m in pid_meta.items()
-                            if (_m or {}).get("gsis_id") and str(_m.get("gsis_id")).lower() != "nan"}
-            _rk0 = ph[~pick_history.non_rookie_mask(ph)] if isinstance(ph, pd.DataFrame) and not ph.empty else pd.DataFrame()
-            _seasons = sorted(int(y) for y in pd.to_numeric(pw["Year"], errors="coerce").dropna().unique())
-            _cur = max(_seasons)
-            _g2s = {g: s_ for s_, g in _proj_bridge.items()}
-            _cl = []
-            with _bold.build_inputs(
-                    matchups=_bold_matchups, roster_positions=_bold_roster_positions,
-                    teams={int(k): dict(v) for k, v in season_roster_to_team.items()},
-                    unavailable=dict(_proj_unavail),
-                    rookie_picks=_rk0[["Year", "Number", "Player Picked"]] if not _rk0.empty else pd.DataFrame(columns=["Year", "Number", "Player Picked"]),
-                    scoring=_bold_scoring, score=_league_score, score_map=_LEAGUE_SCORE_MAP,
-                    bridge=_proj_bridge):
-                for _s in _seasons:
-                    _e = _bold.expected_points(_s)
-                    if not _e.empty:
-                        _cl.append(pd.DataFrame({"Year": _s, "Week": _e["week"].astype(int),
-                                                 "Player ID": _e["gsis_id"].map(_g2s), "E": _e["E"]}))
-                _scoring_tables = {_s: dict(_bold.scoring_table(_s)) for _s in _seasons}
-                # Who took the field (stat line or offensive snap) — for the
-                # did-not-play zeroing [per user, 2026-10-07]. A failure here
-                # zeroes nothing extra rather than losing the projections.
-                try:
-                    _appeared = _bold.game_log(_seasons)
-                    _snap_shares = _bold.snap_shares(_seasons)     # the QB-cameo half
-                except Exception as e:
-                    _log_exc(debug, "projections_did_not_play", e)
-                    _appeared, _snap_shares = pd.DataFrame(), pd.DataFrame()
-            _claude = pd.concat(_cl, ignore_index=True).dropna(subset=["Player ID"]) if _cl else pd.DataFrame(columns=["Year", "Week", "Player ID", "E"])
-            _ids = _safe_df(load_dynastyprocess_playerids(ext))
-            _proj_dnp = _proj.did_not_play(pw, pw["Player ID"].astype(str).map(_proj_bridge),
-                                           _appeared, _proj_games, snaps=_snap_shares)
-            _inp = _proj.Inputs(
-                player_week=pw.assign(out=pw["_proj_out"], did_not_play=_proj_dnp), claude=_claude, games=_proj_games,
-                ids=_ids.astype(str), scoring=lambda y: _scoring_tables.get(int(y), {}), current_season=_cur,
-                sleeper={_s: _proj.load_sleeper(ext, _s, _cur) for _s in _seasons},
-                espn={_s: _proj.load_espn(ext, _s, _cur) for _s in _seasons},
-                fantasypros=_proj.load_fantasypros(ext), key="Player ID")
-            _proj_res = _proj.project(_inp)
-            pw["_claude_raw"] = _proj_res["_claude_raw"]
-            for _x in _proj.NAMES:
-                pw[_proj.proj_col(_x)] = _proj_res[_proj.proj_col(_x)]
-                pw[_proj.above_col(_x)] = (pd.to_numeric(pw["Points"], errors="coerce") - pw[_proj.proj_col(_x)]).round(2)
-            _log(debug, f"[{_now_iso()}] INFO projections: {len(_claude)} Claude projections; "
-                        f"{int(_proj_res['_sources'].ge(2).sum())}/{len(pw)} rows with an outside source; "
-                        f"{int(_proj_res['_sleeper_fallback'].sum())} Sleeper fallbacks; "
-                        f"{int(_proj_res['_did_not_play'].sum())} did-not-play weeks zeroed "
-                        f"in {(datetime.now() - _t0).total_seconds():.0f}s")
-        except Exception as e:
-            _log_exc(debug, "projections", e)
-            _proj_res = None
 
         # Awards (league + team). Ties -> all winners.
         # We compute off pw itself to avoid any mismatched ids.
