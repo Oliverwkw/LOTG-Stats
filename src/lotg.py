@@ -19478,7 +19478,9 @@ def build_all(repo_root: Path) -> None:
             if not isinstance(_fdf, pd.DataFrame) or _fdf.empty:
                 continue
             _fdf = _fdf.drop(columns=[c for c in _fsh.COLUMNS if c in _fdf.columns], errors="ignore")
-            _fdf = _fdf.merge(_fsh.flex_shares(pw, _fkeys), on=_fkeys, how="left")
+            # .copy() defragments: the merged-in columns otherwise push the frame
+            # past pandas' block threshold and every later insert warns.
+            _fdf = _fdf.merge(_fsh.flex_shares(pw, _fkeys), on=_fkeys, how="left").copy()
             if _fk == "team_year":
                 team_year = _fdf
             else:
@@ -20339,11 +20341,12 @@ def build_all(repo_root: Path) -> None:
         from lotg_support import flex_shares as _fsh
         if isinstance(league_year, pd.DataFrame) and not league_year.empty:
             league_year = league_year.drop(columns=[c for c in _fsh.COLUMNS if c in league_year.columns], errors="ignore")
-            league_year = league_year.merge(_fsh.flex_shares(pw, ["Year"]), on=["Year"], how="left")
+            league_year = league_year.merge(_fsh.flex_shares(pw, ["Year"]), on=["Year"], how="left").copy()
         if isinstance(league_all, pd.DataFrame) and not league_all.empty:
             _fla = _fsh.flex_shares(pw, [])
             for _c in _fsh.COLUMNS:
                 league_all[_c] = _fla.at[0, _c] if not _fla.empty else None
+            league_all = league_all.copy()
     except Exception as e:
         _log_exc(debug, "league_flex_shares", e)
 
