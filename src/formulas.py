@@ -67,7 +67,7 @@ _ROWS = [
      "Notes": "Negative = the team got younger."},
     {"Stat": "Cuff at time of pickup?", "Sheet": "add_drops",
      "Formula": "Was this pickup a handcuff? TRUE when, at the moment of the move, the adding team already rosters another player on the SAME NFL team and position (the reference) who either averages 3+ PPG more than the added player, or averages 13+ PPG as a TE (other positions: the position-adjusted equivalent, reference PPG x position factor >= 13 x the TE factor), or was a top-12 pick in that season's rookie draft. Both averages are the reference's last 8 PLAYED NFL games (nflverse, league scoring) before the move; the added player's own average is his last 8 (or fewer). 8 is a hard cutoff: a reference with fewer than 8 games counts only through the draft test.",
-     "Notes": "The draft test uses the rookie draft of the move's season only once it has happened; before it, there is no draft test. 2020 had no rookie draft, so its test is the first 12 NFL rookies taken in the startup; 2021 uses the rookie draft, not the vet draft. One definition on add_drops, trades (inside Trade addition value), the pick sheets and player_additions. player_week's '- Activated Cuff?' and the team/league 'Number of cuffs rostered|started' apply the same test week by week. Adds the handcuff bonus to Player addition value."},
+     "Notes": "A teammate two offseasons past his last game is no one's reference (Tank Dell, out since 2024 week 16, by 2026). A player with no NFL games yet (not a QB) is judged on his Enhanced Projection that season against the teammate's that week (his last-8 when out), not an empty 0 (Makai Lemon behind DeVonta Smith: cuff; Tetairoa McMillan behind Jalen Coker: not). A QB with no games stays any real starter's cuff: a QB's projection is his role. The draft test uses the rookie draft of the move's season only once it has happened; before it, there is no draft test. 2020 had no rookie draft, so its test is the first 12 NFL rookies taken in the startup; 2021 uses the rookie draft, not the vet draft. One definition on add_drops, trades (inside Trade addition value), the pick sheets and player_additions. player_week's '- Activated Cuff?' and the team/league 'Number of cuffs rostered|started' apply the same test week by week. Adds the handcuff bonus to Player addition value."},
     {"Stat": "Weeks between pickup and start", "Sheet": "add_drops",
      "Formula": "How many weeks the added player sat on the bench before his first start for this team. Count of rostered non-starter weeks between the pickup and that first start.",
      "Notes": "Blank if he was dropped/traded before ever starting."},
@@ -346,7 +346,7 @@ _ROWS = [
      "Notes": "Blank when the player never played an NFL week for the drafter, or for an unmade pick. The two % terms are RATES — how often he started, not for how long — so the starts term carries the LENGTH of the run: 170 is roughly a decade of starts, so the factor is 1.0 for a pick that never started and stays at or under 1.2 for 90% of picks; the longest run in the data (95 starts) reaches 1.56. It scales the PPG term only; the handcuff bonus is added after. Picks only — the add_drops, trades and player_additions versions are unchanged."},
     {"Stat": "Cuff when drafted?", "Sheet": "non_rookie_picks / rookie_picks",
      "Formula": "Was the pick a handcuff? TRUE when, at the moment of the move, the adding team already rosters another player on the SAME NFL team and position (the reference) who either averages 3+ PPG more than the added player, or averages 13+ PPG as a TE (other positions: the position-adjusted equivalent, reference PPG x position factor >= 13 x the TE factor), or was a top-12 pick in that season's rookie draft. Both averages are the reference's last 8 PLAYED NFL games (nflverse, league scoring) before the move; the added player's own average is his last 8 (or fewer). 8 is a hard cutoff: a reference with fewer than 8 games counts only through the draft test. For a pick, 'the move' is the draft: the roster as it opened plus the team's earlier picks in it; a rookie draft is itself that season's draft, so its earlier top-12 picks count.",
-     "Notes": "The draft test uses the rookie draft of the move's season only once it has happened; before it, there is no draft test. 2020 had no rookie draft, so its test is the first 12 NFL rookies taken in the startup; 2021 uses the rookie draft, not the vet draft. One definition on add_drops, trades (inside Trade addition value), the pick sheets and player_additions. player_week's '- Activated Cuff?' and the team/league 'Number of cuffs rostered|started' apply the same test week by week. A rookie's NFL team is his first NFL game's. Feeds Player addition value."},
+     "Notes": "A teammate two offseasons past his last game is no one's reference (Tank Dell, out since 2024 week 16, by 2026). A player with no NFL games yet (not a QB) is judged on his Enhanced Projection that season against the teammate's that week (his last-8 when out), not an empty 0 (Makai Lemon behind DeVonta Smith: cuff; Tetairoa McMillan behind Jalen Coker: not). A QB with no games stays any real starter's cuff: a QB's projection is his role. The draft test uses the rookie draft of the move's season only once it has happened; before it, there is no draft test. 2020 had no rookie draft, so its test is the first 12 NFL rookies taken in the startup; 2021 uses the rookie draft, not the vet draft. One definition on add_drops, trades (inside Trade addition value), the pick sheets and player_additions. player_week's '- Activated Cuff?' and the team/league 'Number of cuffs rostered|started' apply the same test week by week. A rookie's NFL team is his first NFL game's. Feeds Player addition value."},
     {"Stat": "Weeks before first start", "Sheet": "non_rookie_picks / rookie_picks",
      "Formula": "How many weeks the drafted player sat on the drafting team's roster before his first start for them.",
      "Notes": "Blank if he never started for the drafter (or an unmade pick)."},
@@ -391,7 +391,7 @@ _ROWS = [
      "Notes": "Bench rows too. Kickoffs from the nflverse schedule; the abandoned 2022 Bills-Bengals week 17 game (the Damar Hamlin no-contest), struck from it, is kept as the Monday night game it was — byes and game days see it too. lotg_support.gametime."},
     {"Stat": "Activated Cuff?", "Sheet": "player_week",
      "Formula": "TRUE when a handcuff had to start: he STARTED this week, the team rosters a same-NFL-team, same-position teammate who averages 3+ PPG more than him, or 13+ PPG as a TE (other positions: the position-adjusted equivalent), or was a top-12 pick in that season's rookie draft — the same handcuff test as 'Cuff at time of pickup?', judged against that week's roster at its first kickoff, averages over each player's last 8 played NFL games before the week (8 a hard cutoff for the teammate), and one of those qualifying teammates is injured this week.",
-     "Notes": "Drives 'Number of cuffs started' and halves the Cuff adjusted difference. The hurt teammate needn't have been a starter."},
+     "Notes": "A teammate two offseasons past his last game is no one's reference (Tank Dell, out since 2024 week 16, by 2026). A player with no NFL games yet (not a QB) is judged on his Enhanced Projection that season against the teammate's that week (his last-8 when out), not an empty 0 (Makai Lemon behind DeVonta Smith: cuff; Tetairoa McMillan behind Jalen Coker: not). A QB with no games stays any real starter's cuff: a QB's projection is his role. While a qualifying teammate is OUT, the test is judged as of his last game, so the backup stays his cuff for the whole absence however well he plays in it (per user, 2026-10-13). Drives 'Number of cuffs started' and halves the Cuff adjusted difference. The hurt teammate needn't have been a starter."},
     {"Stat": "Difference from best startable bench", "Sheet": "player_week",
      "Formula": "Whether starting this player was the right call. His points − the highest-scoring bench player who could have started instead.",
      "Notes": "Negative = a benched player out-scored him (bad call)."},
@@ -779,16 +779,22 @@ _ROWS = [
                  "Total times highest starter on team this season",
                  "Total times lowest starter on team this season"],
      "Formula": "A player's season with one team, terminal-encoded (value on his last week there that season, 'In Progress' before) so a sort ranks each player-team season once. '% of starts' = started / rostered weeks; '% of team points' = his starter points / the team's starter PF that season (0-1); the rest are weeks, points, and PPG as a starter or on the bench, and weeks as the team's top/bottom starter.",
-     "Notes": "Separate stints with the same team that season share one tenure. The every-season version of each is on player_additions as '… (multiple stints)'."},
-    {"Stat": "Per-team tenure metrics over every stint (multiple stints)",
+     "Notes": "Separate stints with the same team that season share one tenure. The every-season version of each is on player_additions as '… (all stints)'."},
+    {"Stat": "Per-team tenure metrics over every stint (all stints)",
      "Sheet": "player_additions",
-     "Columns": [c + " (multiple stints)" for c in (
+     "Columns": [c + " (all stints)" for c in (
          "Total weeks as team starter", "Total weeks on bench", "Weeks rostered by this team",
-         "% of starts on team", "% of team points on team", "Total points as team starter",
+         "% of starts on team", "% of all time team points", "Total points as team starter",
          "PPG as team starter", "Total times highest starter on team",
          "Total times lowest starter on team")],
-     "Formula": "A player's WHOLE time with one team — every stint, a re-acquired player's earlier ones included: weeks started / benched / rostered there, % of those weeks started, his starter points / the team's starter PF over all its seasons (0-1), his starter points, PPG as a starter, and weeks as the team's top/bottom starter. 'Avg PPG on team' and the other per-stint columns are one stint's.",
+     "Formula": "A player's WHOLE time with one team — every stint, a re-acquired player's earlier ones included: weeks started / benched / rostered there, % of those weeks started, '% of all time team points' = his starter points / the team's starter PF over all its seasons (0-1), his starter points, PPG as a starter, and weeks as the team's top/bottom starter. 'Avg PPG on team' and the other per-stint columns are one stint's.",
      "Notes": "Terminal-encoded across the player-team's stints: the value sits on its latest stint's row, 'In Progress' on the earlier ones; blank where it is undefined (a PPG with no start). Moved here from player_week (per user, 2026-10-13); player_week keeps the '… this season' family."},
+    {"Stat": "% of team points", "Sheet": "player_additions", "Columns": ["% of team points"],
+     "Formula": "His starter points this stint / the team's starter points over the same weeks (the weeks of the stint, whoever started) (0-1) — his share of the team while he was there.",
+     "Notes": "The one share of the three over the period itself (per user, 2026-10-13): '% of all time team points' divides this stint's points by the team's all-time starter points, '… (all stints)' every stint's. Blank for a stint with no rostered week."},
+    {"Stat": "% of all time team points", "Sheet": "player_additions", "Columns": ["% of all time team points"],
+     "Formula": "His starter points this stint / the team's starter points over all its seasons (0-1).",
+     "Notes": "Summed over a player-team's stints it is '% of all time team points (all stints)'. Blank for a stint with no rostered week."},
     {"Stat": "Player tenure totals (not per team)", "Sheet": "player_year / player_all_time",
      "Columns": ["Weeks on bench", "Weeks rostered", "% of starts", "Total points as starter", "% of league points"],
      "Formula": "Season / career totals across all teams. Rostered = started + benched weeks; '% of starts' = started / rostered; 'Total points as starter' = his starter points; '% of league points' = those points / the league's whole starter scoring (0-1).",
@@ -828,7 +834,7 @@ _ROWS = [
      "Notes": "Pairs with '- Activated Cuff?'."},
     {"Stat": "- Activated Cuff? (Did he start while a teammate he is the handcuff for was injured?)", "Sheet": "player_week", "Columns": ["- Activated Cuff? (Did he start while a teammate he is the handcuff for was injured?)"],
      "Formula": "TRUE when he STARTED this week, the team rosters a same-NFL-team, same-position teammate who averages 3+ PPG more than him, or 13+ PPG as a TE (other positions: the position-adjusted equivalent), or was a top-12 pick in that season's rookie draft — the same handcuff test as 'Cuff at time of pickup?', judged against that week's roster at its first kickoff, averages over each player's last 8 played NFL games before the week (8 a hard cutoff for the teammate), and one of those qualifying teammates is injured this week.",
-     "Notes": "Feeds the Cuff adjusted difference and 'Number of cuffs started'."},
+     "Notes": "A teammate two offseasons past his last game is no one's reference (Tank Dell, out since 2024 week 16, by 2026). A player with no NFL games yet (not a QB) is judged on his Enhanced Projection that season against the teammate's that week (his last-8 when out), not an empty 0 (Makai Lemon behind DeVonta Smith: cuff; Tetairoa McMillan behind Jalen Coker: not). A QB with no games stays any real starter's cuff: a QB's projection is his role. While a qualifying teammate is OUT, the test is judged as of his last game, so the backup stays his cuff for the whole absence however well he plays in it (per user, 2026-10-13). Feeds the Cuff adjusted difference and 'Number of cuffs started'."},
     {"Stat": "Player of the week?", "Sheet": "player_week", "Columns": ["Player of the week?"],
      "Formula": "TRUE the week the player was the highest-scoring starter league-wide.",
      "Notes": "One per week (alphabetical tie-break). Count is 'Times as Player of the week?'."},
@@ -1529,7 +1535,7 @@ _ROWS = [
      "Notes": "Year/all-time count DISTINCT players; league sheets are league-wide."},
     {"Stat": "Number of cuffs rostered", "Sheet": "team_week / team_year / team_all_time / league_week / league_year / league_all_time", "Columns": ["Number of cuffs rostered"],
      "Formula": "Count of the team's rostered players that week who were a handcuff: the team rosters a same-NFL-team, same-position teammate who averages 3+ PPG more than him, or 13+ PPG as a TE (other positions: the position-adjusted equivalent), or was a top-12 pick in that season's rookie draft — the same handcuff test as 'Cuff at time of pickup?', judged against that week's roster at its first kickoff, averages over each player's last 8 played NFL games before the week (8 a hard cutoff for the teammate).",
-     "Notes": "Year/all-time count DISTINCT players; league sheets are league-wide."},
+     "Notes": "A teammate two offseasons past his last game is no one's reference (Tank Dell, out since 2024 week 16, by 2026). A player with no NFL games yet (not a QB) is judged on his Enhanced Projection that season against the teammate's that week (his last-8 when out), not an empty 0 (Makai Lemon behind DeVonta Smith: cuff; Tetairoa McMillan behind Jalen Coker: not). A QB with no games stays any real starter's cuff: a QB's projection is his role. While a qualifying teammate is OUT, the test is judged as of his last game, so the backup stays his cuff for the whole absence however well he plays in it (per user, 2026-10-13). Year/all-time count DISTINCT players; league sheets are league-wide."},
     {"Stat": "Number of cuffs started", "Sheet": "team_week / team_year / team_all_time / league_week / league_year / league_all_time", "Columns": ["Number of cuffs started"],
      "Formula": "The team's '- Activated Cuff?' player-weeks: handcuffs it STARTED that week while a teammate they back up was injured.",
      "Notes": "Year/all-time count DISTINCT players; league sheets are league-wide."},
@@ -1708,7 +1714,7 @@ _ROWS = [
      "Notes": ""},
     {"Stat": "Cuff at pickup?", "Sheet": "player_additions", "Columns": ["Cuff at pickup?"],
      "Formula": "The acquisition's handcuff flag, on every channel. TRUE when, at the moment of the move, the adding team already rosters another player on the SAME NFL team and position (the reference) who either averages 3+ PPG more than the added player, or averages 13+ PPG as a TE (other positions: the position-adjusted equivalent, reference PPG x position factor >= 13 x the TE factor), or was a top-12 pick in that season's rookie draft. Both averages are the reference's last 8 PLAYED NFL games (nflverse, league scoring) before the move; the added player's own average is his last 8 (or fewer). 8 is a hard cutoff: a reference with fewer than 8 games counts only through the draft test. A Draft row carries its pick's 'Cuff when drafted?'.",
-     "Notes": "Always True or False — never N/A. The same test as add_drops' 'Cuff at time of pickup?' and the pick sheets' 'Cuff when drafted?' (draft test: that season's rookie draft once it has happened; 2020 = the first 12 NFL rookies in the startup). player_week's '- Activated Cuff?' applies the same test week by week."},
+     "Notes": "A teammate two offseasons past his last game is no one's reference (Tank Dell, out since 2024 week 16, by 2026). A player with no NFL games yet (not a QB) is judged on his Enhanced Projection that season against the teammate's that week (his last-8 when out), not an empty 0 (Makai Lemon behind DeVonta Smith: cuff; Tetairoa McMillan behind Jalen Coker: not). A QB with no games stays any real starter's cuff: a QB's projection is his role. Always True or False — never N/A. The same test as add_drops' 'Cuff at time of pickup?' and the pick sheets' 'Cuff when drafted?' (draft test: that season's rookie draft once it has happened; 2020 = the first 12 NFL rookies in the startup). player_week's '- Activated Cuff?' applies the same test week by week."},
     {"Stat": "KTC at pickup", "Sheet": "player_additions", "Columns": ["KTC at pickup"],
      "Formula": "KeepTradeCut superflex value of the player on the addition date. The non-pick-adjusted KTC checkpoints, keyed off pickup time rather than draft day.",
      "Notes": "Never pulls forward: a checkpoint dated in the future is blank, not today's value."},
@@ -1823,7 +1829,7 @@ _POS_TWINS = [
     ("Change in avg points from career", "player_year",
      "Avg points (full season) adjusted by position − the prior career's per-game average with each season's points x its own factor",
      "Same 2-game guard as the base; backfill seasons use the first league season's factor."),
-    ("PPG as team starter (multiple stints)", "player_additions", "each started week x that season's factor, summed over every stint with the team, / starts", "Terminal-encoded like its base."),
+    ("PPG as team starter (all stints)", "player_additions", "each started week x that season's factor, summed over every stint with the team, / starts", "Terminal-encoded like its base."),
     ("PPG as team starter this season", "player_week", "each started week x the season's factor, summed, / starts", "Named 'PPG as team starter adjusted by position this season'."),
     ("Start/sit miss (5-game avg)", "player_week",
      "each side's 5-game average x its OWN position's factor for the row's season, then differenced as in the base", "Cross-position start/sit calls (flex) compare on one scale."),
@@ -1851,8 +1857,8 @@ _POS_TWINS = [
 ]
 for _base, _sheet, _how, _note in _POS_TWINS:
     _col = ("PPG as team starter adjusted by position this season" if _base == "PPG as team starter this season"
-            else "PPG as team starter adjusted by position (multiple stints)"
-            if _base == "PPG as team starter (multiple stints)"
+            else "PPG as team starter adjusted by position (all stints)"
+            if _base == "PPG as team starter (all stints)"
             else f"{_base} adjusted by position")
     _ROWS.append({
         "Stat": _col, "Sheet": _sheet, "Columns": [_col],
