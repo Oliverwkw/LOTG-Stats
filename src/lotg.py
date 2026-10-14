@@ -1234,10 +1234,12 @@ def _col_topic(col: str, default: Optional[str] = "Identity") -> Optional[str]:
         return "Hardship & Luck"
     if "champion" in n:
         return "Outcome"
-    # player_additions' every-stint PPG sits with that sheet's per-stint "Avg PPG
-    # on team", in its Value block.
+    # player_additions' every-stint tenure columns: the weeks counts in its
+    # Tenure block, the rest with its per-stint "Avg PPG on team" in Value.
     if n.endswith(" (multiple stints)"):
-        return "Value"
+        base = n[: -len(" (multiple stints)")]
+        return "Tenure" if base in ("total weeks as team starter", "total weeks on bench",
+                                    "weeks rostered by this team") else "Value"
     # A player's stint on his current fantasy team (player_week): one block with
     # its weeks / starts, not split across Scoring and Value.
     if not n.endswith("?") and ("team starter" in n or "% of team points" in n
@@ -1334,23 +1336,31 @@ _TERMINAL_TEAM_TENURE_BASES = (
     "% of starts on team", "% of team points on team",
     "total points as team starter", "ppg as team starter",
     "ppg as team starter adjusted by position",
-    "ppg as team starter (multiple stints)",
-    "ppg as team starter adjusted by position (multiple stints)",
     "total times highest starter on team", "total times lowest starter on team",
 )
 
-# The lifetime (every stint) PPG pair: off player_week, onto player_additions as
-# "<name> (multiple stints)" on the player-team's latest stint, "In Progress" on
-# its earlier ones (per user, 2026-10-13). The per-season pair stays on
-# player_week ("... this season").
-_TEAM_TENURE_PPG_COLS = ("PPG as team starter", "PPG as team starter adjusted by position")
+# The lifetime (every stint) player-team tenure family: off player_week, onto
+# player_additions as "<name> (multiple stints)" on the player-team's latest
+# stint, "In Progress" on its earlier ones (per user, 2026-10-13: its natural
+# home is the sheet with one row per stint). The per-season family stays on
+# player_week ("... this season"). Weeks counts join player_additions' Tenure
+# block; the rest sit with its "Avg PPG on team" in Value.
 _MULTI_STINT_SFX = " (multiple stints)"
+_TEAM_TENURE_WEEK_COLS = ("Total weeks as team starter", "Total weeks on bench",
+                          "Weeks rostered by this team")
+_TEAM_TENURE_VALUE_COLS = ("% of starts on team", "% of team points on team",
+                           "Total points as team starter", "PPG as team starter",
+                           "PPG as team starter adjusted by position",
+                           "Total times highest starter on team",
+                           "Total times lowest starter on team")
+_TEAM_TENURE_LIFETIME_COLS = _TEAM_TENURE_WEEK_COLS + _TEAM_TENURE_VALUE_COLS
 
 
 def _is_terminal_team_col(col: str) -> bool:
     n = re.sub(r"\s+", " ", str(col).strip().lower())
-    if n.endswith(" this season"):
-        n = n[: -len(" this season")]
+    for sfx in (" this season", _MULTI_STINT_SFX):
+        if n.endswith(sfx):
+            n = n[: -len(sfx)]
     return n in _TERMINAL_TEAM_TENURE_BASES
 
 
@@ -2986,9 +2996,9 @@ def _add_ppg_split_columns(df: pd.DataFrame) -> pd.DataFrame:
 def build_all(repo_root: Path) -> None:
     debug = repo_root / "exports" / "raw" / "build_debug.log"
     _log(debug, f"\n[{_now_iso()}] ===== Build start =====")
-    # (Team, Player) -> (PPG as team starter, adjusted) over every stint; filled
+    # (Team, Player) -> {lifetime tenure column: value} over every stint; filled
     # with player_week's tenure columns, written onto player_additions.
-    _team_tenure_ppg: Dict[Tuple[str, str], Tuple[Any, Any]] = {}
+    _team_tenure_lifetime: Dict[Tuple[str, str], Dict[str, Any]] = {}
 
     plan_csv = repo_root / "plan" / "LOTG Plan - Sheet1.csv"
     catalog = load_plan_catalog(plan_csv)
@@ -10542,10 +10552,25 @@ def build_all(repo_root: Path) -> None:
 
     def _cuff_nfl_team_raw(sid: str, day: str) -> Optional[str]:
         """His NFL team at the move: his last game before it, else his first
-        game after it (a rookie drafted in the spring), else Sleeper's team."""
+        game after it (a rookie drafted in the spring), else Sleeper's team.
+
+        A last game from an EARLIER season than the move's is an offseason
+        behind: if he plays for someone else that season, that is his team.
+        Curtis Samuel left CAR for WAS in 2021 and was hurt before his first WAS
+        game, so his "last game" said CAR into October and Robbie Chosen read as
+        his Carolina handcuff (2021 weeks 1 and 3)."""
         g = _cuff_build()["games"].get(str(sid), [])
         before = [e for e in g if e[0] < day and e[2]]
         if before:
+            try:
+                _d = date.fromisoformat(str(day)[:10])
+                _season = _d.year if _d.month >= 3 else _d.year - 1
+            except ValueError:
+                _season = None
+            if _season is not None and before[-1][3] < _season:
+                this = [e for e in g if e[3] == _season and e[2]]
+                if this:
+                    return this[0][2]
             return before[-1][2]
         after = [e for e in g if e[0] >= day and e[2]]
         if after:
@@ -13747,7 +13772,7 @@ def build_all(repo_root: Path) -> None:
         # variants; undefined tenures (e.g. PPG with no starts) read blank.
         # ------------------------------------------------------------------
         try:
-            _team_tenure_ppg.clear()
+            _team_tenure_lifetime.clear()
             _pts = pd.to_numeric(pw["Points"], errors="coerce").fillna(0.0)
             _isS = (pw["Starter/Bench"].astype(str) == "Starter").astype(float)
             _tmp = pd.DataFrame({
@@ -13808,14 +13833,15 @@ def build_all(repo_root: Path) -> None:
                 ]
                 _last_idx = _last_by_level[_lvl]
                 if _lvl == "L":
-                    # The lifetime PPG pair spans every stint with the team, so it
+                    # The lifetime family spans every stint with the team, so it
                     # lives on player_additions (one row per stint) as "... (multiple
                     # stints)", not on player_week (per user, 2026-10-13).
-                    for _r_i, _r_v, _r_a in zip(_last_idx, (_spts / _starts.replace(0, np.nan)).loc[_last_idx],
-                                                (_spts_adj / _starts.replace(0, np.nan)).loc[_last_idx]):
-                        _team_tenure_ppg[(str(_tmp.at[_r_i, "Team"]), str(_tmp.at[_r_i, "Player"]))] = (
-                            _fmt_val(_r_v, "pts"), _fmt_val(_r_a, "pts"))
-                    _specs = [sp for sp in _specs if sp[0] not in _TEAM_TENURE_PPG_COLS]
+                    _keys = [(str(_tmp.at[_r_i, "Team"]), str(_tmp.at[_r_i, "Player"]))
+                             for _r_i in _last_idx]
+                    for _cn, _series, _kind in _specs:
+                        for _k, _v in zip(_keys, _series.loc[_last_idx]):
+                            _team_tenure_lifetime.setdefault(_k, {})[_cn] = _fmt_val(_v, _kind)
+                    _specs = []
                 for _cn, _series, _kind in _specs:
                     # per-group-constant value; undefined groups -> fully blank,
                     # defined groups -> "In Progress" except the tenure's last week.
@@ -23093,24 +23119,26 @@ def build_all(repo_root: Path) -> None:
             player_additions = player_additions.sort_values(
                 ["Season", "Date", "Team", "Player"], na_position="last"
             ).reset_index(drop=True)
-            # PPG as team starter over EVERY stint with the team (it moved here
-            # from player_week, per user 2026-10-13): on the player-team's
-            # latest stint, "In Progress" on its earlier ones, blank when he was
-            # never started there.
+            # The player-team tenure family over EVERY stint with the team (moved
+            # here from player_week, per user 2026-10-13): on the player-team's
+            # latest stint, "In Progress" on its earlier ones, blank where it is
+            # undefined (a PPG with no start).
             try:
                 _pa_key = list(zip(player_additions["Team"].astype(str),
                                    player_additions["Player"].astype(str)))
                 _pa_latest = set(player_additions.assign(_k=_pa_key)
                                  .drop_duplicates("_k", keep="last").index)
-                _anchor = list(player_additions.columns).index("Avg PPG on team adjusted by position") + 1
-                for _j, _base in enumerate(_TEAM_TENURE_PPG_COLS):
-                    _vals = []
-                    for _i, _k in enumerate(_pa_key):
-                        _v = (_team_tenure_ppg.get(_k) or (None, None))[_j]
-                        _vals.append(None if _v is None else (_v if _i in _pa_latest else "In Progress"))
-                    player_additions.insert(_anchor + _j, _base + _MULTI_STINT_SFX, _vals)
+                for _after, _group in (("Healthy bench weeks on team", _TEAM_TENURE_WEEK_COLS),
+                                       ("Avg PPG on team adjusted by position", _TEAM_TENURE_VALUE_COLS)):
+                    _anchor = list(player_additions.columns).index(_after) + 1
+                    for _j, _base in enumerate(_group):
+                        _vals = []
+                        for _i, _k in enumerate(_pa_key):
+                            _v = (_team_tenure_lifetime.get(_k) or {}).get(_base)
+                            _vals.append(None if _v is None else (_v if _i in _pa_latest else "In Progress"))
+                        player_additions.insert(_anchor + _j, _base + _MULTI_STINT_SFX, _vals)
             except Exception as _e_ms:
-                _log_exc(debug, "player_additions multi-stint PPG", _e_ms)
+                _log_exc(debug, "player_additions multi-stint tenure", _e_ms)
         _log(debug, f"[{_now_iso()}] INFO player_additions: {len(player_additions)} addition events "
                     f"({sum(1 for r in _pa_rows if r['Addition type']=='Trade')} trade, "
                     f"{sum(1 for r in _pa_rows if r['Addition type']=='Draft')} draft, "
