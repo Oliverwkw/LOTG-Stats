@@ -1202,6 +1202,9 @@ def _col_topic(col: str, default: Optional[str] = "Identity") -> Optional[str]:
     if any(k in n for k in ("boldness", "start/sit", "startable", "benchable", "empty slot",
                             "reference player", "cuff adjusted difference")):
         return "Lineup"
+    # Who filled the flex slots (lotg_support.flex_shares) — a lineup call.
+    if n.startswith(("% of flx ", "% of sflx ")):
+        return "Lineup"
     if "projection" in n and not any(k in n for k in ("hardship", "luck")):
         return "Projections"
     if n.startswith("change from") or n.startswith("change in"):
@@ -19465,6 +19468,24 @@ def build_all(repo_root: Path) -> None:
     except Exception as e:
         _log_exc(debug, "team_tier_shares", e)
 
+    # Who filled the flex slots (lotg_support.flex_shares): of a team's FLX
+    # starts, the % to a WR / RB / TE; of its SFLX starts, the % to a WR / RB /
+    # TE / QB — pooled over the season (team_year) or all-time (team_all_time).
+    try:
+        from lotg_support import flex_shares as _fsh
+        for _fk, _fkeys in (("team_year", ["Team", "Year"]), ("team_all", ["Team"])):
+            _fdf = team_year if _fk == "team_year" else team_all
+            if not isinstance(_fdf, pd.DataFrame) or _fdf.empty:
+                continue
+            _fdf = _fdf.drop(columns=[c for c in _fsh.COLUMNS if c in _fdf.columns], errors="ignore")
+            _fdf = _fdf.merge(_fsh.flex_shares(pw, _fkeys), on=_fkeys, how="left")
+            if _fk == "team_year":
+                team_year = _fdf
+            else:
+                team_all = _fdf
+    except Exception as e:
+        _log_exc(debug, "team_flex_shares", e)
+
     # Boldness / Lineup Boldness (lotg_support.boldness): how far each start —
     # and each whole lineup — went against PRE-KICKOFF expected points. Fed the
     # build's own matchups, flags, rookie picks, scorer and gsis bridge, never
@@ -20311,6 +20332,20 @@ def build_all(repo_root: Path) -> None:
                     league_all[_c] = round((_lp["_srt_tier"] == _lab).sum() / _tot * 100, 1) if _tot else None
     except Exception as e:
         _log_exc(debug, "league_tier_shares", e)
+
+    # Who filled the flex slots, league-wide (lotg_support.flex_shares): every
+    # team's FLX / SFLX starts pooled over the season / all-time.
+    try:
+        from lotg_support import flex_shares as _fsh
+        if isinstance(league_year, pd.DataFrame) and not league_year.empty:
+            league_year = league_year.drop(columns=[c for c in _fsh.COLUMNS if c in league_year.columns], errors="ignore")
+            league_year = league_year.merge(_fsh.flex_shares(pw, ["Year"]), on=["Year"], how="left")
+        if isinstance(league_all, pd.DataFrame) and not league_all.empty:
+            _fla = _fsh.flex_shares(pw, [])
+            for _c in _fsh.COLUMNS:
+                league_all[_c] = _fla.at[0, _c] if not _fla.empty else None
+    except Exception as e:
+        _log_exc(debug, "league_flex_shares", e)
 
     # --------------------------
     # % of (3rd year+) rostered players a team drafted itself
