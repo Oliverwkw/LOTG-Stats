@@ -1,9 +1,11 @@
 [digest] 39 filtered stat(s) added: PF in a loss, PF in a win, Max PF in a loss, Max PF in a win, Efficiency in a loss, Efficiency in a win, Points from QBs in a loss, Points from RBs in a loss, Points from WRs in a loss, Points from TEs in a loss, Points above Sleeper Projection in a loss, Points above Sleeper Projection in a win, Points above Claude Projection in a loss, Points above Claude Projection in a win, Points above Enhanced Projection in a loss, Points above Enhanced Projection in a win, Lineup Boldness in a win, Lineup Boldness in a loss, Players under 10 pts (starters) in a win, Players over 30 pts (starters) in a loss, Number of rookies started in a win, Points as starter, Points on bench, QB points, QB points as starter, QB points on bench, RB points, RB points as starter, RB points on bench, WR points, WR points as starter, WR points on bench, TE points, TE points as starter, TE points on bench, Points by a rookie starter, Points by a starter in a loss, Points on bench in a loss, Avg points by a rookie
-[digest] 79 percent column(s) stored as 0-1 fractions
-[digest] build-inputs fingerprint: c8bc417e2342b8ac
+[digest] 81 percent column(s) stored as 0-1 fractions
+[digest] build-inputs fingerprint: a48c9b77d0b22757
 [digest] season=2026 weeks_completed=5
-[digest] new data: 1 new week(s), 252 player(s) / 8 team(s) in them, 13 player(s) / 4 team(s) in new transactions; edit landed: True -> 731 item(s) with the news, 69 under edits
-[digest] release lede: Week 5 is when this season's on-pace standings begin and its trades, pickups and picks join the boards, so 597 of the 800 moves below are weeks 1-4 catching up rather than this week's news.
-[digest] lede: Week 5 is when this season's on-pace standings begin and its trades, pickups and picks join the boards, so 597 of the 800 moves below are weeks 1-4 catching up rather than this week's news. Darnell Mooney is on pace for highest Number of Add/Drops this season (20). It was an active week — 727 of the 796 other moves are new results (376 on teams and 188 on players); 69 re-valued history besides.
-[digest] 52 single-week highlight(s), 91 crossing(s), 0 record(s), 119 board move(s), 0 milestone(s), 538 on-pace change(s) -> exports/raw/weekly_digest.html
+[digest] on pace: 406 standing(s)
+[digest] 230 on-pace line(s) moved by an on-pace rule change (digest.PACE_RULES_VERSION) -> edits section
+[digest] new data: 0 new week(s), 0 player(s) / 0 team(s) in them, 0 player(s) / 0 team(s) in new transactions; edit landed: True -> 3 item(s) with the news, 258 under edits
+[digest] release lede: Week 5 is when this season's on-pace standings begin and its trades, pickups and picks join the boards, so 79 of the 261 moves below are weeks 1-4 catching up rather than this week's news.
+[digest] lede: Week 5 is when this season's on-pace standings begin and its trades, pickups and picks join the boards, so 79 of the 261 moves below are weeks 1-4 catching up rather than this week's news. The league sets a new single-season record for QBs rostered from one NFL team (4) — most in any season. This is a recompute, not a results week: 258 of the 260 other moves re-value settled history (157 on the on-pace list and 46 on teams), and only 2 reflect new data. 13 of the 261 were ties rather than overtakes.
+[digest] 0 single-week highlight(s), 3 crossing(s), 2 record(s), 26 board move(s), 0 milestone(s), 73 on-pace change(s) -> exports/raw/weekly_digest.html
 [digest] snapshot saved -> data/digest/ranks_snapshot.json
