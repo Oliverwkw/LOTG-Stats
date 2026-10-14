@@ -90,7 +90,9 @@ def counted_summary(sections: Sequence[Tuple[str, str, list]]) -> str:
 
 def _short(title: str) -> str:
     """Section title as it reads mid-sentence: "All-time leaderboard moves —
-    draft picks" is "draft picks"."""
+    draft picks" is "draft picks"; "No longer on pace" is "the on-pace list"."""
+    if title.lower().startswith("no longer on pace"):
+        return "the on-pace list"
     return title.split("—")[-1].strip().rstrip(")").lower() if "—" in title else title.lower()
 
 
@@ -547,7 +549,7 @@ _ROW_WEEK = re.compile(r"\bweek\s+(\d+)\b", re.I)
 
 # Items that exist only for the current period by construction: this week's
 # single-week records, the in-progress season's records and on-pace standings.
-_CURRENT_PERIOD_ITEMS = {"WeeklyHighlight", "YearlyRecord", "Projection"}
+_CURRENT_PERIOD_ITEMS = {"WeeklyHighlight", "YearlyRecord", "Projection", "PaceDropout"}
 
 
 class NewData:

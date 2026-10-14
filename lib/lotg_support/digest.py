@@ -48,6 +48,7 @@ from .email_summary import NewData, attribute, stat_relevance
 from . import number_format as _number_format
 from . import filtered_stats as _filtered
 from . import gametime as _gametime
+from . import pace as _pace
 
 
 
@@ -299,6 +300,25 @@ _PHRASING = {
     ("", "Cuff adjusted difference adjusted by position"):
         "Cuff-adjusted start/sit difference (5-game averages, position-adjusted)",
     ("", "UPST"): "Upset wins",
+    # A column whose name is itself an end ("Most …", "Highest …") reads twice
+    # with the board's own end word: "highest Most number of QBs rostered from
+    # same NFL team", "lowest Highest starter score" (user, 2026-10-13).
+    ("", "Most number of players started from same NFL team"): "Players started from one NFL team",
+    ("", "Most number of players rostered from same NFL team"): "Players rostered from one NFL team",
+    ("", "Most number of QBs started from same NFL team"): "QBs started from one NFL team",
+    ("", "Most number of QBs rostered from same NFL team"): "QBs rostered from one NFL team",
+    ("", "Most number of RBs started from same NFL team"): "RBs started from one NFL team",
+    ("", "Most number of RBs rostered from same NFL team"): "RBs rostered from one NFL team",
+    ("", "Most number of WR started from same NFL team"): "WRs started from one NFL team",
+    ("", "Most number of WR rostered from same NFL team"): "WRs rostered from one NFL team",
+    ("", "Most number of TE started from same NFL team"): "TEs started from one NFL team",
+    ("", "Most number of TE rostered from same NFL team"): "TEs rostered from one NFL team",
+    ("", "Highest starter score"): "Top starter score",
+    ("", "Lowest starter score"): "Bottom starter score",
+    ("", "Highest Win % vs a team"): "Best Win % vs a team",
+    ("", "Lowest Win % vs a team"): "Worst Win % vs a team",
+    ("", "Team for highest Win %"): "Team for best Win %",
+    ("", "Team for lowest Win %"): "Team for worst Win %",
 }
 # "Number of games within 10" is points, not anything else: say so. (The player
 # thresholds carry "pts" in their own names: "Players over 30 pts (roster)".)
@@ -406,14 +426,34 @@ def low_on_board(sheet: str, column: str) -> bool:
         return False
     if _filtered.ranked_end(sheet, column) == "high":
         return False
+    if is_stint_season_column(sheet, column):
+        return False
     return column not in _gametime.HIGH_END_ONLY
 
 
 def high_on_board(sheet: str, column: str) -> bool:
     """Whether a column's HIGH end is ranked: every column's is, except a
     filtered stat ranked at its low end only ("PF in a win": its high end is
-    just the highest PF)."""
+    just the highest PF), and a player-team season-to-date column, which is an
+    on-pace stat (`is_stint_season_column`)."""
+    if is_stint_season_column(sheet, column):
+        return False
     return _filtered.ranked_end(sheet, column) != "low"
+
+
+def is_stint_season_column(sheet: str, column: str) -> bool:
+    """player_week's per-player-team season-to-date columns ("PPG as team
+    starter this season", "% of team points on team this season"): ranked on
+    pace (`_project_stints`), not as single weeks — the value hops to the stint's
+    newest row each week, so as a week it re-read "2nd-highest ever" weekly and
+    its old row "dropped off the board" (user, 2026-10-13). Their award tallies
+    ("Total times highest starter on team this season") stay on the boards."""
+    if sheet != "player_week":
+        return False
+    c = str(column)
+    return (c.endswith(_STINT_SEASON_SUFFIX)
+            and any(m in c.lower() for m in _TENURE_MARKERS)
+            and not c.lower().startswith("total times "))
 
 
 # Columns with no rate marker that are still not tallies: a score, a value, a
@@ -651,30 +691,44 @@ def _crossing_detail(joined: bool, others: Sequence[str], passed: Sequence[str],
 
 def _passed_by_detail(passers: Sequence[str], place: str, column: str,
                       by_value: Optional[float], value: Optional[float],
-                      sheet: str = "", end: str = "high") -> str:
+                      sheet: str = "", end: str = "high",
+                      now_rank: Optional[int] = None) -> str:
     """The faller's side of an overtake by rows that stood still: "was passed by
-    X for 2nd-highest Difference of averages (21.1), falling to 21.0". The rows
-    that passed it did not move — it fell below them — so they are not the
-    subject (user rule, 2026-09-23; `_column_crossings`).
+    X for 2nd-highest Difference of averages (21.1), falling to 21.0 (4th-highest)".
+    The rows that passed it did not move — it fell below them — so they are not
+    the subject (user rule, 2026-09-23; `_column_crossings`).
+
+    `passers` are only whoever now holds the place it lost — one name, or a tie
+    (user rule, 2026-10-13): naming all five rows it fell behind read as if the
+    five now shared the place. `now_rank` is where it fell to.
 
     On a LOWEST board falling behind means going UP: "was passed by Jacob Cowing
     for 5th-lowest Adjusted Avg points (-0.3), rising to 5.3" — the 2026 week-4
     email said "falling to 5.3"."""
     by = f" ({_fmt_stat(column, by_value)})" if by_value is not None else ""
     verb = "rising" if end == "low" else "falling"
-    fell = f", {verb} to {_fmt_stat(column, value)}" if value is not None else ""
+    now = f" ({_place(now_rank, end)})" if now_rank else ""
+    fell = f", {verb} to {_fmt_stat(column, value)}{now}" if value is not None else ""
     return (f"was passed by {_name_list(passers)} for {place} "
             f"{display_column(column, sheet)}{by}{fell}")
+
+
+def _place_holders(by: Sequence[tuple]) -> Tuple[int, List[str], Optional[float]]:
+    """(place, holders, value) of the best-placed rows that passed a faller:
+    `by` is (rank, row, value) per passer. The place the faller lost goes to the
+    best-ranked of them, and to everyone tied with it there."""
+    top = min(by)
+    return top[0], sorted({m for r, m, _v in by if r == top[0]}), top[2]
 
 
 def _fell_off_detail(place: str, column: str, was: Optional[float],
                      value: Optional[float], sheet: str = "") -> str:
     """A row whose own value fell so far it left the board: "drops off the board
-    for highest Rostered middle 50% streak (11), now 8". `place` is the one it
+    from highest Rostered middle 50% streak (11), now 8". `place` is the one it
     held. "now", not "falling to": on a lowest board leaving means going UP."""
     held = f" ({_fmt_stat(column, was)})" if was is not None else ""
     fell = f", now {_fmt_stat(column, value)}" if value is not None else ""
-    return (f"drops off the board for {place} {display_column(column, sheet)}"
+    return (f"drops off the board from {place} {display_column(column, sheet)}"
             f"{held}{fell}")
 
 
@@ -806,6 +860,8 @@ class Crossing:
     # Off a board, or back on it, only because the gate rules changed
     # (`mark_rule_releases`).
     rule_release: bool = False
+    # The faller's place now (`_passed_by_detail`), when it is still ranked.
+    now_rank: Optional[int] = None
 
     def group(self) -> str:
         return _name_list((self.mover,) + tuple(self.co_movers))
@@ -815,7 +871,7 @@ class Crossing:
             return _passed_by_detail(self.passed, _place(self.rank, self.end), self.column,
                                      self.by_value, self.value,
                                      _SECTION_SHEET.get(("crossing", self.section), ""),
-                                     self.end)
+                                     self.end, self.now_rank)
         return _crossing_detail(self.joined, self.others, self.passed,
                                 _place(self.rank, self.end), self.column, self.value,
                                 _SECTION_SHEET.get(("crossing", self.section), ""),
@@ -828,11 +884,23 @@ class Crossing:
         return f"{self.group()} {self.detail()}."
 
 
+# Columns ranked relative to everyone else ("the highest floor at the position =
+# 100"): a row's value there moves when OTHER rows do. A row with no new games
+# that moved on one did not move by itself — it is lifted or dropped by the rest.
+_RELATIVE_MARKERS = ("percentile",)
+
+
+def is_relative_column(column: str) -> bool:
+    c = column.lower()
+    return any(m in c for m in _RELATIVE_MARKERS)
+
+
 def _column_crossings(section: str, column: str,
                       prev: Sequence[dict], curr: Sequence[dict],
                       ends: Sequence[str], window: Optional[int],
                       cap_half: bool, arrivals: frozenset = frozenset(),
-                      held: frozenset = frozenset()) -> List[Crossing]:
+                      held: frozenset = frozenset(),
+                      idle: Optional[frozenset] = None) -> List[Crossing]:
     """Crossings within the watched end(s) of one column.
 
     Ranks are COMPETITION ranks over values (Change 4): a two-way tie for 1st
@@ -910,6 +978,14 @@ def _column_crossings(section: str, column: str,
             # told from its side below ("was passed by"); a tie it "joined" this
             # way is the faller's join, reported where the faller is the mover.
             stood_still = mover_prev is not None and not _improved(v, mover_prev, end)
+            # Nor on a relative column (`is_relative_column`) without games of its
+            # own since last week: 2026 week 5 had D'Ernest Johnson, retired since
+            # 2023, "join a tie for highest Floor percentile, passing Emanuel
+            # Wilson" — Wilson's floor fell and Johnson became the top RB. That is
+            # Wilson's news, told from his side.
+            if (idle is not None and mover in idle and mover_prev is not None
+                    and is_relative_column(column)):
+                stood_still = True
             others = [x for x, xv in curr_val.items()
                       if x != mover and xv == v]
             # Who lost their place to this move: last week's holders of the
@@ -987,20 +1063,27 @@ def _column_crossings(section: str, column: str,
     # A faller an active line already names ("D joins E and F ..., passing C")
     # is told there; it is not told twice.
     told = {(c.end, x) for c in out for x in c.passed}
+    now_ranks = {end: competition_ranks(list(curr_val.values()), end) for end in ends}
     for (end, faller), by in sorted(fell.items()):
         if (end, faller) in told:
             continue
-        by.sort()
-        out.append(Crossing(section, column, end, by[0][0], faller, curr_val[faller],
-                            passed=tuple(sorted({m for _r, m, _v in by})),
+        place, holders, by_v = _place_holders(by)
+        out.append(Crossing(section, column, end, place, faller, curr_val[faller],
+                            passed=tuple(holders),
                             prev_value=prev_val[faller], passed_by=True,
-                            by_value=by[0][2]))
+                            by_value=by_v,
+                            now_rank=now_ranks[end].get(curr_val[faller])))
     return out
 
 
-def diff_snapshots(prev: dict, curr: dict) -> List[Crossing]:
+def diff_snapshots(prev: dict, curr: dict,
+                   active: Optional[Dict[str, set]] = None) -> List[Crossing]:
     """All all-time leaderboard crossings between two snapshots, per the
-    per-section rules in CROSSING_CONFIG (players top/bottom 5; teams any-of-8)."""
+    per-section rules in CROSSING_CONFIG (players top/bottom 5; teams any-of-8).
+
+    `active` ({section: entities with new games since `prev`}, from `NewData`)
+    marks everyone else idle on relative columns (`is_relative_column`); None
+    treats every row as active, as before."""
     crossings: List[Crossing] = []
     held_now = frozenset(curr.get("meta", {}).get("held_players") or ())
     held_then = frozenset(prev.get("meta", {}).get("held_players") or ())
@@ -1011,11 +1094,15 @@ def diff_snapshots(prev: dict, curr: dict) -> List[Crossing]:
             prev_list = prev_sec.get(column)
             if not prev_list:
                 continue
+            idle = None
+            if active is not None and section in active:
+                idle = frozenset(e["entity"] for e in curr_list) - frozenset(active[section])
             crossings.extend(_column_crossings(
                 section, column, prev_list, curr_list,
                 cfg["ends"], cfg["window"], cfg["cap_half"],
                 **({"arrivals": held_then - held_now, "held": held_now}
                    if section == "players" else {}),
+                idle=idle,
             ))
     return merge_simultaneous_ties(crossings)
 
@@ -1080,6 +1167,9 @@ class Projection:
     projected: float
     final: bool = False  # season complete -> "finished Nth" instead of "on pace"
     tied: bool = False   # the projected value is shared on the board
+    # Moved only because the on-pace rules changed (`PACE_RULES_VERSION`): an
+    # edit, told in the edits section.
+    rule_release: bool = False
 
     def group(self) -> str:
         return "The league" if self.section == "league" else self.entity
@@ -1096,8 +1186,10 @@ class Projection:
         if self.final:
             return (f"{self.group()} finished with the {_place(self.rank, self.end)} "
                     f"{self.name()} of any season ({val}.")
+        # A player-team's season-to-date column already says "this season".
+        when = "" if self.name().endswith(" this season") else " this season"
         return (f"{self.group()} is on pace for {_place(self.rank, self.end)} "
-                f"{self.name()} this season ({val}.")
+                f"{self.name()}{when} ({val}.")
 
 
 def _is_boolean(values: Sequence[float]) -> bool:
@@ -1120,67 +1212,143 @@ def _season_horizon(week_frame: pd.DataFrame, current: int) -> Optional[int]:
     return prior_max or None
 
 
+def pace_mode(section: str, column: str) -> str:
+    """The on-pace rule for a season column (`lotg_support.pace`)."""
+    return _pace.pace_mode(section, column, is_rate=is_rate_stat,
+                           is_counting=is_counting_stat,
+                           is_weekly_count=is_weekly_counting_stat)
+
+
+def _rank_projections(section: str, column: str, hist_vals: Sequence[float],
+                      proj_by_entity: Sequence[Tuple[str, float]], window: int,
+                      sheet: str, final: bool) -> List[Projection]:
+    """Rank this season's projections among every completed season (competition
+    ranks, as every other board) and keep the top/bottom-`window` ones, skipping
+    any value shared by more than _MAX_HIGHLIGHT_TIES or tied past the window."""
+    out: List[Projection] = []
+    if not proj_by_entity:
+        return out
+    pool = list(hist_vals) + [p for _, p in proj_by_entity]
+    counts = _Counter(pool)
+    high_rank = competition_ranks(pool, "high")
+    low_rank = competition_ranks(pool, "low")
+    total = len(pool)
+    # A filtered stat is projected at its one ranked end only
+    # (`filtered_stats`): "on pace for lowest Avg points by a rookie" is just
+    # the lowest Avg points.
+    one_end = _filtered.ranked_end(sheet, column)
+    for entity, projected in proj_by_entity:
+        if counts[projected] > _MAX_HIGHLIGHT_TIES:
+            continue
+        tied = counts[projected] > 1
+        if high_rank[projected] <= window and one_end != "low":
+            if _tie_fits(high_rank[projected], counts[projected], window):
+                out.append(Projection(section, entity, column, "high", high_rank[projected],
+                                      total, projected, final=final, tied=tied))
+        elif low_rank[projected] <= window and one_end != "high" \
+                and _tie_fits(low_rank[projected], counts[projected], window):
+            out.append(Projection(section, entity, column, "low", low_rank[projected],
+                                  total, projected, final=final, tied=tied))
+    return out
+
+
 def _project_frame(
     section: str,
     year_df: pd.DataFrame,
     entity_col: str,
-    season: int,
-    scale: float,
+    ctx: "_pace.PaceContext",
     window: int,
+    final: bool = False,
 ) -> List[Projection]:
-    """Project every numeric yearly column for one sheet and keep the notable
-    (top/bottom window) projections ranked against completed seasons."""
+    """Project every numeric yearly column for one sheet by its pace rule
+    (`pace_mode`) and keep the notable (top/bottom window) projections ranked
+    against completed seasons. `final`: the season is over — its actual values,
+    "finished Nth"."""
     cols = discover_numeric_columns(year_df, entity_col, extra_skip=("Year",))
     year_num = pd.to_numeric(year_df["Year"], errors="coerce")
-    curr = year_df[year_num == season]
-    hist = year_df[year_num < season]
+    curr = year_df[year_num == ctx.season]
+    hist = year_df[year_num < ctx.season]
+    sheet = _SECTION_SHEET.get(("year", section), "")
+    rows = curr.to_dict("records")
 
     projections: List[Projection] = []
     for col in cols:
-        if is_weekly_counting_stat(col):
-            continue  # awards / result-flip tallies -> actual-value records path
+        mode = pace_mode(section, col)
+        if mode in (_pace.ACTUAL, _pace.SKIP):
+            continue  # not projectable: the records path reports its actual value
         hist_vals = [v for v in (_to_float(x) for x in hist[col]) if v is not None]
         if len(hist_vals) < window:      # need a meaningful pool to rank against
             continue
-        rate = is_rate_stat(col)
-        # Project each current entity, then rank ALL entity-seasons (history +
-        # this season's projections) together by competition rank, skipping any
-        # value shared by more than _MAX_HIGHLIGHT_TIES (how 0/1 flags and
-        # heavily-tied stats fall out) or tied past the window (`_tie_fits`).
         proj_by_entity = []
-        for _, r in curr.iterrows():
-            cur = _to_float(r[col])
+        for r in rows:
+            cur = _to_float(r.get(col))
             if cur is None:
                 continue
-            entity = str(r[entity_col]) if entity_col in year_df.columns else str(season)
-            proj_by_entity.append((entity, cur if rate else cur * scale))
-        if not proj_by_entity:
-            continue
-        pool = hist_vals + [p for _, p in proj_by_entity]
-        counts = _Counter(pool)
-        # Competition ranks, as every other board: a tie takes up its places.
-        high_rank = competition_ranks(pool, "high")
-        low_rank = competition_ranks(pool, "low")
-        total = len(pool)
-        # A filtered stat is projected at its one ranked end only
-        # (`filtered_stats`): "on pace for lowest Avg points by a rookie" is just
-        # the lowest Avg points.
-        one_end = _filtered.ranked_end(_SECTION_SHEET.get(("year", section), ""), col)
-        for entity, projected in proj_by_entity:
-            if counts[projected] > _MAX_HIGHLIGHT_TIES:
+            entity = str(r[entity_col]) if entity_col in r else str(ctx.season)
+            projected = cur if final else ctx.project(section, entity, col, cur, mode, row=r)
+            if projected is None:
                 continue
-            tied = counts[projected] > 1
-            if high_rank[projected] <= window and one_end != "low":
-                if _tie_fits(high_rank[projected], counts[projected], window):
-                    projections.append(Projection(section, entity, col, "high",
-                                                  high_rank[projected], total, projected,
-                                                  tied=tied))
-            elif low_rank[projected] <= window and one_end != "high" \
-                    and _tie_fits(low_rank[projected], counts[projected], window):
-                projections.append(Projection(section, entity, col, "low",
-                                              low_rank[projected], total, projected,
-                                              tied=tied))
+            proj_by_entity.append((entity, round(float(projected), 6)))
+        projections += _rank_projections(section, col, hist_vals, proj_by_entity,
+                                         window, sheet, final)
     return projections
+
+
+# player_week's season-to-date columns for one player-team ("PPG as team starter
+# this season"): terminal-encoded on the stint's latest row this season. They are
+# on-pace stats of a player-team, not single-week ones (user, 2026-10-13): ranked
+# here against every past player-team season, a stint that ended this season
+# locked at the value it left with.
+_STINT_SEASON_SUFFIX = " this season"
+
+
+def stint_season_columns(player_week: pd.DataFrame) -> List[str]:
+    """player_week's per-player-team season-to-date columns."""
+    if player_week is None or player_week.empty:
+        return []
+    return [c for c in player_week.columns if is_stint_season_column("player_week", c)]
+
+
+def _stint_mode(column: str) -> str:
+    c = column.lower()
+    if is_rate_stat(column):
+        return _pace.ASIS
+    if "bench" in c or "weeks rostered" in c:
+        return _pace.LINEAR
+    return _pace.BYE
+
+
+def _project_stints(player_week: pd.DataFrame, ctx: "_pace.PaceContext", window: int,
+                    final: bool = False) -> List[Projection]:
+    cols = stint_season_columns(player_week)
+    if not cols or not {"Player", "Team", "Year", "Week"} <= set(player_week.columns):
+        return []
+    yrs = pd.to_numeric(player_week["Year"], errors="coerce")
+    wks = pd.to_numeric(player_week["Week"], errors="coerce")
+    hist = player_week[yrs < ctx.season]
+    curr = player_week[yrs == ctx.season]
+    latest = int(wks[yrs == ctx.season].max()) if (yrs == ctx.season).any() else None
+    out: List[Projection] = []
+    for col in cols:
+        hist_vals = [v for v in (_to_float(x) for x in hist[col]) if v is not None]
+        if len(hist_vals) < window:
+            continue
+        mode = _stint_mode(col)
+        proj = []
+        for p, t, w, raw in zip(curr["Player"].astype(str), curr["Team"].astype(str),
+                                pd.to_numeric(curr["Week"], errors="coerce"), curr[col]):
+            cur = _to_float(raw)
+            if cur is None:
+                continue          # "In Progress": not the stint's latest row
+            # A stint still running this week is projected; one that ended is
+            # locked at the value it left with.
+            running = latest is not None and int(w) == latest and not final
+            value = ctx.project("players", p, col, cur, mode) if running else cur
+            if value is None:
+                continue
+            proj.append((f"{p} ({t})", round(float(value), 6)))
+        out += _rank_projections("players", col, hist_vals, proj, window, "player_week", final)
+    return out
 
 
 def _league_window(league_year: pd.DataFrame) -> int:
@@ -1192,37 +1360,199 @@ def _league_window(league_year: pd.DataFrame) -> int:
     return min(LEAGUE_WINDOW_CAP, n_seasons // 3)
 
 
+# The on-pace rules a snapshot's standings were ranked under. Bump it whenever
+# `pace_mode` / `lotg_support.pace` changes what a column projects to: the next
+# digest then tells the standings that moved, and the ones that left, as edits
+# (`mark_pace_rule_change`) — not as league news.
+PACE_RULES_KEY = "pace_rules"
+PACE_RULES_VERSION = "2026-10-13"
+
+
+def mark_pace_rule_change(prior: Optional[dict], items: Sequence) -> int:
+    """Flag on-pace items as edits when the prior snapshot was ranked under other
+    pace rules; returns how many."""
+    then = ((prior or {}).get("meta", {}) or {}).get(PACE_RULES_KEY)
+    if prior is None or then == PACE_RULES_VERSION:
+        return 0
+    for it in items:
+        it.rule_release = True
+    return len(items)
+
+
+# Every this-many weeks after on-pace begins, the whole list goes out again
+# (user, 2026-10-13: weeks 9, 13 and 17), the season's last as its final results.
+PACE_RESEND_EVERY = 4
+
+
+def pace_resend_week(played: int, horizon: Optional[int],
+                     min_week: int = MIN_YEARLY_WEEK) -> bool:
+    """Whether this week's digest resends the whole on-pace list."""
+    if not horizon or played <= min_week or played > horizon:
+        return False
+    return (played - min_week) % PACE_RESEND_EVERY == 0 or played == horizon
+
+
+def pace_resend_sentence(season, played: int, final: bool) -> str:
+    """The lede's opening line on a resend week (`pace_resend_week`)."""
+    if final:
+        return (f"The {season} season is over, so the season-long lists below are its "
+                f"final standings — every one, not only what moved since last week.")
+    return (f"Week {played} resends the whole on-pace list, as every "
+            f"{PACE_RESEND_EVERY} weeks: every standing is below, not only the ones "
+            f"that moved.")
+
+
+def season_horizon(team_week: pd.DataFrame, season: int) -> Optional[int]:
+    return _season_horizon(team_week, season)
+
+
+def load_schedule(root: Path):
+    """The nflverse schedule the build caches, as a `gametime.Schedule`; None
+    without it (projections then assume no byes)."""
+    path = Path(root) / ".cache" / "nfldata_games.csv"
+    if not path.exists():
+        return None
+    try:
+        return _gametime.load_schedule(pd.read_csv(path, low_memory=False))
+    except Exception:                      # noqa: BLE001 — byes are an refinement
+        return None
+
+
+def pace_context(frames: dict, season: int, played: int, horizon: int,
+                 schedule=None) -> "_pace.PaceContext":
+    """Everything the projections read about the season so far."""
+    tw = frames.get("team_week")
+    weeks = []
+    if tw is not None and not tw.empty:
+        yrs = pd.to_numeric(tw["Year"], errors="coerce")
+        weeks = sorted({int(w) for w in pd.to_numeric(tw.loc[yrs == season, "Week"],
+                                                       errors="coerce").dropna()})
+    teams, suspended = _pace.latest_week_facts(frames.get("player_week"), season, weeks)
+    teams = {p: _gametime.norm_team(t) for p, t in teams.items()}
+    return _pace.PaceContext(
+        season=season, played=played, horizon=horizon,
+        calendar=_pace.calendar_shares(frames.get("add_drops"), frames.get("trades"),
+                                       season, played),
+        byes=_pace.bye_weeks(schedule, season, horizon),
+        nfl_team=teams, suspended=suspended,
+        week_frames={"teams": tw, "league": frames.get("league_week")},
+    )
+
+
 def project_on_pace(
     player_year: pd.DataFrame,
     team_year: pd.DataFrame,
     league_year: pd.DataFrame,
     team_week: pd.DataFrame,
     min_week: int = MIN_YEARLY_WEEK,
+    frames: Optional[dict] = None,
+    schedule=None,
+    final: bool = False,
 ) -> List[Projection]:
     """On-pace projections across player / team / league yearly sheets, per the
-    per-section windows (players/teams top/bottom 5; league floor(#seasons/3)≤5).
-    Weekly-counting stats (awards, result-flips) are excluded. Empty before
-    `min_week` completed weeks, in the offseason, or before a completed prior
-    season exists.
-    """
+    per-section windows (players/teams top/bottom 5; league floor(#seasons/3)≤5),
+    each column by its pace rule (`pace_mode`). Player-team season-to-date
+    columns of player_week ride with the players (`_project_stints`). Empty
+    before `min_week` completed weeks, in the offseason, before a completed
+    prior season exists, and once the season is over — unless `final`, which
+    reports the finished season's actual values instead.
+
+    `frames` (the digest's) supplies player_week, league_week, add_drops and
+    trades; `schedule` (`load_schedule`) the byes."""
     season = current_season(team_year)
     if season is None:
         return []
     played = weeks_completed(team_week, season)
     horizon = _season_horizon(team_week, season)
-    if played < min_week or not horizon or played >= horizon:
+    if not horizon or played < min_week:
         return []
-    scale = horizon / played
+    if played >= horizon and not final:
+        return []
+    if final and played < horizon:
+        return []
+    frames = dict(frames or {})
+    frames.setdefault("team_week", team_week)
+    ctx = pace_context(frames, season, played, horizon, schedule)
 
     out: List[Projection] = []
-    out += _project_frame("players", player_year, "Player", season, scale,
-                          PROJECTION_WINDOW["players"])
-    out += _project_frame("teams", team_year, "Team", season, scale,
-                          PROJECTION_WINDOW["teams"])
+    out += _project_frame("players", player_year, "Player", ctx,
+                          PROJECTION_WINDOW["players"], final)
+    pw = frames.get("player_week")
+    if pw is not None and not pw.empty:
+        out += _project_stints(pw, ctx, PROJECTION_WINDOW["players"], final)
+    out += _project_frame("teams", team_year, "Team", ctx,
+                          PROJECTION_WINDOW["teams"], final)
     lw = _league_window(league_year)
     if lw >= 1 and not league_year.empty and "Year" in league_year.columns:
-        out += _project_frame("league", league_year, "Year", season, scale, lw)
+        out += _project_frame("league", league_year, "Year", ctx, lw, final)
     return out
+
+
+@dataclass
+class PaceDropout:
+    """A standing on last week's on-pace list that is on it no more: "Josh Allen
+    is no longer on pace for a top-5 Points (was 2nd-highest)" (user, 2026-10-13).
+    Listed at the bottom of the last on-pace part."""
+    section: str
+    entity: str
+    column: str
+    end: str
+    was_rank: int
+    window: int = WINDOW
+    rule_release: bool = False   # see Projection.rule_release
+
+    @property
+    def rank(self) -> int:
+        return self.was_rank
+
+    def group(self) -> str:
+        return "The league" if self.section == "league" else self.entity
+
+    def name(self) -> str:
+        return display_column(self.column, _SECTION_SHEET.get(("year", self.section), ""))
+
+    def detail(self) -> str:
+        span = "top" if self.end == "high" else "bottom"
+        return (f"no longer on pace for a {span}-{self.window} {self.name()} "
+                f"(was {_place(self.was_rank, self.end)})")
+
+    def sentence(self) -> str:
+        return f"{self.group()} is {self.detail()}."
+
+
+def _pace_key(section: str, entity) -> str:
+    """A league season's on-pace key: "2026", not the "2026.0" a float upcast
+    once wrote into the snapshot."""
+    e = str(entity)
+    if section == "league":
+        try:
+            return str(int(float(e)))
+        except ValueError:
+            return e
+    return e
+
+
+def pace_dropouts(prior_pace: Optional[dict], projections: Sequence[Projection],
+                  windows: Optional[Dict[str, int]] = None) -> List[PaceDropout]:
+    """Last week's on-pace standings with no standing this week, at either end."""
+    if not prior_pace:
+        return []
+    now = {(p.section, p.column, _pace_key(p.section, p.entity)) for p in projections}
+    out: List[PaceDropout] = []
+    for section, cols in prior_pace.items():
+        for column, ents in (cols or {}).items():
+            for entity, standing in (ents or {}).items():
+                key = _pace_key(section, entity)
+                if (section, column, key) in now:
+                    continue
+                end, _, rank = str(standing).partition(":")
+                try:
+                    rank_i = int(rank)
+                except ValueError:
+                    continue
+                win = (windows or {}).get(section, PROJECTION_WINDOW.get(section, WINDOW))
+                out.append(PaceDropout(section, key, column, end, rank_i, win))
+    return sorted(out, key=lambda d: (d.section, d.entity, d.column))
 
 
 def pace_rank_map(projections: Sequence[Projection]) -> dict:
@@ -1230,7 +1560,8 @@ def pace_rank_map(projections: Sequence[Projection]) -> dict:
     on-pace standing, so next week can report only the ones that MOVED."""
     out: Dict[str, Dict[str, Dict[str, str]]] = {}
     for p in projections:
-        out.setdefault(p.section, {}).setdefault(p.column, {})[p.entity] = f"{p.end}:{p.rank}"
+        out.setdefault(p.section, {}).setdefault(p.column, {})[_pace_key(p.section, p.entity)] = \
+            f"{p.end}:{p.rank}"
     return out
 
 
@@ -1240,7 +1571,9 @@ def diff_pace(prior_pace: dict, projections: Sequence[Projection]) -> List[Proje
     silent — this is what keeps the over-inclusive digest to a readable size."""
     changed: List[Projection] = []
     for p in projections:
-        prior = prior_pace.get(p.section, {}).get(p.column, {}).get(p.entity)
+        prior_ents = {_pace_key(p.section, e): v
+                      for e, v in prior_pace.get(p.section, {}).get(p.column, {}).items()}
+        prior = prior_ents.get(_pace_key(p.section, p.entity))
         if prior != f"{p.end}:{p.rank}":
             changed.append(p)
     return changed
@@ -1268,6 +1601,8 @@ class YearlyRecord:
     # sentence doesn't repeat it as an ordinal.
     rank: int = 1
     tied: bool = False   # more than one entity set it this season
+    # A season MINIMUM ("Lowest starter score") sets its record at the low end.
+    end: str = "high"
 
     def group(self) -> str:
         return "The league" if self.section == "league" else self.entity
@@ -1278,15 +1613,18 @@ class YearlyRecord:
     def detail(self) -> str:
         return f"{self.name()} ({_fmt_stat(self.column, self.value)})"
 
+    def _most(self) -> str:
+        return "lowest in any season" if self.end == "low" else "most in any season"
+
     def sentence(self) -> str:
         return (f"{self.group()} sets a new single-season record for {self.name()} "
-                f"({_fmt_stat(self.column, self.value)}) — most in any season"
+                f"({_fmt_stat(self.column, self.value)}) — {self._most()}"
                 f"{_tie(self.tied)}.")
 
     def line(self) -> str:
         # The header already says "New single-season records"; saying it again
         # and then adding "most in any season" states one fact three times.
-        return f"{self.group()}: {self.detail()} — most in any season{_tie(self.tied)}."
+        return f"{self.group()}: {self.detail()} — {self._most()}{_tie(self.tied)}."
 
 
 def _records_for_frame(section: str, year_df: pd.DataFrame,
@@ -1298,8 +1636,11 @@ def _records_for_frame(section: str, year_df: pd.DataFrame,
     hist = year_df[year_num < season]
     out: List[YearlyRecord] = []
     for col in discover_numeric_columns(year_df, entity_col, extra_skip=("Year",)):
-        if not is_weekly_counting_stat(col):
-            continue  # records here are only for the not-on-pace weekly stats
+        # The stats that get no on-pace projection: the weekly tallies, and the
+        # ones whose actual value is all there is (`pace.ACTUAL`: distinct counts,
+        # season maxima / minima, what the offseason finished).
+        if not (is_weekly_counting_stat(col) or pace_mode(section, col) == _pace.ACTUAL):
+            continue
         hist_vals = [v for v in (_to_float(x) for x in hist[col]) if v is not None]
         if not hist_vals:
             continue  # need completed seasons to define a record to beat
@@ -1308,15 +1649,18 @@ def _records_for_frame(section: str, year_df: pd.DataFrame,
         pairs = [(e, v) for e, v in pairs if v is not None]
         if not pairs:
             continue
-        hist_max = max(hist_vals)
-        curr_max = max(v for _, v in pairs)
-        if curr_max <= hist_max:
+        low = _pace.is_actual_low_end(col)
+        best = min if low else max
+        hist_best = best(hist_vals)
+        curr_best = best(v for _, v in pairs)
+        if (curr_best >= hist_best) if low else (curr_best <= hist_best):
             continue  # no new record this season
-        holders = [e for e, v in pairs if abs(v - curr_max) < 1e-9]
+        holders = [e for e, v in pairs if abs(v - curr_best) < 1e-9]
         if len(holders) > _MAX_HIGHLIGHT_TIES:
             continue  # >5 tied for the "record" -> not notable (the >5-tied rule)
         for e in holders:
-            out.append(YearlyRecord(section, e, col, curr_max, tied=len(holders) > 1))
+            out.append(YearlyRecord(section, e, col, curr_best, tied=len(holders) > 1,
+                                    end="low" if low else "high"))
     return out
 
 
@@ -1354,7 +1698,9 @@ def diff_records(prior_map: dict, records: Sequence[YearlyRecord]) -> List[Yearl
     changed: List[YearlyRecord] = []
     for r in records:
         prev = prior_map.get(r.section, {}).get(r.column)
-        if prev is None or r.value > prev + 1e-9:
+        better = (r.value < prev - 1e-9) if (prev is not None and r.end == "low") \
+            else (prev is None or r.value > prev + 1e-9)
+        if better:
             changed.append(r)
     return changed
 
@@ -1798,6 +2144,10 @@ _BOARD_SHEETS = {
 # ---------------------------------------------------------------------------
 _WEEK_SHEETS = ("player_week", "team_week", "league_week")
 _EVENT_SHEETS = ("trades", "add_drops", "player_additions") + _PICK_SHEETS
+# The column naming the one player an event-sheet row is about, where it is one
+# player: those rows of the in-progress rookie class wait for week
+# `ROOKIE_OSCORE_WEEK` (`BoardGate.restricted`).
+_ROOKIE_ROW_PLAYER = {"player_additions": "Player", "add_drops": "Player Added"}
 # Columns a move fixes the moment it is made — a deal-time value, a price, a
 # bid, the player's age or form before it. They have no sample to wait for, so
 # a new move stands on every end of them at once instead of waiting
@@ -2136,7 +2486,18 @@ class BoardGate:
         key = (id(df), kind, weeks)
         if key not in self._memo:
             if kind == "event":
-                self._memo[key] = self._young_events(df, weeks)
+                young = self._young_events(df, weeks)
+                # The rookie class's own rows on player_additions / add_drops wait
+                # for its week too, as its picks do: week 5 of 2026 put Jordyn
+                # Tyson's draft on a Points above expectation (rate) board three
+                # weeks before his pick's O-Score is graded.
+                who = _ROOKIE_ROW_PLAYER.get(sheet)
+                rookies = self.held_rookies() if who else set()
+                if young is not None and rookies and who in df.columns:
+                    late = self._young_events(df, self.rookie_oscore_week)
+                    if late is not None:
+                        young = young | (late & df[who].astype(str).isin(rookies))
+                self._memo[key] = young
             else:
                 self._memo[key] = {"season": self._this_season,
                                    "stint": self._young_stints}[kind](df)
@@ -2645,6 +3006,8 @@ class EventCrossing:
     # `label` is the row that held `rank` last week, `prev_value` what it held
     # it with, `value` what it reads now.
     fell_off: bool = False
+    # The faller's place now (`_passed_by_detail`).
+    now_rank: Optional[int] = None
 
     def _show(self, label: str) -> str:
         return self.shown.get(label, label)
@@ -2659,7 +3022,8 @@ class EventCrossing:
         if self.passed_by:
             return _passed_by_detail(tuple(map(self._show, self.passed)),
                                      _place(self.rank, self.end), self.column,
-                                     self.by_value, self.value, self.sheet, self.end)
+                                     self.by_value, self.value, self.sheet, self.end,
+                                     self.now_rank)
         return _crossing_detail(self.joined, tuple(map(self._show, self.others)),
                                 tuple(map(self._show, self.passed)),
                                 _place(self.rank, self.end), self.column, self.value,
@@ -3107,16 +3471,18 @@ def diff_events(prior_board, events: Sequence[EventHighlight],
                                  prev_value=prev_of(e, slot),
                                  key=e.key))
     told = {(c.sheet, c.column, c.end, x) for c in out for x in c.passed}
+    rank_now = {(e.sheet, e.column, e.end, e.label): e.rank for e in events}
     for (sheet, column, end, lbl), by in sorted(fell.items()):
         if (sheet, column, end, lbl) in told:
             continue       # an active line already names it (`_column_crossings`)
-        by.sort()
+        place, holders, by_v = _place_holders(by)
         out.append(EventCrossing(
-            sheet, lbl, column, end, by[0][0], value_of_label[(sheet, column, end, lbl)],
-            passed=tuple(sorted({m for _r, m, _v in by})),
+            sheet, lbl, column, end, place, value_of_label[(sheet, column, end, lbl)],
+            passed=tuple(holders),
             prev_value=prior[(sheet, column, end)].get("val_by_label", {}).get(lbl),
             key=key_of_label.get((sheet, column, end, lbl), ""),
-            passed_by=True, by_value=by[0][2]))
+            passed_by=True, by_value=by_v,
+            now_rank=rank_now.get((sheet, column, end, lbl))))
     if current_value is not None:
         on_now = {(e.sheet, e.column, e.end, e.key) for e in events}
         running_boards = {(e.sheet, e.column, e.end) for e in events if e.running}
@@ -3936,6 +4302,7 @@ def digest_sections(
     records: Sequence[YearlyRecord] = (),
     highlights: Sequence[WeeklyHighlight] = (),
     events: Sequence["EventCrossing"] = (),
+    dropouts: Sequence[PaceDropout] = (),
 ) -> List[Tuple[str, bool, list]]:
     """(title, grouped, items) for every non-empty digest section, in email order.
 
@@ -3972,6 +4339,8 @@ def digest_sections(
         (f"{yr_title} — players", True, sect("players")),
         (f"{yr_title} — teams", True, sect("teams")),
         (f"{yr_title} — league", True, sect("league")),
+        # Last in the on-pace part it lands in (`part_of`): what fell off the list.
+        (PACE_DROPOUT_TITLE, True, list(dropouts)),
     ]
     # One section per board sheet, in _BOARD_SHEETS order.
     # This week's week-board moves ride on the single-week records
@@ -4031,6 +4400,7 @@ def split_sections(sections: Sequence[Tuple[str, bool, list]],
 # Inside each part the sections keep the email's usual order and grouping, one
 # heading level down. Each part is a tinted block with a coloured rule so they
 # read apart at a glance, in mail clients too (inline styles only).
+PACE_DROPOUT_TITLE = "No longer on pace"
 RECORDS_TITLE = "Records"
 PACE_RECORDS_TITLE = "On pace for records"
 BOARDS_TITLE = "Leaderboard changes"
@@ -4048,7 +4418,7 @@ def is_record(item) -> bool:
     """A first-place move: the item holds rank 1 on its board. A milestone has
     no place and is never one; an on-pace projection is never one either — it
     goes to "On pace for records" instead (`part_of`)."""
-    if isinstance(item, Projection):
+    if isinstance(item, (Projection, PaceDropout)):
         return False
     rank = getattr(item, "rank", None)
     return isinstance(rank, int) and rank == 1
@@ -4058,6 +4428,8 @@ def part_of(item) -> str:
     """Which of the four PART_ORDER parts an item belongs to."""
     if isinstance(item, Projection):
         return PACE_RECORDS_TITLE if item.rank == 1 else PACE_BOARDS_TITLE
+    if isinstance(item, PaceDropout):
+        return PACE_BOARDS_TITLE      # the bottom of the last on-pace part
     return RECORDS_TITLE if is_record(item) else BOARDS_TITLE
 
 
@@ -4118,6 +4490,7 @@ def render_digest_html(
     intro: str = "",
     events: Sequence["EventCrossing"] = (),
     new_data: Optional[NewData] = None,
+    dropouts: Sequence[PaceDropout] = (),
 ) -> str:
     if header is None:
         header = digest_title(meta)
@@ -4135,7 +4508,7 @@ def render_digest_html(
     # any, the moves an edit alone explains, under their own header at the
     # bottom (see `attribute`).
     top, edits = split_sections(digest_sections(
-        crossings, projections, milestones, records, highlights, events), new_data)
+        crossings, projections, milestones, records, highlights, events, dropouts), new_data)
     parts = split_parts(top)
     for part in PART_ORDER:
         body.append(_part_html(part, parts[part]))
@@ -4143,7 +4516,7 @@ def render_digest_html(
         body.append(_EDIT_HEADER_HTML)
         for title, grouped, items in edits:
             body.append(_section_block(title, grouped, items, level=3))
-    if not any([highlights, crossings, records, milestones, projections, events]):
+    if not any([highlights, crossings, records, milestones, projections, events, dropouts]):
         body.append('  <p style="font:15px system-ui,sans-serif;color:#666;">'
                      'No leaderboard changes this week.</p>')
     body.append("</div>")

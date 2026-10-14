@@ -57,7 +57,10 @@ def col_number_format(col: str) -> Optional[str]:
                      "win % overcome", "avg pre-week win %")):
         return "0%"
     # Percent columns stored 0-1 -> Excel percent (x100).
-    if (n.endswith("%") or n.startswith("win % vs ") or "win %" in n or n == "efficiency"
+    if (n.endswith("%") or n.startswith("win % vs ") or "win %" in n
+            # Efficiency and its changes ("Increase in efficiency from previous
+            # week", "Change in efficiency from previous season") are 0-1 fractions.
+            or "efficiency" in n
             or "% of points" in n or "% of team points" in n or "% of league points" in n
             or "% of starts" in n
             # team_week comeback shares (lotg_support.gametime.PERCENT_COLUMNS)

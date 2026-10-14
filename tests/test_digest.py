@@ -1321,10 +1321,13 @@ def check_a_cascade_where_nobody_moved_is_not_reported():
               not any(s.startswith("T passes") for s in got), f"got {got}")
     # ...but the fall is news, told from the faller's side (user rule 2026-09-23).
     ok &= _ok("the rival that fell 'was passed by' the row that stood still",
-              "S was passed by T for highest Y (80.00), falling to 2.00." in got, f"got {got}")
+              "S was passed by T for highest Y (80.00), falling to 2.00 (2nd-highest)." in got, f"got {got}")
     got = [c.sentence() for c in D.diff_snapshots(prev, curr)]
-    ok &= _ok("a faller is passed by every stand-still row now ahead of it, ties too",
-              "A was passed by B, C and D for highest KTC (30.00), falling to 5.00." in got, f"got {got}")
+    # Named: whoever holds the place it lost — B and C, tied for it — not every
+    # row now ahead of it (user rule, 2026-10-13); then where it fell to.
+    ok &= _ok("a faller is passed by whoever holds the place it lost, ties too",
+              "A was passed by B and C for highest KTC (30.00), falling to 5.00 (4th-highest)." in got,
+              f"got {got}")
     return ok
 
 
@@ -1840,10 +1843,10 @@ def check_offseason_move_joins_at_week_5():
 
 
 def check_week_rows_season_to_date_and_new_stint_wait():
-    rows = [(f"P{i}", "X", 2025, 17, 20.0 + i, 15.0 + i, 30) for i in range(4)]
-    rows += [("New", "Y", 2026, 1, 40.0, 40.0, 1), ("Vet", "Z", 2026, 1, 39.0, 39.0, 50)]
+    rows = [(f"P{i}", "X", 2025, 17, 20.0 + i, 0.5 + i / 10, 30) for i in range(4)]
+    rows += [("New", "Y", 2026, 1, 40.0, 0.99, 1), ("Vet", "Z", 2026, 1, 39.0, 0.98, 50)]
     pw = pd.DataFrame(rows, columns=["Player", "Team", "Year", "Week",
-                                     "PPG as team starter this season", "PPG as team starter",
+                                     "PPG as team starter this season", "% of starts on team",
                                      "Number of weeks on team"])
     ty = pd.DataFrame({"Team": ["X"], "Year": [2026]})
 
@@ -1852,22 +1855,24 @@ def check_week_rows_season_to_date_and_new_stint_wait():
         return D.board_highlights(pw, "player_week", window=3, gate=D.BoardGate(fr))
 
     b1 = board(1)
-    ok = _ok("week 1: no season-to-date average from this season",
-             not {"New 2026 week 1", "Vet 2026 week 1"} & _labels(b1, "PPG as team starter this season"),
+    # A player-team's season-to-date column is an on-pace stat (user, 2026-10-13):
+    # on no week board, in any week, past seasons' rows included.
+    ok = _ok("week 1: a season-to-date player-team column is on no board",
+             not _labels(b1, "PPG as team starter this season"),
              _labels(b1, "PPG as team starter this season"))
-    ok &= _ok("week 1: a one-week-old stint's PPG on team waits",
-              "New 2026 week 1" not in _labels(b1, "PPG as team starter"),
-              _labels(b1, "PPG as team starter"))
-    ok &= _ok("week 1: a long stint's PPG on team stands",
-              "Vet 2026 week 1" in _labels(b1, "PPG as team starter"),
-              _labels(b1, "PPG as team starter"))
+    ok &= _ok("week 1: a one-week-old stint's start rate on team waits",
+              "New 2026 week 1" not in _labels(b1, "% of starts on team"),
+              _labels(b1, "% of starts on team"))
+    ok &= _ok("week 1: a long stint's start rate on team stands",
+              "Vet 2026 week 1" in _labels(b1, "% of starts on team"),
+              _labels(b1, "% of starts on team"))
     b5 = board(5)
-    ok &= _ok("week 5: this season's week rows join, week 1 included",
-              "New 2026 week 1" in _labels(b5, "PPG as team starter this season"),
+    ok &= _ok("week 5: still on no board",
+              not _labels(b5, "PPG as team starter this season"),
               _labels(b5, "PPG as team starter this season"))
     ok &= _ok("week 5: the stint is five weeks old and joins",
-              "New 2026 week 1" in _labels(b5, "PPG as team starter"),
-              _labels(b5, "PPG as team starter"))
+              "New 2026 week 1" in _labels(b5, "% of starts on team"),
+              _labels(b5, "% of starts on team"))
     return ok
 
 
@@ -2310,7 +2315,7 @@ def check_a_tie_reached_together_is_one_line():
     got = [c.sentence() for c in D.diff_snapshots(prev, curr)]
     # C's fall past the tie is still news, told from C's side (2026-09-23).
     ok &= _ok("a four-way tie for 3rd is not reported",
-              got == ["C was passed by E, F and G for 3rd-highest X (25.00), falling to 10.00."], got)
+              got == ["C was passed by E, F and G for 3rd-highest X (25.00), falling to 10.00 (7th-highest)."], got)
     # The same on an event board.
     def ev(rows):
         return [D.EventHighlight("trades", k, "KTC", "high", r, v, key=k) for k, r, v in rows]
@@ -2500,7 +2505,7 @@ def test_a_row_that_falls_off_the_board_is_reported():
     best = {"Pat Freiermuth": 8.0}
     got = [c.sentence() for c in D.diff_events(
         prior, now, current_value=lambda sh, col, end, key, ent, skip=(): best.get(ent))]
-    assert got == ["Pat Freiermuth 2022 week 4 drops off the board for highest "
+    assert got == ["Pat Freiermuth 2022 week 4 drops off the board from highest "
                    "Rostered middle 50% streak (11), now 8."], got
     # Without a way to read values now (an older caller), nothing new is said.
     assert D.diff_events(prior, now) == []
@@ -2516,7 +2521,7 @@ def test_a_row_that_falls_off_the_board_is_reported():
     got = [c.sentence() for c in D.diff_events(
         prior, ev([("A", 1, 30.), ("B", 2, 35.), ("D", 3, 40.)]), current_value=lookup)]
     # Leaving a LOWEST board means going up: "now", not "falling to".
-    assert got == ["C drops off the board for 3rd-lowest Trading skill (39.40), now 44.10."], got
+    assert got == ["C drops off the board from 3rd-lowest Trading skill (39.40), now 44.10."], got
     # Pushed off by a row climbing past it, its own value unchanged: that row's
     # news ("D passes C"), not a drop.
     vals["C"], vals["D"] = 39.4, 38.
@@ -2556,7 +2561,7 @@ def test_a_streak_falls_off_though_its_team_holds_another():
         return max(vals) if vals else None
     got = [c.sentence() for c in D.diff_events(prior, now, current_value=lookup)]
     # "now 4", the run's own value — not 8, its other streak's.
-    assert got == ["A 2023 week 4 drops off the board for highest Top half streak (10), now 4."], got
+    assert got == ["A 2023 week 4 drops off the board from highest Top half streak (10), now 4."], got
 
     # board_value_lookup follows the row's own RUN, not the entity's best: A's
     # 2023 week-4 streak continued to 5 the next week; its 2022 run ended at 8.
@@ -2610,7 +2615,7 @@ def test_a_streak_carried_onto_the_board_passes_nobody():
     best = {"A": 4., "B": 9., "C": 7., "D": 6., "Z": 8., "E": 5.5}
     got = [c.sentence() for c in D.diff_events(
         prior, now, current_value=lambda sh, col, end, key, ent, skip=(): best.get(ent))]
-    assert got == ["A 2023 week 4 drops off the board for highest Top half streak (10), now 4."], got
+    assert got == ["A 2023 week 4 drops off the board from highest Top half streak (10), now 4."], got
 
 
 def test_overflow_ties_are_stored_beside_the_board():
@@ -2664,7 +2669,7 @@ def test_a_row_that_falls_out_of_a_tie_is_reported():
         prior, ev([("LWebs53 2021", 1, 26.0), ("AceMatthew 2023", 2, 30.6),
                    ("Oliverwkw 2023", 3, 30.7), ("LWebs53 2023", 4, 30.9)]))]
     assert got == ["Oliverwkw 2023 was passed by AceMatthew 2023 for 2nd-lowest "
-                   "Add/Drop skill (30.60), rising to 30.70."], got
+                   "Add/Drop skill (30.60), rising to 30.70 (3rd-lowest)."], got
     # Breaking the tie by its OWN improvement is the mover's line, told once.
     got = [c.sentence() for c in D.diff_events(
         prior, ev([("LWebs53 2021", 1, 26.0), ("AceMatthew 2023", 2, 30.5),
@@ -2680,7 +2685,7 @@ def test_a_row_that_falls_out_of_a_tie_is_reported():
     got = [c.sentence() for c in D._column_crossings(
         "players", "Points", rows([("A", 10.), ("B", 10.)] + rest),
         rows([("A", 10.), ("B", 9.)] + rest), ["high"], 5, False)]
-    assert got == ["B was passed by A for highest Points (10.00), falling to 9.00."], got
+    assert got == ["B was passed by A for highest Points (10.00), falling to 9.00 (2nd-highest)."], got
 
 
 def test_breaking_a_tie_on_the_all_time_boards():
@@ -2782,7 +2787,7 @@ def test_a_faller_on_an_event_board_was_passed_by_the_row_that_stood_still():
     got = [c.sentence() for c in D.diff_events(board, events, prior_row_keys=["k_h", "k_w"])]
     assert not any(s.startswith("Wilson move passes") for s in got), got
     assert any(s.startswith("Hurts move was passed by Wilson move for highest")
-               and s.endswith("falling to 21.02.") for s in got), got
+               and s.endswith("falling to 21.02 (2nd-highest).") for s in got), got
     # A row that ROSE past the faller keeps the active line; nobody is told twice.
     events2 = [D.EventHighlight("add_drops", "Wilson move", col, "high", 1, 21.5, "k_w"),
                D.EventHighlight("add_drops", "Hurts move", col, "high", 2, 21.017, "k_h")]
