@@ -142,7 +142,8 @@ def test_on_pace_projects_one_end_only():
     frames = {"player_year": py}
     F.add_filtered_stats(frames)
     got = {(p.entity, p.column, p.end) for p in
-           D._project_frame("players", frames["player_year"], "Player", 2026, 2.0, 5)}
+           D._project_frame("players", frames["player_year"], "Player",
+                            D._pace.PaceContext(season=2026, played=5, horizon=10), 5)}
     assert ("High", "Avg points by a rookie", "high") in got, got
     assert ("Low", "Avg points by a rookie", "low") not in got, got
     assert ("Low", "Avg points", "low") in got, got

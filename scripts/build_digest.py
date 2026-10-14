@@ -219,11 +219,31 @@ def main(argv=None) -> int:
     # movement. An empty digest (no movement) is suppressed at send time
     # (`send_digest.py --skip-empty`), so a quiet week sends no email.
 
+    # ON PACE. Each column by its own rule (lotg_support.pace): byes, the
+    # transaction calendar, what cannot be projected. Every PACE_RESEND_EVERY
+    # weeks (9, 13, 17) the whole list goes out again, not just what moved; the
+    # season's last week sends its final standings instead (user, 2026-10-13).
+    prior = D.load_snapshot(snap_path)
+    season = meta.get("season")
+    played = int(meta.get("weeks_completed") or 0)
+    horizon = D.season_horizon(frames["team_week"], season) if season is not None else None
+    pmeta = (prior or {}).get("meta", {}) or {}
+    reported = int(pmeta.get("weeks_completed") or 0) if pmeta.get("season") == season else 0
+    span = range(reported + 1, played + 1)
+    pace_final = bool(horizon) and played >= horizon and reported < horizon
+    pace_resend = pace_final or any(D.pace_resend_week(w, horizon) for w in span)
+    in_pace = bool(horizon) and D.MIN_YEARLY_WEEK <= played < horizon
     projections = D.project_on_pace(
         frames["player_year"], frames["team_year"],
         frames["league_year"], frames["team_week"],
+        frames=frames, schedule=D.load_schedule(_ROOT), final=pace_final,
     )
-    current["pace"] = D.pace_rank_map(projections)
+    # A finished season keeps no on-pace standing to diff against.
+    current["pace"] = D.pace_rank_map(projections) if in_pace else {}
+    meta[D.PACE_RULES_KEY] = D.PACE_RULES_VERSION
+    print(f"[digest] on pace: {len(projections)} standing(s)"
+          f"{' — full list resent' if pace_resend and not pace_final else ''}"
+          f"{' — final standings' if pace_final else ''}")
     records = D.yearly_records(
         frames["player_year"], frames["team_year"],
         frames["league_year"], frames["team_week"],
@@ -243,7 +263,6 @@ def main(argv=None) -> int:
     # digest is skipped it is never mentioned again. GitHub drops scheduled runs
     # outright (2026-07-07), so this is reachable, and it is silent when it
     # happens. Cover every week the prior snapshot never reported instead.
-    prior = D.load_snapshot(snap_path)
     covered, gap_note = _weeks_to_cover(prior, meta, frames["team_week"])
     if gap_note:
         print(gap_note)
@@ -272,21 +291,41 @@ def main(argv=None) -> int:
     # climbed onto a board. Stored here; consumed as `prior_row_keys` next run.
     current["row_keys"] = D.all_row_keys(frames)
 
+    # What arrived since the prior snapshot, and whether an edit landed: the
+    # evidence that sends a move only an edit explains to its own section at the
+    # bottom of the email (and that the lede's "re-valued history" counts). Also
+    # who played: a row with no new games is idle on a relative column.
+    new_data = D.new_data_since(prior, meta, frames, fingerprint)
     if prior is None:
         print("[digest] no prior snapshot — baselining this week (no diff yet).")
         crossings, proj_changes, milestones, record_changes, event_changes = [], [], [], [], []
+        dropped_pace = []
     else:
-        crossings = D.diff_snapshots(prior, current)
+        crossings = D.diff_snapshots(
+            prior, current,
+            active=({"players": new_data.players, "teams": new_data.teams}
+                    if new_data is not None and new_data.new_weeks else None))
         milestones = D.milestone_crossings(
             prior.get("league_milestones", {}), current["league_milestones"])
         prior_pace = prior.get("pace")
-        if prior_pace is None:
+        if pace_resend:
+            proj_changes = list(projections)
+        elif prior_pace is None:
             # First week the season carries on-pace data — baseline it silently
             # so we don't dump every standing; report only changes from here on.
             print("[digest] baselining on-pace standings this week (no diff yet).")
             proj_changes = []
         else:
             proj_changes = D.diff_pace(prior_pace, projections)
+        # What fell off last week's list — only while there is a list to be on.
+        dropped_pace = D.pace_dropouts(prior_pace, projections,
+                                       {"league": D._league_window(frames["league_year"])}) \
+            if in_pace else []
+        if not pace_resend:
+            n_pace = D.mark_pace_rule_change(prior, list(proj_changes) + list(dropped_pace))
+            if n_pace:
+                print(f"[digest] {n_pace} on-pace line(s) moved by an on-pace rule change "
+                      f"(digest.PACE_RULES_VERSION) -> edits section")
         prior_records = prior.get("yearly_records")
         if prior_records is None:
             print("[digest] baselining yearly records this week (no diff yet).")
@@ -325,11 +364,7 @@ def main(argv=None) -> int:
     # winner leads. Cannot fail the build; build_intro never raises. See
     # lotg_support/email_summary.
     sections = D.digest_sections(crossings, proj_changes, milestones,
-                                 record_changes, highlights, event_changes)
-    # What arrived since the prior snapshot, and whether an edit landed: the
-    # evidence that sends a move only an edit explains to its own section at the
-    # bottom of the email (and that the lede's "re-valued history" counts).
-    new_data = D.new_data_since(prior, meta, frames, fingerprint)
+                                 record_changes, highlights, event_changes, dropped_pace)
     if new_data is not None:
         _top, _edits = D.split_sections(sections, new_data)
         print(f"[digest] new data: {len(new_data.new_weeks)} new week(s), "
@@ -344,6 +379,8 @@ def main(argv=None) -> int:
     # opens by saying so, with how many of the lines below it accounts for.
     lead = D.release_lead(frames, meta, new_data, proj_changes, board_moves, sections,
                           crossings=crossings, prior=prior)
+    if pace_resend and proj_changes:
+        lead = " ".join(x for x in (D.pace_resend_sentence(season, played, pace_final), lead) if x)
     if lead:
         print(f"[digest] release lede: {lead}")
     intro = DS.build_intro(sections, D.digest_title(meta),
@@ -354,7 +391,8 @@ def main(argv=None) -> int:
 
     html = D.render_digest_html(crossings, proj_changes, meta, milestones,
                                 record_changes, highlights, intro=intro,
-                                events=event_changes, new_data=new_data)
+                                events=event_changes, new_data=new_data,
+                                dropouts=dropped_pace)
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(html)
     print(f"[digest] {len(highlights)} single-week highlight(s), {len(crossings)} crossing(s), "
