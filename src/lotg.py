@@ -1234,6 +1234,10 @@ def _col_topic(col: str, default: Optional[str] = "Identity") -> Optional[str]:
         return "Hardship & Luck"
     if "champion" in n:
         return "Outcome"
+    # player_additions' every-stint PPG sits with that sheet's per-stint "Avg PPG
+    # on team", in its Value block.
+    if n.endswith(" (multiple stints)"):
+        return "Value"
     # A player's stint on his current fantasy team (player_week): one block with
     # its weeks / starts, not split across Scoring and Value.
     if not n.endswith("?") and ("team starter" in n or "% of team points" in n
@@ -1329,8 +1333,18 @@ _TERMINAL_TEAM_TENURE_BASES = (
     "weeks rostered by this team",
     "% of starts on team", "% of team points on team",
     "total points as team starter", "ppg as team starter",
+    "ppg as team starter adjusted by position",
+    "ppg as team starter (multiple stints)",
+    "ppg as team starter adjusted by position (multiple stints)",
     "total times highest starter on team", "total times lowest starter on team",
 )
+
+# The lifetime (every stint) PPG pair: off player_week, onto player_additions as
+# "<name> (multiple stints)" on the player-team's latest stint, "In Progress" on
+# its earlier ones (per user, 2026-10-13). The per-season pair stays on
+# player_week ("... this season").
+_TEAM_TENURE_PPG_COLS = ("PPG as team starter", "PPG as team starter adjusted by position")
+_MULTI_STINT_SFX = " (multiple stints)"
 
 
 def _is_terminal_team_col(col: str) -> bool:
@@ -2972,6 +2986,9 @@ def _add_ppg_split_columns(df: pd.DataFrame) -> pd.DataFrame:
 def build_all(repo_root: Path) -> None:
     debug = repo_root / "exports" / "raw" / "build_debug.log"
     _log(debug, f"\n[{_now_iso()}] ===== Build start =====")
+    # (Team, Player) -> (PPG as team starter, adjusted) over every stint; filled
+    # with player_week's tenure columns, written onto player_additions.
+    _team_tenure_ppg: Dict[Tuple[str, str], Tuple[Any, Any]] = {}
 
     plan_csv = repo_root / "plan" / "LOTG Plan - Sheet1.csv"
     catalog = load_plan_catalog(plan_csv)
@@ -6666,8 +6683,14 @@ def build_all(repo_root: Path) -> None:
                         )
                         return _norm_team(tm)
 
-                    roster_nfl_teams = [t for t in (_nfl_team_for_pid_week(pid) for pid in players) if t]
-                    start_nfl_teams = [t for t in (_nfl_team_for_pid_week(pid) for pid in starters) if t]
+                    # The "NFL" free-agent / retired sentinel is not an NFL team:
+                    # it never counts toward the distinct-team or same-team
+                    # columns (per user, 2026-10-13 — it made the league's
+                    # rostered count 33), as it already doesn't for Stacks.
+                    roster_nfl_teams = [t for t in (_nfl_team_for_pid_week(pid) for pid in players)
+                                        if t and t != "NFL"]
+                    start_nfl_teams = [t for t in (_nfl_team_for_pid_week(pid) for pid in starters)
+                                       if t and t != "NFL"]
                     most_start_same = max(Counter(start_nfl_teams).values()) if start_nfl_teams else None
                     most_roster_same = max(Counter(roster_nfl_teams).values()) if roster_nfl_teams else None
                     most_start_team = Counter(start_nfl_teams).most_common(1)[0][0] if start_nfl_teams else None
@@ -6682,7 +6705,7 @@ def build_all(repo_root: Path) -> None:
                         for pid in pids:
                             if (pid_pos.get(pid) or "").upper() == pos:
                                 _t = _nfl_team_for_pid_week(pid)
-                                if _t:
+                                if _t and _t != "NFL":
                                     teams.append(_t)
                         return max(Counter(teams).values()) if teams else None
 
@@ -10354,7 +10377,7 @@ def build_all(repo_root: Path) -> None:
     # player_additions (user rule, 2026-09-22). The added player is a cuff when
     # the adding team, at that moment, rosters another player on the SAME NFL
     # team and position (the reference) who
-    #   * averages 10+ PPG more than the added player, or
+    #   * averages 3+ PPG more than the added player, or
     #   * averages 13+ PPG as a TE, or the position-adjusted equivalent
     #     (reference PPG x position factor >= 13 x the TE factor), or
     #   * was a top-12 pick in THAT season's rookie draft (the move's league
@@ -10369,7 +10392,7 @@ def build_all(repo_root: Path) -> None:
     # "Number of cuffs started") adds that he started and a qualifying teammate
     # was injured.
     # ------------------------------------------------------------------
-    _CUFF_GAMES, _CUFF_MARGIN, _CUFF_TE_PPG, _CUFF_TOP_PICKS = 8, 10.0, 13.0, 12
+    _CUFF_GAMES, _CUFF_MARGIN, _CUFF_TE_PPG, _CUFF_TOP_PICKS = 8, 3.0, 13.0, 12
     _cuff_cache: Dict[str, Any] = {}
 
     def _cuff_utc(x: Any, eastern: bool = False) -> Optional[datetime]:
@@ -10538,7 +10561,7 @@ def build_all(repo_root: Path) -> None:
 
     def _cuff_refs(pid: Any, day: str, roster: set, top: frozenset, first: bool = False) -> List[str]:
         """Which of `roster` make `pid` a handcuff on league day `day`: same NFL
-        team and position, and 10+ PPG better than him, or 13 TE-equivalent, or
+        team and position, and 3+ PPG better than him, or 13 TE-equivalent, or
         in `top` (that season's top-12 rookie picks). `first`: stop at one."""
         sid = str(pid)
         pos = (pid_pos.get(sid) or "").upper()
@@ -13724,6 +13747,7 @@ def build_all(repo_root: Path) -> None:
         # variants; undefined tenures (e.g. PPG with no starts) read blank.
         # ------------------------------------------------------------------
         try:
+            _team_tenure_ppg.clear()
             _pts = pd.to_numeric(pw["Points"], errors="coerce").fillna(0.0)
             _isS = (pw["Starter/Bench"].astype(str) == "Starter").astype(float)
             _tmp = pd.DataFrame({
@@ -13783,6 +13807,15 @@ def build_all(repo_root: Path) -> None:
                     (f"Total times lowest starter on team{_sfx}", _g["_lo"].transform("sum"), "int"),
                 ]
                 _last_idx = _last_by_level[_lvl]
+                if _lvl == "L":
+                    # The lifetime PPG pair spans every stint with the team, so it
+                    # lives on player_additions (one row per stint) as "... (multiple
+                    # stints)", not on player_week (per user, 2026-10-13).
+                    for _r_i, _r_v, _r_a in zip(_last_idx, (_spts / _starts.replace(0, np.nan)).loc[_last_idx],
+                                                (_spts_adj / _starts.replace(0, np.nan)).loc[_last_idx]):
+                        _team_tenure_ppg[(str(_tmp.at[_r_i, "Team"]), str(_tmp.at[_r_i, "Player"]))] = (
+                            _fmt_val(_r_v, "pts"), _fmt_val(_r_a, "pts"))
+                    _specs = [sp for sp in _specs if sp[0] not in _TEAM_TENURE_PPG_COLS]
                 for _cn, _series, _kind in _specs:
                     # per-group-constant value; undefined groups -> fully blank,
                     # defined groups -> "In Progress" except the tenure's last week.
@@ -14336,7 +14369,7 @@ def build_all(repo_root: Path) -> None:
         # against that week's roster, on the day the week's first game kicked
         # off (so the reference's last 8 games are the ones before this week):
         #   _cuff_rostered_flag -> "Number of cuffs rostered": the team rosters
-        #       a same-NFL-team, same-position teammate who is 10+ PPG better
+        #       a same-NFL-team, same-position teammate who is 3+ PPG better
         #       over his last 8, or 13 TE-equivalent, or a top-12 pick of that
         #       season's rookie draft.
         #   Activated Cuff? -> "Number of cuffs started": that, AND he started,
@@ -19467,7 +19500,8 @@ def build_all(repo_root: Path) -> None:
             out.setdefault(_key(k), {})["Number of rookies rostered"] = int(v)
         for k, v in rk[rk["_starter"]].groupby(group_cols)["Player ID"].nunique().items():
             out.setdefault(_key(k), {})["Number of rookies started"] = int(v)
-        nf = df[df["_nfl"].ne("") & df["_nfl"].str.lower().ne("nan")]
+        # The "NFL" free-agent sentinel is not a team (per user, 2026-10-13).
+        nf = df[df["_nfl"].ne("") & df["_nfl"].str.lower().ne("nan") & df["_nfl"].ne("NFL")]
         for k, v in nf.groupby(group_cols)["_nfl"].nunique().items():
             out.setdefault(_key(k), {})["Number of NFL teams among rostered players"] = int(v)
         for k, v in nf[nf["_starter"]].groupby(group_cols)["_nfl"].nunique().items():
@@ -19491,8 +19525,8 @@ def build_all(repo_root: Path) -> None:
     # sheets already do — not the weekly MAX (the old "max" rollup pinned every
     # team near 10, a 10-starter week's ceiling, instead of the true 28-31
     # all-time). Reuse the same distinct helper the league grain uses so the
-    # semantics match exactly (the "NFL" FA/retired sentinel is kept as a team,
-    # consistent with the league sheets). The sibling distinct families
+    # semantics match exactly (the "NFL" FA/retired sentinel is NOT a team on
+    # any of them, per user 2026-10-13). The sibling distinct families
     # (rookies, QB/WR/RB/TE, cuffs) already roll up correctly and are untouched.
     if not pw.empty:
         try:
@@ -23059,6 +23093,24 @@ def build_all(repo_root: Path) -> None:
             player_additions = player_additions.sort_values(
                 ["Season", "Date", "Team", "Player"], na_position="last"
             ).reset_index(drop=True)
+            # PPG as team starter over EVERY stint with the team (it moved here
+            # from player_week, per user 2026-10-13): on the player-team's
+            # latest stint, "In Progress" on its earlier ones, blank when he was
+            # never started there.
+            try:
+                _pa_key = list(zip(player_additions["Team"].astype(str),
+                                   player_additions["Player"].astype(str)))
+                _pa_latest = set(player_additions.assign(_k=_pa_key)
+                                 .drop_duplicates("_k", keep="last").index)
+                _anchor = list(player_additions.columns).index("Avg PPG on team adjusted by position") + 1
+                for _j, _base in enumerate(_TEAM_TENURE_PPG_COLS):
+                    _vals = []
+                    for _i, _k in enumerate(_pa_key):
+                        _v = (_team_tenure_ppg.get(_k) or (None, None))[_j]
+                        _vals.append(None if _v is None else (_v if _i in _pa_latest else "In Progress"))
+                    player_additions.insert(_anchor + _j, _base + _MULTI_STINT_SFX, _vals)
+            except Exception as _e_ms:
+                _log_exc(debug, "player_additions multi-stint PPG", _e_ms)
         _log(debug, f"[{_now_iso()}] INFO player_additions: {len(player_additions)} addition events "
                     f"({sum(1 for r in _pa_rows if r['Addition type']=='Trade')} trade, "
                     f"{sum(1 for r in _pa_rows if r['Addition type']=='Draft')} draft, "

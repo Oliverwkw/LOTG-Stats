@@ -156,7 +156,7 @@ ENTRIES = [
     (OPS, "ω(r)", "Future-pick round weight.", "{1: 0.25, 2: 0.09, 3: 0.03, 4: 0.01}, 0 otherwise.", _fn("ω")),
     (OPS, "E_h(p,w)", "Hardship expectation.", "Over p's last 6 healthy weeks before w (league weeks with H, plus nflverse-only weeks at npts), drop the most recent and average the rest (one week: that week).", _fn("E_h") + _bare("E_h")),
     (OPS, "s_h(p,w)", "Hardship start share.", "Mean st over the same weeks as E_h (nflverse-only weeks = 0); 0 → mean st over p's next ≤ 5 healthy weeks of the season, for w ≥ 2 with < 5 prior league weeks.", _fn("s_h") + _bare("s_h")),
-    (OPS, "TEST(q,p,w)", "Handcuff test.", "pos(q) = pos(p), nfl(q) = nfl(p), and (avg8(q) − avg8(p) ≥ 10, or avg8(q)·F(y,pos q) ≥ 13·F(y,TE), or q a top-12 pick of season y's rookie draft once held (2020: the first 12 NFL rookies of the startup)); avg8 = avgN(·, d, 8), q needing 8 games.", _fn("TEST")),
+    (OPS, "TEST(q,p,w)", "Handcuff test.", "pos(q) = pos(p), nfl(q) = nfl(p), and (avg8(q) − avg8(p) ≥ 3, or avg8(q)·F(y,pos q) ≥ 13·F(y,TE), or q a top-12 pick of season y's rookie draft once held (2020: the first 12 NFL rookies of the startup)); avg8 = avgN(·, d, 8), q needing 8 games.", _fn("TEST")),
     (OPS, "CUFF(p,t,d)", "Handcuff at a move.", "∃ q ∈ R(t) at d with TEST(q,p).", _fn("CUFF")),
     (OPS, "Q_q", "Positional starter-score pool.", "{pts(p,w) : st, H, pos(p) = q, all seasons}.", _bare("Q_q", "Q_pos") + _fn("Q_pos")),
     (OPS, "qN", "Positional percentile bars.", "The N-th percentile of Q_q (q10, q25, q75, q90).", _bare("q10", "q25", "q75", "q90")),
@@ -555,6 +555,8 @@ EQUATIONS = {
         'e − dd(Y),  e = first exit of pl(pk) from by(pk) after dd(Y), else today',
     ('Avg PPG on team', 'non_rookie_picks / rookie_picks / player_additions'):
         'ppg_on(p, t, [s, e)) = Σ_{w ∈ Wk : H(p,w)} pts(p,w) / |{w ∈ Wk : H(p,w)}|,  s = dd(Y) (picks) or acquisition date (player_additions)',
+    ('PPG as team starter (multiple stints)', 'player_additions'):
+        'Σ_{w ∈ U : st} pts(p,w) / Σ_{w ∈ U} st,  U = every week p was on t, all stints (on t\'s latest stint row, In Progress on earlier ones)',
     ('Avg PPG on team adjusted by position', 'non_rookie_picks / rookie_picks'):
         'ppg_on(pl, by, [dd, e)) · F(Y, pos(pl))',
     ('Avg career PPG', 'non_rookie_picks / rookie_picks'):
@@ -1525,8 +1527,8 @@ EQUATIONS = {
         'Σ_w npts(p,y,w)·F(y)/n(p,y) − Σ_w npts(p,y−1,w)·F(y−1)/n(p,y−1)',
     ('Change in avg points from career adjusted by position', 'player_year'):
         "Σ_w npts(p,y,w)·F(y)/n(p,y) − Σ_{y' < y} Σ_w npts(p,y',w)·F(y'*) / Σ_{y' < y} n(p,y'); blank if n(p,y) < 2",
-    ('PPG as team starter adjusted by position', 'player_week'):
-        "Σ_{w ∈ U : st} pts(p,w)·F(y_w,pos p) / Σ_{w ∈ U} st,  U = p's tenure weeks on t (RUN encoding)",
+    ('PPG as team starter adjusted by position (multiple stints)', 'player_additions'):
+        "Σ_{w ∈ U : st} pts(p,w)·F(y_w,pos p) / Σ_{w ∈ U} st,  U = every week p was on t, all stints (on t's latest stint row)",
     ('PPG as team starter adjusted by position this season', 'player_week'):
         'Σ_{w ∈ U ∩ y : st} pts(p,w)·F(y,pos p) / Σ_{w ∈ U ∩ y} st',
     ('Start/sit miss (5-game avg) adjusted by position', 'player_week'):

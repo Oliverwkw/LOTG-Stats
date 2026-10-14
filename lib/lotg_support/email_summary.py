@@ -547,7 +547,7 @@ _ROW_WEEK = re.compile(r"\bweek\s+(\d+)\b", re.I)
 
 # Items that exist only for the current period by construction: this week's
 # single-week records, the in-progress season's records and on-pace standings.
-_CURRENT_PERIOD_ITEMS = {"WeeklyHighlight", "YearlyRecord", "Projection"}
+_CURRENT_PERIOD_ITEMS = {"WeeklyHighlight", "YearlyRecord", "Projection", "PaceDropout"}
 
 
 class NewData:
