@@ -1236,10 +1236,10 @@ def _col_topic(col: str, default: Optional[str] = "Identity") -> Optional[str]:
         return "Outcome"
     # player_additions' every-stint tenure columns: the weeks counts in its
     # Tenure block, the rest with its per-stint "Avg PPG on team" in Value.
-    if n in ("% of team points", "all time % of team points"):
+    if n in ("% of team points", "% of all time team points"):
         return "Value"     # player_additions' per-stint shares, beside the every-stint one
-    if n.endswith(" (multiple stints)"):
-        base = n[: -len(" (multiple stints)")]
+    if n.endswith(" (all stints)"):
+        base = n[: -len(" (all stints)")]
         return "Tenure" if base in ("total weeks as team starter", "total weeks on bench",
                                     "weeks rostered by this team") else "Value"
     # A player's stint on his current fantasy team (player_week): one block with
@@ -1339,16 +1339,16 @@ _TERMINAL_TEAM_TENURE_BASES = (
     "total points as team starter", "ppg as team starter",
     "ppg as team starter adjusted by position",
     "total times highest starter on team", "total times lowest starter on team",
-    "all time % of team points",
+    "% of all time team points",
 )
 
 # The lifetime (every stint) player-team tenure family: off player_week, onto
-# player_additions as "<name> (multiple stints)" on the player-team's latest
+# player_additions as "<name> (all stints)" on the player-team's latest
 # stint, "In Progress" on its earlier ones (per user, 2026-10-13: its natural
 # home is the sheet with one row per stint). The per-season family stays on
 # player_week ("... this season"). Weeks counts join player_additions' Tenure
 # block; the rest sit with its "Avg PPG on team" in Value.
-_MULTI_STINT_SFX = " (multiple stints)"
+_MULTI_STINT_SFX = " (all stints)"
 _TEAM_TENURE_WEEK_COLS = ("Total weeks as team starter", "Total weeks on bench",
                           "Weeks rostered by this team")
 _TEAM_TENURE_VALUE_COLS = ("% of starts on team", "% of team points on team",
@@ -1360,8 +1360,8 @@ _TEAM_TENURE_LIFETIME_COLS = _TEAM_TENURE_WEEK_COLS + _TEAM_TENURE_VALUE_COLS
 # Its name on player_additions, where it differs (user, 2026-10-13): the share is
 # of the team's points over ALL its seasons, so it says "all time" — beside the
 # per-stint "% of team points" (the team's points over that stint's weeks) and
-# "All time % of team points" (that stint's points / the team's all-time).
-_MULTI_STINT_NAMES = {"% of team points on team": "All time % of team points"}
+# "% of all time team points" (that stint's points / the team's all-time).
+_MULTI_STINT_NAMES = {"% of team points on team": "% of all time team points"}
 
 
 def _multi_stint_name(base: str) -> str:
@@ -22511,7 +22511,7 @@ def build_all(repo_root: Path) -> None:
             _all = _team_spts_all.get(str(_team), 0.0)
             out["% of team points"] = (round(st["points_started"] / _den, 4)
                                        if n_ros and _den > 0 else None)
-            out["All time % of team points"] = (round(st["points_started"] / _all, 4)
+            out["% of all time team points"] = (round(st["points_started"] / _all, 4)
                                                 if n_ros and _all > 0 else None)
             out["Injury adjusted % of starts made while rostered"] = (
                 round(st["inj_starts"] / st["inj_weeks"], 4) if st["inj_weeks"] else None)
@@ -22658,7 +22658,7 @@ def build_all(repo_root: Path) -> None:
                 "Injury adjusted % of starts made while rostered":
                     sc.get("Injury adjusted % of starts made while rostered"),
                 "% of team points": sc.get("% of team points"),
-                "All time % of team points": sc.get("All time % of team points"),
+                "% of all time team points": sc.get("% of all time team points"),
                 "Avg PPG on team": sc.get("Avg PPG on team"),
                 "Avg PPG on team adjusted by position": sc.get("Avg PPG on team adjusted by position"),
                 "Points added": sc.get("Points added"),

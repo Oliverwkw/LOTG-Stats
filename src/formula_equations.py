@@ -847,11 +847,11 @@ EQUATIONS = {
         "|{w' ≤ w : contiguous run of weeks with ro(p,t,w') = 1}|",
     ('Per-team tenure metrics this season (terminal-encoded)', 'player_week'):
         "over p's weeks on t in season y, U = {w ∈ y : ro(p,t,w)}: % of starts = Σ_U st / |U|; % of team points = Σ_U st·pts(p,w) / Σ_{w ∈ y} Σ_{q ∈ S(t,w)} pts(q,w) (the team's whole season); weeks = |U|; points/PPG as starter = Σ_U st·pts, ÷ Σ_U st; bench = same with (1 − st); top/bottom starter weeks = Σ_U [p = argmax/argmin_{S(t,w)} pts]; value shown on his last week on t that season (RUN encoding)",
-    ('Per-team tenure metrics over every stint (multiple stints)', 'player_additions'):
-        "over every week p was on t, all stints, U = {w : ro(p,t,w)}: % of starts = Σ_U st / |U|; All time % of team points = Σ_U st·pts(p,w) / Σ_w Σ_{q ∈ S(t,w)} pts(q,w) (all of t's seasons); weeks = |U|; points/PPG as starter = Σ_U st·pts, ÷ Σ_U st; bench = same with (1 − st); top/bottom starter weeks = Σ_U [p = argmax/argmin_{S(t,w)} pts]; on t's latest stint row for p, In Progress on its earlier ones",
+    ('Per-team tenure metrics over every stint (all stints)', 'player_additions'):
+        "over every week p was on t, all stints, U = {w : ro(p,t,w)}: % of starts = Σ_U st / |U|; % of all time team points = Σ_U st·pts(p,w) / Σ_w Σ_{q ∈ S(t,w)} pts(q,w) (all of t's seasons); weeks = |U|; points/PPG as starter = Σ_U st·pts, ÷ Σ_U st; bench = same with (1 − st); top/bottom starter weeks = Σ_U [p = argmax/argmin_{S(t,w)} pts]; on t's latest stint row for p, In Progress on its earlier ones",
     ('% of team points', 'player_additions'):
         "Σ_{w ∈ V} st·pts(p,w) / Σ_{w ∈ V} Σ_{q ∈ S(t,w)} pts(q,w),  V = the stint's rostered weeks",
-    ('All time % of team points', 'player_additions'):
+    ('% of all time team points', 'player_additions'):
         "Σ_{w ∈ V} st·pts(p,w) / Σ_w Σ_{q ∈ S(t,w)} pts(q,w),  V = the stint's rostered weeks, w over all of t's seasons",
     ('Player tenure totals (not per team)', 'player_year / player_all_time'):
         'rostered = Σ_w ro(p,·,w); % of starts = Σ st / Σ ro; total points as starter = Σ st·pts(p,w); % of league points = Σ st·pts / Σ_{t,w} Σ_{q ∈ S(t,w)} pts(q,w)',
@@ -1531,7 +1531,7 @@ EQUATIONS = {
         'Σ_w npts(p,y,w)·F(y)/n(p,y) − Σ_w npts(p,y−1,w)·F(y−1)/n(p,y−1)',
     ('Change in avg points from career adjusted by position', 'player_year'):
         "Σ_w npts(p,y,w)·F(y)/n(p,y) − Σ_{y' < y} Σ_w npts(p,y',w)·F(y'*) / Σ_{y' < y} n(p,y'); blank if n(p,y) < 2",
-    ('PPG as team starter adjusted by position (multiple stints)', 'player_additions'):
+    ('PPG as team starter adjusted by position (all stints)', 'player_additions'):
         "Σ_{w ∈ U : st} pts(p,w)·F(y_w,pos p) / Σ_{w ∈ U} st,  U = every week p was on t, all stints (on t's latest stint row)",
     ('PPG as team starter adjusted by position this season', 'player_week'):
         'Σ_{w ∈ U ∩ y : st} pts(p,w)·F(y,pos p) / Σ_{w ∈ U ∩ y} st',

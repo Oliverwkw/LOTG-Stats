@@ -779,22 +779,22 @@ _ROWS = [
                  "Total times highest starter on team this season",
                  "Total times lowest starter on team this season"],
      "Formula": "A player's season with one team, terminal-encoded (value on his last week there that season, 'In Progress' before) so a sort ranks each player-team season once. '% of starts' = started / rostered weeks; '% of team points' = his starter points / the team's starter PF that season (0-1); the rest are weeks, points, and PPG as a starter or on the bench, and weeks as the team's top/bottom starter.",
-     "Notes": "Separate stints with the same team that season share one tenure. The every-season version of each is on player_additions as '… (multiple stints)'."},
-    {"Stat": "Per-team tenure metrics over every stint (multiple stints)",
+     "Notes": "Separate stints with the same team that season share one tenure. The every-season version of each is on player_additions as '… (all stints)'."},
+    {"Stat": "Per-team tenure metrics over every stint (all stints)",
      "Sheet": "player_additions",
-     "Columns": [c + " (multiple stints)" for c in (
+     "Columns": [c + " (all stints)" for c in (
          "Total weeks as team starter", "Total weeks on bench", "Weeks rostered by this team",
-         "% of starts on team", "All time % of team points", "Total points as team starter",
+         "% of starts on team", "% of all time team points", "Total points as team starter",
          "PPG as team starter", "Total times highest starter on team",
          "Total times lowest starter on team")],
-     "Formula": "A player's WHOLE time with one team — every stint, a re-acquired player's earlier ones included: weeks started / benched / rostered there, % of those weeks started, 'All time % of team points' = his starter points / the team's starter PF over all its seasons (0-1), his starter points, PPG as a starter, and weeks as the team's top/bottom starter. 'Avg PPG on team' and the other per-stint columns are one stint's.",
+     "Formula": "A player's WHOLE time with one team — every stint, a re-acquired player's earlier ones included: weeks started / benched / rostered there, % of those weeks started, '% of all time team points' = his starter points / the team's starter PF over all its seasons (0-1), his starter points, PPG as a starter, and weeks as the team's top/bottom starter. 'Avg PPG on team' and the other per-stint columns are one stint's.",
      "Notes": "Terminal-encoded across the player-team's stints: the value sits on its latest stint's row, 'In Progress' on the earlier ones; blank where it is undefined (a PPG with no start). Moved here from player_week (per user, 2026-10-13); player_week keeps the '… this season' family."},
     {"Stat": "% of team points", "Sheet": "player_additions", "Columns": ["% of team points"],
      "Formula": "His starter points this stint / the team's starter points over the same weeks (the weeks of the stint, whoever started) (0-1) — his share of the team while he was there.",
-     "Notes": "The one share of the three over the period itself (per user, 2026-10-13): 'All time % of team points' divides this stint's points by the team's all-time starter points, '… (multiple stints)' every stint's. Blank for a stint with no rostered week."},
-    {"Stat": "All time % of team points", "Sheet": "player_additions", "Columns": ["All time % of team points"],
+     "Notes": "The one share of the three over the period itself (per user, 2026-10-13): '% of all time team points' divides this stint's points by the team's all-time starter points, '… (all stints)' every stint's. Blank for a stint with no rostered week."},
+    {"Stat": "% of all time team points", "Sheet": "player_additions", "Columns": ["% of all time team points"],
      "Formula": "His starter points this stint / the team's starter points over all its seasons (0-1).",
-     "Notes": "Summed over a player-team's stints it is 'All time % of team points (multiple stints)'. Blank for a stint with no rostered week."},
+     "Notes": "Summed over a player-team's stints it is '% of all time team points (all stints)'. Blank for a stint with no rostered week."},
     {"Stat": "Player tenure totals (not per team)", "Sheet": "player_year / player_all_time",
      "Columns": ["Weeks on bench", "Weeks rostered", "% of starts", "Total points as starter", "% of league points"],
      "Formula": "Season / career totals across all teams. Rostered = started + benched weeks; '% of starts' = started / rostered; 'Total points as starter' = his starter points; '% of league points' = those points / the league's whole starter scoring (0-1).",
@@ -1829,7 +1829,7 @@ _POS_TWINS = [
     ("Change in avg points from career", "player_year",
      "Avg points (full season) adjusted by position − the prior career's per-game average with each season's points x its own factor",
      "Same 2-game guard as the base; backfill seasons use the first league season's factor."),
-    ("PPG as team starter (multiple stints)", "player_additions", "each started week x that season's factor, summed over every stint with the team, / starts", "Terminal-encoded like its base."),
+    ("PPG as team starter (all stints)", "player_additions", "each started week x that season's factor, summed over every stint with the team, / starts", "Terminal-encoded like its base."),
     ("PPG as team starter this season", "player_week", "each started week x the season's factor, summed, / starts", "Named 'PPG as team starter adjusted by position this season'."),
     ("Start/sit miss (5-game avg)", "player_week",
      "each side's 5-game average x its OWN position's factor for the row's season, then differenced as in the base", "Cross-position start/sit calls (flex) compare on one scale."),
@@ -1857,8 +1857,8 @@ _POS_TWINS = [
 ]
 for _base, _sheet, _how, _note in _POS_TWINS:
     _col = ("PPG as team starter adjusted by position this season" if _base == "PPG as team starter this season"
-            else "PPG as team starter adjusted by position (multiple stints)"
-            if _base == "PPG as team starter (multiple stints)"
+            else "PPG as team starter adjusted by position (all stints)"
+            if _base == "PPG as team starter (all stints)"
             else f"{_base} adjusted by position")
     _ROWS.append({
         "Stat": _col, "Sheet": _sheet, "Columns": [_col],

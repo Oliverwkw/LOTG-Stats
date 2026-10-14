@@ -1,4 +1,4 @@
-"""player_additions' "... (multiple stints)" tenure family (moved from
+"""player_additions' "... (all stints)" tenure family (moved from
 player_week's lifetime player-team columns, per user 2026-10-13).
 
 Each column recomputes from player_week over every week a player was on a
@@ -19,7 +19,7 @@ import numpy as np
 import pandas as pd
 
 _EXP = Path(__file__).resolve().parent.parent / "exports"
-_S = " (multiple stints)"
+_S = " (all stints)"
 _BASES = ("Total weeks as team starter", "Total weeks on bench", "Weeks rostered by this team",
           "% of starts on team", "% of team points on team", "Total points as team starter",
           "PPG as team starter", "PPG as team starter adjusted by position",
@@ -27,7 +27,7 @@ _BASES = ("Total weeks as team starter", "Total weeks on bench", "Weeks rostered
 
 
 # Its player_additions name, where it differs from player_week's.
-_PA_NAME = {"% of team points on team": "All time % of team points"}
+_PA_NAME = {"% of team points on team": "% of all time team points"}
 
 
 def _pa(base):
@@ -40,7 +40,7 @@ def _load():
         print("  SKIP — exports absent")
         return None, None
     pa = pd.read_csv(pa_p, low_memory=False)
-    if "All time % of team points" + _S not in pa.columns:
+    if "% of all time team points" + _S not in pa.columns:
         print("  SKIP — the multiple-stints family is not built yet")
         return None, None
     return pa, pd.read_csv(pw_p, low_memory=False)
@@ -132,21 +132,21 @@ def test_the_adjusted_twin_is_blank_exactly_where_its_base_is():
 
 def test_the_per_stint_shares_add_up_and_recompute():
     """"% of team points" is this stint's starter points over the team's starter
-    points in the stint's own weeks; "All time % of team points" over the team's
+    points in the stint's own weeks; "% of all time team points" over the team's
     all-time. A player-team's stints' all-time shares add to its "(multiple
     stints)" one, and a single-stint player-team recomputes exactly."""
     pa, pw = _load()
     if pa is None or "% of team points" not in pa.columns:
         return
     per = pd.to_numeric(pa["% of team points"], errors="coerce")
-    allt = pd.to_numeric(pa["All time % of team points"], errors="coerce")
+    allt = pd.to_numeric(pa["% of all time team points"], errors="coerce")
     both = per.notna() & allt.notna()
     assert both.sum() > 1000, int(both.sum())
     assert (per[both].abs() + 1e-4 >= allt[both].abs()).all(), \
         "a stint's share of its own weeks smaller than its all-time share"
     key = list(zip(pa["Team"].astype(str), pa["Player"].astype(str)))
     pa = pa.assign(_k=key, _a=allt)
-    multi = pd.to_numeric(pa["All time % of team points" + _S], errors="coerce")
+    multi = pd.to_numeric(pa["% of all time team points" + _S], errors="coerce")
     latest = pa.drop_duplicates("_k", keep="last").index
     sums = pa.groupby("_k")["_a"].sum(min_count=1)
     n_stints = pa.groupby("_k").size()
