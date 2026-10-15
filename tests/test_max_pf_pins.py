@@ -1,13 +1,13 @@
 """Max PF position pins: the build's ceiling agrees with Sleeper's own.
 
 Sleeper keeps a season max-points total per roster (`rosters[].settings.ppts`),
-computed week by week with the position each player carried THAT week. The
-build computes `team_week."Max PF"` with one position per player, Sleeper's
-current label, so a player Sleeper has since relabelled moves the ceiling.
-`position_pins.MAX_PF_POSITION_PINS` records the relabels that mattered
-(Taysom Hill, Cordarrelle Patterson); with them, the regular-season Max PF of
-every completed team-season matches `ppts` to the cent except one, whose gap is
-a stat correction rather than a position (see KNOWN_GAPS).
+computed with the position(s) each player was listed at that season. The build
+computes `team_week."Max PF"` from Sleeper's current single label, so a player
+Sleeper has since relabelled moves the ceiling. `MAX_PF_POSITION_PINS` records
+the listings that mattered: Taysom Hill QB in 2021 and QB/TE from 2022,
+Cordarrelle Patterson RB/WR in 2021. A player listed at several positions is
+eligible at each. With them, the regular-season Max PF of every completed
+team-season matches `ppts` to the cent except the two in KNOWN_GAPS.
 
 The data test asserts against the snapshot only — Sleeper's numbers and the
 build's own routine — so it holds before and after CI regenerates exports/.
@@ -27,19 +27,22 @@ sys.path.insert(0, str(_ROOT / "lib"))
 
 from lotg_support import inquiry as Q  # noqa: E402
 from lotg_support.lineup import compute_optimal_lineup  # noqa: E402
-from lotg_support.position_pins import max_pf_position  # noqa: E402
+from lotg_support.position_pins import max_pf_positions  # noqa: E402
 
 _HAVE_DATA = (_ROOT / "exports" / "snapshot" / "sleeper_players_nfl.json").exists()
 
 HILL, PATTERSON = "4381", "1535"
 
 # Team-seasons whose regular-season Max PF is NOT expected to match Sleeper's
-# `ppts`, with the exact gap (build minus Sleeper). stevenb123 2024: Sleeper's
-# `fpts` for the team and the opponent's `fpts_against` are off by the same
-# 1.00 — a stat correction to a starter (week 6 or 13, the two meetings with
-# Shmuel256) that landed after Sleeper froze its season totals. Not a position,
-# so no pin can or should close it.
-KNOWN_GAPS = {(2024, "stevenb123"): 1.00}
+# `ppts`, with the exact gap (build minus Sleeper).
+#   stevenb123 2024: Sleeper's `fpts` for the team and the opponent's
+#     `fpts_against` are off by the same 1.00 — a stat correction to a starter
+#     (week 6 or 13, the two meetings with Shmuel256) that landed after Sleeper
+#     froze its season totals. Not a position.
+#   LWebs53 2024: week 11, where Hill (41.52, bench) sits in the optimum at TE.
+#     Only a QB-only listing that one week closes it; a QB/TE listing cannot,
+#     since extra eligibility only raises Max PF and the build is already above.
+KNOWN_GAPS = {(2024, "stevenb123"): 1.00, (2024, "LWebs53"): 3.54}
 
 
 def _skip(reason: str) -> bool:
@@ -50,27 +53,26 @@ def _skip(reason: str) -> bool:
 # ---------------------------------------------------------------------------
 # Pure logic
 # ---------------------------------------------------------------------------
-def test_pin_lookup_week_beats_season_and_misses_elsewhere():
-    assert max_pf_position(HILL, 2021, 5) == "QB"            # season-wide
-    assert max_pf_position(HILL, 2023, 9) == "QB"            # one week
-    assert max_pf_position(HILL, 2023, 8) is None            # the week beside it
-    assert max_pf_position(HILL, 2022, 9) is None            # another season
-    assert max_pf_position(PATTERSON, "2021", "3") == "WR"   # string inputs
-    assert max_pf_position("no-such-player", 2021, 1) is None
-    assert max_pf_position(HILL, 2021, None) is None         # no week, no pin
+def test_pin_lookup_by_season():
+    assert max_pf_positions(HILL, 2021) == ("QB",)
+    assert max_pf_positions(HILL, 2022) == ("QB", "TE")
+    assert max_pf_positions(HILL, "2026") == ("QB", "TE")     # open-ended, string input
+    assert max_pf_positions(PATTERSON, 2021) == ("RB", "WR")
+    assert max_pf_positions(PATTERSON, 2022) is None          # RB-only from 2022
+    assert max_pf_positions("no-such-player", 2021) is None
 
 
-def test_pin_applies_only_when_a_week_is_passed():
+def test_pins_apply_only_with_a_week_and_dual_takes_the_better_slot():
     # As a TE Hill takes the TE slot and the real TE drops to FLEX; as a QB he
     # takes the superflex instead and the backup QB sits.
     pts = {HILL: 20.0, "qb": 30.0, "qb2": 10.0, "te": 5.0}
     pos = {HILL: "TE", "qb": "QB", "qb2": "QB", "te": "TE"}
     as_te = compute_optimal_lineup(pts, pos, 2021)
-    as_qb = compute_optimal_lineup(pts, pos, 2021, week=13)
     assert as_te == 30.0 + 20.0 + 5.0 + 10.0    # QB, TE=Hill, FLEX=te, SF=qb2
-    assert as_qb == 30.0 + 5.0 + 20.0           # QB, TE=te, SF=Hill; qb2 benched
-    # Unpinned weeks and seasons keep the current label.
-    assert compute_optimal_lineup(pts, pos, 2022, week=13) == as_te
+    as_qb = compute_optimal_lineup(pts, pos, 2021, week=13)
+    assert as_qb == 30.0 + 5.0 + 20.0           # QB-only in 2021: SF=Hill, qb2 sits
+    # QB/TE from 2022: the better of the two.
+    assert compute_optimal_lineup(pts, pos, 2022, week=13) == max(as_te, as_qb)
 
 
 # ---------------------------------------------------------------------------

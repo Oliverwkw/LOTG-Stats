@@ -880,18 +880,18 @@ list is here so an answer written by hand does not walk into them.
   which makes three real lineups look illegal. Use
   `season_eligibility(year)`, which adds every strict slot a player was actually
   fielded in. (`Max PF` is built from current positions EXCEPT where
-  `position_pins.MAX_PF_POSITION_PINS` records the label Sleeper scored a
-  player at that week; pass `week=` to `lineup.compute_optimal_lineup` to
-  reproduce the column.)
-- **Taysom Hill changes position under you.** Sleeper lists him TE today but
-  scored him as a QB for all of 2021 and in single weeks since (2023 week 9,
-  2024 week 11), while he filled strict TE slots in other 2023-24 weeks. Those
-  labels moved Max PF by up to 15.10 in a week (LWebs53 2021 week 14). With the
-  Hill and Patterson pins, regular-season Max PF matches Sleeper's own season
-  max points (`rosters[].settings.ppts`) on 39 of 40 team-seasons, 2021-2025;
-  the 40th, stevenb123 2024 (+1.00), is a stat correction Sleeper's frozen
-  season totals never picked up (week 6 or 13), not a position. Any position
-  question involving Hill: check the week. `plan/notes/MAX_PF_SLEEPER_RECONCILE.md`.
+  `position_pins.MAX_PF_POSITION_PINS` records what Sleeper listed a player at
+  that season, possibly several positions; pass `week=` to
+  `lineup.compute_optimal_lineup` to reproduce the column.)
+- **Taysom Hill is not one position.** Sleeper lists him TE today; he was a QB
+  in 2021 and QB/TE from 2022 (Cordarrelle Patterson: RB/WR in 2021, RB
+  after). Treating Hill as a TE moved 2021 Max PF by up to 15.10 in a week
+  (LWebs53 week 14). With those listings, regular-season Max PF matches
+  Sleeper's own season max points (`rosters[].settings.ppts`) on 38 of 40
+  team-seasons, 2021-2025. The two left: stevenb123 2024 (+1.00), a stat
+  correction Sleeper's frozen totals never picked up (week 6 or 13); and
+  LWebs53 2024 (+3.54, week 11), which only a QB-only Hill that week would
+  close. `plan/notes/MAX_PF_SLEEPER_RECONCILE.md`.
 - **Sleeper writes `"0"` for an empty start slot** (`inquiry.EMPTY_SLOT`) — a
   legal lineup, not a bug.
 - **`Injury?` means "missed the week, and it was not a bye or a suspension" —

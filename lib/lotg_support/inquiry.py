@@ -1205,7 +1205,7 @@ def season_eligibility(year: int) -> Dict[str, frozenset]:
     slots teach nothing and are ignored.
 
     Note this is for *legality*. `Max PF` in the exports is computed by the
-    build from current positions plus the dated relabels in
+    build from current positions plus the per-season listings in
     `position_pins.MAX_PF_POSITION_PINS` (call `lineup.compute_optimal_lineup`
     with `week=` to match the built column exactly).
     """
