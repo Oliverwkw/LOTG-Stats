@@ -574,6 +574,14 @@ lineup refilled from whoever is left, so depth costs points); **who plays whom**
 round-robin — 2026 is, 2021-2025 are not); and **calibration** against every
 completed season, which is where the simulation's spread comes from.
 
+**Whose rosters.** The projection prices the rosters of the first week the
+forecast does not know (`roster_week`): week 1 preseason, the week after the
+last finalized one live, the week after `as_of_week` when rewound. The header
+says which (`weeks 1-5 played, week 6 rosters`). Before 2026-10-15 it always
+used week 1, so mid-season odds ignored every trade since kickoff. For a trade
+what-if, wrap `startable_pool` for the live year only — replacing it outright
+also feeds the swapped rosters into every past season's calibration.
+
 Three strength models, `--model all` runs each: `roster`, `history` and
 `uniform`. **Quote the distance from `uniform`** — that is what says whether the
 projection is telling you anything.
