@@ -53,3 +53,5 @@ exports/raw/pae_additions.json.gz
 
 # scripts/trade.py caches the forecast calibration here (keyed on its inputs; rebuilt in ~8 s).
 .cache/trade_calibration_*.pkl
+# lotg_support.advise caches Sleeper stats / projections / player feed here.
+.cache/sleeper/

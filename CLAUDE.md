@@ -2,6 +2,15 @@
 
 Orientation for a session working in this repo.
 
+## Speed never limits the answer
+
+The fast paths below (`fast.py`, `trade.py`, `advise.py`) exist to get the DATA
+in one call so the time goes to thinking. They print data and caveats, never a
+verdict. The time targets cover the data pull, not the answer: when a question
+needs more — a news search, a follow-up `q`, a forecast scenario, a check
+against the build, the strategy guide — do it, and say what was checked. A
+fast answer that skips a caveat the output printed is a wrong answer.
+
 ## Stat checks first: ONE tool call, then answer (target 15 seconds)
 
 Most questions are a count, a rank or a lookup ("most starters over 18 in a
@@ -91,8 +100,33 @@ forecast rate disagrees with this season by 4+ PPG and each IR-capped player,
 with the override to try. The forecast reads no news, so do ONE web search on
 the players the caveats flag — their injury timeline AND their role (who left
 or got hurt in that backfield / WR room; a 2026 PPG far above the forecast is
-often a new role, not a hot streak) — then answer. `--no-forecast` / `--no-ktc`
+often a new role, not a hot streak) — and read the league strategy guide in
+project memory (see "Advice questions" below) — then answer. `--no-forecast` / `--no-ktc`
 skip those parts. It wraps the forecast without editing it (tests/test_trade.py).
+
+## Advice questions: start/sit, add/drop, strategy — ONE `scripts/advise.py` call
+
+```bash
+python scripts/advise.py startsit Oliverwkw     # set lineup vs best on projection / season / last-3, injuries, byes, kickoffs, matchup ranks
+python scripts/advise.py waivers Oliverwkw --pos RB,WR -n 15   # free agents by points they add to THIS lineup, drop candidates, FAAB left
+python scripts/advise.py strategy Oliverwkw     # standings + forecast odds, positional strength ranks, ages, future picks
+python scripts/advise.py roster Oliverwkw       # every player, every column
+python scripts/advise.py startsit Oliverwkw :: waivers Oliverwkw --pos RB   # chain with ::
+```
+
+About 10 s for all of them together. Points are this league's scoring of
+Sleeper's NFL stats, so free agents are scored too (player_week has rostered
+players only); `tests/test_advise.py` reconciles them with Sleeper's matchup
+points. Then, before answering:
+- **News**: one web search on every player the output flags (injury, no
+  projection, depth-chart change, small sample). Sleeper's feed is not the
+  injury report.
+- **The league strategy guide** in project memory (find it from MEMORY.md and
+  read the file itself, never a copy): apply it, and cite the rule you used.
+  When an answer turns up a new lesson, or shows a rule in the guide failing in
+  this league, add or correct that line in the guide (fact + why, one line), so
+  lessons are not lost.
+- Trades go to `trade.py` (above); a what-if season to `scripts/whatif.py`.
 
 ## What this is
 
