@@ -146,6 +146,8 @@ def league_now() -> League:
     year = int(state.get("league_season") or state["season"])
     week = int(state.get("display_week") or state["week"])
     teams = Q.teams(year)
+    # Sleeper's waiver_budget is 10000 from 2024, but the league plays a 100 budget with
+    # house rules; 10000 minus waiver_budget_used lands on that 100 scale (scripts/advise.py says so)
     budget = int((league.get("settings") or {}).get("waiver_budget") or 0)
     owner, slot, left = {}, {}, {}
     for r in rosters:
