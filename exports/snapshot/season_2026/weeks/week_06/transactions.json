@@ -17,10 +17,10 @@
     "adds": {
       "11647": 3
     },
-    "drops": null,
     "consenter_ids": [
       3
     ],
+    "drops": null,
     "roster_ids": [
       3
     ],
@@ -45,12 +45,12 @@
     "adds": {
       "4147": 3
     },
-    "drops": {
-      "11577": 3
-    },
     "consenter_ids": [
       3
     ],
+    "drops": {
+      "11577": 3
+    },
     "roster_ids": [
       3
     ],
@@ -75,12 +75,12 @@
     "adds": {
       "12542": 8
     },
-    "drops": {
-      "13405": 8
-    },
     "consenter_ids": [
       8
     ],
+    "drops": {
+      "13405": 8
+    },
     "roster_ids": [
       8
     ],

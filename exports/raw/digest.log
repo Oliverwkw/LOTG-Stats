@@ -1,6 +1,6 @@
 [digest] 39 filtered stat(s) added: PF in a loss, PF in a win, Max PF in a loss, Max PF in a win, Efficiency in a loss, Efficiency in a win, Points from QBs in a loss, Points from RBs in a loss, Points from WRs in a loss, Points from TEs in a loss, Points above Sleeper Projection in a loss, Points above Sleeper Projection in a win, Points above Claude Projection in a loss, Points above Claude Projection in a win, Points above Enhanced Projection in a loss, Points above Enhanced Projection in a win, Lineup Boldness in a win, Lineup Boldness in a loss, Players under 10 pts (starters) in a win, Players over 30 pts (starters) in a loss, Number of rookies started in a win, Points as starter, Points on bench, QB points, QB points as starter, QB points on bench, RB points, RB points as starter, RB points on bench, WR points, WR points as starter, WR points on bench, TE points, TE points as starter, TE points on bench, Points by a rookie starter, Points by a starter in a loss, Points on bench in a loss, Avg points by a rookie
 [digest] 83 percent column(s) stored as 0-1 fractions
-[digest] build-inputs fingerprint: 5d305c38bca76426
+[digest] build-inputs fingerprint: 3f87dd802ef28fb2
 [digest] season=2026 weeks_completed=5
 [digest] on pace: 417 standing(s)
 [digest] 241 on-pace line(s) moved by an on-pace rule change (digest.PACE_RULES_VERSION) -> edits section
