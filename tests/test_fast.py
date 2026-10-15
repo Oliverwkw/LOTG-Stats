@@ -180,6 +180,19 @@ def test_typed_sheet_keeps_every_value():
     assert not fast.find_columns("margin entering monday").empty
 
 
+def test_q_runs_statements_and_sees_frames_inside_lambdas():
+    if not _HAVE_EXPORTS and _skip("no exports"):
+        return
+    import contextlib
+    import io
+    import runpy
+    cli = runpy.run_path(str(_ROOT / "scripts" / "fast.py"))
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        cli["main"](["q", "x = 2; (lambda: int(twt.PF.notna().sum()) * 0 + x)()"])
+    assert buf.getvalue().strip() == "2"
+
+
 TESTS = [
     test_place_ranks_and_ties,
     test_stage_aliases,
@@ -189,6 +202,7 @@ TESTS = [
     test_a_week_fed_as_live_agrees_with_the_exports,
     test_slot_count_matches_a_direct_groupby,
     test_typed_sheet_keeps_every_value,
+    test_q_runs_statements_and_sees_frames_inside_lambdas,
 ]
 
 

@@ -23,6 +23,7 @@ python scripts/fast.py cols "margin entering|choke"             # which sheet/co
 python scripts/fast.py rank player_week Points 44.2 --where Starter/Bench=Starter
 python scripts/fast.py live --team Oliverwkw                    # live scoreboard: starters, slots, kickoff status
 python scripts/fast.py q "pw[(pw.Team=='Oliverwkw')&(pw.Points>=40)].tail(3)"   # any pandas expression
+python scripts/fast.py q "l = twt[twt['Win?']==False]; l.nlargest(5, 'Margin entering Monday')[['Team','Year','Week','Margin entering Monday','Margin']]"   # biggest blown leads
 ```
 
 All `count` flags: `THRESHOLD`, `--bench | --any` (default starters),
@@ -37,8 +38,13 @@ week" question, even before kickoff; `--season/--week` only pick which week
 `rank SHEET COLUMN VALUE [--where COL=V ...] [--low] [-n N]`; `--where` takes
 `=`, `!=`, `<`, `>`, `<=`, `>=`, `~regex`. `live [--team T] [--bench]`.
 
-`q` preloads `pw` (player_week typed — Year/Week int, Points float, Win? bool —
-with Opponent/Margin/PF joined), `lpw` (pw + the live week), `live`, `tw`/`ty`/
+**`--entering X` = games kicked off BEFORE X; `--slot X` = players IN X's games.**
+
+`q` preloads `pw` — one row per player-week, typed, columns exactly: `Player,
+Team, Year, Week, Week Name, Starter/Bench, Position, Position started in (if
+starter), NFL team` (that week's, not current) `, Game slot` (Thursday / Sunday
+morning|early|late / SNF / MNF / Saturday / Bye …) `, Points, Opponent, Win?,
+Margin, PF, Points against, Live` — so do not spend a call on `list(pw.columns)`; `lpw` (pw + the live week), `live`, `tw`/`ty`/
 `py`/`pa`/any sheet name (text; `num(df, col)` for numbers), and TYPED sheets
 `twt`/`tyt`/`pyt`/`lwt`/`lyt` or `T("sheet")` (numbers float, Win? bool — use
 these, not the text ones). `q` takes statements too (newline or `;`); the last

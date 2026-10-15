@@ -222,15 +222,16 @@ class _Lazy(dict):
 
 def cmd_q(args) -> None:
     import ast
+    # the lazy frames are the GLOBALS, so lambdas and comprehensions see them too
     env = _Lazy(args)
-    g = {"__builtins__": __builtins__}
+    env["__builtins__"] = __builtins__
     tree = ast.parse(args.expr.strip())
     last = tree.body.pop() if tree.body and isinstance(tree.body[-1], ast.Expr) else None
     if tree.body:   # statements first (assignments, imports); the last expression is printed
-        exec(compile(tree, "<q>", "exec"), g, env)   # noqa: S102 - local CLI
+        exec(compile(tree, "<q>", "exec"), env)   # noqa: S102 - local CLI
     if last is None:
         return
-    out = eval(compile(ast.Expression(last.value), "<q>", "eval"), g, env)   # noqa: S307 - local CLI
+    out = eval(compile(ast.Expression(last.value), "<q>", "eval"), env)   # noqa: S307 - local CLI
     print(out.to_string() if hasattr(out, "to_string") else out)
 
 
