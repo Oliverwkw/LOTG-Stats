@@ -5,6 +5,8 @@
     python scripts/advise.py strategy Oliverwkw          # window: standings, odds, positional ranks, ages, picks
     python scripts/advise.py roster Oliverwkw            # every player with all the columns
     python scripts/advise.py startsit Oliverwkw :: waivers Oliverwkw --pos RB   # chain with ::
+    # ends with the strategy-guide files for each subcommand, read live from project memory
+    # (lotg_support.guide); --no-guide leaves them out
 
 It prints data and caveats, not a verdict: the answer still needs the news
 (injury reports, role changes), the matchup read, and the league's strategy
@@ -169,6 +171,8 @@ def main(argv=None) -> None:
     p.set_defaults(fn=cmd_strategy)
     p = sub.add_parser("roster"); p.add_argument("team"); p.set_defaults(fn=cmd_roster)
     argv = list(sys.argv[1:] if argv is None else argv)
+    show_guide = "--no-guide" not in argv
+    argv = [a for a in argv if a != "--no-guide"]
     parts, cur = [], []
     for tok in argv:
         if tok == "::":
@@ -181,6 +185,13 @@ def main(argv=None) -> None:
             print("\n" + "=" * 100)
         args = ap.parse_args(part)
         args.fn(args)
+    if show_guide:
+        from lotg_support import guide
+        topics = []
+        for part in parts:
+            if part and part[0] not in topics:
+                topics.append(part[0])
+        print("\n" + "=" * 100 + "\n" + guide.render(topics))
 
 
 if __name__ == "__main__":
