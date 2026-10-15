@@ -146,6 +146,9 @@ def _injury_curve() -> bool:
     return hasattr(F, "injury_model") and getattr(F.AvailabilityModel(), "injury_spells", False)
 
 
+_PRIOR_GAMES: Dict[str, object] = {}
+
+
 def _fcst_rate(tr: Trade, name: str, rates: Dict[str, float]) -> float:
     """The forecast's per-week rate for `name`: the preseason rate, blended
     with this season's games when the forecast does that (falls back to the
@@ -158,7 +161,11 @@ def _fcst_rate(tr: Trade, name: str, rates: Dict[str, float]) -> float:
         ev = F.in_season_evidence(tr.year, wk)
         if name not in ev:
             return base
-        return float(F.blend_in_season(base, F.player_prior_games(tr.year)[name], *ev[name]))
+        key = (tr.year, wk)
+        if _PRIOR_GAMES.get("key") != key:
+            _PRIOR_GAMES.update(key=key, value=F.player_prior_games(tr.year))
+        # same call the forecast makes: .get(name, 0.0) for a player with no prior games
+        return float(F.blend_in_season(base, _PRIOR_GAMES["value"].get(name, 0.0), *ev[name]))
     except Exception:   # noqa: BLE001 - display only; the forecast itself is unaffected
         return base
 
@@ -377,7 +384,8 @@ def standings(year: int) -> pd.DataFrame:
 
 
 def depth(tr: Trade, team: str, after: bool, pw: Optional[pd.DataFrame] = None, top: int = 6) -> pd.DataFrame:
-    """The team's QB/RB/WR/TE depth by forecast rate, with 2026 PPG, before or after."""
+    """The team's QB/RB/WR/TE depth by forecast rate (the in-season blend, as the
+    players table shows it), with this season's PPG, before or after."""
     pw = fast.player_weeks() if pw is None else pw
     players = Q.players()
     rates = F.player_rates(tr.year)
@@ -394,7 +402,7 @@ def depth(tr: Trade, team: str, after: bool, pw: Optional[pd.DataFrame] = None, 
     for pid in pids:
         n = players.name(pid)
         rows.append({"Pos": players.position(pid), "Player": n + (" *" if pid in moved else ""),
-                     "fcst": round(rates.get(n, float("nan")), 1),
+                     "fcst": round(_fcst_rate(tr, n, rates), 1),
                      f"{tr.year} PPG": round(float(ppg.get(n, float("nan"))), 1)})
     df = pd.DataFrame(rows)
     df = df[df["Pos"].isin(["QB", "RB", "WR", "TE"])]
