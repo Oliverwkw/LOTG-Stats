@@ -121,8 +121,13 @@ points. Then, before answering:
 - **News**: one web search on every player the output flags (injury, no
   projection, depth-chart change, small sample). Sleeper's feed is not the
   injury report.
-- **The league strategy guide** in project memory (find it from MEMORY.md and
-  read the file itself, never a copy): apply it, and cite the rule you used.
+- **The league strategy guide** in project memory: the files MEMORY.md's
+  "Strategy guide" line lists (`dynasty-strategy`, `dynasty-picks-trades`,
+  `weekly-lineup-strategy`, `waivers-streaming`, `league-settings`,
+  `league-structure-evidence`, plus `league-size-caveat`; follow that line so
+  new files are picked up). Read the files themselves, never a copy: apply
+  them, and cite the rule you used. If memory is not readable, say no guide
+  rule was applied.
   When an answer turns up a new lesson, or shows a rule in the guide failing in
   this league, add or correct that line in the guide (fact + why, one line), so
   lessons are not lost.

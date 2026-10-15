@@ -53,8 +53,9 @@ def _common_caveats(lg):
     print(f"# points = this league's scoring of Sleeper's NFL stats; G/PPG count games played (gp>0); "
           f"L3 = last 3 played weeks; proj = Sleeper's week-{lg.week} projection, league-scored")
     print("# injury / depth chart = Sleeper's player feed now (not the NFL report itself — check the report and news)")
-    print("# strategy: read the league strategy guide in project memory before giving a verdict "
-          "(see CLAUDE.md 'Advice questions'); add any new lesson to it")
+    print("# strategy: read the league strategy guide before a verdict - the files MEMORY.md's 'Strategy guide' line"
+          " lists (dynasty-strategy, dynasty-picks-trades, weekly-lineup-strategy, waivers-streaming, league-settings,"
+          " ...); cite the rule used, add any new lesson there. Not readable? say no guide rule was applied")
 
 
 def cmd_startsit(args):
@@ -128,6 +129,16 @@ def cmd_strategy(args):
         print(A.picks_owned(lg.year, lg).fillna("").to_string())
     except Exception as exc:   # noqa: BLE001
         print(f"\n(picks unavailable: {exc})")
+    try:
+        from lotg_support import draft_capital as D
+        mx = D.built_max_pf(lg.year, regular_season_only=True)
+        rule = D.order_rule(lg.year + 1)
+        print(f"\nnext draft ({lg.year + 1}) orders the bottom four by "
+              f"{'ascending Max PF (lowest ceiling picks 1.01), NOT record' if rule == 'max_pf' else 'reverse placement'}"
+              f" - Max PF to date (weeks 1-{lg.done}): "
+              + ", ".join(f"{t} {v:.0f}" for t, v in sorted(mx.items(), key=lambda kv: kv[1])))
+    except Exception as exc:   # noqa: BLE001
+        print(f"\n(draft-order rule unavailable: {exc})")
     meta = Q.season_meta(lg.year)
     print(f"\n# playoffs: {getattr(meta, 'playoff_teams', '?')} teams from week "
           f"{getattr(meta, 'playoff_week_start', '?')}; regular season {meta.regular_season_weeks} weeks")
