@@ -101,7 +101,11 @@ with the override to try. The forecast reads no news, so do ONE web search on
 the players the caveats flag — their injury timeline AND their role (who left
 or got hurt in that backfield / WR room; a 2026 PPG far above the forecast is
 often a new role, not a hot streak) — and read the league strategy guide in
-project memory (see "Advice questions" below) — then answer. `--no-forecast` / `--no-ktc`
+project memory (see "Advice questions" below) plus the partner files
+`manager-profiles` (trade/draft record), `negotiation-styles` (how each manager
+negotiates, from Oliver's DMs — use it to shape any offer or counter),
+`league-2026-windows` (contenders, holes, who owns whose 1sts) and
+`ktc-caveats` — then answer. `--no-forecast` / `--no-ktc`
 skip those parts. It wraps the forecast without editing it (tests/test_trade.py).
 
 ## Advice questions: start/sit, add/drop, strategy — ONE `scripts/advise.py` call
@@ -122,10 +126,13 @@ points. Then, before answering:
   projection, depth-chart change, small sample). Sleeper's feed is not the
   injury report.
 - **The league strategy guide** in project memory: the files MEMORY.md's
-  "Strategy guide" line lists (`dynasty-strategy`, `dynasty-picks-trades`,
-  `weekly-lineup-strategy`, `waivers-streaming`, `league-settings`,
-  `league-structure-evidence`, plus `league-size-caveat`; follow that line so
-  new files are picked up). Read the files themselves, never a copy: apply
+  "Strategy guide" line lists (`dynasty-strategy`, `trade-strategy`,
+  `rookie-picks`, `season-arc`, `weekly-lineup-strategy`, `start-sit-edges`,
+  `waivers-streaming`, `league-settings`, `league-structure-evidence`,
+  `ktc-caveats`, plus `league-size-caveat`; for anything involving another
+  team also `manager-profiles`, `negotiation-styles`, `league-2026-windows`;
+  follow that line so new files are picked up). Full evidence behind them is in
+  `/mnt/project-files/strategy/` (README.md says which report answers what). Read the files themselves, never a copy: apply
   them, and cite the rule you used. If memory is not readable, say no guide
   rule was applied.
   When an answer turns up a new lesson, or shows a rule in the guide failing in
