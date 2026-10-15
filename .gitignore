@@ -50,3 +50,6 @@ exports/raw/pae_additions.json.gz
 # nflverse downloads for the KTC proxy experiment (plan/notes/KTC_PROXY_MODEL.md).
 # Public and re-fetchable; the build never reads them. Never commit them.
 .cache/ktc_proxy/
+
+# scripts/trade.py caches the forecast calibration here (keyed on its inputs; rebuilt in ~8 s).
+.cache/trade_calibration_*.pkl
