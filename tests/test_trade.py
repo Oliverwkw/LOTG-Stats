@@ -76,8 +76,25 @@ def test_resolve_refuses_the_wrong_side():
     raise AssertionError("resolve accepted players from the wrong roster")
 
 
+def test_depth_rate_matches_player_table():
+    """The depth tables and the players table show the same forecast rate
+    (the in-season blend once the forecast blends), so the caveats agree."""
+    if not _HAVE and _skip("no exports/snapshot"):
+        return
+    tr = _sample_trade()
+    table = T.player_table(tr, None).set_index("Player")["fcst rate"]
+    for team in (tr.team, tr.partner):
+        d = T.depth(tr, team, True, top=50)
+        d = d[d["Player"].str.endswith(" *")]
+        for _, r in d.iterrows():
+            name = r["Player"][:-2]
+            assert name in table.index, name
+            a, b = r["fcst"], table[name]
+            assert (a != a and b != b) or abs(a - b) < 1e-9, (name, a, b)
+
+
 TESTS = [test_no_trade_is_the_plain_forecast, test_swap_touches_only_the_roster_week,
-         test_resolve_refuses_the_wrong_side]
+         test_resolve_refuses_the_wrong_side, test_depth_rate_matches_player_table]
 
 if __name__ == "__main__":
     for fn in TESTS:
