@@ -30,13 +30,28 @@ Conventions (each printed by the CLI so an answer carries its own caveats):
   on, so a semifinal's +5 is in from the start). Stages: any game slot
   ('Sunday early', 'Sunday late', 'SNF', ...) or 'Monday'.
 - The live week is raw Sleeper points, `Win?` = leading now (`lotg_support.live`).
+- Acquisition columns on every player-week (`acquisition_columns`): `Acquired
+  via` is how the player's CURRENT stint on that team began (the latest
+  player_additions row for Player+Team on or before the week's last NFL game
+  day: Waiver / Free agency / Trade / Draft / Commissioner; "Not in exports
+  yet" for a live-week player whose add the exports do not hold), `Acquired`
+  its date, `Acquired season` its Season. `Season source` is how he joined
+  this team THIS season: "Week-1 roster" if he was on it in week 1, else
+  `Acquired via`. `In-season pickup` = Season source is Waiver / Free agency.
+- `corr` prints Pearson and Spearman with two-sided p-values and n, optionally
+  holding controls constant (partial correlation) — no scipy needed.
+  `starter_share` turns a player-week condition into a per-team-season share
+  of starter points; `team_seasons` is typed team_year plus a regular-season
+  all-play win %.
 """
 from __future__ import annotations
 
 import functools
+import math
 from datetime import datetime
-from typing import Iterable, Optional, Sequence, Tuple
+from typing import Iterable, Optional, Sequence, Tuple, Union
 
+import numpy as np
 import pandas as pd
 
 from lotg_support import inquiry as Q
@@ -123,6 +138,83 @@ def _player_weeks_cached(root: str) -> pd.DataFrame:
     t["Win?"] = t["Win?"].astype(str).str.lower().eq("true")
     out = out.merge(t, on=["Team", "Year", "Week"], how="left")
     out["Live"] = False
+    return acquisition_columns(out)
+
+
+PICKUP_TYPES = ("Waiver", "Free agency")
+ACQ_COLUMNS = ["Acquired via", "Acquired", "Acquired season", "Season source", "In-season pickup"]
+
+
+@functools.lru_cache(maxsize=None)
+def _additions(root: str) -> pd.DataFrame:
+    a = Q.load_sheet("player_additions")[["Player", "Team", "Addition type", "Date", "Season",
+                                          "Date dropped/traded"]].copy()
+    a["_at"] = pd.to_datetime(a["Date"], errors="coerce").astype("datetime64[ns]")
+    a["_gone"] = pd.to_datetime(a["Date dropped/traded"], errors="coerce").astype("datetime64[ns]")
+    a["Acquired season"] = pd.to_numeric(a["Season"], errors="coerce").astype("Int64")
+    return a.dropna(subset=["_at"]).sort_values("_at")
+
+
+@functools.lru_cache(maxsize=1)
+def _week_dates() -> pd.DataFrame:
+    """First and last game day of every NFL regular-season week (the league's
+    `Week` is the NFL week, playoffs included)."""
+    g = Q.schedule()
+    if g.empty:
+        return pd.DataFrame(columns=["Year", "Week", "_first", "_last"])
+    g = g[g["game_type"] == "REG"]
+    d = pd.DataFrame({"Year": pd.to_numeric(g["season"]).astype("Int64"),
+                      "Week": pd.to_numeric(g["week"]).astype("Int64"),
+                      "_d": pd.to_datetime(g["gameday"])})
+    return d.groupby(["Year", "Week"])["_d"].agg(_first="min", _last="max").reset_index()
+
+
+def acquisition_columns(df: pd.DataFrame, week1: Optional[pd.DataFrame] = None) -> pd.DataFrame:
+    """Add ACQ_COLUMNS to a player-week frame (Player, Team, Year, Week).
+
+    The stint is the latest player_additions row for Player+Team dated on or
+    before the end of the week's last NFL game day (an add during the week,
+    Friday's included, is the stint that week's lineup used). A matched stint
+    already dropped/traded before the week's first game is stale (the player
+    left and came back via an add the exports do not hold yet: the live week)
+    and reads "Not in exports yet". 2021-25 history matches every row.
+    `week1` = the frame whose Week 1 rows define the week-1 rosters
+    (default `df` itself)."""
+    out = df.copy()
+    wd = _week_dates()
+    k = out[["Player", "Team", "Year", "Week"]].merge(wd, on=["Year", "Week"], how="left")
+    k.index = out.index
+    # a week the schedule lacks (no .cache schedule): Thursday-Monday estimate,
+    # week 1 kicking off the Thursday after the first Monday of September
+    miss = k["_last"].isna()
+    if miss.any():
+        def kick(y):
+            sept1 = pd.Timestamp(int(y), 9, 1)
+            return sept1 + pd.Timedelta(days=(0 - sept1.weekday()) % 7 + 3)
+        est = [kick(y) + pd.Timedelta(days=7 * (int(w) - 1)) if pd.notna(y) and pd.notna(w) else pd.NaT
+               for y, w in zip(k.loc[miss, "Year"], k.loc[miss, "Week"])]
+        k.loc[miss, "_first"] = est
+        k.loc[miss, "_last"] = [e + pd.Timedelta(days=4) if pd.notna(e) else pd.NaT for e in est]
+    k["_first"] = pd.to_datetime(k["_first"]).astype("datetime64[ns]")
+    k["_end"] = (pd.to_datetime(k["_last"]) + pd.Timedelta(hours=23, minutes=59, seconds=59)).astype("datetime64[ns]")
+    k["_row"] = np.arange(len(k))
+    a = _additions(str(Q.repo_root()))
+    have = k[k["_end"].notna()].sort_values("_end")
+    m = pd.merge_asof(have, a[["Player", "Team", "_at", "_gone", "Addition type", "Date", "Acquired season"]],
+                      left_on="_end", right_on="_at", by=["Player", "Team"], direction="backward")
+    m = m.set_index("_row").reindex(k["_row"])
+    m.index = out.index
+    stale = m["_gone"].notna() & (m["_gone"] < m["_first"])
+    via = m["Addition type"].astype(object).where(m["Addition type"].notna() & ~stale, "Not in exports yet")
+    out["Acquired via"] = via
+    out["Acquired"] = m["Date"].where(~stale)
+    out["Acquired season"] = m["Acquired season"].where(~stale)
+    base = df if week1 is None else week1
+    first = base[base["Week"] == 1]
+    on_w1 = pd.MultiIndex.from_frame(first[["Player", "Team", "Year"]]).unique()
+    key = pd.MultiIndex.from_frame(out[["Player", "Team", "Year"]])
+    out["Season source"] = np.where(key.isin(on_w1), "Week-1 roster", via)
+    out["In-season pickup"] = out["Season source"].isin(PICKUP_TYPES)
     return out
 
 
@@ -146,7 +238,12 @@ def player_weeks(live=None) -> pd.DataFrame:
     done = base[(base["Year"] == live.season) & (base["Week"] == live.week)]
     if len(done):
         base = base.drop(done.index)
-    return pd.concat([base, lp.drop(columns=["Player ID"], errors="ignore")], ignore_index=True)
+    lp = lp.drop(columns=["Player ID"], errors="ignore")
+    for c in ("Year", "Week"):
+        lp[c] = pd.to_numeric(lp[c], errors="coerce").astype("Int64")
+    w1 = pd.concat([base[["Player", "Team", "Year", "Week"]], lp[["Player", "Team", "Year", "Week"]]])
+    lp = acquisition_columns(lp.drop(columns=ACQ_COLUMNS, errors="ignore"), week1=w1)
+    return pd.concat([base, lp], ignore_index=True)
 
 
 def _kickoffs(df: pd.DataFrame) -> pd.Series:
@@ -322,3 +419,146 @@ def caveats(c: pd.DataFrame) -> list:
     if cur:
         out.append(f"exports finalized through {cur} week {Q.finalized_week(cur)}")
     return out
+
+
+# ---------------------------------------------------------------------------
+# Correlation questions ("is X linked to win %?") without scipy
+# ---------------------------------------------------------------------------
+def _betacf(a: float, b: float, x: float) -> float:
+    """Continued fraction for the regularized incomplete beta (Lentz)."""
+    tiny, qab, qap, qam = 1e-300, a + b, a + 1.0, a - 1.0
+    c, d = 1.0, 1.0 - qab * x / qap
+    d = 1.0 / (d if abs(d) > tiny else tiny)
+    h = d
+    for m in range(1, 300):
+        m2 = 2 * m
+        aa = m * (b - m) * x / ((qam + m2) * (a + m2))
+        d = 1.0 + aa * d
+        d = 1.0 / (d if abs(d) > tiny else tiny)
+        c = 1.0 + aa / c
+        c = c if abs(c) > tiny else tiny
+        h *= d * c
+        aa = -(a + m) * (qab + m) * x / ((a + m2) * (qap + m2))
+        d = 1.0 + aa * d
+        d = 1.0 / (d if abs(d) > tiny else tiny)
+        c = 1.0 + aa / c
+        c = c if abs(c) > tiny else tiny
+        delta = d * c
+        h *= delta
+        if abs(delta - 1.0) < 1e-14:
+            break
+    return h
+
+
+def betainc(a: float, b: float, x: float) -> float:
+    """Regularized incomplete beta I_x(a, b)."""
+    if x <= 0:
+        return 0.0
+    if x >= 1:
+        return 1.0
+    lbt = math.lgamma(a + b) - math.lgamma(a) - math.lgamma(b) + a * math.log(x) + b * math.log(1 - x)
+    if x < (a + 1) / (a + b + 2):
+        return math.exp(lbt) * _betacf(a, b, x) / a
+    return 1.0 - math.exp(lbt) * _betacf(b, a, 1 - x) / b
+
+
+def t_pvalue(t: float, df: int) -> float:
+    """Two-sided p-value of Student's t with `df` degrees of freedom."""
+    if df <= 0 or not np.isfinite(t):
+        return 0.0 if np.isinf(t) else float("nan")
+    return betainc(df / 2.0, 0.5, df / (df + t * t))
+
+
+def _r_p(x: np.ndarray, y: np.ndarray, k: int) -> Tuple[float, float]:
+    """Pearson r of two (already residualized) vectors and its p-value with
+    n - 2 - k degrees of freedom (k = number of controls)."""
+    if len(x) < 3 or np.std(x) == 0 or np.std(y) == 0:
+        return float("nan"), float("nan")
+    r = float(np.corrcoef(x, y)[0, 1])
+    df = len(x) - 2 - k
+    if abs(r) >= 1:
+        return r, 0.0
+    return r, t_pvalue(r * math.sqrt(df / (1 - r * r)), df)
+
+
+def _residual(v: np.ndarray, z: Optional[np.ndarray]) -> np.ndarray:
+    if z is None:
+        return v
+    Z = np.column_stack([np.ones(len(v)), z])
+    beta, *_ = np.linalg.lstsq(Z, v, rcond=None)
+    return v - Z @ beta
+
+
+def corr(x: pd.Series, y: pd.Series, control: Union[None, pd.Series, pd.DataFrame] = None,
+         where: Optional[pd.Series] = None) -> pd.DataFrame:
+    """Pearson and Spearman correlation of `x` with `y`, two-sided p-values
+    (t-distribution, as scipy.stats.pearsonr / spearmanr compute them) and n.
+
+    Series are aligned on their index (e.g. Team, Year) and rows with any NaN
+    are dropped. `control` (a Series, or a DataFrame of several) is held
+    constant: partial correlation of the residuals after regressing both on it
+    (Spearman: on the ranks), df = n - 2 - controls. `where` (a boolean Series
+    on the same index) keeps only those rows — e.g. `ty.Tanking < 0.5` to drop
+    tanking seasons. Returns one row: n, pearson, p, spearman, p_spearman,
+    controls."""
+    d = pd.concat({"x": pd.Series(x), "y": pd.Series(y)}, axis=1)
+    names = []
+    if control is not None:
+        c = control.to_frame() if isinstance(control, pd.Series) else control
+        names = [str(n) for n in c.columns]
+        c = c.set_axis([f"z{i}" for i in range(c.shape[1])], axis=1)
+        d = d.join(c, how="left")
+    if where is not None:
+        d = d[pd.Series(where).reindex(d.index).fillna(False).astype(bool)]
+    d = d.apply(pd.to_numeric, errors="coerce").dropna()
+    zc = [c for c in d.columns if c.startswith("z")]
+    z = d[zc].to_numpy(float) if zc else None
+    r, p = _r_p(_residual(d["x"].to_numpy(float), z), _residual(d["y"].to_numpy(float), z), len(zc))
+    rk = d.rank()
+    zr = rk[zc].to_numpy(float) if zc else None
+    rs, ps = _r_p(_residual(rk["x"].to_numpy(float), zr), _residual(rk["y"].to_numpy(float), zr), len(zc))
+    return pd.DataFrame([{"n": len(d), "pearson": round(r, 3), "p": round(p, 4), "spearman": round(rs, 3),
+                          "p_spearman": round(ps, 4), "controls": ",".join(names) or "-"}])
+
+
+def starter_share(mask: Union[str, pd.Series], frame: Optional[pd.DataFrame] = None,
+                  regular: bool = True, years: Optional[Iterable[int]] = None,
+                  by: Sequence[str] = ("Team", "Year")) -> pd.Series:
+    """Per team-season (or `by`) share of STARTER points scored by rows where
+    `mask` holds: a boolean column name of `frame` (e.g. "In-season pickup")
+    or a boolean Series on it (e.g. `pw["Acquired via"].isin(["Waiver",
+    "Free agency"])`). `regular=True` keeps weeks named "Week N" only (no
+    playoffs / consolation). Live rows are left out unless `frame` has them."""
+    df = player_weeks() if frame is None else frame
+    m = df[mask] if isinstance(mask, str) else pd.Series(mask, index=df.index)
+    keep = _roles(df, "starter")
+    if regular:
+        keep &= df["Week Name"].astype(str).str.startswith("Week")
+    if years is not None:
+        keep &= df["Year"].isin(list(years))
+    s = df[keep]
+    pts = s["Points"].fillna(0.0)
+    g = pd.DataFrame({"hit": pts.where(m[keep].fillna(False).astype(bool), 0.0), "all": pts})
+    for c in by:
+        g[c] = s[c]
+    t = g.groupby(list(by))[["hit", "all"]].sum()
+    return (t["hit"] / t["all"]).rename("share")
+
+
+@functools.lru_cache(maxsize=None)
+def _team_seasons_cached(root: str) -> pd.DataFrame:
+    ty = typed_sheet("team_year").set_index(["Team", "Year"]).copy()
+    tw = typed_sheet("team_week")
+    r = tw[tw["Week Name"].astype(str).str.startswith("Week")].copy()
+    grp = r.groupby(["Year", "Week"])["PF"]
+    r["ap"] = (grp.rank(method="average") - 1) / (grp.transform("size") - 1)
+    ty["Regular season all-play win %"] = r.groupby(["Team", "Year"])["ap"].mean()
+    return ty
+
+
+def team_seasons() -> pd.DataFrame:
+    """Typed team_year indexed by (Team, Year), plus `Regular season all-play
+    win %` (each regular week: share of the other teams outscored, ties half;
+    team_year's own `All-play win %` counts playoff weeks too). Lines up with
+    `starter_share` for `corr`. Cached — copy before mutating."""
+    return _team_seasons_cached(str(Q.repo_root()))

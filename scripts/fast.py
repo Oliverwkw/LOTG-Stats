@@ -32,7 +32,11 @@ command whose output already carries its caveats.
     #   live = the LiveWeek;  tw, ty, py, pa, ... = any export sheet (text)
     #   num(df, col) = numeric column;  twt, tyt, pyt, ... / T("sheet") = typed sheet
     #   statements are allowed; the last expression is printed
+    #   pw/lpw carry Acquired via / Acquired / Acquired season / Season source / In-season pickup
+    #   share(mask) = per team-season share of starter points (regular season);  ts = team_seasons()
+    #   corr(x, y, control=, where=) = Pearson + Spearman, p-values, n (partial with control)
     python scripts/fast.py q "pw[(pw.Team=='Oliverwkw')&(pw.Points>=40)].sort_values(['Year','Week']).tail(3)"
+    python scripts/fast.py q "s = share('In-season pickup', years=range(2021,2026)); corr(s, ts['Regular season win %'], control=ts.Tanking)"
 
 `--snapshot` on `live` / `--live` reads the committed snapshot's copy of the
 week instead of Sleeper (no network; as old as the snapshot).
@@ -204,6 +208,12 @@ class _Lazy(dict):
             v = fast.typed_sheet
         elif key == "cols":
             v = fast.find_columns
+        elif key == "corr":
+            v = fast.corr
+        elif key == "share":
+            v = fast.starter_share
+        elif key == "ts":
+            v = fast.team_seasons()
         elif key in ("twt", "tyt", "pyt", "lwt", "lyt"):
             v = fast.typed_sheet({"twt": "team_week", "tyt": "team_year", "pyt": "player_year",
                                   "lwt": "league_week", "lyt": "league_year"}[key])
