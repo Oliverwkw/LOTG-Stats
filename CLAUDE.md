@@ -53,7 +53,8 @@ week" question, even before kickoff; `--season/--week` only pick which week
 Team, Year, Week, Week Name, Starter/Bench, Position, Position started in (if
 starter), NFL team` (that week's, not current) `, Game slot` (Thursday / Sunday
 morning|early|late / SNF / MNF / Saturday / Bye …) `, Points, Opponent, Win?,
-Margin, PF, Points against, Live` — so do not spend a call on `list(pw.columns)`; `lpw` (pw + the live week), `live`, `tw`/`ty`/
+Margin, PF, Points against, Live, Acquired via, Acquired, Acquired season, Season
+source, In-season pickup` — so do not spend a call on `list(pw.columns)`; `lpw` (pw + the live week), `live`, `tw`/`ty`/
 `py`/`pa`/any sheet name (text; `num(df, col)` for numbers), and TYPED sheets
 `twt`/`tyt`/`pyt`/`lwt`/`lyt` or `T("sheet")` (numbers float, Win? bool — use
 these, not the text ones). `q` takes statements too (newline or `;`); the last
@@ -62,6 +63,25 @@ column — e.g. `Margin entering SNF/Monday/last game`, `Comeback/Choke size …
 `Players over 20/30/40 pts (starters|roster)`, `Points from QBs`, `Max PF`,
 `Luck` — so `cols REGEX :: q "<twt expression>"` in one call. pandas is already
 installed in the cloud container; Sleeper's API is reachable from it.
+
+**Acquisition and correlation questions** ("share of starter points from
+waivers/trades/the draft", "is X linked to win %") are ONE `q` too. `Acquired
+via` = how the player's CURRENT stint on that team began (Waiver / Free agency /
+Trade / Draft / Commissioner, latest player_additions row on or before the
+week; every 2020-25 row matches); `Season source` = "Week-1 roster" if he was
+on it in week 1, else `Acquired via`; `In-season pickup` = Season source is
+Waiver or Free agency (the strategy guide's "pickups gave 1.6-4%"). In `q`:
+`share(mask, years=...)` = per team-season share of STARTER points, regular
+season only (mask = a pw bool column name or bool Series); `ts` = typed
+team_year by (Team, Year) plus `Regular season all-play win %`;
+`corr(x, y, control=ts.Tanking, where=ts.Tanking < 0.5)` = n, Pearson,
+Spearman and their p-values (scipy's t-test values, no scipy needed), partial
+when `control` is given. **Control for tanking** in any team-season
+correlation (Tanking alone drove the waiver result):
+
+```bash
+python scripts/fast.py q "o = share(pw['Acquired via'].isin(['Waiver','Free agency']), years=range(2021,2026)); y = ts['Regular season win %']; pd.concat([corr(share('In-season pickup', years=range(2021,2026)), y), corr(o, y), corr(o, y, where=ts.Tanking < 0.5), corr(o, y, control=ts.Tanking)])"
+```
 
 The traps that matter for these (the full list is in the playbook): **team
 `PF` includes the semifinal +5** (players' `Points` and live Sleeper points do
