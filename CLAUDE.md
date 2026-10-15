@@ -131,6 +131,8 @@ points. Then, before answering:
   When an answer turns up a new lesson, or shows a rule in the guide failing in
   this league, add or correct that line in the guide (fact + why, one line), so
   lessons are not lost.
+- **FAAB is a 100 budget with house rules**, not Sleeper's 10000 setting;
+  `waivers` prints what is left on the 100 scale. Never size a bid against 10000.
 - Trades go to `trade.py` (above); a what-if season to `scripts/whatif.py`.
 
 ## What this is
