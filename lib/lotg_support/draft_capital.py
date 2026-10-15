@@ -489,7 +489,7 @@ def season_max_pf(season: int, team: Optional[str] = None,
             if weeks is not None and wk not in set(weeks):
                 continue
             total += compute_optimal_lineup(
-                {p: v for p, v in pool.items() if p not in drop}, positions, season)
+                {p: v for p, v in pool.items() if p not in drop}, positions, season, week=wk)
         out[label] = round(total, 2)
     return out
 
@@ -586,8 +586,8 @@ def ceiling_cost(season: int, team: str, target: float,
 
     def ceiling(dropped: frozenset) -> float:
         return round(sum(compute_optimal_lineup(
-            {p: v for p, v in pool.items() if p not in dropped}, positions, season)
-            for pool in by_week.values()), 2)
+            {p: v for p, v in pool.items() if p not in dropped}, positions, season, week=wk)
+            for wk, pool in by_week.items()), 2)
 
     scored = {p: round(sum(pool.get(p, 0.0) for pool in by_week.values()), 1)
               for p in everyone}

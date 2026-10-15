@@ -5,7 +5,11 @@ This mirrors the Apps Script approach that already worked for LOTG.
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Tuple
+from collections import ChainMap
+from itertools import product
+from typing import Any, Dict, List, Optional, Tuple
+
+from lotg_support.position_pins import MAX_PF_POSITION_PINS, max_pf_positions
 
 
 def _to_float(v: Any) -> float:
@@ -15,7 +19,8 @@ def _to_float(v: Any) -> float:
         return 0.0
 
 
-def compute_optimal_lineup(points_dict: Dict[str, Any], pos_map: Dict[str, str], season: int) -> float:
+def compute_optimal_lineup(points_dict: Dict[str, Any], pos_map: Dict[str, str], season: int,
+                           week: Optional[int] = None) -> float:
     """Compute Max PF for LOTG.
 
     Lineup model:
@@ -28,9 +33,32 @@ def compute_optimal_lineup(points_dict: Dict[str, Any], pos_map: Dict[str, str],
     - 1 SUPERFLEX (best remaining from QB/RB/WR/TE)
 
     Unknown positions are treated as FLEX-eligible.
+
+    Pass `week` for the Max PF column and anything that must reproduce it: a
+    player in `position_pins.MAX_PF_POSITION_PINS` then takes the positions
+    Sleeper listed him at that season, and one listed at several is eligible at
+    each (the best of every assignment, so the result stays exact). Without
+    `week`, `pos_map` alone decides (counterfactual pools built on their own
+    labels).
     """
     if not isinstance(points_dict, dict) or not points_dict:
         return 0.0
+    if week is None:
+        return _single_label_optimum(points_dict, pos_map, season)
+    pinned = [(str(pid), max_pf_positions(pid, season)) for pid in points_dict
+              if str(pid) in MAX_PF_POSITION_PINS]
+    pinned = [(pid, positions) for pid, positions in pinned if positions]
+    if not pinned:
+        return _single_label_optimum(points_dict, pos_map, season)
+    ids = [pid for pid, _ in pinned]
+    return max(
+        _single_label_optimum(points_dict, ChainMap(dict(zip(ids, choice)), pos_map), season)
+        for choice in product(*(positions for _, positions in pinned)))
+
+
+def _single_label_optimum(points_dict: Dict[str, Any], pos_map: Any, season: int) -> float:
+    """The optimal lineup when every player has exactly one position (greedy is
+    exact here: each slot class only ever wants the best remaining eligible)."""
 
     pos_points: Dict[str, List[float]] = {"QB": [], "RB": [], "WR": [], "TE": [], "_FLEX_": []}
 
