@@ -89,7 +89,9 @@ before/after, and title/finals/playoff odds and weekly points before -> after
 for every team, then the caveats. Read the caveats: they name each player whose
 forecast rate disagrees with this season by 4+ PPG and each IR-capped player,
 with the override to try. The forecast reads no news, so do ONE web search on
-the injured / role-changed players, then answer. `--no-forecast` / `--no-ktc`
+the players the caveats flag — their injury timeline AND their role (who left
+or got hurt in that backfield / WR room; a 2026 PPG far above the forecast is
+often a new role, not a hot streak) — then answer. `--no-forecast` / `--no-ktc`
 skip those parts. It wraps the forecast without editing it (tests/test_trade.py).
 
 ## What this is

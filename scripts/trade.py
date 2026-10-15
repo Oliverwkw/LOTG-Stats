@@ -52,6 +52,7 @@ def one(args, pw) -> None:
     table = T.player_table(tr, pw)
     print("\nplayers (G / PPG = weeks with non-zero points; fcst = forecast's rate and weekly availability):")
     print(table.to_string(index=False))
+    kt = None
     if not args.no_ktc:
         kt, note = T.ktc_values(tr)
         print(f"\n{note} — one small input:")
@@ -73,7 +74,7 @@ def one(args, pw) -> None:
               " champion/finals/playoffs in %):")
         print(run_.delta().to_string())
     print()
-    for c in T.caveats(tr, run_, table):
+    for c in T.caveats(tr, run_, table, kt):
         print(f"# {c}")
 
 

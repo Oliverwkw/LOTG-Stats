@@ -122,21 +122,45 @@ def player_table(tr: Trade, pw: Optional[pd.DataFrame] = None) -> pd.DataFrame:
                 row[f"{y} PPG"] = round(float(s["Points"].mean()), 1) if len(s) else None
             cur = mine[mine["Year"] == tr.year]
             row[f"{tr.year} started"] = f"{int((cur['Starter/Bench'] == 'Starter').sum())}/{len(cur)}"
-            row["fcst rate"] = round(rates.get(name, float("nan")), 1)
+            row["fcst rate"] = round(_fcst_rate(tr, name, rates), 1)
             p = avail.get(name, base.get(pos, base.get("_default")))
             flag = desig.get(pid, "")
             reserve = pid in state.get(rid_of.get(owner), {}).get("reserve", frozenset())
             note = notes.get(name)
             capped = (reserve or flag in F.OUT_DESIGNATIONS)
-            if capped:
+            if capped and not _injury_curve():
                 p = min(p, F.AvailabilityModel().reserve_availability)
             if note is not None and note.availability is not None:
                 p = note.availability
-            row["fcst avail"] = round(p, 2) if p is not None else None
+            row["fcst avail"] = (round(p, 2) if p is not None else None) if not (capped and _injury_curve()) \
+                else "return curve"
             row["status"] = ", ".join(x for x in (flag, "IR slot" if reserve else "",
                                                   f"research note x{note.rate_multiplier:g}" if note else "") if x) or "-"
             rows.append(row)
     return pd.DataFrame(rows)
+
+
+def _injury_curve() -> bool:
+    """True once the forecast models flagged players with an injury return
+    curve instead of a flat availability cap."""
+    return hasattr(F, "injury_model") and getattr(F.AvailabilityModel(), "injury_spells", False)
+
+
+def _fcst_rate(tr: Trade, name: str, rates: Dict[str, float]) -> float:
+    """The forecast's per-week rate for `name`: the preseason rate, blended
+    with this season's games when the forecast does that (falls back to the
+    preseason rate if the blend API is absent or changes shape)."""
+    base = rates.get(name, float("nan"))
+    if not all(hasattr(F, f) for f in ("blend_in_season", "player_prior_games", "in_season_evidence")):
+        return base
+    try:
+        wk = Q.finalized_week(tr.year) or 0
+        ev = F.in_season_evidence(tr.year, wk)
+        if name not in ev:
+            return base
+        return float(F.blend_in_season(base, F.player_prior_games(tr.year)[name], *ev[name]))
+    except Exception:   # noqa: BLE001 - display only; the forecast itself is unaffected
+        return base
 
 
 def _age(name: str) -> Optional[float]:
@@ -379,20 +403,33 @@ def depth(tr: Trade, team: str, after: bool, pw: Optional[pd.DataFrame] = None, 
             .drop(columns="_k").reset_index(drop=True))
 
 
-def caveats(tr: Trade, run_: Optional[TradeRun], table: pd.DataFrame) -> List[str]:
+def caveats(tr: Trade, run_: Optional[TradeRun], table: pd.DataFrame,
+            ktc_table: Optional[pd.DataFrame] = None) -> List[str]:
     out = [f"rosters = the snapshot's week-{tr.week} rosters ({tr.year}); results through week "
            f"{Q.finalized_week(tr.year)}"]
     model = F.RateModel()
     yrs = [tr.year - i - 1 for i in range(len(model.weights))]
+    blended = hasattr(F, "blend_in_season")
     out.append(f"forecast rates come from {min(yrs)}-{max(yrs)} (weights {', '.join(f'{w:g}' for w in model.weights)})"
-               f" plus an age curve; compare 'fcst rate' with {tr.year} PPG below")
+               f" plus an age curve" + (f", blended with {tr.year} games ('fcst rate' shows the blend; --rate sets the"
+                                        " preseason rate the blend starts from)" if blended else
+                                        f"; {tr.year} games are NOT used — compare 'fcst rate' with {tr.year} PPG"))
     big = table[(table[f"{tr.year} PPG"].notna()) & ((table[f"{tr.year} PPG"] - table["fcst rate"]).abs() >= 4)]
+    depth = {}
+    if ktc_table is not None and len(ktc_table) and "depth chart" in ktc_table.columns:
+        depth = dict(zip(ktc_table["asset"], ktc_table["depth chart"]))
     for r in big.itertuples(index=False):
+        dc = depth.get(r.Player)
         out.append(f"{r.Player}: forecast {r[table.columns.get_loc('fcst rate')]} vs {tr.year} "
                    f"{r[table.columns.get_loc(f'{tr.year} PPG')]} PPG over "
-                   f"{r[table.columns.get_loc(f'{tr.year} G')]} G — try --rate \"{r.Player}=X\"")
+                   f"{r[table.columns.get_loc(f'{tr.year} G')]} G"
+                   + (f" (depth chart now: {r.Pos}{dc})" if dc not in (None, "-", "") else "")
+                   + f" — search his role/injury news (who left, who is hurt), then try --rate \"{r.Player}=X\"")
     capped = table[table["status"].str.contains("IR|Out|IR slot", case=False, regex=True)]
     for r in capped.itertuples(index=False):
+        if _injury_curve():
+            out.append(f"{r.Player}: {r.status} -> the forecast's injury return curve; --healthy \"{r.Player}\" drops it")
+            continue
         out.append(f"{r.Player}: {r.status} -> capped at {r[table.columns.get_loc('fcst avail')]} availability "
                    f"every remaining week (draws are independent weekly; 'out now, back week N' is not modelled)"
                    f" — try --healthy \"{r.Player}\"")
