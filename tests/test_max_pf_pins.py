@@ -6,10 +6,9 @@ computes `team_week."Max PF"` from Sleeper's current single label, so a player
 Sleeper has since relabelled moves the ceiling. `MAX_PF_POSITION_PINS` records
 the listings that mattered: Taysom Hill QB in 2021 and QB/TE from 2022,
 Cordarrelle Patterson RB/WR in 2021. A player listed at several positions is
-eligible at each. With them all 40 completed team-seasons (2021-2025)
-reconcile: 38 match `ppts` to the cent, and the other two differ by exactly the
-Sleeper-side errors in SLEEPER_SIDE_GAPS, where the build's lineup is legal and
-Sleeper's frozen total is the one that is off.
+eligible at each. With them, and with Sleeper's own figure corrected for the
+two team-seasons where it is wrong (`SLEEPER_PPTS_CORRECTIONS`), all 40
+completed team-seasons (2021-2025) match to the cent.
 
 The data test asserts against the snapshot only — Sleeper's numbers and the
 build's own routine — so it holds before and after CI regenerates exports/.
@@ -29,23 +28,12 @@ sys.path.insert(0, str(_ROOT / "lib"))
 
 from lotg_support import inquiry as Q  # noqa: E402
 from lotg_support.lineup import compute_optimal_lineup  # noqa: E402
-from lotg_support.position_pins import max_pf_positions  # noqa: E402
+from lotg_support.position_pins import SLEEPER_PPTS_CORRECTIONS, max_pf_positions  # noqa: E402
 
 _HAVE_DATA = (_ROOT / "exports" / "snapshot" / "sleeper_players_nfl.json").exists()
 
 HILL, PATTERSON = "4381", "1535"
 
-# Team-seasons where Sleeper's `ppts` is itself wrong, with the exact gap
-# (build minus Sleeper). Pinned to the cent, so any change on either side shows.
-#   stevenb123 2024: Sleeper's `fpts` for the team and the opponent's
-#     `fpts_against` are off by the same 1.00 — a stat correction to a starter
-#     (week 6 or 13, the two meetings with Shmuel256) that landed after Sleeper
-#     froze its season totals. Not a position.
-#   LWebs53 2024: week 11, where Hill (41.52 on the bench, matching nflverse
-#     under league scoring) sits in the optimum at TE, a legal slot for a QB/TE.
-#     Sleeper's total is 3.54 lower: stale points or a one-week QB-only label.
-#     Copying it would put Max PF below a lineup the team could have set.
-SLEEPER_SIDE_GAPS = {(2024, "stevenb123"): 1.00, (2024, "LWebs53"): 3.54}
 
 
 def _skip(reason: str) -> bool:
@@ -81,38 +69,82 @@ def test_pins_apply_only_with_a_week_and_dual_takes_the_better_slot():
 # ---------------------------------------------------------------------------
 # Against the committed snapshot
 # ---------------------------------------------------------------------------
+def _gaps_vs_sleeper(season: int, weeks) -> list:
+    """[(team, build - Sleeper)] for every roster whose Max PF over `weeks`
+    differs from Sleeper's (corrected) `ppts` by more than half a cent."""
+    positions = Q.players().positions()
+    teams = Q.teams(season)
+    built = {}
+    for wk in weeks:
+        for rid, row in Q.week(season, wk).items():
+            built[rid] = built.get(rid, 0.0) + compute_optimal_lineup(
+                {p: row.players_points.get(p, 0.0) for p in row.players},
+                positions, season, week=wk)
+    rosters = json.loads((Q.snapshot_dir() / f"season_{season}" / "rosters.json").read_text())
+    out = []
+    for r in rosters:
+        s = r.get("settings") or {}
+        rid = int(r["roster_id"])
+        sleeper = (float(s.get("ppts", 0)) + float(s.get("ppts_decimal", 0)) / 100
+                   + SLEEPER_PPTS_CORRECTIONS.get((season, teams.get(rid, "")), 0.0))
+        gap = round(built.get(rid, 0.0) - sleeper, 2)
+        if abs(gap) > 0.005:
+            out.append((teams.get(rid, str(rid)), gap))
+    return out
+
+
+def _has_rosters(season: int) -> bool:
+    return (Q.season_meta(season).has_snapshot
+            and (Q.snapshot_dir() / f"season_{season}" / "rosters.json").exists())
+
+
+_HOW_TO_READ = ("a gap here is a player Sleeper lists at a position the build does not "
+                "(add him to position_pins.MAX_PF_POSITION_PINS), or Sleeper's own total "
+                "missing a stat correction (SLEEPER_PPTS_CORRECTIONS, only with evidence "
+                "such as `fpts` off by the same amount); plan/notes/MAX_PF_SLEEPER_RECONCILE.md")
+
+
 def test_regular_season_max_pf_matches_sleeper_ppts():
+    """Every completed season: the build's regular-season Max PF equals Sleeper's."""
     if not _HAVE_DATA:
         return _skip("no committed snapshot")
-    positions = Q.players().positions()
     problems, checked = [], 0
     for season in Q.completed_seasons():
-        meta = Q.season_meta(season)
-        rosters_path = Q.snapshot_dir() / f"season_{season}" / "rosters.json"
-        if not meta.has_snapshot or not rosters_path.exists():
+        if not _has_rosters(season):
             continue
-        teams = Q.teams(season)
-        built = {}
-        for wk in Q.played_weeks(season):
-            if wk >= meta.playoff_week_start:
-                continue
-            for rid, row in Q.week(season, wk).items():
-                built[rid] = built.get(rid, 0.0) + compute_optimal_lineup(
-                    {p: row.players_points.get(p, 0.0) for p in row.players},
-                    positions, season, week=wk)
-        for r in json.loads(rosters_path.read_text()):
-            s = r.get("settings") or {}
-            sleeper = float(s.get("ppts", 0)) + float(s.get("ppts_decimal", 0)) / 100
-            rid = int(r["roster_id"])
-            gap = round(built.get(rid, 0.0) - sleeper, 2)
-            want = SLEEPER_SIDE_GAPS.get((season, teams.get(rid, "")), 0.0)
-            checked += 1
-            if abs(gap - want) > 0.005:
-                problems.append(f"{season} {teams.get(rid, rid)}: build - Sleeper = {gap:+.2f}"
-                                f" (expected {want:+.2f})")
+        meta = Q.season_meta(season)
+        weeks = [w for w in Q.played_weeks(season) if w < meta.playoff_week_start]
+        checked += len(Q.teams(season))
+        problems += [f"{season} {t}: build - Sleeper = {g:+.2f}"
+                     for t, g in _gaps_vs_sleeper(season, weeks)]
     if not checked:
         return _skip("no completed season with a snapshot")
-    assert not problems, problems
+    assert not problems, (problems, _HOW_TO_READ)
+    print(f"  {checked} team-seasons match Sleeper's (corrected) season max points")
+
+
+def test_season_in_progress_max_pf_matches_sleeper_so_far():
+    """The live season, through the last week Sleeper has scored, so a new
+    mismatch fails the build that first sees it rather than the season's end.
+
+    Both sides come from the same snapshot capture: Sleeper's running `ppts`
+    and the weeks it says it has scored (`league.settings.last_scored_leg`)."""
+    if not _HAVE_DATA:
+        return _skip("no committed snapshot")
+    live = [y for y in Q.snapshot_seasons() if y not in Q.completed_seasons() and _has_rosters(y)]
+    if not live:
+        return _skip("no season in progress")
+    season = max(live)
+    meta = Q.season_meta(season)
+    league = json.loads((Q.snapshot_dir() / f"season_{season}" / "league.json").read_text())
+    scored = int((league.get("settings") or {}).get("last_scored_leg") or 0)
+    weeks = [w for w in range(1, min(scored, meta.playoff_week_start - 1) + 1)]
+    if not weeks:
+        return _skip(f"{season}: Sleeper has scored no week yet")
+    problems = [f"{season} weeks 1-{weeks[-1]} {t}: build - Sleeper = {g:+.2f}"
+                for t, g in _gaps_vs_sleeper(season, weeks)]
+    assert not problems, (problems, _HOW_TO_READ)
+    print(f"  {season} weeks 1-{weeks[-1]}: all rosters match Sleeper's running max points")
 
 
 if __name__ == "__main__":

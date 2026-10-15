@@ -84,3 +84,22 @@ def max_pf_positions(sleeper_id: Any, season: Any) -> Optional[Tuple[str, ...]]:
         if first <= season and (last is None or season <= last):
             return positions
     return None
+
+
+# Sleeper's own season max points (`rosters[].settings.ppts`) are wrong for two
+# team-seasons, by the amount below. Add it to Sleeper's figure before comparing
+# with the build; with it, all 40 Sleeper team-seasons (2021-2025) match the
+# build's regular-season Max PF to the cent (tests/test_max_pf_pins.py).
+#   stevenb123 2024 +1.00: Sleeper's `fpts` for the team and the opponent's
+#     `fpts_against` are low by the same 1.00 — a stat correction to a starter
+#     (week 6 or 13, the two meetings with Shmuel256) that Sleeper's frozen
+#     season totals never picked up.
+#   LWebs53 2024 +3.54: week 11. With Hill listed QB/TE, the build's lineup
+#     (Hill at TE, 41.52, which nflverse reproduces under league scoring) is
+#     legal; Sleeper's total is lower from stale points or a one-week QB-only
+#     label.
+# Keyed by (season, team handle as `inquiry.teams` gives it).
+SLEEPER_PPTS_CORRECTIONS: Dict[Tuple[int, str], float] = {
+    (2024, "stevenb123"): 1.00,
+    (2024, "LWebs53"): 3.54,
+}

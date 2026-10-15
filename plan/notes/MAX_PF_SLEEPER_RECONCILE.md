@@ -25,13 +25,20 @@ build minus Sleeper:
 | LWebs53 2021 | +15.10 | 14 | Hill listed QB; LWebs53 started him at SUPER_FLEX | closed: Hill QB in 2021 |
 | shmuel256 2021 | -3.10 | 3 (+2.30), 7 (+0.80) | Cordarrelle Patterson WR-eligible (RB today) | closed: Patterson RB/WR in 2021 |
 | LWebs53 2023 | -0.10 | 9 | Hill QB-eligible | closed: Hill QB/TE from 2022 |
-| LWebs53 2024 | +3.54 | 11 | Hill (41.52 on the bench) counted at TE | Sleeper-side |
-| stevenb123 2024 | +1.00 | 6 or 13 | stat correction | Sleeper-side |
+| LWebs53 2024 | +3.54 | 11 | Hill (41.52 on the bench) counted at TE | Sleeper's figure corrected +3.54 |
+| stevenb123 2024 | +1.00 | 6 or 13 | stat correction | Sleeper's figure corrected +1.00 |
 
-All 40 now reconcile (`tests/test_max_pf_pins.py`): 38 match to the cent, and
-the other two differ by exactly the amount Sleeper's own frozen total is off.
-In both the build's lineup is legal, so copying Sleeper would make Max PF
-wrong.
+All 40 now match to the cent. For the last two, Sleeper's own figure is the
+one corrected (`position_pins.SLEEPER_PPTS_CORRECTIONS`), not Max PF: in both
+the build's lineup is legal, so copying Sleeper would make Max PF wrong.
+
+**The guard.** `tests/test_max_pf_pins.py` runs in every CI build. It fails if
+any completed team-season's regular-season Max PF differs from Sleeper's
+(corrected) `ppts`, and also checks the season in progress through Sleeper's
+`last_scored_leg`, so the next relabel shows up the week it happens (2026
+weeks 1-5 matched all 8 rosters when it was added). A failure names the team,
+the season and the gap, and goes to the build's step summary and the health
+email like every other guard.
 
 **Listings tested and rejected:**
 - Hill QB/TE in 2021: leaves both 2021 gaps open (+2.82, +15.10). Sleeper scored
@@ -82,4 +89,6 @@ Classification of what is borderline:
   Max PF, Avg max PF, UPST's pregame average, `Max PF in a loss/win`) moves
   with it. The 2026 draft order uses 2025 Max PF, which nothing here touches.
 - **defect, Sleeper-side** — stevenb123 2024 +1.00 and LWebs53 2024 +3.54
-  are Sleeper's season totals, not the build; the test pins both to the cent.
+  are Sleeper's season totals, not the build; corrected in
+  `SLEEPER_PPTS_CORRECTIONS`. LWebs53's correction rests on inference (stale
+  points or a one-week QB-only label), not a record.
