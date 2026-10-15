@@ -105,7 +105,7 @@ project memory (see "Advice questions" below) plus the partner files
 `manager-profiles` (trade/draft record), `negotiation-styles` (how each manager
 negotiates, from Oliver's DMs — use it to shape any offer or counter),
 `league-2026-windows` (contenders, holes, who owns whose 1sts) and
-`ktc-caveats` — then answer. `--no-forecast` / `--no-ktc`
+`ktc-caveats` (all printed at the end of the output) — then answer. `--no-forecast` / `--no-ktc`
 skip those parts. It wraps the forecast without editing it (tests/test_trade.py).
 
 ## Advice questions: start/sit, add/drop, strategy — ONE `scripts/advise.py` call
@@ -125,7 +125,12 @@ points. Then, before answering:
 - **News**: one web search on every player the output flags (injury, no
   projection, depth-chart change, small sample). Sleeper's feed is not the
   injury report.
-- **The league strategy guide** in project memory: the files MEMORY.md's
+- **The league strategy guide is printed at the end of the output** (and of
+  `trade.py`'s): the memory files for that question, read live from project
+  memory by `lotg_support.guide` — so it costs no extra call. Read it there;
+  do not Read the files one by one. A file the output lists under "other
+  guide files" is worth opening only if the question reaches it. The guide is
+  the files MEMORY.md's
   "Strategy guide" line lists (`dynasty-strategy`, `trade-strategy`,
   `rookie-picks`, `season-arc`, `weekly-lineup-strategy`, `start-sit-edges`,
   `waivers-streaming`, `league-settings`, `league-structure-evidence`,

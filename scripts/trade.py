@@ -14,6 +14,9 @@ depth before and after, then title / finals / playoff odds and projected
 weekly points before and after for every team — plus the caveats that apply.
 `--rate NAME=PPG` and `--healthy NAME` apply to both runs, so the change shown
 is the trade's alone under those assumptions. `--no-forecast` skips the odds.
+The output ends with the strategy-guide files for trades (manager profiles and
+negotiation styles included), read live from project memory; `--no-guide`
+leaves them out.
 """
 from __future__ import annotations
 
@@ -93,6 +96,8 @@ def main(argv=None) -> None:
     ap.add_argument("--no-forecast", action="store_true")
     ap.add_argument("--no-ktc", action="store_true")
     argv = list(sys.argv[1:] if argv is None else argv)
+    show_guide = "--no-guide" not in argv
+    argv = [a for a in argv if a != "--no-guide"]
     parts, cur = [], []
     for tok in argv:
         if tok == "::":
@@ -105,6 +110,9 @@ def main(argv=None) -> None:
         if i:
             print("\n" + "=" * 100)
         one(ap.parse_args(part), pw)
+    if show_guide:
+        from lotg_support import guide
+        print("\n" + "=" * 100 + "\n" + guide.render("trade"))
 
 
 if __name__ == "__main__":
