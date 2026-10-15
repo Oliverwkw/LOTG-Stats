@@ -6,8 +6,10 @@ computes `team_week."Max PF"` from Sleeper's current single label, so a player
 Sleeper has since relabelled moves the ceiling. `MAX_PF_POSITION_PINS` records
 the listings that mattered: Taysom Hill QB in 2021 and QB/TE from 2022,
 Cordarrelle Patterson RB/WR in 2021. A player listed at several positions is
-eligible at each. With them, the regular-season Max PF of every completed
-team-season matches `ppts` to the cent except the two in KNOWN_GAPS.
+eligible at each. With them all 40 completed team-seasons (2021-2025)
+reconcile: 38 match `ppts` to the cent, and the other two differ by exactly the
+Sleeper-side errors in SLEEPER_SIDE_GAPS, where the build's lineup is legal and
+Sleeper's frozen total is the one that is off.
 
 The data test asserts against the snapshot only — Sleeper's numbers and the
 build's own routine — so it holds before and after CI regenerates exports/.
@@ -33,16 +35,17 @@ _HAVE_DATA = (_ROOT / "exports" / "snapshot" / "sleeper_players_nfl.json").exist
 
 HILL, PATTERSON = "4381", "1535"
 
-# Team-seasons whose regular-season Max PF is NOT expected to match Sleeper's
-# `ppts`, with the exact gap (build minus Sleeper).
+# Team-seasons where Sleeper's `ppts` is itself wrong, with the exact gap
+# (build minus Sleeper). Pinned to the cent, so any change on either side shows.
 #   stevenb123 2024: Sleeper's `fpts` for the team and the opponent's
 #     `fpts_against` are off by the same 1.00 — a stat correction to a starter
 #     (week 6 or 13, the two meetings with Shmuel256) that landed after Sleeper
 #     froze its season totals. Not a position.
-#   LWebs53 2024: week 11, where Hill (41.52, bench) sits in the optimum at TE.
-#     Only a QB-only listing that one week closes it; a QB/TE listing cannot,
-#     since extra eligibility only raises Max PF and the build is already above.
-KNOWN_GAPS = {(2024, "stevenb123"): 1.00, (2024, "LWebs53"): 3.54}
+#   LWebs53 2024: week 11, where Hill (41.52 on the bench, matching nflverse
+#     under league scoring) sits in the optimum at TE, a legal slot for a QB/TE.
+#     Sleeper's total is 3.54 lower: stale points or a one-week QB-only label.
+#     Copying it would put Max PF below a lineup the team could have set.
+SLEEPER_SIDE_GAPS = {(2024, "stevenb123"): 1.00, (2024, "LWebs53"): 3.54}
 
 
 def _skip(reason: str) -> bool:
@@ -102,7 +105,7 @@ def test_regular_season_max_pf_matches_sleeper_ppts():
             sleeper = float(s.get("ppts", 0)) + float(s.get("ppts_decimal", 0)) / 100
             rid = int(r["roster_id"])
             gap = round(built.get(rid, 0.0) - sleeper, 2)
-            want = KNOWN_GAPS.get((season, teams.get(rid, "")), 0.0)
+            want = SLEEPER_SIDE_GAPS.get((season, teams.get(rid, "")), 0.0)
             checked += 1
             if abs(gap - want) > 0.005:
                 problems.append(f"{season} {teams.get(rid, rid)}: build - Sleeper = {gap:+.2f}"

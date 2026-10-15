@@ -888,10 +888,11 @@ list is here so an answer written by hand does not walk into them.
   after). Treating Hill as a TE moved 2021 Max PF by up to 15.10 in a week
   (LWebs53 week 14). With those listings, regular-season Max PF matches
   Sleeper's own season max points (`rosters[].settings.ppts`) on 38 of 40
-  team-seasons, 2021-2025. The two left: stevenb123 2024 (+1.00), a stat
-  correction Sleeper's frozen totals never picked up (week 6 or 13); and
-  LWebs53 2024 (+3.54, week 11), which only a QB-only Hill that week would
-  close. `plan/notes/MAX_PF_SLEEPER_RECONCILE.md`.
+  team-seasons, 2021-2025, and the other two are Sleeper's error, not ours:
+  stevenb123 2024 (+1.00), a stat correction Sleeper's frozen totals never
+  picked up (week 6 or 13); and LWebs53 2024 (+3.54, week 11), where the
+  build's lineup is legal and Sleeper's total is lower. Don't "fix" Max PF to
+  match `ppts` there. `plan/notes/MAX_PF_SLEEPER_RECONCILE.md`.
 - **Sleeper writes `"0"` for an empty start slot** (`inquiry.EMPTY_SLOT`) — a
   legal lineup, not a bug.
 - **`Injury?` means "missed the week, and it was not a bye or a suspension" —

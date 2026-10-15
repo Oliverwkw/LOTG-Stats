@@ -25,10 +25,13 @@ build minus Sleeper:
 | LWebs53 2021 | +15.10 | 14 | Hill listed QB; LWebs53 started him at SUPER_FLEX | closed: Hill QB in 2021 |
 | shmuel256 2021 | -3.10 | 3 (+2.30), 7 (+0.80) | Cordarrelle Patterson WR-eligible (RB today) | closed: Patterson RB/WR in 2021 |
 | LWebs53 2023 | -0.10 | 9 | Hill QB-eligible | closed: Hill QB/TE from 2022 |
-| LWebs53 2024 | +3.54 | 11 | Hill (41.52 on the bench) counted at TE | **open** |
-| stevenb123 2024 | +1.00 | 6 or 13 | stat correction | **open** |
+| LWebs53 2024 | +3.54 | 11 | Hill (41.52 on the bench) counted at TE | Sleeper-side |
+| stevenb123 2024 | +1.00 | 6 or 13 | stat correction | Sleeper-side |
 
-38 of 40 now match to the cent (`tests/test_max_pf_pins.py`).
+All 40 now reconcile (`tests/test_max_pf_pins.py`): 38 match to the cent, and
+the other two differ by exactly the amount Sleeper's own frozen total is off.
+In both the build's lineup is legal, so copying Sleeper would make Max PF
+wrong.
 
 **Listings tested and rejected:**
 - Hill QB/TE in 2021: leaves both 2021 gaps open (+2.82, +15.10). Sleeper scored
@@ -43,7 +46,9 @@ is already above Sleeper, so no multi-position listing can close it. The only
 single change that does is Hill as QB-only in week 11 alone (Hill's points stay
 in the lineup at the superflex instead of TE, exactly -3.54). Excluding Jayden
 Daniels that week also gives exactly 3.54, but he started, so nothing explains
-it. Left open rather than pinning one week on an inference.
+it. With Hill listed QB/TE the build's lineup (Hill at TE, 41.52, which
+nflverse reproduces under league scoring) is legal, so the lower Sleeper
+total is Sleeper's: stale points, or a one-week QB-only label.
 
 **stevenb123 2024 (+1.00).** Sleeper's `fpts` for stevenb123 is also 1.00
 below the sum of the weekly matchup points, and Shmuel256's `fpts_against`
@@ -76,6 +81,5 @@ Classification of what is borderline:
 - **by-design** — downstream of `Max PF` (Efficiency, team_year/all-time
   Max PF, Avg max PF, UPST's pregame average, `Max PF in a loss/win`) moves
   with it. The 2026 draft order uses 2025 Max PF, which nothing here touches.
-- **needs-human-judgment** — LWebs53 2024 +3.54 stays open (above).
-- **defect, unfixable here** — stevenb123 2024 +1.00 is Sleeper's stale
-  season total, not the build.
+- **defect, Sleeper-side** — stevenb123 2024 +1.00 and LWebs53 2024 +3.54
+  are Sleeper's season totals, not the build; the test pins both to the cent.
