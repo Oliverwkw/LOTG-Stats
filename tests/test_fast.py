@@ -153,6 +153,33 @@ def test_a_week_fed_as_live_agrees_with_the_exports():
     assert n_diff == 0 and m_diff == 0, (n_diff, m_diff)
 
 
+def test_slot_count_matches_a_direct_groupby():
+    if not _HAVE_EXPORTS and _skip("no exports"):
+        return
+    assert fast.slot_name("monday") == "MNF" and fast.slot_name("late") == "Sunday late"
+    c = fast.count_over(float("-inf"), slots=["Monday"])
+    pw = fast.player_weeks()
+    st = pw[(pw["Starter/Bench"] == "Starter") & (pw["Game slot"] == "MNF")]
+    direct = st.groupby(["Team", "Year", "Week"]).size()
+    got = c.set_index(["Team", "Year", "Week"])["n"]
+    assert (got.reindex(direct.index) == direct).all()
+    assert int(got.sum()) == len(st)
+
+
+def test_typed_sheet_keeps_every_value():
+    if not _HAVE_EXPORTS and _skip("no exports"):
+        return
+    raw = Q.load_sheet("team_week")
+    t = fast.typed_sheet("team_week")
+    assert list(t.columns) == list(raw.columns) and len(t) == len(raw)
+    for col in ("PF", "Margin entering Monday", "Players over 20 pts (starters)"):
+        assert pd.api.types.is_numeric_dtype(t[col]), col
+        ref = pd.to_numeric(raw[col], errors="coerce")
+        assert ((ref - t[col]).abs().fillna(0) < 1e-9).all() and (ref.isna() == t[col].isna()).all(), col
+    assert t["Win?"].dtype == bool
+    assert not fast.find_columns("margin entering monday").empty
+
+
 TESTS = [
     test_place_ranks_and_ties,
     test_stage_aliases,
@@ -160,6 +187,8 @@ TESTS = [
     test_stage_margin_matches_the_build_columns,
     test_count_over_matches_a_direct_groupby,
     test_a_week_fed_as_live_agrees_with_the_exports,
+    test_slot_count_matches_a_direct_groupby,
+    test_typed_sheet_keeps_every_value,
 ]
 
 

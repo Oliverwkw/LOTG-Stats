@@ -55,6 +55,49 @@ def stage_name(s: str) -> str:
     return STAGE_ALIASES.get(str(s).strip().lower(), str(s).strip())
 
 
+# `Game slot` values as player_week writes them ("MNF", not the stage name "Monday")
+SLOT_ALIASES = {**STAGE_ALIASES, "mnf": "MNF", "monday": "MNF", "monday night": "MNF"}
+
+
+def slot_name(s: str) -> str:
+    return SLOT_ALIASES.get(str(s).strip().lower(), str(s).strip())
+
+
+def typed_sheet(name: str) -> pd.DataFrame:
+    """An export sheet with every all-numeric column converted (blanks / N/A
+    become NaN; `Year`, `Week` become Int64; Yes/No and True/False columns
+    become bool). Text columns stay text."""
+    df = Q.load_sheet(name).copy()
+    for c in df.columns:
+        col = df[c]
+        if not (col.dtype == object or pd.api.types.is_string_dtype(col)):
+            continue
+        v = col.astype(str).str.strip()
+        blank = v.isin(["", "nan", "None", "N/A", "NA", "-"])
+        num = pd.to_numeric(v.where(~blank), errors="coerce")
+        if (num.notna() | blank).all() and num.notna().any():
+            df[c] = num.astype("Int64") if c in ("Year", "Week") else num
+            continue
+        low = v[~blank].str.lower()
+        if len(low) and low.isin(["true", "false", "yes", "no"]).all():
+            df[c] = v.str.lower().map({"true": True, "yes": True, "false": False, "no": False})
+    return df
+
+
+def find_columns(regex: str) -> pd.DataFrame:
+    """Every export sheet column whose name matches `regex` (case-insensitive)."""
+    import re
+    rx = re.compile(regex, re.I)
+    rows = []
+    for sheet in Q.SHEETS:
+        try:
+            cols = Q.load_sheet(sheet).columns
+        except Exception:   # noqa: BLE001 - a missing sheet just has no columns
+            continue
+        rows += [{"sheet": sheet, "column": c} for c in cols if rx.search(str(c))]
+    return pd.DataFrame(rows, columns=["sheet", "column"])
+
+
 @functools.lru_cache(maxsize=1)
 def _schedule():
     from lotg_support.gametime import load_schedule
@@ -136,7 +179,8 @@ def count_over(threshold: float, role: str = "starter", strict: bool = True,
                positions: Optional[Sequence[str]] = None, exclude: Optional[Sequence[str]] = None,
                result: Optional[str] = None, entering: Optional[str] = None,
                team: Optional[str] = None, years: Optional[Iterable[int]] = None,
-               live=None, frame: Optional[pd.DataFrame] = None) -> pd.DataFrame:
+               live=None, frame: Optional[pd.DataFrame] = None,
+               slots: Optional[Sequence[str]] = None) -> pd.DataFrame:
     """Per team-week: how many players (`role` = starter / bench / any) scored
     over `threshold`, sorted most first.
 
@@ -145,6 +189,8 @@ def count_over(threshold: float, role: str = "starter", strict: bool = True,
     `result` = 'loss' / 'win' filters on the final result — or, with
     `entering`, on the margin at that stage (< 0 loss / > 0 win). Every
     team-week is returned, n = 0 included, so a distribution is honest.
+    `slots` keeps only players whose game is in those `Game slot`s (MNF, SNF,
+    Thursday, ...); a threshold of -inf counts every player.
     Columns: Team, Year, Week, Week Name, Opponent, Live, Win?, Margin, PF,
     Points against, starters, n, at_threshold, who."""
     df = (frame if frame is not None else player_weeks(live)).copy()
@@ -157,6 +203,9 @@ def count_over(threshold: float, role: str = "starter", strict: bool = True,
         pool = pool[pool["Position"].isin([p.upper() for p in positions])]
     if exclude:
         pool = pool[~pool["Position"].isin([p.upper() for p in exclude])]
+    if slots:
+        slots = [slot_name(x) for x in slots]
+        pool = pool[pool["Game slot"].isin(slots)]
 
     tw = df.drop_duplicates(keys)[keys + ["Week Name", "Opponent", "Live", "Win?", "Margin", "PF",
                                           "Points against"]].set_index(keys)
@@ -190,7 +239,7 @@ def count_over(threshold: float, role: str = "starter", strict: bool = True,
     if team:
         out = out[out["Team"].str.lower() == Q.canonical_team(team).lower()]
     out.attrs.update(threshold=threshold, strict=strict, role=role, stage=stage,
-                     positions=positions, exclude=exclude, result=result)
+                     positions=positions, exclude=exclude, result=result, slots=slots)
     return out.sort_values(["n", "PF"], ascending=[False, False]).reset_index(drop=True)
 
 
@@ -237,9 +286,13 @@ def ordinal(n: int) -> str:
 
 def caveats(c: pd.DataFrame) -> list:
     a = c.attrs
-    out = [f"'over {a.get('threshold'):g}' = {'>' if a.get('strict') else '>='} {a.get('threshold'):g}; "
-           f"role={a.get('role')}" + (f"; positions={','.join(a['positions'])}" if a.get('positions') else "")
+    line = ("counting every player (no points line)" if a.get("threshold") == float("-inf") else
+            f"'over {a.get('threshold'):g}' = {'>' if a.get('strict') else '>='} {a.get('threshold'):g}")
+    out = [f"{line}; role={a.get('role')}" + (f"; positions={','.join(a['positions'])}" if a.get('positions') else "")
            + (f"; excluding {','.join(a['exclude'])}" if a.get('exclude') else "")]
+    if a.get("slots"):
+        out.append(f"only players whose game is in slot {','.join(a['slots'])} (player_week `Game slot`; "
+                   "a game moved off its usual day takes its real slot)")
     if a.get("role") in ("bench", "any"):
         out.append("bench = every non-starter row, taxi and IR included (Sleeper lists them in the matchup, "
                    "and so does player_week)")

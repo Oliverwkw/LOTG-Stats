@@ -14,6 +14,10 @@ command whose output already carries its caveats.
     python scripts/fast.py count 18 --loss --entering late --live --team Oliverwkw
     python scripts/fast.py count 20 --bench --no-qb
     python scripts/fast.py count 18 --pos WR,TE --ge
+    python scripts/fast.py count all --slot MNF --live      # most starters playing Monday night
+
+    # which sheet has a column? (team_week alone has ~300)
+    python scripts/fast.py cols "margin entering|choke"
 
     # where a number would rank in any export column (filters as inquire.py)
     python scripts/fast.py rank player_week Points 44.2 --where Starter/Bench=Starter
@@ -26,7 +30,8 @@ command whose output already carries its caveats.
     #   pw   = typed player_week + team result (fast.player_weeks)
     #   lpw  = pw with the live week appended (fetches Sleeper)
     #   live = the LiveWeek;  tw, ty, py, pa, ... = any export sheet (text)
-    #   num(df, col) = numeric column
+    #   num(df, col) = numeric column;  twt, tyt, pyt, ... / T("sheet") = typed sheet
+    #   statements are allowed; the last expression is printed
     python scripts/fast.py q "pw[(pw.Team=='Oliverwkw')&(pw.Points>=40)].sort_values(['Year','Week']).tail(3)"
 
 `--snapshot` on `live` / `--live` reads the committed snapshot's copy of the
@@ -94,6 +99,10 @@ def cmd_live(args) -> None:
             print("  bench: " + ", ".join(f"{r.Player} {r.Points:g}" for r in b.itertuples()))
 
 
+def _slots(args):
+    return [x.strip() for x in args.slot.split(",")] if getattr(args, "slot", None) else None
+
+
 def cmd_count(args) -> None:
     lw = _live(args) if args.live else None
     role = "bench" if args.bench else ("any" if args.any else "starter")
@@ -102,7 +111,7 @@ def cmd_count(args) -> None:
     years = [int(y) for y in args.year.split(",")] if args.year else None
     c = fast.count_over(args.threshold, role=role, strict=not args.ge, positions=pos, exclude=exclude,
                         result=("loss" if args.loss else "win" if args.win else None),
-                        entering=args.entering, years=years, live=lw)
+                        entering=args.entering, years=years, live=lw, slots=_slots(args))
     if lw is not None:
         _notes(lw.caveats())
     _notes(fast.caveats(c))
@@ -135,7 +144,7 @@ def cmd_count(args) -> None:
     if lw is not None:
         # every live team, whether or not it meets --loss/--win right now
         full = fast.count_over(args.threshold, role=role, strict=not args.ge, positions=pos, exclude=exclude,
-                               entering=args.entering, live=lw)
+                               entering=args.entering, live=lw, slots=_slots(args))
         lv = full[full["Live"]]
         if args.team:
             lv = lv[lv["Team"].str.lower() == Q.canonical_team(args.team).lower()]
@@ -154,6 +163,8 @@ def cmd_count(args) -> None:
                 st = st[st["Kickoff"].notna() & (st["Kickoff"] < r.Stage_kickoff)]
             if pos:
                 st = st[st["Position"].isin(pos)]
+            if _slots(args):
+                st = st[st["Game slot"].isin([fast.slot_name(x) for x in _slots(args)])]
             if exclude:
                 st = st[~st["Position"].isin(exclude)]
             pending = st[st["Game status"] != "final?"]
@@ -189,6 +200,13 @@ class _Lazy(dict):
             v = fast.player_weeks(self["live"])
         elif key == "num":
             v = Q.numeric
+        elif key == "T":
+            v = fast.typed_sheet
+        elif key == "cols":
+            v = fast.find_columns
+        elif key in ("twt", "tyt", "pyt", "lwt", "lyt"):
+            v = fast.typed_sheet({"twt": "team_week", "tyt": "team_year", "pyt": "player_year",
+                                  "lwt": "league_week", "lyt": "league_year"}[key])
         elif key in ("pd", "fast", "Q"):
             v = {"pd": pd, "fast": fast, "Q": Q}[key]
         else:
@@ -203,8 +221,16 @@ class _Lazy(dict):
 
 
 def cmd_q(args) -> None:
+    import ast
     env = _Lazy(args)
-    out = eval(args.expr, {"__builtins__": __builtins__}, env)   # noqa: S307 - local CLI
+    g = {"__builtins__": __builtins__}
+    tree = ast.parse(args.expr.strip())
+    last = tree.body.pop() if tree.body and isinstance(tree.body[-1], ast.Expr) else None
+    if tree.body:   # statements first (assignments, imports); the last expression is printed
+        exec(compile(tree, "<q>", "exec"), g, env)   # noqa: S102 - local CLI
+    if last is None:
+        return
+    out = eval(compile(ast.Expression(last.value), "<q>", "eval"), g, env)   # noqa: S307 - local CLI
     print(out.to_string() if hasattr(out, "to_string") else out)
 
 
@@ -224,7 +250,8 @@ def main(argv=None) -> None:
     p.set_defaults(fn=cmd_live)
 
     p = sub.add_parser("count", help="per team-week count of players over a line")
-    p.add_argument("threshold", type=float)
+    p.add_argument("threshold", type=lambda x: float("-inf") if x.lower() in ("all", "any") else float(x),
+                   help="a number, or `all` to count every player")
     g = p.add_mutually_exclusive_group()
     g.add_argument("--bench", action="store_true")
     g.add_argument("--any", action="store_true", help="starters and bench")
@@ -235,12 +262,17 @@ def main(argv=None) -> None:
     r.add_argument("--loss", action="store_true")
     r.add_argument("--win", action="store_true")
     p.add_argument("--entering", help="stage: late / early / SNF / Monday / any game slot")
+    p.add_argument("--slot", help="only players whose game is in these slots, e.g. MNF or SNF,MNF")
     p.add_argument("--team")
     p.add_argument("--year", help="comma list")
     p.add_argument("--live", action="store_true", help="place the live week against history")
     p.add_argument("-n", type=int, default=10)
     live_opts(p)
     p.set_defaults(fn=cmd_count)
+
+    p = sub.add_parser("cols", help="find a column across every export sheet")
+    p.add_argument("regex")
+    p.set_defaults(fn=lambda a: print(fast.find_columns(a.regex).to_string(index=False)))
 
     p = sub.add_parser("rank", help="where a value would rank in an export column")
     p.add_argument("sheet")

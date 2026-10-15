@@ -18,6 +18,8 @@ counted, lineup size by season, as-of week, live = raw Sleeper / leading-now):
 python scripts/fast.py count 18 --loss                          # starters over 18, losses, ranked
 python scripts/fast.py count 18 --loss --entering late --live --team Oliverwkw  # league top + the team's best + NOW, with who is left to play before 4pm
 python scripts/fast.py count 20 --bench --no-qb                 # bench; --any / --pos WR,TE / --ge / --team / --year
+python scripts/fast.py count all --slot MNF --live              # most starters playing Monday night (now vs record)
+python scripts/fast.py cols "margin entering|choke"             # which sheet/column holds it (team_week has ~300)
 python scripts/fast.py rank player_week Points 44.2 --where Starter/Bench=Starter
 python scripts/fast.py live --team Oliverwkw                    # live scoreboard: starters, slots, kickoff status
 python scripts/fast.py q "pw[(pw.Team=='Oliverwkw')&(pw.Points>=40)].tail(3)"   # any pandas expression
@@ -25,7 +27,9 @@ python scripts/fast.py q "pw[(pw.Team=='Oliverwkw')&(pw.Points>=40)].tail(3)"   
 
 All `count` flags: `THRESHOLD`, `--bench | --any` (default starters),
 `--pos QB,WR`, `--no-qb`, `--ge` (default strict `>`), `--loss | --win`,
-`--entering late|early|morning|SNF|Monday|Thursday|<any game slot>`,
+`--entering late|early|morning|SNF|Monday|Thursday|<any game slot>` (games
+kicked off BEFORE that stage), `--slot MNF,SNF` (only players IN those games;
+`THRESHOLD` may be `all` to count every player),
 `--team T` (filters the table), `--year 2025,2026` (filters history), `--live`
 (Sleeper's current week placed against history — use it for any "now" / "this
 week" question, even before kickoff; `--season/--week` only pick which week
@@ -35,7 +39,13 @@ week" question, even before kickoff; `--season/--week` only pick which week
 
 `q` preloads `pw` (player_week typed — Year/Week int, Points float, Win? bool —
 with Opponent/Margin/PF joined), `lpw` (pw + the live week), `live`, `tw`/`ty`/
-`py`/`pa`/any sheet name (text; `num(df, col)` for numbers). pandas is already
+`py`/`pa`/any sheet name (text; `num(df, col)` for numbers), and TYPED sheets
+`twt`/`tyt`/`pyt`/`lwt`/`lyt` or `T("sheet")` (numbers float, Win? bool — use
+these, not the text ones). `q` takes statements too (newline or `;`); the last
+expression is printed. Team-week questions are usually already a `team_week`
+column — e.g. `Margin entering SNF/Monday/last game`, `Comeback/Choke size …`,
+`Players over 20/30/40 pts (starters|roster)`, `Points from QBs`, `Max PF`,
+`Luck` — so `cols REGEX :: q "<twt expression>"` in one call. pandas is already
 installed in the cloud container; Sleeper's API is reachable from it.
 
 The traps that matter for these (the full list is in the playbook): **team
