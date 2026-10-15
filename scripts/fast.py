@@ -19,6 +19,9 @@ command whose output already carries its caveats.
     python scripts/fast.py rank player_week Points 44.2 --where Starter/Bench=Starter
     python scripts/fast.py rank team_week PF 199.48 --where 'Win?=False'
 
+    # several parts of one question: chain with `::` (one process, one tool call)
+    python scripts/fast.py count 20 --bench :: count 20 --bench --no-qb
+
     # anything else: one pandas expression over preloaded frames
     #   pw   = typed player_week + team result (fast.player_weeks)
     #   lpw  = pw with the live week appended (fetches Sleeper)
@@ -48,13 +51,21 @@ pd.set_option("display.width", 250)
 pd.set_option("display.max_colwidth", 140)
 
 
+_LIVE = {}
+
+
 def _live(args):
+    """The live week, fetched once per process (a `::` batch shares it)."""
     from lotg_support import live
-    if getattr(args, "snapshot", False):
-        if not (args.season and args.week):
-            sys.exit("--snapshot needs --season and --week")
-        return live.fetch(args.season, args.week, source="snapshot")
-    return live.fetch(args.season, args.week)
+    key = (getattr(args, "snapshot", False), args.season, args.week)
+    if key not in _LIVE:
+        if key[0]:
+            if not (args.season and args.week):
+                sys.exit("--snapshot needs --season and --week")
+            _LIVE[key] = live.fetch(args.season, args.week, source="snapshot")
+        else:
+            _LIVE[key] = live.fetch(args.season, args.week)
+    return _LIVE[key]
 
 
 def _notes(lines):
@@ -109,6 +120,11 @@ def cmd_count(args) -> None:
         print(top[cols].to_string(index=False) if len(top) else "  (no team-week above 0)")
 
     show(hist, "league, most first")
+    # pre-counted so an answer never has to count printed rows
+    for v in sorted(hist.loc[hist["n"] > 0, "n"].unique(), reverse=True)[:3]:
+        at = hist[hist["n"] == v]
+        by = at["Team"].value_counts()
+        print(f"  exactly {v}: {len(at)} team-week(s) — " + ", ".join(f"{k} {c}" for k, c in by.items()))
     if args.team:
         t = Q.canonical_team(args.team)
         mine = hist[hist["Team"].str.lower() == t.lower()]
@@ -242,8 +258,23 @@ def main(argv=None) -> None:
 
     if hasattr(signal, "SIGPIPE"):          # `| head` closes the pipe: exit quietly
         signal.signal(signal.SIGPIPE, signal.SIG_DFL)
-    args = ap.parse_args(argv)
-    args.fn(args)
+    argv = list(sys.argv[1:] if argv is None else argv)
+    # `a :: b :: c` runs several subcommands in ONE process: one load, one
+    # Sleeper fetch, one tool call for a question with several parts.
+    parts, cur = [], []
+    for tok in argv:
+        if tok == "::":
+            parts.append(cur)
+            cur = []
+        else:
+            cur.append(tok)
+    parts.append(cur)
+    parts = [p for p in parts if p]
+    for i, part in enumerate(parts):
+        if len(parts) > 1:
+            print(f"{'' if i == 0 else chr(10)}===== fast.py {' '.join(part)}")
+        args = ap.parse_args(part)
+        args.fn(args)
 
 
 if __name__ == "__main__":

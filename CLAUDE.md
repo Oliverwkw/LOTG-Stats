@@ -2,49 +2,15 @@
 
 Orientation for a session working in this repo.
 
-## What this is
-
-A cloud-only pipeline that pulls the league's history from Sleeper (plus an ESPN
-backfill for 2020) and exports it as the CSV/Excel tables described in
-`plan/LOTG Plan - Sheet1.csv`. It runs on GitHub Actions; there is no local
-setup. `python -m lotg` (`src/lotg.py`) is the build; `lib/lotg_support/` holds
-its supporting modules; `exports/` holds the committed outputs and the raw
-Sleeper snapshot they are built from.
-
-## Two kinds of work — know which one you are doing
-
-**Build changes** — anything that alters what `python -m lotg` produces. These
-follow the phase workflow and the mandatory 3-part audit in
-`plan/MASTER_TODO.md`. Read that before changing build code.
-
-**Inquiries** — questions answered *from* the committed data ("who has the most
-X", "would Y still have won without that trade"). These are read-only: they must
-not change `exports/`, `data/`, the workflows, or any build output.
-
-**An inquiry is answered in chat, fast — then you ask.** Target 15-30 seconds
-for a stat check that `scripts/fast.py` covers (next section — go straight
-there), under a minute when it needs a new column or a scratch script, under 3
-minutes otherwise. The note in `plan/notes/`, the new
-helper in `lib/`, the tests and the PR are a *second phase* that starts only
-when the asker says they want it. Do not open a PR for a question. (`pip install
-pandas` is the one setup step; skip `requirements.txt`, it pulls ortools.)
-
-**The 3 minutes is a target; accuracy is the constraint.** They rarely conflict
-— the playbook's accuracy floor (read the trap list, reconcile against a build
-number where one exists, state what is unverified, keep the caveats) costs
-seconds — and for a `fast.py` stat check it is already met: the traps that
-apply are listed in the next section, the tool is reconciled against build
-columns in `tests/test_fast.py`, and its output prints the caveats. What's
-expensive is *proving* an answer to the next reader, not getting it right.
-Where they do conflict, take the extra minute and say why.
-
-### Stat checks: one command, then answer (target 15-30 seconds)
+## Stat checks first: ONE tool call, then answer (target 15 seconds)
 
 Most questions are a count, a rank or a lookup ("most starters over 18 in a
 loss", "anyone ever bench 4+ over 20", "where does 44.2 rank", "is X close to
 it before the late window", "when did I last have a 40"). For those, do NOT
 read or grep the playbook and do NOT run `--help` — every flag is listed
-below. Run the command and answer from its output, which
+below. Make ONE Bash call — chain every part of the question with `::`
+(`fast.py count 20 --bench :: count 20 --bench --no-qb`), one process, one
+Sleeper fetch — then answer in a few lines. Its output
 prints its own caveats (strict `>` vs `>=` borderline rows, every week type
 counted, lineup size by season, as-of week, live = raw Sleeper / leading-now):
 
@@ -81,6 +47,43 @@ the exports** through the last finalized week; `Year` is TEXT in
 non-starter, taxi and IR included** (no weekly taxi flag exists). Name the
 as-of week.
 Reach for the playbook when `fast.py` does not cover the question.
+
+
+## What this is
+
+A cloud-only pipeline that pulls the league's history from Sleeper (plus an ESPN
+backfill for 2020) and exports it as the CSV/Excel tables described in
+`plan/LOTG Plan - Sheet1.csv`. It runs on GitHub Actions; there is no local
+setup. `python -m lotg` (`src/lotg.py`) is the build; `lib/lotg_support/` holds
+its supporting modules; `exports/` holds the committed outputs and the raw
+Sleeper snapshot they are built from.
+
+## Two kinds of work — know which one you are doing
+
+**Build changes** — anything that alters what `python -m lotg` produces. These
+follow the phase workflow and the mandatory 3-part audit in
+`plan/MASTER_TODO.md`. Read that before changing build code.
+
+**Inquiries** — questions answered *from* the committed data ("who has the most
+X", "would Y still have won without that trade"). These are read-only: they must
+not change `exports/`, `data/`, the workflows, or any build output.
+
+**An inquiry is answered in chat, fast — then you ask.** Target 15-30 seconds
+for a stat check that `scripts/fast.py` covers (top section — go straight
+there), under a minute when it needs a new column or a scratch script, under 3
+minutes otherwise. The note in `plan/notes/`, the new
+helper in `lib/`, the tests and the PR are a *second phase* that starts only
+when the asker says they want it. Do not open a PR for a question. (`pip install
+pandas` is the one setup step; skip `requirements.txt`, it pulls ortools.)
+
+**The 3 minutes is a target; accuracy is the constraint.** They rarely conflict
+— the playbook's accuracy floor (read the trap list, reconcile against a build
+number where one exists, state what is unverified, keep the caveats) costs
+seconds — and for a `fast.py` stat check it is already met: the traps that
+apply are listed in the top section, the tool is reconciled against build
+columns in `tests/test_fast.py`, and its output prints the caveats. What's
+expensive is *proving* an answer to the next reader, not getting it right.
+Where they do conflict, take the extra minute and say why.
 
 **Start any other inquiry at `plan/INQUIRY_PLAYBOOK.md`.** It documents the tools that
 exist for exactly this — `scripts/inquire.py` for finding/filtering/ranking
