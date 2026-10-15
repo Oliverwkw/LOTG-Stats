@@ -6545,7 +6545,7 @@ def build_all(repo_root: Path) -> None:
                                 pass
 
                     # Max PF: use proven algorithm (Apps Script parity)
-                    max_pf = compute_optimal_lineup(ppts, pid_pos, season)
+                    max_pf = compute_optimal_lineup(ppts, pid_pos, season, week=wk)
                     # Sanity check: if a team scored points, Max PF must be > 0 (otherwise per-player points were lost).
                     if (pf or 0.0) > 0.0 and (max_pf or 0.0) <= 0.0:
                         _log(

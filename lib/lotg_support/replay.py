@@ -486,8 +486,8 @@ def _score_weeks(scenario: Scenario, meta: Q.SeasonMeta,
             if scenario.model == "ceiling":
                 real_pool = {p: points.get(p, 0.0) for p in row.players}
                 cf_pool = {p: points.get(p, 0.0) for p in roster}
-                delta = (compute_optimal_lineup(cf_pool, positions, scenario.season)
-                         - compute_optimal_lineup(real_pool, positions, scenario.season))
+                delta = (compute_optimal_lineup(cf_pool, positions, scenario.season, week=wk)
+                         - compute_optimal_lineup(real_pool, positions, scenario.season, week=wk))
                 scores[wk][rid] = round(row.points + delta, 2)
                 continue
 
@@ -674,7 +674,7 @@ def check_max_pf(season: int) -> List[str]:
             if want is None:
                 continue
             got = compute_optimal_lineup({p: row.players_points.get(p, 0.0) for p in row.players},
-                                         positions, season)
+                                         positions, season, week=wk)
             if abs(got - want) > 0.02:
                 problems.append(f"{season} week {wk} {teams.get(rid)}: Max PF {got:.2f} != {want:.2f}")
     return problems
