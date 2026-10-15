@@ -70,6 +70,30 @@ as 9; a team listed with two blown leads called "once").
 Reach for the playbook when `fast.py` does not cover the question.
 
 
+## Trade questions: ONE `scripts/trade.py` call, then a web search for news
+
+"Should X take this trade?" starts from one command (about 10 s; the first run
+in a fresh container adds ~8 s to calibrate the forecast, then it is cached):
+
+```bash
+python scripts/trade.py shmuel256 --give "Christian McCaffrey" --get "A.J. Brown,Chuba Hubbard" --give-pick "2029 3rd"
+# scenarios in the same call: --rate "Name=PPG" (forecast rate) / --healthy "Name" (drop IR/Out caps); chain with ::
+python scripts/trade.py shmuel256 --give "Christian McCaffrey" --get "A.J. Brown,Chuba Hubbard" :: \
+  shmuel256 --give "Christian McCaffrey" --get "A.J. Brown,Chuba Hubbard" --rate "Chuba Hubbard=16" --healthy "A.J. Brown"
+```
+
+It prints the moving players (this season vs the two before, and the
+forecast's rate, availability and IR/designation for each), KTC now vs a month
+ago (one small input — Oliver's rule), standings, both teams' position depth
+before/after, and title/finals/playoff odds and weekly points before -> after
+for every team, then the caveats. Read the caveats: they name each player whose
+forecast rate disagrees with this season by 4+ PPG and each IR-capped player,
+with the override to try. The forecast reads no news, so do ONE web search on
+the players the caveats flag — their injury timeline AND their role (who left
+or got hurt in that backfield / WR room; a 2026 PPG far above the forecast is
+often a new role, not a hot streak) — then answer. `--no-forecast` / `--no-ktc`
+skip those parts. It wraps the forecast without editing it (tests/test_trade.py).
+
 ## What this is
 
 A cloud-only pipeline that pulls the league's history from Sleeper (plus an ESPN
