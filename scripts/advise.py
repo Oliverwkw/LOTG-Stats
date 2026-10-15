@@ -89,7 +89,7 @@ def cmd_startsit(args):
 def cmd_waivers(args):
     lg, b = _ctx()
     team = _team(args.team)
-    _head(lg, f"WAIVERS {team} (FAAB left {lg.budget_left.get(team, '?')})")
+    _head(lg, f"WAIVERS {team} (FAAB left {lg.budget_left.get(team, '?')} of 100)")
     pos = [p.strip() for p in args.pos.split(",")] if args.pos else None
     top, drops = A.waivers(b, lg, team, args.n, pos)
     print("free agents, by weekly points they add to your best lineup:")
@@ -97,10 +97,13 @@ def cmd_waivers(args):
     print("\ndrop candidates (least lineup value lost on season PPG; taxi/IR excluded):")
     print(drops.fillna("").to_string(index=False))
     left = sorted(lg.budget_left.items(), key=lambda kv: -kv[1])
-    print("\nFAAB left: " + ", ".join(f"{t} {v}" for t, v in left))
+    print("\nFAAB left (of a 100 budget): " + ", ".join(f"{t} {v}" for t, v in left))
     _common_caveats(lg)
     print("# drop cost is THIS season's weekly lineup value only — dynasty value (age, role, KTC, superflex QB scarcity)"
           " is not in it; never call a drop from this column alone")
+    print("# FAAB: the league plays a 100 budget with house rules (Oliver, 2026-10-15); Sleeper's setting says 10000, so"
+          " 'left' = 10000 minus Sleeper's used count, which lands on the 100 scale (every team 0-100 since 2024)."
+          " House rules are not modelled: never quote a bid against 10000, and check the rules before advising a bid")
     print("# season basis averages players with <3 games with last season / the projection (small samples)")
     print("# +lineup = best-lineup points with him added minus without (0 = he would not start for you); "
           "a bench-depth / handcuff / bye-cover add can still be right at 0 — say so")
