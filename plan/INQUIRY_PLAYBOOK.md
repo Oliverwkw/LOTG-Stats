@@ -78,7 +78,7 @@ is much cheaper than the full treatment.
 ### What phase one actually looks like
 
 "Give all 8 teams by avg age (current rosters)" — a question with no sheet to
-read it off (the exports stop at the last completed season) and no primitive
+read it off (current rosters are not an export row) and no primitive
 when it was first asked. Phase one was still four steps:
 
 ```bash
@@ -119,6 +119,7 @@ the answer, not a silent choice.
 
 | Tool | For |
 |---|---|
+| `scripts/fast.py` (`lotg_support.fast`, `lotg_support.live`) | **start here for a stat check**: per-team-week counts of players over a line (starter / bench / any, positions, win / loss, at any stage of the week such as "entering the late window"), where a value would rank in any column, the live week straight from Sleeper placed against history, and a one-expression `q` over preloaded typed frames. Every output carries its caveats. Reconciled in `tests/test_fast.py` against `Margin entering SNF/Monday` and player_week `Points` |
 | `scripts/inquire.py` (`lotg_support.inquiry`) | finding, filtering and ranking anything in the fourteen export sheets, and reading the raw Sleeper snapshot |
 | `scripts/whatif.py` (`lotg_support.replay`) | counterfactual seasons: rewind a trade (3-team deals included) — or a whole sequence of them — or move a player, replay every week under four lineup models (incl. the `Wins added` rule), re-seed, re-run the bracket |
 | `lotg_support.analysis` (via `inquire.py group/stacks/compare/compare-all/correlate/stretch/streaks/timeline/ownership/scarcity/spend/age`) | the joins and comparisons a judgement question needs: position attached to any sheet, roster-group depth, lineup composition, cohort tests with FDR control, arbitrary time windows, runs beating / missing a projection, entity timelines, who owned whom and in what order, positional scarcity, spend vs return, roster age (including the in-progress season) |
@@ -846,7 +847,10 @@ list is here so an answer written by hand does not walk into them.
 - **2020 has exports but no snapshot.** It came from the ESPN backfill, so
   anything snapshot-based must skip it: `season_meta(2020).has_snapshot` is
   False and `replay()` refuses it by name.
-- **The in-progress season is the mirror image: snapshot, no exports.** The
+- **The in-progress season is the mirror image: snapshot first, exports only
+  for finalized weeks.** Once games are played the exports carry the season's
+  rows through the last finalized week (`Q.finalized_week`), never the week in
+  progress — that is `scripts/fast.py live`. The
   build emits no `team_week` rows for a preseason week, so any "as of now"
   question (roster age, who is on which roster) has to come from
   `exports/snapshot/season_<current>/`, and any test asserting against it must

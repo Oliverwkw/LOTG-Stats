@@ -21,8 +21,10 @@ follow the phase workflow and the mandatory 3-part audit in
 X", "would Y still have won without that trade"). These are read-only: they must
 not change `exports/`, `data/`, the workflows, or any build output.
 
-**An inquiry is answered in chat, fast — then you ask.** Target under 3 minutes
-to the number itself, scratch script and all. The note in `plan/notes/`, the new
+**An inquiry is answered in chat, fast — then you ask.** Target 15-30 seconds
+for a stat check that `scripts/fast.py` covers (next section — go straight
+there), under a minute when it needs a new column or a scratch script, under 3
+minutes otherwise. The note in `plan/notes/`, the new
 helper in `lib/`, the tests and the PR are a *second phase* that starts only
 when the asker says they want it. Do not open a PR for a question. (`pip install
 pandas` is the one setup step; skip `requirements.txt`, it pulls ortools.)
@@ -30,10 +32,57 @@ pandas` is the one setup step; skip `requirements.txt`, it pulls ortools.)
 **The 3 minutes is a target; accuracy is the constraint.** They rarely conflict
 — the playbook's accuracy floor (read the trap list, reconcile against a build
 number where one exists, state what is unverified, keep the caveats) costs
-seconds, because what's expensive is *proving* an answer to the next reader, not
-getting it right. Where they do conflict, take the extra minute and say why.
+seconds — and for a `fast.py` stat check it is already met: the traps that
+apply are listed in the next section, the tool is reconciled against build
+columns in `tests/test_fast.py`, and its output prints the caveats. What's
+expensive is *proving* an answer to the next reader, not getting it right.
+Where they do conflict, take the extra minute and say why.
 
-**Start an inquiry at `plan/INQUIRY_PLAYBOOK.md`.** It documents the tools that
+### Stat checks: one command, then answer (target 15-30 seconds)
+
+Most questions are a count, a rank or a lookup ("most starters over 18 in a
+loss", "anyone ever bench 4+ over 20", "where does 44.2 rank", "is X close to
+it before the late window", "when did I last have a 40"). For those, do NOT
+read or grep the playbook and do NOT run `--help` — every flag is listed
+below. Run the command and answer from its output, which
+prints its own caveats (strict `>` vs `>=` borderline rows, every week type
+counted, lineup size by season, as-of week, live = raw Sleeper / leading-now):
+
+```bash
+python scripts/fast.py count 18 --loss                          # starters over 18, losses, ranked
+python scripts/fast.py count 18 --loss --entering late --live --team Oliverwkw  # league top + the team's best + NOW, with who is left to play before 4pm
+python scripts/fast.py count 20 --bench --no-qb                 # bench; --any / --pos WR,TE / --ge / --team / --year
+python scripts/fast.py rank player_week Points 44.2 --where Starter/Bench=Starter
+python scripts/fast.py live --team Oliverwkw                    # live scoreboard: starters, slots, kickoff status
+python scripts/fast.py q "pw[(pw.Team=='Oliverwkw')&(pw.Points>=40)].tail(3)"   # any pandas expression
+```
+
+All `count` flags: `THRESHOLD`, `--bench | --any` (default starters),
+`--pos QB,WR`, `--no-qb`, `--ge` (default strict `>`), `--loss | --win`,
+`--entering late|early|morning|SNF|Monday|Thursday|<any game slot>`,
+`--team T` (filters the table), `--year 2025,2026` (filters history), `--live`
+(Sleeper's current week placed against history — use it for any "now" / "this
+week" question, even before kickoff; `--season/--week` only pick which week
+`--live` reads, `--snapshot` reads the committed copy), `-n N` (rows; ties at the cut kept).
+`rank SHEET COLUMN VALUE [--where COL=V ...] [--low] [-n N]`; `--where` takes
+`=`, `!=`, `<`, `>`, `<=`, `>=`, `~regex`. `live [--team T] [--bench]`.
+
+`q` preloads `pw` (player_week typed — Year/Week int, Points float, Win? bool —
+with Opponent/Margin/PF joined), `lpw` (pw + the live week), `live`, `tw`/`ty`/
+`py`/`pa`/any sheet name (text; `num(df, col)` for numbers). pandas is already
+installed in the cloud container; Sleeper's API is reachable from it.
+
+The traps that matter for these (the full list is in the playbook): **team
+`PF` includes the semifinal +5** (players' `Points` and live Sleeper points do
+not); **lineups were 9 starters 2020-23, 10 from 2024**; **2026 rows are in
+the exports** through the last finalized week; `Year` is TEXT in
+`inquire`/`Q.load_sheet` frames (`pw` in `fast.py` is typed); live `Win?` means
+"leading now" and game status is a kickoff-clock guess; **bench = every
+non-starter, taxi and IR included** (no weekly taxi flag exists). Name the
+as-of week.
+Reach for the playbook when `fast.py` does not cover the question.
+
+**Start any other inquiry at `plan/INQUIRY_PLAYBOOK.md`.** It documents the tools that
 exist for exactly this — `scripts/inquire.py` for finding/filtering/ranking
 across the fourteen export sheets and the raw snapshot (including over-inclusive
 sweeps that rank on every column rather than a curated few), `lotg_support.analysis`
