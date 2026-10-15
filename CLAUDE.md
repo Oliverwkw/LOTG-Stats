@@ -62,6 +62,10 @@ the exports** through the last finalized week; `Year` is TEXT in
 "leading now" and game status is a kickoff-clock guess; **bench = every
 non-starter, taxi and IR included** (no weekly taxi flag exists). Name the
 as-of week.
+**Let pandas do every count** ("more than once", "how many times", "who has
+the most"): end the `q` with `.value_counts()` / `groupby(...).size()` and quote
+that, never a tally of printed rows. Benchmarks miscounted rows twice (14 read
+as 9; a team listed with two blown leads called "once").
 Reach for the playbook when `fast.py` does not cover the question.
 
 
