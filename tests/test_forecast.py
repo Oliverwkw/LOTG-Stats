@@ -556,6 +556,32 @@ def test_as_of_week_rewinds_the_clock():
     assert max(o.champion for o in mid.odds) >= max(o.champion for o in pre.odds) - 5.0
 
 
+def test_the_projection_prices_the_rosters_still_to_play():
+    """Mid-season, the projection must use today's rosters, not week 1's.
+
+    Until 2026-10-15 every forecast projected week 1's rosters, so a trade made
+    after kickoff never reached the odds. The roster week is the first week the
+    forecast does not know: week 1 preseason, the week after the cutoff when
+    rewound, the week after the last finalized one live.
+    """
+    if not _HAVE_DATA:
+        return _skip("no exports/snapshot")
+    year = _seasons()[-1]
+    assert F.roster_week(year, as_of_week=0) == 1, "preseason must stay on week 1"
+    assert F.roster_week(year, as_of_week=8) == 9
+    assert 1 <= F.roster_week(year) <= Q.season_meta(year).last_week
+    moved = [rid for rid, pids in F.startable_pool(year, 9).items()
+             if set(pids) != set(F.startable_pool(year, 1).get(rid, ()))]
+    assert moved, f"no {year} roster changed between week 1 and week 9, so this proves nothing"
+    mid = F.forecast(year, sims=200, as_of_week=8,
+                     availability=F._backtest_availability(F.AvailabilityModel()))
+    assert mid.roster_week == 9, mid.roster_week
+    live = _live_season()
+    if live is not None and Q.played_weeks(live):
+        assert F.roster_week(live) == max(Q.played_weeks(live)) + 1, \
+            "a live forecast must project the rosters of the next week to play"
+
+
 def test_the_forecast_beats_guessing_on_seasons_that_happened():
     """The only test of the probabilities rather than the machinery."""
     if not _HAVE_DATA:
@@ -657,6 +683,7 @@ TESTS = [
     test_the_same_seed_gives_the_same_answer,
     test_an_unknown_strength_model_is_refused,
     test_as_of_week_rewinds_the_clock,
+    test_the_projection_prices_the_rosters_still_to_play,
     test_the_forecast_beats_guessing_on_seasons_that_happened,
     test_the_backtest_is_actually_out_of_sample,
     test_a_uniform_forecast_is_exactly_as_confident_as_it_should_be,

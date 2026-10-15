@@ -106,7 +106,7 @@ from . import replay as R
 __all__ = [
     "RateModel", "AvailabilityModel", "Calibration", "TeamOdds", "Forecast",
     "Schedule", "schedule", "age_curve", "rookie_price", "rookie_class_strength", "player_rates",
-    "availability_rates", "startable_pool", "fielded_distribution",
+    "availability_rates", "startable_pool", "roster_week", "fielded_distribution",
     "ResearchNote", "research_overrides", "research_path", "check_research_file",
     "roster_projection", "calibrate", "forecast",
     "Backtest", "BacktestRow", "backtest", "render_backtest", "check_beats_uniform",
@@ -661,6 +661,35 @@ def startable_pool(year: int, week: int = 1,
     return out
 
 
+def roster_week(year: int, as_of_week: Optional[int] = None) -> int:
+    """The week whose rosters a forecast projects: the first week it does not know.
+
+    The projection prices the rosters that will play the weeks still to be
+    simulated. Week 1's rosters are right only before kickoff: once weeks are
+    played, every trade, waiver claim and cut since then belongs in it. (Until
+    2026-10-15 the forecast always used week 1, so mid-season odds ignored
+    every move made after kickoff.)
+
+    Live, that is the week after the last finalized one; its matchup file is
+    the snapshot's current rosters. Rewound with `as_of_week`, it is the week
+    after the cutoff, so a backtest sees only rosters that existed by then, and
+    `as_of_week=0` is still week 1. A played-out season clamps to its last week
+    with a matchup file — it is a lookup there and the projection does not
+    decide anything.
+    """
+    meta = Q.season_meta(year)
+    known = [w for w in Q.played_weeks(year)
+             if as_of_week is None or w <= int(as_of_week)]
+    target = min((max(known) + 1) if known else 1, meta.last_week)
+    for wk in range(target, 0, -1):
+        try:
+            Q.week(year, wk)
+        except FileNotFoundError:
+            continue
+        return wk
+    return 1
+
+
 @dataclass
 class FieldedDistribution:
     """What a roster is expected to field, week to week, once injuries bite."""
@@ -997,6 +1026,7 @@ class Forecast:
     rookie_class: Dict[str, float] = field(default_factory=dict)
     schedule: Optional[Schedule] = None
     warnings: List[str] = field(default_factory=list)
+    roster_week: int = 1                          # whose rosters the projection used
 
     def by_champion(self) -> List[TeamOdds]:
         return sorted(self.odds, key=lambda o: -o.champion)
@@ -1076,7 +1106,8 @@ def forecast(year: int, sims: int = 20000, model: RateModel = RateModel(),
     calib = calibration or calibrate(model=model, availability=availability)
     warnings: List[str] = []
 
-    proj = fielded_distribution(year, model, availability, seed=seed + 1)
+    rweek = roster_week(year, as_of_week)
+    proj = fielded_distribution(year, model, availability, week=rweek, seed=seed + 1)
     warnings.extend(proj.warnings)
 
     if strength_model == "roster":
@@ -1186,6 +1217,7 @@ def forecast(year: int, sims: int = 20000, model: RateModel = RateModel(),
     return Forecast(year=year, model_name=strength_model, rate_model=model,
                     availability_model=availability, calibration=calib, sims=sims, seed=seed,
                     played_weeks=tuple(sorted(observed)), as_of_week=as_of_week, odds=odds,
+                    roster_week=rweek,
                     rookie_price=rookie_price(None, model),
                     age_curve=age_curve(None, model) if model.age_adjust else None,
                     rookie_class=rookie_class_strength(year), schedule=sched,
@@ -1640,7 +1672,8 @@ def render(fc: Forecast, seeds: bool = False, detail: bool = False) -> str:
     played = (f"weeks {min(fc.played_weeks)}-{max(fc.played_weeks)} played"
               if fc.played_weeks else "preseason, no weeks played")
     lines = [
-        f"{fc.year} championship odds — {fc.model_name} model, {fc.sims:,} sims ({played})",
+        f"{fc.year} championship odds — {fc.model_name} model, {fc.sims:,} sims ({played}, "
+        f"week {fc.roster_week} rosters)",
         f"  rates:        {fc.rate_model.label()}",
         f"  availability: {fc.availability_model.label()}",
         f"  calibration on {', '.join(str(y) for y in c.seasons)}: n={c.n} "
