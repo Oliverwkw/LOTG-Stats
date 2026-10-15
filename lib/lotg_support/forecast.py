@@ -78,14 +78,32 @@ this is asserting its own confidence.
 
 What is still *not* modelled, and no answer from here may pretend otherwise:
 
-- **in-season trades, waivers and drops** — the roster is frozen as it stands;
+- **future trades, waivers and drops** — the roster is frozen as it stands
+  (it is the current one: `roster_week`);
 - **NFL-side matchup quality** — which defence a player draws in a given week.
   The committed data has no NFL schedule or team-defence table, so weekly
   opponent adjustments are out of reach here, not merely unimplemented;
 - **NFL depth-chart news** the exports do not contain (holdouts, camp battles,
   a rookie's landing spot) beyond what KTC's market price already reflects;
 - **correlated byes** — a roster stacked on one NFL team loses them together.
-  Availability draws are independent, so that cost is missed.
+  Byes are not simulated at all, and players are injured independently of
+  their teammates;
+- **injury news the data cannot see** — a designated-to-return or "expected
+  back this week" report. An injured player returns on the league-wide curve
+  for how long he has been out; the research file is the place to override
+  it with a dated, sourced availability.
+
+**In season** (since 2026-10-15): once weeks are played, each player's rate
+is updated with this season's games (`RateModel.in_season_weight`), and
+injuries are simulated as multi-week spells along one consecutive path per
+simulated season (`AvailabilityModel.injury_spells`, `injury_model`) —
+starting from who is out right now, per the league's own `player_week`.
+Rewound to weeks 4/8/11 over 2021-2025 (each season out of its own fits),
+champion log-loss moved 1.60/1.30/1.28 -> 1.57/1.22/1.23 and champion Brier
+0.740/0.700/0.686 -> 0.739/0.655/0.665, while the expected-wins error rose
+1.41/1.09/0.83 -> 1.45/1.18/0.86 and playoff Brier stayed within 0.003. Five
+seasons is a small sample; read it as "helps the title odds a little, costs
+the win totals a little", not as proof.
 """
 
 from __future__ import annotations
@@ -106,7 +124,8 @@ from . import replay as R
 __all__ = [
     "RateModel", "AvailabilityModel", "Calibration", "TeamOdds", "Forecast",
     "Schedule", "schedule", "age_curve", "rookie_price", "rookie_class_strength", "player_rates",
-    "availability_rates", "startable_pool", "roster_week", "fielded_distribution",
+    "availability_rates", "startable_pool", "player_prior_games", "in_season_evidence",
+    "blend_in_season", "InjuryModel", "injury_model", "weeks_missed", "roster_week", "fielded_distribution",
     "ResearchNote", "research_overrides", "research_path", "check_research_file",
     "roster_projection", "calibrate", "forecast",
     "Backtest", "BacktestRow", "backtest", "render_backtest", "check_beats_uniform",
@@ -146,6 +165,25 @@ class RateModel:
     rookie_pricing "ktc" prices a rookie from his draft-day market value;
                    "slot" uses the historical mean for his pick range.
     undrafted_ppg  a player with neither history nor a draft slot.
+    in_season_weight
+                   once weeks are played, each of this season's available games
+                   counts this many times against the preseason rate's own
+                   evidence (its weighted prior games plus `shrink_games`).
+                   3.0 is measured: rewinding 2022-2025 to weeks 2/4/6/8/10 and
+                   predicting each player's remaining weeks-1-14 points per
+                   available game, RMSE falls from 4.01/4.25/4.53/4.82/5.30
+                   (0, the preseason rate alone) to 3.76/3.90/4.09/4.31/4.82,
+                   and 3 is the minimum at every cutoff (2 and 4 within 0.02).
+                   0 switches it off.
+    drop_injury_games
+                   leave out the game a player got hurt in (he played, then
+                   missed his next week). Those games average 73% of the
+                   player's season rate (649 of them, 2021-2025), which makes
+                   dropping them look obviously right — but measured as above
+                   it is slightly WORSE at every cutoff (RMSE +0.01 to +0.05):
+                   the rate is points per game played, and future games get
+                   cut short at the same natural frequency. Off by default;
+                   kept for sensitivity checks.
     """
     weights: Tuple[float, ...] = (0.65, 0.35)
     halflife: Optional[float] = 8.0
@@ -155,12 +193,15 @@ class RateModel:
     age_shrink: float = 100.0
     rookie_pricing: str = "ktc"
     undrafted_ppg: float = 3.0
+    in_season_weight: float = 3.0
+    drop_injury_games: bool = False
 
     def label(self) -> str:
         w = "/".join(f"{x:g}" for x in self.weights)
         return (f"weights={w} halflife={self.halflife or 'flat'} "
                 f"shrink={self.shrink_games:g} prior_games={self.prior_games} "
-                f"age={'on' if self.age_adjust else 'off'} rookies={self.rookie_pricing}")
+                f"age={'on' if self.age_adjust else 'off'} rookies={self.rookie_pricing} "
+                f"in_season={self.in_season_weight:g}")
 
 
 @dataclass(frozen=True)
@@ -207,6 +248,16 @@ class AvailabilityModel:
                    skill. 1.0 disables it.
     draws          availability draws per team when building the fielded-lineup
                    distribution.
+    injury_spells  once weeks are played, simulate injuries as multi-week
+                   spells instead of independent weekly coin flips
+                   (`injury_model`): a player who is out now starts the
+                   forecast out and comes back on the league's own return
+                   curve for however long he has already missed, and a healthy
+                   player can get hurt and stay out for several weeks. Each
+                   simulated season is one path, so a team that loses a star in
+                   week 9 is without him in the playoffs too. Replaces
+                   `reserve_availability` for flagged players while it is on;
+                   the preseason keeps the independent draws.
     """
     lookback: int = 2
     shrink_weeks: float = 10.0
@@ -216,6 +267,7 @@ class AvailabilityModel:
     research: bool = True
     unsigned_availability: float = 0.35
     draws: int = 3000
+    injury_spells: bool = True
 
     def uses_designations(self, year: int) -> bool:
         if self.designations == "always":
@@ -233,7 +285,8 @@ class AvailabilityModel:
         return (f"shrink={self.shrink_weeks:g}w taxi={'out' if self.exclude_taxi else 'in'} "
                 f"reserve={self.reserve_availability:.2f} designations={self.designations} "
                 f"research={'on' if self.research else 'off'} "
-                f"unsigned={self.unsigned_availability:.2f}")
+                f"unsigned={self.unsigned_availability:.2f} "
+                f"spells={'on' if self.injury_spells else 'off'}")
 
 
 # ---------------------------------------------------------------------------
@@ -249,11 +302,21 @@ def _player_week() -> pd.DataFrame:
     df["Age"] = pd.to_numeric(df["Age"], errors="coerce")
     df["Year"] = pd.to_numeric(df["Year"], errors="coerce").astype("Int64")
     df["Week"] = pd.to_numeric(df["Week"], errors="coerce").astype("Int64")
-    return df.sort_values(["Player", "Year", "Week"])
+    df = df.sort_values(["Player", "Year", "Week"])
+    # The game a player got hurt in: he played, and his next non-bye week he
+    # was out. `NextWeek` says when that became knowable, so a cutoff before it
+    # cannot use it.
+    played = df[~df["Bye?"]]
+    nxt = played.groupby(["Player", "Year"], sort=False)
+    df["NextHurt"] = nxt["Hurt"].shift(-1).reindex(df.index).fillna(False).astype(bool)
+    df["NextWeek"] = nxt["Week"].shift(-1).reindex(df.index)
+    df["InjuryGame"] = df["Available"] & df["NextHurt"]
+    return df
 
 
 @functools.lru_cache(maxsize=None)
-def _season_rates(year: int, halflife: Optional[float], root: str) -> pd.DataFrame:
+def _season_rates(year: int, halflife: Optional[float], root: str,
+                  drop_injury_games: bool = False) -> pd.DataFrame:
     """games, recency-weighted mean points and age, per player, for one season.
 
     Weeks the player was unavailable are excluded: a rate is what he scores when
@@ -263,6 +326,8 @@ def _season_rates(year: int, halflife: Optional[float], root: str) -> pd.DataFra
     """
     df = _player_week()
     d = df[(df["Year"] == year) & df["Available"]].dropna(subset=["Points"])
+    if drop_injury_games:
+        d = d[~d["InjuryGame"]]
     rows = {}
     for name, g in d.groupby("Player", sort=False):
         pts = g["Points"].to_numpy(float)
@@ -500,7 +565,7 @@ def player_rates(year: int, model: RateModel = RateModel(),
     root = str(Q.repo_root())
     hl = model.halflife
     seasons = [(year - i - 1, w) for i, w in enumerate(model.weights)]
-    rates = [(_season_rates(y, hl, root), w) for y, w in seasons]
+    rates = [(_season_rates(y, hl, root, model.drop_injury_games), w) for y, w in seasons]
 
     positions: Dict[str, str] = {}
     ages: Dict[str, float] = {}
@@ -540,6 +605,197 @@ def player_rates(year: int, model: RateModel = RateModel(),
             value += curve.adjust(pos, ages.get(name, float("nan")))
         out[name] = max(value, 0.0)
     return out
+
+
+def player_prior_games(year: int, model: RateModel = RateModel()) -> Dict[str, float]:
+    """{player name: season-weighted prior games behind his `player_rates` value}.
+
+    The weight of evidence the preseason rate already carries, so this season's
+    games can be mixed in against it rather than against a fixed constant.
+    """
+    root = str(Q.repo_root())
+    out: Dict[str, float] = {}
+    for i, weight in enumerate(model.weights):
+        frame = _season_rates(year - i - 1, model.halflife, root, model.drop_injury_games)
+        for name in frame.index:
+            out[name] = out.get(name, 0.0) + float(frame.loc[name, "count"]) * weight
+    return out
+
+
+@functools.lru_cache(maxsize=None)
+def _in_season_cached(year: int, through_week: int, halflife: Optional[float],
+                      root: str, drop_injury_games: bool = False
+                      ) -> Dict[str, Tuple[int, float]]:
+    df = _player_week()
+    d = df[(df["Year"] == year) & (df["Week"] <= through_week) & df["Available"]]
+    d = d.dropna(subset=["Points"])
+    if drop_injury_games:
+        # only once the missed week that marks it is itself inside the cutoff
+        d = d[~(d["InjuryGame"] & (pd.to_numeric(d["NextWeek"]) <= through_week))]
+    out: Dict[str, Tuple[int, float]] = {}
+    for name, g in d.groupby("Player", sort=False):
+        pts = g["Points"].to_numpy(float)
+        n = len(pts)
+        w = (0.5 ** ((n - 1 - np.arange(n)) / float(halflife))) if halflife else np.ones(n)
+        out[name] = (n, float((pts * w).sum() / w.sum()))
+    return out
+
+
+def in_season_evidence(year: int, through_week: int,
+                       model: RateModel = RateModel()) -> Dict[str, Tuple[int, float]]:
+    """{player name: (available games, recency-weighted points per game)} for
+    `year` weeks 1..`through_week` — what this season has shown so far.
+
+    Only weeks up to the cutoff, so a forecast rewound to week k cannot see
+    week k+1.
+    """
+    if through_week <= 0:
+        return {}
+    return _in_season_cached(int(year), int(through_week), model.halflife,
+                             str(Q.repo_root()), model.drop_injury_games)
+
+
+def blend_in_season(prior: float, prior_games: float, games: int, mean: float,
+                    model: RateModel = RateModel()) -> float:
+    """The preseason rate updated with this season's games (`in_season_weight`)."""
+    if games <= 0 or model.in_season_weight <= 0:
+        return prior
+    evidence = prior_games + model.shrink_games
+    added = model.in_season_weight * games
+    return float((prior * evidence + mean * added) / (evidence + added))
+
+
+# ---------------------------------------------------------------------------
+# Layer 3b: injuries last more than a week
+# ---------------------------------------------------------------------------
+@dataclass(frozen=True)
+class InjuryModel:
+    """How long injuries last in this league, fitted from `player_week`.
+
+    recovery[d-1]  P(a player who has missed d straight weeks plays the next
+                   one), d = 1..len(recovery); `tail` beyond that. Falls with
+                   d: a one-week knock is back 36% of the time next week, a
+                   player out eight weeks 5%. Censored at season end, so a
+                   spell still running in week 17 counts as at risk, not
+                   ended.
+    mean_duration  weeks missed per spell *inside a season* (hurt weeks /
+                   spells, ~3.3). This, not the curve's own expectation (~7, a
+                   long IR tail no season is long enough to finish), is what
+                   sets the new-injury rate: measured on 2022-2025 rewound to
+                   weeks 2/4/8 (each season left out of its own fit), the
+                   in-season figure predicts healthy players' remaining
+                   availability at 0.854/0.860/0.874 against 0.858/0.858/0.877
+                   actual, where the curve's figure says 0.93.
+    spells         spells the fit saw; seasons the seasons it used.
+
+    Measured the same way, against the flat model it replaces (independent
+    weeks, flagged players capped at 0.51): Brier on every remaining
+    player-week 0.1436/0.1460/0.1380 -> 0.1395/0.1429/0.1326 at weeks 2/4/8,
+    and for players out at the cutoff 0.248/0.248/0.250 -> 0.216/0.224/0.224,
+    with their predicted availability 0.596/0.541/0.487 against 0.597/0.596/
+    0.500 actual (the flat cap said 0.51 throughout).
+    """
+    recovery: Tuple[float, ...]
+    tail: float
+    mean_duration: float
+    spells: int
+    seasons: Tuple[int, ...]
+
+    def hazard(self, missed: np.ndarray) -> np.ndarray:
+        """P(return this week) for players who have missed `missed` weeks (0 -> 0)."""
+        table = np.array((0.0,) + self.recovery + (self.tail,))
+        return table[np.clip(missed, 0, len(self.recovery) + 1)]
+
+    def new_injury_hazard(self, availability: float) -> float:
+        """Weekly P(a healthy player gets hurt) that keeps long-run availability at
+        `availability`: healthy spells average 1/h weeks, hurt spells
+        `mean_duration`, so availability = (1/h) / (1/h + mean_duration)."""
+        a = min(max(float(availability), 0.05), 0.995)
+        return float(min((1.0 - a) / (a * self.mean_duration), 1.0))
+
+    def return_curve(self, missed: int, weeks: int) -> np.ndarray:
+        """P(available) in each of the next `weeks` weeks for a player who has
+        missed `missed` straight weeks, before any re-injury."""
+        out = np.empty(weeks)
+        still_out = 1.0
+        d = int(missed)
+        for t in range(weeks):
+            r = float(self.hazard(np.array([d]))[0])
+            out[t] = 1.0 - still_out * (1.0 - r)
+            still_out *= 1.0 - r
+            d += 1
+        return out
+
+
+@functools.lru_cache(maxsize=None)
+def _injury_model_cached(exclude: Optional[int], root: str, cap: int) -> InjuryModel:
+    df = _player_week()
+    seasons = tuple(y for y in Q.completed_seasons()
+                    if y >= 2021 and y != exclude)
+    d = df[df["Year"].isin(seasons) & ~df["Bye?"]]
+    at_risk = np.zeros(cap + 2)
+    ended = np.zeros(cap + 2)
+    n_spells = 0
+    for _, g in d.groupby(["Player", "Year"], sort=False):
+        hurt = g["Hurt"].to_numpy(bool)
+        weeks = g["Week"].to_numpy(int)
+        i = 0
+        while i < len(hurt):
+            if not hurt[i]:
+                i += 1
+                continue
+            j = i
+            # a spell is consecutive rostered weeks; a gap (dropped, re-added) ends it
+            while j + 1 < len(hurt) and hurt[j + 1] and weeks[j + 1] - weeks[j] <= 2:
+                j += 1
+            length = j - i + 1
+            censored = j == len(hurt) - 1 or weeks[j + 1] - weeks[j] > 2
+            n_spells += 1
+            for k in range(1, length + 1):
+                b = min(k, cap + 1)
+                if k < length or not censored:
+                    at_risk[b] += 1
+                if k == length and not censored:
+                    ended[b] += 1
+            i = j + 1
+    rec = tuple(float(ended[k] / at_risk[k]) if at_risk[k] else 0.0 for k in range(1, cap + 1))
+    tail = float(ended[cap + 1] / at_risk[cap + 1]) if at_risk[cap + 1] else 0.05
+    tail = max(tail, 0.01)
+    mean_dur = float(d["Hurt"].sum()) / max(n_spells, 1)
+    return InjuryModel(recovery=rec, tail=tail, mean_duration=float(mean_dur),
+                       spells=n_spells, seasons=seasons)
+
+
+def injury_model(exclude_from_fits: Optional[int] = None, cap: int = 8) -> InjuryModel:
+    """The league's injury-return curve, leaving `exclude_from_fits` out."""
+    return _injury_model_cached(exclude_from_fits, str(Q.repo_root()), int(cap))
+
+
+@functools.lru_cache(maxsize=None)
+def _weeks_missed_cached(year: int, through_week: int, root: str) -> Dict[str, int]:
+    df = _player_week()
+    d = df[(df["Year"] == year) & (df["Week"] <= through_week) & ~df["Bye?"]]
+    out: Dict[str, int] = {}
+    for name, g in d.groupby("Player", sort=False):
+        hurt = g["Hurt"].to_numpy(bool)
+        n = 0
+        for h in hurt[::-1]:
+            if not h:
+                break
+            n += 1
+        if n:
+            out[name] = n
+    return out
+
+
+def weeks_missed(year: int, through_week: int) -> Dict[str, int]:
+    """{player name: straight weeks missed to injury/suspension, as of `through_week`}
+    — only players whose latest non-bye week was missed. Built from the
+    league's own `player_week`, so it is history, not today's news, and a
+    rewound forecast may use it."""
+    if through_week <= 0:
+        return {}
+    return _weeks_missed_cached(int(year), int(through_week), str(Q.repo_root()))
 
 
 # ---------------------------------------------------------------------------
@@ -699,6 +955,7 @@ class FieldedDistribution:
     sd: Dict[int, float]
     samples: Dict[int, np.ndarray]
     healthy: Dict[int, float]                     # best lineup with everyone up
+    week_mean: Dict[int, np.ndarray] = field(default_factory=dict)  # per simulated week
     rookies: Dict[int, int] = field(default_factory=dict)
     sidelined: Dict[int, int] = field(default_factory=dict)
     unsigned: Dict[int, int] = field(default_factory=dict)
@@ -711,19 +968,65 @@ class FieldedDistribution:
         return self.healthy[rid] - self.mean[rid]
 
 
+def _injury_paths(rng: np.random.Generator, draws: int, weeks: int, p: np.ndarray,
+                  flat: np.ndarray, start: np.ndarray, model: InjuryModel) -> np.ndarray:
+    """(draws, weeks, players) availability, one consecutive path per draw.
+
+    `start` is -1 for a player healthy at the cutoff, else the weeks he has
+    already missed (0 = hurt but not yet missed a game). Healthy players get
+    hurt at the rate that keeps their long-run availability at `p`; hurt ones
+    return on the fitted curve. `flat` players (researched, unsigned) keep
+    independent weekly draws at `p`.
+    """
+    n = len(p)
+    hazard = np.array([model.new_injury_hazard(x) for x in p]) if n else np.zeros(0)
+    hurt = np.broadcast_to(start >= 0, (draws, n)).copy()
+    dur = np.broadcast_to(np.maximum(start, 0), (draws, n)).copy()
+    out = np.empty((draws, weeks, n), dtype=bool)
+    for t in range(weeks):
+        u = rng.random((draws, n))
+        back = hurt & (u < model.hazard(dur))
+        new = ~hurt & (u < hazard)
+        still = hurt & ~back
+        dur = np.where(still, dur + 1, np.where(new, 1, 0))
+        hurt = still | new
+        out[:, t, :] = np.where(flat, u < p, ~hurt)
+    return out
+
+
 def fielded_distribution(year: int, model: RateModel = RateModel(),
                          availability: AvailabilityModel = AvailabilityModel(),
                          week: int = 1, seed: int = 12026,
-                         exclude_from_fits: Optional[int] = None) -> FieldedDistribution:
+                         exclude_from_fits: Optional[int] = None,
+                         through_week: int = 0, horizon: int = 1) -> FieldedDistribution:
     """Simulate who is available each week and refill the lineup from the rest.
 
-    This is where depth stops being a word. Each draw knocks players out
-    independently at their own availability rate, and the lineup is rebuilt from
-    whoever is left using the build's own `compute_optimal_lineup` — so a team
-    that loses a starter and has nobody behind him drops further than a team
-    that does not, and its weekly spread is wider.
+    This is where depth stops being a word. Each draw knocks players out and
+    the lineup is rebuilt from whoever is left using the build's own
+    `compute_optimal_lineup` — so a team that loses a starter and has nobody
+    behind him drops further than a team that does not, and its weekly spread
+    is wider.
+
+    `through_week` is how much of `year` is known. 0 (preseason, and every
+    calibration fit) projects from prior seasons alone with independent weekly
+    draws. Once weeks are known, two things change:
+
+      * each player's rate is updated with this season's games
+        (`RateModel.in_season_weight`);
+      * with `AvailabilityModel.injury_spells`, availability is simulated as
+        `horizon` consecutive weeks per draw: a player out now starts out and
+        returns on `injury_model`'s curve, and new injuries last several
+        weeks. `samples` is then draws x weeks and `week_mean` the per-week
+        projection (it rises as injured players come back).
     """
     rates = player_rates(year, model, exclude_from_fits)
+    through_week = max(int(through_week), 0)
+    current = in_season_evidence(year, through_week, model) if through_week else {}
+    prior_games = player_prior_games(year, model) if current else {}
+    spells = bool(through_week) and availability.injury_spells
+    injuries = injury_model(exclude_from_fits=year) if spells else None
+    missed = weeks_missed(year, through_week) if spells else {}
+    horizon = max(int(horizon), 1) if spells else 1
     price = rookie_price(exclude_from_fits, model)
     board = _draft_board(str(Q.repo_root()))
     class_board = board[board.year == year].set_index("player")
@@ -742,6 +1045,7 @@ def fielded_distribution(year: int, model: RateModel = RateModel(),
     sd: Dict[int, float] = {}
     samples: Dict[int, np.ndarray] = {}
     healthy: Dict[int, float] = {}
+    week_mean: Dict[int, np.ndarray] = {}
     rookies: Dict[int, int] = {}
     sidelined: Dict[int, int] = {}
     unsigned_count: Dict[int, int] = {}
@@ -754,6 +1058,8 @@ def fielded_distribution(year: int, model: RateModel = RateModel(),
         values: Dict[str, float] = {}
         pos_map: Dict[str, str] = {}
         probs: List[float] = []
+        flats: List[bool] = []
+        starts: List[int] = []
         n_rookie = n_out = n_unplaced = n_unsigned = n_researched = 0
         reserve = state.get(rid, {}).get("reserve", frozenset())
         for pid in pids:
@@ -769,34 +1075,71 @@ def fielded_distribution(year: int, model: RateModel = RateModel(),
             else:
                 values[pid] = model.undrafted_ppg
                 n_unplaced += 1
+            if name in current:
+                games, ppg = current[name]
+                values[pid] = blend_in_season(values[pid], prior_games.get(name, 0.0),
+                                              games, ppg, model)
             p = avail.get(name, base.get(pos, base.get("_default", 0.82)))
-            if use_flags and (pid in reserve or designations.get(pid, "") in OUT_DESIGNATIONS):
+            flagged = use_flags and (pid in reserve
+                                     or designations.get(pid, "") in OUT_DESIGNATIONS)
+            out_now = -1                      # -1 healthy, else weeks already missed
+            if spells:
+                if name in missed:
+                    out_now = missed[name]
+                    # Sleeper has him active with no designation at all: he is back
+                    if use_flags and not flagged and not designations.get(pid, ""):
+                        out_now = -1
+                if flagged and out_now < 0:
+                    out_now = 0               # hurt since the last played week
+                if out_now >= 0:
+                    n_out += 1
+            elif flagged:
                 p = min(p, availability.reserve_availability)
                 n_out += 1
+            flat = not spells
             if pid in unsigned and availability.unsigned_availability < 1.0:
                 # no NFL team: he cannot score for anyone until he signs
                 p = min(p, availability.unsigned_availability)
                 n_unsigned += 1
+                flat, out_now = True, -1
             note = notes.get(name)
             if note is not None:
                 if note.availability is not None:
                     p = note.availability
+                    flat, out_now = True, -1  # dated outside reporting wins
                 values[pid] *= note.rate_multiplier
                 n_researched += 1
                 applied.add(name)
             probs.append(p)
+            flats.append(flat)
+            starts.append(out_now)
 
         pid_list = list(values)
         healthy[rid] = float(L.compute_optimal_lineup(values, pos_map, year))
         p_arr = np.array(probs, dtype=float)
-        draws = rng.random((availability.draws, len(pid_list))) < p_arr
-        vals = np.empty(availability.draws, dtype=float)
-        for i, row in enumerate(draws):
-            sub = {pid: values[pid] for pid, up in zip(pid_list, row) if up}
-            vals[i] = L.compute_optimal_lineup(sub, pos_map, year)
+        if spells:
+            up = _injury_paths(rng, availability.draws, horizon, p_arr,
+                               np.array(flats, dtype=bool), np.array(starts, dtype=int),
+                               injuries)
+        else:
+            up = (rng.random((availability.draws, len(pid_list))) < p_arr)[:, None, :]
+        cache: Dict[bytes, float] = {}
+        vals = np.empty(up.shape[:2], dtype=float)
+        for i in range(up.shape[0]):
+            for t in range(up.shape[1]):
+                row = up[i, t]
+                key = np.packbits(row).tobytes()
+                hit = cache.get(key)
+                if hit is None:
+                    sub = {pid: values[pid] for pid, ok in zip(pid_list, row) if ok}
+                    hit = cache[key] = float(L.compute_optimal_lineup(sub, pos_map, year))
+                vals[i, t] = hit
+        if not spells:
+            vals = vals[:, 0]
         mean[rid] = float(vals.mean())
         sd[rid] = float(vals.std(ddof=1))
         samples[rid] = vals
+        week_mean[rid] = vals.mean(axis=0) if vals.ndim == 2 else np.array([mean[rid]])
         rookies[rid] = n_rookie
         sidelined[rid] = n_out
         unsigned_count[rid] = n_unsigned
@@ -807,7 +1150,11 @@ def fielded_distribution(year: int, model: RateModel = RateModel(),
                 f"{teams.get(rid, rid)}: {n_unplaced} rostered player(s) with no history in "
                 f"this league and no {year} draft slot — projected at the undrafted prior "
                 f"({model.undrafted_ppg:g} ppg)")
-        if n_out:
+        if n_out and spells:
+            warnings.append(
+                f"{teams.get(rid, rid)}: {n_out} player(s) out as of week {through_week} — "
+                f"returning on the league's injury curve ({injuries.spells} past spells)")
+        elif n_out:
             warnings.append(
                 f"{teams.get(rid, rid)}: {n_out} player(s) carrying a reserve/IR-class "
                 f"designation — capped at {availability.reserve_availability:.0%} availability")
@@ -834,7 +1181,8 @@ def fielded_distribution(year: int, model: RateModel = RateModel(),
             f"of the previous season and are NOT used; {sum(researched.values())} player(s) "
             f"adjusted from dated outside reporting instead ({research_path(year).name})")
     return FieldedDistribution(year=year, teams=teams, mean=mean, sd=sd, samples=samples,
-                               healthy=healthy, rookies=rookies, sidelined=sidelined,
+                               healthy=healthy, week_mean=week_mean,
+                               rookies=rookies, sidelined=sidelined,
                                unsigned=unsigned_count, researched=researched,
                                unplaced=unplaced, warnings=sorted(set(warnings)))
 
@@ -924,7 +1272,8 @@ def _backtest_availability(model: AvailabilityModel) -> AvailabilityModel:
     file for a season that is already over either, so that is off too. Taxi
     membership is preseason and stable, so it stays; so does the unsigned check,
     which reads today's free agents and would be telling a 2022 projection who
-    is out of the league in 2026.
+    is out of the league in 2026. Injury spells stay as set: their starting
+    state is read from `player_week` up to the cutoff, not from today's flags.
     """
     return AvailabilityModel(lookback=model.lookback, shrink_weeks=model.shrink_weeks,
                              exclude_taxi=model.exclude_taxi,
@@ -932,6 +1281,9 @@ def _backtest_availability(model: AvailabilityModel) -> AvailabilityModel:
                              designations="never", research=False,
                              # 1.0 = disabled: see AvailabilityModel.unsigned_availability
                              unsigned_availability=1.0,
+                             # who was out at the cutoff comes from the league's own
+                             # player_week, which is history, so the spells stay on
+                             injury_spells=model.injury_spells,
                              draws=max(model.draws // 4, 250))
 
 
@@ -1007,6 +1359,8 @@ class TeamOdds:
     sidelined: int = 0
     unsigned: int = 0
     researched: int = 0
+    next_week: Optional[float] = None             # fielded projection, first simulated week
+    playoff_weeks: Optional[float] = None         # ... averaged over the playoff weeks
 
 
 @dataclass
@@ -1081,6 +1435,18 @@ def _history_slope() -> Tuple[float, float]:
     return float(slope), float(resid.std(ddof=2))
 
 
+def _week_shape(proj: "FieldedDistribution", rid: int, sim_weeks: Sequence[int],
+                meta) -> Dict[str, Optional[float]]:
+    """Next simulated week and the playoff weeks, from the per-week projection
+    (only distinct when injury spells are on)."""
+    wm = proj.week_mean.get(rid)
+    if wm is None or len(wm) < 2 or not sim_weeks:
+        return {}
+    col = {w: min(j, len(wm) - 1) for j, w in enumerate(sim_weeks)}
+    po = [float(wm[col[w]]) for w in meta.playoff_weeks if w in col]
+    return {"next_week": float(wm[0]), "playoff_weeks": float(np.mean(po)) if po else None}
+
+
 def forecast(year: int, sims: int = 20000, model: RateModel = RateModel(),
              availability: AvailabilityModel = AvailabilityModel(),
              calibration: Optional[Calibration] = None, seed: int = 20260807,
@@ -1107,7 +1473,12 @@ def forecast(year: int, sims: int = 20000, model: RateModel = RateModel(),
     warnings: List[str] = []
 
     rweek = roster_week(year, as_of_week)
-    proj = fielded_distribution(year, model, availability, week=rweek, seed=seed + 1)
+    cutoff = meta.last_week if as_of_week is None else int(as_of_week)
+    observed = {w: s for w, s in _observed_scores(year).items() if w <= min(cutoff, meta.last_week)}
+    sim_weeks = [w for w in range(1, meta.last_week + 1) if w not in observed]
+    known = max(observed) if observed else 0
+    proj = fielded_distribution(year, model, availability, week=rweek, seed=seed + 1,
+                                through_week=known, horizon=max(len(sim_weeks), 1))
     warnings.extend(proj.warnings)
 
     if strength_model == "roster":
@@ -1130,8 +1501,6 @@ def forecast(year: int, sims: int = 20000, model: RateModel = RateModel(),
         raise ValueError(f"unknown strength_model {strength_model!r}; "
                          "pick roster, history or uniform")
 
-    cutoff = meta.last_week if as_of_week is None else int(as_of_week)
-    observed = {w: s for w, s in _observed_scores(year).items() if w <= min(cutoff, meta.last_week)}
     strength = _posterior(prior, sd_true, calib.sd_week, observed, meta.regular_season_weeks)
     mean = {r: calib.league_mean + strength[r] for r in rids}
     sched = schedule(year, mean)
@@ -1139,7 +1508,6 @@ def forecast(year: int, sims: int = 20000, model: RateModel = RateModel(),
         warnings.append(f"{year}: {sched.describe()}")
 
     pairs = {w: Q.pairings(year, w) for w in range(1, meta.regular_season_weeks + 1)}
-    sim_weeks = [w for w in range(1, meta.last_week + 1) if w not in observed]
     if not sim_weeks:
         warnings.append(f"{year} is fully played — the forecast is a lookup, not a projection")
     if as_of_week is not None and Q.played_weeks(year) and cutoff < meta.last_week:
@@ -1156,12 +1524,26 @@ def forecast(year: int, sims: int = 20000, model: RateModel = RateModel(),
     # noise is then reduced by exactly that much, because the historical
     # `sd_week` already contains whatever injuries did to real scores — adding
     # availability on top without this would double-count it.
+    #
+    # With injury spells the samples are whole paths (draws x weeks): each
+    # simulated season follows ONE path per team, so a star who is out in week
+    # 7 is still likely out in week 8, and an injured player's return lifts the
+    # weeks after it. Centred on the path average, so the per-week shape moves
+    # the score while the level stays the calibrated strength.
     if strength_model == "roster":
         avail_sd = np.array([proj.sd[r] for r in rids])
         centred = {r: proj.samples[r] - proj.samples[r].mean() for r in rids}
-        avail_draw = np.stack(
-            [centred[r][rng.integers(0, len(centred[r]), size=(sims, n_weeks))] for r in rids],
-            axis=2) if n_weeks else np.zeros((sims, 0, n_teams))
+        if not n_weeks:
+            avail_draw = np.zeros((sims, 0, n_teams))
+        elif all(centred[r].ndim == 2 for r in rids):
+            cols = [min(j, centred[rids[0]].shape[1] - 1) for j in range(n_weeks)]
+            avail_draw = np.stack(
+                [centred[r][rng.integers(0, centred[r].shape[0], size=sims)][:, cols]
+                 for r in rids], axis=2)
+        else:
+            avail_draw = np.stack(
+                [centred[r][rng.integers(0, len(centred[r]), size=(sims, n_weeks))]
+                 for r in rids], axis=2)
     else:
         avail_sd = np.zeros(n_teams)
         avail_draw = np.zeros((sims, n_weeks, n_teams))
@@ -1211,6 +1593,7 @@ def forecast(year: int, sims: int = 20000, model: RateModel = RateModel(),
             seed_pct=tuple(100.0 * seed_counts[r] / sims),
             rookies=proj.rookies.get(r, 0), sidelined=proj.sidelined.get(r, 0),
             unsigned=proj.unsigned.get(r, 0), researched=proj.researched.get(r, 0),
+            **_week_shape(proj, r, sim_weeks, meta),
         )
         for r in rids
     ]
@@ -1697,6 +2080,14 @@ def render(fc: Forecast, seeds: bool = False, detail: bool = False) -> str:
             lines.append(f"{o.team:<18}{o.healthy:>9.1f}{o.projection:>9.1f}"
                          f"{o.depth_cost:>12.1f}{o.availability_sd:>8.1f}"
                          f"{o.rookies:>9}{o.unsigned:>10}{o.researched:>12}")
+        shaped = [o for o in fc.by_champion() if o.next_week is not None]
+        if shaped:
+            lines += ["", "injury timeline — fielded projection as injured players return "
+                          "and new injuries land", "",
+                      f"{'team':<18}{'next wk':>9}{'playoffs':>10}{'out now':>9}"]
+            for o in shaped:
+                po = f"{o.playoff_weeks:>10.1f}" if o.playoff_weeks is not None else f"{'-':>10}"
+                lines.append(f"{o.team:<18}{o.next_week:>9.1f}{po}{o.sidelined:>9}")
         if fc.age_curve and fc.age_curve.slope:
             curve = "  ".join(f"{p} {fc.age_curve.slope[p]:+.2f}"
                               for p in _POSITIONS if p in fc.age_curve.slope)

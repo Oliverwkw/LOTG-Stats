@@ -582,6 +582,98 @@ def test_the_projection_prices_the_rosters_still_to_play():
             "a live forecast must project the rosters of the next week to play"
 
 
+def test_in_season_games_move_the_rate_and_only_up_to_the_cutoff():
+    """Once weeks are played the projection must use them, and nothing later."""
+    m = F.RateModel()
+    assert F.blend_in_season(10.0, 14.0, 0, 30.0, m) == 10.0, "no games, no change"
+    up = F.blend_in_season(10.0, 14.0, 4, 20.0, m)
+    assert 10.0 < up < 20.0
+    # 4 games x 3 against 14 prior games + 6 shrink: (10*20 + 20*12) / 32
+    assert abs(up - (10.0 * 20 + 20.0 * 12) / 32) < 1e-9
+    off = F.RateModel(in_season_weight=0.0)
+    assert F.blend_in_season(10.0, 14.0, 4, 20.0, off) == 10.0
+    if not _HAVE_DATA:
+        return _skip("no exports/snapshot")
+    year = _seasons()[-1]
+    assert F.in_season_evidence(year, 0) == {}
+    early, late = F.in_season_evidence(year, 4), F.in_season_evidence(year, 10)
+    assert early and all(games <= 4 for games, _ in early.values()), \
+        "a week-4 cutoff saw more than four games"
+    assert sum(g for g, _ in late.values()) > sum(g for g, _ in early.values())
+
+
+def test_the_injury_curve_is_fitted_from_this_league_and_left_out_when_scored():
+    if not _HAVE_DATA:
+        return _skip("no exports/snapshot")
+    full = F.injury_model()
+    assert full.spells > 300, full.spells
+    r = full.recovery
+    assert r[0] > r[3] > r[-1], f"returns should get rarer the longer a player is out: {r}"
+    assert 1.5 < full.mean_duration < 6.0, full.mean_duration
+    year = _seasons()[-1]
+    assert year not in F.injury_model(exclude_from_fits=year).seasons
+    curve = full.return_curve(4, 6)
+    assert np.all(np.diff(curve) >= 0) and abs(curve[0] - r[3]) < 1e-12
+
+
+def test_injury_spells_predict_who_is_back_better_than_a_flat_cap():
+    """The point of the spell model, checked on a season it did not see.
+
+    Rewind the last completed season to week 4. Players out at that point must
+    be predicted back at about the rate they actually came back (the flat model
+    said 0.51 for every one of them, every week), and healthy players must not
+    be made healthier than they turned out.
+    """
+    if not _HAVE_DATA:
+        return _skip("no exports/snapshot")
+    year, k = _seasons()[-1], 4
+    model = F.injury_model(exclude_from_fits=year)
+    avail, base = F.availability_rates(year)
+    missed = F.weeks_missed(year, k)
+    pw = F._player_week()
+    rows = pw[(pw["Year"] == year) & ~pw["Bye?"] & (pw["Week"] <= 17)]
+    names, p, start, actual, weeks = [], [], [], [], []
+    for name, g in rows.groupby("Player"):
+        future = g[g["Week"] > k]
+        if len(future) < 3 or not (g["Week"] <= k).any():
+            continue
+        names.append(name)
+        p.append(avail.get(name, base.get(g["Position"].iloc[0], 0.83)))
+        start.append(missed.get(name, -1))
+        actual.append((~future["Hurt"].to_numpy(bool)).astype(float))
+        weeks.append(future["Week"].to_numpy(int) - k - 1)
+    horizon = 17 - k
+    paths = F._injury_paths(np.random.default_rng(7), 800, horizon, np.array(p),
+                            np.zeros(len(p), dtype=bool), np.array(start), model)
+    pred = paths.mean(axis=0)                                  # (weeks, players)
+    for group in ("out", "healthy"):
+        idx = [i for i, s in enumerate(start) if (s >= 0) == (group == "out")]
+        assert idx, f"no {group} players at week {k}"
+        got = np.concatenate([pred[weeks[i], i] for i in idx])
+        real = np.concatenate([actual[i] for i in idx])
+        assert abs(got.mean() - real.mean()) < 0.08, \
+            f"{group}: predicted {got.mean():.3f} available, actually {real.mean():.3f}"
+        if group == "out":
+            flat = np.full_like(real, F.AvailabilityModel().reserve_availability)
+            assert ((got - real) ** 2).mean() <= ((flat - real) ** 2).mean() + 0.005, \
+                "the spell model should not score worse than the flat cap on injured players"
+
+
+def test_a_rewound_forecast_runs_whole_injury_paths():
+    """In season, samples are one consecutive path per draw, not loose weeks."""
+    if not _HAVE_DATA:
+        return _skip("no exports/snapshot")
+    year = _seasons()[-1]
+    avail = dataclasses.replace(F._backtest_availability(F.AvailabilityModel()), draws=150)
+    dist = F.fielded_distribution(year, availability=avail, week=9, through_week=8, horizon=5)
+    for rid, s in dist.samples.items():
+        assert s.shape == (150, 5), s.shape
+        assert len(dist.week_mean[rid]) == 5
+    pre = F.fielded_distribution(year, availability=avail, week=1)
+    assert all(s.ndim == 1 for s in pre.samples.values()), \
+        "the preseason (and so the calibration) keeps independent weekly draws"
+
+
 def test_the_forecast_beats_guessing_on_seasons_that_happened():
     """The only test of the probabilities rather than the machinery."""
     if not _HAVE_DATA:
@@ -684,6 +776,10 @@ TESTS = [
     test_an_unknown_strength_model_is_refused,
     test_as_of_week_rewinds_the_clock,
     test_the_projection_prices_the_rosters_still_to_play,
+    test_in_season_games_move_the_rate_and_only_up_to_the_cutoff,
+    test_the_injury_curve_is_fitted_from_this_league_and_left_out_when_scored,
+    test_injury_spells_predict_who_is_back_better_than_a_flat_cap,
+    test_a_rewound_forecast_runs_whole_injury_paths,
     test_the_forecast_beats_guessing_on_seasons_that_happened,
     test_the_backtest_is_actually_out_of_sample,
     test_a_uniform_forecast_is_exactly_as_confident_as_it_should_be,

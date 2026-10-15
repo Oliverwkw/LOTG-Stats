@@ -582,6 +582,19 @@ used week 1, so mid-season odds ignored every trade since kickoff. For a trade
 what-if, wrap `startable_pool` for the live year only — replacing it outright
 also feeds the swapped rosters into every past season's calibration.
 
+**In season it learns from this season** (since 2026-10-15). Each player's rate
+blends in this season's games (each counts 3x against his preseason evidence;
+measured, not chosen: see `RateModel.in_season_weight`), and injuries are
+multi-week spells: whoever is out as of the last finalized week starts out and
+returns on the league's own return curve (`injury_model`: 36% back after one
+missed week, ~21% after four, ~5% after eight), and healthy players get hurt
+and stay out on the same curve, along one consecutive path per simulated
+season. `--detail` prints each team's next-week and playoff-week projection.
+Two traps: `player_rates(year)` is still the PRESEASON rate (use
+`blend_in_season` for the in-season one), and the game a player got hurt in
+stays in his rate on purpose — dropping it measured worse
+(`RateModel.drop_injury_games`).
+
 Three strength models, `--model all` runs each: `roster`, `history` and
 `uniform`. **Quote the distance from `uniform`** — that is what says whether the
 projection is telling you anything.
