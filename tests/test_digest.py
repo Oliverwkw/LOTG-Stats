@@ -682,9 +682,18 @@ def check_league_window():
 
 
 def check_league_milestones():
-    ms = D.milestone_crossings({"PF": 49000.0}, {"PF": 51000.0})
+    ms = D.milestone_crossings({"PF": 49500.0}, {"PF": 50400.0})
     ok = _ok("PF crossing 50k reported", len(ms) == 1 and ms[0].milestone == 50000.0, ms[0].sentence() if ms else "none")
-    ok &= _ok("no crossing within the same bucket", D.milestone_crossings({"PF": 51000.0}, {"PF": 52000.0}) == [])
+    ok &= _ok("no crossing within the same bucket", D.milestone_crossings({"PF": 51000.0}, {"PF": 51900.0}) == [])
+    # From 10,000 up the step is one place finer than the order of magnitude.
+    ms = D.milestone_crossings({"PF": 118900.0}, {"PF": 120100.0})
+    ok &= _ok("six-figure PF steps by 10,000", [m.milestone for m in ms] == [120000.0],
+              [m.sentence() for m in ms])
+    ok &= _ok("six-figure PF inside a 10,000 bucket -> nothing",
+              D.milestone_crossings({"PF": 112807.0}, {"PF": 119818.0}) == [])
+    ms = D.milestone_crossings({"Amount of FAAB spent": 2950.0}, {"Amount of FAAB spent": 3002.0})
+    ok &= _ok("under 10,000 keeps the order-of-magnitude step",
+              [m.milestone for m in ms] == [3000.0], [m.sentence() for m in ms])
     ok &= _ok("no prior -> no milestone (baseline)", D.milestone_crossings({}, {"PF": 51000.0}) == [])
     lat = pd.DataFrame({"PF": [49000.0], "Total trades": [140.0], "Foo": [3.0]})
     vals = D.league_milestone_values(lat)

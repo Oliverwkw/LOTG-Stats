@@ -4111,10 +4111,13 @@ def league_milestone_values(league_all_time: pd.DataFrame) -> Dict[str, float]:
 
 def _round_step(v: float) -> Optional[float]:
     """Round-number granularity for milestones: the value's order of magnitude
-    (e.g. 49,000 -> 10,000, so milestones fall on 40k / 50k / 60k)."""
+    (e.g. 4,900 -> 1,000, so milestones fall on 4k / 5k / 6k), one place finer
+    from 10,000 up (119,818 -> 10,000, so 110k / 120k / 130k) — a 100,000 step
+    left PF silent for years [per user, 2026-10-20: "100,000 is way too much"]."""
     if v <= 0:
         return None
-    return float(10 ** int(math.floor(math.log10(v))))
+    step = 10 ** int(math.floor(math.log10(v)))
+    return float(step // 10 if v >= 10_000 else step)
 
 
 def milestone_crossings(prev_vals: Dict[str, float],
