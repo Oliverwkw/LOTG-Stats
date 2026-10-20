@@ -302,6 +302,39 @@ def test_reads_are_pure():
     assert before == after, "ownership helpers must not touch exports/"
 
 
+def test_the_count_guard_stops_at_the_last_built_week():
+    """A trade from a week the build has not written yet is left out.
+
+    The build reads transactions only through the last completed week, so a
+    trade made after Tuesday's waivers is in the snapshot a week before it is
+    in the exports. Pretending the build stopped one week before the latest
+    trade must drop exactly that trade's players from the guard's ledger.
+    """
+    if not _HAVE_EXPORTS:
+        return _skip("no exports")
+    latest = None
+    for year in Q.snapshot_seasons():
+        for txn in Q.raw_transactions(year):
+            if txn.get("type") == "trade" and txn.get("status") == "complete":
+                key = (year, int(txn.get("leg") or 1))
+                if int(txn.get("leg") or 1) > 1 and (latest is None or key > latest[:2]):
+                    latest = (*key, [str(p) for p in (txn.get("adds") or {})])
+    if latest is None:
+        return _skip("no trade after week 1 in the snapshot")
+    year, leg, pids = latest
+    real = A.built_weeks
+    try:
+        A.built_weeks = lambda: {**real(), year: leg - 1}
+        cut = A.ownership_ledger(events=("trade",), through_built_weeks=True)
+    finally:
+        A.built_weeks = real
+    full = A.ownership_ledger(events=("trade",))
+    gone = full[(full["season"] == year) & full["player_id"].isin(pids)]
+    kept = cut[(cut["season"] == year) & cut["player_id"].isin(pids)]
+    assert len(gone) > len(kept), (year, leg, len(gone), len(kept))
+    assert len(full) - len(cut) >= len(gone) - len(kept)
+
+
 TESTS = [
     test_an_asset_cell_holds_three_kinds_of_thing,
     test_no_asset_cell_holds_anything_but_those_three,
@@ -318,6 +351,7 @@ TESTS = [
     test_summary_separates_spells_from_teams,
     test_summary_totals_agree_with_the_ledger,
     test_reads_are_pure,
+    test_the_count_guard_stops_at_the_last_built_week,
 ]
 
 

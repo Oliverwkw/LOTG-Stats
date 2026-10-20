@@ -1031,11 +1031,31 @@ def _sheet_trade_events(seasons: Sequence[int]) -> List[dict]:
     return events
 
 
+def built_weeks() -> Dict[int, int]:
+    """{season: the last week the build has written}, read off `team_week`.
+
+    The build reads a season's transactions only through its last completed
+    week (`src/lotg.py`, the pre-fetch loop), so a trade made after Tuesday's
+    waivers sits in the snapshot's next week until that week is played. A
+    season with no `team_week` rows yet is the preseason, which the build scans
+    as week 1.
+    """
+    df = Q.load_sheet("team_week")
+    years, weeks = Q.numeric(df, "Year"), Q.numeric(df, "Week")
+    out: Dict[int, int] = {}
+    for y, w in zip(years, weeks):
+        if pd.notna(y) and pd.notna(w):
+            out[int(y)] = max(out.get(int(y), 0), int(w))
+    return out
+
+
 def _snapshot_trade_events(seasons: Sequence[int],
-                           include_duplicates: bool = False) -> List[dict]:
+                           include_duplicates: bool = False,
+                           through_week: Optional[Dict[int, int]] = None) -> List[dict]:
     """Acquisitions from the raw Sleeper snapshot — pid-exact.
 
-    Skips `DUPLICATE_TRADE_TRANSACTIONS` unless asked for them.
+    Skips `DUPLICATE_TRADE_TRANSACTIONS` unless asked for them, and with
+    `through_week` ({season: last week}) any trade from a later week.
     """
     events: List[dict] = []
     names = Q.players()
@@ -1045,9 +1065,11 @@ def _snapshot_trade_events(seasons: Sequence[int],
         # is only to recover the *sending* roster, which `Trade` does not carry.
         dropped_by: Dict[str, Dict[str, int]] = {}
         completed_at: Dict[str, int] = {}
+        leg: Dict[str, int] = {}
         for txn in Q.raw_transactions(year):
             if txn.get("type") == "trade":
                 txn_id = str(txn.get("transaction_id"))
+                leg[txn_id] = int(txn.get("leg") or 1)
                 dropped_by[txn_id] = {
                     str(k): int(v) for k, v in (txn.get("drops") or {}).items()}
                 # `status_updated` (its completion) — the stamp the sheets print
@@ -1055,6 +1077,9 @@ def _snapshot_trade_events(seasons: Sequence[int],
                 completed_at[txn_id] = int(txn.get("status_updated") or txn.get("created") or 0)
         for trade in Q.trades(season=year):
             if not include_duplicates and trade.transaction_id in DUPLICATE_TRADE_TRANSACTIONS:
+                continue
+            if (through_week is not None
+                    and leg.get(trade.transaction_id, 1) > through_week.get(int(year), 1)):
                 continue
             drops = dropped_by.get(trade.transaction_id, {})
             for roster_id, pids in trade.received.items():
@@ -1073,7 +1098,8 @@ def _snapshot_trade_events(seasons: Sequence[int],
 
 def ownership_ledger(player: Optional[str] = None, season: Optional[int] = None,
                      events: Sequence[str] = ACQUISITION_EVENTS,
-                     include_duplicates: bool = False) -> pd.DataFrame:
+                     include_duplicates: bool = False,
+                     through_built_weeks: bool = False) -> pd.DataFrame:
     """Every acquisition of every player, in date order — the all-players `timeline`.
 
     `timeline()` answers "tell me the story of X" one entity at a time, which
@@ -1096,6 +1122,9 @@ def ownership_ledger(player: Optional[str] = None, season: Optional[int] = None,
     "draft" leaves the pure trade ledger. `include_duplicates` restores the
     `DUPLICATE_TRADE_TRANSACTIONS` rows, which are excluded by default because
     they record a second time an exchange that is already in the ledger.
+    `through_built_weeks` leaves out snapshot trades from weeks the build has
+    not written yet (`built_weeks`), which is what a comparison against the
+    exports needs.
     """
     kinds = {str(e).strip().lower() for e in events}
     unknown = kinds - set(ACQUISITION_EVENTS)
@@ -1109,7 +1138,9 @@ def ownership_ledger(player: Optional[str] = None, season: Optional[int] = None,
         sheet_years = [y for y in Q.export_seasons()
                        if y not in set(Q.snapshot_seasons())
                        and (season is None or y == season)]
-        rows.extend(_snapshot_trade_events(snapshot_years, include_duplicates))
+        rows.extend(_snapshot_trade_events(
+            snapshot_years, include_duplicates,
+            built_weeks() if through_built_weeks else None))
         rows.extend(_sheet_trade_events(sheet_years))
 
     if "draft" in kinds:
@@ -1646,8 +1677,13 @@ def check_trade_counts_match_build(include_duplicates: bool = False) -> List[str
     This is also the detector for a new `DUPLICATE_TRADE_TRANSACTIONS` case: a
     second Sleeper record of an exchange already in the ledger shows up here as
     a player counted once more than the build counts him.
+
+    Only through the weeks the build has written (`built_weeks`): a trade made
+    since the last completed week is in the snapshot but not yet in the
+    exports, and used to turn this red until the next Tuesday build.
     """
-    ledger = ownership_ledger(events=("trade",), include_duplicates=include_duplicates)
+    ledger = ownership_ledger(events=("trade",), include_duplicates=include_duplicates,
+                              through_built_weeks=True)
     counted = ledger["player"].value_counts() if not ledger.empty else {}
     problems: List[str] = []
     known = {str(p).strip() for p in Q.load_sheet("player_all_time")["Player"]}
