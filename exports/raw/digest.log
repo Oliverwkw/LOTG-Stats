@@ -1,11 +1,10 @@
 [digest] 39 filtered stat(s) added: PF in a loss, PF in a win, Max PF in a loss, Max PF in a win, Efficiency in a loss, Efficiency in a win, Points from QBs in a loss, Points from RBs in a loss, Points from WRs in a loss, Points from TEs in a loss, Points above Sleeper Projection in a loss, Points above Sleeper Projection in a win, Points above Claude Projection in a loss, Points above Claude Projection in a win, Points above Enhanced Projection in a loss, Points above Enhanced Projection in a win, Lineup Boldness in a win, Lineup Boldness in a loss, Players under 10 pts (starters) in a win, Players over 30 pts (starters) in a loss, Number of rookies started in a win, Points as starter, Points on bench, QB points, QB points as starter, QB points on bench, RB points, RB points as starter, RB points on bench, WR points, WR points as starter, WR points on bench, TE points, TE points as starter, TE points on bench, Points by a rookie starter, Points by a starter in a loss, Points on bench in a loss, Avg points by a rookie
 [digest] 83 percent column(s) stored as 0-1 fractions
 [digest] build-inputs fingerprint: 3f87dd802ef28fb2
-[digest] season=2026 weeks_completed=5
-[digest] on pace: 417 standing(s)
-[digest] 241 on-pace line(s) moved by an on-pace rule change (digest.PACE_RULES_VERSION) -> edits section
-[digest] new data: 0 new week(s), 0 player(s) / 0 team(s) in them, 0 player(s) / 0 team(s) in new transactions; edit landed: True -> 3 item(s) with the news, 271 under edits
-[digest] release lede: Week 5 is when this season's on-pace standings begin and its trades, pickups and picks join the boards, so 91 of the 274 moves below are weeks 1-4 catching up rather than this week's news.
-[digest] lede: Week 5 is when this season's on-pace standings begin and its trades, pickups and picks join the boards, so 91 of the 274 moves below are weeks 1-4 catching up rather than this week's news. The league sets a new single-season record for QBs rostered from one NFL team (4) — most in any season. This is a recompute, not a results week: 271 of the 273 other moves re-value settled history (157 on the on-pace list and 55 on teams), and only 2 reflect new data. 17 of the 274 were ties rather than overtakes.
-[digest] 0 single-week highlight(s), 4 crossing(s), 2 record(s), 27 board move(s), 0 milestone(s), 84 on-pace change(s) -> exports/raw/weekly_digest.html
+[digest] season=2026 weeks_completed=6
+[digest] on pace: 359 standing(s)
+[digest] 435 on-pace line(s) moved by an on-pace rule change (digest.PACE_RULES_VERSION) -> edits section
+[digest] new data: 1 new week(s), 252 player(s) / 8 team(s) in them, 8 player(s) / 4 team(s) in new transactions; edit landed: True -> 160 item(s) with the news, 495 under edits
+[digest] lede: Jayden Daniels's Starter middle 50% streak this week (9) is the highest single week ever, tied with Drake London 2025 week 1, Ezekiel Elliott 2023 week 17 and Garrett Wilson 2023 week 10. This is mostly a recompute: 495 of the 653 other moves re-value settled history (242 on the on-pace list and 180 on teams), and only 158 reflect new data. Emanuel Wilson was passed by Isaac Guerendo for highest Starter boom % (50.00%), falling to 33.30% (2nd-highest). 84 of the 655 were ties rather than overtakes.
+[digest] 28 single-week highlight(s), 101 crossing(s), 2 record(s), 88 board move(s), 1 milestone(s), 193 on-pace change(s) -> exports/raw/weekly_digest.html
 [digest] snapshot saved -> data/digest/ranks_snapshot.json
