@@ -1337,6 +1337,10 @@ EQUATIONS = {
         '|{nfl(p,y,w) : p ∈ S(t,w)}|  (year/all-time/league: distinct over the union)',
     ('Number of NFL teams among rostered players', 'team_week / team_year / team_all_time / league_week / league_year / league_all_time'):
         '|{nfl(p,y,w) : p ∈ R(t,w)}|',
+    ('Number of players started', 'team_year / team_all_time / league_year / league_all_time'):
+        '|∪_{w ∈ period} S(t,w)|  (distinct p, any position)',
+    ('Number of players rostered', 'team_year / team_all_time / league_year / league_all_time'):
+        '|∪_{w ∈ period} R(t,w)|  (distinct p, any position)',
     ('Number of rookies started', 'team_week / team_year / team_all_time / league_week / league_year / league_all_time'):
         '|{p ∈ S(t,w) : y = rookie_year(p)}|  (year/all-time: distinct p)',
     ('Number of rookies rostered', 'team_week / team_year / team_all_time / league_week / league_year / league_all_time'):
