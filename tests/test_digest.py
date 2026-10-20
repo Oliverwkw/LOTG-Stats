@@ -713,11 +713,10 @@ def check_league_milestone_stats_cover_sheet():
     major, other = set(D.MAJOR_LEAGUE_STATS), set(D.NON_COUNTING_LEAGUE_STATS)
     ok = _ok("no column is both a milestone and a non-counting stat", not (major & other),
              sorted(major & other))
-    path = Path(os.environ.get("LOTG_EXPORTS", _ROOT / "exports")) / "league_all_time.csv"
-    if not path.exists():
-        print("  [SKIP] league_all_time column coverage — no build present")
-        return ok
-    cols = set(pd.read_csv(path, nrows=0).columns)
+    # The plan, not exports/: a column merged today is in the plan at once but
+    # reaches the committed exports only with the next refreshing build.
+    from lotg_support.plan import load_plan_catalog
+    cols = set(load_plan_catalog(_ROOT / "plan" / "LOTG Plan - Sheet1.csv")["league-all-time"])
     ok &= _ok("every league_all_time column is classified",
               not (cols - major - other), sorted(cols - major - other))
     ok &= _ok("every classified stat is a real column",
