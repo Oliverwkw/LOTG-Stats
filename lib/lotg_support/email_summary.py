@@ -740,8 +740,25 @@ def _provenance(cand: "_Cand", season: Optional[int],
         if kind in _CURRENT_PERIOD_ITEMS:
             return "live"
         if kind == "Milestone":
-            # A league all-time total: it took in whatever the league did.
-            return "live" if (new_data.new_games or new_data.tx_teams) else "recompute"
+            # A league all-time total takes in whatever the league did — but a
+            # trade cannot move a game stat, nor a week of games a transaction
+            # count (the same split `_new_data_reaches` makes for a row).
+            stat = str(getattr(cand.item, "stat", ""))
+            col = stat.lower()
+            if _transaction_only(col):
+                return "live" if new_data.tx_teams else "recompute"
+            if new_data.new_games:
+                # A total that is a pure sum of week rows can only have reached
+                # the round number on new data if last week's value plus what the
+                # new weeks add gets there (user, 2026-09-30).
+                prev = getattr(cand.item, "prev", None)
+                if prev is not None and stat in new_data.additive.get("league", ()):
+                    added = new_data.contrib.get(("league", LEAGUE, stat), 0.0)
+                    return ("live" if prev + added >= cand.item.milestone - 0.011
+                            else "recompute")
+                return "live"
+            return ("live" if new_data.tx_teams and any(m in col for m in _TX_MARKERS)
+                    else "recompute")
     yr = _row_season(getattr(cand.item, "label", "") or
                      getattr(cand.item, "mover", "") or cand.section)
     # A brand-new row in the current period is a real new transaction/pick — new

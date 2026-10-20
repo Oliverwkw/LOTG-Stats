@@ -44,7 +44,7 @@ import re
 
 import pandas as pd
 
-from .email_summary import NewData, attribute, stat_relevance
+from .email_summary import LEAGUE, NewData, attribute, stat_relevance
 from . import number_format as _number_format
 from . import filtered_stats as _filtered
 from . import gametime as _gametime
@@ -96,11 +96,77 @@ CROSSING_CONFIG = {
 PROJECTION_WINDOW = {"players": WINDOW, "teams": WINDOW}
 LEAGUE_WINDOW_CAP = 5
 
-# league_all_time "major" cumulative totals that earn a milestone note when they
-# cross a round number. (No leaderboard for a single-row sheet.)
+# league_all_time counting stats — every one earns a milestone note when it
+# crosses a round number [per user, 2026-10-20: "every counting stat in the
+# league sheet should have milestones"]. (No leaderboard for a single-row sheet.)
+# A counting stat only grows as the league plays or transacts: sums of week rows
+# and distinct-player counts. Every other league_all_time column is in
+# NON_COUNTING_LEAGUE_STATS with why, so a new column has to be placed in one or
+# the other (tests/test_digest.py::check_league_milestone_stats_cover_sheet).
 MAJOR_LEAGUE_STATS = (
-    "PF", "Number of Add/Drops", "Total transactions", "Total trades", "Amount of FAAB spent",
+    "PF", "Max PF",
+    "Number of games within 10", "Number of games within 5", "UPST",
+    "Number of QB started", "Number of WR started", "Number of RB started",
+    "Number of TE started", "Number of players started",
+    "Number of QB rostered", "Number of WR rostered", "Number of RB rostered",
+    "Number of TE rostered", "Number of players rostered",
+    "Number of NFL teams among starting players",
+    "Number of NFL teams among rostered players",
+    "Stacks", "Number of rookies started", "Number of rookies rostered",
+    "Donuts (roster)", "Donuts (starters)",
+    "Players under 10 pts (roster)", "Players over 20 pts (roster)",
+    "Players over 30 pts (roster)", "Players over 40 pts (roster)",
+    "Players over 50 pts (roster)",
+    "Number of cuffs rostered", "Number of cuffs started",
+    "Number of weeks missed due to injury", "Number of weeks missed due to suspensions",
+    "Number of Add/Drops", "Number of waiver adds", "Number of free agency adds",
+    "Number of pure drops", "Offseason trades", "Inseason trades", "Total trades",
+    "Total transactions", "Amount of FAAB spent",
+    "Sleeper Projection", "Claude Projection", "Enhanced Projection",
 )
+
+# The league_all_time columns that are not counting stats, by why.
+NON_COUNTING_LEAGUE_STATS = {
+    # averages and rates
+    "Avg PF": "average", "Avg max PF": "average", "Efficiency": "rate",
+    "Points per QB started": "average", "Points per WR started": "average",
+    "Points per RB started": "average", "Points per TE started": "average",
+    "Avg margin": "average", "Player average age": "average",
+    "Team age including picks": "average",
+    "Avg Sleeper Projection": "average", "Avg Claude Projection": "average",
+    "Avg Enhanced Projection": "average",
+    "Avg Points above Sleeper Projection": "average",
+    "Avg Points above Claude Projection": "average",
+    "Avg Points above Enhanced Projection": "average",
+    # shares
+    "% of FLX WR": "share", "% of FLX RB": "share", "% of FLX TE": "share",
+    "% of SFLX WR": "share", "% of SFLX RB": "share", "% of SFLX TE": "share",
+    "% of SFLX QB": "share", "% of players drafted": "share",
+    "% of 3rd year+ players drafted": "share",
+    "% of starters boom": "share", "% of starters upper quartile": "share",
+    "% of starters middle 50%": "share", "% of starters lower quartile": "share",
+    "% of starters bust": "share",
+    # single-game extremes and spreads
+    "PF Range": "range", "Margin range": "range",
+    "Difference between highest and lowest starters": "range",
+    "Highest starter score": "extreme", "Lowest starter score": "extreme",
+    "Most number of players started from same NFL team": "extreme",
+    "Most number of players rostered from same NFL team": "extreme",
+    "Most number of QBs started from same NFL team": "extreme",
+    "Most number of QBs rostered from same NFL team": "extreme",
+    "Most number of RBs started from same NFL team": "extreme",
+    "Most number of RBs rostered from same NFL team": "extreme",
+    "Most number of WR started from same NFL team": "extreme",
+    "Most number of WR rostered from same NFL team": "extreme",
+    "Most number of TE started from same NFL team": "extreme",
+    "Most number of TE rostered from same NFL team": "extreme",
+    # signed differences, which can fall
+    "Points above Sleeper Projection": "signed difference",
+    "Points above Claude Projection": "signed difference",
+    "Points above Enhanced Projection": "signed difference",
+    # a count that only falls
+    "Startup draft players remaining": "falls over time",
+}
 
 # Sentinels the build writes for "no value" — treated as missing for ranking.
 _MISSING = {"N/A", "In Progress", "", "None", "nan", "NaN"}
@@ -2831,6 +2897,32 @@ def alltime_week_contributions(frames: dict, new_weeks) -> Tuple[Dict[str, set],
     return additive, contrib
 
 
+def league_week_contributions(frames: dict, new_weeks) -> Tuple[set, Dict[tuple, float]]:
+    """`alltime_week_contributions` for the single-row league_all_time sheet:
+    (milestone stats that are the sum of league_week rows, {("league", LEAGUE,
+    stat): what the new weeks added}). Distinct counts and transaction counts
+    fail the sum test and keep the old rule."""
+    at, wk = frames.get("league_all_time"), frames.get("league_week")
+    if at is None or wk is None or at.empty or wk.empty:
+        return set(), {}
+    pairs = {(int(y), int(w_)) for y, w_ in new_weeks}
+    yrs = pd.to_numeric(wk.get("Year"), errors="coerce")
+    wks = pd.to_numeric(wk.get("Week"), errors="coerce")
+    sel = [(int(y), int(w_)) in pairs if pd.notna(y) and pd.notna(w_) else False
+           for y, w_ in zip(yrs, wks)]
+    keep, contrib = set(), {}
+    for c in MAJOR_LEAGUE_STATS:
+        if c not in at.columns or c not in wk.columns:
+            continue
+        a = _to_float(at[c].iloc[0])
+        w = pd.to_numeric(wk[c], errors="coerce")
+        if a is None or w.isna().all() or abs(a - float(w.sum())) > 0.011:
+            continue
+        keep.add(c)
+        contrib[("league", LEAGUE, c)] = float(w[sel].sum())
+    return keep, contrib
+
+
 def new_data_since(prior: Optional[dict], meta: dict, frames: dict,
                    fingerprint: Optional[str] = None) -> Optional[NewData]:
     """What reached the league between the prior snapshot and this build — None
@@ -2896,6 +2988,12 @@ def new_data_since(prior: Optional[dict], meta: dict, frames: dict,
         additive, contrib = alltime_week_contributions(frames, new_weeks)
     except Exception:                      # noqa: BLE001 — fall back to the old rule
         additive, contrib = {}, {}
+    try:
+        league_keep, league_contrib = league_week_contributions(frames, new_weeks)
+        additive["league"] = league_keep
+        contrib.update(league_contrib)
+    except Exception:                      # noqa: BLE001 — fall back to the old rule
+        pass
     return NewData(season=season, weeks_completed=meta.get("weeks_completed"),
                    new_weeks=new_weeks, players=players, teams=teams,
                    edit_landed=edit_landed, tx_players=tx_players,
@@ -3977,6 +4075,9 @@ class Milestone:
     stat: str
     value: float
     milestone: float
+    # Last digest's value — whether the new weeks alone reach `milestone`
+    # (email_summary.attribute).
+    prev: Optional[float] = None
 
     def _tail(self) -> str:
         # A total landing exactly on the round number would read "passes
@@ -4010,10 +4111,13 @@ def league_milestone_values(league_all_time: pd.DataFrame) -> Dict[str, float]:
 
 def _round_step(v: float) -> Optional[float]:
     """Round-number granularity for milestones: the value's order of magnitude
-    (e.g. 49,000 -> 10,000, so milestones fall on 40k / 50k / 60k)."""
+    (e.g. 4,900 -> 1,000, so milestones fall on 4k / 5k / 6k), one place finer
+    from 10,000 up (119,818 -> 10,000, so 110k / 120k / 130k) — a 100,000 step
+    left PF silent for years [per user, 2026-10-20: "100,000 is way too much"]."""
     if v <= 0:
         return None
-    return float(10 ** int(math.floor(math.log10(v))))
+    step = 10 ** int(math.floor(math.log10(v)))
+    return float(step // 10 if v >= 10_000 else step)
 
 
 def milestone_crossings(prev_vals: Dict[str, float],
@@ -4029,7 +4133,7 @@ def milestone_crossings(prev_vals: Dict[str, float],
             continue
         crossed = math.floor(cur / step) * step   # largest round number <= cur
         if crossed > prev and crossed > 0:
-            out.append(Milestone(stat, cur, crossed))
+            out.append(Milestone(stat, cur, crossed, prev))
     return out
 
 

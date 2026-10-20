@@ -682,14 +682,45 @@ def check_league_window():
 
 
 def check_league_milestones():
-    ms = D.milestone_crossings({"PF": 49000.0}, {"PF": 51000.0})
+    ms = D.milestone_crossings({"PF": 49500.0}, {"PF": 50400.0})
     ok = _ok("PF crossing 50k reported", len(ms) == 1 and ms[0].milestone == 50000.0, ms[0].sentence() if ms else "none")
-    ok &= _ok("no crossing within the same bucket", D.milestone_crossings({"PF": 51000.0}, {"PF": 52000.0}) == [])
+    ok &= _ok("no crossing within the same bucket", D.milestone_crossings({"PF": 51000.0}, {"PF": 51900.0}) == [])
+    # From 10,000 up the step is one place finer than the order of magnitude.
+    ms = D.milestone_crossings({"PF": 118900.0}, {"PF": 120100.0})
+    ok &= _ok("six-figure PF steps by 10,000", [m.milestone for m in ms] == [120000.0],
+              [m.sentence() for m in ms])
+    ok &= _ok("six-figure PF inside a 10,000 bucket -> nothing",
+              D.milestone_crossings({"PF": 112807.0}, {"PF": 119818.0}) == [])
+    ms = D.milestone_crossings({"Amount of FAAB spent": 2950.0}, {"Amount of FAAB spent": 3002.0})
+    ok &= _ok("under 10,000 keeps the order-of-magnitude step",
+              [m.milestone for m in ms] == [3000.0], [m.sentence() for m in ms])
     ok &= _ok("no prior -> no milestone (baseline)", D.milestone_crossings({}, {"PF": 51000.0}) == [])
     lat = pd.DataFrame({"PF": [49000.0], "Total trades": [140.0], "Foo": [3.0]})
     vals = D.league_milestone_values(lat)
     ok &= _ok("major-stat values extracted, others ignored",
               vals.get("PF") == 49000.0 and vals.get("Total trades") == 140.0 and "Foo" not in vals)
+    ms = D.milestone_crossings({"Donuts (starters)": 98.0, "Stacks": 640.0},
+                               {"Donuts (starters)": 101.0, "Stacks": 644.0})
+    ok &= _ok("a non-transaction counting stat gets a milestone too",
+              [m.sentence() for m in ms] == ["League Donuts (starters) passes 100 (now 101)."],
+              [m.sentence() for m in ms])
+    return ok
+
+
+def check_league_milestone_stats_cover_sheet():
+    """Every league_all_time column is either a milestone (counting) stat or
+    listed as not one, so a new column cannot silently miss its milestones."""
+    major, other = set(D.MAJOR_LEAGUE_STATS), set(D.NON_COUNTING_LEAGUE_STATS)
+    ok = _ok("no column is both a milestone and a non-counting stat", not (major & other),
+             sorted(major & other))
+    # The plan, not exports/: a column merged today is in the plan at once but
+    # reaches the committed exports only with the next refreshing build.
+    from lotg_support.plan import load_plan_catalog
+    cols = set(load_plan_catalog(_ROOT / "plan" / "LOTG Plan - Sheet1.csv")["league-all-time"])
+    ok &= _ok("every league_all_time column is classified",
+              not (cols - major - other), sorted(cols - major - other))
+    ok &= _ok("every classified stat is a real column",
+              not ((major | other) - cols), sorted((major | other) - cols))
     return ok
 
 
@@ -1506,6 +1537,7 @@ def run_all() -> bool:
         check_replica_minimal,
         check_league_window,
         check_league_milestones,
+        check_league_milestone_stats_cover_sheet,
         check_pace_diff_reports_only_changes,
         check_rate_and_weekly_classification,
         check_phrasing_catalog,
