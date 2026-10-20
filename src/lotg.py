@@ -1294,7 +1294,8 @@ def _col_topic(col: str, default: Optional[str] = "Identity") -> Optional[str]:
                             "number of rookies", "number of cuff", "donut", "under 10", "over 20",
                             "over 30", "over 40", "over 50", "nfl team", "rostered from same",
                             "started from same", "startup draft", "difference between highest and lowest",
-                            "number of players on bye", "number of teams")):
+                            "number of players on bye", "number of teams",
+                            "number of players started", "number of players rostered")):
         return "Roster"
     if any(k in n for k in ("assets received", "assets sent", "assets retained", "assets traded",
                             "assets dropped", "additional assets", "return from trades", "pick value received",
@@ -19506,6 +19507,26 @@ def build_all(repo_root: Path) -> None:
     except Exception as e:
         _log_exc(debug, "team_flex_shares", e)
 
+    # How many different players a team started / rostered over the season or
+    # all-time (lotg_support.unique_players): distinct Player IDs, not the sum
+    # of the per-position counts, so a player at two positions counts once.
+    try:
+        from lotg_support import unique_players as _up
+        for _uk, _ukeys in (("team_year", ["Team", "Year"]), ("team_all", ["Team"])):
+            _udf = team_year if _uk == "team_year" else team_all
+            if not isinstance(_udf, pd.DataFrame) or _udf.empty:
+                continue
+            _udf = _udf.drop(columns=[c for c in _up.COLUMNS if c in _udf.columns], errors="ignore")
+            _udf = _udf.merge(_up.unique_player_counts(pw, _ukeys), on=_ukeys, how="left").copy()
+            for _c in _up.COLUMNS:
+                _udf[_c] = pd.to_numeric(_udf[_c], errors="coerce").fillna(0).astype(int)
+            if _uk == "team_year":
+                team_year = _udf
+            else:
+                team_all = _udf
+    except Exception as e:
+        _log_exc(debug, "team_unique_players", e)
+
     # Boldness / Lineup Boldness (lotg_support.boldness): how far each start —
     # and each whole lineup — went against PRE-KICKOFF expected points. Fed the
     # build's own matchups, flags, rookie picks, scorer and gsis bridge, never
@@ -20367,6 +20388,23 @@ def build_all(repo_root: Path) -> None:
             league_all = league_all.copy()
     except Exception as e:
         _log_exc(debug, "league_flex_shares", e)
+
+    # How many different players the league started / rostered, season and
+    # all-time (lotg_support.unique_players): distinct Player IDs league-wide.
+    try:
+        from lotg_support import unique_players as _up
+        if isinstance(league_year, pd.DataFrame) and not league_year.empty:
+            league_year = league_year.drop(columns=[c for c in _up.COLUMNS if c in league_year.columns], errors="ignore")
+            league_year = league_year.merge(_up.unique_player_counts(pw, ["Year"]), on=["Year"], how="left").copy()
+            for _c in _up.COLUMNS:
+                league_year[_c] = pd.to_numeric(league_year[_c], errors="coerce").fillna(0).astype(int)
+        if isinstance(league_all, pd.DataFrame) and not league_all.empty:
+            _ula = _up.unique_player_counts(pw, [])
+            for _c in _up.COLUMNS:
+                league_all[_c] = int(_ula.at[0, _c]) if not _ula.empty else 0
+            league_all = league_all.copy()
+    except Exception as e:
+        _log_exc(debug, "league_unique_players", e)
 
     # --------------------------
     # % of (3rd year+) rostered players a team drafted itself
