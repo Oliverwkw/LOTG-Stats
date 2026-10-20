@@ -690,6 +690,29 @@ def check_league_milestones():
     vals = D.league_milestone_values(lat)
     ok &= _ok("major-stat values extracted, others ignored",
               vals.get("PF") == 49000.0 and vals.get("Total trades") == 140.0 and "Foo" not in vals)
+    ms = D.milestone_crossings({"Donuts (starters)": 98.0, "Stacks": 640.0},
+                               {"Donuts (starters)": 101.0, "Stacks": 644.0})
+    ok &= _ok("a non-transaction counting stat gets a milestone too",
+              [m.sentence() for m in ms] == ["League Donuts (starters) passes 100 (now 101)."],
+              [m.sentence() for m in ms])
+    return ok
+
+
+def check_league_milestone_stats_cover_sheet():
+    """Every league_all_time column is either a milestone (counting) stat or
+    listed as not one, so a new column cannot silently miss its milestones."""
+    major, other = set(D.MAJOR_LEAGUE_STATS), set(D.NON_COUNTING_LEAGUE_STATS)
+    ok = _ok("no column is both a milestone and a non-counting stat", not (major & other),
+             sorted(major & other))
+    path = Path(os.environ.get("LOTG_EXPORTS", _ROOT / "exports")) / "league_all_time.csv"
+    if not path.exists():
+        print("  [SKIP] league_all_time column coverage — no build present")
+        return ok
+    cols = set(pd.read_csv(path, nrows=0).columns)
+    ok &= _ok("every league_all_time column is classified",
+              not (cols - major - other), sorted(cols - major - other))
+    ok &= _ok("every classified stat is a real column",
+              not ((major | other) - cols), sorted((major | other) - cols))
     return ok
 
 
@@ -1506,6 +1529,7 @@ def run_all() -> bool:
         check_replica_minimal,
         check_league_window,
         check_league_milestones,
+        check_league_milestone_stats_cover_sheet,
         check_pace_diff_reports_only_changes,
         check_rate_and_weekly_classification,
         check_phrasing_catalog,

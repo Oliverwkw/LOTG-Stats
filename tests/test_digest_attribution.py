@@ -238,6 +238,14 @@ def check_current_period_items_are_new_data():
               _tag(D.Projection("teams", "A", "Hardship", "high", 1, 3, 110.0), nd) == "new")
     ok &= _ok("a league milestone in a week with games",
               _tag(D.Milestone("PF", 51000.0, 50000.0), nd) == "new")
+    ok &= _ok("a transaction-count milestone in a week of games alone -> edit",
+              _tag(D.Milestone("Total trades", 300.0, 300.0), nd) == "edit")
+    summed = _week_one(additive={"league": {"PF"}},
+                       contrib={("league", DS.LEAGUE, "PF"): 1200.0})
+    ok &= _ok("a summed total the new weeks carry over the line -> news",
+              _tag(D.Milestone("PF", 120100.0, 120000.0, prev=118900.0), summed) == "new")
+    ok &= _ok("a summed total the new weeks cannot carry over the line -> edit",
+              _tag(D.Milestone("PF", 120100.0, 120000.0, prev=117000.0), summed) == "edit")
     ok &= _ok("a league milestone with nothing new -> edit",
               _tag(D.Milestone("PF", 51000.0, 50000.0),
                    _week_one(new_weeks=(), weeks_completed=0, players=(), teams=())) == "edit")
@@ -262,6 +270,10 @@ def check_new_transactions_count_as_new_data():
               _tag(games, nd, "All-time leaderboard moves — teams") == "edit")
     ok &= _ok("a league milestone on a week with only transactions -> news",
               _tag(D.Milestone("Total trades", 600.0, 600.0), nd) == "new")
+    ok &= _ok("a game-stat league milestone on a week with only transactions -> edit",
+              _tag(D.Milestone("Donuts (starters)", 101.0, 100.0), nd) == "edit")
+    ok &= _ok("a rostered count on a week with only transactions -> news",
+              _tag(D.Milestone("Number of QB rostered", 110.0, 110.0), nd) == "new")
     return ok
 
 
