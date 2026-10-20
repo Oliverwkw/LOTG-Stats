@@ -1410,6 +1410,26 @@ def _reference_name(pid: Any, pid_meta: Dict[str, Dict[str, Any]]) -> Any:
     return pid_meta.get(pid, {}).get("full_name") or pid
 
 
+def _startsit_reference_pid(started: bool, unavailable: bool,
+                            best_bench_pid: Any, worst_starter_pid: Any) -> Any:
+    """The start/sit reference for a player_week row: a starter is measured
+    against the best bench player, a bench player against the worst starter.
+
+    A BENCH player who could not have played (bye, injury, suspension) gets no
+    reference: sitting him was not a lineup call. Measured anyway, his previous
+    5-game average made every bye week of a star read as a missed start —
+    Jahmyr Gibbs's 2026 week 6 bye (DET) went to 5th-highest ever on Start/sit
+    miss (5-game avg) at +20.34, and such rows held 8 of its all-time top 10
+    (and most of the projection twins' bottom 10, his projection being 0). Every
+    start/sit column keys on this reference, so all of them go N/A together.
+    Starting an unavailable player is still a call, so a starter keeps his."""
+    if started:
+        return best_bench_pid or None
+    if unavailable:
+        return None
+    return worst_starter_pid or None
+
+
 def _bid_never_stood(t: Dict[str, Any]) -> bool:
     """True for a failed waiver claim that could not have been honoured at any
     price — see `_BID_NEVER_STOOD`. A claim that simply lost ("This player was
@@ -7130,13 +7150,12 @@ def build_all(repo_root: Path) -> None:
                         rookie = is_rookie_pid(pid, season)
                         age = _calc_age(meta.get("birth_date"), approx_date)
 
+                        ref_pid = _startsit_reference_pid(
+                            started, bool(bye or inj or susp), best_bench_pid, worst_starter_pid)
                         diff_best_bench = (pts - best_bench_pts) if (started and best_bench_pts is not None) else None
-                        diff_worst_starter = (pts - worst_starter_pts) if ((not started) and worst_starter_pts is not None) else None
-                        ref_player = None
-                        if started and best_bench_pid:
-                            ref_player = _reference_name(best_bench_pid, pid_meta)
-                        elif (not started) and worst_starter_pid:
-                            ref_player = _reference_name(worst_starter_pid, pid_meta)
+                        diff_worst_starter = (pts - worst_starter_pts) \
+                            if ((not started) and ref_pid and worst_starter_pts is not None) else None
+                        ref_player = _reference_name(ref_pid, pid_meta)
 
                         if preseason_only:
                             continue
@@ -7171,8 +7190,7 @@ def build_all(repo_root: Path) -> None:
                             "Reference player name": ref_player,
                             # Internal (dropped by _ensure_plan_columns): the
                             # reference's id, so the window below joins on it.
-                            "Reference player ID": (best_bench_pid if started else worst_starter_pid)
-                                                   if ref_player is not None else None,
+                            "Reference player ID": ref_pid,
                             "Start/sit miss (5-game avg)": None,
                             "Cuff adjusted difference": None,
                             "Rookie?": 1 if rookie else 0,
