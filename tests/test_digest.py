@@ -807,7 +807,7 @@ def check_records_and_leaderboard_changes_are_four_parts():
               and boards.index("All-time leaderboard moves — teams") < boards.index("League milestones")
               and "On pace this season — teams" in pace_r and "On pace this season — teams" in pace_b)
     ok &= _ok("the parts look different",
-              len({D._PART_STYLE[t] for t in D.PART_ORDER}) == 4)
+              len({D._PART_STYLE[t] for t in D.PART_ORDER}) == len(D.PART_ORDER))
     only_boards = D.render_digest_html([third], [], {"season": 2026, "weeks_completed": 7})
     ok &= _ok("no first-place move -> no Records part", ">Records</h2>" not in only_boards
               and ">Leaderboard changes</h2>" in only_boards
