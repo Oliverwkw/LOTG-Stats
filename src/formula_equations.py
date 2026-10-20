@@ -874,7 +874,7 @@ EQUATIONS = {
     ('Reference player name', 'player_week'):
         "the argmax b (starter row) / argmin s (bench row) of the two equations above; 'Empty slot' if S(t,w) has a '0'",
     ('Start/sit miss (5-game avg)', 'player_week'):
-        "avg5(p) − avg5(ref),  avg5(q) = mean of npts(q,·,·) over q's last 5 regular-season NFL games before week w (stat line or snap; snap-only = 0); ref = the best startable bench / worst benchable starter",
+        "avg5(p) − avg5(ref),  avg5(q) = mean of npts(q,·,·) over q's last 5 regular-season NFL games before week w (stat line or snap; snap-only = 0); ref = the best startable bench / worst benchable starter; N/A on a bench row with ⟨Bye?⟩ ∨ ⟨Injury?⟩ ∨ ⟨Suspension?⟩",
     ('Cuff adjusted difference', 'player_week'):
         '(pts(p,w) − pts(ref,w)) · (½ if ⟨Activated Cuff?⟩(p,w) else 1)',
     ('- Activated Cuff? (Did he start while a teammate he is the handcuff for was injured?)', 'player_week'):
