@@ -1492,7 +1492,8 @@ def project_on_pace(
 class PaceDropout:
     """A standing on last week's on-pace list that is on it no more: "Josh Allen
     is no longer on pace for a top-5 Points (was 2nd-highest)" (user, 2026-10-13).
-    Listed at the bottom of the last on-pace part."""
+    Listed in a part of its own after the on-pace parts and above the edits
+    section, whatever explains it (user, 2026-10-20)."""
     section: str
     entity: str
     column: str
@@ -4339,7 +4340,7 @@ def digest_sections(
         (f"{yr_title} — players", True, sect("players")),
         (f"{yr_title} — teams", True, sect("teams")),
         (f"{yr_title} — league", True, sect("league")),
-        # Last in the on-pace part it lands in (`part_of`): what fell off the list.
+        # Its own part, after the others and above the edits (`part_of`).
         (PACE_DROPOUT_TITLE, True, list(dropouts)),
     ]
     # One section per board sheet, in _BOARD_SHEETS order.
@@ -4376,6 +4377,11 @@ def split_sections(sections: Sequence[Tuple[str, bool, list]],
     half is always empty and the email is exactly what it was."""
     top, edits = [], []
     for title, grouped, items in sections:
+        if title == PACE_DROPOUT_TITLE:
+            # Always above the edits section, even when a rule release alone
+            # explains a dropout (user, 2026-10-20).
+            top.append((title, grouped, items))
+            continue
         tags = [attribute(i, title, new_data) for i in items]
         new = [i for i, t in zip(items, tags) if t == "new"]
         old = [i for i, t in zip(items, tags) if t != "new"]
@@ -4396,7 +4402,10 @@ def split_sections(sections: Sequence[Tuple[str, bool, list]],
 #                                    RECORDS);
 #   LEADERBOARD CHANGES            — every other non-projection move, milestones
 #                                    included;
-#   ON PACE FOR LEADERBOARD CHANGES — on-pace projections below 1st.
+#   ON PACE FOR LEADERBOARD CHANGES — on-pace projections below 1st;
+#   NO LONGER ON PACE              — last week's on-pace standings that are
+#                                    gone, right above the edits section (user,
+#                                    2026-10-20).
 # Inside each part the sections keep the email's usual order and grouping, one
 # heading level down. Each part is a tinted block with a coloured rule so they
 # read apart at a glance, in mail clients too (inline styles only).
@@ -4405,12 +4414,14 @@ RECORDS_TITLE = "Records"
 PACE_RECORDS_TITLE = "On pace for records"
 BOARDS_TITLE = "Leaderboard changes"
 PACE_BOARDS_TITLE = "On pace for leaderboard changes"
-PART_ORDER = (RECORDS_TITLE, PACE_RECORDS_TITLE, BOARDS_TITLE, PACE_BOARDS_TITLE)
+PART_ORDER = (RECORDS_TITLE, PACE_RECORDS_TITLE, BOARDS_TITLE, PACE_BOARDS_TITLE,
+              PACE_DROPOUT_TITLE)
 _PART_STYLE = {
     RECORDS_TITLE: ("#fbf6e6", "#c9a227"),        # (background, left rule)
     PACE_RECORDS_TITLE: ("#fdfaf0", "#e0c46a"),
     BOARDS_TITLE: ("#f4f7fb", "#0b2545"),
     PACE_BOARDS_TITLE: ("#f8fafc", "#7d8fa6"),
+    PACE_DROPOUT_TITLE: ("#f7f7f7", "#b0b7bf"),
 }
 
 
@@ -4425,17 +4436,17 @@ def is_record(item) -> bool:
 
 
 def part_of(item) -> str:
-    """Which of the four PART_ORDER parts an item belongs to."""
+    """Which of the PART_ORDER parts an item belongs to."""
     if isinstance(item, Projection):
         return PACE_RECORDS_TITLE if item.rank == 1 else PACE_BOARDS_TITLE
     if isinstance(item, PaceDropout):
-        return PACE_BOARDS_TITLE      # the bottom of the last on-pace part
+        return PACE_DROPOUT_TITLE
     return RECORDS_TITLE if is_record(item) else BOARDS_TITLE
 
 
 def split_parts(sections: Sequence[Tuple[str, bool, list]]
                 ) -> Dict[str, List[Tuple[str, bool, list]]]:
-    """{part title: sections} for the four PART_ORDER parts — each section's
+    """{part title: sections} for the PART_ORDER parts — each section's
     items routed by `part_of`, empty halves dropped, section order kept."""
     out: Dict[str, List[Tuple[str, bool, list]]] = {t: [] for t in PART_ORDER}
     for title, grouped, items in sections:
@@ -4465,7 +4476,11 @@ def _part_html(title: str, sections: Sequence[Tuple[str, bool, list]]) -> str:
     if not sections:
         return ""
     bg, rule = _PART_STYLE[title]
-    inner = "".join(_section_block(t, g, i, level=3) for t, g, i in sections)
+    # A part that is one section of the same name (No longer on pace) shows
+    # its items straight under the part heading, not under a second copy of it.
+    inner = "".join(_section_block(t, g, i, level=3).replace(_heading(t, 3), "", 1)
+                    if t == title else _section_block(t, g, i, level=3)
+                    for t, g, i in sections)
     return (f'  <div style="margin:20px 0 0;padding:4px 14px 12px;background:{bg};'
             f'border-left:4px solid {rule};border-radius:4px;">\n'
             f'  <h2 style="font:700 19px/1.3 system-ui,sans-serif;margin:12px 0 4px;'
@@ -4504,7 +4519,7 @@ def render_digest_html(
          f'border-left:3px solid #0b2545;border-radius:4px;">{intro}</p>'
          if intro else ""),
     ]
-    # New data first, in the four PART_ORDER parts (`split_parts`); then, only if there are
+    # New data first, in the PART_ORDER parts (`split_parts`); then, only if there are
     # any, the moves an edit alone explains, under their own header at the
     # bottom (see `attribute`).
     top, edits = split_sections(digest_sections(
