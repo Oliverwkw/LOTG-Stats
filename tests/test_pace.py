@@ -136,7 +136,7 @@ def test_no_longer_on_pace():
     got = [d.sentence() for d in D.pace_dropouts(prior, now)]
     # The league's old "2026.0" key is the same season as "2026": no dropout.
     assert got == ["Josh Allen is no longer on pace for a top-5 Points (was 2nd-highest)."], got
-    assert D.part_of(D.pace_dropouts(prior, now)[0]) == D.PACE_BOARDS_TITLE
+    assert D.part_of(D.pace_dropouts(prior, now)[0]) == D.PACE_DROPOUT_TITLE
 
 
 def test_a_pace_rule_change_is_told_as_an_edit():
@@ -230,3 +230,22 @@ if __name__ == "__main__":
                 fails += 1
                 print(f"FAIL {name}: {e}")
     sys.exit(1 if fails else 0)
+
+
+def test_no_longer_on_pace_sits_above_the_edits():
+    """Its own part after the on-pace parts and above "Changes from edits",
+    even when a pace-rule release alone explains it (user, 2026-10-20)."""
+    pace4 = D.Projection("teams", "A", "Luck", "high", 4, 3, 2.0)
+    gone = D.PaceDropout("teams", "B", "Offseason trades", "high", 1, rule_release=True)
+    edit = D.Projection("teams", "C", "Hardship", "high", 2, 3, 9.0)
+    edit.rule_release = True
+    nd = D.NewData(season=2026, weeks_completed=6, new_weeks=[6], edit_landed=True)
+    html = D.render_digest_html([], [pace4, edit], {"season": 2026, "weeks_completed": 6},
+                                new_data=nd, dropouts=[gone])
+    pace_b = html.find(f">{D.PACE_BOARDS_TITLE}</h2>")
+    drop = html.find(f">{D.PACE_DROPOUT_TITLE}</h2>")
+    edits = html.find(f">{D.EDIT_SECTION_TITLE}</h2>")
+    assert 0 < pace_b < drop < edits, (pace_b, drop, edits)
+    assert "no longer on pace" in html[drop:edits] and "no longer on pace" not in html[edits:]
+    assert "Hardship" in html[edits:]
+    assert html.count(D.PACE_DROPOUT_TITLE) == 1, "one heading, not a part + section pair"
