@@ -980,6 +980,62 @@ def strip_matured_windows(changed: List[tuple]) -> Tuple[List[tuple], int]:
     return kept, matured
 
 
+# What a matured window re-seats. O-Score takes the most recent populated KTC
+# checkpoint as one of its four percentiles, so a window filling in on ONE row
+# moves that row's KTC component and re-ranks every other row of its sheet by a
+# tenth; the manager skill built from that sheet's O-Scores follows on the team
+# sheets. On 2026-10-21 two add/drops reached their "1 year later" between the
+# Tuesday build and the Wednesday audit and moved 59 O-Scores and 6 Add/Drop
+# skills — none of them a change to the dataset. Trade impact score is left out
+# on purpose: it is built from win probabilities, not KTC, so a matured window
+# cannot move it.
+_MATURED_RANK_FEEDS = {
+    "add_drops": "add/drop skill",
+    "trades": "trading skill",
+    "non_rookie_picks": "drafting skill",
+    "rookie_picks": "drafting skill",
+}
+
+
+class MaturedWindows:
+    """The sheets whose percentile pool a matured KTC window re-seated.
+
+    Worked out over every sheet BEFORE the diff loop, because the team sheets
+    whose skills move come ahead of the event sheets in SHEETS. Sweeps a row only
+    when EVERY column that moved in it is one of the re-seated rank columns —
+    the same containment as the NFLverse and KTC paths: a row whose O-Score moved
+    alongside one of its own inputs still fails on that input."""
+
+    def __init__(self, cur: Dict[str, pd.DataFrame], base: Dict[str, pd.DataFrame]) -> None:
+        self.sources: Set[str] = set()
+        for sheet in _MATURED_RANK_FEEDS:
+            c, b = cur.get(sheet), base.get(sheet)
+            if c is None or b is None or c.empty or b.empty:
+                continue
+            idc = [x for x in ID_COLS.get(sheet, []) if x in c.columns and x in b.columns]
+            win = [x for x in b.columns if is_window_column(x) and x in c.columns]
+            if not idc or not win:
+                continue
+            m = b[idc + win].merge(c[idc + win], on=idc, how="inner",
+                                   suffixes=("_b", "_c"))
+            for col in win:
+                if any(_is_blank(o) and not _is_blank(n)
+                       for o, n in zip(m[col + "_b"], m[col + "_c"])):
+                    self.sources.add(sheet)
+                    break
+        self.active = bool(self.sources)
+
+    def rank_columns(self, sheet: str) -> Tuple[str, ...]:
+        out = tuple(_MATURED_RANK_FEEDS[s] for s in sorted(self.sources))
+        if sheet in self.sources:
+            out += ("o-score",)
+        return out
+
+    def covers(self, sheet: str, deltas) -> bool:
+        cols = self.rank_columns(sheet)
+        return bool(cols) and bool(deltas) and all(_matches(c, cols) for c, _o, _n in deltas)
+
+
 def is_link_column(column: str) -> bool:
     return "link to" in str(column).lower()
 
@@ -1352,6 +1408,7 @@ def audit_diffs(cur: Dict[str, pd.DataFrame], base: Dict[str, pd.DataFrame],
     attributed: Dict[str, int] = {}
     attributed_cols: Counter = Counter()
     events = LeagueEvents(cur, base)
+    matured = MaturedWindows(cur, base)
     # A rebuild at a different commit than the exports were built from is not
     # answering the reproducibility question — see code_changes_since. Report the
     # movement, name the commits, don't go red.
@@ -1407,6 +1464,16 @@ def audit_diffs(cur: Dict[str, pd.DataFrame], base: Dict[str, pd.DataFrame],
         # A rolling KTC window reaching its anniversary and taking its first
         # value is the calendar, not the dataset moving.
         changed, _matured = strip_matured_windows(changed)
+        # ...and the re-ranking it causes, on its own sheet and on the skill
+        # built from it. Only rows where nothing BUT those rank columns moved.
+        if matured.active:
+            _reranked = [it for it in changed if matured.covers(name, it[1])]
+            if _reranked:
+                changed = [it for it in changed if not matured.covers(name, it[1])]
+                rep.note(f"**{name}**: {len(_reranked)} row(s) re-ranked by a KTC window "
+                         f"reaching its anniversary in {', '.join(sorted(matured.sources))} "
+                         f"({', '.join(dict.fromkeys(matured.rank_columns(name)))}) "
+                         "— swept, not flagged.")
 
         # New league events — a trade landing is supposed to move the counts,
         # the league-relative scores and the pointers that now have somewhere to

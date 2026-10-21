@@ -129,6 +129,60 @@ def check_matured_window_vs_corrected_zero(tmp):
     return ok
 
 
+def check_matured_window_rerank_is_swept(tmp):
+    """The 2026-10-21 health email. Two add/drops reached their "1 year later"
+    between the Tuesday build and the Wednesday audit; their new KTC re-ranked
+    every other add/drop's O-Score by 0.1 and moved Add/Drop skill on the team
+    sheets. Pure re-ranking is swept — but a row whose O-Score moved alongside
+    an input still flags, as does a Trading skill that no trade re-seated, and
+    the same O-Score move with no window maturing at all."""
+    base_dir, cur_dir = tmp / "rrb", tmp / "rrc"
+    ad = pd.DataFrame({
+        "Team": ["A", "B", "C"], "Player Added": ["p", "q", "r"],
+        "Player Dropped": ["", "", ""], "Season": ["2025", "2022", "2021"],
+        "Date": ["2025-10-21 18:01:17", "2022-11-02 10:03:04", "2021-10-03 10:42:11"],
+        "KTC value of player added 1 year later": ["", "100.0", "200.0"],
+        "Avg net points adjusted by position": ["1.0", "2.0", "3.0"],
+        "O-Score": ["24.3", "28.4", "30.0"],
+    })
+    ty = pd.DataFrame({"Team": ["A", "B"], "Year": ["2025", "2022"],
+                       "Add/Drop skill": ["37.9", "36.5"], "Trading skill": ["50.0", "50.0"]})
+    _write(base_dir, "add_drops", ad)
+    _write(base_dir, "team_year", ty)
+    ad2, ty2 = ad.copy(), ty.copy()
+    ad2.loc[0, "KTC value of player added 1 year later"] = "0.0"   # matured
+    ad2.loc[0, "O-Score"] = "11.0"                                 # its own re-score
+    ad2.loc[1, "O-Score"] = "28.5"                                 # pure re-rank
+    ad2.loc[2, "O-Score"] = "30.1"                                 # re-rank ...
+    ad2.loc[2, "Avg net points adjusted by position"] = "9.9"      # ... plus an input
+    ty2.loc[0, "Add/Drop skill"] = "37.5"                          # swept
+    ty2.loc[1, "Trading skill"] = "49.0"                           # no trade matured
+    _write(cur_dir, "add_drops", ad2)
+    _write(cur_dir, "team_year", ty2)
+    rep = A.Report()
+    A.audit_diffs({n: A._read(cur_dir, n) for n in A.SHEETS},
+                  {n: A._read(base_dir, n) for n in A.SHEETS}, 2026, rep)
+    text = rep.render()
+    ok = _ok("pure O-Score re-ranks are swept", "28.5" not in text and "11.0" not in text, text)
+    ok &= _ok("an O-Score moving with an input still flags", "9.9" in text, text)
+    ok &= _ok("Add/Drop skill is swept", "37.5" not in text, text)
+    ok &= _ok("Trading skill is not", "49.0" in text, text)
+    ok &= _ok("the sweep is reported", "re-ranked by a KTC window" in text, text)
+
+    # The same O-Score move with no window maturing is still a finding.
+    base2, cur2 = tmp / "rrb2", tmp / "rrc2"
+    _write(base2, "add_drops", ad)
+    ad3 = ad.copy()
+    ad3.loc[1, "O-Score"] = "28.5"
+    _write(cur2, "add_drops", ad3)
+    rep2 = A.Report()
+    A.audit_diffs({n: A._read(cur2, n) for n in A.SHEETS},
+                  {n: A._read(base2, n) for n in A.SHEETS}, 2026, rep2)
+    ok &= _ok("no matured window → the O-Score move flags",
+              rep2.confirmed == 1 and "28.5" in rep2.render(), rep2.render())
+    return ok
+
+
 def check_wall_clock_is_not_a_change(tmp):
     """A tenure counter advancing by the elapsed time is the clock, not the
     dataset moving — but ONLY when it advances by the same amount as the rest of
@@ -596,6 +650,7 @@ def run_all() -> bool:
         check_all_time_sheets_are_diffed,
         check_new_league_events_are_not_breakages,
         check_matured_window_vs_corrected_zero,
+        check_matured_window_rerank_is_swept,
         check_wall_clock_is_not_a_change,
         check_player_additions_tenure_days_is_wall_clock,
         check_renumbered_pointers_are_not_a_change,
