@@ -64,8 +64,8 @@
     ],
     "reserve": [
       "13302",
-      "8142",
-      "9753"
+      "6904",
+      "8142"
     ],
     "roster_id": 1,
     "settings": {
@@ -86,12 +86,12 @@
       "9228",
       "9221",
       "6813",
-      "12514",
+      "5846",
       "8112",
       "8146",
       "8130",
       "3198",
-      "5846",
+      "12514",
       "11560"
     ],
     "taxi": [
@@ -190,16 +190,16 @@
       "wins": 3
     },
     "starters": [
-      "9758",
+      "3163",
       "12527",
       "11584",
       "9488",
       "8167",
       "8137",
-      "5022",
+      "10859",
       "11620",
-      "11637",
-      "12522"
+      "12474",
+      "9758"
     ],
     "taxi": [
       "12470",
@@ -371,10 +371,10 @@
     "league_id": "1312101511651655680",
     "metadata": {
       "p_nick_6943": "Lukashenko",
-      "p_nick_8144": "Amazing",
+      "p_nick_8144": "Excellent",
       "record": "LWLWWW",
       "p_nick_11625": "Good",
-      "p_nick_11632": "Very good",
+      "p_nick_11632": "Amazing",
       "p_nick_8121": "Bad",
       "p_nick_10232": "Very good",
       "p_nick_8111": "Nada",
@@ -386,7 +386,7 @@
       "p_nick_9484": "Mid",
       "p_nick_12471": "Nobody",
       "p_nick_1466": "Good",
-      "p_nick_5859": "Injured",
+      "p_nick_5859": "Bad",
       "p_nick_13319": "Who?",
       "p_nick_4866": "IR",
       "p_nick_3214": "Decent",
@@ -394,20 +394,20 @@
       "p_nick_6819": "Awful",
       "p_nick_4892": "Mid",
       "p_nick_12533": "Bad",
-      "p_nick_2306": "Good",
+      "p_nick_2306": "Mid",
       "p_nick_4984": "Daddy (top)",
       "p_nick_6806": "IR",
       "p_nick_19": "Lukashenko",
       "p_nick_7021": "Bad",
       "streak": "3W",
       "p_nick_12499": "Subpar",
-      "p_nick_6804": "Good",
+      "p_nick_6804": "Great",
       "p_nick_96": "Douche",
       "p_nick_7564": "Excellent",
-      "p_nick_7588": "Excellent",
-      "p_nick_1166": "Good",
+      "p_nick_7588": "Great",
+      "p_nick_1166": "Very good",
       "p_nick_9486": "Mid",
-      "p_nick_7594": "Great",
+      "p_nick_7594": "Excellent",
       "p_nick_8160": "Leonid Brezhnev",
       "p_nick_12500": ".",
       "p_nick_8228": "Excellent",
@@ -479,7 +479,7 @@
       "11632",
       "8144",
       "9484",
-      "7594",
+      "8228",
       "6801",
       "5859"
     ],
@@ -584,7 +584,7 @@
       "9502"
     ],
     "reserve": [
-      "13287",
+      "10222",
       "8800",
       "9502"
     ],
