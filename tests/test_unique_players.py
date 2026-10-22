@@ -74,6 +74,49 @@ def test_empty_input():
         assert out.empty and list(out.columns) == keys + U.COLUMNS
 
 
+def test_tenure_rows_add_only_missing_tenures():
+    pw = _pw()
+    tenures = [("A", 2024, "1"),     # already in player_week → no row
+               ("A", 2024, "9"),     # picked up and dropped between lineups
+               ("A", 2024, "9"),     # second stint, same season → still one row
+               ("A", 2025, "3"),     # rostered 2024 only; held 2025 off-snapshot
+               ("B", 2024, None),    # no Player ID → skipped
+               ("A", None, "8")]     # no season → skipped
+    ex = U.tenure_rows(pw, tenures, {"9": "RB"}.get, lambda p, y: p == "9")
+    got = sorted(zip(ex["Team"], ex["Year"], ex["Player ID"], ex["Position"], ex["Rookie?"]),
+                 key=str)
+    # player 3's position comes from his player_week row, not the fallback
+    assert got == sorted([("A", 2024, "9", "RB", 1), ("A", 2025, "3", "WR", 0)], key=str), got
+    assert (ex["Starter/Bench"] == "Bench").all()
+
+
+def test_rostered_counts_include_tenures_started_does_not():
+    pw = _pw().assign(**{"Rookie?": 0})
+    ex = U.tenure_rows(pw, [("A", 2024, "9")], {"9": "RB"}.get, lambda p, y: True)
+    rows = pd.concat([pw[list(ex.columns)], ex], ignore_index=True)
+    c = U.rostered_counts(rows, ["Team", "Year"]).set_index(["Team", "Year"]).loc[("A", 2024)]
+    assert c[U.ROSTERED] == 5 and c["Number of RB rostered"] == 1, c.to_dict()
+    assert c["Number of rookies rostered"] == 1 and c["Number of QB rostered"] == 2, c.to_dict()
+    # started is untouched by tenure rows
+    s = U.unique_player_counts(rows, ["Team", "Year"]).set_index(["Team", "Year"]).loc[("A", 2024)]
+    assert s[U.STARTED] == 3
+    every = U.rostered_counts(rows, [])
+    assert len(every) == 1 and every.at[0, U.ROSTERED] == 5
+
+
+def test_rostered_counts_without_tenures_match_unique_counts():
+    pw = _pw()
+    for keys in (["Team", "Year"], ["Team"], ["Year"], []):
+        a = U.rostered_counts(pw, keys)[keys + [U.ROSTERED]]
+        b = U.unique_player_counts(pw, keys)[keys + [U.ROSTERED]]
+        pd.testing.assert_frame_equal(a.reset_index(drop=True), b.reset_index(drop=True), check_dtype=False)
+
+
+def test_started_share():
+    got = U.started_share(pd.Series([3, 0, 2]), pd.Series([4, 0, 2])).tolist()
+    assert got[0] == 0.75 and pd.isna(got[1]) and got[2] == 1.0, got
+
+
 def _sheet(name):
     p = _EXPORTS / f"{name}.csv"
     return pd.read_csv(p) if p.exists() else None
@@ -100,6 +143,10 @@ def test_committed_sheets_bound_by_position_columns():
             assert (tot <= per.sum(axis=1)).all(), (name, kind)
             assert (tot >= per.max(axis=1)).all(), (name, kind)
         assert (pd.to_numeric(df[U.STARTED]) <= pd.to_numeric(df[U.ROSTERED])).all(), name
+        if U.PCT in df.columns:
+            pct = pd.to_numeric(df[U.PCT], errors="coerce")
+            want = (pd.to_numeric(df[U.STARTED]) / pd.to_numeric(df[U.ROSTERED])).round(4)
+            assert ((pct - want).abs() < 1e-9).all(), name
         checked += 1
     if not checked:
         print("exports/ predate the unique-player columns — reconciliation not run")
