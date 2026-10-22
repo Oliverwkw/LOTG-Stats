@@ -1340,7 +1340,9 @@ EQUATIONS = {
     ('Number of players started', 'team_year / team_all_time / league_year / league_all_time'):
         '|∪_{w ∈ period} S(t,w)|  (distinct p, any position)',
     ('Number of players rostered', 'team_year / team_all_time / league_year / league_all_time'):
-        '|∪_{w ∈ period} R(t,w)|  (distinct p, any position)',
+        '|∪_{w ∈ period} R(t,w) ∪ T(t,period)|  (distinct p, any position; T = player_additions tenures)',
+    ('% of rostered players started', 'team_year / team_all_time / league_year / league_all_time'):
+        'Number of players started / Number of players rostered  (N/A if 0 rostered)',
     ('Number of rookies started', 'team_week / team_year / team_all_time / league_week / league_year / league_all_time'):
         '|{p ∈ S(t,w) : y = rookie_year(p)}|  (year/all-time: distinct p)',
     ('Number of rookies rostered', 'team_week / team_year / team_all_time / league_week / league_year / league_all_time'):
