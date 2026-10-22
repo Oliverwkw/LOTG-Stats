@@ -33,6 +33,9 @@ PCT = "% of rostered players started"
 POSITIONS = ("QB", "WR", "RB", "TE")
 ROOKIES = "Number of rookies rostered"
 ROSTERED_COLUMNS = [ROSTERED, *(f"Number of {p} rostered" for p in POSITIONS), ROOKIES]
+# A fullback is RB-eligible in Sleeper; counted as an RB, as boldness and
+# acquisition do (Derek Watt, Kyle Juszczyk were held only between lineups).
+POSITION_ALIASES = {"FB": "RB", "HB": "RB"}
 
 
 def unique_player_counts(pw: pd.DataFrame, keys: Sequence[str]) -> pd.DataFrame:
@@ -55,13 +58,21 @@ def unique_player_counts(pw: pd.DataFrame, keys: Sequence[str]) -> pd.DataFrame:
     return out[keys + COLUMNS]
 
 
+def _alias(position: Optional[str]) -> Optional[str]:
+    if position is None:
+        return None
+    p = str(position).upper().strip()
+    return POSITION_ALIASES.get(p, p) or None
+
+
 def tenure_rows(pw: pd.DataFrame, tenures: Iterable[Tuple[Any, Any, Any]],
                 position_of: Callable[[str], Optional[str]],
                 is_rookie: Callable[[str, int], bool]) -> pd.DataFrame:
     """Bench rows for the (team, season, player id) tenures that have no
     player_week row for that team and season, shaped like player_week's
     Team / Year / Player ID / Position / Rookie? / Starter/Bench. Position is
-    the player's player_week position where he has one, else `position_of`."""
+    the player's player_week position where he has one, else `position_of`;
+    FB / HB read as RB."""
     cols = ["Team", "Year", "Player ID", "Position", "Rookie?", "Starter/Bench"]
     seen, pos = set(), {}
     if not pw.empty and {"Team", "Year", "Player ID"}.issubset(pw.columns):
@@ -79,7 +90,7 @@ def tenure_rows(pw: pd.DataFrame, tenures: Iterable[Tuple[Any, Any, Any]],
             continue
         seen.add(k)
         rows.append({"Team": k[0], "Year": k[1], "Player ID": k[2],
-                     "Position": pos.get(k[2]) or position_of(k[2]),
+                     "Position": _alias(pos.get(k[2]) or position_of(k[2])),
                      "Rookie?": 1 if is_rookie(k[2], k[1]) else 0, "Starter/Bench": "Bench"})
     return pd.DataFrame(rows, columns=cols)
 

@@ -88,6 +88,8 @@ def test_tenure_rows_add_only_missing_tenures():
     # player 3's position comes from his player_week row, not the fallback
     assert got == sorted([("A", 2024, "9", "RB", 1), ("A", 2025, "3", "WR", 0)], key=str), got
     assert (ex["Starter/Bench"] == "Bench").all()
+    fb = U.tenure_rows(pw, [("A", 2024, "7")], {"7": "fb"}.get, lambda p, y: False)
+    assert fb["Position"].tolist() == ["RB"], fb
 
 
 def test_rostered_counts_include_tenures_started_does_not():
