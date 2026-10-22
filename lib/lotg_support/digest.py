@@ -131,6 +131,7 @@ NON_COUNTING_LEAGUE_STATS = {
     "Avg PF": "average", "Avg max PF": "average", "Efficiency": "rate",
     "Points per QB started": "average", "Points per WR started": "average",
     "Points per RB started": "average", "Points per TE started": "average",
+    "% of rostered players started": "rate",
     "Avg margin": "average", "Player average age": "average",
     "Team age including picks": "average",
     "Avg Sleeper Projection": "average", "Avg Claude Projection": "average",

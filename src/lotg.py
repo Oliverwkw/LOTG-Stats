@@ -1295,7 +1295,8 @@ def _col_topic(col: str, default: Optional[str] = "Identity") -> Optional[str]:
                             "over 30", "over 40", "over 50", "nfl team", "rostered from same",
                             "started from same", "startup draft", "difference between highest and lowest",
                             "number of players on bye", "number of teams",
-                            "number of players started", "number of players rostered")):
+                            "number of players started", "number of players rostered",
+                            "% of rostered players started")):
         return "Roster"
     if any(k in n for k in ("assets received", "assets sent", "assets retained", "assets traded",
                             "assets dropped", "additional assets", "return from trades", "pick value received",
@@ -22401,6 +22402,8 @@ def build_all(repo_root: Path) -> None:
     # on the same ruler.
     # ------------------------------------------------------------------
     player_additions = pd.DataFrame()
+    # (Team, Season, Player ID) of every tenure, for the rostered counts below.
+    _pa_tenures: List[Tuple[Any, Any, Any]] = []
     try:
         import re as _re_pa
         from datetime import date as _date_pa
@@ -23390,6 +23393,7 @@ def build_all(repo_root: Path) -> None:
                         f"{_pae_recon_bad} trade sides off the exported KTC margin")
         except Exception as e:
             _log_exc(debug, "points_above_expectation", e)
+        _pa_tenures = [(_r.get("Team"), _r.get("Season"), _r.get("_pae_pid")) for _r in _pa_rows]
         for _r in _pa_rows:
             for _k in ("_pae_held", "_pae_pos", "_pae_pid", "_pae_src"):
                 _r.pop(_k, None)
@@ -23541,6 +23545,54 @@ def build_all(repo_root: Path) -> None:
             pw["Win?"] = [_team_result.get(k) for k in _wk(pw)]
     except Exception as e:
         _log_exc(debug, "player_week_win", e)
+
+    # Rostered counts include every player_additions tenure (per user,
+    # 2026-10-22): a player picked up and dropped between two lineup snapshots
+    # has no player_week row but was on the roster. Recounts the total,
+    # QB/WR/RB/TE and rookies rostered on the year / all-time sheets (weekly
+    # sheets stay roster-snapshot counts), then % of rostered players started.
+    try:
+        from lotg_support import unique_players as _up
+        _ros_rows = pw
+        if _pa_tenures and isinstance(pw, pd.DataFrame) and not pw.empty:
+            _extra = _up.tenure_rows(pw, _pa_tenures, lambda _p: pid_pos.get(_p), is_rookie_pid)
+            _log(debug, f"[{_now_iso()}] INFO rostered counts: {len(_extra)} tenure(s) with no player_week row")
+            if not _extra.empty:
+                _ros_rows = pd.concat([pw[list(_extra.columns)], _extra], ignore_index=True)
+        for _fk, _keys in (("team_year", ["Team", "Year"]), ("team_all", ["Team"]),
+                           ("league_year", ["Year"]), ("league_all", [])):
+            _fr = {"team_year": team_year, "team_all": team_all,
+                   "league_year": league_year, "league_all": league_all}[_fk]
+            if not isinstance(_fr, pd.DataFrame) or _fr.empty:
+                continue
+            _cnt = _up.rostered_counts(_ros_rows, _keys)
+            if _keys:
+                # Join on normalised keys (str team, int year) without touching
+                # the frame's own Team / Year columns.
+                _norm = {"Team": lambda v: v.astype(str),
+                         "Year": lambda v: pd.to_numeric(v, errors="coerce").astype("Int64")}
+                _on = [f"_k_{k}" for k in _keys]
+                _fr = _fr.drop(columns=[c for c in _up.ROSTERED_COLUMNS if c in _fr.columns])
+                _fr = _fr.assign(**{f"_k_{k}": _norm[k](_fr[k]) for k in _keys})
+                _cnt = _cnt.assign(**{f"_k_{k}": _norm[k](_cnt[k]) for k in _keys}).drop(columns=_keys)
+                _fr = _fr.merge(_cnt, on=_on, how="left").drop(columns=_on)
+                for _c in _up.ROSTERED_COLUMNS:
+                    _fr[_c] = pd.to_numeric(_fr[_c], errors="coerce").fillna(0).astype(int)
+            else:
+                for _c in _up.ROSTERED_COLUMNS:
+                    _fr[_c] = int(_cnt.at[0, _c]) if not _cnt.empty else 0
+            _fr[_up.PCT] = _up.started_share(_fr.get(_up.STARTED), _fr[_up.ROSTERED])
+            _fr = _fr.copy()
+            if _fk == "team_year":
+                team_year = _fr
+            elif _fk == "team_all":
+                team_all = _fr
+            elif _fk == "league_year":
+                league_year = _fr
+            else:
+                league_all = _fr
+    except Exception as e:
+        _log_exc(debug, "rostered_counts_with_tenures", e)
 
     context = {
         "player_week": pw,
