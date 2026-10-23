@@ -7,8 +7,8 @@ exports so a "midweek" question runs through the same code as a historical one.
     lw.team_week                       # one row per team: PF so far, opponent, margin
 
 `player_week` carries the export's own column names (`Player`, `Team`, `Year`,
-`Week`, `Starter/Bench`, `Position`, `NFL team`, `Game slot`, `Points`, `Win?`)
-plus `Kickoff` (ET) and `Game status`, so `lotg_support.fast` can stack it under
+`Week`, `Starter/Bench`, `Position`, `Position started in (if starter)`, `NFL
+team`, `Game slot`, `Points`, `Win?`) plus `Kickoff` (ET) and `Game status`, so `lotg_support.fast` can stack it under
 the committed `player_week` and rank the live week against every finished one.
 
 What it is and is not:
@@ -117,15 +117,41 @@ def _status(kick: Optional[datetime], now: datetime) -> str:
     return "in progress"
 
 
+def slot_labels(roster_positions: List[str]) -> List[str]:
+    """The export's starter-slot labels (QB, RB1, RB2, WR1.., TE, FLX1, FLX2,
+    SFLX) for Sleeper's `roster_positions`, in starter order — the build's own
+    labelling (src/lotg.py, `starter_slot`)."""
+    out, counts = [], {}
+    for pos in roster_positions:
+        up = str(pos or "").upper()
+        if up in ("BN", "BE", "BENCH", "IR", "TAXI", ""):
+            continue
+        base = "SFLX" if up in ("SUPER_FLEX", "SUPERFLEX", "SFLEX", "SFLX") else "FLX" if up in ("FLEX", "FLX") else up
+        counts[base] = counts.get(base, 0) + 1
+        out.append(f"{base}{counts[base]}" if base in ("RB", "WR", "FLX") else base)
+    return out
+
+
+def _roster_positions(season: int) -> List[str]:
+    try:
+        return list(Q._snap(f"season_{int(season)}/league.json").get("roster_positions") or [])
+    except (FileNotFoundError, OSError, ValueError):
+        return []
+
+
 def build(season: int, week: int, matchups: List[dict], rosters: List[dict], users: List[dict],
           now: Optional[datetime] = None, source: str = "sleeper",
-          nfl_teams: Optional[Dict[tuple, str]] = None) -> LiveWeek:
+          nfl_teams: Optional[Dict[tuple, str]] = None,
+          roster_positions: Optional[List[str]] = None) -> LiveWeek:
     """Shape raw Sleeper rows into a LiveWeek (pure; `fetch` feeds it).
 
     A player's NFL team (hence his kickoff and slot) is his CURRENT team from
     the player dictionary — right for the live week. `nfl_teams` {(Team,
-    Player): NFL team} overrides it, for replaying a past week."""
+    Player): NFL team} overrides it, for replaying a past week.
+    `roster_positions` (default: that season's snapshot league.json) labels
+    each starter's slot; empty when neither is available."""
     now = now or now_et()
+    labels = slot_labels(_roster_positions(season) if roster_positions is None else roster_positions)
     P = Q.players()
     names = {u["user_id"]: (u.get("display_name") or u.get("username") or u["user_id"]) for u in users}
     team_of = {r["roster_id"]: Q.canonical_team(names.get(r.get("owner_id"), f"Roster {r['roster_id']}"))
@@ -146,6 +172,7 @@ def build(season: int, week: int, matchups: List[dict], rosters: List[dict], use
     for m in matchups:
         rid = m["roster_id"]
         starters = [str(p) for p in (m.get("starters") or [])]
+        slot = {pid: lab for pid, lab in zip(starters, labels) if pid != "0"}
         pts = {str(k): float(v or 0) for k, v in (m.get("players_points") or {}).items()}
         lead = rid in opp and pf[rid] > pf[opp[rid]]
         for pid in [str(p) for p in (m.get("players") or [])]:
@@ -158,7 +185,8 @@ def build(season: int, week: int, matchups: List[dict], rosters: List[dict], use
             prow.append({
                 "Player": meta.name, "Team": team_of[rid], "Year": season, "Week": week,
                 "Starter/Bench": "Starter" if pid in starters else "Bench",
-                "Position": meta.position, "NFL team": nfl,
+                "Position": meta.position, "Position started in (if starter)": slot.get(pid),
+                "NFL team": nfl,
                 "Game slot": game_slot(kick, sunday) if nfl else "N/A",
                 "Kickoff": kick, "Game status": _status(kick, now),
                 "Points": pts.get(pid, 0.0), "Win?": lead, "Player ID": pid,
