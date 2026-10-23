@@ -101,7 +101,8 @@ _SCORING_COLS = frozenset({
 POOL_COLUMNS = _POSITION_COLS | _SCORING_COLS
 
 _SEASON_IN_NAME = re.compile(r"_(\d{4})\.csv$")
-# Generational suffixes NFLverse carries and Sleeper (our exports) does not.
+# Generational suffixes NFLverse carries and Sleeper (our exports) did not until
+# 2026-10-22, when it added them to 34 players; others still differ.
 _NAME_SUFFIXES = frozenset({"jr", "sr", "ii", "iii", "iv", "v"})
 
 

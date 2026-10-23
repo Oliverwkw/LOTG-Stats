@@ -290,6 +290,8 @@ def main(argv=None) -> int:
     # tell a brand-new row (a trade/add just made) from an old one that only just
     # climbed onto a board. Stored here; consumed as `prior_row_keys` next run.
     current["row_keys"] = D.all_row_keys(frames)
+    # A player Sleeper re-spelled (a Jr./III added) is the same row as last week.
+    prior = D.migrate_renamed_players(prior, current, frames)
 
     # What arrived since the prior snapshot, and whether an edit landed: the
     # evidence that sends a move only an edit explains to its own section at the

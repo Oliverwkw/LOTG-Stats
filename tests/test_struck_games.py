@@ -36,7 +36,7 @@ def test_stat_lines_rescore_to_the_league_points():
     pts = dict(zip(rows["player_display_name"], lotg_points(rows).round(2)))
     # what Sleeper scored, as in player_week for the rostered players
     want = {"Joe Burrow": 6.28, "Josh Allen": 2.72, "Stefon Diggs": 4.6, "Tyler Boyd": 8.4,
-            "Tee Higgins": 2.3, "James Cook": 1.8, "Joe Mixon": 1.2, "Devin Singletary": 0.3,
+            "Tee Higgins": 2.3, "James Cook III": 1.8, "Joe Mixon": 1.2, "Devin Singletary": 0.3,
             "Hayden Hurst": 4.5}
     assert {n: pts[n] for n in want} == want, pts
 
