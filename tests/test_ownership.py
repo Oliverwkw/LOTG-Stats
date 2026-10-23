@@ -315,7 +315,10 @@ def test_the_count_guard_stops_at_the_last_built_week():
     latest = None
     for year in Q.snapshot_seasons():
         for txn in Q.raw_transactions(year):
-            if txn.get("type") == "trade" and txn.get("status") == "complete":
+            # A picks-only trade moves no player, so it has nothing to drop: the
+            # sample is the latest trade that moved one (2026 wk7's first trade
+            # was picks only and made this test assert 0 > 0).
+            if txn.get("type") == "trade" and txn.get("status") == "complete" and txn.get("adds"):
                 key = (year, int(txn.get("leg") or 1))
                 if int(txn.get("leg") or 1) > 1 and (latest is None or key > latest[:2]):
                     latest = (*key, [str(p) for p in (txn.get("adds") or {})])

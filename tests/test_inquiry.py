@@ -233,7 +233,7 @@ def test_trades_resolve_both_sides():
     trade = deals[0]
     assert trade.date == "2025-08-07"
     names = {Q.players().name(p) for side in trade.received.values() for p in side}
-    assert {"Justin Herbert", "Lamar Jackson", "Chris Godwin"} <= names
+    assert {"Justin Herbert", "Lamar Jackson", "Chris Godwin Jr."} <= names
     assert set(trade.faab.values()) == {35.0, -35.0}
     assert len(trade.picks) == 4
     assert "gets" in trade.describe()

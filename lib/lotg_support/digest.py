@@ -4878,3 +4878,114 @@ def apply_key_map(snapshot: dict, key_map: Dict[str, str], new_frames: dict) -> 
             if nk in labels:
                 e["label"] = labels[nk]
     return snapshot
+
+
+# ---------------------------------------------------------------------------
+# Renamed players (a name migration for the snapshot)
+# ---------------------------------------------------------------------------
+# The build names players as Sleeper's /players/nfl dictionary spells them, and
+# Sleeper re-spells them: between 2026-10-20 and 10-22 it added a generational
+# suffix to 34 ("James Cook" -> "James Cook III", "Chris Godwin" -> "Chris Godwin
+# Jr."). The snapshot keys rows by name ("player_year|James Cook|2024") and
+# names on-pace standings and run holders by name, so run 762's digest called
+# the same player both "on pace" (new spelling) and "no longer on pace" (old).
+# On READ, a stored key, label or name that this week's set lacks is carried to
+# this week's spelling when the two differ only by such a suffix and the pairing
+# is one-to-one either way. Idempotent: a snapshot already in today's spelling
+# maps nothing.
+_GENERATIONAL_SUFFIX = re.compile(r"\s(?:Jr|Sr)\.?(?!\w)|\s(?:II|III|IV|V)(?![\w.])")
+
+
+def _strip_suffixes(text: str) -> str:
+    return _GENERATIONAL_SUFFIX.sub("", text) if isinstance(text, str) else text
+
+
+def _suffix_remap(old: Iterable[str], new: Iterable[str]) -> Dict[str, str]:
+    """old -> new for strings only in `old` whose suffix-stripped form matches
+    exactly one string only in `new` (and nothing else stripped to it)."""
+    old_s, new_s = set(old), set(new)
+    gone: Dict[str, List[str]] = {}
+    came: Dict[str, List[str]] = {}
+    for o in old_s - new_s:
+        gone.setdefault(_strip_suffixes(o), []).append(o)
+    for n in new_s - old_s:
+        came.setdefault(_strip_suffixes(n), []).append(n)
+    return {g[0]: came[k][0] for k, g in gone.items()
+            if len(g) == 1 and len(came.get(k, ())) == 1}
+
+
+def renamed_player_labels(frames: dict) -> Dict[str, str]:
+    """key -> label for this week's board rows whose name carries a generational
+    suffix: the only rows a rename can have re-keyed or re-labelled."""
+    out: Dict[str, str] = {}
+    for sheet, spec in _BOARD_SHEETS.items():
+        df = frames.get(sheet)
+        if df is None or getattr(df, "empty", True):
+            continue
+        text_cols = [c for c in df.columns if df[c].dtype == object or str(df[c].dtype) in ("str", "string")]
+        if not text_cols:
+            continue
+        hit = pd.Series(False, index=df.index)
+        for c in text_cols:
+            hit |= df[c].astype(str).str.contains(_GENERATIONAL_SUFFIX, na=False)
+        for _, r in df[hit].iterrows():
+            out[_board_row_key(sheet, r)] = _board_label(sheet, r)
+    return out
+
+
+def migrate_renamed_players(prior: Optional[dict], current: dict, frames: dict) -> Optional[dict]:
+    """`prior` with players Sleeper re-spelled carried to this week's spelling
+    (see above): row keys and board entries' keys, their labels, and the player
+    names on the stored boards, on-pace standings and run holders."""
+    if not isinstance(prior, dict):
+        return prior
+    def names(snap: dict) -> set:
+        out = {e.get("entity") for e in _snapshot_board_entries(snap)}
+        for rows in (snap.get("players") or {}).values():
+            out |= {r.get("entity") for r in rows or () if isinstance(r, dict)}
+        for by_name in ((snap.get("pace") or {}).get("players") or {}).values():
+            out |= set(by_name or ())
+        return {n for n in out if isinstance(n, str)}
+
+    cur_names = names(current)
+    for sheet in ("player_all_time", "player_year"):
+        df = frames.get(sheet)
+        if df is not None and "Player" in getattr(df, "columns", ()):
+            cur_names |= set(df["Player"].dropna().astype(str))
+    nmap = _suffix_remap(names(prior), cur_names)
+    labels = renamed_player_labels(frames)
+    cur_keys = set(labels) | set(current.get("row_keys") or ())
+    cur_keys |= {e.get("key") for e in _snapshot_board_entries(current)}
+    old_keys = set(prior.get("row_keys") or ()) | {e.get("key") for e in _snapshot_board_entries(prior)}
+    kmap = _suffix_remap((k for k in old_keys if isinstance(k, str)),
+                         (k for k in cur_keys if isinstance(k, str)))
+    # cur_keys holds only the suffixed rows, so a key naming someone who still
+    # plays under the bare name (Kenneth Walker the WR, beside Kenneth Walker
+    # III) can look vanished. A name still in use this week is never re-pointed.
+    kmap = {k: v for k, v in kmap.items()
+            if not (set(k.split("|")) - set(v.split("|"))) & cur_names}
+    if not kmap and not nmap:
+        return prior
+
+    prior["row_keys"] = sorted({kmap.get(k, k) for k in prior.get("row_keys") or ()})
+    relabelled = 0
+    for e in _snapshot_board_entries(prior):
+        e["key"] = kmap.get(e.get("key"), e.get("key"))
+        if e.get("entity") in nmap:
+            e["entity"] = nmap[e["entity"]]
+        now = labels.get(e.get("key"))
+        if now and e.get("label") != now and _strip_suffixes(e.get("label")) == _strip_suffixes(now):
+            e["label"] = now
+            relabelled += 1
+    for rows in (prior.get("players") or {}).values():
+        for r in rows or ():
+            if isinstance(r, dict) and r.get("entity") in nmap:
+                r["entity"] = nmap[r["entity"]]
+    pace_players = (prior.get("pace") or {}).get("players")
+    if isinstance(pace_players, dict):
+        for col, by_name in pace_players.items():
+            if isinstance(by_name, dict):
+                pace_players[col] = {nmap.get(n, n): v for n, v in by_name.items()}
+    print(f"[digest] renamed players carried across: {len(nmap)} name(s), "
+          f"{len(kmap)} row key(s), {relabelled} board label(s)")
+    return prior

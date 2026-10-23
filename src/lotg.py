@@ -14125,26 +14125,36 @@ def build_all(repo_root: Path) -> None:
 
         # Build a per-player chronological NFL game log from nfl_log_by_sid
         # (already populated season-by-season above). Each entry has
-        # year/week/points/_wk_date. Index by player display name so we
-        # can look up alongside pw which keys by name.
+        # year/week/points/_wk_date. Keyed by Sleeper player id: a display name
+        # is not unique (Josh Allen QB / G, Lamar Jackson QB / CB, and Kenneth
+        # Walker WR beside the RB until Sleeper renamed him "Kenneth Walker III"
+        # on 2026-10-22), and the old name -> first-id map seeded the RB's
+        # baseline with the WR's games. A row with no valid id keeps the name
+        # lookup it always had.
         name_to_sid_h: Dict[str, str] = {}
         for _sid_h, _meta_h in pid_meta.items():
             _fn = (_meta_h or {}).get("full_name")
             if _fn:
                 name_to_sid_h.setdefault(str(_fn), str(_sid_h))
 
-        nfl_games_by_name: Dict[str, List[Tuple[int, int, float]]] = defaultdict(list)
-        for _name, _sid in name_to_sid_h.items():
-            for _e in nfl_log_by_sid.get(_sid, []):
-                try:
-                    _yr_h = int(_e.get("year"))
-                    _wk_h = int(_e.get("week"))
-                    _pts_h = float(_e.get("points") or 0.0)
-                except Exception:
-                    continue
-                nfl_games_by_name[_name].append((_yr_h, _wk_h, _pts_h))
-        for _name in nfl_games_by_name:
-            nfl_games_by_name[_name].sort()
+        def _hardship_key(_row) -> str:
+            _pid_k = _row.get("Player ID")
+            return str(_pid_k) if _valid_pid(_pid_k) else "name:" + str(_row["Player"])
+
+        nfl_games_by_name: Dict[str, List[Tuple[int, int, float]]] = {}
+
+        def _nfl_games(_key: str) -> List[Tuple[int, int, float]]:
+            if _key not in nfl_games_by_name:
+                _sid = name_to_sid_h.get(_key[5:]) if _key.startswith("name:") else _key
+                _games: List[Tuple[int, int, float]] = []
+                for _e in nfl_log_by_sid.get(_sid, []) if _sid else []:
+                    try:
+                        _games.append((int(_e.get("year")), int(_e.get("week")),
+                                       float(_e.get("points") or 0.0)))
+                    except Exception:
+                        continue
+                nfl_games_by_name[_key] = sorted(_games)
+            return nfl_games_by_name[_key]
 
         # Pre-seed each player's history deque with NFLverse games BEFORE
         # their first pw row. Then as we iterate pw chronologically, also
@@ -14155,7 +14165,7 @@ def build_all(repo_root: Path) -> None:
         # that match an existing pw row's (year, week) for the same player.
         first_pw_yrwk: Dict[str, Tuple[int, int]] = {}
         for _, row in pw.iterrows():
-            _p = row["Player"]
+            _p = _hardship_key(row)
             _y = int(row["Year"]) if pd.notna(row.get("Year")) else None
             _w = int(row["Week"]) if pd.notna(row.get("Week")) else None
             if _y is None or _w is None:
@@ -14166,7 +14176,7 @@ def build_all(repo_root: Path) -> None:
         # Map (player, year, week) -> True if pw has a row (to skip dup nfl entries)
         pw_yrwk_set: Set[Tuple[str, int, int]] = set()
         for _, row in pw.iterrows():
-            _p = row["Player"]
+            _p = _hardship_key(row)
             _y = int(row["Year"]) if pd.notna(row.get("Year")) else None
             _w = int(row["Week"]) if pd.notna(row.get("Week")) else None
             if _y is None or _w is None:
@@ -14179,7 +14189,7 @@ def build_all(repo_root: Path) -> None:
         nfl_cursor: Dict[str, int] = defaultdict(int)
         # Seed deques with NFLverse games BEFORE the player's first pw row.
         for _p, (_fy, _fw) in first_pw_yrwk.items():
-            games = nfl_games_by_name.get(_p, [])
+            games = _nfl_games(_p)
             i_cur = 0
             for (gy, gw, gp) in games:
                 if (gy, gw) < (_fy, _fw):
@@ -14228,7 +14238,7 @@ def build_all(repo_root: Path) -> None:
             _act = not (_i2 or _s2 or _b2)
             _st = 1 if (str(_r.get("Starter/Bench") or "").strip().lower() == "starter") else 0
             _yr2 = _to_int(_r.get("Year"), None)
-            player_seq[_r["Player"]].append((_yr2 if _yr2 is not None else -1, _act, _st))
+            player_seq[_hardship_key(_r)].append((_yr2 if _yr2 is not None else -1, _act, _st))
         player_pos: Dict[str, int] = defaultdict(int)
         lotg_active_seen: Dict[str, int] = defaultdict(int)
 
@@ -14252,7 +14262,7 @@ def build_all(repo_root: Path) -> None:
         prev_yrwk_by_player: Dict[str, Tuple[int, int]] = {}
 
         for i, row in pw.iterrows():
-            player = row["Player"]
+            player = _hardship_key(row)
             pts = float(row["Points"])
             inj = bool(row.get("Injury?") or False)
             susp = bool(row.get("Suspension?") or False)
@@ -14268,7 +14278,7 @@ def build_all(repo_root: Path) -> None:
             # the player was on no LOTG roster — they played in NFL, scored
             # points, but didn't appear in pw).
             if yr is not None and wk is not None:
-                games = nfl_games_by_name.get(player, [])
+                games = _nfl_games(player)
                 cur_idx = nfl_cursor[player]
                 while cur_idx < len(games):
                     gy, gw, gp = games[cur_idx]

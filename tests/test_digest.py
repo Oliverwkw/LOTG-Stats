@@ -2857,3 +2857,41 @@ def test_add_drop_rows_name_the_dropped_player():
     other = D.EventCrossing("trades", "A's 2025-09-01 trade for X", col, "high", 1, 1.0)
     D.name_dropped_players([other], {"add_drops": ad})
     assert other.shown == {}
+
+
+def test_a_player_sleeper_respelled_is_the_same_row():
+    """Sleeper added "III" to James Cook (2026-10-22): last week's snapshot keys,
+    labels, board entities and on-pace names must carry to the new spelling, not
+    read as a new row plus a drop-off. A one-to-many or unrelated name stays."""
+    import pandas as pd
+    from lotg_support import digest as D
+    py = pd.DataFrame({"Player": ["James Cook III", "Kenneth Walker", "Kenneth Walker III"],
+                       "Year": [2024, 2024, 2024]})
+    ad = pd.DataFrame([["T", "2022-05-01 10:00:00", "James Cook III", "Old Guy", 2022]],
+                      columns=["Team", "Date", "Player Added", "Player Dropped", "Season"])
+    frames = {"player_year": py, "player_all_time": py[["Player"]], "add_drops": ad}
+    current = {"row_keys": [D._board_row_key("add_drops", ad.iloc[0])],
+               "pace": {"players": {"PF": {"James Cook III": "high:1"}}}}
+    prior = {
+        "row_keys": ["add_drops|T|2022-05-01 10:00:00|James Cook|Old Guy"],
+        "event_board": [
+            {"sheet": "player_year", "key": "player_year|James Cook|2024",
+             "label": "James Cook 2024", "entity": "James Cook", "rank": 1},
+            # "Kenneth Walker" is still a name this week: never re-pointed.
+            {"sheet": "player_year", "key": "player_year|Kenneth Walker|2024",
+             "label": "Kenneth Walker 2024", "entity": "Kenneth Walker", "rank": 2}],
+        "players": {"PF": [{"entity": "James Cook", "value": 1.0}]},
+        "pace": {"players": {"PF": {"James Cook": "high:2"}}},
+    }
+    out = D.migrate_renamed_players(prior, current, frames)
+    assert out["row_keys"] == ["add_drops|T|2022-05-01 10:00:00|James Cook III|Old Guy"]
+    cook, walker = out["event_board"]
+    assert (cook["key"], cook["label"], cook["entity"]) == (
+        "player_year|James Cook III|2024", "James Cook III 2024", "James Cook III")
+    assert (walker["key"], walker["entity"]) == ("player_year|Kenneth Walker|2024", "Kenneth Walker")
+    assert out["players"]["PF"][0]["entity"] == "James Cook III"
+    assert out["pace"]["players"]["PF"] == {"James Cook III": "high:2"}
+    # Idempotent: today's spelling maps nothing.
+    assert D.migrate_renamed_players(out, current, frames) == out
+    assert D._strip_suffixes("2021 1.06(T. Etienne Jr.)") == "2021 1.06(T. Etienne)"
+    assert D._strip_suffixes("Deebo Samuel Sr. 2024 week 3") == "Deebo Samuel 2024 week 3"
