@@ -154,7 +154,7 @@ def test_undo_trade_finds_the_2025_herbert_deal():
         return _skip("no committed data")
     scenario = R.undo_trade(2025, player="Justin Herbert")
     moved = {Q.players().name(m.player_id) for m in scenario.moves}
-    assert moved == {"Justin Herbert", "Tre' Harris", "Lamar Jackson", "Chris Godwin"}
+    assert moved == {"Justin Herbert", "Tre' Harris", "Lamar Jackson", "Chris Godwin Jr."}
     # Each player goes back to the roster that gave him up.
     by_name = {Q.players().name(m.player_id): m for m in scenario.moves}
     herbert, lamar = by_name["Justin Herbert"], by_name["Lamar Jackson"]

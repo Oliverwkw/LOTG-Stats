@@ -155,7 +155,7 @@ def test_the_teardown_composes_to_every_players_real_move():
     names = {Q.players().name(m.player_id) for m in scenario.moves}
     # Everyone Oliverwkw sold in the teardown comes back...
     for who in ("Christian McCaffrey", "Cooper Kupp", "Justin Herbert", "Christian Kirk",
-                "Adam Thielen", "George Kittle", "DeAndre Hopkins", "Michael Pittman",
+                "Adam Thielen", "George Kittle", "DeAndre Hopkins", "Michael Pittman Jr.",
                 "Alec Pierce", "Austin Ekeler", "Terry McLaurin"):
         assert who in names, f"{who} missing from the composed teardown"
     # ...and everyone who came back the other way leaves again.
