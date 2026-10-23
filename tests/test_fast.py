@@ -97,6 +97,31 @@ def test_live_build_reproduces_the_export_week():
     assert checked >= 2
 
 
+def test_live_rows_carry_the_export_slot_labels():
+    from lotg_support import live
+    assert live.slot_labels(["QB", "RB", "RB", "WR", "WR", "WR", "TE", "FLEX", "FLEX", "SUPER_FLEX", "BN", "TAXI", "IR"]) \
+        == ["QB", "RB1", "RB2", "WR1", "WR2", "WR3", "TE", "FLX1", "FLX2", "SFLX"]
+    if not (_HAVE_EXPORTS and _HAVE_SNAPSHOT) and _skip("no exports/snapshot"):
+        return
+    pw = fast.player_weeks()
+    col = "Position started in (if starter)"
+    checked = 0
+    for season in (2023, _season()):   # 9 starters, then 10 (FLX2 from 2024)
+        for wk in (3, 5):
+            lw = live.fetch(season, wk, source="snapshot")
+            st = lw.player_week[lw.player_week["Starter/Bench"] == "Starter"]
+            ex = pw[(pw["Year"] == season) & (pw["Week"] == wk) & (pw["Starter/Bench"] == "Starter")]
+            exp = dict(zip(zip(ex["Team"], ex["Player"]), ex[col]))
+            got = dict(zip(zip(st["Team"], st["Player"]), st[col]))
+            common = set(exp) & set(got)
+            assert len(common) >= 0.97 * len(exp), (season, wk, len(common), len(exp))
+            diffs = [(k, exp[k], got[k]) for k in common if exp[k] != got[k]]
+            assert not diffs, (season, wk, diffs[:5])
+            assert lw.player_week.loc[lw.player_week["Starter/Bench"] == "Bench", col].isna().all()
+            checked += len(common)
+    assert checked > 250, checked
+
+
 def test_stage_margin_matches_the_build_columns():
     if not (_HAVE_EXPORTS and _HAVE_SCHEDULE) and _skip("no exports/schedule"):
         return
@@ -315,6 +340,7 @@ TESTS = [
     test_t_pvalue_and_corr_match_reference_values,
     test_acquisition_columns_cover_every_finished_row,
     test_live_rows_get_the_same_acquisition_columns,
+    test_live_rows_carry_the_export_slot_labels,
     test_waiver_share_reconciles_with_the_waiver_inquiry,
     test_q_has_corr_share_and_team_seasons,
 ]
