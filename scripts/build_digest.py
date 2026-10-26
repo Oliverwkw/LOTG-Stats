@@ -318,7 +318,12 @@ def main(argv=None) -> int:
             print("[digest] baselining on-pace standings this week (no diff yet).")
             proj_changes = []
         else:
-            proj_changes = D.diff_pace(prior_pace, projections)
+            known = D.snapshot_columns(prior)
+            proj_changes = D.diff_pace(prior_pace, projections, known)
+            n_new = sum(1 for p in projections if p.column not in known)
+            if n_new:
+                print(f"[digest] baselining {n_new} on-pace standing(s) on column(s) new "
+                      f"since the last snapshot (no diff yet).")
         # What fell off last week's list — only while there is a list to be on.
         dropped_pace = D.pace_dropouts(prior_pace, projections,
                                        {"league": D._league_window(frames["league_year"])}) \

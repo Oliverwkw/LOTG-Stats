@@ -104,7 +104,7 @@ LEAGUE_WINDOW_CAP = 5
 # NON_COUNTING_LEAGUE_STATS with why, so a new column has to be placed in one or
 # the other (tests/test_digest.py::check_league_milestone_stats_cover_sheet).
 MAJOR_LEAGUE_STATS = (
-    "PF", "Max PF",
+    "PF", "Max PF", "Bench points", "Points left on bench",
     "Number of games within 10", "Number of games within 5", "UPST",
     "Number of QB started", "Number of WR started", "Number of RB started",
     "Number of TE started", "Number of players started",
@@ -129,6 +129,7 @@ MAJOR_LEAGUE_STATS = (
 NON_COUNTING_LEAGUE_STATS = {
     # averages and rates
     "Avg PF": "average", "Avg max PF": "average", "Efficiency": "rate",
+    "Avg bench points": "average", "Avg points left on bench": "average",
     "Points per QB started": "average", "Points per WR started": "average",
     "Points per RB started": "average", "Points per TE started": "average",
     "% of rostered players started": "rate",
@@ -868,6 +869,7 @@ def build_snapshot(
         # Marks a snapshot written after add_drops' post-drop points columns
         # stopped being negated (see `migrate_snapshot_signs`).
         _DROPPED_SIGN_KEY: _DROPPED_SIGN_RAW,
+        _BENCH_SPLIT_KEY: _BENCH_SPLIT_DONE,
         # The gate rules this snapshot was ranked under, so next week can tell a
         # line a change to them let go from one new data brought
         # (`mark_rule_releases`).
@@ -1633,12 +1635,42 @@ def pace_rank_map(projections: Sequence[Projection]) -> dict:
     return out
 
 
-def diff_pace(prior_pace: dict, projections: Sequence[Projection]) -> List[Projection]:
+def snapshot_columns(snapshot: Optional[dict]) -> set:
+    """Every column name a snapshot mentions anywhere: its event boards, the
+    all-time ranks, the on-pace and yearly-record maps, the league milestones.
+    A column outside it is one the build added since."""
+    cols: set = set()
+    if not isinstance(snapshot, dict):
+        return cols
+    for e in _snapshot_board_entries(snapshot):
+        if isinstance(e, dict) and e.get("column"):
+            cols.add(e["column"])
+    for part in ("teams", "players", "league_milestones"):
+        if isinstance(snapshot.get(part), dict):
+            cols.update(snapshot[part].keys())
+    for part in ("pace", "yearly_records"):
+        m = snapshot.get(part)
+        if isinstance(m, dict):
+            for sec in m.values():
+                if isinstance(sec, dict):
+                    cols.update(sec.keys())
+    return cols
+
+
+def diff_pace(prior_pace: dict, projections: Sequence[Projection],
+              known_columns: Optional[set] = None) -> List[Projection]:
     """On-pace projections whose notable rank CHANGED since last week (or newly
     entered the top/bottom window). An entity that unchanged its standing is
-    silent — this is what keeps the over-inclusive digest to a readable size."""
+    silent — this is what keeps the over-inclusive digest to a readable size.
+
+    `known_columns` (`snapshot_columns` of the prior snapshot): a column outside
+    it is one the build just added, so its standings are baselined in silence,
+    as the first on-pace week is, rather than each told as news. A known column
+    new to the on-pace list (a gate opening) is still reported."""
     changed: List[Projection] = []
     for p in projections:
+        if known_columns is not None and p.column not in known_columns:
+            continue
         prior_ents = {_pace_key(p.section, e): v
                       for e, v in prior_pace.get(p.section, {}).get(p.column, {}).items()}
         prior = prior_ents.get(_pace_key(p.section, p.entity))
@@ -4772,6 +4804,34 @@ _DROPPED_SIGN_COLUMNS = frozenset(("Dropped avg points", "Dropped avg points adj
                                    "Dropped total points"))
 
 
+# team_week "Combined bench points" held Max PF − PF for both teams until
+# 2026-10-25; that number is now "Combined points left on bench" and the old
+# name holds the benches' own points [per user]. A snapshot written before the
+# split stored its boards under the old name: they belong to the new column, so
+# they are moved there on READ, once — the stamp keeps a later snapshot's real
+# "Combined bench points" boards where they are. New snapshots carry the stamp
+# from `build_snapshot`. The new "Combined bench points" starts with no history.
+_BENCH_SPLIT_KEY = "bench_points_split"
+_BENCH_SPLIT_DONE = "2026-10-25"
+_BENCH_SPLIT_RENAMES = {("team_week", "Combined bench points"): "Combined points left on bench"}
+
+
+def migrate_snapshot_bench_split(snapshot: Optional[dict]) -> Optional[dict]:
+    """`snapshot` with its pre-split "Combined bench points" boards moved to
+    "Combined points left on bench" (idempotent: a stamped snapshot is returned
+    as is)."""
+    if not isinstance(snapshot, dict):
+        return snapshot
+    meta = snapshot.setdefault("meta", {})
+    if not isinstance(meta, dict) or meta.get(_BENCH_SPLIT_KEY) == _BENCH_SPLIT_DONE:
+        return snapshot
+    for e in _snapshot_board_entries(snapshot):
+        if isinstance(e, dict):
+            e["column"] = _BENCH_SPLIT_RENAMES.get((e.get("sheet"), e.get("column")), e.get("column"))
+    meta[_BENCH_SPLIT_KEY] = _BENCH_SPLIT_DONE
+    return snapshot
+
+
 def migrate_snapshot_signs(snapshot: Optional[dict]) -> Optional[dict]:
     """`snapshot` with add_drops' pre-2026-09-30 negated post-drop places in
     today's sign (idempotent: a stamped snapshot is returned as is)."""
@@ -4793,7 +4853,8 @@ def migrate_snapshot_signs(snapshot: Optional[dict]) -> Optional[dict]:
 
 def load_snapshot(path: Path) -> Optional[dict]:
     try:
-        return migrate_snapshot_signs(migrate_snapshot_columns(json.loads(Path(path).read_text())))
+        return migrate_snapshot_bench_split(
+            migrate_snapshot_signs(migrate_snapshot_columns(json.loads(Path(path).read_text()))))
     except (OSError, ValueError):
         return None
 

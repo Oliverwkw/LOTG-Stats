@@ -995,6 +995,10 @@ EQUATIONS = {
         'PA(t,w) = PF(o(t,w), w); year/all-time = Σ_w',
     ('Max PF', 'team_week / team_year / team_all_time / league_week / league_year / league_all_time'):
         'MaxPF(t,w) = OPT({pts(p,w) : p ∈ R(t,w)}, y); year/all-time/league = Σ',
+    ('Bench points', 'team_week / team_year / team_all_time / league_week / league_year / league_all_time'):
+        'Σ_{p ∈ R(t,w) ∖ S(t,w)} pts(p,w); year/all-time/league = Σ',
+    ('Points left on bench', 'team_week / team_year / team_all_time / league_week / league_year / league_all_time'):
+        'MaxPF(t,w) − Σ_{p ∈ S(t,w)} pts(p,w); year/all-time/league = Σ',
     ('Margin', 'team_week'):
         'PF(t,w) − PA(t,w)',
     ('Margin entering SNF / Monday / last game', 'team_week'):
@@ -1212,7 +1216,9 @@ EQUATIONS = {
     ('Combined efficiency', 'team_week'):
         '(PF(t,w)/MaxPF(t,w) + PF(o,w)/MaxPF(o,w)) / 2',
     ('Combined bench points', 'team_week'):
-        '(MaxPF(t,w) + MaxPF(o,w)) − (PF(t,w) + PF(o,w))',
+        'Σ_{u ∈ {t,o}} Σ_{p ∈ R(u,w) ∖ S(u,w)} pts(p,w)',
+    ('Combined points left on bench', 'team_week'):
+        'Σ_{u ∈ {t,o}} (MaxPF(u,w) − Σ_{p ∈ S(u,w)} pts(p,w))',
     ('Combined points from QBs', 'team_week'):
         'Σ_{u ∈ {t,o}} Σ_{p ∈ S(u,w), posS = QB} pts(p,w)',
     ('Combined points from WRs', 'team_week'):
@@ -1273,6 +1279,10 @@ EQUATIONS = {
         'mean_y Σ_{w ∈ y} Luck(t,w)',
     ('Avg PF', 'league_year / league_all_time'):
         'Σ_{t,w} PF(t,w) / |{(t,w) games}|',
+    ('Avg bench points', 'team_year / team_all_time / league_year / league_all_time'):
+        'Σ_w BenchPts(t,w) / |{w}|  (league: over all t)',
+    ('Avg points left on bench', 'team_year / team_all_time / league_year / league_all_time'):
+        'Σ_w LeftOnBench(t,w) / |{w}|  (league: over all t)',
     ('Avg max PF', 'team_year / team_all_time / league_year / league_all_time'):
         'Σ_w MaxPF(t,w) / |{w}|  (league: over all t)',
     ('Avg points against', 'team_year / team_all_time'):
