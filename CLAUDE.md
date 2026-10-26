@@ -167,6 +167,13 @@ points. Then, before answering:
   `waivers` prints what is left on the 100 scale. Never size a bid against 10000.
 - Trades go to `trade.py` (above); a what-if season to `scripts/whatif.py`.
 
+## Player values in league FAAB — `scripts/faab_value.py`
+
+`board` / `explain NAME...` / `calls` / `votes` print the stats-only valuation (general rules fitted to the
+league's trades, cuts and calls; no names, no pins) and how each rule moved a player. Rating-page votes
+(`docs/rate/`) are a capped signal for the fit, never a per-player edit. See
+`plan/notes/FAAB_VALUE_SYSTEM.md`.
+
 ## What this is
 
 A cloud-only pipeline that pulls the league's history from Sleeper (plus an ESPN

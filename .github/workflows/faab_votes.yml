@@ -1,0 +1,75 @@
+name: Pull rating-page votes
+
+# The rating page (docs/rate/, GitHub Pages) posts each answer to a Google Form. This copies the form's
+# published response sheet into data/votes/responses.csv and writes data/votes/report.md (where the board
+# and the votes disagree, and the rule terms behind the board's side).
+#
+# It does NOT refit or change any value. Votes are a capped signal for the fit's general rules
+# (lib/lotg_support/faab_votes.py); a refit is a deliberate `scripts/faab_value.py fit` whose params diff
+# is reviewed in a PR.
+#
+# SETUP: repo variable FAAB_VOTES_CSV_URL = the response sheet's "Publish to web" CSV link
+# (plan/notes/FAAB_VALUE_SYSTEM.md). Unset -> the run says so and exits cleanly.
+#
+# Once a day is plenty (a late or dropped cron loses nothing: the sheet keeps every answer).
+
+on:
+  schedule:
+    - cron: "17 11 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: faab-votes-write
+  cancel-in-progress: false
+
+jobs:
+  pull:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v7
+
+      - name: Setup Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+
+      - name: Install minimal deps
+        run: pip install --no-cache-dir "pandas==3.0.6" numpy
+
+      - name: Pull responses and write the report
+        env:
+          CSV_URL: ${{ vars.FAAB_VOTES_CSV_URL }}
+        run: |
+          set -euo pipefail
+          if [ -z "${CSV_URL:-}" ]; then
+            echo "::notice::FAAB_VOTES_CSV_URL is not set; nothing to pull."
+            exit 0
+          fi
+          python scripts/faab_value.py pull-votes "$CSV_URL"
+          python scripts/faab_value.py votes --report data/votes/report.md
+
+      - name: Commit
+        run: |
+          git config user.name "lotg-votes-bot"
+          git config user.email "noreply@anthropic.com"
+          git add data/votes/responses.csv data/votes/report.md
+          if git diff --cached --quiet; then
+            echo "No new votes"
+            exit 0
+          fi
+          git commit -m "Rating-page votes [skip ci]"
+          push_ok=0
+          for attempt in 1 2 3 4; do
+            if git push; then push_ok=1; break; fi
+            echo "Push failed (attempt $attempt) — reconciling with origin and retrying."
+            git pull --rebase origin "${GITHUB_REF_NAME}" || true
+            sleep $((2 ** attempt))
+          done
+          if [ "$push_ok" != "1" ]; then
+            echo "::error::Could not push the votes."
+            exit 1
+          fi
