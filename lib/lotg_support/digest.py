@@ -1635,12 +1635,42 @@ def pace_rank_map(projections: Sequence[Projection]) -> dict:
     return out
 
 
-def diff_pace(prior_pace: dict, projections: Sequence[Projection]) -> List[Projection]:
+def snapshot_columns(snapshot: Optional[dict]) -> set:
+    """Every column name a snapshot mentions anywhere: its event boards, the
+    all-time ranks, the on-pace and yearly-record maps, the league milestones.
+    A column outside it is one the build added since."""
+    cols: set = set()
+    if not isinstance(snapshot, dict):
+        return cols
+    for e in _snapshot_board_entries(snapshot):
+        if isinstance(e, dict) and e.get("column"):
+            cols.add(e["column"])
+    for part in ("teams", "players", "league_milestones"):
+        if isinstance(snapshot.get(part), dict):
+            cols.update(snapshot[part].keys())
+    for part in ("pace", "yearly_records"):
+        m = snapshot.get(part)
+        if isinstance(m, dict):
+            for sec in m.values():
+                if isinstance(sec, dict):
+                    cols.update(sec.keys())
+    return cols
+
+
+def diff_pace(prior_pace: dict, projections: Sequence[Projection],
+              known_columns: Optional[set] = None) -> List[Projection]:
     """On-pace projections whose notable rank CHANGED since last week (or newly
     entered the top/bottom window). An entity that unchanged its standing is
-    silent — this is what keeps the over-inclusive digest to a readable size."""
+    silent — this is what keeps the over-inclusive digest to a readable size.
+
+    `known_columns` (`snapshot_columns` of the prior snapshot): a column outside
+    it is one the build just added, so its standings are baselined in silence,
+    as the first on-pace week is, rather than each told as news. A known column
+    new to the on-pace list (a gate opening) is still reported."""
     changed: List[Projection] = []
     for p in projections:
+        if known_columns is not None and p.column not in known_columns:
+            continue
         prior_ents = {_pace_key(p.section, e): v
                       for e, v in prior_pace.get(p.section, {}).get(p.column, {}).items()}
         prior = prior_ents.get(_pace_key(p.section, p.entity))

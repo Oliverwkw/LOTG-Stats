@@ -113,6 +113,21 @@ def test_league_milestones_classify_the_new_columns():
         assert D.NON_COUNTING_LEAGUE_STATS.get(c) == "average", c
 
 
+def test_a_new_column_is_baselined_off_the_on_pace_list():
+    prior = {"pace": {"teams": {"PF": {"A": "high:1"}}},
+             "event_board": [_place("Combined bench points", 1, "team_week|A|2022|16", 160.0),
+                             _place("Avg max PF", 1, "team_year|A|2022", 150.0)]}
+    projs = [D.Projection("teams", "A", "PF", "high", 2, 8, 100.0),
+             D.Projection("teams", "B", B.BENCH, "low", 1, 8, 50.0),
+             D.Projection("league", "League", B.LEFT, "high", 2, 6, 30.0),
+             # known column new to the on-pace list (a gate opening): still told
+             D.Projection("teams", "C", "Avg max PF", "high", 1, 8, 150.0)]
+    known = D.snapshot_columns(prior)
+    changed = D.diff_pace(prior["pace"], projs, known)
+    assert [(p.entity, p.column) for p in changed] == [("A", "PF"), ("C", "Avg max PF")], changed
+    assert len(D.diff_pace(prior["pace"], projs)) == 4     # without known_columns: as before
+
+
 # --- committed exports (skip until a build carries the columns) -------------
 
 def _load(name):
@@ -161,6 +176,7 @@ def test_most_bench_points_flags_the_weeks_max():
     tw = _built_team_week()
     if tw is None:
         return
+    tw = tw.copy()
     tw["_b"] = _num(tw[B.BENCH])
     top = tw.groupby(["Year", "Week"])["_b"].transform("max")
     flag = tw["Most bench points?"].astype(str).str.lower().isin(["1", "true", "1.0"])
@@ -184,7 +200,8 @@ def test_rollups_equal_team_week_sums():
     tw = _built_team_week()
     if tw is None:
         return
-    tw[B.BENCH], tw[B.LEFT] = _num(tw[B.BENCH]), _num(tw[B.LEFT])
+    tw = pd.DataFrame({k: tw[k] for k in ("Team", "Year", "Week")}).assign(
+        **{B.BENCH: _num(tw[B.BENCH]), B.LEFT: _num(tw[B.LEFT])})
     for sheet, keys in (("team_year", ["Team", "Year"]), ("team_all_time", ["Team"]),
                         ("league_week", ["Year", "Week"]), ("league_year", ["Year"])):
         df = _load(sheet)
