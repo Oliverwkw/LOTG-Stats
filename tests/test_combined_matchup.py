@@ -3,7 +3,8 @@
 One game's two teams taken together: the value sits in the WINNER's row, the
 loser's row reads "winner" (linked to it in the workbook). Sums add the two
 teams; efficiency and boom/bust % average each team's own value; bench points
-are combined Max PF − combined PF. PF keeps the +5 semifinal bonus.
+and points left on bench add the two teams' own columns. PF keeps the +5
+semifinal bonus.
 
 Run: python tests/test_combined_matchup.py
 """
@@ -25,11 +26,13 @@ from lotg_support import digest as D  # noqa: E402
 def _game(**over):
     a = {"Team": "A", "Opponent": "B", "Year": 2025, "Week": 3, "Win?": True,
          "PF": 150.0, "Max PF": 170.0, "Efficiency": 150 / 170,
+         "Bench points": 85.5, "Points left on bench": 20.0,
          "Points from QBs": 40.0, "Number of QB started": 2,
          "Donuts (starters)": 1, "% of starters boom": 20.0,
          "Starter turnover from previous week": 2}
     b = {"Team": "B", "Opponent": "A", "Year": 2025, "Week": 3, "Win?": False,
          "PF": 120.0, "Max PF": 160.0, "Efficiency": 120 / 160,
+         "Bench points": 64.25, "Points left on bench": 40.0,
          "Points from QBs": 30.0, "Number of QB started": 1,
          "Donuts (starters)": 0, "% of starters boom": 10.0,
          "Starter turnover from previous week": 1}
@@ -43,12 +46,14 @@ def test_value_in_winner_row_and_winner_text_in_loser_row():
     assert out.at["A", "Combined points"] == 270.0
     assert out.at["B", "Combined points"] == M.WINNER_TEXT
     assert out.at["A", "Combined Max PF"] == 330.0
-    assert out.at["A", "Combined bench points"] == 60.0            # 330 - 270
+    assert out.at["A", "Combined bench points"] == 149.75          # 85.5 + 64.25
+    assert out.at["A", "Combined points left on bench"] == 60.0     # 20 + 40
     assert out.at["A", "Combined points from QBs"] == 70.0
     assert out.at["A", "Combined donuts (starters)"] == 1
     assert isinstance(out.at["A", "Combined donuts (starters)"], int)  # a count renders "1"
     for c in M.COMBINED_NAMES:
         if c in ("Combined points", "Combined Max PF", "Combined efficiency", "Combined bench points",
+                 "Combined points left on bench",
                  "Combined points from QBs", "Combined donuts (starters)", "Combined % of starters boom",
                  "Combined starter turnover from previous week"):
             assert out.at["B", c] == M.WINNER_TEXT, c
