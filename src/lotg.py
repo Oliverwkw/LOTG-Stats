@@ -111,6 +111,7 @@ if str(SUPPORT_ROOT) not in sys.path:
 
 from lotg_support.utils import HttpConfig, safe_div, clean_name, safe_bool
 from lotg_support import matchup
+from lotg_support import bench_points as _bench_pts
 from lotg_support.sleeper import SleeperClient
 from lotg_support.injury_tracker import (
     apply_overlay as _apply_injury_overlay,
@@ -6807,6 +6808,11 @@ def build_all(repo_root: Path) -> None:
                         "Margin": round(float(margin), 2) if margin is not None else None,
                         "Max PF": round(max_pf, 2) if max_pf is not None else None,
                         "Efficiency": round(eff, 4) if eff is not None else None,
+                        # lotg_support.bench_points: every point the bench scored
+                        # (filled later from player_week) vs the points a better
+                        # lineup would have added (Max PF − starters, no +5 bonus).
+                        "Bench points": None,
+                        "Points left on bench": _bench_pts.points_left_on_bench(max_pf, starter_pts_total),
                         "Number of Injuries": None,         # computed later from player_week
                         "Number of suspensions": None,      # computed later from player_week
                         "Number of players on bye": None,   # computed later from player_week
@@ -15318,6 +15324,17 @@ def build_all(repo_root: Path) -> None:
         tw["One-man army?"] = 0
         tw["Most bench points?"] = 0
         tw["Most injured?"] = 0
+        # "Bench points" = the same non-starter total the award ranks.
+        try:
+            _bpw = _bench_pts.bench_points_by_team_week(pw)
+            _bmap = {(int(y), int(w), str(t)): v for y, w, t, v in
+                     zip(_bpw["Year"], _bpw["Week"], _bpw["Team"], _bpw[_bench_pts.BENCH])}
+            tw[_bench_pts.BENCH] = [
+                _bmap.get((int(y), int(w), str(t))) if pd.notna(y) and pd.notna(w) else None
+                for y, w, t in zip(pd.to_numeric(tw["Year"], errors="coerce"),
+                                   pd.to_numeric(tw["Week"], errors="coerce"), tw["Team"])]
+        except Exception as e:
+            _log_exc(debug, "team_week_bench_points", e)
         try:
             _p = pw.copy()
             _p["Year"] = pd.to_numeric(_p["Year"], errors="coerce")
@@ -19538,6 +19555,23 @@ def build_all(repo_root: Path) -> None:
     except Exception as e:
         _log_exc(debug, "team_unique_players", e)
 
+    # Bench points / Points left on bench (lotg_support.bench_points): team_week's
+    # two bench totals summed over the season / all-time, with their per-week
+    # averages beside them.
+    try:
+        for _bk, _bkeys in (("team_year", ["Team", "Year"]), ("team_all", ["Team"])):
+            _bdf = team_year if _bk == "team_year" else team_all
+            if not isinstance(_bdf, pd.DataFrame) or _bdf.empty:
+                continue
+            _bdf = _bdf.drop(columns=[c for c in _bench_pts.PERIOD_COLUMNS if c in _bdf.columns], errors="ignore")
+            _bdf = _bdf.merge(_bench_pts.rollup(tw, _bkeys), on=_bkeys, how="left").copy()
+            if _bk == "team_year":
+                team_year = _bdf
+            else:
+                team_all = _bdf
+    except Exception as e:
+        _log_exc(debug, "team_bench_points", e)
+
     # Boldness / Lineup Boldness (lotg_support.boldness): how far each start —
     # and each whole lineup — went against PRE-KICKOFF expected points. Fed the
     # build's own matchups, flags, rookie picks, scorer and gsis bridge, never
@@ -20416,6 +20450,25 @@ def build_all(repo_root: Path) -> None:
             league_all = league_all.copy()
     except Exception as e:
         _log_exc(debug, "league_unique_players", e)
+
+    # The league's bench totals (lotg_support.bench_points): every team's
+    # team_week rows summed per week / season / all-time; season and all-time
+    # also average per team-week.
+    try:
+        if isinstance(league_week, pd.DataFrame) and not league_week.empty:
+            league_week = league_week.drop(columns=[c for c in _bench_pts.WEEK_COLUMNS if c in league_week.columns], errors="ignore")
+            league_week = league_week.merge(_bench_pts.rollup(tw, ["Year", "Week"], averages=False),
+                                            on=["Year", "Week"], how="left").copy()
+        if isinstance(league_year, pd.DataFrame) and not league_year.empty:
+            league_year = league_year.drop(columns=[c for c in _bench_pts.PERIOD_COLUMNS if c in league_year.columns], errors="ignore")
+            league_year = league_year.merge(_bench_pts.rollup(tw, ["Year"]), on=["Year"], how="left").copy()
+        if isinstance(league_all, pd.DataFrame) and not league_all.empty:
+            _bla = _bench_pts.rollup(tw, [])
+            for _c in _bench_pts.PERIOD_COLUMNS:
+                league_all[_c] = _bla.at[0, _c] if not _bla.empty else None
+            league_all = league_all.copy()
+    except Exception as e:
+        _log_exc(debug, "league_bench_points", e)
 
     # --------------------------
     # % of (3rd year+) rostered players a team drafted itself

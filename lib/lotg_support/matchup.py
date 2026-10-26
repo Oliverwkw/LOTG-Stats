@@ -10,14 +10,14 @@ How each stat combines (`COMBINED_COLUMNS`):
   * "sum"   — the two teams' values added (points, counts, hardship).
   * "mean"  — the average of the two teams' own values (efficiency, boom/bust
               %): each team is judged against its OWN lineup, then averaged.
-  * "bench" — combined Max PF − combined PF (points left on both benches).
   * "per_started" — combined position points ÷ combined starters at that
               position (pooled over the game's starters, so the count behind
               the points is taken out; `POSITIONS` pairs the two columns).
 
 PF carries the league's +5 semifinal home-field bonus and so does everything
-built on it here (combined points, and — since Max PF does not carry it —
-combined bench points reads 5 lower in a bonus game). By design, per user.
+built on it here (combined points, combined efficiency). By design, per user.
+The two bench columns do not: "Bench points" is the bench's own points and
+"Points left on bench" is Max PF − the starters' points (`bench_points`).
 
 The winner is the row whose `Win?` is true against an opponent's false — the
 sheet's own result, so the 2026+ two-week final follows its combined-round
@@ -48,7 +48,8 @@ COMBINED_COLUMNS: Tuple[Tuple[str, str, str], ...] = (
     ("Combined points", "PF", "sum"),
     ("Combined Max PF", "Max PF", "sum"),
     ("Combined efficiency", "Efficiency", "mean"),
-    ("Combined bench points", "Max PF", "bench"),
+    ("Combined bench points", "Bench points", "sum"),
+    ("Combined points left on bench", "Points left on bench", "sum"),
     ("Combined points from QBs", "Points from QBs", "sum"),
     ("Combined points from WRs", "Points from WRs", "sum"),
     ("Combined points from RBs", "Points from RBs", "sum"),
@@ -143,12 +144,6 @@ def winner_side(row: dict, opp: dict) -> str:
 
 def combine(a: dict, b: dict, base: str, how: str) -> Optional[float]:
     """One game's combined value from the two rows (None if either side lacks it)."""
-    if how == "bench":
-        m1, m2 = _num(a.get("Max PF")), _num(b.get("Max PF"))
-        p1, p2 = _num(a.get("PF")), _num(b.get("PF"))
-        if None in (m1, m2, p1, p2):
-            return None
-        return (m1 + m2) - (p1 + p2)
     x, y = _num(a.get(base)), _num(b.get(base))
     if x is None or y is None:
         return None
