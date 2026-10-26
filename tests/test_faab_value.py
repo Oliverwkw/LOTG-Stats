@@ -14,6 +14,8 @@ No network. Run: python tests/test_faab_value.py
 """
 from __future__ import annotations
 
+import csv
+import io
 import json
 import sys
 from pathlib import Path
@@ -69,9 +71,9 @@ def test_evidence_resolves_to_inputs():
 
 
 def _votes(rows):
-    head = ",".join(FV.FIELDS)
-    lines = [",".join(str(r.get(f, "")) for f in FV.FIELDS) for r in rows]
-    return FV.read_responses("\n".join([head] + lines) + "\n")
+    buf = io.StringIO(); w = csv.writer(buf, lineterminator="\n")
+    w.writerow(FV.FIELDS); w.writerows([[r.get(f, "") for f in FV.FIELDS] for r in rows])
+    return FV.read_responses(buf.getvalue())
 
 
 def _pair(team, q, ans, own="", t="10/27/2026 10:00:00"):
@@ -104,9 +106,12 @@ def test_vote_loss_direction():
     c = C.iloc[0].to_dict()
     assert FV.q_loss(c, pd.Series({"A1": 600.0, "B1": 400.0})) == 0
     assert FV.q_loss(c, pd.Series({"A1": 400.0, "B1": 600.0})) > 0
-    pr = FV.consensus(FV.weighted(_votes([dict(timestamp="10/27/2026 10:00:00", team=t, question_id="p1", kind="price", board_date="2026-10-24",
-                                                player_a="A1", shown_a=1000, answer="lower", amount=500) for t in FV.TEAMS])))
-    assert abs(pr.iloc[0].target - 500) < 1
+    rows = [dict(timestamp="10/27/2026 10:00:00", team=t, question_id="p1", kind="pair", board_date="2026-10-24", player_a="A1",
+                 player_b="B1", shown_a=1000, shown_b=900, verdict_a="lower", amount_a=500, verdict_b="higher") for t in FV.TEAMS]
+    sig = FV.signals(_votes(rows))
+    assert set(sig.question_id) == {"p1:a", "p1:b"}                  # no pick made -> two price checks, no pair signal
+    pr = FV.consensus(FV.weighted(sig)).set_index("question_id")
+    assert abs(pr.loc["p1:a", "target"] - 500) < 1 and abs(pr.loc["p1:b", "target"] - 1200) < 1
 
 
 def test_page_files_in_sync_with_inputs_and_params():
@@ -119,7 +124,18 @@ def test_page_files_in_sync_with_inputs_and_params():
     _, _, stages = F.apply_rules(T, p, explain=True)
     assert [x["id"] for x in FV.questions(T, stages, T.date.iloc[0])] == [x["id"] for x in q["questions"]]
     ids = [x["id"] for x in q["questions"]]
-    assert len(ids) == len(set(ids)) and all(x["a"] in page and (x["kind"] == "price" or x["b"] in page) for x in q["questions"])
+    assert len(ids) == len(set(ids)) and all(x["kind"] == "pair" and x["a"] in page and x["b"] in page for x in q["questions"])
+    slots = [p["value"] for p in b["picks"]]
+    assert b["picks"][0]["slot"] == "1.01" and slots == sorted(slots, reverse=True)
+
+
+def test_one_submission_gives_pair_and_two_price_signals():
+    r = dict(_pair("Oliverwkw", "q9", "B", own="A"), verdict_a="right", verdict_b="", amount_b="$1,200", why="younger")
+    sig = FV.signals(_votes([r])).set_index("question_id")
+    assert list(sig.index) == ["q9", "q9:a", "q9:b"]
+    assert sig.loc["q9:a", "own"] == "A" and sig.loc["q9:b", "own"] == "" and sig.loc["q9:b", "player_a"] == "B1"
+    c = FV.consensus(FV.weighted(sig.reset_index())).set_index("question_id")
+    assert abs(c.loc["q9:b", "target"] - 1200) < 1
 
 
 def test_normalise_reads_form_headers():
@@ -131,6 +147,7 @@ def test_normalise_reads_form_headers():
 TESTS = [test_sign_locks_hold_for_bounds_and_params, test_board_reproduces_and_beats_rules_off_on_trades_and_cuts,
          test_calls_regression_floor, test_evidence_resolves_to_inputs, test_votes_dedupe_own_guest_and_team_cap,
          test_vote_strength_grows_needs_teams_and_is_capped, test_vote_loss_direction, test_page_files_in_sync_with_inputs_and_params,
+         test_one_submission_gives_pair_and_two_price_signals,
          test_normalise_reads_form_headers]
 
 if __name__ == "__main__":

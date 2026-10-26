@@ -75,17 +75,24 @@ own. Until then the board is the 2026-10-24 one.
 
 ## The rating page
 
-`docs/rate/` is a static page on GitHub Pages. It asks short questions:
+`docs/rate/` is a static page on GitHub Pages. Every question shows two players the board values about the
+same, each with its board value and the nearest useful rookie-pick comparison. A comparison is either one
+slot ("about the 2.03") or, for players worth more than the 1.01, a package ("about the 1.01 + 1.03 + 1.05").
+Slot prices are the league's median draft prices for each slot, from drafts held before the board date.
+Every part of an answer is optional, and nothing advances until Submit:
 
-- **pair**: "who would you rather have". Values are hidden, so they don't anchor the answer.
-- **price check**: "the board says $X: too high / about right / too low / what would you pay".
+- which player is worth more, or "too close to call";
+- for each player: too high / about right / too low;
+- for each player: what you would pay;
+- why.
 
-The questions are aimed where they teach the rules the most:
+One submission therefore gives up to three signals: the pick, plus a price check on each player. The pairs are
+aimed where they teach the rules the most:
 
 - close calls across positions;
-- pairs the rules pulled apart;
-- the players the rules moved most;
-- a spread across value tiers.
+- each player the rules moved most, against his nearest neighbour;
+- pairs the rules pulled in opposite directions;
+- random near pairs.
 
 Every answer records:
 
@@ -101,17 +108,18 @@ term, so they can only change how much a general rule weighs:
 - one team's share of the vote weight is capped at 35%;
 - the term is always below the trades and cuts terms.
 
-`votes` lists where the board and the votes disagree, and which rule terms put each side where it is. Those are
-the leads for a missing characteristic. Uneven participation is expected and handled by the caps.
+`votes` lists where the board and the votes disagree, and which rule terms put each side where it is, followed
+by every "why" note. Those are the leads for a missing characteristic. Uneven participation is expected and handled by the caps.
 
 ### One-time setup (owner)
 
 1. **Google Form** (forms.google.com), titled "LOTG value check".
    - Settings: *do not collect email addresses*, no sign-in required, allow more than one response. The repo is
      public, and the responses become a public CSV.
-   - Add 13 **Short answer** questions, none required, titled exactly:
+   - Add 17 **Short answer** questions, none required, titled exactly:
      `team`, `question_id`, `kind`, `board_date`, `player_a`, `player_b`, `shown_a`, `shown_b`, `answer`,
-     `amount`, `own`, `client_time`, `page_version`.
+     `verdict_a`, `verdict_b`, `amount_a`, `amount_b`, `why`, `own`, `client_time`, `page_version`.
+     `why` can be Short answer too; it holds a sentence or two.
 2. **Entry ids**: ⋮ → *Get pre-filled link*.
    - Type each question's own title into its box, then *Get link* → copy.
    - The link holds `entry.NNNN=team&entry.MMMM=question_id…`. Put those ids into `docs/rate/config.json`.

@@ -35,7 +35,7 @@ RESPONSES = ROOT / "data" / "votes" / "responses.csv"
 TEAMS = ["AceMatthew", "BROsenzweig", "JacobRosenzweig", "LWebs53", "Oliverwkw", "plehv79", "Shmuel256", "stevenb123"]
 GUEST = "Not in the league"
 FIELDS = ["timestamp", "team", "question_id", "kind", "board_date", "player_a", "player_b", "shown_a", "shown_b",
-          "answer", "amount", "own", "client_time", "page_version"]
+          "answer", "verdict_a", "verdict_b", "amount_a", "amount_b", "why", "own", "client_time", "page_version"]
 VOTE_MAX, VOTE_HALF, FULL_TEAMS = 1.5, 100.0, 4
 OWN_W, GUEST_W, TEAM_CAP = 0.5, 0.25, 0.35
 PRICE_RATIO = {"lower": 0.75, "right": 1.0, "higher": 4 / 3}
@@ -46,39 +46,36 @@ def _qid(*parts):
     return hashlib.sha1("|".join(map(str, parts)).encode()).hexdigest()[:10]
 
 
-def questions(T, stages, as_of, n_close=60, n_rules=30, n_random=30, n_price_rules=40, n_price=40, seed=0):
+def questions(T, stages, as_of, n_close=60, n_moved=40, n_rules=30, n_random=30, seed=0):
     """T: the board (sid, name, pos, V, rank); stages: apply_rules(explain=True) stage values, aligned with T.
-    Pairs: close calls (near in value, different players' cases), pairs the rules pulled apart most (near in value
-    but moved in opposite directions by the rules), and random near pairs. Price checks: the players the rules
-    moved most, and a spread across value tiers. Deterministic for a board date."""
+    Every question is a pair of players near in value (each answer also prices both, so every pair is two price
+    checks too): close calls across positions, each of the players the rules moved most against his nearest
+    neighbour, pairs the rules pulled in opposite directions, and random near pairs. Deterministic for a date."""
     rng = np.random.default_rng(seed + int(pd.Timestamp(as_of).strftime("%Y%m%d")))
     T = T.reset_index(drop=True).copy()
     T["moved"] = np.log(np.maximum(stages["final"], 1) / np.maximum(stages["vet"], 1))
-    top = T[T.V >= 50].head(300)
+    top = T[T.V >= 50].head(300).reset_index(drop=True)
     lv = np.log(top.V.values); sid = top.sid.values; pos = top.pos.values; mv = top.moved.values
-    near = [(i, j) for i in range(len(top)) for j in range(i + 1, min(i + 9, len(top))) if lv[i] - lv[j] < 0.15]
     out, seen = [], set()
 
     def add_pair(i, j, why):
         a, b = (i, j) if rng.random() < 0.5 else (j, i)
         k = tuple(sorted((sid[a], sid[b])))
-        if k in seen: return
+        if k in seen or a == b: return False
         seen.add(k)
         out.append(dict(id=_qid("pair", *k, as_of), kind="pair", why=why, a=str(sid[a]), b=str(sid[b])))
+        return True
 
+    near = [(i, j) for i in range(len(top)) for j in range(i + 1, min(i + 9, len(top))) if lv[i] - lv[j] < 0.15]
     cross = [p for p in near if pos[p[0]] != pos[p[1]]]
     for idx in rng.permutation(len(cross))[:n_close]: add_pair(*cross[idx], "close")
+    for i in np.argsort(-np.abs(mv))[:n_moved]:
+        for j in np.argsort(np.abs(lv - lv[i]))[1:6]:
+            if add_pair(i, j, "moved"): break
     wide = [(i, j) for i in range(len(top)) for j in range(i + 1, len(top)) if lv[i] - lv[j] < 0.2]
     for i, j in sorted(wide, key=lambda p: -abs(mv[p[0]] - mv[p[1]]))[:n_rules * 3][::3]: add_pair(i, j, "rules")
-    pool = [(i, j) for i in range(len(top)) for j in range(i + 1, len(top)) if lv[i] - lv[j] < 0.5]
+    pool = [(i, j) for i in range(len(top)) for j in range(i + 1, len(top)) if lv[i] - lv[j] < 0.4]
     for idx in rng.permutation(len(pool))[:n_random]: add_pair(*pool[idx], "random")
-    pr = T[T.V >= 50]
-    picked = list(pr.reindex(pr.moved.abs().sort_values(ascending=False).index).sid.head(n_price_rules))
-    tiers = pd.cut(pr.V, [50, 150, 400, 900, 1800, 1e9])
-    for _, g in pr[~pr.sid.isin(picked)].groupby(tiers, observed=True):
-        picked += list(g.sid.values[rng.permutation(len(g))[: n_price // 5]])
-    for k, s in enumerate(picked):
-        out.append(dict(id=_qid("price", s, as_of), kind="price", why="rules" if k < n_price_rules else "tier", a=str(s)))
     order = rng.permutation(len(out))
     return [out[i] for i in order]
 
@@ -108,6 +105,23 @@ def normalise(text):
     df = df.sort_values(["timestamp", "team", "question_id"], kind="stable")
     buf = io.StringIO(); df.to_csv(buf, index=False, lineterminator="\n")
     return buf.getvalue()
+
+
+def signals(df):
+    """one submission -> up to three signals: which player is higher (question_id, kind pair) and a price check
+    for each player that got a verdict or an amount (question_id:a / :b, kind price, as player_a)"""
+    rows = []
+    for r in df.to_dict("records"):
+        own = (r.get("own") or "").upper()
+        if r.get("answer"):
+            rows.append(dict(r, kind="pair", amount=""))
+        for x in ("a", "b"):
+            v, amt = (r.get(f"verdict_{x}") or "").lower(), r.get(f"amount_{x}") or ""
+            if v or amt:
+                rows.append(dict(r, question_id=f"{r['question_id']}:{x}", kind="price", player_a=r[f"player_{x}"], player_b="",
+                                 shown_a=r[f"shown_{x}"], answer=v, amount=amt, own=x.upper() if x.upper() in own else ""))
+    cols = list(df.columns) + ["amount"]
+    return pd.DataFrame(rows, columns=cols).fillna({"amount": ""}) if rows else df.iloc[:0].assign(amount=[])
 
 
 def weighted(df):
@@ -149,7 +163,7 @@ def consensus(df):
                             s=s, even=float(np.sum(w * (a == "EVEN")) / w.sum())))
         elif r.kind == "price":
             shown = pd.to_numeric(g.shown_a, errors="coerce").values
-            amt = pd.to_numeric(g.amount, errors="coerce").values
+            amt = pd.to_numeric(g.amount.str.replace(r"[$,]", "", regex=True), errors="coerce").values
             ratio = np.where((amt > 0) & (shown > 0), amt / np.where(shown > 0, shown, 1), g.answer.str.lower().map(PRICE_RATIO).values.astype(float))
             ok = ~np.isnan(ratio)
             if not ok.any(): continue
@@ -177,7 +191,8 @@ class VoteTerm:
     """the votes on one board date, ready for the fit: loss(V) is the weighted mean hinge, times strength"""
 
     def __init__(self, df, as_of):
-        self.all = weighted(df)
+        self.raw = df
+        self.all = weighted(signals(df))
         self.as_of = str(pd.Timestamp(as_of).date())
         self.used = self.all[self.all.board_date == self.as_of]
         self.C = consensus(self.used) if len(self.used) else pd.DataFrame()
@@ -196,7 +211,8 @@ def report(term, T, terms):
     T: the board (sid, name, V); terms: apply_rules(explain=True) terms aligned with T."""
     V = T.set_index("sid").V; nm = T.set_index("sid").name; ix = {s: i for i, s in enumerate(T.sid)}
     L = [f"# Rating-page votes vs the board ({term.as_of})", "",
-         f"{len(term.all)} answers from {term.all.team.nunique()} teams; {len(term.used)} on this board date, "
+         f"{len(term.raw)} answers ({len(term.all)} signals: picks and price checks) from {term.all.team.nunique()} teams; "
+         f"{len(term.used)} signals on this board date, "
          f"vote term weight {term.weight:.2f} of max {VOTE_MAX} (trades and cuts weigh {3.0} each).", ""]
     if term.stale: L += [f"Not used (no inputs for that board date yet): {', '.join(term.stale)}", ""]
     if term.C.empty: return L + ["No votes on this board date."]
@@ -221,15 +237,36 @@ def report(term, T, terms):
                             f"{' — DISAGREES' if l > 0 else ''}" + (f"\n  - {why(c['a'])}" if l > 0 else "")))
     rows.sort(key=lambda r: -r[0])
     n_bad = sum(r[0] > 0 for r in rows)
-    return L + [f"{len(rows) - n_bad} of {len(rows)} questions agree with the board.", ""] + [r[1] for r in rows]
+    notes = [f"- {nm.get(r.player_a, r.player_a)} vs {nm.get(r.player_b, r.player_b)} — {r.team}: {r.why}"
+             for r in term.raw[term.raw.why.str.len() > 0].itertuples()] if len(term.raw) else []
+    return (L + [f"{len(rows) - n_bad} of {len(rows)} checks agree with the board.", ""] + [r[1] for r in rows]
+            + (["", "## Why notes", ""] + notes if notes else []))
 
 
-def page_board(T, owners, as_of, info):
-    """docs/rate/board.json: what the page shows"""
+def page_board(T, owners, as_of, info, picks=None):
+    """docs/rate/board.json: what the page shows (picks: slot -> league price, for the draft-pick comparison)"""
     pl = [dict(sid=str(r.sid), name=r["name"], pos=r.pos, age=None if pd.isna(r.age) else round(float(r.age), 1),
                team=info.get(str(r.sid), {}).get("team") or "", injury=r.injury or "", owner=owners.get(str(r.sid), ""),
                value=int(round(r.V)), rank=int(r["rank"])) for _, r in T.iterrows()]
-    return dict(as_of=str(pd.Timestamp(as_of).date()), teams=TEAMS, guest=GUEST, players=pl)
+    return dict(as_of=str(pd.Timestamp(as_of).date()), teams=TEAMS, guest=GUEST, players=pl,
+                picks=[dict(slot=k, value=int(round(v))) for k, v in (picks or {}).items()])
+
+
+def slot_values(exports, as_of, rounds=4):
+    """rookie-draft slot -> the league's median price for it, over drafts held before as_of (exports/rookie_picks
+    joined to the Draft rows of exports/player_additions); made non-increasing down the draft so a later slot
+    never reads dearer than an earlier one"""
+    exports = Path(exports)
+    rp = pd.read_csv(exports / "rookie_picks.csv", usecols=["Year", "Number", "Player Picked"], dtype=str)
+    pa = pd.read_csv(exports / "player_additions.csv", usecols=["Player", "Season", "Addition type", "Price paid (FAAB)", "Date"], dtype=str)
+    rp = rp[rp.Number.str.fullmatch(r"\d\.\d\d", na=False)]
+    m = rp.merge(pa[pa["Addition type"] == "Draft"], left_on=["Player Picked", "Year"], right_on=["Player", "Season"])
+    held = m.groupby("Year").Date.transform("min").str[:10]
+    m = m[held < str(pd.Timestamp(as_of).date())]
+    v = pd.to_numeric(m["Price paid (FAAB)"], errors="coerce")
+    med = v.groupby(m.Number).median().dropna()
+    med = med[med.index.str[0].astype(int) <= rounds].sort_index()
+    return med.cummin().to_dict()
 
 
 def owners_from_snapshot(season_dir):
