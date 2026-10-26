@@ -1,0 +1,168 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>LOTG Value Check</title>
+<meta name="description" content="Quick questions about LOTG player values. Answers test the stats model's general rules.">
+<style>
+:root{--bg:#f7f7f5;--card:#fff;--ink:#1c1d1f;--muted:#6b6e74;--line:#e2e2de;--accent:#2f5bd3;--accent-ink:#fff;--warn:#a35a00;--warn-bg:#fff4e0;--good:#1f7a4d;--chip:#eef0f4}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#141518;--card:#1d1f23;--ink:#ecedef;--muted:#9a9ea6;--line:#2c2f35;--accent:#6f93ff;--accent-ink:#0d0f14;--warn:#f0b35a;--warn-bg:#2b2213;--good:#5cc792;--chip:#272a31}}
+:root[data-theme="dark"]{--bg:#141518;--card:#1d1f23;--ink:#ecedef;--muted:#9a9ea6;--line:#2c2f35;--accent:#6f93ff;--accent-ink:#0d0f14;--warn:#f0b35a;--warn-bg:#2b2213;--good:#5cc792;--chip:#272a31}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+main{max-width:640px;margin:0 auto;padding:20px 16px 48px}
+h1{font-size:22px;margin:0 0 4px}
+.sub{color:var(--muted);font-size:14px;margin:0 0 18px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:18px;margin-bottom:14px}
+label{font-weight:600;font-size:14px;display:block;margin-bottom:6px}
+select,input[type=number]{width:100%;font:inherit;padding:10px 12px;border-radius:10px;border:1px solid var(--line);background:var(--bg);color:var(--ink)}
+.hint{color:var(--muted);font-size:13px;margin:6px 0 0}
+.q{font-size:18px;font-weight:600;margin:0 0 14px}
+.pair{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.pick{appearance:none;text-align:left;font:inherit;color:inherit;background:var(--bg);border:1.5px solid var(--line);border-radius:12px;padding:14px;cursor:pointer;min-height:96px}
+.pick:hover,.pick:focus-visible{border-color:var(--accent);outline:none}
+.player{background:var(--bg);border:1.5px solid var(--line);border-radius:12px;padding:14px}
+.name{font-weight:700;font-size:17px;display:block}
+.meta{color:var(--muted);font-size:13px;display:block;margin-top:2px}
+.tag{display:inline-block;font-size:12px;border-radius:999px;padding:1px 8px;margin-top:6px;background:var(--chip);color:var(--muted)}
+.tag.inj{background:var(--warn-bg);color:var(--warn)}
+.row{display:flex;gap:10px;flex-wrap:wrap;margin-top:12px}
+button.b{font:inherit;font-weight:600;border-radius:10px;padding:10px 14px;border:1px solid var(--line);background:var(--bg);color:var(--ink);cursor:pointer;flex:1 1 auto}
+button.b.primary{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+button.b:disabled{opacity:.5;cursor:default}
+.price{font-size:30px;font-weight:700;margin:4px 0 2px}
+.banner{background:var(--warn-bg);color:var(--warn);border-radius:10px;padding:10px 12px;font-size:14px;margin-bottom:14px}
+.done{color:var(--good);font-weight:600}
+.foot{color:var(--muted);font-size:13px;margin-top:22px}
+.foot a{color:var(--accent)}
+.prog{color:var(--muted);font-size:13px;margin:0 0 10px;font-variant-numeric:tabular-nums}
+@media (max-width:420px){.pair{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<main>
+  <h1>LOTG value check</h1>
+  <p class="sub" id="asof">Loading the board…</p>
+  <div id="banner"></div>
+
+  <div class="card" id="teamCard">
+    <label for="team">Your team</label>
+    <select id="team"><option value="">Choose…</option></select>
+    <p class="hint">People value their own players a little more. Your team lets the model allow for that. Anyone with the link can answer.</p>
+  </div>
+
+  <p class="prog" id="prog"></p>
+  <div class="card" id="qcard" hidden></div>
+
+  <p class="foot">Answers are signals. They test which general rules (usage, age, track record, injuries…) the model should weigh more or less. They never change a player's value directly, and trade and cut history still counts for more. Answers are saved with the board date and the values the board showed, so they are judged against what was known then.</p>
+  <p class="foot" id="export" hidden><a href="#" id="dl">Download my answers (CSV)</a></p>
+</main>
+<script>
+(function(){
+  "use strict";
+  const VERSION = "1";
+  const $ = id => document.getElementById(id);
+  const store = {
+    get(k, d){ try { const v = localStorage.getItem(k); return v === null ? d : JSON.parse(v); } catch (e) { return d; } },
+    set(k, v){ try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} }
+  };
+  let B, Q, C, P = {}, team = store.get("lotg_team", ""), queue = [], cur = null;
+
+  const fmt = v => "$" + Math.round(v).toLocaleString("en-US");
+  function card(p){
+    const bits = [p.pos, p.team || "no NFL team", p.age ? "age " + p.age : ""].filter(Boolean).join(" · ");
+    let tags = "";
+    if (p.injury) tags += '<span class="tag inj">' + p.injury + "</span> ";
+    if (team && p.owner === team) tags += '<span class="tag">your player</span>';
+    return '<span class="name"></span><span class="meta">' + bits + "</span>" + tags;
+  }
+  function setName(el, p){ el.querySelector(".name").textContent = p.name; }
+
+  function answered(){ return store.get("lotg_done_" + B.as_of, {}); }
+  function own(q){
+    const a = P[q.a], b = q.b ? P[q.b] : null;
+    return (a && a.owner === team ? "A" : "") + (b && b.owner === team ? "B" : "");
+  }
+  function payload(q, answer, amount){
+    const a = P[q.a], b = q.b ? P[q.b] : null;
+    return {team, question_id: q.id, kind: q.kind, board_date: B.as_of, player_a: q.a, player_b: q.b || "",
+            shown_a: a ? a.value : "", shown_b: b ? b.value : "", answer, amount: amount || "", own: own(q),
+            client_time: new Date().toISOString(), page_version: VERSION};
+  }
+  async function send(row){
+    const log = store.get("lotg_log", []); log.push(row); store.set("lotg_log", log);
+    if (!C.form_action) return;
+    const body = new URLSearchParams();
+    for (const [k, entry] of Object.entries(C.entries || {})) if (entry) body.append(entry, String(row[k] ?? ""));
+    try { await fetch(C.form_action, {method: "POST", mode: "no-cors", body}); }
+    catch (e) { const pend = store.get("lotg_pending", []); pend.push(row); store.set("lotg_pending", pend); }
+  }
+  async function flush(){
+    if (!C.form_action) return;
+    const pend = store.get("lotg_pending", []); store.set("lotg_pending", []);
+    for (const r of pend) await send(r);
+  }
+
+  function record(answer, amount){
+    const q = cur; if (!q) return;
+    const d = answered(); d[q.id] = 1; store.set("lotg_done_" + B.as_of, d);
+    send(payload(q, answer, amount)); next();
+  }
+  function skip(){ queue.push(queue.shift()); next(true); }
+
+  function next(skipped){
+    if (!skipped) queue = queue.filter(q => !answered()[q.id]);
+    const n = Object.keys(answered()).length;
+    $("prog").textContent = n ? n + " answered on this board. Thanks!" : "";
+    $("export").hidden = !store.get("lotg_log", []).length;
+    const qc = $("qcard");
+    if (!team){ qc.hidden = true; return; }
+    cur = queue[0]; qc.hidden = false;
+    if (!cur){ qc.innerHTML = '<p class="done">That is every question for this board.</p><p class="hint">New questions come with the next board.</p>'; return; }
+    const a = P[cur.a], b = cur.b ? P[cur.b] : null;
+    if (cur.kind === "pair"){
+      qc.innerHTML = '<p class="q">Who would you rather have right now?</p><div class="pair"><button class="pick" id="pa"></button><button class="pick" id="pb"></button></div>' +
+        '<div class="row"><button class="b" id="even">Too close to call</button><button class="b" id="skip">Skip</button></div>';
+      $("pa").innerHTML = card(a); setName($("pa"), a); $("pb").innerHTML = card(b); setName($("pb"), b);
+      $("pa").onclick = () => record("A"); $("pb").onclick = () => record("B"); $("even").onclick = () => record("even");
+    } else {
+      qc.innerHTML = '<p class="q">The board values this player at</p><div class="player" id="pp"></div><div class="price">' + fmt(a.value) + '</div>' +
+        '<p class="hint">In league FAAB dollars, where a 1.05 rookie pick is about $1,050. Is that right?</p>' +
+        '<div class="row"><button class="b" id="lo">Too high</button><button class="b" id="ok">About right</button><button class="b" id="hi">Too low</button></div>' +
+        '<label for="amt" style="margin-top:14px">What would you pay? (optional)</label><input type="number" id="amt" min="0" step="5" inputmode="numeric" placeholder="e.g. 600">' +
+        '<div class="row"><button class="b primary" id="use" disabled>Use my number</button><button class="b" id="skip">Skip</button></div>';
+      $("pp").innerHTML = card(a); setName($("pp"), a);
+      $("lo").onclick = () => record("lower"); $("ok").onclick = () => record("right"); $("hi").onclick = () => record("higher");
+      $("amt").oninput = e => { $("use").disabled = !(+e.target.value > 0); };
+      $("use").onclick = () => { const v = +$("amt").value; if (v > 0) record(v < a.value * 0.9 ? "lower" : v > a.value * 1.1 ? "higher" : "right", Math.round(v)); };
+    }
+    $("skip").onclick = skip;
+  }
+
+  function download(){
+    const rows = store.get("lotg_log", []); if (!rows.length) return;
+    const keys = Object.keys(rows[0]);
+    const csv = [keys.join(",")].concat(rows.map(r => keys.map(k => '"' + String(r[k] ?? "").replace(/"/g, '""') + '"').join(","))).join("\n");
+    const url = URL.createObjectURL(new Blob([csv], {type: "text/csv"}));
+    const a = document.createElement("a"); a.href = url; a.download = "lotg-answers-" + B.as_of + ".csv"; a.click(); URL.revokeObjectURL(url);
+  }
+
+  Promise.all(["board.json", "questions.json", "config.json"].map(f => fetch(f, {cache: "no-cache"}).then(r => r.json())))
+    .then(([b, q, c]) => {
+      B = b; Q = q; C = c; for (const p of B.players) P[p.sid] = p;
+      $("asof").textContent = "Board as of " + B.as_of + " · " + B.players.length + " players · " + Q.questions.length + " questions";
+      const sel = $("team");
+      for (const t of B.teams.concat([B.guest])){ const o = document.createElement("option"); o.value = o.textContent = t; sel.appendChild(o); }
+      sel.value = team;
+      sel.onchange = () => { team = sel.value; store.set("lotg_team", team); next(); };
+      if (!C.form_action) $("banner").innerHTML = '<div class="banner">Answers are not being collected yet. They are kept in this browser, and you can download them below.</div>';
+      queue = Q.questions.filter(x => P[x.a] && (!x.b || P[x.b]));
+      $("dl").onclick = e => { e.preventDefault(); download(); };
+      flush(); next();
+    })
+    .catch(() => { $("asof").textContent = "Could not load the board. Try again in a minute."; });
+})();
+</script>
+</body>
+</html>

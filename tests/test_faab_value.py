@@ -1,0 +1,141 @@
+"""FAAB-unit values (`lotg_support.faab_value`) and rating-page votes (`lotg_support.faab_votes`).
+
+- every rule's bounds and fitted strength respect its sign lock (an injury can only lower a value, ...);
+- the committed params reproduce the board they were fitted on (top of the 2026-10-24 board) and beat the
+  rules-off baseline on BOTH the league's trades and its cuts — the system has to explain history, not
+  just the calls;
+- the league calls still mostly pass (a regression floor, not a target);
+- every trade/cut in evidence.json resolves to an inputs row;
+- votes are a capped signal: one answer per team per question, own players halved, non-members quartered,
+  one team's share capped, the term's weight grows with answers and teams and never passes VOTE_MAX;
+- the page's board.json / questions.json are in sync with the committed inputs and params.
+
+No network. Run: python tests/test_faab_value.py
+"""
+from __future__ import annotations
+
+import json
+import sys
+from pathlib import Path
+
+import numpy as np
+import pandas as pd
+
+_ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(_ROOT / "lib"))
+
+from lotg_support import faab_calls as LC  # noqa: E402
+from lotg_support import faab_value as F  # noqa: E402
+from lotg_support import faab_votes as FV  # noqa: E402
+
+REF = F.DATA / f"reviewed_board_{LC.CALLS_DATE}.csv"
+
+
+def test_sign_locks_hold_for_bounds_and_params():
+    p = F.load_params()
+    for k in F.RAISE_ONLY:
+        assert F.BOUNDS[k][0] >= 0 and p[k] >= 0, k
+    for k in F.LOWER_ONLY:
+        assert F.BOUNDS[k][1] <= 0 and p[k] <= 0, k
+    for k, (lo, hi) in F.BOUNDS.items():
+        assert lo - 1e-9 <= p[k] <= hi + 1e-9, (k, p[k], lo, hi)
+
+
+def test_board_reproduces_and_beats_rules_off_on_trades_and_cuts():
+    R = F.load_inputs(); p = F.load_params()
+    T = F.board(R, p).set_index("name").V
+    assert len(T) == 704
+    for n, v in {"Jahmyr Gibbs": 3996, "Bijan Robinson": 3908, "Josh Allen": 3871}.items():
+        assert abs(T[n] - v) <= 1, (n, T[n])
+    ev = F.Evidence.load()
+    fitted, off = F.apply_rules(ev.E, p), F.apply_rules(ev.E, dict(F.P0))
+    assert F.trade_err(fitted, ev.trades)[0] < F.trade_err(off, ev.trades)[0]
+    assert F.cut_err(fitted, ev.cuts) < F.cut_err(off, ev.cuts)
+    assert len(ev.trades) >= 200 and len(ev.cuts) >= 1000
+
+
+def test_calls_regression_floor():
+    R = F.load_inputs(); T = F.board(R, F.load_params())
+    t = LC.calls(T.set_index("name").V, pd.read_csv(REF).set_index("name").V, set(T.name[T.pos == "QB"]))
+    assert sum(x == 0 for _, x in t) >= 85, [n for n, x in t if x > 0]
+
+
+def test_evidence_resolves_to_inputs():
+    R = F.load_inputs(); ev = json.load(open(F.DATA / "evidence.json"))
+    keys = set(zip(R.sid, R.date))
+    missing = [k for k in ev["cuts"] if tuple(k) not in keys] + [k for t in ev["trades"] for s in t["sides"] for k in s["players"] if tuple(k) not in keys]
+    assert not missing, missing[:5]
+    assert (R.date == ev["as_of"]).sum() > 600
+
+
+def _votes(rows):
+    head = ",".join(FV.FIELDS)
+    lines = [",".join(str(r.get(f, "")) for f in FV.FIELDS) for r in rows]
+    return FV.read_responses("\n".join([head] + lines) + "\n")
+
+
+def _pair(team, q, ans, own="", t="10/27/2026 10:00:00"):
+    return dict(timestamp=t, team=team, question_id=q, kind="pair", board_date="2026-10-24", player_a="A1", player_b="B1",
+                shown_a=500, shown_b=500, answer=ans, own=own)
+
+
+def test_votes_dedupe_own_guest_and_team_cap():
+    df = FV.weighted(_votes([_pair("Oliverwkw", "q1", "B", t="10/27/2026 09:00:00"), _pair("Oliverwkw", "q1", "A"),
+                             _pair("plehv79", "q1", "A", own="A"), _pair(FV.GUEST, "q1", "A"), _pair("Nobody", "q1", "A")]))
+    assert len(df) == 3                                              # latest per team, unknown team dropped
+    w = df.set_index("team").w
+    assert w["plehv79"] < w["Oliverwkw"] and w[FV.GUEST] < w["plehv79"]
+    many = FV.weighted(_votes([_pair("Oliverwkw", f"q{i}", "A") for i in range(50)] + [_pair(t, "q0", "A") for t in FV.TEAMS[:3]]))
+    share = many.groupby("team").w.sum() / many.w.sum()
+    assert share.max() <= FV.TEAM_CAP + 1e-4
+
+
+def test_vote_strength_grows_needs_teams_and_is_capped():
+    one = FV.weighted(_votes([_pair("Oliverwkw", f"q{i}", "A") for i in range(2000)]))
+    eight = FV.weighted(_votes([_pair(t, f"q{i}", "A") for t in FV.TEAMS for i in range(400)]))
+    few = FV.weighted(_votes([_pair(t, f"q{i}", "A") for t in FV.TEAMS for i in range(3)]))
+    assert FV.strength(one) <= FV.VOTE_MAX / FV.FULL_TEAMS + 1e-9      # one team alone: a quarter of the cap at most
+    assert FV.strength(few) < FV.strength(eight) < FV.VOTE_MAX
+    assert FV.VOTE_MAX < F.W_TRADES and FV.VOTE_MAX < F.W_CUTS
+
+
+def test_vote_loss_direction():
+    C = FV.consensus(FV.weighted(_votes([_pair(t, "q1", "A") for t in FV.TEAMS])))
+    c = C.iloc[0].to_dict()
+    assert FV.q_loss(c, pd.Series({"A1": 600.0, "B1": 400.0})) == 0
+    assert FV.q_loss(c, pd.Series({"A1": 400.0, "B1": 600.0})) > 0
+    pr = FV.consensus(FV.weighted(_votes([dict(timestamp="10/27/2026 10:00:00", team=t, question_id="p1", kind="price", board_date="2026-10-24",
+                                                player_a="A1", shown_a=1000, answer="lower", amount=500) for t in FV.TEAMS])))
+    assert abs(pr.iloc[0].target - 500) < 1
+
+
+def test_page_files_in_sync_with_inputs_and_params():
+    R = F.load_inputs(); p = F.load_params(); T = F.board(R, p)
+    b = json.load(open(_ROOT / "docs" / "rate" / "board.json"))
+    q = json.load(open(_ROOT / "docs" / "rate" / "questions.json"))
+    assert b["as_of"] == q["as_of"] == T.date.iloc[0]
+    page = {x["sid"]: x["value"] for x in b["players"]}
+    assert all(abs(page[s] - v) <= 1 for s, v in zip(T.sid, T.V)), "run: python scripts/faab_value.py publish"
+    _, _, stages = F.apply_rules(T, p, explain=True)
+    assert [x["id"] for x in FV.questions(T, stages, T.date.iloc[0])] == [x["id"] for x in q["questions"]]
+    ids = [x["id"] for x in q["questions"]]
+    assert len(ids) == len(set(ids)) and all(x["a"] in page and (x["kind"] == "price" or x["b"] in page) for x in q["questions"])
+
+
+def test_normalise_reads_form_headers():
+    text = "Timestamp,Team,Question ID,Kind,Board date,Answer\n10/27/2026 10:00:00,Oliverwkw,abc,pair,2026-10-24,A\n"
+    df = FV.read_responses(FV.normalise(text))
+    assert df.loc[0, "team"] == "Oliverwkw" and df.loc[0, "question_id"] == "abc" and list(df.columns) == FV.FIELDS
+
+
+TESTS = [test_sign_locks_hold_for_bounds_and_params, test_board_reproduces_and_beats_rules_off_on_trades_and_cuts,
+         test_calls_regression_floor, test_evidence_resolves_to_inputs, test_votes_dedupe_own_guest_and_team_cap,
+         test_vote_strength_grows_needs_teams_and_is_capped, test_vote_loss_direction, test_page_files_in_sync_with_inputs_and_params,
+         test_normalise_reads_form_headers]
+
+if __name__ == "__main__":
+    for fn in TESTS:
+        print(f"{fn.__name__}:")
+        fn()
+        print("  ok")
+    print("\nall faab value checks passed")
