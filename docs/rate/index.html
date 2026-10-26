@@ -1,0 +1,205 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>LOTG Value Check</title>
+<meta name="description" content="Quick questions about LOTG player values. Answers test the stats model's general rules.">
+<style>
+:root{--bg:#f7f7f5;--card:#fff;--ink:#1c1d1f;--muted:#6b6e74;--line:#e2e2de;--accent:#2f5bd3;--accent-ink:#fff;--accent-soft:#e8eefc;--warn:#a35a00;--warn-bg:#fff4e0;--good:#1f7a4d;--chip:#eef0f4}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#141518;--card:#1d1f23;--ink:#ecedef;--muted:#9a9ea6;--line:#2c2f35;--accent:#6f93ff;--accent-ink:#0d0f14;--accent-soft:#222c45;--warn:#f0b35a;--warn-bg:#2b2213;--good:#5cc792;--chip:#272a31}}
+:root[data-theme="dark"]{--bg:#141518;--card:#1d1f23;--ink:#ecedef;--muted:#9a9ea6;--line:#2c2f35;--accent:#6f93ff;--accent-ink:#0d0f14;--accent-soft:#222c45;--warn:#f0b35a;--warn-bg:#2b2213;--good:#5cc792;--chip:#272a31}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+main{max-width:680px;margin:0 auto;padding:20px 16px 48px}
+h1{font-size:22px;margin:0 0 4px}
+.sub{color:var(--muted);font-size:14px;margin:0 0 18px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:18px;margin-bottom:14px}
+label,.lab{font-weight:600;font-size:14px;display:block;margin-bottom:6px}
+select,input[type=number],textarea{width:100%;font:inherit;padding:10px 12px;border-radius:10px;border:1px solid var(--line);background:var(--bg);color:var(--ink)}
+textarea{min-height:64px;resize:vertical}
+.hint{color:var(--muted);font-size:13px;margin:6px 0 0}
+.q{font-size:18px;font-weight:600;margin:0 0 4px}
+.pair{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:12px}
+.player{background:var(--bg);border:1.5px solid var(--line);border-radius:12px;padding:14px;display:flex;flex-direction:column;gap:10px}
+.player.on{border-color:var(--accent);background:var(--accent-soft)}
+.name{font-weight:700;font-size:17px;display:block}
+.meta{color:var(--muted);font-size:13px;display:block;margin-top:2px}
+.tag{display:inline-block;font-size:12px;border-radius:999px;padding:1px 8px;margin:6px 4px 0 0;background:var(--chip);color:var(--muted)}
+.tag.inj{background:var(--warn-bg);color:var(--warn)}
+.price{font-size:24px;font-weight:700;font-variant-numeric:tabular-nums}
+.pk{color:var(--muted);font-size:13px}
+.seg{display:flex;gap:6px}
+.seg button,.higher{flex:1;font:inherit;font-size:14px;font-weight:600;border-radius:9px;padding:8px 6px;border:1px solid var(--line);background:var(--card);color:var(--ink);cursor:pointer}
+.seg button[aria-pressed="true"],.higher[aria-pressed="true"],.b.sel[aria-pressed="true"]{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+.row{display:flex;gap:10px;flex-wrap:wrap;margin-top:14px}
+button.b{font:inherit;font-weight:600;border-radius:10px;padding:10px 14px;border:1px solid var(--line);background:var(--bg);color:var(--ink);cursor:pointer;flex:1 1 auto}
+button.b.primary{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+button.b:disabled{opacity:.5;cursor:default}
+.banner{background:var(--warn-bg);color:var(--warn);border-radius:10px;padding:10px 12px;font-size:14px;margin-bottom:14px}
+.done{color:var(--good);font-weight:600}
+.foot{color:var(--muted);font-size:13px;margin-top:22px}
+.foot a{color:var(--accent)}
+.prog{color:var(--muted);font-size:13px;margin:0 0 10px;font-variant-numeric:tabular-nums}
+.why{margin-top:14px}
+@media (max-width:520px){.pair{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<main>
+  <h1>LOTG value check</h1>
+  <p class="sub" id="asof">Loading the board…</p>
+  <div id="banner"></div>
+
+  <div class="card" id="teamCard">
+    <label for="team">Your team</label>
+    <select id="team"><option value="">Choose…</option></select>
+    <p class="hint">People value their own players a little more. Your team lets the model allow for that. Anyone with the link can answer.</p>
+  </div>
+
+  <p class="prog" id="prog"></p>
+  <div class="card" id="qcard" hidden></div>
+
+  <p class="foot">Answers are signals. They test which general rules (usage, age, track record, injuries…) the model should weigh more or less. They never change a player's value directly, and trade and cut history still counts for more. Answers are saved with the board date and the values the board showed, so they are judged against what was known then.</p>
+  <p class="foot" id="export" hidden><a href="#" id="dl">Download my answers (CSV)</a></p>
+</main>
+<script>
+(function(){
+  "use strict";
+  const VERSION = "2";
+  const $ = id => document.getElementById(id);
+  const store = {
+    get(k, d){ try { const v = localStorage.getItem(k); return v === null ? d : JSON.parse(v); } catch (e) { return d; } },
+    set(k, v){ try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} }
+  };
+  let B, Q, C, P = {}, team = store.get("lotg_team", ""), queue = [], cur = null, ans = null;
+
+  const fmt = v => "$" + Math.round(v).toLocaleString("en-US");
+  const esc = s => String(s).replace(/[&<>"]/g, c => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;"}[c]));
+
+  // the nearest useful rookie-pick comparison: one slot, or a package of up to three when a player is worth more than the 1.01
+  function pickText(v){
+    const S = (B.picks || []).filter(p => p.value > 0);
+    if (!S.length) return "";
+    const low = S[S.length - 1];
+    if (v < low.value * 0.75) return "less than a " + low.slot.split(".")[0] + "th-round rookie pick";
+    // closest single slot, or a package of two or three slots when that is clearly closer (each extra pick costs 6%)
+    const R = S.filter(p => +p.slot.split(".")[0] <= 2);
+    let best = null, bestE = 1e9;
+    const consider = set => {
+      const sum = set.reduce((a, p) => a + p.value, 0), e = Math.abs(Math.log(sum / v)) + 0.06 * (set.length - 1);
+      if (e < bestE){ bestE = e; best = set; }
+    };
+    for (const p of S) consider([p]);
+    for (let i = 0; i < R.length; i++) for (let j = i + 1; j < R.length; j++){
+      consider([R[i], R[j]]);
+      for (let k = j + 1; k < R.length; k++) consider([R[i], R[j], R[k]]);
+    }
+    const sum = best.reduce((a, p) => a + p.value, 0);
+    return "about the " + best.map(p => p.slot).join(" + ") + " rookie pick" + (best.length > 1 ? "s" : "") + " (" + fmt(sum) + ")";
+  }
+
+  function card(p, side){
+    const bits = [p.pos, p.team || "no NFL team", p.age ? "age " + p.age : ""].filter(Boolean).join(" · ");
+    let tags = "";
+    if (p.injury) tags += '<span class="tag inj">' + esc(p.injury) + "</span>";
+    if (team && p.owner === team) tags += '<span class="tag">your player</span>';
+    return '<div class="player" id="card' + side + '">' +
+      '<div><span class="name">' + esc(p.name) + '</span><span class="meta">' + esc(bits) + "</span>" + tags + "</div>" +
+      '<div><div class="price">' + fmt(p.value) + '</div><div class="pk">' + esc(pickText(p.value)) + "</div></div>" +
+      '<button class="higher" data-higher="' + side + '" aria-pressed="false">Worth more</button>' +
+      '<div><span class="lab">This value is…</span><div class="seg" data-side="' + side + '">' +
+      '<button data-v="lower" aria-pressed="false">Too high</button><button data-v="right" aria-pressed="false">About right</button><button data-v="higher" aria-pressed="false">Too low</button></div></div>' +
+      '<div><label for="amt' + side + '">What would you pay? (optional)</label><input type="number" id="amt' + side + '" min="0" step="5" inputmode="numeric" placeholder="$"></div>' +
+      "</div>";
+  }
+
+  function answered(){ return store.get("lotg_done_" + B.as_of, {}); }
+  function own(q){ return (P[q.a].owner === team ? "A" : "") + (P[q.b].owner === team ? "B" : ""); }
+  async function send(row){
+    const log = store.get("lotg_log", []); log.push(row); store.set("lotg_log", log);
+    if (!C.form_action) return;
+    const body = new URLSearchParams();
+    for (const [k, entry] of Object.entries(C.entries || {})) if (entry) body.append(entry, String(row[k] ?? ""));
+    try { await fetch(C.form_action, {method: "POST", mode: "no-cors", body}); }
+    catch (e) { const pend = store.get("lotg_pending", []); pend.push(row); store.set("lotg_pending", pend); }
+  }
+  async function flush(){
+    if (!C.form_action) return;
+    const pend = store.get("lotg_pending", []); store.set("lotg_pending", []);
+    for (const r of pend) await send(r);
+  }
+
+  function refresh(){
+    for (const s of ["A", "B"]){
+      $("card" + s).classList.toggle("on", ans.higher === s);
+      document.querySelector('[data-higher="' + s + '"]').setAttribute("aria-pressed", String(ans.higher === s));
+      for (const b of document.querySelectorAll('.seg[data-side="' + s + '"] button')) b.setAttribute("aria-pressed", String(ans["verdict" + s] === b.dataset.v));
+    }
+    $("even").setAttribute("aria-pressed", String(ans.higher === "even"));
+    const any = ans.higher || ans.verdictA || ans.verdictB || +$("amtA").value > 0 || +$("amtB").value > 0 || $("why").value.trim();
+    $("submit").disabled = !any;
+  }
+
+  function submit(){
+    const q = cur, a = P[q.a], b = P[q.b];
+    const amt = id => (+$(id).value > 0 ? String(Math.round(+$(id).value)) : "");
+    send({team, question_id: q.id, kind: "pair", board_date: B.as_of, player_a: q.a, player_b: q.b, shown_a: a.value, shown_b: b.value,
+          answer: ans.higher || "", verdict_a: ans.verdictA || "", verdict_b: ans.verdictB || "", amount_a: amt("amtA"), amount_b: amt("amtB"),
+          why: $("why").value.trim(), own: own(q), client_time: new Date().toISOString(), page_version: VERSION});
+    const d = answered(); d[q.id] = 1; store.set("lotg_done_" + B.as_of, d);
+    next();
+  }
+  function skip(){ queue.push(queue.shift()); next(true); }
+
+  function next(skipped){
+    if (!skipped) queue = queue.filter(q => !answered()[q.id]);
+    const n = Object.keys(answered()).length;
+    $("prog").textContent = n ? n + " answered on this board. Thanks!" : "";
+    $("export").hidden = !store.get("lotg_log", []).length;
+    const qc = $("qcard");
+    if (!team){ qc.hidden = true; return; }
+    cur = queue[0]; qc.hidden = false; window.scrollTo({top: 0});
+    if (!cur){ qc.innerHTML = '<p class="done">That is every question for this board.</p><p class="hint">New questions come with the next board.</p>'; return; }
+    ans = {higher: "", verdictA: "", verdictB: ""};
+    qc.innerHTML = '<p class="q">Two players the board values about the same.</p><p class="hint">Answer as much or as little as you like: pick the one worth more, say whether each value is right, and add what you would pay.</p>' +
+      '<div class="pair">' + card(P[cur.a], "A") + card(P[cur.b], "B") + "</div>" +
+      '<div class="row"><button class="b sel" id="even" aria-pressed="false">Too close to call</button></div>' +
+      '<div class="why"><label for="why">Why? (optional)</label><textarea id="why" placeholder="What makes one worth more, or a value wrong?"></textarea></div>' +
+      '<div class="row"><button class="b primary" id="submit" disabled>Submit</button><button class="b" id="skip">Skip</button></div>';
+    for (const btn of qc.querySelectorAll("[data-higher]")) btn.onclick = () => { ans.higher = ans.higher === btn.dataset.higher ? "" : btn.dataset.higher; refresh(); };
+    $("even").onclick = () => { ans.higher = ans.higher === "even" ? "" : "even"; refresh(); };
+    for (const seg of qc.querySelectorAll(".seg")) for (const btn of seg.querySelectorAll("button")){
+      const k = "verdict" + seg.dataset.side;
+      btn.onclick = () => { ans[k] = ans[k] === btn.dataset.v ? "" : btn.dataset.v; refresh(); };
+    }
+    for (const id of ["amtA", "amtB", "why"]) $(id).oninput = refresh;
+    $("submit").onclick = submit; $("skip").onclick = skip;
+  }
+
+  function download(){
+    const rows = store.get("lotg_log", []); if (!rows.length) return;
+    const keys = Object.keys(rows[rows.length - 1]);
+    const csv = [keys.join(",")].concat(rows.map(r => keys.map(k => '"' + String(r[k] ?? "").replace(/"/g, '""') + '"').join(","))).join("\n");
+    const url = URL.createObjectURL(new Blob([csv], {type: "text/csv"}));
+    const a = document.createElement("a"); a.href = url; a.download = "lotg-answers-" + B.as_of + ".csv"; a.click(); URL.revokeObjectURL(url);
+  }
+
+  Promise.all(["board.json", "questions.json", "config.json"].map(f => fetch(f, {cache: "no-cache"}).then(r => r.json())))
+    .then(([b, q, c]) => {
+      B = b; Q = q; C = c; for (const p of B.players) P[p.sid] = p;
+      $("asof").textContent = "Board as of " + B.as_of + " · " + B.players.length + " players · " + Q.questions.length + " questions";
+      const sel = $("team");
+      for (const t of B.teams.concat([B.guest])){ const o = document.createElement("option"); o.value = o.textContent = t; sel.appendChild(o); }
+      sel.value = team;
+      sel.onchange = () => { team = sel.value; store.set("lotg_team", team); next(); };
+      if (!C.form_action) $("banner").innerHTML = '<div class="banner">Answers are not being collected yet. They are kept in this browser, and you can download them below.</div>';
+      queue = Q.questions.filter(x => P[x.a] && P[x.b]);
+      $("dl").onclick = e => { e.preventDefault(); download(); };
+      flush(); next();
+    })
+    .catch(() => { $("asof").textContent = "Could not load the board. Try again in a minute."; });
+})();
+</script>
+</body>
+</html>

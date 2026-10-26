@@ -1,0 +1,23 @@
+{
+  "_help": "Fill from the Google Form's prefilled link (see plan/notes/FAAB_VALUE_SYSTEM.md). form_action ends in /formResponse; each entry is entry.<number>. Empty form_action = answers stay in the browser.",
+  "form_action": "",
+  "entries": {
+    "team": "",
+    "question_id": "",
+    "kind": "",
+    "board_date": "",
+    "player_a": "",
+    "player_b": "",
+    "shown_a": "",
+    "shown_b": "",
+    "answer": "",
+    "verdict_a": "",
+    "verdict_b": "",
+    "amount_a": "",
+    "amount_b": "",
+    "why": "",
+    "own": "",
+    "client_time": "",
+    "page_version": ""
+  }
+}
