@@ -55,3 +55,7 @@ exports/raw/pae_additions.json.gz
 .cache/trade_calibration_*.pkl
 # lotg_support.advise caches Sleeper stats / projections / player feed here.
 .cache/sleeper/
+
+# FAAB value pipeline downloads and stage caches (lotg_support.faab_data / faab_pipeline): ~300 MB of nflverse,
+# college and award data plus the walk-forward blocks. Rebuilt from public sources; never commit.
+.cache/faab/

@@ -290,11 +290,10 @@ def features(df):
 
 
 # --------------------------------------------------------------------------- models
-from sklearn.ensemble import HistGradientBoostingRegressor  # noqa: E402
-from sklearn.model_selection import GroupKFold  # noqa: E402
 
 
 def _gbm(**kw):
+    from sklearn.ensemble import HistGradientBoostingRegressor   # only the model needs scikit-learn
     p = dict(max_iter=600, learning_rate=0.04, max_leaf_nodes=31, min_samples_leaf=20, max_features=0.5,
              random_state=0, categorical_features=[0])
     p.update(kw)
