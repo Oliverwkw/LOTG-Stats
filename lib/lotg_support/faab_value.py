@@ -51,7 +51,7 @@ BOUNDS.update(rb_hi=(0.0, 0.6), wr_hi=(-0.1, 0.1), qb_hi=(-0.2, 0.2),
     journeyman=(-2.0, 0.0), bust=(-2.0, 0.0), rb_age=(-1.2, 0.0), boom_bust=(-1.0, 0.0), td_dep=(-1.0, 0.0), one_game=(-1.5, 0.0), young_starter=(0.0, 1.5), carry=(0.0, 1.0), opening=(0.0, 1.0),
     # can only RAISE value
     aw_nfl=(0.0, 1.0), aw_college=(0.0, 1.5), usage=(0.0, 1.5), steady=(0.0, 1.0), youth_usage=(0.0, 2.0), youth_role=(0.0, 1.0),
-    elite_streak=(0.15, 1.5), track=(0.2, 1.0), qb_quality=(0.0, 2.0), top_g=(0.3, 0.85),
+    elite_streak=(0.15, 1.5), track=(0.2, 1.0), qb_quality=(0.0, 2.0), top_g=(0.1, 0.85),
     # track and elite streak have floors (sustained records, per review); top compression can go further
     wr_talent=(0.0, 1.0), rb_multi=(0.0, 1.0), efficiency=(0.0, 1.2),
     pedigree=(0.0, 1.0), rookie_capital=(0.0, 1.5), alpha=(0.0, 1.0), availability=(0.0, 1.5), pick_boom=(0.0, 1.5), new_team_burst=(0.0, 1.2),
