@@ -17,6 +17,7 @@ logic unchanged; `REPRO` switches restore two research-era behaviours exactly, f
 from __future__ import annotations
 
 import hashlib
+import os
 import time
 
 import numpy as np
@@ -33,7 +34,7 @@ REPRO = dict(aging_cap_2024=False, fold_map=None)
 # players shared his held-out fold). Each quarter is therefore fit under BAGS assignments and a player's base is the
 # mean of his log values. Measured on the 2026-10 quarter's top 150: two single draws differ by a median 15%, two
 # independent 3-bag means by 9% (the 1/sqrt(n) the noise predicts); 5 bags leave ~7%.
-BAGS = 5
+BAGS = int(os.environ.get("FAAB_BAGS", "5"))     # FAAB_BAGS=1: a quick smoke run
 DEMAND = {"QB": 16, "RB": 24, "WR": 32, "TE": 9}   # weekly starters league-wide (1 QB + SF, 2 RB, 3 WR, 1 TE, 2 FLEX)
 ENS = [("sqrt", dict(max_leaf_nodes=63, learning_rate=0.05, max_iter=800)), ("raw", dict(max_iter=500))]
 CFG = (0.3, 0.0, 2.5); A_PV = 0.67; NM = "pv_main"
