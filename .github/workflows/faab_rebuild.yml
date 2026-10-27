@@ -67,7 +67,8 @@ jobs:
           # full: drop the cached blocks once; the run (and any resumed runs) then refit every snapshot
           if [ "${FULL:-}" = "true" ]; then rm -f .cache/faab/pipeline/blk_*.parquet; fi
           CMD=(python scripts/faab_rebuild.py --max-minutes 270)
-          "${CMD[@]}"; rc=$?
+          # Actions runs bash with -e: catch the exit code instead of letting exit 3 end the step
+          rc=0; "${CMD[@]}" || rc=$?
           if [ "$rc" = "3" ]; then
             echo "::notice::Time budget reached: finished snapshots are cached; the next run continues."
             echo "complete=false" >> "$GITHUB_OUTPUT"; exit 0
