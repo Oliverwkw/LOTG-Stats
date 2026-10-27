@@ -1199,8 +1199,10 @@ EQUATIONS = {
         '|{pk : by(pk) = t, rookie draft of y}|',
     ('3-year roster retention rate', 'team_year / team_all_time'):
         '|R(t,w1 of y) ∩ R(t,w1 of y+3)| / |R(t,w1 of y)|; all-time = mean',
-    ('Future draft capital', 'team_week / team_year / team_all_time'):
+    ('Future draft capital', 'team_week / team_year'):
         'Σ_{(Y, r) : own(Y,r,·) = t at the date, Y ∈ y+1 … y+5} ω(r),  ω = {1: .25, 2: .09, 3: .03, 4: .01}; team_year = the season-end value',
+    ('All-time draft capital', 'team_all_time'):
+        'Σ_{pk rookie pick made by t} ω(round(pk)) + Σ_{(Y, r) : own(Y,r,·) = t today, Y ∈ D+1 … D+5} ω(r),  D = latest rookie draft held, ω as Future draft capital',
     ('Points per QB started', 'league_week / league_year / league_all_time'):
         'Σ_{t,w} Σ_{p ∈ S(t,w), posS(p) = QB} pts(p,w) / Σ_{t,w} |{p ∈ S(t,w) : posS(p) = QB}|',
     ('Points per WR started', 'league_week / league_year / league_all_time'):
