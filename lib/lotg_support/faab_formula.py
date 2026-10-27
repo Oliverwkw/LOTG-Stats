@@ -267,8 +267,8 @@ class Formula:
         L = np.where(hold, smax(L, np.log1p(LAST * P["hold"])), L)
         qb1 = (d.pos.values == "QB") & (d.d_rank.values == 1) & (d.injury.values == "")
         L = np.where(qb1, smax(L, np.log1p(50)), L)
-        inj = d.injury.fillna("").values; bp = d.bp.values.astype(str)
-        mult = np.where(inj == "", 1.0, np.where(np.char.find(bp, "ACL") >= 0, 0.85, np.where(np.isin(inj, ["IR", "PUP"]), 0.95, 0.99)))
+        inj = d.injury.fillna("").astype(str).values; acl = d.bp.fillna("").astype(str).str.contains("ACL", regex=False).values
+        mult = np.where(inj == "", 1.0, np.where(acl, 0.85, np.where(np.isin(inj, ["IR", "PUP"]), 0.95, 0.99)))
         L = np.log1p(np.expm1(L + np.log(mult)) * P["scale"]) - np.log(P["scale"]) if P["scale"] != 1.0 else L + np.log(mult)
         L = smax(L, np.log1p(self.cred_floor(d, date, off)))
         return np.expm1(L) * P["scale"]
