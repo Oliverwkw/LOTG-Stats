@@ -174,11 +174,17 @@ def consensus(df):
     return pd.DataFrame(out)
 
 
+def _look(V, c):
+    """V: a Series by sid (one board), or a dict keyed (board date, sid) holding each vote's own board"""
+    if isinstance(V, pd.Series): return lambda s_: float(V.get(s_, np.nan))
+    return lambda s_: float(V.get((c["board_date"], s_), np.nan))
+
+
 def q_loss(c, V):
-    """hinge loss of one question's consensus against a board (V: Series sid -> value); NaN if a player is missing"""
-    va = V.get(c["a"], np.nan)
+    """hinge loss of one question's consensus against the board it was asked on; NaN if a player is missing"""
+    g = _look(V, c); va = g(c["a"])
     if c["kind"] == "pair":
-        vb = V.get(c["b"], np.nan)
+        vb = g(c["b"])
         if np.isnan(va) or np.isnan(vb): return np.nan
         r = np.log(max(va, 1) / max(vb, 1))
         if c["even"] >= 0.5: return max(0.0, abs(r) - 0.25)
@@ -188,16 +194,19 @@ def q_loss(c, V):
 
 
 class VoteTerm:
-    """the votes on one board date, ready for the fit: loss(V) is the weighted mean hinge, times strength"""
+    """the votes, each judged against the board on the date it was shown, ready for the fit: loss(V) is the
+    weighted mean hinge, times strength. `dates`: the board dates the inputs hold rows for (the as-of date
+    always); votes on other dates are reported as not used."""
 
-    def __init__(self, df, as_of):
+    def __init__(self, df, as_of, dates=()):
         self.raw = df
         self.all = weighted(signals(df))
         self.as_of = str(pd.Timestamp(as_of).date())
-        self.used = self.all[self.all.board_date == self.as_of]
+        self.dates = {self.as_of} | {str(pd.Timestamp(d).date()) for d in dates}
+        self.used = self.all[self.all.board_date.isin(self.dates)] if len(self.all) else self.all
         self.C = consensus(self.used) if len(self.used) else pd.DataFrame()
         self.weight = strength(self.used)
-        self.stale = sorted(set(self.all.board_date) - {self.as_of})
+        self.stale = sorted(set(self.all.board_date) - self.dates) if len(self.all) else []
 
     def loss(self, V):
         if self.C.empty or self.weight <= 0: return 0.0
@@ -206,41 +215,47 @@ class VoteTerm:
         return float(self.weight * np.sum(qw[ok] * l[ok]) / max(np.sum(qw[ok]), 1e-9)) if ok.any() else 0.0
 
 
-def report(term, T, terms):
-    """where the board disagrees with the votes, and which rule terms put each side where it is (markdown lines).
-    T: the board (sid, name, V); terms: apply_rules(explain=True) terms aligned with T."""
-    V = T.set_index("sid").V; nm = T.set_index("sid").name; ix = {s: i for i, s in enumerate(T.sid)}
-    L = [f"# Rating-page votes vs the board ({term.as_of})", "",
-         f"{len(term.raw)} answers ({len(term.all)} signals: picks and price checks) from {term.all.team.nunique()} teams; "
-         f"{len(term.used)} signals on this board date, "
+def report(term, V, names, terms=None):
+    """where the boards disagree with the votes, and which rule terms put each side where it is (markdown lines).
+    V: dict (board date, sid) -> value; names: sid -> name; terms: dict (board date, sid) -> {rule: log multiplier}."""
+    terms = terms or {}
+    L = [f"# Rating-page votes vs the board (inputs as of {term.as_of})", "",
+         f"{len(term.raw)} answers ({len(term.all)} signals: picks and price checks) from {term.all.team.nunique() if len(term.all) else 0} teams; "
+         f"{len(term.used)} signals on board dates the inputs hold, "
          f"vote term weight {term.weight:.2f} of max {VOTE_MAX} (trades and cuts weigh {3.0} each).", ""]
-    if term.stale: L += [f"Not used (no inputs for that board date yet): {', '.join(term.stale)}", ""]
-    if term.C.empty: return L + ["No votes on this board date."]
+    if term.stale: L += [f"Not used (no inputs for that board date): {', '.join(term.stale)}", ""]
+    if term.C.empty: return L + ["No votes on the board dates the inputs hold."]
 
-    def why(s, k=4):
-        i = ix.get(s)
-        if i is None: return ""
-        t = sorted(((n, v[i]) for n, v in terms.items() if abs(v[i]) > 0.02), key=lambda x: -abs(x[1]))[:k]
+    def why(bd, s, k=4):
+        t = sorted(((n, v) for n, v in terms.get((bd, s), {}).items() if abs(v) > 0.02), key=lambda x: -abs(x[1]))[:k]
         return ", ".join(f"{n} x{np.exp(v):.2f}" for n, v in t) or "no rule moved him"
 
     rows = []
     for c in term.C.to_dict("records"):
         l = q_loss(c, V)
         if np.isnan(l): continue
+        bd = c["board_date"]; g = _look(V, c)
         if c["kind"] == "pair":
-            say = ("even" if c["even"] >= 0.5 else (nm.get(c["a"]) if c["s"] > 0 else nm.get(c["b"])))
-            rows.append((l, f"- **{nm.get(c['a'])}** ${V[c['a']]:,.0f} vs **{nm.get(c['b'])}** ${V[c['b']]:,.0f}: votes say {say} "
+            say = ("even" if c["even"] >= 0.5 else (names.get(c["a"]) if c["s"] > 0 else names.get(c["b"])))
+            rows.append((l, f"- {bd}: **{names.get(c['a'])}** ${g(c['a']):,.0f} vs **{names.get(c['b'])}** ${g(c['b']):,.0f}: votes say {say} "
                             f"(s {c['s']:+.2f}, {c['n']} answers){' — DISAGREES' if l > 0 else ''}"
-                            + (f"\n  - {nm.get(c['a'])}: {why(c['a'])}\n  - {nm.get(c['b'])}: {why(c['b'])}" if l > 0 else "")))
+                            + (f"\n  - {names.get(c['a'])}: {why(bd, c['a'])}\n  - {names.get(c['b'])}: {why(bd, c['b'])}" if l > 0 else "")))
         else:
-            rows.append((l, f"- **{nm.get(c['a'])}** board ${V[c['a']]:,.0f}, votes ${c['target']:,.0f} ({c['n']} answers)"
-                            f"{' — DISAGREES' if l > 0 else ''}" + (f"\n  - {why(c['a'])}" if l > 0 else "")))
+            rows.append((l, f"- {bd}: **{names.get(c['a'])}** board ${g(c['a']):,.0f}, votes ${c['target']:,.0f} ({c['n']} answers)"
+                            f"{' — DISAGREES' if l > 0 else ''}" + (f"\n  - {why(bd, c['a'])}" if l > 0 else "")))
     rows.sort(key=lambda r: -r[0])
     n_bad = sum(r[0] > 0 for r in rows)
-    notes = [f"- {nm.get(r.player_a, r.player_a)} vs {nm.get(r.player_b, r.player_b)} — {r.team}: {r.why}"
-             for r in term.raw[term.raw.why.str.len() > 0].itertuples()] if len(term.raw) else []
+    ok_team = term.raw.team.isin(TEAMS + [GUEST]) if len(term.raw) else []
+    notes = [f"- {r.board_date}: {names.get(r.player_a, r.player_a)} vs {names.get(r.player_b, r.player_b)} — {r.team}: {r.why}"
+             for r in term.raw[ok_team & (term.raw.why.str.len() > 0)].itertuples()] if len(term.raw) else []
     return (L + [f"{len(rows) - n_bad} of {len(rows)} checks agree with the board.", ""] + [r[1] for r in rows]
             + (["", "## Why notes", ""] + notes if notes else []))
+
+
+def vote_keys(df):
+    """(board date, sid) of every player a vote was about"""
+    if df.empty: return set()
+    return {(r.board_date, s) for r in df.itertuples() for s in (r.player_a, r.player_b) if s}
 
 
 def page_board(T, owners, as_of, info, picks=None):

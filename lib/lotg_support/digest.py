@@ -4631,6 +4631,19 @@ def _section_block(title: str, grouped: bool, items: Sequence, level: int = 2) -
                          level)
 
 
+# The league rating page (docs/rate/, GitHub Pages): a standing link at the top of every digest so members
+# can find it. What it says is what the page does — votes tune which stats the value model weighs and never set
+# a player's value (lotg_support.faab_votes).
+RATING_PAGE_URL = "https://oliverwkw.github.io/LOTG-Stats/rate/"
+RATING_PAGE_HTML = (
+    '  <p style="font:15px/1.5 system-ui,sans-serif;color:#0b2545;margin:0 0 12px;padding:10px 14px;'
+    'background:#fff8e6;border-left:3px solid #c98a00;border-radius:4px;">'
+    f'<b>Rate the board:</b> <a href="{RATING_PAGE_URL}" style="color:#0b5cad;font-weight:600;">LOTG value check</a>. '
+    "Our stats-only player values, priced in league FAAB. Pick which of two players is worth more and say whether "
+    "each value looks too high, about right or too low, with an optional why. Answers help tune which stats the "
+    "model weighs; they never set anyone's value directly. The board refreshes every Wednesday.</p>")
+
+
 def render_digest_html(
     crossings: Sequence[Crossing],
     projections: Sequence[Projection],
@@ -4643,6 +4656,7 @@ def render_digest_html(
     events: Sequence["EventCrossing"] = (),
     new_data: Optional[NewData] = None,
     dropouts: Sequence[PaceDropout] = (),
+    rating_link: bool = True,
 ) -> str:
     if header is None:
         header = digest_title(meta)
@@ -4651,6 +4665,7 @@ def render_digest_html(
         '<div style="max-width:680px;margin:0 auto;padding:16px;">',
         f'  <h1 style="font:700 22px/1.3 system-ui,sans-serif;'
         f'color:#0b2545;margin:0 0 4px;">{header}</h1>',
+        RATING_PAGE_HTML if rating_link else "",
         (f'  <p style="font:16px/1.5 system-ui,sans-serif;color:#0b2545;'
          f'margin:0 0 8px;padding:12px 14px;background:#f2f6fb;'
          f'border-left:3px solid #0b2545;border-radius:4px;">{intro}</p>'

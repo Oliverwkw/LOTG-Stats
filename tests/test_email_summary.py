@@ -129,7 +129,11 @@ def check_lede_renders_above_the_list():
               html.index("Three trades") < html.index("<h2"), )
     ok &= _ok("below the header", html.index("<h1") < html.index("Three trades"))
     plain = D.render_digest_html([crossing], [], {"season": 2026, "weeks_completed": 7})
-    ok &= _ok("no lede -> no empty paragraph", "<p" not in plain)
+    ok &= _ok("no lede -> no empty lede box", "#f2f6fb" not in plain)
+    ok &= _ok("the rating-page link sits between the header and the lede",
+              html.index("<h1") < html.index(D.RATING_PAGE_URL) < html.index("Three trades"))
+    ok &= _ok("and can be left out", D.RATING_PAGE_URL not in D.render_digest_html(
+        [crossing], [], {"season": 2026, "weeks_completed": 7}, rating_link=False))
     return ok
 
 
