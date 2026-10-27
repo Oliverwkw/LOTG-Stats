@@ -46,7 +46,7 @@ jobs:
           python-version: "3.11"
 
       - name: Install deps
-        run: pip install --no-cache-dir "pandas==3.0.6" "pyarrow==25.0.1" numpy scipy scikit-learn requests
+        run: pip install --no-cache-dir "pandas==3.0.6" "pyarrow==25.0.1" "numpy==2.4.6" "scipy==1.17.1" "scikit-learn==1.9.1" requests
 
       - name: Restore pipeline cache
         uses: actions/cache/restore@v4
