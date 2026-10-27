@@ -277,6 +277,14 @@ def _week_tuesday(season: int, week: int) -> date:
     return _week_thursday(int(season), int(week)) - timedelta(days=2)
 
 
+def _season_start(season: int) -> date:
+    """The day `season` starts: fantasy week 1's Tuesday, the day after Labor
+    Day (a season that ever kicks off before Labor Day starts on that week's
+    Tuesday instead). The in-season window and the post-draft KTC snapshot open
+    here, not on a flat Sept 1 [per user, 2026-10-27]."""
+    return _week_tuesday(int(season), 1)
+
+
 def _season_week_of(d: date, season: int, max_week: int = 17) -> int:
     """Fantasy week a date falls in, 0 for the deep offseason. Weeks run
     Tuesday-Monday (see `_week_tuesday`).
@@ -6690,7 +6698,9 @@ def build_all(repo_root: Path) -> None:
                     rook_s = len({pid for pid in starters if is_rookie_pid(pid, season)})
                     rook_r = len({pid for pid in players if is_rookie_pid(pid, season)})
 
-                    approx_date = date(season, 9, 1) + timedelta(days=7 * (wk - 1))
+                    # Ages and pick ownership as of the week's Monday close (the
+                    # fantasy week runs Tuesday-Monday), like Future draft capital.
+                    approx_date = _week_tuesday(int(season), int(wk)) + timedelta(days=6)
                     ages = [a for a in (_calc_age(pid_meta.get(pid, {}).get("birth_date"), approx_date) for pid in players) if a is not None]
                     avg_age = round(sum(ages) / len(ages), 2) if ages else None
                     # 'Team age including picks' uses the per-week
@@ -11408,7 +11418,7 @@ def build_all(repo_root: Path) -> None:
                 _y, _rnd, _ot = int(meta[0]), int(meta[1]), str(meta[2])
             except Exception:
                 return ""
-            if trade_dt_ < date(_y - 1, 9, 1):
+            if trade_dt_ < _season_start(_y - 1):
                 return f"{_y} {_rnd}.??"          # pre-determining-season -> round avg (locked)
             _slot = _pick_slot_lookup.get((_y, _rnd, _ot))
             return f"{_y} {_rnd}.{_slot}" if _slot else f"{_y} {_rnd}.??"
@@ -11451,7 +11461,7 @@ def build_all(repo_root: Path) -> None:
                     continue
                 _dy2 = int(_ym2.group(1))
                 _k2 = (_dy2, int(_nm2.group(1)), _norm_team_name(_pr.get("Original Team", "")))
-                _pick_drafted_ktc[_k2] = (str(_pid2), date(_dy2, 9, 1))
+                _pick_drafted_ktc[_k2] = (str(_pid2), _season_start(_dy2))
         except Exception as e:
             _log_exc(debug, "pick_drafted_ktc_map", e)
 
@@ -11754,8 +11764,9 @@ def build_all(repo_root: Path) -> None:
 
             # 'Change in pick value at draft time' — for each received
             # pick, (value at the draft snapshot for that pick's year)
-            # minus (value at trade date). The draft snapshot is Sept 1 of
-            # the pick's year (Phase 6F): rookie drafts have completed and
+            # minus (value at trade date). The draft snapshot is the season
+            # start (_season_start, the day after Labor Day) of the pick's
+            # year (Phase 6F): rookie drafts have completed and
             # the pick has resolved into a settled rookie value by then.
             # Sums across picks. Picks whose drafts are in the future don't
             # contribute.
@@ -11769,7 +11780,7 @@ def build_all(repo_root: Path) -> None:
                     pick_year = int(parts[0])
                 except Exception:
                     continue
-                post_draft = date(pick_year, 9, 1)
+                post_draft = _season_start(pick_year)
                 if post_draft > today:
                     continue
                 v_before = asset_value_at(str(plabel), None, trade_date, idx)
@@ -15103,7 +15114,11 @@ def build_all(repo_root: Path) -> None:
                     if yr is None:
                         fdc_vals.append(0.0)
                         continue
-                    wk_date = date(int(yr), 9, 1) + timedelta(days=7 * ((wk or 1) - 1))
+                    # Holdings at the END of fantasy week wk (its Monday), so a
+                    # pick trade on the week's Tuesday-Monday counts that week.
+                    # A flat Sept 1 anchor ran up to a week behind (2026 wk7 read
+                    # Oct 13 and missed the Oct 20 McLaurin trade).
+                    wk_date = _week_tuesday(int(yr), int(wk or 1)) + timedelta(days=6)
                     fdc_vals.append(float(_future_cap_held(str(r.get("Team")), int(yr), wk_date)))
                 tw["Future draft capital"] = pd.to_numeric(pd.Series(fdc_vals, index=tw.index), errors="coerce").fillna(0.0)
 
@@ -15830,7 +15845,7 @@ def build_all(repo_root: Path) -> None:
     # ladder, Phase 6F). The IN-SEASON window is unchanged (a real season
     # still runs Sept -> championship); it is used only for Top/Last team.
     #
-    #   In-season = [Sept 1 FY, Feb 1 FY+1]
+    #   In-season = [_season_start(FY) (day after Labor Day), Feb 1 FY+1]
     #
     # Three FY-keyed aggregates per tenure:
     #   tenure_time_team_fy[(pid, FY)]           Full-FY seconds per team
@@ -15880,8 +15895,9 @@ def build_all(repo_root: Path) -> None:
         )
 
     def _fy_inseason_window(_fy: int, _tz_for_window) -> Tuple[datetime, datetime]:
+        _ss = _season_start(_fy)
         return (
-            datetime(_fy, 9, 1, tzinfo=_tz_for_window),
+            datetime(_ss.year, _ss.month, _ss.day, tzinfo=_tz_for_window),
             datetime(_fy + 1, 2, 1, tzinfo=_tz_for_window),
         )
 
@@ -16832,7 +16848,8 @@ def build_all(repo_root: Path) -> None:
             # that year."
             def _season_leadin_tenure(sid: str, yr: int):
                 """Realized stints in season `yr`'s LEAD-IN offseason window
-                [Jan 1 yr, min(now, Sept 1 yr)).
+                [Jan 1 yr, min(now, season start yr)) — the in-season window
+                opens at _season_start (the day after Labor Day).
 
                 Sleeper tags a pre-season move (Jan–Aug yr) as Season=yr, but
                 `_fy_for_date` buckets those dates into FY (yr-1) — an offseason
@@ -16847,7 +16864,8 @@ def build_all(repo_root: Path) -> None:
                 tenure ledger's as-of clock (`_tenure_as_of`, not the wall clock).
                 Returns (secs_by_team, last_event). Fix #1."""
                 _lead_start = datetime(int(yr), 1, 1, tzinfo=timezone.utc)
-                _lead_end = min(_as_of_dt, datetime(int(yr), 9, 1, tzinfo=timezone.utc))
+                _ss = _season_start(int(yr))
+                _lead_end = min(_as_of_dt, datetime(_ss.year, _ss.month, _ss.day, tzinfo=timezone.utc))
                 _secs: Dict[str, float] = defaultdict(float)
                 _last: Optional[Tuple[datetime, str]] = None
                 for t in player_tenures.get(str(sid), []):

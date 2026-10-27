@@ -1331,10 +1331,10 @@ def scarcity(season: int, demand_multiple: float = 1.0,
 # ---------------------------------------------------------------------------
 # Roster age
 # ---------------------------------------------------------------------------
-# The build anchors each week's ages at Sept 1 + 7·(week-1) rather than at the
-# real calendar date of the week, because the snapshot carries no per-week
-# timestamp. Mirrored here so a recomputed age can be checked against the
-# build's own column (check_roster_age_matches_build).
+# The build anchors each week's ages at the Monday that closes the fantasy week
+# (weeks run Tuesday-Monday from the Tuesday after Labor Day), because the
+# snapshot carries no per-week timestamp. Mirrored here so a recomputed age can
+# be checked against the build's own column (check_roster_age_matches_build).
 AGE_SEASON_START = (9, 1)
 # Rookies average ~22 when the league's rookie draft wraps in early September,
 # so a not-yet-known pick is priced as someone born Sept 1 of (Y - 22). Same
@@ -1392,8 +1392,11 @@ def pick_expected_age(pick_year: int, on: date) -> float:
 
 
 def week_reference_date(season: int, week: int) -> date:
-    """The date the build ages a season's week at (Sept 1 + 7·(week-1))."""
-    return date(int(season), *AGE_SEASON_START) + timedelta(days=7 * (int(week) - 1))
+    """The date the build ages a season's week at: the Monday closing fantasy
+    `week` (`lotg._week_tuesday` + 6 days)."""
+    sept1 = date(int(season), 9, 1)
+    labor_day = sept1 + timedelta(days=(0 - sept1.weekday()) % 7)
+    return labor_day + timedelta(days=1 + 6 + 7 * (int(week) - 1))
 
 
 def _roster_pool(roster: dict, pool: str) -> List[str]:
