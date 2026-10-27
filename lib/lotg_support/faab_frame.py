@@ -106,6 +106,17 @@ def player_info(sids) -> pd.DataFrame:
     return info
 
 
+def merge_asof(left, right, **kw):
+    """pd.merge_asof with the date keys cast to nanoseconds: pandas 3 builds some datetimes at microsecond
+    resolution, and merge_asof refuses keys of different resolutions"""
+    on = kw.get("on"); lk = kw.get("left_on", on); rk = kw.get("right_on", on)
+    def ns(df, c):
+        if c is not None and c in df and str(df[c].dtype).startswith("datetime64"):
+            df = df.copy(); df[c] = df[c].astype("datetime64[ns]")
+        return df
+    return pd.merge_asof(ns(left, lk), ns(right, rk), **kw)
+
+
 def _wkdate(season, week):
     return pd.Timestamp(KO[int(season)]) + pd.to_timedelta(7 * (np.asarray(week, dtype=int) - 1) + 5, unit="D")
 
@@ -257,7 +268,7 @@ def build(k: pd.DataFrame) -> pd.DataFrame:
     left = df[["date", "gsis"]].assign(rid=np.arange(len(df))).dropna(subset=["gsis"])
     left["date"] = left.date.astype("datetime64[ns]")
     sn["avail"] = pd.to_datetime(sn.avail).astype("datetime64[ns]")
-    m = pd.merge_asof(left.sort_values("date"), sn.sort_values("avail")[["gsis", "avail", "season", "cum", "l3"]],
+    m = merge_asof(left.sort_values("date"), sn.sort_values("avail")[["gsis", "avail", "season", "cum", "l3"]],
                       left_on="date", right_on="avail", by="gsis").set_index("rid")
     ok = m.season.values == df.cur.values[m.index]
     df["s_snap_cur"] = np.nan; df["s_snap_l3"] = np.nan

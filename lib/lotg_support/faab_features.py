@@ -22,6 +22,7 @@ import numpy as np
 import pandas as pd
 
 from . import faab_data as D
+from . import faab_frame as kp
 
 ROOT = Path(__file__).resolve().parents[2]
 DATA = ROOT / "data" / "faab_value"
@@ -402,7 +403,7 @@ def add_x(df):
     d["cur_s"] = cur_s; d["in_season"] = in_season & (j >= 0)
     d["l0_s"] = np.where(d.in_season, cur_s - 1, cur_s)            # last COMPLETE season
     # this season to date: last weekly state known by the date
-    m = pd.merge_asof(d.sort_values("date"), C.sort_values("known").rename(columns={"known": "date_k"}), left_on="date", right_on="date_k", by="gsis", direction="backward")
+    m = kp.merge_asof(d.sort_values("date"), C.sort_values("known").rename(columns={"known": "date_k"}), left_on="date", right_on="date_k", by="gsis", direction="backward")
     m = m.set_index("_i").sort_index()
     cur_ok = d.in_season.values & (m.season.values == d.cur_s.values)
     cur = _rates(m); cur.loc[~cur_ok, :] = np.nan
@@ -442,7 +443,7 @@ def add_x(df):
     # the player's current team's offense: expected fantasy points per game this season vs last ("ascendant offense")
     team = np.where(cur_ok, m.team.values, f0.team.values if "team" in f0 else None)
     tq = pd.DataFrame({"team": team, "date": d.date.values, "_i": d._i.values}).dropna(subset=["team"]).sort_values("date")
-    tcur = pd.merge_asof(tq, TM.sort_values("known")[["team", "known", "season", "t_xfp_cum", "t_games"]], left_on="date", right_on="known", by="team", direction="backward").set_index("_i").reindex(d._i.values)
+    tcur = kp.merge_asof(tq, TM.sort_values("known")[["team", "known", "season", "t_xfp_cum", "t_games"]], left_on="date", right_on="known", by="team", direction="backward").set_index("_i").reindex(d._i.values)
     ok_t = (tcur.season.values == d.cur_s.values) & d.in_season.values
     out["e_x_team_xfp_cur"] = np.where(ok_t, tcur.t_xfp_cum.values / tcur.t_games.values, np.nan)
     tl0 = TMF.reindex(pd.MultiIndex.from_arrays([team, d.l0_s.values])); out["e_x_team_xfp_l0"] = (tl0.t_xfp_cum / tl0.t_games).values

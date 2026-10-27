@@ -243,7 +243,7 @@ def add_anchor(rows, hist):
     h["a_date"] = h.a_date.astype("datetime64[ns]")
     r = rows[["sid", "date"]].copy(); r["rid"] = np.arange(len(r)); r["date"] = r.date.astype("datetime64[ns]")
     r["q"] = r.date - pd.Timedelta(days=1)
-    m = pd.merge_asof(r.sort_values("q"), h.sort_values("a_date"), left_on="q", right_on="a_date", by="sid").set_index("rid").sort_index()
+    m = kp.merge_asof(r.sort_values("q"), h.sort_values("a_date"), left_on="q", right_on="a_date", by="sid").set_index("rid").sort_index()
     out = rows.copy()
     out["a_lp"] = np.log1p(m.a_price.values)
     gap = (m.date - m.a_date).dt.days.values
@@ -274,10 +274,10 @@ def smooth_route(tl, hist, a=0.1, b=1.0, k=1.0, c=0.25):
     h = hist[["sid", "date", "y"]].rename(columns={"date": "a_date", "y": "a_y"}).copy()
     h["a_date"] = h.a_date.astype("datetime64[ns]")
     t2 = tl.assign(rid=np.arange(len(tl)), q=tl.date - pd.Timedelta(days=1))
-    m = pd.merge_asof(t2.sort_values("q"), h.sort_values("a_date"), left_on="q", right_on="a_date", by="sid").set_index("rid").sort_index()
+    m = kp.merge_asof(t2.sort_values("q"), h.sort_values("a_date"), left_on="q", right_on="a_date", by="sid").set_index("rid").sort_index()
     aa = m[["sid", "a_date"]].dropna().assign(rid=lambda x: x.index).rename(columns={"a_date": "date"})
     base = tl[["sid", "date", "Ls"]].sort_values("date")
-    mm = pd.merge_asof(aa.sort_values("date"), base, on="date", by="sid", direction="backward").set_index("rid")
+    mm = kp.merge_asof(aa.sort_values("date"), base, on="date", by="sid", direction="backward").set_index("rid")
     aLs = pd.Series(np.nan, index=m.index); aLs.loc[mm.index] = mm.Ls.values
     first = tl.groupby("sid").Ls.transform("first"); aLs = aLs.fillna(pd.Series(first.values, index=m.index).where(m.a_y.notna()))
     gg = np.where(m.a_y.notna(), kp.nfl_weeks_between(m.a_date.fillna(m.date), m.date) + c * (m.date - m.a_date).dt.days.fillna(0).values / 30, 0)
