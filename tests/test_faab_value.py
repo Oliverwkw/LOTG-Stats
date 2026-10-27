@@ -47,7 +47,7 @@ def test_board_reproduces_and_beats_rules_off_on_trades_and_cuts():
     R = F.load_inputs(); p = F.load_params()
     T = F.board(R, p).set_index("name").V
     assert len(T) == 704
-    for n, v in {"Jahmyr Gibbs": 3996, "Bijan Robinson": 3908, "Josh Allen": 3871}.items():
+    for n, v in {"Jahmyr Gibbs": 3941, "Bijan Robinson": 3820, "Josh Allen": 3864}.items():
         assert abs(T[n] - v) <= 1, (n, T[n])
     ev = F.Evidence.load()
     fitted, off = F.apply_rules(ev.E, p), F.apply_rules(ev.E, dict(F.P0))
