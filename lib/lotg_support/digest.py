@@ -533,7 +533,7 @@ _LEVEL_MARKERS = (
     # tally. As a count the 2026 row held 2nd-highest after one week, then fell
     # off in week 2 ("the 2023 season passes the 2026 season").
     "change in", "change from", "increase in", "tanking", "score", "value", "ktc",
-    "week of playoff elimination", "future draft capital", "reference player",
+    "week of playoff elimination", "draft capital", "reference player",
 )
 _LEVEL_COLUMNS = {"Number", "Season"}
 

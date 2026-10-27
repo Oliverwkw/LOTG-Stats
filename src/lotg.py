@@ -1302,7 +1302,7 @@ def _col_topic(col: str, default: Optional[str] = "Identity") -> Optional[str]:
     if any(k in n for k in ("assets received", "assets sent", "assets retained", "assets traded",
                             "assets dropped", "additional assets", "return from trades", "pick value received",
                             "number of bids", "number of times picked up", "transaction", "trade", "drop",
-                            "faab", "draft value", "picks made", "future draft", "turnover",
+                            "faab", "draft value", "picks made", "draft capital", "turnover",
                             "first round picks", "number of picks")):
         return "Activity"
     if any(k in n for k in ("record vs", "win % vs", "win %", "record", "result", "week of playoff",
@@ -18330,6 +18330,12 @@ def build_all(repo_root: Path) -> None:
         except Exception as e:
             _log_exc(debug, "team_year_in_progress_seed", e)
 
+        # Round-weighted capital of the rookie picks each team has already MADE
+        # (drafts held so far), for team_all_time 'All-time draft capital', and
+        # the latest rookie draft held — the future half starts the year after.
+        made_draft_cap_by_team: Dict[str, float] = {}
+        last_rookie_draft_held: Optional[int] = None
+
         # Pick-history-based rollups (Draft Value, # picks made by round).
         # Uses the final-owner team (who actually drafted) for each pick row,
         # which after the trade-chain rewrite above lives in pick_rows' Trade
@@ -18405,6 +18411,16 @@ def build_all(repo_root: Path) -> None:
                 team_year["Number of first round picks made"] = team_year["_r1"].fillna(0).astype(int)
                 team_year["Total number of picks made"] = team_year["_total_picks"].fillna(0).astype(int)
                 team_year.drop(columns=["_draft_value", "_total_picks", "_r1"], inplace=True, errors="ignore")
+                # Only drafts that have happened: a future pick's row is a "1.??"
+                # placeholder (no slot) picking "Unknown". _Round already reads
+                # 2.09 as a 2nd and a 5.0X FAAB buy as a 4th.
+                _made = phx[phx["_PickNo"].notna()
+                            & ~phx["Player Picked"].astype(str).str.strip().isin(("", "Unknown", "nan", "None"))]
+                if not _made.empty:
+                    made_draft_cap_by_team = (
+                        _made["_Round"].map(_FUTURE_PICK_WEIGHTS).fillna(0.0)
+                        .groupby(_made["_Picker"]).sum().round(4).to_dict())
+                    last_rookie_draft_held = int(_made["_YearKey"].max())
         except Exception as e:
             _log_exc(debug, "team_year_pick_rollups", e)
 
@@ -19185,7 +19201,6 @@ def build_all(repo_root: Path) -> None:
                         "Inseason roster turnover": ("Inseason roster turnover", "mean"),
                         "Average weekly starter turnover": ("Average weekly starter turnover", "mean"),
                         "Average weekly roster turnover": ("Average weekly roster turnover", "mean"),
-                        "Future draft capital": ("Future draft capital", "sum"),
                     }
                 )
                 team_all = team_all.drop(
@@ -19194,6 +19209,24 @@ def build_all(repo_root: Path) -> None:
                 ).merge(ty_for_all, on="Team", how="left")
         except Exception as e:
             _log_exc(debug, "team_all_from_team_year", e)
+
+        # All-time draft capital = the round-weighted rookie picks the team has
+        # made + the future picks it holds now (_future_cap_held, the next
+        # _FCAP_HORIZON drafts after the latest one held). Replaces summing the
+        # season-end 'Future draft capital', which counted a pick once for every
+        # season it was held [per user, 2026-10-27].
+        try:
+            if not team_all.empty:
+                team_all = team_all.drop(columns=["Future draft capital"], errors="ignore")
+                if last_rookie_draft_held is not None:
+                    _today = datetime.now(ZoneInfo("America/New_York")).date()
+                    team_all["All-time draft capital"] = [
+                        round(float(made_draft_cap_by_team.get(str(t), 0.0))
+                              + float(_future_cap_held(str(t), last_rookie_draft_held, _today)), 4)
+                        for t in team_all["Team"]
+                    ]
+        except Exception as e:
+            _log_exc(debug, "team_all_draft_capital", e)
 
         # All-time Luck = Σ of all weekly Luck (no win% multiplier — see the
         # team_year note above and plan/LUCK_REWORK.md).
