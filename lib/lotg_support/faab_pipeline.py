@@ -138,7 +138,7 @@ def export(R, tr, cut, out=V.DATA, responses=None):
     return len(E)
 
 
-def rebuild(full=False, fetch=True, log=print, end=None, out=None):
+def rebuild(full=False, fetch=True, log=print, end=None, out=None, max_minutes=None):
     from . import faab_base as B          # the models need scikit-learn / scipy (the rebuild workflow installs them)
     from . import faab_formula as FM
     t0 = time.time(); WORK.mkdir(parents=True, exist_ok=True)
@@ -157,12 +157,17 @@ def rebuild(full=False, fetch=True, log=print, end=None, out=None):
     snaps = list(pd.date_range("2021-01-01", today, freq="QS")) + [today + pd.Timedelta(days=1)]
     blocks = []
     for R0, R1 in zip(snaps[:-1], snaps[1:]):
+        if max_minutes and (time.time() - t0) / 60 > max_minutes:   # out of budget: the cached blocks carry over to the next run
+            log(f"time budget ({max_minutes} min) reached before snapshot {R0.date()}: blocks so far are cached; inputs NOT exported")
+            return None
         p = WORK / f"blk_{R0.date()}{'' if end is None else '_partial'}.parquet"
         done = R1 <= today and p.exists() and not full     # a finished snapshot never changes
         if done:
-            blocks.append(pd.read_parquet(p)); continue
+            b = pd.read_parquet(p)
+            if int(b["bags"].iloc[0] if "bags" in b else 1) == B.BAGS:   # refit if cached under another bag count
+                blocks.append(b); continue
         fb = B.Football(seasons).fit(B.season_done(R0))
-        b = B.WalkForward(FC, fb).block(R0, R1, F_all, LR, Fd, log=log)
+        b = B.bagged_block(FC, fb, R0, R1, F_all, LR, Fd, log=log)
         b.to_parquet(p); blocks.append(b)
     Bk = pd.concat(blocks, ignore_index=True)
     tl = B.smooth_route(Bk[["sid", "date", "L"]].copy(), LR[["sid", "date", "y"]])

@@ -28,6 +28,12 @@ from sklearn.isotonic import IsotonicRegression
 from . import faab_frame as kp
 
 REPRO = dict(aging_cap_2024=False, fold_map=None)
+# Out-of-fold predictions for top players moved 30-40% with nothing but the fold assignment (Gibbs's base $3,539 ->
+# $2,204 on the same data, 2026-10; across six assignments he was bimodal, ~$2,200 or ~$3,540, by which comparable
+# players shared his held-out fold). Each quarter is therefore fit under BAGS assignments and a player's base is the
+# mean of his log values. Measured on the 2026-10 quarter's top 150: two single draws differ by a median 15%, two
+# independent 3-bag means by 9% (the 1/sqrt(n) the noise predicts); 5 bags leave ~7%.
+BAGS = 5
 DEMAND = {"QB": 16, "RB": 24, "WR": 32, "TE": 9}   # weekly starters league-wide (1 QB + SF, 2 RB, 3 WR, 1 TE, 2 FLEX)
 ENS = [("sqrt", dict(max_leaf_nodes=63, learning_rate=0.05, max_iter=800)), ("raw", dict(max_iter=500))]
 CFG = (0.3, 0.0, 2.5); A_PV = 0.67; NM = "pv_main"
@@ -60,12 +66,14 @@ def folds(groups, k=5, seed=0):
     return np.array([f[g] for g in groups])
 
 
-def fold_of(sids):
-    """out-of-fold group by player: the stored map in reproduction mode, else a stable hash of the Sleeper id"""
+def fold_of(sids, bag=0):
+    """out-of-fold group by player: a stable hash of the Sleeper id (and the bag), or the stored map in reproduction
+    mode (bag 0)"""
     sids = pd.Series(sids).astype(str)
-    stable = sids.map(lambda s: int(hashlib.md5(s.encode()).hexdigest(), 16) % 5)
+    salt = "" if bag == 0 else f"{bag}:"
+    stable = sids.map(lambda s: int(hashlib.md5((salt + s).encode()).hexdigest(), 16) % 5)
     fm = REPRO.get("fold_map")
-    return (sids.map(fm).fillna(stable) if fm else stable).astype(int).values
+    return (sids.map(fm).fillna(stable) if (fm and bag == 0) else stable).astype(int).values
 
 
 # ------------------------------------------------------------------ NFL seasons, aging, production value (pv / v7 / v8 / v9)
@@ -354,11 +362,11 @@ def league_rows(o0, PA):
 class WalkForward:
     """one quarterly snapshot's models, fit on data before R, applied to rows in [R, R1)"""
 
-    def __init__(self, FC, football):
-        self.FC = FC; self.fb = football
+    def __init__(self, FC, football, bag=0):
+        self.FC = FC; self.fb = football; self.bag = bag
 
     def with_S(self, df, Sfold):
-        self.fb.add_pv(df); df["fold"] = fold_of(df.sid); df["S"] = np.nan
+        self.fb.add_pv(df); df["fold"] = fold_of(df.sid, self.bag); df["S"] = np.nan
         for k in range(5):
             m = df.fold == k
             if m.any(): df.loc[m, "S"] = Sfold[k].predict(df[m])
@@ -378,7 +386,7 @@ class WalkForward:
 
     def block(self, R, R1, F_all, LR, Fd, log=print):
         t0 = time.time()
-        Fd_R = self.fb.add_pv(Fd[Fd.date < R].copy()); Fd_R["fold"] = fold_of(Fd_R.sid)
+        Fd_R = self.fb.add_pv(Fd[Fd.date < R].copy()); Fd_R["fold"] = fold_of(Fd_R.sid, self.bag)
         Sfold = [kp.StatsModel(self.FC, ensemble=ENS).fit(Fd_R[Fd_R.fold != k]) for k in range(5)]
         obs, kt, hist = self.obs_prep(LR, Fd, R, R1, Sfold)
         F = self.with_S(F_all[(F_all.date >= R) & (F_all.date < R1)].copy(), Sfold)
@@ -394,8 +402,21 @@ class WalkForward:
             qS, qP = qpos_fit_col(ref.assign(S=ref.S.clip(0)), "S"), qpos_fit_col(ref, NM)
             L[m] = hybrid(LD, LG8(F[m], cv, qS, qP, A_PV, NM))
         F["L"] = gated_boost(F, L, BOOST, 2, 30); F["snap"] = R
-        log(f"snapshot {R.date()}: {len(F)} rows, obs {len(obs)}, panel {len(Fd_R)}, {time.time() - t0:.0f}s")
+        log(f"snapshot {R.date()}{f' bag {self.bag}' if self.bag else ''}: {len(F)} rows, obs {len(obs)}, panel {len(Fd_R)}, {time.time() - t0:.0f}s")
         return F
+
+
+def bagged_block(FC, football, R, R1, F_all, LR, Fd, bags=None, log=print):
+    """the snapshot's block under `bags` fold assignments; L (and S) averaged across them, the rest from bag 0"""
+    bags = BAGS if bags is None else bags
+    F = WalkForward(FC, football, 0).block(R, R1, F_all, LR, Fd, log=log)
+    if bags <= 1: return F
+    Ls, Ss = [F.L.values], [F.S.values]
+    for b in range(1, bags):
+        Fb = WalkForward(FC, football, b).block(R, R1, F_all, LR, Fd, log=log)
+        Ls.append(Fb.L.values); Ss.append(Fb.S.values)
+    F["L"] = np.mean(Ls, axis=0); F["S"] = np.mean(Ss, axis=0); F["bags"] = bags
+    return F
 
 
 def season_done(R):
