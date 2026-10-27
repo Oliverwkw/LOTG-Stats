@@ -1,1 +1,50 @@
 timestamp,team,question_id,kind,board_date,player_a,player_b,shown_a,shown_b,answer,verdict_a,verdict_b,amount_a,amount_b,why,own,client_time,page_version
+10/26/2026 20:00:38,TEST,setup-test,pair,2026-10-24,,,,,A,,,,,"setup check, ignore",,,2
+10/26/2026 20:04:14,Oliverwkw,52a0e1a8a6,pair,2026-10-24,13345,13349,128,142,,right,lower,,120,Stowers plays for the eagles,,2026-10-27T00:04:14.260Z,2
+10/26/2026 20:08:34,LWebs53,52a0e1a8a6,pair,2026-10-24,13345,13349,128,142,,right,lower,,,,,2026-10-27T00:08:32.860Z,2
+10/26/2026 20:08:57,BROsenzweig,52a0e1a8a6,pair,2026-10-24,13345,13349,128,142,,higher,lower,,,,,2026-10-27T00:08:56.802Z,2
+10/26/2026 20:09:17,BROsenzweig,bdc40c1657,pair,2026-10-24,12508,4983,281,266,,higher,right,,,Dart is MILES too low…,,2026-10-27T00:09:17.226Z,2
+10/26/2026 20:09:27,BROsenzweig,175aa60b9d,pair,2026-10-24,6819,12535,71,75,,right,lower,,,,A,2026-10-27T00:09:26.716Z,2
+10/26/2026 20:09:45,BROsenzweig,4be3b65eb8,pair,2026-10-24,11566,12519,1218,1119,,higher,lower,,,,,2026-10-27T00:09:44.878Z,2
+10/26/2026 20:10:05,BROsenzweig,d47153e92a,pair,2026-10-24,12536,11637,297,299,,lower,lower,,,,,2026-10-27T00:10:05.015Z,2
+10/26/2026 20:10:12,Oliverwkw,bdc40c1657,pair,2026-10-24,12508,4983,281,266,A,higher,right,2000,,Dart is the future of the Giants this is a terrible valuation. He's a young top QB I'd take him over anyone.,,2026-10-27T00:10:11.875Z,2
+10/26/2026 20:10:24,BROsenzweig,1b1d6d8c78,pair,2026-10-24,7594,8155,972,972,,lower,lower,,,,A,2026-10-27T00:10:23.900Z,2
+10/26/2026 20:10:39,BROsenzweig,546892f664,pair,2026-10-24,4892,13276,813,806,,lower,right,,,,A,2026-10-27T00:10:39.000Z,2
+10/26/2026 20:10:48,Oliverwkw,175aa60b9d,pair,2026-10-24,6819,12535,71,75,A,right,right,,,TeSlaa isn't going to do anything,,2026-10-27T00:10:47.824Z,2
+10/26/2026 20:10:54,BROsenzweig,9e136b394e,pair,2026-10-24,11566,6797,1218,885,,higher,right,,,,,2026-10-27T00:10:53.548Z,2
+10/26/2026 20:17:08,AceMatthew,52a0e1a8a6,pair,2026-10-24,13345,13349,128,142,,,lower,,,,,2026-10-27T00:17:07.423Z,2
+10/26/2026 20:18:09,AceMatthew,bdc40c1657,pair,2026-10-24,12508,4983,281,266,A,higher,,,,,B,2026-10-27T00:18:08.487Z,2
+10/26/2026 20:19:18,AceMatthew,175aa60b9d,pair,2026-10-24,6819,12535,71,75,A,higher,right,,,"Pittman had productive seasons, TeSlaa has done nothing and also isn’t even super high potential.",,2026-10-27T00:19:17.852Z,2
+10/26/2026 20:20:35,Oliverwkw,4be3b65eb8,pair,2026-10-24,11566,12519,1218,1119,A,right,right,,,,,2026-10-27T00:20:34.605Z,2
+10/26/2026 20:21:46,Oliverwkw,d47153e92a,pair,2026-10-24,12536,11637,297,299,B,right,higher,,,,,2026-10-27T00:21:45.338Z,2
+10/26/2026 20:22:38,Oliverwkw,1b1d6d8c78,pair,2026-10-24,7594,8155,972,972,B,lower,right,,,Chuba is older and doesn't have the job locked down,B,2026-10-27T00:22:37.971Z,2
+10/26/2026 20:35:14,Shmuel256,52a0e1a8a6,pair,2026-10-24,13345,13349,128,142,A,right,lower,130,80,Stowers has been terrible to start the year. Coleman has been gaining value,,2026-10-27T00:35:13.098Z,2
+10/26/2026 20:37:07,Shmuel256,bdc40c1657,pair,2026-10-24,12508,4983,281,266,A,higher,right,,,,,2026-10-27T00:37:06.203Z,2
+10/26/2026 20:37:21,Shmuel256,175aa60b9d,pair,2026-10-24,6819,12535,71,75,A,right,lower,,,,,2026-10-27T00:37:20.459Z,2
+10/26/2026 20:37:43,Shmuel256,4be3b65eb8,pair,2026-10-24,11566,12519,1218,1119,A,higher,right,,,,,2026-10-27T00:37:42.702Z,2
+10/26/2026 20:38:06,Shmuel256,d47153e92a,pair,2026-10-24,12536,11637,297,299,A,right,lower,,,,,2026-10-27T00:38:05.704Z,2
+10/26/2026 20:38:43,Shmuel256,1b1d6d8c78,pair,2026-10-24,7594,8155,972,972,B,lower,right,,,Track record,,2026-10-27T00:38:42.678Z,2
+10/26/2026 20:38:53,Shmuel256,546892f664,pair,2026-10-24,4892,13276,813,806,B,lower,right,,,,,2026-10-27T00:38:52.677Z,2
+10/26/2026 20:42:23,Oliverwkw,546892f664,pair,2026-10-24,4892,13276,813,806,even,right,right,,,,,2026-10-27T00:42:23.073Z,2
+10/26/2026 20:42:59,Oliverwkw,9e136b394e,pair,2026-10-24,11566,6797,1218,885,A,lower,lower,1000,750,,,2026-10-27T00:42:58.506Z,2
+10/26/2026 20:44:27,Oliverwkw,4fdca4a314,pair,2026-10-24,11575,6819,64,71,B,lower,right,,,Davis isn't ever going to do anything,,2026-10-27T00:44:26.806Z,2
+10/26/2026 20:45:07,Oliverwkw,e1f7209f59,pair,2026-10-24,11655,11559,52,59,B,right,higher,,,Penix is BACK he's on the up and up. prob worth a second after a few good weeks,B,2026-10-27T00:45:07.173Z,2
+10/26/2026 20:47:15,Oliverwkw,3f48f77689,pair,2026-10-24,8144,12526,2061,2288,B,lower,lower,,,,B,2026-10-27T00:47:14.639Z,2
+10/26/2026 20:48:00,Oliverwkw,cc6d39cafb,pair,2026-10-24,13279,8183,2107,2378,B,right,right,,,,B,2026-10-27T00:48:00.339Z,2
+10/26/2026 20:57:45,Oliverwkw,84af3de3e9,pair,2026-10-24,7594,6804,972,911,B,lower,,,,Chuba is 27 enjoying his second ever good year. He'll fall soon hes not a long term asset like love,,2026-10-27T00:57:44.887Z,2
+10/26/2026 21:01:21,Oliverwkw,276ebe0bd4,pair,2026-10-24,4866,13301,311,291,,higher,right,,,Saquon is still great hes not THAT low I don't think,,2026-10-27T01:01:21.020Z,2
+10/26/2026 21:01:40,Oliverwkw,33c29371b8,pair,2026-10-24,11563,13276,765,806,A,higher,right,,,,A,2026-10-27T01:01:40.120Z,2
+10/26/2026 21:02:23,Oliverwkw,5659c28be0,pair,2026-10-24,13274,11637,299,299,A,higher,,,,Germie has a way higher ceiling.,,2026-10-27T01:02:22.337Z,2
+10/26/2026 21:02:45,Oliverwkw,e057f0a580,pair,2026-10-24,7525,9228,720,755,even,right,right,,,,,2026-10-27T01:02:45.386Z,2
+10/26/2026 21:07:23,Oliverwkw,398d3bce89,pair,2026-10-24,8155,3294,972,864,,right,higher,,,,A,2026-10-27T01:07:23.285Z,2
+10/26/2026 21:07:46,Oliverwkw,7348839b77,pair,2026-10-24,12508,13274,281,299,,higher,,,,The dart ranking is just absurdly low,,2026-10-27T01:07:45.752Z,2
+10/26/2026 21:09:29,Oliverwkw,bf06847ce9,pair,2026-10-24,11646,12481,616,439,,right,right,,,,,2026-10-27T01:09:28.769Z,2
+10/26/2026 21:10:09,Oliverwkw,a76bceb272,pair,2026-10-24,8167,421,545,629,,higher,lower,,,Watson feels like he should be worth a tad more. Stafford could retire this year,,2026-10-27T01:10:08.868Z,2
+10/26/2026 21:10:39,Oliverwkw,e8ab01e6ea,pair,2026-10-24,4984,9488,3871,3794,A,higher,,,,The gap is too small,,2026-10-27T01:10:38.216Z,2
+10/26/2026 21:28:34,Oliverwkw,96132247de,pair,2026-10-24,11586,13286,334,407,B,lower,higher,,,,,2026-10-27T01:28:34.048Z,2
+10/26/2026 21:53:38,Shmuel256,9e136b394e,pair,2026-10-24,11566,6797,1218,885,A,higher,higher,2436,1218,Herbert’s bad year,,2026-10-27T01:53:37.906Z,2
+10/26/2026 21:54:02,Shmuel256,4fdca4a314,pair,2026-10-24,11575,6819,64,71,B,lower,right,20,,Davis isnt even rostered,,2026-10-27T01:54:01.431Z,2
+10/26/2026 21:54:49,Shmuel256,e1f7209f59,pair,2026-10-24,11655,11559,52,59,B,lower,higher,25,100,Tracy was a street free agent for most of the year. Penix is on the up and up and still starting,A,2026-10-27T01:54:49.062Z,2
+10/26/2026 21:55:41,Shmuel256,3f48f77689,pair,2026-10-24,8144,12526,2061,2288,A,right,lower,,1750,"Track record. Olave isnt that old either. Tet is worth around the 1.02, only",,2026-10-27T01:55:40.400Z,2
+10/26/2026 21:57:04,Shmuel256,cc6d39cafb,pair,2026-10-24,13279,8183,2107,2378,B,lower,higher,1750,3000,"Not close here. Tate is worth less than tet mcmillan, or at best around the same (good clearly but not yet elite). Purdy is a set and forget qb1 thats worth 2 good firsts at least",,2026-10-27T01:57:03.899Z,2
+10/27/2026 0:37:11,Oliverwkw,52a0e1a8a6,pair,2026-10-24,13345,13349,128,142,A,,lower,,,,,2026-10-27T04:37:10.681Z,2

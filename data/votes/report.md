@@ -1,5 +1,136 @@
 # Rating-page votes vs the board (2026-10-24)
 
-0 answers (0 signals: picks and price checks) from 0 teams; 0 signals on this board date, vote term weight 0.00 of max 1.5 (trades and cuts weigh 3.0 each).
+49 answers (120 signals: picks and price checks) from 5 teams; 120 signals on this board date, vote term weight 0.63 of max 1.5 (trades and cuts weigh 3.0 each).
 
-No votes on this board date.
+25 of 60 checks agree with the board.
+
+- **Ray Davis** board $64, votes $20 (2 answers) — DISAGREES
+  - share_talent x0.70, availability x1.28, wr_talent x1.27, team_q x1.27
+- **Michael Penix** board $59, votes $100 (2 answers) — DISAGREES
+  - availability x0.51, team_up x0.82, position curve x1.19, wr_talent x1.04
+- **Jonah Coleman** $128 vs **Eli Stowers** $142: votes say Jonah Coleman (s +1.00, 2 answers) — DISAGREES
+  - Jonah Coleman: severe x0.46, wr_talent x1.27, team_q x1.17, inj_ir x0.88
+  - Eli Stowers: severe x0.46, position curve x0.77, inj_ir x0.88, pedigree x1.12
+- **Blake Corum** board $334, votes $250 (1 answers) — DISAGREES
+  - share_talent x0.75, efficiency x1.25, spike x1.22, wr_talent x1.21
+- **Saquon Barkley** board $311, votes $415 (1 answers) — DISAGREES
+  - rb_age x0.45, inj_out x0.77, share_talent x1.23, aw_nfl x1.20
+- **Dak Prescott** board $864, votes $1,152 (1 answers) — DISAGREES
+  - availability x0.88, track x1.11, qb_quality x1.05, aw_nfl x1.04
+- **Eli Stowers** board $142, votes $106 (5 answers) — DISAGREES
+  - severe x0.46, position curve x0.77, inj_ir x0.88, pedigree x1.12
+- **Chuba Hubbard** board $972, votes $729 (3 answers) — DISAGREES
+  - spike x1.86, team_up x1.81, share_talent x1.14, position curve x1.11
+- **Chuba Hubbard** board $972, votes $729 (1 answers) — DISAGREES
+  - spike x1.86, team_up x1.81, share_talent x1.14, position curve x1.11
+- **Jayden Daniels** board $1,218, votes $1,624 (3 answers) — DISAGREES
+  - availability x0.78, aw_college x1.14, team_q x0.88, recurring x0.90
+- **Jayden Daniels** board $1,218, votes $1,624 (3 answers) — DISAGREES
+  - availability x0.78, aw_college x1.14, team_q x0.88, recurring x0.90
+- **Germie Bernard** board $299, votes $399 (1 answers) — DISAGREES
+  - wr_talent x1.35, spike x1.29, position curve x1.15, pedigree x1.14
+- **Bo Nix** board $765, votes $1,020 (1 answers) — DISAGREES
+  - availability x1.28, team_q x1.15, qb_quality x0.92, track x1.07
+- **Josh Allen** board $3,871, votes $5,161 (1 answers) — DISAGREES
+  - elite_streak x1.40, availability x1.28, team_q x1.27, track x1.22
+- **Breece Hall** board $972, votes $729 (3 answers) — DISAGREES
+  - carry x1.40, inj_out x0.77, share_talent x1.25, team_q x0.87
+- **Baker Mayfield** board $813, votes $610 (3 answers) — DISAGREES
+  - inj_out x0.77, availability x1.13, qb_quality x0.91, team_q x0.93
+- **Matthew Stafford** board $629, votes $472 (1 answers) — DISAGREES
+  - aw_nfl x1.30, availability x1.23, team_up x1.15, team_q x1.14
+- **Jadarian Price** board $407, votes $543 (1 answers) — DISAGREES
+  - severe x0.46, efficiency x0.74, rookie_capital x1.29, pedigree x1.23
+- **Christian Watson** board $545, votes $727 (1 answers) — DISAGREES
+  - availability x0.88, team_q x1.09, recurring x0.97
+- **Keon Coleman** board $299, votes $224 (3 answers) — DISAGREES
+  - spike x1.67, team_q x1.27, pedigree x1.16, position curve x1.16
+- **Jaxson Dart** board $281, votes $375 (4 answers) — DISAGREES
+  - severe x0.46, availability x0.77, inj_ir x0.88, team_q x0.89
+- **Jaxson Dart** board $281, votes $375 (1 answers) — DISAGREES
+  - severe x0.46, availability x0.77, inj_ir x0.88, team_q x0.89
+- **Isaac TeSlaa** board $75, votes $56 (4 answers) — DISAGREES
+  - team_up x1.82, share_talent x0.73, efficiency x0.74, availability x1.28
+- **Tetairoa McMillan** board $2,288, votes $1,750 (2 answers) — DISAGREES
+  - pedigree x1.43, efficiency x0.74, availability x1.28, share_talent x1.18
+- **Chuba Hubbard** $972 vs **Jordan Love** $911: votes say Jordan Love (s -1.00, 1 answers) — DISAGREES
+  - Chuba Hubbard: spike x1.86, team_up x1.81, share_talent x1.14, position curve x1.11
+  - Jordan Love: team_q x1.09, availability x1.09, qb_quality x1.07, track x1.03
+- **Bo Nix** $765 vs **Omar Cooper** $806: votes say Bo Nix (s +1.00, 1 answers) — DISAGREES
+  - Bo Nix: availability x1.28, team_q x1.15, qb_quality x0.92, track x1.07
+  - Omar Cooper: rookie_capital x1.31, pedigree x1.28, wr_talent x1.27, team_q x0.86
+- **Michael Pittman** $71 vs **Isaac TeSlaa** $75: votes say Michael Pittman (s +1.00, 3 answers) — DISAGREES
+  - Michael Pittman: severe x0.38, position curve x1.14, inj_ir x0.88, availability x1.09
+  - Isaac TeSlaa: team_up x1.82, share_talent x0.73, efficiency x0.74, availability x1.28
+- **Brock Purdy** board $2,378, votes $3,000 (2 answers) — DISAGREES
+  - team_q x1.27, qb_quality x1.19, availability x0.85, recurring x0.90
+- **Chris Olave** $2,061 vs **Tetairoa McMillan** $2,288: votes say Chris Olave (s +0.51, 2 answers) — DISAGREES
+  - Chris Olave: share_talent x1.19, availability x0.85, carry x1.18, team_q x0.93
+  - Tetairoa McMillan: pedigree x1.43, efficiency x0.74, availability x1.28, share_talent x1.18
+- **Chuba Hubbard** $972 vs **Breece Hall** $972: votes say Breece Hall (s -1.00, 2 answers) — DISAGREES
+  - Chuba Hubbard: spike x1.86, team_up x1.81, share_talent x1.14, position curve x1.11
+  - Breece Hall: carry x1.40, inj_out x0.77, share_talent x1.25, team_q x0.87
+- **Germie Bernard** $299 vs **Keon Coleman** $299: votes say Germie Bernard (s +1.00, 1 answers) — DISAGREES
+  - Germie Bernard: wr_talent x1.35, spike x1.29, position curve x1.15, pedigree x1.14
+  - Keon Coleman: spike x1.67, team_q x1.27, pedigree x1.16, position curve x1.16
+- **Baker Mayfield** $813 vs **Omar Cooper** $806: votes say Omar Cooper (s -0.61, 2 answers) — DISAGREES
+  - Baker Mayfield: inj_out x0.77, availability x1.13, qb_quality x0.91, team_q x0.93
+  - Omar Cooper: rookie_capital x1.31, pedigree x1.28, wr_talent x1.27, team_q x0.86
+- **Carnell Tate** board $2,107, votes $1,750 (2 answers) — DISAGREES
+  - rookie_capital x1.61, pedigree x1.45, efficiency x0.78, team_q x0.80
+- **Josh Allen** $3,871 vs **Jaxon Smith-Njigba** $3,794: votes say Josh Allen (s +1.00, 1 answers) — DISAGREES
+  - Josh Allen: elite_streak x1.40, availability x1.28, team_q x1.27, track x1.22
+  - Jaxon Smith-Njigba: share_talent x1.37, availability x1.28, aw_nfl x1.25, team_q x1.19
+- **Jaylin Noel** $297 vs **Keon Coleman** $299: votes say Jaylin Noel (s +0.22, 2 answers) — DISAGREES
+  - Jaylin Noel: efficiency x1.57, share_talent x0.74, availability x1.28, spike x1.25
+  - Keon Coleman: spike x1.67, team_q x1.27, pedigree x1.16, position curve x1.16
+- **Jonah Coleman** board $128, votes $130 (4 answers)
+- **DJ Moore** board $266, votes $266 (3 answers)
+- **Michael Pittman** board $71, votes $71 (4 answers)
+- **Luther Burden** board $1,119, votes $1,119 (3 answers)
+- **Jaylin Noel** board $297, votes $297 (3 answers)
+- **Jaxson Dart** $281 vs **DJ Moore** $266: votes say Jaxson Dart (s +1.00, 3 answers)
+- **Omar Cooper** board $806, votes $806 (3 answers)
+- **Justin Herbert** board $885, votes $885 (3 answers)
+- **Jayden Daniels** $1,218 vs **Luther Burden** $1,119: votes say Jayden Daniels (s +1.00, 2 answers)
+- **Jayden Daniels** $1,218 vs **Justin Herbert** $885: votes say Jayden Daniels (s +1.00, 2 answers)
+- **Ray Davis** $64 vs **Michael Pittman** $71: votes say Michael Pittman (s -1.00, 2 answers)
+- **Michael Pittman** board $71, votes $71 (2 answers)
+- **Tyrone Tracy** $52 vs **Michael Penix** $59: votes say Michael Penix (s -1.00, 2 answers)
+- **Tyrone Tracy** board $52, votes $52 (2 answers)
+- **Chris Olave** board $2,061, votes $2,061 (2 answers)
+- **Carnell Tate** $2,107 vs **Brock Purdy** $2,378: votes say Brock Purdy (s -1.00, 2 answers)
+- **Antonio Williams** board $291, votes $291 (1 answers)
+- **Omar Cooper** board $806, votes $806 (1 answers)
+- **DeVonta Smith** $720 vs **Bryce Young** $755: votes say even (s +0.00, 1 answers)
+- **DeVonta Smith** board $720, votes $720 (1 answers)
+- **Bryce Young** board $755, votes $755 (1 answers)
+- **Breece Hall** board $972, votes $972 (1 answers)
+- **Jalen Coker** board $616, votes $616 (1 answers)
+- **Cam Skattebo** board $439, votes $439 (1 answers)
+- **Blake Corum** $334 vs **Jadarian Price** $407: votes say Jadarian Price (s -1.00, 1 answers)
+
+## Why notes
+
+-  vs  — TEST: setup check, ignore
+- Jonah Coleman vs Eli Stowers — Oliverwkw: Stowers plays for the eagles
+- Jaxson Dart vs DJ Moore — BROsenzweig: Dart is MILES too low…
+- Jaxson Dart vs DJ Moore — Oliverwkw: Dart is the future of the Giants this is a terrible valuation. He's a young top QB I'd take him over anyone.
+- Michael Pittman vs Isaac TeSlaa — Oliverwkw: TeSlaa isn't going to do anything
+- Michael Pittman vs Isaac TeSlaa — AceMatthew: Pittman had productive seasons, TeSlaa has done nothing and also isn’t even super high potential.
+- Chuba Hubbard vs Breece Hall — Oliverwkw: Chuba is older and doesn't have the job locked down
+- Jonah Coleman vs Eli Stowers — Shmuel256: Stowers has been terrible to start the year. Coleman has been gaining value
+- Chuba Hubbard vs Breece Hall — Shmuel256: Track record
+- Ray Davis vs Michael Pittman — Oliverwkw: Davis isn't ever going to do anything
+- Tyrone Tracy vs Michael Penix — Oliverwkw: Penix is BACK he's on the up and up. prob worth a second after a few good weeks
+- Chuba Hubbard vs Jordan Love — Oliverwkw: Chuba is 27 enjoying his second ever good year. He'll fall soon hes not a long term asset like love
+- Saquon Barkley vs Antonio Williams — Oliverwkw: Saquon is still great hes not THAT low I don't think
+- Germie Bernard vs Keon Coleman — Oliverwkw: Germie has a way higher ceiling.
+- Jaxson Dart vs Germie Bernard — Oliverwkw: The dart ranking is just absurdly low
+- Christian Watson vs Matthew Stafford — Oliverwkw: Watson feels like he should be worth a tad more. Stafford could retire this year
+- Josh Allen vs Jaxon Smith-Njigba — Oliverwkw: The gap is too small
+- Jayden Daniels vs Justin Herbert — Shmuel256: Herbert’s bad year
+- Ray Davis vs Michael Pittman — Shmuel256: Davis isnt even rostered
+- Tyrone Tracy vs Michael Penix — Shmuel256: Tracy was a street free agent for most of the year. Penix is on the up and up and still starting
+- Chris Olave vs Tetairoa McMillan — Shmuel256: Track record. Olave isnt that old either. Tet is worth around the 1.02, only
+- Carnell Tate vs Brock Purdy — Shmuel256: Not close here. Tate is worth less than tet mcmillan, or at best around the same (good clearly but not yet elite). Purdy is a set and forget qb1 thats worth 2 good firsts at least
