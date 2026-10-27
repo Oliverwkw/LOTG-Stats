@@ -15103,7 +15103,11 @@ def build_all(repo_root: Path) -> None:
                     if yr is None:
                         fdc_vals.append(0.0)
                         continue
-                    wk_date = date(int(yr), 9, 1) + timedelta(days=7 * ((wk or 1) - 1))
+                    # Holdings at the END of fantasy week wk (its Monday), so a
+                    # pick trade on the week's Tuesday-Monday counts that week.
+                    # A flat Sept 1 anchor ran up to a week behind (2026 wk7 read
+                    # Oct 13 and missed the Oct 20 McLaurin trade).
+                    wk_date = _week_tuesday(int(yr), int(wk or 1)) + timedelta(days=6)
                     fdc_vals.append(float(_future_cap_held(str(r.get("Team")), int(yr), wk_date)))
                 tw["Future draft capital"] = pd.to_numeric(pd.Series(fdc_vals, index=tw.index), errors="coerce").fillna(0.0)
 
