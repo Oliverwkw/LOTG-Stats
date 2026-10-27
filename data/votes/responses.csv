@@ -48,3 +48,47 @@ timestamp,team,question_id,kind,board_date,player_a,player_b,shown_a,shown_b,ans
 10/26/2026 21:55:41,Shmuel256,3f48f77689,pair,2026-10-24,8144,12526,2061,2288,A,right,lower,,1750,"Track record. Olave isnt that old either. Tet is worth around the 1.02, only",,2026-10-27T01:55:40.400Z,2
 10/26/2026 21:57:04,Shmuel256,cc6d39cafb,pair,2026-10-24,13279,8183,2107,2378,B,lower,higher,1750,3000,"Not close here. Tate is worth less than tet mcmillan, or at best around the same (good clearly but not yet elite). Purdy is a set and forget qb1 thats worth 2 good firsts at least",,2026-10-27T01:57:03.899Z,2
 10/27/2026 0:37:11,Oliverwkw,52a0e1a8a6,pair,2026-10-24,13345,13349,128,142,A,,lower,,,,,2026-10-27T04:37:10.681Z,2
+10/27/2026 12:06:14,BROsenzweig,722abd6465,pair,2026-10-26,8112,4881,2095,2369,even,,,,,,,2026-10-27T16:06:13.546Z,2
+10/27/2026 12:06:40,BROsenzweig,09778a9964,pair,2026-10-26,12529,8131,636,673,B,lower,right,,,,,2026-10-27T16:06:39.742Z,2
+10/27/2026 12:06:49,BROsenzweig,691f8254aa,pair,2026-10-26,12518,10229,909,855,A,right,lower,,,,,2026-10-27T16:06:49.268Z,2
+10/27/2026 12:07:14,BROsenzweig,67f1c395fb,pair,2026-10-26,12512,8146,775,1037,B,lower,right,,,,,2026-10-27T16:07:14.225Z,2
+10/27/2026 12:08:03,BROsenzweig,b77973216e,pair,2026-10-26,8144,7523,1990,2103,even,lower,lower,,,,A,2026-10-27T16:08:02.966Z,2
+10/27/2026 12:08:27,BROsenzweig,039f9a8491,pair,2026-10-26,12481,11646,377,367,even,right,right,,,,,2026-10-27T16:08:26.888Z,2
+10/27/2026 12:08:44,BROsenzweig,2887aeb123,pair,2026-10-26,13330,6804,681,976,B,higher,right,,,,B,2026-10-27T16:08:43.767Z,2
+10/27/2026 12:09:02,BROsenzweig,25aa690fc0,pair,2026-10-26,8155,11620,633,765,even,right,lower,,,,,2026-10-27T16:09:01.792Z,2
+10/27/2026 12:09:20,BROsenzweig,1cca4d4f2a,pair,2026-10-26,6904,9224,1756,1514,A,lower,lower,,,,,2026-10-27T16:09:20.217Z,2
+10/27/2026 12:09:53,BROsenzweig,318c6eb74d,pair,2026-10-26,12526,4881,2210,2369,B,lower,right,,,,,2026-10-27T16:09:52.617Z,2
+10/27/2026 12:10:10,BROsenzweig,70672faf5d,pair,2026-10-26,1466,11586,158,178,A,right,lower,,,,A,2026-10-27T16:10:09.508Z,2
+10/27/2026 12:10:33,BROsenzweig,ac788f3e82,pair,2026-10-26,9484,421,670,579,A,right,lower,,,,A,2026-10-27T16:10:33.059Z,2
+10/27/2026 12:11:01,BROsenzweig,0147253dfa,pair,2026-10-26,12519,9484,862,670,A,right,right,,,,B,2026-10-27T16:11:01.267Z,2
+10/27/2026 12:11:20,BROsenzweig,523dc8dc96,pair,2026-10-26,10229,11620,855,765,even,lower,lower,,,,,2026-10-27T16:11:19.821Z,2
+10/27/2026 12:11:33,BROsenzweig,f44183301b,pair,2026-10-26,10232,13286,471,461,even,right,right,,,,A,2026-10-27T16:11:33.201Z,2
+10/27/2026 12:11:43,BROsenzweig,8079e6c2bd,pair,2026-10-26,8155,12529,633,636,A,right,lower,,,,,2026-10-27T16:11:42.718Z,2
+10/27/2026 12:11:49,BROsenzweig,4c751aaf98,pair,2026-10-26,10229,12519,855,862,B,lower,right,,,,,2026-10-27T16:11:49.201Z,2
+10/27/2026 12:12:10,BROsenzweig,be05bd87f5,pair,2026-10-26,11604,6794,2432,2551,A,higher,lower,,,,,2026-10-27T16:12:09.976Z,2
+10/27/2026 12:12:19,BROsenzweig,a90688f59f,pair,2026-10-26,13286,9487,461,485,B,right,higher,,,,,2026-10-27T16:12:19.318Z,2
+10/27/2026 12:13:13,BROsenzweig,ba41d4427b,pair,2026-10-26,8146,13346,1037,1050,A,lower,lower,,,,,2026-10-27T16:13:12.284Z,2
+10/27/2026 12:13:26,BROsenzweig,1f459bf62b,pair,2026-10-26,8148,12517,1136,1188,B,lower,lower,,,,,2026-10-27T16:13:25.267Z,2
+10/27/2026 12:13:43,BROsenzweig,0bd89c15c0,pair,2026-10-26,8167,421,577,579,A,higher,lower,,,,,2026-10-27T16:13:42.643Z,2
+10/27/2026 12:13:55,BROsenzweig,1d7bb3dcd8,pair,2026-10-26,10229,11584,855,756,B,lower,right,,,,,2026-10-27T16:13:55.092Z,2
+10/27/2026 12:14:06,BROsenzweig,61338f234b,pair,2026-10-26,5022,13285,63,56,A,higher,right,,,,,2026-10-27T16:14:06.084Z,2
+10/27/2026 12:14:19,BROsenzweig,7267d59c4f,pair,2026-10-26,8167,7553,577,531,A,higher,right,,,,,2026-10-27T16:14:18.368Z,2
+10/27/2026 12:14:56,BROsenzweig,bf569afde6,pair,2026-10-26,7525,12508,346,353,B,higher,higher,,,Both of these values are WAY too low; each should be at least twice as valuable,,2026-10-27T16:14:56.285Z,2
+10/27/2026 12:15:36,BROsenzweig,aa46f9ab3e,pair,2026-10-26,5022,10222,63,63,A,higher,lower,,,,,2026-10-27T16:15:35.798Z,2
+10/27/2026 12:15:52,BROsenzweig,2b7c303cc9,pair,2026-10-26,13346,5850,1050,924,even,lower,right,,,,,2026-10-27T16:15:51.480Z,2
+10/27/2026 12:16:07,BROsenzweig,84d502bef0,pair,2026-10-26,12469,11834,58,52,B,lower,higher,,,,,2026-10-27T16:16:06.601Z,2
+10/27/2026 12:16:35,BROsenzweig,0996bf8f3d,pair,2026-10-26,12514,8131,750,673,even,lower,right,,,,,2026-10-27T16:16:34.393Z,2
+10/27/2026 12:16:44,BROsenzweig,543d732067,pair,2026-10-26,12517,13276,1188,1186,A,lower,lower,,,,,2026-10-27T16:16:44.005Z,2
+10/27/2026 12:17:23,BROsenzweig,16a041062e,pair,2026-10-26,9756,7594,571,572,B,lower,right,,,,B,2026-10-27T16:17:22.464Z,2
+10/27/2026 12:26:55,Oliverwkw,09778a9964,pair,2026-10-26,12529,8131,636,673,B,right,,,,Likely is TE2 on the year and still 26. Plus he's a giant,AB,2026-10-27T16:26:54.248Z,2
+10/27/2026 12:27:08,Oliverwkw,039f9a8491,pair,2026-10-26,12481,11646,377,367,,right,right,,,,,2026-10-27T16:27:07.515Z,2
+10/27/2026 12:27:37,Oliverwkw,2887aeb123,pair,2026-10-26,13330,6804,681,976,B,higher,right,,,Sadiq was 1.8 and he's still worth 1.8,A,2026-10-27T16:27:36.314Z,2
+10/27/2026 12:27:48,Oliverwkw,25aa690fc0,pair,2026-10-26,8155,11620,633,765,A,right,lower,,,,A,2026-10-27T16:27:48.164Z,2
+10/27/2026 12:28:00,Oliverwkw,1cca4d4f2a,pair,2026-10-26,6904,9224,1756,1514,A,right,right,,,,B,2026-10-27T16:28:00.081Z,2
+10/27/2026 12:28:15,Oliverwkw,318c6eb74d,pair,2026-10-26,12526,4881,2210,2369,B,lower,higher,,,,A,2026-10-27T16:28:14.497Z,2
+10/27/2026 12:28:46,Oliverwkw,70672faf5d,pair,2026-10-26,1466,11586,158,178,B,lower,lower,,,Kelce is on the verge of retirement he's not worth more than a 4th,,2026-10-27T16:28:46.180Z,2
+10/27/2026 12:29:31,Oliverwkw,b477f420af,pair,2026-10-26,11628,9480,276,303,A,lower,lower,,,"Neither of these guys is worth more than a high 3, although both have an argument for 2.08 or so",,2026-10-27T16:29:31.063Z,2
+10/27/2026 9:49:03,Oliverwkw,722abd6465,pair,2026-10-26,8112,4881,2095,2369,B,right,,,,I don't think Lamar is worth much less now than what he was traded for,,2026-10-27T13:49:02.852Z,2
+10/27/2026 9:49:39,Oliverwkw,691f8254aa,pair,2026-10-26,12518,10229,909,855,,right,right,,,,B,2026-10-27T13:49:39.269Z,2
+10/27/2026 9:49:55,Oliverwkw,67f1c395fb,pair,2026-10-26,12512,8146,775,1037,,right,right,,,,,2026-10-27T13:49:54.986Z,2
+10/27/2026 9:50:13,Oliverwkw,b77973216e,pair,2026-10-26,8144,7523,1990,2103,,right,right,,,,,2026-10-27T13:50:13.051Z,2
