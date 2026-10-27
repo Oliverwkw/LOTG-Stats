@@ -1,0 +1,119 @@
+name: Rebuild FAAB values
+
+# Rebuilds the FAAB value inputs from public data (lotg_support.faab_pipeline): nflverse / ffopportunity / college
+# stats / Wikipedia awards / dynasty-daddy KTC histories -> dated features -> the walk-forward base (one model set
+# per quarterly snapshot, each fit only on data before it) -> the formula on every grid date -> the rule layer's
+# inputs (data/faab_value/inputs.csv, evidence.json), then republishes the rating page's board and questions.
+#
+# It does NOT refit the rules' strengths (params.json): that is a deliberate `scripts/faab_value.py fit` reviewed in
+# a PR. Values move here only through the stats.
+#
+# CACHE: finished snapshots' blocks never change, so they are kept in the Actions cache and only the current
+# quarter is refit (~25 min: 5 fold bags). A cold cache (or `full: true`) refits all 24+ (~9 h), so the run stops
+# fitting after 270 min, saves the cache and skips the commit; the next run (or a manual dispatch) continues.
+#
+# WHEN: Wednesdays, after Tuesday's build has refreshed exports/ (trades, cuts, rosters) and the week's stats are out.
+# GitHub's cron runs late (often hours); nothing here is time-critical.
+
+on:
+  schedule:
+    - cron: "23 13 * * 3"
+  workflow_dispatch:
+    inputs:
+      full:
+        description: "Refit every quarterly snapshot (ignore the block cache)"
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+concurrency:
+  group: faab-values-write
+  cancel-in-progress: false
+
+jobs:
+  rebuild:
+    runs-on: ubuntu-latest
+    timeout-minutes: 330
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v7
+
+      - name: Setup Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+
+      - name: Install deps
+        run: pip install --no-cache-dir "pandas==3.0.6" "pyarrow==25.0.1" numpy scipy scikit-learn requests
+
+      - name: Restore pipeline cache
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            .cache/faab
+            .cache/ktc_proxy
+            data/ktc_cache
+          key: faab-${{ github.run_id }}
+          restore-keys: faab-
+
+      - name: Rebuild
+        id: rebuild
+        env:
+          FULL: ${{ github.event.inputs.full }}
+        run: |
+          set -uo pipefail
+          # full: drop the cached blocks once; the run (and any resumed runs) then refit every snapshot
+          if [ "${FULL:-}" = "true" ]; then rm -f .cache/faab/pipeline/blk_*.parquet; fi
+          CMD=(python scripts/faab_rebuild.py --max-minutes 270)
+          "${CMD[@]}"; rc=$?
+          if [ "$rc" = "3" ]; then
+            echo "::notice::Time budget reached: finished snapshots are cached; the next run continues."
+            echo "complete=false" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          [ "$rc" = "0" ] || exit "$rc"
+          echo "complete=true" >> "$GITHUB_OUTPUT"
+
+      # Saved even when the rebuild ran out of time or failed part-way, so a cold start (5 fold bags x 24 quarterly
+      # snapshots, ~9 h) completes across runs instead of starting over each time.
+      - name: Save pipeline cache
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            .cache/faab
+            .cache/ktc_proxy
+            data/ktc_cache
+          key: faab-${{ github.run_id }}
+
+      - name: Publish and report
+        if: steps.rebuild.outputs.complete == 'true'
+        run: |
+          set -euo pipefail
+          python scripts/faab_value.py publish
+          python scripts/faab_value.py calls | tee calls.txt
+          python scripts/faab_value.py votes --report data/votes/report.md
+
+      - name: Commit
+        if: steps.rebuild.outputs.complete == 'true'
+        run: |
+          git config user.name "lotg-faab-bot"
+          git config user.email "noreply@anthropic.com"
+          git add data/faab_value/inputs.csv data/faab_value/evidence.json data/faab_value/awards.csv docs/rate/board.json docs/rate/questions.json data/votes/report.md
+          if git diff --cached --quiet; then
+            echo "No change"
+            exit 0
+          fi
+          git commit -m "FAAB values: weekly rebuild [skip ci]"
+          push_ok=0
+          for attempt in 1 2 3 4; do
+            if git push; then push_ok=1; break; fi
+            echo "Push failed (attempt $attempt) — reconciling with origin and retrying."
+            git pull --rebase origin "${GITHUB_REF_NAME}" || true
+            sleep $((2 ** attempt))
+          done
+          if [ "$push_ok" != "1" ]; then
+            echo "::error::Could not push the rebuilt FAAB values."
+            exit 1
+          fi

@@ -50,28 +50,45 @@ python scripts/faab_value.py fit --out data/faab_value/params.json     # deliber
 python scripts/faab_value.py publish                                   # rewrite the page's board/questions
 ```
 
-## What is in the repo now, and what is not yet (phase B)
+## How the inputs are rebuilt (self-sustaining)
 
-`data/faab_value/` holds the rule layer's inputs as plain text:
+`scripts/faab_rebuild.py` (`lotg_support.faab_pipeline`) rebuilds `data/faab_value/inputs.csv` and `evidence.json`
+from public data and the repo's own exports. `.github/workflows/faab_rebuild.yml` runs it weekly (Wednesdays) and
+commits the inputs and the page data. It never refits the rule strengths.
 
-- `inputs.csv`: the 2026-10-24 board rows, plus the day-before row of every trade side and cut.
-- `evidence.json`: the trades and cuts.
-- `params.json`: the fitted rule strengths.
-- `reviewed_board_2026-10-24.csv`: the board the calls were made about.
+| Stage | Module | What it does |
+|---|---|---|
+| Downloads | `faab_data` | nflverse / ffopportunity / college stats / Wikipedia awards / dynasty-daddy KTC histories into `.cache/` (git-ignored) |
+| Features | `faab_features` | dated `e_x_*` stats, each counted from when it was known |
+| Frame | `faab_frame` | per (player, date) stats frame (the KTC-proxy feature builder, moved into lib) |
+| Inputs | `faab_inputs` | Sleeper ids, trades, cuts, pick prices, KTC training panel, valuation grid, evidence |
+| Base | `faab_base` | the walk-forward base: one model set per quarterly snapshot, fit only on data before it |
+| Formula | `faab_formula` | base -> `V_raw` on any date (floors, legacy, breakout, rookie slot, injuries, offseason blend) |
 
-Everything after the base value runs and is tested here: the rules, the fit, the calls, the votes and the page.
+Finished quarterly snapshots never change, so the weekly run reuses their cached blocks and refits only the current
+quarter (`--full` refits all, about 2–3 hours).
 
-**Not here yet:** the base value and the dated stats features (`e_x_*`). These are:
+The port reproduces the research run exactly: every feature table, the base at two snapshots, and `V_raw` on five
+dates, all with zero difference. Two research-era behaviours changed on purpose (`faab_base.REPRO` restores them for
+reproduction):
 
-- nflverse expected points, participation, NGS, PFR, rosters and injuries;
-- combine, draft and college usage;
-- awards (from Wikipedia);
-- team strength;
-- off-field events.
+- **Aging curve:** it kept seasons ≤ 2024 regardless of the snapshot. That counted the last complete season as all
+  drop-offs at the 2021–23 snapshots, and would have frozen the curve from 2027. It now uses seasons before the
+  last complete one.
+- **Folds:** players outside the stored fold map were assigned folds with Python's `hash()`, which changes between
+  runs. Folds are now a stable hash of the Sleeper id.
 
-They were built in a research scratchpad: about 30 modules, a ~1 GB intermediate, and about 2 hours to run the
-quarterly walk-forward. Phase B ports them into `lib/` with a scheduled job, so the board regenerates on its
-own. Until then the board is the 2026-10-24 one.
+Points over expected also count only the best game's excess at half, the definition the rules already used.
+
+**Committed data the pipeline reads:**
+
+- `chat_evidence.csv`: the league chat's valuations (player, date, log price, weight, kind), with no names or text;
+- `offfield_events.csv`: retirements, legal and left-the-team events, dated;
+- `awards.csv`: the parsed awards, the fallback when Wikipedia is not cached;
+- `../suspensions.csv`.
+
+**Votes and calls keep their dates.** The inputs keep the 2026-10-24 board, which the league's calls are judged on,
+and every player a vote was about, on the board he was shown on (`evidence.json` `vote_dates`).
 
 ## The rating page
 

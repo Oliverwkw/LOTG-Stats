@@ -45,9 +45,9 @@ def test_sign_locks_hold_for_bounds_and_params():
 
 def test_board_reproduces_and_beats_rules_off_on_trades_and_cuts():
     R = F.load_inputs(); p = F.load_params()
-    T = F.board(R, p).set_index("name").V
+    T = F.board(R, p, as_of=LC.CALLS_DATE).set_index("name").V
     assert len(T) == 704
-    for n, v in {"Jahmyr Gibbs": 3941, "Bijan Robinson": 3820, "Josh Allen": 3864}.items():
+    for n, v in {"Jahmyr Gibbs": 3815, "Bijan Robinson": 3819, "Josh Allen": 3833}.items():
         assert abs(T[n] - v) <= 1, (n, T[n])
     ev = F.Evidence.load()
     fitted, off = F.apply_rules(ev.E, p), F.apply_rules(ev.E, dict(F.P0))
@@ -57,7 +57,7 @@ def test_board_reproduces_and_beats_rules_off_on_trades_and_cuts():
 
 
 def test_calls_regression_floor():
-    R = F.load_inputs(); T = F.board(R, F.load_params())
+    R = F.load_inputs(); T = F.board(R, F.load_params(), as_of=LC.CALLS_DATE)
     t = LC.calls(T.set_index("name").V, pd.read_csv(REF).set_index("name").V, set(T.name[T.pos == "QB"]))
     assert sum(x == 0 for _, x in t) >= 85, [n for n, x in t if x > 0]
 

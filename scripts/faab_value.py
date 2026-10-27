@@ -57,7 +57,8 @@ def cmd_explain(a):
 
 
 def cmd_calls(a):
-    _, _, T = _setup(a.params)
+    R, p, _ = _setup(a.params)
+    T = F.board(R, p, as_of=json.load(open(F.DATA / "evidence.json")).get("calls_date") or R.date.max())
     v = T.set_index("name").V; ref = pd.read_csv(REF).set_index("name").V
     t = LC.calls(v, ref, set(T.name[T.pos == "QB"]))
     bad = [(n, x) for n, x in t if x > 0]
@@ -65,14 +66,20 @@ def cmd_calls(a):
     for n, x in sorted(bad, key=lambda z: -z[1]): print(f"  MISS {x:.3f}  {n}")
 
 
-def _vote_term(T):
-    return FV.VoteTerm(FV.read_responses(FV.RESPONSES) if FV.RESPONSES.exists() else FV.read_responses(""), T.date.iloc[0])
+def _vote_term(ev):
+    return FV.VoteTerm(FV.read_responses(FV.RESPONSES) if FV.RESPONSES.exists() else FV.read_responses(""), ev.as_of, ev.vote_dates)
 
 
 def cmd_votes(a):
-    R, p, T = _setup(a.params)
-    _, terms, _ = F.apply_rules(T, p, explain=True)
-    lines = FV.report(_vote_term(T), T, terms)
+    p = F.load_params(a.params); ev = F.Evidence.load()
+    v, terms, _ = F.apply_rules(ev.VR, p, explain=True)
+    V = ev.vote_values(v)
+    T = {}
+    for i, (sid, d) in enumerate(zip(ev.VR.sid.values, ev.VR.date.values)):
+        T.setdefault(d, {})[sid] = {k: float(x[i]) for k, x in terms.items()}
+    tk = {(bd, sid): t for bd, gd in ev.vote_dates.items() for sid, t in T.get(gd, {}).items()}
+    names = dict(zip(ev.VR.sid, ev.VR.name))
+    lines = FV.report(_vote_term(ev), V, names, tk)
     text = "\n".join(lines) + "\n"
     if a.report: Path(a.report).write_text(text); print("wrote", a.report)
     else: print(text)
@@ -96,7 +103,7 @@ def cmd_publish(a):
 
 def cmd_fit(a):
     ev = F.Evidence.load(); ref = pd.read_csv(REF).set_index("name").V
-    votes = None if a.no_votes else _vote_term(ev.T.assign(date=str(ev.as_of.date())))
+    votes = None if a.no_votes else _vote_term(ev)
     if votes is not None: print(f"votes: {len(votes.used)} answers on {votes.as_of}, term weight {votes.weight:.2f} (max {FV.VOTE_MAX})")
     obj = F.objective(ev, ref, votes)
     starts = [dict(F.P0), F.load_params(a.params)]
