@@ -24,7 +24,7 @@ jobs:
         with:
           python-version: "3.11"
       - name: Install deps
-        run: pip install --no-cache-dir "pandas==3.0.6" "pyarrow==25.0.1" numpy scipy scikit-learn requests pyyaml pytest
+        run: pip install --no-cache-dir "pandas==3.0.6" "pyarrow==25.0.1" "numpy==2.4.6" "scipy==1.17.1" "scikit-learn==1.9.1" requests pyyaml pytest
       - name: Pipeline smoke (2021-01-01 .. 2021-03-15, 1 bag)
         env:
           FAAB_BAGS: "1"
