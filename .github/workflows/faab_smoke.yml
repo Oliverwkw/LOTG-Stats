@@ -1,0 +1,43 @@
+name: FAAB pipeline smoke test
+
+# Runs the FAAB value pipeline end to end on a short window (Jan-Mar 2021, one fold bag) under the production
+# toolchain (Python 3.11, pandas 3, live downloads) whenever a PR touches it. Writes nothing to the repo.
+
+on:
+  pull_request:
+    paths:
+      - "lib/lotg_support/faab_*.py"
+      - "scripts/faab_*.py"
+      - ".github/workflows/faab_*.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+      - name: Install deps
+        run: pip install --no-cache-dir "pandas==3.0.6" "pyarrow==25.0.1" numpy scipy scikit-learn requests pyyaml pytest
+      - name: Pipeline smoke (2021-01-01 .. 2021-03-15, 1 bag)
+        env:
+          FAAB_BAGS: "1"
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/faab_smoke
+          python scripts/faab_rebuild.py --end 2021-03-15 --out /tmp/faab_smoke
+          python - <<'PY'
+          import json, pandas as pd
+          e = json.load(open("/tmp/faab_smoke/evidence.json")); x = pd.read_csv("/tmp/faab_smoke/inputs.csv")
+          assert len(x) > 200 and x.V_raw.notna().mean() > 0.95, (len(x), x.V_raw.notna().mean())
+          assert len(e["trades"]) > 20 and len(e["cuts"]) > 100, (len(e["trades"]), len(e["cuts"]))
+          print("smoke ok:", len(x), "rows,", len(e["trades"]), "trades,", len(e["cuts"]), "cuts")
+          PY
+      - name: FAAB tests
+        run: python -m pytest -q tests/test_faab_value.py tests/test_faab_pipeline.py

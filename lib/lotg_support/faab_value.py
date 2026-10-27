@@ -266,12 +266,22 @@ class Evidence:
     def __init__(self, R, ev):
         self.as_of = pd.Timestamp(ev["as_of"])
         key = {(s, d): i for i, (s, d) in enumerate(zip(R.sid.values, R.date.values))}
-        self.T = R[R.date == ev["as_of"]].drop_duplicates("name").reset_index(drop=True)
+        self.calls_date = ev.get("calls_date") or ev["as_of"]      # the league's calls are judged on the board they were about
+        self.T = R[R.date == self.calls_date].drop_duplicates("name").reset_index(drop=True)
         rows = sorted({key[tuple(k)] for k in ev["cuts"]} | {key[tuple(k)] for t in ev["trades"] for s in t["sides"] for k in s["players"]})
         pos = {i: j for j, i in enumerate(rows)}
         self.E = R.iloc[rows].reset_index(drop=True)
         self.trades = [(t["date"], [(s["other_value"], [pos[key[tuple(k)]] for k in s["players"]]) for s in t["sides"]]) for t in ev["trades"]]
         self.cuts = np.array([pos[key[tuple(k)]] for k in ev["cuts"]], dtype=int)
+        # boards the rating-page votes were asked on: board date -> the inputs' grid date holding its rows
+        self.vote_dates = {str(pd.Timestamp(ev["as_of"]).date()): ev["as_of"], **ev.get("vote_dates", {})}
+        self.VR = R[R.date.isin(set(self.vote_dates.values()))].drop_duplicates(["sid", "date"]).reset_index(drop=True)
+
+    def vote_values(self, v):
+        """values of the vote rows (aligned with VR) as {(board date, sid): value}"""
+        by = {}
+        for (sid, d), x in zip(zip(self.VR.sid.values, self.VR.date.values), v): by.setdefault(d, {})[sid] = float(x)
+        return {(bd, sid): x for bd, gd in self.vote_dates.items() for sid, x in by.get(gd, {}).items()}
 
     @classmethod
     def load(cls, data=DATA):
@@ -315,7 +325,7 @@ def objective(ev, ref, votes=None, band=True):
     """the fit's score for a parameter set: calls + 3 x trade error + 3 x cut penalty + capped votes + a light
     pull of every rule strength toward zero (a rule has to earn its strength)"""
     from . import faab_calls as LC
-    T, E = ev.T, ev.E
+    T, E, VR = ev.T, ev.E, ev.VR
     qbs = set(T.name[T.pos == "QB"]); exp_ = pd.Series(T.exp.values, index=T.name.values) if band else None
     cache = {}
 
@@ -324,13 +334,13 @@ def objective(ev, ref, votes=None, band=True):
         if ya not in cache:
             with warnings.catch_warnings():
                 warnings.simplefilter("ignore", RuntimeWarning)
-                cache[ya] = (characteristics(T, ya), characteristics(E, ya))
-        XT, XE = cache[ya]
+                cache[ya] = (characteristics(T, ya), characteristics(E, ya), characteristics(VR, ya) if votes is not None else None)
+        XT, XE, XV = cache[ya]
         vt = apply_rules(T, p, XT)
         c, t = LC.score(pd.Series(vt, index=T.name.values), ref, qbs, exp=exp_)
         ve = apply_rules(E, p, XE)
         te, ce = trade_err(ve, ev.trades)[0], cut_err(ve, ev.cuts)
-        vo = votes.loss(pd.Series(vt, index=T.sid.values)) if votes is not None else 0.0
+        vo = votes.loss(ev.vote_values(apply_rules(VR, p, XV))) if votes is not None and len(votes.C) else 0.0
         reg = 0.02 * sum(abs(p[k]) for k in REG_KEYS)
         tot = c + W_TRADES * te + W_CUTS * ce + vo + reg
         return dict(total=tot, calls=c, trades=te, cuts=ce, votes=vo, reg=reg, tests=t) if detail else tot
