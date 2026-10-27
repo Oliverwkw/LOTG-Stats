@@ -1,1 +1,1 @@
-timestamp,team,question_id,kind,board_date,player_a,player_b,shown_a,shown_b,answer,amount,own,client_time,page_version
+timestamp,team,question_id,kind,board_date,player_a,player_b,shown_a,shown_b,answer,verdict_a,verdict_b,amount_a,amount_b,why,own,client_time,page_version
