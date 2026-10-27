@@ -1,7 +1,7 @@
-INFO player_week: shape=(22877, 49)
+INFO player_week: shape=(23128, 49)
 INFO player_week: missing={'Points': 0, 'Injury?': 0, 'Suspension?': 0, 'Bye?': 0}
-INFO team_week: rows=856 zero_max_pf=0
-INFO team_week: shape=(856, 102)
+INFO team_week: rows=864 zero_max_pf=0
+INFO team_week: shape=(864, 102)
 INFO team_week: missing={'PF': 0, 'Max PF': 0, 'Efficiency': 0}
 [lotg] refreshed live current-season roster snapshot
 [injury-coverage] injury coverage: 7 week(s) captured, 1769 snapshots, 0 played-week gap(s) -> exports/raw/injury_coverage.md
