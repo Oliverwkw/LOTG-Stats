@@ -37,7 +37,7 @@ _VOLATILE_SUBSTRINGS = (
 )
 _VOLATILE_EXACT = {
     "Luck", "Hardship", "Starter-adjusted Hardship", "Number of teams",
-    "Tanking", "Future draft capital", "Startup draft players remaining",
+    "Tanking", "Future draft capital", "All-time draft capital", "Startup draft players remaining",
     # Trade chain-of-custody: "where did the assets from this deal end up",
     # answered as of TODAY. Any new trade rewrites them on every historical deal
     # the assets descend from — which is the column set doing exactly what it
