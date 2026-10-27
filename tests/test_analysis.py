@@ -400,8 +400,11 @@ def test_pick_and_player_ages_use_the_builds_arithmetic():
     assert A.pick_expected_age(2029, date(2029, 9, 1)) == 22.0
     assert A.pick_expected_age(2029, date(2026, 9, 1)) == 19.0
     # The build ages week 1 at Sept 1 and every later week 7 days on.
-    assert A.week_reference_date(2025, 1) == date(2025, 9, 1)
-    assert A.week_reference_date(2025, 3) == date(2025, 9, 15)
+    # The Monday closing the fantasy week: 2025 kicked off Thu Sept 4, so week 1
+    # ran Tue Sept 2 - Mon Sept 8; 2026 week 7 closes Mon Oct 26.
+    assert A.week_reference_date(2025, 1) == date(2025, 9, 8)
+    assert A.week_reference_date(2025, 3) == date(2025, 9, 22)
+    assert A.week_reference_date(2026, 7) == date(2026, 10, 26)
     # A player the dictionary has no birth date for reads None, never 0.
     assert A.player_age("no-such-player-id", date(2026, 1, 1)) is None
 

@@ -140,7 +140,7 @@ ENTRIES = [
     (OPS, "F(y,q)", "Position factor.", "mean{pts(p,w) : st, season y'} / mean{pts(p,w) : st, season y', pos(p) = q}; y' = y once week 5 of y is played, else y − 1.", _fn("F") + _bare("F")),
     (OPS, "age(p,d)", "Age.", "(d − birth(p)) / 365.25.", _fn("age")),
     (OPS, "agepk(Y,d)", "Age of a future season-Y pick.", "(d − Sep 1 of (Y − 22)) / 365.25.", _fn("agepk")),
-    (OPS, "dw(y,w)", "Date a week is aged at.", "Sep 1 of y + 7(w − 1).", _fn("dw") + _bare("dw")),
+    (OPS, "dw(y,w)", "Date a week is aged at.", "the Monday closing fantasy week w of y: Labor Day of y + 7 + 7(w − 1).", _fn("dw") + _bare("dw")),
     (OPS, "fw(d)", "Week of a date.", "The fantasy week whose Tuesday-Monday span contains d (a Tue/Wed move counts toward the coming week).", _fn("fw")),
     (OPS, "eos(y)", "Season end.", "The Monday after season y's championship week.", _fn("eos")),
     (OPS, "GL(p)", "NFL game log.", "p's games {(gd, npts(p,y,w)) : APP(p,y,w)} in date order.", _fn("GL") + _bare("GL")),
@@ -492,7 +492,7 @@ EQUATIONS = {
     ('Pick value received', 'trades'):
         'Σ_{pick ∈ dp(x), owner_id = t} K(pick, d0)',
     ('Change in pick value at draft time', 'trades'):
-        'Σ_{pick ∈ dp(x), owner_id = t, draft done} (K(pick, Sep 1 of its year) − K(pick, d0))',
+        'Σ_{pick ∈ dp(x), owner_id = t, draft done} (K(pick, day after Labor Day of its year) − K(pick, d0))',
     ('Assets retained now', 'trades'):
         "{q ∈ A : no x' with d(x') > d0 removing q from t}",
     ('Assets traded away', 'trades'):
@@ -824,7 +824,7 @@ EQUATIONS = {
     ('Last team', 'player_year / player_all_time'):
         "t with ro(p,t,w_last) = 1, w_last = p's last rostered in-season week of y (all-time: of his last rostered season)",
     ('Age', 'player_week / player_year'):
-        'age(p, dw(y,w)) = (Sep 1 of y + 7(w−1) − birth(p)) / 365.25; player_year = mean_w',
+        'age(p, dw(y,w)) = (dw(y,w) − birth(p)) / 365.25; player_year = mean_w',
     ('Rookie?', 'player_week / player_year'):
         '[y = rookie_year(p)],  rookie_year = Sleeper metadata rookie year, else current season − yexp(p)',
     ('Injury?', 'player_week'):

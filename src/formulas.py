@@ -234,7 +234,7 @@ _ROWS = [
      "Formula": "How much draft-pick value this team brought in — highlights pick-heavy hauls. Σ KTC of just the picks received at deal time (players excluded).",
      "Notes": "Blank when no picks were received. Before KTC's pick history (2021-04-16) a pick is valued on that date instead; one with no quote even there is estimated from the same pick one to three classes later at the same lead time before its draft, averaged."},
     {"Stat": "Change in pick value at draft time", "Sheet": "trades",
-     "Formula": "Whether the received picks drew a better or worse slot than expected at the trade. For each unresolved pick received: KTC once it became a rookie (Sept 1 of its draft year) − KTC at deal time, summed.",
+     "Formula": "Whether the received picks drew a better or worse slot than expected at the trade. For each unresolved pick received: KTC once it became a rookie (the day after Labor Day of its draft year) − KTC at deal time, summed.",
      "Notes": "Picks whose drafts are still in the future don't contribute. A pick KTC had no quote for on that date (late-2020 deals for 2021+ picks, before KTC priced picks) is estimated from the same pick one to three classes later at the same lead time before its draft, averaged."},
     {"Stat": "Assets retained now", "Sheet": "trades",
      "Formula": "Of the assets received in this trade, those the team still holds today (never traded out or dropped to FA). Picks show as 'YYYY R.SLOT(F. Last)' once drafted.",
