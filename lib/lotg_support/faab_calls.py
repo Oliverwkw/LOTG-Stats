@@ -27,7 +27,7 @@ def calls(v, ref=None, qbs=()):
     rest = v.drop([n for n in TOP3 if n in v.index]).max()
     t += [(f"{n} above everyone outside the top 3", max(0.0, np.log(rest) - np.log(g(n)) + 0.02)) for n in TOP3]
     hi_, lo_ = max(g(n) for n in TOP3), min(g(n) for n in TOP3)
-    t += [("top 3 within 15%", max(0.0, np.log(hi_ / lo_) - np.log(1.15))), ("top 3 around $4,300 (5 firsts is an overpay)", rng("Josh Allen", 3700, 4900) + rng("Jahmyr Gibbs", 3700, 4900))]
+    t += [("top 3 within 15%", max(0.0, np.log(hi_ / lo_) - np.log(1.15))), ("top 3 at most about $4,300 (5 firsts is an overpay; top end lower than the reviewed board)", rng("Josh Allen", 3700, 4300) + rng("Jahmyr Gibbs", 3700, 4300))]
     q = v[[n for n in v.index if n in set(qbs)]].sort_values(ascending=False)
     if len(q) > 10:
         t += [("Allen QB1", max(0.0, np.log(q.drop("Josh Allen").max()) - np.log(g("Josh Allen")) + 0.02)),
@@ -78,6 +78,10 @@ def calls(v, ref=None, qbs=()):
           ("Mahomes > Goff", gt("Patrick Mahomes", "Jared Goff")), ("Mahomes near Lamar (>= 90%)", max(0.0, np.log(0.9 * g("Lamar Jackson")) - np.log(g("Patrick Mahomes")))),
           ("Hurts < Mahomes", gt("Patrick Mahomes", "Jalen Hurts")), ("Hurts < Maye", gt("Drake Maye", "Jalen Hurts")), ("Hurts < Caleb", gt("Caleb Williams", "Jalen Hurts")),
           ("Coker like a breakout (>= $700)", rng("Jalen Coker", 700, 99999)), ("Parker Washington like a breakout (>= $700)", rng("Parker Washington", 700, 99999))]
+    # league chat consensus (2026-10-25/26, the Bucky/Tuten thread): Tuten ~2.01-2.03, Monangai a mid-low second,
+    # Hampton at least Bucky, Henderson at least a high second
+    t += [("Tuten about a 2.01-2.03 ($395-615)", rng("Bhayshul Tuten", 395, 615)), ("Monangai a mid-low second ($180-340)", rng("Kyle Monangai", 180, 340)),
+          ("Hampton >= Bucky", gt("Omarion Hampton", "Bucky Irving", 0.0)), ("Henderson at least a high second (>= $615)", rng("TreVeyon Henderson", 615, 99999))]
     if ref is not None:
         for n in MID_TE + ["Brock Purdy", "Jared Goff"]:   # "middle TEs good", "Purdy & Goff fine"
             if n in ref.index: t += [(f"{n} stays near the reviewed ${ref[n]:,.0f}", rng(n, 0.75 * ref[n], 1.3 * ref[n]))]
