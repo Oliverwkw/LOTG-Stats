@@ -345,6 +345,29 @@ def explain(R, p, names):
     return rows
 
 
+def _norm(s): return " ".join("".join(c for c in s.lower() if c.isalnum() or c == " ").split())
+
+
+def _initials(name, q):
+    """q is the name's initials, the last word allowed a longer start: "cmc" Christian McCaffrey, "jsn" Jaxon Smith-Njigba"""
+    w = _norm(name.replace("-", " ")).split()
+    return len(w) >= 2 and len(q) > len(w) - 1 and q[:len(w) - 1] == "".join(x[0] for x in w[:-1]) and w[-1].startswith(q[len(w) - 1:])
+
+
+def match_names(names, query, n=5):
+    """board names for a typed query, best first: exact (ignoring case and punctuation, so "aj brown" is A.J. Brown),
+else every name containing it ("Etienne" -> both), else initials ("CMC" -> Christian McCaffrey), else close spellings
+("Jaxon Dart" -> Jaxson Dart). [] = no close name"""
+    import difflib
+    by = {}
+    for x in names: by.setdefault(_norm(x), x)
+    q = _norm(query)
+    if q in by: return [by[q]]
+    sub = [x for k, x in by.items() if q and q in k]
+    ini = [x for x in by.values() if " " not in q and _initials(x, q)] if not sub else []
+    return (sub or ini or [by[k] for k in difflib.get_close_matches(q, list(by), n, 0.6)])[:n]
+
+
 # ------------------------------------------------------------------ fit
 def objective(ev, ref, votes=None, band=True):
     """the fit's score for a parameter set: calls + 3 x trade error + 3 x cut penalty + capped votes + a light
