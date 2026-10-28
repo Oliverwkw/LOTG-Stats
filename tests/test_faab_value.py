@@ -46,7 +46,9 @@ def test_sign_locks_hold_for_bounds_and_params():
 def test_board_reproduces_and_beats_rules_off_on_trades_and_cuts():
     R = F.load_inputs(); p = F.load_params()
     T = F.board(R, p, as_of=LC.CALLS_DATE).set_index("name").V
-    assert len(T) == 704
+    # 704 = the reviewed board; the weekly rebuild can qualify more players as of
+    # the calls date (2026-10-28: 706, Darius Cooper + Ryan Flournoy) but never drop one
+    assert T.index.is_unique and len(T) >= 704, len(T)
     # the weekly rebuild rewrites inputs.csv, so no exact dollars: the top 3 stay these three, inside the top-3 call's band
     top3 = set(T.sort_values(ascending=False).index[:3])
     assert top3 == {"Jahmyr Gibbs", "Bijan Robinson", "Josh Allen"}, top3

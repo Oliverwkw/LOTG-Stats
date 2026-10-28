@@ -279,7 +279,27 @@ def test_a_rostered_player_missing_from_the_tracker_is_a_finding():
     assert SW.uncovered_player_weeks([], old, None) == []               # pre-tracker seasons skipped
 
 
+def test_uncovered_player_weeks_follows_a_rename_by_player_id():
+    """Sleeper renamed 34 players 2026-10-22 ("Brian Thomas" -> "Brian Thomas
+    Jr."); player_week carries the new name for every week, the tracker the
+    name as captured. Same player_id = covered; a different player is not."""
+    import pandas as pd
+    fin = "2026-09-15T10:00:00+00:00"
+    caps = [{"season": 2026, "week": 1, "player_id": "11631", "full_name": "Brian Thomas", "finalized_at_utc": fin},
+            {"season": 2026, "week": 2, "player_id": "11631", "full_name": "Brian Thomas Jr.", "finalized_at_utc": fin},
+            {"season": 2026, "week": 1, "player_id": "1", "full_name": "A", "finalized_at_utc": fin}]
+    pw = pd.DataFrame({"Player": ["Brian Thomas Jr.", "Brian Thomas Jr.", "Aaron Jones Sr."],
+                       "Year": [2026, 2026, 2026], "Week": [1, 2, 1]})
+    got = SW.uncovered_player_weeks(caps, pw, {2026: {1, 2}})
+    assert [(g.kind, g.week) for g in got] == [("uncovered", 1)], got
+    assert "Aaron Jones Sr." in got[0].detail and "1 rostered player" in got[0].detail
+    # dropped before the tracker ever saw the new name: Sleeper's dictionary covers it
+    got = SW.uncovered_player_weeks(caps, pw, {2026: {1, 2}}, current_names={"1": "Aaron Jones Sr."})
+    assert got == [], got
+
+
 TESTS = [test_the_week_being_played_is_not_unfinalized_yet,
+         test_uncovered_player_weeks_follows_a_rename_by_player_id,
          test_the_schedule_is_read_from_the_workflow_not_restated,
          test_the_most_recent_fire_is_judged_once_it_has_had_time,
          test_a_fire_still_inside_the_grace_window_is_not_judged,

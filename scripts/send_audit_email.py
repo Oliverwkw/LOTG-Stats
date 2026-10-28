@@ -507,6 +507,25 @@ def _position_conflicts(exports: Path):
         return []
 
 
+def _current_player_names(exports: Path) -> dict:
+    """{player_id: name} from the build's Sleeper player dictionary — the names
+    player_week carries — so a tracker row captured before a rename still covers
+    the renamed player. Empty when the snapshot is absent."""
+    try:
+        import json
+        blob = json.loads((exports / "snapshot" / "sleeper_players_nfl.json").read_text())
+    except (OSError, ValueError):
+        return {}
+    out = {}
+    for pid, m in (blob or {}).items():
+        m = m or {}
+        name = m.get("full_name") or " ".join(
+            x for x in (m.get("first_name"), m.get("last_name")) if x)
+        if name:
+            out[str(pid)] = name
+    return out
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description="Send the weekly dataset-health email.")
     ap.add_argument("--exports", default=str(_ROOT / "exports"))
@@ -564,7 +583,8 @@ def main(argv=None) -> int:
     try:
         injury_incomplete += SW.uncovered_player_weeks(
             captures, _read_csv(exports, "player_week"),
-            C.played_weeks(_read_csv(exports, "team_week")))
+            C.played_weeks(_read_csv(exports, "team_week")),
+            current_names=_current_player_names(exports))
     except Exception as e:                       # never let the check stop the email
         print(f"[audit-email] tracker coverage check unavailable: {type(e).__name__}: {e}")
     for g in injury_incomplete:

@@ -152,7 +152,10 @@ def _additions(root: str) -> pd.DataFrame:
     a["_at"] = pd.to_datetime(a["Date"], errors="coerce").astype("datetime64[ns]")
     a["_gone"] = pd.to_datetime(a["Date dropped/traded"], errors="coerce").astype("datetime64[ns]")
     a["Acquired season"] = pd.to_numeric(a["Season"], errors="coerce").astype("Int64")
-    return a.dropna(subset=["_at"]).sort_values("_at")
+    # same-day stints (dropped and re-added that day: Lazard LWebs53 2021-12-29)
+    # tie on _at; merge_asof takes the last one, so order them by exit (still
+    # on the team last) with a stable sort, or the pick follows file order
+    return a.dropna(subset=["_at"]).sort_values(["_at", "_gone"], na_position="last", kind="mergesort")
 
 
 @functools.lru_cache(maxsize=1)
