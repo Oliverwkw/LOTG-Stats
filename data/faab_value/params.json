@@ -57,5 +57,9 @@
  "td_dep": -0.5,
  "one_game": 0.0,
  "young_starter": 0.125,
- "carry": 0.08333333333333333
+ "carry": 0.08333333333333333,
+ "qb_starter": 0.25,
+ "qb_pedigree": 0.125,
+ "ir_no_double": 1.0,
+ "qb_opening": 1.2
 }

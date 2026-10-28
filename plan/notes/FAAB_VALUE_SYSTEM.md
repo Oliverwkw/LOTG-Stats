@@ -14,6 +14,10 @@ use only what was known that day, the way the league values players. A 1.05 rook
    - usage (expected points), team share, availability, a sustained elite record, QB passing quality;
    - early-career draft and college pedigree, efficiency, volatility and TD dependence, age cliffs;
    - injury status, off-field events, the replacement line (vets ranked below the line are worth about 0).
+   - QBs (#531): draft capital fading over four seasons; an established starter (usage over the line, 2+ top-12
+     seasons, fading 30-34); an opening (a QB who has played well, ahead only of an aging backup holding the
+     snaps). On IR, a player's usage and availability read his seasons before the injury, since the IR rule already
+     charges for this one.
 
    Each characteristic's strength is one number, used the same way on every date and for every player. There
    are no names and no pins. Sign locks keep each rule pointing the only plausible way: an injury can only lower
@@ -124,6 +128,12 @@ term, so they can only change how much a general rule weighs:
 - one team alone reaches at most a quarter of that;
 - one team's share of the vote weight is capped at 35%;
 - the term is always below the trades and cuts terms.
+
+**How a price answer is scored** (#531): "too low" / "too high" only say the value shown is not right in that
+direction, with no cap and no minimum (any higher / lower value agrees). "About right" is within 15% of the
+value shown. A typed amount is a target, within 15%. Each answer is scored on its own; none is turned into a
+point estimate (before #531 a bare "too low" counted as exactly x4/3, which held Jaxson Dart near $375 when
+every voter said he was worth far more).
 
 `votes` lists where the board and the votes disagree, and which rule terms put each side where it is, followed
 by every "why" note. Those are the leads for a missing characteristic. Uneven participation is expected and handled by the caps.

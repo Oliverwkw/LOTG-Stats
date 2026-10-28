@@ -117,6 +117,40 @@ def test_vote_loss_direction():
     assert abs(pr.loc["p1:a", "target"] - 500) < 1 and abs(pr.loc["p1:b", "target"] - 1200) < 1
 
 
+def test_price_verdicts_are_directions_amounts_are_targets():
+    """'too low' / 'too high' say only that the shown value is not right in that direction (no cap, no minimum);
+    a typed amount is a target (+-15%); 'about right' is +-15% of the value shown"""
+    def check(verdict, amount=""):
+        r = dict(timestamp="10/27/2026 10:00:00", team="Oliverwkw", question_id="v1", kind="pair", board_date="2026-10-24",
+                 player_a="A1", player_b="B1", shown_a=300, shown_b=300, verdict_a=verdict, amount_a=amount)
+        c = FV.consensus(FV.weighted(FV.signals(_votes([r])))).set_index("question_id").loc["v1:a"].to_dict()
+        return lambda v: FV.q_loss(c, pd.Series({"A1": float(v)}))
+    low = check("higher")
+    assert low(301) == 0 and low(1000) == 0 and low(5000) == 0 and low(250) > 0
+    high = check("lower")
+    assert high(299) == 0 and high(50) == 0 and high(400) > 0
+    right = check("right")
+    assert right(320) == 0 and right(280) == 0 and right(400) > 0 and right(200) > 0
+    typed = check("higher", "2000")
+    assert typed(2100) == 0 and typed(1000) > 0 and typed(3000) > 0
+
+
+def test_qb_rules_reach_only_their_players():
+    """QB rules move only QBs; the IR healthy-role blend moves only players on IR/PUP; a QB opening needs a QB who
+    has played well (a backup behind the same aging starter gets nothing)"""
+    R = F.load_inputs(); p = F.load_params(); T = R[R.date == R.date.max()].reset_index(drop=True)
+    X = F.characteristics(T, p["youth_age"]); qb = T.pos.values == "QB"
+    for k in ("qb_pedigree", "qb_starter", "qb_played"):
+        assert (X[k][~qb] == 0).all(), k
+    for k in ("qb_pedigree", "qb_starter", "qb_opening"):
+        assert k in F.RAISE_ONLY and F.BOUNDS[k][0] >= 0
+    v1, v0 = F.apply_rules(T, p), F.apply_rules(T, dict(p, ir_no_double=0.0))
+    moved = np.abs(v1 / np.maximum(v0, 1e-9) - 1) > 1e-9
+    assert not moved[X["ir"] == 0].any()
+    o = X["qb_played"] * X["opening"]
+    assert ((o > 0) <= ((X["qb_played"] > 0) & (X["opening"] > 0))).all()
+
+
 def test_page_files_in_sync_with_inputs_and_params():
     R = F.load_inputs(); p = F.load_params(); T = F.board(R, p)
     b = json.load(open(_ROOT / "docs" / "rate" / "board.json"))
