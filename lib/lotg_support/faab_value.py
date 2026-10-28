@@ -37,6 +37,14 @@ import pandas as pd
 ROOT = Path(__file__).resolve().parents[2]
 DATA = ROOT / "data" / "faab_value"
 
+def _rowmean(*cols):
+    """Per-player mean of the non-NaN values; NaN for a player with none (no
+    stats of that kind yet, expected), without numpy's empty-slice warning."""
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", RuntimeWarning)
+        return np.nanmean(np.vstack(cols), axis=0)
+
+
 # ------------------------------------------------------------------ rules
 P0 = dict(y200=200.0, y450=450.0, y650=650.0, lvl=1.0, vet=1.0, vet_hi=900.0, top_g=0.62,
           youth_role=0.0, te_lo=0.0, te_hi=0.0, inj_ir=0.0, inj_out=0.0, prone=0.0, two_way=0.0, aw_college=0.0, aw_nfl=0.0, usage=0.0, youth_usage=0.0, qb_lo=0.0, qb_hi=0.0, rb_lo=0.0, rb_hi=0.0, wr_lo=0.0, wr_hi=0.0, youth_age=26.0, spike=0.0, team_up=0.0, severe=0.0, spike_hi=1500.0, anchor_w=0.0, anchor_slope=0.5, qb_quality=0.0, elite_streak=0.0, track=0.0, recurring=0.0, steady=0.0, pedigree=0.0, efficiency=0.0, opening=0.0, team_q=0.0, new_team_burst=0.0, share_talent=0.0, availability=0.0, rb_multi=0.0, wr_talent=0.0, pick_boom=0.0, rb_age=0.0, rookie_capital=0.0, alpha=0.0, off_field=0.0, journeyman=0.0, bust=0.0, bubble=0.0, line_frac=0.8)
@@ -69,8 +77,8 @@ VET_AGE = {"QB": 33, "RB": 26.5, "WR": 28.5, "TE": 28.5}
 UK = 2.5     # no NFL team (off every depth chart, no games, not hurt): x0.08
 def col(R, c): return R[c].values.astype(float) if c in R else np.full(len(R), np.nan)
 def boom_bust_early(R, cur_gp):
-    cv = np.nanmean(np.vstack([np.where(cur_gp >= 4, col(R, "e_x_cur_ppr_cv"), np.nan), col(R, "e_x_l0_ppr_cv"), col(R, "e_x_l1_ppr_cv")]), axis=0)
-    tds = np.nanmean(np.vstack([np.where(cur_gp >= 4, col(R, "e_x_cur_td_share"), np.nan), col(R, "e_x_l0_td_share"), col(R, "e_x_l1_td_share")]), axis=0)
+    cv = _rowmean(np.where(cur_gp >= 4, col(R, "e_x_cur_ppr_cv"), np.nan), col(R, "e_x_l0_ppr_cv"), col(R, "e_x_l1_ppr_cv"))
+    tds = _rowmean(np.where(cur_gp >= 4, col(R, "e_x_cur_td_share"), np.nan), col(R, "e_x_l0_td_share"), col(R, "e_x_l1_td_share"))
     return np.clip((np.nan_to_num(cv, nan=0.5) - 0.5) / 0.25, 0, 1.5) + np.clip((np.nan_to_num(tds, nan=0.2) - 0.25) / 0.15, 0, 1.5)
 def characteristics(R, youth_age=26.0):
     """the measurable characteristics the rules act on (each 0..1 or a small count)"""
@@ -106,7 +114,7 @@ def characteristics(R, youth_age=26.0):
     e_c, e_0, e_1 = col(R, "e_x_cur_epa_db"), col(R, "e_x_l0_epa_db"), col(R, "e_x_l1_epa_db")
     wc = np.where(np.isnan(e_c), 0, np.clip(cur_gp / 8, 0, 1)); w0 = np.where(np.isnan(e_0), 0, 1.0); w1 = np.where(np.isnan(e_1), 0, 0.5)
     epa = (np.nan_to_num(e_c) * wc + np.nan_to_num(e_0) * w0 + np.nan_to_num(e_1) * w1) / np.maximum(wc + w0 + w1, 1e-9)
-    cp = np.nanmean(np.vstack([col(R, "e_x_l0_cpoe"), np.where(cur_gp >= 3, col(R, "e_x_cur_cpoe"), np.nan)]), axis=0)
+    cp = _rowmean(col(R, "e_x_l0_cpoe"), np.where(cur_gp >= 3, col(R, "e_x_cur_cpoe"), np.nan))
     qbq = np.where((R.pos.values == "QB") & (wc + w0 + w1 > 0), np.clip(0.75 * (epa - 0.10) / 0.15 + 0.25 * np.nan_to_num(cp) / 4, -1.5, 1.5), 0.0)
     # youth x usage counts only usage above replacement (a young player without a real role gets nothing)
     xfp_z = np.where(g + gl > 0, xfp_b - rep, np.nan)                                    # usage above replacement (expected PPG)
@@ -131,8 +139,8 @@ def characteristics(R, youth_age=26.0):
     ppg_c = np.nan_to_num(col(R, "e_x_cur_xfp_pg") + col(R, "e_x_cur_fpoe_pg"), nan=0) * (cur_gp >= 4)
     qb_played = (R.pos.values == "QB") * np.clip((np.fmax(ppg_l0, ppg_c) - 15.7) / 2.0, 0, 1)
     # efficiency early in a career: points over expected per touch and rush yards over expected, last full season + this one
-    ft = np.nanmean(np.vstack([col(R, "e_x_l0_fpoe_touch"), np.where(cur_gp >= 3, col(R, "e_x_cur_fpoe_touch"), np.nan)]), axis=0)
-    ry = np.nanmean(np.vstack([col(R, "e_x_l0_ryoe"), np.where(cur_gp >= 3, col(R, "e_x_cur_ryoe"), np.nan)]), axis=0)
+    ft = _rowmean(col(R, "e_x_l0_fpoe_touch"), np.where(cur_gp >= 3, col(R, "e_x_cur_fpoe_touch"), np.nan))
+    ry = _rowmean(col(R, "e_x_l0_ryoe"), np.where(cur_gp >= 3, col(R, "e_x_cur_ryoe"), np.nan))
     eff = 0.5 * np.clip(np.nan_to_num(ft) / 0.15, -1, 1.5) + 0.5 * np.clip(np.nan_to_num(ry) / 0.8, -1, 1.5)
     efficiency = eff * early * (R.pos.values != "QB")
     # an opening: the top same-position teammate is 28+ and holds the snaps (aging competition), for young players
@@ -146,7 +154,7 @@ def characteristics(R, youth_age=26.0):
     sh_c, sh_0 = col(R, "e_x_cur_xfp_share"), col(R, "e_x_l0_xfp_share")
     new_team_burst = np.nan_to_num(col(R, "e_x_new_team")) * np.clip(np.nan_to_num(sh_c - sh_0) / 0.12, 0, 1.5) * (cur_gp >= 3)
     # talent independent of the offense: share of the team's expected points over three seasons
-    shb = np.nanmean(np.vstack([np.where(cur_gp >= 3, sh_c, np.nan), sh_0, col(R, "e_x_l1_xfp_share")]), axis=0)
+    shb = _rowmean(np.where(cur_gp >= 3, sh_c, np.nan), sh_0, col(R, "e_x_l1_xfp_share"))
     share_talent = np.where(R.pos.isin(["WR", "TE", "RB"]).values, np.clip(np.nan_to_num(shb, nan=0.12) - 0.15, -0.1, 0.15) / 0.08, 0.0)
     # availability over an extended period: games played out of games available this season and the last two, any reason
     # (injury, suspension); seasons before a player's NFL start don't count
@@ -164,8 +172,8 @@ def characteristics(R, youth_age=26.0):
     # positional scarcity: an RB with top finishes over several seasons is harder to find than a WR
     rb_multi = (posv == "RB") * np.clip((np.nan_to_num(col(R, "e_x_top5_6y")) + np.nan_to_num(col(R, "e_x_streak5"))) / 4, 0, 1.5)
     # receiver talent independent of the offense: yards and targets per route (last two full seasons), separation, top-5 seasons
-    yp = np.nanmean(np.vstack([col(R, "e_x_l0_yprr"), col(R, "e_x_l1_yprr")]), axis=0); tp = col(R, "e_x_l0_tprr")
-    sp_ = np.nanmean(np.vstack([col(R, "e_x_l0_sep"), np.where(cur_gp >= 3, col(R, "e_x_cur_sep"), np.nan)]), axis=0)
+    yp = _rowmean(col(R, "e_x_l0_yprr"), col(R, "e_x_l1_yprr")); tp = col(R, "e_x_l0_tprr")
+    sp_ = _rowmean(col(R, "e_x_l0_sep"), np.where(cur_gp >= 3, col(R, "e_x_cur_sep"), np.nan))
     wr_talent_raw = np.isin(posv, ["WR", "TE"]) * np.clip(0.35 * np.nan_to_num((yp - 2.0) / 0.6) + 0.2 * np.nan_to_num((tp - 0.22) / 0.05)
                                                     + 0.2 * np.nan_to_num((sp_ - 2.8) / 0.4) + 0.25 * np.nan_to_num(col(R, "e_x_top5_6y")) / 3, -1, 2)
     # count talent only beyond what the player already produces (no double count for a star on a good offense)
@@ -194,8 +202,8 @@ def characteristics(R, youth_age=26.0):
     xl1 = col(R, "e_x_l1_xfp_pg"); best2 = np.fmax(np.nan_to_num(xl, nan=0), np.nan_to_num(xl1, nan=0))
     bust = (posv != "QB") * (exp_ >= 2) * (exp_ <= 4) * np.clip((rep - 3 - best2) / 4, 0, 1) * (1 - np.clip(spike / 0.5, 0, 1))
     # low lows: week-to-week volatility and TD dependence, this season and the last two (big weeks are counteracted by these)
-    cv = np.nanmean(np.vstack([np.where(cur_gp >= 4, col(R, "e_x_cur_ppr_cv"), np.nan), col(R, "e_x_l0_ppr_cv"), col(R, "e_x_l1_ppr_cv")]), axis=0)
-    tds = np.nanmean(np.vstack([np.where(cur_gp >= 4, col(R, "e_x_cur_td_share"), np.nan), col(R, "e_x_l0_td_share"), col(R, "e_x_l1_td_share")]), axis=0)
+    cv = _rowmean(np.where(cur_gp >= 4, col(R, "e_x_cur_ppr_cv"), np.nan), col(R, "e_x_l0_ppr_cv"), col(R, "e_x_l1_ppr_cv"))
+    tds = _rowmean(np.where(cur_gp >= 4, col(R, "e_x_cur_td_share"), np.nan), col(R, "e_x_l0_td_share"), col(R, "e_x_l1_td_share"))
     boom_bust = (posv != "QB") * np.clip((np.nan_to_num(cv, nan=0.5) - 0.5) / 0.25, 0, 1.5)
     td_base = np.where(posv == "RB", 0.38, 0.25)                 # an RB's normal TD share is higher (goal-line role)
     td_dep = (posv != "QB") * np.clip((np.nan_to_num(tds, nan=0.2) - td_base) / 0.15, 0, 1.5)
