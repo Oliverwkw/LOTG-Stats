@@ -38,7 +38,8 @@ FIELDS = ["timestamp", "team", "question_id", "kind", "board_date", "player_a", 
           "answer", "verdict_a", "verdict_b", "amount_a", "amount_b", "why", "own", "client_time", "page_version"]
 VOTE_MAX, VOTE_HALF, FULL_TEAMS = 1.5, 100.0, 4
 OWN_W, GUEST_W, TEAM_CAP = 0.5, 0.25, 0.35
-PRICE_RATIO = {"lower": 0.75, "right": 1.0, "higher": 4 / 3}
+PRICE_RATIO = {"lower": 0.75, "right": 1.0, "higher": 4 / 3}   # display only (the vote report's "votes $" column)
+BAND = 0.15                                                   # +-15%: "about right", and the slack around a typed amount
 
 
 # ------------------------------------------------------------------ question queue
@@ -169,8 +170,20 @@ def consensus(df):
             if not ok.any(): continue
             lr, ww = np.log(ratio[ok]), w[ok]; o = np.argsort(lr); c = np.cumsum(ww[o])
             med = float(lr[o][np.searchsorted(c, c[-1] / 2)])
+            # each answer is a range on the value's ratio to the one shown: an amount is a point (+-15%); "too low" /
+            # "too high" only say the shown value is not right in that direction (any amount above / below, no cap, no minimum)
+            verd = g.answer.str.lower().values; iv = []
+            for i in np.flatnonzero(ok):
+                if amt[i] > 0 and shown[i] > 0: c_ = np.log(amt[i] / shown[i]); lo, hi = c_ - BAND, c_ + BAND
+                elif verd[i] == "higher": lo, hi = 0.0, np.inf
+                elif verd[i] == "lower": lo, hi = -np.inf, 0.0
+                else: lo, hi = -BAND, BAND
+                iv.append((float(np.log(shown[i])) if shown[i] > 0 else 0.0, lo, hi, float(w[i])))
             out.append(dict(question_id=q, kind="price", board_date=r.board_date, a=r.player_a, b="", n=int(ok.sum()), w=float(ww.sum()),
-                            target=float(np.nanmedian(shown[ok]) * np.exp(med)), ratio=float(np.exp(med))))
+                            target=float(np.nanmedian(shown[ok]) * np.exp(med)), ratio=float(np.exp(med)), iv=iv,
+                            said="; ".join(f"{k} {v}" for k, v in (("too low", int(((verd == "higher") & ~(amt > 0))[ok].sum())), ("about right", int(((verd == "right") & ~(amt > 0))[ok].sum())),
+                                                                     ("too high", int(((verd == "lower") & ~(amt > 0))[ok].sum()))) if v)
+                                 + "".join(f"; typed ${a:,.0f}" for a in amt[ok & (amt > 0)])))
     return pd.DataFrame(out)
 
 
@@ -190,7 +203,11 @@ def q_loss(c, V):
         if c["even"] >= 0.5: return max(0.0, abs(r) - 0.25)
         return abs(c["s"]) * max(0.0, 0.05 - np.sign(c["s"]) * r)
     if np.isnan(va): return np.nan
-    return max(0.0, abs(np.log(max(va, 1) / max(c["target"], 1))) - 0.15)
+    iv = c.get("iv")
+    if not isinstance(iv, list) or not iv:
+        return max(0.0, abs(np.log(max(va, 1) / max(c["target"], 1))) - BAND)
+    lv = np.log(max(va, 1)); W = sum(x[3] for x in iv)
+    return float(sum(wi * max(0.0, (ls + lo) - lv, lv - (ls + hi)) for ls, lo, hi, wi in iv) / max(W, 1e-9))
 
 
 class VoteTerm:
@@ -241,7 +258,8 @@ def report(term, V, names, terms=None):
                             f"(s {c['s']:+.2f}, {c['n']} answers){' — DISAGREES' if l > 0 else ''}"
                             + (f"\n  - {names.get(c['a'])}: {why(bd, c['a'])}\n  - {names.get(c['b'])}: {why(bd, c['b'])}" if l > 0 else "")))
         else:
-            rows.append((l, f"- {bd}: **{names.get(c['a'])}** board ${g(c['a']):,.0f}, votes ${c['target']:,.0f} ({c['n']} answers)"
+            said = c.get("said") or f"${c['target']:,.0f}"
+            rows.append((l, f"- {bd}: **{names.get(c['a'])}** board ${g(c['a']):,.0f}, votes: {said} ({c['n']} answers)"
                             f"{' — DISAGREES' if l > 0 else ''}" + (f"\n  - {why(bd, c['a'])}" if l > 0 else "")))
     rows.sort(key=lambda r: -r[0])
     n_bad = sum(r[0] > 0 for r in rows)
