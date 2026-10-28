@@ -43,7 +43,7 @@ P0 = dict(y200=200.0, y450=450.0, y650=650.0, lvl=1.0, vet=1.0, vet_hi=900.0, to
 BOUNDS = dict(y200=(80, 230), y450=(250, 520), y650=(500, 950), lvl=(0.6, 1.6), vet=(0.2, 1.0), vet_hi=(600, 3500), top_g=(0.45, 0.85),
               youth_role=(-0.5, 2.0), te_lo=(-1.5, 0.8), te_hi=(-1.0, 0.6), inj_ir=(-1.0, 0.3), inj_out=(-0.8, 0.3), prone=(-2.5, 0.5),
               two_way=(0.0, 2.5), aw_college=(-0.3, 1.5), aw_nfl=(-0.3, 1.0), usage=(-0.3, 1.5), youth_usage=(-0.3, 2.0), qb_lo=(-0.5, 0.4), qb_hi=(-0.6, 0.6), rb_lo=(-0.5, 0.15), rb_hi=(-0.6, 0.6), wr_lo=(-0.5, 0.15), wr_hi=(-0.6, 0.6), youth_age=(24.5, 29.0), spike=(-0.5, 2.0), team_up=(-0.5, 1.0), severe=(-1.5, 0.3), spike_hi=(500.0, 3000.0), anchor_w=(0.0, 0.7), anchor_slope=(0.2, 0.9), qb_quality=(-0.5, 2.0), elite_streak=(0.0, 1.5), track=(-0.3, 1.0), recurring=(-0.6, 0.2), steady=(-0.3, 1.0), pedigree=(-0.3, 1.0), efficiency=(-0.3, 1.2), opening=(-0.3, 1.2), team_q=(-0.3, 0.8), new_team_burst=(-0.3, 1.2), share_talent=(-0.3, 1.2), availability=(0.0, 1.5), rb_multi=(-0.3, 1.0), wr_talent=(-0.3, 1.0), pick_boom=(-0.3, 1.5), rb_age=(-1.2, 0.2), rookie_capital=(-0.3, 1.5), alpha=(-0.3, 1.0), off_field=(-5.0, 0.0), journeyman=(-2.0, 0.3), bust=(-2.0, 0.3), bubble=(0.0, 4.0), line_frac=(0.4, 1.1))
-P0.update(boom_bust=0.0, td_dep=0.0, one_game=0.0, young_starter=0.0, carry=0.0)
+P0.update(boom_bust=0.0, td_dep=0.0, one_game=0.0, young_starter=0.0, carry=0.0, qb_pedigree=0.0, qb_starter=0.0, ir_no_double=0.0, qb_opening=0.0)
 BOUNDS.update(rb_hi=(0.0, 0.6), wr_hi=(-0.1, 0.1), qb_hi=(-0.2, 0.2),
     
     # can only LOWER value
@@ -56,10 +56,12 @@ BOUNDS.update(rb_hi=(0.0, 0.6), wr_hi=(-0.1, 0.1), qb_hi=(-0.2, 0.2),
     wr_talent=(0.0, 1.0), rb_multi=(0.0, 1.0), efficiency=(0.0, 1.2),
     pedigree=(0.0, 1.0), rookie_capital=(0.0, 1.5), alpha=(0.0, 1.0), availability=(0.0, 1.5), pick_boom=(0.0, 1.5), new_team_burst=(0.0, 1.2),
     team_up=(0.0, 0.6), two_way=(0.0, 2.5), share_talent=(0.3, 2.0),            # team share: a floor, per review ("increase team-share bonuses")
-    spike=(0.0, 1.2), team_q=(0.0, 0.25))                                         # big weeks and team strength: capped
+    spike=(0.0, 1.2), team_q=(0.0, 0.25),                                         # big weeks and team strength: capped
+    qb_pedigree=(0.0, 1.5), qb_starter=(0.0, 1.0), qb_opening=(0.0, 1.5),        # QB draft capital, established starting QB, QB opening
+    ir_no_double=(0.0, 1.0))                                                      # a blend weight (IR: prior seasons stand in), either direction
 RAISE_ONLY = ["aw_nfl", "aw_college", "usage", "steady", "youth_usage", "youth_role", "elite_streak", "track", "qb_quality", "wr_talent", "rb_multi", "efficiency",
               "pedigree", "rookie_capital", "alpha", "availability", "pick_boom", "new_team_burst", "team_up", "two_way", "share_talent", "spike", "team_q", "opening",
-              "young_starter", "carry"]
+              "young_starter", "carry", "qb_pedigree", "qb_starter", "qb_opening"]
 LOWER_ONLY = ["inj_ir", "inj_out", "severe", "prone", "recurring", "off_field", "journeyman", "bust", "rb_age", "boom_bust", "td_dep", "one_game"]
 _bad = [k for k in RAISE_ONLY if BOUNDS[k][0] < 0] + [k for k in LOWER_ONLY if BOUNDS[k][1] > 0]
 assert not _bad, f"rules with the wrong sign allowed: {_bad}"
@@ -92,6 +94,9 @@ def characteristics(R, youth_age=26.0):
     best = np.fmax(np.nan_to_num(xl, nan=-9), np.nan_to_num(col(R, "e_x_l1_xfp_pg"), nan=-9))                # best of the last two full seasons
     xfp_b = np.where(best > -9, np.fmax(xfp_b, 0.85 * best), xfp_b)
     usage = np.where(g + gl > 0, np.clip((xfp_b - rep) / 6.0, -1, 2), 0.0)
+    xfp_p = np.where(best > -9, np.fmax(np.nan_to_num(xl, nan=-9), 0.85 * best), np.nan); xfp_p = np.where(xfp_p > -9, xfp_p, np.nan)   # last full season(s) only
+    xfp_hb = np.where(np.isnan(xfp_p), xfp_b, xfp_p)
+    usage_h = np.where(np.isnan(xfp_hb), usage, np.clip((xfp_hb - rep) / 6.0, -1, 2))
     # big weeks (a breakout: non-QBs, fading out from 26 to 29): share of games at 15+ PPR (20+ is 'big'; 25/19 for QBs), this season with last season as prior
     cg_, gd_, l0g, l0d = cur_gp, np.nan_to_num(col(R, "e_x_cur_good")), np.nan_to_num(col(R, "e_x_l0_games")), np.nan_to_num(col(R, "e_x_l0_good"))
     spike = (gd_ + 0.5 * l0d + 0.5 * np.nan_to_num(col(R, "e_x_cur_big"))) / np.maximum(cg_ + 0.5 * l0g, 1)
@@ -116,6 +121,15 @@ def characteristics(R, youth_age=26.0):
     pick = col(R, "e_x_draft_pick"); dc = np.where(np.isnan(pick), 0.0, np.clip((64 - pick) / 63, 0, 1))
     cs = np.clip((np.nan_to_num(col(R, "e_x_c_max_share")) - 0.15) / 0.2, 0, 1)
     pedigree = early * (0.7 * dc + 0.3 * cs) * (R.pos.values != "QB")
+    # a QB's draft capital: top-64 picks, fading over his first four NFL seasons (a franchise QB is given time)
+    qb_pedigree = (R.pos.values == "QB") * dc * np.clip((5.0 - exp_) / 4.0, 0, 1)
+    # an established starting QB before the age decline (superflex QB premium): usage above replacement (expected PPG, 3+ over = full),
+    # two or more top-12 seasons in the last six (one = half), fading from 30 to 34
+    qb_starter = (R.pos.values == "QB") * np.clip(np.nan_to_num(xfp_b - rep) / 3.0, 0, 1) * np.clip((34.0 - np.nan_to_num(age, nan=30)) / 4.0, 0, 1) * np.clip(np.nan_to_num(col(R, "e_x_top12_6y")) / 2, 0, 1)
+    # a QB who has played well when healthy: fantasy PPG over the QB line (15.7; +2 = full) in last season (6+ games) or this one (4+)
+    ppg_l0 = np.nan_to_num(col(R, "e_x_l0_xfp_pg") + col(R, "e_x_l0_fpoe_pg"), nan=0) * (np.nan_to_num(col(R, "e_x_l0_games")) >= 6)
+    ppg_c = np.nan_to_num(col(R, "e_x_cur_xfp_pg") + col(R, "e_x_cur_fpoe_pg"), nan=0) * (cur_gp >= 4)
+    qb_played = (R.pos.values == "QB") * np.clip((np.fmax(ppg_l0, ppg_c) - 15.7) / 2.0, 0, 1)
     # efficiency early in a career: points over expected per touch and rush yards over expected, last full season + this one
     ft = np.nanmean(np.vstack([col(R, "e_x_l0_fpoe_touch"), np.where(cur_gp >= 3, col(R, "e_x_cur_fpoe_touch"), np.nan)]), axis=0)
     ry = np.nanmean(np.vstack([col(R, "e_x_l0_ryoe"), np.where(cur_gp >= 3, col(R, "e_x_cur_ryoe"), np.nan)]), axis=0)
@@ -143,6 +157,9 @@ def characteristics(R, youth_age=26.0):
     avail_n = n_c + np.where(e0, 17, 0) + np.where(e1, 17, 0)
     avail = np.where(avail_n >= 17, played / np.maximum(avail_n, 1), np.nan)
     availability = np.where(np.isnan(avail), 0.0, np.clip((avail - 0.85) / 0.15, -3, 1))
+    # the same, leaving out this season (when the IR rule is already charging for this season's injury)
+    pn = played - s_c; an = avail_n - n_c
+    avail_prior = np.where(an >= 17, np.clip((pn / np.maximum(an, 1) - 0.85) / 0.15, -3, 1), 0.0)
     posv = R.pos.values
     # positional scarcity: an RB with top finishes over several seasons is harder to find than a WR
     rb_multi = (posv == "RB") * np.clip((np.nan_to_num(col(R, "e_x_top5_6y")) + np.nan_to_num(col(R, "e_x_streak5"))) / 4, 0, 1.5)
@@ -194,14 +211,14 @@ def characteristics(R, youth_age=26.0):
     # carrying a weak offense: team share counts more when the offense's implied points are low ("doing it with a much worse offense")
     imp_ = np.where(np.isnan(col(R, "e_x_team_implied_cur")), col(R, "e_x_team_implied_l0"), col(R, "e_x_team_implied_cur"))
     carry = np.clip(np.nan_to_num(col(R, "e_x_cur_xfp_share"), nan=0.0) / 0.2, 0, 1.5) * np.clip((23.0 - np.nan_to_num(imp_, nan=23)) / 3, 0, 1) * (posv != "QB") * np.clip(usage / 0.25, 0, 1)   # only with real usage
-    return dict(_ya=youth_age, young_starter=young_starter, carry=carry, one_game=one_game, boom_bust=boom_bust, td_dep=td_dep, off_field=off_field, journeyman=journeyman, bust=bust, rb_multi=rb_multi, wr_talent=wr_talent, pick_boom=pick_boom, rb_age=rb_age, rookie_capital=rookie_capital, alpha=alpha,
+    return dict(_ya=youth_age, usage_h=usage_h, xfp_zh=xfp_hb - rep, youth_usage_h=youth * np.clip(usage_h, 0, 3) / 3, qb_played=qb_played, avail_prior=avail_prior, qb_starter=qb_starter, qb_pedigree=qb_pedigree, young_starter=young_starter, carry=carry, one_game=one_game, boom_bust=boom_bust, td_dep=td_dep, off_field=off_field, journeyman=journeyman, bust=bust, rb_multi=rb_multi, wr_talent=wr_talent, pick_boom=pick_boom, rb_age=rb_age, rookie_capital=rookie_capital, alpha=alpha,
                 availability=availability, efficiency=efficiency, opening=opening, team_q=np.clip(team_q, -1.5, 1.5), new_team_burst=new_team_burst, share_talent=share_talent,
                 xfp_z=xfp_z, qbq=qbq, elite=elite, track=track, recurring=recurring, steady=steady, pedigree=pedigree, spike=np.clip(spike / 0.5, 0, 1.5) * (1 - 0.4 * np.clip(boom_bust_early(R, cur_gp), 0, 1.5)) * (R.pos.values != "QB") * np.clip((29.0 - np.nan_to_num(age, nan=30)) / 3.0, 0, 1), team_up=trend, severe=severe.astype(float), usage=usage, youth_usage=youth * np.clip(usage, 0, 3) / 3, youth_role=youth * role, two_way=two_way, aw_college=np.clip(np.nan_to_num(awc), 0, 2) * early,
                 aw_nfl=np.clip(np.nan_to_num(awn), 0, 3), prone=np.nan_to_num(col(R, "e_x_inj_rate_2y")),
                 ir=np.isin(inj, ["IR", "PUP"]).astype(float), out=np.isin(inj, ["Out", "Doubtful"]).astype(float),
                 te=(R.pos.values == "TE").astype(float), vet_age=np.clip((np.nan_to_num(age, nan=25) - R.pos.map(VET_AGE).fillna(30).values) / 2, 0, 1),
                 un=np.nan_to_num(col(R, "un_x")))
-RULE_KEYS = {"young_starter": "young_starter", "carry": "carry", "one_game": "one_game", "boom_bust": "boom_bust", "td_dep": "td_dep", "off_field": "off_field", "journeyman": "journeyman", "bust": "bust", "rb_multi": "rb_multi",
+RULE_KEYS = {"qb_starter": "qb_starter", "qb_pedigree": "qb_pedigree", "young_starter": "young_starter", "carry": "carry", "one_game": "one_game", "boom_bust": "boom_bust", "td_dep": "td_dep", "off_field": "off_field", "journeyman": "journeyman", "bust": "bust", "rb_multi": "rb_multi",
              "wr_talent": "wr_talent", "pick_boom": "pick_boom", "rb_age": "rb_age", "rookie_capital": "rookie_capital", "alpha": "alpha",
              "availability": "availability", "efficiency": "efficiency", "opening": "opening", "team_q": "team_q", "new_team_burst": "new_team_burst",
              "share_talent": "share_talent", "recurring": "recurring", "steady": "steady", "pedigree": "pedigree", "elite_streak": "elite", "track": "track",
@@ -223,6 +240,12 @@ def apply_rules(R, p, X=None, explain=False):
     top_curve = lambda lo, hi: np.interp(lv, np.log([150, 400, 900, 3000, 5000]), [lo, lo * 0.5, 0, 0, hi])   # QB/RB/WR: top end only above $3,000
     unpriced = np.clip((p.get("spike_hi", 1500) - v) / (0.6 * p.get("spike_hi", 1500)), 0, 1)     # a breakout the base value has not priced in
     T_ = {k: p.get(k, 0) * X[x] for k, x in RULE_KEYS.items()}
+    # on IR the IR rule already charges for this season's injury: availability counts only the seasons before it
+    T_["availability"] = np.where(X["ir"] > 0, (1 - p.get("ir_no_double", 0.0)) * T_["availability"] + p.get("ir_no_double", 0.0) * p.get("availability", 0) * X["avail_prior"], T_["availability"])
+    nd = p.get("ir_no_double", 0.0) * X["ir"]                       # on IR: the healthy role (prior seasons) stands in for this season
+    T_["usage"] = p.get("usage", 0) * ((1 - nd) * X["usage"] + nd * X["usage_h"])
+    T_["youth_usage"] = p.get("youth_usage", 0) * ((1 - nd) * X["youth_usage"] + nd * X["youth_usage_h"])
+    T_["qb_opening"] = p.get("qb_opening", 0.0) * X["qb_played"] * X["opening"]   # a young QB who has played well (PPG over the QB line), competition only an aging backup
     T_["spike"] = p.get("spike", 0) * X["spike"] * unpriced; T_["team_up"] = p.get("team_up", 0) * X["team_up"] * unpriced
     T_["position curve"] = X["te"] * curve(p["te_lo"], p["te_hi"]) + np.select([pos == "QB", pos == "RB", pos == "WR"], [top_curve(p["qb_lo"], p["qb_hi"]), top_curve(p["rb_lo"], p["rb_hi"]), top_curve(p["wr_lo"], p["wr_hi"])], 0.0)
     T_["no NFL team"] = -UK * X["un"]
@@ -233,7 +256,9 @@ def apply_rules(R, p, X=None, explain=False):
         T_["replacement line"] = -p.get("bubble", 0.0) * np.nan_to_num(vetr * np.clip((col(R, "rank_raw") - p.get("line_frac", 0.8) * n_) / (0.25 * n_), 0, 1.5))
     v = v * np.exp(sum(T_.values()))
     # usage anchor: pull part of the way toward the value the current role implies (history-built values drift to what a player does now)
-    w, z = p.get("anchor_w", 0.0), X["xfp_z"]
+    w = p.get("anchor_w", 0.0)
+    ndz = p.get("ir_no_double", 0.0) * X["ir"]; z = np.where(np.isnan(X["xfp_zh"]), X["xfp_z"], (1 - ndz) * np.nan_to_num(X["xfp_z"]) + ndz * X["xfp_zh"])
+    z = np.where(np.isnan(X["xfp_z"]) & (ndz == 0), np.nan, z)
     u = 50.0 * np.exp(p.get("anchor_slope", 0.5) * np.clip(np.nan_to_num(z, nan=0.0), -3, 12))
     v2 = np.where(np.isnan(z) | (w <= 0), v, np.exp((1 - w) * np.log(np.maximum(v, 1)) + w * np.log(u)))
     out = np.where(v2 > 2000, 2000 * (np.maximum(v2, 2000) / 2000) ** p["top_g"], v2)
@@ -242,7 +267,7 @@ def apply_rules(R, p, X=None, explain=False):
     return out
 
 # ------------------------------------------------------------------ inputs and evidence
-REG_KEYS = ["young_starter", "carry", "one_game", "boom_bust", "td_dep", "off_field", "journeyman", "bust", "rb_multi", "wr_talent", "pick_boom", "rb_age",
+REG_KEYS = ["qb_starter", "qb_pedigree", "ir_no_double", "qb_opening", "young_starter", "carry", "one_game", "boom_bust", "td_dep", "off_field", "journeyman", "bust", "rb_multi", "wr_talent", "pick_boom", "rb_age",
             "rookie_capital", "alpha", "availability", "efficiency", "opening", "team_q", "new_team_burst", "share_talent", "recurring", "steady", "pedigree",
             "elite_streak", "track", "qb_quality", "spike", "team_up", "severe", "qb_lo", "qb_hi", "rb_lo", "rb_hi", "wr_lo", "wr_hi", "usage", "youth_usage",
             "youth_role", "te_lo", "te_hi", "inj_ir", "inj_out", "prone", "two_way", "aw_college", "aw_nfl"]
