@@ -181,11 +181,27 @@ def test_normalise_reads_form_headers():
     assert df.loc[0, "team"] == "Oliverwkw" and df.loc[0, "question_id"] == "abc" and list(df.columns) == FV.FIELDS
 
 
+def test_match_names_finds_near_misses():
+    # fixed names, no data: the lookup must not depend on the weekly rebuild
+    names = ["Kenneth Walker III", "P.J. Walker", "A.J. Brown", "Ja'Marr Chase", "Jaxson Dart", "Travis Etienne Jr.", "Trevor Etienne"]
+    assert F.match_names(names, "a.j. brown") == ["A.J. Brown"]
+    assert F.match_names(names, "aj brown") == ["A.J. Brown"]                   # punctuation ignored
+    assert F.match_names(names, "Jamarr Chase") == ["Ja'Marr Chase"]
+    assert F.match_names(names, "Kenneth Walker") == ["Kenneth Walker III"]     # substring before fuzzy
+    assert F.match_names(names, "etienne") == ["Travis Etienne Jr.", "Trevor Etienne"]
+    assert F.match_names(names, "Jaxon Dart")[0] == "Jaxson Dart"               # typo, best first
+    names += ["Christian McCaffrey", "Luke McCaffrey", "Jaxon Smith-Njigba", "Brian Thomas Jr.", "De'Von Achane"]
+    assert F.match_names(names, "CMC") == ["Christian McCaffrey"]               # initials, last word may run longer
+    assert F.match_names(names, "jsn") == ["Jaxon Smith-Njigba"] and F.match_names(names, "BTJ") == ["Brian Thomas Jr."]
+    assert F.match_names(names, "Deven Achaine")[0] == "De'Von Achane"
+    assert F.match_names(names, "xqz") == [] and F.match_names(names, "") == []
+
+
 TESTS = [test_sign_locks_hold_for_bounds_and_params, test_board_reproduces_and_beats_rules_off_on_trades_and_cuts,
          test_calls_regression_floor, test_evidence_resolves_to_inputs, test_votes_dedupe_own_guest_and_team_cap,
          test_vote_strength_grows_needs_teams_and_is_capped, test_vote_loss_direction, test_page_files_in_sync_with_inputs_and_params,
          test_one_submission_gives_pair_and_two_price_signals,
-         test_normalise_reads_form_headers]
+         test_normalise_reads_form_headers, test_match_names_finds_near_misses]
 
 if __name__ == "__main__":
     for fn in TESTS:

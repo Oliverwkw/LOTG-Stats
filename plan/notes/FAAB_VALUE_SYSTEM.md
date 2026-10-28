@@ -47,7 +47,8 @@ P. Washington, Coker, J. Price. Addison and Jamo are also on the list.
 
 ```bash
 python scripts/faab_value.py board -n 40
-python scripts/faab_value.py explain "Bucky Irving" "Bhayshul Tuten"   # every rule's multiplier
+python scripts/faab_value.py value "bucky irving" "Jaxon Dart"         # current value + rank; any spelling (exact, part of a name, typo)
+python scripts/faab_value.py explain "Bucky Irving" "Bhayshul Tuten"   # every rule's multiplier (exact names; suggests close ones)
 python scripts/faab_value.py calls
 python scripts/faab_value.py votes                                     # votes vs the board
 python scripts/faab_value.py fit --out data/faab_value/params.json     # deliberate refit, reviewed in a PR

@@ -3,6 +3,7 @@
 Read-only unless a command says it writes. Nothing here touches exports/ or the build.
 
     python scripts/faab_value.py board -n 40                    # today's board (the inputs' as-of date)
+    python scripts/faab_value.py value "bucky irving" "Jaxon Dart"   # current value + rank, any spelling
     python scripts/faab_value.py explain "Bucky Irving" "Bhayshul Tuten"   # every rule's multiplier, stage by stage
     python scripts/faab_value.py calls                          # which league calls the board passes / misses
     python scripts/faab_value.py votes                          # votes vs the board: agreement, and the rules behind each disagreement
@@ -46,6 +47,18 @@ def cmd_board(a):
     print(T[["rank", "name", "pos", "age", "injury", "V"]].head(a.n).round({"age": 1, "V": 0}).to_string(index=False))
 
 
+def cmd_value(a):
+    _, _, T = _setup(a.params)
+    B = T.set_index("name")
+    print(f"as of {T.date.iloc[0]} | {len(T)} players | league FAAB $")
+    for q in a.names:
+        hit = F.match_names(T.name, q)
+        if not hit: print(f"{q}: not on the board (no close name)")
+        for n in hit:
+            r = B.loc[n]; inj = f", {r.injury}" if r.injury else ""
+            print(f"{q} -> {n} ({r.pos}, {r.age:.1f}{inj}): ${r.V:,.0f}  rank {r['rank']}")
+
+
 def cmd_explain(a):
     R, p, T = _setup(a.params)
     for r in F.explain(R[R.date == T.date.iloc[0]], p, a.names):
@@ -53,7 +66,9 @@ def cmd_explain(a):
         print(f"{r['name']}: {st}")
         print("   " + ", ".join(f"{k} x{v:.2f}" for k, v in r["rules"].items()))
     miss = set(a.names) - set(T.name)
-    if miss: print("not on the board:", ", ".join(sorted(miss)))
+    for q in sorted(miss):
+        near = F.match_names(T.name, q)
+        print(f"not on the board: {q}" + (f" (did you mean: {', '.join(near)}?)" if near else ""))
 
 
 def cmd_calls(a):
@@ -125,6 +140,7 @@ def main(argv=None):
     ap.add_argument("--params", help="rule strengths (default data/faab_value/params.json)")
     sub = ap.add_subparsers(dest="cmd", required=True)
     s = sub.add_parser("board"); s.add_argument("-n", type=int, default=50); s.set_defaults(f=cmd_board)
+    s = sub.add_parser("value"); s.add_argument("names", nargs="+"); s.set_defaults(f=cmd_value)
     s = sub.add_parser("explain"); s.add_argument("names", nargs="+"); s.set_defaults(f=cmd_explain)
     s = sub.add_parser("calls"); s.set_defaults(f=cmd_calls)
     s = sub.add_parser("votes"); s.add_argument("--report"); s.set_defaults(f=cmd_votes)
