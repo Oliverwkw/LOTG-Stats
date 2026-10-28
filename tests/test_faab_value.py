@@ -190,7 +190,11 @@ def test_match_names_finds_near_misses():
     assert F.match_names(names, "Kenneth Walker") == ["Kenneth Walker III"]     # substring before fuzzy
     assert F.match_names(names, "etienne") == ["Travis Etienne Jr.", "Trevor Etienne"]
     assert F.match_names(names, "Jaxon Dart")[0] == "Jaxson Dart"               # typo, best first
-    assert F.match_names(names, "CMC") == [] and F.match_names(names, "") == []
+    names += ["Christian McCaffrey", "Luke McCaffrey", "Jaxon Smith-Njigba", "Brian Thomas Jr.", "De'Von Achane"]
+    assert F.match_names(names, "CMC") == ["Christian McCaffrey"]               # initials, last word may run longer
+    assert F.match_names(names, "jsn") == ["Jaxon Smith-Njigba"] and F.match_names(names, "BTJ") == ["Brian Thomas Jr."]
+    assert F.match_names(names, "Deven Achaine")[0] == "De'Von Achane"
+    assert F.match_names(names, "xqz") == [] and F.match_names(names, "") == []
 
 
 TESTS = [test_sign_locks_hold_for_bounds_and_params, test_board_reproduces_and_beats_rules_off_on_trades_and_cuts,
