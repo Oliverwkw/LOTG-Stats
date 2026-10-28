@@ -320,7 +320,8 @@ def injury_capture_health(summary: dict, played: Optional[dict] = None) -> List[
 
 
 def uncovered_player_weeks(captures, player_week, played: Optional[dict] = None,
-                           first_season: int = 2026, show: int = 5) -> List[InjuryGap]:
+                           first_season: int = 2026, show: int = 5,
+                           current_names: Optional[dict] = None) -> List[InjuryGap]:
     """Finalized weeks where a rostered player has NO tracker row (user,
     2026-09-30).
 
@@ -332,20 +333,36 @@ def uncovered_player_weeks(captures, player_week, played: Optional[dict] = None,
     recapture it from. Only FINALIZED, finished weeks are judged: a week still
     being played is not due yet. Matched on the player's name, which is all
     player_week carries; a name mismatch would show up here as a false alarm,
-    never hide a gap."""
+    never hide a gap. A capture also counts under the NEWEST name the tracker
+    holds for its player_id, and under `current_names` ({player_id: name},
+    the build's Sleeper player dictionary) for a player the tracker never
+    captured again after a rename: the exports carry Sleeper's current name, so
+    the 2026-10-22 suffix renames ("Brian Thomas" -> "Brian Thomas Jr.") read
+    as 22 false gaps a week for weeks 1-6 (2026-10-28 health email)."""
     out: List[InjuryGap] = []
     if player_week is None or getattr(player_week, "empty", True) \
             or not {"Player", "Year", "Week"} <= set(player_week.columns):
         return out
     have, finalized = set(), set()
+    newest: dict = {}                  # player_id -> ((season, week), name)
+    keyed = []
     for r in captures or ():
         try:
             key = (int(r.get("season")), int(r.get("week")))
         except (TypeError, ValueError):
             continue
-        have.add(key + (str(r.get("full_name") or ""),))
+        name, pid = str(r.get("full_name") or ""), str(r.get("player_id") or "")
+        have.add(key + (name,))
+        if pid and name and (pid not in newest or key >= newest[pid][0]):
+            newest[pid] = (key, name)
+        keyed.append((key, pid))
         if str(r.get("finalized_at_utc") or "").strip():
             finalized.add(key)
+    for key, pid in keyed:
+        if pid in newest:
+            have.add(key + (newest[pid][1],))
+        if pid and (current_names or {}).get(pid):
+            have.add(key + (str(current_names[pid]),))
     missing: dict = {}
     for name, yr, wk in zip(player_week["Player"], player_week["Year"], player_week["Week"]):
         try:
