@@ -181,7 +181,9 @@ backfill for 2020) and exports it as the CSV/Excel tables described in
 `plan/LOTG Plan - Sheet1.csv`. It runs on GitHub Actions; there is no local
 setup. `python -m lotg` (`src/lotg.py`) is the build; `lib/lotg_support/` holds
 its supporting modules; `exports/` holds the committed outputs and the raw
-Sleeper snapshot they are built from.
+Sleeper snapshot they are built from. The league website (`site/` shell +
+`lotg_support.league_site` JSON, deployed by `.github/workflows/site.yml`, never
+committed) is described in `plan/notes/LEAGUE_SITE.md`.
 
 ## Two kinds of work — know which one you are doing
 
