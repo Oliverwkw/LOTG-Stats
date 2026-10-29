@@ -148,6 +148,10 @@ NON_COUNTING_LEAGUE_STATS = {
     "% of starters boom": "share", "% of starters upper quartile": "share",
     "% of starters middle 50%": "share", "% of starters lower quartile": "share",
     "% of starters bust": "share",
+    # lotg_support.team_variance: underdog results split by lineup risk, and
+    # the week counts they rest on (a sample size, not a league milestone)
+    "Underdog win % (risky lineup)": "rate", "Underdog win % (safe lineup)": "rate",
+    "Underdog weeks (risky lineup)": "sample size", "Underdog weeks (safe lineup)": "sample size",
     # single-game extremes and spreads
     "PF Range": "range", "Margin range": "range",
     "Difference between highest and lowest starters": "range",

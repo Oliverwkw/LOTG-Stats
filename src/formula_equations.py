@@ -1055,6 +1055,24 @@ EQUATIONS = {
         "|{i : S(t,w)[i] = '0' ∨ (¬H(S(t,w)[i],w) ∧ pts(S(t,w)[i],w) = 0)}|  (2020: ESPN slots left empty); year/all-time = Σ",
     ('% of FLX / % of SFLX by position', 'team_year / team_all_time / league_year / league_all_time'):
         "100 · |{(t,w,i) : slot_i ∈ K ∧ pos(S(t,w)[i]) = P}| / |{(t,w,i) : slot_i ∈ K ∧ S(t,w)[i] ≠ '0'}|, K = {FLX1, FLX2} (% of FLX P, P ∈ {WR, RB, TE}) or {SFLX} (% of SFLX P, P ∈ {WR, RB, TE, QB}), pooled over the team's (team sheets) or every team's (league sheets) weeks in the period",
+    ('Lineup swing', 'team_week'):
+        "σ_L(t,w) = √(Σ_{p∈S(t,w)} σ(p,w)² + 2 Σ_{p<q∈S(t,w)} ρ(p,q,w)·σ(p,w)·σ(q,w)), σ(p,w)² = (n·sd(pts(p,·) over p's last n ≤ 17 played weeks before w)² + 4·σ_pos²)/(n + 4), ρ = PAIR_RHO[same team | opposite sides of one game, pos(p), pos(q)] by nfl(p,y,w) and ko; vs league = σ_L / mean_t σ_L; stacking = σ_L − √(Σ σ²); matchup = √(σ_L(t)² + σ_L(o)² − 2 Σ_{p∈S(t,w), q∈S(o(t,w),w)} ρσσ)",
+    ('Lineup riskiness', 'team_week'):
+        "exp((ln σ_L(t,w) − mean_u ln σ_L(u,w)) − 0.5·(ln EP(t,w) − mean_u ln EP(u,w))), EP = ⟨Enhanced Projection⟩ of the lineup",
+    ('QB-receiver stacks / same-game pairs', 'team_week / team_year / team_all_time'):
+        "stacks = Σ_{q∈S(t,w), pos=QB} |{p∈S(t,w) : pos(p,y,w) ∈ {WR,TE} ∧ nfl(p,y,w) = nfl(q,y,w)}|; pairs = |{p<q∈S(t,w) : same game(nfl(p), nfl(q))}|; with opponent = |{(p,q) ∈ S(t,w)×S(o(t,w),w) : same game}|; year/all-time = Σ",
+    ('Boom week / Bust week', 'team_week / team_year / team_all_time'):
+        "boom = [P(t,w) ≥ 1.2·median_u P(u,w)], bust = [P(t,w) ≤ 0.8·median_u P(u,w)]; % = mean_w over the period",
+    ('Weekly score swing', 'team_year / team_all_time'):
+        "mean_w P(t,w), sd_w P(t,w), sd_w P(t,w) / mean_w P(t,w); first 6 weeks: the same over w ≤ 6; to this point: over w ≤ N, N = max w of the latest season",
+    ('Scoring style', 'team_year'):
+        "[mean_w P ≥ median over completed seasons] → High-/Low-scoring, [sd/mean ≥ median] → up-and-down/steady; to this point: the same on w ≤ N against every season; percentile = 100 · |{u : v(u) ≤ v(t)}| / |{u}| (average rank on ties)",
+    ('Median team weekly score swing %', 'league_year'):
+        "median_t (sd_w P(t,w) / mean_w P(t,w)) over the season's weeks",
+    ('Avg lineup swing / riskiness', 'team_year / team_all_time'):
+        "mean_w of ⟨Lineup swing⟩ vs league, ⟨Lineup riskiness⟩ (all weeks; WP < 50% ; WP ≥ 50%, WP = ⟨Pre-week Win % (X Projection)⟩ Enhanced) and stacking",
+    ('Underdog win % (risky / safe lineup)', 'team_year / team_all_time / league_year / league_all_time'):
+        "mean win(t,w) over {w : WP(t,w) < 50% ∧ ⟨Lineup riskiness⟩ ≥ 1} (risky) | < 1 (safe); weeks = the set's size",
     ('Brosenzweig', 'team_week'):
         '[win(t,w) = 0 ∧ |{u : PF(u,w) > PF(t,w)}| = 1]',
     ('Sisenzweig', 'team_week'):

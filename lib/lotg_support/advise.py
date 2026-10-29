@@ -333,6 +333,80 @@ def start_sit(b: pd.DataFrame, lg: League, team: str) -> Tuple[pd.DataFrame, Dic
     return t[cols], totals
 
 
+APP_K = 3.757     # the Sleeper app's pre-week win % exponent (gametime / tests/test_win_pct.py)
+
+
+def underdog_history() -> Dict[str, float]:
+    """League-wide underdog results by lineup risk (lotg_support.team_variance),
+    from league_all_time when the build has the columns, else recomputed from
+    the exports; plus the average matchup swing. {} without exports."""
+    from . import team_variance as TV
+    try:
+        pw, tw = Q.load_sheet("player_week"), Q.load_sheet("team_week")
+        wc = TV.week_columns(pw, tw, Q.schedule())
+    except Exception:   # noqa: BLE001 - no exports here: no history line
+        return {}
+    if wc.empty:
+        return {}
+    r = TV.rollup(wc, tw, [], TV.LEAGUE_COLUMNS).iloc[0].to_dict()
+    r["Matchup swing"] = float(pd.to_numeric(wc["Matchup swing"], errors="coerce").mean())
+    r["through"] = f"{int(wc['Year'].max())} wk {int(wc[wc['Year'] == wc['Year'].max()]['Week'].max())}"
+    return r
+
+
+def underdog_risk(b: pd.DataFrame, lg: League, team: str) -> List[str]:
+    """Lines for start/sit: this matchup's projected win % (app formula on the
+    two SET lineups' Sleeper projections), the set lineup's QB-receiver stacks
+    and starters sharing an NFL game with the opponent's, and what risk did for
+    underdogs in this league's history. Data, not a verdict."""
+    from statistics import NormalDist
+    from . import team_variance as TV
+    lines: List[str] = []
+    rid = {v: k for k, v in lg.teams.items()}.get(team)
+    try:
+        mu = live._get(f"/league/{live.league_id()}/matchups/{lg.week}") or []
+    except Exception:   # noqa: BLE001 - offline: skip the matchup part
+        mu = []
+    me = next((m for m in mu if m.get("roster_id") == rid), None)
+    opp = next((m for m in mu if me and m.get("matchup_id") == me.get("matchup_id")
+                and m.get("roster_id") != rid), None)
+    proj = dict(zip(b["pid"], b[f"proj wk{lg.week}"].fillna(0.0)))
+    nfl = dict(zip(b["pid"], b["NFL"].map(_nt)))
+    pos = dict(zip(b["pid"], b["Pos"]))
+    game = {}
+    for p, o in zip(b["pid"], b["opp"]):
+        parts = str(o).split()
+        game[p] = parts[-1] if len(parts) == 2 else ""
+    if me and opp:
+        mine = [str(p) for p in me.get("starters") or () if p and p != "0"]
+        theirs = [str(p) for p in opp.get("starters") or () if p and p != "0"]
+        a, c = sum(proj.get(p, 0.0) for p in mine), sum(proj.get(p, 0.0) for p in theirs)
+        wp = a ** APP_K / (a ** APP_K + c ** APP_K) if a > 0 and c > 0 else float("nan")
+        qbs = [nfl.get(p) for p in mine if pos.get(p) == "QB"]
+        stacks = sum(1 for p in mine if pos.get(p) in ("WR", "TE") and nfl.get(p) in qbs)
+
+        def _shared(x, y):
+            return TV.relation(nfl.get(x, ""), nfl.get(y, ""), game.get(x)) is not None
+        shared = sum(1 for x in mine for y in theirs if _shared(x, y))
+        oname = lg.teams.get(opp.get("roster_id"), "?")
+        lines.append(f"matchup: {team} set lineup proj {a:.1f} v {oname} {c:.1f} -> app-style win % "
+                     f"{100 * wp:.0f}%; QB-receiver stacks {stacks}; starter pairs sharing an NFL game with "
+                     f"{oname}'s {shared}")
+    h = underdog_history()
+    if h:
+        sw = h["Matchup swing"]
+        lines.append(f"underdog risk, league history 2020-{h['through']}: underdogs (pre-week Win % under 50%) won "
+                     f"{100 * h[TV.HV_WIN]:.1f}% with a risky lineup (riskiness >= 1, n={int(h[TV.HV_N])}) and "
+                     f"{100 * h[TV.LV_WIN]:.1f}% with a safe one (n={int(h[TV.LV_N])}): no edge from risk here")
+        if lines and lines[0].startswith("matchup") and wp == wp and 0 < wp < 1:
+            nd = NormalDist()
+            mean = sw * nd.inv_cdf(wp)
+            lines.append(f"size of the lever (normal model, typical margin swing {sw:.0f} pts): a margin 5% swingier "
+                         f"moves this win % from {100 * wp:.1f}% to {100 * nd.cdf(mean / (sw * 1.05)):.1f}%; "
+                         f"+3 projected pts moves it to {100 * nd.cdf((mean + 3) / sw):.1f}%")
+    return lines
+
+
 def waivers(b: pd.DataFrame, lg: League, team: str, n: int = 15, positions: Optional[Sequence[str]] = None
             ) -> Tuple[pd.DataFrame, pd.DataFrame]:
     """Free agents ranked by what they add to `team`'s best lineup (weekly

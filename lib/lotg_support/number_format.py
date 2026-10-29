@@ -15,7 +15,11 @@ EXTRA_COUNT_PREFIXES = ("healthy weeks ", "healthy bench weeks ", "bench weeks "
                          # league sheets: "Donuts (roster)", "Players over 30 pts (starters)"
                          "donuts (", "players under ", "players over ",
                          # player_all_time's playoff split start counts
-                         "regular-season games started", "playoff games started")
+                         "regular-season games started", "playoff games started",
+                         # lotg_support.team_variance's pair / week counts
+                         "qb-receiver stacks", "starter pairs in the same nfl game",
+                         "pairs sharing an nfl game",
+                         "underdog weeks (")
 
 
 def col_number_format(col: str) -> Optional[str]:
@@ -56,8 +60,11 @@ def col_number_format(col: str) -> Optional[str]:
     if n.startswith(("pre-week win %", "difference in pre-week win %", "largest win % overcome",
                      "win % overcome", "avg pre-week win %")):
         return "0%"
+    # team_variance percentiles are 0-100 ranks, not shares (the "%" in the name is the swing's)
+    if n.startswith("weekly score swing % percentile"):
+        return "0.0"
     # Percent columns stored 0-1 -> Excel percent (x100).
-    if (n.endswith("%") or n.startswith("win % vs ") or "win %" in n
+    if (n.endswith("%") or (n.startswith(("weekly score swing %", "median team weekly score swing %")) and "percentile" not in n) or n.startswith("win % vs ") or "win %" in n
             # Efficiency and its changes ("Increase in efficiency from previous
             # week", "Change in efficiency from previous season") are 0-1 fractions.
             or "efficiency" in n
