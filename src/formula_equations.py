@@ -103,6 +103,12 @@ ENTRIES = [
     (RAW, "posN(p,y,w)", "Position on the stat line.", "nflverse stats_player_week → position", _fn("posN")),
     (RAW, "teamN(p,y,w)", "NFL team on the stat line.", "nflverse stats_player_week → team", _fn("teamN") + _bare("teamN")),
     (RAW, "snap(p,y,w)", "Offense + defense + special-teams snaps.", "nflverse snap_counts_{y}", _fn("snap")),
+    (RAW, "us(p,y,w,k)", "Player p's usage stat k in week w of season y: offense snap share, targets, carries, target share, receiving air yards.",
+     "nflverse snap_counts_{y} (offense_pct) and stats_player_week_{y} (targets, carries, target_share, receiving_air_yards)", _fn("us")),
+    (RAW, "xs(p,y,w,k)", "Player p's EXPECTED stat k in week w of season y (receptions, yards, TDs, 2-pt conversions, first downs, interceptions; pass / rush / rec).",
+     "ffverse ffopportunity ep_weekly_{y}.csv → *_exp columns", _fn("xs")),
+    (RAW, "rz(p,y,w)", "Targets + carries on plays at the opponent's 20 or closer (no 2-pt tries, no penalty-nullified plays).",
+     "nflverse play_by_play_{y} → yardline_100, receiver_player_id, rusher_player_id", _fn("rz")),
     (RAW, "wr(p,y,w)", "Weekly NFL roster row (team, status, position).", "nflverse roster_weekly_{y}", _fn("wr")),
     (RAW, "ko(team,y,w)", "Kickoff (ET date and time) of the NFL team's week-w game; none = bye.", "nflverse schedules games.csv → gameday + gametime", _fn("ko")),
     (RAW, "gd(team,y,w)", "Game date (ET) of the NFL team's week-w game; none = bye.", "nflverse schedules games.csv → gameday", _fn("gd") + _bare("gd")),
@@ -122,6 +128,7 @@ ENTRIES = [
     (OPS, "pos(p,y,w)", "Position that week.", "posN(p,y,w) if the stat line exists, else posS(p) (Travis Hunter pinned WR).", _fn("pos") + _bare("pos")),
     (OPS, "nfl(p,y,w)", "NFL team that week.", "teamN(p,y,w) → p's season teamN → wr(p,y,w).team → 'NFL' (no NFL team).", _fn("nfl")),
     (OPS, "APP(p,y,w)", "Appeared in the NFL game.", "[p has a stat line in s(·,y,w)] ∨ [snap(p,y,w) > 0].", _fn("APP") + _bare("APP")),
+    (OPS, "xFP(p,w)", "Expected fantasy points.", "Σ_k rules(y,k)·xs(p,y,w,k) + rules(y,bonus_rec_te)·xs(p,y,w,rec)·[posS(p) = TE]; blank unless APP(p,y,w).", _fn("xFP")),
     (OPS, "BYE(p,w)", "Bye?", "[pts(p,w) = 0 ∧ (nfl(p,y,w) = 'NFL' ∨ no gd(nfl(p,y,w), y, w))].", _fn("BYE") + _bare("BYE")),
     (OPS, "SUS(p,w)", "Suspension?", "¬BYE(p,w) ∧ (SUSP(p,y,w) ∨ injS(p) = 'NA' that week).", _fn("SUS") + _bare("SUS")),
     (OPS, "INJ(p,w)", "Injury?", "ro ∧ pts(p,w) = 0 ∧ ¬APP(p,y,w) ∧ ¬BYE ∧ ¬SUS ∧ ¬[GDS(p,y,w) = active].", _fn("INJ") + _bare("INJ")),
@@ -1019,6 +1026,24 @@ EQUATIONS = {
         "max(0, BLV({XP(q,y,w) : q ∈ Fs ∪ {b ∈ R(t,w) ∖ S(t,w) : H(b,w)}}, Σ_Fs) − Σ_{q ∈ Fs} XP(q,y,w)), Fs = S(t,w) minus empty slots and dead starts, Σ_Fs = the filled slots; team_year / team_all_time = mean over weeks played; N/A before the season's first game",
     ('Sleeper / Claude / Enhanced Projection', 'player_week / player_year / player_all_time / team_week / team_year / team_all_time / league_week / league_year / league_all_time'):
         "SP(p,w) = Sleeper's projection scored with season y's rules, else EPw(p,w) (Enhanced without Sleeper), else CP(p,w); CP(p,w) = boldness E; EP(p,w) = mean_r (max(0, xᵀβ + r))², β least squares of √pts on x = [1, the 4 sources (missing → mean of the rest), √sources, sd, avg·sd, implied, avg·implied/24, opp implied, spread, spread·avg/15, form, form3, dvp, home, dome, wind] over completed seasons ≠ y; all three 0 if OUT(p,w) = flagged ∧ pts(p,w) = 0, or DNP(p,w) = pts(p,w) = 0 ∧ no stat line and no offensive snap ∧ nfl(p,w) played week w with its stats in ∧ not the struck 2022 wk 17 BUF@CIN game, or QB(p) ∧ pts(p,w) < 1 ∧ 0 < snap%(p,w) ≤ 0.10 ∧ snap%(p, the team's previous game this season — else his last game of y−1) < 0.5; team: Σ_{S(t,w)} + (PF − Σ_{S(t,w)} pts); league: Σ_t; year / all-time: Σ_w",
+    ('Snap % / Target share', 'player_week'):
+        'us(p,y,w,snap share), us(p,y,w,target share); blank unless APP(p,y,w)',
+    ('Targets / Carries / Air yards', 'player_week / player_year / player_all_time'):
+        'us(p,y,w,k) for k ∈ {targets, carries, air yards}; year / all-time: Σ over the rostered weeks with APP(p,y,w)',
+    ('Red-zone opportunities', 'player_week / player_year / player_all_time'):
+        'rz(p,y,w); year / all-time: Σ over the rostered weeks with APP(p,y,w)',
+    ('xFP', 'player_week / player_year / player_all_time'):
+        'xFP(p,w); year / all-time: Σ_w',
+    ('Points minus xFP', 'player_week / player_year / player_all_time'):
+        'pts(p,w) − xFP(p,w); year / all-time: Σ_w',
+    ('Weeks with usage data', 'player_year / player_all_time'):
+        '|{w : ro(p,t,w) ∧ APP(p,y,w)}|',
+    ('Avg snap % / Avg target share / Avg xFP / Avg points minus xFP', 'player_year / player_all_time'):
+        'mean over {w : ro ∧ APP(p,y,w)} of us(p,y,w,snap share), us(p,y,w,target share), xFP(p,w), pts(p,w) − xFP(p,w)',
+    ("Starters' xFP / Starters' points minus xFP", 'team_week / team_year'):
+        "Σ_{p ∈ S(t,w), xFP(p,w) defined} xFP(p,w) and Σ (pts(p,w) − xFP(p,w)); team_year: Σ_w",
+    ("Avg starters' xFP / Avg starters' points minus xFP", 'team_year'):
+        "mean over the season's weeks of ⟨Starters' xFP / Starters' points minus xFP⟩",
     ('Points above Sleeper / Claude / Enhanced Projection', 'player_week / player_year / player_all_time / team_week / team_year / team_all_time / league_week / league_year / league_all_time'):
         "pts(p,w) − XP(p,w); team: PF(t,w) − XP(t,w); league: Σ_t; year / all-time: Σ_w",
     ('Avg Sleeper / Claude / Enhanced Projection and Avg Points above it', 'player_year / player_all_time / team_year / team_all_time / league_year / league_all_time'):

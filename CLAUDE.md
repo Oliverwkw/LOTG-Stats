@@ -53,8 +53,9 @@ week" question, even before kickoff; `--season/--week` only pick which week
 Team, Year, Week, Week Name, Starter/Bench, Position, Position started in (if
 starter), NFL team` (that week's, not current) `, Game slot` (Thursday / Sunday
 morning|early|late / SNF / MNF / Saturday / Bye …) `, Points, Opponent, Win?,
-Margin, PF, Points against, Live, Acquired via, Acquired, Acquired season, Season
-source, In-season pickup` — so do not spend a call on `list(pw.columns)`; `lpw` (pw + the live week), `live`, `tw`/`ty`/
+Margin, PF, Points against, Live, Snap %, Targets, Carries, Target share, Air
+yards, Red-zone opportunities, xFP, Points minus xFP, Acquired via, Acquired,
+Acquired season, Season source, In-season pickup` — so do not spend a call on `list(pw.columns)`; `lpw` (pw + the live week), `live`, `tw`/`ty`/
 `py`/`pa`/any sheet name (text; `num(df, col)` for numbers), and TYPED sheets
 `twt`/`tyt`/`pyt`/`lwt`/`lyt` or `T("sheet")` (numbers float, Win? bool — use
 these, not the text ones). `q` takes statements too (newline or `;`); the last
@@ -63,6 +64,17 @@ column — e.g. `Margin entering SNF/Monday/last game`, `Comeback/Choke size …
 `Players over 20/30/40 pts (starters|roster)`, `Points from QBs`, `Max PF`,
 `Luck` — so `cols REGEX :: q "<twt expression>"` in one call. pandas is already
 installed in the cloud container; Sleeper's API is reachable from it.
+
+**Usage / xFP** (`lotg_support.usage`, 2020+): `Snap %` and `Target share` are
+0-1 fractions, `xFP` = expected points of his targets / carries in league
+scoring (ffopportunity's expected components × each season's scoring table; no
+fumble term), `Points minus xFP` = `Points − xFP` (+ = scoring beyond the
+opportunity, rarely sticky; rising xFP / snaps = a role change). NaN = nflverse
+shows no game that week; live-week rows are NaN. player_year / player_all_time
+sum them over ROSTERED weeks (`Weeks with usage data`, `Avg xFP` …); team_week /
+team_year carry `Starters' xFP` and `Starters' points minus xFP`.
+`advise.py startsit|waivers` and `trade.py` print each player's season vs last-3
+usage and flag opportunity shifts / scoring beyond xFP.
 
 **Acquisition and correlation questions** ("share of starter points from
 waivers/trades/the draft", "is X linked to win %") are ONE `q` too. `Acquired

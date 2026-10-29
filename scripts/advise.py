@@ -4,6 +4,8 @@
     python scripts/advise.py waivers Oliverwkw [--pos RB,WR] [-n 15]   # FAs by what they add to YOUR lineup + drop candidates
     python scripts/advise.py strategy Oliverwkw          # window: standings, odds, positional ranks, ages, picks
     python scripts/advise.py roster Oliverwkw            # every player with all the columns
+    # startsit / waivers also print usage + xFP (snap %, targets, carries, red-zone looks,
+    # expected points, points minus xFP; season vs last 3) for the rows shown
     python scripts/advise.py startsit Oliverwkw :: waivers Oliverwkw --pos RB   # chain with ::
     # ends with the strategy-guide files for each subcommand, read live from project memory
     # (lotg_support.guide); --no-guide leaves them out
@@ -51,6 +53,22 @@ def _head(lg, what):
           f"Sleeper as of {lg.fetched}")
 
 
+def _usage(lg, b, index):
+    """The usage / xFP table for these board rows, then its data flags."""
+    try:
+        u, flags = A.usage(b, lg, index)
+    except Exception as exc:  # noqa: BLE001 - usage is extra; never lose the rest
+        print(f"\n(usage / xFP unavailable: {exc})")
+        return
+    print(f"\nusage + xFP (nflverse / ffopportunity, {lg.year} weeks 1-{lg.done}; L3 = last 3 NFL weeks; "
+          "xFP = expected points of his targets/carries in league scoring):")
+    print(u.fillna("").to_string(index=False))
+    for f in flags:
+        print(f"# usage: {f}")
+    print("# usage: points above xFP with flat xFP/snaps = efficiency/TDs (rarely sticky); xFP or snap% rising = a "
+          "role change (sticky while it lasts). nflverse lags Sleeper by a day or two after games")
+
+
 def _common_caveats(lg):
     print(f"# points = this league's scoring of Sleeper's NFL stats; G/PPG count games played (gp>0); "
           f"L3 = last 3 played weeks; proj = Sleeper's week-{lg.week} projection, league-scored")
@@ -67,6 +85,7 @@ def cmd_startsit(args):
     t, totals = A.start_sit(b, lg, team)
     print(t.fillna("").to_string(index=False))
     print("\nbest-lineup totals (weekly pts): " + ", ".join(f"{k} {v}" for k, v in totals.items()))
+    _usage(lg, b, t.index)
     if args.dvp:
         d = A.dvp(lg)
         opp = {r["Player"]: r["opp"].split()[-1] for _, r in t.iterrows() if r["opp"] not in ("", "BYE")}
@@ -98,6 +117,7 @@ def cmd_waivers(args):
     print(top.fillna("").to_string(index=False))
     print("\ndrop candidates (least lineup value lost on season PPG; taxi/IR excluded):")
     print(drops.fillna("").to_string(index=False))
+    _usage(lg, b, list(top.index) + list(drops.index))
     left = sorted(lg.budget_left.items(), key=lambda kv: -kv[1])
     print("\nFAAB left (of a 100 budget): " + ", ".join(f"{t} {v}" for t, v in left))
     _common_caveats(lg)
