@@ -1232,6 +1232,20 @@ def _unavailable(year: int) -> Set[Tuple[str, int]]:
     df = load_sheet("player_week")
     year_s, week_s = numeric(df, "Year"), numeric(df, "Week")
     flags = [c for c in ("Bye?", "Injury?", "Suspension?") if c in df.columns]
+    if "Player ID" in df.columns:
+        # Keyed by the exported Sleeper id: no trip through names (renames,
+        # namesakes). Exports from before the id column take the name path.
+        from lotg_support.player_ids import clean_id
+        out: Set[Tuple[str, int]] = set()
+        for idx, pid in enumerate(df["Player ID"]):
+            pid = clean_id(pid)
+            if not pid or year_s.iloc[idx] != year:
+                continue
+            if any(str(df[c].iloc[idx]).strip().lower() in ("true", "1", "yes") for c in flags):
+                wk = week_s.iloc[idx]
+                if pd.notna(wk):
+                    out.add((pid, int(wk)))
+        return out
     for idx, name in enumerate(df["Player"]):
         if year_s.iloc[idx] != year:
             continue

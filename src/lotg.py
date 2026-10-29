@@ -111,6 +111,7 @@ if str(SUPPORT_ROOT) not in sys.path:
 
 from lotg_support.utils import HttpConfig, safe_div, clean_name, safe_bool
 from lotg_support import matchup
+from lotg_support import player_ids as _player_ids
 from lotg_support import bench_points as _bench_pts
 from lotg_support.sleeper import SleeperClient
 from lotg_support.injury_tracker import (
@@ -1168,6 +1169,7 @@ _TOPIC_IDENTITY = {
     "top team points", "player picked", "player added", "player dropped",
     "team's traded with", "age", "rookie?", "taxi-eligible",
     "type of add/drop (waiver/free agency)", "etc", "number", "original team",
+    "player added id", "player dropped id", "player picked id", "gsis id",
 }
 
 
@@ -1196,6 +1198,9 @@ def _col_topic(col: str, default: Optional[str] = "Identity") -> Optional[str]:
     if n in ("% of points (if starter)", "positional scoring percentile"):
         return "Scoring"
     if "pick value" in n:
+        return "Activity"
+    # The trade sides' player ids sit beside "Assets received / sent".
+    if n in ("player ids received", "player ids sent"):
         return "Activity"
     # The game-time families, each one band whatever its members' keywords:
     # win odds (pre-week and live win %, per projection), comebacks / chokes
@@ -1740,6 +1745,15 @@ def _column_kind(col: str) -> str:
         "final team",
         "player picked",
         "reference player name",
+        # Sleeper / nflverse ids (lotg_support.player_ids): labels, never numbers
+        "player id",
+        "reference player id",
+        "player added id",
+        "player dropped id",
+        "player picked id",
+        "player ids received",
+        "player ids sent",
+        "gsis id",
         "nfl team",
         "position",
         "position started in (if starter)",
@@ -3532,6 +3546,15 @@ def build_all(repo_root: Path) -> None:
                     _origs.append(_oi)
                 _pick_sheet_orig[plan_key] = _origs
             frame = _safe_df(frame)
+            # Sleeper ids beside every player name (lotg_support.player_ids),
+            # from the build's own internal id columns.
+            try:
+                frame = _player_ids.add_export_ids(
+                    plan_key, frame,
+                    gsis_of=lambda _p: (_g if _looks_like_gsis(_g := (pid_meta.get(str(_p)) or {}).get("gsis_id"))
+                                        else None))
+            except Exception as e:
+                _log_exc(debug, f"player_ids_{fname}", e)
             out = _ensure_plan_columns(frame, cols)
             out = _fill_empty_columns(out, cols)
             out = _fill_missing_values(out, cols)
@@ -22792,11 +22815,18 @@ def build_all(repo_root: Path) -> None:
         _pa_rows: List[Dict[str, Any]] = []
 
         def _emit(team, name, atype, pickup_raw, season, ref, next_link, tanking=None,
-                  depart_after=None, draft_cuff=None, price_src=None):
+                  depart_after=None, draft_cuff=None, price_src=None, src_pid=None):
             if not _pa_is_player(name) or not team:
                 return
             pickup_dt = _pa_to_date(pickup_raw)
             pid = _pa_name_to_pid.get(str(name))
+            # The exported `Player ID` is the source row's own id (the add,
+            # the trade side, the pick); the stats below keep the name-resolved
+            # `pid` they have always used. A disagreement is a namesake.
+            _src = _player_ids.clean_id(src_pid)
+            if _src and pid and _src != str(pid):
+                _log(debug, f"[{_now_iso()}] INFO player_additions id_mismatch "
+                            f"{ref} {name!r} source_id={_src} name_id={pid}")
             # Departure detection uses the FULL pickup timestamp so a same-day
             # drop closes this tenure (see _pa_next_drop); a draft passes the
             # instant it ended, in league time (`depart_after`).
@@ -22847,6 +22877,7 @@ def build_all(repo_root: Path) -> None:
                 return round(float(_later) - float(_base), 0)
             row = {
                 "Player": name,
+                "Player ID": _src or _player_ids.clean_id(pid),
                 "Team": team,
                 "Addition type": atype,
                 "Date": pickup_dt.isoformat() if pickup_dt else None,
@@ -22926,7 +22957,9 @@ def build_all(repo_root: Path) -> None:
                 _nl = add_drops_df.at[_i, _nl_col] if _nl_col in add_drops_df.columns else None
                 _emit(_tm, str(_add), _TYPE_LABEL.get(_ttype, "Add"),
                       _pk_raw, _sea, f"#{int(_i) + 1}", _nl, _tank_src,
-                      price_src=("ad", _i))
+                      price_src=("ad", _i),
+                      src_pid=(add_drops_df.at[_i, "_added_pid"]
+                               if "_added_pid" in add_drops_df.columns else None))
 
         # --- trade receives (one row per received player) ---
         if isinstance(tr, pd.DataFrame) and not tr.empty:
@@ -22941,13 +22974,20 @@ def build_all(repo_root: Path) -> None:
                     _sea = _pk.year if _pk else None
                 _recv = _pa_split(tr.at[_i, "Assets received"]) if "Assets received" in tr.columns else []
                 _links = _pa_split(tr.at[_i, _per_asset_next]) if _per_asset_next in tr.columns else []
+                # The received players' ids, in the order "Assets received"
+                # lists the players (picks and FAAB follow them, id-less).
+                _rids = tr.at[_i, "_recv_player_ids"] if "_recv_player_ids" in tr.columns else None
+                _rids = list(_rids) if isinstance(_rids, (list, tuple)) else []
+                _k = 0
                 for _j, _asset in enumerate(_recv):
                     if not _pa_is_player(_asset):
                         continue
                     _nl = _links[_j] if _j < len(_links) else None
                     _tank_src = tr.at[_i, "Tanking"] if "Tanking" in tr.columns else None
                     _emit(_tm, _asset, "Trade", _pk_raw, _sea, f"T#{int(_i) + 1}", _nl, _tank_src,
-                          price_src=("tr", _i))
+                          price_src=("tr", _i),
+                          src_pid=(_rids[_k] if _k < len(_rids) else None))
+                    _k += 1
 
         # --- draft picks ---
         if isinstance(ph, pd.DataFrame) and not ph.empty:
@@ -22998,6 +23038,7 @@ def build_all(repo_root: Path) -> None:
                 if _dep and _pk_raw and str(_dep) > str(_pk_raw):
                     _dep = None
                 _emit(_tm, str(_pl), "Draft", _pk_raw, _sea, f"PH#{int(_i) + 1}", _nl, _pk_tank,
+                      src_pid=(ph.at[_i, "_player_id"] if "_player_id" in ph.columns else None),
                       depart_after=_dep,
                       draft_cuff=(str(_cuff).strip().lower() in ("true", "1", "yes")) if _cuff is not None else None,
                       price_src=("ph", _i))

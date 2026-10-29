@@ -1415,6 +1415,18 @@ EQUATIONS = {
         'the 2nd roster in rosters(x) ∖ {t}',
     ('Player Picked', 'non_rookie_picks / rookie_picks'):
         'pl(pk) = picks[pk].player_id',
+    ('Player ID', 'player_week / player_year / player_all_time / player_additions'):
+        'sleeper player_id of p',
+    ('Reference player ID', 'player_week'):
+        "sleeper player_id of ⟨Reference player name⟩(p,w); blank if it is 'Empty slot'",
+    ('Player Added ID / Player Dropped ID', 'add_drops'):
+        'transactions[x].adds / drops player_id',
+    ('Player Picked ID', 'non_rookie_picks / rookie_picks'):
+        'picks[pk].player_id',
+    ('Player IDs received / Player IDs sent', 'trades'):
+        "'; '.join(player_id of each player in ⟨Assets received⟩ / ⟨Assets sent⟩(x,t))",
+    ('GSIS ID', 'player_all_time'):
+        'gsis(p) = sleeper.gsis_id(p) ∨ dp.gsis_id(p) ∨ nflverse.gsis_id(p), last-name checked',
     ('KTC on draft day', 'non_rookie_picks / rookie_picks'):
         'K(pl, dd(Y))',
     ('KTC at end of rookie year', 'non_rookie_picks / rookie_picks'):

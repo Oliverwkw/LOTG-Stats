@@ -55,6 +55,7 @@ import numpy as np
 import pandas as pd
 
 from lotg_support import inquiry as Q
+from lotg_support import player_ids
 
 STAGE_ALIASES = {
     "late": "Sunday late", "sunday late": "Sunday late", "4pm": "Sunday late",
@@ -81,10 +82,14 @@ def slot_name(s: str) -> str:
 def typed_sheet(name: str) -> pd.DataFrame:
     """An export sheet with every all-numeric column converted (blanks / N/A
     become NaN; `Year`, `Week` become Int64; Yes/No and True/False columns
-    become bool). Text columns stay text."""
+    become bool). Text columns stay text, and so do the id columns (an id is a
+    label: '4034', never 4034.0)."""
     df = Q.load_sheet(name).copy()
     for c in df.columns:
         col = df[c]
+        if c in player_ids.ID_COLUMNS:
+            df[c] = col.map(player_ids.clean_id).astype(object)
+            continue
         if not (col.dtype == object or pd.api.types.is_string_dtype(col)):
             continue
         v = col.astype(str).str.strip()
@@ -138,17 +143,44 @@ def _player_weeks_cached(root: str) -> pd.DataFrame:
     t["Win?"] = t["Win?"].astype(str).str.lower().eq("true")
     out = out.merge(t, on=["Team", "Year", "Week"], how="left")
     out["Live"] = False
-    return acquisition_columns(out)
+    out = acquisition_columns(out)
+    # The Sleeper id last, so the columns before it read as they always have.
+    if ID in pw.columns:
+        out[ID] = pw[ID].map(_clean_id).astype(object).values
+    return out
 
 
 PICKUP_TYPES = ("Waiver", "Free agency")
+ID = player_ids.PLAYER_ID
+_clean_id = player_ids.clean_id
+
+
+def _ids_on() -> bool:
+    """Do the exports carry Player ID on both sheets the stint join reads?"""
+    return ID in _additions_columns(str(Q.repo_root()))
+
+
+@functools.lru_cache(maxsize=None)
+def _additions_columns(root: str) -> tuple:
+    return tuple(Q.load_sheet("player_additions").columns)
+
+
+def _who(df: pd.DataFrame) -> pd.Series:
+    """The player key for a join: his Sleeper id when the exports carry ids
+    (names are not keys — renames, namesakes), else his name."""
+    if _ids_on() and ID in df.columns:
+        ids = df[ID].map(_clean_id)
+        return ("id:" + ids.astype(str)).where(ids.notna(), "name:" + df["Player"].astype(str))
+    return "name:" + df["Player"].astype(str)
 ACQ_COLUMNS = ["Acquired via", "Acquired", "Acquired season", "Season source", "In-season pickup"]
 
 
 @functools.lru_cache(maxsize=None)
 def _additions(root: str) -> pd.DataFrame:
-    a = Q.load_sheet("player_additions")[["Player", "Team", "Addition type", "Date", "Season",
-                                          "Date dropped/traded"]].copy()
+    a = Q.load_sheet("player_additions")
+    a = a[[c for c in ("Player", ID) if c in a.columns]
+          + ["Team", "Addition type", "Date", "Season", "Date dropped/traded"]].copy()
+    a["_who"] = _who(a)
     a["_at"] = pd.to_datetime(a["Date"], errors="coerce").astype("datetime64[ns]")
     a["_gone"] = pd.to_datetime(a["Date dropped/traded"], errors="coerce").astype("datetime64[ns]")
     a["Acquired season"] = pd.to_numeric(a["Season"], errors="coerce").astype("Int64")
@@ -175,17 +207,18 @@ def _week_dates() -> pd.DataFrame:
 def acquisition_columns(df: pd.DataFrame, week1: Optional[pd.DataFrame] = None) -> pd.DataFrame:
     """Add ACQ_COLUMNS to a player-week frame (Player, Team, Year, Week).
 
-    The stint is the latest player_additions row for Player+Team dated on or
+    The stint is the latest player_additions row for the player+Team dated on or
     before the end of the week's last NFL game day (an add during the week,
     Friday's included, is the stint that week's lineup used). A matched stint
     already dropped/traded before the week's first game is stale (the player
     left and came back via an add the exports do not hold yet: the live week)
     and reads "Not in exports yet". 2021-25 history matches every row.
     `week1` = the frame whose Week 1 rows define the week-1 rosters
-    (default `df` itself)."""
+    (default `df` itself). The player is matched by Player ID when both the
+    frame and player_additions carry it, else by name (exports before ids)."""
     out = df.copy()
     wd = _week_dates()
-    k = out[["Player", "Team", "Year", "Week"]].merge(wd, on=["Year", "Week"], how="left")
+    k = out[["Team", "Year", "Week"]].assign(_who=_who(out)).merge(wd, on=["Year", "Week"], how="left")
     k.index = out.index
     # a week the schedule lacks (no .cache schedule): Thursday-Monday estimate,
     # week 1 kicking off the Thursday after the first Monday of September
@@ -203,8 +236,8 @@ def acquisition_columns(df: pd.DataFrame, week1: Optional[pd.DataFrame] = None) 
     k["_row"] = np.arange(len(k))
     a = _additions(str(Q.repo_root()))
     have = k[k["_end"].notna()].sort_values("_end")
-    m = pd.merge_asof(have, a[["Player", "Team", "_at", "_gone", "Addition type", "Date", "Acquired season"]],
-                      left_on="_end", right_on="_at", by=["Player", "Team"], direction="backward")
+    m = pd.merge_asof(have, a[["_who", "Team", "_at", "_gone", "Addition type", "Date", "Acquired season"]],
+                      left_on="_end", right_on="_at", by=["_who", "Team"], direction="backward")
     m = m.set_index("_row").reindex(k["_row"])
     m.index = out.index
     stale = m["_gone"].notna() & (m["_gone"] < m["_first"])
@@ -214,8 +247,8 @@ def acquisition_columns(df: pd.DataFrame, week1: Optional[pd.DataFrame] = None) 
     out["Acquired season"] = m["Acquired season"].where(~stale)
     base = df if week1 is None else week1
     first = base[base["Week"] == 1]
-    on_w1 = pd.MultiIndex.from_frame(first[["Player", "Team", "Year"]]).unique()
-    key = pd.MultiIndex.from_frame(out[["Player", "Team", "Year"]])
+    on_w1 = pd.MultiIndex.from_frame(first[["Team", "Year"]].assign(_who=_who(first))).unique()
+    key = pd.MultiIndex.from_frame(out[["Team", "Year"]].assign(_who=_who(out)))
     out["Season source"] = np.where(key.isin(on_w1), "Week-1 roster", via)
     out["In-season pickup"] = out["Season source"].isin(PICKUP_TYPES)
     return out
@@ -241,10 +274,15 @@ def player_weeks(live=None) -> pd.DataFrame:
     done = base[(base["Year"] == live.season) & (base["Week"] == live.week)]
     if len(done):
         base = base.drop(done.index)
-    lp = lp.drop(columns=["Player ID"], errors="ignore")
+    if ID in base.columns and ID in lp.columns:
+        lp[ID] = lp[ID].map(_clean_id).astype(object)
+        lp = lp[[c for c in lp.columns if c != ID] + [ID]]
+    else:
+        lp = lp.drop(columns=[ID], errors="ignore")
     for c in ("Year", "Week"):
         lp[c] = pd.to_numeric(lp[c], errors="coerce").astype("Int64")
-    w1 = pd.concat([base[["Player", "Team", "Year", "Week"]], lp[["Player", "Team", "Year", "Week"]]])
+    _k = [c for c in ("Player", ID) if c in lp.columns]
+    w1 = pd.concat([base[_k + ["Team", "Year", "Week"]], lp[_k + ["Team", "Year", "Week"]]])
     lp = acquisition_columns(lp.drop(columns=ACQ_COLUMNS, errors="ignore"), week1=w1)
     return pd.concat([base, lp], ignore_index=True)
 

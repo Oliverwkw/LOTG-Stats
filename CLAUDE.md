@@ -54,7 +54,7 @@ Team, Year, Week, Week Name, Starter/Bench, Position, Position started in (if
 starter), NFL team` (that week's, not current) `, Game slot` (Thursday / Sunday
 morning|early|late / SNF / MNF / Saturday / Bye …) `, Points, Opponent, Win?,
 Margin, PF, Points against, Live, Acquired via, Acquired, Acquired season, Season
-source, In-season pickup` — so do not spend a call on `list(pw.columns)`; `lpw` (pw + the live week), `live`, `tw`/`ty`/
+source, In-season pickup, Player ID` (Sleeper id, text) — so do not spend a call on `list(pw.columns)`; `lpw` (pw + the live week), `live`, `tw`/`ty`/
 `py`/`pa`/any sheet name (text; `num(df, col)` for numbers), and TYPED sheets
 `twt`/`tyt`/`pyt`/`lwt`/`lyt` or `T("sheet")` (numbers float, Win? bool — use
 these, not the text ones). `q` takes statements too (newline or `;`); the last
@@ -91,6 +91,11 @@ the exports** through the last finalized week; `Year` is TEXT in
 "leading now" and game status is a kickoff-clock guess; **bench = every
 non-starter, taxi and IR included** (no weekly taxi flag exists). Name the
 as-of week.
+**Join players by id, never by name**: every sheet that names a player
+carries his Sleeper id (`Player ID`; `Reference player ID`, `Player Added ID` /
+`Player Dropped ID`, `Player Picked ID`, trades' `Player IDs received` / `sent`;
+`GSIS ID` on player_all_time for nflverse). Names get re-spelled (Jr./II) and
+collide (Josh Allen QB/G). `lotg_support.player_ids` has the helpers.
 **Let pandas do every count** ("more than once", "how many times", "who has
 the most"): end the `q` with `.value_counts()` / `groupby(...).size()` and quote
 that, never a tally of printed rows. Print only what the answer needs
