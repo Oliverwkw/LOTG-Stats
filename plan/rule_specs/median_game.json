@@ -1,0 +1,5 @@
+{
+  "name": "Median game",
+  "note": "Every regular-season week, an extra win for scoring above the league median.",
+  "playoffs": {"median_game": true}
+}

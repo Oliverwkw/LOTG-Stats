@@ -1,0 +1,4 @@
+{
+  "name": "Half PPR",
+  "scoring": {"set": {"rec": 0.5}}
+}

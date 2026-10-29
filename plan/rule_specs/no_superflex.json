@@ -1,0 +1,5 @@
+{
+  "name": "Drop the superflex",
+  "note": "1QB league: the SUPER_FLEX slot becomes a regular FLEX.",
+  "lineup": {"remove": ["SUPER_FLEX"], "add": ["FLEX"]}
+}

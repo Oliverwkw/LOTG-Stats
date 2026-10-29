@@ -59,3 +59,6 @@ exports/raw/pae_additions.json.gz
 # FAAB value pipeline downloads and stage caches (lotg_support.faab_data / faab_pipeline): ~300 MB of nflverse,
 # college and award data plus the walk-forward blocks. Rebuilt from public sources; never commit.
 .cache/faab/
+
+# lotg_support.rules: pickled League for the rule-change simulator (rebuilt on any input change)
+.rules_cache/
