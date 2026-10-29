@@ -166,6 +166,12 @@ points. Then, before answering:
 - **FAAB is a 100 budget with house rules**, not Sleeper's 10000 setting;
   `waivers` prints what is left on the 100 scale. Never size a bid against 10000.
 - Trades go to `trade.py` (above); a what-if season to `scripts/whatif.py`.
+- **How far to trust these tools**: `scripts/grade_tools.py` replays them
+  walk-forward (findings: `plan/notes/ADVICE_TOOLS_GRADE.md`). In short: start
+  the projection lineup (season/L3 lineups lose to the managers' own); the
+  waiver #1 is no better than managers' adds; trade.py's pts/wk sign is right
+  ~84%, a title-% move with |pts/wk| < 0.5 is noise. advise/trade print the
+  one-line track record.
 
 ## Player values in league FAAB — `scripts/faab_value.py`
 
