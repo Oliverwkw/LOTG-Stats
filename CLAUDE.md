@@ -31,6 +31,7 @@ python scripts/fast.py count all --slot MNF --live              # most starters 
 python scripts/fast.py cols "margin entering|choke"             # which sheet/column holds it (team_week has ~300)
 python scripts/fast.py rank player_week Points 44.2 --where Starter/Bench=Starter
 python scripts/fast.py live --team Oliverwkw                    # live scoreboard: starters, slots, kickoff status
+python scripts/fast.py swing --first 6 --year 2026              # scoring level vs swing per team-season, quadrant, riskiness, underdog split
 python scripts/fast.py q "pw[(pw.Team=='Oliverwkw')&(pw.Points>=40)].tail(3)"   # any pandas expression
 python scripts/fast.py q "l = twt[twt['Win?']==False]; l.nlargest(5, 'Margin entering Monday')[['Team','Year','Week','Margin entering Monday','Margin']]"   # biggest blown leads
 ```
