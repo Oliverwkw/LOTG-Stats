@@ -769,6 +769,16 @@ guard fails, fix that before quoting any number.
 Each of these has cost real time at least once. They are handled in code — the
 list is here so an answer written by hand does not walk into them.
 
+- **A name is not a key.** Sleeper re-spells names (34 players gained Jr./Sr./II
+  on 2026-10-22) and two players can share one (Josh Allen QB/G, Lamar Jackson
+  QB/CB). Every sheet that names a player carries his Sleeper id beside it
+  (`Player ID`, `Reference player ID`, `Player Added ID` / `Player Dropped ID`,
+  `Player Picked ID`, trades' `Player IDs received` / `Player IDs sent` in the
+  order the assets cell lists the players) and player_all_time has `GSIS ID`
+  for nflverse joins (`lotg_support.player_ids`). Join on those. `fast.py`'s stint
+  join, `analysis.with_position` and `inquiry.unavailable` already do; on
+  exports older than the ids they fall back to names.
+
 - **A comeback is measured against the opponent's FINAL score, not the margin
   at the time** [per user, 2026-10-05]. So a team AHEAD going into Monday whose
   opponent then pulled clear on Monday night has a "Points overcome (entering
