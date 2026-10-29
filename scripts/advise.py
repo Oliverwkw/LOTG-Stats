@@ -80,6 +80,11 @@ def cmd_startsit(args):
         print("\nmatchups: points the opponent allows to the position (top-2 scorers per game, this season;"
               " players mapped by their CURRENT NFL team, so a mid-season move blurs it):")
         print(pd.DataFrame(rows).to_string(index=False))
+    risk = A.underdog_risk(b, lg, team)
+    if risk:
+        print("\nunderdog risk (lotg_support.team_variance; stacks / shared games by CURRENT NFL team):")
+        for line in risk:
+            print("  " + line)
     _common_caveats(lg)
     print("# best:<basis> = the slot that player fills in the best lineup on that basis; flag start?/sit? where "
           "the set lineup differs from the projection's best. Taxi/IR cannot start.")

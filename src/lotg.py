@@ -1154,6 +1154,8 @@ _TOPIC_FILL = {
     # [per user, 2026-10-12: "more variation ok … blocks, no random floaters"]
     "Projections": "B4A7D6", "Win odds": "9FC5E8", "Comebacks": "E59A9A",
     "Lineup": "D5E8A4", "Partners": "BFBFBF",
+    # Team variance and lineup correlation (lotg_support.team_variance).
+    "Variance": "D6B3C9",
 }
 _FAMILY_TAB = {
     "player": "5B9BD5", "team": "70AD47", "league": "FFC000",
@@ -1175,6 +1177,7 @@ _TOPIC_IDENTITY = {
 # "number of " / "times " prefixes the three count rules below key on: the
 # bench / healthy-week counts on the player sheets and player_additions.
 from lotg_support.number_format import EXTRA_COUNT_PREFIXES as _EXTRA_COUNT_PREFIXES  # noqa: E402
+from lotg_support.team_variance import TOPIC_NAMES as _TV_TOPIC_NAMES  # noqa: E402
 
 
 def _col_topic(col: str, default: Optional[str] = "Identity") -> Optional[str]:
@@ -1188,6 +1191,10 @@ def _col_topic(col: str, default: Optional[str] = "Identity") -> Optional[str]:
         return "Partners"
     if n in _TOPIC_IDENTITY or n.startswith("team's traded with"):
         return "Identity"
+    # Team variance and lineup correlation: one block, whatever each name's
+    # keywords ("boom", "win %", "?", "projection") would otherwise pick.
+    if n in _TV_TOPIC_NAMES:
+        return "Variance"
     # One band for the whole combined-matchup block, whatever each column's
     # base stat would otherwise be (points, roster counts, hardship, ...).
     if matchup.base_column(col):
@@ -1770,6 +1777,9 @@ def _column_kind(col: str) -> str:
         # team-name holders for the highest/lowest Win% extremes (item 13)
         "team for highest win %",
         "team for lowest win %",
+        # team_year quadrant labels (lotg_support.team_variance)
+        "scoring style",
+        "scoring style (to this point)",
         # Formulas sheet — pure documentation, all four columns are text
         "stat",
         "sheet",
@@ -2061,6 +2071,10 @@ def _preserve_na(col: str) -> bool:
     # = no projection / not a start / no game — never a 0. The award flags,
     # their streaks and "Times …" counts keep the 0 fill like the other awards.
     if col_l in {"sleeper boldness", "sleeper lineup boldness"}:
+        return True
+    # Team variance (lotg_support.team_variance): blank = no starters / no
+    # underdog weeks / under two weeks — never a 0.
+    if col_l in _TV_TOPIC_NAMES:
         return True
     if "projection" in col_l and "streak" not in col_l \
             and not col_l.startswith(("overachiever", "underachiever", "times ", "combined ")):
@@ -23642,6 +23656,29 @@ def build_all(repo_root: Path) -> None:
                     league_all[_c] = _la[_c].iloc[0]
     except Exception as e:
         _log_exc(debug, "projection_rollups", e)
+
+    # Team variance and lineup correlation (lotg_support.team_variance): the
+    # pre-week lineup SD from each starter's spread and the league's fitted
+    # same-team / same-game correlations, stacks and same-game exposure, boom /
+    # bust weeks, and the underdog split. After the projection block: it reads
+    # team_week's Enhanced Projection and pre-week Win %. Padded rows read N/A.
+    try:
+        import time as _time
+        from lotg_support import team_variance as _tv
+        _tv_t0 = _time.time()
+        _tvw = _tv.week_columns(pw, tw, _proj_games)
+        tw = _tv.attach(tw, _tvw, ["Team", "Year", "Week"], _tv.WEEK_COLUMNS)
+        team_year = _tv.attach(team_year, _tv.rollup(_tvw, tw, ["Team", "Year"], _tv.TEAM_YEAR_COLUMNS),
+                               ["Team", "Year"], _tv.TEAM_YEAR_COLUMNS)
+        team_all = _tv.attach(team_all, _tv.rollup(_tvw, tw, ["Team"], _tv.TEAM_COLUMNS),
+                              ["Team"], _tv.TEAM_COLUMNS)
+        league_year = _tv.attach(league_year, _tv.rollup(_tvw, tw, ["Year"], _tv.LEAGUE_YEAR_COLUMNS),
+                                 ["Year"], _tv.LEAGUE_YEAR_COLUMNS)
+        league_all = _tv.attach(league_all, _tv.rollup(_tvw, tw, [], _tv.LEAGUE_COLUMNS),
+                                [], _tv.LEAGUE_COLUMNS)
+        _log(debug, f"[{_now_iso()}] team variance: {len(_tvw)} team-weeks in {_time.time() - _tv_t0:.1f}s")
+    except Exception as e:
+        _log_exc(debug, "team_variance", e)
 
     # player_week "Win?": the player's team's result that week, read from
     # team_week [per user, 2026-10-13: "for easy use, add a win-loss column to

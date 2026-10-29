@@ -565,3 +565,59 @@ def team_seasons() -> pd.DataFrame:
     team_year's own `All-play win %` counts playoff weeks too). Lines up with
     `starter_share` for `corr`. Cached — copy before mutating."""
     return _team_seasons_cached(str(Q.repo_root()))
+
+
+SWING_EXTRA = ["Boom week %", "Bust week %", "Avg lineup riskiness",
+               "Avg lineup riskiness as underdog", "Avg lineup riskiness as favorite",
+               "Underdog win % (risky lineup)", "Underdog win % (safe lineup)", "QB-receiver stacks"]
+
+
+def swing_table(first: Optional[int] = None) -> Tuple[pd.DataFrame, List[str]]:
+    """Scoring level vs consistency per team-season (AceMatthew's league-chat
+    charts as a table): average weekly score, `Weekly score swing` (SD) and
+    `Weekly score swing %` (SD / average) of the starters' points, every week
+    with a matchup (`first` = weeks 1..first only), and the quadrant against
+    the medians of completed seasons (with `first`, of every season that has
+    all `first` weeks). team_year's team-variance columns join on
+    when the build has them. Returns (table, caveats)."""
+    import numpy as np
+    pw = player_weeks()
+    st = pw[pw["Starter/Bench"] == "Starter"]
+    if first:
+        st = st[st["Week"] <= first]
+    wk = st.groupby(["Team", "Year", "Week"])["Points"].sum(min_count=1).dropna().reset_index()
+    g = wk.groupby(["Team", "Year"])["Points"]
+    t = pd.DataFrame({"Weeks": g.size(), "Avg score": g.mean().round(2),
+                      "Weekly score swing": g.std(ddof=1).round(2)})
+    t["Weekly score swing %"] = (100 * t["Weekly score swing"] / t["Avg score"]).round(1)
+    if first:
+        t = t[t["Weeks"] >= first]
+    done = int(t.index.get_level_values("Year").max())        # the season in progress
+    # Full seasons compare with completed ones; a first-N view with every season
+    # that has all N weeks (the season in progress included, as in the charts).
+    comp = t if first else t[t.index.get_level_values("Year") < done]
+    mx, my = comp["Avg score"].median(), comp["Weekly score swing %"].median()
+    t["Quadrant"] = [("High-scoring" if a >= mx else "Low-scoring") + (", up-and-down" if s >= my else ", steady")
+                     for a, s in zip(t["Avg score"], t["Weekly score swing %"])]
+    r = float(np.corrcoef(comp["Avg score"], comp["Weekly score swing %"])[0, 1]) if len(comp) > 2 else float("nan")
+    try:
+        ty = typed_sheet("team_year").set_index(["Team", "Year"])
+        extra = [c for c in SWING_EXTRA if c in ty.columns]
+    except Exception:   # noqa: BLE001 - no export, no extras
+        ty, extra = None, []
+    if extra:
+        t = t.join(ty[extra])
+    notes = [
+        f"starters' points per week (semifinal +5 left out), {'weeks 1-' + str(first) if first else 'every week with a matchup, playoffs and consolation included'}",
+        f"swing = how far a typical week lands from the team's average (standard deviation); swing % = that / the average",
+        f"quadrant lines = medians of {'every season with weeks 1-' + str(first) if first else f'completed seasons (before {done})'}: "
+        f"average {mx:.1f}, swing {my:.1f}%",
+        f"correlation of average and swing % over those seasons r = {r:.2f} (negative = higher scorers are steadier)",
+        f"{done} is in progress ({int(t.xs(done, level='Year')['Weeks'].max()) if done in t.index.get_level_values('Year') else 0} weeks)",
+    ]
+    if not extra:
+        notes.append("team_year has no team-variance columns yet (riskiness, boom/bust, underdog): rebuild after PR merge")
+    else:
+        notes.append("riskiness 1.00 = normal swing for the lineup's projected strength; >1 = boom-or-bust picks. "
+                     "Underdog win % rows are small samples per season: read league_year / league_all_time")
+    return t.reset_index(), notes
