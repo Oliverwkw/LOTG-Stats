@@ -143,10 +143,12 @@ def _player_weeks_cached(root: str) -> pd.DataFrame:
     t["Win?"] = t["Win?"].astype(str).str.lower().eq("true")
     out = out.merge(t, on=["Team", "Year", "Week"], how="left")
     out["Live"] = False
-    out = acquisition_columns(out)
-    # The Sleeper id last, so the columns before it read as they always have.
     if ID in pw.columns:
         out[ID] = pw[ID].map(_clean_id).astype(object).values
+    out = acquisition_columns(out)
+    # The Sleeper id last, so the columns before it read as they always have.
+    if ID in out.columns:
+        out = out[[c for c in out.columns if c != ID] + [ID]]
     return out
 
 
