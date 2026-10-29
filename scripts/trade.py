@@ -79,6 +79,12 @@ def one(args, pw) -> None:
     print()
     for c in T.caveats(tr, run_, table, kt):
         print(f"# {c}")
+    if run_ is not None:
+        try:
+            from lotg_support import grade
+            print(f"# {grade.track_record('trade')}")
+        except Exception as exc:   # noqa: BLE001 — never let the record break the check
+            print(f"# track record unavailable ({type(exc).__name__})")
 
 
 def main(argv=None) -> None:
