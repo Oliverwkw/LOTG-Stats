@@ -7,6 +7,8 @@
   side, the head-to-head matrix is antisymmetric and matches team_week, the
   standings' games equal the regular-season weeks played, every team and
   every player has a page and player keys are unique;
+- the Data page holds every sheet of exports/ whole (rows, columns, cells) and
+  its downloads are the committed CSVs;
 - privacy: nothing in the output carries a private marker (DM/chat exports,
   negotiation notes, manager profiles, credentials), and the shell never
   shadows docs/rate/ (the rating page and its vote collection).
@@ -59,7 +61,7 @@ def _load(rel: str):
 def privacy_problems(site_dir: Path) -> list:
     problems = []
     for f in Path(site_dir).rglob("*"):
-        if not f.is_file() or f.suffix not in (".json", ".html", ".js", ".css", ".txt", ".md"):
+        if not f.is_file() or f.suffix not in (".json", ".html", ".js", ".css", ".txt", ".md", ".csv"):
             continue
         if any(part in ("rate",) for part in f.relative_to(site_dir).parts[:1]):
             continue        # docs/rate/ is published today already; it is not generated here
@@ -174,6 +176,27 @@ def _players_have_unique_pages():
     assert set(keys) == files
 
 
+def _every_export_cell_is_on_the_site():
+    """The Data page carries every sheet in exports/, every row and every column,
+    and the downloads are the committed CSVs byte for byte."""
+    import filecmp
+    ix = _load("sheets/index.json")["sheets"]
+    sheets = sorted(p.stem for p in (_ROOT / "exports").glob("*.csv"))
+    assert [m["sheet"] for m in ix] == sheets
+    for m in ix:
+        csv = _ROOT / "exports" / f"{m['sheet']}.csv"
+        df = pd.read_csv(csv, low_memory=False)
+        assert m["cols"] == [str(c) for c in df.columns], m["sheet"]
+        rows = [r for _, key, _n in m["chunks"] for r in _load(f"sheets/{m['sheet']}/{key}.json")["rows"]]
+        assert len(rows) == len(df) == m["rows"], m["sheet"]
+        assert all(len(r) == len(m["cols"]) for r in rows), m["sheet"]
+        # every non-empty cell survives (numbers to the workbook's places and beyond)
+        filled = int(df.notna().sum().sum())
+        kept = sum(1 for r in rows for v in r if v is not None)
+        assert kept >= filled - int((df.astype(str) == "N/A").sum().sum()), m["sheet"]
+        assert filecmp.cmp(csv, _built() / m["csv"], shallow=False), m["sheet"]
+
+
 def _output_has_nothing_private():
     assert privacy_problems(_built()) == []
     # the generator names no private source in its code (docstrings aside)
@@ -195,7 +218,8 @@ def test_built_site_reconciles():
         return _skip("no exports/")
     for check in (_build_writes_every_page, _every_trade_row_is_one_side,
                   _head_to_head_matches_team_week, _standings_count_regular_season_games,
-                  _players_have_unique_pages, _output_has_nothing_private):
+                  _players_have_unique_pages, _every_export_cell_is_on_the_site,
+                  _output_has_nothing_private):
         check()
 
 

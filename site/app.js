@@ -91,11 +91,39 @@ const idx = (t, c) => t.cols.indexOf(c);
 
 // ---------- pages
 const routes = {
-  "": home, teams, team, player, records, h2h, trades, draft, search,
+  "": home, teams, team, player, records, h2h, trades, draft, search, faab, data,
 };
 
+// ---------- FAAB board (docs/rate/board.json, published with the rating page)
+let boardP = null;
+const loadBoard = () => boardP || (boardP = fetch("rate/board.json").then((r) => (r.ok ? r.json() : null)).catch(() => null));
+const money = (v) => (typeof v === "number" ? "$" + Math.round(v).toLocaleString("en-US") : "—");
+function ownerTeam(o, teams) {
+  if (!o) return null;
+  return teams.find((t) => t.toLowerCase() === String(o).toLowerCase()) || o;
+}
+// the nearest rookie-pick comparison, as the rating page words it
+function pickText(B, v) {
+  const S = (B.picks || []).filter((p) => p.value > 0);
+  if (!S.length || typeof v !== "number") return "";
+  const low = S[S.length - 1];
+  if (v < low.value * 0.75) return "less than a " + low.slot.split(".")[0] + "th-round rookie pick";
+  const R = S.filter((p) => +p.slot.split(".")[0] <= 2);
+  let best = null, bestE = 1e9;
+  const consider = (set) => {
+    const sum = set.reduce((a, p) => a + p.value, 0), e = Math.abs(Math.log(sum / v)) + 0.06 * (set.length - 1);
+    if (e < bestE) { bestE = e; best = set; }
+  };
+  for (const p of S) consider([p]);
+  for (let i = 0; i < R.length; i++) for (let j = i + 1; j < R.length; j++) {
+    consider([R[i], R[j]]);
+    for (let k = j + 1; k < R.length; k++) consider([R[i], R[j], R[k]]);
+  }
+  return "about the " + best.map((p) => p.slot).join(" + ") + " rookie pick" + (best.length > 1 ? "s" : "");
+}
+
 async function home() {
-  const [meta, h] = await Promise.all([load("meta.json"), load("home.json")]);
+  const [meta, h, B] = await Promise.all([load("meta.json"), load("home.json"), loadBoard()]);
   const odds = {};
   (h.forecast?.odds || []).forEach((o) => (odds[o.team] = o));
   const hasOdds = h.forecast && h.forecast.odds;
@@ -145,6 +173,9 @@ async function home() {
       { k: "playoffs", label: "Playoffs", html: (r) => pct1(r.playoffs) },
     ], h.forecast.odds, { sort: 1 })}</div>` : ""}
     <div class="card"><h2>${esc(meta.week_name)} results</h2><div class="games">${games}</div></div>
+    ${B ? `<div class="card"><h2>FAAB values</h2><p class="muted small">Board of ${esc(B.as_of)} · stats-only values in league FAAB</p>
+      <ol>${B.players.slice(0, 5).map((x) => `<li>${playerLink(x.name)} <span class="muted small">${esc(x.pos)}</span> <b>${money(x.value)}</b></li>`).join("")}</ol>
+      <p><a href="#/faab">Full board →</a> · <a href="rate/">Rate the board</a></p></div>` : ""}
     <div class="card digest"><h2>This week in the digest</h2>
       ${d.lede ? `<p>${esc(d.lede)}</p>` : `<p class="muted">No digest yet.</p>`}${digestHtml}</div>`;
 }
@@ -199,6 +230,7 @@ async function team(slug) {
   $app.innerHTML = `
     <h1>${esc(t.team)}</h1>
     ${tiles(t.summary, t.summary_labels, t.summary_fmt)}
+    <p class="small">Every row: ${[["team_week", "weeks"], ["team_year", "seasons"], ["team_all_time", "all-time"], ["trades", "trades"], ["add_drops", "add/drops"], ["player_additions", "pickups"], ["rookie_picks", "rookie picks"]].map(([s, n]) => `<a href="#/data/${s}?c=Team&v=${encodeURIComponent(t.team)}">${n}</a>`).join(" · ")} · <a href="#/faab?owner=${encodeURIComponent(t.team)}">FAAB values</a></p>
     <div class="grid">
       <div class="card"><h2>Head to head</h2>${table([
         { k: "opp", label: "Opponent", left: true, html: (r) => teamLink(r.opp) },
@@ -222,14 +254,18 @@ async function team(slug) {
 }
 
 async function player(key) {
-  const [p, tr] = await Promise.all([load(`player/${key}.json`), load("trades.json")]);
+  const [p, tr, B] = await Promise.all([load(`player/${key}.json`), load("trades.json"), loadBoard()]);
   const byId = Object.fromEntries(tr.trades.map((x) => [x.id, x]));
   const d = p.draft;
+  const fv = B && B.players.find((x) => x.name === p.name);
+  const enc = encodeURIComponent(p.name);
   $app.innerHTML = `
     <h1>${esc(p.name)}</h1>
     <p class="muted">${[p.pos, p.nfl, p.team ? "on " + teamLink(p.team) : "not on a roster now"].filter(Boolean).join(" · ")}
       ${d ? ` · drafted ${esc(d.year)} pick ${esc(d.pick)} by ${teamLink(d.team)}` : ""}</p>
+    ${fv ? `<div class="card"><b>FAAB value ${money(fv.value)}</b> <span class="muted">· #${fv.rank} on the board of ${esc(B.as_of)} · ${esc(pickText(B, fv.value))}</span> · <a href="#/faab">board</a> · <a href="rate/">rate it</a></div>` : ""}
     ${tiles(p.summary, p.summary_labels, p.summary_fmt)}
+    <p class="small">Every row: <a href="#/data/player_week?c=Player&v=${enc}&y=all">weeks</a> · <a href="#/data/player_year?c=Player&v=${enc}">seasons</a> · <a href="#/data/player_all_time?c=Player&v=${enc}">career</a> · <a href="#/data/player_additions?c=Player&v=${enc}">acquisitions</a> · <a href="#/data/add_drops?q=${enc}">add/drops</a></p>
     <div class="card"><h2>Career by team</h2>${table([
       { k: "team", label: "Team", left: true, html: (r) => teamLink(r.team) },
       { k: "from", label: "From", left: true }, { k: "to", label: "To", left: true },
@@ -408,7 +444,187 @@ async function search(q) {
   const hits = ql ? ix.map((r) => [score(r[2]), r]).filter(([s]) => s < 9).sort((a, b) => a[0] - b[0] || (b[1][4] || 0) - (a[1][4] || 0)).slice(0, 60).map((x) => x[1]) : [];
   $app.innerHTML = `<h1>Search</h1>
     <div class="card"><ul class="res">${hits.map((r) => `<li><a href="#/${r[0] === "t" ? "team" : "player"}/${esc(r[1])}">${esc(r[2])}</a><span class="muted small">${esc(r[3])}</span></li>`).join("") || `<li class="muted">${ql ? "No players or teams match." : "Type a name."}</li>`}</ul></div>
+    ${ql ? `<div class="card"><h2>Every row mentioning “${esc(q)}”</h2><p>${["player_week", "player_year", "team_week", "trades", "add_drops", "player_additions", "rookie_picks"].map((k) => `<a class="chip" href="#/data/${k}?q=${encodeURIComponent(q)}${k === "player_week" ? "&y=all" : ""}">${k}</a>`).join("")}</p></div>` : ""}
     ${ql ? `<div class="card"><h2>Stats named “${esc(q)}”</h2><p>${SHEETS.map(([k, n]) => `<a class="chip" href="#/records/${k}?q=${encodeURIComponent(q)}">${n}</a>`).join("")}</p></div>` : ""}`;
+}
+
+async function faab(_, query) {
+  const [B, meta] = await Promise.all([loadBoard(), load("meta.json")]);
+  if (!B) { $app.innerHTML = `<h1>FAAB values</h1><p class="muted">The board is not published yet.</p>`; return; }
+  const params = new URLSearchParams(query || "");
+  let pos = params.get("pos") || "", owner = params.get("owner") || "", q = "";
+  const rows = B.players.map((x) => ({ ...x, own: ownerTeam(x.owner, meta.teams) }));
+  const totals = meta.teams.map((t) => {
+    const mine = rows.filter((r) => r.own === t);
+    const by = (p) => mine.filter((r) => r.pos === p).reduce((a, r) => a + r.value, 0);
+    return { t, total: mine.reduce((a, r) => a + r.value, 0), n: mine.length, QB: by("QB"), RB: by("RB"), WR: by("WR"), TE: by("TE"),
+             top: mine[0] };
+  });
+  const maxT = Math.max(...totals.map((x) => x.total), 1);
+  const positions = [...new Set(rows.map((r) => r.pos))].filter(Boolean);
+  function draw() {
+    const ql = q.toLowerCase();
+    const rs = rows.filter((r) => (!pos || r.pos === pos) && (!owner || (owner === "FA" ? !r.own : r.own === owner))
+      && (!ql || r.name.toLowerCase().includes(ql)));
+    document.getElementById("fb").innerHTML = `<p class="muted small">${rs.length} players</p>` + table([
+      { k: "rank", label: "#" },
+      { k: "name", label: "Player", left: true, html: (r) => playerLink(r.name) },
+      { k: "pos", label: "Pos", left: true }, { k: "team", label: "NFL", left: true },
+      { k: "age", label: "Age", spec: { d: 1 } },
+      { k: "own", label: "Owner", left: true, html: (r) => (r.own ? teamLink(r.own) : '<span class="muted">Free agent</span>') },
+      { k: "injury", label: "Injury", left: true, html: (r) => (r.injury ? `<span class="chip live">${esc(r.injury)}</span>` : "") },
+      { k: "value", label: "Value", html: (r) => `<b>${money(r.value)}</b>` },
+      { k: (r) => r.value, label: "≈ rookie picks", left: true, html: (r) => `<span class="muted small">${esc(pickText(B, r.value).replace(/^about the /, ""))}</span>` },
+    ], rs.slice(0, 400), { sort: 0, asc: true });
+  }
+  $app.innerHTML = `<h1>FAAB values</h1>
+    <p class="muted">Board of ${esc(B.as_of)} · ${B.players.length} players · a work in progress, rebuilt every week</p>
+    <div class="card"><p>The model prices every player in league FAAB (the house 100-dollar budget scale). It uses stats only: general rules fitted to this league's trades, cuts and calls, with no hand-set prices. The league's answers on the rating page show which rules fit. They are a capped signal and never move a player's value directly.</p>
+      <p><a class="chip" style="font-size:14px;padding:6px 12px;background:var(--accent);color:var(--accent-ink)" href="rate/">Rate the board →</a> <span class="muted small">Pick which of two players is worth more and say whether each value looks right. It takes a minute.</span></p>
+      <details><summary>Answer here without leaving this page</summary><iframe src="rate/" title="LOTG value check" loading="lazy" style="width:100%;height:1100px;border:1px solid var(--line);border-radius:12px;background:var(--bg)"></iframe></details></div>
+    <div class="card"><h2>Roster value by team</h2>${table([
+      { k: "t", label: "Team", left: true, html: (r) => `<a href="#/faab?owner=${encodeURIComponent(r.t)}" onclick="">${esc(r.t)}</a>` },
+      { k: "total", label: "Total", html: (r) => `<div style="display:flex;gap:8px;align-items:center;justify-content:flex-end"><b>${money(r.total)}</b><div class="bar-h" style="width:90px"><i style="width:${(100 * r.total) / maxT}%"></i></div></div>` },
+      { k: "QB", label: "QB", html: (r) => money(r.QB) }, { k: "RB", label: "RB", html: (r) => money(r.RB) },
+      { k: "WR", label: "WR", html: (r) => money(r.WR) }, { k: "TE", label: "TE", html: (r) => money(r.TE) },
+      { k: "n", label: "Players" },
+      { k: (r) => r.top?.value, label: "Most valuable", left: true, html: (r) => (r.top ? `${playerLink(r.top.name)} ${money(r.top.value)}` : "—") },
+    ], totals, { sort: 1 })}</div>
+    <div class="card"><h2>Board</h2>
+      <div class="controls">
+        <select id="fp"><option value="">All positions</option>${positions.map((p) => `<option ${p === pos ? "selected" : ""}>${esc(p)}</option>`).join("")}</select>
+        <select id="fo"><option value="">All owners</option><option value="FA" ${owner === "FA" ? "selected" : ""}>Free agents</option>${meta.teams.map((t) => `<option ${t === owner ? "selected" : ""}>${esc(t)}</option>`).join("")}</select>
+        <input class="f" id="fq" type="search" placeholder="Player">
+      </div><div id="fb"></div></div>
+    <div class="card"><h2>Rookie pick values</h2><p>${(B.picks || []).map((p) => `<span class="chip">${esc(p.slot)} ${money(p.value)}</span>`).join("")}</p>
+      <p class="muted small">What a rookie-draft slot is worth on the same scale.</p></div>`;
+  document.getElementById("fp").onchange = (e) => { pos = e.target.value; draw(); };
+  document.getElementById("fo").onchange = (e) => { owner = e.target.value; draw(); };
+  document.getElementById("fq").oninput = (e) => { q = e.target.value.trim(); draw(); };
+  draw();
+}
+
+// ---------- every export sheet, whole
+const PAGE = 100;
+const prefs = { get(k, d) { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch (e) { return d; } },
+                set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) { /* private mode */ } } };
+const kb = (n) => (n >= 1e6 ? (n / 1e6).toFixed(1) + " MB" : Math.round(n / 1e3) + " KB");
+const SHEET_NAMES = Object.fromEntries(SHEETS);
+SHEET_NAMES.formulas = "Column definitions (formulas)";
+SHEET_NAMES.league_all_time = "League all-time";
+SHEET_NAMES.non_rookie_picks = "Startup & vet picks";
+async function data(sheet, query) {
+  const ix = await load("sheets/index.json");
+  if (!sheet) {
+    $app.innerHTML = `<h1>Data</h1>
+      <p class="muted">Every sheet of the league's stats exports, every row and every column, to browse, filter, sort or download. The workbook's sheets, as CSV.</p>
+      <div class="grid">${ix.sheets.map((m) => `<div class="card"><h2><a href="#/data/${m.sheet}">${esc(SHEET_NAMES[m.sheet] || m.sheet)}</a></h2>
+        <p class="muted small">${m.sheet}.csv · ${m.rows.toLocaleString()} rows · ${m.cols.length} columns${m.chunks.length > 1 ? ` · by ${esc(m.season_col)}` : ""}</p>
+        <p><a href="#/data/${m.sheet}">Browse</a> · <a href="${m.csv}" download>Download CSV (${kb(m.csv_bytes)})</a></p></div>`).join("")}</div>`;
+    return;
+  }
+  const m = ix.sheets.find((x) => x.sheet === sheet);
+  if (!m) throw new Error("No sheet " + sheet);
+  const params = new URLSearchParams(query || "");
+  let chunk = params.get("y") || (m.chunks.length > 1 ? m.chunks[m.chunks.length - 1][1] : "all");
+  let q = params.get("q") || "", fc = params.get("c") || "", fo = params.get("o") || "=", fv = params.get("v") || "";
+  let sortBy = -1, asc = false, page = 0;
+  const all = m.cols.map((_, i) => i);
+  let shown = prefs.get("cols:" + sheet, null);
+  if (!Array.isArray(shown) || shown.some((i) => i >= m.cols.length)) shown = m.cols.length <= 30 ? all : all.slice(0, 18);
+  let rows = [];
+  async function fetchRows() {
+    const parts = chunk === "all" && m.chunks.length > 1 ? m.chunks.map((c) => c[1]) : [chunk];
+    document.getElementById("dcount").textContent = "Loading…";
+    const got = await Promise.all(parts.map((c) => load(`sheets/${sheet}/${c}.json`)));
+    rows = [].concat(...got.map((g) => g.rows));
+  }
+  const fi = () => m.cols.indexOf(fc);
+  function filtered() {
+    const ql = q.trim().toLowerCase();
+    const ci = fi();
+    const num = parseFloat(fv);
+    return rows.filter((r) => {
+      if (ql && !r.some((x) => x !== null && String(x).toLowerCase().includes(ql))) return false;
+      if (ci >= 0 && fv !== "") {
+        const x = r[ci];
+        if (fo === "=") return String(x ?? "").toLowerCase() === fv.toLowerCase();
+        if (fo === "~") return String(x ?? "").toLowerCase().includes(fv.toLowerCase());
+        if (typeof x !== "number" || isNaN(num)) return false;
+        return fo === ">" ? x > num : fo === "<" ? x < num : fo === ">=" ? x >= num : x <= num;
+      }
+      return true;
+    });
+  }
+  function draw() {
+    let rs = filtered();
+    if (sortBy >= 0) rs = rs.slice().sort((a, b) => {
+      const x = a[sortBy], y = b[sortBy];
+      if (x === y) return 0;
+      if (x === null || x === undefined) return 1;
+      if (y === null || y === undefined) return -1;
+      const d = typeof x === "number" && typeof y === "number" ? x - y : String(x).localeCompare(String(y), undefined, { numeric: true });
+      return asc ? d : -d;
+    });
+    const pages = Math.max(1, Math.ceil(rs.length / PAGE));
+    page = Math.min(page, pages - 1);
+    const slice = rs.slice(page * PAGE, page * PAGE + PAGE);
+    const head = shown.map((i) => `<th data-i="${i}" class="l${sortBy === i ? " sorted" + (asc ? " asc" : "") : ""}" title="${esc(m.defs[m.cols[i]] || "")}">${esc(m.labels[i])}${m.defs[m.cols[i]] ? " ⓘ" : ""}</th>`).join("");
+    const cell = (i, v) => {
+      const c = m.cols[i];
+      if (v === null || v === undefined) return '<td class="muted">—</td>';
+      if (typeof v === "string") {
+        if (["Team", "Top team", "Top Team", "Last team", "Opponent", "Original Team"].includes(c) || c.startsWith("Team's traded with")) return `<td class="l">${teamLink(v)}</td>`;
+        if (["Player", "Player Picked", "Player Added", "Player Dropped"].includes(c)) return `<td class="l">${playerLink(v)}</td>`;
+        return `<td class="l">${esc(v)}</td>`;
+      }
+      return `<td>${fmt(m.fmt[c], v)}</td>`;
+    };
+    document.getElementById("dt").innerHTML = `<table><thead><tr>${head}</tr></thead><tbody>${slice.map((r) => `<tr>${shown.map((i) => cell(i, r[i])).join("")}</tr>`).join("")}</tbody></table>`;
+    document.getElementById("dcount").textContent = `${rs.length.toLocaleString()} of ${rows.length.toLocaleString()} rows · ${shown.length} of ${m.cols.length} columns`;
+    document.getElementById("dpg").innerHTML = pages > 1 ? `<button data-p="-1" ${page === 0 ? "disabled" : ""}>‹ Prev</button> <span class="muted small">page ${page + 1} of ${pages}</span> <button data-p="1" ${page >= pages - 1 ? "disabled" : ""}>Next ›</button>` : "";
+  }
+  const colPicker = () => m.cols.map((c, i) => `<label style="display:inline-flex;gap:4px;margin:0 10px 4px 0;font-size:13px"><input type="checkbox" data-c="${i}" ${shown.includes(i) ? "checked" : ""}>${esc(m.labels[i])}</label>`).join("");
+  $app.innerHTML = `<p class="small"><a href="#/data">← All sheets</a></p>
+    <h1>${esc(SHEET_NAMES[sheet] || sheet)}</h1>
+    <p class="muted small">${sheet}.csv · ${m.rows.toLocaleString()} rows · ${m.cols.length} columns · <a href="${m.csv}" download>Download CSV (${kb(m.csv_bytes)})</a></p>
+    <div class="controls">
+      ${m.chunks.length > 1 ? `<select id="dy">${m.chunks.map(([n, s, k]) => `<option value="${s}" ${s === chunk ? "selected" : ""}>${esc(m.season_col)} ${esc(n)} (${k.toLocaleString()} rows)</option>`).join("")}<option value="all" ${chunk === "all" ? "selected" : ""}>All (${m.rows.toLocaleString()} rows, slower)</option></select>` : ""}
+      <input class="f" id="dq" type="search" placeholder="Search every cell" value="${esc(q)}">
+    </div>
+    <div class="controls">
+      <select id="dc"><option value="">Filter a column…</option>${m.cols.map((c, i) => `<option value="${esc(c)}" ${c === fc ? "selected" : ""}>${esc(m.labels[i])}</option>`).join("")}</select>
+      <select id="do">${["=", "~", ">", ">=", "<", "<="].map((o) => `<option value="${o}" ${o === fo ? "selected" : ""}>${{ "=": "is", "~": "contains", ">": ">", ">=": "≥", "<": "<", "<=": "≤" }[o]}</option>`).join("")}</select>
+      <input class="f" id="dv" placeholder="value" value="${esc(fv)}">
+    </div>
+    <details><summary>Columns (${m.cols.length})</summary>
+      <p><span class="seg" style="margin:0"><button id="call">All</button><button id="cnone">None</button><button id="cdef">Default</button></span></p>
+      <div id="cp">${colPicker()}</div></details>
+    <details><summary>What each column means</summary><input class="f" id="gq" type="search" placeholder="Filter definitions" style="width:100%;margin-bottom:8px"><div id="gl"></div></details>
+    <p class="muted small" id="dcount"></p>
+    <div class="card"><div class="scroll" id="dt"></div><div class="seg" id="dpg" style="margin-top:10px"></div>
+      <p class="muted small">Numbers show the workbook's decimal places. Team PF includes the semifinal +5; player points do not. Tap a column header to sort; ⓘ = has a definition (hover, or see "What each column means").</p></div>`;
+  const glossary = (ql) => m.cols.map((c, i) => [m.labels[i], m.defs[c]]).filter(([l, d]) => !ql || (l + " " + (d || "")).toLowerCase().includes(ql))
+    .map(([l, d]) => `<p class="small"><b>${esc(l)}</b> — ${d ? esc(d) : '<span class="muted">no definition in formulas.csv</span>'}</p>`).join("");
+  document.getElementById("gl").innerHTML = glossary("");
+  document.getElementById("gq").oninput = (e) => (document.getElementById("gl").innerHTML = glossary(e.target.value.trim().toLowerCase()));
+  const setShown = (s) => { shown = s; prefs.set("cols:" + sheet, shown); document.getElementById("cp").innerHTML = colPicker(); draw(); };
+  document.getElementById("cp").onchange = (e) => { const i = +e.target.dataset.c; setShown(e.target.checked ? [...shown, i].sort((a, b) => a - b) : shown.filter((x) => x !== i)); };
+  document.getElementById("call").onclick = () => setShown(all);
+  document.getElementById("cnone").onclick = () => setShown([0]);
+  document.getElementById("cdef").onclick = () => setShown(m.cols.length <= 30 ? all : all.slice(0, 18));
+  document.getElementById("dt").onclick = (e) => { const th = e.target.closest("th"); if (!th) return; const i = +th.dataset.i; if (sortBy === i) asc = !asc; else { sortBy = i; asc = false; } draw(); };
+  document.getElementById("dpg").onclick = (e) => { const b = e.target.closest("button[data-p]"); if (!b) return; page += +b.dataset.p; draw(); document.getElementById("dcount").scrollIntoView(); };
+  let deb;
+  document.getElementById("dq").oninput = (e) => { clearTimeout(deb); deb = setTimeout(() => { q = e.target.value; page = 0; draw(); }, 200); };
+  document.getElementById("dc").onchange = (e) => { fc = e.target.value; page = 0; draw(); };
+  document.getElementById("do").onchange = (e) => { fo = e.target.value; page = 0; draw(); };
+  document.getElementById("dv").oninput = (e) => { clearTimeout(deb); deb = setTimeout(() => { fv = e.target.value; page = 0; draw(); }, 200); };
+  if (document.getElementById("dy")) document.getElementById("dy").onchange = async (e) => { chunk = e.target.value; page = 0; await fetchRows(); draw(); };
+  // a column filter from a link shows that column
+  if (fi() >= 0 && !shown.includes(fi())) shown = [fi(), ...shown];
+  await fetchRows();
+  draw();
 }
 
 // ---------- router

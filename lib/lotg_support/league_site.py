@@ -41,8 +41,10 @@ SHELL = ROOT / "site"
 
 # Every file the generator reads. Anything else is off limits.
 INPUTS = (
-    "exports/*.csv",
+    "exports/*.csv",                 # every sheet, served whole on the Data page (+ CSV downloads)
     "data/digest/last_digest.html",
+    # docs/rate/board.json (FAAB values) is not read here: it ships with docs/ and the page
+    # fetches it, so the FAAB page is always the board the rating page shows.
     # the forecast reads exports/ and exports/snapshot/ through lotg_support.inquiry
 )
 
@@ -306,6 +308,48 @@ def forecast_odds(year: int, sims: int = 20000) -> Optional[Dict[str, object]]:
              "next": None if o.next_week is None else round(o.next_week, 2)}
             for o in fc.by_champion()]
     return {"year": year, "sims": fc.sims, "played": list(fc.played_weeks), "odds": rows}
+
+
+# ---------------------------------------------------------------- data explorer
+
+CHUNK_BYTES = 1_500_000          # a sheet bigger than this as CSV is split by season
+GLOSSARY_SHEET = "formulas"      # exports/formulas.csv: every column's definition
+
+
+def export_sheets() -> List[str]:
+    """Every sheet in exports/ (the 14 tables and the formulas glossary)."""
+    return sorted(p.stem for p in EXPORTS.glob("*.csv"))
+
+
+def _season_key(df: pd.DataFrame) -> Optional[str]:
+    for c in ("Year", "Season"):
+        if c in df.columns:
+            return c
+    return None
+
+
+def _defs_by_sheet() -> Dict[str, Dict[str, str]]:
+    """formulas.csv -> {sheet: {column: definition}}; a row whose Sheet lists
+    several sheets ("team_year / team_all_time") defines the column on each."""
+    f = _read(GLOSSARY_SHEET)
+    out: Dict[str, Dict[str, str]] = {}
+    if f.empty:
+        return out
+    for _, r in f.iterrows():
+        text = " ".join(str(x) for x in (r.get("Formula"), r.get("Notes")) if isinstance(x, str) and x.strip())
+        for sheet in str(r.get("Sheet", "")).split("/"):
+            out.setdefault(sheet.strip(), {})[str(r["Stat"])] = text
+    return out
+
+
+def sheet_chunks(sheet: str, df: pd.DataFrame) -> Dict[str, pd.DataFrame]:
+    """The sheet whole ("all"), or split by season when its CSV is large."""
+    path = EXPORTS / f"{sheet}.csv"
+    key = _season_key(df)
+    if key is None or not path.exists() or path.stat().st_size <= CHUNK_BYTES:
+        return {"all": df}
+    vals = df[key].astype(str).str.replace(r"\.0$", "", regex=True)
+    return {v: df[vals == v] for v in sorted(vals.unique())}
 
 
 # ---------------------------------------------------------------- builders
@@ -641,6 +685,28 @@ class Site:
             }
         return out
 
+    # -- every export sheet, whole
+    def sheets(self, put) -> Dict[str, object]:
+        defs = _defs_by_sheet()
+        index = []
+        for sheet in export_sheets():
+            df = _read(sheet)
+            cols = [str(c) for c in df.columns]
+            chunks = sheet_chunks(sheet, df)
+            for name, part in chunks.items():
+                put(f"sheets/{sheet}/{slug(name)}.json", {"rows": _records(part, cols)})
+            index.append({
+                "sheet": sheet, "rows": int(len(df)), "cols": cols,
+                "labels": [_display(c, sheet) for c in cols],
+                "fmt": {c: column_format(c) for c in cols if sheet != GLOSSARY_SHEET},
+                "chunks": [[name, slug(name), int(len(part))] for name, part in chunks.items()],
+                "season_col": _season_key(df) if len(chunks) > 1 else None,
+                "csv": f"downloads/{sheet}.csv",
+                "csv_bytes": (EXPORTS / f"{sheet}.csv").stat().st_size,
+                "defs": {c: defs.get(sheet, {}).get(c) for c in cols if defs.get(sheet, {}).get(c)},
+            })
+        return {"sheets": index}
+
     # -- search
     def search_index(self, players: Dict[str, dict]) -> List[list]:
         idx = [["t", t, t, "Team"] for t in self.teams]
@@ -682,6 +748,9 @@ class Site:
             put(f"player/{key}.json", p)
         timings["players"] = round(time.time() - t, 1)
         put("search.json", self.search_index(players))
+        t = time.time()
+        put("sheets/index.json", self.sheets(put))
+        timings["sheets"] = round(time.time() - t, 1)
         timings["total"] = round(time.time() - t0, 1)
         return {"timings": timings, "bytes": sum(sizes.values()), "files": len(sizes),
                 "largest": sorted(sizes.items(), key=lambda kv: -kv[1])[:5]}
@@ -700,5 +769,9 @@ def build(out_dir, forecast: bool = True, sims: int = 20000) -> Dict[str, object
     out.mkdir(parents=True, exist_ok=True)
     report = Site().build(out, forecast=forecast, sims=sims)
     copy_shell(out)
+    dl = out / "downloads"
+    dl.mkdir(exist_ok=True)
+    for sheet in export_sheets():
+        shutil.copy2(EXPORTS / f"{sheet}.csv", dl / f"{sheet}.csv")
     report["site_bytes"] = sum(f.stat().st_size for f in out.rglob("*") if f.is_file())
     return report

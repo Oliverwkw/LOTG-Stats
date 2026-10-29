@@ -48,6 +48,7 @@ tbody tr:hover td:first-child{background:var(--bg)}
 .neg{color:var(--bad)}
 .seg{display:inline-flex;gap:4px;flex-wrap:wrap;margin:0 0 10px}
 .seg button{font:inherit;font-size:13px;font-weight:600;border-radius:8px;padding:5px 10px;border:1px solid var(--line);background:var(--card);color:var(--ink);cursor:pointer}
+.seg button:disabled{opacity:.45;cursor:default}
 .seg button[aria-pressed="true"]{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
 .controls{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:12px}
 select,input.f{font:inherit;padding:7px 10px;border-radius:9px;border:1px solid var(--line);background:var(--card);color:var(--ink);max-width:100%}

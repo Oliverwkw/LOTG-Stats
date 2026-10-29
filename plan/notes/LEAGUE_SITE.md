@@ -13,7 +13,9 @@ A static site for league-mates, published on GitHub Pages at
 | Head-to-head matrix (all / regular season / postseason) | `#/h2h` | `data/h2h.json` |
 | Trade history with each side's KTC difference at the deal, season end, +1 and +2 years, impact score, wins added, net points | `#/trades` | `data/trades.json` |
 | Draft history (rookie; startup & vet picks) | `#/draft` | `data/draft.json` |
-| Search (players, teams; links into the record book for stat names) | `#/search/<q>` | `data/search.json` |
+| FAAB values: the current board (filter by position / owner / free agents), roster value by team and position, rookie-pick values, each value as rookie-pick equivalents; links to the rating page and embeds it | `#/faab` | `rate/board.json` (fetched live from docs/rate/) |
+| Data: **every sheet in exports/, every row and column** (filter any cell or one column, sort, choose columns, definitions from formulas.csv, CSV download) | `#/data/<sheet>?c=<col>&v=<value>` | `data/sheets/<sheet>/<chunk>.json`, `downloads/<sheet>.csv` |
+| Search (players, teams; links into the record book and the Data page) | `#/search/<q>` | `data/search.json` |
 
 ## How it is built
 
@@ -32,15 +34,18 @@ A static site for league-mates, published on GitHub Pages at
 
 ## Numbers (2026-10-29, through 2026 week 7)
 
-- Output: 733 JSON files, 5.3 MB raw (6.5 MB on disk with docs/ and the shell); 0.6 MB gzipped.
-  Pages serves gzip. A page view loads `meta.json` + `search.json` (~70 KB) plus that page's file;
-  the largest single file is `records/team_week.json` (449 KB raw).
-- Build time: ~14 s without the forecast, ~60 s with it (20,000 sims) on an idle laptop.
+- Output: 42.7 MB on disk, **7.1 MB gzipped**: page JSON 5.3 MB; the Data page's full sheets
+  20.4 MB (player_week split by season, up to 2.8 MB each, ~0.4 MB gzipped); CSV downloads 16 MB.
+  Pages serves gzip. A page view loads `meta.json` + `search.json` (~70 KB) plus that page's file.
+- Build time: ~20 s without the forecast, ~60 s with it (20,000 sims) on an idle laptop.
+- The FAAB page reads `rate/board.json` itself, so it is always the board the rating page shows; the
+  FAAB rebuild that republishes it triggers a redeploy.
 
 ## Privacy
 
 Inputs are an allow-list: the exports (already public in this repo), the digest email the league
-already receives, and the forecast. Nothing under `plan/`, no memory file, no DM / chat export, no
+already receives, the forecast, and docs/rate/ (already published). `data/faab_value/` is not read
+(its chat_evidence.csv comes from the league chat). Nothing under `plan/`, no memory file, no DM / chat export, no
 credential is read. The workflow fails the deploy if the output carries any private marker.
 
 ## Turning it on (repo owner)
