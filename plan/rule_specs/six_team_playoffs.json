@@ -1,0 +1,5 @@
+{
+  "name": "6-team playoffs",
+  "note": "Top 2 seeds bye; the regular season gives up the weeks the extra round needs.",
+  "playoffs": {"teams": 6, "byes": 2}
+}
