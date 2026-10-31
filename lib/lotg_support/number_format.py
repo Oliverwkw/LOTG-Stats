@@ -15,7 +15,10 @@ EXTRA_COUNT_PREFIXES = ("healthy weeks ", "healthy bench weeks ", "bench weeks "
                          # league sheets: "Donuts (roster)", "Players over 30 pts (starters)"
                          "donuts (", "players under ", "players over ",
                          # player_all_time's playoff split start counts
-                         "regular-season games started", "playoff games started")
+                         "regular-season games started", "playoff games started",
+                         # usage counts (lotg_support.usage.COUNT_COLUMNS; "Weeks with
+                         # usage data" already opens with "weeks ")
+                         "targets", "carries", "air yards", "red-zone opportunities")
 
 
 def col_number_format(col: str) -> Optional[str]:
@@ -65,6 +68,7 @@ def col_number_format(col: str) -> Optional[str]:
             or n.startswith("% of all time team points")
             or "% of starts" in n
             or n == "% of rostered players started"
+            or n in ("target share", "avg target share")      # lotg_support.usage
             # team_week comeback shares (lotg_support.gametime.PERCENT_COLUMNS)
             or n.startswith("% of own points scored ") or n.startswith("% of opponent's ")
             or "all-play win" in n

@@ -112,6 +112,7 @@ if str(SUPPORT_ROOT) not in sys.path:
 from lotg_support.utils import HttpConfig, safe_div, clean_name, safe_bool
 from lotg_support import matchup
 from lotg_support import bench_points as _bench_pts
+from lotg_support import usage as _usage
 from lotg_support.sleeper import SleeperClient
 from lotg_support.injury_tracker import (
     apply_overlay as _apply_injury_overlay,
@@ -1154,7 +1155,10 @@ _TOPIC_FILL = {
     # [per user, 2026-10-12: "more variation ok … blocks, no random floaters"]
     "Projections": "B4A7D6", "Win odds": "9FC5E8", "Comebacks": "E59A9A",
     "Lineup": "D5E8A4", "Partners": "BFBFBF",
+    # Snaps, targets, carries and expected points (lotg_support.usage).
+    "Usage": "A2C4C9",
 }
+_USAGE_TOPIC = {c.lower() for c in _usage.ALL_COLUMNS}
 _FAMILY_TAB = {
     "player": "5B9BD5", "team": "70AD47", "league": "FFC000",
     "add_drops": "ED7D31", "trades": "7030A0",
@@ -1188,6 +1192,10 @@ def _col_topic(col: str, default: Optional[str] = "Identity") -> Optional[str]:
         return "Partners"
     if n in _TOPIC_IDENTITY or n.startswith("team's traded with"):
         return "Identity"
+    # Usage / opportunity and xFP (lotg_support.usage): one block, whatever
+    # "points" / "%" in a name would otherwise say.
+    if n in _USAGE_TOPIC:
+        return "Usage"
     # One band for the whole combined-matchup block, whatever each column's
     # base stat would otherwise be (points, roster counts, hardship, ...).
     if matchup.base_column(col):
@@ -23707,6 +23715,73 @@ def build_all(repo_root: Path) -> None:
                 league_all = _fr
     except Exception as e:
         _log_exc(debug, "rostered_counts_with_tenures", e)
+
+    # Usage / opportunity and expected fantasy points (lotg_support.usage):
+    # snaps, targets, carries, target share, air yards, red-zone looks and xFP
+    # in the league's own scoring, joined by GSIS id through pid_meta's bridge.
+    # Added last so nothing above reads them; a failure leaves them blank.
+    try:
+        _t_usage = datetime.now()
+        _u_bridge = {str(_sid): str(_m.get("gsis_id")).strip() for _sid, _m in pid_meta.items()
+                     if (_m or {}).get("gsis_id") and str(_m.get("gsis_id")).strip().lower() not in ("", "nan")}
+        _u_seasons = sorted(int(y) for y in pd.to_numeric(pw["Year"], errors="coerce").dropna().unique())
+        _u_frame = _usage.build_usage(
+            ext, _u_seasons, _bold_scoring, current_season=_current_lotg_season,
+            force_refresh_seasons=[s for s in _u_seasons if _force_refresh_season(s)],
+            log=lambda m: _log(debug, f"[{_now_iso()}] WARN {m}"))
+        pw, _u_report = _usage.attach(pw, _u_frame, _u_bridge, _bold_scoring)
+        for _uk, _ukeys in (("player_year", ["Player ID", "Year"]), ("player_all", ["Player ID"])):
+            _udf = player_year if _uk == "player_year" else player_all
+            if not isinstance(_udf, pd.DataFrame) or _udf.empty or "Player ID" not in _udf.columns:
+                continue
+            _roll = _usage.player_rollup(pw, _ukeys).set_index(_ukeys)
+            _udf = _udf.drop(columns=[c for c in _usage.PLAYER_PERIOD_COLUMNS if c in _udf.columns]).copy()
+            _pid = _udf["Player ID"].astype(str)
+            if _uk == "player_year":
+                _yr = pd.to_numeric(_udf["Year"], errors="coerce")
+                _ix = [(p, int(y)) if pd.notna(y) else None for p, y in zip(_pid, _yr)]
+            else:
+                _ix = list(_pid)
+            for _c in _usage.PLAYER_PERIOD_COLUMNS:
+                _m = _roll[_c].to_dict()
+                _udf[_c] = [_m.get(k) for k in _ix]
+            if _uk == "player_year":
+                player_year = _udf
+            else:
+                player_all = _udf
+        _utw = _usage.team_week_rollup(pw).set_index(["Team", "Year", "Week"])
+        if isinstance(tw, pd.DataFrame) and not tw.empty:
+            _tk = list(zip(tw["Team"].astype(str), pd.to_numeric(tw["Year"], errors="coerce"),
+                           pd.to_numeric(tw["Week"], errors="coerce")))
+            for _c in _usage.TEAM_WEEK_COLUMNS:
+                _m = _utw[_c].to_dict()
+                tw[_c] = [_m.get((t, int(y), int(w))) if pd.notna(y) and pd.notna(w) else None
+                          for t, y, w in _tk]
+            tw = tw.copy()
+        if isinstance(team_year, pd.DataFrame) and not team_year.empty:
+            team_year = team_year.drop(columns=[c for c in _usage.TEAM_PERIOD_COLUMNS if c in team_year.columns])
+            _uty = _usage.team_rollup(tw, ["Team", "Year"])
+            team_year = team_year.assign(_y=pd.to_numeric(team_year["Year"], errors="coerce")).merge(
+                _uty.rename(columns={"Year": "_y"}), on=["Team", "_y"], how="left").drop(columns="_y")
+        # The over-inclusive match report: per season, and every rostered
+        # player with no GSIS bridge (raw/usage_unmatched.csv).
+        _usum = _usage.match_summary(_u_report)
+        _uun = _usage.unmatched_players(_u_report)
+        try:
+            _usum.to_csv(repo_root / "exports" / "raw" / "usage_match_summary.csv", index=False)
+            _uun.to_csv(repo_root / "exports" / "raw" / "usage_unmatched.csv", index=False)
+        except Exception:
+            pass
+        _log(debug, f"[{_now_iso()}] INFO usage/xFP: {len(_u_frame)} nflverse player-weeks, "
+                    f"{int((_u_report['status'] == 'matched').sum()) if not _u_report.empty else 0} player_week rows matched, "
+                    f"{len(_uun)} rostered players with no gsis, "
+                    f"{(datetime.now() - _t_usage).total_seconds():.1f}s")
+        for _r in _usum.to_dict("records"):
+            _log(debug, f"[{_now_iso()}] INFO usage match {_r['Year']}: rows={_r['rows']} "
+                        f"matched={_r['matched']} did-not-play={_r['did not play']} "
+                        f"no-gsis={_r['no gsis']}")
+    except Exception as e:
+        _log_exc(debug, "usage_xfp", e)
 
     context = {
         "player_week": pw,

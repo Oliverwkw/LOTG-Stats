@@ -55,6 +55,14 @@ def one(args, pw) -> None:
     table = T.player_table(tr, pw)
     print("\nplayers (G / PPG = weeks with non-zero points; fcst = forecast's rate and weekly availability):")
     print(table.to_string(index=False))
+    usage_flags = []
+    try:
+        ut, usage_flags = T.usage(tr)
+        print("\nusage + xFP (nflverse / ffopportunity; xFP = expected points of his targets / carries in league "
+              "scoring; Pts-xFP = points beyond that; L3 = last 3 NFL weeks):")
+        print(ut.fillna("").to_string(index=False))
+    except Exception as exc:  # noqa: BLE001 - usage is extra; never lose the rest
+        print(f"\n(usage / xFP unavailable: {exc})")
     kt = None
     if not args.no_ktc:
         kt, note = T.ktc_values(tr)
@@ -79,6 +87,10 @@ def one(args, pw) -> None:
     print()
     for c in T.caveats(tr, run_, table, kt):
         print(f"# {c}")
+    for f in usage_flags:
+        print(f"# usage: {f}")
+    print("# usage: a PPG jump on flat xFP / snaps is efficiency or TDs (rarely sticky); rising xFP / snap% is a role"
+          " change — search the news for why (who left or got hurt) before pricing it in")
 
 
 def main(argv=None) -> None:

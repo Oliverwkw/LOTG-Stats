@@ -769,6 +769,14 @@ guard fails, fix that before quoting any number.
 Each of these has cost real time at least once. They are handled in code — the
 list is here so an answer written by hand does not walk into them.
 
+- **Usage / xFP columns (2020+, `lotg_support.usage`)**: `xFP` is ffopportunity's
+  expected components re-scored with each season's table, so it has NO fumble,
+  return-TD or fumble-return term — `Points minus xFP` carries those. It is blank
+  (not 0) on a week nflverse shows no game, 0 on a snaps-only week. The year /
+  all-time sums cover ROSTERED weeks only, not his NFL season. Keyed by GSIS id
+  via the build's pid bridge; `exports/raw/usage_match_summary.csv` and
+  `usage_unmatched.csv` list the coverage and every unbridged rostered player.
+
 - **A comeback is measured against the opponent's FINAL score, not the margin
   at the time** [per user, 2026-10-05]. So a team AHEAD going into Monday whose
   opponent then pulled clear on Monday night has a "Points overcome (entering
