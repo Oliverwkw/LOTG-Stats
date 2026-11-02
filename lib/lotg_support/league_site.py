@@ -43,6 +43,7 @@ SHELL = ROOT / "site"
 INPUTS = (
     "exports/*.csv",                 # every sheet, served whole on the Data page (+ CSV downloads)
     "data/digest/last_digest.html",
+    "exports/snapshot/season_<current>/{users,rosters,traded_picks}.json",   # future pick owners
     # docs/rate/board.json (FAAB values) is not read here: it ships with docs/ and the page
     # fetches it, so the FAAB page is always the board the rating page shows.
     # the forecast reads exports/ and exports/snapshot/ through lotg_support.inquiry
@@ -267,7 +268,7 @@ class _DigestParser(HTMLParser):
         if kind == "h1":
             self.title = text
         elif kind == "p":
-            if not text.lower().startswith("rate the board"):
+            if not text.lower().startswith(("rate the board", "league site")):
                 self.lede = text
         elif kind == "h2":
             self._edits = self._edits or text.lower().startswith("changes from edits")
@@ -350,6 +351,30 @@ def sheet_chunks(sheet: str, df: pd.DataFrame) -> Dict[str, pd.DataFrame]:
         return {"all": df}
     vals = df[key].astype(str).str.replace(r"\.0$", "", regex=True)
     return {v: df[vals == v] for v in sorted(vals.unique())}
+
+
+# ---------------------------------------------------------------- future picks
+
+PICK_HORIZON = 5                 # drafts ahead, as the build's Future draft capital (_FCAP_HORIZON)
+PICK_ROUNDS = 4
+FUTURE_PICK_WEIGHTS = {1: 0.25, 2: 0.09, 3: 0.03, 4: 0.01}   # src/lotg.py _FUTURE_PICK_WEIGHTS
+_PICK_LABEL = re.compile(r"^(\d{4}) (\d)(?:\.\d\d)?\((.+)\)$")   # "2028 3(AceMatthew)", "2027 1.05(x)"
+
+
+def _sleeper_pick_owners(season: int, canon: Dict[str, str]) -> Dict[tuple, str]:
+    """(year, round, original team) -> current owner, from the committed
+    snapshot's traded_picks.json (only picks that moved are listed)."""
+    base = EXPORTS / "snapshot" / f"season_{int(season)}"
+    try:
+        users = {u["user_id"]: u["display_name"] for u in json.loads((base / "users.json").read_text())}
+        rosters = {r["roster_id"]: users.get(r["owner_id"], "")
+                   for r in json.loads((base / "rosters.json").read_text())}
+        traded = json.loads((base / "traded_picks.json").read_text())
+    except (OSError, ValueError):
+        return {}
+    name = lambda rid: canon.get(str(rosters.get(rid, "")).lower())
+    return {(int(p["season"]), int(p["round"]), name(p["roster_id"])): name(p["owner_id"])
+            for p in traded if name(p["roster_id"]) and name(p["owner_id"])}
 
 
 # ---------------------------------------------------------------- builders
@@ -565,6 +590,39 @@ class Site:
             out["startup"] = _table(self.startup, DRAFT_COLUMNS, "non_rookie_picks")
         return out
 
+    # -- future picks held
+    def held_picks(self, horizon: int = PICK_HORIZON) -> Dict[str, object]:
+        """Who holds each future rookie pick (the next `horizon` drafts, rounds
+        1-4), the build's way (`_future_picks_owned` in src/lotg.py): every pick
+        starts with its original team; the trades sheet's pick legs, replayed in
+        date order, move it (they already carry the commissioner overlay's legs,
+        data/commissioner_pick_trades.csv); a pick no trade moved but Sleeper's
+        traded_picks shows elsewhere is with that owner. Reconciled in the tests
+        against team_year's "Future draft capital" for the current season."""
+        canon = {t.lower(): t for t in self.teams}
+        years = list(range(self.season + 1, self.season + 1 + horizon))
+        rounds = range(1, PICK_ROUNDS + 1)
+        owner = {(y, r, o): o for y in years for r in rounds for o in self.teams}
+        moved = set()
+        t = self.trades.sort_values("Date", kind="mergesort")
+        for team, got in zip(t["Team"], t["Assets received"]):
+            for a in _split_assets(got):
+                m = _PICK_LABEL.match(a)
+                if not m or int(m.group(1)) not in years:
+                    continue
+                key = (int(m.group(1)), int(m.group(2)), canon.get(m.group(3).lower(), m.group(3)))
+                if key in owner:
+                    owner[key] = team
+                    moved.add(key)
+        for key, cur in _sleeper_pick_owners(self.season, canon).items():
+            if key in owner and key not in moved:
+                owner[key] = cur
+        held: Dict[str, list] = {t: [] for t in self.teams}
+        for (y, r, orig), team in sorted(owner.items()):
+            held.setdefault(team, []).append([y, r, orig])
+        return {"season": self.season, "years": years, "rounds": PICK_ROUNDS, "held": held,
+                "weights": FUTURE_PICK_WEIGHTS}
+
     # -- rosters
     def current_roster(self) -> pd.DataFrame:
         pw = self.pw[self.pw.Year == self.season]
@@ -739,6 +797,7 @@ class Site:
         self._trades = self.trade_list()
         put("trades.json", {"meta": self.trade_meta(), "trades": self._trades})
         put("draft.json", self.draft())
+        put("picks.json", self.held_picks())
         ages = self.roster_ages()
         for team in self.teams:
             put(f"team/{slug(team)}.json", self.team(team, self._trades, ages))

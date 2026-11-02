@@ -9,6 +9,7 @@
   every player has a page and player keys are unique;
 - the Data page holds every sheet of exports/ whole (rows, columns, cells) and
   its downloads are the committed CSVs;
+- future picks held reproduce team_year's "Future draft capital";
 - privacy: nothing in the output carries a private marker (DM/chat exports,
   negotiation notes, manager profiles, credentials), and the shell never
   shadows docs/rate/ (the rating page and its vote collection).
@@ -93,7 +94,7 @@ def test_clean_is_json_safe():
 
 def test_digest_parser_reads_sections_and_flags_edits():
     html = """<h1>LOTG weekly digest — 2026 season, week 7</h1>
-    <p>Rate the board: x</p><p>The lede &amp; more.</p>
+    <p>League site: y<br>Rate the board: x</p><p>The lede &amp; more.</p>
     <h2>Records</h2><h3>Single-week records (this week)</h3>
     <ul><li>A: <ul><li>one</li><li>two</li></ul></li><li>B did it.</li></ul>
     <h2>Changes from edits, not new data</h2><h3>Trades</h3><ul><li>C moved.</li></ul>"""
@@ -197,6 +198,22 @@ def _every_export_cell_is_on_the_site():
         assert filecmp.cmp(csv, _built() / m["csv"], shallow=False), m["sheet"]
 
 
+def _held_picks_match_future_draft_capital():
+    """Every future pick is held by exactly one team, and each team's holdings,
+    weighted as the build weighs them, equal team_year's "Future draft capital"
+    for the current season (the build's own pick ledger)."""
+    pk = _load("picks.json")
+    held = [tuple(p) for ps in pk["held"].values() for p in ps]
+    assert len(held) == len(set(held)) == len(pk["years"]) * pk["rounds"] * len(pk["held"])
+    ty = pd.read_csv(_ROOT / "exports" / "team_year.csv")
+    if "Future draft capital" not in ty.columns:
+        return
+    cur = ty[pd.to_numeric(ty.Year, errors="coerce") == pk["season"]].set_index("Team")["Future draft capital"]
+    w = {int(k): v for k, v in pk["weights"].items()}
+    for team, ps in pk["held"].items():
+        assert abs(sum(w[r] for _y, r, _o in ps) - float(cur[team])) < 1e-6, team
+
+
 def _output_has_nothing_private():
     assert privacy_problems(_built()) == []
     # the generator names no private source in its code (docstrings aside)
@@ -219,6 +236,7 @@ def test_built_site_reconciles():
     for check in (_build_writes_every_page, _every_trade_row_is_one_side,
                   _head_to_head_matches_team_week, _standings_count_regular_season_games,
                   _players_have_unique_pages, _every_export_cell_is_on_the_site,
+                  _held_picks_match_future_draft_capital,
                   _output_has_nothing_private):
         check()
 

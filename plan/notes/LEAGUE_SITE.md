@@ -13,7 +13,7 @@ A static site for league-mates, published on GitHub Pages at
 | Head-to-head matrix (all / regular season / postseason) | `#/h2h` | `data/h2h.json` |
 | Trade history with each side's KTC difference at the deal, season end, +1 and +2 years, impact score, wins added, net points | `#/trades` | `data/trades.json` |
 | Draft history (rookie; startup & vet picks) | `#/draft` | `data/draft.json` |
-| FAAB values: the current board (filter by position / owner / free agents), roster value by team and position, rookie-pick values, each value as rookie-pick equivalents; links to the rating page and embeds it | `#/faab` | `rate/board.json` (fetched live from docs/rate/) |
+| FAAB values: the current board (filter by position / owner / free agents), roster value by team = players + **every rookie pick held for the next 5 drafts** (by position, by pick year), rookie-pick values, each value as rookie-pick equivalents; links to the rating page and embeds it | `#/faab` | `rate/board.json` (fetched live from docs/rate/) |
 | Data: **every sheet in exports/, every row and column** (filter any cell or one column, sort, choose columns, definitions from formulas.csv, CSV download) | `#/data/<sheet>?c=<col>&v=<value>` | `data/sheets/<sheet>/<chunk>.json`, `downloads/<sheet>.csv` |
 | Search (players, teams; links into the record book and the Data page) | `#/search/<q>` | `data/search.json` |
 
@@ -40,6 +40,34 @@ A static site for league-mates, published on GitHub Pages at
 - Build time: ~20 s without the forecast, ~60 s with it (20,000 sims) on an idle laptop.
 - The FAAB page reads `rate/board.json` itself, so it is always the board the rating page shows; the
   FAAB rebuild that republishes it triggers a redeploy.
+
+## Future picks held
+
+`Site.held_picks` (`data/picks.json`) gives the current owner of every rookie pick in the next 5 drafts, rounds 1-4, worked out the way the build's `_future_picks_owned` does it:
+- every pick starts with its original team;
+- the trades sheet's pick legs, replayed in date order, move it. Those legs already include the commissioner overlay's off-platform moves.
+- a pick that no trade moved, but that Sleeper's `traded_picks` shows with another team, belongs to that team.
+
+The test checks the result against `team_year`'s "Future draft capital" for the current season, team by team. It matched all 8 teams exactly on 2026-11-02.
+
+The page values each pick with the FAAB model's own rule (`faab_inputs` value): the round's average slot value on the board, minus 5% for each draft past the next one; rounds 5+ are $20.
+
+## Keeping it complete (user rule, 2026-11-02)
+
+Every change or addition to the exports, the FAAB values or other league-facing data also goes on the site, in the same PR.
+
+**Automatic:**
+- a new CSV in `exports/`, or a new column on any sheet, reaches the Data page (with a download) and the record book. `tests/test_league_site.py` fails if any sheet, row or column is missing.
+- a new `docs/rate/board.json` reaches the FAAB page. The FAAB rebuild triggers a redeploy.
+
+**By hand, in the same PR:**
+- a new column holding player or team names: add it to the link lists in `site/app.js` (data() `cell`, records() `lab`).
+- a column that deserves a headline spot: add it to `FEATURED`, `SEASON_COLUMNS`, `TEAM_SUMMARY_COLUMNS`, `PLAYER_SUMMARY_COLUMNS` and so on.
+- a new FAAB output (explanations, value history, vote results): add a section to `faab()` and data to the generator.
+- a new league-facing data file outside `exports/`: add it to `INPUTS` and give it a page. Run the privacy scan.
+- the workflow: if a new workflow commits league data, add its name to `site.yml`'s `workflow_run` list.
+
+**Never:** DMs or chat exports (`plan/notes/sleeper-chat-*`, `data/faab_value/chat_evidence.csv`), manager profiles, negotiation notes, credentials.
 
 ## Privacy
 

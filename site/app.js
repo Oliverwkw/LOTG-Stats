@@ -102,6 +102,19 @@ function ownerTeam(o, teams) {
   if (!o) return null;
   return teams.find((t) => t.toLowerCase() === String(o).toLowerCase()) || o;
 }
+// a future rookie pick on the board's scale — the FAAB system's own rule
+// (lotg_support.faab_inputs value): its round's average slot value (the slot is
+// not known yet), 5% off a year per draft beyond the next one; 5th round+ = $20
+function futurePickValue(B, year, round) {
+  if (round >= 5) return 20;
+  const slots = (B.picks || []).filter((p) => +p.slot.split(".")[0] === round);
+  if (!slots.length) return 0;
+  const avg = slots.reduce((a, p) => a + p.value, 0) / slots.length;
+  const d = new Date(B.as_of + "T12:00:00");
+  const next = d.getMonth() + 1 <= 8 ? d.getFullYear() : d.getFullYear() + 1;
+  return avg * Math.pow(0.95, Math.max(0, year - next));
+}
+const ORD = { 1: "1st", 2: "2nd", 3: "3rd", 4: "4th" };
 // the nearest rookie-pick comparison, as the rating page words it
 function pickText(B, v) {
   const S = (B.picks || []).filter((p) => p.value > 0);
@@ -220,7 +233,8 @@ function tradeCard(t, meta) {
 }
 
 async function team(slug) {
-  const [t, tr] = await Promise.all([load(`team/${slug}.json`), load("trades.json")]);
+  const [t, tr, PK, B] = await Promise.all([load(`team/${slug}.json`), load("trades.json"), load("picks.json"), loadBoard()]);
+  const mine = (PK.held[t.team] || []).map(([y, r, o]) => ({ y, r, o, v: B ? futurePickValue(B, y, r) : null }));
   const byId = Object.fromEntries(tr.trades.map((x) => [x.id, x]));
   const ages = t.ages || {};
   const leagueAvg = (k) => { const v = Object.values(t.league_ages).map((a) => k ? a.by_pos?.[k] : a.avg).filter((x) => typeof x === "number"); return v.length ? v.reduce((a, b) => a + b, 0) / v.length : null; };
@@ -245,6 +259,9 @@ async function team(slug) {
                  { k: (r) => (r[1] ?? 0) - (r[2] ?? 0), label: "vs league", html: (r) => r[1] == null ? "—" : `<span class="${r[1] > r[2] ? "neg" : "pos"}">${signed({ d: 2 }, r[1] - r[2])}</span>` }], ageRows)}
       </div>
     </div>
+    <div class="card"><h2>Future picks held (${mine.length})</h2>
+      ${PK.years.map((y) => `<p><b>${y}</b> ${mine.filter((p) => p.y === y).map((p) => `<span class="chip">${ORD[p.r] || p.r}${p.o === t.team ? "" : " (" + esc(p.o) + ")"}${p.v != null ? " · " + money(p.v) : ""}</span>`).join("") || '<span class="muted">none</span>'}</p>`).join("")}
+      ${B ? `<p class="small">Worth <b>${money(mine.reduce((a, p) => a + (p.v || 0), 0))}</b> on the FAAB board's pick scale. <a href="#/faab">Compare teams →</a></p>` : ""}</div>
     <div class="card"><h2>This season</h2>${dataTable(t.weeks)}</div>
     <div class="card"><h2>Seasons</h2>${dataTable(t.seasons)}</div>
     <div class="card"><h2>Current roster</h2>${roster}<p class="muted small">Bench includes taxi and IR. Age is the player's age for this season.</p></div>
@@ -449,16 +466,20 @@ async function search(q) {
 }
 
 async function faab(_, query) {
-  const [B, meta] = await Promise.all([loadBoard(), load("meta.json")]);
+  const [B, meta, PK] = await Promise.all([loadBoard(), load("meta.json"), load("picks.json")]);
   if (!B) { $app.innerHTML = `<h1>FAAB values</h1><p class="muted">The board is not published yet.</p>`; return; }
+  const held = {};
+  for (const [t, ps] of Object.entries(PK.held)) held[t] = ps.map(([y, r, o]) => ({ y, r, o, v: futurePickValue(B, y, r) }));
   const params = new URLSearchParams(query || "");
   let pos = params.get("pos") || "", owner = params.get("owner") || "", q = "";
   const rows = B.players.map((x) => ({ ...x, own: ownerTeam(x.owner, meta.teams) }));
   const totals = meta.teams.map((t) => {
     const mine = rows.filter((r) => r.own === t);
     const by = (p) => mine.filter((r) => r.pos === p).reduce((a, r) => a + r.value, 0);
-    return { t, total: mine.reduce((a, r) => a + r.value, 0), n: mine.length, QB: by("QB"), RB: by("RB"), WR: by("WR"), TE: by("TE"),
-             top: mine[0] };
+    const picks = held[t] || [];
+    const pv = picks.reduce((a, p) => a + p.v, 0), players = mine.reduce((a, r) => a + r.value, 0);
+    return { t, total: players + pv, players, picks: pv, np: picks.length, firsts: picks.filter((p) => p.r === 1).length,
+             n: mine.length, QB: by("QB"), RB: by("RB"), WR: by("WR"), TE: by("TE"), top: mine[0] };
   });
   const maxT = Math.max(...totals.map((x) => x.total), 1);
   const positions = [...new Set(rows.map((r) => r.pos))].filter(Boolean);
@@ -485,11 +506,20 @@ async function faab(_, query) {
     <div class="card"><h2>Roster value by team</h2>${table([
       { k: "t", label: "Team", left: true, html: (r) => `<a href="#/faab?owner=${encodeURIComponent(r.t)}" onclick="">${esc(r.t)}</a>` },
       { k: "total", label: "Total", html: (r) => `<div style="display:flex;gap:8px;align-items:center;justify-content:flex-end"><b>${money(r.total)}</b><div class="bar-h" style="width:90px"><i style="width:${(100 * r.total) / maxT}%"></i></div></div>` },
+      { k: "players", label: "Players", html: (r) => money(r.players) },
+      { k: "picks", label: `Picks ${PK.years[0]}-${String(PK.years[PK.years.length - 1]).slice(2)}`, html: (r) => `${money(r.picks)} <span class="muted small">${r.np} · ${r.firsts} 1st${r.firsts === 1 ? "" : "s"}</span>` },
       { k: "QB", label: "QB", html: (r) => money(r.QB) }, { k: "RB", label: "RB", html: (r) => money(r.RB) },
       { k: "WR", label: "WR", html: (r) => money(r.WR) }, { k: "TE", label: "TE", html: (r) => money(r.TE) },
-      { k: "n", label: "Players" },
+      { k: "n", label: "# players" },
       { k: (r) => r.top?.value, label: "Most valuable", left: true, html: (r) => (r.top ? `${playerLink(r.top.name)} ${money(r.top.value)}` : "—") },
-    ], totals, { sort: 1 })}</div>
+    ], totals, { sort: 1 })}
+      <p class="muted small">Total = rostered players' board values + every rookie pick held for the next ${PK.years.length} drafts (${PK.years[0]}–${PK.years[PK.years.length - 1]}, rounds 1–${PK.rounds}). A future pick is worth its round's average slot value on this board, 5% less for each draft past the next one: the FAAB model's own pick rule. Pick ownership is the build's (trades, the commissioner's off-platform moves, Sleeper).</p></div>
+    <div class="card"><h2>Picks held</h2>${table([
+      { k: "t", label: "Team", left: true, html: (r) => teamLink(r.t) },
+      ...PK.years.map((y) => ({ k: (r) => (held[r.t] || []).filter((p) => p.y === y).reduce((a, p) => a + p.v, 0), label: String(y), left: true,
+        html: (r) => `<div style="white-space:normal;min-width:110px;max-width:190px">${(held[r.t] || []).filter((p) => p.y === y).map((p) => `<span class="chip" title="${money(p.v)}">${ORD[p.r] || p.r}${p.o === r.t ? "" : " " + esc(p.o.slice(0, 6))}</span>`).join("") || '<span class="muted">none</span>'}</div>` })),
+      { k: "picks", label: "Value", html: (r) => money(r.picks) },
+    ], totals, { sort: PK.years.length + 1 })}<p class="muted small">A chip with a team name is that team's pick, acquired. Hover a chip for its value.</p></div>
     <div class="card"><h2>Board</h2>
       <div class="controls">
         <select id="fp"><option value="">All positions</option>${positions.map((p) => `<option ${p === pos ? "selected" : ""}>${esc(p)}</option>`).join("")}</select>
