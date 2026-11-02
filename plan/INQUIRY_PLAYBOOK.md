@@ -769,6 +769,15 @@ guard fails, fix that before quoting any number.
 Each of these has cost real time at least once. They are handled in code — the
 list is here so an answer written by hand does not walk into them.
 
+- **A name is not a key.** Sleeper re-spells names (34 players gained Jr./Sr./II
+  on 2026-10-22) and two players can share one (Josh Allen QB/G, Lamar Jackson
+  QB/CB). Every sheet that names a player carries his Sleeper id beside it
+  (`Player ID`, `Reference player ID`, `Player Added ID` / `Player Dropped ID`,
+  `Player Picked ID`, trades' `Player IDs received` / `Player IDs sent` in the
+  order the assets cell lists the players) and player_all_time has `GSIS ID`
+  for nflverse joins (`lotg_support.player_ids`). Join on those. `fast.py`'s stint
+  join, `analysis.with_position` and `inquiry.unavailable` already do; on
+  exports older than the ids they fall back to names.
 - **Usage / xFP columns (2020+, `lotg_support.usage`)**: `xFP` is ffopportunity's
   expected components re-scored with each season's table, so it has NO fumble,
   return-TD or fumble-return term — `Points minus xFP` carries those. It is blank

@@ -55,7 +55,7 @@ starter), NFL team` (that week's, not current) `, Game slot` (Thursday / Sunday
 morning|early|late / SNF / MNF / Saturday / Bye …) `, Points, Opponent, Win?,
 Margin, PF, Points against, Live, Snap %, Targets, Carries, Target share, Air
 yards, Red-zone opportunities, xFP, Points minus xFP, Acquired via, Acquired,
-Acquired season, Season source, In-season pickup` — so do not spend a call on `list(pw.columns)`; `lpw` (pw + the live week), `live`, `tw`/`ty`/
+Acquired season, Season source, In-season pickup, Player ID` (Sleeper id, text) — so do not spend a call on `list(pw.columns)`; `lpw` (pw + the live week), `live`, `tw`/`ty`/
 `py`/`pa`/any sheet name (text; `num(df, col)` for numbers), and TYPED sheets
 `twt`/`tyt`/`pyt`/`lwt`/`lyt` or `T("sheet")` (numbers float, Win? bool — use
 these, not the text ones). `q` takes statements too (newline or `;`); the last
@@ -103,6 +103,11 @@ the exports** through the last finalized week; `Year` is TEXT in
 "leading now" and game status is a kickoff-clock guess; **bench = every
 non-starter, taxi and IR included** (no weekly taxi flag exists). Name the
 as-of week.
+**Join players by id, never by name**: every sheet that names a player
+carries his Sleeper id (`Player ID`; `Reference player ID`, `Player Added ID` /
+`Player Dropped ID`, `Player Picked ID`, trades' `Player IDs received` / `sent`;
+`GSIS ID` on player_all_time for nflverse). Names get re-spelled (Jr./II) and
+collide (Josh Allen QB/G). `lotg_support.player_ids` has the helpers.
 **Let pandas do every count** ("more than once", "how many times", "who has
 the most"): end the `q` with `.value_counts()` / `groupby(...).size()` and quote
 that, never a tally of printed rows. Print only what the answer needs
@@ -178,6 +183,12 @@ points. Then, before answering:
 - **FAAB is a 100 budget with house rules**, not Sleeper's 10000 setting;
   `waivers` prints what is left on the 100 scale. Never size a bid against 10000.
 - Trades go to `trade.py` (above); a what-if season to `scripts/whatif.py`.
+- **How far to trust these tools**: `scripts/grade_tools.py` replays them
+  walk-forward (findings: `plan/notes/ADVICE_TOOLS_GRADE.md`). In short: start
+  the projection lineup (season/L3 lineups lose to the managers' own); the
+  waiver #1 is no better than managers' adds; trade.py's pts/wk sign is right
+  ~84%, a title-% move with |pts/wk| < 0.5 is noise. advise/trade print the
+  one-line track record.
 
 ## Player values in league FAAB — `scripts/faab_value.py`
 
@@ -193,7 +204,9 @@ backfill for 2020) and exports it as the CSV/Excel tables described in
 `plan/LOTG Plan - Sheet1.csv`. It runs on GitHub Actions; there is no local
 setup. `python -m lotg` (`src/lotg.py`) is the build; `lib/lotg_support/` holds
 its supporting modules; `exports/` holds the committed outputs and the raw
-Sleeper snapshot they are built from.
+Sleeper snapshot they are built from. The league website (`site/` shell +
+`lotg_support.league_site` JSON, deployed by `.github/workflows/site.yml`, never
+committed) is described in `plan/notes/LEAGUE_SITE.md`.
 
 ## Two kinds of work — know which one you are doing
 
@@ -252,6 +265,14 @@ Sleeper's current-only player dictionary). Do not hand-roll a loader over
 - Tests are plain functions runnable both under `pytest tests/` (what CI runs)
   and directly as `python tests/test_x.py`. Data-dependent tests skip cleanly
   when `exports/` is absent and assert only against **completed** seasons.
+- **Everything league-facing goes on the league site too** (user rule, 2026-11-02). A new
+  export sheet or column, a FAAB / valuation output, a new league-facing data file: put it on
+  the site in the same PR. New CSVs in `exports/` and new columns reach the Data page and the
+  record book on their own (tests/test_league_site.py checks every sheet, row and column).
+  The FAAB page reads `docs/rate/board.json` live. Anything else needs a page or section in
+  `lotg_support.league_site` + `site/app.js`. Checklist: `plan/notes/LEAGUE_SITE.md`. Never
+  publish private sources (DMs, chat exports, `data/faab_value/chat_evidence.csv`, manager
+  profiles, negotiation notes).
 - Never commit regenerated `exports/` from a local run — CI owns those. The
   offline build (`scripts/offline_build.py`) is a smoke test, not a source of
   truth (see the warning at the top of `plan/MASTER_TODO.md`).

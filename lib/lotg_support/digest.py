@@ -178,6 +178,9 @@ _KEY_COLS = {
     "Player", "Team", "Year", "Week", "Week Name", "Opponent",
     "Top team", "Top Team", "Last team", "Rookie?", "Result",
     "Taxi-eligible",
+    # Sleeper / nflverse ids (lotg_support.player_ids): numeric-looking labels.
+    "Player ID", "Reference player ID", "Player Added ID", "Player Dropped ID",
+    "Player Picked ID", "Player IDs received", "Player IDs sent", "GSIS ID",
 }
 
 # A yearly stat is treated as a *rate/level* (projected as-is, not scaled by
@@ -4631,13 +4634,17 @@ def _section_block(title: str, grouped: bool, items: Sequence, level: int = 2) -
                          level)
 
 
-# The league rating page (docs/rate/, GitHub Pages): a standing link at the top of every digest so members
-# can find it. What it says is what the page does — votes tune which stats the value model weighs and never set
-# a player's value (lotg_support.faab_votes).
-RATING_PAGE_URL = "https://oliverwkw.github.io/LOTG-Stats/rate/"
+# The league website (lotg_support.league_site, GitHub Pages) and its rating page (docs/rate/): standing links
+# at the top of every digest so members can find them. What each says is what the page does — votes tune which
+# stats the value model weighs and never set a player's value (lotg_support.faab_votes).
+SITE_URL = "https://oliverwkw.github.io/LOTG-Stats/"
+RATING_PAGE_URL = SITE_URL + "rate/"
 RATING_PAGE_HTML = (
     '  <p style="font:15px/1.5 system-ui,sans-serif;color:#0b2545;margin:0 0 12px;padding:10px 14px;'
     'background:#fff8e6;border-left:3px solid #c98a00;border-radius:4px;">'
+    f'<b>League site:</b> <a href="{SITE_URL}" style="color:#0b5cad;font-weight:600;">LOTG League</a>. '
+    "Standings and title odds, the record book, every team, player, trade and draft, FAAB values, and every "
+    "sheet of the stats exports to browse or download. Rebuilt after every weekly build.<br>"
     f'<b>Rate the board:</b> <a href="{RATING_PAGE_URL}" style="color:#0b5cad;font-weight:600;">LOTG value check</a>. '
     "Our stats-only player values, priced in league FAAB. Pick which of two players is worth more and say whether "
     "each value looks too high, about right or too low, with an optional why. Answers help tune which stats the "

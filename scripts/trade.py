@@ -91,6 +91,12 @@ def one(args, pw) -> None:
         print(f"# usage: {f}")
     print("# usage: a PPG jump on flat xFP / snaps is efficiency or TDs (rarely sticky); rising xFP / snap% is a role"
           " change — search the news for why (who left or got hurt) before pricing it in")
+    if run_ is not None:
+        try:
+            from lotg_support import grade
+            print(f"# {grade.track_record('trade')}")
+        except Exception as exc:   # noqa: BLE001 — never let the record break the check
+            print(f"# track record unavailable ({type(exc).__name__})")
 
 
 def main(argv=None) -> None:
