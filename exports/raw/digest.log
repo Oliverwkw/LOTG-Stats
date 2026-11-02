@@ -1,11 +1,9 @@
 [digest] 39 filtered stat(s) added: PF in a loss, PF in a win, Max PF in a loss, Max PF in a win, Efficiency in a loss, Efficiency in a win, Points from QBs in a loss, Points from RBs in a loss, Points from WRs in a loss, Points from TEs in a loss, Points above Sleeper Projection in a loss, Points above Sleeper Projection in a win, Points above Claude Projection in a loss, Points above Claude Projection in a win, Points above Enhanced Projection in a loss, Points above Enhanced Projection in a win, Lineup Boldness in a win, Lineup Boldness in a loss, Players under 10 pts (starters) in a win, Players over 30 pts (starters) in a loss, Number of rookies started in a win, Points as starter, Points on bench, QB points, QB points as starter, QB points on bench, RB points, RB points as starter, RB points on bench, WR points, WR points as starter, WR points on bench, TE points, TE points as starter, TE points on bench, Points by a rookie starter, Points by a starter in a loss, Points on bench in a loss, Avg points by a rookie
 [digest] 84 percent column(s) stored as 0-1 fractions
-[digest] build-inputs fingerprint: 65117aaf5d567822
+[digest] build-inputs fingerprint: ed68e79c2502b6d8
 [digest] season=2026 weeks_completed=7
 [digest] on pace: 352 standing(s)
-[digest] renamed players carried across: 35 name(s), 184 row key(s), 84 board label(s)
-[digest] baselining 17 on-pace standing(s) on column(s) new since the last snapshot (no diff yet).
-[digest] new data: 1 new week(s), 251 player(s) / 8 team(s) in them, 22 player(s) / 7 team(s) in new transactions; edit landed: True -> 404 item(s) with the news, 61 under edits
-[digest] lede: BROsenzweig's Combined QBs started this week (2 vs LWebs53) is the lowest single week ever, tied with Oliverwkw 2023 week 15 (vs JacobRosenzweig) and plehv79 2022 week 8 (vs shmuel256). It was an active week — 402 of the 463 other moves are new results (171 on teams and 81 on players); 61 re-valued history besides. Emmanuel Sanders was passed by D'Ernest Johnson, Jake Tonges and Joe Flacco for highest Floor percentile (100.00), falling to 99.40 (4th-highest). 78 of the 465 were ties rather than overtakes.
-[digest] 50 single-week highlight(s), 118 crossing(s), 0 record(s), 86 board move(s), 1 milestone(s), 143 on-pace change(s) -> exports/raw/weekly_digest.html
+[digest] new data: 0 new week(s), 0 player(s) / 0 team(s) in them, 0 player(s) / 0 team(s) in new transactions; edit landed: True -> 2 item(s) with the news, 11 under edits
+[digest] lede: 2026 week 6 passes 2025 week 16 for 3rd-highest Team age including picks (24.66). This is a recompute, not a results week: 11 of the 11 other moves re-value settled history (5 on earlier team weeks and 2 on team seasons). AceMatthew 2026 week 7 was passed by shmuel256 2024 week 6 for 4th-lowest Luck (-0.88), rising to -0.87 (5th-lowest). The biggest single thread is 4 Team age including moves.
+[digest] 0 single-week highlight(s), 0 crossing(s), 0 record(s), 13 board move(s), 0 milestone(s), 0 on-pace change(s) -> exports/raw/weekly_digest.html
 [digest] snapshot saved -> data/digest/ranks_snapshot.json
