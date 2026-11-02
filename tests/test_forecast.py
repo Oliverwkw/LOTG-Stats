@@ -733,13 +733,25 @@ def test_reads_are_pure():
 
 
 def test_the_build_does_not_import_the_forecast():
-    """Playbook rule 2: nothing the build runs may depend on an inquiry module."""
+    """Playbook rule 2: nothing the build runs may depend on an inquiry module.
+
+    Every workflow is scanned except the ones that are not the build and use
+    the forecast on purpose, named here with the reason so a new one is a
+    deliberate decision."""
+    not_the_build = {
+        # The league site: its own workflow, triggered after "Build LOTG Stats"
+        # completes (workflow_run), never inside the build's job; it runs the
+        # forecast for the site's title odds (lotg_support.league_site).
+        ".github/workflows/site.yml",
+    }
     hits = []
     for folder in ("src", ".github/workflows"):
         base = _ROOT / folder
         if not base.exists():
             continue
         for path in base.rglob("*"):
+            if str(path.relative_to(_ROOT)) in not_the_build:
+                continue
             if path.is_file() and "forecast" in path.read_text(errors="ignore"):
                 hits.append(str(path.relative_to(_ROOT)))
     assert not hits, f"build code references the forecast module: {hits}"
