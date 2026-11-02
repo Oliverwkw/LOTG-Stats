@@ -181,7 +181,9 @@ backfill for 2020) and exports it as the CSV/Excel tables described in
 `plan/LOTG Plan - Sheet1.csv`. It runs on GitHub Actions; there is no local
 setup. `python -m lotg` (`src/lotg.py`) is the build; `lib/lotg_support/` holds
 its supporting modules; `exports/` holds the committed outputs and the raw
-Sleeper snapshot they are built from.
+Sleeper snapshot they are built from. The league website (`site/` shell +
+`lotg_support.league_site` JSON, deployed by `.github/workflows/site.yml`, never
+committed) is described in `plan/notes/LEAGUE_SITE.md`.
 
 ## Two kinds of work — know which one you are doing
 
@@ -240,6 +242,14 @@ Sleeper's current-only player dictionary). Do not hand-roll a loader over
 - Tests are plain functions runnable both under `pytest tests/` (what CI runs)
   and directly as `python tests/test_x.py`. Data-dependent tests skip cleanly
   when `exports/` is absent and assert only against **completed** seasons.
+- **Everything league-facing goes on the league site too** (user rule, 2026-11-02). A new
+  export sheet or column, a FAAB / valuation output, a new league-facing data file: put it on
+  the site in the same PR. New CSVs in `exports/` and new columns reach the Data page and the
+  record book on their own (tests/test_league_site.py checks every sheet, row and column).
+  The FAAB page reads `docs/rate/board.json` live. Anything else needs a page or section in
+  `lotg_support.league_site` + `site/app.js`. Checklist: `plan/notes/LEAGUE_SITE.md`. Never
+  publish private sources (DMs, chat exports, `data/faab_value/chat_evidence.csv`, manager
+  profiles, negotiation notes).
 - Never commit regenerated `exports/` from a local run — CI owns those. The
   offline build (`scripts/offline_build.py`) is a smoke test, not a source of
   truth (see the warning at the top of `plan/MASTER_TODO.md`).

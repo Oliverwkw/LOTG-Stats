@@ -1,0 +1,112 @@
+name: League site
+
+# Builds the league website (scripts/build_site.py -> lotg_support.league_site: precomputed JSON + the
+# static shell in site/) and publishes it to GitHub Pages as an Actions artifact, together with docs/
+# (the rating page, docs/rate/). Nothing generated is committed: the deploy replaces the previous one,
+# so git history does not grow with the site.
+#
+# WHEN: after every main run of the weekly build (it commits fresh exports/ and the digest), after the
+# FAAB rebuild (it commits docs/rate/board.json), on pushes to main that touch the site or docs/, and
+# by hand. It is a separate workflow so the main build's ~8 minutes are untouched; this one takes about
+# a minute and a half (the odds simulation is most of it).
+#
+# PAGES SOURCE: until Settings -> Pages -> Source is "GitHub Actions", Pages keeps serving main:/docs
+# the old way and the deploy job is skipped (the build job still runs and keeps the site as a run
+# artifact to download). Switching the source is the repo owner's call; see plan/notes/LEAGUE_SITE.md.
+
+on:
+  workflow_run:
+    workflows: ["Build LOTG Stats", "Rebuild FAAB values"]
+    types: [completed]
+    branches: [main]
+  push:
+    branches: [main]
+    paths:
+      - "docs/**"
+      - "site/**"
+      - "lib/lotg_support/league_site.py"
+      - "scripts/build_site.py"
+      - ".github/workflows/site.yml"
+  workflow_dispatch:
+    inputs:
+      forecast:
+        description: "Run the title-odds simulation"
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: league-site
+  cancel-in-progress: true
+
+jobs:
+  build:
+    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    outputs:
+      pages_from_actions: ${{ steps.pages.outputs.from_actions }}
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v7
+        with:
+          ref: main
+
+      - name: Setup Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+
+      - name: Install minimal deps
+        run: pip install --no-cache-dir "pandas==3.0.6" "numpy==2.4.6"
+
+      - name: Build the site
+        env:
+          FORECAST: ${{ github.event_name != 'workflow_dispatch' || inputs.forecast }}
+        run: |
+          set -euo pipefail
+          flags="--with-docs"
+          if [ "$FORECAST" != "true" ]; then flags="$flags --no-forecast"; fi
+          python scripts/build_site.py --out _site $flags | tee site_report.json
+          touch _site/.nojekyll
+          echo "### League site" >> "$GITHUB_STEP_SUMMARY"
+          echo "Size on disk: $(du -sh _site | cut -f1), files: $(find _site -type f | wc -l)" >> "$GITHUB_STEP_SUMMARY"
+          echo '```json' >> "$GITHUB_STEP_SUMMARY"; cat site_report.json >> "$GITHUB_STEP_SUMMARY"; echo '```' >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Privacy check
+        run: python tests/test_league_site.py --check-dir _site
+
+      - name: Is Pages served from Actions?
+        id: pages
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          src=$(gh api "repos/${{ github.repository }}/pages" --jq .build_type 2>/dev/null || echo none)
+          echo "Pages build_type: $src"
+          if [ "$src" = "workflow" ]; then echo "from_actions=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "from_actions=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::Pages source is '$src', not GitHub Actions: built the site but did not deploy it (download the github-pages artifact to preview)."
+          fi
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+          retention-days: 7
+
+  deploy:
+    needs: build
+    if: needs.build.outputs.pages_from_actions == 'true'
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
