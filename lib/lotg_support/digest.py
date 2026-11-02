@@ -178,6 +178,9 @@ _KEY_COLS = {
     "Player", "Team", "Year", "Week", "Week Name", "Opponent",
     "Top team", "Top Team", "Last team", "Rookie?", "Result",
     "Taxi-eligible",
+    # Sleeper / nflverse ids (lotg_support.player_ids): numeric-looking labels.
+    "Player ID", "Reference player ID", "Player Added ID", "Player Dropped ID",
+    "Player Picked ID", "Player IDs received", "Player IDs sent", "GSIS ID",
 }
 
 # A yearly stat is treated as a *rate/level* (projected as-is, not scaled by
