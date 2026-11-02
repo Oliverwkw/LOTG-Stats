@@ -413,3 +413,24 @@ def picks_owned(year: int, lg: League) -> pd.DataFrame:
             for (s, r, rid), o in hold.items() if s > year]
     df = pd.DataFrame(rows)
     return df.groupby(["team", "season"])["round"].apply(lambda x: " ".join(str(v) for v in sorted(x))).unstack()
+
+
+def usage(b: pd.DataFrame, lg: League, index, recent: int = 3) -> Tuple[pd.DataFrame, List[str]]:
+    """Usage and xFP (lotg_support.usage) for the board rows at `index`: this
+    season through the last finished week, and the last `recent` NFL weeks —
+    so a hot streak (points above xFP, flat opportunity) reads apart from a
+    role change (xFP / snaps up). Returns the table and the data flags."""
+    from . import external as X
+    from . import usage as U
+    rows = b.loc[list(index)]
+    pids = [str(p) for p in rows["pid"]]
+    try:
+        dp = X.load_dynastyprocess_playerids(X.ExternalConfig(cache_dir=Q.repo_root() / ".cache"))
+    except Exception:
+        dp = None
+    t = U.usage_table(pids, lg.year, lg.done, U.sleeper_to_gsis(players_dict(), dp), scoring(lg.year),
+                      recent=recent, positions=dict(zip(pids, rows["Pos"])))
+    names = dict(zip(pids, rows["Player"]))
+    out = t.reset_index().assign(Player=lambda d: d["pid"].map(names),
+                                 Pos=lambda d: d["pid"].map(dict(zip(pids, rows["Pos"]))))
+    return out[["Player", "Pos"] + list(t.columns)], U.usage_flags(t, names, recent)

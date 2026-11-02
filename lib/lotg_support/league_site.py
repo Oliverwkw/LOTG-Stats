@@ -123,6 +123,8 @@ SEASON_COLUMNS = [
     "Points", "Avg points", "Points against", "Max PF", "Efficiency", "Points left on bench",
     "Differential", "Lineup Boldness", "Drafting skill", "Trading skill", "Add/Drop skill",
     "Draft Value", "Times Highest score?", "Week of playoff elimination",
+    # lotg_support.usage: the lineup's expected points vs what it scored
+    "Starters' xFP", "Avg starters' xFP", "Starters' points minus xFP",
 ]
 TEAM_SUMMARY_COLUMNS = [
     "All time record", "All time win %", "Regular season record", "Playoff record",
@@ -137,12 +139,18 @@ PLAYER_SUMMARY_COLUMNS = [
     "PPG starter adjusted by position", "Weeks rostered", "Weeks as starter", "% of starts",
     "Number of teams", "Number of trades", "Number of Add/Drops", "Starter PAR",
     "Championships rostered by", "Championships started by", "Times as Player of the week?",
-    "Win % as starter",
+    "Win % as starter", "xFP", "Points minus xFP",
 ]
 PLAYER_SEASON_COLUMNS = [
     "Year", "Top Team", "Last team", "Age", "Points", "Total points as starter", "PPG starter",
     "Weeks as starter", "Weeks rostered", "Starter PAR", "Rostered by champion?",
     "Started in championship game?",
+]
+# Usage / opportunity per season (lotg_support.usage; rostered weeks, 2020 on).
+PLAYER_USAGE_COLUMNS = [
+    "Year", "Weeks with usage data", "Avg snap %", "Targets", "Carries", "Avg target share",
+    "Air yards", "Red-zone opportunities", "xFP", "Avg xFP", "Points minus xFP",
+    "Avg points minus xFP",
 ]
 STINT_COLUMNS = [
     "Team", "Addition type", "Date", "Season", "Date dropped/traded", "Tenure (NFL weeks)",
@@ -748,7 +756,7 @@ class Site:
             h2h.append({"opp": opp, "w": int(x.W.sum()), "l": int((~x.W).sum()), **_kind_records(x),
                         "pf": round(float(x.PF.mean()), 2), "pa": round(float(x["Points against"].mean()), 2)})
         week_cols = ["Year", "Week Name", "Opponent", "Win?", "PF", "Points against", "Margin",
-                     "Max PF", "Efficiency"]
+                     "Max PF", "Efficiency", "Starters' xFP", "Starters' points minus xFP"]
         this = self.tw[(self.tw.Team == team) & (self.tw.Year == self.season)]
         roster = self.current_roster()
         roster = roster[roster.Team == team].copy()
@@ -770,6 +778,15 @@ class Site:
             "trades": [x["id"] for x in trades if any(s["team"] == team for s in x["sides"])],
             "draft": _table(picks.iloc[::-1], DRAFT_COLUMNS, "rookie_picks"),
         }
+
+    @staticmethod
+    def _usage_seasons(g: pd.DataFrame) -> pd.DataFrame:
+        """A player's seasons that have usage data, newest first (none before
+        2020, none on exports that predate the columns)."""
+        if "Weeks with usage data" not in g.columns:
+            return g.iloc[0:0]
+        n = pd.to_numeric(g["Weeks with usage data"], errors="coerce").fillna(0)
+        return g[n > 0].sort_values("Year", ascending=False)
 
     # -- player pages
     def players(self) -> Dict[str, dict]:
@@ -821,6 +838,8 @@ class Site:
                 "seasons": _table(py.get_group(name).sort_values("Year", ascending=False)
                                   if name in py.groups else self.py.iloc[0:0],
                                   PLAYER_SEASON_COLUMNS, "player_year"),
+                "usage": _table(self._usage_seasons(py.get_group(name)) if name in py.groups
+                                else self.py.iloc[0:0], PLAYER_USAGE_COLUMNS, "player_year"),
                 "stints": _table(adds.get_group(name).sort_values("Date")
                                  if name in adds.groups else self.adds.iloc[0:0],
                                  STINT_COLUMNS, "player_additions"),
