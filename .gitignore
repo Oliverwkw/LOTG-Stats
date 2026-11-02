@@ -59,3 +59,8 @@ exports/raw/pae_additions.json.gz
 # FAAB value pipeline downloads and stage caches (lotg_support.faab_data / faab_pipeline): ~300 MB of nflverse,
 # college and award data plus the walk-forward blocks. Rebuilt from public sources; never commit.
 .cache/faab/
+
+# lotg_support.db: the DuckDB copy of exports/ + snapshot for SQL questions. Rebuilt on demand from
+# the committed CSVs in seconds (and shipped in the run artifact); a binary, so never commit it.
+.cache/lotg.duckdb
+.cache/lotg.duckdb.*

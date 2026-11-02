@@ -62,7 +62,39 @@ expression is printed. Team-week questions are usually already a `team_week`
 column — e.g. `Margin entering SNF/Monday/last game`, `Comeback/Choke size …`,
 `Players over 20/30/40 pts (starters|roster)`, `Points from QBs`, `Max PF`,
 `Luck` — so `cols REGEX :: q "<twt expression>"` in one call. pandas is already
-installed in the cloud container; Sleeper's API is reachable from it.
+installed in the cloud container; Sleeper's API is reachable from it. The SQL
+path below needs `pip install duckdb==1.4.5` once (pyarrow is already there).
+
+**Or ask it in SQL** — same data, same caveats, ONE call (`fast.py sql` chains
+with `::` like any subcommand; `scripts/sql.py` is the standalone CLI):
+
+```bash
+python scripts/fast.py sql "SELECT Team, count(*) AS n FROM starters WHERE Points > 40 GROUP BY Team ORDER BY n DESC"
+python scripts/fast.py sql "SELECT Team, Year, Week, \"Margin entering Monday\" AS m, Margin FROM tw WHERE NOT \"Win?\" ORDER BY m DESC LIMIT 5"
+python scripts/sql.py "SELECT Team, Player, \"Waiver bid\", status FROM sleeper_moves WHERE type = 'waiver' AND status = 'failed' ORDER BY \"Waiver bid\" DESC LIMIT 10"
+python scripts/sql.py --live "SELECT Team, Player, Points FROM lpw WHERE Live ORDER BY Points DESC LIMIT 10"
+python scripts/sql.py "SELECT * FROM catalog_columns WHERE \"column\" ILIKE '%choke%'"   # the SQL `cols`
+python scripts/sql.py --tables          # every table/view: rows, key, caveats;  --describe T for columns
+```
+
+`lotg_support.db` builds a typed DuckDB copy into `.cache/lotg.duckdb`
+(gitignored) on first use and again whenever an input changes (about 6-15 s;
+each query after that about 1 s; also in the CI run artifact). Typing is
+`typed_sheet`'s: `Year`/`Week` INTEGER, `Win?` BOOLEAN, dates DATE/TIMESTAMP,
+blanks NULL (`IS NULL`, not `= ''`). Quote names with spaces or `?`.
+Tables: every export sheet by name plus the aliases (`tw`, `ty`, `py`, `pa`,
+`lw`, `ly`, `twt`, …); `pw` (= `fast.py q`'s `pw`, acquisition columns
+included) and `ts`; views `starters`, `bench`, `pw_full` (every player_week
+column + team result), `player_positions`, `tw_regular`; the raw snapshot
+keyed by `Player ID`, from 2021: `sleeper_matchups`, `sleeper_lineups` (slot,
+empty slots), `sleeper_transactions` / `sleeper_moves` (failed waiver claims
+and their bids too) / `sleeper_trade_picks`, `sleeper_players` (current
+dictionary), `sleeper_leagues`, `sleeper_scoring`; `id_bridge`, `nfl_schedule`.
+Every result ends with `# ` caveat lines for the tables it touched (the
+semifinal +5 in `PF`, strict `>` vs `>=`, lineup size by season, the as-of
+week, bench = every non-starter, FAAB on a 100 scale, live = raw / leading
+now). Numbers are the exact parse of the CSV text, so a value can differ from
+`twt`'s in the 16th digit (pandas' parser); counts and ranks agree.
 
 **Acquisition and correlation questions** ("share of starter points from
 waivers/trades/the draft", "is X linked to win %") are ONE `q` too. `Acquired
@@ -201,7 +233,8 @@ there), under a minute when it needs a new column or a scratch script, under 3
 minutes otherwise. The note in `plan/notes/`, the new
 helper in `lib/`, the tests and the PR are a *second phase* that starts only
 when the asker says they want it. Do not open a PR for a question. (`pip install
-pandas` is the one setup step; skip `requirements.txt`, it pulls ortools.)
+pandas` is the one setup step — plus `pip install duckdb==1.4.5` for the SQL
+path; skip `requirements.txt`, it pulls ortools.)
 
 **The 3 minutes is a target; accuracy is the constraint.** They rarely conflict
 — the playbook's accuracy floor (read the trap list, reconcile against a build
