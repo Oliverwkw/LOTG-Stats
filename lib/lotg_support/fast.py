@@ -38,6 +38,10 @@ Conventions (each printed by the CLI so an answer carries its own caveats):
   its date, `Acquired season` its Season. `Season source` is how he joined
   this team THIS season: "Week-1 roster" if he was on it in week 1, else
   `Acquired via`. `In-season pickup` = Season source is Waiver / Free agency.
+- Usage on every finished player-week (`USAGE_COLUMNS`, NaN when nflverse
+  shows no game): `Snap %`, `Targets`, `Carries`, `Target share`, `Air yards`,
+  `Red-zone opportunities`, `xFP` (expected points in league scoring) and
+  `Points minus xFP`. Live-week rows carry NaN (nflverse lags the games).
 - `corr` prints Pearson and Spearman with two-sided p-values and n, optionally
   holding controls constant (partial correlation) — no scipy needed.
   `starter_share` turns a player-week condition into a per-team-season share
@@ -135,6 +139,9 @@ def _player_weeks_cached(root: str) -> pd.DataFrame:
     out["Year"] = pd.to_numeric(out["Year"], errors="coerce").astype("Int64")
     out["Week"] = pd.to_numeric(out["Week"], errors="coerce").astype("Int64")
     out["Points"] = pd.to_numeric(out["Points"], errors="coerce")
+    # Usage / xFP (lotg_support.usage), numeric; blank = did not play / no data.
+    for c in USAGE_COLUMNS:
+        out[c] = pd.to_numeric(pw[c], errors="coerce") if c in pw.columns else np.nan
     t = tw[["Team", "Year", "Week", "Opponent", "Win?", "Margin", "PF", "Points against"]].copy()
     t["Year"] = pd.to_numeric(t["Year"], errors="coerce").astype("Int64")
     t["Week"] = pd.to_numeric(t["Week"], errors="coerce").astype("Int64")
@@ -151,6 +158,11 @@ def _player_weeks_cached(root: str) -> pd.DataFrame:
         out = out[[c for c in out.columns if c != ID] + [ID]]
     return out
 
+
+# player_week's usage columns, carried on `pw` as numbers (NaN before the
+# exports have them, and on weeks nflverse shows the player not playing).
+USAGE_COLUMNS = ["Snap %", "Targets", "Carries", "Target share", "Air yards",
+                 "Red-zone opportunities", "xFP", "Points minus xFP"]
 
 PICKUP_TYPES = ("Waiver", "Free agency")
 ID = player_ids.PLAYER_ID

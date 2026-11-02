@@ -112,7 +112,7 @@ import functools
 import math
 import re
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Sequence, Tuple
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
 import pandas as pd
@@ -1450,7 +1450,8 @@ def _week_shape(proj: "FieldedDistribution", rid: int, sim_weeks: Sequence[int],
 def forecast(year: int, sims: int = 20000, model: RateModel = RateModel(),
              availability: AvailabilityModel = AvailabilityModel(),
              calibration: Optional[Calibration] = None, seed: int = 20260807,
-             strength_model: str = "roster", as_of_week: Optional[int] = None) -> Forecast:
+             strength_model: str = "roster", as_of_week: Optional[int] = None,
+             rules: Optional[Any] = None) -> Forecast:
     """Monte-Carlo the rest of `year` and return each team's championship odds.
 
     strength_model:
@@ -1465,6 +1466,12 @@ def forecast(year: int, sims: int = 20000, model: RateModel = RateModel(),
     This is what makes a *finished* season answerable as though it had not
     happened yet, which is the only honest way to ask whether these
     probabilities have ever been any good — see `backtest`.
+
+    `rules` (default None = the league's real rules) is a rule-change hook,
+    `lotg_support.rules.ForecastRules`: its `observed` replaces the played
+    weeks' scores, its `shift` (roster id -> points/week) moves each team's
+    simulated weeks, and its `standings` / `bracket` / `playoff_teams` replace
+    the table, the bracket and the playoff count.
     """
     meta = Q.season_meta(year)
     teams = Q.teams(year)
@@ -1474,7 +1481,10 @@ def forecast(year: int, sims: int = 20000, model: RateModel = RateModel(),
 
     rweek = roster_week(year, as_of_week)
     cutoff = meta.last_week if as_of_week is None else int(as_of_week)
-    observed = {w: s for w, s in _observed_scores(year).items() if w <= min(cutoff, meta.last_week)}
+    played = _observed_scores(year)
+    if rules is not None and getattr(rules, "observed", None) is not None:
+        played = {w: dict(rules.observed.get(w, s)) for w, s in played.items()}
+    observed = {w: s for w, s in played.items() if w <= min(cutoff, meta.last_week)}
     sim_weeks = [w for w in range(1, meta.last_week + 1) if w not in observed]
     known = max(observed) if observed else 0
     proj = fielded_distribution(year, model, availability, week=rweek, seed=seed + 1,
@@ -1501,8 +1511,16 @@ def forecast(year: int, sims: int = 20000, model: RateModel = RateModel(),
         raise ValueError(f"unknown strength_model {strength_model!r}; "
                          "pick roster, history or uniform")
 
+    # A rule change's shift moves the prior (relative part) and the league level
+    # (common part); the posterior then weighs it against the observed weeks,
+    # which the hook has already re-scored — so it is not counted twice.
+    level = 0.0
+    if rules is not None and getattr(rules, "shift", None):
+        sh = {r: float(rules.shift.get(r, 0.0)) for r in rids}
+        level = float(np.mean(list(sh.values())))
+        prior = {r: v + sh[r] - level for r, v in prior.items()}
     strength = _posterior(prior, sd_true, calib.sd_week, observed, meta.regular_season_weeks)
-    mean = {r: calib.league_mean + strength[r] for r in rids}
+    mean = {r: calib.league_mean + level + strength[r] for r in rids}
     sched = schedule(year, mean)
     if not sched.balanced:
         warnings.append(f"{year}: {sched.describe()}")
@@ -1562,6 +1580,7 @@ def forecast(year: int, sims: int = 20000, model: RateModel = RateModel(),
     wins = {r: 0.0 for r in rids}
     pf = {r: 0.0 for r in rids}
     by_name = {name: rid for rid, name in teams.items()}
+    n_playoff = int(getattr(rules, "playoff_teams", None) or meta.playoff_teams)
 
     for i in range(sims):
         level = base + true_shift[i]
@@ -1569,13 +1588,13 @@ def forecast(year: int, sims: int = 20000, model: RateModel = RateModel(),
         for j, wk in enumerate(sim_weeks):
             row = level + avail_draw[i, j] + week_shock[i, j] + idio[i, j]
             scores[wk] = {rid: float(row[k]) for k, rid in enumerate(rids)}
-        table = R._standings(scores, pairs, teams, meta)
-        bracket = R._bracket(scores, table, teams, meta)
+        table = (rules.standings if rules is not None else R._standings)(scores, pairs, teams, meta)
+        bracket = (rules.bracket if rules is not None else R._bracket)(scores, table, teams, meta)
         for place, standing in enumerate(table):
             seed_counts[standing.roster_id][place] += 1
             wins[standing.roster_id] += standing.wins
             pf[standing.roster_id] += standing.points_for
-            if place < meta.playoff_teams:
+            if place < n_playoff:
                 playoff[standing.roster_id] += 1
         if bracket.champion:
             champ[by_name[bracket.champion]] += 1

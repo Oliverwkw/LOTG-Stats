@@ -60,12 +60,60 @@ RECORD_SHEETS = {
     "league_week": ("Year", "Week Name"),
     "league_year": ("Year",),
     "trades": ("Team", "Team's traded with 1", "Date", "Assets received"),
-    "add_drops": None,          # labels picked at load time (see _labels)
+    "add_drops": ("Team", "Player Added", "Player Dropped", "Date"),
     "player_additions": ("Player", "Team", "Addition type", "Date"),
     "rookie_picks": ("Player Picked", "Team", "Year", "Number"),
+    "non_rookie_picks": ("Player Picked", "Team", "Year", "Number"),
 }
-RECORD_DEPTH = 10               # rows per end; ties at the cut are kept up to RECORD_CAP
-RECORD_CAP = 25
+# The digest's board: top / bottom 5, and a tie shows only when all of it fits in
+# the 5 (memory digest-line-rules-0922, `_tie_fits`): no 2-way tie for 5th.
+RECORD_DEPTH = 5
+
+# Week types, as the build's team records split them (team_all_time "Playoff
+# record" / "Third place game record" / "Toilet bowl record" / "Toilet losers
+# game record"; tests reconcile each). The 3rd-place game is NOT playoffs (user,
+# 2026-11-02), and the toilet losers game is not the toilet bowl.
+WEEK_KINDS = {"reg": "Regular season", "playoffs": "Playoffs", "third": "3rd place game",
+              "toilet": "Toilet bowl", "trash": "Toilet losers game"}
+KIND_RECORD = {"playoffs": "Playoff record", "third": "Third place game record",
+               "toilet": "Toilet bowl record", "trash": "Toilet losers game record"}
+
+
+def week_kind(name) -> str:
+    """"reg" for a regular-season week ("Week 7"); "playoffs" for Semifinal and
+    Final; "third" for the 3rd-place game; "toilet" for Toilet Semis and Toilet
+    Final; "trash" for the toilet losers game (Toilet Trash)."""
+    n = str(name)
+    if n.startswith("Week "):
+        return "reg"
+    low = n.lower()
+    if "3rd" in low or "third" in low:
+        return "third"
+    if low.startswith("toilet"):
+        return "trash" if ("trash" in low or "loser" in low) else "toilet"
+    return "playoffs"
+
+
+# Sheets whose rows keep counting while the season is played: the season's own
+# totals, and moves made this season (their points, wins added and later KTC
+# are still accruing). A finished week is final, so week sheets carry no flag.
+STILL_COUNTING = {"team_year": "season in progress", "player_year": "season in progress",
+                  "league_year": "season in progress", "trades": "still counting",
+                  "add_drops": "still counting", "player_additions": "still counting",
+                  "rookie_picks": "still counting"}
+
+
+def board(values: pd.Series, ascending: bool, depth: int = RECORD_DEPTH) -> List[tuple]:
+    """[(index, value, rank)] for the top `depth` by the digest's rule: rank is
+    1 + the number strictly better; a tie is kept only if every holder fits."""
+    s = values.dropna().sort_values(ascending=ascending, kind="mergesort")
+    out = []
+    for val, grp in s.groupby(s, sort=False):
+        rank = len(out) + 1
+        if rank + len(grp) - 1 > depth:
+            break
+        out.extend((idx, val, rank) for idx in grp.index)
+    return out
 
 # Never ranked: identifiers, links, and columns whose number is a label.
 _NOT_A_STAT = re.compile(r"^(Year|Week|Season|Number|Date.*|Link .*|Player ID|.*\bID)$")
@@ -75,9 +123,12 @@ SEASON_COLUMNS = [
     "Points", "Avg points", "Points against", "Max PF", "Efficiency", "Points left on bench",
     "Differential", "Lineup Boldness", "Drafting skill", "Trading skill", "Add/Drop skill",
     "Draft Value", "Times Highest score?", "Week of playoff elimination",
+    # lotg_support.usage: the lineup's expected points vs what it scored
+    "Starters' xFP", "Avg starters' xFP", "Starters' points minus xFP",
 ]
 TEAM_SUMMARY_COLUMNS = [
     "All time record", "All time win %", "Regular season record", "Playoff record",
+    "Third place game record", "Toilet bowl record", "Toilet losers game record",
     "Championships", "Number of championship appearances", "Number of playoff appearances",
     "Number of last place finishes", "Points", "Avg points", "Points against", "Efficiency",
     "All-play win %", "Avg yearly luck", "Drafting skill", "Trading skill", "Add/Drop skill",
@@ -103,12 +154,18 @@ PLAYER_SUMMARY_COLUMNS = [
     "PPG starter adjusted by position", "Weeks rostered", "Weeks as starter", "% of starts",
     "Number of teams", "Number of trades", "Number of Add/Drops", "Starter PAR",
     "Championships rostered by", "Championships started by", "Times as Player of the week?",
-    "Win % as starter",
+    "Win % as starter", "xFP", "Points minus xFP",
 ]
 PLAYER_SEASON_COLUMNS = [
     "Year", "Top Team", "Last team", "Age", "Points", "Total points as starter", "PPG starter",
     "Weeks as starter", "Weeks rostered", "Starter PAR", "Rostered by champion?",
     "Started in championship game?",
+]
+# Usage / opportunity per season (lotg_support.usage; rostered weeks, 2020 on).
+PLAYER_USAGE_COLUMNS = [
+    "Year", "Weeks with usage data", "Avg snap %", "Targets", "Carries", "Avg target share",
+    "Air yards", "Red-zone opportunities", "xFP", "Avg xFP", "Points minus xFP",
+    "Avg points minus xFP",
 ]
 STINT_COLUMNS = [
     "Team", "Addition type", "Date", "Season", "Date dropped/traded", "Tenure (NFL weeks)",
@@ -326,6 +383,27 @@ def forecast_odds(year: int, sims: int = 20000) -> Optional[Dict[str, object]]:
     return {"year": year, "sims": fc.sims, "played": list(fc.played_weeks), "odds": rows}
 
 
+def _kind_records(x: pd.DataFrame) -> Dict[str, int]:
+    """Wins and losses per week type: {"regw": .., "regl": .., "playoffsw": ..}."""
+    out = {}
+    for k in WEEK_KINDS:
+        y = x[x.Kind == k]
+        out[k + "w"], out[k + "l"] = int(y.W.sum()), int((~y.W).sum())
+    return out
+
+
+def _zero_sum(values: pd.Series, deal: pd.Series) -> bool:
+    """True when, trade by trade, the sides' values cancel (a KTC difference, net
+    points): then the bottom of the board is only the top's other sides."""
+    both = pd.DataFrame({"v": values, "k": deal}).dropna()
+    if both.empty:
+        return False
+    sums = both.groupby("k")["v"].agg(["sum", "count", lambda x: x.abs().max()])
+    sums.columns = ["sum", "count", "mag"]
+    two = sums[(sums["count"] >= 2) & (sums["mag"] > 0)]
+    return len(two) >= 10 and float(((two["sum"].abs() <= 0.01 * two["mag"] + 1e-6)).mean()) >= 0.95
+
+
 # ---------------------------------------------------------------- data explorer
 
 CHUNK_BYTES = 1_500_000          # a sheet bigger than this as CSV is split by season
@@ -502,17 +580,28 @@ class Site:
 
     # -- records
     def records(self, sheet: str) -> Dict[str, object]:
+        """Every numeric column's top and bottom 5 (digest tie rule). Week
+        sheets also get a board per week type; trades rank one row per trade,
+        and a zero-sum trade column (one side's gain is the other's loss) shows
+        only its top, since its bottom is the same trades seen from the
+        other side."""
         df = _read(sheet)
         if df.empty:
             return {"sheet": sheet, "columns": []}
-        labels = RECORD_SHEETS.get(sheet)
-        if labels is None:
-            labels = tuple(c for c in ("Team", "Player added", "Player dropped", "Date", "Season")
-                           if c in df.columns) or tuple(df.columns[:3])
-        labels = tuple(c for c in labels if c in df.columns)
-        year = pd.to_numeric(df["Year"] if "Year" in df else df.get("Season"), errors="coerce") \
-            if ("Year" in df or "Season" in df) else None
-        live = (year == self.season) if year is not None else pd.Series(False, index=df.index)
+        labels = tuple(c for c in RECORD_SHEETS.get(sheet, ()) if c in df.columns) or tuple(df.columns[:3])
+        flag_text = STILL_COUNTING.get(sheet)
+        year_col = "Year" if "Year" in df else ("Season" if "Season" in df else None)
+        live = (pd.to_numeric(df[year_col], errors="coerce") == self.season) \
+            if (flag_text and year_col) else pd.Series(False, index=df.index)
+        scopes = {"all": df.index}
+        if "Week Name" in df.columns:
+            kinds = df["Week Name"].map(week_kind)
+            scopes.update({k: df.index[kinds == k] for k in WEEK_KINDS})
+        deal = None
+        if sheet == "trades":
+            partners = [c for c in df.columns if c.startswith("Team's traded with")]
+            deal = pd.Series([(str(d), frozenset([str(t)] + [str(r[c]) for c in partners if pd.notna(r[c])]))
+                              for d, t, (_, r) in zip(df["Date"], df["Team"], df.iterrows())], index=df.index)
         cols = []
         for c in df.columns:
             if c in labels or _NOT_A_STAT.match(str(c)):
@@ -522,21 +611,32 @@ class Site:
             if ok.sum() < 3 or v[ok].nunique() < 2:
                 continue
             places = NF.decimals(NF.col_number_format(c))
-            entry = {"col": c, "label": _display(c, sheet), "fmt": column_format(c), "n": int(ok.sum())}
-            for end, asc in (("hi", False), ("lo", True)):
-                s = v[ok].sort_values(ascending=asc, kind="mergesort")
-                cut = s.iloc[min(RECORD_DEPTH, len(s)) - 1]
-                keep = s[(s >= cut) if not asc else (s <= cut)].head(RECORD_CAP)
-                tied = int(((s >= cut) if not asc else (s <= cut)).sum()) - len(keep)
-                rows = []
-                for idx, val in keep.items():
-                    rows.append([_clean(val, places), [_clean(df.at[idx, lab]) for lab in labels],
-                                 bool(live.get(idx, False))])
-                entry[end] = rows
-                if tied > 0:
-                    entry[end + "_more"] = tied
+            entry = {"col": c, "label": _display(c, sheet), "fmt": column_format(c), "n": int(ok.sum()),
+                     "scopes": {}}
+            mirror = deal is not None and _zero_sum(v, deal)
+            if mirror:
+                entry["mirror"] = True
+            for scope, index in scopes.items():
+                vals = v.loc[index]
+                if vals.notna().sum() < 1:
+                    continue
+                out = {}
+                for end, asc in (("hi", False), ("lo", True)):
+                    if mirror and end == "lo":
+                        continue
+                    if deal is not None:        # one row per trade: its best side for this end
+                        order = vals.dropna().sort_values(ascending=asc, kind="mergesort")
+                        vals_end = order[~deal.loc[order.index].duplicated()]
+                    else:
+                        vals_end = vals
+                    out[end] = [[_clean(val, places), [_clean(df.at[idx, lab]) for lab in labels],
+                                 bool(live.get(idx, False)), rank]
+                                for idx, val, rank in board(vals_end, asc)]
+                entry["scopes"][scope] = out
             cols.append(entry)
-        return {"sheet": sheet, "labels": list(labels), "live_season": self.season, "columns": cols}
+        return {"sheet": sheet, "labels": list(labels), "flag": flag_text, "live_season": self.season,
+                "scopes": [k for k in scopes], "scope_names": {"all": "All weeks", **WEEK_KINDS},
+                "depth": RECORD_DEPTH, "columns": cols}
 
     # -- head to head
     def games(self) -> pd.DataFrame:
@@ -545,23 +645,20 @@ class Site:
         g["PF"] = pd.to_numeric(g.PF, errors="coerce")
         g["Points against"] = pd.to_numeric(g["Points against"], errors="coerce")
         g["W"] = g["Win?"].astype(str).str.lower().eq("true")
-        g["Playoff"] = ~g["Week Name"].astype(str).str.startswith("Week ")
+        g["Kind"] = g["Week Name"].map(week_kind)
         return g
 
     def h2h(self) -> Dict[str, object]:
         g = self.games()
         cells = {}
         for (a, b), x in g.groupby(["Team", "Opponent"]):
-            reg, po = x[~x.Playoff], x[x.Playoff]
             last = x.sort_values(["Year", "Week"]).iloc[-1]
             cells[f"{a}|{b}"] = {
-                "w": int(x.W.sum()), "l": int((~x.W).sum()),
-                "rw": int(reg.W.sum()), "rl": int((~reg.W).sum()),
-                "pw": int(po.W.sum()), "pl": int((~po.W).sum()),
+                "w": int(x.W.sum()), "l": int((~x.W).sum()), **_kind_records(x),
                 "pf": round(float(x.PF.sum()), 2), "pa": round(float(x["Points against"].sum()), 2),
                 "last": f"{int(last.Year)} {last['Week Name']}: {'W' if last.W else 'L'} "
                         f"{last.PF:.2f}-{last['Points against']:.2f}"}
-        return {"teams": self.teams, "cells": cells,
+        return {"teams": self.teams, "cells": cells, "kinds": WEEK_KINDS,
                 "note": "PF includes the semifinal +5 bonus (team PF does; player points do not)."}
 
     # -- trades
@@ -671,11 +768,10 @@ class Site:
         mine = g[g.Team == team]
         h2h = []
         for opp, x in mine.groupby("Opponent"):
-            h2h.append({"opp": opp, "w": int(x.W.sum()), "l": int((~x.W).sum()),
-                        "pw": int(x[x.Playoff].W.sum()), "pl": int((~x[x.Playoff].W).sum()),
+            h2h.append({"opp": opp, "w": int(x.W.sum()), "l": int((~x.W).sum()), **_kind_records(x),
                         "pf": round(float(x.PF.mean()), 2), "pa": round(float(x["Points against"].mean()), 2)})
         week_cols = ["Year", "Week Name", "Opponent", "Win?", "PF", "Points against", "Margin",
-                     "Max PF", "Efficiency"]
+                     "Max PF", "Efficiency", "Starters' xFP", "Starters' points minus xFP"]
         this = self.tw[(self.tw.Team == team) & (self.tw.Year == self.season)]
         roster = self.current_roster()
         roster = roster[roster.Team == team].copy()
@@ -699,6 +795,15 @@ class Site:
             "trades": [x["id"] for x in trades if any(s["team"] == team for s in x["sides"])],
             "draft": _table(picks.iloc[::-1], DRAFT_COLUMNS, "rookie_picks"),
         }
+
+    @staticmethod
+    def _usage_seasons(g: pd.DataFrame) -> pd.DataFrame:
+        """A player's seasons that have usage data, newest first (none before
+        2020, none on exports that predate the columns)."""
+        if "Weeks with usage data" not in g.columns:
+            return g.iloc[0:0]
+        n = pd.to_numeric(g["Weeks with usage data"], errors="coerce").fillna(0)
+        return g[n > 0].sort_values("Year", ascending=False)
 
     # -- player pages
     def players(self) -> Dict[str, dict]:
@@ -750,6 +855,8 @@ class Site:
                 "seasons": _table(py.get_group(name).sort_values("Year", ascending=False)
                                   if name in py.groups else self.py.iloc[0:0],
                                   PLAYER_SEASON_COLUMNS, "player_year"),
+                "usage": _table(self._usage_seasons(py.get_group(name)) if name in py.groups
+                                else self.py.iloc[0:0], PLAYER_USAGE_COLUMNS, "player_year"),
                 "stints": _table(adds.get_group(name).sort_values("Date")
                                  if name in adds.groups else self.adds.iloc[0:0],
                                  STINT_COLUMNS, "player_additions"),

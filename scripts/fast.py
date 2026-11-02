@@ -38,6 +38,11 @@ command whose output already carries its caveats.
     python scripts/fast.py q "pw[(pw.Team=='Oliverwkw')&(pw.Points>=40)].sort_values(['Year','Week']).tail(3)"
     python scripts/fast.py q "s = share('In-season pickup', years=range(2021,2026)); corr(s, ts['Regular season win %'], control=ts.Tanking)"
 
+    # or one SQL statement over the typed DuckDB copy (lotg_support.db; needs
+    # `pip install duckdb`; built on demand, seconds). Same pw / ts as `q`.
+    python scripts/fast.py sql "SELECT Team, Year, Week, PF FROM team_week ORDER BY PF DESC LIMIT 5"
+    python scripts/fast.py sql --live "SELECT Team, Player, Points FROM lpw WHERE Live ORDER BY Points DESC LIMIT 5"
+
 `--snapshot` on `live` / `--live` reads the committed snapshot's copy of the
 week instead of Sleeper (no network; as old as the snapshot).
 """
@@ -246,6 +251,21 @@ def cmd_q(args) -> None:
     print(out.to_string() if hasattr(out, "to_string") else out)
 
 
+_DB = {}
+
+
+def cmd_sql(args) -> None:
+    """One SQL statement over lotg_support.db; a `::` batch shares the connection."""
+    from lotg_support import db
+    key = "con"
+    if key not in _DB:
+        _DB[key] = db.connect()
+    con = _DB[key]
+    if args.live:
+        db.attach_live(con, _live(args))
+    db.run(" ".join(args.sql), con, max_rows=args.n)
+
+
 def main(argv=None) -> None:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -299,6 +319,13 @@ def main(argv=None) -> None:
     p.add_argument("expr")
     live_opts(p)
     p.set_defaults(fn=cmd_q)
+
+    p = sub.add_parser("sql", help="one SQL statement over the typed DuckDB copy (scripts/sql.py)")
+    p.add_argument("sql", nargs="+")
+    p.add_argument("--live", action="store_true", help="add lpw / live_pw / live_tw")
+    p.add_argument("-n", type=int, default=200, help="rows to print (0 = all)")
+    live_opts(p)
+    p.set_defaults(fn=cmd_sql)
 
     if hasattr(signal, "SIGPIPE"):          # `| head` closes the pipe: exit quietly
         signal.signal(signal.SIGPIPE, signal.SIG_DFL)

@@ -249,7 +249,8 @@ async function team(slug) {
       <div class="card"><h2>Head to head</h2>${table([
         { k: "opp", label: "Opponent", left: true, html: (r) => teamLink(r.opp) },
         { k: (r) => r.w / Math.max(1, r.w + r.l), label: "W-L", html: (r) => `${r.w}-${r.l}` },
-        { k: "pw", label: "Playoffs", html: (r) => `${r.pw}-${r.pl}` },
+        ...[["reg", "Regular"], ["playoffs", "Playoffs"], ["third", "3rd place"], ["toilet", "Toilet"], ["trash", "Toilet losers"]].map(([k, n]) =>
+          ({ k: (r) => r[k + "w"] / Math.max(1, r[k + "w"] + r[k + "l"]), label: n, html: (r) => `${r[k + "w"]}-${r[k + "l"]}` })),
         { k: "pf", label: "Avg PF", spec: { d: 2 } },
         { k: "pa", label: "Avg PA", spec: { d: 2 } },
       ], t.h2h, { sort: 1 })}<p class="small"><a href="#/h2h">Full matrix →</a></p></div>
@@ -295,6 +296,7 @@ async function player(key) {
       { k: "best", label: "Best week", spec: { d: 2 } }], p.teams)}</div>
     <div class="card"><h2>Acquisitions</h2>${dataTable(p.stints, { links: { Team: (v) => teamLink(v) } })}</div>
     <div class="card"><h2>Seasons</h2>${dataTable(p.seasons, { links: { "Top Team": (v) => teamLink(v), "Last team": (v) => teamLink(v) } })}</div>
+    ${p.usage && p.usage.rows.length ? `<div class="card"><h2>Usage</h2><p class="muted small">Snaps, targets, carries and red-zone looks while rostered. xFP = the points his targets and carries usually produce in this league's scoring; points minus xFP above 0 = scoring beyond the opportunity (rarely sticky), rising xFP = a bigger role.</p>${dataTable(p.usage)}</div>` : ""}
     ${p.trades.length ? `<div class="card"><h2>Trades</h2>${p.trades.map((id) => byId[id] && tradeCard(byId[id], tr.meta)).join("")}</div>` : ""}`;
 }
 
@@ -303,13 +305,14 @@ const SHEETS = [
   ["player_week", "Player week"], ["player_year", "Player season"], ["player_all_time", "Player career"],
   ["league_week", "League week"], ["league_year", "League season"], ["trades", "Trades"],
   ["add_drops", "Add/drops"], ["player_additions", "Pickups"], ["rookie_picks", "Rookie picks"],
+  ["non_rookie_picks", "Startup & vet picks"],
 ];
 const FEATURED = {
   team_week: ["PF", "Margin", "Max PF", "Efficiency", "Points left on bench", "Bench points"],
-  team_year: ["Points", "Win %", "All-play win %", "Efficiency", "Differential", "Lineup Boldness", "Avg weekly score", "Weekly score swing %"],
+  team_year: ["Points", "Win %", "All-play win %", "Efficiency", "Differential", "Lineup Boldness", "Starters' xFP", "Starters' points minus xFP", "Avg weekly score", "Weekly score swing %"],
   team_all_time: ["Championships", "All time win %", "Avg points", "Trading skill", "Drafting skill", "Add/Drop skill", "Avg weekly score", "Weekly score swing %"],
-  player_week: ["Points"],
-  player_year: ["Points", "PPG starter", "Starter PAR", "Times as Player of the week?"],
+  player_week: ["Points", "xFP", "Points minus xFP"],
+  player_year: ["Points", "PPG starter", "Starter PAR", "Times as Player of the week?", "xFP", "Points minus xFP"],
   player_all_time: ["Points", "Total points as starter", "Starter PAR", "Number of teams", "Number of trades"],
 };
 
@@ -318,21 +321,32 @@ async function records(sheet, query) {
   const params = new URLSearchParams(query || "");
   const r = await load(`records/${sheet}.json`);
   let q = params.get("q") || "", end = params.get("end") || "hi";
+  let scope = r.scopes.includes(params.get("w")) ? params.get("w") : "all";
   const labelCols = r.labels;
   const lab = (row) => row.map((x, i) => {
     const c = labelCols[i];
     if (x === null) return "";
     if (c === "Team" || c === "Top team" || c === "Top Team" || c === "Opponent" || c === "Team's traded with 1") return (c === "Opponent" ? "vs " : "") + teamLink(x);
-    if (c === "Player" || c === "Player Picked") return playerLink(x);
+    if (c === "Player" || c === "Player Picked" || c === "Player Added") return playerLink(x);
+    if (c === "Player Dropped") return `<span class="muted">for</span> ${playerLink(x)}`;
     if (c === "Assets received") return `<span class="muted">got ${esc(String(x).slice(0, 60))}</span>`;
+    if (c === "Date") return esc(String(x).slice(0, 10));
     return esc(x);
   }).filter(Boolean).join(" · ");
+  // ranks as the digest words them: "T2" for a shared place
+  const place = (rows, i) => {
+    const r0 = rows[i][3], tied = rows.filter((x) => x[3] === r0).length > 1;
+    return (tied ? "T" : "") + r0;
+  };
   function card(c) {
-    const rows = c[end] || [];
-    const more = c[end + "_more"];
-    return `<div class="card rec"><b>${esc(c.label)}</b> <span class="muted small">${end === "hi" ? "highest" : "lowest"} · ${c.n} rows</span>
-      <ol>${rows.map(([v, l, live]) => `<li><span class="v">${fmt(c.fmt, v)}</span> ${lab(l)}${live ? ' <span class="chip live">in progress</span>' : ""}</li>`).join("")}</ol>
-      ${more ? `<p class="muted small">+${more} more tied at the cut</p>` : ""}</div>`;
+    const b = (c.scopes || {})[scope] || {};
+    const useEnd = c.mirror ? "hi" : end;
+    const rows = b[useEnd] || [];
+    const body = rows.length
+      ? `<table class="rk"><tbody>${rows.map((x, i) => `<tr><td class="muted">${place(rows, i)}</td><td class="v">${fmt(c.fmt, x[0])}</td><td class="l">${lab(x[1])}${x[2] ? ` <span class="chip live">${esc(r.flag || "")}</span>` : ""}</td></tr>`).join("")}</tbody></table>`
+      : `<p class="muted small">No board: ${b.hi || b.lo ? "a tie for the last places doesn't fit in the top " + r.depth : "no values"}.</p>`;
+    return `<div class="card rec"><b>${esc(c.label)}</b> <span class="muted small">${useEnd === "hi" ? "highest" : "lowest"}${c.mirror ? " · each trade once" : ""}</span>
+      ${body}${c.mirror && end === "lo" ? `<p class="muted small">Lowest is the same trades from the losing side, so only the highest is shown.</p>` : ""}</div>`;
   }
   function draw() {
     const ql = q.trim().toLowerCase();
@@ -348,10 +362,12 @@ async function records(sheet, query) {
     <div class="controls"><input class="f" id="rq" type="search" placeholder="Filter ${r.columns.length} stats (e.g. bench, boldness, KTC)" value="${esc(q)}">
       <span class="seg" style="margin:0"><button data-e="hi" aria-pressed="${end === "hi"}">Highest</button><button data-e="lo" aria-pressed="${end === "lo"}">Lowest</button></span></div>
     <p class="muted small" id="reccount"></p>
-    <div class="note">Team PF includes the semifinal +5 bonus; player points do not. Lineups were 9 starters 2020-23 and 10 from 2024. "In progress" rows are from the ${r.live_season} season, still being played. Every week type counts (playoffs and toilet bowl too).</div>
+    ${r.scopes.length > 1 ? `<div class="seg">${r.scopes.map((k) => `<button data-w="${k}" aria-pressed="${k === scope}">${esc(r.scope_names[k])}</button>`).join("")}</div>` : ""}
+    <div class="note">Top and bottom ${r.depth}, as the digest ranks them: a shared place reads "T2", and a tie that would not fit inside the ${r.depth} is left off. Team PF includes the semifinal +5 bonus; player points do not. Lineups were 9 starters 2020-23 and 10 from 2024.${r.flag ? ` "${esc(r.flag)}" marks ${r.live_season} rows whose numbers are still changing.` : ""}${sheet === "trades" ? " Each trade is listed once per board (the side that ranks), even though the trades sheet has a row for each side." : ""}</div>
     <div class="recgrid" id="recs"></div>`;
   $app.querySelectorAll("[data-s]").forEach((b) => b.onclick = () => (location.hash = `#/records/${b.dataset.s}${q ? "?q=" + encodeURIComponent(q) : ""}`));
   $app.querySelectorAll("[data-e]").forEach((b) => b.onclick = () => { end = b.dataset.e; $app.querySelectorAll("[data-e]").forEach((x) => x.setAttribute("aria-pressed", x === b)); draw(); });
+  $app.querySelectorAll("[data-w]").forEach((b) => b.onclick = () => { scope = b.dataset.w; $app.querySelectorAll("[data-w]").forEach((x) => x.setAttribute("aria-pressed", x === b)); draw(); });
   document.getElementById("rq").oninput = (e) => { q = e.target.value; draw(); };
   draw();
 }
@@ -360,7 +376,7 @@ async function h2h() {
   const m = await load("h2h.json");
   let mode = "all";
   function draw() {
-    const key = { all: ["w", "l"], reg: ["rw", "rl"], po: ["pw", "pl"] }[mode];
+    const key = mode === "all" ? ["w", "l"] : [mode + "w", mode + "l"];
     const head = `<tr><th class="l">Team ↓ vs →</th>${m.teams.map((t) => `<th>${esc(t.slice(0, 8))}</th>`).join("")}<th>Total</th></tr>`;
     const body = m.teams.map((a) => {
       let W = 0, L = 0;
@@ -379,8 +395,8 @@ async function h2h() {
     document.getElementById("mx").innerHTML = `<table class="matrix"><thead>${head}</thead><tbody>${body}</tbody></table>`;
   }
   $app.innerHTML = `<h1>Head to head</h1>
-    <div class="seg"><button data-m="all" aria-pressed="true">All games</button><button data-m="reg" aria-pressed="false">Regular season</button><button data-m="po" aria-pressed="false">Postseason</button></div>
-    <div class="card"><div class="scroll" id="mx"></div><p class="muted small">Row team's record against the column team. Tap a cell for details. Postseason = every non-regular week (playoffs, 3rd place and toilet bowl). ${esc(m.note)}</p></div>
+    <div class="seg"><button data-m="all" aria-pressed="true">All games</button>${Object.entries(m.kinds).map(([k, n]) => `<button data-m="${k}" aria-pressed="false">${esc(n)}</button>`).join("")}</div>
+    <div class="card"><div class="scroll" id="mx"></div><p class="muted small">Row team's record against the column team. Tap a cell for details. Playoffs = semifinals and final; the 3rd-place game, the toilet bowl (toilet semis and final) and the toilet losers game are each their own record, as on the team sheets. ${esc(m.note)}</p></div>
     <div class="card" id="cell"><p class="muted">Tap a cell.</p></div>`;
   $app.querySelectorAll("[data-m]").forEach((b) => b.onclick = () => { mode = b.dataset.m; $app.querySelectorAll("[data-m]").forEach((x) => x.setAttribute("aria-pressed", x === b)); draw(); });
   document.getElementById("mx").onclick = (e) => {
@@ -388,7 +404,7 @@ async function h2h() {
     if (!td) return;
     const c = m.cells[`${td.dataset.a}|${td.dataset.b}`];
     document.getElementById("cell").innerHTML = `<h2>${teamLink(td.dataset.a)} vs ${teamLink(td.dataset.b)}</h2>
-      <p>All games <b>${c.w}-${c.l}</b> · regular season ${c.rw}-${c.rl} · postseason ${c.pw}-${c.pl}</p>
+      <p>All games <b>${c.w}-${c.l}</b> · ${Object.entries(m.kinds).map(([k, n]) => `${esc(n.toLowerCase())} ${c[k + "w"]}-${c[k + "l"]}`).join(" · ")}</p>
       <p>Points ${fmt({ d: 2 }, c.pf)} – ${fmt({ d: 2 }, c.pa)} · last meeting: ${esc(c.last)}</p>`;
   };
   draw();

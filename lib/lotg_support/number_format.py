@@ -19,7 +19,10 @@ EXTRA_COUNT_PREFIXES = ("healthy weeks ", "healthy bench weeks ", "bench weeks "
                          # lotg_support.team_variance's pair / week counts
                          "qb-receiver stacks", "starter pairs in the same nfl game",
                          "pairs sharing an nfl game",
-                         "underdog weeks (")
+                         "underdog weeks (",
+                         # usage counts (lotg_support.usage.COUNT_COLUMNS; "Weeks with
+                         # usage data" already opens with "weeks ")
+                         "targets", "carries", "air yards", "red-zone opportunities")
 
 
 def col_number_format(col: str) -> Optional[str]:
@@ -72,6 +75,7 @@ def col_number_format(col: str) -> Optional[str]:
             or n.startswith("% of all time team points")
             or "% of starts" in n
             or n == "% of rostered players started"
+            or n in ("target share", "avg target share")      # lotg_support.usage
             # team_week comeback shares (lotg_support.gametime.PERCENT_COLUMNS)
             or n.startswith("% of own points scored ") or n.startswith("% of opponent's ")
             or "all-play win" in n
