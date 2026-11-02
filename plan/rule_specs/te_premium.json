@@ -1,0 +1,5 @@
+{
+  "name": "TE premium +0.5",
+  "note": "Half a point more per tight-end reception, on top of full PPR.",
+  "scoring": {"add": {"bonus_rec_te": 0.5}}
+}

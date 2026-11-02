@@ -65,5 +65,8 @@ exports/raw/pae_additions.json.gz
 .cache/lotg.duckdb
 .cache/lotg.duckdb.*
 
+# lotg_support.rules: pickled League for the rule-change simulator (rebuilt on any input change)
+.rules_cache/
+
 # scripts/grade_tools.py replay caches (Sleeper stats/projections slim copies, trade forecasts, track record)
 .cache/grade/
