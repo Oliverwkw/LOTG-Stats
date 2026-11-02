@@ -83,3 +83,7 @@ details>summary{cursor:pointer;font-weight:600;margin:8px 0}
 .note{background:var(--warn-bg);color:var(--warn);border-radius:10px;padding:8px 12px;font-size:13px;margin-bottom:12px}
 .foot{max-width:1100px;margin:0 auto;padding:0 16px 30px;color:var(--muted);font-size:12px}
 @media (max-width:560px){h1{font-size:21px}.card{padding:12px}th,td{padding:5px 6px}table{font-size:13px}}
+.rk{width:100%;font-size:14px}
+.rk td{border:0;padding:3px 6px 3px 0;white-space:normal;position:static;background:none}
+.rk td:first-child{width:28px;position:static}
+.rk td.v{font-weight:700;white-space:nowrap;text-align:right;width:1%}

@@ -9,8 +9,8 @@ A static site for league-mates, published on GitHub Pages at
 | Teams table | `#/teams` | `data/team/*.json` |
 | Team: all-time tiles, head to head, roster age vs league by position, this season, seasons, current roster, trades, rookie picks | `#/team/<team>` | `data/team/<team>.json` |
 | Player: career tiles, career by team, every acquisition (player_additions), seasons, trades | `#/player/<key>` | `data/player/<key>.json` |
-| Record book: top/bottom 10 of **every** numeric column on 12 sheets, filterable | `#/records/<sheet>` | `data/records/<sheet>.json` |
-| Head-to-head matrix (all / regular season / postseason) | `#/h2h` | `data/h2h.json` |
+| Record book: top/bottom 5 of **every** numeric column on 13 sheets, the digest's board rule (shared places "T2", a tie that does not fit the 5 left off); week sheets split all / regular season / playoffs / toilet bowl; one row per trade, zero-sum trade columns show only the top | `#/records/<sheet>` | `data/records/<sheet>.json` |
+| Head-to-head matrix (all / regular season / playoffs / toilet bowl) | `#/h2h` | `data/h2h.json` |
 | Trade history with each side's KTC difference at the deal, season end, +1 and +2 years, impact score, wins added, net points | `#/trades` | `data/trades.json` |
 | Draft history (rookie; startup & vet picks) | `#/draft` | `data/draft.json` |
 | FAAB values: the current board (filter by position / owner / free agents), roster value by team = players + **every rookie pick held for the next 5 drafts** (by position, by pick year), rookie-pick values, each value as rookie-pick equivalents; links to the rating page and embeds it | `#/faab` | `rate/board.json` (fetched live from docs/rate/) |
