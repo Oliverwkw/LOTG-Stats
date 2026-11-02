@@ -1,0 +1,4 @@
+{
+  "name": "6-point passing TDs",
+  "scoring": {"set": {"pass_td": 6}}
+}
