@@ -257,6 +257,10 @@ jobs:
           # so one long test no longer holds a chunk hostage; --durations=30
           # prints where the suite's time goes.
           pip install --no-cache-dir pytest==9.1.1 pytest-xdist==3.8.0 pyarrow==25.0.1 2>&1 | tail -n 2
+          # tests/test_db.py — the SQL query layer (lotg_support.db). Inquiry-only:
+          # the build never imports duckdb. Best-effort: without it those tests skip.
+          pip install --no-cache-dir duckdb==1.4.5 2>&1 | tail -n 1 \
+            || echo "::warning::duckdb unavailable — tests/test_db.py will skip"
           # test_contracts.py's data tests need Over The Cap's contract history,
           # which the build never fetches — without this they have skipped on
           # every CI run. Best-effort: a failed download leaves them skipping,
@@ -623,6 +627,21 @@ jobs:
           echo "===== exports/raw/build_debug.log ====="
           test -f exports/raw/build_debug.log && tail -n 400 exports/raw/build_debug.log || true
 
+      - name: Build the SQL query database for the artifact
+        # lotg_support.db's DuckDB copy of the exports + snapshot, so an
+        # inquiry can download it from the run instead of building it (it
+        # builds in seconds anyway: scripts/sql.py). Written OUTSIDE exports/
+        # and .cache/ (both are committed back by the refresh steps) — it is a
+        # binary and must never enter history. Best-effort; never fails the job.
+        if: always()
+        continue-on-error: true
+        env:
+          PYTHONPATH: src:lib
+          LOTG_DB: ${{ runner.temp }}/query_db/lotg.duckdb
+        run: |
+          python -c "import duckdb" 2>/dev/null || pip install --no-cache-dir duckdb==1.4.5 2>&1 | tail -n 1
+          python scripts/sql.py --rebuild "SELECT \"table\", rows FROM _tables ORDER BY rows DESC LIMIT 5"
+
       - name: Upload outputs and logs
         if: always()
         uses: actions/upload-artifact@v7
@@ -633,3 +652,4 @@ jobs:
             exports/LOTG_Exports.zip
             exports/*.csv
             exports/raw/*
+            ${{ runner.temp }}/query_db/lotg.duckdb

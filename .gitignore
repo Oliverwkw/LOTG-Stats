@@ -60,6 +60,11 @@ exports/raw/pae_additions.json.gz
 # college and award data plus the walk-forward blocks. Rebuilt from public sources; never commit.
 .cache/faab/
 
+# lotg_support.db: the DuckDB copy of exports/ + snapshot for SQL questions. Rebuilt on demand from
+# the committed CSVs in seconds (and shipped in the run artifact); a binary, so never commit it.
+.cache/lotg.duckdb
+.cache/lotg.duckdb.*
+
 # lotg_support.rules: pickled League for the rule-change simulator (rebuilt on any input change)
 .rules_cache/
 
