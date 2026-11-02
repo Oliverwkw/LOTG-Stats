@@ -60,6 +60,15 @@ def _common_caveats(lg):
           " ...); cite the rule used, add any new lesson there. Not readable? say no guide rule was applied")
 
 
+def _track(tool: str) -> str:
+    """One line on the tool's replayed track record (scripts/grade_tools.py)."""
+    try:
+        from lotg_support import grade
+        return grade.track_record(tool)
+    except Exception as exc:   # noqa: BLE001 — never let the record break the advice
+        return f"track record unavailable ({type(exc).__name__})"
+
+
 def cmd_startsit(args):
     lg, b = _ctx()
     team = _team(args.team)
@@ -83,6 +92,7 @@ def cmd_startsit(args):
     _common_caveats(lg)
     print("# best:<basis> = the slot that player fills in the best lineup on that basis; flag start?/sit? where "
           "the set lineup differs from the projection's best. Taxi/IR cannot start.")
+    print("# " + _track("startsit"))
     miss = t[(t["set"] == "START") & (t[f"proj wk{lg.week}"].isna())]
     for p in miss["Player"]:
         print(f"# {p}: in the set lineup with NO Sleeper projection (usually ruled out / doubtful) — check news")
@@ -109,6 +119,7 @@ def cmd_waivers(args):
     print("# season basis averages players with <3 games with last season / the projection (small samples)")
     print("# +lineup = best-lineup points with him added minus without (0 = he would not start for you); "
           "a bench-depth / handcuff / bye-cover add can still be right at 0 — say so")
+    print("# " + _track("waivers"))
 
 
 def cmd_strategy(args):
