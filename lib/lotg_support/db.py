@@ -114,6 +114,14 @@ ALIASES = {"tw": "team_week", "ty": "team_year", "ta": "team_all_time", "py": "p
            "lyt": "league_year"}
 
 _BLANKS = ("", "nan", "None", "N/A", "NA", "-")
+# Id columns are labels ('4034', never 4034.0) — `typed_sheet` keeps
+# player_ids.ID_COLUMNS as text. Matched by name so a new id column needs no edit:
+# "Player ID", "Player Added ID", "Player IDs received", "GSIS ID", ...
+_ID_RX = re.compile(r"\bIDs?\b")
+
+
+def is_id_column(name: str) -> bool:
+    return bool(_ID_RX.search(str(name)))
 
 
 def _duckdb():
@@ -197,6 +205,10 @@ def normalize(df: pd.DataFrame) -> Tuple[pd.DataFrame, Dict[str, str], List[str]
         if c in ("Year", "Week") and pd.api.types.is_numeric_dtype(col):
             casts[c] = "INTEGER"
             continue
+        if is_id_column(c) and not _is_text(col):      # an id read as a number: back to a label
+            out[c] = col.map(lambda v: None if pd.isna(v) else str(int(v)) if float(v).is_integer() else str(v))
+            text.append(c)
+            continue
         if col.dtype == bool or not _is_text(col):
             continue
         kind = pd.api.types.infer_dtype(col, skipna=True)
@@ -256,7 +268,9 @@ def _typed_exprs(con, src: str, columns: Sequence[str], numbers: bool = True) ->
         # every non-blank value is known to cast (the stats above), so TRY_CAST
         # only has the blanks left to turn into NULL — except 'nan', which
         # DOUBLE reads as NaN and typed_sheet reads as blank
-        if p and not n:
+        if is_id_column(c):
+            expr = f"NULLIF(regexp_replace({v}, '^(\\d+)\\.0$', '\\1'), '')"
+        elif p and not n:
             typ = "INTEGER" if c in ("Year", "Week") else "DOUBLE"
             expr = f"CASE WHEN lower({v}) = 'nan' THEN NULL ELSE TRY_CAST({v} AS {typ}) END"
         elif p and not b:
@@ -352,11 +366,11 @@ def _store(con, name: str, df: pd.DataFrame, notes: List[str], source: str, text
         if all(c in df.columns for c in cand):
             cols = ", ".join(_qi(c) for c in cand)
             dup = con.execute(f"SELECT count(*) FROM (SELECT {cols} FROM {_qi(name)} GROUP BY ALL HAVING count(*) > 1)").fetchone()[0]
-            if dup:
-                notes.append(f"{name}: key ({', '.join(cand)}) is not unique ({dup} duplicated) — not enforced; use _row")
-            else:
-                con.execute(f"CREATE UNIQUE INDEX {_qi('ux_' + name)} ON {_qi(name)} ({cols})")
-                key = ", ".join(cand)
+            if dup:     # try the next candidate (e.g. ids still missing on a few rows)
+                notes.append(f"{name}: key ({', '.join(cand)}) is not unique ({dup} duplicated) — not enforced")
+                continue
+            con.execute(f"CREATE UNIQUE INDEX {_qi('ux_' + name)} ON {_qi(name)} ({cols})")
+            key = ", ".join(cand)
             break
     _TABLES.append({"table": name, "kind": source, "rows": len(df), "key": key or "_row"})
 

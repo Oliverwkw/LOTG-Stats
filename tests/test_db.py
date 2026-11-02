@@ -108,16 +108,19 @@ def test_sql_typing_follows_typed_sheet_rules():
     con = duckdb.connect()
     raw = pd.DataFrame({"Year": ["2024", "2025", ""], "num": ["1.5", "N/A", "nan"], "b": ["Yes", "no", ""],
                         "d": ["2024-09-01", "", "2024-10-01"], "t": ["2024-09-01 10:00:00", "", "2024-09-02"],
-                        "s": ["3-1", "", "In Progress"], "streak": ["4", "In Progress", ""]})
+                        "s": ["3-1", "", "In Progress"], "streak": ["4", "In Progress", ""],
+                        "Player ID": ["4034", "7564.0", ""], "Player IDs received": ["1, 2", "", "3"]})
     con.register("_frame", raw.assign(_row=range(1, 4)))
     db._create_typed(con, "x", [f"{e} AS {db._qi(c)}" for c, e in db._typed_exprs(con, "_frame", list(raw.columns)).items()])
     types = dict(con.execute("SELECT column_name, data_type FROM information_schema.columns WHERE table_name = 'x'").fetchall())
     assert types == {"Year": "INTEGER", "num": "DOUBLE", "b": "BOOLEAN", "d": "DATE", "t": "TIMESTAMP",
-                     "s": "VARCHAR", "streak": "VARCHAR", "_row": "BIGINT"}, types
+                     "s": "VARCHAR", "streak": "VARCHAR", "Player ID": "VARCHAR",
+                     "Player IDs received": "VARCHAR", "_row": "BIGINT"}, types
     rows = con.execute("SELECT * FROM x ORDER BY _row").fetchall()
     assert rows[1][1] is None and rows[2][1] is None          # N/A and nan are blank, never NaN
     assert rows[0][2] is True and rows[1][2] is False and rows[2][2] is None
     assert rows[1][5] is None and rows[2][6] is None           # blank text -> NULL
+    assert [r[7] for r in rows] == ["4034", "7564", None]       # ids are labels, as player_ids.clean_id
 
 
 # ---------------------------------------------------------------------------
